@@ -863,6 +863,11 @@ DECLARED: dict[str, Declared] = {
     "TB_REDCAP_READ_AT": Declared("str", "03:00", "console: REDCap read time"),
     "TB_REDCAP_TEST_DAY": Declared("str", "", "REDCap test instance (D-584): the day a run takes as today"),
     "TB_REDCAP_TEST_PORT": Declared("int", "8791", "REDCap test instance (D-584): its loopback port"),
+    "TB_REDCAP_TIMEOUT_S": Declared(
+        "float",
+        "30",
+        "REDCap API (EDC-018, D-853): seconds one call may take; a hospital proxy or a large project is slow",
+    ),
     # the longest call is R8's single import of 1,000 records on a developer's machine; the run records its time
     "TB_REDCAP_TEST_TIMEOUT_S": Declared("float", "120", "REDCap test instance (D-584): seconds one API call may take"),
     # default deploy/site/redcap/redcap.zip (an ignored folder); never committed, bundled or downloaded
@@ -901,6 +906,12 @@ DECLARED: dict[str, Declared] = {
     "TB_START_RETRY_SECONDS": Declared("int", "240", "complete-run: seconds between those retries of a VM start"),
     "TB_DOOR_DIRECT": Declared(
         "bool", "", "complete-run: launch in door mode though HTTPS_PROXY is set (this host reaches the VM directly)"
+    ),
+    "TB_VENDOR_KEY_SM_NAME": Declared(
+        "str", "tb-vendor-signing-key", "box run (R2): the Secret Manager secret holding the vendor key, by name"
+    ),
+    "TB_BUNDLE_SIGNER_SA": Declared(
+        "str", "tb-bundle-signer", "box run (R2): the build VM's service account, the one reader of that secret"
     ),
     "TB_SAE_FOLLOWUP_DAYS": Declared("int", "", "SAE: follow-up days"),
     "TB_SAE_OFFICE_MAILBOX": Declared("str", "", "SAE: office mailbox"),

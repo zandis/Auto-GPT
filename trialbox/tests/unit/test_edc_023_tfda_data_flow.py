@@ -29,7 +29,7 @@ def _signed(svc: Any) -> None:
              meaning_text="I checked each value.", lang="en", seen=k.seen(svc))  # fmt: skip
 
 
-@pytest.mark.parametrize("ref", ["", "   "])
+@pytest.mark.parametrize("ref", ["", "   ", "x" * 121])
 def test_prefill_on_needs_the_data_flow_reference(tmp_path: Path, ref: str) -> None:
     svc, _, _ = k.service(tmp_path)
     with pytest.raises(EdcError) as e:
@@ -97,9 +97,10 @@ def test_the_direct_source_list_is_kept_with_its_reference_and_audited(tmp_path:
     assert svc.store.direct_source(k.STUDY) == set()
     assert [(e["fields"], e["reference"]) for e in svc.store.direct_source_events(k.STUDY)] == [
         (["tophus"], "Protocol v2.0 §8.1"), ([], "Protocol v3.0 §8.1")]  # fmt: skip
-    with pytest.raises(EdcError) as e:
-        svc.set_direct_source(k.STUDY, ["tophus"], " ", "pi")
-    assert e.value.code == "edc.direct_source_ref"
+    for ref in (" ", "x" * 121):  # missing, or too long: refused, never cut (EDC-022, D-854)
+        with pytest.raises(EdcError) as e:
+            svc.set_direct_source(k.STUDY, ["tophus"], ref, "pi")
+        assert e.value.code == "edc.direct_source_ref"
     with pytest.raises(EdcError) as e:
         svc.set_direct_source(k.STUDY, ["nope"], "Protocol v3.0 §8.1", "pi")
     assert e.value.code == "edc.direct_source_field"

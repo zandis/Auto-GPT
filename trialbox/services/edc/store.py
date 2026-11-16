@@ -136,6 +136,7 @@ READ_BACK = ("attempt", "sent", "readback", "erased", "already_there", "conflict
 #: NEW-EDC-5b: the words before REDCap's value in a ``changed_in_redcap`` line, and the ledger detail's length
 CHANGED_SAYS = "REDCap holds another value than TrialBox sent: "
 DETAIL_MAX = 300
+TEXT_MAX = 300  # EDC-022 (D-854): the longest reason or citation text; a longer one is refused, never cut
 REENTRY_SOURCES = ("admin", "pq")  # who wrote the record: an administrator with the filed report, or the PQ tooling
 SIG_VERSION = 2
 METHODS = ("password", "password+totp", "oidc+mfa")  # how the signer re-authenticated (D-279; T-205: at the directory)
@@ -160,6 +161,16 @@ class EdcError(ValueError):
         self.code = code
         self.message = message
         self.status = status
+
+
+def said(text: str, what: str) -> str:
+    """EDC-022 (D-854): a reason or a citation's text as stored, stripped; longer than :data:`TEXT_MAX` it is refused
+    (``edc.too_long``), never cut: a regulated trail keeps what the person wrote, whole."""
+    t = (text or "").strip()
+    if len(t) > TEXT_MAX:
+        raise EdcError("edc.too_long", f"the {what} is {len(t)} characters; at most {TEXT_MAX} are kept: shorten it "
+                       "(nothing was stored)", 400)  # fmt: skip
+    return t
 
 
 @dataclass(frozen=True)
@@ -426,6 +437,7 @@ class EdcStore:
         ``dataflow_ref`` (EDC-023, D-859): prefill on also needs the reference to the section of the protocol or the
         data-management plan that describes TrialBox's transfer to the EDC (TFDA, May 2024, §4.7 ¶3); copy-assist
         does not (a person types the values: nothing is transferred electronically)."""
+        said(reason, "reason")  # EDC-022 (D-854): refused before anything is written
         reentry_id = 0
         if on:
             rec = self.reentry(study)
@@ -451,7 +463,7 @@ class EdcStore:
                 raise EdcError("edc.ack_date", "the acknowledgement's date is needed") from exc
             if ack > today:
                 raise EdcError("edc.ack_date", "the acknowledgement's date is in the future")
-            if not dataflow_ref.strip():
+            if not dataflow_ref.strip() or len(dataflow_ref.strip()) > 120:  # refused, never cut (D-854)
                 raise EdcError("edc.dataflow_ref", "the reference to the protocol's or the data-management plan's "
                                "section that describes TrialBox's data flow to the EDC is needed")  # fmt: skip
         if on and (reentry_pages < REENTRY_PAGES or reentry_accuracy < REENTRY_ACCURACY):
@@ -477,7 +489,7 @@ class EdcStore:
                        "reentry_accuracy, reason, by_user, role, at, reentry_id, dataflow_ref) VALUES "
                        "(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                        (study, state, kind, reference.strip()[:120], ack_date, int(reentry_pages),
-                        float(reentry_accuracy), reason[:300], by, role, at, reentry_id, flow))  # fmt: skip
+                        float(reentry_accuracy), reason, by, role, at, reentry_id, flow))  # fmt: skip
         return self.switch(study)
 
     def switch_events(self, study: str) -> list[dict[str, Any]]:
@@ -488,7 +500,7 @@ class EdcStore:
         """Keep the protocol's list of the fields recorded directly in the data collection tool (EDC-023, D-859;
         TFDA, May 2024, §4.7 ¶2), whole, with the protocol section that names them; the newest row holds."""
         self._db.execute("INSERT INTO direct_source_event (study, fields, reference, by_user, at) VALUES (?,?,?,?,?)",
-                         (study, json.dumps(sorted(set(fields))), reference.strip()[:120], by, at))  # fmt: skip
+                         (study, json.dumps(sorted(set(fields))), reference.strip(), by, at))  # fmt: skip
 
     def direct_source_events(self, study: str) -> list[dict[str, Any]]:
         rows = self._all("SELECT * FROM direct_source_event WHERE study = ? ORDER BY id", (study,))
@@ -736,6 +748,9 @@ class EdcStore:
         the transaction with the new row: when it raises (the audit line could not be written), nothing changes.
         ``built``: on an edit, the item's map row, dictionary entry and target of now (T-115): the person decided the
         value under them."""
+        said(reason, "reason")  # EDC-022 (D-854): refused before anything is written
+        if citation and "text" in citation:
+            said(str(citation["text"]), "citation")
         if action not in ACTIONS:
             raise EdcError("edc.action", "confirm, edit or reject", 400)
         with self._db.transaction() as tx:
@@ -769,7 +784,7 @@ class EdcStore:
                 tx.execute("INSERT INTO decision (draft_id, study, record, visit, item, action, old, new, reason, "
                            "citation, by_user, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                            (draft_id, study, d["record"], d["visit"], d["item"], "keep", old, old,
-                            reason.strip()[:300], json.dumps(flagged.get("citation"), ensure_ascii=False)
+                            reason.strip(), json.dumps(flagged.get("citation"), ensure_ascii=False)
                             if flagged.get("citation") else None, by, at))  # fmt: skip
                 if before_commit is not None:
                     row = self._row(tx.fetchdicts("SELECT * FROM draft WHERE id = ?", (draft_id,))[0])
@@ -780,11 +795,11 @@ class EdcStore:
                 if not reason.strip():
                     raise EdcError("edc.reason", "say why the value is retired", 400)
                 tx.execute("UPDATE draft SET fate = 'retired', reason = ?, decided_by = ?, decided_at = ?, "
-                           "source_changed = NULL WHERE id = ?", (reason.strip()[:300], by, at, draft_id))  # fmt: skip
+                           "source_changed = NULL WHERE id = ?", (reason.strip(), by, at, draft_id))  # fmt: skip
                 tx.execute("INSERT INTO decision (draft_id, study, record, visit, item, action, old, new, reason, "
                            "citation, by_user, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                            (draft_id, study, d["record"], d["visit"], d["item"], "retire", old, old,
-                            reason.strip()[:300], None, by, at))  # fmt: skip
+                            reason.strip(), None, by, at))  # fmt: skip
                 if before_commit is not None:
                     row = self._row(tx.fetchdicts("SELECT * FROM draft WHERE id = ?", (draft_id,))[0])
                     before_commit({**row, "voided": None, "kept_signed": d["signature_id"]})
@@ -814,7 +829,7 @@ class EdcStore:
                 raise EdcError("edc.value", "type the value", 400)
             final_cite = cite
             if citation and str(citation.get("text") or "").strip():
-                final_cite = {"kind": "manual", "text": str(citation["text"]).strip()[:300],
+                final_cite = {"kind": "manual", "text": str(citation["text"]).strip(),
                               "day": str(citation.get("day") or "")[:10], "by": by,
                               **({"replaces": cite} if cite else {})}  # fmt: skip
             elif value.strip() != (d["value"] or ""):
@@ -846,11 +861,11 @@ class EdcStore:
             tx.execute("INSERT INTO signature_void (signature_id, study, record, visit, draft_id, item, action, "
                        "reason, by_user, at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                        (int(d["signature_id"]), study, d["record"], d["visit"], draft_id, d["item"], action,
-                        reason.strip()[:300], by, at))  # fmt: skip
+                        reason.strip(), by, at))  # fmt: skip
         tx.execute("UPDATE draft SET fate = ?, final = ?, final_citation = ?, reason = ?, decided_by = ?, "
                    "decided_at = ?, signature_id = NULL, signed_sha = NULL WHERE id = ?",
                    (fate, final, json.dumps(final_cite, ensure_ascii=False) if final_cite else None,
-                    reason.strip()[:300], by, at, draft_id))  # fmt: skip
+                    reason.strip(), by, at, draft_id))  # fmt: skip
         if flagged:  # NEW-EDC-4: changed or withdrawn after its source changed: the mark is answered
             tx.execute("UPDATE draft SET source_changed = NULL, source_seen = ? WHERE id = ?", (seen, draft_id))
         if action == "edit" and built:
@@ -859,7 +874,7 @@ class EdcStore:
         tx.execute("INSERT INTO decision (draft_id, study, record, visit, item, action, old, new, reason, "
                    "citation, "
                    "by_user, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                   (draft_id, study, d["record"], d["visit"], d["item"], action, old, final, reason.strip()[:300],
+                   (draft_id, study, d["record"], d["visit"], d["item"], action, old, final, reason.strip(),
                     json.dumps(final_cite, ensure_ascii=False) if final_cite else None, by, at))  # fmt: skip
         if before_commit is not None:
             row = self._row(tx.fetchdicts("SELECT * FROM draft WHERE id = ?", (draft_id,))[0])
@@ -1068,6 +1083,7 @@ class EdcStore:
         """One ``copy_tick`` row per value (each a signed draft row, as :meth:`signed` gives it), bound to the hash
         of the value as signed. ``undone`` needs a reason. ``before_commit`` runs inside the transaction: when the
         audit line cannot be written, nothing is ticked."""
+        said(reason, "reason")  # EDC-022 (D-854)
         if action not in TICKS:
             raise EdcError("edc.tick_action", "a tick is copied or undone", 400)
         if action == "undone" and not reason.strip():
@@ -1081,7 +1097,7 @@ class EdcStore:
                     "INSERT INTO copy_tick (study, record, visit, item, draft_id, signed_sha, action, reason, by_user, "
                     "at) VALUES (?,?,?,?,?,?,?,?,?,?) RETURNING id",
                     (study, d["record"], d["visit"], d["item"], int(d["id"]), str(d["signed_sha"]), action,
-                     reason.strip()[:300], by, at))))  # fmt: skip
+                     reason.strip(), by, at))))  # fmt: skip
             if before_commit is not None:
                 before_commit(ids)
         return ids

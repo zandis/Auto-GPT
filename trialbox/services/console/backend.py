@@ -391,11 +391,14 @@ class HttpBackend:
                 raise Refused(detail) from exc
             raise failed(exc) from exc
 
-    def retry_scheduled_job(self, job_id: str, *, reply_to: str, by: str, role: str) -> Job:
+    def retry_scheduled_job(
+        self, job_id: str, *, reply_to: str, by: str, role: str, headers: dict[str, str] | None = None
+    ) -> Job:
         """T-746 (D-474): ``POST /jobs/{job_id}/retry``. The orchestrator copies the failed scheduler job; the call
         names the job, the reply mailbox and the signed person and role, never a type or an option."""
         try:
-            resp = self.orch.post_raw(f"/jobs/{job_id}/retry", {"reply_to": reply_to}, actor_header(by, role=role))
+            # T-715 refuse mode (D-871): the route takes the verified person's v3 assertion (``headers``)
+            resp = self.orch.post_raw(f"/jobs/{job_id}/retry", {"reply_to": reply_to}, headers or {})
         except ServiceError as exc:
             if exc.status in (403, 404, 409, 422):
                 try:
@@ -406,13 +409,12 @@ class HttpBackend:
             raise failed(exc) from exc
         return Job.model_validate(resp.json())
 
-    def cancel_job(self, job_id: str, by: str) -> Job:
+    def cancel_job(self, job_id: str, by: str, headers: dict[str, str] | None = None) -> Job:
         """S26 Cancel (step 4, FR-PLAT-12): the orchestrator's ``POST /jobs/{id}/cancel``; a queued job fails at once,
         a running one stops at its next step."""
-        from urllib.parse import quote
 
         try:
-            resp = self.orch.post_raw(f"/jobs/{job_id}/cancel?by={quote(by, safe='')}", {}, actor_header(by))
+            resp = self.orch.post_raw(f"/jobs/{job_id}/cancel", {}, headers or {})  # T-715 refuse mode (D-871)
         except ServiceError as exc:
             if exc.status == 404:
                 raise Refused("no such job") from exc

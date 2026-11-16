@@ -1,0 +1,8 @@
+#!/bin/bash
+# The VM's python3 running lane G's accuracy tools in the box-run rehearsal (TB_BOXRUN_ACC_PY): `accpy -m
+# tools.public_accuracy fetch|build ...` reaches acc_fixture.py (no network, a tiny synthetic bundle through the REAL
+# item builder) instead of the pinned public files (the paid run: the VM's python3 and the public hosts).
+[ "$1 $2" = "-m tools.public_accuracy" ] || { echo "accpy: only -m tools.public_accuracy" >&2; exit 2; }
+shift 2
+echo "acc-data $1 $2 $3" >> "$BR_S/calls.log"
+exec "$TB_BOX_PY" "$(dirname "$0")/acc_fixture.py" "$@"

@@ -126,5 +126,4 @@ allow:
   - {path: services/orchestrator/clients.py, kind: timeout, value: 60, count: 1, reason: "one request to the adapter: the ingest is started and followed as a run, not waited for inside the call (D-523); not a cut"}
   - {path: services/orchestrator/core.py, kind: timeout, value: 2, count: 2, reason: "a worker's wait on an empty queue, and its pause after a job was put back (D-532): woken at once by a new job; not a cut"}
   - {path: services/orchestrator/core.py, kind: timeout, value: 5, count: 1, reason: "a worker thread joined at shutdown: the threads are daemons and a run's lease ends with its connection (D-532); not a cut"}
-  - {path: services/rc_bridge/client.py, kind: timeout, value: 10, count: 1, reason: "one request to the REDCap bridge; not a cut"}
   - {path: services/sitesetup/ocr.py, kind: timeout, value: 30, count: 1, reason: "the OCR program's list of languages, asked once; not a cut"}
