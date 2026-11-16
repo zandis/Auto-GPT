@@ -192,14 +192,6 @@ log = logging.getLogger("embed")
 RETRY_WAITS = (2.0, 5.0, 15.0)
 
 
-def _retryable(exc: Exception) -> bool:
-    import httpx
-
-    if isinstance(exc, httpx.HTTPStatusError):
-        return exc.response.status_code >= 500 or exc.response.status_code == 429
-    return isinstance(exc, httpx.TransportError)  # connection refused or reset, a timeout
-
-
 class HttpEmbedder:
     """Client for embed-service ``POST /embed``. T-701: a batch is sent again, after :data:`RETRY_WAITS`, when the
     service did not answer it for a reason of its own, so one failed batch in a thousand does not stop a lake rebuild;
@@ -223,18 +215,25 @@ class HttpEmbedder:
         self.retried = 0  # batches sent again (a rebuild's log reports it)
 
     def _post(self, texts: list[str]) -> dict[str, Any]:
+        import httpx
+
         for attempt in range(len(self.waits) + 1):
+            last = attempt >= len(self.waits)
             try:
                 resp = self.client.post(f"{self.base_url}/embed", json={"texts": texts})
                 resp.raise_for_status()
                 return dict(resp.json())
-            except Exception as exc:
-                if attempt >= len(self.waits) or not _retryable(exc):
+            except httpx.TransportError:  # connection refused or reset, a timeout: the service's own reason
+                if last:
                     raise
-                self.retried += 1
-                log.warning("embed batch of %d not answered (%s): again in %.0f s", len(texts),
-                            type(exc).__name__, self.waits[attempt])  # fmt: skip
-                self.sleep(self.waits[attempt])
+                why = "no connection"
+            except httpx.HTTPStatusError as exc:  # by its status, never its text (D-651)
+                if last or not (exc.response.status_code >= 500 or exc.response.status_code == 429):
+                    raise
+                why = f"HTTP {exc.response.status_code}"
+            self.retried += 1
+            log.warning("embed batch of %d not answered (%s): again in %.0f s", len(texts), why, self.waits[attempt])
+            self.sleep(self.waits[attempt])
         raise AssertionError("unreachable")
 
     def embed(self, texts: list[str]) -> list[list[float]]:
