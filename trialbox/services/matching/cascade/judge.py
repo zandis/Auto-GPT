@@ -224,6 +224,7 @@ def no_sentinel_date(data: dict[str, Any]) -> dict[str, Any]:
         ok = False
     return data if ok else {**data, "quote_date": None}
 
+
 @dataclass
 class AgreementJudge:
     """Two-model judge (the recommended DGX Spark configuration: judge build + verifier build behind one gateway).
