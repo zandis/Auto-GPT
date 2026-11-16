@@ -17,6 +17,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `owed_tables` | T-206b part 1 (D-798): the patient's rows in the site, team, PI feedback and derived tables go (the nightly derive skips an opted-out patient); a batch's failed list loses the pseudonym | `derived.batch_run`, `derived.conflict`, `derived.input_link`, `derived.score_row`, `orch.feedback`, `orch.judged_pairs`, `orch.submissions`, `site.contact_outcomes`, `site.excluded_review`, `sitesetup.fact`, `team.approach_overrides`, `team.candidate_views`, `team.referral_events`, `team.referrals`, `tuned.tuned_patients` |
 | `pid_pending` | the staged chart number and identity of the patient go; a later night stages them again (D-489) | `pidmap.pending` |
 | `profile` | ProfileStore.erase: every version of the twin (D-440) | `profile.tb_patient_profile` |
+| `setup_uploads` | a patient's own upload to the site set-up (a chart) goes whole: rows, items, facts and files (D-869) | `sitesetup.check_item`, `sitesetup.fix`, `sitesetup.input` |
 | `vec` | VecStore.delete_patient: the chunks and every vector no other chunk uses (D-439) | `vec.embedding`, `vec.note_chunk` |
 
 ## 2. Erasure owed
@@ -44,16 +45,16 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `orch.jobs` | T-206b | the clear | a job's request may name a pseudonym (CASE, a reveal) |
 | `outside:backups` | T-206b | the backups (with T-728) | every backup: the databases, the lake, the FHIR store |
 | `outside:fhir_store` | T-206b | the clear | the FHIR store (HAPI, database hapi): every resource of the patient |
-| `outside:sitesetup_space_omop` | T-206b | the opt-out's clear in a practice space's store | the OMOP store of a site set-up space other than the hospital's (schema omop_<hash of the space's lake folder>, made by a publish while the lake is built from OMOP): the space's uploaded patients; Reset of the space drops it whole (D-714) |
+| `outside:sitesetup_space_omop` | T-206b | the opt-out's clear in a practice space's store | the OMOP store of a site set-up space other than the hospital's (schema omop_<hash of the space's lake folder>, made by a publish while the lake is built from OMOP), and that space's own lake (its site files and snapshot keep a deleted chart's text until the space is published again, D-869): the space's uploaded patients; Reset of the space drops it whole (D-714) |
 | `pidmap.identity` | T-206b | the crypto-shred of the opted-out identity | the encrypted identity of the patient |
 | `recall.recall_known_positive` | T-206b | both columns, with the certificate not adding the patient again (the review of D-866) | pid_hash and draw_id: an unsalted hash of the pseudonym, linkable |
 | `recall.recall_observation` | T-206b | the clear | pid_hash: an unsalted hash of the pseudonym, linkable |
 | `site.pi_marks` | T-206b | the marks of a patient never consented (the screening log's, OD-8) | the PI's mark on a patient, by pseudonym |
 | `site.screening_no` | T-206b | the number of a patient never consented (the screening log's, OD-8) | the screening number given to a pseudonym |
 | `site.weekly_seen` | T-206b | with the screening log (LIFE-005): a numbered row keeps its first-listed day (D-762) | the week a pseudonym first appeared on a list |
-| `sitesetup.check_item` | T-206b | the clear | the raw value of an uploaded row |
-| `sitesetup.fix` | T-206b | the clear | example values of an uploaded column |
-| `sitesetup.input` | T-206b | the clear | an uploaded file and the patient it belongs to |
+| `sitesetup.check_item` | T-206b | a sheet's rows of the patient (not keyed by patient) | the raw value of an uploaded row: those of a patient's own upload go with it (D-869) |
+| `sitesetup.fix` | T-206b | a sheet's examples of the patient (not keyed by patient) | example values of an uploaded column: those of a patient's own upload go with it (D-869) |
+| `sitesetup.input` | T-206b | a sheet of many patients that names the patient (its file and its rows are not keyed by patient) | an uploaded file and the patient it belongs to: a patient's own upload is erased, file included, its row an empty marker (D-869) |
 | `study.rc_record` | T-206b | the rows of a patient never consented (a consented subject's stay, OD-8) | the REDCap project's records linked to pseudonyms |
 | `study.rc_write` | T-206b | the clear | what was written to REDCap, by link value and record |
 | `trace.traces` | T-206b | the traces of the patient (7 days kept) | a model call's redacted body: note excerpts |

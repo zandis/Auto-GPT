@@ -104,6 +104,12 @@ CLEARS: dict[str, Clear] = {
             "a held mail carrying an opted-out patient's own file is dropped: its request and recipients go (D-863)",
         ),
         Clear(
+            "setup_uploads",
+            f"{_W}:clear_setup_uploads",
+            f"{_W}:verify_setup_uploads",
+            "a patient's own upload to the site set-up (a chart) goes whole: rows, items, facts and files (D-869)",
+        ),
+        Clear(
             "owed_tables",
             f"{_W}:clear_tables",
             f"{_W}:verify_tables",
@@ -222,10 +228,23 @@ TABLES: dict[str, Entry] = {
     "orch.id_limits": _none("the identifier caps' use rows: staff and kind only"),
     "orch.mails": _none("a mail sent: message id, job, kind, subject"),
     "orch.trial_cache": _none("the public registry cache"),
-    "sitesetup.input": _owed("an uploaded file and the patient it belongs to"),
+    "sitesetup.input": _erase(
+        "setup_uploads",
+        "an uploaded file and the patient it belongs to: a patient's own upload is erased, file included, its row an "
+        "empty marker (D-869)",
+        "a sheet of many patients that names the patient (its file and its rows are not keyed by patient)",
+    ),
     "sitesetup.fact": _erase("owed_tables", "a fact read from an uploaded file, by pseudonym (D-866)"),
-    "sitesetup.check_item": _owed("the raw value of an uploaded row"),
-    "sitesetup.fix": _owed("example values of an uploaded column"),
+    "sitesetup.check_item": _erase(
+        "setup_uploads",
+        "the raw value of an uploaded row: those of a patient's own upload go with it (D-869)",
+        "a sheet's rows of the patient (not keyed by patient)",
+    ),
+    "sitesetup.fix": _erase(
+        "setup_uploads",
+        "example values of an uploaded column: those of a patient's own upload go with it (D-869)",
+        "a sheet's examples of the patient (not keyed by patient)",
+    ),
     **_each("sitesetup", ("local_code", "setting"), _CONFIG),
     "sitesetup.published": _none("a publish: when, snapshot, digest, counts"),
     "mail.intake": _none("a mail received: sender, action, job"),
@@ -497,7 +516,9 @@ OUTSIDE: dict[str, Entry] = {
     "outside:backups": _owed("every backup: the databases, the lake, the FHIR store", "the backups (with T-728)"),
     "outside:sitesetup_space_omop": _owed(
         "the OMOP store of a site set-up space other than the hospital's (schema omop_<hash of the space's lake "
-        "folder>, made by a publish while the lake is built from OMOP): the space's uploaded patients; Reset of "
+        "folder>, made by a publish while the lake is built from OMOP), and that space's own lake (its site files "
+        "and snapshot keep a deleted chart's text until the space is published again, D-869): the space's uploaded "
+        "patients; Reset of "
         "the space drops it whole (D-714)",
         "the opt-out's clear in a practice space's store",
     ),
