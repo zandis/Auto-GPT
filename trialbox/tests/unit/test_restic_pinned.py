@@ -7,13 +7,20 @@ check fails when the image and the register disagree."""
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from tools import licence_register as lr
 
 ROOT = Path(__file__).resolve().parents[2]
 BACKUP = ROOT / "deploy/docker/backup.Dockerfile"
 SHA = re.compile(r"^[0-9a-f]{64}$")
+BUMPS = ROOT / "deploy/docker/restic_bumps.sh"
+#: go.mod of the pinned release, byte for byte the one in restic-0.19.1.tar.gz (the sum RESTIC_SHA256_SRC pins)
+RELEASE_GO_MOD = ROOT / "tests/fixtures/restic/go.mod-v0.19.1"
 
 
 def _args(text: str) -> dict[str, str]:
@@ -90,3 +97,55 @@ def test_a_software_row_ships_no_path() -> None:
 
 def test_the_whole_register_check_passes() -> None:
     assert lr.check() == []
+
+
+def _bumps() -> list[str]:
+    m = re.search(r'^ARG RESTIC_MODULE_BUMPS="([^"]*)"$', BACKUP.read_text(encoding="utf-8"), re.M)
+    assert m is not None
+    return m.group(1).split()
+
+
+def _check(*bumps: str, go_mod: Path = RELEASE_GO_MOD) -> subprocess.CompletedProcess[str]:
+    sh = shutil.which("sh")
+    if sh is None:
+        pytest.skip("no sh")
+    return subprocess.run([sh, str(BUMPS), str(go_mod), *bumps], capture_output=True, text=True, check=False)
+
+
+def test_the_build_checks_each_bump_against_the_release_before_applying_it() -> None:
+    text = BACKUP.read_text(encoding="utf-8")
+    assert "COPY deploy/docker/restic_bumps.sh /usr/local/bin/restic_bumps.sh" in text
+    assert text.index("restic_bumps.sh go.mod $RESTIC_MODULE_BUMPS") < text.index("go get $RESTIC_MODULE_BUMPS")
+    assert f"v{_args(text)['RESTIC_VERSION']}" in RELEASE_GO_MOD.name  # the fixture is of the pinned release
+
+
+def test_every_pinned_bump_is_newer_than_the_release_carries() -> None:
+    res = _check(*_bumps())
+    assert res.returncode == 0, res.stderr
+    assert res.stdout.count(" -> ") == len(_bumps())
+
+
+def test_a_bump_the_release_already_carries_is_refused() -> None:
+    res = _check("golang.org/x/text@v0.37.0")
+    assert res.returncode == 1 and "already carries golang.org/x/text v0.37.0: drop the bump" in res.stderr
+
+
+def test_a_bump_older_than_the_release_is_refused() -> None:
+    res = _check("golang.org/x/crypto@v0.9.0", "google.golang.org/grpc@v1.81.0")
+    assert res.returncode == 1
+    assert "golang.org/x/crypto v0.9.0 is older than the release's v0.52.0" in res.stderr
+    assert "google.golang.org/grpc v1.81.0 is older than the release's v1.81.1" in res.stderr
+
+
+def test_a_module_the_release_does_not_require_or_a_floating_version_is_refused() -> None:
+    res = _check("example.com/not-restic@v1.0.0", "golang.org/x/net@latest")
+    assert res.returncode == 1
+    assert "example.com/not-restic is not in the release's go.mod" in res.stderr
+    assert "golang.org/x/net@latest is not MODULE@vX.Y.Z" in res.stderr
+
+
+def test_the_check_reads_a_single_line_require(tmp_path: Path) -> None:
+    mod = tmp_path / "go.mod"
+    mod.write_text("module x\n\nrequire golang.org/x/text v0.37.0\n", encoding="utf-8")
+    assert _check("golang.org/x/text@v0.43.0", go_mod=mod).returncode == 0
+    assert _check("golang.org/x/text@v0.37.0", go_mod=mod).returncode == 1

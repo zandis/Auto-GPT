@@ -41,7 +41,15 @@ restic does the incremental backup, on these conditions:
     1.81.1). 0.19.1 is restic's newest release, and its main branch already carries newer versions of all six. The
     build raises exactly those six to the main branch's versions (`ARG RESTIC_MODULE_BUMPS`, each an exact version;
     `go get` adds their sums under GOSUMDB, `go mod verify`, then the build runs `-mod=readonly`). No advisory is
-    waived. A bump is dropped once a restic release carries that version.
+    waived. A bump is dropped once a restic release carries that version. The integrator confirmed this on #639.
+    - The six bumps: `github.com/go-jose/go-jose/v4` v4.1.4 to v4.1.6; `github.com/klauspost/compress` v1.18.6 to
+      v1.20.3; `golang.org/x/crypto` v0.52.0 to v0.58.0; `golang.org/x/net` v0.55.0 to v0.62.0; `golang.org/x/text`
+      v0.37.0 to v0.43.0; `google.golang.org/grpc` v1.81.1 to v1.85.0.
+    - The rule is checked: `deploy/docker/restic_bumps.sh` runs in the build before `go get`, against the release's
+      own `go.mod`, and fails on a bump that names a module the release does not require, that is not an exact
+      version, or that is not newer than the version the release carries. A restic upgrade that already carries a
+      bump's version therefore fails the build until that bump is dropped. The unit test runs it against the release's
+      `go.mod` (`tests/fixtures/restic/go.mod-v0.19.1`, byte for byte the one in the pinned source archive).
   - **Licence budget.** Syft reads no licence from a Go binary, so the image's Go modules count as unknown: 86 on the
     first source build. That is the one line that goes to the owner for a yes or no (#639). No allow-list entry is
     added without it.
