@@ -483,13 +483,14 @@ class _Run:
         scope = [t.pid for t in self.traces.values() if t.in_scope]
         # A-NOTES-ONLY (D-788): a ruleset with no coded criterion is screened (lane G's public sets): the SQL still
         # lists each in-scope patient alive at each index date, every patient passes S1 at its latest one, and the
-        # notes decide. Review of D-788: a ruleset where nothing decides is refused (every patient read "high"), and
-        # such a run needs a pair budget, since every patient goes to the models
+        # notes decide. Such a run needs a pair budget, since every patient goes to the models. D-909 (red of lane G's
+        # run, 2026-11-16): a ruleset where nothing decides (every criterion a person's) is an answer, not an error:
+        # S0 and S1 still scope the patients, nobody is judged, and every patient in scope goes to review
         self.coded = bool(applied)
         if not applied:
             if not any(c.class_ in JUDGED and c.kind in ("inclusion", "exclusion") for c in self.rs.active()):
-                raise CascadeError(f"ruleset {self.rs.id} has nothing that decides: no coded and no note criterion")
-            if self.cfg.max_llm_items is None:
+                self.metrics.nothing_decides = True
+            elif self.cfg.max_llm_items is None:
                 raise CascadeError(
                     f"ruleset {self.rs.id} has no coded criterion, so every patient goes to the models: set max_pairs"
                 )
