@@ -93,16 +93,22 @@ def build_site(work: Path, patients: int) -> tuple[Path, str, str]:
     return nd, snap, tz
 
 
-def compare(lk: Any, rs: Any, snapshot: str, pids: list[str], pid_of: dict[str, str], embedder: Any) -> dict[str, Any]:
+def compare(
+    lk: Any, rs: Any, snapshot: str, pids: list[str], pid_of: dict[str, str], embedder: Any, language: str = "auto"
+) -> dict[str, Any]:
     """One ruleset: the cascade with the flag off and on, and what differs."""
     from matching.cascade.engine import CascadeConfig, run_cascade
+    from matching.notelang import cascade_languages
     from vec.s2b import LakeVecSource
 
     runs = {}
     for flag in ("off", "on"):
         judge = KeywordJudge(pid_of)
+        lang, notes_lang = cascade_languages(language, "zh-TW")  # D-987: the synthetic site writes zh-TW notes
         cfg = CascadeConfig(
             study_id=rs.id,
+            language=lang,
+            notes_language=notes_lang,
             run_date=REF,
             lookback_months=36,
             index_mode="single",
@@ -151,7 +157,7 @@ def compare(lk: Any, rs: Any, snapshot: str, pids: list[str], pid_of: dict[str, 
     }
 
 
-def run(db_url: str, patients: int, out: Path, work: Path) -> dict[str, Any]:
+def run(db_url: str, patients: int, out: Path, work: Path, language: str = "auto") -> dict[str, Any]:
     from embed_service.embedder import HashEmbedder
     from lake.client import LakeLocal
     from lake.store import Lake
@@ -179,7 +185,7 @@ def run(db_url: str, patients: int, out: Path, work: Path) -> dict[str, Any]:
             for d in parity.RULESETS:
                 rs = parity.load_ruleset(d)
                 if any(c.class_ in JUDGED for c in rs.active()):
-                    rows.append(compare(lk, rs, snap, pids, pid_of, embedder))
+                    rows.append(compare(lk, rs, snap, pids, pid_of, embedder, language))
     finally:
         with Database.connect(db_url, "probe") as db:  # drop only this run's schemas
             for (name,) in db.fetchall("SELECT nspname FROM pg_namespace WHERE nspname LIKE ?", (prefix + "%",)):
@@ -226,11 +232,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--db-url", help="a database whose server offers pgvector (as the tests' TB_TEST_DB_URL)")
     ap.add_argument("--patients", type=int, default=300)
     ap.add_argument("--out", type=Path, default=OUT)
+    ap.add_argument(
+        "--language", default="auto", help="the notes' language: auto (read per patient), en, zh-TW, ja (D-987)"
+    )
     a = ap.parse_args(argv)
     if not a.db_url:
         ap.error("--db-url must name a database whose server offers pgvector")
     with tempfile.TemporaryDirectory(prefix="vec_parity.") as tmp:
-        rep = run(a.db_url, a.patients, a.out, Path(tmp))
+        rep = run(a.db_url, a.patients, a.out, Path(tmp), a.language)
     print(json.dumps(rep["totals"], sort_keys=True))
     return 0
 
