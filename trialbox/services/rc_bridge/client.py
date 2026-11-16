@@ -52,6 +52,18 @@ _UNKNOWN_KIND = "REDCap's own text is not shown: it can quote a record's value"
 _MAX_NAMES = 20  # field names given back from one error (a longer list says no more to the person reading it)
 
 
+def error_marker(text: str) -> str:
+    """A short token for the two refusals a caller branches on (a classic project, a project with no repeats).
+
+    The words stay in :func:`error_kind`'s sentence. Callers read this token, not the sentence."""
+    low = text.lower()
+    if "classic project" in low:
+        return "classic"
+    if "repeat" in low:
+        return "repeat"
+    return ""
+
+
 def error_kind(text: str) -> str:
     """The kind of a REDCap error, in the box's own words; REDCap's text itself is never returned."""
     low = text.lower()
@@ -80,11 +92,12 @@ class RcError(RuntimeError):
         "RC-FORBIDDEN": 403,
     }
 
-    def __init__(self, code: str, message: str, refused: bool = False) -> None:
+    def __init__(self, code: str, message: str, refused: bool = False, *, kind: str = "") -> None:
         super().__init__(f"{code}: {message}")
         self.code = code
         self.message = message
         self.refused = refused
+        self.kind = kind  # "classic" or "repeat" when REDCap refused for that reason; else ""
         self.status = self.STATUS.get(code, 409)
 
 
@@ -235,7 +248,7 @@ class RedcapClient:
         # REDCap's text is not passed on: an import error quotes the record, the field and the value it refused, and
         # this message reaches the set-up page and the stored read log (D-555). The kind of error is said instead
         raise RcError("RC-UPSTREAM", f"REDCap returned {resp.status_code}" + (f": {error_kind(msg)}" if msg else ""),
-                      refused=resp.status_code == 400 and bool(msg))  # fmt: skip
+                      refused=resp.status_code == 400 and bool(msg), kind=error_marker(msg) if msg else "")  # fmt: skip
 
     def _post(self, content: str, extra: dict[str, str] | None = None) -> Any:
         resp = self._send(content, extra)

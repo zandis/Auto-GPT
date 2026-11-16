@@ -50,6 +50,13 @@ ALLOWED: dict[str, set[str]] = {
     # the acceptance mirror (docker-compose.acceptance.yml): the test mail server and the mail gateway's login to it
     "TB_ACCEPTANCE_MAIL_PASSWORD": {"acceptance-mail", "mail-gateway"},
     "TB_ACCEPTANCE_MAIL_KEYSTORE_PASSWORD": {"acceptance-mail"},
+    # the console receives events, signs the EDC in and calls tools; both it and the orchestrator read projects
+    "TB_EDC_EVENT_SECRET": {"console"},
+    "TB_EDC_OIDC_CLIENT_SECRET": {"console"},
+    "TB_EDC_TOOL_TOKEN": {"console"},
+    "TB_EDC_INTERNAL_TOKEN": {"console", "orchestrator"},
+    "TB_REDCAP_API_TOKEN": {"console", "orchestrator"},
+    "TB_REDCAP_PROJECT_TOKENS": {"console", "orchestrator"},
 }
 BASE = ("docker-compose.yml", "docker-compose.secrets.yml")
 STACKS = [

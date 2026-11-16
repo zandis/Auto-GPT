@@ -129,7 +129,7 @@ class EdcConnection:
         try:
             return self.client.repeating_forms_events()
         except RcError as exc:
-            if exc.refused and "repeat" in exc.message:
+            if exc.refused and exc.kind == "repeat":
                 return []
             raise
 
@@ -141,7 +141,7 @@ class EdcConnection:
         try:
             return call()
         except RcError as exc:
-            if exc.refused and "classic" in exc.message:
+            if exc.refused and exc.kind == "classic":
                 return []
             raise
 

@@ -187,6 +187,11 @@ def test_the_generated_matrix_equals_the_design_table(box: dict[str, Any]) -> No
 # Only routes that check the role before they read the body: the job page's and the candidate page's reveal answer an
 # empty body with 400 before the role check (one reveal path, D-273, refuses the administrator after it).
 ROUTE_ACTIONS: dict[tuple[str, str], str] = {
+    ("GET", "/admin/edc"): "redcap.connection",
+    ("GET", "/api/edc/map"): "redcap.connection",
+    ("PUT", "/api/edc/map"): "redcap.connection",
+    ("POST", "/api/edc/tools"): "redcap.connection",
+    ("POST", "/api/edc/tools/{proposal_id}/confirm"): "redcap.connection",
     ("GET", "/sae"): "sae.view",
     ("GET", "/ops/users"): "ops.view",
     # NEW-FLAG-1 (D-706): the page opens for whoever may see the hold after a restore (the administrator, who sees

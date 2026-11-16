@@ -72,7 +72,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def admin(request: Request) -> Any:
         sess = h.need(request)
-        if sess.user.role != "admin":
+        if not h.permit(sess.user, "redcap.connection").allowed:
             h.au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
         return sess
