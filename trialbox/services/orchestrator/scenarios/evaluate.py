@@ -44,6 +44,7 @@ from tb_common.quotes import quote_in
 from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
 from tb_contracts import CandidateRow, CriterionIR, CriterionVerdict, Evidence, Opinion, PatientEvaluation
+from tb_llm.budget import shown as shown_excerpt
 
 from orchestrator.scenarios.terms import keywords
 from orchestrator.twophase import two_phase
@@ -435,7 +436,7 @@ class NoteJudge:
             "criterion_text": criterion_text,
             "note_question": note_question,
             "index_date": index_date.isoformat(),
-            "excerpts": [{k: e.get(k) for k in ("date", "note_type", "text")} for e in excerpts],
+            "excerpts": [shown_excerpt(e) for e in excerpts],  # D-644, D-941: what a model is shown of each
         }
         first = self._ask(primary if primary is not None else self.llm, variables, excerpts, source)
         second: NoteResult | None = None

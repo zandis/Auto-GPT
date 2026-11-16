@@ -25,6 +25,7 @@ from typing import Any, Protocol
 
 from tb_common.pair import Vote, combine, needs_verifier, served_keys
 from tb_common.quotes import quote_in, quote_key
+from tb_llm import budget
 from tb_llm.budget import estimate_tokens
 
 JUDGE_PROMPT = "judge"
@@ -95,8 +96,8 @@ class JudgeClient(Protocol):
     ) -> JudgeReply: ...
 
 
-#: the fields of an excerpt a model is shown (D-644; ``orchestrator.scenarios.evaluate`` sends the same three)
-SHOWN = ("date", "note_type", "text")
+#: the fields of an excerpt a model is shown (D-644, D-941: ``tb_llm.budget.shown``, as every path sends them)
+SHOWN = budget.SHOWN
 
 
 @dataclass
@@ -146,7 +147,7 @@ class GatewayJudge:
             "index_date": index_date.isoformat(),
             # D-644: what a model reads of an excerpt, as NoteJudge sends it. Never the record's id (``did``): an
             # identifier has no place in a prompt, and a hex id holds digit runs the PHI tripwire refuses
-            "excerpts": [{k: e.get(k) for k in SHOWN} for e in excerpts],
+            "excerpts": [budget.shown(e) for e in excerpts],
         }
         labels = CallLabels(
             data_class=data_class,
