@@ -29,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import re
 import threading
 from collections.abc import Callable, Collection, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -86,6 +87,7 @@ from matching.cascade.s2b_semantic import (
 )
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
 from matching.excerpts import sentences
+from matching.notelang import LANGS, main_language, notes_language
 from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS, Proposed
 from matching.recorded import NO_RECORD, Recorded
 from matching.stored_scores import apply_rows
@@ -160,7 +162,10 @@ class CascadeConfig:
     # NEW-LLM-2 (LLM-002): SCREEN sets it. A note criterion with no lexicon term and only a non-semantic embedder (the
     # hash stub) is "not evaluated" instead of judged on the first sentences of each note; counted in no_retrieval
     require_retrieval: bool = False
-    language: str = "zh-TW"  # language stratum of the site notes (S2b thresholds)
+    language: str = "zh-TW"  # the fallback language of the notes: the site's report locale (D-983: no longer the rule)
+    # D-983 (NOTE-LANGUAGE-THRESHOLDS): the language of the notes for every language-dependent choice: the site's
+    # declared one (en, zh-TW, ja) or "auto", read from each patient's window notes (matching.notelang)
+    notes_language: str = "auto"
     sample_per_stratum: int | None = None  # CAS-8: ≤ 200 in feasibility runs; None screens everyone
     # NEW-B-47 (D-748): the rows (patients times index dates) one S1 query may carry; None: TB_CASCADE_S1_ROWS
     s1_rows: int | None = None
@@ -298,6 +303,14 @@ def window_of(c: CriterionIR, index_date: date) -> tuple[date, date]:
     return lo, index_date
 
 
+def has_term_for(keys: Sequence[str], lang: str) -> bool:
+    """D-983: whether ``keys`` hold a term written in ``lang``'s script (Latin letters for en, Han / kana for zh-TW and
+    ja); a zero hit with none says nothing about the notes."""
+    if lang == "en":
+        return any(re.search(r"[A-Za-z]", k) for k in keys)
+    return any(re.search(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]", k) for k in keys)
+
+
 def lexicon_terms(c: CriterionIR, extra: Mapping[str, Sequence[str]]) -> list[str]:
     """Approved lexicon keys for the criterion: the site table when present, else the shipped bilingual terms."""
     if c.id in extra:
@@ -385,6 +398,7 @@ class _Run:
         self.tokens = 0
         self.coverage = Coverage()  # rows in a code system nobody can read (F-10, D-130); loaded at S1
         self._s2_excluded = 0  # patients S2 excluded on a certified zero hit, summed over the batches (T-694 part 3)
+        self._notes_lang: dict[str, str] = {}  # D-983: the language of each patient's notes, read once per run
         self.carried = Carried()  # the code systems the site's rows carry (F11, D-795); loaded at S1
         self.recorded = Recorded()  # the kinds of coded record each patient has at all (D-914); loaded at S1
         self._uncarried_index: set[str] = set()  # index conditions whose list no row can carry: absence never excludes
@@ -732,6 +746,20 @@ class _Run:
         return EXCERPT_TOKENS
 
     # -------------------------------------------------------------------------------------------- S2 / S2b
+    def language_of(self, pid: str, notes: Sequence[_Note]) -> str:
+        """The language of ``pid``'s notes for a language-dependent choice (D-983): the site's declared one, else read
+        from the notes of the window (once per patient and run), else the site's report locale."""
+        if pid not in self._notes_lang:
+            self._notes_lang[pid] = notes_language(self.cfg.notes_language, (n.text for n in notes), self.cfg.language)
+        return self._notes_lang[pid]
+
+    def mismatched(self, pid: str, notes: Sequence[_Note]) -> str | None:
+        """D-983's fail safe: the notes' language when it is known (declared, or read from the notes) and is not the
+        one the site's tables were set for (the report locale); None otherwise, where the earlier rules stand."""
+        lang = self.language_of(pid, notes)
+        known = self.cfg.notes_language in LANGS or main_language((n.text for n in notes), "") != ""
+        return lang if known and lang != self.cfg.language else None
+
     def s2(
         self, note_crit: list[CriterionIR], pids: Collection[str] | None = None, record: bool = True
     ) -> tuple[list[_Route], list[tuple[str, str, list[_Note]]]]:
@@ -787,7 +815,10 @@ class _Run:
                     routes.append(_Route(t.pid, c.id, shown, _set_hash(sset), "S2", left_out=left))
                     continue
                 self.metrics.pairs_s2_zero_hit += 1
-                if c.id in self.cfg.zero_hit_allowed:  # CAS-13 certified: absence semantics directly after S2
+                other = self.mismatched(t.pid, win)
+                certified = c.id in self.cfg.zero_hit_allowed and (other is None or has_term_for(keys, other))
+                if certified:  # CAS-13 certified: absence semantics directly after S2; D-983: only with a term the
+                    # notes' language could hold (English keys never find a Chinese note's mention, nor the reverse)
                     if c.kind == "inclusion":
                         t.outcomes[c.id] = Outcome(
                             c.id, "fail", "S2", hard=True, stratum=STRATUM_ZERO_HIT, reason="zero hits (certified)"
@@ -854,7 +885,8 @@ class _Run:
                     routes.append(_Route(pid, cid, shown, _set_hash(sset), "S2b", 0.0, left_out=left))
                     continue
             query = " ".join([c.note_question or c.text, *lexicon_terms(c, self.cfg.lexicon)])
-            thr = self.cfg.thresholds.get(c.kind, self.cfg.language)
+            lang = self.language_of(pid, win)
+            thr = self.cfg.thresholds.get(c.kind, lang)
             stored = self._from_store(t, query, win, len(sents)) if sents else None
             if stored is not None:
                 # the threshold is fitted to on-the-fly vectors (D-429): a stored score never decides a rescue
@@ -892,6 +924,12 @@ class _Run:
                     )
                 elif held or not self.cfg.absence_semantics:
                     t.outcomes[cid].reason = "index condition not coded and not found in the notes; review"
+                elif thr.source != "ltt_site" and self.mismatched(pid, win) is not None:
+                    # D-983: notes in another language than the site's tables were set for are read against no fitted
+                    # threshold of their own (the public prior is a placeholder, CAS-14): an absence never excludes
+                    t.outcomes[
+                        cid
+                    ].reason = f"index condition not found in the notes; no fitted threshold for {lang} notes; review"
                 else:
                     o = t.outcomes[cid]
                     o.status, o.hard, o.stratum, o.stage = "fail", True, STRATUM_INDEX, "S2b"
@@ -910,7 +948,7 @@ class _Run:
                 routes.append(_Route(pid, cid, shown, _set_hash(sset), "S2b", best - thr.value, left_out=left))
                 continue
             self.metrics.pairs_s2b_below += 1
-            detail = {"best": round(best, 4), "threshold": thr.value, "threshold_source": thr.source}
+            detail = {"best": round(best, 4), "threshold": thr.value, "threshold_source": thr.source, "language": lang}
             if c.kind == "inclusion":
                 # An inclusion criterion the semantic pre-filter finds no mention of is NOT an exclusion: the
                 # threshold is a public-prior placeholder until the LTT fit exists (independent review 2026-10-27,
