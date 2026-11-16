@@ -3,7 +3,7 @@
 - **Task:** ERASE-A4, lane C2's backlog after the PoC freeze. · **Date:** 2026-11-16
 - **Decision:** a new clear of the opt-out worker, `setup_uploads`, erases a per-patient upload of the site set-up: a chart, which is a `sitesetup.input` row carrying the patient's pseudonym (only a chart carries one).
   - What goes: its files on disk under the set-up's folder (the upload, its text and its lake text, `<ws>/inputs/<id>.*`), its check items, its column fixes and its facts.
-  - Its row stays as a marker: status `erased`, with no pseudonym, name, hash, path or summary. No page lists it.
+  - Its row stays as a marker: status `erased`, with no pseudonym, name, hash, path, summary or date of care. No page lists it.
   - The files go first, so a crash leaves the rows and the next tick finishes.
   - Each tick sweeps the marked ids again. So an upload that raced the clear, writing its files or facts after the row was marked, is finished on the next tick. Nothing else is ever swept: the re-check rejected a sweep of every file no row names, which would delete every upload of a database restored behind its files.
   - The tick passes the orchestrator's set-up folder. A worker that cannot reach it never calls the uploads cleared.
@@ -17,5 +17,5 @@
   - A sheet of many patients that names the patient stays owed: its file and its rows (`check_item`, `fix`) are not keyed by patient.
   - A chart uploaded under a merged-away chart number of a patient who opted out under the surviving number is not found: `with_survivors` follows merges one way, a gap of the whole system.
   - ERASE-A1 (D-866, #830) refuses a new chart of an opted-out patient; until it lands, such a chart is kept until the next tick.
-- **The adversarial review (NOT SOUND as first worded):** "goes whole" over-claimed (the lake copies), an upload racing the clear could leave orphans, and a racing publish could fail once. All three are fixed or named above. The re-check (NOT SOUND) found the first orphan sweep too wide; the marker replaced it.
+- **The adversarial review (NOT SOUND as first worded):** "goes whole" over-claimed (the lake copies), an upload racing the clear could leave orphans, and a racing publish could fail once. All three are fixed or named above. The re-check (NOT SOUND) found the first orphan sweep too wide; the marker replaced it. The second re-check was SOUND; it asked that the marker also drop the chart's date of care.
 - **Held by:** `tests/unit/test_a_patients_own_upload_goes.py`, synthetic data only (failing output on master kept: `erasea4-fail.txt`). The pinned clear-name list of `test_erasure_registry` moves.

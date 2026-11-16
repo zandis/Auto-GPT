@@ -506,7 +506,7 @@ def _setup_uploads(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[s
     """ERASE-A4 (D-869): a per-patient upload of the site set-up (a chart: ``sitesetup.input`` with the patient's
     pseudonym) is erased: its files on disk (the upload, its text and its lake text, ``<ws>/inputs/<id>.*`` under the
     set-up's folder), its check items, its column fixes and its facts go, and its row stays as a marker (status
-    ``erased``; no pseudonym, name, hash, path or summary), which no page lists. Each tick sweeps the marked ids again,
+    ``erased``; no pseudonym, name, hash, path, summary or date of care), which no page lists. Each tick sweeps the marked ids again,
     so an upload that raced the clear (its files or facts written after the row was marked) is finished on the next
     tick; nothing else is ever swept (the review of D-869: a sweep of every file no row names would delete every
     upload of a database restored behind its files). A sheet of many patients is not a patient's own upload: it stays
@@ -543,7 +543,7 @@ def _setup_uploads(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[s
             if new:
                 tx.execute(
                     "UPDATE input SET status = 'erased', pid = NULL, name = '', sha256 = '', path = '', "
-                    "summary = '{}', roles = '{}' WHERE id = ANY(?)",
+                    "summary = '{}', roles = '{}', ref_day = '' WHERE id = ANY(?)",
                     ([i for i, _ in new],),
                 )
     return {"sitesetup.input": len(new)}

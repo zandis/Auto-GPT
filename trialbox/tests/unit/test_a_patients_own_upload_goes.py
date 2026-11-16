@@ -69,8 +69,8 @@ def test_an_upload_that_raced_the_clear_is_finished_and_nothing_else_is_swept(sv
     env = _env(db_url, svc.root)
     gone = frozenset({pid("10000001")})
     clear_setup_uploads(gone, env)
-    row = svc.store.db.fetchone("SELECT status, pid, name, sha256 FROM input WHERE id = ?", (a["input"],))
-    assert row is not None and tuple(row) == ("erased", None, "", "")  # the marker: nothing of the patient
+    row = svc.store.db.fetchone("SELECT status, pid, name, sha256, ref_day FROM input WHERE id = ?", (a["input"],))
+    assert row is not None and tuple(row) == ("erased", None, "", "", "")  # the marker: nothing of the patient
     inputs = svc.root / WS / "inputs"
     late, stray = inputs / f"{a['input']}.lake.txt", inputs / "999.txt"
     late.write_text("the racing upload's text")
