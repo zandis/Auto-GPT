@@ -65,7 +65,6 @@ def test_a_demographic_none_on_a_negated_line_goes_to_a_person() -> None:
 @pytest.mark.parametrize(
     ("text", "value", "age"),
     [
-        ("18 and over", {"op": ">=", "num": 18}, (18, None)),
         ("Aged 50 years or older", {"op": ">=", "num": 50, "unit": "years"}, (50, None)),
         ("Age 18-65", {"op": "between", "num": 18, "num2": 65, "unit": "years"}, (18, 65)),
         ("65歳以下", {"op": "<=", "num": 65, "unit": "歳"}, (None, 65)),
@@ -82,6 +81,11 @@ def test_an_unambiguous_age_in_value_is_read_as_age(text: str, value: dict[str, 
         ("Age 50 to 89 years", {"domain": "demographic", "concept": "age", "value": {"op": ">=", "num": 50}}),  # 89
         ("Aged 5 years or older", {"domain": "demographic", "concept": "age", "value": {"op": ">=", "unit": "years"}}),
         ("Age > 18", {"domain": "demographic", "concept": "age", "value": {"op": ">", "num": 18}}),  # 18 or 19?
+        # D-948's review: no unit said, a shorter unit, not an age
+        ("18 and over", {"domain": "demographic", "concept": "age", "value": {"op": ">=", "num": 18}}),
+        ("Aged 6 months or older", {"domain": "demographic", "concept": "age", "value": {"op": ">=", "num": 6}}),
+        ("Gestational age >= 32 weeks", {"domain": "demographic", "value": {"op": ">=", "num": 32}}),
+        ("Body weight >= 40", {"domain": "demographic", "value": {"op": ">=", "num": 40}}),
         ("Cigarette smoking greater than or equal to 30 pack years",
          {"domain": "demographic", "concept": "smoking_history", "value": {"op": ">=", "num": 30, "unit": "pack_years"}}),
     ],
@@ -91,22 +95,43 @@ def test_an_ambiguous_value_is_not_read_as_age(text: str, logic: dict[str, Any])
     assert "value_read_as_age" not in (c.flags or []) and c.class_ == "human", text  # no age, no sex: a person
 
 
-def test_the_prompts_placeholders_on_a_condition_are_dropped_and_it_compiles() -> None:
+def test_the_prompts_placeholders_on_a_condition_are_not_compiled() -> None:
+    # D-948's review: dropping the placeholder derived name put the prompt's other junk in front of patients; it is
+    # left for ``kind`` to refuse, as before, and the line goes to a person
     c, _ = _one(
         "DISEASE CHARACTERISTICS: Histologically confirmed esophageal squamous cell cancer that is stage T2-3 Nx M0",
         {"domain": "condition", "concept": "esophageal squamous cell carcinoma", "window": {"anchor": "index"},
          "age": {"min": 0, "max": 150}, "derived": "asdas"},
         concepts=[{"domain": "condition", "name": "esophageal squamous cell carcinoma"}],
     )  # fmt: skip
-    assert c.class_ == "structured" and "stray_field" in (c.flags or [])
-    assert isinstance(c.logic, Atom) and c.logic.age is None and c.logic.derived is None
+    assert c.class_ == "human" and "logic_invalid" in (c.flags or [])
 
 
-def test_an_age_at_onset_on_a_condition_goes_to_a_person_not_widened() -> None:
-    c, _ = _one("Type 2 diabetes diagnosed before age 30", {"domain": "condition", "concept": "Type 2 diabetes",
-                "age": {"max": 30}}, kind="exclusion",
-                concepts=[{"name": "Type 2 diabetes", "domain": "condition"}])  # fmt: skip
-    assert c.class_ == "human" and "age_on_non_demographic" in (c.flags or [])
+def test_an_exclusions_age_in_value_is_never_repaired() -> None:
+    c, _ = _one("Males and females aged 18-55 years", {"domain": "demographic", "concept": "age",
+                "value": {"op": "between", "num": 18, "num2": 55, "unit": "years"}}, kind="exclusion")  # fmt: skip
+    assert "value_read_as_age" not in (c.flags or []) and c.class_ == "human"
+
+
+@pytest.mark.parametrize(
+    ("text", "age"),
+    [("Type 2 diabetes diagnosed before age 30", {"max": 30}), ("SLE before the age of 40", {"max": 39}),
+     ("Type 2 diabetes diagnosed before 40", {"max": 39}), ("SLE with age less than 22", {"max": 21}),
+     ("発症年齢が40歳未満の糖尿病", {"max": 39})],
+)  # fmt: skip
+def test_an_age_at_onset_on_a_condition_goes_to_a_person_not_widened(text: str, age: dict[str, int]) -> None:
+    c, _ = _one(text, {"domain": "condition", "concept": "Diabetes", "age": age}, kind="exclusion",
+                concepts=[{"name": "Diabetes", "domain": "condition"}])  # fmt: skip
+    assert c.class_ == "human" and "age_on_non_demographic" in (c.flags or []), text
+
+
+def test_a_held_mixed_line_keeps_its_note_question() -> None:
+    crit = {"kind": "inclusion", "class": "mixed", "text": "Children aged 1 to 12 years with CAP",
+            "note_question": "Does the child have community-acquired pneumonia?", "concept_candidates": [
+                {"name": "Pneumonia", "domain": "condition"}],
+            "logic": {"domain": "condition", "concept": "Pneumonia", "age": {"min": 1, "max": 12}}}  # fmt: skip
+    (c,) = pp.postprocess("T", LlmExtractOutput.model_validate({"criteria": [crit]}), Terminology(), "1.0.0").criteria
+    assert c.class_ == "note" and c.note_question and "age_on_non_demographic" in (c.flags or [])
 
 
 def test_a_plain_demographic_atom_is_not_flagged() -> None:

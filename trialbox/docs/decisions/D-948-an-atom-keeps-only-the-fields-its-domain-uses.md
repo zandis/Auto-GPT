@@ -10,24 +10,30 @@
   - **What the compile did with them:**
     - It ignored the demographic fields and an age on a non-demographic atom.
     - It refused a `derived` name off an observation atom, so the whole line went to a person.
-- **Decision** (`postprocess.strip_stray`, on the raw logic before `_convert_logic`). A field an atom cannot use is dropped and flagged. Only a line whose own words may give the field a meaning goes to a person. Holding every case for a person would have demoted more lines, which is G9's loss.
+- **Decision** (`postprocess.strip_stray`, on the raw logic before `_convert_logic`). A field the compile ignored is dropped and flagged, which changes no answer. Only a line whose own words may give the field a meaning goes to a person; a held mixed line keeps its note question and the notes decide, as `demote_uncompilable` does (D-98). Holding every case would have demoted more lines (G9).
   - **Demographic atoms**
-    - `derived`, `quantifier`, `value`, `count`, `window` and `duration` are dropped (`stray_field`). An explicit `quantifier: any` is the default and is not flagged.
-    - An age written in `value` becomes `age` (`value_read_as_age`), but only when it is unambiguous: all of the conditions below must hold.
-      - The concept is age or none.
-      - The unit is years or none.
-      - The op is `>=`, `<=` or `between`.
-      - The line's numbers are exactly the value's numbers.
+    - `derived`, `quantifier`, `value`, `count`, `window` and `duration` are dropped (`stray_field`). An explicit `quantifier: any` is not flagged.
+    - **On an inclusion only, an age written in `value` becomes `age`** (`value_read_as_age`), when every one of these holds:
+      - the concept is age or none;
+      - the unit is years or none, and the line says years, aged or 歳, with no shorter unit such as months, weeks, days or gestation;
+      - the op is `>=`, `<=` or `between`;
+      - the line's numbers are exactly the value's.
 
-      So "Age 50 to 89 years" written as `value >= 50` is not repaired, because its 89 would be lost. `>` is not repaired either, because "over 18" may mean 18 or 19.
-    - A `quantifier: none` on a line with a negation word goes to a person (`demographic_negated`). The age compare never read the "not".
+      So "Age 50 to 89 years" written as `value >= 50` is not repaired, and neither are `>`, "18 and over", "6 months", "32 weeks" or "Body weight >= 40".
+    - A `quantifier: none` on a line with a negation word goes to a person (`demographic_negated`).
   - **Other atoms**
-    - A `derived` name off an observation atom is dropped (`stray_field`), and the line now compiles.
-    - An age is dropped (`stray_field`) unless the line writes its numbers next to an age word. In that case it may be an age at onset ("diabetes before age 30"), so it goes to a person (`age_on_non_demographic`). Dropping it would widen the exclusion to every diabetic.
-- **Effect on answers:**
-  - Dropping an ignored field changes no answer.
-  - A line that kept a placeholder `derived` name, or that put its age in `value`, now compiles where it went to a person before.
+    - An age is dropped unless the line writes its numbers, or one past them ("before the age of 40" as at most 39), next to an age word, "before", "onset" or "diagnosed". If it does, the line goes to a person (`age_on_non_demographic`), because it may be an age at onset that dropping would widen.
+    - A `derived` name off an observation atom is left for `kind` to refuse, as before.
+- **Adversarial review** (this card) ran the whole run's 1,036 criteria on master and on the branch. Its blockers, all fixed:
+  - **Dropping a placeholder `derived` name put junk in front of patients.** The prompt's names ride on atoms that carry other junk: `quantifier none` on "uncontrolled asthma", `or(any heparin, any aspirin…)` for a hypersensitivity, and `and(not(antibiotics))`. Master's refusal kept those lines with a person, so it is kept.
+  - **The `value`→`age` repair took a missing unit as years** ("6 months", "32 weeks", a body weight), **and it ignored kind**: a mis-kinded exclusion "aged 18-55" would have excluded every adult. Now it needs years or age in the line, and inclusions only.
+  - **An age at onset written one past its bound was dropped** ("age less than 22" as at most 21).
+  - **A combined age-and-condition mixed line was demoted to a person.** It now keeps its note question.
+- **After the fixes, on the run's data:**
+  - 62 inclusions now compile where they went to a person. All are `value_read_as_age` age lines, which the review judged correct.
+  - 5 combined age-and-condition lines are read from notes; before, they went to a person or were half-compiled.
+  - 55 lines lose only ignored fields.
 - **Not in this card:**
-  - The second part of G10: the prompt's example derived names, which the model copied into 24 criteria. That fix is a new prompt version with its canary.
-  - The ValueSet keyed "NONE" the review saw.
-- **Test:** `tests/unit/test_stray_atom_fields.py`, using the run's own lines.
+  - The second part of G10: the prompt's example derived names, as a new prompt version with its canary. Removing them at the source is the fix for the junk above.
+  - The ValueSet keyed "NONE".
+- **Test:** `tests/unit/test_stray_atom_fields.py`, using the run's own lines and the review's cases.

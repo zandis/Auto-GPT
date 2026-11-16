@@ -112,10 +112,16 @@ def is_diagnosis_name(name: str) -> bool:
 _NOT_DEMOGRAPHIC = ("derived", "quantifier", "value", "count", "window", "duration")
 HOLD = ("demographic_negated", "age_on_non_demographic")  # these go to a person: their meaning is unsure
 _NEGATION = re.compile(r"\b(?:not|no|non|never|without|except|other\s+than)\b|以外|除く|ではない|でない|不是|非", re.I)
-_AGE_WORD = re.compile(r"\bage[ds]?\b|\byears?\s+old\b|歳|才|歲|onset|発症|發病|发病", re.I)
+_AGE_WORD = re.compile(r"\bage[ds]?\b|\byears?\s+old\b|\bbefore\b|\bonset\b|diagnos|歳|才|歲|発症|發病|发病", re.I)
 _NUMBER = re.compile(r"(?<![\d.])\d+(?:\.\d+)?(?![\d.])")
 _AGE_CONCEPTS = (None, "", "age")
 _YEARS = (None, "", "y", "yr", "yrs", "year", "years", "歳", "才", "歲")
+
+
+_YEARS_SAID = re.compile(r"\b(?:years?|yrs?|y/?o|aged?)\b|歳|才|歲|岁|年齢|年齡", re.I)
+_SHORT_SAID = re.compile(
+    r"\b(?:months?|mos?|weeks?|wks?|days?|gestation\w*)\b|か月|ヵ月|ヶ月|カ月|週|日齢|個月|个月|天", re.I
+)
 
 
 def _value_as_age(n: dict[str, Any], text: str) -> dict[str, Any] | None:
@@ -127,6 +133,8 @@ def _value_as_age(n: dict[str, Any], text: str) -> dict[str, Any] | None:
         return None
     if str(v.get("unit") or "").strip().lower() not in _YEARS or v.get("codes"):
         return None
+    if not _YEARS_SAID.search(text) or _SHORT_SAID.search(text):  # review: "Body weight >= 40", "6 months", "32 weeks"
+        return None
     op, x, y = v.get("op"), v.get("num"), v.get("num2")
     age = {">=": {"min": x}, "<=": {"max": x}, "between": {"min": x, "max": y}}.get(str(op))
     if age is None or any(b is None for b in age.values()):
@@ -136,17 +144,19 @@ def _value_as_age(n: dict[str, Any], text: str) -> dict[str, Any] | None:
     return age
 
 
-def strip_stray(node: Any, text: str = "") -> tuple[Any, list[str]]:
+def strip_stray(node: Any, text: str = "", kind_: str = "inclusion") -> tuple[Any, list[str]]:
     """The raw logic without the fields its atom's domain cannot use, and a flag for each kind repaired, dropped or
-    held (D-948). The compile ignored the demographic fields and an age on another atom (dropping them changes no
-    answer); it refused a derived name off an observation atom (the whole line went to a person; now it compiles).
+    held (D-948). The compile ignored every field dropped here: dropping one changes no answer.
 
-    * A demographic atom: an unambiguous age in ``value`` becomes ``age`` (``value_read_as_age``); derived /
+    * A demographic atom of an inclusion: an unambiguous age in ``value`` becomes ``age`` (``value_read_as_age``,
+      only when the line says years or age and no shorter unit). Any demographic atom: derived /
       quantifier / value / count / window / duration are dropped (``stray_field``). A ``quantifier: none`` on a line
       with a negation word is held for a person (``demographic_negated``): the age compare never read the "not".
-    * Any other atom: a ``derived`` name off an observation atom is dropped (``stray_field``); an age is dropped when
-      the line does not write its numbers beside an age word, else held for a person (``age_on_non_demographic``:
-      an age at onset, "diabetes before age 30", which dropping would widen)."""
+    * Any other atom: an age is dropped when the line does not write its numbers (or one past them: "before the
+      age of 40" as at most 39) beside an age word, "before", "onset" or "diagnosed", else held for a person
+      (``age_on_non_demographic``: an age at onset, which dropping would widen). A ``derived`` name off an
+      observation atom is left for ``kind`` to refuse: its review found that the prompt's placeholder names ride on
+      atoms carrying other junk, which compiling would put in front of patients."""
     flags: list[str] = []
 
     def walk(n: Any) -> Any:
@@ -156,7 +166,7 @@ def strip_stray(node: Any, text: str = "") -> tuple[Any, list[str]]:
             return {**n, "args": [walk(a) for a in n["args"] or []]}
         if n.get("domain") == "demographic":
             n = dict(n)
-            age = _value_as_age(n, text)
+            age = _value_as_age(n, text) if kind_ == "inclusion" else None  # review: never widen an exclusion
             if age is not None:
                 n["age"] = age
                 flags.append("value_read_as_age")
@@ -166,13 +176,14 @@ def strip_stray(node: Any, text: str = "") -> tuple[Any, list[str]]:
                 flags.append("stray_field")
             return {k: v for k, v in n.items() if k not in _NOT_DEMOGRAPHIC}
         out = dict(n)
-        if out.get("derived") is not None and out.get("domain") != "observation":
-            out.pop("derived")
-            flags.append("stray_field")
         if out.get("age") is not None:
-            nums = [b for b in (out["age"].get("min"), out["age"].get("max")) if b is not None]
+            nums = [float(b) for b in (out["age"].get("min"), out["age"].get("max")) if b is not None]
             written = {float(m) for m in _NUMBER.findall(text)}
-            if nums and _AGE_WORD.search(text) and all(float(b) in written for b in nums):
+            if (
+                nums
+                and _AGE_WORD.search(text)
+                and all(b in written or b + 1 in written or b - 1 in written for b in nums)
+            ):
                 flags.append("age_on_non_demographic")
             else:
                 out.pop("age")
@@ -287,7 +298,9 @@ def postprocess(
         cid = f"{ruleset}-{code}-{counters[code]:02d}"
         flags: list[str] = []
         raw = dump(ec)
-        logic_raw, stray = strip_stray(raw.get("logic") or {"domain": "demographic"}, str(raw.get("text") or ""))
+        logic_raw, stray = strip_stray(
+            raw.get("logic") or {"domain": "demographic"}, str(raw.get("text") or ""), str(ec.kind)
+        )
         try:
             logic = _convert_logic(logic_raw, concept_vs, egfr, frozenset(refiled))
         except CompileError as exc:
@@ -313,9 +326,13 @@ def postprocess(
             flags.extend(stray)
             warnings.append(f"{cid}: fields its atoms cannot use ({', '.join(stray)})")
         if ir.class_ in FILTERED and set(stray) & set(HOLD):
-            ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
-                                       "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
-            warnings.append(f"{cid}: its logic's meaning is unsure; kept for a person to check")
+            if ir.class_ == "mixed" and ir.note_question:  # as demote_uncompilable keeps it (D-98): the notes decide
+                ir = ir.model_copy(update={"class_": "note", "logic": Atom(domain="demographic", valueset="NONE")})
+                warnings.append(f"{cid}: its logic's meaning is unsure; the notes decide")
+            else:
+                ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
+                                           "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
+                warnings.append(f"{cid}: its logic's meaning is unsure; kept for a person to check")
         # red of 2026-11-15 (jmed): an exclusion whose whole logic is negated ("none of diabetes" for "history of
         # diabetes") excluded everyone with no such record. Exclusions are positive (ir_extract_v3): the logic is
         # rewritten to the positive form and flagged, as a negated question is; a negation inside it is left alone
