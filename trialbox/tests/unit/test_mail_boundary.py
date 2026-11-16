@@ -40,7 +40,7 @@ def _gateway(
         environ["TB_CONSOLE_URL"] = console_url
     env = load_env(dotenv=tmp_path / "none.env", environ=environ)
     store = FsStore(tmp_path / "obj")
-    store.put("outputs/J/list.xlsx", b"PK candidate list")
+    store.put("outputs/01JB0000000000000000000000/list.xlsx", b"PK candidate list")
 
     def no_job(req: JobCreate) -> Any:
         pytest.fail("no job may start from this mail")
@@ -55,6 +55,7 @@ def _gateway(
         secrets_dir=tmp_path,
         authserv_id=authserv_id,
         allow_phi_zip=allow_phi_zip,
+        outputs_current=lambda _job, _files: True,  # D-863: the orchestrator says the job's outputs are current
     )
 
 
@@ -67,7 +68,9 @@ def _phi(key: str = "") -> SendRequest:
             "body_md": "The candidate list is ready.",
             "tag": "phi",
             "encrypt": True,
-            "attachments": [{"minio_key": "outputs/J/list.xlsx", "filename": "list.xlsx", "tag": "phi"}],
+            "attachments": [
+                {"minio_key": "outputs/01JB0000000000000000000000/list.xlsx", "filename": "list.xlsx", "tag": "phi"}
+            ],
             **({"idempotency_key": key} if key else {}),
         }
     )
