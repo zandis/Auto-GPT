@@ -22,6 +22,7 @@ from typing import Any
 import numpy as np
 from criteria_compiler.compile_sql.overlay import safe_sql
 from lake.client import LakeAPI
+from matching.batches import query_by_patients
 from matching.coverage import DOMAINS, Coverage, known_systems
 from matching.proposed import site_basis
 from tb_common.feas_notes import render as render_note
@@ -290,10 +291,12 @@ def compute(lake: LakeAPI, rs: Ruleset, p: FeasParams) -> tuple[FeasibilityResul
     variants = build_variants(rs, spec, st)
     sql = funnel_query(rs, st, variants, p.departments)
     pop_from = add_months(idx[0], -1)
-    params: list[Any] = [[d.isoformat() for d in idx], None, pop_from.isoformat(), idx[-1].isoformat()]
+    extra: list[Any] = [pop_from.isoformat(), idx[-1].isoformat()]
     if p.departments:
-        params.append(list(p.departments))
-    table = lake.query(sql, params, p.snapshot)
+        extra.append(list(p.departments))
+    # NEW-B-53: every patient of the snapshot, in batches of rows (D-748's rule): one query of 36 month-ends times
+    # every patient met the lake's memory limit at 50,000 patients
+    table = query_by_patients(lake, sql, [d.isoformat() for d in idx], None, p.snapshot, extra)
     cols = table.to_pydict()
     if p.exclude_pids:
         keep = [i for i, pid in enumerate(cols["pid"]) if str(pid) not in p.exclude_pids]
