@@ -8,6 +8,9 @@
 - **Why:** with slice 3 (D-864) the console opens no domain store: the `OWED` list of `tests/unit/test_the_console_opens_no_domain_store.py` is empty. Moved tests:
   - the refuse-stage pin in `tests/unit/test_actor_routes.py` names the new group;
   - `tests/unit/test_patient_reads_check_person_and_study.py` lists this route as the one whole-site patient read outside a set-up workspace, and checks each read with its own action and a role holding it (the steward here);
-  - the generated role x route table moves one cell (`GET /data/conflicts`, steward `Y` to `U`), since the walk's box has no orchestrator. No new matrix row: the guides are frozen.
+  - the closure pin of `tests/unit/test_audit_roles.py` now says the console imports no `omop.conflicts`;
+  - the OMOP-store openers listed in `tests/unit/test_optout_worker.py` name the orchestrator's app (the box's own store) instead of the console's page.
+
+  The role x route walk's box answers the two route families from the orchestrator's routers (D-864), so the generated table and the frozen guides do not move. No new matrix row: the guides are frozen.
 - **Held by:** `tests/console/test_conflicts_page.py`, now run against the orchestrator's routes in process through a client that signs nothing itself, so the console's own signing is what is checked. The refuse-route walk of `test_actor_routes` covers an unsigned call and a role without the right.
 - **Left:** the console's database role still lists the `omop` and `sitesetup` schemas (`deploy/docker/db-init/30-service-roles.sh`); taking them off is the role card's step, not this one.
