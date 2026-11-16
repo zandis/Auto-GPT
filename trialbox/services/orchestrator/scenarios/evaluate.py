@@ -676,6 +676,7 @@ NOTE_BLOCK_CODES = (
     "no_verifier",
     "same_model",
     "wake",
+    "waiting",
     "none",
     "failed",
     "single",

@@ -761,6 +761,25 @@ def test_the_boots_people_script_opens_each_account_with_a_one_time_code(box: di
     assert p.stderr.strip() == ""
 
 
+def test_the_boots_handoff_line_is_the_one_time_link(box: dict[str, Any]) -> None:
+    """D-776 (the owner's D-509): each person's line carries the one-time link <box>/enrol#u=<name>&c=<code>, the
+    code after '#' (never sent to the box), with the two values beside it for a browser without the page's script;
+    the boot gives the console its public address (TB_CONSOLE_PUBLIC_URL) and refuses a code not of the product's
+    form, and the first sign-in page carries the form the console's script fills from the link."""
+    from fastapi.testclient import TestClient
+
+    text = BOOT.read_text()
+    fmt = re.search(r"printf '(%s \(%s\): https://%s/enrol#u=%s&c=%s [^']*)\\n'", text)
+    assert fmt, "the handoff line is not the one-time link"
+    line = fmt.group(1).replace("%s", "{}").format("owner", "investigator", "203.0.113.7", "owner", "ab2c-3def-4ghj-5kmn",
+                                                   "owner", "ab2c-3def-4ghj-5kmn", "2026-11-18 23:40 UTC")  # fmt: skip
+    assert line.startswith("owner (investigator): https://203.0.113.7/enrol#u=owner&c=ab2c-3def-4ghj-5kmn  "), line
+    assert "TB_CONSOLE_PUBLIC_URL=https://$IP" in text
+    assert '[[ "$code" =~ ^[A-Za-z0-9-]+$ ]] || exit 4' in text
+    page = TestClient(box["app"], base_url="https://testserver").get("/enrol")
+    assert page.status_code == 200 and "data-enrol-link" in page.text, page.text[:400]
+
+
 def test_boot_caddyfile_is_tls_internal_on_443_only(tmp_path: Path) -> None:
     rc, out = _boot(tmp_path, "--print-caddyfile")
     assert rc == 0, out
