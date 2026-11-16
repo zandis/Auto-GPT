@@ -49,4 +49,4 @@ The real misses are fixed in a masking card with its adversarial review (lane B2
 
 The 20 Latin names of `phi_synth-en` still counted partial are labelled with their title (`Dr. Samuel Okafor`). The masker masks the name and keeps the title, as before; Presidio does the same.
 
-On the 106 public notes, phi_guard still flags nothing, and no decoy of either labelled set is newly hit. The adversarial review's leaks, over-masking and timing cases are tests in `tests/unit/test_phi_english_taiwan_charts.py`.
+On the 106 public notes, phi_guard still flags nothing, and no decoy of either labelled set is newly hit. The two adversarial reviews' leaks, over-masking and timing cases are tests in `tests/unit/test_phi_english_taiwan_charts.py`. One limit is kept on purpose (D-923): a romanised name with no label, no comma and no hyphen (`Chen Meiling`) is not read, because two capitalised words of a chart are too often a finding (`Lung Cancer`).

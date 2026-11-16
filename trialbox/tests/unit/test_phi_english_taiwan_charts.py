@@ -41,8 +41,9 @@ SHAPES = [
     ),
 ]
 # the adversarial review's leaks (fictional): whole names and addresses each must be masked
+# (a name with no label, no comma and no hyphen, Chen Meiling, is a known limit of D-923: see KNOWN_LIMIT)
 REVIEW_LEAKS = [
-    "Chen Meiling", "Chen Mei Ling", "Chen Mei'ling", "Chen M.L.", "MEI-LING CHEN", "CHEN MEILING", "CHEN, MEI LING",
+    "Chen Mei'ling", "Chen M.L.", "MEI-LING CHEN", "CHEN, MEI LING",
     "CHEN,MEI-LING", "Chen, Mei-Ling", "Ou Mei-Ling", "Liang Mei-Ling", "LIANG MEI-LING", "Ou-Yang Mei-Ling",
     "Sung Chih-Ming", "Tung Ya-Ting", "Hsia Pei-Shan", "Tien Kuan-Yu", "Kung Hui-Min", "Hsiung Chia-Hao",
     "No. 322, Section 4, Minsheng Road, Da'an District, Taipei City",
@@ -74,6 +75,34 @@ REVIEW_IN_TEXT = [
     ("mother-in-law 陳美玲", ["陳美玲"]),
     ("son 陳 美玲", ["陳 美玲"]),
     ("Name: 陳美玲 林志明", ["陳美玲", "林志明"]),
+]
+# the second review's leaks (fictional), each masked whole
+SECOND_LEAKS = [
+    "Chiou Yi-Ting", "Jhang Mei-Ling", "Syu Chia-Hao", "Shieh Pei-Shan", "Tsay Kuan-Yu", "Chen Szu-Yu",
+    "Lin Ssu-Yu", "Chen Erh-Kang", "Lin Kwei-Fen", "Chen Lin Mei-Ling", "CHEN LIN MEI-LING", "Chen, Meiling",
+    "Taipei City Da'an District Heping E. Rd. Sec. 1 No. 18 5F", "Jianguo Rd. No. 18",
+    "No. 18, 5F, Heping E. Rd., Da'an Dist.",
+    "No. 18, 12th Neighborhood, Fuxing Village, Dongshan Township, Yilan County",
+    "No. 18, Aly. 3, Ln. 2, Sec. 1, Nbhd. 4, Zhongshan Rd.",
+    "No. 3, Zhongshan Rd., Da’an Dist., Taipei City",
+    "No. 3, Zhongshan Rd., Luodong Town, Yilan County",
+    "No. 3, Zhongshan Rd., 4th Fl.",
+    "No. 3, Zhongshan Rd., Da'an Dist., Taipei City, Taiwan 106",
+]  # fmt: skip
+SECOND_IN_TEXT = [
+    ("VS: 陳美玲", ["陳美玲"]), ("son: 陳美玲", ["陳美玲"]), ("Nurse: 陳美玲", ["陳美玲"]), ("Pt: 陳美玲", ["陳美玲"]),
+    ("Resident: 陳美玲", ["陳美玲"]), ("Physician: 陳美玲", ["陳美玲"]), ("Attending physician: 陳美玲", ["陳美玲"]),
+    ("Primary nurse: 陳美玲", ["陳美玲"]), ("R1 陳美玲", ["陳美玲"]), ("NSP 陳美玲", ["陳美玲"]),
+    ("daughter 陳 美 玲", ["陳 美 玲"]), ("Name CHEN, MEI-LING", ["CHEN, MEI-LING"]), ("Dr. CHEN", ["CHEN"]),
+    ("Dr. J. Smith", ["J. Smith"]), ("Reviewed by J. Smith", ["J. Smith"]), ("Patient: Smith, John", ["Smith, John"]),
+    ("Patient: O'NEIL, MARY", ["O'NEIL, MARY"]), ("Dr. McDonald", ["McDonald"]),
+]  # fmt: skip
+# the second review's over-masking: two capitalised words of a chart are often a finding, a formula or a place
+SECOND_LEFT = [
+    "Lung Cancer; Dx: Lung Cancer; LUNG CANCER; Lung Lesion; Lung Tumor Board; Lower Lung Field; RIGHT LOWER LUNG",
+    "He Tender; Pan Neuro Exam; Sun Mon Tue; Senior Lee; Nurse Lan; Pending Ma",
+    "Tang Kuei; Ding Chuan; Lian Qiao; Kao Hsiung; Tao Yuan; Lin Kou; Tan Shui; Hua Lien",
+    "Kaohsiung Chang Gung; Chi Mei Medical Center; Yuan Lin Christian; Kuang Tien General",
 ]
 # what an English Taiwan chart holds that is no one's identifier: eponyms and hyphenated terms, drugs, departments,
 # a list number, a word after a label, a surname alone in a citation
@@ -121,6 +150,35 @@ def test_the_reviews_names_after_a_word_are_masked_whole(text: str, values: list
     for v in values:
         assert _masked(text, v), (v, pg.mask_note(text))
     assert pg.mask_note("Mr. CHEN was seen").startswith("Mr. ")  # the title is kept
+
+
+#: D-923's known limit: a romanised name with no label, no comma and no hyphen is not read (two capitalised words
+#: of a chart are too often a finding); after a label, a title or a relative's word it is
+KNOWN_LIMIT = ["Chen Meiling", "Chen Mei Ling", "CHEN MEILING"]
+
+
+@pytest.mark.parametrize("name", KNOWN_LIMIT)
+def test_the_known_limit_holds_and_a_label_closes_it(name: str) -> None:
+    assert pg.note_spans(f"seen {name} today") == []  # the limit, stated: it fails when the rule changes
+    for text in (f"Patient: {name}", f"Name: {name}", f"Dr. {name}", f"daughter {name}"):
+        assert _masked(text, name), (text, pg.mask_note(text))
+
+
+@pytest.mark.parametrize("text", SECOND_LEAKS)
+def test_the_second_reviews_leaks_are_masked_whole(text: str) -> None:
+    out = pg.mask_note(text)
+    assert all(c == pg.MASK_CHAR or c.isspace() for c in out), out
+
+
+@pytest.mark.parametrize(("text", "values"), SECOND_IN_TEXT)
+def test_the_second_reviews_names_after_a_word_are_masked_whole(text: str, values: list[str]) -> None:
+    for v in values:
+        assert _masked(text, v), (v, pg.mask_note(text))
+
+
+@pytest.mark.parametrize("text", SECOND_LEFT)
+def test_the_second_reviews_findings_are_left(text: str) -> None:
+    assert pg.note_spans(text) == [], [(k, text[a:b]) for k, a, b in pg.note_spans(text)]
 
 
 @pytest.mark.parametrize("text", LEFT_ALONE)
@@ -171,6 +229,11 @@ def test_the_gates_and_window_find_what_the_whole_note_gives(monkeypatch: pytest
         "Chen" + " " * 40000 + "Mei-Ling",
         "No. 1, " + "Ab " * 20000 + "Rd.",
         "No. 1, Ln. 2, " * 5000,
+        # the second review's: the Chinese order runs back from each "No" over the window's whole reach
+        "Taipei City " * 8000 + "No. 1",
+        ("Abc Rd. Sec. 1 " * 3 + "No. 1 ") * 3000,
+        "Chen Lin " * 10000 + "Mei-Ling",
+        "Szu-" * 20000,
     ],
 )
 def test_a_long_run_is_read_in_one_pass(text: str) -> None:
@@ -193,6 +256,7 @@ def test_the_address_window_reaches_past_the_longest_address(monkeypatch: pytest
     )
     texts = [
         longest,
+        "Taipei City Da'an District " + " ".join([word] * 4) + " Rd. Sec. 1, Ln. 12, Aly. 3, No. 18, 5F",
         "No. 12345-1234, Ln. 1234, Aly. 1234, Sec. 12, Kaohsiungxiaogangriverside Northeastern Riverside Boulevard, "
         "Xiaogangqianzhenlinhai Industrial Park Dist., Greater New Kaohsiung City 81245",
         "No. 8, B" + "a" * 150 + " Roadside clinic",
@@ -209,7 +273,7 @@ def test_the_guard_masks_the_same_shapes() -> None:
     """The guard reads the masker's spans: what the note masker masks, the guard does not let pass."""
     from guard.guard import Guard
 
-    for text, values in SHAPES + REVIEW_IN_TEXT:
+    for text, values in SHAPES + REVIEW_IN_TEXT + SECOND_IN_TEXT:
         out = Guard("^\\d{8}$").redact(text)
         for v in values:
             assert v not in out, (v, out)
