@@ -43,9 +43,12 @@ def _on(doc: dict[Any, Any]) -> dict[str, Any]:
 
 
 def test_by_hand_and_on_installer_pull_requests_never_on_a_schedule() -> None:
-    on = _on(_wf())
+    doc = _wf()
+    on = _on(doc)
     assert set(on) == {"workflow_dispatch", "pull_request"}
-    paths = on["pull_request"]["paths"]
+    # D-891: the installer path lives in the changes job (the trigger has no paths: a required check must always run)
+    assert "paths" not in on["pull_request"]
+    paths = doc["jobs"]["changes"]["steps"][0]["env"]["INSTALLER_PATHS"].split()
     assert set(INSTALLER_PATH) <= set(paths)
     assert ".github/workflows/trialbox-rehearse-box.yml" in paths
 
