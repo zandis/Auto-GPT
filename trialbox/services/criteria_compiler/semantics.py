@@ -77,6 +77,11 @@ def kind(atom: Atom) -> Kind:
     if atom.domain == "demographic":
         if atom.age is None and atom.sex is None:
             raise CompileError("demographic atom needs age and/or sex")
+        lo, hi = (atom.age.min, atom.age.max) if atom.age is not None else (None, None)
+        if (lo is not None and lo < 0) or (hi is not None and hi < 0):  # D-914
+            raise CompileError("an age bound below 0")
+        if lo is not None and hi is not None and lo > hi:  # D-914: matched by no one ("80 to 18")
+            raise CompileError(f"age range {lo} to {hi} is reversed")
         return Kind.DEMOGRAPHIC
     if atom.derived is not None:
         if atom.domain != "observation":
@@ -85,6 +90,9 @@ def kind(atom: Atom) -> Kind:
     if atom.duration is not None:
         if atom.domain != "medication" or atom.duration.min_days is None:
             raise CompileError("duration requires domain=medication and min_days")
+        if atom.duration.min_days <= 0:  # D-914 (lane G, case 10): "within 3 months" as at least -90 days, met by all
+            raise CompileError(f"duration of at least {atom.duration.min_days} days is met by everyone; a time limit "
+                               f"is a window, a duration a positive number of days")  # fmt: skip
         return Kind.MED_DURATION
     if atom.value is not None:
         if atom.domain != "observation":

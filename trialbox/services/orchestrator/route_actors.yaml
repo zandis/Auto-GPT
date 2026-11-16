@@ -25,6 +25,7 @@ refuse:
   - dataops               # NEW-SEC-4 (D-760): the steward's accept of a held night (dataops.decide)
   - datacore              # T-715f (D-799): the study's set-up, data entry and an SAE report's day sent
   - setup                 # T-715g (D-803): the site's set-up, the opt-out desk's pseudonym, the remote help switch
+  - omop_conflicts        # NEW-ARCH-3 slice 2 (D-865): the steward settles a clinical conflict (conflicts.resolve)
 
 report: []
 
@@ -60,6 +61,7 @@ reads_without_patient:
   GET /docs/oauth2-redirect: "FastAPI's own schema page"
   GET /redoc: "FastAPI's own schema page"
   GET /models: "the model registry's state and the box's status lines; counts, no patient"
+  GET /jobs/{job_id}/outputs-current: "D-863: whether a job's outputs are still current against the opt-out register; a yes or no, no patient, no count"
   GET /metrics: "counters of the service"
   GET /rulesets/{ruleset}: "a study's criteria, approved versions and drafts"
   GET /jobs: "job records (type, state, who asked, the names of their files); the rows are in the files, which the console reads from the object store"
@@ -81,6 +83,7 @@ reads_without_patient:
   GET /setup/{ws}/feasibility: "counts per criterion"
   GET /setup/terminology: "which licensed code lists are loaded"
   GET /setup/remote: "whether remote help is on"
+  GET /setup/instruments: "D-864: the instrument copyright switches (what the site keeps of each); no patient"
   GET /studies/{rs}/edc/map/suggest: "suggested field mappings"
   GET /registry: "per study, counts of the registry's states"
   GET /registry/{ruleset}/export.xlsx: "every chart number of a study; the handler verifies the signed person, role and studies itself (v2, D-273, S-09) and audits it"

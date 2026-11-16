@@ -95,3 +95,24 @@ def test_a_dry_run_goes_and_a_live_submission_stays(db_url: str) -> None:
     with Database.connect(db_url, "orch") as db:
         assert [r[0] for r in db.fetchall("SELECT job_id FROM submissions")] == ["J-live"]
     reg.close()
+
+
+# ---------------------------------------------------------------------------------------------- part 2b (D-862)
+def test_the_stored_equivalence_report_names_no_patient() -> None:
+    """The criteria compiler's equivalence sample is kept in the draft and the library's history: each disagreeing
+    patient is a case label there, never the pseudonym, and no evidence is kept (its resource ids lead back)."""
+    from criteria_compiler.equivalence.gate import without_pseudonyms
+    from tb_contracts import Disagreement, EquivalenceReport
+
+    d = [Disagreement(criterion_id="I1", pid=A, index_date="2026-11-01", cql=True, sql=False,
+                      evidence_cql=[f"Condition/c-{A}"], evidence_sql=f"obs {A}"),
+         Disagreement(criterion_id="I2", pid=A, index_date="2026-11-01", cql=False, sql=True),
+         Disagreement(criterion_id="I1", pid=C, index_date="2026-11-01", cql=True, sql=False)]  # fmt: skip
+    rep = EquivalenceReport.model_validate({"overall_pct": 50.0, "per_criterion": {"I1": 50.0, "I2": 50.0},
+                                            "failing": ["I1"], "sample_size": 2, "disagreements": d})  # fmt: skip
+    stored = without_pseudonyms(rep)
+    text = stored.model_dump_json()
+    assert A not in text and C not in text
+    assert [x.pid for x in stored.disagreements or []] == ["case-001", "case-001", "case-002"]
+    assert all(not x.evidence_cql and not x.evidence_sql for x in stored.disagreements or [])
+    assert stored.failing == rep.failing and stored.per_criterion == rep.per_criterion  # what the run reads back

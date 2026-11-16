@@ -98,6 +98,12 @@ CLEARS: dict[str, Clear] = {
             "the staged chart number and identity of the patient go; a later night stages them again (D-489)",
         ),
         Clear(
+            "held_mail",
+            f"{_W}:clear_held_mail",
+            f"{_W}:verify_held_mail",
+            "a held mail carrying an opted-out patient's own file is dropped: its request and recipients go (D-863)",
+        ),
+        Clear(
             "owed_tables",
             f"{_W}:clear_tables",
             f"{_W}:verify_tables",
@@ -180,6 +186,11 @@ TABLES: dict[str, Entry] = {
         "a model's answers (a verdict and a quote; no pseudonym column) kept only while their job is unfinished: "
         "deleted when the job ends in any state, and at the orchestrator's start for jobs finished or gone",
     ),
+    "orch.judged_pairs": _erase(
+        "owed_tables",
+        "the judged-pair store (D-908, D-519): a model's answer to a note question, by pseudonym; deleted at an "
+        "opt-out and with its snapshot (D-452); class D3, never exported",
+    ),
     "orch.jobs": _owed("a job's request may name a pseudonym (CASE, a reveal)"),
     "orch.submissions": _erase(
         "owed_tables",
@@ -206,7 +217,12 @@ TABLES: dict[str, Entry] = {
     **_each("sitesetup", ("local_code", "setting"), _CONFIG),
     "sitesetup.published": _none("a publish: when, snapshot, digest, counts"),
     "mail.intake": _none("a mail received: sender, action, job"),
-    "mail.send_keys": _owed("the outbox's send request while queued (attachments by key, recipients)"),
+    "mail.send_keys": _erase(
+        "held_mail",
+        "the outbox's send request while queued (attachments by key, a per-patient file's name, recipients)",
+        "a queued, uncertain or held mail of lists: its files are asked about before each send (D-863), its row stays "
+        "until a person or the send ends it; only a held mail of the patient's own file is dropped",
+    ),
     "mail.sent": _none("a mail sent: subject, recipients, tag"),
     **_each(
         "library",
@@ -413,16 +429,22 @@ TABLES: dict[str, Entry] = {
 # ------------------------------------------------------------------------------------------------ the lake
 # D-513 (the owner, 2026-11-15): the kept snapshots are not rebuilt; they are withheld on read and kept until
 # retention rewrites them. Every job's patient scope drops an opted-out pseudonym at receipt and again at publish,
-# audited by count (D-441); still owed: the criteria compiler's equivalence sample and a direct call of the lake's
-# /query (T-206b part 2b)
-_SNAPSHOTS = "withheld on read by every job's scope (D-441, D-860); the compiler's equivalence sample, direct /query"
+# audited by count (D-441); still owed (D-862): the criteria compiler's equivalence sample and a direct call of the
+# lake's /query
+_SNAPSHOTS = (
+    "withheld on read by every job's scope (D-441, D-860); still read whole: the criteria compiler's "
+    "equivalence sample (every patient) and a direct call of the lake's /query (D-862)"
+)
 LAKE: dict[str, Entry] = {
     "lake:ndjson": _owed("the nightly NDJSON extracts (3 nightly + month-ends kept)", _SNAPSHOTS),
     "lake:ndjson-rerun": _owed("a re-run of a promoted night until it passes the gate (D-271)", _SNAPSHOTS),
     "lake:db": _owed("the DuckDB snapshots (nightly and month-end) and their side files", _SNAPSHOTS),
     "lake:parquet": _owed("the Parquet copy of each snapshot", _SNAPSHOTS),
     "lake:site": _owed("facts the site set-up published, as NDJSON, by pseudonym"),
-    "lake:embed_cache.duckdb": _owed("vectors of note chunks by text hash, never pruned", "pruning by the patient"),
+    "lake:embed_cache.duckdb": _owed(
+        "vectors of note chunks by text hash, never pruned",
+        "pruning by the patient across every kept snapshot, with the nightly build not embedding them again (D-862)",
+    ),
     "lake:fhir_ledger": _owed("the FHIR sync ledger: resource ids and hashes per patient"),
     "lake:backfill": _owed("the back-fill's working copy of a year's extract"),
     "lake:tmp": _owed(
@@ -440,10 +462,14 @@ LAKE: dict[str, Entry] = {
 OBJECTS: dict[str, Entry] = {
     "objects:outputs": _owed(
         "job outputs: candidate and excluded lists, micro-batch pids (365 days); withheld on read (D-513, D-860): the "
-        "console's pages and downloads (a per-patient file by its patient), a submission and a feedback row",
-        "the mail of a job's outputs reads them at publish only (T-206b part 2b checks the rest)",
+        "console's pages and downloads (a per-patient file by its patient), a submission and a feedback row; the mail "
+        "outbox asks before each send (D-863)",
+        "kept until retention (D-513): other patients' pages read the same files, so no clear deletes them",
     ),
-    "objects:attachments": _owed("files mailed or uploaded to a job (consent forms, review sheets, case requests)"),
+    "objects:attachments": _owed(
+        "files mailed or uploaded to a job (consent forms, review sheets, case requests)",
+        "a CASE chart is parsed before the subject's opt-out is checked (D-862)",
+    ),
     "objects:ctgov": _none("public registry text and its parse"),
 }
 

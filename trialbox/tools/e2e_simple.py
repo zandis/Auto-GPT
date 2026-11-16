@@ -866,10 +866,12 @@ GOUT_COH_BEFORE_STEP7: dict[str, Any] = {
         },
     },
     "screen": {
-        # D-442: one patient under 18 at the index date has no eGFR now (unknown, not "not met"): to review
-        "funnel": {"S0": 3341, "S1": 10, "S3": 0, "S4": 10},
-        "listed": 10,
-        "tiers": {"excluded": 3331, "high": 5, "review": 5},
+        # D-442: one patient under 18 at the index date has no eGFR now (unknown, not "not met"): to review.
+        # D-914: 31 patients with no coded record of an inclusion's kind (no medication, no observation) read
+        # unknown on it, not "not met": to review, never excluded for a record that is not there (high unchanged)
+        "funnel": {"S0": 3341, "S1": 48, "S3": 0, "S4": 41},
+        "listed": 41,
+        "tiers": {"excluded": 3300, "high": 5, "review": 36},
     },
 }
 

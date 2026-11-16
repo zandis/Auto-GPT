@@ -464,7 +464,7 @@ def boot_state(serial: str, keep: int = 8) -> tuple[str, list[str]]:
 
 
 BOOT_STATE_TEXT = {
-    "ready": "boot: DEMO-VM-READY (the demo answers; `links` hands out the one-time codes)",
+    "ready": "boot: DEMO-VM-READY (the demo answers; `links` hands out the one-time links)",
     "not-ready": "boot: DEMO-VM-NOT-READY (the lines above say why; `down` then `up --yes` boots it again)",
     "refused": "boot: refused (the lines above say why; nothing listens on tcp:443)",
     "running": "boot: not ready yet (no DEMO-VM-READY marker; the seed takes about 5 to 10 minutes; run status again)",
