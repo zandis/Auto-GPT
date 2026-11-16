@@ -52,7 +52,11 @@ def test_terminology_steps() -> None:
     unmapped = t.map("condition", "psoriatic arthritis")
     assert unmapped.method == "none" and unmapped.needs_review
     via_llm = t.map(
-        "condition", "type 2 diabetes", llm=lambda n, d, cands: ([(cands[0].code, cands[0].system, 0.7)], True)
+        # TERM-1 (D-858): "type 2 diabetes" now resolves through ICD-10-CM itself; a name it cannot place still
+        # reaches the model's step with the curated rows as candidates
+        "condition",
+        "gout of an unusual sort",
+        llm=lambda n, d, cands: ([(cands[0].code, cands[0].system, 0.7)], True),
     )
     assert via_llm.method == "llm" and via_llm.needs_review
     vs = valueset("X", "VS_SBP", "SBP", t.map("observation", "systolic blood pressure").concepts, "1.0.0")
