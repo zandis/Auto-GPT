@@ -1541,6 +1541,10 @@ class SiteInfo(BaseModel):
     name: str
     tz: str
     locale: str = "zh-TW"
+    notes_language: Literal["auto", "en", "zh-TW", "ja"] = "auto"
+    """
+    D-983: the language the site's notes are written in, for every language-dependent choice of the screening cascade; auto reads it from each patient's notes, falling back to locale (the report language). The name and default await the owner.
+    """
     contact: str | None = None
 
 

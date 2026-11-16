@@ -622,7 +622,8 @@ def screen_with_cascade(
         purpose="screening",
         step_id=f"screen:{ctx.job.job_id}",
         confidence_floor=confidence_floor,
-        language=ctx.cfg.settings.site.locale or "en",
+        language=ctx.cfg.settings.site.locale or "en",  # the fallback only: the report's language (D-983)
+        notes_language=getattr(ctx.cfg.settings.site, "notes_language", None) or "auto",  # D-983
         sample_per_stratum=None,
         snapshot=snapshot,
         population=pids,
