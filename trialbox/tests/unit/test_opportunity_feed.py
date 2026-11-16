@@ -263,8 +263,12 @@ class _Lake:
         self.queries = 0
 
     def query(self, sql: str, params: list[Any], snapshot: str) -> pa.Table:
-        self.queries += 1
         pids = [f"P{i:04d}" for i in range(1, 11)]
+        from matching.batches import ALL_PATIENTS_SQL
+
+        if sql == ALL_PATIENTS_SQL:  # NEW-B-53: the snapshot's patients, asked before the funnel's batches
+            return pa.table({"pid": pids})
+        self.queries += 1
         cols: dict[str, list[Any]] = {"pid": pids}
         for i in range(len(self.applied)):
             cols[f"f{i}"] = [True] * 10
