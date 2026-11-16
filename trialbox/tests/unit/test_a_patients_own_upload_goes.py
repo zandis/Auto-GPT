@@ -57,3 +57,32 @@ def test_with_no_folder_the_uploads_are_never_called_cleared(svc: Any, db_url: s
         clear_setup_uploads(frozenset({pid("10000001")}), env)
     assert len(svc.store.inputs(WS)) == 1  # nothing deleted
     env.register.close()
+
+
+def test_an_upload_that_raced_the_clear_leaves_no_orphan(svc: Any, db_url: str) -> None:
+    """The review of D-869: facts of no upload and old files no row names are swept; a newer file is left."""
+    import os
+    import time
+
+    from datacore.optout_worker import clear_setup_uploads
+
+    c = svc.add_chart(WS, "10000002", "c.txt", CHART, "crc")
+    inputs = svc.root / WS / "inputs"
+    old, new = inputs / "999.txt", inputs / "998.txt"
+    old.write_text("synthetic orphan")
+    os.utime(old, (time.time() - 3600, time.time() - 3600))
+    svc.store.db.execute("INSERT INTO fact (ws, input_id, pid, domain, status, at) VALUES (?, 999, ?, 'dx', 'ok', 'n')",
+                         (WS, pid("10000001")))  # fmt: skip
+    env = _env(db_url, svc.root)
+    new.write_text("an upload whose row is on its way")
+    os.utime(new, (time.time() + 3600, time.time() + 3600))
+    clear_setup_uploads(frozenset({pid("10000001")}), env)
+    assert not old.exists() and new.exists() and _files(svc.root, c["input"])
+    assert all(f["input_id"] != 999 for f in svc.store.facts(WS))
+    env.register.close()
+
+
+def test_a_publish_skips_a_chart_deleted_under_it(svc: Any) -> None:
+    c = svc.add_chart(WS, "10000002", "c.txt", CHART, "crc")
+    (svc.root / WS / "inputs" / f"{c['input']}.lake.txt").unlink()
+    assert svc.chart_texts(WS) == []

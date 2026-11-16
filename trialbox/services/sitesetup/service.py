@@ -398,8 +398,13 @@ class SiteSetup:
         out = []
         for inp in self.store.inputs(ws, "chart"):
             p = self.root / f"{ws}/inputs/{inp['id']}.lake.txt"
-            if p.exists() and inp["pid"]:
-                out.append({"id": inp["id"], "pid": inp["pid"], "day": inp["ref_day"], "text": p.read_text("utf-8")})
+            if not inp["pid"]:
+                continue
+            try:  # the review of D-869: the opt-out worker may have deleted it since the rows were read
+                text = p.read_text("utf-8")
+            except FileNotFoundError:
+                continue
+            out.append({"id": inp["id"], "pid": inp["pid"], "day": inp["ref_day"], "text": text})
         return out
 
     def _batch_wait(self, last: dict[str, Any] | None) -> int:

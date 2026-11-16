@@ -497,7 +497,9 @@ OUTSIDE: dict[str, Entry] = {
     "outside:backups": _owed("every backup: the databases, the lake, the FHIR store", "the backups (with T-728)"),
     "outside:sitesetup_space_omop": _owed(
         "the OMOP store of a site set-up space other than the hospital's (schema omop_<hash of the space's lake "
-        "folder>, made by a publish while the lake is built from OMOP): the space's uploaded patients; Reset of "
+        "folder>, made by a publish while the lake is built from OMOP), and that space's own lake (its site files "
+        "and snapshot keep a deleted chart's text until the space is published again, D-869): the space's uploaded "
+        "patients; Reset of "
         "the space drops it whole (D-714)",
         "the opt-out's clear in a practice space's store",
     ),

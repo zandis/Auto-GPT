@@ -38,6 +38,7 @@ import json
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -513,20 +514,32 @@ def _setup_uploads(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[s
         return {"sitesetup.input": 0}
     with _open(url, "sitesetup") as db:
         rows = [(int(r[0]), str(r[1])) for r in db.fetchall("SELECT id, ws FROM input WHERE pid = ANY(?)", (want,))]
-        if not delete or not rows:
+        if not delete:
             return {"sitesetup.input": len(rows)}
         root = env.extra.get("setup_root")
-        if root is None:  # the uploads are there and their files cannot be reached: never called cleared
+        if root is None and rows:  # the uploads are there and their files cannot be reached: never called cleared
             raise RuntimeError("no site set-up folder for the uploads")
         for iid, ws in rows:  # the files first: a crash after them leaves the rows, and the next tick ends the job
-            for f in (Path(root) / ws / "inputs").glob(f"{iid}.*"):
+            for f in (Path(root) / ws / "inputs").glob(f"{iid}.*"):  # type: ignore[arg-type]
                 f.unlink(missing_ok=True)
         ids = [i for i, _ in rows]
         with db.transaction() as tx:
-            tx.execute("DELETE FROM check_item WHERE input_id = ANY(?)", (ids,))
-            tx.execute("DELETE FROM fix WHERE input_id = ANY(?)", (ids,))
-            tx.execute("DELETE FROM fact WHERE input_id = ANY(?)", (ids,))
-            tx.execute("DELETE FROM input WHERE id = ANY(?)", (ids,))
+            if ids:
+                tx.execute("DELETE FROM check_item WHERE input_id = ANY(?)", (ids,))
+                tx.execute("DELETE FROM fix WHERE input_id = ANY(?)", (ids,))
+                tx.execute("DELETE FROM fact WHERE input_id = ANY(?)", (ids,))
+                tx.execute("DELETE FROM input WHERE id = ANY(?)", (ids,))
+            # the review of D-869: an upload that raced the clear (its row gone before its facts were written) leaves
+            # facts of no upload; they belong to nothing, and go
+            tx.execute("DELETE FROM fact WHERE NOT EXISTS (SELECT 1 FROM input i WHERE i.id = fact.input_id)")
+            asked = time.time()
+            known = {int(r[0]) for r in tx.fetchall("SELECT id FROM input")}
+        if root is not None:  # and its files, which no row names (a row is written before its files); a file
+            # written after the ids were read may be an upload whose row came after them: left for the next tick
+            for f in Path(root).glob("*/inputs/*"):
+                head = f.name.split(".", 1)[0]
+                if head.isdigit() and int(head) not in known and f.stat().st_mtime < asked:
+                    f.unlink(missing_ok=True)
     return {"sitesetup.input": len(rows)}
 
 

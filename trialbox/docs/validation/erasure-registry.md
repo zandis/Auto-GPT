@@ -57,7 +57,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `orch.jobs` | T-206b | the clear | a job's request may name a pseudonym (CASE, a reveal) |
 | `outside:backups` | T-206b | the backups (with T-728) | every backup: the databases, the lake, the FHIR store |
 | `outside:fhir_store` | T-206b | the clear | the FHIR store (HAPI, database hapi): every resource of the patient |
-| `outside:sitesetup_space_omop` | T-206b | the opt-out's clear in a practice space's store | the OMOP store of a site set-up space other than the hospital's (schema omop_<hash of the space's lake folder>, made by a publish while the lake is built from OMOP): the space's uploaded patients; Reset of the space drops it whole (D-714) |
+| `outside:sitesetup_space_omop` | T-206b | the opt-out's clear in a practice space's store | the OMOP store of a site set-up space other than the hospital's (schema omop_<hash of the space's lake folder>, made by a publish while the lake is built from OMOP), and that space's own lake (its site files and snapshot keep a deleted chart's text until the space is published again, D-869): the space's uploaded patients; Reset of the space drops it whole (D-714) |
 | `pidmap.identity` | T-206b | the crypto-shred of the opted-out identity | the encrypted identity of the patient |
 | `recall.recall_known_positive` | T-206b | the clear | pid_hash: an unsalted hash of the pseudonym, linkable |
 | `recall.recall_observation` | T-206b | the clear | pid_hash: an unsalted hash of the pseudonym, linkable |
