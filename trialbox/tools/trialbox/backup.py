@@ -63,6 +63,7 @@ import subprocess
 import tarfile
 import tempfile
 import threading
+import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -110,6 +111,13 @@ LAKE_SKIP_TOP = ("tmp",)  # DuckDB spill (lake.store temp_dir default)
 # rebuild's swap never falls between the listing and the reads, and checked against their sidecars after the read
 LAKE_LOCKED = ("db", "parquet")
 LAKE_LOCK = ".rebuild.lock"
+# lane B2 (#639, 2026-11-16): the vector store is the one lake file written in place (a build adds embeddings to it),
+# by a build that holds its snapshot's build lock (locks/<snapshot>.build.lock) for the whole build, not the lake
+# lock. It goes to restic only while the lake is quiet: under the lake lock (no build can start) with every build
+# lock taken (none runs); a running build is waited for, up to LAKE_QUIET_WAIT_S (D-968)
+LAKE_STORE = ("embed_cache.duckdb", "embed_cache.duckdb.wal")
+LAKE_QUIET_WAIT_S = 3 * 3600
+LAKE_QUIET_POLL_S = 15
 FD_SPARE = 256  # PERF-011: files the backup keeps free for its own work while it holds the lake's files open
 
 
@@ -914,17 +922,22 @@ def _read_lake_files(
 
 
 def _add_lake_restic(
-    tar: tarfile.TarFile, root: Path, manifest: dict[str, Any], repo: _rr.Repo
+    tar: tarfile.TarFile,
+    root: Path,
+    manifest: dict[str, Any],
+    repo: _rr.Repo,
 ) -> tuple[int, dict[str, int]]:
     """PERF-010 (D-968): the lake's served files (``db/``, ``parquet/``) go to restic, the rest into the sealed
-    file. Under the lake's lock, held until restic has read them (a rebuild's swap waits for the whole read; lane
-    B2 may relax this to the listing only): the listing, each sidecar read into the sealed file, each served
+    file. Under the lake's lock, held until restic has read them (a rebuild's swap waits for the whole read; the
+    vector store needs it, lane B2's answer on #639): the listing, each sidecar read into the sealed file, each served
     file's sha256 (its sidecar's, else read once) and size recorded in ``manifest["restic"]``, and exactly those
-    files given to restic. A restore checks restic's files against that sealed record. The rest of the lake is read
-    after the lock, as before."""
-    with _lake_lock(root) as locked_ok:
+    files given to restic. A restore checks restic's files against that sealed record. The vector store
+    (``LAKE_STORE``, written in place by a build) goes to restic with them, so the lock is taken only while no build
+    runs (:func:`_quiet_lake`, lane B2's answer on #639). The rest of the lake is read after the lock, as before."""
+    with _quiet_lake(root, LAKE_QUIET_WAIT_S, LAKE_QUIET_POLL_S) as locked_ok:
         rels, left = select_files("lake", root)
         locked = [r for r in rels if Path(r).parts[0] in LAKE_LOCKED]
+        store = [r for r in rels if r in LAKE_STORE]  # lane B2: under the quiet lake, with the served files
         problems = _lake_listing_problems(root, locked)
         if problems:
             raise BackupError(f"the lake fails its own check ({problems[:3]}): a person looks at it "
@@ -935,7 +948,7 @@ def _add_lake_restic(
             arc = f"dirs/lake/{rel}"
             manifest["files"][arc], manifest["sizes"][arc] = _add_bytes(tar, data, arc, (root / rel).stat().st_mtime)
             sides[rel[: -len(".sha256")]] = _sidecar_sha(data)
-        served = [r for r in locked if not r.endswith(".sha256")]
+        served = [r for r in locked if not r.endswith(".sha256")] + store
         # review of D-968: every served file is read and hashed here, under the lock, and must match its sidecar,
         # as the path without restic requires: a rotted file or a wrong sidecar fails the backup tonight, not every
         # restore later. The (size, mtime) seen here must still hold once restic has read the file.
@@ -962,8 +975,8 @@ def _add_lake_restic(
                           "backup again")  # fmt: skip
     manifest["restic"] = {"repository": repo.path.name, "snapshot": snapshot, "root": str(root.resolve()),
                           "files": files}  # fmt: skip
-    n = len(locked)
-    for rel in [r for r in rels if Path(r).parts[0] not in LAKE_LOCKED]:
+    n = len(locked) + len(store)
+    for rel in [r for r in rels if Path(r).parts[0] not in LAKE_LOCKED and r not in store]:
         arc = f"dirs/lake/{rel}"
         try:
             manifest["files"][arc], manifest["sizes"][arc] = _add(tar, root / rel, arc)
@@ -972,6 +985,54 @@ def _add_lake_restic(
             continue
         n += 1
     return n, left
+
+
+@contextlib.contextmanager
+def _build_locks(root: Path) -> Iterator[list[str]]:
+    """Every ``locks/*.build.lock`` of the lake taken without waiting (``lake.store.BuildLock``'s lock), held for the
+    block; yields the snapshots whose build holds its lock now (an empty list: no build runs). Taken under the lake
+    lock, so a build cannot start meanwhile (it waits for the lake lock after its build lock, and a new one is told
+    the snapshot is building)."""
+    held: list[Any] = []
+    busy: list[str] = []
+    try:
+        for f in sorted((root / "locks").glob("*.build.lock")) if (root / "locks").is_dir() else []:
+            try:
+                fh = f.open("r")
+            except OSError:
+                continue
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                fh.close()
+                busy.append(f.name[: -len(".build.lock")])
+                continue
+            held.append(fh)
+        yield busy
+    finally:
+        for fh in held:
+            with contextlib.suppress(OSError):
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            fh.close()
+
+
+@contextlib.contextmanager
+def _quiet_lake(root: Path, wait_s: float, poll_s: float) -> Iterator[bool]:
+    """The lake lock with no build running (:func:`_build_locks`), waited for up to ``wait_s``: a build that runs is
+    let finish, the lake lock let go between looks. Yields whether the lake lock was taken (as :func:`_lake_lock`).
+    A build still running after ``wait_s`` fails the backup by name."""
+    deadline = time.monotonic() + wait_s
+    while True:
+        with _lake_lock(root) as locked_ok, _build_locks(root) as busy:
+            if not busy:
+                yield locked_ok
+                return
+        if time.monotonic() >= deadline:
+            raise BackupError(
+                f"a lake rebuild ran for the whole wait ({', '.join(busy)}; {int(wait_s)} s): the vector store is "
+                "written in place while a build runs, so it is not backed up then; run the backup after the rebuild"
+            )
+        time.sleep(poll_s)
 
 
 def _stat_key(path: Path) -> tuple[int, int] | None:
@@ -1003,9 +1064,12 @@ def _same_file(path: Path, sha: str, size: int) -> bool:
 
 
 def _manifest_rel_ok(rel: str) -> bool:
-    """A served lake file's path as a manifest may name it: relative, plain, under ``db/`` or ``parquet/``."""
+    """A lake file's path as a restic record may name it: relative, plain, under ``db/`` or ``parquet/``, or exactly
+    the vector store (``LAKE_STORE``)."""
     from pathlib import PurePosixPath
 
+    if rel in LAKE_STORE:
+        return True
     p = PurePosixPath(rel)
     return (not p.is_absolute() and bool(p.parts) and p.parts[0] in LAKE_LOCKED and "\\" not in rel
             and all(x not in ("", ".", "..") for x in rel.split("/")))  # fmt: skip

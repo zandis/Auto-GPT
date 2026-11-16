@@ -113,8 +113,9 @@ restic does the incremental backup, on these conditions:
     - Under the lock, each sidecar goes into the sealed `.tbbak`. Each served file's sha256 (from its sidecar, else
       read once) and size go into `manifest["restic"]`, with the snapshot id and the lake's root.
     - Exactly those files are given to restic. A listing that changed fails the backup.
-    - The rest of the lake (NDJSON, the vector store, the site inputs) and every other folder stay in the sealed
-      file, as before.
+    - The vector store (`embed_cache.duckdb`, and its `.wal` when there is one) goes to restic with them, hashed and
+      recorded the same way (lane B2's answer, below).
+    - The rest of the lake (NDJSON, the site inputs) and every other folder stay in the sealed file, as before.
   - After the sealed file is written and copied, every other target's repository gets the snapshot by `restic copy`.
     `forget --keep-last <keep>` applies to the snapshots as `keep` applies to the files.
   - On restore, `unpack`, `verify` and `restore` take the password. The CLI's `--restic-from-box` gives the box's
@@ -125,8 +126,23 @@ restic does the incremental backup, on these conditions:
       put where the tar would have put it. The rest of the restore is unchanged.
     - Without a password the lake is not given, and the message says how to open it.
   - A backup without `--restic` is unchanged.
-  - Lane B2: the lock is held for restic's whole read, which is safe whatever the answer. A served file is never
-    written in place (D-755), so a later card may let the lock go after the listing and retry a vanished file.
+  - **Lane B2's answer (#639, 2026-11-16).** A served file is never written in place: a date's DuckDB file, a
+    Parquet folder and the sidecars are swapped in by rename, so a snapshot sees the old file or the new one, and the
+    lake lock over the listing is enough for them. Two files are written in place: `source.jsonl` (appended once
+    per rebuild; it stays in the sealed file) and the vector store, `embed_cache.duckdb`. A build adds embeddings
+    to the vector store while it runs, and the store can be rebuilt only by embedding every chunk again (a long GPU
+    job), so it is backed up, and read only while no build writes it.
+    - B2 advised the rebuild lock (`.rebuild.lock`). A build, though, holds that lock only at its start and its
+      swap; for the whole build it holds its snapshot's build lock (`locks/<snapshot>.build.lock`), and that is
+      where the store is written. So the backup takes the lake lock (no build can start), then every build lock
+      without waiting (none runs). If a build runs, the backup lets go and looks again every 15 s, up to 3 hours,
+      then fails by naming the snapshot. An idle lock file left by an ended build does not stop it.
+    - The lock is still held for restic's whole read: the vector store needs it, and the served files are read in
+      the same pass.
+    - A restic record may name the vector store's two exact names besides `db/` and `parquet/` paths; nothing else.
+  - **Not in this card: the path without restic.** The single `.tbbak` that every box writes tonight reads the
+    vector store after the lake lock is let go (PERF-011, D-755), so a build that runs at that moment can be caught
+    mid-write. Raised on #639 as its own card.
   - The adversarial review (D-311) found seven defects, all fixed and tested:
     - **A wrong sidecar no longer passes.** Every served file is read and hashed under the lock and must match its
       sidecar, as on the path without restic, so a rotted file fails the backup tonight. Each file's (size, mtime)

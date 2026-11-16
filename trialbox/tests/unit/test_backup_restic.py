@@ -2,7 +2,8 @@
 night) go to restic; the ``.tbbak`` keeps everything else, encrypted to the hospital's key, and the lake's manifest
 (path, sha256, size) with the restic snapshot's id. A restore restores the snapshot and checks every file against
 that sealed manifest before anything is put in place. The served files are given to restic under the lake's lock,
-held for restic's whole read (a rebuild's swap waits; lane B2 may relax this to the listing only). restic is the
+held for restic's whole read (a rebuild's swap waits). The vector store, written in place by a build, goes with
+them while no build runs (lane B2's answer on #639). restic is the
 stand-in of tests/fixtures/restic; the keys and shares are made in tmp folders."""
 
 from __future__ import annotations
@@ -272,7 +273,19 @@ def test_each_site_has_its_own_repository_and_escrow_file_on_a_shared_target(sit
     assert rr.escrow_for(f) == ESCROW
 
 
-@pytest.mark.parametrize("rel", ["../../etc/cron.d/x", "/etc/passwd", "db/../../x", "objects/a.parquet", ""])
+@pytest.mark.parametrize(
+    "rel",
+    [
+        "../../etc/cron.d/x",
+        "/etc/passwd",
+        "db/../../x",
+        "objects/a.parquet",
+        "",
+        "embed_cache.duckdb.old",
+        "x/embed_cache.duckdb",
+        "embed_cache.duckdb/../x",
+    ],
+)
 def test_a_forged_restic_record_writes_nothing(site: dict[str, Any], tmp_path: Path, rel: str) -> None:
     """The sealed manifest is encrypted to the hospital's key, not signed: a path in it is checked before use."""
     f = tmp_path / "trialbox-CGMH-x.tbbak"
@@ -303,3 +316,79 @@ def test_a_restored_link_is_refused(tmp_path: Path) -> None:
 
     sha = hashlib.sha256(b"x").hexdigest()
     assert bk._same_file(target, sha, 1) and not bk._same_file(link, sha, 1)
+
+
+# lane B2 (#639): the vector store is written in place by a build, which holds its snapshot's build lock for the whole
+# build; it goes to restic with the served files, and only while no build runs
+
+
+def _store(lake: Path) -> bytes:
+    data = b"embeddings " * 64
+    (lake / "embed_cache.duckdb").write_bytes(data)
+    return data
+
+
+def _hold_build(lake: Path, snapshot: str) -> Any:
+    import fcntl
+
+    (lake / "locks").mkdir(exist_ok=True)
+    fh = (lake / "locks" / f"{snapshot}.build.lock").open("a")
+    fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)  # as lake.store.BuildLock takes it
+    return fh
+
+
+def test_the_vector_store_goes_to_restic_and_comes_back(site: dict[str, Any], tmp_path: Path) -> None:
+    data = _store(site["lake"])
+    f = _backup(site)
+    assert "dirs/lake/embed_cache.duckdb" not in _members(f, site["priv"], tmp_path)
+    out = tmp_path / "x"
+    m = bk.unpack(f, site["priv"], out, restic_pw=site["pw"])
+    assert "embed_cache.duckdb" in m["restic"]["files"]
+    assert (out / "dirs" / "lake" / "embed_cache.duckdb").read_bytes() == data
+
+
+def test_a_running_build_is_waited_for(site: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    _store(site["lake"])
+    monkeypatch.setattr(bk, "LAKE_QUIET_POLL_S", 0.05)
+    fh = _hold_build(site["lake"], "S")
+    seen: list[bool] = []
+    real = rr.Repo.backup
+
+    def backup(self: rr.Repo, root: Path, files: list[str], *, tag: str) -> str:
+        seen.append(fh.closed)  # restic reads only once the build has let go of its lock
+        return real(self, root, files, tag=tag)
+
+    monkeypatch.setattr(rr.Repo, "backup", backup)
+    threading.Timer(0.3, fh.close).start()  # the build ends
+    _backup(site)
+    assert seen == [True]
+
+
+def test_a_build_that_outlasts_the_wait_fails_the_backup_by_name(
+    site: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _store(site["lake"])
+    monkeypatch.setattr(bk, "LAKE_QUIET_WAIT_S", 0.2)
+    monkeypatch.setattr(bk, "LAKE_QUIET_POLL_S", 0.05)
+    called: list[int] = []
+
+    def backup(*a: Any, **k: Any) -> str:
+        called.append(1)
+        return "x"
+
+    monkeypatch.setattr(rr.Repo, "backup", backup)
+    fh = _hold_build(site["lake"], "2026-11-16")
+    try:
+        with pytest.raises(bk.BackupError, match=r"a lake rebuild ran for the whole wait \(2026-11-16"):
+            _backup(site)
+    finally:
+        fh.close()
+    assert not called
+    for t in (site["nas"], site["usb"]):
+        assert not list(t.glob("*.tbbak"))
+
+
+def test_an_idle_build_lock_file_does_not_stop_the_backup(site: dict[str, Any]) -> None:
+    _store(site["lake"])
+    _hold_build(site["lake"], "S").close()  # a build ran and ended: its lock file stays (BuildLock never deletes it)
+    _backup(site)
