@@ -44,13 +44,21 @@ When the audit drain copies these events into the chain, it also writes two appe
 Properties:
 - "Which records did X influence" is one indexed join: milliseconds at tens of millions of rows, well under the minute. The console's audit page gains this as a search, steward and admin only, because the answer names patients.
 - The tables are rebuildable. `tools.trialbox provenance --rebuild` rebuilds them from the chain, and `--check` diffs them against it (the doctor runs the check). The chain stays the one source of truth: if the index and the chain disagree, the chain wins and the doctor fails.
-- A `record_ref` names the record as the console and the erasure registry already do: (ruleset, pid, job, crit), (ruleset, version, crit), (draft id, field).
+- A `record_ref` names the record as the console and the erasure registry already do: (ruleset, pid, job, crit), (ruleset, version, crit), (draft id, field). The patient is named only by the pseudonym the chain already uses, never a chart number or free text: the chain is not erased.
 
 **5. Erasure.** On opt-out, `audit.model_uses` rows that name the patient are deleted, following the erasure registry's rule for the journal. The chain is append-only and keeps its events, as every other audit event does today. The judged-pair rows are already deleted on opt-out (D-908).
 
 **6. Export.** Mapping `prov` to FHIR (Provenance with an AI device, per the HL7 AI Transparency on FHIR guide) is a later export. The fields above are chosen so the mapping is direct (agent = the model build, entity = the input hashes, recorded = the time, the confirmer as a second agent). Nothing depends on the guide.
 
-## Open for the integrator
+## The integrator's reading (2026-11-16, #639): accepted as designed
 
-1. Whether the confirmer search belongs on the console audit page (steward and admin), or only on the CLI.
-2. Whether S1's SQL-only answers, which use no model, should say "no model" explicitly in the candidate list (proposed: an empty `prov`).
+1. The search is on the console's audit page, for steward and admin, and on the CLI.
+2. An S1 answer from SQL alone carries an explicit empty `prov`: "no model" is stated, not inferred from absence.
+
+One condition, part of the decision:
+
+- **Pseudonyms only.** Every `record_ref` written to the chain (`ai.used`, `ai.confirmed`) names a patient only by the pseudonym the chain already uses, never a chart number or free text, because the chain is not erased.
+
+**Build order:**
+1. The gap-closing: `prompt_sha` in the cascade's evidence, the real `build_sha` on SCREEN, `build_sha` on `llm.call`, the extraction's and the pre-fill's pointers.
+2. Then the index (`audit.model_calls`, `audit.model_uses`, rebuild and check) and the search.

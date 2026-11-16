@@ -64,6 +64,7 @@ Rules:
   - a patient adjudicated eligible whom a side excluded on a hard fail;
   - a patient a side passed who fails a safety exclusion. These are the ruleset's exclusions marked safety, or, if none are marked, every exclusion.
 - **Breakdowns:** everything is reported per study and per notes language (D-983's `notes_language` per patient: en, zh-TW, ja, unknown).
+- **Exceptions:** beside each figure, in the same table, the patients never answered and those answered only after a reveal.
 - **Small cells:** shown under the FEAS rule (D-18: below the site's small-cell threshold, shown as "<n").
 - **Its sentences** are measurements on this site's records. The report makes no claim beyond them and says so: the hospital decides what use it makes of them, and we make no real-data claim.
 
@@ -75,7 +76,7 @@ Rules:
 | Admin | The setting and the counts of sealed jobs and answers, never answers | The report |
 | Steward, privacy | As today (audit and erasure); the steward sees the seals and reveal events, not the answers | As today |
 
-The sealed files and both tables are phi under the existing retention (`settings.retention`), and opt-out erases them (the erasure registry gains the three tables).
+The sealed files and both tables are phi under the existing retention (`settings.retention`), and opt-out erases them. The erasure registry gains both tables, and the sealed files, in the card that creates them, with D-1032's rule for a patient who never consented.
 
 **8. How it stays honest**
 - The box's answers are fixed and hashed into the audit chain before any person answers (the seal), so they cannot move afterwards.
@@ -94,8 +95,15 @@ The sealed files and both tables are phi under the existing retention (`settings
 
 The console reads the box's answers through one route that applies the visibility rules above. No page reads the sealed files.
 
-## Open for the integrator
+## The integrator's reading (2026-11-16, #639): accepted as designed
 
-1. Whether the worksheet asks for every criterion, or (as proposed) the patient-level answer plus the reason criteria.
-2. Whether the agreeing sample for adjudication is 10%, or a fixed number per study.
-3. Whether a study may run evaluation and normal screening side by side for different coordinators. Proposed: no; one mode per study per period.
+1. The worksheet asks for the patient-level answer and the reason criteria; other criteria are optional (as proposed).
+2. The agreeing sample for adjudication is 10%, with a floor of 20 patients per study per period, or all of them if fewer than 20 agree.
+3. One mode per study per period: no side-by-side evaluation and normal screening.
+
+Two additions, part of the decision:
+
+- **Exceptions beside each figure.** The report states, next to each figure and in the same table (never a footnote), how many patients were never answered and how many were answered only after a reveal.
+- **Erasure in the same card.** `orch.evaluation_answers` and `orch.evaluation_adjudications` enter the erasure registry in the card that creates them, with D-1032's rule for a patient who never consented.
+
+**Build order.** Lane A2's half (the seal, the answers store, EVAL-REPORT) comes after D-987 and #911. Lane C2's card (section 9) is handed over through the integrator once lane A2's routes exist.
