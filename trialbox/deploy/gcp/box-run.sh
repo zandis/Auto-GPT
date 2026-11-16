@@ -28,6 +28,15 @@
 #       and a new tb-retry, which clears the run's end and the stopped step (its part kept in logs/), so that step
 #       runs again; lane G's accuracy tools are uploaded again and re-fetched; --only replaces the sets still to run
 #   deploy/gcp/box-run.sh --stop [<run id>]               # stop, check TERMINATED, put the VM back as it is kept
+#   --acc-protocols "set:RS1,RS2 ...": only these protocols of a set. Checked HERE before anything starts (D1): every
+#       id must be one of the set's on the box, whose prefix is the set's letter and --acc-rs-tag (tag m2 makes
+#       TCGA-BRCA Gm2TCGA-BRCA). Free listing: tools/box_run.py acc-ids --only SETS --rs-tag T [--protocols ...]
+#   --acc-streams "set:n ...": protocols of a set in flight at once. Default (D7): 3 for a compile-bound set (sigir,
+#       trec, trec2023, tfda, jrct, chia: tools/box_run.py compile_bound), 1 for the others; the report says how many
+#       were in flight. --resume keeps --acc-rs-tag from the launch unless it is given again (D3).
+#   --src-bundle FILE (build, dev): the release commit's git bundle, proved here (cloned into a temporary folder and
+#       the commit checked out: tools/box_run.py src-bundle --check) and only then uploaded to r2/<ID>/src.bundle
+#       (D8). Make one with: tools/box_run.py src-bundle --commit <sha> --out FILE (never from a shallow checkout).
 #
 # What a launch does (each gcloud call through `gc`, deploy/gcp/gcloud-auth.sh: timeouts, re-activation):
 #   1. refuses unless the VM is TERMINATED, TB_BUCKET is set and the plan's inputs are there;
@@ -46,6 +55,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PY="${PY:-$ROOT/.venv/bin/python}"
 DRY=0; WAIT=1; FOLLOW=0; ESTIMATE=0; STOP=0; COLLECT=""; RESUME=""; STEPS=""; MODE=production; ONLY=""; ANYWAY=0
+SRC_BUNDLE=""
 declare -A V=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -78,6 +88,7 @@ while [ $# -gt 0 ]; do
     --qualify-args) V[tb-qualify-args]="$2"; shift 2 ;;
     --qualify-timebox) V[tb-qualify-timebox]="$2"; shift 2 ;;   # the owner's probe: qualify ended after N seconds
     --acc-deadline) V[tb-acc-deadline]="$2"; shift 2 ;;         # each set's time budget, seconds (a probe)
+    --acc-min-start) V[tb-acc-min-start]="$2"; shift 2 ;;       # D4: seconds of a set's budget a protocol needs to start (600)
     --progress-seconds) V[tb-progress-seconds]="$2"; shift 2 ;;
     --acc-protocols) V[tb-acc-protocols]="$2"; shift 2 ;;   # "set:RS1,RS2 ...": only these protocols of the set
     --site-env) V[tb-site-env]="$2"; shift 2 ;;
@@ -86,6 +97,7 @@ while [ $# -gt 0 ]; do
     --acc-streams) V[tb-acc-streams]="$2"; shift 2 ;;
     --serving) V[tb-serving]="$2"; shift 2 ;;               # shipped | tuned (the owner's exception, this box only)       # "set:n ...": protocols in flight at once per set              # steps left out of the launch, each said (never a pass)         # a second run on one box: new ruleset ids (F29)             # "TB_MEM_EMBED=16g ...": the site's deploy/.env limits
     --redo) V[tb-redo]="${2//,/ }"; shift 2 ;;   # with --resume: these steps run again (an acc set from no work)   # qualify's own size options, e.g. "--items 60 --repeat-items 40"   # 02: the installed tree brought up with the product's tools, no install.sh   # read the VM's (and after the install the box's) facts, then stop
+    --src-bundle) SRC_BUNDLE="$2"; shift 2 ;;
     --bundle) V[tb-bundle]="$2"; shift 2 ;;
     --bundle-sha256) V[tb-bundle-sha256]="$2"; shift 2 ;;
     -h|--help) sed -n 2,45p "$0"; exit 0 ;;
@@ -104,6 +116,16 @@ vcheck() {  # validation mode with acc: can a VALIDATION box route the run's cal
   "$PY" -c 'import json,sys; [print("  -", b) for b in json.load(open(sys.argv[1]))["blockers"]]' "${1:-/dev/null}" >&2 2>/dev/null || true
   return 1
 }
+# D1 (P1b review): a protocol filter is checked against the ids the sets get on the box before anything is started
+# or uploaded (free, local); a filter that matches no protocol, or names an id the set lacks, refuses the launch
+if [ -n "${V[tb-acc-protocols]:-}" ]; then
+  if [ -n "$RESUME" ] && [ -z "$ONLY" ]; then acc_only="$(cat "${TB_BOXRUN_DIR:-$ROOT/.cache/box-run/$RESUME}/md/tb-acc-sets" 2>/dev/null | tr ' ' ,)"
+  else acc_only="$ONLY"; fi
+  acc_tag="${V[tb-acc-rs-tag]:-}"
+  [ -n "$acc_tag" ] || [ -z "$RESUME" ] || acc_tag="$(cat "${TB_BOXRUN_DIR:-$ROOT/.cache/box-run/$RESUME}/md/tb-acc-rs-tag" 2>/dev/null || true)"
+  br acc-ids --only "$acc_only" --rs-tag "$acc_tag" --protocols "${V[tb-acc-protocols]}" > /dev/null \
+    || { echo "box-run: refused (no VM started): --acc-protocols matches no protocol of its set (see above; tools/box_run.py acc-ids lists the ids)" >&2; exit 2; }
+fi
 if [ "$ESTIMATE" = 1 ]; then
   br estimate --steps "${STEPS:-build start g6 g9 g10}" --mode "$MODE" --only "$ONLY"
   vcheck "$(mktemp)" || true
@@ -235,7 +257,7 @@ if [ -n "$RESUME" ]; then
   fi
   # one launch's own asks (F24): a step to run again and a set budget hold for the launch that names them, never
   # for the next resume (a redo sent twice would throw away the set it just ran)
-  for k in tb-redo tb-acc-deadline tb-acc-protocols tb-site-env tb-acc-streams tb-skip tb-serving tb-qualify-timebox; do
+  for k in tb-redo tb-acc-deadline tb-acc-min-start tb-acc-protocols tb-site-env tb-acc-streams tb-skip tb-serving tb-qualify-timebox; do
     if [ -n "${V[$k]:-}" ]; then
       printf '%s' "${V[$k]}" > "$OUT/md/$k"
       case ",$RFILES," in *",$k="*) ;; *) RFILES="$RFILES,$k=$OUT/md/$k" ;; esac
@@ -244,6 +266,13 @@ if [ -n "$RESUME" ]; then
       rm -f "$OUT/md/$k"; RFILES=$(printf '%s' "$RFILES" | sed "s|,$k=[^,]*||")
     fi
   done
+  # D3 (P1b review): the ruleset tag holds for the run (its sets were built with it): kept from the launch, and
+  # replaced when this resume gives one (a redone set is then built with the new tag)
+  if [ -n "${V[tb-acc-rs-tag]:-}" ]; then
+    printf '%s' "${V[tb-acc-rs-tag]}" > "$OUT/md/tb-acc-rs-tag"
+    case ",$RFILES," in *,tb-acc-rs-tag=*) ;; *) RFILES="$RFILES,tb-acc-rs-tag=$OUT/md/tb-acc-rs-tag" ;; esac
+    grep -qw tb-acc-rs-tag "$OUT/metadata-keys" || echo "$(cat "$OUT/metadata-keys") tb-acc-rs-tag" > "$OUT/metadata-keys"
+  fi
   if [ -n "${V[tb-qualify-args]:-}" ]; then
     printf '%s' "${V[tb-qualify-args]}" > "$OUT/md/tb-qualify-args"
     case ",$RFILES," in *,tb-qualify-args=*) ;; *) RFILES="$RFILES,tb-qualify-args=$OUT/md/tb-qualify-args" ;; esac
@@ -297,6 +326,14 @@ else
       V[tb-answers-secret]="${V[tb-answers-secret]:-tb-r2-answers}"; V[tb-answers-version]="${V[tb-answers-version]:-1}"
     fi ;;
   esac
+fi
+if [ -n "$SRC_BUNDLE" ]; then  # D8: the source bundle proved (cloned, the commit checked out) before it is uploaded
+  case " $STEPS " in *" build "*|*" dev "*) ;; *) echo "box-run: --src-bundle is for a build or dev launch" >&2; exit 2 ;; esac
+  [ -n "${V[tb-commit]:-}" ] || { echo "box-run: --src-bundle needs --commit" >&2; exit 2; }
+  br src-bundle --commit "${V[tb-commit]}" --check "$SRC_BUNDLE" > "$OUT/src-bundle.json" \
+    || { echo "box-run: refused (no VM started): the source bundle does not give commit ${V[tb-commit]} (see $OUT/src-bundle.json)" >&2; exit 2; }
+  gc storage cp "$SRC_BUNDLE" "${V[tb-src]}" >/dev/null
+  echo "source bundle proved (commit ${V[tb-commit]} checks out from it) and uploaded to ${V[tb-src]}"
 fi
 case " $STEPS " in *" acc "*)  # the public-data run turns the PHI tripwire off by its declared setting (D-506, D-511)
   [ "$MODE" != validation ] || V[tb-acc-tripwire-setting]="${V[tb-acc-tripwire-setting]:-TB_GATEWAY_PHI_TRIPWIRE=off}" ;;

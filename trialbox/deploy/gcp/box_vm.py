@@ -850,7 +850,7 @@ class Box:
             lines: list[str] = []
             for line in p.stdout:
                 lines.append(line)
-                lf.write(line if len(line) <= 4000 else line[:2000] + " ... (cut)\n")
+                lf.write(log_line(line))
                 lf.flush()
                 if self.beat is not None:
                     self.beat.touch()
@@ -864,6 +864,28 @@ class Box:
         if not last:
             raise RuntimeError(f"{svc} onbox {cmd}: no answer")
         return json.loads(last[-1])
+
+
+def log_line(line: str, cap: int = 4000) -> str:
+    """One onbox answer line as box-calls.log keeps it. D6 (P1b review): an answer that carries files (``fetch``: the
+    draft zip, the review workbook, the lists, base64) is written with each file's size and sha256 in place of its
+    bytes, so nothing of it is cut and the log names exactly what came; any other line longer than ``cap`` is cut."""
+    if len(line) <= cap:
+        return line
+    with suppress(ValueError):
+        obj = json.loads(line)
+        if isinstance(obj, dict) and isinstance(obj.get("files"), dict):
+            files = {}
+            for k, v in obj["files"].items():
+                try:
+                    raw = base64.b64decode(str(v), validate=True)
+                except ValueError:
+                    raw = str(v).encode()
+                files[k] = {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+            short = json.dumps({**obj, "files": files}, ensure_ascii=False)
+            if len(short) <= cap * 4:
+                return short + "  (files: size and sha256, not their bytes)\n"
+    return line[: cap // 2] + " ... (cut)\n"
 
 
 def _save(path: Path, obj: Any) -> None:
@@ -889,6 +911,7 @@ def acc_set(
     protocols: list[str] | None = None,
     earlier: list[Path] | None = None,
     streams: int = 1,
+    min_start_s: float = 600.0,
 ) -> dict[str, Any]:
     """One accuracy set on the installed box (see the module docstring). Resumable from ``work/progress.json``.
 
@@ -901,13 +924,28 @@ def acc_set(
     (``approved_in``).
 
     ``deadline_s`` (0: none): the set's own time budget from its first start (kept in ``work/set-clock.json``, so a
-    resumed set counts its earlier boots). Past it no new protocol is started (each left one is ``not_run_time_budget``)
-    and no job is waited for longer than what is left (at least a minute), so one stuck call cannot hold the run.
-    ``answers.json`` is rewritten after every protocol: a stop keeps every finished protocol."""
+    resumed set counts its earlier boots). D4 (P1b): no protocol is started when less than its expected time is left
+    (``min_start_s``, or the mean of this set's protocols that went through, whichever is longer), and no job is
+    waited for longer than what is left (at least a minute), so one stuck call cannot hold the run. A protocol not
+    started, or cut off by the budget while a job of it was waited for, is ``not_run_time_budget`` (never
+    ``timeout_feas``): its started jobs are kept, and a later attempt with time left (a resume with a larger budget)
+    takes it up again and waits for them. ``answers.json`` is rewritten after every protocol: a stop keeps every
+    finished protocol.
+
+    ``streams``: protocols in flight at once; the result says the most that were (``in_flight_max``)."""
     ids = json.loads((built / "gold" / "ids.json").read_text(encoding="utf-8"))
     protos = sorted((built / "site" / "protocols").glob("*.txt"))
-    if protocols:
+    if protocols:  # D1 (P1b): a filter naming an id the set lacks stops the set, it is never a pass over nothing
+        have = {p.stem for p in protos}
+        unknown = [x for x in protocols if x not in have]
+        if unknown:
+            raise ValueError(
+                f"--protocols names {', '.join(unknown)}, not a protocol of set {name} (its ids: "
+                f"{', '.join(sorted(have)[:12])}{' ...' if len(have) > 12 else ''})"
+            )
         protos = [p for p in protos if p.stem in set(protocols)]
+    if not protos:
+        raise ValueError(f"set {name} has no protocol to run")
     prog_p = work / "progress.json"
     prog: dict[str, Any] = json.loads(prog_p.read_text(encoding="utf-8")) if prog_p.exists() else {}
     before: dict[str, Any] = {}  # per ruleset: the newest earlier attempt that approved it
@@ -945,36 +983,73 @@ def acc_set(
 
     def wait(job: str, until: tuple[str, ...]) -> dict[str, Any]:
         t = max(60.0, min(job_s, left()))
-        return dict(box.call("mail-gateway", "wait", {"job": job, "until": list(until), "timeout_s": t,
-                                                      "poll_s": poll_s}))  # fmt: skip
+        j = dict(box.call("mail-gateway", "wait", {"job": job, "until": list(until), "timeout_s": t,
+                                                   "poll_s": poll_s}))  # fmt: skip
+        # D4: a wait the set's budget shortened (not the job's own limit) and that ran out is the budget's cut
+        j["cut_by_budget"] = j.get("waited") == "timeout" and t < job_s and left() <= 60.0
+        return j
 
     lock = threading.Lock()
+    gave_up: list[dict[str, Any]] = []
+    flight = {"now": 0, "max": 0}
+    took: list[float] = []  # seconds of each protocol of this attempt that went through (D4's expected time)
 
-    def _retry(fn: Any) -> None:  # another stream may change the progress while it is written: write again
+    def _retry(fn: Any, what: str) -> None:  # another stream may change the progress while it is written: write again
+        err = ""
         for _ in range(20):
             try:
                 with lock:
                     fn()
                 return
-            except RuntimeError:
+            except RuntimeError as exc:
+                err = str(exc)
                 time.sleep(0.05)
+        # D6 (P1b): never silent: said on stderr (the step's log) and kept beside the work (and in the result)
+        row = {"what": what, "tries": 20, "error": err[:300], "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        gave_up.append(row)
+        print(f"acc-set {name}: gave up writing {what} after 20 tries: {err[:300]}", file=sys.stderr, flush=True)
+        with suppress(OSError, ValueError, RuntimeError):
+            _save(work / "save-give-ups.json", gave_up)
 
     def save() -> None:
-        _retry(lambda: _save(prog_p, prog))
+        _retry(lambda: _save(prog_p, prog), "progress.json")
 
     def answers() -> None:
-        _retry(lambda: _answers(work, prog))
+        _retry(lambda: _answers(work, prog), "answers.json")
+
+    def need_s() -> float:  # D4: what a protocol is expected to take, at the least min_start_s
+        return max(min_start_s, sum(took) / len(took)) if took else min_start_s
+
+    def cut(a: dict[str, Any]) -> None:  # D4: the budget cut it: picked up again by an attempt with time left
+        a.update(outcome="not_run_time_budget", finished=True)
+        save()
 
     def one(proto: Path) -> None:
+        with lock:
+            flight["now"] += 1
+            flight["max"] = max(flight["max"], flight["now"])
+        try:
+            t0 = used()
+            one_(proto)
+            if (prog.get(proto.stem) or {}).get("outcome") in ("screened", "compiled"):
+                took.append(used() - t0)
+        finally:
+            with lock:
+                flight["now"] -= 1
+
+    def one_(proto: Path) -> None:
         rs = proto.stem
         a = prog.setdefault(rs, {"ruleset": rs})
         tick()
+        if a.get("finished") and a.get("outcome") == "not_run_time_budget" and left() > need_s():
+            a.pop("finished", None)  # D4: cut by an earlier budget, and there is time now: its jobs are waited for
+            a.pop("outcome", None)
         if prog.get(rs, {}).get("finished"):
             answers()
             return
-        if left() <= 0 and "feas_job" not in a:  # the set's time budget is spent: nothing new is started
-            a.update(outcome="not_run_time_budget", finished=True)
-            save()
+        started = any(k in a for k in ("feas_job", "approve_job", "screen_job"))
+        if not started and left() < need_s():  # D4: too little of the budget left to start a protocol
+            cut(a)
             return
         answers()
         # --- FEAS with the protocol attached, from the coordinator
@@ -989,6 +1064,9 @@ def acc_set(
             save()
         j = wait(a["feas_job"], FEAS_ENDS)
         a["feas"], a["feas_error"], a["version"] = j.get("state"), j.get("error"), j.get("ruleset_version")
+        if j["cut_by_budget"]:
+            cut(a)
+            return
         if j.get("waited") == "timeout":
             a.update(outcome="timeout_feas", finished=True)
             save()
@@ -1037,6 +1115,9 @@ def acc_set(
             save()
         j = wait(a["approve_job"], JOB_ENDS)
         a["approve"], a["approve_error"] = j.get("state"), j.get("error")
+        if j["cut_by_budget"]:
+            cut(a)
+            return
         if a["approve"] != "done":
             a.update(outcome="approve_" + str(a["approve"]), finished=True)
             save()
@@ -1054,6 +1135,9 @@ def acc_set(
         j = wait(a["screen_job"], JOB_ENDS)
         a["screen"], a["screen_error"] = j.get("state"), j.get("error")
         a["screen_metrics"] = j.get("metrics")
+        if j["cut_by_budget"]:
+            cut(a)
+            return
         files = box.call("mail-gateway", "fetch", {"job": a["screen_job"], "suffixes": [".json"],
                                                    "prefixes": ["candidate_list_", "excluded_"]})["files"]  # fmt: skip
         pats: dict[str, Any] = {}
@@ -1103,8 +1187,11 @@ def acc_set(
     counts.setdefault("refused_by_tripwire", 0)
     counts["patients_answered"] = sum(len(a.get("patients") or {}) for a in prog.values())
     want = "compiled" if compile_only else "screened"
-    return {"set": name, "counts": counts, "pass": counts.get(want, 0) == len(protos),
-            "seconds": round(used(), 1), "deadline_s": deadline_s or None}  # fmt: skip
+    # D1: a set of no protocol never passes (acc_set refuses one above; this is the result's own rule)
+    return {"set": name, "counts": counts, "pass": bool(protos) and counts.get(want, 0) == len(protos),
+            "seconds": round(used(), 1), "deadline_s": deadline_s or None,
+            "streams": max(1, streams), "in_flight_max": flight["max"],
+            "save_give_ups": len(gave_up)}  # fmt: skip
 
 
 def _answers(work: Path, prog: dict[str, Any]) -> None:
@@ -1116,6 +1203,7 @@ def _answers(work: Path, prog: dict[str, Any]) -> None:
             "feas_error": a.get("feas_error"),
             "draft": a.get("draft") or [],
             "approve": a.get("approve"),
+            "approve_error": a.get("approve_error"),  # D6 (P1b): why an approval failed, kept for the reader
             "approved_in": a.get("approved_in"),
             "screen": a.get("screen"),
             "screen_error": a.get("screen_error"),
@@ -1281,6 +1369,12 @@ def main(argv: list[str] | None = None) -> int:
     ac.add_argument(
         "--streams", type=int, default=1, help="protocols in flight at once (the orchestrator's job workers)"
     )
+    ac.add_argument(
+        "--min-start-s",
+        type=float,
+        default=600.0,
+        help="D4: no protocol is started with less of the set's budget left (or its measured mean, if longer)",
+    )
     ac.add_argument("--notes")
     ac.add_argument("--beat", type=Path)
     cl = sub.add_parser("acc-call")
@@ -1363,7 +1457,7 @@ def main(argv: list[str] | None = None) -> int:
                           compile_only=a.compile_only, job_s=a.job_minutes * 60, poll_s=a.poll,
                           deadline_s=a.deadline_s,
                           protocols=[x for x in a.protocols.split(",") if x] or None,
-                          earlier=a.earlier, streams=a.streams)  # fmt: skip
+                          earlier=a.earlier, streams=a.streams, min_start_s=a.min_start_s)  # fmt: skip
         except (RuntimeError, OSError, ValueError) as exc:
             print(f"acc-set {a.set}: {exc}", file=sys.stderr)
             return 1

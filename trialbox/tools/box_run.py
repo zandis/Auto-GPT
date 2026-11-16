@@ -11,6 +11,10 @@ installer, and every test run on that installed box (deploy/gcp/box-install-run.
     python -m tools.box_run results RESULTS.tgz|DIR [--out DIR]   # summary.json and report.md: checks per test,
                                                                  # and what every result names (provenance)
     python -m tools.box_run acc-score DIR                  # each accuracy set's answers against its gold, here
+    python -m tools.box_run acc-ids [--only SETS] [--rs-tag T] [--protocols "set:RS1,RS2 ..."]   # free: the
+                                                                 # ruleset ids a filter matches, refused if none
+    python -m tools.box_run src-bundle --commit SHA --out FILE   # the release commit's git bundle, proved
+    python -m tools.box_run src-bundle --commit SHA --check FILE # a bundle made by hand, proved
 
 Modes (``--mode``): ``production`` (the default) builds with the vendor key from Secret Manager and starts the box
 the box's way (box-install.sh and the first-run wizard: a PRODUCTION box). ``validation`` (the owner's ruling of
@@ -81,6 +85,21 @@ ACC_TOOL_PATHS = (
     "tools/fetch_pinned.py",
     "eval/criterion_ml",
 )
+
+
+# D7 (P1b review): a set whose time is its compiles (many protocols, one after another: the run had 1 in flight and
+# the card at 22 % on average) runs this many protocols at once unless --acc-streams says otherwise; the
+# orchestrator runs 4 jobs side by side (TB_WORKERS) and keeps one for the ingest. A set of a few protocols (jmed,
+# tcga) is bound by its SCREENs and is left at one. The VM script holds the same list (acc_streams_default).
+COMPILE_BOUND_STREAMS = 3
+COMPILE_BOUND_MIN_PROTOCOLS = 50
+
+
+def compile_bound(name: str) -> bool:
+    """Whether a Run A set is compile-bound (:data:`COMPILE_BOUND_STREAMS` in flight by default)."""
+    from tools.public_accuracy import plan
+
+    return plan.acc_set(name).protocols >= COMPILE_BOUND_MIN_PROTOCOLS
 
 
 def acc_sets(only: str = "") -> list[tuple[str, int]]:
@@ -436,6 +455,10 @@ def metadata(
         "tb-max-minutes": str(sum(group_cap(g, sets) for g in groups) * 60 - 5),
     }
     if "acc" in groups:
+        if values.get("tb-acc-protocols"):  # D1: a filter that matches no protocol stops the launch here, not on the VM
+            chk = acc_ids(only, values.get("tb-acc-rs-tag", ""), values["tb-acc-protocols"])
+            if chk["refused"]:
+                raise ValueError("--acc-protocols: " + "; ".join(chk["refused"]))
         vals["tb-acc-sets"] = " ".join(f"{n}:{z}" for n, z in sets)
         # each set's plan high bound in seconds at its size: the VM's time budget per set (box-install-run.sh)
         highs = [r for r in acc_rows(sets) if r["seconds"] is not None]
@@ -636,6 +659,9 @@ def acc_checks(d: Path | None, parts: dict[str, Any], routes: dict[str, Any]) ->
                 "pass": v.get("pass"),
                 "detail": {
                     "counts": counts,
+                    # D7: how many protocols were in flight at once (asked, and the most there were)
+                    "streams": det.get("streams") or 1,
+                    "in_flight_max": det.get("in_flight_max"),
                     "refused_by_tripwire": counts.get("refused_by_tripwire"),
                     "uploaded": det.get("uploaded"),
                     "score": score.get("summary") if isinstance(score, dict) else None,
@@ -712,7 +738,7 @@ def acc_score(d: Path) -> dict[str, Any]:
         res["summary"] = {
             k: (v.get("summary") if isinstance(v, dict) and "summary" in v else v)
             for k, v in res.items()
-            if k in ("pairs", "criteria", "compile_pairs", "chia", "compiled")
+            if k in ("pairs", "criteria", "compile_pairs", "chia", "compiled", "written_lines")
         }
         (sd / "score.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
         if res.get("not_scored_because"):
@@ -720,6 +746,122 @@ def acc_score(d: Path) -> dict[str, Any]:
             continue
         out[sd.name] = {"scored": True, "summary": res.get("summary") if isinstance(res, dict) else None}
     return out
+
+
+# ------------------------------------------------------------------------------------------------ protocol ids (D1)
+def acc_ids(only: str = "", rs_tag: str = "", protocols: str = "", cache: Path | None = None) -> dict[str, Any]:
+    """Free and local: per set of the launch, the ruleset prefix its ids carry on the box (the set's letter and the
+    ``--acc-rs-tag``: tag ``m2`` makes TCGA-BRCA ``Gm2TCGA-BRCA``), the ids where they can be known here (a set of
+    fixed protocols: tcga, jmed; else a sampled set whose source files are in the local cache), and what a
+    ``--acc-protocols`` filter ("set:RS1,RS2 set2:RS3") matches. ``refused`` names every entry that cannot match: a
+    set not in the launch, an id without the set's prefix, an id the set does not have, a set left with none."""
+    from tools.public_accuracy import sets as st
+    from tools.public_accuracy import site
+    from tools.public_accuracy import sources as src
+
+    if rs_tag and not site.RULESET_ID.match(rs_tag):
+        raise ValueError(f"--acc-rs-tag {rs_tag!r}: letters, digits, - and _ only")
+    chosen = acc_sets(only)
+    fixed = {"tcga": sorted(st.TCGA_CRITERIA), "jmed": sorted(st.JMED_CRITERIA)}
+    out: dict[str, Any] = {"rs_tag": rs_tag, "sets": {}, "refused": []}
+    for name, size in chosen:
+        prefix = site.SET_OFFSETS[name][2] + rs_tag if name in site.SET_OFFSETS else rs_tag
+        ids: list[str] | None = None
+        how = "not known here: the sample is drawn from the set's source files, not in the local cache"
+        if name in fixed:
+            ids = sorted(site.ruleset_ids({k: None for k in fixed[name]}, prefix).values())  # type: ignore[misc]
+            how = "fixed protocols of the set"
+        elif (cache or src.CACHE).joinpath(plan_fetch(name)).is_dir():
+            try:
+                b = st.read(name, cache or src.CACHE, size, live=False)
+                ids = sorted(site.ruleset_ids(b.trials, prefix).values())
+                how = "built here from the local cache (the box builds the same sample)"
+            except (SystemExit, OSError, ValueError) as exc:
+                how = f"not known here: the local cache could not build it ({exc})"
+        out["sets"][name] = {"prefix": prefix, "ids": ids, "how": how}
+    for entry in protocols.split():
+        name, _, rest = entry.partition(":")
+        want = [x for x in rest.split(",") if x]
+        if name not in out["sets"]:
+            out["refused"].append(f"{entry}: set {name} is not in this launch ({', '.join(out['sets']) or 'none'})")
+            continue
+        info = out["sets"][name]
+        bad = [x for x in want if not x.startswith(info["prefix"])]
+        bad += [x for x in want if x not in bad and info["ids"] is not None and x not in info["ids"]]
+        info["filter"] = want
+        info["matches"] = [x for x in want if x not in bad]
+        if bad:
+            known = info["ids"] or []
+            listed = f"; ids {', '.join(known[:12])}{' ...' if len(known) > 12 else ''}" if known else ""
+            out["refused"].append(f"{name}: {', '.join(bad)} not among its ids (prefix {info['prefix']!r}{listed})")
+        if not info["matches"]:
+            out["refused"].append(f"{name}: the filter matches no protocol")
+    return out
+
+
+def plan_fetch(name: str) -> str:
+    """The cache folder a set's files are fetched into (plan.RUN_A's ``fetch``)."""
+    from tools.public_accuracy import plan
+
+    return plan.acc_set(name).fetch
+
+
+# ------------------------------------------------------------------------------------------------ source bundle (D8)
+def src_bundle(commit: str, out: Path | None = None, check: Path | None = None, root: Path = ROOT) -> dict[str, Any]:
+    """The release commit's git bundle, proved before it is uploaded (D8, P1b review: a bundle made from a shallow
+    checkout could not be cloned on the VM, and the build was paid for nothing). With ``out`` it is made here
+    (``git bundle create`` of the commit's whole history); with ``check`` a bundle made by hand is taken. Either way
+    it is cloned into a temporary folder and the commit checked out; ``ok`` only when HEAD there is the commit."""
+    import subprocess
+
+    def git(*a: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["git", *a], cwd=cwd, capture_output=True, text=True, check=False)
+
+    res: dict[str, Any] = {"commit": commit, "ok": False}
+    if out is not None:
+        full = git("rev-parse", "--verify", f"{commit}^{{commit}}", cwd=root)
+        if full.returncode != 0:
+            res["why"] = f"{commit} is not a commit of this repository"
+            return res
+        commit = res["commit"] = full.stdout.strip()
+        if git("rev-parse", "--is-shallow-repository", cwd=root).stdout.strip() == "true":
+            res["why"] = "this checkout is shallow: its bundle would lack the history (git fetch --unshallow first)"
+            return res
+        out.parent.mkdir(parents=True, exist_ok=True)
+        # git bundles refs, not a bare commit id: a short-lived ref names it, removed again whatever happens
+        ref = f"refs/tb-release/{commit}"
+        git("update-ref", ref, commit, cwd=root)
+        try:
+            made = git("bundle", "create", str(out.resolve()), ref, cwd=root)
+        finally:
+            git("update-ref", "-d", ref, cwd=root)
+        if made.returncode != 0:
+            res["why"] = f"git bundle create: {made.stderr.strip()[:300]}"
+            return res
+        check = out
+    if check is None or not check.is_file():
+        res["why"] = f"no bundle at {check}"
+        return res
+    res["bundle"] = str(check)
+    with tempfile.TemporaryDirectory() as t:
+        dst = Path(t) / "src"
+        steps = [
+            ("verify", git("bundle", "verify", str(check.resolve()), cwd=root)),
+            ("clone", git("clone", "-q", "--no-checkout", str(check.resolve()), str(dst))),
+        ]
+        if steps[-1][1].returncode == 0:
+            git("fetch", "-q", str(check.resolve()), "+refs/*:refs/remotes/bundle/*", cwd=dst)
+            steps.append(("checkout", git("checkout", "-q", "--detach", commit, cwd=dst)))
+        for what, r in steps:
+            if r.returncode != 0:
+                res["why"] = f"git {what} of the bundle failed: {(r.stderr or r.stdout).strip()[:300]}"
+                return res
+        head = git("rev-parse", "HEAD", cwd=dst).stdout.strip()
+    if not head or not commit or not head.startswith(commit):
+        res["why"] = f"the clone's HEAD is {head or 'nothing'}, not {commit}"
+        return res
+    res.update(ok=True, head=head)
+    return res
 
 
 # ------------------------------------------------------------------------------------------------ the VALIDATION check
@@ -818,6 +960,15 @@ def main(argv: list[str] | None = None) -> int:
     at.add_argument("--out", type=Path, required=True)
     c = sub.add_parser("acc-score")
     c.add_argument("dir", type=Path)
+    ai = sub.add_parser("acc-ids", help="free: the ruleset ids an --acc-protocols filter matches (D1)")
+    ai.add_argument("--only", default="")
+    ai.add_argument("--rs-tag", default="")
+    ai.add_argument("--protocols", default="")
+    sb = sub.add_parser("src-bundle", help="the release commit's git bundle, proved by a clone and a checkout (D8)")
+    sb.add_argument("--commit", required=True)
+    sbx = sb.add_mutually_exclusive_group(required=True)
+    sbx.add_argument("--out", type=Path)
+    sbx.add_argument("--check", type=Path)
     sub.add_parser("validation-check", help="can a VALIDATION box with the real pair run the accuracy set here?")
     r = sub.add_parser("results")
     r.add_argument("results", type=Path)
@@ -843,6 +994,18 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "acc-score":
             print(json.dumps(acc_score(a.dir), ensure_ascii=False, indent=1))
             return 0
+        if a.cmd == "acc-ids":
+            ids = acc_ids(a.only, a.rs_tag, a.protocols)
+            print(json.dumps(ids, ensure_ascii=False, indent=1))
+            for r in ids["refused"]:
+                print(f"box_run: --acc-protocols refused: {r}", file=sys.stderr)
+            return 4 if ids["refused"] else 0
+        if a.cmd == "src-bundle":
+            sbr = src_bundle(a.commit, out=a.out, check=a.check)
+            print(json.dumps(sbr, indent=1))
+            if not sbr["ok"]:
+                print(f"box_run: the source bundle is not usable: {sbr.get('why')}", file=sys.stderr)
+            return 0 if sbr["ok"] else 5
         if a.cmd == "validation-check":
             vc = validation_check()
             print(json.dumps(vc, ensure_ascii=False, indent=1))

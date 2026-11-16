@@ -46,6 +46,9 @@ class Patient:
     sex: str | None = None  # F | M
     sentences: list[str] = field(default_factory=list)  # numbered sentences when the gold cites them (SIGIR)
     notes: list[str] = field(default_factory=list)  # provenance remarks ("converted", "templated from fields")
+    # the age as the text states it, with its unit ((6, "month") for a 6-month-old): the birth date is the visit minus
+    # it (B1); None when the text states none (then ``age`` in years, when a structured field gives it)
+    age_stated: tuple[int, str] | None = None
 
 
 @dataclass
@@ -56,6 +59,9 @@ class Trial:
     inclusion: list[str]
     exclusion: list[str]
     placed: list[str] = field(default_factory=list)  # lines written from structured fields, not the source's text
+    # inclusion lines the benchmark itself wrote that no gold row judges (JMED's "20歳以上"): the scorer counts the
+    # patients they exclude on their own row (S3, S4), as it does the placed lines
+    written: list[str] = field(default_factory=list)
     pair_key: str = ""  # the same trial in another language (zh-Hant TFDA <-> its NCT record)
     notes: list[str] = field(default_factory=list)
 
@@ -153,18 +159,57 @@ def age_years(text: str | None) -> float | None:
     return round(n / {"year": 1, "month": 12, "week": 52, "day": 365}[unit], 2)
 
 
-def placed_lines(min_age: str | None, max_age: str | None, sex: str | None) -> tuple[list[str], list[str]]:
-    """(inclusion lines, notes) a site's protocol carries for the structured age and sex limits."""
-    inc, notes = [], []
-    lo, hi = age_years(min_age), age_years(max_age)
-    if lo is not None:
-        inc.append(f"Aged {lo:g} years or older")
-    if hi is not None:
-        inc.append(f"Age <= {hi:g} years")
+def age_limit(text: str | None) -> tuple[float, str] | None:
+    """ClinicalTrials.gov's ``"18 Years"`` / ``"2 Months"`` -> (number, unit), the unit as written; None for N/A."""
+    m = re.match(r"\s*(\d+(?:\.\d+)?)\s*(year|month|week|day)", str(text or ""), re.I)
+    return (float(m.group(1)), m.group(2).lower()) if m else None
+
+
+_AGE_WORDS = re.compile(r"\b(age[ds]?|years?[- ]old|years? of age|months?[- ]old|old)\b|歳|岁|歲", re.I)
+_AGE_NUM = re.compile(r"(\d+(?:\.\d+)?)\s*(years?|yrs?|y\b|months?|weeks?|days?|歳|岁|歲)?", re.I)
+
+
+def stated_age_bounds(lines: Iterable[str]) -> set[float]:
+    """The age bounds (in years) the protocol's own lines state: a number on a line that speaks of age, in the unit
+    beside it (years when none)."""
+    out: set[float] = set()
+    for ln in lines:
+        if not _AGE_WORDS.search(ln):
+            continue
+        for m in _AGE_NUM.finditer(ln):
+            unit = (m.group(2) or "year").lower()
+            div = {"m": 12, "w": 52, "d": 365}.get(unit[:1], 1) if unit[:1] in "mwd" else 1
+            out.add(round(float(m.group(1)) / div, 2))
+    return out
+
+
+def placed_lines(
+    min_age: str | None, max_age: str | None, sex: str | None, stated: Iterable[str] = ()
+) -> tuple[list[str], list[str]]:
+    """(inclusion lines, notes) a site's protocol carries for the structured age and sex limits.
+
+    B2 (P1b review): the limit keeps its unit ("2 Months" is "Aged 2 months or older", never "0.17 years"), and a
+    bound the protocol's own lines (``stated``) already give is not written again (11 rulesets carried one twice)."""
+    inc, notes, skipped = [], [], []
+    have = stated_age_bounds(stated)
+
+    def phrase(lim: tuple[float, str]) -> str:
+        n, unit = lim
+        return f"{n:g} {unit}{'' if n == 1 else 's'}"
+
+    for lim, line in ((age_limit(min_age), "Aged {} or older"), (age_limit(max_age), "Age <= {}")):
+        if lim is None:
+            continue
+        if age_years(f"{lim[0]:g} {lim[1]}") in have:
+            skipped.append(line.format(phrase(lim)))
+            continue
+        inc.append(line.format(phrase(lim)))
     if (sex or "").upper() in ("FEMALE", "MALE"):
         inc.append(f"{sex.capitalize()} participants only")  # type: ignore[union-attr]
     if inc:
         notes.append("age/sex lines written from ClinicalTrials.gov's structured eligibility fields")
+    if skipped:
+        notes.append("an age line from the structured fields left out: the protocol's own text states that bound")
     return inc, notes
 
 
@@ -174,6 +219,13 @@ def derive_age_sex(text: str) -> tuple[int | None, str | None]:
 
     age, _approx, sex = derive_en(text)
     return age, sex
+
+
+def stated_age(text: str) -> tuple[int, str] | None:
+    """The age an English note states, with its unit (``tools.public_site.stated_age_en``)."""
+    from tools.public_site import stated_age_en
+
+    return stated_age_en(text)
 
 
 def _read_cached(cache: Path, source_id: str) -> bytes:
@@ -256,7 +308,7 @@ def trec_topics(xml_text: str, year: str) -> dict[str, Patient]:
         else:
             text = " ".join((t.text or "").split())
             age, sex = derive_age_sex(text)
-            out[key] = Patient(key, "en", text, age, sex)
+            out[key] = Patient(key, "en", text, age, sex, age_stated=stated_age(text))
     return out
 
 
@@ -439,7 +491,7 @@ def read_trec(
             notes.append("criteria from ClinicalTrials.gov's current record, not the judged snapshot")
         else:
             inc, exc, title = criteria_lines(t["inclusion"]), criteria_lines(t["exclusion"]), t["title"]
-        placed, pn = placed_lines(f.get("minimumAge"), f.get("maximumAge"), f.get("sex"))
+        placed, pn = placed_lines(f.get("minimumAge"), f.get("maximumAge"), f.get("sex"), [*inc, *exc])
         b.trials[nct] = Trial(nct, "en", title, inc, exc, placed, notes=notes + pn)
     b.patients = {k: v for k, v in b.patients.items() if k in {p.patient for p in b.pairs}}
     b.pairs = [
@@ -474,7 +526,9 @@ def read_sigir(
             sents = notes_en.get(q["_id"]) or sentences_en(q["text"])
             text = " ".join(s.strip() for s in sents)
             age, sex = derive_age_sex(text)
-            b.patients[q["_id"]] = Patient(q["_id"], "en", text, age, sex, sentences=list(sents))
+            b.patients[q["_id"]] = Patient(
+                q["_id"], "en", text, age, sex, sentences=list(sents), age_stated=stated_age(text)
+            )
     pairs = []
     for line in _read_cached(cache, "sigir_qrels_test.tsv").decode("utf-8").splitlines()[1:]:
         qid, nct, score = line.split("\t")
@@ -505,10 +559,9 @@ def read_sigir(
         if t is None:
             continue
         f = fields.get(nct, {})
-        placed, pn = placed_lines(f.get("minimumAge"), f.get("maximumAge"), f.get("sex"))
-        b.trials[nct] = Trial(
-            nct, "en", t["title"], criteria_lines(t["inclusion"]), criteria_lines(t["exclusion"]), placed, notes=pn
-        )
+        inc, exc = criteria_lines(t["inclusion"]), criteria_lines(t["exclusion"])
+        placed, pn = placed_lines(f.get("minimumAge"), f.get("maximumAge"), f.get("sex"), [*inc, *exc])
+        b.trials[nct] = Trial(nct, "en", t["title"], inc, exc, placed, notes=pn)
     b.pairs = [p for p in chosen if p.trial in b.trials and p.patient in b.patients]
     keep = {(p.patient, p.trial) for p in b.pairs}
     b.criteria = [
@@ -922,10 +975,35 @@ JMED_NOTE_FIELDS = (
 )
 
 
+def jmed_note(r: dict[str, Any]) -> str:
+    """The chart of a JMED-Personas patient: its narrative persona fields, as the box reads them."""
+    return "\n".join(str(r.get(k) or "") for k in JMED_NOTE_FIELDS)
+
+
+def jmed_stratum(note: str, word: str) -> str:
+    """B3 (P1b review): the truth of a JMED criterion from the chart the box reads (the persona fields), not from the
+    structured 主病名 / 既往歴 / 現病歴, which the note need not state while it states a comorbidity they lack (3 of the
+    7 "wrong exclusions" of P1b were right by the note). ``own``: a sentence says the patient has it (not negated,
+    not a relative's); ``family-only``: only a relative's; ``none``."""
+    from tools.public_site import JA_FAMILY, JA_NEG_AFTER, _nfkc
+
+    w = _nfkc(word)
+    own = family = False
+    for sent in re.split(r"(?<=[。\n])", _nfkc(note)):
+        for m in re.finditer(re.escape(w), sent):
+            if JA_FAMILY.search(sent[: m.start()]):
+                family = True
+            elif not JA_NEG_AFTER.search(sent[m.end() :]):
+                own = True
+    return "own" if own else "family-only" if family else "none"
+
+
 def read_jmed(cache: Path, n: int = 40) -> Bundle:
     """JMED-Personas (synthetic Japanese patients, CC BY 4.0): the narrative fields as the chart; two exclusion
-    criteria (diabetes, hypertension in the history); truth from the structured fields: excluded when the condition is
-    in 主病名 / 既往歴 / 現病歴, not when it is only in 家族歴 (the family-history stratum)."""
+    criteria (diabetes, hypertension in the history); truth from the same chart the box reads (B3,
+    :func:`jmed_stratum`): excluded when the note says the patient has the condition, not when it is only a
+    relative's (the family-history stratum). Where the structured fields say otherwise it is counted in the
+    provenance, never used as the truth."""
     import pyarrow.parquet as pq
 
     b = Bundle("jmed")
@@ -933,11 +1011,9 @@ def read_jmed(cache: Path, n: int = 40) -> Bundle:
     rng = random.Random(SEED)
     strata: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for r in t:
-        own = " ".join(str(r.get(k) or "") for k in ("主病名", "既往歴", "現病歴"))
-        fam = str(r.get("家族歴") or "")
+        note = jmed_note(r)
         for tid, (word, _crit) in JMED_CRITERIA.items():
-            key = "own" if word in own else "family-only" if word in fam else "none"
-            strata[f"{tid}:{key}"].append(r)
+            strata[f"{tid}:{jmed_stratum(note, word)}"].append(r)
     for v in strata.values():
         rng.shuffle(v)
     chosen: dict[str, dict[str, Any]] = {}
@@ -952,17 +1028,19 @@ def read_jmed(cache: Path, n: int = 40) -> Bundle:
             f"公開データ試験 {tid}",
             ["20歳以上"],
             [crit],
+            written=["20歳以上"],
             notes=["a test protocol written for the JMED set, not a real trial"],
         )
+    differ = 0
     for pid, r in chosen.items():
-        text = "\n".join(str(r.get(k) or "") for k in JMED_NOTE_FIELDS)
+        text = jmed_note(r)
         age = int(r["年齢"]) if str(r.get("年齢") or "").isdigit() else None
         sex = {"男性": "M", "女性": "F"}.get(str(r.get("性別")))
         b.patients[pid] = Patient(pid, "ja", text, age, sex, notes=["synthetic patient (JMED-Personas)"])
-        own = " ".join(str(r.get(k) or "") for k in ("主病名", "既往歴", "現病歴"))
-        fam = str(r.get("家族歴") or "")
+        coded = " ".join(str(r.get(k) or "") for k in ("主病名", "既往歴", "現病歴"))
         for tid, (word, crit) in JMED_CRITERIA.items():
-            stratum = "own" if word in own else "family-only" if word in fam else "none"
+            stratum = jmed_stratum(text, word)
+            differ += (stratum == "own") != (word in coded)
             b.criteria.append(
                 CriterionGold(
                     pid,
@@ -974,6 +1052,10 @@ def read_jmed(cache: Path, n: int = 40) -> Bundle:
                 )
             )
     b.provenance.append(f"JMED-Personas shard 01: {len(chosen)} patients, strata {sorted(strata)}")
+    b.provenance.append(
+        f"JMED truth from the chart the box reads (B3): {differ} patient x criterion labels differ from the structured "
+        "主病名/既往歴/現病歴"
+    )
     return b
 
 

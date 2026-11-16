@@ -427,7 +427,8 @@ Owner's yes first for anything but `--estimate` and `--dry-run`.
   box reads its release record (no rehearsal mark, D-726; not dirty and the declared commit, D-633), then uploaded
   with its `.sha256` to `$TB_BUCKET/r2/<ID>/`. The git bundle of the release commit and the public key must be in
   the bucket first (`r2/<ID>/src.bundle`, `r2/keys/vendor_ed25519.pub`); the owner's one-time steps make the secret
-  and the account.
+  and the account. `--src-bundle FILE` proves the git bundle (cloned, the commit checked out) and uploads it; make
+  one with `python -m tools.box_run src-bundle --commit <sha> --out FILE`.
 - **Start (G-2).** From the uploaded bundle: its sha256 and every payload against the signed manifest (streamed),
   the host tree from the signed bundle as the installer's bootstrap, the vendor public key placed at
   `deploy/keys/vendor_ed25519.pub`, then `deploy/box-install.sh --prepare --yes`, then `--firstrun` with the
