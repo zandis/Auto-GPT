@@ -48,7 +48,16 @@ from tb_contracts import CriterionIR
 
 from matching import excerpts as excerpt_builder
 from matching.carried import NOT_CARRIED, Carried
-from matching.cascade.judge import JudgeClient, JudgeReply, expected_tokens, norm, sentence_hash, verify_span
+from matching.cascade.judge import (
+    ASKING,
+    Asking,
+    JudgeClient,
+    JudgeReply,
+    expected_tokens,
+    norm,
+    sentence_hash,
+    verify_span,
+)
 from matching.cascade.model import (
     STAGES,
     STRATUM_INDEX,
@@ -1054,17 +1063,23 @@ class _Run:
             if key in self.cache:
                 self.metrics.cache_hits += 1
                 return self.cache[key], True
-        reply = self.judge.judge(
-            role=role,
-            criterion_text=c.text,
-            note_question=c.note_question or c.text,
-            index_date=t.index_date,
-            excerpts=r.excerpts,
-            study_id=self.cfg.study_id,
-            data_class=self.cfg.notes_class,
-            step_id=self.cfg.step_id or f"cascade:{self.cfg.study_id}",
-            purpose=self.cfg.purpose,
-        )
+        # D-908: the store below the judge keys and erases by these; an audit sample (CAS-8) is always asked live
+        asking = ASKING.set(Asking(r.pid, self.hashes[r.cid], (lo.isoformat(), hi.isoformat()),
+                                   audit=self.cfg.sample_per_stratum is not None))  # fmt: skip
+        try:
+            reply = self.judge.judge(
+                role=role,
+                criterion_text=c.text,
+                note_question=c.note_question or c.text,
+                index_date=t.index_date,
+                excerpts=r.excerpts,
+                study_id=self.cfg.study_id,
+                data_class=self.cfg.notes_class,
+                step_id=self.cfg.step_id or f"cascade:{self.cfg.study_id}",
+                purpose=self.cfg.purpose,
+            )
+        finally:
+            ASKING.reset(asking)
         with self._lock:
             if reply.refused:
                 self.metrics.gateway_refusals += 1

@@ -657,6 +657,14 @@ def screen_with_cascade(
         "hit": res.metrics.unprocessed > 0,
         "stopped_by": res.metrics.budget_stopped or None,
     }
+    # D-908 (D-519): how many model calls the judged-pair store answered and how many were asked live; a patient who
+    # opted out while the job ran has no row left in it
+    from orchestrator.judged_store import JudgedPairs
+
+    pairs = getattr(getattr(note_judge, "llm", None), "pairs", None)
+    if isinstance(pairs, JudgedPairs):
+        pairs.close(dctx.register_now)
+        out["judged_store"] = pairs.report()
     sources = None
     if source is not None:
         sources = {pid: dict(t.s2b_source) for pid, t in sorted(res.traces.items()) if t.s2b_source is not None}
