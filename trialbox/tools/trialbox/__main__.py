@@ -481,7 +481,8 @@ def _restic_pw(a: argparse.Namespace) -> str | None:
         if a.restic_from_box:
             return rr.password(_secrets_dir(), os.environ)
         if a.restic_share:
-            return rr.open_from_target(a.file.parent, [f.read_text(encoding="utf-8") for f in a.restic_share])
+            texts = [f.read_text(encoding="utf-8") for f in a.restic_share]
+            return rr.open_from_target(a.file.parent, texts, rr.escrow_for(a.file))
     except (K.KekError, KeyMissingError, OSError, ValueError) as e:  # a share or a key named, never its content
         raise bk.BackupError(f"the restic repository cannot be opened: {e}") from e
     return None

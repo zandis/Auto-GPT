@@ -101,8 +101,30 @@ restic does the incremental backup, on these conditions:
   - A backup without `--restic` is unchanged.
   - Lane B2: the lock is held for restic's whole read, which is safe whatever the answer. A served file is never
     written in place (D-755), so a later card may let the lock go after the listing and retry a vanished file.
-  - The sidecar's hash is trusted at the backup, as the lake trusts it when serving. A file that does not match its
-    sidecar fails at the restore's check and at the lake's own check (`lake_check`), not at the backup.
+  - The adversarial review (D-311) found seven defects, all fixed and tested:
+    - **A wrong sidecar no longer passes.** Every served file is read and hashed under the lock and must match its
+      sidecar, as on the path without restic, so a rotted file fails the backup tonight. Each file's (size, mtime)
+      must hold until restic has read it.
+    - **A failed copy no longer leaves a bad target.** Each other target's repository receives the snapshot
+      (`restic copy`) before that target gets its sealed file and sidecar. A failed copy leaves that target with
+      nothing for the night, and the first target stays whole.
+    - **A failed night no longer cost a needed snapshot.** A failed night left a snapshot that `--keep-last` counted.
+      Now each kept file has `<name>.tbbak.restic` beside it (the id of the snapshot it needs; no secret), and
+      `forget_except` keeps exactly the snapshots those files name. A run that fails before its sealed file is
+      complete forgets its snapshot at once.
+    - **Space is freed.** Every `forget` is `--prune`.
+    - **The restore drill works on a restic backup.** It reads the sealed part (`lake_from_restic=False`); it checks
+      the databases.
+    - **A dead-box restore works on other hosts.** The recorded root is taken as recorded on the restoring machine
+      and not resolved again, so a Mac's `/var` is no longer a problem. A root that is not a plain absolute path is
+      refused.
+    - **Boxes can share a NAS.** The repository folder and the escrow file carry the site:
+      `trialbox-restic-<site>`, `trialbox-restic-<site>.key.json`.
+    - The review also found three ways a forged or tampered backup could misplace files, and all are closed:
+      - The manifest is encrypted to the hospital's key but not signed, so every restic path in it must be a plain
+        relative path under `db/` or `parquet/`, and the repository a plain folder name.
+      - A restored file must be a regular file, never a link.
+      - restic gets no inherited `$PWD`.
 - **R3c, the nightly wiring (next).** The host step runs `tools.keys restic-key`. The backup container mounts
   `/run/trialbox:ro` and runs `backup --restic` when the box has a KEK the shares cover; otherwise it says why and
   keeps the single file. A weekly `prune`.
@@ -160,4 +182,13 @@ R3b: `tests/unit/test_backup_restic.py` (a real PostgreSQL, the stand-in restic,
 - the lake's lock is held for restic's whole read (a swap waits);
 - without restic nothing changes;
 - the command line (`backup --restic`; `backup-verify` with the box's key, with two shares, and refused with none or
-  one).
+  one);
+- from the review:
+  - a file that differs from its sidecar fails the backup, and nothing goes to restic;
+  - a failed copy leaves no file on that target, and the first stays whole;
+  - with keep=2, a failed night leaves no snapshot and night 1 still restores;
+  - every forget prunes;
+  - each site has its own repository and escrow file on a shared target;
+  - a forged restic record writes nothing;
+  - the recorded root is not resolved again;
+  - a restored link is refused.
