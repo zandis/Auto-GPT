@@ -27,6 +27,7 @@ stub model of the demos and tests would never pass a canary. The admin Models ti
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -69,6 +70,7 @@ class Gate:
         self.path: Path | None = None
         self.report: dict[str, Any] | None = None
         self.at: float | None = None  # epoch seconds of the report
+        self.mtime: float | None = None  # of selftest.json when last read (D-916)
         self.wake_failure: dict[str, Any] | None = None
         self.waiting: dict[str, Any] | None = None  # D-915: the last canary could not reach a model
         self.running = False
@@ -81,12 +83,36 @@ class Gate:
             if self.path == p:
                 return
             self.path, self.report, self.at, self.wake_failure, self.waiting = p, None, None, None, None
-            try:
-                rep = json.loads(p.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
+            self.mtime = None
+            self._read_newer()
+
+    def written(self, path: Path) -> None:
+        """This process wrote ``path`` (its own result, already recorded): not a newer result to read back."""
+        with self._lock:
+            if path == self.path:
+                with contextlib.suppress(OSError):
+                    self.mtime = path.stat().st_mtime
+
+    def _read_newer(self) -> None:
+        """D-916: take ``selftest.json`` when it holds a newer result than this process has (a canary run by
+        ``trialbox selftest`` in the container writes it; it is applied as :meth:`record` would). Under the lock."""
+        p = self.path
+        if p is None:
+            return
+        try:
+            mtime = p.stat().st_mtime
+            if self.mtime is not None and mtime <= self.mtime:
                 return
-            self.report = rep
-            self.at = float(rep.get("at_epoch") or p.stat().st_mtime)
+            rep = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        self.mtime = mtime
+        at = float(rep.get("at_epoch") or mtime)
+        if self.at is not None and at <= self.at:
+            return  # this process's own result, or an older one
+        self.report, self.at, self.waiting = rep, at, None
+        if rep.get("ok") and (self.wake_failure is None or at > float(self.wake_failure.get("at_epoch") or 0)):
+            self.wake_failure = None  # a pass after the failed wake check reopens the gate, an older one does not
 
     def record(self, report: dict[str, Any]) -> None:
         with self._lock:
@@ -105,7 +131,8 @@ class Gate:
 
     def record_wake(self, endpoint: str, why: str) -> None:
         with self._lock:
-            self.wake_failure = {"endpoint": endpoint, "why": why, "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+            self.wake_failure = {"endpoint": endpoint, "why": why, "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                 "at_epoch": round(time.time(), 3)}  # fmt: skip
 
     def check(self) -> tuple[bool, str, str]:
         """(may a note answer exclude, code, why not). Codes: ``ok``, ``off`` (gate switched off), ``wake`` (a
@@ -115,6 +142,7 @@ class Gate:
         if not gate_on():
             return True, "off", ""
         with self._lock:
+            self._read_newer()
             rep, at, wake, waiting = self.report, self.at, self.wake_failure, self.waiting
         if wake is not None:
             return False, "wake", f"the {wake['endpoint']} model failed its wake check ({wake['why']})"
