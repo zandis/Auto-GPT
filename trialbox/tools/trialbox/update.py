@@ -942,7 +942,7 @@ class Updater:
 # ------------------------------------------------------------------------------------------------ commands
 APPLY_FIXED_S = 3 * 3600  # the update's steps with fixed limits: the 3 h the whole update had before T-695
 UP_WAIT_BEFORE_S = 900  # the wait before T-695, kept only where the compose files cannot be read (no PyYAML)
-#: T-695 (D-921): the services whose stores are opened at start (``orchestrator.migrate_stores.AT_START``), in the
+#: T-695 (D-921): the services whose stores are opened at start (each has ``<package>.migrate_stores``), in the
 #: order the stack starts them; the host reads no service code, so the list is kept equal by a test
 STORE_SERVICES = ("orchestrator", "mail-gateway", "gateway", "criteria-compiler", "console")
 Runner = Callable[..., str]  # (argv, stdin_file=None, stdout_file=None, env=None, timeout=None) -> stdout
@@ -1471,7 +1471,7 @@ class ComposeBox(_DockerImages):
         return None if t is None else int(t)
 
     def migrate_stores(self) -> list[str]:
-        """T-695 (D-921): each service's start-time migrations (``orchestrator.migrate_stores``) in a one-off
+        """T-695 (D-921): each service's start-time migrations (``<package>.migrate_stores``) in a one-off
         container of the service, as its own role, before the services start: a long migration is never under a
         health wait. The services of :data:`STORE_SERVICES` this box runs (``compose config --services``); the
         database is up. Returns the services migrated; none on a box that never ran install.sh's database step."""
@@ -1483,7 +1483,8 @@ class ComposeBox(_DockerImages):
         for svc in STORE_SERVICES:
             if svc not in runs:
                 continue
-            self.run(self._c("run", "--rm", "--no-deps", "-T", svc, "python", "-m", "orchestrator.migrate_stores"),
+            mod = f"{svc.replace('-', '_')}.migrate_stores"  # the service's own module: only its role's stores
+            self.run(self._c("run", "--rm", "--no-deps", "-T", svc, "python", "-m", mod),
                      timeout=limit)  # fmt: skip
             done.append(svc)
         return done
