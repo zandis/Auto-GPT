@@ -265,9 +265,9 @@
     "zh-TW": "您選擇了每次重新啟動都輸入 PIN（tpm_pin），但磁碟機 {0} 尚未設定 TPM 加 PIN 的解鎖。請先與資訊單位設定（需要 Windows 原則），然後再啟動安裝程式。安裝程式不會設定 PIN。"
   },
   "recovery_show": {
-    "en": "BitLocker recovery key for drive {0}. Without it, a broken security chip loses everything on the drive. Write it down or print it, and keep it away from this PC. The installer stores it nowhere.",
-    "ja": "ドライブ {0} の BitLocker 回復キーです。これがないと、セキュリティチップが故障したときにドライブの内容をすべて失います。書き写すか印刷し、この PC とは別の場所に保管してください。インストーラーはどこにも保存しません。",
-    "zh-TW": "磁碟機 {0} 的 BitLocker 修復金鑰。若沒有它，安全晶片故障時將失去磁碟機上的所有內容。請抄寫或列印，並保存在這台電腦以外的地方。安裝程式不會將它儲存在任何地方。"
+    "en": "BitLocker recovery key for drive {0}, key ID {1} (Windows' recovery screen shows the same key ID, so you know which key it asks for). Without it, a broken security chip loses everything on the drive. Write it down or print it with its key ID, and keep it away from this PC. The installer stores it nowhere.",
+    "ja": "ドライブ {0} の BitLocker 回復キーです（キー ID {1}。Windows の回復画面にも同じキー ID が表示されるので、どのキーが求められているかわかります）。これがないと、セキュリティチップが故障したときにドライブの内容をすべて失います。キー ID とともに書き写すか印刷し、この PC とは別の場所に保管してください。インストーラーはどこにも保存しません。",
+    "zh-TW": "磁碟機 {0} 的 BitLocker 修復金鑰，金鑰 ID {1}（Windows 的修復畫面會顯示相同的金鑰 ID，讓您知道要輸入哪一組金鑰）。若沒有它，安全晶片故障時將失去磁碟機上的所有內容。請連同金鑰 ID 一起抄寫或列印，並保存在這台電腦以外的地方。安裝程式不會將它儲存在任何地方。"
   },
   "recovery_print_ask": {
     "en": "Print it now on the printer '{0}'? Only if that printer is beside you and keeps no copy. Type y and Enter, or just Enter for no",
@@ -473,5 +473,10 @@
     "en": "The media's P-0 settings ({0}) cannot be read. Nothing was changed. The media needs to be built again; send this message to whoever built it.",
     "ja": "メディアの P-0 設定（{0}）を読み取れません。何も変更していません。メディアを作り直す必要があります。このメッセージをメディアを作成した担当者に送ってください。",
     "zh-TW": "無法讀取媒體的 P-0 設定（{0}）。未做任何變更。需要重新製作媒體；請將此訊息寄給製作媒體的人。"
+  },
+  "site_key_failed": {
+    "en": "Windows could not keep the site keys' key ({0}). The Linux side still holds it on WSL2's disk, so nothing is lost. Start the installer again; if this message comes again, send the installer's log.",
+    "ja": "Windows はサイトの鍵の鍵を保管できませんでした（{0}）。Linux 側が WSL2 のディスク上にまだ保持しているので、失われたものはありません。インストーラーをもう一度起動してください。同じメッセージが再び出る場合は、インストーラーのログを送ってください。",
+    "zh-TW": "Windows 無法保存站台金鑰的金鑰（{0}）。Linux 端仍將它保存在 WSL2 的磁碟上，因此沒有遺失任何東西。請再次啟動安裝程式；如果再次出現此訊息，請寄送安裝程式的記錄檔。"
   }
 }

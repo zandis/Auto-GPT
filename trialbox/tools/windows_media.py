@@ -55,6 +55,7 @@ INSTALLER_FILES = (
     "host_facts.ps1",
     "console-proxy.ps1",
     "p0-record.ps1",
+    "site-key.ps1",
 )
 # what step 1 of box-install.ps1 looks for (Find-TbOne: exactly one match each); a test holds the two together
 NEEDS_ONE = {
@@ -99,7 +100,11 @@ HANDOVER_DOCS = (
     "P-0-windows-rehearsal.md",
     "WINDOWS-INSTALL-CHECKLIST.md",
     "WINDOWS-BACKUP-RESTORE.md",
-    *(f"{stem}.{lang}.md" for stem in ("windows-owner", "desktop-use") for lang in ("en", "ja", "zh-TW")),
+    *(
+        f"{stem}.{lang}.md"
+        for stem in ("windows-owner", "desktop-use", "windows-bitlocker-recovery")
+        for lang in ("en", "ja", "zh-TW")
+    ),
 )
 OS_RELEASE_FILES = ("etc/os-release", "usr/lib/os-release")  # the first that is a file
 DPKG_STATUS = "var/lib/dpkg/status"

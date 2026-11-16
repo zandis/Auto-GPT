@@ -128,7 +128,10 @@ def test_validation_reports_n12_unadjusted_and_cites_the_protocol() -> None:
     section = text.split("## 3. The model gate", 1)[1].split("\n## ", 1)[0]
     row = next(ln for ln in section.splitlines() if ln.startswith("| N-12"))
     assert "unadjusted" in row and "audit-adjusted" not in row
-    assert re.search(r"\*\*fail\*\*|pass", row)
+    # D-918: the row defines the figure on the product path (SCREEN, tools.n12_screen); the benchmark-path result of
+    # 2026-11-08 is reported beside it as history, never as the gate result
+    assert "tools.n12_screen" in row and "≤ 5 %" in row
+    assert re.search(r"N-12: \*\*9\.4 %\*\*.*would fail", section) and "not product evidence" in section
     assert "docs/validation/model-change-protocol.md" in section
     assert "docs/validation/ai-governance.md" in section
 

@@ -64,12 +64,31 @@ The budget is 15 minutes; it runs in about 2. `.github/workflows/trialbox-e2e.ym
 
 The pair (judge Gemma 4 26B-A4B NVFP4, verifier Qwen3.5-9B AWQ) excludes on a note only when both say "fail".
 
-| Measure | Gate | Deployed files on the card | Where |
-| --- | --- | --- | --- |
-| N-11: eligible SIGIR pairs lost, of 79 (EN / JA / zh-TW) | ≤ 5 / ≤ 4 / ≤ 2 | 4 / 2 / 1 | `eval/parity/replay.json` |
-| N-12: TREC CT eligible pairs wrongly dropped, unadjusted | ≤ 5 % | **9.4 %** (95 % 7.9–11.2), **fail** | `eval/trec_ct/results/n12_deployed_2026-11-08.md` |
-| pair canary (54 cases, en/ja/zh-TW) on the PRO 6000 | 0 wrong exclusions | judge 54/54, verifier 49/54, 0 wrong exclusions | `eval/parity/gpu-run-2026-11-08-pro6000/` |
-| `public_e2e --lang en` with the pair, PRO 6000 | all checks | 98/98 in 1,303 s; 7 disagreements and 1 failure went to review | same folder |
+**The validation figures (D-918).** Each is measured on the product path: the set is screened as a site by SCREEN,
+through the gateway, on the installed box, and scored by ids after the run. Words used in every row:
+
+- **Excluded**: the patient is listed under "criteria not matched" for that trial, by a coded record or by a note
+  answer both models gave.
+- **Not excluded**: listed for review, or as a candidate. An unknown is never an exclusion.
+- **Unanswered**: the run gave the pair no answer at all.
+
+| Figure | Set | What is counted | Gate | Evidence |
+| --- | --- | --- | --- | --- |
+| N-11 | SIGIR, 79 physician-eligible patient × trial pairs, each in EN, JA and zh-TW | eligible pairs excluded, per language | ≤ 5 / ≤ 4 / ≤ 2 | the SIGIR site through SCREEN, scored per language |
+| N-12 | TREC CT 2021/22, the NIST-eligible pairs (qrels 2), English | eligible pairs excluded ÷ eligible pairs, unadjusted (D-343), with the exact 95 % interval; no evidence below 400 eligible pairs or above 10 % unanswered | ≤ 5 % (the point estimate) | `python -m tools.n12_screen` (D-826) |
+| MedTxt (ja) | MedTxt-CR and MedTxt-RR, each tagged finding as one exclusion ("Patients with <finding>."), the Japanese report | **false block**: findings tagged *negative* (stated absent) that excluded ÷ negative findings. Also reported, not gated: *positive* findings excluded (recall), *suspicious* findings excluded (should go to review), findings from another report excluded (hallucinated) | **the owner's decision** (none set) | the MedTxt site through SCREEN, scored by tag |
+
+**The figures measured so far are not product evidence.** All of these came from runs on 2026-11-08, on the
+benchmark prompt sent straight to the servers by a one-boot script, on a commit before trains 15–45:
+
+- N-11: 4 / 2 / 1 (`eval/parity/replay.json`);
+- N-12: **9.4 %** (95 % 7.9–11.2), which would fail (`eval/trec_ct/results/n12_deployed_2026-11-08.md`);
+- the pair canary: 0 wrong exclusions;
+- `public_e2e`: 98/98 (`eval/parity/gpu-run-2026-11-08-pro6000/`);
+- MedTxt: `eval/medtxt/results/scores.json`.
+
+They stay as history and are not a gate result. The first product-path figures come from the integrator's
+measurement pass on master.
 
 `python -m tools.parity_replay` replays the recorded answers with no model (`--check` checks the committed tables)
 and names any recording a GPU run must still add (none is missing for the deployed pair: EN, JA and zh-TW are all in

@@ -133,11 +133,11 @@ def fetch_key(name: str, into: Path) -> Path:
     return dst
 
 
-def sources(ubuntu_key: Path, docker_key: Path, nvidia_key: Path) -> str:
+def sources(ubuntu_key: Path, docker_key: Path, nvidia_key: Path, components: str = "main universe") -> str:
     lines = [
-        f"deb [arch=amd64 signed-by={ubuntu_key}] http://archive.ubuntu.com/ubuntu {SUITE} main universe",
-        f"deb [arch=amd64 signed-by={ubuntu_key}] http://archive.ubuntu.com/ubuntu {SUITE}-updates main universe",
-        f"deb [arch=amd64 signed-by={ubuntu_key}] http://security.ubuntu.com/ubuntu {SUITE}-security main universe",
+        f"deb [arch=amd64 signed-by={ubuntu_key}] http://archive.ubuntu.com/ubuntu {SUITE} {components}",
+        f"deb [arch=amd64 signed-by={ubuntu_key}] http://archive.ubuntu.com/ubuntu {SUITE}-updates {components}",
+        f"deb [arch=amd64 signed-by={ubuntu_key}] http://security.ubuntu.com/ubuntu {SUITE}-security {components}",
         f"deb [arch=amd64 signed-by={docker_key}] https://download.docker.com/linux/ubuntu {SUITE} stable",
         f"deb [signed-by={nvidia_key}] https://nvidia.github.io/libnvidia-container/stable/deb/amd64 /",
     ]
@@ -220,9 +220,18 @@ def wanted_files(print_uris: str) -> list[str]:
     return names
 
 
-def collect(rootfs: Path, out: Path, parent: Path) -> list[Path]:
+def collect(
+    rootfs: Path,
+    out: Path,
+    parent: Path,
+    *,
+    packages: tuple[str, ...] = PACKAGES,
+    components: str = "main universe",
+    allow_driver: bool = False,
+) -> list[Path]:
     """``parent``: where this run's working folder is made. The folder is always new: nothing an earlier run, or
-    anyone else, left behind (a list, a source, a key, a package) can reach apt or the output."""
+    anyone else, left behind (a list, a source, a key, a package) can reach apt or the output. The keywords are for
+    the bare Ubuntu box's media (``tools/linux_media.py``, D-966), which carries its own Linux driver."""
     if out.exists() and any(out.iterdir()):
         raise DebsError(f"{out} already holds files: name an empty folder (nothing is overwritten)")
     for tool in ("apt-get", "gpg"):
@@ -236,11 +245,11 @@ def collect(rootfs: Path, out: Path, parent: Path) -> list[Path]:
             (work / d).mkdir(parents=True, exist_ok=True)
         keys = {name: fetch_key(name, work / "keys") for name in KEYS}
         (work / "etc/sources.list").write_text(
-            sources(image[UBUNTU_KEYRING], keys["docker"], keys["nvidia"]), encoding="utf-8"
+            sources(image[UBUNTU_KEYRING], keys["docker"], keys["nvidia"], components), encoding="utf-8"
         )
         (work / "etc/apt.conf").write_text(apt_config(work, image[STATUS]), encoding="utf-8")
         env = apt_env(work / "etc/apt.conf")
-        install = ["install", "-y", "--no-install-recommends", *PACKAGES]
+        install = ["install", "-y", "--no-install-recommends", *packages]
         _apt(["update"], "update", env)
         wanted = wanted_files(_apt([*install, "--print-uris"], "install --print-uris", env))
         if not wanted:
@@ -252,7 +261,7 @@ def collect(rootfs: Path, out: Path, parent: Path) -> list[Path]:
         if lacking:
             raise DebsError("apt-get did not fetch: " + ", ".join(lacking))
         drivers = [p.name for p in fetched if windows_media.is_linux_driver(p.name)]
-        if drivers:
+        if drivers and not allow_driver:
             raise DebsError("the set holds a Linux NVIDIA driver package, which is never installed in WSL2: "
                             + ", ".join(drivers))  # fmt: skip
         out.mkdir(parents=True, exist_ok=True)
