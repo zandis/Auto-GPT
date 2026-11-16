@@ -8,7 +8,9 @@ token is never logged or put in an error message.
 
 from __future__ import annotations
 
+import os
 import re
+import time
 from collections.abc import Callable
 from typing import Any, ClassVar
 
@@ -17,10 +19,33 @@ from tb_common.http import EgressRefused
 
 # REDCap majors the connector accepts (FR-RC-14). Tested only against rc_sim so far: no real REDCap instance yet;
 # each site's version is recorded at go-live (RUNBOOK §6, DEP-026, D-393)
-SUPPORTED_MAJORS = (14, 15, 16, 17)  # CGRD-B2 (D-818): 17 exercised on a real instance (the browser run of R1-R9)
+SUPPORTED_MAJORS = (13, 14, 15, 16, 17)  # D-818: 17 on a real instance; RC13-F (D-852): 13 (13.7.23, R1-R9 and ICD-04)
 TOKEN_RE = re.compile(r"^[0-9A-F]{32}$")
 INPROC_PREFIX = "inproc://"  # demo and test only: a URL served by an in-process ASGI app (the simulator)
 _LOCAL: dict[str, Callable[[], httpx.Client]] = {}
+
+
+TIMEOUT_ENV = "TB_REDCAP_TIMEOUT_S"
+DEFAULT_TIMEOUT_S = 30.0  # EDC-018 (D-853): was a fixed 10 s, too short for a slow hospital proxy or a large project
+MAX_WAIT_S = 30.0  # EDC-018: the one wait on a rate limit is never longer (REDCap's Retry-After may say more)
+DEFAULT_WAIT_S = 5.0  # EDC-018: the wait when REDCap names none
+
+
+def timeout_s(env: dict[str, str] | None = None) -> float:
+    """EDC-018 (D-853): seconds one REDCap API call may take, ``TB_REDCAP_TIMEOUT_S`` (default 30)."""
+    raw = ((os.environ if env is None else env).get(TIMEOUT_ENV) or "").strip()
+    try:
+        v = float(raw) if raw else DEFAULT_TIMEOUT_S
+    except ValueError:
+        return DEFAULT_TIMEOUT_S
+    return v if v > 0 else DEFAULT_TIMEOUT_S
+
+
+def _wait_of(resp: httpx.Response) -> float:
+    try:
+        return min(MAX_WAIT_S, max(0.0, float(resp.headers.get("Retry-After") or DEFAULT_WAIT_S)))
+    except ValueError:
+        return DEFAULT_WAIT_S
 
 
 _FIELD_NAME = re.compile(r"[a-z][a-z0-9_]*")  # a REDCap variable name
@@ -41,12 +66,21 @@ _KINDS: tuple[tuple[str, str], ...] = (
     ("fields were not found in the project", "fields that are not in the project"),
     ("不存在專案內", "fields that are not in the project"),
     ("not designated for event", "a field is not on an instrument of the event"),
+    # RC13-A (D-847): REDCap 13.7's sentence on a bad repeat instance names the event first, so it is read first
+    ("redcap_repeat_instance", "a repeating instrument or its instance number is not valid"),
     ("event name", "the event is missing or is not an event of the project"),
     ("redcap_event_name", "the event is missing or is not an event of the project"),
     ("repeat", "a repeating instrument or its instance number is not valid"),
+    # RC13-A (D-847): a write to another group's record, before the group's own kind
+    ("not belong to your data access group", "a record belongs to another data access group"),
     ("data access group", "the data access group is not valid"),
     ("record identifier", "the record identifier field is missing"),
     ("not in a valid format", "the import is not in a valid format"),
+    # RC13-A (D-847): REDCap 13.7's English sentences, seen on the private 13.7 instance (D-521)
+    ("invalid date format", "a value does not fit its field's validation"),
+    ("not a valid category", "a value does not fit its field's validation"),
+    ("record id field", "the record identifier field is missing"),
+    ("not formatted correctly", "the import is not in a valid format"),
 )
 _UNKNOWN_KIND = "REDCap's own text is not shown: it can quote a record's value"
 _MAX_NAMES = 20  # field names given back from one error (a longer list says no more to the person reading it)
@@ -123,8 +157,10 @@ def major_of(version: str) -> int:
 
 
 class RedcapClient:
-    def __init__(self, base_url: str, token: str, http: httpx.Client | None = None, timeout: float = 10.0) -> None:
+    def __init__(self, base_url: str, token: str, http: httpx.Client | None = None,
+                 timeout: float | None = None) -> None:  # fmt: skip
         self.url = api_url(base_url)
+        self.sleep: Callable[[float], None] = time.sleep  # EDC-018: the one wait on a rate limit (tests replace it)
         self.token = check_token(token)
         self._own = http is None
         if http is None:
@@ -137,7 +173,7 @@ class RedcapClient:
             else:  # T-212d (D-450): the URL an administrator typed goes through the SSRF guard
                 from tb_common.http import guarded_client
 
-                http = guarded_client(timeout=timeout)
+                http = guarded_client(timeout=timeout if timeout is not None else timeout_s())
         self.http = http
 
     def close(self) -> None:
@@ -154,12 +190,23 @@ class RedcapClient:
         """One API call; the answer when REDCap says 200, an :class:`RcError` otherwise."""
         data = {"token": self.token, "content": content, "format": "json", "returnFormat": "json", **(extra or {})}
         url = self.url if self.url.endswith("/") else self.url + "/"
-        try:
-            resp = self.http.post(url, data=data)
-        except EgressRefused as exc:
-            raise RcError("RC-UPSTREAM", f"the REDCap address is not allowed ({exc.reason}): {exc.host}") from exc
-        except httpx.HTTPError as exc:
-            raise RcError("RC-UPSTREAM", f"REDCap did not answer ({type(exc).__name__})") from exc
+        # EDC-018 (D-853): a call REDCap refused for its rate limit (429: refused before it was read) waits once, as
+        # long as REDCap says (at most MAX_WAIT_S), and is sent again; a 503 is waited on again only for a call that
+        # writes nothing, since a write may have been applied. Never more than once: on REDCap 13.7 a burst past the
+        # limit gets the address banned
+        writes = "data" in data or content in ("file",) or bool(data.get("action") in ("delete", "rename", "import"))
+        for attempt in (1, 2):
+            try:
+                resp = self.http.post(url, data=data)
+            except EgressRefused as exc:
+                raise RcError("RC-UPSTREAM", f"the REDCap address is not allowed ({exc.reason}): {exc.host}") from exc
+            except httpx.HTTPError as exc:
+                raise RcError("RC-UPSTREAM", f"REDCap did not answer ({type(exc).__name__})") from exc
+            again = resp.status_code == 429 or (resp.status_code == 503 and not writes)
+            if attempt == 1 and again:
+                self.sleep(_wait_of(resp))
+                continue
+            break
         if resp.status_code == 200:
             return resp
         if resp.status_code == 403:

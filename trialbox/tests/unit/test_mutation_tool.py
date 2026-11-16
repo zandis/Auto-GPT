@@ -228,3 +228,40 @@ def test_the_command_line_writes_and_checks_a_baseline(tmp_path: Path, capsys: p
     assert written["packages"]["services/a"] == {"statements": 100, "line": 90.0, "branch": 77.0}  # branch kept
     report.write_text(json.dumps(_report({"services/a/x.py": (100, 89, 0, 0)}, branch=False)), encoding="utf-8")
     assert cr.main([str(report), "--baseline", str(baseline)]) == 1
+
+
+def test_a_target_split_in_parts_runs_every_mutant_once_across_the_parts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ENG-006: engine.py's shard ran out of its 200 minutes with 114 mutants not run (nightly of 2026-11-15), so the
+    floor could not be raised on a complete score. ``--part K/N`` runs every N-th mutant of the targets (stable
+    order); the parts' reports merge into exactly the whole run, no mutant twice, no accepted one called stale."""
+    monkeypatch.setenv("TB_SCRATCH", str(tmp_path / "scratch"))
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    (tree / "mod.py").write_text(
+        "def gate(x):\n    if x >= 10:\n        return 'pass'\n    return 'fail'\n\n\n"
+        "def unused(y):\n    return y == 3\n",
+        encoding="utf-8",
+    )
+    (tree / "test_mod.py").write_text(
+        "from mod import gate\n\n\ndef test_gate():\n    assert gate(11) == 'pass' and gate(1) == 'fail'\n",
+        encoding="utf-8",
+    )
+    config = mt.Config(threshold=90.0, floor=50.0, targets=[mt.Target("mod.py", ["test_mod.py"])],
+                       accepted={"mod.py:8:11:cmp:Eq->NotEq": "an example", "mod.py:99:0:gone": "stale"})  # fmt: skip
+    whole, _ = mt.run(config, root=tree, workers=2, python=sys.executable, log=False)
+    parts = []
+    for k in (1, 2):
+        results, meta = mt.run(config, root=tree, workers=2, python=sys.executable, log=False, part=(k, 2))
+        assert results and len(results) < len(whole)
+        (tmp_path / f"p{k}.json").write_text(json.dumps({"results": [r.__dict__ for r in results], "meta": meta}),
+                                             encoding="utf-8")  # fmt: skip
+        parts.append(tmp_path / f"p{k}.json")
+    merged, meta = mt._merge(parts)
+    assert sorted(r.mutant for r in merged) == sorted(r.mutant for r in whole)  # each once
+    assert {r.mutant: r.status for r in merged} == {r.mutant: r.status for r in whole}
+    assert meta["stale_accepted"] == ["mod.py:99:0:gone"]  # once, and only the really stale one
+    with pytest.raises(SystemExit):
+        mt.main(["--part", "3/2", "--list"])
+    assert mt.parse_part("2/3") == (2, 3)

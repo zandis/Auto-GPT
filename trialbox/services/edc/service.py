@@ -50,7 +50,7 @@ from edc import mapping, odm, prefill
 from edc.layout import Layout, Slot, split_visit
 from edc.logic import LogicError
 from edc.rows import Key, Rows, watched
-from edc.store import CHANGED_SAYS, EdcError, EdcStore
+from edc.store import CHANGED_SAYS, EdcError, EdcStore, said
 
 log = logging.getLogger("edc")
 
@@ -147,7 +147,7 @@ class EdcService:
             with self.client(token_ref) as c:
                 rows = c.metadata()
         except RcError as exc:
-            raise EdcError(exc.code, exc.message, 502 if exc.code == "RC-UPSTREAM" else 409) from exc
+            raise EdcError(exc.code, exc.message, exc.status) from exc  # EDC-018: the register's status (RC-RATE 503)
         if not rows:
             raise EdcError("edc.dictionary", "the REDCap project has no fields")
         fields = [forms.field_of(r) for r in rows]
@@ -305,6 +305,7 @@ class EdcService:
             # EDC-010 (D-581): the reason and the citation's words go into the trail and the ODM file
             texts = [("reason", reason), *((f"citation {k}", str(v)) for k, v in (citation or {}).items())]
             for what, text in texts:
+                said(text, what)  # EDC-022 (D-854): too long is refused (audited), never cut
                 if forms.XML_ILLEGAL.search(text):
                     raise EdcError("edc.chars", f"the {what} holds a character that cannot be stored (a control "
                                    "character from pasted text)", 400)  # fmt: skip
@@ -468,7 +469,7 @@ class EdcService:
                 todo = [d for d in todo if d not in held]
                 fmt = {int(d["id"]): forms.redcap_value(live[str(d["item"])], str(d["final"])) for d in todo}
                 items = sorted({str(d["item"]) for d in todo})
-                rows = c.records(fields=[rid, key, *items])
+                rows = c.records(fields=[rid, key])  # EDC-018 (D-853): the key of every record, not the items
                 if lay.repeats and rows and any("redcap_repeat_instance" not in r for r in rows):
                     self._audit("edc.sent", rs, by, {"record": record or "*", "refused": "edc.repeat_keys"})
                     raise EdcError("edc.repeat_keys", "the project repeats instruments or events, but REDCap's export "
@@ -652,7 +653,7 @@ class EdcService:
                             hidden_out.append({"record": name, "visit": slot.visit, "item": f, "trialbox": mine})
         except RcError as exc:
             self._audit("edc.sent", rs, by, {"record": record or "*", "refused": exc.code, "attempted": attempted})
-            raise EdcError(exc.code, exc.message, 502 if exc.code == "RC-UPSTREAM" else 409) from exc
+            raise EdcError(exc.code, exc.message, exc.status) from exc  # EDC-018: the register's status (RC-RATE 503)
         self._audit("edc.sent", rs, by, {"record": record or "*", "target": target["token_ref"],
                                          # NEW-EDC-7: an audit line's "refused" is a refused send's code
                                          **{("records_refused" if k == "refused" else k): len(v)
@@ -738,7 +739,9 @@ class EdcService:
                         )
             except RcError as exc:
                 self._audit("edc.reconciled", rs, by, {"record": record or "*", "refused": exc.code})
-                raise EdcError(exc.code, exc.message, 502 if exc.code == "RC-UPSTREAM" else 409) from exc
+                raise EdcError(
+                    exc.code, exc.message, exc.status
+                ) from exc  # EDC-018: the register's status (RC-RATE 503)
         self._audit("edc.reconciled", rs, by, {"record": record or "*", "read": compared,
                                                "changed_in_redcap": len(drift)})  # fmt: skip
         return drift
@@ -789,7 +792,7 @@ class EdcService:
                     cur.know_events(c.records(fields=[rid], records=[rec]))
                 taken = bool(slot.repeat and self._not_ours(rs, cur, live, rec, slot, record))
         except RcError as exc:
-            raise EdcError(exc.code, exc.message, 502 if exc.code == "RC-UPSTREAM" else 409) from exc
+            raise EdcError(exc.code, exc.message, exc.status) from exc  # EDC-018: the register's status (RC-RATE 503)
         misplaced, hidden = [], []
         arms = cur.arms(rec)
         for d in decided:
@@ -895,7 +898,7 @@ class EdcService:
                                                "the erase did not read back blank", by, at)  # fmt: skip
         except RcError as exc:
             self._audit("edc.erase_hidden", rs, by, {"record": record, "visit": vis, "refused": exc.code})
-            raise EdcError(exc.code, exc.message, 502 if exc.code == "RC-UPSTREAM" else 409) from exc
+            raise EdcError(exc.code, exc.message, exc.status) from exc  # EDC-018: the register's status (RC-RATE 503)
         except EdcError as exc:
             self._audit("edc.erase_hidden", rs, by, {"record": record, "visit": vis, "refused": exc.code})
             raise

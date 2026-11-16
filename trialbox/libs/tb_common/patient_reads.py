@@ -51,6 +51,9 @@ PATIENT_READS: dict[str, str | tuple[str, ...]] = {
     # the screening registry (D-273): a status per pseudonym and its events
     "GET /registry/{ruleset}": PHI,
     "GET /registry/{ruleset}/events": PHI,
+    # NEW-ARCH-3 slice 2 (D-865): the clinical conflicts of the whole store of record, by pseudonym, for the steward
+    # (the right that has always guarded the console's page); the whole site's, no study
+    "GET /omop/conflicts": "conflicts.resolve",
     # the site set-up of the whole site (D-131): uploaded files and charts, facts, checks with raw values, fixes with
     # example values, patients by pseudonym, the patient check
     "GET /setup/{ws}/inputs": PHI,

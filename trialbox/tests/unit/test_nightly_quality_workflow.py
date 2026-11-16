@@ -69,3 +69,14 @@ def test_the_mutation_shards_are_left_as_they_were() -> None:
     jobs = _jobs()
     assert jobs["mutation"]["timeout-minutes"] == 300
     assert jobs["mutation-score"]["needs"] == "mutation" or jobs["mutation-score"]["needs"] == ["mutation"]
+
+
+def test_engine_py_runs_in_two_parts_and_the_score_waits_for_every_shard() -> None:
+    """ENG-006: engine.py's shard ran out of its budget with 114 mutants not run (2026-11-15); its mutants are split
+    in two parts (tools/mutation.py --part), each mutant in one, and the score job counts four reports."""
+    jobs = _jobs()
+    include = jobs["mutation"]["strategy"]["matrix"]["include"]
+    engine = [i for i in include if "engine.py" in i["targets"]]
+    assert sorted(i["targets"].split("--part ")[1] for i in engine) == ["1/2", "2/2"]
+    assert len(include) == 4
+    assert "-eq 4" in _runs(jobs["mutation-score"])

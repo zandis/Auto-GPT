@@ -91,6 +91,9 @@ class SiteSetup:
     # T-305b (D-403): decisions on ``main`` within this many seconds of the last publish wait and go as one batch
     # (``TB_SITE_PUBLISH_BATCH_SECONDS``; 0 = every decision publishes, as before)
     publish_batch_seconds: int = 0
+    # ERASE-A1 (D-866): the pseudonyms on the opt-out register now (the decision context's ``register_now`` when
+    # None): a chart of one is refused before anything is kept; a sheet's facts of one are never written
+    gone: Callable[[], frozenset[str]] | None = None
     _lakes: dict[str, Any] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -98,6 +101,15 @@ class SiteSetup:
         return self.now().isoformat(timespec="seconds")
 
     # ------------------------------------------------------------------ lakes and files
+    def _opted_out(self) -> frozenset[str]:
+        """The register now, read once per call. A register that cannot be read stops the write (fail closed)."""
+        from orchestrator.decision_context import register_now  # the door outside a job (the decision context)
+
+        try:
+            return frozenset(self.gone() if self.gone is not None else register_now())
+        except Exception as exc:
+            raise SetupError("SETUP-OPTOUT", "the opt-out register did not answer; nothing was read") from exc
+
     def lake(self, ws: str) -> Any:
         if ws == "main":
             return self.main_lake
@@ -171,6 +183,7 @@ class SiteSetup:
         grid, merged = intake.read_grid(clean_name, data)  # refuse an unreadable file before anything is stored
         # FIT-U09 (T-629): and a chart-number column that Excel turned into numbers, naming the column
         intake.refuse_chart_column(clean_name, data, messy.clean(grid, merged, roles), self.mrn_regex)
+        self._opted_out()  # the review of D-866: a register that does not answer keeps nothing of the sheet
         iid = self.store.add_input(ws, kind, clean_name, sha256_bytes(data), "", "", by, self.stamp(), roles)
         self.store.set_input(iid, path=self._save(ws, iid, clean_name, data))
         out = self.reread(iid, by, first=True)
@@ -203,8 +216,10 @@ class SiteSetup:
         ws = inp["ws"]
         cleaned = messy.clean(grid, merged, inp["roles"], answers)
         facts, locs, pids = intake.sheet_facts(cleaned, self.pseudonym)
+        gone = {p.lower() for p in self._opted_out()}  # D-866: read before anything of the sheet is written
         for domain, system, code, display in locs:
             self.store.put_local(ws, domain, system, code, display, mapping.suggest(domain, system, code, display))
+        facts = [f for f in facts if str(f.get("pid") or "").lower() not in gone]
         at = self.stamp()
         self.store.replace_facts(ws, input_id, facts, at)
         self.store.put_checks(
@@ -251,11 +266,13 @@ class SiteSetup:
         # NEW-DIN-3c (D-546): the pattern is asked of the number as the site writes it, as it is then hashed
         if self.mrn_regex and not re.match(self.mrn_regex, chartno.normalise(None, chart_no)):
             raise SetupError("SETUP-KEY", "this is not a chart number of this hospital")
+        pid = self.pseudonym(chart_no)
+        if pid.lower() in {p.lower() for p in self._opted_out()}:  # D-866: the chart is neither read nor kept
+            raise SetupError("SETUP-OPTED-OUT", "this patient opted out of research use; the chart was not kept")
         try:
             ct = charts.chart_text("pasted.txt" if pasted else name, data, self.ocr)
         except charts.ChartError as exc:
             raise SetupError(exc.code, exc.message) from exc
-        pid = self.pseudonym(chart_no)
         clean_name = "pasted.txt" if pasted else (SAFE_NAME.sub("_", Path(name).name)[-80:] or "chart")
         day = messy.parse_date(_first_date(ct.text) or "").iso or self.today().isoformat()
         iid = self.store.add_input(ws, "chart", clean_name, sha256_bytes(data), "", "", by, self.stamp(), {}, pid, day)
@@ -462,7 +479,11 @@ class SiteSetup:
         until a person presses Publish. No time limit on the rebuild (OD-10). A box with no site facts that never
         published starts no rebuild."""
         with self._lock:
-            res = publish.resources(self.store.facts(ws), self.store.mapping(ws), self.chart_texts(ws))
+            # the review of D-866: a patient opted out since a chart or a fact was kept is never published
+            gone = {p.lower() for p in self._opted_out()}
+            facts = [f for f in self.store.facts(ws) if str(f.get("pid") or "").lower() not in gone]
+            texts = [t for t in self.chart_texts(ws) if str(t["pid"]).lower() not in gone]
+            res = publish.resources(facts, self.store.mapping(ws), texts)
             dg = publish.digest(res)
             lake = self.lake(ws)
             rec = self._record(ws)

@@ -10,6 +10,10 @@ console <http://127.0.0.1:8090>, web mail (MailHog) <http://127.0.0.1:8025>, mai
 
 - **Modes** (`TB_LLM_MODE`): `stub` (default, no GPU), `openrouter` (DEV, D0 data only, key in `OPENROUTER_API_KEY`
   or `deploy/poc/secrets/openrouter_api_key`, given to the gateway only), `gpu` (needs the pin of §8).
+- **The weights folder (gpu mode, D-896):** the weights go in `deploy/models`, or anywhere with
+  `TB_MODELS_DIR=<folder>` given once: `poc.sh` keeps it in `deploy/.env`, so a restart, the next run, `trialbox
+  doctor` and `deploy/check_weights.sh` read the same folder. Do not bind-mount the weights onto `deploy/models` by
+  hand: the bind is gone after a reboot and the models start on an empty folder (`poc.sh` warns on one).
 - **A real mailbox:** set `IMAP_*`, `SMTP_*`, `MAIL_INTAKE_ADDR`, `MAIL_FROM_ADDR`, `TB_MAIL_AUTHSERV_ID` and app
   passwords in `deploy/.env` (mode 600), then `TB_POC_MAIL=real deploy/poc.sh`.
 - **Remote access:** the console binds to 127.0.0.1. Put a TLS proxy in front (Caddy: `reverse_proxy 127.0.0.1:8090`;
