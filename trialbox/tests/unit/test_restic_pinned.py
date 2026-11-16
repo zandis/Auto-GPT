@@ -51,6 +51,7 @@ def test_each_module_bump_is_an_exact_version() -> None:
     assert "go get $RESTIC_MODULE_BUMPS; go mod verify" in text
     # D-1039: restic's own test suite runs on the bumped modules before the binary is built and kept
     assert text.index("go mod verify") < text.index("go test -short -count=1 ./...") < text.index("go build")
+    assert "runuser -u gotest" in text  # not as root: restic's permission tests need an ordinary user
 
 
 def test_no_service_image_carries_restic() -> None:
