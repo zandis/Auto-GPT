@@ -34,6 +34,20 @@ die() { printf 'poc: %s\n' "$*" >&2; exit 1; }
 # the script (exit 141) on a first run
 rand() { { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-32}"; } || true; }
 envfile_get() { [ -f deploy/.env ] && sed -n "s/^$1=//p" deploy/.env | tail -1 | tr -d "\"'" || true; }
+envfile_set() {  # one VAR= line in deploy/.env, replacing any before it
+  sed -i.bak "/^$1=/d" deploy/.env && rm -f deploy/.env.bak
+  printf '%s=%s\n' "$1" "$2" >> deploy/.env
+}
+# D-896 (F15/W6): the models folder. TB_MODELS_DIR as typed (relative to here), else the one kept in deploy/.env
+# (relative to deploy/, as compose reads it), else deploy/models; always made absolute, so compose, the pin, the
+# doctor and check_weights.sh all read the same folder
+models_dir() {
+  local m="${TB_MODELS_DIR:-}"
+  if [ -n "$m" ]; then case "$m" in /*) ;; *) m="$ROOT/${m#./}" ;; esac
+  else m="$(envfile_get TB_MODELS_DIR)"; m="${m:-./models}"; case "$m" in /*) ;; *) m="$ROOT/deploy/${m#./}" ;; esac
+  fi
+  printf '%s' "${m%/}"
+}
 
 command -v docker >/dev/null || die "Docker is not installed (Docker Desktop, or Docker Engine 27+ with compose)"
 docker info >/dev/null 2>&1 || die "Docker is not running (start Docker Desktop, or: sudo systemctl start docker)"
@@ -68,7 +82,14 @@ if [ "$MODE" = gpu ]; then
     *) die "gpu mode: GPU profile '$GPU': the one-command PoC serves the pair on rtxpro6000 or gb10 (TB_GPU_PROFILE); others: deploy/install.sh" ;;
   esac
   OVR="deploy/docker-compose.$GPU.yml"
-  MODELS="${TB_MODELS_DIR:-deploy/models}"
+  MODELS="$(models_dir)"
+  # D-896 (F15/W6): a mount made by hand on the models folder is gone after a reboot, and llm-service comes back on an
+  # empty folder; said here, with the setting that lasts
+  if command -v mountpoint >/dev/null && mountpoint -q "$MODELS" 2>/dev/null \
+     && ! findmnt --fstab --target "$MODELS" >/dev/null 2>&1 \
+     && ! { command -v systemd-escape >/dev/null && systemctl cat "$(systemd-escape -p --suffix=mount "$MODELS")" >/dev/null 2>&1; }; then
+    echo "poc: warning: $MODELS is a mount made by hand (no fstab line or mount unit): it is lost at the next reboot and the models then start on an empty folder. Point TB_MODELS_DIR=<the weights folder> at the weights instead (kept in deploy/.env), or add the mount to /etc/fstab" >&2
+  fi
   for v in JUDGE_MODEL_DIR VERIFIER_MODEL_DIR; do
     d="${!v:-$(compose_default "$v" "$OVR")}"
     [ -f "$MODELS/$d/config.json" ] || die "gpu mode: no model in $MODELS/$d (no config.json): put the weights of the pinned build there (models/registry.yaml, profile $GPU; RUNBOOK §8) or set $v"
@@ -151,6 +172,14 @@ if [ ! -f deploy/.env ]; then
   chmod 600 deploy/.env
 elif grep -q 'change-me' deploy/.env; then
   echo "poc: note: deploy/.env still has change-me passwords (kept: existing volumes were created with them)" >&2
+fi
+# D-896 (F15/W6): a models folder of its own is kept for every later start (compose, a restart, the doctor)
+if [ "$MODE" = gpu ]; then
+  export TB_MODELS_DIR="$MODELS"
+  if [ "$MODELS" != "$ROOT/deploy/models" ] && [ "$(envfile_get TB_MODELS_DIR)" != "$MODELS" ]; then
+    envfile_set TB_MODELS_DIR "$MODELS"
+    ok "the models folder $MODELS is kept in deploy/.env (TB_MODELS_DIR)"
+  fi
 fi
 # D-114: the orchestrator refuses changing calls without the box's service token (no volume depends on it)
 if ! grep -q '^TB_SERVICE_TOKEN=' deploy/.env || grep -q '^TB_SERVICE_TOKEN=change-me' deploy/.env; then
