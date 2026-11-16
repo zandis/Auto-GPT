@@ -163,3 +163,10 @@ question, no first-run code and no wait. Use it for the hospital's own unattende
   command's environment; the site keys are sealed under it at the install.
 - A file that does not parse changes nothing.
 - It cannot be combined with `--prepare`, `--rehearsal` or `--firstrun`.
+**The box's name (OPS-005):** a box named `<name>.local` answers that name on the clinic's network.
+- `hardening.conf` says `MDNS=on`, and the input firewall then lets mDNS (UDP 5353) in from the box's own network only.
+- The apply step sets the host name to the owner's choice and starts `avahi-daemon`. When the responder is not
+  installed, it says so.
+- The first-run screen also prints the box's address, for a computer that cannot resolve `.local`. The browser then
+  warns, because the certificate names the box, not its address.
+- A box with a name in the hospital's DNS keeps `MDNS=off`.
