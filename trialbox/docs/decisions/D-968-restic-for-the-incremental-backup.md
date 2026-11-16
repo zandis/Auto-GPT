@@ -35,6 +35,16 @@ restic does the incremental backup, on these conditions:
     The integrator's order (#639): build from source with a patched Go first; if the gates still find something in
     restic's own modules, its own image, and the exact budget and licence entries go to the owner for one yes or no.
     Both are done here; the rehearsal's gate run gives the exact count.
+  - **Module bumps.** On the source build the standard library's findings were gone, and `trialbox-py` and
+    `trialbox-jvm` passed. The image gates still found twelve open advisories in six of restic 0.19.1's modules
+    (`go-jose/v4` 4.1.4, `klauspost/compress` 1.18.6, `x/crypto` 0.52.0, `x/net` 0.55.0, `x/text` 0.37.0, `grpc`
+    1.81.1). 0.19.1 is restic's newest release, and its main branch already carries newer versions of all six. The
+    build raises exactly those six to the main branch's versions (`ARG RESTIC_MODULE_BUMPS`, each an exact version;
+    `go get` adds their sums under GOSUMDB, `go mod verify`, then the build runs `-mod=readonly`). No advisory is
+    waived. A bump is dropped once a restic release carries that version.
+  - **Licence budget.** Syft reads no licence from a Go binary, so the image's Go modules count as unknown: 86 on the
+    first source build. That is the one line that goes to the owner for a yes or no (#639). No allow-list entry is
+    added without it.
 - **R2, the password is a box key (landed: `agent/PERF-010-R2-restic-password-is-a-box-key`).**
   - `restic.key` is in `kek.PROTECTED` (and in `OPTIONAL`, since a box has none until its first incremental backup),
     so the custody report, `rotate-kek`, `doctor` and the key ceremony's record treat it like the other keys. It is in
