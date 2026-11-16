@@ -560,9 +560,25 @@ def models_place(
     import urllib.request
 
     def get(url: str) -> bytes:
+        """The bytes at an https address (the registry's public source). The opener speaks https only, through the
+        environment's proxy when one is set: no ``file:``, ``ftp:`` or plain ``http:`` handler is in it, a redirect is
+        followed only to https, and an answer that ended anywhere else is refused."""
         if fetch is not None:
             return bytes(fetch(url))
-        with urllib.request.urlopen(url, timeout=300) as r:  # noqa: S310 (https, the registry's public source)
+        if urllib.parse.urlsplit(url).scheme != "https":
+            raise ValueError(f"{url}: only an https address is fetched")
+        opener = urllib.request.OpenerDirector()
+        for handler in (
+            urllib.request.ProxyHandler(),
+            urllib.request.HTTPSHandler(),
+            urllib.request.HTTPRedirectHandler(),
+            urllib.request.HTTPDefaultErrorHandler(),
+            urllib.request.HTTPErrorProcessor(),
+        ):
+            opener.add_handler(handler)
+        with opener.open(url, timeout=300) as r:
+            if urllib.parse.urlsplit(r.geturl()).scheme != "https":
+                raise ValueError(f"{url}: the answer came from {r.geturl()}, not an https address")
             return bytes(r.read())
 
     done: dict[str, Any] = {"linked": [], "kept": [], "missing": [], "fetched": [], "refused": []}
