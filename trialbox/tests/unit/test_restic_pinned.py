@@ -33,6 +33,17 @@ def test_restic_is_built_from_its_pinned_source_with_a_pinned_go() -> None:
     assert text.count("restic version") == 2  # checked in the builder and in the image
 
 
+def test_each_module_bump_is_an_exact_version() -> None:
+    """The release's modules with open advisories are raised to exact versions, never to a floating ``@latest``."""
+    text = BACKUP.read_text(encoding="utf-8")
+    bumps = re.search(r'^ARG RESTIC_MODULE_BUMPS="([^"]*)"$', text, re.M)
+    assert bumps is not None
+    mods = bumps.group(1).split()
+    assert mods and all(re.fullmatch(r"[a-z0-9./-]+@v\d+\.\d+\.\d+", m) for m in mods), mods
+    assert len({m.split("@")[0] for m in mods}) == len(mods)
+    assert "go get $RESTIC_MODULE_BUMPS; go mod verify" in text
+
+
 def test_no_service_image_carries_restic() -> None:
     for name in ("python.Dockerfile", "jvm.Dockerfile", "embed.Dockerfile", "db.Dockerfile"):
         assert "restic" not in (ROOT / "deploy/docker" / name).read_text(encoding="utf-8").lower(), name
