@@ -162,8 +162,12 @@ class CandidateRegistry:
             from orchestrator.decision_context import register_now
 
             exclude = register_now()
-        rows = [r for r in self.db.candidates(ruleset) if str(r["pid"]) not in exclude]
-        events = [e for e in self.db.candidate_events(ruleset) if str(e["pid"]) not in exclude]
+        from tb_common.optout import is_erased
+
+        # D-875: an erased row is an opted-out patient's (its contact work is never exported, D-762)
+        rows = [r for r in self.db.candidates(ruleset) if str(r["pid"]) not in exclude and not is_erased(r["pid"])]
+        events = [e for e in self.db.candidate_events(ruleset)
+                  if str(e["pid"]) not in exclude and not is_erased(e["pid"])]  # fmt: skip
         mrns = self.mrns([str(r["pid"]) for r in rows])
         wb = Workbook()
         wb.properties.creator = f"TrialBox {site_id}"

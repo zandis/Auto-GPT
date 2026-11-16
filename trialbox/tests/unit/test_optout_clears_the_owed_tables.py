@@ -31,8 +31,10 @@ PLAIN = ("site.contact_outcomes", "site.excluded_review", "team.approach_overrid
          "derived.score_row")  # fmt: skip
 #: ERASE-A1 (D-866): cleared by the same clear; its rows are tested in test_the_worker_clears_more_owed_tables
 MORE = ("sitesetup.fact",)
-#: the adversarial review of D-798: these stay owed (the screening log) and the clear never touches them
-KEPT_OWED = ("site.weekly_seen",)
+#: the adversarial review of D-798 kept site.weekly_seen out of this clear (the screening log); ERASE-A2 (D-875) gives
+#: the screening log's tables a clear of their own (screening_log), and this clear still never touches them
+KEPT_OWED: tuple[str, ...] = ()
+SCREENING_LOG = ("site.pi_marks", "site.screening_no", "site.weekly_seen", "orch.candidate_events")
 #: ERASE-C (D-868): the reveal cap's ledger and the not-matched sample keep their rows; the pseudonym becomes a token
 TOKENIZED = ("team.candidate_views", "tuned.tuned_patients")
 #: D-513 (D-860): a submission's dry run goes, a live one stays (test_readers_drop_the_opted_out holds it)
@@ -162,8 +164,9 @@ def test_the_registry_no_longer_owes_the_cleared_tables() -> None:
     assert not cleared & owed
     assert all(erasure.entries()[k].clear == "owed_tables" for k in cleared)
     assert set(erasure.tables_of("owed_tables")) == cleared
-    for key in ("site.pi_marks", "site.screening_no", "orch.candidate_events", "study.rc_record", *KEPT_OWED):
-        assert key in owed  # LIFE-005 is frozen: the screening log's tables wait; the review's four wait too
+    assert "study.rc_record" in owed  # REDCap's read-back waits for its card (D-532)
+    for key in SCREENING_LOG:  # ERASE-A2 (D-875): the screening log's tables have their own clear
+        assert key not in owed and erasure.entries()[key].clear == "screening_log"
 
 
 def test_the_nightly_derive_skips_an_opted_out_patient(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -182,7 +185,7 @@ def test_the_nightly_derive_skips_an_opted_out_patient(monkeypatch: pytest.Monke
     assert seen == [C]
 
 
-@pytest.mark.parametrize("key", ["site.pi_marks", "orch.candidate_events"])
+@pytest.mark.parametrize("key", SCREENING_LOG)
 def test_the_screening_logs_tables_are_not_touched(db_url: str, key: str) -> None:
     from datacore.optout_worker import clear_tables
 

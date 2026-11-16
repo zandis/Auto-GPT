@@ -48,6 +48,7 @@ from tb_common import sheets
 from tb_common.actor_v3 import Claim
 from tb_common.audit import AuditLog
 from tb_common.deterministic import normalize_ooxml
+from tb_common.optout import is_erased
 from tb_common.patient_reads import MONITOR as _MONITOR
 from tb_common.patient_reads import PHI as _PHI
 
@@ -222,7 +223,7 @@ def mirror(registry: Any, rs: str, pid: str, state: str, by: str, now: Any) -> s
     """Put the subject's state on the screening log (the candidate registry); None, or why it could not."""
     from tb_contracts import RegistryUpdate
 
-    if registry is None or not pid:
+    if registry is None or not pid or is_erased(pid):  # D-875: an erased subject is never put back on the log
         return None
     want = lc.REGISTRY_OF[state]
     try:

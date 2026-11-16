@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from tb_common.authz import permit, role_allowed
+from tb_common.optout import is_erased
 from tb_contracts import Job, JobCreate
 
 from console import about, actor, command
@@ -138,6 +139,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             except Exception:  # the registry is optional for search  # noqa: S112
                 continue
             for pid in sorted(pids):
+                if is_erased(pid):  # D-875: an erased row is no patient to find
+                    continue
                 no = nos.get(pid, "")
                 if pid.startswith(q) or (no and no.upper() == qu):
                     out["patients"].append({"study": rs, "pid": pid, "no": no, "href": f"/studies/{rs}/patients/{pid}"})
