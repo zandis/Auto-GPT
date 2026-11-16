@@ -105,7 +105,9 @@ def orch() -> Orchestrator:
     global _orch
     if _orch is None:
         cfg = get_config()
-        data = Path(os.environ.get("TB_ORCH_DIR", str(Path(cfg.env.data_dir) / "orchestrator")))
+        from orchestrator.selftest import orch_data_dir
+
+        data = orch_data_dir(cfg)
         audit = open_audit(cfg.env.audit_path, cfg.env.tz)
         services = Services(
             lake=LakeHttp(cfg.env.lake_url),
