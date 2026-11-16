@@ -24,7 +24,7 @@ from typing import Any
 
 from pydantic import ValidationError
 from tb_common.derived import CODES, COMPONENTS
-from tb_contracts import Atom, BoolExpr, CriterionIR, LlmExtractOutput, dump
+from tb_contracts import Atom, BoolExpr, CriterionIR, CriterionReview, LlmExtractOutput, dump
 from tb_contracts.criterion_ir import ACTIVE_STATUSES
 
 from criteria_compiler import unit_check
@@ -52,6 +52,46 @@ class PostResult:
 
     def vs_index(self, ruleset: str, term: Terminology | None) -> ValueSets:
         return ValueSets(ruleset, self.valuesets, term)
+
+
+def _one_age(c: CriterionIR) -> tuple[float | None, float | None] | None:
+    """The age bounds of a coded criterion whose whole logic is one age atom (no sex), else None."""
+    a = c.logic
+    if c.class_ not in FILTERED or not isinstance(a, Atom) or a.domain != "demographic" or a.age is None or a.sex:
+        return None
+    return a.age.min, a.age.max
+
+
+def decided_once(criteria: list[CriterionIR], warnings: list[str]) -> list[CriterionIR]:
+    """F5 of the P1b review (D-982): one age fact decided twice in 5 of sigir's rulesets (NCT01790477: INC age >= 18,
+    EXC age <= 17), so a minor failed two criteria and the counts and the reasons said it twice. An exclusion whose
+    age is the exact complement of an inclusion's (``max m-1`` against ``min m``; ``min M+1`` against ``max M``)
+    decides nothing the inclusion does not: it is kept, marked rejected with a comment naming the inclusion
+    (``restates_inclusion``), so the inclusion alone decides; the review sheet shows it as "reject", which the
+    reviewer may change. No patient's answer changes."""
+    bounds = {c.id: _one_age(c) for c in criteria if c.kind == "inclusion"}
+    out: list[CriterionIR] = []
+    for c in criteria:
+        ages = _one_age(c) if c.kind == "exclusion" and not (c.review and c.review.status == "rejected") else None
+        same = None
+        if ages is not None:
+            lo, hi = ages
+            for iid, inc in bounds.items():
+                if inc is None:
+                    continue
+                if (lo is None and hi is not None and inc == (hi + 1, None)) or (
+                    hi is None and lo is not None and inc == (None, lo - 1)
+                ):
+                    same = iid
+                    break
+        if same is None:
+            out.append(c)
+            continue
+        note = f"the complement of {same}: the inclusion decides it alone (approve this to keep both)"
+        flags = sorted({*(c.flags or []), "restates_inclusion", "needs_review"})
+        out.append(c.model_copy(update={"review": CriterionReview(status="rejected", comment=note), "flags": flags}))
+        warnings.append(f"{c.id}: {note}")
+    return out
 
 
 # red of 2026-11-15 (tcga): a diagnosis the model filed under ``procedure`` ("invasive breast carcinoma") is re-filed
@@ -614,4 +654,5 @@ def postprocess(
         if flags:
             ir = ir.model_copy(update={"flags": sorted(set(flags) | {"needs_review"})})
         criteria.append(ir)
+    criteria = decided_once(criteria, warnings)
     return PostResult(criteria, dict(sorted(valuesets.items())), mappings, warnings)
