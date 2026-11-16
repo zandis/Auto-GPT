@@ -44,6 +44,7 @@ from tb_common.quotes import quote_in
 from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
 from tb_contracts import CandidateRow, CriterionIR, CriterionVerdict, Evidence, Opinion, PatientEvaluation
+from tb_llm.budget import shown as shown_excerpt
 
 from orchestrator.scenarios.terms import keywords
 from orchestrator.twophase import two_phase
@@ -229,6 +230,12 @@ def _vote(r: NoteResult) -> Vote:
     return Vote(r.predicate, r.confidence, r.reason, served_keys(r.model, r.build_sha))
 
 
+def served(judge: Any, role: str) -> str | None:
+    """The name ``role``'s model answered under on this run (G12, D-980); None for a judge that keeps none."""
+    fn = getattr(judge, "served_name", None)
+    return fn(role) if callable(fn) else None
+
+
 @dataclass
 class NoteJudge:
     """The note judge of both screening paths, with the two-model rule of :mod:`tb_common.pair` (D-118).
@@ -265,6 +272,14 @@ class NoteJudge:
     # the counters are bumped from the evaluator's worker threads: one lock, so the >10 % model-down rule and the
     # audit counts never lose an increment (review F-27)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    # G12 of the P1b review (D-960): the names each model answered under ("judge" / "verifier" -> name -> answers);
+    # the report named the configured default, not the model that served
+    served: dict[str, dict[str, int]] = field(default_factory=dict, repr=False, compare=False)
+
+    def served_name(self, role: str) -> str | None:
+        """The name the ``role``'s model answered under most on this run; None when it never answered."""
+        names = self.served.get(role) or {}
+        return max(names, key=lambda n: (names[n], n)) if names else None
 
     def _count(self, **inc: int) -> None:
         with self._lock:
@@ -408,6 +423,10 @@ class NoteJudge:
             self._count(failures=1)
             return NoteResult("unknown", 0.0, reason=Reason.MODEL_DOWN.value, source=source)
         self._count(calls=1, tokens_in=res.tokens_in, tokens_out=res.tokens_out)
+        role = "verifier" if self.verifier is not None and client is self.verifier else "judge"
+        with self._lock:
+            names = self.served.setdefault(role, {})
+            names[str(res.model)] = names.get(str(res.model), 0) + 1
         r = postprocess(res.data, excerpts, source)
         return replace(
             r,
@@ -435,7 +454,7 @@ class NoteJudge:
             "criterion_text": criterion_text,
             "note_question": note_question,
             "index_date": index_date.isoformat(),
-            "excerpts": [{k: e.get(k) for k in ("date", "note_type", "text")} for e in excerpts],
+            "excerpts": [shown_excerpt(e) for e in excerpts],  # D-644, D-941: what a model is shown of each
         }
         first = self._ask(primary if primary is not None else self.llm, variables, excerpts, source)
         second: NoteResult | None = None

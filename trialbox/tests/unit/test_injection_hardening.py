@@ -49,8 +49,12 @@ NEW = {
 def test_every_active_prompt_is_a_new_version_with_the_data_rule() -> None:
     reg = default_registry()
     active = {e.id: e for e in reg.active_set()}
-    assert {i: e.version for i, e in active.items()} == NEW
-    for e in active.values():
+    assert set(active) == set(NEW) and all(active[i].version >= v for i, v in NEW.items())  # D-984: ir_extract@4
+    for e in active.values():  # every version served since T-606 keeps the data rule and the JSON block
+        r = reg.get(e.id, e.version, environment="DEV")
+        assert sections(r.text)["system"].endswith(DATA_RULE), e.ref
+        assert "```json" in sections(r.text)["user"], f"{e.ref}: the data goes in a JSON block"
+    for e in (reg.entry(i, v) for i, v in NEW.items()):  # T-606's own versions, against the ones before them
         r = reg.get(e.id, e.version, environment="DEV")
         system = sections(r.text)["system"]
         assert system.endswith(DATA_RULE), e.ref

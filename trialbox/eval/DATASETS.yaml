@@ -91,6 +91,11 @@ datasets:
     data_class: D0
     kind: synthetic
     licence: generated for TrialBox (fictional; no real person)
+  phi_second_opinion:
+    path: eval/phi_second_opinion (Presidio beside the note masker, D-1037; counts and span shapes, no values; tools/phi_second_opinion.py)
+    data_class: D0
+    kind: synthetic
+    licence: generated for TrialBox (fictional) and the SIGIR notes (public domain, NCBI)
   medtxt:
     path: eval/medtxt (model answers and scores; MedTxt-CR/RR XML in .cache, never committed)
     data_class: D0

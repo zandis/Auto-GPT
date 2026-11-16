@@ -37,7 +37,7 @@ from datetime import date
 from typing import Any
 
 from tb_common.quotes import CUT
-from tb_llm.budget import excerpt_tokens
+from tb_llm.budget import COPIES, excerpt_tokens
 
 #: the budget when no client can tell its context: what fits beside the judge prompt and its answer on the smallest
 #: registered build (8k, T-603). A known context replaces it; it is the one fixed number of this module (OD-10)
@@ -281,6 +281,23 @@ def _order(n: Note) -> tuple[Any, ...]:
     return (tuple(-ord(ch) for ch in day), natural, n.text)
 
 
+def _copies(days: set[str] | None) -> dict[str, Any]:
+    """D-941: what a note shown for copies of its text says of them (``tb_llm.budget.COPIES``): the earliest day the
+    same text was written and how many other copies there are; nothing for a note with none."""
+    if not days:
+        return {}
+    first, many = COPIES
+    return {first: min(days), many: len(days)}
+
+
+def _copies_cost(days: set[str] | None) -> int:
+    """The tokens :func:`_copies` adds to an excerpt (``tb_llm.budget.excerpt_tokens``)."""
+    if not days:
+        return 0
+    base = {"date": "0000-00-00", "note_type": "", "text": ""}
+    return excerpt_tokens(base | _copies(days)) - excerpt_tokens(base)
+
+
 def build(
     window: Sequence[Note],
     evidence: Mapping[str, Collection[str]],
@@ -296,10 +313,16 @@ def build(
     seen: dict[str, Note] = {}
     dups: list[str] = []
     kept: list[Note] = []
+    # D-941 (review of D-940): the dates of the copies a shown note stands for. A line in relative time ("last dose
+    # given today") read only under the newest copy's date would move an event forward; the models see that the same
+    # text was also written on these days
+    also: dict[str, set[str]] = {}
     for n in newest_first:
         same = " ".join(n.text.split())
         if same and same in seen:
             dups.append(n.did)
+            if n.iso != seen[same].iso:
+                also.setdefault(seen[same].did, set()).add(n.iso)
             if n.did in evidence and seen[same].did not in evidence:  # its evidence is the kept copy's too
                 evidence = {**evidence, seen[same].did: evidence[n.did]}
             continue
@@ -321,7 +344,7 @@ def build(
             # not shown, and left out (review of T-710: the first version skipped it without counting)
             cut.append(n.did)
             continue
-        cost = tokens(n.text)
+        cost = tokens(n.text) + _copies_cost(also.get(n.did))  # D-941: the copies' two values are read too
         if cost <= left:
             shown.append((n, n.text))
             left -= cost
@@ -332,11 +355,14 @@ def build(
         # never shredded into the last few tokens
         if n.did not in evidence or cost <= cap or cap > left:
             continue
-        part = clip(n, evidence[n.did], cap, tokens)
-        part_cost = tokens(part)
+        extra = _copies_cost(also.get(n.did))  # D-941 (review): a clipped note's copies are read too
+        part = clip(n, evidence[n.did], max(1, cap - extra), tokens)
+        part_cost = tokens(part) + extra
         if part and part_cost <= left:
             shown.append((n, part))
             left -= part_cost
     shown.sort(key=lambda x: _order(x[0]))
-    out = [{"date": n.iso, "note_type": n.type, "text": text, "did": n.did} for n, text in shown]
+    out = [
+        {"date": n.iso, "note_type": n.type, "text": text, "did": n.did} | _copies(also.get(n.did)) for n, text in shown
+    ]
     return ExcerptSet(out, len(cut), cut, dups)

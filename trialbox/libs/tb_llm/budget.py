@@ -55,11 +55,23 @@ def estimate_messages(messages: Iterable[Any]) -> int:
     return sum(estimate_tokens(_content(m)) + MESSAGE_OVERHEAD for m in messages)
 
 
+#: what a model is shown of an excerpt (D-644: never the record's id): its date, note type and text, always
+SHOWN = ("date", "note_type", "text")
+#: D-941: and, on a note that stands for copies of the same text (copy-forward, D-905), the earliest day that text was
+#: written and how many other copies there are: two short values, never a list that grows with the copies
+COPIES = ("same_text_first_written", "same_text_copies")
+
+
+def shown(excerpt: Mapping[str, Any]) -> dict[str, Any]:
+    """The excerpt as a model reads it (the judge and the verifier, every path: :data:`SHOWN`, then :data:`COPIES`
+    where the excerpt has them)."""
+    return {k: excerpt.get(k) for k in SHOWN} | {k: excerpt[k] for k in COPIES if k in excerpt}
+
+
 def excerpt_tokens(excerpt: Mapping[str, Any]) -> int:
     """What one excerpt adds to a prompt that renders its excerpts as pretty JSON (the judge, ``tojson_pretty``):
-    its date, note type and text, JSON-escaped, plus the separators."""
-    shown = {k: excerpt.get(k) for k in ("date", "note_type", "text")}
-    return estimate_tokens(json.dumps(shown, ensure_ascii=False, indent=1, sort_keys=True)) + 2
+    what a model is shown of it (:func:`shown`), JSON-escaped, plus the separators."""
+    return estimate_tokens(json.dumps(shown(excerpt), ensure_ascii=False, indent=1, sort_keys=True)) + 2
 
 
 def text_budget(context: int, fixed_tokens: int, max_tokens: int) -> int:
