@@ -57,7 +57,8 @@ def test_past_retention_the_images_and_the_fhir_fields_go_and_the_ids_stay(db: A
 
     a, c = _record(db, A, 100, 1), _record(db, C, 101, 2)
     _withheld(db, "P-A", "2023-09-01T00:00:00+00:00")  # 38 months before NOW
-    db.execute("UPDATE tb_record_event SET reason = 'synthetic steward note' WHERE record_key = ?", (a,))
+    db.execute("UPDATE tb_record_event SET reason = 'synthetic steward note', event = 'status' WHERE record_key = ?",
+               (a,))  # fmt: skip
     assert load.owed_at_retention(db, NOW, 36) == {"tb_record_event": 1, "tb_record.extra": 1}
     assert load.blank_at_retention(db, NOW, 36) == {"images_blanked": 1, "records_blanked": 1}
     before, sha, image = _image(db, a)

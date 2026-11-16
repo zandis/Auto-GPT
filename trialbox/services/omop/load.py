@@ -2019,7 +2019,7 @@ _RETAINED = (
 BLANKED = "blanked"
 _IMAGES_LEFT = (
     "SELECT count(*) FROM tb_record_event WHERE record_key = ANY(?) AND (before IS NOT NULL OR before_sha IS NOT NULL "
-    "OR coalesce(record_before -> 'extra', '{}'::jsonb) <> '{}'::jsonb)"
+    "OR coalesce(record_before -> 'extra', '{}'::jsonb) <> '{}'::jsonb OR (event = 'status' AND reason IS NOT NULL))"
 )
 _EXTRA_LEFT = "SELECT count(*) FROM tb_record WHERE record_key = ANY(?) AND extra <> '{}'::jsonb"
 
@@ -2044,13 +2044,15 @@ def blank_at_retention(db: Database, now: datetime, months: int) -> dict[str, in
         keys = [int(r[0]) for r in tx.fetchall(_RETAINED, (int(months), now, list(KEEP_WITHHELD)))]
         if not keys:
             return {"images_blanked": 0, "records_blanked": 0}
-        # a person's free-text reason (a status set by a steward) goes; the withhold's own reason stays
+        # a person's free-text reason (a status set by a steward) goes; the loader's and the withhold's reasons
+        # (provenance: deleted at the source, opted out) stay
         images = tx.execute(
-            "UPDATE tb_record_event SET before = NULL, before_sha = NULL, reason = CASE WHEN reason = ? THEN reason "
-            "ELSE NULL END, record_before = CASE WHEN record_before IS NULL THEN NULL ELSE record_before || "
+            "UPDATE tb_record_event SET before = NULL, before_sha = NULL, reason = CASE WHEN event = 'status' THEN "
+            "NULL ELSE reason END, record_before = CASE WHEN record_before IS NULL THEN NULL ELSE record_before || "
             "jsonb_build_object('extra', '{}'::jsonb, ?::text, true) END WHERE record_key = ANY(?) AND (before IS NOT "
-            "NULL OR before_sha IS NOT NULL OR coalesce(record_before -> 'extra', '{}'::jsonb) <> '{}'::jsonb)",
-            (OPTED_OUT, BLANKED, keys),
+            "NULL OR before_sha IS NOT NULL OR coalesce(record_before -> 'extra', '{}'::jsonb) <> '{}'::jsonb OR "
+            "(event = 'status' AND reason IS NOT NULL))",
+            (BLANKED, keys),
         )
         records = tx.execute(
             "UPDATE tb_record SET extra = '{}'::jsonb WHERE record_key = ANY(?) AND extra <> '{}'::jsonb", (keys,)
