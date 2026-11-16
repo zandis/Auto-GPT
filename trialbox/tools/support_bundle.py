@@ -126,7 +126,7 @@ SECRET_SETTINGS = (
     "TB_DB_PW_ORCHESTRATOR", "TB_ACCEPTANCE_MAIL_KEYSTORE_PASSWORD", "TB_ACCEPTANCE_MAIL_PASSWORD",
     "TB_DEMO_PASSWORD", "TB_KEK_PASSPHRASE", "TB_KEK_NEW_PASSPHRASE", "TB_KMS_TOKEN",
     "TB_RC_CASSETTE_TOKEN", "OPENROUTER_API_KEY", "SPRING_DATASOURCE_PASSWORD", "TB_BAKEOFF_API_KEY", "VLLM_API_KEY",
-    "TB_SOURCE_DSN", "TB_PG_DSN",
+    "TB_SOURCE_DSN", "TB_PG_DSN", "RESTIC_PASSWORD",
 )  # fmt: skip
 #: secret-LOOKING names whose value is not a secret, with why: their line is still redacted by the name rule, but
 #: their value is not replaced in every file (that wrecked JSON, memory limits and host names)

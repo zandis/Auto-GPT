@@ -88,12 +88,43 @@ restic does the incremental backup, on these conditions:
     with exactly the bundle's image id: the images were removed by id before the install and nothing was pulled, so
     only the media can have put it there. `tests/unit/test_bundle_job_images.py` runs the step's check against a
     stand-in docker, both ways.
-- **R2, the password is a box key.**
-  - `restic.key` is wrapped under the KEK (`kek.PROTECTED`) and listed in `tools/keys.py`.
-  - The backup container mounts `/run/trialbox:ro` and gives the clear value only to restic's own process
-    environment.
-  - A copy of the wrapped file (KEK ciphertext) sits beside each repository on the target. The shares cover the KEK,
-    so the custodians can open a dead box's repository from the target alone, and the target alone opens nothing.
+- **R2, the password is a box key (landed: `agent/PERF-010-R2-restic-password-is-a-box-key`).**
+  - `restic.key` is in `kek.PROTECTED` (and in `OPTIONAL`, since a box has none until its first incremental backup),
+    so the custody report, `rotate-kek`, `doctor` and the key ceremony's record treat it like the other keys. It is in
+    the inventory of `tools/keys.py`.
+  - `python -m tools.keys restic-key` makes it, only under the KEK. A box without a KEK gets no key, and so no
+    incremental backup: it keeps the single `.tbbak`. A plain `restic.key` is refused, both when making it and when
+    opening it.
+  - `tools/trialbox/restic_repo.py`:
+    - `password()` opens it under the unsealed KEK.
+    - `restic_env()` gives it to one restic process's environment only. It drops any `RESTIC_PASSWORD*` and
+      `RESTIC_REPOSITORY*` from outside, so nothing else chooses the password or the repository.
+    - `escrow_copy()` writes one file beside each repository, `trialbox-restic.key.json` (0600). It holds the
+      wrapped key (KEK ciphertext) and what the custodians need to rebuild the KEK from their shares: back end, KEK id,
+      share set id and threshold. It holds no salt, no custodian names and no share fingerprints.
+      - It is written only when shares cover the KEK: a shamir KEK (the stewards' shares), or a TPM KEK whose escrow
+        set (D-894) is of the current KEK.
+      - A passphrase or KMS KEK has no custodians, so it gets no copy, and so no incremental backup. Its salt never
+        leaves the box.
+      - After `rotate-kek`, a TPM box keeps the old copy, which the old escrow shares still open, until
+        `escrow-shares` is run again.
+      - The same key re-wrapped replaces the copy. Another key is refused, because the repository's snapshots open
+        only with the key they were made under.
+      - The write never goes through a link: it refuses a link or a folder at the final name, writes a fresh random
+        temporary name with `O_EXCL|O_NOFOLLOW`, renames it, and fsyncs the folder.
+    - `open_from_target()` is the custodians' path: the target's file plus their shares (`kek_from_shares` or
+      `kek_from_escrow`) give the password. Shares of another set or KEK are refused.
+    - `make_key()` writes the key wrapped (`store_key` under the unsealed KEK) or not at all. It never takes
+      `create_key_file`'s plain branch, so a locked or vanished KEK cannot produce a plain key.
+    - `restic_env()` drops every `RESTIC_*` setting from outside, including the `copy` source's, before it sets the
+      password.
+  - The support bundle redacts a line that names `RESTIC_PASSWORD`. It cannot find the value by value, because the
+    password exists only in restic's process environment. The secrets folders were already refused whole.
+  - The adversarial review (D-311) found four defects in the first version: a write through a planted link, a plain
+    key in a race, a stale escrow set after `rotate-kek`, and a passphrase KEK's salt on the target. All four are
+    fixed and tested.
+  - Who runs it: R3 calls `restic-key` from the nightly's host step before the first incremental backup, and mounts
+    `/run/trialbox:ro` in the backup container so that `password()` can open the key there.
 - **R3, the lake goes to restic.**
   - The lake's Parquet and DuckDB files go to `<target>/trialbox-restic/`. The other targets are filled with
     `restic copy`.
@@ -121,3 +152,17 @@ R1: `tests/unit/test_restic_pinned.py`:
 `trialbox-backup` like the compose images, and the bundle's `release.json` names it (`backup`).
 
 The image build runs `restic version` in the builder and in the image.
+
+R2: `tests/unit/test_restic_password.py`:
+- the key is protected and in the inventory;
+- it is made wrapped, at 0600, kept on a second run, and only its fingerprint is printed;
+- a box without a KEK, or with its KEK locked, gets no key at all;
+- a plain key is refused, and a locked box cannot open it;
+- the password goes only into restic's environment, and every outside `RESTIC_*` is dropped;
+- the stewards' shares open the repository from the target alone (one file, 0600, no password, no salt);
+- a TPM KEK gets no copy before its escrow shares; with them the custodians open it, and their names stay on the box;
+- after `rotate-kek` the old copy is kept until new escrow shares, then the new shares open it and the old do not;
+- a passphrase KEK gets no copy;
+- another key is refused and the copy kept;
+- a link at the final or the old temporary name is never written through;
+- the support bundle redacts the name.

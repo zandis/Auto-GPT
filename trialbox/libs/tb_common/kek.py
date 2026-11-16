@@ -67,11 +67,12 @@ WRAP_FORMAT = "tb-wrapped-key/1"
 WRAPPED_SUFFIX = ".wrapped"
 KEK_LEN = 32
 #: the keys of the secrets folder that are kept under the KEK; ``objects.key`` seals the object store (T-210c);
-#: ``audit_sign.key`` signs the audit heads (T-211a) and ``edc_sign.key`` binds the EDC signatures (D-281; T-210d)
-PROTECTED = ("site_hmac.key", "pid_map.key", "objects.key", "audit_sign.key", "edc_sign.key")
+#: ``audit_sign.key`` signs the audit heads (T-211a) and ``edc_sign.key`` binds the EDC signatures (D-281; T-210d);
+#: ``restic.key`` is the incremental backup's repository password (D-968), made only under a KEK
+PROTECTED = ("site_hmac.key", "pid_map.key", "objects.key", "audit_sign.key", "edc_sign.key", "restic.key")
 #: protected keys a box may not have yet (a store never sealed, no audit key made, no EDC signature yet): not listed
 #: by :func:`custody` while absent
-OPTIONAL = ("objects.key", "audit_sign.key", "edc_sign.key")
+OPTIONAL = ("objects.key", "audit_sign.key", "edc_sign.key", "restic.key")
 BACKENDS = ("passphrase", "shamir", "file", "kms")
 KMS_TIMEOUT = 10.0
 KMS_KEY_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
