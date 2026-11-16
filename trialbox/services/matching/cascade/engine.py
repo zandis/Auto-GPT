@@ -77,6 +77,7 @@ from matching.cascade.s2b_semantic import (
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
 from matching.excerpts import sentences
 from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS, Proposed
+from matching.recorded import NO_RECORD, Recorded
 from matching.stored_scores import apply_rows
 
 PATIENT_CLASS = "D3"  # every cascade output is patient level (§7.1)
@@ -375,6 +376,7 @@ class _Run:
         self.coverage = Coverage()  # rows in a code system nobody can read (F-10, D-130); loaded at S1
         self._s2_excluded = 0  # patients S2 excluded on a certified zero hit, summed over the batches (T-694 part 3)
         self.carried = Carried()  # the code systems the site's rows carry (F11, D-795); loaded at S1
+        self.recorded = Recorded()  # the kinds of coded record each patient has at all (D-914); loaded at S1
         self._uncarried_index: set[str] = set()  # index conditions whose list no row can carry: absence never excludes
         self.coded = True  # whether S1 applied a coded criterion (D-788); set at S1
         self.proposed = Proposed()  # facts read from a chart, not yet confirmed (D-135); loaded at S1
@@ -499,6 +501,7 @@ class _Run:
         apply_rows(table, applied, self.cfg.stored, self.cfg.snapshot, getattr(self.rs.manifest, "derived_pins", None))
         self.coverage = Coverage.for_criteria(self.lake, applied, scope, self.cfg.snapshot, self.rs.valuesets)
         self.carried = Carried.for_criteria(self.lake, applied, self.cfg.snapshot)
+        self.recorded = Recorded.for_criteria(self.lake, applied, scope, self.cfg.snapshot)
         self.proposed = Proposed.for_criteria(self.lake, applied, scope, self.cfg.snapshot, self.rs.valuesets)
         by_pid: dict[str, list[dict[str, Any]]] = {}
         for row in table:
@@ -577,6 +580,10 @@ class _Run:
         if not fids and doubt:  # a proposed fact, when there is one, says more to the person who looks
             return Outcome(c.id, "pass" if c.kind == "exclusion" else "unknown", "S1", unknown_kind="data_gap",
                            reason=NOT_CARRIED)  # fmt: skip
+        # D-914: a patient with no coded record of the atom's kind at all: their record says nothing either way
+        if not fids and not is_index_criterion(c) and self.recorded.doubt(c, str(row["pid"]), row.get(f"C_{c.id}")):
+            return Outcome(c.id, "pass" if c.kind == "exclusion" else "unknown", "S1", unknown_kind="data_gap",
+                           reason=NO_RECORD)  # fmt: skip
         if not fids:
             return out
         ev = [{"source": "lake", "record": x.split("|")[0], "date": x.split("|")[1] if "|" in x else None,
