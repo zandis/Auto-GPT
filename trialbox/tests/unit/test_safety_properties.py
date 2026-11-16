@@ -931,20 +931,26 @@ def test_judge_reply_mapping_is_hard_only_when_verified_sure_and_allowed_to_bloc
     the patient ineligible, and note answers allowed to block. Otherwise never a hard fail."""
     by = {c.id: c for c in CASCADE_CRITERIA}
     n = 0
-    for cid, verdict, reason, conf, span, block in itertools.product(
+    # D-985 (F6): the quote states the condition (both criteria's), or only names a drug: an exclusion "present" on
+    # the latter is an inference and never a hard fail
+    stated, drug = "Active infection and a gout flare noted.", "Taking amoxicillin 500 mg."
+    for cid, verdict, reason, conf, span, block, quote in itertools.product(
         ("N-INC-01", "N-EXC-01"),
         ("pass", "fail", "unknown"),
         ("from the notes", Reason.DISAGREE.value, Reason.REFUSED.value),
         (0.5, 0.74, 0.75, 0.95),
         (SPAN, None),
         (True, False),
+        (stated, drug),
     ):
         run = _run_for_map(block)
         c = by[cid]
-        o = run._map(c, JudgeReply(verdict, conf, "q", None, reason), span, "S3")
+        sp = {**span, "quote": quote} if span else None
+        o = run._map(c, JudgeReply(verdict, conf, quote, None, reason), sp, "S3")
         decided = verdict in ("pass", "fail")
         ineligible = decided and ((verdict == "fail") if c.kind == "inclusion" else (verdict == "pass"))
-        want_hard = decided and span is not None and ineligible and conf >= 0.75 and block
+        guess = c.kind == "exclusion" and verdict == "pass" and quote == drug
+        want_hard = decided and span is not None and ineligible and conf >= 0.75 and block and not guess
         assert o.hard is want_hard, (cid, verdict, reason, conf, span is not None, block, o)
         if o.hard:
             assert o.status == "fail" and o.stratum == STRATUM_S3 and o.reason == "not_met"
@@ -955,12 +961,14 @@ def test_judge_reply_mapping_is_hard_only_when_verified_sure_and_allowed_to_bloc
             assert o.status == "unknown" and o.reason == "insufficient"
         elif ineligible and conf < 0.75:
             assert o.status == "unknown" and o.reason == "abstained"
+        elif guess:
+            assert o.status == "unknown" and o.reason.startswith("inferred")
         elif ineligible and not block:
             assert o.status == "fail" and not o.hard  # D-97: a single model sends to review, never out
         elif not ineligible:
             assert o.status == "pass"
         n += 1
-    assert n == 2 * 3 * 3 * 4 * 2 * 2
+    assert n == 2 * 3 * 3 * 4 * 2 * 2 * 2
 
 
 def test_s3_hard_fail_stops_the_patient_and_leaves_the_rest_unjudged() -> None:

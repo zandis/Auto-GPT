@@ -35,7 +35,7 @@ def test_a_later_clinic_day_moves_the_box_with_the_console(tmp_path: Path, monke
                                              "start": today}, follow_redirects=False)  # fmt: skip
     assert log.status_code == 303
     sw = {"csrf": fd._csrf(pi.get("/studies/GZQO/edc").text), "on": "1", "kind": "sponsor_letter",
-          "reference": "SPN-GZQO-001", "ack_date": today, "reentry_pages": "30", "reentry_accuracy": "98.6"}  # fmt: skip
+          "reference": "SPN-GZQO-001", "ack_date": today, "dataflow_ref": "DMP §5", "reentry_pages": "30", "reentry_accuracy": "98.6"}  # fmt: skip
     r = pi.post("/studies/GZQO/edc/switch", data=sw, follow_redirects=False)
     assert r.status_code == 303, sorted(set(re.findall(r"edc\.[a-z_]+", r.text)))
     # E-10 still holds: a CRC, not on the log as PI, cannot

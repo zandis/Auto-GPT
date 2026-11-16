@@ -326,6 +326,7 @@ def walk_registry(s: dict[str, Any], lang: str, password: str) -> dict[str, Any]
         "kind": "sponsor_letter",
         "reference": "IIT-GOUTCOH-001",
         "ack_date": visit.isoformat(),
+        "dataflow_ref": "DMP v1.0 §5 (data flow)",  # EDC-023 (D-859)
         "reentry_pages": "30",
         "reentry_accuracy": "98.6",
     }

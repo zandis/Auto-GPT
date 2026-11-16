@@ -144,6 +144,7 @@ groups:
     - POST /studies/{rs}/edc/dictionary
     - GET /studies/{rs}/edc/map/suggest
     - PUT /studies/{rs}/edc/map
+    - PUT /studies/{rs}/edc/direct_source   # EDC-023 (D-859): the protocol's fields recorded directly in the EDC
     - POST /studies/{rs}/edc/drafts
     - GET /studies/{rs}/edc/drafts
     - POST /studies/{rs}/edc/drafts/{draft_id}/decide
