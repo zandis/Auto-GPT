@@ -355,8 +355,9 @@ def build(
         # never shredded into the last few tokens
         if n.did not in evidence or cost <= cap or cap > left:
             continue
-        part = clip(n, evidence[n.did], cap, tokens)
-        part_cost = tokens(part)
+        extra = _copies_cost(also.get(n.did))  # D-941 (review): a clipped note's copies are read too
+        part = clip(n, evidence[n.did], max(1, cap - extra), tokens)
+        part_cost = tokens(part) + extra
         if part and part_cost <= left:
             shown.append((n, part))
             left -= part_cost
