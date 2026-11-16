@@ -39,20 +39,20 @@ LITERAL = {
 }
 
 
-def _doc(name: str) -> dict[str, Any]:
+def _doc(name: str) -> dict[Any, Any]:
     loaded: Any = yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))
     assert isinstance(loaded, dict)
     return loaded
 
 
-def _on(doc: dict[str, Any]) -> dict[str, Any]:
+def _on(doc: dict[Any, Any]) -> dict[str, Any]:
     # YAML 1.1 reads the key `on` as True.
     trigger = doc.get("on", doc.get(True))
     assert isinstance(trigger, dict)
     return trigger
 
 
-def _jobs(doc: dict[str, Any]) -> dict[str, Any]:
+def _jobs(doc: dict[Any, Any]) -> dict[str, Any]:
     jobs = doc["jobs"]
     assert isinstance(jobs, dict)
     return jobs
