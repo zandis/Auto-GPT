@@ -50,8 +50,10 @@ def test_each_module_bump_is_an_exact_version() -> None:
     assert len({m.split("@")[0] for m in mods}) == len(mods)
     assert "go get $RESTIC_MODULE_BUMPS; go mod verify" in text
     # D-1039: restic's own test suite runs on the bumped modules before the binary is built and kept
-    assert text.index("go mod verify") < text.index("go test -short -vet=off -count=1 ./...") < text.index("go build")
+    assert text.index("go mod verify") < text.index("go test -short -vet=off -count=1") < text.index("go build")
     assert "RESTIC_TEST_FUSE=0" in text  # no FUSE in a build; restic's own switch skips only the mount tests
+    # only the tests that need a tool the build has no use for are skipped, by name
+    assert "-skip '^TestStdinFromCommand' ./..." in text
     assert "runuser -u gotest" in text  # not as root: restic's permission tests need an ordinary user
 
 
