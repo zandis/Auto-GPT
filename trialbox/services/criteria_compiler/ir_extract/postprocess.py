@@ -103,6 +103,60 @@ def is_diagnosis_name(name: str) -> bool:
     return bool(_DIAGNOSIS.search(name)) and not _OPERATION.search(name)
 
 
+# D-947 (F3 of the P1b review, NCT01260883): "2-18 months" came out as age 2 to 18 (years) and "<36 weeks gestation"
+# as age.max 36. The age is complete years; an age the line writes in months, weeks or days is not one
+_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+          "eleven": 11, "twelve": 12, "eighteen": 18, "twenty-four": 24, "thirty-six": 36}  # fmt: skip
+_N = r"(\d+(?:\.\d+)?|" + "|".join(sorted(_WORDS, key=len, reverse=True)) + r")"
+_SHORT = (r"(?:months?\b|mos?\b|mths?\b|m\b|weeks?\b|wks?\b|days?\b|か月|ヵ月|ヶ月|カ月|ケ月|箇月|週|日齢|"
+          r"(?<![月第年])日(?!本|以内|間|前|後|目)|個月|个月|天)")  # fmt: skip
+_RANGE = r"(?:\s*(?:-|–|~|〜|to|and|から|至)\s*" + _N + r")?"
+_SHORT_UNIT = re.compile(_N + _RANGE + r"[\s-]*" + _SHORT, re.IGNORECASE)
+_YEARS_AGE = re.compile(
+    r"(?:\bage[ds]?\b\s*(?:of\s*)?[:=≥≤<>]*\s*|年齢|年齡)" + _N + _RANGE + r"(?![\s-]*" + _SHORT + ")"
+    r"|" + _N + r"(?:\s*(?:-|–|~|〜|to|から|至)\s*" + _N + r")?\s*(?:years?\b|yrs?\b|y/?o\b|歳|才|歲|岁)",
+    re.IGNORECASE,
+)
+# a short-unit age said to be one: "6-month-old", "aged 6 months", "生後6か月", "月齢", "1 year 6 months"
+_SHORT_AGE = re.compile(
+    _N
+    + r"[\s-]*(?:months?|weeks?|days?)[\s-]*(?:old|of\s+age)\b|\bage[ds]?\s*(?:of\s*)?"
+    + _N
+    + r"(?:\s*(?:-|–|~|〜|to)\s*"
+    + _N
+    + r")?[\s-]*"
+    + _SHORT
+    + r"|生後|月齢|週齢|日齢|出生後"
+    + r"|\d+\s*(?:years?|y|歳|才|歲|岁)\s*\d+\s*(?:months?|か月|ヵ月|ヶ月|カ月|個月|个月)",
+    re.IGNORECASE,
+)  # fmt: skip
+
+
+def _num(x: str | None) -> float | None:
+    if x is None:
+        return None
+    return float(_WORDS[x.lower()]) if x.lower() in _WORDS else float(x)
+
+
+def age_in_short_units(text: str, logic: Any) -> bool:
+    """An age bound of the logic is an age the line writes in months, weeks or days (D-947): the line says so outright
+    ("6-month-old", "aged 6 months", 生後, 月齢, "1 year 6 months"), or a bound is a number (or one past it, "<36
+    weeks" as at most 35) the line writes in a short unit and never as an age in years ("Aged 18-75; 18 days washout"
+    is not one)."""
+    if logic is None:
+        return False
+    bounds = [float(b) for a in atoms(logic) if a.age is not None for b in (a.age.min, a.age.max) if b is not None]
+    if not bounds:
+        return False
+    text = text or ""
+    if _SHORT_AGE.search(text):
+        return True
+    short = {n for m in _SHORT_UNIT.finditer(text) for n in map(_num, m.groups()) if n is not None}
+    years = {n for m in _YEARS_AGE.finditer(text) for n in map(_num, m.groups()) if n is not None}
+    near = short - years
+    return any(b in near or b + 1 in near or b - 1 in near for b in bounds)
+
+
 def _convert_logic(
     node: dict[str, Any], concept_vs: dict[str, str], egfr: str = "egfr", refiled: frozenset[str] = frozenset()
 ) -> dict[str, Any]:
@@ -320,6 +374,15 @@ def postprocess(
         if moved and ir.logic is not None and any(a.domain == "condition" for a in atoms(ir.logic)):
             flags.append("domain_refiled")
             warnings.append(f"{cid}: {', '.join(moved)} filed as a procedure; read as a condition (check it)")
+        if ir.class_ in FILTERED and age_in_short_units(ir.text, ir.logic):
+            flags.append("age_unit_not_years")
+            if ir.class_ == "mixed" and ir.note_question:  # as demote_uncompilable keeps it (D-98): the notes decide
+                ir = ir.model_copy(update={"class_": "note", "logic": Atom(domain="demographic", valueset="NONE")})
+                warnings.append(f"{cid}: an age written in months, weeks or days was read as years; the notes decide")
+            else:
+                ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
+                                           "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
+                warnings.append(f"{cid}: an age written in months, weeks or days was read as years; kept for a person")
         # red of 2026-11-15 (jmed): an exclusion whose whole logic is negated ("none of diabetes" for "history of
         # diabetes") excluded everyone with no such record. Exclusions are positive (ir_extract_v3): the logic is
         # rewritten to the positive form and flagged, as a negated question is; a negation inside it is left alone
