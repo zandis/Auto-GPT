@@ -141,14 +141,23 @@ def _for_a_person(cid: str, ruleset: str, kind_: str, text: str, source_ref: Any
 # red of lane G's P1b run (#639, 2026-11-16): "Age outside of range specified", an exclusion, was compiled as the
 # inclusion's range itself (min 18, max 35), so it excluded every patient inside the range. An exclusion's age line
 # says which side is excluded; its words are read against the atom's bounds
+# an outside word counts only beside the range or an age word ("not in remission" is not one); review of D-945
 _OUTSIDE = re.compile(
-    r"\boutside\b|\bnot\s+(?:with)?in\b|\bnot\s+between\b|\bbeyond\b|範囲外|範囲以外|以外|範圍外|範圍以外|不在",
+    r"\boutside\s+(?:of\s+)?(?:the\s+)?(?:(?:specified|stated|given|above|protocol)\s+)?(?:age|range|\d)"
+    r"|\bnot\s+(?:with)?in\s+(?:the\s+)?(?:age|range|\d)|\bnot\s+between\s+\d|\bbeyond\s+(?:the\s+)?(?:age|range|\d)"
+    r"|範囲外|範囲以外|範圍外|範圍以外|(?:歳|才|歲|以下|以上)以外|不在\s*\d|不在.{0,3}範圍",
     re.IGNORECASE,
 )
+# ≤ ≦ ⩽ and ≥ ≧ ⩾ "75+" are bounds too; 以下の is "the following"; 超 only after a number or 歳 (not 超音波)
 _BELOW = re.compile(
-    r"\b(?:under|below|younger|less\s+than|fewer\s+than)\b|<|未満|以下|未滿|不足|小於|低於", re.IGNORECASE
+    r"\b(?:under|below|younger|less\s+than|fewer\s+than)\b|[<≤≦⩽]|未満|以下(?!の)|未滿|不足|小於|低於",
+    re.IGNORECASE,
 )
-_ABOVE = re.compile(r"\b(?:over|above|older|more\s+than|greater\s+than)\b|>|超|以上|大於|高於|逾", re.IGNORECASE)
+_ABOVE = re.compile(
+    r"\b(?:over|above|older|more\s+than|greater\s+than)\b|[>≥≧⩾]|\d\s*\+|超え|超過|(?<=\d)超|(?<=[歳才歲])超"
+    r"|以上|大於|高於|逾",
+    re.IGNORECASE,
+)
 
 
 def _age_atom(logic: Any) -> Atom | None:
@@ -165,8 +174,8 @@ def exclusion_age(text: str, logic: Any) -> tuple[Any, str | None]:
       complement: ``not(range)``, flagged ``age_range_inverted`` (it was the range itself, which excluded every
       patient inside it). A range whose line does not say so goes to a person (``age_range_exclusion``): an
       exclusion of the patients inside a range is rare, and a model that copied an inclusion's range is not.
-    * One bound whose line points the other way ("under 18" as ``min 18``; "over 65" as ``max 65``) goes to a person
-      (``age_direction``).
+    * One bound whose line points the other way ("under 18" as ``min 18``; "≥ 75" as ``max 75``), or both ways
+      ("< 18 or > 65" as ``min 65``), goes to a person (``age_direction``).
     A patient with no birth date is unknown either way (the age is NULL)."""
     atom = _age_atom(logic)
     if atom is None or atom.age is None:
@@ -177,8 +186,8 @@ def exclusion_age(text: str, logic: Any) -> tuple[Any, str | None]:
             return BoolExpr(op="not", args=[atom]), "age_range_inverted"
         return logic, "age_range_exclusion"
     below, above = bool(_BELOW.search(text)), bool(_ABOVE.search(text))
-    if (lo is not None and below and not above) or (hi is not None and above and not below):
-        return logic, "age_direction"
+    if (lo is not None and below and not above) or (hi is not None and above and not below) or (below and above):
+        return logic, "age_direction"  # one bound for a line that points both ways ("< 18 or > 65") also goes
     return logic, None
 
 
