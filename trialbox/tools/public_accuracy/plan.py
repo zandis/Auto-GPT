@@ -243,3 +243,57 @@ def table(cache: Path = src.CACHE, box_s_per_protocol: float | None = None) -> d
         "box_s_per_protocol": box_s_per_protocol,
         "note_share_hint": NOTE_SHARE_G8,
     }
+
+
+# ------------------------------------------------------------------------------------------------ Run A on the box
+@dataclass(frozen=True)
+class AccSet:
+    """One set of Run A as the installed box's accuracy group runs it: the CLI's set name and sample size, the set
+    whose pinned files ``fetch`` takes, whether its protocols are approved and screened (else compiled only), and the
+    counts :func:`table` derived on the pinned data (2026-11-14, ``public-accuracy-run-plan.md`` section 1)."""
+
+    name: str
+    fetch: str
+    size: int
+    screen: bool
+    title: str
+    protocols: int
+    compile_calls_low: int
+    compile_calls_high: int
+    screen_calls_high: int
+
+
+# The order is the run's: the small screened sets first (their answers come back in the first hours), then TREC,
+# then the compile-only sets. The counts are table()'s on the pinned data, kept here so the driver's estimate needs no
+# download; tests/unit/test_g1_box_accuracy.py holds them to the plan's own derivation when the data are there.
+RUN_A: tuple[AccSet, ...] = (
+    AccSet("jmed", "jmed", 300, True, "JMED-Personas, 300 patients x 2 criteria (ja)", 2, 2, 6, 2400),
+    AccSet("tcga", "tcga", 500, True, "TCGA-Reports, 500 reports x 10 cancer-type criteria (en)", 10, 10, 20, 10000),
+    AccSet("sigir", "sigir", 105, True, "SIGIR, physician criterion labels (1,015 criteria, en)", 103, 103, 1133, 2100),
+    AccSet("trec2023", "trec", 500, True, "TREC CT 2023, 500 pairs balanced (en)", 297, 297, 3267, 10000),
+    AccSet("trec", "trec", 1225, True, "TREC CT 2021+2022, 1,225 pairs balanced (en)", 803, 803, 8833, 24500),
+    AccSet("tfda", "tfda", 100, False, "Taiwan FDA + CT.gov, 100 trials x 2 languages", 200, 200, 3800, 0),
+    AccSet("jrct", "jrct", 50, False, "jRCT + CT.gov, 50 trials x 2 languages", 100, 100, 1100, 0),
+    AccSet("chia", "chia", 100, False, "Chia, 100 trials (en)", 100, 100, 1200, 0),
+)
+RUN_A_SOURCE = (
+    "public-accuracy-run-plan.md section 1, from tools/public_accuracy/plan.py table() on the pinned data "
+    "(2026-11-14): compile low = one ir_extract a protocol, high = + one concept_map a line; screen high = judge and "
+    "verifier on every line of every pair"
+)
+# The box's own time per protocol outside the models: 4.1 s, the in-process box of the stand-in dry run on lane G's
+# machine (SIGIR 124.1 s / 30, TREC 69.0 s / 19, TCGA 48.5 s / 10); the installed box's figure is not known
+BOX_S_PER_PROTOCOL_DRYRUN = 4.1
+
+
+def acc_set(name: str) -> AccSet:
+    for s in RUN_A:
+        if s.name == name:
+            return s
+    raise ValueError(f"unknown accuracy set {name!r}: one of {', '.join(s.name for s in RUN_A)}")
+
+
+def acc_hours(s: AccSet, box_s_per_protocol: float = BOX_S_PER_PROTOCOL_DRYRUN) -> dict[str, float]:
+    """:func:`hours` of one Run A set (the same rule: compile one call at a time, screen at 16 in flight)."""
+    r = Row(s.name, "", "", 0, s.protocols, 0, 0.0, s.compile_calls_low, s.compile_calls_high, s.screen_calls_high, "")
+    return hours(r, box_s_per_protocol)

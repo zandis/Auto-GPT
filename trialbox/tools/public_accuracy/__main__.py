@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import date
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 for _p in (ROOT, ROOT / "libs", ROOT / "services"):
@@ -28,6 +30,18 @@ def main(argv: list[str] | None = None) -> int:
             "--size", type=int, default=20, help="pairs (TREC, SIGIR), trials (TFDA, jRCT, Chia), else items"
         )
         p.add_argument("--out", type=Path, required=True)
+    b.add_argument("--ref", default="", help="the site's day YYYY-MM-DD (default: the builder's fixed day)")
+    b.add_argument(
+        "--rs-tag",
+        default="",
+        help="with --for-box: letters or digits after the set's ruleset prefix (a second run on the same box: the box "
+        "keeps an approved ruleset version, so a new compile needs new ruleset ids)",
+    )
+    b.add_argument(
+        "--for-box",
+        action="store_true",
+        help="the set's own chart numbers, investigators and ruleset prefix (site.SET_OFFSETS): sets share one box",
+    )
     s = sub.add_parser("score", help="score a run folder against its gold")
     s.add_argument("--out", type=Path, required=True)
     e = sub.add_parser("estimate", help="the first real-model run's sample, calls, hours and US$")
@@ -40,7 +54,15 @@ def main(argv: list[str] | None = None) -> int:
         from tools.public_accuracy import sets, site
 
         bundle = sets.read(a.set, size=a.size)
-        print(json.dumps(site.build(bundle, a.out / "built"), ensure_ascii=False, indent=1))
+        kw: dict[str, Any] = {}
+        if getattr(a, "ref", ""):
+            kw["ref"] = date.fromisoformat(a.ref)
+        if getattr(a, "for_box", False):
+            if a.set not in site.SET_OFFSETS:
+                raise SystemExit(f"--for-box: set {a.set} has no offsets in site.SET_OFFSETS")
+            kw["mrn0"], kw["pi0"], kw["rs_prefix"] = site.SET_OFFSETS[a.set]
+            kw["rs_prefix"] += getattr(a, "rs_tag", "") or ""
+        print(json.dumps(site.build(bundle, a.out / "built", **kw), ensure_ascii=False, indent=1))
         if a.cmd == "build":
             return 0
         from tools.public_accuracy import box

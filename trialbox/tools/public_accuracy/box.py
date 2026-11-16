@@ -152,7 +152,9 @@ def run(built: Path, work: Path, screen: bool = True, approve: bool = True) -> d
     """Screen the site at ``built/site`` (written by :func:`site.build`) on a fresh in-process box under ``work``.
     Writes ``work/answers.json`` (per ruleset: the draft criteria, the job states, the per-patient verdicts keyed by
     pseudonym) and ``work/run.json`` (counts, stage logs, model calls by prompt). The gold is not read."""
-    os.environ.setdefault("TB_TZ", "Asia/Taipei")  # D-315: a synthetic site in one process names its zone
+    from tb_common.config import adopt_site_tz
+
+    adopt_site_tz()  # D-315: a synthetic site in one process takes its zone from the settings, never from code
     from tests.inproc_box import ingest_site, make_box
     from tools import feas_demo as fd
     from tools import scenarios
