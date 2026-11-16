@@ -1,0 +1,873 @@
+{
+ "meta": {
+  "commit": "1157c9bfa514e71cdd4f6e430250665c0c9481a2",
+  "run": "box-20261115T162830Z-04138db7c",
+  "drivers": {
+   "jmed": "6490d64a (rescored from the saved answers with F25)",
+   "tcga": "e6cd01a0 (BRCA, 16 GB embed) and e6cd01a0 (COAD, HNSC, KIRC, LIHC)",
+   "trec2023": "d44e3978",
+   "sigir": "d44e3978",
+   "chia": "d44e3978 (3 protocols from phase C, then the rest)"
+  },
+  "labels": {
+   "jmed": "measures the compiler, not the judge (a negated exclusion; no coded diagnoses)",
+   "tcga": "criterion level measures the judge; pair level measures the product's rule D-478",
+   "trec2023": "partial; pair level only; measures the compiler and the coded data",
+   "sigir": "partial; criterion level measures the judge",
+   "chia": "partial; compile level, measures the compiler"
+  },
+  "note": "counts only: no raw answer, no patient id; jrct was started on 1157c9bf and stopped (re-plan); it is not reported here"
+ },
+ "sets": {
+  "jmed": {
+   "protocols_run": 2,
+   "outcomes": {
+    "screened": 2
+   },
+   "screen_jobs": [
+    {
+     "ruleset": "MJMED-DM",
+     "patients_scoped": 297,
+     "seconds": 0.955,
+     "model_calls": 0
+    },
+    {
+     "ruleset": "MJMED-HT",
+     "patients_scoped": 297,
+     "seconds": 0.882,
+     "model_calls": 0
+    }
+   ],
+   "screen_job_seconds_median": 0.955,
+   "model_calls_screen": 0,
+   "pair_on_judge_calls": null,
+   "verdicts": {
+    "fail|-": 297,
+    "pending_human|person": 297,
+    "unknown|-": 297
+   },
+   "tiers": {
+    "excluded": 297,
+    "review": 297
+   },
+   "score": {
+    "criteria": {
+     "answered": 594,
+     "unanswered": 0,
+     "rows": [
+      {
+       "lang": "ja",
+       "stratum": "jmed-family-only",
+       "kind": "exclusion",
+       "gold": "not excluded",
+       "n": 147,
+       "block": 94,
+       "open": 53,
+       "block_is": "wrong exclusion"
+      },
+      {
+       "lang": "ja",
+       "stratum": "jmed-none",
+       "kind": "exclusion",
+       "gold": "not excluded",
+       "n": 208,
+       "open": 71,
+       "block": 137,
+       "block_is": "wrong exclusion"
+      },
+      {
+       "lang": "ja",
+       "stratum": "jmed-own",
+       "kind": "exclusion",
+       "gold": "excluded",
+       "n": 239,
+       "open": 173,
+       "block": 66,
+       "block_is": "catch"
+      }
+     ],
+     "wrong_exclusion": {
+      "k": 231,
+      "n": 355,
+      "rate": 0.6507,
+      "ci95": [
+       0.5986,
+       0.7003
+      ]
+     },
+     "caught": {
+      "k": 66,
+      "n": 239,
+      "rate": 0.2762,
+      "ci95": [
+       0.2205,
+       0.3375
+      ]
+     },
+     "not_compiled": 0,
+     "evidence": {}
+    },
+    "compiled": {
+     "protocols": 2,
+     "criteria": 4,
+     "class_split": {
+      "structured": 2,
+      "human": 2
+     },
+     "screened": 2
+    }
+   }
+  },
+  "tcga": {
+   "protocols_run": 5,
+   "outcomes": {
+    "screened": 5
+   },
+   "screen_jobs": [
+    {
+     "ruleset": "GTCGA-BRCA",
+     "patients_scoped": 500,
+     "seconds": 1352.259,
+     "model_calls": 1014
+    },
+    {
+     "ruleset": "GTCGA-COAD",
+     "patients_scoped": 500,
+     "seconds": 1245.512,
+     "model_calls": 1002
+    },
+    {
+     "ruleset": "GTCGA-HNSC",
+     "patients_scoped": 500,
+     "seconds": 1274.547,
+     "model_calls": 1018
+    },
+    {
+     "ruleset": "GTCGA-KIRC",
+     "patients_scoped": 500,
+     "seconds": 1313.745,
+     "model_calls": 1001
+    },
+    {
+     "ruleset": "GTCGA-LIHC",
+     "patients_scoped": 500,
+     "seconds": 1224.315,
+     "model_calls": 1018
+    }
+   ],
+   "screen_job_seconds_median": 1274.547,
+   "model_calls_screen": 5053,
+   "pair_on_judge_calls": {
+    "agree": 2316,
+    "disagree": 11,
+    "one model only": 183
+   },
+   "verdicts": {
+    "fail|pair": 1868,
+    "pass|pair": 231,
+    "unknown|-": 401
+   },
+   "tiers": {
+    "high": 231,
+    "review": 2269
+   },
+   "score": {
+    "pairs": {
+     "en": {
+      "answered": 2500,
+      "eligible_lost": {
+       "k": 0,
+       "n": 250,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.0146
+       ]
+      },
+      "excluded_caught": {
+       "k": 0,
+       "n": 2250,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.0016
+       ]
+      },
+      "wrong_exclusions": {
+       "k": 0,
+       "n": 0,
+       "rate": null,
+       "ci95": [
+        0.0,
+        1.0
+       ]
+      },
+      "unanswered": {
+       "k": 2500,
+       "n": 5000,
+       "rate": 0.5,
+       "ci95": [
+        0.486,
+        0.514
+       ]
+      },
+      "left_open": {
+       "k": 401,
+       "n": 5000,
+       "rate": 0.0802,
+       "ci95": [
+        0.0728,
+        0.0881
+       ]
+      },
+      "other_strata": {}
+     }
+    },
+    "criteria": {
+     "answered": 2500,
+     "unanswered": 0,
+     "rows": [
+      {
+       "lang": "en",
+       "stratum": "tcga-included",
+       "kind": "inclusion",
+       "gold": "included",
+       "n": 500,
+       "no_block": 228,
+       "open": 21,
+       "block": 1,
+       "not_compiled": 250,
+       "block_is": "wrong exclusion"
+      },
+      {
+       "lang": "en",
+       "stratum": "tcga-not-included",
+       "kind": "inclusion",
+       "gold": "not included",
+       "n": 4500,
+       "not_compiled": 2250,
+       "block": 1867,
+       "open": 380,
+       "no_block": 3,
+       "block_is": "catch"
+      }
+     ],
+     "wrong_exclusion": {
+      "k": 1,
+      "n": 250,
+      "rate": 0.004,
+      "ci95": [
+       0.0001,
+       0.0221
+      ]
+     },
+     "caught": {
+      "k": 1867,
+      "n": 2250,
+      "rate": 0.8298,
+      "ci95": [
+       0.8136,
+       0.8451
+      ]
+     },
+     "not_compiled": 2500,
+     "evidence": {}
+    },
+    "compiled": {
+     "protocols": 5,
+     "criteria": 5,
+     "class_split": {
+      "mixed": 5
+     },
+     "screened": 5
+    }
+   }
+  },
+  "trec2023": {
+   "protocols_run": 297,
+   "outcomes": {
+    "failed": 28,
+    "screened": 17,
+    "approve_failed": 1,
+    "not_run_time_budget": 251
+   },
+   "screen_jobs": [
+    {
+     "ruleset": "UNCT00001197",
+     "patients_scoped": 5,
+     "seconds": 4.754,
+     "model_calls": 5
+    },
+    {
+     "ruleset": "UNCT00003086",
+     "patients_scoped": 5,
+     "seconds": 75.263,
+     "model_calls": 18
+    },
+    {
+     "ruleset": "UNCT00003351",
+     "patients_scoped": 5,
+     "seconds": 14.833,
+     "model_calls": 18
+    },
+    {
+     "ruleset": "UNCT00003519",
+     "patients_scoped": 5,
+     "seconds": 10.426,
+     "model_calls": 11
+    },
+    {
+     "ruleset": "UNCT00009997",
+     "patients_scoped": 5,
+     "seconds": 14.695,
+     "model_calls": 15
+    },
+    {
+     "ruleset": "UNCT00016276",
+     "patients_scoped": 5,
+     "seconds": 14.169,
+     "model_calls": 24
+    },
+    {
+     "ruleset": "UNCT00056433",
+     "patients_scoped": 5,
+     "seconds": 20.99,
+     "model_calls": 31
+    },
+    {
+     "ruleset": "UNCT00072982",
+     "patients_scoped": 5,
+     "seconds": 0.892,
+     "model_calls": 0
+    },
+    {
+     "ruleset": "UNCT00097708",
+     "patients_scoped": 5,
+     "seconds": 9.881,
+     "model_calls": 10
+    },
+    {
+     "ruleset": "UNCT00103935",
+     "patients_scoped": 1,
+     "seconds": 0.706,
+     "model_calls": 0
+    },
+    {
+     "ruleset": "UNCT00128843",
+     "patients_scoped": 5,
+     "seconds": 18.22,
+     "model_calls": 28
+    },
+    {
+     "ruleset": "UNCT00129389",
+     "patients_scoped": 5,
+     "seconds": 47.223,
+     "model_calls": 88
+    },
+    {
+     "ruleset": "UNCT00129935",
+     "patients_scoped": 5,
+     "seconds": 60.472,
+     "model_calls": 112
+    },
+    {
+     "ruleset": "UNCT00138814",
+     "patients_scoped": 5,
+     "seconds": 0.677,
+     "model_calls": 0
+    },
+    {
+     "ruleset": "UNCT00148681",
+     "patients_scoped": 5,
+     "seconds": 30.361,
+     "model_calls": 54
+    },
+    {
+     "ruleset": "UNCT00153218",
+     "patients_scoped": 5,
+     "seconds": 0.753,
+     "model_calls": 0
+    },
+    {
+     "ruleset": "UNCT00165581",
+     "patients_scoped": 5,
+     "seconds": 60.734,
+     "model_calls": 105
+    }
+   ],
+   "screen_job_seconds_median": 14.695,
+   "model_calls_screen": 519,
+   "pair_on_judge_calls": {
+    "one model only": 357,
+    "agree": 79,
+    "disagree": 1
+   },
+   "verdicts": {
+    "fail|coded": 31,
+    "fail|pair": 53,
+    "pass|coded": 40,
+    "pass|pair": 36,
+    "pending_human|person": 595,
+    "unknown|-": 416
+   },
+   "tiers": {
+    "review": 65,
+    "excluded": 16
+   },
+   "score": {
+    "pairs": {
+     "en": {
+      "answered": 81,
+      "eligible_lost": {
+       "k": 10,
+       "n": 41,
+       "rate": 0.2439,
+       "ci95": [
+        0.1236,
+        0.403
+       ]
+      },
+      "excluded_caught": {
+       "k": 6,
+       "n": 40,
+       "rate": 0.15,
+       "ci95": [
+        0.0571,
+        0.2984
+       ]
+      },
+      "wrong_exclusions": {
+       "k": 10,
+       "n": 16,
+       "rate": 0.625,
+       "ci95": [
+        0.3543,
+        0.848
+       ]
+      },
+      "unanswered": {
+       "k": 419,
+       "n": 500,
+       "rate": 0.838,
+       "ci95": [
+        0.8027,
+        0.8692
+       ]
+      },
+      "left_open": {
+       "k": 65,
+       "n": 500,
+       "rate": 0.13,
+       "ci95": [
+        0.1018,
+        0.1627
+       ]
+      },
+      "other_strata": {}
+     }
+    },
+    "compiled": {
+     "protocols": 297,
+     "criteria": 799,
+     "class_split": {
+      "structured": 35,
+      "mixed": 57,
+      "human": 638,
+      "note": 69
+     },
+     "screened": 17
+    }
+   }
+  },
+  "sigir": {
+   "protocols_run": 104,
+   "outcomes": {
+    "screened": 21,
+    "failed": 12,
+    "timeout_feas": 1,
+    "not_run_time_budget": 70
+   },
+   "screen_jobs": [
+    {
+     "ruleset": "SNCT00002897",
+     "patients_scoped": 1,
+     "seconds": 5.337,
+     "model_calls": 2
+    },
+    {
+     "ruleset": "SNCT00015626",
+     "patients_scoped": 1,
+     "seconds": 12.605,
+     "model_calls": 6
+    },
+    {
+     "ruleset": "SNCT00018408",
+     "patients_scoped": 1,
+     "seconds": 9.408,
+     "model_calls": 3
+    },
+    {
+     "ruleset": "SNCT00031369",
+     "patients_scoped": 1,
+     "seconds": 3.311,
+     "model_calls": 1
+    },
+    {
+     "ruleset": "SNCT00149227",
+     "patients_scoped": 1,
+     "seconds": 13.208,
+     "model_calls": 6
+    },
+    {
+     "ruleset": "SNCT00180739",
+     "patients_scoped": 1,
+     "seconds": 51.41,
+     "model_calls": 22
+    },
+    {
+     "ruleset": "SNCT00223509",
+     "patients_scoped": 1,
+     "seconds": 25.63,
+     "model_calls": 10
+    },
+    {
+     "ruleset": "SNCT00256529",
+     "patients_scoped": 1,
+     "seconds": 8.081,
+     "model_calls": 3
+    },
+    {
+     "ruleset": "SNCT00263302",
+     "patients_scoped": 1,
+     "seconds": 0.815,
+     "model_calls": 0
+    },
+    {
+     "ruleset": "SNCT00263380",
+     "patients_scoped": 1,
+     "seconds": 7.435,
+     "model_calls": 3
+    },
+    {
+     "ruleset": "SNCT00282269",
+     "patients_scoped": 1,
+     "seconds": 0.711,
+     "model_calls": 0
+    },
+    {
+     "ruleset": "SNCT00439478",
+     "patients_scoped": 1,
+     "seconds": 0.776,
+     "model_calls": 0
+    },
+    {
+     "ruleset": "SNCT00493103",
+     "patients_scoped": 1,
+     "seconds": 6.152,
+     "model_calls": 2
+    },
+    {
+     "ruleset": "SNCT00535093",
+     "patients_scoped": 1,
+     "seconds": 2.731,
+     "model_calls": 1
+    },
+    {
+     "ruleset": "SNCT00582465",
+     "patients_scoped": 1,
+     "seconds": 13.303,
+     "model_calls": 4
+    },
+    {
+     "ruleset": "SNCT00647829",
+     "patients_scoped": 1,
+     "seconds": 5.77,
+     "model_calls": 2
+    },
+    {
+     "ruleset": "SNCT00703417",
+     "patients_scoped": 1,
+     "seconds": 15.772,
+     "model_calls": 7
+    },
+    {
+     "ruleset": "SNCT00711399",
+     "patients_scoped": 1,
+     "seconds": 11.076,
+     "model_calls": 5
+    },
+    {
+     "ruleset": "SNCT00721006",
+     "patients_scoped": 1,
+     "seconds": 32.154,
+     "model_calls": 14
+    },
+    {
+     "ruleset": "SNCT00723788",
+     "patients_scoped": 1,
+     "seconds": 0.825,
+     "model_calls": 0
+    },
+    {
+     "ruleset": "SNCT00774176",
+     "patients_scoped": 1,
+     "seconds": 6.169,
+     "model_calls": 2
+    }
+   ],
+   "screen_job_seconds_median": 7.435,
+   "model_calls_screen": 93,
+   "pair_on_judge_calls": {
+    "one model only": 62,
+    "agree": 13,
+    "disagree": 3
+   },
+   "verdicts": {
+    "fail|coded": 4,
+    "fail|pair": 2,
+    "pass|coded": 23,
+    "pass|pair": 11,
+    "pending_human|person": 81,
+    "unknown|-": 77
+   },
+   "tiers": {
+    "review": 17,
+    "excluded": 3,
+    "high": 1
+   },
+   "score": {
+    "pairs": {
+     "en": {
+      "answered": 9,
+      "eligible_lost": {
+       "k": 1,
+       "n": 9,
+       "rate": 0.1111,
+       "ci95": [
+        0.0028,
+        0.4825
+       ]
+      },
+      "excluded_caught": {
+       "k": 0,
+       "n": 0,
+       "rate": null,
+       "ci95": [
+        0.0,
+        1.0
+       ]
+      },
+      "wrong_exclusions": {
+       "k": 1,
+       "n": 1,
+       "rate": 1.0,
+       "ci95": [
+        0.025,
+        1.0
+       ]
+      },
+      "unanswered": {
+       "k": 37,
+       "n": 46,
+       "rate": 0.8043,
+       "ci95": [
+        0.6609,
+        0.9064
+       ]
+      },
+      "left_open": {
+       "k": 8,
+       "n": 46,
+       "rate": 0.1739,
+       "ci95": [
+        0.0782,
+        0.3142
+       ]
+      },
+      "other_strata": {
+       "sigir-not_refer:not_refer": {
+        "n": 17,
+        "excluded": 1,
+        "listed": 0,
+        "open": 2,
+        "unanswered": 14
+       },
+       "sigir-would_consider:would_consider": {
+        "n": 42,
+        "excluded": 1,
+        "listed": 0,
+        "open": 8,
+        "unanswered": 33
+       }
+      }
+     }
+    },
+    "criteria": {
+     "answered": 109,
+     "unanswered": 2,
+     "rows": [
+      {
+       "lang": "en",
+       "stratum": "sigir-criterion",
+       "kind": "exclusion",
+       "gold": "excluded",
+       "n": 6,
+       "block": 2,
+       "not_compiled": 3,
+       "open": 1,
+       "block_is": "catch"
+      },
+      {
+       "lang": "en",
+       "stratum": "sigir-criterion",
+       "kind": "exclusion",
+       "gold": "not applicable",
+       "n": 13,
+       "open": 4,
+       "not_compiled": 9,
+       "block_is": "wrong exclusion"
+      },
+      {
+       "lang": "en",
+       "stratum": "sigir-criterion",
+       "kind": "exclusion",
+       "gold": "not enough information",
+       "n": 72,
+       "not_compiled": 54,
+       "open": 14,
+       "no_block": 4,
+       "block_is": "wrong exclusion"
+      },
+      {
+       "lang": "en",
+       "stratum": "sigir-criterion",
+       "kind": "exclusion",
+       "gold": "not excluded",
+       "n": 266,
+       "not_compiled": 216,
+       "no_block": 15,
+       "open": 34,
+       "unanswered": 1,
+       "block_is": "wrong exclusion"
+      },
+      {
+       "lang": "en",
+       "stratum": "sigir-criterion",
+       "kind": "inclusion",
+       "gold": "included",
+       "n": 83,
+       "not_compiled": 68,
+       "open": 8,
+       "no_block": 7,
+       "block_is": "wrong exclusion"
+      },
+      {
+       "lang": "en",
+       "stratum": "sigir-criterion",
+       "kind": "inclusion",
+       "gold": "not applicable",
+       "n": 3,
+       "not_compiled": 3,
+       "block_is": "wrong exclusion"
+      },
+      {
+       "lang": "en",
+       "stratum": "sigir-criterion",
+       "kind": "inclusion",
+       "gold": "not enough information",
+       "n": 77,
+       "not_compiled": 59,
+       "open": 17,
+       "unanswered": 1,
+       "block_is": "wrong exclusion"
+      },
+      {
+       "lang": "en",
+       "stratum": "sigir-criterion",
+       "kind": "inclusion",
+       "gold": "not included",
+       "n": 15,
+       "not_compiled": 12,
+       "no_block": 2,
+       "block": 1,
+       "block_is": "catch"
+      }
+     ],
+     "wrong_exclusion": {
+      "k": 0,
+      "n": 103,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.0352
+      ]
+     },
+     "caught": {
+      "k": 3,
+      "n": 6,
+      "rate": 0.5,
+      "ci95": [
+       0.1181,
+       0.8819
+      ]
+     },
+     "not_compiled": 424,
+     "evidence": {
+      "no quote or no ids": 91,
+      "in a deciding sentence": 8
+     }
+    },
+    "compiled": {
+     "protocols": 104,
+     "criteria": 228,
+     "class_split": {
+      "note": 40,
+      "structured": 40,
+      "human": 93,
+      "mixed": 55
+     },
+     "screened": 21
+    }
+   }
+  },
+  "chia": {
+   "protocols_run": 99,
+   "outcomes": {
+    "compiled": 35,
+    "failed": 13,
+    "not_run_time_budget": 51
+   },
+   "screen_jobs": [],
+   "screen_job_seconds_median": null,
+   "model_calls_screen": 0,
+   "pair_on_judge_calls": null,
+   "verdicts": {},
+   "tiers": {},
+   "score": {
+    "chia": {
+     "class_agreement": {
+      "k": 219,
+      "n": 395,
+      "rate": 0.5544,
+      "ci95": [
+       0.5039,
+       0.6041
+      ]
+     },
+     "unmatched_lines": 835
+    },
+    "compiled": {
+     "protocols": 99,
+     "criteria": 395,
+     "class_split": {
+      "note": 156,
+      "mixed": 92,
+      "structured": 49,
+      "human": 98
+     },
+     "screened": 0
+    }
+   }
+  }
+ }
+}

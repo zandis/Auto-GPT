@@ -8,6 +8,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -197,10 +198,31 @@ def test_the_results_reader_marks_every_old_folder_not_product_evidence(tmp_path
     assert rr.not_product({"report": {}, "plan": {"product_evidence": True}}) == []
 
 
+# The results folders that existed at the reset of 2026-11-14, named (b200-g1b is not a run of this tree). A folder
+# made after the reset (poc-1-2026-11-15 is new evidence) is not required to be superseded.
+FOLDERS_AT_THE_RESET = (
+    "g1-2026-11-11",
+    "g1-2026-11-12",
+    "g3-2026-11-13",
+    "g3-50k-2026-11-13",
+    "g5-g8-2026-11-14",
+    "g7-2026-11-13",
+    "g8-2026-11-14",
+    "gpu-run-2026-11-08",
+    "gpu-run-2026-11-08b",
+)
+
+
 def test_every_results_folder_is_marked_superseded() -> None:
     m = ROOT / "docs" / "plan" / "measurements"
-    for d in sorted(p for p in m.iterdir() if p.is_dir() and p.name != "b200-g1b"):
+    for name in FOLDERS_AT_THE_RESET:
+        d = m / name
+        assert d.is_dir(), f"{name}: a folder of the reset is gone"
         assert (d / "SUPERSEDED.md").is_file(), d.name
         readme = d / "README.md"
         if readme.exists():
             assert readme.read_text(encoding="utf-8").startswith("> **SUPERSEDED on 2026-11-14"), d.name
+    # no other folder may carry a run date on or before the reset without being named above
+    for d in sorted(p for p in m.iterdir() if p.is_dir() and p.name not in FOLDERS_AT_THE_RESET):
+        dates = re.findall(r"\d{4}-\d{2}-\d{2}", d.name)
+        assert all(x > "2026-11-14" for x in dates), f"{d.name}: dated at or before the reset, but not named"

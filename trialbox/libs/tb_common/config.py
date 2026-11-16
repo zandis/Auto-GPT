@@ -908,6 +908,12 @@ DECLARED: dict[str, Declared] = {
     "TB_DOOR_DIRECT": Declared(
         "bool", "", "complete-run: launch in door mode though HTTPS_PROXY is set (this host reaches the VM directly)"
     ),
+    "TB_VENDOR_KEY_SM_NAME": Declared(
+        "str", "tb-vendor-signing-key", "box run (R2): the Secret Manager secret holding the vendor key, by name"
+    ),
+    "TB_BUNDLE_SIGNER_SA": Declared(
+        "str", "tb-bundle-signer", "box run (R2): the build VM's service account, the one reader of that secret"
+    ),
     "TB_SAE_FOLLOWUP_DAYS": Declared("int", "", "SAE: follow-up days"),
     "TB_SAE_OFFICE_MAILBOX": Declared("str", "", "SAE: office mailbox"),
     "TB_SAE_REPORT_DAYS": Declared("int", "", "SAE: report days"),

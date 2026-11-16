@@ -1,0 +1,4 @@
+#!/bin/sh
+# Box-run rehearsal shim: growpart DISK N grows the "VM" partition to the disk (the paid VM: cloud-guest-utils).
+echo "growpart $*" >> "$BR_S/calls.log"
+cp "$BR_S/sys/devices/sda/size" "$BR_S/sys/devices/sda/sda1/size"
