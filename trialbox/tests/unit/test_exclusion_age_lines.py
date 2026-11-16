@@ -40,7 +40,7 @@ def _one(text: str, logic: dict[str, Any], kind: str = "exclusion") -> Any:
 @pytest.mark.parametrize(
     "text",
     ["Age outside of range specified", "Age not within 18 to 35 years", "年齢が18歳から35歳の範囲外",
-     "18歳以上35歳以下以外", "年齡不在18至35歲範圍內"],
+     "18歳以上35歳以下以外", "年齡不在18至35歲範圍內", "Age outside 18-35 years", "Ages outside the range of 18-35"],
 )  # fmt: skip
 def test_an_age_range_said_outside_is_its_complement(text: str) -> None:
     c, warnings = _one(text, RANGE)
@@ -61,6 +61,17 @@ def test_the_models_own_complement_survives_the_negated_exclusion_rewrite() -> N
         ("Age under 18 years", {"domain": "demographic", "age": {"min": 18}}),  # "under 18" as at least 18
         ("Older than 75", {"domain": "demographic", "age": {"max": 75}}),
         ("18歳未満", {"domain": "demographic", "age": {"min": 18}}),
+        # review of D-945: symbols, "75+", a line pointing both ways, and an outside word that is not about age
+        ("Age ≥ 75 years", {"domain": "demographic", "age": {"max": 75}}),
+        ("Age ≤ 17", {"domain": "demographic", "age": {"min": 17}}),
+        ("年齢 ≦ 17歳", {"domain": "demographic", "age": {"min": 17}}),
+        ("75歳≧", {"domain": "demographic", "age": {"max": 75}}),
+        ("Elderly patients 75+", {"domain": "demographic", "age": {"max": 75}}),
+        ("Age < 18 or > 65", {"domain": "demographic", "age": {"min": 65}}),
+        ("20歳未満又は65歳超", {"domain": "demographic", "age": {"min": 65}}),
+        ("Age 18-65 and not in remission", RANGE),
+        ("aged 60-70 beyond first-line therapy", RANGE),
+        ("Age >=18 and <=65 not in school", RANGE),
     ],
 )
 def test_an_age_line_that_may_exclude_the_wrong_side_goes_to_a_person(text: str, logic: dict[str, Any]) -> None:
@@ -76,6 +87,8 @@ def test_an_age_line_that_may_exclude_the_wrong_side_goes_to_a_person(text: str,
         ("Age under 18 years", {"domain": "demographic", "age": {"max": 17}}),
         ("Older than 75", {"domain": "demographic", "age": {"min": 76}}),
         ("Pregnant", {"domain": "demographic", "sex": "female"}),
+        ("以下の条件: 18歳未満", {"domain": "demographic", "age": {"max": 17}}),  # 以下の is "the following"
+        ("超音波で確認された 75歳以上", {"domain": "demographic", "age": {"min": 75}}),  # 超音波 is not above
     ],
 )
 def test_an_age_line_on_its_own_side_is_left_alone(text: str, logic: dict[str, Any]) -> None:
