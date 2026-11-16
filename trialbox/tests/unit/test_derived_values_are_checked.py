@@ -34,7 +34,7 @@ ROOT = Path(__file__).resolve().parents[2]
 )  # fmt: skip
 def test_a_derived_value_is_a_known_score_compared_as_a_number(derived: str, value: Any, why: str) -> None:
     v = AtomValue(**value) if value else None  # model_construct: the contract's enum refuses an unknown name already
-    atom = Atom.model_construct(domain="observation", valueset="VS_X", derived=derived, value=v, quantifier="any")
+    atom = Atom.model_construct(domain="observation", valueset="VS_X", derived=derived, value=v, quantifier="any")  # type: ignore[arg-type]
     with pytest.raises(CompileError, match=why):
         kind(atom)
 
