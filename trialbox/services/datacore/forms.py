@@ -62,6 +62,8 @@ TRANSLATION = "http://hl7.org/fhir/StructureDefinition/translation"
 MIN_VALUE = "http://hl7.org/fhir/StructureDefinition/minValue"
 MAX_VALUE = "http://hl7.org/fhir/StructureDefinition/maxValue"
 BRANCHING = "urn:trialbox:fhir:branching-logic"  # the REDCap rule as written
+CALCULATION = "urn:trialbox:fhir:calculation"  # RC13-E (D-851): a calculated field's REDCap expression, as written
+DECIMALS = "urn:trialbox:fhir:decimal-places"  # RC13-E (D-851): ``@TB-DECIMALS`` places (D-840) on the Questionnaire
 
 
 class FormError(ValueError):
@@ -90,6 +92,8 @@ class Field:
     # CGRD-B1 (D-840): the decimal places TrialBox keeps for a ``number`` field, from ``@TB-DECIMALS=n`` in REDCap's
     # field annotation (an instance may not offer ``number_1dp``; REDCap ignores an action tag it does not know)
     places: str = ""
+    # RC13-E (D-851): a calculated field's expression as written (REDCap computes it; TrialBox never enters it)
+    calculation: str = ""
 
     def label_in(self, lang: str) -> str:
         return self.labels.get(lang) or self.label or self.name
@@ -159,7 +163,8 @@ def field_of(row: dict[str, Any]) -> Field:
                  str(row.get("text_validation_min") or "").strip(), str(row.get("text_validation_max") or "").strip(),
                  str(row.get("branching_logic") or "").strip(),
                  valid if kind in ("text", "") and valid not in _PLAIN else "",
-                 _places(row, k))  # fmt: skip
+                 _places(row, k),
+                 str(row.get("select_choices_or_calculations") or "").strip() if kind == "calc" else "")  # fmt: skip
 
 
 def read_dictionary(text: str) -> list[Field]:
@@ -248,6 +253,10 @@ def _item(f: Field, fields: dict[str, Field] | None = None) -> dict[str, Any]:
     if f.branching:
         ext.append({"url": BRANCHING, "valueString": f.branching})
         item.update(_enable_when(f.branching, fields or {}))
+    if f.calculation:
+        ext.append({"url": CALCULATION, "valueString": f.calculation})
+    if f.places:
+        ext.append({"url": DECIMALS, "valueString": f.places})
     if ext:
         item["extension"] = ext
     if f.required and kind != "display":
@@ -327,7 +336,8 @@ def fields_of(questionnaire: dict[str, Any]) -> list[Field]:
         out.append(Field(it["linkId"], form, kind, str(it.get("text") or ""), opts, bool(it.get("required")),
                          labels=_read_translations(it.get("_text")), option_labels=olabels,
                          vmin=bound(MIN_VALUE), vmax=bound(MAX_VALUE), branching=bound(BRANCHING),
-                         validation=bound(VALIDATION)))  # fmt: skip
+                         validation=bound(VALIDATION), places=bound(DECIMALS),
+                         calculation=bound(CALCULATION)))  # fmt: skip
     return out
 
 
@@ -496,7 +506,9 @@ def metadata(fields: list[Field], translations: bool = False) -> list[dict[str, 
             "form_name": f.form,
             "field_type": _BACK.get(f.kind, "text"),
             "field_label": f.label,
-            "select_choices_or_calculations": " | ".join(f"{c}, {d}" for c, d in f.options.items()),
+            "select_choices_or_calculations": f.calculation if f.kind == "calc" else " | ".join(
+                f"{c}, {d}" for c, d in f.options.items()
+            ),
             "text_validation_type_or_show_slider_number": f.validation or _VALID.get(f.kind, ""),
             "text_validation_min": f.vmin,
             "text_validation_max": f.vmax,
