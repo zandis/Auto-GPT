@@ -28,6 +28,7 @@ NOT_SECRET = {
     "TB_BACKUP_PUBKEY",  # a public key's path
     "TB_OIDC_CLIENT_SECRET",  # the host path of the secret file compose mounts (docker-compose.identity.yml)
     "TB_SERVICE_TOKENS",  # the path of the registry of token hashes
+    "TB_VENDOR_KEY_SM_NAME",  # the NAME of a Secret Manager secret (box run, R2): the driver's, never on a box
 }
 SERVICES_DB_PW = {
     "lake": "TB_DB_PW_LAKE", "criteria-compiler": "TB_DB_PW_CRITERIA_COMPILER", "adapter": "TB_DB_PW_ADAPTER",
