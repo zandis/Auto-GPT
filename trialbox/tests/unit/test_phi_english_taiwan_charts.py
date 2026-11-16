@@ -40,6 +40,41 @@ SHAPES = [
         ["No. 5-1, Ln. 20, Aly. 3, Zhongshan Rd., Banqiao Dist., New Taipei City"],
     ),
 ]
+# the adversarial review's leaks (fictional): whole names and addresses each must be masked
+REVIEW_LEAKS = [
+    "Chen Meiling", "Chen Mei Ling", "Chen Mei'ling", "Chen M.L.", "MEI-LING CHEN", "CHEN MEILING", "CHEN, MEI LING",
+    "CHEN,MEI-LING", "Chen, Mei-Ling", "Ou Mei-Ling", "Liang Mei-Ling", "LIANG MEI-LING", "Ou-Yang Mei-Ling",
+    "Sung Chih-Ming", "Tung Ya-Ting", "Hsia Pei-Shan", "Tien Kuan-Yu", "Kung Hui-Min", "Hsiung Chia-Hao",
+    "No. 322, Section 4, Minsheng Road, Da'an District, Taipei City",
+    "No 8, Zhongshan Rd., Banqiao Dist., New Taipei City",
+    "No. 8, Neighborhood 5, Xinyi Vil., Hualien County",
+    "No. 8, Section 2, Zhongshan N. Rd., Taipei",
+    "No. 322, Minsheng E. Rd. Sec. 4, Da'an Dist., Taipei City",
+    "No. 9, Taiwan Blvd. Sec. 3, Xitun Dist., Taichung City",
+    "No. 3, Zhongshan Rd., Xinyi Vil., Banqiao Dist., New Taipei City",
+    "No. 3, Zhongshan Rd, Banqiao, New Taipei",
+    "No. 3, Zhongshan Rd., Hualien City, Hualien County",
+    "No. 3, Zhongshan Rd., Banqiao Dist.\nNew Taipei City",
+    "5th Fl., No. 8, Zhongshan Rd., Banqiao Dist.",
+    "Rm. 2, 5F., No. 8, Zhongshan Rd., Banqiao Dist.",
+]  # fmt: skip
+# the review's names after a label or a word, and in a sentence: (text, the names to be masked whole)
+REVIEW_IN_TEXT = [
+    ("Mr. CHEN was seen", ["CHEN"]),
+    ("Name: CHEN Mei-Ling", ["CHEN Mei-Ling"]),
+    ("Patient: O'Neil Kuo", ["O'Neil Kuo"]),
+    ("Talked to Chen Mei-Ling's son", ["Chen Mei-Ling"]),
+    ("Mei-Ling Chen's son called", ["Mei-Ling Chen"]),
+    ("Patient: CHEN MEI LING, F/67", ["CHEN MEI LING"]),
+    ("Informant: 陳美玲", ["陳美玲"]),
+    ("Attending: 陳美玲", ["陳美玲"]),
+    ("nurse 陳美玲 gave meds", ["陳美玲"]),
+    ("VS 陳美玲", ["陳美玲"]),
+    ("Wife (陳美玲) at bedside", ["陳美玲"]),
+    ("mother-in-law 陳美玲", ["陳美玲"]),
+    ("son 陳 美玲", ["陳 美玲"]),
+    ("Name: 陳美玲 林志明", ["陳美玲", "林志明"]),
+]
 # what an English Taiwan chart holds that is no one's identifier: eponyms and hyphenated terms, drugs, departments,
 # a list number, a word after a label, a surname alone in a citation
 LEFT_ALONE = [
@@ -51,6 +86,15 @@ LEFT_ALONE = [
     "as reported by Chen et al. (2019); the Lin-Benson criteria",
     "by 2 weeks, son was told; daughter agreed",
     "s/p CABG, PMH: HTN, DM; Hb 12.3; BP 130/80",
+    # the review's over-masking (v5 left them; v6 must too)
+    "Patient 高血壓 hx; Patient 白內障; Patient 曾經 fell; Patient 方便",
+    "Referred by 林口 CGMH; by 施打 vaccine",
+    "PATIENT: NPO AFTER MIDNIGHT",
+    "PATIENT: HTN, DM",
+    "Brought by Ambulance",
+    "He Self-Harmed; He Co-Signed; Fan Co-Morbid",
+    "Long-Term Ma Huang-Tea; Tai Chi-Chuan exercise; Qi Gong; Ho Chi-Minh City trip",
+    "Item No. 5 of 10 tablets; No. 2, Ward 5; No fever. No 2 episodes",
 ]
 
 
@@ -64,6 +108,19 @@ def _masked(text: str, value: str) -> bool:
 def test_each_shape_of_an_english_taiwan_chart_is_masked_whole(text: str, values: list[str]) -> None:
     for v in values:
         assert _masked(text, v), (v, pg.mask_note(text))
+
+
+@pytest.mark.parametrize("text", REVIEW_LEAKS)
+def test_the_reviews_leaks_are_masked_whole(text: str) -> None:
+    out = pg.mask_note(text)
+    assert all(c == pg.MASK_CHAR or c.isspace() for c in out), out
+
+
+@pytest.mark.parametrize(("text", "values"), REVIEW_IN_TEXT)
+def test_the_reviews_names_after_a_word_are_masked_whole(text: str, values: list[str]) -> None:
+    for v in values:
+        assert _masked(text, v), (v, pg.mask_note(text))
+    assert pg.mask_note("Mr. CHEN was seen").startswith("Mr. ")  # the title is kept
 
 
 @pytest.mark.parametrize("text", LEFT_ALONE)
@@ -105,6 +162,15 @@ def test_the_gates_and_window_find_what_the_whole_note_gives(monkeypatch: pytest
         "Name: " + "Ab Cd " * 10000,
         "son " + "陳" * 30000,
         ("daughter, " + "Ab-Cd " * 3) * 4000,
+        # the review's HIGH-1: a run of white space after a label, Han text further on
+        "Dr." + "\t" * 40000 + "x 陳",
+        "son" + " " * 40000 + "x 陳",
+        "Patient" + " " * 40000 + ",x 陳",
+        "Name:" + " " * 40000 + "陳",
+        "No. 1," + " " * 40000 + "Zhongshan Rd.",
+        "Chen" + " " * 40000 + "Mei-Ling",
+        "No. 1, " + "Ab " * 20000 + "Rd.",
+        "No. 1, Ln. 2, " * 5000,
     ],
 )
 def test_a_long_run_is_read_in_one_pass(text: str) -> None:
@@ -114,11 +180,36 @@ def test_a_long_run_is_read_in_one_pass(text: str) -> None:
     assert time.monotonic() - start < 1.0, text[:12]
 
 
+def test_the_address_window_reaches_past_the_longest_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The review's MEDIUM-5: every part of the address is bounded, so the window (the anchor and
+    ADDRESS_TW_EN_MAX after it, on to the line's end) holds the longest match; the windowed scan and the whole note
+    give the same spans, also for an address longer than the old window."""
+    word = "Abcdefghijklmnopqrstuvwxy"  # 25 characters, the longest word a part takes
+    part_road = " ".join([word] * 4) + " Boulevard Section 12"
+    part_area = " ".join([word] * 4) + " Township"
+    longest = (
+        "Rm. 1234A, 123rd Floor-12, No. 12345-1234, Neighborhood 1234, Neighborhood 1234, Neighborhood 1234, "
+        + ", ".join([part_road] + [part_road] * 3 + [part_area] * 3)
+    )
+    texts = [
+        longest,
+        "No. 12345-1234, Ln. 1234, Aly. 1234, Sec. 12, Kaohsiungxiaogangriverside Northeastern Riverside Boulevard, "
+        "Xiaogangqianzhenlinhai Industrial Park Dist., Greater New Kaohsiung City 81245",
+        "No. 8, B" + "a" * 150 + " Roadside clinic",
+        "see No. 3, Zhongshan Rd., Banqiao Dist.\nNew Taipei City 220\nnext line",
+    ]
+    fast = [pg.note_spans(t) for t in texts]
+    m = pg.ADDRESS_TW_EN.search(longest)
+    assert m and len(longest) - longest.index("No.") < pg.ADDRESS_TW_EN_MAX
+    monkeypatch.setattr(pg, "_NOTE_WINDOWS", {})
+    assert fast == [pg.note_spans(t) for t in texts]
+
+
 def test_the_guard_masks_the_same_shapes() -> None:
     """The guard reads the masker's spans: what the note masker masks, the guard does not let pass."""
     from guard.guard import Guard
 
-    for text, values in SHAPES:
+    for text, values in SHAPES + REVIEW_IN_TEXT:
         out = Guard("^\\d{8}$").redact(text)
         for v in values:
             assert v not in out, (v, out)
