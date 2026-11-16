@@ -104,6 +104,13 @@ CLEARS: dict[str, Clear] = {
             "a held mail carrying an opted-out patient's own file is dropped: its request and recipients go (D-863)",
         ),
         Clear(
+            "screening_log",
+            f"{_W}:clear_screening_log",
+            f"{_W}:verify_screening_log",
+            "a never-consented patient's screening-log rows stay, numbered, under a random token; the PI's note and "
+            "the registry's reasons go; a trial subject's stay (OD-8, D-1032, D-875)",
+        ),
+        Clear(
             "setup_uploads",
             f"{_W}:clear_setup_uploads",
             f"{_W}:verify_setup_uploads",
@@ -191,12 +198,12 @@ TABLES: dict[str, Entry] = {
     "orch.pool": _erase("candidate_pool", "MICROBATCH's candidate pool (a re-run's scratch copy is dropped with it)"),
     "orch.candidates": _erase(
         "candidate_registry",
-        "the candidate registry",
-        "a withdrawn row keeps the pseudonym (consented and enrolled rows are kept, OD-8)",
+        "the candidate registry (a never-consented patient's withdrawn row then takes a token: screening_log, D-875; "
+        "a trial subject's stays, OD-8)",
     ),
-    "orch.candidate_events": _owed(
-        "each status change of a candidate, by pseudonym",
-        "the events of a patient never consented (OD-8 keeps the rest)",
+    "orch.candidate_events": _erase(
+        "screening_log",
+        "each status change of a candidate: a never-consented patient's take a token and lose the reason (D-875)",
     ),
     "orch.feedback": _erase("owed_tables", "the PI's feedback on a candidate, by pseudonym"),
     "orch.judge_answers": _keep(
@@ -251,8 +258,9 @@ TABLES: dict[str, Entry] = {
     "mail.send_keys": _erase(
         "held_mail",
         "the outbox's send request while queued (attachments by key, a per-patient file's name, recipients)",
-        "a queued, uncertain or held mail of lists: its files are asked about before each send (D-863), its row stays "
-        "until a person or the send ends it; only a held mail of the patient's own file is dropped",
+        "an uncertain mail (it may have left: a person checks), and a queued or held mail of lists: its files are "
+        "asked about before each send (D-863), its row stays until a person or the send ends it; a held or queued mail "
+        "of the patient's own file is dropped (D-874)",
     ),
     "mail.sent": _none("a mail sent: subject, recipients, tag"),
     **_each(
@@ -280,8 +288,14 @@ TABLES: dict[str, Entry] = {
     "trace.access_log": _none("who read a trace and why"),
     **_each(
         "datacore",
-        ("ae_ack", "conflict", "deviation_call", "history", "src_record", "subject", "subject_step", "value"),
+        ("ae_ack", "conflict", "deviation_call", "history", "src_record", "subject_step", "value"),
         _OD8,
+    ),
+    "datacore.subject": _erase(
+        "screening_log",
+        "the lifecycle's subject of a screening number: a never-consented patient's pid column takes the screening "
+        "log's token (the review of D-875; a record keyed by the pseudonym itself keeps it as its key, D-772); a "
+        "trial subject's stays (OD-8)",
     ),
     **_each(
         "datacore",
@@ -304,16 +318,17 @@ TABLES: dict[str, Entry] = {
     ),
     "site.contact_outcomes": _erase("owed_tables", "a contact attempt's outcome, by pseudonym"),
     "site.excluded_review": _erase("owed_tables", "the review of an excluded patient, by pseudonym"),
-    "site.pi_marks": _owed(
-        "the PI's mark on a patient, by pseudonym", "the marks of a patient never consented (the screening log's, OD-8)"
+    "site.pi_marks": _erase(
+        "screening_log",
+        "the PI's mark on a patient: a never-consented patient's take a token and lose the note (D-875)",
     ),
-    "site.screening_no": _owed(
-        "the screening number given to a pseudonym",
-        "the number of a patient never consented (the screening log's, OD-8)",
+    "site.screening_no": _erase(
+        "screening_log",
+        "the screening number given to a pseudonym: a never-consented patient's number stays under a token (D-875)",
     ),
-    "site.weekly_seen": _owed(
-        "the week a pseudonym first appeared on a list",
-        "with the screening log (LIFE-005): a numbered row keeps its first-listed day (D-762)",
+    "site.weekly_seen": _erase(
+        "screening_log",
+        "the week a pseudonym first appeared on a list: a never-consented patient's under a token (D-762, D-875)",
     ),
     **_each("site", ("approval_opened", "code_ticks"), _none("a review trace: job, criterion, who")),
     **_each(
@@ -422,12 +437,18 @@ TABLES: dict[str, Entry] = {
         _OMOP_UNWRITTEN,
     ),
     **_each("omop", ("cost", "location"), _OMOP_THROUGH),
-    "omop.tb_record": _erase(
-        "omop",
-        "the record ledger: the person's live records are tombstoned",
-        "the tombstoned row keeps the person id and the source record id",
+    "omop.tb_record": _keep(
+        "D-876",
+        "the record ledger, ids and provenance (D-441, the owner's D-1031): the person's live records are "
+        "tombstoned at the opt-out, and the FHIR fields a record carried (extra) are blanked at retention by the "
+        "omop clear",
     ),
-    "omop.tb_record_event": _owed("every change of a record with its before-image", "the before-images"),
+    "omop.tb_record_event": _erase(
+        "omop",
+        "every change of a record with its before-image: blanked at retention by the omop clear (D-1031)",
+        "an opted-out patient's before-images until retention (the lake's month-end months): kept hidden, so a lift "
+        "and the export as of a time work (D-1031, as D-513 for the lake's files)",
+    ),
     "omop.tb_conflict": _owed(
         "a source conflict of a person, every source's value and the steward's ruling",
         "at retention, or with a before-image: a lift undoes the withhold, and the ruling must still hold (D-867)",
@@ -504,8 +525,9 @@ OBJECTS: dict[str, Entry] = {
         "kept until retention (D-513): other patients' pages read the same files, so no clear deletes them",
     ),
     "objects:attachments": _owed(
-        "files mailed or uploaded to a job (consent forms, review sheets, case requests)",
-        "a CASE chart is parsed before the subject's opt-out is checked (D-862)",
+        "files mailed or uploaded to a job (consent forms, review sheets, case requests); a CASE chart of an "
+        "opted-out subject is refused before it is read (D-873)",
+        "the files kept with a job until retention (D-513): an attached chart of a patient who opted out after it came",
     ),
     "objects:ctgov": _none("public registry text and its parse"),
 }

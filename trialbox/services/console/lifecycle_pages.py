@@ -33,6 +33,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from tb_common.csvfile import for_spreadsheet
+from tb_common.erased import is_erased
 
 from console import actor, s28
 from console.api_first import before_body, page_twin
@@ -229,7 +230,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def short_of(sub: dict[str, Any]) -> str:
         pid = str(sub.get("pid") or "")
-        return pid[:8] if pid else ""
+        return pid[:8] if pid and not is_erased(pid) else ""  # D-875: a token is never shown
 
     # ------------------------------------------------------------------ actions (one per page and /api/v1)
     def apply_step(sess: Session, path: str, rs: str, record: str, to: str, on_day: str, reason: str,
@@ -359,6 +360,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         nos = store.screening_nos(rid)
 
         def short(pid: str) -> str:  # the screening number beside the pseudonym (D-136); never a chart number
+            if is_erased(pid):  # D-875: a token is never shown
+                return f"– ({nos[pid]})" if pid in nos else "–"
             return f"{pid[:8]} ({nos[pid]})" if pid in nos else pid[:8] or "–"
 
         reports = [{"short": short(str(a.get("pid") or "")), "party": a["party"], "due": a["due"]}
