@@ -146,8 +146,17 @@ _CONFIG = _none("settings and configuration, no patient")
 _STAFF = _none("staff, accounts or sign-in state, no patient")
 _OD8 = _keep("OD-8", "the trial record of a consented or enrolled subject stays (GCP)")
 _OMOP_CLEARED = _erase("omop", "OMOP clinical rows of the person (deleted by the withhold, D-441)")
-_OMOP_UNWRITTEN = _owed(
-    "a CDM table keyed by person that no loader writes today", "a delete by person when a loader writes it"
+_OMOP_UNWRITTEN = _erase(
+    "omop",
+    "a CDM table keyed by person that no loader writes today: deleted by person at the withhold, so a loader that "
+    "writes it later is covered from its first row, and read back by the worker (D-867)",
+)
+#: D-867: reached only through the person (an event, the person row): deleted then, and not read back after it
+_OMOP_THROUGH = _erase(
+    "omop",
+    "a CDM table no loader writes today, reached through the person: deleted at the withhold with the person's "
+    "events (cost, by domain) or its last person (an address); not read back, as nothing names the person after it "
+    "(D-867)",
 )
 _OMOP_VOCAB = _none("OMOP vocabulary and metadata")
 
@@ -387,19 +396,21 @@ TABLES: dict[str, Entry] = {
             "episode",
             "episode_event",
             "payer_plan_period",
-            "cost",
             "cohort",
-            "location",
         ),
         _OMOP_UNWRITTEN,
     ),
+    **_each("omop", ("cost", "location"), _OMOP_THROUGH),
     "omop.tb_record": _erase(
         "omop",
         "the record ledger: the person's live records are tombstoned",
         "the tombstoned row keeps the person id and the source record id",
     ),
     "omop.tb_record_event": _owed("every change of a record with its before-image", "the before-images"),
-    "omop.tb_conflict": _owed("a source conflict of a person"),
+    "omop.tb_conflict": _owed(
+        "a source conflict of a person, every source's value and the steward's ruling",
+        "at retention, or with a before-image: a lift undoes the withhold, and the ruling must still hold (D-867)",
+    ),
     "omop.tb_consent": _keep("D-441", "the refusal itself must reach the lake, or the registry would read as silent"),
     "omop.tb_id_map": _keep("D-441", "pseudonym to person id: the worker and the loader must still find the person"),
     "omop.tb_withheld": _keep("D-441", "the register's copy the loader reads to keep the patient out"),
