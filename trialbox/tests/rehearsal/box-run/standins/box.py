@@ -138,6 +138,15 @@ def snippet(svc: str, text: str) -> int:
         print(f"box stand-in: a snippet without its name for {svc}", file=sys.stderr)
         return 2
     what, *rest = head.split(":", 1)[1].split()
+    if what == "canary-gate":  # B2: the pair canary through the box's own gate (POST /models/canary, GET /models)
+        called("canary-gate")
+        ok = not flag("fail-qualify")
+        print(json.dumps({"started": {"started": True, "running": True}}))
+        print(json.dumps({"elapsed_s": 15, "running": False}))
+        print(json.dumps({"gate": {"gate": "on", "allows_block": ok, "code": None if ok else "canary_failed",
+                                   "running": False, "ok": ok, "cases": 54, "pair_correct": 52 if ok else 40,
+                                   "pair_decided_wrong": 0}}))  # fmt: skip
+        return 0
     if what == "study-ready":
         called("study-ready")
         ok = not flag("no-study")

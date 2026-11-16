@@ -331,7 +331,7 @@ for CASE in "${CASES[@]}"; do
     acc-cut)
       setup "$CASE" "start acc"; echo 1.2 > "$S/knobs/acc-job-seconds"; start_setup; acc_setup
       m tb-acc-plan "jmed:3:0.5 sigir:3:1 tfda:2:1"; m tb-acc-min-deadline 2; m tb-progress-seconds 1
-      m tb-acc-protocols "sigir:SNCT90000002"; m tb-acc-streams "jmed:2"
+      m tb-acc-protocols "sigir:SNCT90000002"; m tb-acc-streams "tfda:2"
       boot; to_the_end; acc_collect ;;
     dev)   # the site files the first start left (the wizard's .env), then the dev launch
       setup "$CASE" dev; start_setup; build_setup; m tb-mode validation; val_models; m tb-direct 1

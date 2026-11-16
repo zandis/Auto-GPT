@@ -38,6 +38,7 @@ START = [
     "05-serving",
     "06-g1",
     "07-canary",
+    "07g-gate",
     "08-qualify",
     "09-promote-judge",
     "10-promote-verifier",
@@ -156,7 +157,11 @@ if case == "build-refused":
 # ---------------------------------------------------------------- G-2 and the tests on the installed box
 full_start = case in ("happy", "reboot", "oom", "list-differs")
 if full_start:
-    ok(keys(START) and all(parts[n]["status"] == "done" for n in START), "G-2: the twelve start steps, done")
+    ok(keys(START) and all(parts[n]["status"] == "done" for n in START), "G-2: the start steps, done")
+    ok(
+        parts["07g-gate"].get("pass") is True and calls["canary-gate"] == 1,
+        "B2: the canary through the box's own gate holds a passing record",
+    )
     ok(calls["install"] == 1 and calls["hostcheck"] == 1, "the installer ran once (prepare), the first run once")
     w = parts["03-wizard"]["detail"]
     ok(w.get("wizard") == "done" and w.get("owner") == "owner", "the wizard was answered through the console's page")
@@ -274,7 +279,7 @@ if case == "reboot":
     )
 
 if case == "step-fails":
-    ok(list(parts) == START[:8], "the run stopped at 08-qualify: no later part")
+    ok(list(parts) == START[:9], "the run stopped at 08-qualify: no later part")
     p = parts["08-qualify"]
     ok(p["status"] == "stop" and "the full qualification: exit 1" in p["stop"]["reason"], "the stop's record")
     ok(
@@ -335,7 +340,7 @@ if case == "resume-after-stop":
     kept = sorted(p.name for p in (R / "logs").glob("08-qualify.stop-*.json"))
     ok(len(kept) == 1, f"the first stop's part is kept beside the logs {kept}")
     ok(calls["qualify"] == 2 and calls["install"] == 1, "qualify ran again; the installer and the steps before it kept")
-    ok(all(parts[n]["attempts"] == 1 for n in START[:7]), "the steps before 08 ran once")
+    ok(all(parts[n]["attempts"] == 1 for n in START[:8]), "the steps before 08 ran once")
     ok("TB-RETRY" in vm_log or "TB-RETRY" in "".join(
         f.read_text(errors="replace") for f in S.glob("boot-*.out")), "the boot said what the retry cleared")  # fmt: skip
 
@@ -419,7 +424,7 @@ if case == "acc-cut":
 if case == "acc-cut":
     ok("acc-send FEAS SNCT90000001 new" not in calls and parts["61-acc-sigir"]["detail"].get("protocols_only")
        == "SNCT90000002", "acc-cut: tb-acc-protocols: only the named protocol of sigir was sent, and said")  # fmt: skip
-    ok(parts["60-acc-jmed"]["detail"].get("streams") == 2, "acc-cut: tb-acc-streams: jmed ran 2 protocols at once, said")
+    ok(parts["62-acc-tfda"]["detail"].get("streams") == 2, "acc-cut: tb-acc-streams: tfda, 2 protocols at once")
 
 if case == "direct":
     env = (S / "box-root" / "deploy" / ".env").read_text()

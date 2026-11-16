@@ -1388,6 +1388,40 @@ step_g1() {
     --images "$RUN/logs/images.json" --weights-exit "$wrc" --tokens "$REC/g1-tokens.json" --notes "$NOTES" > "$REC/identity.json"
 }
 step_canary() { watched d_canary; local rc=$?; note canary_exit "$rc"; [ "$rc" = 0 ] && note pass true || note pass false; }
+# B2 (the owner's plan, 2026-11-16): the pair canary through the box's OWN gate (canary_gate.run_canary, the admin
+# "Run now": POST /models/canary in the orchestrator), so the gate holds a passing record and a note-read "not met" may
+# exclude (D-117: a passing pair canary under 36 h, no failed wake check since). The host's selftest above records
+# nothing in the box. The gate's status (GET /models) is kept in records/canary-gate.json.
+d_gate() {
+  in_svc orchestrator <<'PYG'
+# tb-boxrun: canary-gate
+import json, time, urllib.request
+from tb_common.service_auth import auth_headers
+base = "http://127.0.0.1:8010"
+def call(method, path):
+    req = urllib.request.Request(base + path, method=method, headers=auth_headers(), data=b"" if method == "POST" else None)
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.loads(r.read() or b"{}")
+start = call("POST", "/models/canary")
+print(json.dumps({"started": start}), flush=True)
+t0 = time.time()
+while True:
+    time.sleep(15)
+    c = call("GET", "/models").get("canary") or {}
+    print(json.dumps({"elapsed_s": int(time.time() - t0), "running": c.get("running")}), flush=True)
+    if not c.get("running") or time.time() - t0 > 1800:
+        print(json.dumps({"gate": c}), flush=True)
+        break
+PYG
+}
+step_gate() {
+  watched d_gate; note gate_exit $?   # watched writes the snippet's lines to the step's log
+  grep '^{"gate"' "$STEP_LOG" | tail -n 1 | "$PY" -c 'import json,sys; print(json.dumps(json.loads(sys.stdin.read())["gate"], indent=1))' > "$REC/canary-gate.json" 2>> "$STEP_LOG"
+  note allows_block "$(jget "$REC/canary-gate.json" allows_block | tr A-Z a-z | grep . || echo null)"
+  note pair_correct "$(jget "$REC/canary-gate.json" pair_correct | grep . || echo null)"
+  note code "\"$(jget "$REC/canary-gate.json" code)\""
+  [ "$(jget "$REC/canary-gate.json" allows_block)" = True ] && note pass true || note pass false
+}
 # qualify, promote, resolve. In production a qualification that does not pass stops the run (G-2's rule). In
 # validation (the owner's ruling D-511: a failed gate is a RESULT): the record and each step's verdict are kept, the
 # pair is promoted only from a passing record, and the run goes on: a VALIDATION box routes a candidate pair (D-823);
@@ -2124,6 +2158,7 @@ if has start || has dev; then
   run_step 05-serving step_serving
   run_step 06-g1 step_g1
   run_step 07-canary step_canary
+  run_step 07g-gate step_gate
   run_step 08-qualify step_qualify
   run_step 09-promote-judge step_promote judge
   run_step 10-promote-verifier step_promote verifier
