@@ -80,7 +80,9 @@ while [ $# -gt 0 ]; do
     --acc-deadline) V[tb-acc-deadline]="$2"; shift 2 ;;         # each set's time budget, seconds (a probe)
     --progress-seconds) V[tb-progress-seconds]="$2"; shift 2 ;;
     --acc-protocols) V[tb-acc-protocols]="$2"; shift 2 ;;   # "set:RS1,RS2 ...": only these protocols of the set
-    --site-env) V[tb-site-env]="$2"; shift 2 ;;             # "TB_MEM_EMBED=16g ...": the site's deploy/.env limits
+    --site-env) V[tb-site-env]="$2"; shift 2 ;;
+    --acc-rs-tag) V[tb-acc-rs-tag]="$2"; shift 2 ;;
+    --skip) V[tb-skip]="${2//,/ }"; shift 2 ;;              # steps left out of the launch, each said (never a pass)         # a second run on one box: new ruleset ids (F29)             # "TB_MEM_EMBED=16g ...": the site's deploy/.env limits
     --redo) V[tb-redo]="${2//,/ }"; shift 2 ;;   # with --resume: these steps run again (an acc set from no work)   # qualify's own size options, e.g. "--items 60 --repeat-items 40"   # 02: the installed tree brought up with the product's tools, no install.sh   # read the VM's (and after the install the box's) facts, then stop
     --bundle) V[tb-bundle]="$2"; shift 2 ;;
     --bundle-sha256) V[tb-bundle-sha256]="$2"; shift 2 ;;

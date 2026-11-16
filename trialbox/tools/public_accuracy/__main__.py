@@ -32,6 +32,12 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--out", type=Path, required=True)
     b.add_argument("--ref", default="", help="the site's day YYYY-MM-DD (default: the builder's fixed day)")
     b.add_argument(
+        "--rs-tag",
+        default="",
+        help="with --for-box: letters or digits after the set's ruleset prefix (a second run on the same box: the box "
+        "keeps an approved ruleset version, so a new compile needs new ruleset ids)",
+    )
+    b.add_argument(
         "--for-box",
         action="store_true",
         help="the set's own chart numbers, investigators and ruleset prefix (site.SET_OFFSETS): sets share one box",
@@ -55,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
             if a.set not in site.SET_OFFSETS:
                 raise SystemExit(f"--for-box: set {a.set} has no offsets in site.SET_OFFSETS")
             kw["mrn0"], kw["pi0"], kw["rs_prefix"] = site.SET_OFFSETS[a.set]
+            kw["rs_prefix"] += getattr(a, "rs_tag", "") or ""
         print(json.dumps(site.build(bundle, a.out / "built", **kw), ensure_ascii=False, indent=1))
         if a.cmd == "build":
             return 0

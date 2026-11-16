@@ -413,7 +413,7 @@ if case == "acc-cut":
            and "embed-service 97.5% 1.2GiB" in ln and "oom_killed=false restarts=0" in ln for ln in vm_log.splitlines()),
        "acc-cut: one progress line says the set, the embed service's requests, CPU, memory and its kills or restarts "
        "(F23, F26)")  # fmt: skip
-    ok(any(c.startswith("compose-logs ") and c.endswith(" orchestrator embed-service") for c in calls),
+    ok(any(c.startswith("compose-logs ") and c.endswith(" orchestrator embed-service criteria-compiler gateway") for c in calls),
        "acc-cut: the set's services' own lines read into its work")  # fmt: skip
 
 if case == "acc-cut":

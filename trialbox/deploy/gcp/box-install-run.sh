@@ -498,7 +498,9 @@ ACC_MIN_DL=$(md tb-acc-min-deadline || echo 600)   # (setting) the shortest time
 PROG_S=$(md tb-progress-seconds || echo 60)        # (setting) seconds between checkpoints of a long step (the owner's 60)
 QTIMEBOX=$(md tb-qualify-timebox || true)          # the owner's probe: qualify ended after so many seconds
 ACC_PROTOCOLS=$(md tb-acc-protocols || true)     # "set:RS1,RS2 ...": only these protocols of a set (a sized subset)
-SITE_ENV=$(md tb-site-env || true)               # "TB_MEM_EMBED=16g ...": the site's own limits in deploy/.env (D-360)
+SITE_ENV=$(md tb-site-env || true)
+ACC_RS_TAG=$(md tb-acc-rs-tag || true)
+SKIP_STEPS=$(md tb-skip || true)                 # steps left out of this launch (e.g. 08-qualify), each said           # a second run on one box: its rulesets' ids carry this tag (F29)               # "TB_MEM_EMBED=16g ...": the site's own limits in deploy/.env (D-360)
 ACC_DEADLINE=$(md tb-acc-deadline || true)         # the owner's probe: each set's time budget, seconds (else the plan's)   # "set:size:high_seconds ..." from the plan (tools/box_run.py metadata)
 PROBE=$(md tb-probe || true)
 DIRECT=$(md tb-direct || true)   # 1: 02 brings the installed tree's stack up with the product's own tools, no install.sh   # 1: read the VM's and the box's facts (00-facts; after the install 04p-facts) and stop
@@ -617,6 +619,10 @@ run_step() {  # run_step <name> <function> [args]: once per run, timed, a part r
   esac
   STEP=$name; STEP_LOG="$RUN/logs/$name.log"; NOTES="$RUN/logs/$name.notes"; STOP=""
   : > "$NOTES"
+  case " $SKIP_STEPS " in *" $name "*)   # tb-skip: the lead left this step out of the launch; said, never a pass
+    st begin "$name" "$BOOT_ID"; note skipped '"left out of this launch (tb-skip)"'; note pass false
+    st end "$name" "done" "$NOTES" "" "$STEP_LOG"; echo "TB-STEP $name skipped (tb-skip)" | tee -a "$LOG"; return 0 ;;
+  esac
   phase "$name"; touch "$HB"
   st begin "$name" "$BOOT_ID"
   echo "TB-STEP $name start $(date -u +%FT%TZ)" | tee -a "$LOG"
@@ -1741,9 +1747,9 @@ step_acc_data() {
     # a set that cannot be fetched or built (a public source down) is left out of this run, said; the others go on
     if [ "$name" = jmed ]; then   # pyarrow: the box's python image, no network (the file is fetched above)
       watched d_acc_img -v "$ACC/$name:/work" "$img" python -m tools.public_accuracy build --set "$name" --size "$size" \
-          --out /work --ref "$ref" --for-box
+          --out /work --ref "$ref" --for-box ${ACC_RS_TAG:+--rs-tag "$ACC_RS_TAG"}
     else
-      watched d_acc_py build --set "$name" --size "$size" --out "$ACC/$name" --ref "$ref" --for-box
+      watched d_acc_py build --set "$name" --size "$size" --out "$ACC/$name" --ref "$ref" --for-box ${ACC_RS_TAG:+--rs-tag "$ACC_RS_TAG"}
     fi
     if [ ! -f "$ACC/$name/built/gold/ids.json" ]; then
       note "skipped_$name" "\"not built: $(grep -E 'Error|error' "$STEP_LOG" | tail -n 1 | cut -c1-160 | tr -d '"\\')\""
@@ -1848,9 +1854,9 @@ acc_services() {
   local name=$1 since
   since=$(st kv _ "acc_t0_$name"); [ -n "$since" ] || return 0
   { embed_state; echo
-    dc logs --no-log-prefix --since "${since}Z" orchestrator embed-service 2>/dev/null \
+    dc logs --no-log-prefix --since "${since}Z" orchestrator embed-service criteria-compiler gateway 2>/dev/null \
       | grep -iE "warn|error|exception|traceback|screen|cascade|embed|stage|hash|stub|budget|timeout|killed|uvicorn|loading" \
-      | grep -vE 'POST /embed|"path": "/embed", "status": 200' | cut -c1-300 | tail -n 400
+      | grep -vE 'POST /embed|"path": "/embed", "status": 200' | cut -c1-300 | tail -n 2000
   } > "$ACC/$name/work/services.log" 2>/dev/null || true
 }
 ACC_UP=false
