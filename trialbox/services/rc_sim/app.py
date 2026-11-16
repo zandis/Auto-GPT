@@ -143,7 +143,10 @@ def _export_records(proj: dict[str, Any], form: Any) -> list[dict[str, Any]]:
     else:
         cols = list(known)
     rows: list[dict[str, Any]] = []
+    bound = str(proj.get("token_group") or "")  # RC13-D (D-849): a group user's token
     for rec in proj["records"]:
+        if bound and str(rec.get("redcap_data_access_group") or "") != bound:
+            continue  # REDCap 13.7: a group user's export holds that group's records only
         if want_records and str(rec.get(rid)) not in want_records:
             continue
         if want_events and rec.get("redcap_event_name") not in want_events:
@@ -156,7 +159,7 @@ def _export_records(proj: dict[str, Any], form: Any) -> list[dict[str, Any]]:
         if _repeating(proj):  # every row carries the repeat keys; blank on the base row
             row["redcap_repeat_instrument"] = str(rec.get("redcap_repeat_instrument") or "")
             row["redcap_repeat_instance"] = _instance(rec)
-        if with_dag:
+        if with_dag and not bound:  # REDCap 13.7: never the group column for a group user, even when asked
             row["redcap_data_access_group"] = rec.get("redcap_data_access_group", "")
         for col in cols:
             if col == rid:
@@ -346,6 +349,15 @@ def _import_records(proj: dict[str, Any], form: Any) -> Any:
     events = {e["unique_event_name"] for e in proj.get("events", [])}
     dags = {d["unique_group_name"] for d in proj.get("dags", [])}
     mapping = proj.get("form_event_mapping") or []
+    bound = str(proj.get("token_group") or "")  # RC13-D (D-849): a group user's token
+    if bound and any("redcap_data_access_group" in r for r in rows):  # REDCap 13.7 refuses the column outright
+        return _err(400, "ERROR: a user in a data access group may not set redcap_data_access_group")
+    if bound:
+        theirs = sorted({str(x.get(rid)) for x in proj["records"] for r in rows if str(x.get(rid)) == str(r.get(rid))
+                         and str(x.get("redcap_data_access_group") or "") != bound})  # fmt: skip
+        if theirs and str(form.get("forceAutoNumber") or "").lower() != "true":
+            return _err(400, "These records cannot be modified because they do not belong to your Data Access "
+                        f"Group: {', '.join(theirs)}")  # fmt: skip
     for r in rows:
         bad = sorted(set(r) - set(meta) - extra)
         if bad:
@@ -422,6 +434,8 @@ def _import_records(proj: dict[str, Any], form: Any) -> Any:
         if hit is None:
             hit = {f: "" for f in meta}
             hit[rid] = name
+            if str(proj.get("token_group") or ""):  # RC13-D (D-849): a group user's new record is in their group
+                hit["redcap_data_access_group"] = str(proj["token_group"])
             proj["records"].append(hit)
         before = dict(hit)
         for k, v in r.items():
@@ -587,6 +601,8 @@ def create_app(fixtures_dir: Path | None = None, version: str | None = None, rat
                 entries = [e for e in entries if "record" in str(e["action"]).split(" (")[0].lower()]
             return entries
         if content == "dag":
+            if proj.get("token_group"):  # RC13-D (D-849): REDCap 13.7 refuses it to a group user
+                return _err(403, "You may not export data access groups: you are in a data access group")
             return proj["dags"]
         if content == "repeatingFormsEvents":  # REDCap answers it only for a project that repeats something
             if not _repeating(proj):
@@ -694,6 +710,17 @@ def create_app(fixtures_dir: Path | None = None, version: str | None = None, rat
             "log": [],
         }
         return {"project_id": pid, "token": token}
+
+    @app.post("/sim/token_group")
+    async def sim_token_group(request: Request) -> Any:
+        """RC13-D (D-849): make the project's token a group user's token (``group``: a unique group name; "" undoes
+        it), as a site coordinator's token on a REDCap with data access groups."""
+        body = await request.json()
+        proj = state.by_pid(int(body.get("project_id", 0)))
+        if proj is None:
+            return _err(404, "No such project")
+        proj["token_group"] = str(body.get("group") or "")
+        return {"project_id": proj["project"]["project_id"], "group": proj["token_group"]}
 
     @app.post("/sim/metadata/rename")
     async def sim_rename(request: Request) -> Any:

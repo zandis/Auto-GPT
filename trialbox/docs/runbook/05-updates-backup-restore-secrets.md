@@ -133,13 +133,14 @@ you may push to the hospital's git server.
 **Point-in-time restore (pgBackRest).** On by default (D-274): `backup-install` does steps 2 to 4 below by itself
 when the db image carries pgBackRest and a target is off the box (the repository goes to `TB_PGBACKREST_REPO`, else
 `pgbackrest-<site>` on the first off-box target), unless `deploy/.env` says `TB_PG_ARCHIVE_MODE=off`; when the check
-fails it turns archiving off again. The default db image has no pgBackRest yet, so step 1 is still needed; `doctor`
-warns while archiving is off. The `db` service compresses WAL with zstd and TOAST with lz4 and
+fails it turns archiving off again. The box's db image carries pgBackRest (2.60, `deploy/docker/db.Dockerfile`,
+D-371), so there is no image to build and none to swap; `doctor` warns while archiving is off. The `db` service compresses WAL with zstd and TOAST with lz4 and
 gives new databases data checksums. Three weekly full backups are kept, so the database restores to any second of at
 least the last two weeks:
 
-1. Build the image with pgBackRest: `docker build -t trialbox-db-pitr:16 deploy/pgbackrest`; in `deploy/.env` set
-   `POSTGRES_IMAGE=trialbox-db-pitr:16` and `TB_PGBACKREST_REPO=<a folder on the hospital share>`.
+1. In `deploy/.env` set `TB_PGBACKREST_REPO=<a folder on the hospital share>`. Keep the box's own db image: never set
+   `POSTGRES_IMAGE` to another one (an image without pgvector and PGroonga, or with another C library, would change
+   the index collation order and lose the two extensions; the old Alpine pgBackRest image is gone).
 2. The repository key: `install -d -m 700 deploy/secrets/pgbackrest; (umask 077; printf '[global]\nrepo1-cipher-pass=%s\n'
    "$(openssl rand -base64 48)" > deploy/secrets/pgbackrest/cipher.conf)`, then give the file and the repository
    folder to the container's postgres user (`docker compose --project-directory deploy exec db id -u postgres`, then
