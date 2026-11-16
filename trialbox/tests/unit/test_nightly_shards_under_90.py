@@ -50,6 +50,15 @@ def test_engine_py_runs_in_parts_that_cover_every_mutant_once() -> None:
     assert len(set(names)) == len(names)
 
 
+def test_the_score_job_counts_every_shard() -> None:
+    """The score job refuses a run with a missing shard report: its count is the matrix's size, whatever it is."""
+    wf = yaml.safe_load(QUALITY.read_text(encoding="utf-8"))
+    shards = wf["jobs"]["mutation"]["strategy"]["matrix"]["include"]
+    runs = " ".join(str(s.get("run", "")) for s in wf["jobs"]["mutation-score"]["steps"])
+    counts = [int(n) for n in re.findall(r'"\$\{#reports\[@\]\}" -eq (\d+)\b', runs)]
+    assert counts == [len(shards)], f"the score job counts {counts} reports, the matrix has {len(shards)} shards"
+
+
 def test_the_latency_share_line() -> None:
     line = scale_gate.latency_share(calls=1362, latency_s=2.0, screen_s=3000.0, night_s=4440.0)
     assert "1,362 calls x 2 s = 2,724 s" in line

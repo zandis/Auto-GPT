@@ -67,16 +67,17 @@ def test_one_job_combines_them_under_the_old_name_and_holds_the_ratchet() -> Non
 
 def test_the_mutation_shards_are_left_as_they_were() -> None:
     jobs = _jobs()
-    assert jobs["mutation"]["timeout-minutes"] == 300
+    assert jobs["mutation"]["timeout-minutes"] == 90  # D-973 (D-537): no job over 90 minutes; was 300
     assert jobs["mutation-score"]["needs"] == "mutation" or jobs["mutation-score"]["needs"] == ["mutation"]
 
 
-def test_engine_py_runs_in_two_parts_and_the_score_waits_for_every_shard() -> None:
+def test_engine_py_runs_in_parts_and_the_score_waits_for_every_shard() -> None:
     """ENG-006: engine.py's shard ran out of its budget with 114 mutants not run (2026-11-15); its mutants are split
-    in two parts (tools/mutation.py --part), each mutant in one, and the score job counts four reports."""
+    in parts (tools/mutation.py --part), each mutant in one. D-973: two parts took 207 and 149 minutes, so six; the
+    score job counts eight reports (six engine parts, evaluate, rules)."""
     jobs = _jobs()
     include = jobs["mutation"]["strategy"]["matrix"]["include"]
     engine = [i for i in include if "engine.py" in i["targets"]]
-    assert sorted(i["targets"].split("--part ")[1] for i in engine) == ["1/2", "2/2"]
-    assert len(include) == 4
-    assert "-eq 4" in _runs(jobs["mutation-score"])
+    assert sorted(i["targets"].split("--part ")[1] for i in engine) == [f"{k}/6" for k in range(1, 7)]
+    assert len(include) == 8
+    assert "-eq 8" in _runs(jobs["mutation-score"])

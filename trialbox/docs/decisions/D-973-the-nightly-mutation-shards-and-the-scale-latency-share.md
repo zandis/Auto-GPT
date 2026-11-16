@@ -21,8 +21,9 @@ did not say how much of that was the stand-in waiting, so the time could not be 
 1. `engine.py` runs in six parts (`--part 1/6` to `6/6`; every mutant in exactly one, as ENG-006 made them). About 356
    minutes of mutants come to about 60 minutes a part.
 2. The mutation job's timeout is 90 minutes, and no mutant starts after 75 (`--budget-minutes 75`), which leaves room
-   for the set-up (about 7 minutes) and the mutants still running. A mutant not started is listed, as before; the
-   score job reads every shard as before.
+   for the set-up (about 7 minutes) and the mutants still running. A mutant not started is listed, as before. The
+   score job now expects eight shard reports (six engine parts, evaluate, rules), and the test holds that count
+   equal to the matrix.
 3. The scale gate's report has one more line, after the screen: the stand-in's calls times its seconds per call, as a
    share of the screen and of the night up to the screen's end. It is an upper bound, since calls that overlap wait at
    the same time; the line says so.
