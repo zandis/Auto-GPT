@@ -1,7 +1,7 @@
 # D-968 restic for the incremental backup
 
 - **Task:** PERF-010 (with PERF-011 and ENG-011), lane D. The owner's yes of 2026-11-16 was relayed on #639 by the
-  integrator; the integrator's number for it, D-535, is already taken on master. Lane B2 advises on the consistent
+  integrator as D-535 and recorded as D-1035 (PR #897). Lane B2 advises on the consistent
   snapshot.
 - **PR:** R1 `agent/PERF-010-R1-restic-pinned`; R2 to R4 follow, one PR each.
 - **Date:** 2026-11-16
