@@ -62,3 +62,23 @@ def test_a_long_sentence_is_scored_by_its_best_window() -> None:
     got = screen(rec, "tuberculosis", ["Short line.", long], thr)
     assert got.top[0][0] == 1 and got.best > 0.99  # the decisive end of the long sentence scored
     assert max(len(t) for t in rec.inputs) <= 600 and len(rec.inputs) > 3
+
+
+def test_a_copy_not_shown_leaves_its_date_on_the_note_that_is() -> None:
+    """D-941 (review of D-940): "last dose given today" copied forward from January into June was read only under
+    June's date, so a washout criterion would read the dose as June. The note shown names the earlier dates."""
+    body = "Last dose of pembrolizumab given today."
+    window = [_note("n1", date(2026, 1, 10), body), _note("n2", date(2026, 3, 2), body + "\n"),
+              _note("n3", date(2026, 6, 10), body), _note("n4", date(2026, 6, 20), "Seen for follow-up.")]  # fmt: skip
+    got = excerpts.build(window, {}, 10_000)
+    by = {x["did"]: x for x in got.shown}
+    assert sorted(by) == ["n3", "n4"] and got.duplicates == ["n2", "n1"]
+    assert by["n3"][excerpts.SAME_TEXT_ALSO_ON] == ["2026-01-10", "2026-03-02"]
+    assert excerpts.SAME_TEXT_ALSO_ON not in by["n4"]  # a note with no copy carries no such key
+
+
+def test_a_copy_of_the_same_day_adds_no_date() -> None:
+    body = "Gout since 2019."
+    window = [_note("n1", date(2026, 7, 1), body), _note("n2", date(2026, 7, 1), body)]
+    (shown,) = excerpts.build(window, {}, 10_000).shown
+    assert excerpts.SAME_TEXT_ALSO_ON not in shown
