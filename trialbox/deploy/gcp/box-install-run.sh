@@ -748,7 +748,7 @@ EOF
 # G-1's extra token (D-880, #739): for the first prompt whose server ids differ, the ids at positions 18 to 26 from
 # the server and from the weights folder's tokenizer, each decoded by that tokenizer (offline, in the same image)
 d_g1_span() {  # $1 the vLLM image, $2 the host folder at /models, $3 the model path, $4 the work folder
-  docker run --rm --network none --user 0 --entrypoint python3 -e HF_HUB_OFFLINE=1 -v "$2:/models:ro" -v "$4:/w" "$1" -c '
+  d_tok_py "$1" "$2" "$4" -c '
 import json, sys
 from transformers import AutoTokenizer
 srv, hf = json.load(open("/w/server.json"))["ids"], json.load(open("/w/hf.json"))["ids"]
@@ -761,11 +761,15 @@ for i, (a, b) in enumerate(zip(srv, hf)):
         break
 ' "$3"
 }
+# python3 in the model server's image with no network (its tokenizer, never a model server): $1 the image, $2 the host
+# folder at /models, $3 the work folder at /w, then python3's arguments
+d_tok_py() {
+  docker run --rm --network none --user 0 --entrypoint python3 -e HF_HUB_OFFLINE=1 -e PYTHONPATH=/tbt \
+    -v "$2:/models:ro" -v "$BOXROOT/tools:/tbt/tools:ro" -v "$3:/w" "$1" "${@:4}"
+}
 d_g1_hf() {  # $1 the vLLM image, $2 the host folder at /models, $3 the model path, $4 the work folder, [$5 template]
   local t=(); [ -z "${5:-}" ] || t=(--template "$5")
-  docker run --rm --network none --user 0 --entrypoint python3 -e HF_HUB_OFFLINE=1 -e PYTHONPATH=/tbt \
-    -v "$2:/models:ro" -v "$BOXROOT/tools:/tbt/tools:ro" -v "$4:/w" "$1" \
-    -m tools.chat_template_check hf --model "$3" --prompts /w/prompts.json --out /w/hf.json ${t[@]+"${t[@]}"}
+  d_tok_py "$1" "$2" "$4" -m tools.chat_template_check hf --model "$3" --prompts /w/prompts.json --out /w/hf.json ${t[@]+"${t[@]}"}
 }
 # validation mode: deploy/install.sh with a synthetic site's answers (env_extra TB_ENV: VALIDATION); its log redacted
 # (it prints the first administrator's password and enrolment code once, and this log goes to the bucket)

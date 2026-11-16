@@ -1024,6 +1024,13 @@ def acc_set(
             for row in list_rows(doc, "excluded" if fname.startswith("excluded_") else ""):
                 pats[row.pop("pid")] = row
         a["patients"] = pats
+        # the run's aggregate provenance (screen.py: screen_<stem>.json; the cascade's stage log, its metrics and
+        # budgets, no patient ids): the S2b breakdown and the stage counts of the evidence page
+        with suppress(Exception):
+            sf = box.call("mail-gateway", "fetch", {"job": a["screen_job"], "suffixes": [".json"],
+                                                    "prefixes": ["screen_"]})["files"]  # fmt: skip
+            for b64 in sf.values():
+                _save(work / "screen" / f"{rs}.json", json.loads(base64.b64decode(b64).decode("utf-8")))
         a["outcome"] = "screened" if a["screen"] == "done" else classify(a.get("screen_error"))
         a["finished"] = True
         _save(prog_p, prog)
