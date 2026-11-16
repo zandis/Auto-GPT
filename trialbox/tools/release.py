@@ -35,7 +35,7 @@ import subprocess
 import sys
 import tarfile
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -270,12 +270,15 @@ def build(
     now: dt.datetime | None = None,
     pyproject: Path = PYPROJECT,
     rehearsal: bool = False,
+    jobs: Collection[str] = (),
 ) -> dict[str, Any]:
     """Check the bundle's images against the gate record, collect their SBOMs, write release.json and images.lock.
 
     ``images``: (requested reference, saved archive); the archive must also be one of ``items`` (kind ``image``)."""
     now = now or dt.datetime.now(dt.UTC)
     v = version(pyproject)
+    if stray := sorted(set(jobs) - {ref for ref, _ in images}):
+        raise ReleaseError(f"job image(s) {', '.join(stray)}: not an image of the bundle")
     if not images:
         raise ReleaseError("the bundle carries no image")
     try:
@@ -343,6 +346,8 @@ def build(
             "archive": dest_of[archive.resolve()],
             "sbom": f"sbom/{entry['sbom']}",
             "sbom_sha256": sha,
+            # D-968: a job image (the nightly backup) runs as a one-off container, no compose service runs it
+            "runs": "job" if ref in jobs else "service",
         }
     for name in SBOM_EXTRAS:
         if not (sbom_dir / name).is_file():
@@ -494,6 +499,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--images-lock", type=Path, default=IMAGES_LOCK)
     b.add_argument("--image", action="append", default=[], metavar="REF=ARCHIVE")
     b.add_argument("--rehearsal", action="store_true", help="a bundle for a rehearsal box only (D-726)")
+    b.add_argument("--job", action="append", default=[], metavar="REF", help="an --image the box runs as a job (D-968)")
     b.add_argument("items", nargs="*", help="kind:path[=dest], every payload file of the bundle")
     c = sub.add_parser("check", help="does a built bundle's release.json name every component?")
     c.add_argument("bundle", type=Path)
@@ -520,6 +526,7 @@ def main(argv: list[str] | None = None) -> int:
                 items=[parse_item(i) for i in args.items],
                 images_lock=args.images_lock,
                 rehearsal=args.rehearsal,
+                jobs=args.job,
             )
             print(
                 f"release: {rel['version']} {rel['release_id']} (seq {rel['release_seq']}): {len(rel['images'])} "
