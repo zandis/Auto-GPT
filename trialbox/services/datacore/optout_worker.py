@@ -448,6 +448,22 @@ def verify_tables(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     return _owed_tables(pids, env, delete=False)
 
 
+def clear_embed_cache(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    """T-206b part 2b (D-862; D-513: the embed cache is the one store rebuilt): the lake's embed cache loses the
+    vectors only the opted-out patients' notes hold (counts only)."""
+    prune = getattr(env.lake, "prune_cache", None)
+    if prune is None or not pids:
+        return {"skipped": 1} if prune is None else {"vectors": 0}
+    return {"vectors": int(prune(sorted(pids)).get("vectors", 0))}
+
+
+def verify_embed_cache(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    prune = getattr(env.lake, "prune_cache", None)
+    if prune is None or not pids:
+        return {}
+    return {"lake:embed_cache.duckdb": int(prune(sorted(pids), dry_run=True).get("vectors", 0))}
+
+
 def run_once(env: WorkerEnv) -> dict[str, Any]:
     """One tick: the registry copied into the register, then every clear of the erasure registry
     (:func:`tb_common.erasure.clears`) run for the patients opted out now and its store read back. Returns counts

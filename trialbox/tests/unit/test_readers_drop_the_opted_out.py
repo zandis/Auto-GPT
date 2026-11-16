@@ -95,3 +95,48 @@ def test_a_dry_run_goes_and_a_live_submission_stays(db_url: str) -> None:
     with Database.connect(db_url, "orch") as db:
         assert [r[0] for r in db.fetchall("SELECT job_id FROM submissions")] == ["J-live"]
     reg.close()
+
+
+# ---------------------------------------------------------------------------------------------- part 2b (D-862)
+def test_the_stored_equivalence_report_names_no_patient() -> None:
+    """The criteria compiler's equivalence sample is kept in the draft and the library's history: each disagreeing
+    patient is a case label there, never the pseudonym (nothing reads it back), also inside an evidence string."""
+    from criteria_compiler.equivalence.gate import without_pseudonyms
+    from tb_contracts import Disagreement, EquivalenceReport
+
+    d = [Disagreement(criterion_id="I1", pid=A, index_date="2026-11-01", cql=True, sql=False,
+                      evidence_cql=[f"Condition/c-{A}"], evidence_sql=f"obs {A}"),
+         Disagreement(criterion_id="I2", pid=A, index_date="2026-11-01", cql=False, sql=True),
+         Disagreement(criterion_id="I1", pid=C, index_date="2026-11-01", cql=True, sql=False)]  # fmt: skip
+    rep = EquivalenceReport.model_validate({"overall_pct": 50.0, "per_criterion": {"I1": 50.0, "I2": 50.0},
+                                            "failing": ["I1"], "sample_size": 2, "disagreements": d})  # fmt: skip
+    stored = without_pseudonyms(rep)
+    text = stored.model_dump_json()
+    assert A not in text and C not in text
+    assert [x.pid for x in stored.disagreements or []] == ["case-001", "case-001", "case-002"]
+    assert stored.failing == rep.failing and stored.per_criterion == rep.per_criterion  # what the run reads back
+
+
+def test_the_embed_cache_loses_the_vectors_only_an_opted_out_patients_notes_hold(tmp_path: Any) -> None:
+    from embed_service.embedder import HashEmbedder
+    from lake.store import Lake
+
+    from tools.trialbox import memcaps
+
+    night = "2026-10-04"
+    memcaps.write_ndjson(tmp_path / "lake" / "ndjson" / night, 6)
+    lake = Lake(tmp_path / "lake", "Asia/Taipei")
+    lake.rebuild(night, HashEmbedder())
+    rows = lake.query("SELECT pid, sha FROM document_chunk", [], night).to_pylist()
+    by: dict[str, set[str]] = {}
+    for r in rows:
+        by.setdefault(r["pid"], set()).add(r["sha"])
+    assert len(by) >= 2, "the synthetic night has notes of more than one patient"
+    gone = sorted(by)[0]
+    others = set().union(*(s for p, s in by.items() if p != gone))
+    only = by[gone] - others
+    assert lake.prune_cache([gone], dry_run=True) == {"vectors": len(only)}
+    assert lake.prune_cache([gone]) == {"vectors": len(only)}
+    assert lake.prune_cache([gone], dry_run=True) == {"vectors": 0}  # read back: nothing of theirs alone is left
+    model = HashEmbedder().model
+    assert set(lake.vectors(sorted(others), model)) == others  # every other patient's vectors stay

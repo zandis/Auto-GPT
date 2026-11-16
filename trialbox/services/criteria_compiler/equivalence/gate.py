@@ -162,3 +162,21 @@ def run_gate(
 
 def summary(report: EquivalenceReport) -> dict[str, Any]:
     return {"overall_pct": report.overall_pct, "failing": report.failing, "sample_size": report.sample_size}
+
+
+def without_pseudonyms(report: EquivalenceReport) -> EquivalenceReport:
+    """T-206b part 2b (D-862): the report as it is stored (the draft's ``tests/equivalence.json``, kept in the
+    criteria library's history): each disagreeing patient is a case label (``case-001``, in the order first named),
+    never the pseudonym, also where an evidence string names it. The run itself keeps the pseudonyms (it compares and
+    flags in memory); nothing reads a stored disagreement's patient back, so an opt-out has nothing to erase there."""
+    labels: dict[str, str] = {}
+    out: list[Disagreement] = []
+    for d in report.disagreements or []:
+        lab = labels.setdefault(d.pid, f"case-{len(labels) + 1:03d}")
+
+        def scrub(text: str) -> str:
+            return text.replace(d.pid, lab)  # noqa: B023 - each disagreement scrubs its own patient
+
+        out.append(d.model_copy(update={"pid": lab, "evidence_cql": [scrub(x) for x in d.evidence_cql or []],
+                                        "evidence_sql": scrub(d.evidence_sql or "")}))  # fmt: skip
+    return report.model_copy(update={"disagreements": out})

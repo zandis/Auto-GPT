@@ -161,6 +161,16 @@ def vec_health() -> dict[str, Any]:
     return dict(VEC_COUNTS) if any(VEC_COUNTS.values()) else {}
 
 
+@app.post("/cache/prune")
+def cache_prune(body: dict[str, Any]) -> dict[str, int]:
+    """T-206b part 2b (D-862): the embed cache loses the vectors only the given (opted-out) patients' notes hold;
+    counts only. ``dry_run``: how many there are (the opt-out worker's read back)."""
+    pids, dry = body.get("pids"), bool(body.get("dry_run"))
+    if not isinstance(pids, list) or not all(isinstance(p, str) for p in pids):
+        raise HTTPException(status_code=400, detail="pids are pseudonyms")
+    return lake().prune_cache(pids, dry_run=dry)
+
+
 @app.post("/vec/s2b")
 def vec_s2b(body: dict[str, Any]) -> dict[str, Any]:
     """T-203b (D-449, flag ``vec.s2b`` on the orchestrator's side): one patient's window notes ranked from the vector

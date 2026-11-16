@@ -159,6 +159,12 @@ class LakeHttp:
         hits: list[dict[str, Any]] = _key(resp, "hits", (list,))
         return hits
 
+    def prune_cache(self, pids: list[str], dry_run: bool = False) -> dict[str, int]:
+        """T-206b part 2b (D-862): the embed cache's prune on the lake service (the one process that writes it)."""
+        resp = self.client.post(f"{self.base}/cache/prune", json={"pids": sorted(pids), "dry_run": dry_run})
+        resp.raise_for_status()
+        return {"vectors": int(_key(resp, "vectors", (int,)))}
+
     def vec_s2b(self, pid: str, dids: list[str], query: str, snapshot: str | None = None) -> dict[str, Any]:
         """T-203b (D-449): S2b's ranking from the vector store on the lake service. Any failure to get an answer is
         the fallback answer (the cascade then ranks on the fly and records it), never an error of the run."""
@@ -306,6 +312,9 @@ class LakeLocal:
 
     def vec_s2b(self, pid: str, dids: list[str], query: str, snapshot: str | None = None) -> dict[str, Any]:
         return self.lake.vec_s2b(pid, dids, query, self.embedder, self.vec_store, snapshot)
+
+    def prune_cache(self, pids: list[str], dry_run: bool = False) -> dict[str, int]:
+        return self.lake.prune_cache(pids, dry_run=dry_run)
 
     def query(
         self, sql: str, params: list[Any] | None = None, snapshot: str | None = None, timeout_s: int | None = None

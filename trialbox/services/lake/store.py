@@ -1554,6 +1554,45 @@ class Lake:
         flush()
         return len(missing)
 
+    def prune_cache(self, pids: Iterable[str], dry_run: bool = False) -> dict[str, int]:
+        """T-206b part 2b (D-862; the owner's ruling D-513: the embed cache is the one store rebuilt for an opt-out):
+        the vectors of the chunk texts that only the given patients' notes hold in the current snapshot are removed
+        from ``embed_cache.duckdb`` (counts only). A text another patient's note holds keeps its vector; a vector an
+        older kept snapshot still needs is embedded again on demand. ``dry_run``: how many such vectors are there."""
+        want = sorted(set(pids))
+        if not want or self.current() is None or not (self.dir / "embed_cache.duckdb").exists():
+            return {"vectors": 0}
+        con = self.connect()
+        try:
+            con.register("gone", pa.table({"pid": want}))
+            theirs = {r[0] for r in con.execute(
+                "SELECT DISTINCT c.sha FROM document_chunk c JOIN gone g USING (pid)").fetchall()}  # fmt: skip
+            if theirs:
+                con.register("theirs", pa.table({"sha": sorted(theirs)}))
+                shared = {r[0] for r in con.execute(
+                    "SELECT DISTINCT c.sha FROM document_chunk c JOIN theirs t USING (sha)"
+                    " WHERE c.pid NOT IN (SELECT pid FROM gone)").fetchall()}  # fmt: skip
+                con.unregister("theirs")
+            else:
+                shared = set()
+            con.unregister("gone")
+        finally:
+            con.close()
+        drop = sorted(theirs - shared)
+        if not drop:
+            return {"vectors": 0}
+        with _CACHE_LOCK:
+            cache = self._cache(read_only=dry_run)
+            try:
+                cache.register("drop", pa.table({"sha": drop}))
+                n = int(cache.execute("SELECT count(*) FROM cache c JOIN drop d USING (sha)").fetchone()[0])
+                if not dry_run and n:
+                    cache.execute("DELETE FROM cache WHERE sha IN (SELECT sha FROM drop)")
+                cache.unregister("drop")
+            finally:
+                cache.close()
+        return {"vectors": n}
+
     def vectors(self, shas: list[str], model: str) -> dict[str, np.ndarray]:
         """sha -> float32 vector from the vector store, for the given embedding model (absent shas are left out)."""
         if not shas or not (self.dir / "embed_cache.duckdb").exists():
