@@ -485,7 +485,10 @@ Notes on the table:
 
 ## 11. What to run next, in order
 
-These estimates are derived from the frozen column's measured times at US$2.74/h. They are not measured on master.
+These estimates are derived from the frozen column's measured times at US$2.74/h. Measured on master since:
+- one 500-patient tcga SCREEN took 317 to 325 s, against 1,352 s on 1157c9bf (D-904: all 500 windows fit, no embedding);
+- jmed's two SCREEN jobs took about 60 s each.
+So rows 2, 6 and 10 below are about a quarter of what they say. The compile-bound sets (sigir, trec2023, chia, jrct, tfda) were not measured on master: their time is FEAS (the compile), not SCREEN.
 Master's D-904 (train 36: S2b skipped when the window fits) and D-900 (the embed service) may change SCREEN times;
 that is not known yet.
 
@@ -804,3 +807,15 @@ Steps (the owner, in the Google Cloud console, project `trialbox-demo`):
 - The driver runs one VM by name (`box-run.sh [VM] [ZONE]`, default `tb-gpu-sim`). It keeps one run's state per
   run id. Two VMs need two run ids and the VM's name on every call.
 
+## 14. Review points carried, not applied
+
+Lane A2's review of lane G's scorers (#639, 2026-11-15 07:25) asked for four changes. They concern code that is in
+neither #628 nor #649: `tools/medtxt_eval.py`'s `negative_kinds` and `treated_in_quote` and the N-12 reproducibility
+check came from commit 1f7f0765 on lane G's batch 8 (#614, closed and replaced by #649 on a clean base). Whoever
+brings that code back applies them:
+
+1. TREC eligible pairs lost: keep the absolute line against the qrels (lost / eligible <= 10 %) beside the
+   reproducibility check against N-12's own recording.
+2. MedTxt: test the denial in the mention's own clause first (up to the next 、 or 。), then "treated".
+3. MedTxt: assert the proposed fact's status; a treated mention proposed as current counts as an error.
+4. Lane A2's own card: SCREEN's compiled SQL reads condition rows whatever their clinical status.
