@@ -6,6 +6,7 @@ configuration, so file-reading table functions fail even if a new one slipped pa
 
 from __future__ import annotations
 
+import functools
 import re
 
 import sqlglot
@@ -57,6 +58,15 @@ class SqlRejected(ValueError):
 
 
 def check_select(sql: str) -> None:
+    """Refuse ``sql`` unless it is one read query of the lake's tables (:class:`SqlRejected`). A text this process
+    accepted before is accepted again without a second parse (T-653, D-942): the verdict depends on the text alone,
+    and the cascade's S1 sends one compiled query per batch of patients (D-748), each parse about a second at 5,000
+    patients. A refusal is never kept: it is parsed and refused each time."""
+    _accepted(sql)
+
+
+@functools.lru_cache(maxsize=256)
+def _accepted(sql: str) -> None:
     try:
         statements = sqlglot.parse(sql, read="duckdb")
     except sqlglot.errors.SqlglotError as exc:  # a parse error, or a tokenizer's (an unterminated string)

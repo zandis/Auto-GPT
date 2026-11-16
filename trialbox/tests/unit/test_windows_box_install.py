@@ -587,7 +587,8 @@ def test_the_installer_never_turns_bitlocker_off_and_never_logs_or_stores_a_reco
         )
     # the same for the pair the seam returns (its Password field): handed to Confirm-TbRecoveryKey and nowhere else
     uses = [ln.strip() for ln in ps1.splitlines() if "$rp.Password" in ln]
-    assert uses == ["Confirm-TbRecoveryKey $drv $rp.Password"], uses
+    # (NEW-WIN-14: with the key's ID beside it, which is no secret)
+    assert uses == ["Confirm-TbRecoveryKey $drv $rp.Password $rp.Id"], uses
 
 
 def test_the_key_probe_handles_a_dummy_value_only_and_uses_the_boot_tasks_sign_in() -> None:

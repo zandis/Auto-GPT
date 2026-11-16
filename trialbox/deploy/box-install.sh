@@ -69,6 +69,9 @@ case "${TB_BOX_WSL2:-}" in "") ;; 0|1) WSL2="$TB_BOX_WSL2" ;; *) die "TB_BOX_WSL
 export PYTHONPATH="$ROOT/libs:$ROOT"
 [ "${TB_BOX_NO_ROOT:-0}" = 1 ] || [ "$(id -u)" = 0 ] || die "run it as root (sudo deploy/box-install.sh ...)"
 command -v python3 >/dev/null || die "python3 is missing on this machine (Ubuntu 24.04 has it)"
+# a bare Ubuntu box gets Docker, the NVIDIA toolkit and the host's libraries from the media first (OPS-006, D-966)
+[ -n "${TB_BOX_PY:-}" ] || command -v docker >/dev/null \
+  || die "Docker is missing on this machine: prepare it from the media first (sudo <media>/linux/box-prepare.sh <media> --pub <the vendor key given to you>; RUNBOOK §16)"
 box_py() {  # tools.box with the image's libraries (the settings wizard needs them)
   if [ -n "${TB_BOX_PY:-}" ]; then
     # shellcheck disable=SC2086 # a command line on purpose (tests)
