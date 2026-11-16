@@ -1106,9 +1106,11 @@ class Compiler:
             try:
                 self.d.fhir.load(libs, valuesets.values())
             except (FhirEvalError, httpx.HTTPError) as exc:
-                log.warning("approve %s v%s: the FHIR server refused the load: %s", req.ruleset, req.version, exc)
+                # D-952 with D-959: what the server said, masked (never a patient's id); a transport error by its type
+                said = server_said(exc) if isinstance(exc, FhirEvalError) else type(exc).__name__
+                log.warning("approve %s v%s: the FHIR server refused the load: %s", req.ruleset, req.version, said)
                 raise CompileFailed(
-                    "approve", f"the FHIR server did not take the ruleset's libraries or value sets: {exc}"
+                    "approve", f"the FHIR server did not take the ruleset's libraries or value sets: {said}"
                 ) from exc
         self.d.repo.write_dir(
             branch, "main", f"{req.ruleset}/", files, f"approve {req.ruleset} v{req.version} by {req.by}", req.by
