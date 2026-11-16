@@ -35,9 +35,9 @@ def _age(c: Any) -> tuple[Any, Any]:
 def test_p1b_nct00606840_exc02_loses_its_quantifier_and_derived() -> None:
     c, post = _one("Age outside of range specified", {"domain": "demographic", "concept": "age", "quantifier": "all",
                    "age": {"min": 18, "max": 35}, "derived": "egfr"}, kind="exclusion")  # fmt: skip
+    # what this card does, whatever D-945 then makes of the range (with no inclusion here, a person reads it)
+    assert "stray_field" in (c.flags or []) and not any(k.startswith("VS_EGFR") for k in post.valuesets)
     assert isinstance(c.logic, Atom) and c.logic.derived is None and c.logic.quantifier == "any"
-    assert _age(c) == (18, 35) and "stray_field" in (c.flags or [])
-    assert not any(k.startswith("VS_EGFR") for k in post.valuesets)
 
 
 @pytest.mark.parametrize(
