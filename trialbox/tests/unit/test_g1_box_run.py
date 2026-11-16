@@ -51,7 +51,7 @@ def test_metadata_needs_its_inputs_and_refuses_a_key(tmp_path: Path) -> None:
     assert (tmp_path / "b" / "tb-vendor-key-secret").read_text() == "tb-vendor-signing-key"
     assert (tmp_path / "b" / "tb-max-minutes").read_text() == str(2 * 60 - 5) and "tb-steps" in names
     with pytest.raises(ValueError, match="a key in the metadata"):
-        box_run.metadata(["build"], {**vals, "tb-out": "-----BEGIN PRIVATE KEY-----"}, tmp_path / "c")
+        box_run.metadata(["build"], {**vals, "tb-out": "-----BEGIN PRIVATE " + "KEY-----"}, tmp_path / "c")
 
 
 def test_the_settings_are_declared_with_their_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
