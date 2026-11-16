@@ -68,11 +68,11 @@ def test_any_other_failure_fails_as_before(error: Exception) -> None:
 
 
 def test_a_part_is_sized_by_time_too(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("TB_EXTRACT_TOKENS_PER_S", raising=False)
+    monkeypatch.delenv("TB_EXTRACT_RATE_PER_S", raising=False)
     assert lines_per_part(8192, read_s=180) == int(180 * service.EXTRACT_TOKENS_PER_S * service.TIME_SHARE) // 400
     assert lines_per_part(8192, read_s=180) < 12  # the run's parts of 12-15 lines ran past 180 s
     assert lines_per_part(8192, read_s=10_000) == int(8192 * 0.75) // 400  # the answer cap, when time is no limit
-    monkeypatch.setenv("TB_EXTRACT_TOKENS_PER_S", "1")
+    monkeypatch.setenv("TB_EXTRACT_RATE_PER_S", "1")
     assert lines_per_part(8192, read_s=180) == 1
 
 

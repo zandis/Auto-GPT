@@ -591,7 +591,7 @@ DECLARED: dict[str, Declared] = {
     "TB_EXPORT_MAX_PER_HOUR_PER_SERVICE": Declared(
         "int", "60", "screening-log exports per calling service per hour, every name together (D-438)"
     ),
-    "TB_EXTRACT_TOKENS_PER_S": Declared(
+    "TB_EXTRACT_RATE_PER_S": Declared(
         "float", "40", "compiler: tokens a second the model writes, sizing an extraction part to the timeout (D-981)"
     ),
     "TB_EXTRA_CA_FILE": Declared("path", "", "extra CA bundle the services trust"),

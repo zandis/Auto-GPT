@@ -115,7 +115,7 @@ ANSWER_SHARE = 0.75  # of max_tokens: room for the JSON's own frame and a long l
 
 
 #: G4 of the P1b review: the answer tokens a model writes per second while it extracts, for sizing a part by time
-#: (``TB_EXTRACT_TOKENS_PER_S``); a guess until it is measured on the box's GPU, kept low on purpose
+#: (``TB_EXTRACT_RATE_PER_S``); a guess until it is measured on the box's GPU, kept low on purpose
 EXTRACT_TOKENS_PER_S = 40.0
 TIME_SHARE = 0.6  # of the gateway's read timeout: room for the prompt's own reading and a slow moment
 
@@ -129,7 +129,7 @@ def lines_per_part(max_tokens: int | None = None, read_s: float | None = None) -
     cap = max_tokens if max_tokens is not None else int(load_prompt("ir_extract").meta.max_tokens or 8192)
     by_tokens = int(cap * ANSWER_SHARE) // TOKENS_PER_CRITERION
     read = read_s if read_s is not None else float(os.environ.get("TB_GATEWAY_UPSTREAM_READ_S") or 180)
-    rate = float(os.environ.get("TB_EXTRACT_TOKENS_PER_S") or EXTRACT_TOKENS_PER_S)
+    rate = float(os.environ.get("TB_EXTRACT_RATE_PER_S") or EXTRACT_TOKENS_PER_S)
     by_time = int(read * rate * TIME_SHARE) // TOKENS_PER_CRITERION
     return max(1, min(by_tokens, by_time))
 

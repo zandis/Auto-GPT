@@ -131,7 +131,6 @@ SECRET_SETTINGS = (
 #: secret-LOOKING names whose value is not a secret, with why: their line is still redacted by the name rule, but
 #: their value is not replaced in every file (that wrecked JSON, memory limits and host names)
 NOT_SECRETS = {
-    "TB_EXTRACT_TOKENS_PER_S": "a rate, the model's tokens a second for sizing an extraction part (D-981)",
     "TB_GPU_KEY": "the name of a GPU profile (rtxpro6000, gb10, ...)",
     "TB_OIDC_CLIENT_SECRET": "the path of the client secret's file (its value is read from deploy/secrets/authelia)",
 }
