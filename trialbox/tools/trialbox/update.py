@@ -942,6 +942,9 @@ class Updater:
 # ------------------------------------------------------------------------------------------------ commands
 APPLY_FIXED_S = 3 * 3600  # the update's steps with fixed limits: the 3 h the whole update had before T-695
 UP_WAIT_BEFORE_S = 900  # the wait before T-695, kept only where the compose files cannot be read (no PyYAML)
+#: T-695 (D-921): the services whose stores are opened at start (each has ``<package>.migrate_stores``), in the
+#: order the stack starts them; the host reads no service code, so the list is kept equal by a test
+STORE_SERVICES = ("orchestrator", "mail-gateway", "gateway", "criteria-compiler", "console")
 Runner = Callable[..., str]  # (argv, stdin_file=None, stdout_file=None, env=None, timeout=None) -> stdout
 
 
@@ -1170,7 +1173,9 @@ class ComposeBox(_DockerImages):
         steps = [cfg.timeout(n) for n in [*sizes, sum(s or 0 for s in sizes) + vols]]
         if any(t is None for t in steps):
             return None
-        return int(APPLY_FIXED_S + 2 * sum(t or 0 for t in steps)) + 3 * self.up_wait()
+        # D-921: and each service's start-time migrations, a restore's limit of the trial database each
+        migrations = len(STORE_SERVICES) * (steps[0] or 0)
+        return int(APPLY_FIXED_S + 2 * sum(t or 0 for t in steps) + migrations) + 3 * self.up_wait()
 
     def up_wait(self) -> int:
         """T-695 (D-752, F-24): seconds to wait for the services healthy: ``TB_INSTALL_UP_TIMEOUT`` when set, else the
@@ -1456,6 +1461,34 @@ class ComposeBox(_DockerImages):
                          "python", "-m", "orchestrator.migrate"), env={"TB_DB_URL": url}, timeout=900)  # fmt: skip
         return True
 
+    def migrate_limit_s(self) -> int | None:
+        """T-695 (D-921): one service's start-time migrations may rewrite its stores once, so their limit is the one
+        a restore of the trial database has (``backup_schedule.step_timeout`` of its size, D-455); a size that cannot
+        be read: no limit (never a fixed guess)."""
+        from tools.trialbox import backup_schedule as bsch
+
+        t = bsch.config(self.deploy, self.env).timeout(self.db_bytes("trialbox_wf", "trialbox"))
+        return None if t is None else int(t)
+
+    def migrate_stores(self) -> list[str]:
+        """T-695 (D-921): each service's start-time migrations (``<package>.migrate_stores``) in a one-off
+        container of the service, as its own role, before the services start: a long migration is never under a
+        health wait. The services of :data:`STORE_SERVICES` this box runs (``compose config --services``); the
+        database is up. Returns the services migrated; none on a box that never ran install.sh's database step."""
+        if not self.env.get("TB_DB_URL", ""):
+            return []
+        limit = self.migrate_limit_s()
+        runs = set(self.run(self._c("config", "--services"), timeout=self.up_wait()).split())
+        done = []
+        for svc in STORE_SERVICES:
+            if svc not in runs:
+                continue
+            mod = f"{svc.replace('-', '_')}.migrate_stores"  # the service's own module: only its role's stores
+            self.run(self._c("run", "--rm", "--no-deps", "-T", svc, "python", "-m", mod),
+                     timeout=limit)  # fmt: skip
+            done.append(svc)
+        return done
+
     def pre_start(self) -> None:
         """The host-side steps before the stack starts, run by the release whose tree is now in force
         (``tools/trialbox/prestart.py``): this process is the installed, older release's, and a step the new release
@@ -1478,10 +1511,16 @@ class ComposeBox(_DockerImages):
         python = sys.executable or "python3"
         argv = ["sh", "-c", 'cd "$1" && shift && exec "$@"', f"tb-{cmd}", str(root),
                 python, "-m", "tools.trialbox", cmd, "--deploy", str(deploy)]  # fmt: skip
-        # never shorter than the steps' own limits (the database's wait, the role script, the migrate step)
+        # never shorter than the steps' own limits (the database's wait, the role script, the migrate step); db-up's
+        # service migrations (D-921) add theirs, one per service, and an unsized one leaves no limit (D-455)
         t = self.up_wait()
+        base = max(3600, 2 * t + 1200)
+        limit: int | None = base
+        if cmd == "db-up":
+            m = self.migrate_limit_s()
+            limit = None if m is None else base + len(STORE_SERVICES) * (m + 120) + t
         try:
-            out = self.run(argv, timeout=max(3600, 2 * t + 1200))
+            out = self.run(argv, timeout=limit)
         except UpdateFailed as exc:
             # the reason the step gave, not the command line around it
             said = [ln.strip() for ln in str(exc).splitlines() if ln.strip().startswith(cmd)]
@@ -1506,8 +1545,9 @@ class ComposeBox(_DockerImages):
         self._new_tree("db-up", root, deploy)
 
     def restart(self, plan: Plan) -> None:
-        # new images: the containers are recreated and every service runs its migrations at start (tb_common.db);
-        # the schemas with an owner role (D-486) first, as the admin, once the host-side steps are done (the db is up)
+        # new images: the containers are recreated; before they start, db-up makes the schemas with an owner role
+        # (D-486) as the admin and runs each service's start-time migrations in a one-off container (D-921), so the
+        # health wait finds them applied; a store a service opens later still migrates there (tb_common.db)
         self.pre_start()
         self.db_up()
         t = str(self.up_wait())
