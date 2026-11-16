@@ -3,7 +3,7 @@
 # rehearse.sh starts, one phase per call, and exits non-zero when the phase's assertion fails. Every TrialBox file it
 # uses comes from the offline media in $TB_RH_MEDIA (the release tree, the signed bundle, the vendor key).
 #
-#   box.sh wsl2|media-negative|install|doctor|served|offline|console|screen|after-restart|wrong-name|missing-key
+#   box.sh wsl2|media-negative|install|reinstall|doctor|served|offline|console|screen|after-restart|wrong-name|missing-key
 #
 # Environment (set by rehearse.sh): TB_RH_DIR (work dir, the same path on the Docker host), TB_RH_MEDIA (the media
 # folder), TB_RH_BUNDLE (the bundle file name), TB_RH_BOX (where the box is installed: the site's /opt/trialbox).
@@ -19,6 +19,27 @@ envget() { sed -n "s/^$1=//p" "$BOX/deploy/.env" | tail -1; }
 envset() { sed -i "/^$1=/d" "$BOX/deploy/.env"; [ -z "${2+x}" ] || printf '%s=%s\n' "$1" "$2" >> "$BOX/deploy/.env"; }
 IMAGE_PY="trialbox-py:1.0.0"
 
+# install_box: the real installer as a site runs it (--rehearsal). The rehearsal box is VALIDATION (D-887, the
+# integrator's (i)): D3 stays on the box, so SCREEN reaches the pinned builds; VALIDATION seals the site keys and
+# FAILs what only a site's host has, so every rehearsal runs as a validation run on a plain VM does: no TPM, the
+# passphrase KEK, TB_HOST_PROFILE=poc. The validation variant adds a root-owned deploy/site and the second install
+install_box() (
+  cd "$BOX" || exit 1
+  # the host's zone is the site's, as a site's IT sets it (doctor's site_tz, D-315); this host has no timedatectl
+  tz="$(sed -n "s/^tz: *['\"]\{0,1\}\([A-Za-z0-9_+\/-]*\).*/\1/p" tools/rehearse_box/site_answers.yaml | head -1)"
+  [ -n "$tz" ] && printf '%s\n' "$tz" > /etc/timezone
+  if [ "${TB_RH_VARIANT:-test}" = validation ]; then
+    # a site's IT makes deploy/site as root; the pin step's container must still write there (I-4, D-835)
+    install -d -m 0755 deploy/site && chown -R root:root deploy/site
+  fi
+  # no TPM on this host: the passphrase back end, a throwaway synthetic passphrase (never printed, kept 0600)
+  [ -s "$W/vendor/kek-pass" ] || (umask 077 && head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$W/vendor/kek-pass")
+  TB_KEK_PASSPHRASE="$(cat "$W/vendor/kek-pass")"
+  export TB_HOST_PROFILE=poc TB_KEK_BACKEND=passphrase TB_KEK_PASSPHRASE
+  TB_TLS_CHECK_ADDR="${TB_RH_TLS_ADDR:-127.0.0.1}" TB_COMPOSE_OVERRIDE="$BOX/tools/rehearse_box/standins.yml" TB_INSTALL_UP_TIMEOUT=900 \
+    deploy/install.sh "$BUNDLE" --tier large --answers "$BOX/tools/rehearse_box/site_answers.yaml" --ctgov offline --rehearsal --yes
+)
+
 unpack_release() {  # the release tree from the media into a fresh folder: what the site copies to /opt/trialbox
   local to="$1"
   rm -rf "$to" && mkdir -p "$to" && tar -xf "$MEDIA/trialbox-release.tar" -C "$to" || fail "cannot unpack the release"
@@ -27,9 +48,23 @@ unpack_release() {  # the release tree from the media into a fresh folder: what 
 
 # doctor <args...>: trialbox doctor where the gateway's model network is (as install.sh runs it), with the box's env
 doctor() {  # the model key as the gateway reads it: the key file only (D-437, D-450), not deploy/.env's copy
+  # D-887: what the host check hands the doctor too: the release tree the deploy/ links point into (D-570), the site
+  # keys where the services read them, and the KEK when the box has one
+  local more=() sec
+  [ -L "$BOX/current" ] && more+=(-v "$(readlink -f "$BOX/current"):/app/current:ro")
+  sec="$(docker volume inspect -f '{{.Mountpoint}}' trialbox_tb-secrets 2>/dev/null)"
+  [ -n "$sec" ] && [ -d "$sec" ] && more+=(-v "$sec:/run/secrets/trialbox:ro")
+  [ -d /run/trialbox ] && more+=(-v /run/trialbox:/run/trialbox:ro)
+  # ...and every compose file of COMPOSE_FILE outside deploy/ (the stand-ins) at its own path, as the host check does
+  local cf; local IFS=:
+  for cf in $(sed -n 's/^COMPOSE_FILE=//p' "$BOX/deploy/.env" | tail -1); do
+    case "$cf" in "$BOX/deploy/"*) ;; /*) [ -f "$cf" ] && more+=(-v "$cf:$cf:ro") ;; esac
+  done
+  unset IFS
   docker run --rm --network trialbox-model-net --env-file "$BOX/deploy/.env" -v "$BOX/deploy:/app/deploy:ro" \
-    -e TB_LLM_API_KEY= -e TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key \
-    --user 0:0 "$IMAGE_PY" python -m tools.trialbox doctor --settings /app/deploy/settings.yaml "$@"
+    ${more[@]+"${more[@]}"} -e TB_LLM_API_KEY= -e TB_LLM_API_KEY_FILE=/app/deploy/secrets/model/llm.key \
+    --user 0:0 "$IMAGE_PY" python -m tools.trialbox doctor --settings /app/deploy/settings.yaml \
+    --env-file /app/deploy/.env "$@"   # D-887: as the host check gives it (db_passwords, chartno_rule read the box)
 }
 
 # in_svc <service> <python source on stdin>: run Python inside a box service as that service (its token, its networks)
@@ -76,7 +111,9 @@ body_vars = {"criterion_text": "Age >= 18 years", "note_question": "Is the patie
 bad = 0
 for alias in ("j-workhorse", "v-verifier"):
     # D3 as a SCREEN's note question: on topology A in PRODUCTION the orchestrator may send it without a study step
-    labels = CallLabels("D3", "screening", "REHEARSAL", "s3_note_judgement", "judge", f"judge@{p.meta.version}")
+    # outside DEV and TEST the gateway needs the registered prompt's sha256 (D-300), as the orchestrator sends it
+    labels = CallLabels("D3", "screening", "REHEARSAL", "s3_note_judgement", "judge", f"judge@{p.meta.version}",
+                        prompt_sha=p.sha256)
     try:
         res = GatewayClient("http://gateway:8020/v1", "orchestrator", model=alias).chat(
             render(p, body_vars), labels,
@@ -151,9 +188,7 @@ install)
   # T-632: the site's feed folder on the host (a copy of the synthetic export), never the fixture in the release
   install -d deploy/site && rm -rf deploy/site/feed-a && cp -r tests/fixtures/synthetic_patients/site-a deploy/site/feed-a \
     || fail "cannot stage the feed folder"
-  TB_TLS_CHECK_ADDR="${TB_RH_TLS_ADDR:-127.0.0.1}" TB_COMPOSE_OVERRIDE="$BOX/tools/rehearse_box/standins.yml" TB_INSTALL_UP_TIMEOUT=900 \
-    deploy/install.sh "$BUNDLE" --tier large --answers "$BOX/tools/rehearse_box/site_answers.yaml" --ctgov offline --rehearsal --yes \
-    || fail "deploy/install.sh failed"
+  install_box || fail "deploy/install.sh failed"
   grep -q '^TB_LLM_API_KEY=.\{32,\}' deploy/.env || fail "install.sh made no model-server key"
   grep -q '^VLLM_API_KEY=.\{32,\}' deploy/secrets/model/vllm.env || fail "no key in the vLLM servers' env file (D-450)"
   [ -f deploy/site/mapping/tw_core/rehearsal_a.yaml ] || fail "the site mapping is not in deploy/site/mapping"
@@ -163,6 +198,29 @@ install)
   wait_healthy 300
   ;;
 
+# ------------------------------------------------------------------------------------------------ reinstall
+reinstall)
+  # D-887 (I-2, D-833): the same bundle installed again on the box it made: the installer continues, the keys stay
+  sec="$(docker volume inspect -f '{{.Mountpoint}}' trialbox_tb-secrets)" || fail "no secrets volume"
+  [ -f "$sec/kek.json" ] || fail "the first install sealed no keys (no kek.json in $sec)"
+  before="$(sha256sum "$sec/kek.json" | cut -d' ' -f1)"
+  ok "first install: keys sealed under the passphrase KEK (kek.json)"
+  install_box || fail "the second install of the same bundle failed"
+  [ "$(sha256sum "$sec/kek.json" | cut -d' ' -f1)" = "$before" ] || fail "the second install replaced the KEK"
+  [ "$(stat -c %u "$BOX/deploy/site")" = 0 ] || fail "deploy/site is no longer root's"
+  grep -q '^TB_HOST_PROFILE=poc' "$BOX/deploy/.env" || fail "the poc host profile was not kept"
+  ok "second install of the same bundle: continued, the KEK kept, deploy/site root's, host profile poc"
+  wait_healthy 600
+  # D-888 (lane G's box): a start without install.sh (the systemd unit, an update) mounts the site's settings too
+  sh "$BOX/deploy/settings_guard.sh" "$BOX/deploy" || fail "the settings guard refused the installed box"
+  dc up -d --force-recreate --no-deps adapter >/dev/null || fail "the adapter did not start without the installer"
+  src="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/etc/trialbox/settings.yaml"}}{{.Source}}{{end}}{{end}}' \
+    "$(dc ps -q adapter)")"
+  case "$src" in */deploy/settings.yaml) ok "restarted without the installer: the adapter mounts $src" ;;
+    *) fail "restarted without the installer, the adapter mounts ${src:-nothing} at /etc/trialbox/settings.yaml, not deploy/settings.yaml" ;; esac
+  wait_healthy 600
+  ;;
+
 # ------------------------------------------------------------------------------------------------ doctor
 doctor)
   # the site's TLS proxy in front of the console (RUNBOOK §9) is not part of the rehearsal; the doctor's secure-cookie
@@ -170,9 +228,20 @@ doctor)
   grep -q '^TB_CONSOLE_SECURE_COOKIE=1' "$BOX/deploy/.env" || { envset TB_CONSOLE_SECURE_COOKIE 1; dc up -d --wait console; }
   out="$(doctor --live 2>&1)"; rc=$?
   echo "$out"
-  [ "$rc" = 0 ] && echo "$out" | grep -q "^doctor passed" || fail "trialbox doctor --live did not pass"
+  # D-887: the rehearsal box is VALIDATION, which FAILs what only a site's host has; these, and nothing else, are
+  # said as not reached by a rehearsal (no NTP in a container, no systemd timer, no hospital share for the anchor)
+  host_only='^FAIL  (clock|ops_runner|audit_heads) '
+  echo "$out" | grep -E "$host_only" | sed 's/^FAIL /not reached by a rehearsal (a site host has it): /'
+  other="$(echo "$out" | grep -E '^FAIL ' | grep -Ev "$host_only")"
+  [ -z "$other" ] || fail "trialbox doctor --live failed: $other"
+  { [ "$rc" = 0 ] && echo "$out" | grep -q "^doctor passed"; } || echo "$out" | grep -qE "$host_only" \
+    || fail "trialbox doctor --live did not pass"
+  echo "$out" | grep -q "^WARN  rehearsal .*REHEARSAL BOX: placeholder models, synthetic data only" \
+    || fail "the doctor does not carry the standing REHEARSAL BOX line"
   echo "$out" | grep -q "^PASS  serving" || fail "the live serving check did not PASS"
   echo "$out" | grep -q "^PASS  registry_pins" || fail "registry_pins did not PASS"
+  # D-887: the pins are the media's placeholders, and the doctor says so where it shows them
+  echo "$out" | grep -q "^PASS  serving.*rehearsal placeholder" || fail "the serving line does not name the rehearsal placeholder"
   ok "trialbox doctor --live: passed"
   ;;
 
@@ -181,17 +250,27 @@ served)
   stats="$(standin_stats)" || fail "cannot ask the stand-ins"
   echo "stand-ins: $stats"
   python3 - "$BOX/deploy/site/registry.site.yaml" "$stats" "$(envget JUDGE_MODEL)" "$(envget VERIFIER_MODEL)" <<'EOF' || fail "pins and served names differ"
-import json, sys, yaml
-pins = yaml.safe_load(open(sys.argv[1]))["builds"]
+import json, os, sys, yaml
 stats = json.loads(sys.argv[2])
+if not os.path.exists(sys.argv[1]):
+    # D-887: the media's placeholder weights are never the release's, so a rehearsal box pins nothing (install.sh
+    # says so); the stand-ins must serve exactly the names the gateway calls (JUDGE_MODEL, VERIFIER_MODEL)
+    for host, name in (("llm-service", sys.argv[3]), ("llm-verifier", sys.argv[4])):
+        assert name and stats[host]["served"] == [name], f"{host} serves {stats[host]['served']}, the gateway calls {name!r}"
+        print(f"ok: {host} serves exactly {name!r}, the name the gateway calls (no pin on a rehearsal box)")
+    sys.exit(0)
+pins = yaml.safe_load(open(sys.argv[1]))["builds"]
 want = {"serving": ("llm-service", "gemma-4-26b-a4b-it"), "verifier": ("llm-verifier", "qwen3.5-9b")}
 for build, b in sorted(pins.items()):
     for ep, name in (b.get("served") or {}).items():
         host, default = want[ep]
         served = stats[host]["served"]
         assert served == [name], f"{build}: pinned {name!r} on {ep}, {host} serves {served}"
-        assert b.get("status") == "champion" and b.get("sha256"), f"{build}: not a pinned champion"
-        print(f"ok: {build} pinned {name!r} ({b['sha256'][:12]}) = what {host} serves")
+        # D-887: the media's placeholder weights, pinned as candidate on a rehearsal box only: not a model
+        trust = (b.get("weights") or {}).get("trust")
+        assert trust == "rehearsal_placeholder" and b.get("status") == "candidate" and b.get("sha256"), \
+            f"{build}: not a rehearsal placeholder candidate pin (trust {trust!r}, status {b.get('status')!r})"
+        print(f"ok: {build} pinned {name!r} ({b['sha256'][:12]}, rehearsal placeholder, candidate) = what {host} serves")
 assert {ep for b in pins.values() for ep in (b.get("served") or {})} == {"serving", "verifier"}, "a pair member is missing"
 EOF
   ;;
@@ -350,10 +429,16 @@ EOF
 screen)
   tag="${2:-first}"
   if [ ! -f "$W/ingested" ]; then
-    dc exec -T adapter python -m adapter.cli run --source csv --path /data/source/site-a --snapshot 2026-10-04 \
+    # D-887: today's snapshot, as the nightly ingest makes it (a fixed date grew older than the box accepts, D-383)
+    dc exec -T adapter python -m adapter.cli run --source csv --path /data/source/site-a --snapshot "$(date -u +%F)" \
       | tail -5 || fail "ingest of synthetic hospital A failed"
     touch "$W/ingested"
   fi
+  # D-887: a VALIDATION box seeds no example study (D-640); the operator's synthetic-run install of the example, as
+  # RUNBOOK §1 step 2 gives it (idempotent: the same approved content again is the same tag)
+  dc exec -T criteria-compiler sh -c 'cd /app/rulesets && python -m zipfile -c /tmp/GZQO.zip GZQO &&
+    python -m criteria_compiler.import_ruleset /tmp/GZQO.zip --by "synthetic-run:box-rehearsal"' \
+    || fail "the example study GZQO could not be installed (criteria_compiler.import_ruleset)"
   before="$(standin_stats)" || fail "cannot ask the stand-ins"
   mails_before="$(dc logs --no-log-prefix mail-sink 2>/dev/null | grep -c '"smtp_sink"' || true)"
   in_svc mail-gateway <<EOF || fail "SCREEN did not finish"

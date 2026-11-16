@@ -48,6 +48,7 @@
   </div>
 </header>
 <main id="main">
+{% if 'REHEARSAL' in settings.environment_label %}<div class="banner" role="note" data-testid="rehearsal-banner">{{ settings.environment_label }}</div>{% endif %}
 {% if account_notices %}<section class="card attention" role="alert" data-testid="account-notice">{% for line in account_notices %}<p>{{ line }}</p>{% endfor %}</section>{% endif %}
 {% if pi_tasks %}<section class="card attention" data-testid="task-name-pi">
 <p>{{ t('pi.task.lead') }}</p>
@@ -55,7 +56,7 @@
 </section>{% endif %}
 {% block content %}{% endblock %}
 </main>
-<footer>{{ t('footer', env=('DEMO' if request is defined and request.state.demo_on else settings.environment), dc=settings.data_class) }}
+<footer>{{ t('footer', env=('DEMO' if request is defined and request.state.demo_on else (settings.environment_label or settings.environment)), dc=settings.data_class) }}
 <p class="hint" data-testid="intended-use">{{ t('footer.statement') }}</p>
 {% with demo_at = 'foot' %}{% include "_demo_banner.html" %}{% endwith %}
 {% include "_feedback.html" %}</footer>

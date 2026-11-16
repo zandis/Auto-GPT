@@ -1,7 +1,8 @@
 """REHEARSAL (D-726): a rehearsal box says so. The owner's five conditions (2026-11-13): one explicit installer
 argument; the box is TEST before anything loads, refused on a PRODUCTION or VALIDATION box or a box with site data;
 the model stand-ins and an unmeasured card honoured only on TEST; doctor says "rehearsal box"; a rehearsal bundle is
-marked and a PRODUCTION box refuses it."""
+marked and a PRODUCTION box refuses it. D-887 (the integrator's (i), 2026-11-15): after the settings the rehearsal
+box says VALIDATION, with its mark (tests/unit/test_rehearsal_validation_box.py); every refusal here stands."""
 
 from __future__ import annotations
 
@@ -136,11 +137,13 @@ def test_answers_that_make_a_site_box_are_refused_after_the_settings(tmp_path: P
     assert r.returncode == 1 and env in r.stderr
 
 
-def test_after_the_settings_the_box_says_test_and_rehearsal(tmp_path: Path) -> None:
+def test_after_the_settings_the_box_says_validation_and_rehearsal(tmp_path: Path) -> None:
+    """D-887 (the integrator's (i), 2026-11-15): VALIDATION, where D3 stays on the box (D-823), not TEST (ceiling D0,
+    so SCREEN could not reach the pinned builds); the refusals above for a site box are unchanged."""
     r = _sh(tmp_path, _block(SETTINGS), env_lines="TB_TZ=Asia/Taipei\n")
     assert r.returncode == 0, r.stderr
     lines = (tmp_path / "deploy" / ".env").read_text(encoding="utf-8").splitlines()
-    assert "TB_ENV=TEST" in lines and "TB_REHEARSAL=1" in lines
+    assert "TB_ENV=VALIDATION" in lines and "TB_REHEARSAL=1" in lines and "TB_ENV=TEST" not in lines
     assert INSTALL.index(SETTINGS) < INSTALL.index("TB_ENV_SITE=\"$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1)\"")
 
 

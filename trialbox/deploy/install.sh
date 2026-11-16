@@ -50,10 +50,11 @@
 # TPM) leaves the site keys to the box's apply step, which seals them under the passphrase the owner set.
 # TB_COMPOSE_OVERRIDE=<file> adds one compose file after the others (the box rehearsal's model stand-ins, D-176); it is
 # printed and kept in deploy/.env COMPOSE_FILE so every later compose command uses it too.
-# --rehearsal (D-726): a rehearsal box, which says so. It is TEST from before the bundle loads (deploy/site/
+# --rehearsal (D-726, D-887): a rehearsal box, which says so. It is TEST from before the bundle loads (deploy/site/
 # rehearsal.json), refused on a PRODUCTION or VALIDATION box and on a box whose volumes hold data from no rehearsal;
-# deploy/.env gets TB_ENV=TEST and TB_REHEARSAL=1, doctor says "rehearsal box", and a site box refuses a bundle
-# built with make_bundle.sh --rehearsal. The model stand-ins and TB_ACCEPT_UNMEASURED_GPU=1 work on a TEST box only.
+# deploy/.env gets TB_ENV=VALIDATION (the integrator's (i): D3 stays on the box, so SCREEN reaches the pinned builds)
+# and TB_REHEARSAL=1, doctor says "REHEARSAL BOX", and a site box refuses a bundle built with make_bundle.sh
+# --rehearsal. The model stand-ins and TB_ACCEPT_UNMEASURED_GPU=1 work on a rehearsal box only.
 # Re-running is safe: every step is idempotent. Nothing leaves the host: no registry, no download, no telemetry.
 # The one exception: when live ClinicalTrials.gov is chosen, one HTTPS request to clinicaltrials.gov (no data sent)
 # checks that this host can reach it (D-140).
@@ -232,11 +233,12 @@ echo "    docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), m
 # REHEARSAL (D-726): before anything loads
 # the bundle's release record is judged against the box's environment while it loads (D-127): a rehearsal is TEST
 # from here on, read from the mark until deploy/.env says so. TB_ENV is read as Python reads it (no quotes, no spaces,
-# upper case); only DEV, TEST or nothing may become a rehearsal box
+# upper case); only DEV, TEST or nothing may become a rehearsal box, and a VALIDATION box that already is one (D-887)
 RH_ENV=""; [ -f deploy/.env ] && RH_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
 if [ "$REHEARSAL" = 1 ]; then
   case "$RH_ENV" in
     ""|DEV|TEST) ;;
+    VALIDATION) [ -f deploy/site/rehearsal.json ] || die "--rehearsal: this box is VALIDATION (deploy/.env TB_ENV) with no rehearsal mark: a site box is never made a rehearsal box" ;;
     *) die "--rehearsal: this box is $RH_ENV (deploy/.env TB_ENV): a site box is never made a rehearsal box" ;;
   esac
   if [ ! -f deploy/site/rehearsal.json ]; then
@@ -253,7 +255,7 @@ if [ "$REHEARSAL" = 1 ]; then
   # the stand-ins unless TB_COMPOSE_OVERRIDE is set: set empty, the real model servers (an unmeasured card's trial boot)
   export TB_COMPOSE_OVERRIDE="${TB_COMPOSE_OVERRIDE-$ROOT/tools/rehearse_box/standins.yml}"
   export TB_ACCEPT_UNMEASURED_GPU=1
-  echo "install: note: a rehearsal box (TB_ENV TEST, ${TB_COMPOSE_OVERRIDE:-the real model servers}, an unmeasured card accepted)" >&2
+  echo "install: note: a rehearsal box (TB_ENV VALIDATION, ${TB_COMPOSE_OVERRIDE:-the real model servers}, an unmeasured card accepted)" >&2
 elif [ -f deploy/site/rehearsal.json ] || { [ -f deploy/.env ] && grep -q '^TB_REHEARSAL=1' deploy/.env; }; then
   # a rehearsal box (or one left half emptied) never becomes a site box by an install without the argument
   die "this box was a rehearsal box (deploy/site/rehearsal.json or TB_REHEARSAL=1): run with --rehearsal, or empty it first (RUNBOOK §16, \"A rehearsal box\")"
@@ -261,6 +263,8 @@ fi
 # ---- end of REHEARSAL (D-726): before anything loads
 
 # ------------------------------------------------------------------------------------------------ 2. bundle
+# D-888: a re-run on a box installed before deploy/.env named its settings: the update's guard (and compose) see them
+[ -f deploy/settings.yaml ] && export TB_SETTINGS_FILE="./settings.yaml"
 say "bundle: verify and load (host tree, images, models, rulesets)"
 # D-367: the second run, from the signed tree this run's load switched `current` to, does not load again
 if [ -z "${TB_INSTALL_SIGNED:-}" ] || [ "$TB_INSTALL_SIGNED" != "$(readlink "$ROOT/current" 2>/dev/null)" ]; then
@@ -359,13 +363,15 @@ fi
 WF_PW="$(sed -n 's/^POSTGRES_WF_PASSWORD=//p' deploy/.env | tail -1)"
 sed -i "/^TB_DB_URL=/d" deploy/.env && echo "TB_DB_URL=postgresql://trialbox:${WF_PW}@db:5432/trialbox_wf" >> deploy/.env
 # REHEARSAL (D-726): the box says TEST
+# D-887 (the integrator's (i)): it says VALIDATION, where D3 stays on the box (D-823), with the mark and TB_REHEARSAL=1
 if [ "$REHEARSAL" = 1 ]; then
   RH_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
   case "$RH_ENV" in
     ""|DEV|TEST) ;;
-    *) die "--rehearsal: the answers make this box $RH_ENV: a rehearsal box is TEST" ;;
+    VALIDATION) [ -f deploy/site/rehearsal.json ] || die "--rehearsal: the answers make this box VALIDATION with no rehearsal mark: a rehearsal box is made by --rehearsal" ;;
+    *) die "--rehearsal: the answers make this box $RH_ENV: a rehearsal box is VALIDATION" ;;
   esac
-  sed -i '/^TB_ENV=/d; /^TB_REHEARSAL=/d' deploy/.env && printf 'TB_ENV=TEST\nTB_REHEARSAL=1\n' >> deploy/.env
+  sed -i '/^TB_ENV=/d; /^TB_REHEARSAL=/d' deploy/.env && printf 'TB_ENV=VALIDATION\nTB_REHEARSAL=1\n' >> deploy/.env
 fi
 # ---- end of REHEARSAL (D-726): the box says TEST
 # ENVIRONMENT (D-837): --environment, or a TB_ENV written before the wizard rewrote deploy/.env; never changed
@@ -374,7 +380,7 @@ NOW_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr 
 if [ -n "$ENVIRONMENT" ]; then
   ENVIRONMENT="$(printf '%s' "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')"
   case "$ENVIRONMENT" in DEV|TEST|VALIDATION|PRODUCTION) ;; *) die "--environment must be DEV, TEST, VALIDATION or PRODUCTION, not $ENVIRONMENT" ;; esac
-  [ "$REHEARSAL" != 1 ] || [ "$ENVIRONMENT" = TEST ] || die "--rehearsal makes a TEST box, not $ENVIRONMENT"
+  [ "$REHEARSAL" != 1 ] || [ "$ENVIRONMENT" = VALIDATION ] || die "--rehearsal makes a VALIDATION box, not $ENVIRONMENT"
   [ -z "$NOW_ENV" ] || [ "$NOW_ENV" = "$ENVIRONMENT" ] \
     || die "deploy/.env says TB_ENV=$NOW_ENV and --environment says $ENVIRONMENT: a box's environment is not changed by an install"
   sed -i '/^TB_ENV=/d' deploy/.env && echo "TB_ENV=$ENVIRONMENT" >> deploy/.env
@@ -405,9 +411,9 @@ case "$HOST_PROFILE" in
 esac
 # ---- end of HOST PROFILE
 # D-726: what only a rehearsal box may use (the model stand-ins, an unmeasured card's trial boot)
-rehearsal_only() {
-  [ "$TB_ENV_SITE" = TEST ] && [ "$(envget TB_REHEARSAL)" = 1 ] \
-    || die "$1: only on a rehearsal box (TB_ENV TEST and TB_REHEARSAL=1, deploy/install.sh --rehearsal); this box is $TB_ENV_SITE"
+rehearsal_only() {  # D-887: TEST with TB_REHEARSAL=1, or VALIDATION with TB_REHEARSAL=1 and the mark file
+  [ "$(envget TB_REHEARSAL)" = 1 ] && { [ "$TB_ENV_SITE" = TEST ] || { [ "$TB_ENV_SITE" = VALIDATION ] && [ -f deploy/site/rehearsal.json ]; }; } \
+    || die "$1: only on a rehearsal box (TB_REHEARSAL=1 on TEST, or on VALIDATION with deploy/site/rehearsal.json: deploy/install.sh --rehearsal); this box is $TB_ENV_SITE"
 }
 # D-726 (review F1): the stand-ins are known by what the file says, wherever it lies (a copy, the release tree's own)
 is_standins() {
@@ -436,6 +442,9 @@ if [ -z "$TLS_HOST" ]; then
   echo "    TLS: off ($TB_ENV_SITE, no TB_TLS_HOSTNAME): the console stays on 127.0.0.1"
 else
   grep -q '^TB_TLS_MODE=.' deploy/.env || envset TB_TLS_MODE internal
+  # D-887: reached at https only, so the session cookie is Secure in every environment (doctor secure_cookie FAILs it
+  # off on VALIDATION); a value the site wrote is kept
+  grep -q '^TB_CONSOLE_SECURE_COOKIE=' deploy/.env || envset TB_CONSOLE_SECURE_COOKIE 1
 fi
 # SAE-MAILBOX (D-736): the trial office is told at once when a serious adverse event is entered (LIFE-007)
 SAE_TO="$(envget TB_SAE_OFFICE_MAILBOX)"
@@ -492,6 +501,8 @@ chmod 600 deploy/.env
 # 0600 file stopped every service at start (found by the box rehearsal, D-176). Group tb reads it, nobody else.
 chown "$(id -u):10001" deploy/settings.yaml && chmod 640 deploy/settings.yaml
 export TB_SETTINGS_FILE="./settings.yaml"
+# D-888: in deploy/.env too, so every start mounts it (the systemd unit, an update, an operator's docker compose up)
+envset TB_SETTINGS_FILE "./settings.yaml"
 if [ "$MODE" = gpu ]; then
   # D-142 (review R-01): pin the profile's deployed pair from the site's own weights, which must be the release
   # models/registry.yaml expects (D-358), as candidate; PRODUCTION routes it once `trialbox eval qualify` passes and
@@ -504,8 +515,11 @@ if [ "$MODE" = gpu ]; then
   # D-835: as the installer's own user (the image user 10001 cannot write a root-owned deploy/site, and a failed pin
   # was only a warning: lane G's box went on with no model pinned); a pin that fails stops the install
   alive_start "hashing the model weights"
+  # D-887: the box (TB_ENV, TB_REHEARSAL) goes to the pin, which pins the rehearsal media's placeholders on a
+  # rehearsal box only, from a rehearsal bundle (deploy/updates/installed.json), every folder a placeholder
   tree_args
-  docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e JUDGE_CHAT_TEMPLATE -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL "$IMAGE_PY" \
+  docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e JUDGE_CHAT_TEMPLATE -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL \
+    -e TB_ENV="$TB_ENV_SITE" -e TB_REHEARSAL="$(envget TB_REHEARSAL)" "$IMAGE_PY" \
     python -m tools.pin_model --install "$GPU" --models-root /d/models --out /d/site/registry.site.yaml \
     || die "a model of the $GPU pair is not pinned (see above): put its weights in deploy/models (RUNBOOK §8), then run install again"
   alive_stop
@@ -660,7 +674,7 @@ say "site keys (made once, never replaced)"
 "${COMPOSE[@]}" run --rm --no-deps -T adapter python -m adapter.cli keys-init | sed 's/^/    /' \
   || die "the site keys could not be made or read (above): put the site's keys back from the backup (RUNBOOK §5)"
 # T-634 (D-408; OPS-043): sealed at once, before any service opens them. VALIDATION and PRODUCTION always; a DEV or TEST
-# box only when it has deploy/site/hardening.conf. The KEK's back end is the site's (TB_KEK_BACKEND in the installer's
+# box only when it has deploy/site/hardening.conf or TB_KEK_BACKEND asks for it (D-887). The KEK's back end is the site's (TB_KEK_BACKEND in the installer's
 # environment, else hardening.conf's KEK_BACKEND, default tpm; D-836); the
 # host check FAILs a plain site key in VALIDATION and PRODUCTION
 HB_CONF="$ROOT/deploy/site/hardening.conf"
@@ -670,7 +684,7 @@ elif [ "$HOST_PROFILE" = poc ] && [ -z "${TB_KEK_BACKEND:-}" ] \
     && ! { command -v systemd-creds >/dev/null 2>&1 && systemd-creds has-tpm2 >/dev/null 2>&1; }; then
   # D-837: a plain VM has no usable TPM; the passphrase back end seals the keys when it is asked for
   echo "    site keys: not sealed (host profile poc, no usable TPM; TB_KEK_BACKEND=passphrase with TB_KEK_PASSPHRASE seals them); the host check lists it"
-elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f "$HB_CONF" ]; then
+elif [ "$TB_ENV_SITE" = PRODUCTION ] || [ "$TB_ENV_SITE" = VALIDATION ] || [ -f "$HB_CONF" ] || [ -n "${TB_KEK_BACKEND:-}" ]; then
   say "site keys sealed under the KEK (deploy/hardening/seal_keys.sh)"
   [ "$(id -u)" = 0 ] || die "sealing the site keys needs root (the secrets volume, the TPM): run the installer as root"
   SEC_DIR="${TB_SECRETS_HOST_DIR:-$(docker volume inspect -f '{{.Mountpoint}}' "${COMPOSE_PROJECT_NAME:-trialbox}_tb-secrets" 2>/dev/null)}"
@@ -818,6 +832,8 @@ if [ "$MODE" = gpu ] && [ -f deploy/site/registry.site.yaml ]; then
     else
       FAILS+=("the model pair was promoted on its shipped record, the canary on this box did not pass (above), and the pair could NOT be put back: run python3 -m tools.pin_model --demote-pair $GPU, then restart the gateway, before anything is screened (RUNBOOK §11)")
     fi
+  elif [ "$rc" = 5 ]; then  # D-887: the rehearsal media's placeholders, never promoted (said above)
+    echo "    rehearsal box: the pair is the media's placeholder pins (candidate, never promoted); nothing to qualify"
   elif [ "$rc" != 4 ]; then  # 4: champion before this install and nothing waits for a canary; left as it is
     FAILS+=("the model pair is not qualified on this box (above): no record in deploy/qualification/$GPU matches its weights, model server image and chat template; it routes nothing in PRODUCTION until the release ships one or the pair is qualified here (RUNBOOK §11)")
   fi
