@@ -13,10 +13,10 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from lake.client import LakeHttp
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from tb_common.actor_v3 import Claim
@@ -387,12 +387,12 @@ def waiting_studies() -> list[str]:
 
 
 @app.get("/jobs/{job_id}/outputs-current")
-def job_outputs_current(job_id: str) -> dict[str, bool]:
-    """NEW-MAIL-1 (D-863, the integrator's ruling): whether a job's outputs are still current against the opt-out
-    register, asked by the mail gateway just before it sends them (at publish, a queued try, a person's resend).
-    ``current`` false: an output names a patient opted out since it was made, and the mail is held, never sent. The
-    answer is one yes or no, never a patient or a count. A register that does not answer is a 503: the gateway
-    holds the mail."""
+def job_outputs_current(job_id: str, file: Annotated[list[str] | None, Query()] = None) -> dict[str, bool]:
+    """NEW-MAIL-1 (D-863, the integrator's ruling): whether the files of a job a mail carries (``file``, by name;
+    every output when none is named) are still current against the opt-out register, asked by the mail gateway just
+    before it sends them (at publish, a queued try, a person's resend). ``current`` false: one names a patient opted
+    out since it was made, and the mail is held, never sent. The answer is one yes or no, never a patient or a
+    count. A register that does not answer is a 503: the gateway holds the mail."""
     from orchestrator.decision_context import register_now
 
     o = orch()
@@ -403,7 +403,7 @@ def job_outputs_current(job_id: str) -> dict[str, bool]:
         gone = frozenset(register_now())
     except Exception as exc:
         raise HTTPException(status_code=503, detail="the opt-out register did not answer") from exc
-    return {"current": not outputs_name_opted_out(o, job, gone)}
+    return {"current": not outputs_name_opted_out(o, job, gone, list(file or []) or None)}
 
 
 @app.get("/jobs/{job_id}")
@@ -457,14 +457,18 @@ REVEALS_SERVICE = RevealLimit("TB_REVEAL_MAX_PER_HOUR_PER_SERVICE", 600, "reveal
 EXPORTS_SERVICE = RevealLimit("TB_EXPORT_MAX_PER_HOUR_PER_SERVICE", 60, "export_service")
 
 
-def outputs_name_opted_out(o: Any, job: Any, gone: frozenset[str]) -> bool:
-    """NEW-MAIL-1 (D-863): whether a job's patient-level outputs name a patient on the opt-out register now
-    (:func:`tb_common.patient_files.naming`). An output that cannot be read counts as naming one (fail closed)."""
+def outputs_name_opted_out(o: Any, job: Any, gone: frozenset[str], files: list[str] | None = None) -> bool:
+    """NEW-MAIL-1 (D-863): whether the job's patient-level outputs named in ``files`` (all of them when None) name a
+    patient on the opt-out register now (:func:`tb_common.patient_files.naming`). A file named that is not one of
+    the job's outputs, or an output that cannot be read, counts as naming one (fail closed)."""
     from tb_common import patient_files
 
     outs = list(job.outputs or [])
+    mine = outs if files is None else [f for f in outs if f.filename in set(files)]
+    if files is not None and len({f.filename for f in mine}) < len(set(files)):
+        return True
     try:
-        return bool(patient_files.naming(o.store.get, outs, outs, gone))
+        return bool(patient_files.naming(o.store.get, mine, outs, gone))
     except Exception:
         return True
 

@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-228 entries: 86 erase, 27 keep, 115 no patient data. 48 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+228 entries: 86 erase, 27 keep, 115 no patient data. 49 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -12,7 +12,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | --- | --- | --- |
 | `candidate_pool` | MICROBATCH's pool rows go (D-441) | `orch.pool` |
 | `candidate_registry` | open candidates become withdrawn; consented and enrolled are kept (OD-8, D-441) | `orch.candidates` |
-| `held_mail` | a mail held because its job's outputs name an opted-out patient: those files go (D-863) | `objects:outputs` |
+| `held_mail` | a mail held because its files name an opted-out patient is dropped: its request and recipients go (D-863) | `mail.send_keys` |
 | `omop` | tb_withheld, and the live rows deleted and tombstoned at once (D-441) | `omop.condition_occurrence`, `omop.condition_occurrence_ydefault`, `omop.death`, `omop.drug_exposure`, `omop.drug_exposure_ydefault`, `omop.fact_relationship`, `omop.measurement`, `omop.measurement_ydefault`, `omop.note`, `omop.note_nlp`, `omop.note_ydefault`, `omop.observation`, `omop.observation_period`, `omop.observation_ydefault`, `omop.person`, `omop.procedure_occurrence`, `omop.procedure_occurrence_ydefault`, `omop.tb_appointment`, `omop.tb_claim`, `omop.tb_record`, `omop.visit_occurrence`, `omop.visit_occurrence_ydefault` |
 | `owed_tables` | T-206b part 1 (D-798): the patient's rows in the site, team, PI feedback and derived tables go (the nightly derive skips an opted-out patient); a batch's failed list loses the pseudonym | `derived.batch_run`, `derived.conflict`, `derived.input_link`, `derived.score_row`, `orch.feedback`, `orch.submissions`, `site.contact_outcomes`, `site.excluded_review`, `team.approach_overrides`, `team.referral_events`, `team.referrals` |
 | `pid_pending` | the staged chart number and identity of the patient go; a later night stages them again (D-489) | `pidmap.pending` |
@@ -33,8 +33,9 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `lake:parquet` | T-206b | withheld on read by every job's scope (D-441, D-860); the compiler's equivalence sample, direct /query | the Parquet copy of each snapshot |
 | `lake:site` | T-206b | the clear | facts the site set-up published, as NDJSON, by pseudonym |
 | `lake:tmp` | T-206b | the clear | the rebuild's and the night's ingest scratch files (removed after each; a crash may leave them) |
-| `mail.send_keys` | T-206b | the clear | the outbox's send request while queued (attachments by key, recipients) |
+| `mail.send_keys` | T-206b | a queued or uncertain mail: its files are asked about before each send (D-863), its row stays until a person or the send ends it | the outbox's send request while queued (attachments by key, a per-patient file's name, recipients) |
 | `objects:attachments` | T-206b | the clear | files mailed or uploaded to a job (consent forms, review sheets, case requests) |
+| `objects:outputs` | T-206b | kept until retention (D-513): other patients' pages read the same files, so no clear deletes them | job outputs: candidate and excluded lists, micro-batch pids (365 days); withheld on read (D-513, D-860): the console's pages and downloads (a per-patient file by its patient), a submission and a feedback row; the mail outbox asks before each send (D-863) |
 | `omop.cohort` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |
 | `omop.condition_era` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |
 | `omop.cost` | T-206b | a delete by person when a loader writes it | a CDM table keyed by person that no loader writes today |

@@ -451,48 +451,29 @@ def verify_tables(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
 
 
 # ------------------------------------------------------------------------------------------------ a held mail
-def _held_mail(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, int]:
-    """NEW-MAIL-1 (D-863, the integrator's ruling): a mail the gateway held because its job's outputs name a patient
-    opted out since they were made (``send_keys`` ``failed`` with :data:`tb_common.patient_files.HELD`). Each of
-    its attached job outputs that names a patient opted out now goes from the object store; nothing reads it again
-    (the console withholds the same file, D-860; a resend asks again and is held). A file naming no one stays.
-    Counts files only."""
-    from types import SimpleNamespace
+_HELD = "FROM send_keys WHERE state = 'failed' AND last_error = ? AND (request IS NOT NULL OR recipients IS NOT NULL)"
 
+
+def _held_mail(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, int]:
+    """NEW-MAIL-1 (D-863, the integrator's ruling): a mail the gateway held because its files name a patient opted
+    out since they were made (``send_keys`` ``failed`` with :data:`tb_common.patient_files.HELD`) is dropped: its
+    kept request (the files by key, a per-patient file's name carrying the pseudonym's prefix) and its recipients
+    go, so nothing can send it again. The job's files themselves stay: other patients' pages read them, and they
+    are withheld on read until retention (D-513, D-860; the review of D-863). Counts mails only."""
     from tb_common import patient_files
 
     url = str(env.register.db.url)
     if not pids or not store_has(url, "mail", "send_keys"):
-        return {"objects:outputs": 0}
-    store = env.extra.get("store")
-    if store is None:  # the outbox is there and the files cannot be reached: never called cleared
-        raise RuntimeError("no object store for the held mail")
+        return {"mail.send_keys": 0}
     with _open(url, "mail") as db:
-        rows = db.fetchall(
-            "SELECT job_id, request FROM send_keys WHERE state = 'failed' AND last_error = ? AND request IS NOT NULL",
-            (patient_files.HELD,),
-        )
-
-    def read(key: str) -> bytes:
-        return store.get(key) if store.exists(key) else b""  # a file already gone names no one
-
-    n = 0
-    for job_id, raw in rows:
-        req = json.loads(raw)
-        if req.get("tag") == "aggregate" or not job_id:
-            continue
-        mine = f"outputs/{job_id}/"
-        files = [SimpleNamespace(filename=str(a.get("filename") or ""), minio_key=str(a.get("minio_key") or ""))
-                 for a in req.get("attachments") or [] if str(a.get("minio_key") or "").startswith(mine)]  # fmt: skip
-        job = env.jobs.get(job_id) if env.jobs is not None else None
-        outputs = list(getattr(job, "outputs", None) or files)
-        for key in patient_files.naming(read, files, outputs, pids):
-            if not store.exists(key):
-                continue
-            n += 1
-            if delete:
-                store.delete(key)
-    return {"objects:outputs": n}
+        if delete:
+            n = db.execute(
+                "UPDATE send_keys SET state = 'dropped', resolved_by = ?, request = NULL, recipients = NULL, at = ?, "
+                "next_at = NULL WHERE key IN (SELECT key " + _HELD + ")",
+                (ACTOR, env.now.isoformat(), patient_files.HELD),
+            )
+            return {"mail.send_keys": int(n or 0)}
+        return {"mail.send_keys": int(db.fetchval("SELECT count(*) " + _HELD, (patient_files.HELD,)))}
 
 
 def clear_held_mail(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
@@ -655,7 +636,7 @@ def tick(orch: Any) -> dict[str, Any] | None:
         omop, more, not_opened = _omop_stores(reg)
         env = WorkerEnv(
             register=reg, audit=orch.audit, now=now, lake=orch.services.lake, jobs=orch.db, omop=omop,
-            not_opened=not_opened, omop_more=more, extra={"store": getattr(orch, "store", None)},
+            not_opened=not_opened, omop_more=more,
         )  # fmt: skip
         out = run_once(env)
     except Exception as exc:

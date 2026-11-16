@@ -101,7 +101,7 @@ CLEARS: dict[str, Clear] = {
             "held_mail",
             f"{_W}:clear_held_mail",
             f"{_W}:verify_held_mail",
-            "a mail held because its job's outputs name an opted-out patient: those files go (D-863)",
+            "a mail held because its files name an opted-out patient is dropped: its request and recipients go (D-863)",
         ),
         Clear(
             "owed_tables",
@@ -212,7 +212,12 @@ TABLES: dict[str, Entry] = {
     **_each("sitesetup", ("local_code", "setting"), _CONFIG),
     "sitesetup.published": _none("a publish: when, snapshot, digest, counts"),
     "mail.intake": _none("a mail received: sender, action, job"),
-    "mail.send_keys": _owed("the outbox's send request while queued (attachments by key, recipients)"),
+    "mail.send_keys": _erase(
+        "held_mail",
+        "the outbox's send request while queued (attachments by key, a per-patient file's name, recipients)",
+        "a queued or uncertain mail: its files are asked about before each send (D-863), its row stays until a person "
+        "or the send ends it",
+    ),
     "mail.sent": _none("a mail sent: subject, recipients, tag"),
     **_each(
         "library",
@@ -444,11 +449,11 @@ LAKE: dict[str, Entry] = {
 
 # ------------------------------------------------------------------------------------------------ object store
 OBJECTS: dict[str, Entry] = {
-    "objects:outputs": _erase(
-        "held_mail",
-        "job outputs: candidate and excluded lists, micro-batch pids (365 days); withheld on read and kept until "
-        "retention (D-513): the console's pages and downloads (D-860), a submission and a feedback row, and the mail "
-        "outbox, which asks before each send (D-863); a held mail's files that name the patient go",
+    "objects:outputs": _owed(
+        "job outputs: candidate and excluded lists, micro-batch pids (365 days); withheld on read (D-513, D-860): the "
+        "console's pages and downloads (a per-patient file by its patient), a submission and a feedback row; the mail "
+        "outbox asks before each send (D-863)",
+        "kept until retention (D-513): other patients' pages read the same files, so no clear deletes them",
     ),
     "objects:attachments": _owed("files mailed or uploaded to a job (consent forms, review sheets, case requests)"),
     "objects:ctgov": _none("public registry text and its parse"),
