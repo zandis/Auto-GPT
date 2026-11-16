@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -103,7 +104,7 @@ class Translator:
                 ]
                 proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600, check=False)
                 if not target.exists():
-                    messages.append(f"{name}: translator produced no output: {proc.stdout[-800:]} {proc.stderr[-800:]}")
+                    messages.extend(no_output(name, proc.returncode, proc.stderr))
                     continue
                 text = target.read_text(encoding="utf-8")
                 for ann in _annotations(json.loads(text)):
@@ -117,6 +118,25 @@ class Translator:
             if messages:
                 raise TranslationError(messages)
             return Translation(elm, warnings)
+
+
+#: the translator's own error lines on stderr: ``Error:[4:0, 4:0] no viable alternative at input ...``
+_ERROR_LINE = re.compile(r"^(Error|Warning):\s*(\[[0-9]+:[0-9]+, [0-9]+:[0-9]+\])?\s*(.+)$")
+
+
+def no_output(name: str, returncode: int, stderr: str) -> list[str]:
+    """Why the translator wrote no ELM for ``name`` (D-913; red of lane G's run: a kotlin-logging line on stdout was
+    read as the translator's answer). On CQL it cannot parse it writes no file, exits 0 and prints its errors on
+    stderr under ``Translation failed due to errors:``, among the JVM's and the logger's lines. Only those error lines
+    are read, never bare stdout; with none, it says so with the exit code."""
+    found = []
+    for line in stderr.splitlines():
+        m = _ERROR_LINE.match(line.strip())
+        if m:
+            found.append(f"{name}:{m.group(2) or ''} [{m.group(1).lower()}] {m.group(3).strip()}"[:400])
+    if found:
+        return found[:20]
+    return [f"{name}: the translator wrote no ELM and no error it names (exit {returncode})"]
 
 
 def _version(cql: str) -> str:
