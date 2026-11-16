@@ -29,7 +29,7 @@ from typing import Any
 
 from matching import decision
 from matching.cascade import CascadeConfig, CascadeError, CascadeResult, run_cascade
-from matching.cascade.engine import NOT_AT_INDEX
+from matching.cascade.engine import FILTERED, JUDGED, NOT_AT_INDEX
 from matching.cascade.judge import JudgeReply
 from matching.cascade.model import Outcome, PatientTrace
 from tb_common.reasons import Reason, code_of
@@ -565,6 +565,18 @@ def max_pairs_of(opts: dict[str, Any] | None = None, env: Mapping[str, str] | No
     return v
 
 
+def notes_only_budget(rs: Ruleset, pids: list[str]) -> int | None:
+    """G7 of the P1b review (D-953): a ruleset with no coded criterion sends every patient to the models, and the
+    cascade asks for a pair budget (D-788); the mail has no max_pairs key, so every notes-only ruleset stopped at
+    "running". With none set, the budget is the population's own pairs (every scoped patient once per note
+    criterion), the figure the report already names for a coded run (T-689). None for a ruleset with a coded one."""
+    decides = ("inclusion", "exclusion")
+    if any(c.class_ in FILTERED and c.kind in decides and f'"C_{c.id}"' in rs.sql for c in rs.active()):
+        return None  # the cascade's own test of a coded criterion (``Run.applied``)
+    judged = [c for c in rs.active() if c.class_ in JUDGED and c.kind in decides]
+    return max(1, len(pids) * len(judged))
+
+
 def held_in_snapshot(ctx: Ctx, pids: list[str], snapshot: str) -> set[str]:
     """Which of ``pids`` the snapshot's patient table holds (they were dropped for a date, not for being absent)."""
     if not pids:
@@ -617,7 +629,7 @@ def screen_with_cascade(
         absence_semantics=False,
         s2b_when_fits=False,  # D-904: where every window note fits, the ranking changes no prompt; no embedding
         require_retrieval=True,  # NEW-LLM-2: nothing to retrieve with is said, never the first sentences read
-        max_llm_items=max_pairs,
+        max_llm_items=max_pairs if max_pairs is not None else notes_only_budget(rs, pids),
         note_batch=note_batch_of(),  # T-694 part 3: the notes of a batch of patients at a time, same answers
         llm_concurrency=in_flight,
         stored=derive.reader_for(ctx),  # D-442: the stored-row read, as the v1 engine's (None: the flag is off)
