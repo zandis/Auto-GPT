@@ -112,3 +112,16 @@ def test_a_copy_of_the_same_day_adds_no_date() -> None:
     from tb_llm import budget
 
     assert budget.COPIES[0] not in shown
+
+
+def test_a_clipped_note_counts_its_copies_too() -> None:
+    """Review of D-941: a long evidence note shown clipped carried the copies' values without counting them."""
+    from tb_llm import budget
+
+    long = " ".join(f"Finding number {i} was recorded today." for i in range(200))
+    window = [_note("n1", date(2025, 1, 1), long), _note("n2", date(2025, 6, 1), long),
+              _note("n3", date(2025, 9, 1), long)]  # fmt: skip
+    for b in (200, 300, 400, 600):
+        got = excerpts.build(window, {"n3": ["Finding number 150 was recorded today."]}, b)
+        assert sum(budget.excerpt_tokens(x) for x in got.shown) <= b, b
+        assert all(x[budget.COPIES[1]] == 2 for x in got.shown)
