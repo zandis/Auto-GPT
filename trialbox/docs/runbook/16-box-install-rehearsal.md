@@ -27,7 +27,7 @@ without the key (401). It never starts without a key (D-177).
 | `served` | the pinned served names in `deploy/site/registry.site.yaml` are exactly what the two servers serve |
 | `offline` | every running container runs an image the bundle loaded, the third-party ones (`postgres`, `hapi`) too, and the Docker daemon pulled nothing; the CQL translator jars in `criteria-compiler` are byte for byte the vendor's and translate; the media's reference data pack is loaded; ClinicalTrials.gov is offline; the box has no route out |
 | `egress-override` | no route out of the box **with the rehearsal's own internal `egress-net`** (`tools/rehearse_box/standins.yml`). The shipped `egress-net` with `deploy/network.sh` is not rehearsed (no `NET_ADMIN`): check it at the site's IQ |
-| `guard` | on `model-net` only `model-guard` answers to the model servers' names: `/invocations`, `/tokenize`, `/collective_rpc`, `/metrics` and the rest are 404 with or without the key, `/v1` needs the key, nothing reached the stand-ins' open routes, and the servers are only on `trialbox-model-backend` |
+| `guard` | on `model-net` only `model-guard` answers to the model servers' names: `/invocations`, `/collective_rpc`, `/metrics` and the rest are 404 with or without the key, `/v1` and `/tokenize` need the key, nothing reached the stand-ins' open routes, and the servers are only on `trialbox-model-backend` |
 | `console` | the console answers `/healthz` and its sign-in page; inside it no outside name resolves and no outside address answers, while the box's own names do (`console-net`, below) |
 | `screen` | SCREEN GZQO on synthetic hospital A ends `done`, its model calls go through the gateway to both pinned builds, with no 401 and no 404, and it mails its results to the site's relay (a plain SMTP sink, `tools/rehearse_box/smtp_sink.py`, stands in for it) |
 | `power-cycle`, `after-restart` | every box process killed (as in a power loss), the host restarted: the box comes back healthy with its data, the doctor passes, the console answers, a second SCREEN runs |
@@ -38,8 +38,15 @@ without the key (401). It never starts without a key (D-177).
 **Knobs.** `TB_REHEARSE_DIR` (default a fresh private `mktemp` folder; a given one must be absolute, three levels
 deep, not a system folder, and new or this user's earlier rehearsal folder; the report and logs stay there),
 `TB_REHEARSE_SKIP_BUILD=1` (use the images already built), `TB_REHEARSE_KEEP=1` (leave the box running for a look),
-`TB_EXTRA_CA` (a PEM for apt and pip behind a TLS proxy). It needs a Docker host with no other TrialBox stack and port
-8090 free. The box container uses the host's Docker through its socket, so the work folder has the same path inside.
+`TB_EXTRA_CA` (a PEM for apt and pip behind a TLS proxy), `TB_REHEARSE_VARIANT=validation` (D-887: a root-owned
+`deploy/site` and the same bundle installed twice). Every rehearsal box is VALIDATION (D-887, so that SCREEN's D3
+note checks reach both pinned builds on the box) and runs as a validation run on a plain VM: the passphrase KEK with
+no TPM and the poc host profile; it mounts the Docker host's `/run/trialbox` and volumes folder in the box
+container, as on a site's host. Its doctor step names what only a site's host has (`clock`, `ops_runner`,
+`audit_heads`) as not reached by a rehearsal and fails on any other FAIL. CI runs both variants by hand and on every pull
+request that touches the installer (`.github/workflows/trialbox-rehearse-box.yml`); its `rehearse-result` check passes
+when they passed or were skipped (no installer change), so a branch rule can require it (D-891). It needs a Docker
+host with no other TrialBox stack and port 8090 free. The box container uses the host's Docker through its socket, so the work folder has the same path inside.
 `DOCKER_HOST=unix:///path/docker.sock` rehearses on another daemon. Run it on both Docker image stores before a
 release: the containerd store (the default of new Docker installs) and the classic `overlay2` store (older hosts,
 and hosts upgraded from them). The classic store keeps no image digests (below).
@@ -73,7 +80,8 @@ a container address directly, possible on Docker before 28).
 `POST /invocations` (chat), `/tokenize`, `/score`, `/pooling`, `/metrics` and, in dev mode, `/collective_rpc` answer
 without it. So the vLLM servers are only on `trialbox-model-backend`, and `model-guard` (`services/model_guard`) is
 what `llm-service` and `llm-verifier` mean on `trialbox-model-net`. It passes, with the key only, `GET /v1/models`,
-`POST /v1/chat/completions` and `POST /v1/completions`; on the RTX 5090 profile also the gateway's `/sleep`,
+`POST /v1/chat/completions`, `POST /v1/completions` and `POST /tokenize` (D-739: G-1 counts tokens on the shipped
+server; the key already opens chat completions, which do more); on the RTX 5090 profile also the gateway's `/sleep`,
 `/wake_up` and `/is_sleeping`; and `/health` without the key. Everything else is 404. `trialbox doctor --serving`
 also checks that `/invocations` and `/tokenize` refuse a call without the key.
 
@@ -113,15 +121,18 @@ Under WSL2 (the Windows form; the script reads the kernel's release) the address
 printed and not written to the box's screen file, and the host's time zone is left to Windows (D-571).
 When the answers are applied the script writes `deploy/site/box/applied`; a start that finds it (the window
 closed before the last line) shows no new code and finishes the set-up (D-576).
-**A rehearsal box** (D-726). `deploy/install.sh <bundle> --rehearsal` (or `deploy/box-install.sh <bundle>
+**A rehearsal box** (D-726, D-887). `deploy/install.sh <bundle> --rehearsal` (or `deploy/box-install.sh <bundle>
 --rehearsal`, which hands it on) makes a box that says it is a rehearsal: it is TEST from before the bundle loads (the
-mark `deploy/site/rehearsal.json`), and deploy/.env gets `TB_ENV=TEST` and `TB_REHEARSAL=1`. The installer refuses
-it on a PRODUCTION or VALIDATION box and on a box whose Docker volumes hold data from no rehearsal. The model
-stand-ins (`tools/rehearse_box/standins.yml`, the default override of a rehearsal; `TB_COMPOSE_OVERRIDE=` set empty
-keeps the real model servers, for an unmeasured card's trial boot) and `TB_ACCEPT_UNMEASURED_GPU=1` work on a TEST box
-only. `trialbox doctor` says "rehearsal box" (WARN) and fails a rehearsal mark on any other environment. A bundle
-built with `tools/make_bundle.sh --rehearsal` says `"rehearsal": true` in its release.json; a PRODUCTION or
-VALIDATION box refuses it at install and at update. A rehearsal box never becomes a site box: before a site's
+mark `deploy/site/rehearsal.json`, recorded in `deploy/updates/installed.json`), and deploy/.env then gets
+`TB_ENV=VALIDATION` and `TB_REHEARSAL=1` (VALIDATION keeps D3 on the box, so SCREEN reaches the pinned builds). The
+installer refuses it on a PRODUCTION box, on a VALIDATION box without the mark, and on a box whose Docker volumes
+hold data from no rehearsal. The model stand-ins (`tools/rehearse_box/standins.yml`, the default override of a
+rehearsal; `TB_COMPOSE_OVERRIDE=` set empty keeps the real model servers, for an unmeasured card's trial boot) and
+`TB_ACCEPT_UNMEASURED_GPU=1` work on a rehearsal box only. `trialbox doctor` carries the standing line "REHEARSAL BOX:
+placeholder models, synthetic data only" (WARN), the console's banner says `VALIDATION REHEARSAL`, qualify and
+`pin_model --promote` refuse on it, and the doctor fails a rehearsal mark on any other box. A bundle built with
+`tools/make_bundle.sh --rehearsal` says `"rehearsal": true` in its release.json; a PRODUCTION box, and a VALIDATION
+box without the mark, refuse it at install and at update. A rehearsal box never becomes a site box: before a site's
 install on the same machine, empty it: `docker compose --project-directory deploy down -v`, then remove what the
 rehearsal's install wrote: `deploy/.env`, `deploy/settings.yaml`, `deploy/updates/`, `deploy/secrets/`,
 `deploy/site/registry.site.yaml` and `deploy/site/rehearsal.json` (keep `deploy/site/serving_config.<profile>.json`
@@ -134,3 +145,44 @@ first boot runs `deploy/box-install.sh --firstrun` (the code on the screen, the 
 this path without Docker is `tests/console/test_box_install_rehearsal.py` (the real script, stand-ins for the inner
 install, compose and the host check, the wizard in process); what only a real box proves is listed in D-466 for
 T-213b's rental-workstation and Spark runs.
+
+**Unattended (D-898):** `sudo deploy/box-install.sh trialbox-<version>.tar --answers owner.json` installs a box with no
+question, no first-run code and no wait. Use it for the hospital's own unattended install, or for a run on a VM.
+- `owner.json` holds the first-run form's fields:
+  - `site_name`, `tz`, `language`;
+  - `owner_full_name`, `owner_username`, `owner_email`;
+  - `box_name`;
+  - `backup_kind` with `backup_disk` or `backup_share`;
+  - `source`;
+  - optionally `chartno_rule`, `mta_authserv_id`, and `environment` (`PRODUCTION`, or `VALIDATION` for public or
+    synthetic data).
+- The plan is made from that file. The install then makes the first administrator as the IT form does: the password
+  and enrolment code are printed once.
+- After the install it sets the host's time zone, installs the backup schedule and runs the host check.
+- A password or passphrase in the file is refused. On a board without a usable TPM, set `TB_KEK_PASSPHRASE` in the
+  command's environment; the site keys are sealed under it at the install.
+- A file that does not parse changes nothing.
+- It cannot be combined with `--prepare`, `--rehearsal` or `--firstrun`.
+
+**The box's name (OPS-005):** a box named `<name>.local` answers that name on the clinic's network.
+- `hardening.conf` says `MDNS=on`, and the input firewall then lets mDNS (UDP 5353) in from the box's own network only.
+- The apply step sets the host name to the owner's choice and starts `avahi-daemon`. When the responder is not
+  installed, it says so.
+- The first-run screen also prints the box's address, for a computer that cannot resolve `.local`. The browser then
+  warns, because the certificate names the box, not its address.
+- A box with a name in the hospital's DNS keeps `MDNS=off`.
+
+**A bare Ubuntu box from the media (OPS-006, D-966):** a machine with only Ubuntu 24.04 on it gets Docker, the NVIDIA
+driver and toolkit and the host's libraries from the offline media, not by hand.
+- The vendor builds the media: `python3 -m tools.linux_media debs` (online, on any Debian or Ubuntu machine) collects
+  the packages; `make media-linux MEDIA_ARGS="..."` lays out `dist/media/TRIALBOX-<version>/`; `python3 -m
+  tools.linux_media sign` signs its `SHA256SUMS` on the signing machine; `python3 -m tools.linux_media check` reads it
+  back before it leaves.
+- On the box: `sudo bash <media>/linux/box-prepare.sh <media> --pub <the vendor key given apart from the disk>`. It
+  refuses another system, a key other than the one given, a bad signature, a changed byte and an unlisted file before
+  it installs anything; then it installs the packages, starts Docker with the nvidia runtime and puts the host tree in
+  `/opt/trialbox`. It prints what to run next: a restart when the driver is not loaded yet, then
+  `sudo /opt/trialbox/deploy/box-install.sh <media>/linux/trialbox-<version>.tar`.
+- `box-install.sh` on a machine without Docker says to run this step first.
+- The disk's unlock rule (HW-010) is not set here: it waits on the owner's decision. The run on a real bare box is
+  T-213b's.

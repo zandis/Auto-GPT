@@ -72,6 +72,10 @@ param(
   [ValidateSet("tpm", "tpm_pin")][string]$BitLockerUnlock = "tpm",
   # a rehearsal on a PC that must stay unencrypted: BitLocker is left as it is, and the host check then fails
   [switch]$SkipBitLocker,
+  # a rehearsal box (NEW-WIN-11, D-614): handed to the Linux installer as --rehearsal (lane D's D-726: the box is
+  # TEST and says "rehearsal box", runs stand-in model servers, takes a bundle built with make_bundle.sh
+  # --rehearsal; a site box refuses such a bundle). Kept in state.json: the install stays one to its end
+  [switch]$Rehearsal,
   # the update window (NEW-WIN-5, D-606): the hour of the day, this PC's clock, at which Windows Update may install
   # and restart, and how many hours the window lasts. The declared settings TB_WIN_UPDATE_WINDOW_START and
   # TB_WIN_UPDATE_WINDOW_HOURS (libs/tb_common/config.py gives the reasons; the same defaults, held by a test).
@@ -533,7 +537,7 @@ function Save-TbState {
 function Read-TbState {
   $s = @{ version = 1; account = ""; media_root = ""; data_drive = ""; distro = ""; imported = $false; import_started = $false
     desktop_share_pct = -1; update_window = ""; update_window_told = ""; drives_told = ""; recovery_confirmed = ""; bitlocker_unlock = ""; bitlocker_turned_on = ""
-    restart_pending = $false; finished = $false }
+    restart_pending = $false; finished = $false; rehearsal = $false }
   if (Test-Path -LiteralPath $script:TbStatePath) {
     $j = Get-Content -LiteralPath $script:TbStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($k in @($s.Keys)) { if ($null -ne $j.$k) { $s[$k] = $j.$k } }
@@ -634,17 +638,26 @@ function Step-Drive {
   Say "drive" @($script:TbDataRoot, $facts.FreeGB)
   Set-TbBitLocker   # before any data is put on the drive
 }
-function Confirm-TbRecoveryKey([string]$Drive, [string]$secret) {
+function Format-TbKeyId([string]$Id) {
+  # the key ID as Windows' BitLocker recovery screen shows it: the first eight characters of the protector's id, in
+  # capitals (NEW-WIN-14, D-617). An owner with two keys finds the one the screen asks for by it
+  $t = ($Id -replace "[{}]", "").ToUpper()
+  if ($t.Length -lt 8) { return "?" }
+  return $t.Substring(0, 8)
+}
+function Confirm-TbRecoveryKey([string]$Drive, [string]$secret, [string]$Id) {
   # The recovery key goes to the window, and to the printer when the owner says so. It is never written to the
-  # log, the state or any file. The owner types its last six digits back, then the window is cleared.
+  # log, the state or any file. The owner types its last six digits back, then the window is cleared. Its key ID
+  # (not a secret: it names which key) is shown, printed and logged with it.
   if ($secret -notmatch "^(\d{6}-){7}\d{6}$") { Stop-TbStep "recovery_unreadable" @($Drive) }
   if (Test-TbTranscription) { Stop-TbStep "transcription_on" @($Drive) }
-  Write-TbScreen (Get-TbText "recovery_show" @($Drive) $script:TbLang)
+  $kid = Format-TbKeyId $Id
+  Write-TbScreen (Get-TbText "recovery_show" @($Drive, $kid) $script:TbLang)
   Write-TbScreen ("        " + $secret)
   $printer = Get-TbDefaultPrinter
   if ($printer -and ([string](Read-TbLine (Get-TbText "recovery_print_ask" @($printer) $script:TbLang))).Trim() -match "^(y|yes)$") {
     try {
-      Send-TbToPrinter @((Get-TbText "recovery_show" @($Drive) $script:TbLang), "", ("    " + $secret))
+      Send-TbToPrinter @((Get-TbText "recovery_show" @($Drive, $kid) $script:TbLang), "", ("    " + $secret))
       Say "recovery_printed" @($printer)
     } catch { Say "recovery_print_failed" @([string]$_.Exception.Message) }
   }
@@ -657,7 +670,7 @@ function Confirm-TbRecoveryKey([string]$Drive, [string]$secret) {
     Write-TbScreen (Get-TbText "recovery_wrong" @() $script:TbLang)
   }
   Clear-TbScreen   # the key does not stay in a window on a desktop that staff share
-  Write-TbLog ("    recovery key of {0}: shown, confirmed by the owner (its last six digits typed back), the window cleared" -f $Drive)
+  Write-TbLog ("    recovery key of {0} (key ID {1}): shown, confirmed by the owner (its last six digits typed back), the window cleared" -f $Drive, $kid)
 }
 function Set-TbBitLocker {
   # NEW-WIN-8 (D-603): BitLocker on the system drive and the data drive, opened by the TPM. The order per drive is
@@ -690,7 +703,7 @@ function Set-TbBitLocker {
       $known = @(([string]$script:TbState.recovery_confirmed) -split "," | Where-Object { $_ })
       $mark = $drv + "=" + $rp.Id
       if ($known -notcontains $mark) {
-        Confirm-TbRecoveryKey $drv $rp.Password
+        Confirm-TbRecoveryKey $drv $rp.Password $rp.Id
         $script:TbState.recovery_confirmed = ((@($known | Where-Object { $_ -notlike ($drv + "=*") }) + $mark) -join ",")
         Save-TbState
       }
@@ -747,6 +760,7 @@ function Step-WslEnable {
     $more = "-MinFreeGB {0} -MinWindowsBuild {1} -ProxyEveryMinutes {9} -StartWaitSeconds {2} -DesktopSharePercent {3} -UpdateWindowStart {7} -UpdateWindowHours {8} -Distro {4} -Lang {5} -BitLockerUnlock {6}" -f $MinFreeGB,
       $MinWindowsBuild, $StartWaitSeconds, $script:TbShare, $script:TbState.distro, $script:TbLang, $script:TbUnlock, $script:TbUpdate[0], $script:TbUpdate[1], $ProxyEveryMinutes
     if ($SkipBitLocker) { $more += " -SkipBitLocker" }
+    if ($script:TbState.rehearsal) { $more += " -Rehearsal" }  # D-614: the run after the restart is asked for it again
     Register-TbResumeTask (Join-Path $copy "box-install.ps1") $script:TbFacts.Account $script:TbStateDir $more
     $script:TbState.restart_pending = $true
     Save-TbState
@@ -1102,6 +1116,7 @@ function Step-LinuxInstall {
   $a = @("-d", $script:TbState.distro, "-u", "root", "--cd", "/", "--exec", "bash", $script:TbSetupWsl, "install",
     (ConvertTo-TbWslPath $script:TbFiles.Bundle))
   if ($Yes) { $a += "--yes" }
+  if ($script:TbState.rehearsal) { $a += "--rehearsal" }
   $code = Invoke-TbNativeConsole "wsl.exe" $a
   Write-TbLog ("    the Linux installer ended with exit " + $code)
   $r = Invoke-TbSetup "state" @()
@@ -1117,7 +1132,7 @@ function Step-LinuxInstall {
 # ------------------------------------------------------------------------------------------------ the run
 function Invoke-TbInstall {
   param([string]$MediaRoot, [string]$DataDrive, [string]$Distro = "TrialBox", [string]$Lang, [string]$StateDir,
-    [switch]$Resume, [switch]$Yes)
+    [switch]$Resume, [switch]$Yes, [switch]$Rehearsal)
   # a cmdlet that reports an error stops its step: nothing goes on after a failed copy, permission change or task
   # registration (Invoke-TbNative sets its own preference for a program's error text)
   $ErrorActionPreference = "Stop"
@@ -1144,6 +1159,14 @@ function Invoke-TbInstall {
   $script:TbStop = $null
   Write-TbLog ("box-install.ps1 started by {0}; resume={1}; Windows {2} build {3}; language {4}" -f $script:TbFacts.Account,
     [bool]$Resume, $script:TbFacts.EditionId, $script:TbFacts.Build, $script:TbLang)
+  # a rehearsal (D-614) goes on only when asked for again: a run without -Rehearsal on an unfinished rehearsal stops
+  # here, before anything changes. Its box may have been emptied since (RUNBOOK section 16), and the Linux installer
+  # would then take a site's media as a rehearsal unasked (review finding 3). The resume task names the switch
+  if ($script:TbState.rehearsal -and -not $script:TbState.finished -and -not $Rehearsal) {
+    Write-TbLog "    unfinished rehearsal started without -Rehearsal: stopped, nothing changed"
+    Write-TbScreen (Get-TbText "rehearsal_unasked" @($script:TbStatePath) $script:TbLang)
+    return 1
+  }
   # the resume task has done its work once this run started; step 5 registers it again if Windows wants a restart
   try { Unregister-TbResumeTask } catch { Write-TbLog ("    the resume task could not be removed: " + [string]$_.Exception.Message) }
   if ($script:TbShareGiven -or [int]$script:TbState.desktop_share_pct -lt 0) { $script:TbState.desktop_share_pct = $script:TbShareDefault }
@@ -1157,6 +1180,16 @@ function Invoke-TbInstall {
     if (-not $script:TbUpdateGiven[1]) { $script:TbUpdate[1] = [int]$Matches[2] }
   }
   $script:TbState.update_window = "{0}+{1}" -f $script:TbUpdate[0], $script:TbUpdate[1]
+  # a rehearsal is decided at the start and kept: never turned off by a run without the switch (a site's box is a
+  # new install, RUNBOOK section 16); the Linux installer refuses to make a box holding a site's install a rehearsal
+  if ($Rehearsal -and $script:TbState.finished -and -not $script:TbState.rehearsal) {
+    Write-TbLog "    -Rehearsal ignored: this install is finished and is not a rehearsal"
+    Say "rehearsal_ignored" @()
+  } elseif ($Rehearsal) { $script:TbState.rehearsal = $true }
+  if ($script:TbState.rehearsal -and -not $script:TbState.finished) {
+    Write-TbLog "    rehearsal: yes (the box will be TEST and say so; D-726)"
+    Say "rehearsal_on" @()
+  }
   if ($script:TbState.finished) {
     # A finished install is left alone, but for .wslconfig: it follows the hardware (memory was added, the share
     # was changed), so "start the installer again after a hardware change" is true on a finished box too.
@@ -1242,6 +1275,6 @@ function Invoke-TbInstall {
 
 if (-not $LoadOnly) {
   $code = Invoke-TbInstall -MediaRoot $MediaRoot -DataDrive $DataDrive -Distro $Distro -Lang $Lang -StateDir $StateDir `
-    -Resume:$Resume -Yes:$Yes
+    -Resume:$Resume -Yes:$Yes -Rehearsal:$Rehearsal
   exit $code
 }

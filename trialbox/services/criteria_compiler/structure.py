@@ -38,6 +38,20 @@ _PHASE = re.compile(
 # alternatives inside one line: one of, any of, either … or, いずれか, 任一, 之一
 _ANY = re.compile(r"\b(?:one|any)\s+of\b|\beither\b.+\bor\b|いずれか|任一|之一", re.I)
 # a lead-in of lines that are all required: it opens no group of alternatives
+# NEW-LIFE-18 (NCT02629159): a line that permits rather than requires ("subjects with prior exposure to one bDMARD
+# may be enrolled (up to 20 %)", "History of secondary Sjogren's Syndrome is permitted"). Made a required inclusion it
+# excludes every patient without it (most of them), silently; inside an exclusion it is an exception to it
+_PERMIT = re.compile(
+    r"\bmay\s+(?:also\s+)?(?:be\s+)?(?:enrolled|included|eligible|enter|participate)\b|\b(?:is|are)\s+(?:also\s+)?"
+    r"(?:permitted|allowed|acceptable)\b|\bup\s+to\s+\d+\s*%\s+of\b|組み入れ(?:可|ても(?:よい|良い))|可(?:以)?納入|得納入|允許",
+    re.I,
+)
+# a line for part of the study's population only ("… criteria - does not apply to safety cohort")
+_PART = re.compile(
+    r"\b(?:does|do)\s+not\s+apply\s+to\b|\bnot\s+applicable\s+(?:to|for)\b|\bapplies\s+only\s+to\b"
+    r"|\bonly\s+(?:for|in)\s+(?:the\s+)?\w+\s+(?:cohort|arm|part|sub-?study)\b|適用しない|適用外|不適用",
+    re.I,
+)
 _ALL = re.compile(r"\ball\b|\bmust\b|\bagree|すべて|全て|全部|所有|均須|皆須|均需", re.I)
 _LEAD = re.compile(r"[:：]\s*[.。]?\s*$")
 _CJK = re.compile(r"[\u3040-\u30ff\u4e00-\u9fff]")
@@ -52,6 +66,9 @@ MESSAGES = {
     "other_phase": "names another study phase, part, period or cohort (an extension, a rollover, a study already "
     "completed)",
     "second_section": "comes from a second {kind} section ({title}): another study phase or population",
+    "permission": "permits rather than requires (may be enrolled, is permitted, up to a share of the study): compiled "
+    "as a required criterion it would exclude every patient without it",
+    "part_population": "applies to part of the study's population only (does not apply to a cohort, an arm or a part)",
 }
 # what the reviewer is asked, by the first flag found in this order
 QUESTIONS = (
@@ -62,6 +79,10 @@ QUESTIONS = (
      "confirm it applies."),
     ("second_section", "This line comes from a second section (another phase or population): reject it for this "
      "screening, or confirm it applies."),
+    ("permission", "This line permits rather than requires: reject it as a criterion, or rewrite what it requires "
+     "(an exclusion's exception goes into the exclusion's own wording)."),
+    ("part_population", "This line applies to part of the population only: reject it for this screening, or confirm "
+     "it applies."),
     ("alternatives_in_line", "This line holds alternatives: rewrite it so that one of them is enough, or confirm."),
     ("group_member", "This line may be one of several alternatives: rewrite the group as one criterion, or confirm it "
      "is required on its own."),
@@ -114,13 +135,17 @@ def check(lines: Sequence[dict[str, Any]], doc_kind: str = "trial") -> Report:
     line's section is not used (neither as a second section nor to decide which came first)."""
     rep = Report()
     seen = Counter(str(ln.get("text") or "").strip() for ln in lines)
+    # NEW-LIFE-2: the parser gave each line its lead-in and its own section (positional): a group is exactly the
+    # lines that name its lead-in, and a repeated text keeps its own section
+    given = any("parent" in ln for ln in lines)
+    leads_given = {ln.get("parent") for ln in lines if isinstance(ln.get("parent"), int)}
     lead: int | None = None
     lead_at = ("", "")
     first_section: dict[str, str] = {}
     for i, ln in enumerate(lines):
         text, kind = str(ln.get("text") or "").strip(), str(ln.get("kind") or "")
         raw = _section(str(ln.get("source_ref") or ""))
-        section = raw if seen[text] == 1 else ""
+        section = raw if (given or seen[text] == 1) else ""
         if (kind, raw) != lead_at:
             lead = None  # a group ends with its section
         found: list[tuple[str, str]] = []
@@ -134,12 +159,25 @@ def check(lines: Sequence[dict[str, Any]], doc_kind: str = "trial") -> Report:
         if _LEAD.search(text):
             found.append(("group_heading", MESSAGES["group_heading"]))
             lead, lead_at = (i if _opens_group(text) else None), (kind, raw)
-        elif lead is not None:
-            found.append(("group_member", MESSAGES["group_member"].format(lead=f"line {lead + 1}")))
+        else:
+            # the parser's parent when it gave one (an unbulleted lead-in); else, or as well, the colon line above in
+            # this section (a bulleted lead-in, "1. …且符合下列條件："): a member by either reading is a member
+            p = ln.get("parent") if given else None
+            by_parent = isinstance(p, int) and 0 <= p < len(lines) and _opens_group(str(lines[p].get("text") or ""))
+            # the colon line above counts when the parser did not take it for a lead-in (a bulleted one): when it
+            # did, its members are exactly the lines that name it, and a line after the group is not one
+            by_lead = lead is not None and not (given and lead in leads_given)
+            if by_parent or by_lead:
+                at = p if by_parent and isinstance(p, int) else lead
+                found.append(("group_member", MESSAGES["group_member"].format(lead=f"line {(at or 0) + 1}")))
         if _ANY.search(text):
             found.append(("alternatives_in_line", MESSAGES["alternatives_in_line"]))
         if _HEADING.search(text):
             found.append(("heading_in_line", MESSAGES["heading_in_line"]))
+        if _PERMIT.search(text):
+            found.append(("permission", MESSAGES["permission"]))
+        if _PART.search(text):
+            found.append(("part_population", MESSAGES["part_population"]))
         if _PHASE.search(text) or (section and _PHASE.search(section)):
             found.append(("other_phase", MESSAGES["other_phase"]))
         rep.findings += [Finding(i, flag, msg) for flag, msg in found]
@@ -170,3 +208,147 @@ def send_to_a_person(criteria: list[Any], rep: Report, keep: Collection[int] = (
         out.append(c.model_copy(update={"class_": "human", "human_question": question, "flags": flags}))
         warnings.append(f"{c.id}: " + "; ".join(f.message for f in fs) + "; moved to human review")
     return out, warnings
+
+
+# ------------------------------------------------------------------------------------------------- any of (D-793)
+_DIAGNOSIS = re.compile(r"diagnos|診斷|診断|诊断", re.I)
+# a negated lead-in ("No history of any of the following:"): its bullets are not alternatives (review of D-793)
+_NEGATED = re.compile(r"\b(?:no|not|none|without|never)\b|無|なし|ない|未|非|不", re.I)
+# the findings a combined set answers; any other finding on its lines keeps the set with a person
+_GROUP_FLAGS = frozenset({"group_heading", "group_member", "alternatives_in_line"})
+
+
+@dataclass(frozen=True)
+class Group:
+    """One alternative: a lead-in line and the lines that name it as parent (or one bullet of a "one of" lead-in)."""
+
+    lead: int
+    members: list[int]
+
+
+@dataclass(frozen=True)
+class AnyOf:
+    """Two or more alternative groups: one criterion ``or(and(group 1), and(group 2), …)``."""
+
+    groups: list[Group]
+
+    def lines(self) -> list[int]:
+        return sorted({g.lead for g in self.groups} | {m for g in self.groups for m in g.members})
+
+
+def _short_or_diagnosis(text: str) -> bool:
+    body = _LEAD.sub("", text).strip()
+    short = len(body) <= 20 if _CJK.search(body) else len(body.split()) <= 8
+    return short or bool(_DIAGNOSIS.search(body))
+
+
+def alternatives(lines: Sequence[dict[str, Any]]) -> list[AnyOf]:
+    """The sets of alternatives in ``lines`` (D-793, approved on #639): two or more adjacent lead-in groups the parser
+    gave (each line's ``parent``), each lead-in short or naming a diagnosis and none saying its lines are all
+    required; or one lead-in that says "one of / any of / either … or / いずれか / 任一" over its bullets, each bullet
+    an alternative. Lines without the parser's parents give none: a person decides, as D-785 says."""
+    if not any("parent" in ln for ln in lines):
+        return []
+    children: dict[int, list[int]] = {}
+    for i, ln in enumerate(lines):
+        p = ln.get("parent")
+        if isinstance(p, int) and 0 <= p < len(lines):
+            children.setdefault(p, []).append(i)
+    groups: list[Group] = []
+    for lead in sorted(children):
+        members = children[lead]
+        if members != list(range(lead + 1, lead + 1 + len(members))):
+            continue  # a group is its lead-in and the lines right under it
+        groups.append(Group(lead, members))
+    out: list[AnyOf] = []
+    run: list[Group] = []
+
+    def same_place(a: int, b: int) -> bool:
+        return lines[a].get("kind") == lines[b].get("kind") and _section(str(lines[a].get("source_ref") or "")) == (
+            _section(str(lines[b].get("source_ref") or ""))
+        )
+
+    def close() -> None:
+        # adjacent groups are alternatives only when the first lead-in names a diagnosis (review of D-793: ordinary
+        # sub-headings, "Laboratory values:" / "Prior therapy:", are required together)
+        if len(run) >= 2 and _DIAGNOSIS.search(str(lines[run[0].lead].get("text") or "")):
+            out.append(AnyOf(list(run)))
+        run.clear()
+
+    for g in groups:
+        text = str(lines[g.lead].get("text") or "")
+        if lines[g.lead].get("kind") != "inclusion" or _NEGATED.search(_LEAD.sub("", text)):
+            close()  # never an exclusion, never a negated lead-in (review of D-793): a person decides
+            continue
+        if _ANY.search(text) and len(g.members) >= 2:
+            close()
+            out.append(AnyOf([Group(g.lead, [m]) for m in g.members]))
+            continue
+        ok = _opens_group(text) and _short_or_diagnosis(text)
+        if ok and run and g.lead == run[-1].members[-1] + 1 and same_place(run[-1].lead, g.lead):
+            run.append(g)
+        else:
+            close()
+            if ok:
+                run.append(g)
+    close()
+    return out
+
+
+def combine(
+    criteria: list[Any], lines: Sequence[dict[str, Any]], keep: Collection[int] = (), report: Report | None = None
+) -> tuple[list[Any], set[int], list[str]]:
+    """``criteria`` (one per line) with each set of :func:`alternatives` whose members are all ``structured`` made one
+    criterion (the first lead-in's id, flag ``any_of``, logic ``or(and(group …))`` from the members' own logic), its
+    other lines dropped. Returns the criteria, the line indexes folded (no structure finding applies to them any more)
+    and one warning per set. A set with a member of another class, or one reused from the approved version, is left
+    as it is: its lines go to a person (D-785)."""
+    from tb_contracts import BoolExpr
+
+    folded: set[int] = set()
+    warnings: list[str] = []
+    replace: dict[int, Any] = {}
+    other = {f.index for f in (report.findings if report else []) if f.flag not in _GROUP_FLAGS}
+    for s in alternatives(lines):
+        idx = s.lines()
+        members = [m for g in s.groups for m in g.members]
+        leads = sorted({g.lead for g in s.groups})
+        if any(i in keep or i in other for i in idx) or any(criteria[m].class_ != "structured" for m in members):
+            continue  # reused, another finding (another phase, a second section …), or a member not structured
+        if any(criteria[x].class_ in ("note", "mixed") for x in leads):
+            continue  # a lead-in the notes would decide: a person reads the set
+        args = []
+        for g in s.groups:
+            # a structured lead-in carries a requirement of its own ("Aged 65 years or older with:"): it is ANDed
+            # into its group (review of D-793); a lead-in classed human is a label
+            own = [criteria[g.lead].logic] if criteria[g.lead].class_ == "structured" and len(g.members) > 0 else []
+            logics = own + [criteria[m].logic for m in g.members]
+            args.append(logics[0] if len(logics) == 1 else BoolExpr(op="and", args=logics))
+        if len(leads) == 1 and criteria[leads[0]].class_ == "structured":
+            # a "one of" lead-in over its bullets: its own requirement once, beside the OR of the bullets
+            only = [criteria[m].logic for m in members]
+            logic: Any = BoolExpr(op="and", args=[criteria[leads[0]].logic, BoolExpr(op="or", args=only)])
+        else:
+            logic = BoolExpr(op="or", args=args)
+        first = criteria[s.groups[0].lead]
+        parts: list[str] = []
+        for g in s.groups:
+            lead_text = str(lines[g.lead].get("text") or "")
+            if not parts or parts[-1] != lead_text:
+                parts.append(lead_text)
+            parts += [str(lines[m].get("text") or "") for m in g.members]
+        timed = any(bool(getattr(criteria[i], "time_sensitive", False)) for i in idx)
+        flags = sorted((set(first.flags or []) - {"structure"}) | {"any_of", "needs_review"})
+        replace[s.groups[0].lead] = first.model_copy(
+            update={
+                "class_": "structured", "logic": logic, "text": " ".join(parts), "flags": flags,
+                "human_question": None, "note_question": None, "time_sensitive": timed,
+            }
+        )  # fmt: skip
+        folded.update(idx)
+        warnings.append(
+            f"{first.id}: lines {', '.join(str(i + 1) for i in idx)} are alternatives (any of): one criterion, "
+            "met when any one group is met (D-793)"
+        )
+    out = [replace.get(i, c) for i, c in enumerate(criteria) if i not in folded or i in replace]
+    return out, folded, warnings

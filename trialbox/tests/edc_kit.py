@@ -230,11 +230,11 @@ def store_with_old_signature(values: dict[int, str] | None = None) -> tuple[EdcS
 # NEW-EDC-0 (D-584): the conformance project of our own REDCap test instance. The CRF above, the longitudinal and
 # repeating set of tests/unit/test_edc_t302b.py (two arms, four events, the repeating ``ae`` instrument, a
 # calculated field, branching logic), and the three fields the deep review asked for: one checkbox, one
-# ``date_dmy`` and one ``number_1dp``. Synthetic data only. ``tools/redcap_instance.py`` builds it on the instance
+# ``date_dmy`` and one number kept to one decimal place by TrialBox (D-840). Synthetic data only. ``tools/redcap_instance.py`` builds it on the instance
 # (or on the simulator, as a stand-in) and runs R1 to R9 against it.
 CONF_SCREEN1, CONF_WEEK4_1 = "screening_arm_1", "week4_arm_1"
 CONF_SCREEN2, CONF_WEEK4_2 = "screening_arm_2", "week4_arm_2"
-CONF_BMI = "round([weight]/(([height]/100)^2),1)"
+CONF_BMI = "round([weight]/(([height]/100)*([height]/100)),1)"  # D-840: a real REDCap refuses ^ in a calculation
 CONF_CRF: list[dict[str, str]] = [
     *CRF,
     {"field_name": "height", "form_name": "baseline", "field_type": "text", "field_label": "Height (cm)",
@@ -244,12 +244,12 @@ CONF_CRF: list[dict[str, str]] = [
     {"field_name": "tophus_site", "form_name": "baseline", "field_type": "text", "field_label": "Tophus site",
      "branching_logic": "[tophus] = '1'"},
     {"field_name": "joints", "form_name": "baseline", "field_type": "checkbox", "field_label": "Joints involved",
-     "select_choices_or_calculations": "1, Toe | 2, Ankle | 3, Knee"},
+     "select_choices_or_calculations": "1, Toe | 2, Ankle | 3, Knee | -99, Unknown"},  # -99: R2 reads REDCap's name
     {"field_name": "visit_dmy", "form_name": "baseline", "field_type": "text", "field_label": "Visit date (D-M-Y)",
      "text_validation_type_or_show_slider_number": "date_dmy"},
     {"field_name": "temp", "form_name": "baseline", "field_type": "text", "field_label": "Body temperature (°C)",
-     "text_validation_type_or_show_slider_number": "number_1dp", "text_validation_min": "30.0",
-     "text_validation_max": "45.0"},
+     "text_validation_type_or_show_slider_number": "number", "text_validation_min": "30.0",
+     "text_validation_max": "45.0", "field_annotation": "@TB-DECIMALS=1"},  # D-840: number_1dp is not offered there
     {"field_name": "ae_term", "form_name": "ae", "field_type": "text", "field_label": "AE term"},
     {"field_name": "ae_serious", "form_name": "ae", "field_type": "yesno", "field_label": "Serious"},
     {"field_name": "ae_sae_reason", "form_name": "ae", "field_type": "text", "field_label": "Why serious",
@@ -296,7 +296,7 @@ CONF_CALC: list[tuple[str, dict[str, str]]] = [
     ("datediff([d2],[d1],'d',true)", {"d1": "2026-01-01", "d2": "2026-03-01"}),
     ("rounddown(datediff([dob],'today','y'))", {"dob": "1960-05-01"}),
     ("[cb(2)] + [cb(3)]", {"cb": "1,3"}),
-    ("2^10 - -1", {}),
+    ("2*2*2*2*2*2*2*2*2*2 - 1", {}),  # D-840: no ^, no two minus signs (the original forms are evaluator tests)
     ("sqrt(-1)", {}),
 ]
 CONF_BRANCH: list[tuple[str, dict[str, str]]] = [

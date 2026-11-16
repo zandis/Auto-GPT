@@ -279,3 +279,54 @@ def test_e10_signing_and_switching_on_need_the_delegation_log(eb: dict[str, Any]
     r = c2.post("/studies/GZQO/edc/sign", data={"csrf": _csrf(rev), "record": NO, "password": PW, "meaning_ack": "1",
                                                 "seen": seen})  # fmt: skip
     assert r.status_code == 409 and "own active entry" in r.text and not eb["svc"].store.signatures("GZQO")
+
+
+# ---------------------------------------------------------------------------------------------- NEW-JRN-5 (D-768)
+@pytest.fixture
+def crf100(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A real eCRF's size: the synthetic dictionary plus 100 text fields (JRN-005: 77 items already failed)."""
+    extra = [{"field_name": f"lab_{i:03d}", "form_name": "labs", "field_type": "text", "field_label": f"Lab {i}"}
+             for i in range(100)]  # fmt: skip
+    monkeypatch.setattr(k, "CRF", [*k.CRF, *extra])
+
+
+def test_a_map_of_a_real_ecrfs_size_saves_through_the_form(crf100: None, eb: dict[str, Any]) -> None:
+    """JRN-005: 13 fields per item; past 1,000 the framework's default refused the form with a raw JSON answer. The
+    form is now read with a limit from the study's dictionary size."""
+    crc, _ = login(eb["app"], "crc", PW)
+    page = crc.get("/studies/GZQO/edc/map")
+    r = crc.post("/studies/GZQO/edc/dictionary", data={"csrf": _csrf(page.text), "token_ref": "edc",
+                                                       "record_field": "record_id"}, follow_redirects=False)  # fmt: skip
+    page = crc.get(r.headers["location"]).text
+    items = re.findall(r'name="item" value="([^"]+)"', page)
+    items = [i for i in items if i != "tb_screening_no"]  # the key field is never drafted
+    assert len(items) > 100
+    form: dict[str, Any] = {"csrf": _csrf(page), "token_ref": "edc", "key_field": "tb_screening_no",
+                            "id_field": "record_id", "item": items}  # fmt: skip
+    for it in items:
+        for f in ("source", "what", "codes", "unit", "window_days", "cdash", "question", "pick", "system", "test",
+                  "sex_codes", "yes_code"):  # fmt: skip
+            form[f"{f}-{it}"] = ""
+        form[f"source-{it}"], form[f"window_days-{it}"] = "none", "30"  # not prefilled: a valid map row
+    r = crc.post("/studies/GZQO/edc/map", data=form, follow_redirects=False)
+    assert r.status_code == 303, r.text[r.text.find("edc-error") :][:900]
+    assert "Too many fields" not in r.text
+
+
+def test_a_form_past_the_dictionarys_size_gets_the_consoles_page(eb: dict[str, Any]) -> None:
+    """A form far larger than the dictionary allows is refused with the console's page, not a raw JSON answer."""
+    crc, _ = login(eb["app"], "crc", PW)
+    page = crc.get("/studies/GZQO/edc/map").text
+    form = {"csrf": _csrf(page), "item": [f"x{i}" for i in range(3000)]}
+    r = crc.post("/studies/GZQO/edc/map", data=form)
+    assert r.status_code == 413 and "Too many fields" not in r.text and 'data-testid="edc-error"' in r.text
+    assert "dictionary allows; nothing was saved" in r.text and not eb["svc"].store.map("GZQO")
+
+
+def test_the_row_size_the_limit_counts_covers_the_templates_inputs() -> None:
+    """D-768: the limit counts ``MAP_ROW_FIELDS`` inputs per item; an input added to the map's row must raise it."""
+    from console.edc_pages import MAP_ROW_FIELDS
+
+    html = (Path(__file__).resolve().parents[2] / "services/console/templates/edc_map.html").read_text(encoding="utf-8")
+    per_item = set(re.findall(r'name="([a-z_]+)-\{\{ *r\.item *\}\}"', html))
+    assert len(per_item) + 1 <= MAP_ROW_FIELDS  # its named inputs and the hidden item

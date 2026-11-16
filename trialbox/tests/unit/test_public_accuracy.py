@@ -108,6 +108,19 @@ def test_trec_topics_qrels_and_a_balanced_sample() -> None:
     assert {p.patient for p in s1} == {"trec2021:1", "trec2021:2", "trec2021:3"} and len(s1) == 4
 
 
+def test_an_xml_file_with_a_doctype_or_an_entity_is_refused() -> None:
+    bomb = '<?xml version="1.0"?><!DOCTYPE t [<!ENTITY a "aaaa">]><topics><topic number="1">&a;</topic></topics>'
+    for text in (bomb, '<!ENTITY a "x"><topics/>'):
+        with pytest.raises(ValueError, match="is refused"):
+            sets.trec_topics(text, "2021")
+
+
+def test_only_an_https_address_is_opened() -> None:
+    for url in ("file:///etc/passwd", "http://h.invalid/a", "ftp://h.invalid/a"):
+        with pytest.raises(ValueError, match="only https"):
+            src.https_open(url, timeout=1)
+
+
 def test_tfda_quirks_are_cleaned(tmp_path: Path) -> None:
     i, e, issues = sets.tfda_clean("A &#8805; 1", "B")
     assert i == "A ≥ 1" and "html_entities" in issues
@@ -282,6 +295,19 @@ def test_score_joins_by_ids_after_the_run(tmp_path: Path) -> None:
     assert crit["wrong_exclusion"]["k"] == 1  # blocked on "Pregnancy" that the gold says does not apply
     cp = r["compile_pairs"]["rows"][0]
     assert cp["local"] == "TW0001" and cp["n_local"] == 1 and cp["n_en"] == 2 and cp["age_agree"] is False
+
+
+def test_unanswered_rows_never_score_as_zero(tmp_path: Path) -> None:
+    """Gate C (2026-11-15): a set whose SCREEN answered nobody has no figure, not a 0 % with a tight interval."""
+    built, work = _answers(tmp_path)
+    answers = json.loads((work / "answers.json").read_text(encoding="utf-8"))
+    for a in answers.values():
+        a["patients"] = {}
+    (work / "answers.json").write_text(json.dumps(answers), encoding="utf-8")
+    r = score.score(built, work)
+    assert r["criteria"]["answered"] == 0 and r["criteria"]["wrong_exclusion"]["n"] == 0
+    assert r["pairs"]["summary"]["en"]["answered"] == 0 and r["pairs"]["summary"]["en"]["eligible_lost"]["n"] == 0
+    assert "answered none" in r["not_scored_because"]
 
 
 def test_evidence_hit_against_the_deciding_sentence() -> None:

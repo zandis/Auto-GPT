@@ -1,0 +1,81 @@
+[first 33 lines not copied: the last 80 only]
+== boot 2026-11-15T07:39:57Z run box-20261115T073901Z-e7504de38 boot c582a252
+TB-STEP b01-source start 2026-11-15T07:40:00Z
+TB-STEP b01-source done
+TB-STEP b02-venv start 2026-11-15T07:40:18Z
+TB-STEP b02-venv done
+TB-STEP b03-images start 2026-11-15T07:40:29Z
+TB-STEP b03-images done
+TB-STEP b04-gates start 2026-11-15T07:43:55Z
+TB-STEP b04-gates done
+TB-STEP b05-sign start 2026-11-15T07:49:11Z
+TB-STOP b05-sign: signing the bundle (tools/make_bundle.sh with a throwaway key made on this VM: not a release): exit 1
+TB-WATCHDOG done, results in the bucket: powering off
+== boot 2026-11-15T08:02:08Z run box-20261115T080047Z-5618bd840 boot 497e878f
+TB-STEP b01-source start 2026-11-15T08:02:12Z
+TB-STEP b01-source done
+TB-STEP b02-venv start 2026-11-15T08:02:30Z
+TB-STEP b02-venv done
+TB-STEP b03-images start 2026-11-15T08:02:51Z
+TB-STEP b03-images done
+TB-STEP b04-gates start 2026-11-15T08:06:47Z
+TB-STEP b04-gates done
+TB-STEP b05-sign start 2026-11-15T08:12:43Z
+TB-STOP b05-sign: signing the bundle (tools/make_bundle.sh with a throwaway key made on this VM: not a release): exit 1
+TB-WATCHDOG done, results in the bucket: powering off
+== boot 2026-11-15T08:51:01Z run box-20261115T085016Z-876ff6506 boot 06cf7a1f
+TB-STEP 00-facts start 2026-11-15T08:51:04Z
+TB-STEP 00-facts done
+TB-PROBE-DONE: the VM's facts are in records/facts-vm.txt; nothing was built or installed
+TB-WATCHDOG done, results in the bucket: powering off
+== boot 2026-11-15T09:11:35Z run box-20261115T091037Z-ac36aa21f boot b4c8f6cf
+TB-STEP b01-source start 2026-11-15T09:11:38Z
+TB-STEP b01-source done
+TB-STEP b02-venv start 2026-11-15T09:11:56Z
+TB-STEP b02-venv done
+TB-STEP b03-images start 2026-11-15T09:12:18Z
+TB-STEP b03-images done
+TB-STEP b04-gates start 2026-11-15T09:14:59Z
+TB-STEP b04-gates done
+TB-STEP b05-sign start 2026-11-15T09:20:40Z
+TB-STOP b05-sign: signing the bundle (tools/make_bundle.sh with a throwaway key made on this VM: not a release): exit 1
+TB-WATCHDOG done, results in the bucket: powering off
+== boot 2026-11-15T09:33:41Z run box-20261115T091037Z-ac36aa21f boot 5c90e503
+NOCHANGE: partition 1 is size 836761567. it cannot be grown
+resize2fs 1.47.0 (5-Feb-2023)
+The filesystem is already 104595195 (4k) blocks long.  Nothing to do!
+
+TB-DISK root 414921494528 -> 414921494528 B (grown: growpart /dev/nvme0n1 1, then the ext4 file system)
+TB-STEP b01-source kept (finished before; not run again)
+TB-STEP b02-venv kept (finished before; not run again)
+TB-STEP b03-images kept (finished before; not run again)
+TB-STEP b04-gates kept (finished before; not run again)
+TB-STEP b05-sign start 2026-11-15T09:33:44Z
+TB-STEP b05-sign done
+TB-STEP b06-verify start 2026-11-15T09:42:27Z
+TB-STEP b06-verify done
+TB-STEP b07-upload start 2026-11-15T09:43:18Z
+TB-STEP b07-upload done
+TB-BOX-RUN-COMPLETE: every step ran; the parts say which test rules passed
+TB-WATCHDOG done, results in the bucket: powering off
+== boot 2026-11-15T09:48:32Z run box-20261115T094747Z-4c7c47017 boot 02abc559
+NOCHANGE: partition 1 is size 836761567. it cannot be grown
+resize2fs 1.47.0 (5-Feb-2023)
+The filesystem is already 104595195 (4k) blocks long.  Nothing to do!
+
+TB-DISK root 414921494528 -> 414921494528 B (grown: growpart /dev/nvme0n1 1, then the ext4 file system)
+TB-STEP 01-bundle start 2026-11-15T09:48:35Z
+TB-STEP 01-bundle done
+TB-STEP 02-install start 2026-11-15T09:49:51Z
+TB-STOP 02-install: the installer (install.sh --answers: a VALIDATION box): exit 1
+TB-WATCHDOG done, results in the bucket: powering off
+== boot 2026-11-15T10:23:22Z run box-20261115T094747Z-4c7c47017 boot 86827264
+NOCHANGE: partition 1 is size 836761567. it cannot be grown
+resize2fs 1.47.0 (5-Feb-2023)
+The filesystem is already 104595195 (4k) blocks long.  Nothing to do!
+
+TB-DISK root 414921494528 -> 414921494528 B (grown: growpart /dev/nvme0n1 1, then the ext4 file system)
+TB-STEP 01-bundle kept (finished before; not run again)
+TB-STEP 02-install start 2026-11-15T10:23:25Z
+TB-STOP 02-install: the installer (install.sh --answers: a VALIDATION box): exit 1
+TB-WATCHDOG done, results in the bucket: powering off

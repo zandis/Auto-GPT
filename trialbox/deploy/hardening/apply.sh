@@ -5,7 +5,8 @@
 #
 # firewall: the nftables table inet trialbox_input, written to /etc/trialbox/input.nft and loaded at every boot by
 #   trialbox-input.service (before the network). Input policy drop: loopback, replies, ICMP that IP needs, DHCP
-#   replies, and the Docker bridges are let in; 443 only from CLINIC_RANGES; 22 only from IT_RANGES when SSH=it.
+#   replies, and the Docker bridges are let in; 443 only from CLINIC_RANGES; 22 only from IT_RANGES when SSH=it;
+#   with MDNS=on (a box named <name>.local, OPS-005) mDNS, UDP 5353, from CLINIC_RANGES only.
 #   Port 443 is published by Docker, so it never reaches the input hook: a prerouting chain (before Docker's DNAT)
 #   drops 443 to this host from any other source. Forwarded container traffic stays the egress table's (network.sh).
 # ssh: SSH=off stops and disables the service; SSH=it writes /etc/ssh/sshd_config.d/50-trialbox.conf (keys only, no
@@ -27,7 +28,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-CLINIC_RANGES=""; IT_RANGES=""; SSH=off
+CLINIC_RANGES=""; IT_RANGES=""; SSH=off; MDNS=off
 hb_load_conf "$CONF"
 
 # a range is digits, dots, colons, hex and one slash: anything else is refused before it reaches nft
@@ -49,6 +50,7 @@ render() {
     it) [ -n "$IT_RANGES" ] || hb_die "SSH=it needs IT_RANGES"; check_ranges IT_RANGES "$IT_RANGES" ;;
     *) hb_die "SSH must be off or it, not '$SSH'" ;;
   esac
+  case "$MDNS" in on|off) ;; *) hb_die "MDNS must be on or off, not '$MDNS'" ;; esac
   c4=$(v4 "$CLINIC_RANGES"); c6=$(v6 "$CLINIC_RANGES"); i4=$(v4 "$IT_RANGES"); i6=$(v6 "$IT_RANGES")
   echo "# TrialBox input firewall (deploy/hardening/apply.sh; T-634, D-408). Generated: do not edit; change"
   echo "# deploy/site/hardening.conf and run apply.sh again."
@@ -83,6 +85,10 @@ render() {
   echo "    udp sport 547 udp dport 546 accept"
   echo "    tcp dport 443 ip saddr @clinic_v4 accept"
   echo "    tcp dport 443 ip6 saddr @clinic_v6 accept"
+  if [ "$MDNS" = on ]; then  # OPS-005: the box's .local name answers the clinic's computers, nobody else
+    echo "    udp dport 5353 ip saddr @clinic_v4 accept"
+    echo "    udp dport 5353 ip6 saddr @clinic_v6 accept"
+  fi
   if [ "$SSH" = it ]; then
     echo "    tcp dport 22 ip saddr @it_v4 accept"
     echo "    tcp dport 22 ip6 saddr @it_v6 accept"

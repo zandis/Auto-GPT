@@ -17,7 +17,8 @@ import re
 #: the right a patient read asks of the matrix: who may see patient-level data
 PHI = "phi.view"
 #: D-389: a monitor (a sponsor's CRA, under a monitor grant) reads the enrolled subjects and their cited values
-#: (``console.sdv_page``): the four routes that page reads take its row too
+#: (``console.sdv_page``): the routes that page reads take its row too (NEW-JRN-8, D-772: and one enrolled subject's
+#: record, for its values in the built-in forms; the console signs it only for a subject the monitor may open)
 MONITOR = (PHI, "monitor.read")
 
 #: "GET <template>" -> the action its claim must be for (or one of several: the claim names which, and the matrix
@@ -26,7 +27,7 @@ PATIENT_READS: dict[str, str | tuple[str, ...]] = {
     # the data core (D-123): values, records, their history, conflicts between sources, every record as a file
     "GET /studies/{rs}/data": PHI,
     "GET /studies/{rs}/records": PHI,
-    "GET /studies/{rs}/records/{record}": PHI,
+    "GET /studies/{rs}/records/{record}": MONITOR,  # NEW-JRN-8 (D-772): the monitor's sheet
     "GET /studies/{rs}/conflicts": PHI,
     "GET /studies/{rs}/export/{fmt}": PHI,
     "GET /studies/{rs}/fhir": PHI,
@@ -50,6 +51,9 @@ PATIENT_READS: dict[str, str | tuple[str, ...]] = {
     # the screening registry (D-273): a status per pseudonym and its events
     "GET /registry/{ruleset}": PHI,
     "GET /registry/{ruleset}/events": PHI,
+    # NEW-ARCH-3 slice 2 (D-865): the clinical conflicts of the whole store of record, by pseudonym, for the steward
+    # (the right that has always guarded the console's page); the whole site's, no study
+    "GET /omop/conflicts": "conflicts.resolve",
     # the site set-up of the whole site (D-131): uploaded files and charts, facts, checks with raw values, fixes with
     # example values, patients by pseudonym, the patient check
     "GET /setup/{ws}/inputs": PHI,

@@ -1,5 +1,7 @@
 # TrialBox 網路、連接埠與機密資訊一覽
 
+**Reader:** hospital IT（醫院資訊室；由擁有者連同 it-one-page.zh-TW.md 一起交給資訊室）。
+
 由下列 compose 檔以 tools/network_sheet.py 產生（D-138）。除主控台連接埠外，外部無法連到本機任何服務。本表不含任何機密的值。
 
 **compose 檔:** `deploy/docker-compose.yml`, `deploy/docker-compose.secrets.yml`, `deploy/docker-compose.identity.yml`, `deploy/docker-compose.rtx5090.yml`, `deploy/docker-compose.gb10.yml`, `deploy/docker-compose.rtxpro6000.yml`

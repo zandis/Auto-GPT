@@ -1,0 +1,81 @@
+[first 62 lines not copied: the last 80 only]
+warning: sae_office_mailbox is empty: nobody is mailed when a serious adverse event is entered; a PRODUCTION install stops without it (D-736)
+wrote /out/settings.yaml and /out/.env (0600)
+    ClinicalTrials.gov: offline
+[line removed: password, token, secret or code]
+    feed folder: /opt/trialbox/deploy/site/feed -> /data/source/site in the adapter
+[line removed: IP address]
+install: warning: no SAE office mailbox (VALIDATION): nobody is mailed when a serious adverse event is entered until TB_SAE_OFFICE_MAILBOX is set in deploy/.env (RUNBOOK §1)
+    memcaps: no CURRENT snapshot and no TB_SITE_PATIENTS: the compose defaults stay (set TB_SITE_PATIENTS to size them)
+==> pinning the rtxpro6000 model pair from deploy/models (tools/pin_model.py --install)
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/app/tools/pin_model.py", line 1135, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/app/tools/pin_model.py", line 1084, in main
+    good, lines = install_pins(args.install, args.models_root, args.out, dict(os.environ),
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/tools/pin_model.py", line 572, in install_pins
+    m, _ = pin(
+           ^^^^
+  File "/app/tools/pin_model.py", line 277, in pin
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+  File "/usr/local/lib/python3.12/pathlib.py", line 1311, in mkdir
+    os.mkdir(self, mode)
+PermissionError: [Errno 13] Permission denied: '/d/site/manifests'
+install: warning: a model of the rtxpro6000 pair is not pinned (see above): it routes nothing until its weights are in deploy/models and install runs again (RUNBOOK §8)
+install: note: no model pinned yet (deploy/site/registry.site.yaml): the gateway routes nothing to a local model until you run tools/pin_model.py or make spark-e2e (RUNBOOK §8)
+measured on rtxpro6000
+    rtxpro6000 profile measured: deploy/measured/serving_config.rtxpro6000.json
+    PASS  third-party images of 3 compose file(s) as deploy/images.lock (2 entries)
+==> starting the stack (profile gpu)
+    image pins: HAPI_IMAGE: hapiproject/hapi:v8.12.0-2@sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e on this box by its digest
+    image pins: VLLM_IMAGE: vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34 on this box by its digest
+    every image of the stack is on this box (nothing is pulled)
+    pre-start: image pins: compose is pointed at the bundle's images where the image store kept no digest
+    pre-start: model key: in place, or not a GPU box
+[line removed: next to a redacted marker]
+[line removed: redacted marker]
+[line removed: next to a redacted marker]
+==> site keys (made once, never replaced)
+[line removed: password, token, secret or code]
+[line removed: redacted marker]
+[line removed: password, token, secret or code]
+[line removed: redacted marker]
+[line removed: next to a redacted marker]
+ Volume trialbox_db-pg Creating 
+ Volume trialbox_audit-data Creating 
+ Volume trialbox_audit-data Creating 
+ Volume trialbox_lake-data Creating 
+ Volume trialbox_lake-data Creating 
+ Network trialbox-net Creating 
+ Network trialbox-net Creating 
+[line removed: password, token, secret or code]
+[line removed: redacted marker]
+[line removed: password, token, secret or code]
+[line removed: redacted marker]
+[line removed: next to a redacted marker]
+ Volume trialbox_lake-data Created 
+ Volume trialbox_audit-data Created 
+ Volume trialbox_audit-data Created 
+ Volume trialbox_db-pg Created 
+ Volume trialbox_db-pg Created 
+ Network trialbox-net Created 
+ Network trialbox-net Created 
+ Container trialbox-adapter-run-4cf6c721d960 Creating 
+ Container trialbox-adapter-run-4cf6c721d960 Created 
+[line removed: key fingerprint]
+[line removed: key fingerprint]
+==> site keys sealed under the KEK (deploy/hardening/seal_keys.sh)
+    sealing the site keys under a new KEK (back end tpm)
+[line removed: KEK id]
+[line removed: KEK id]
+[line removed: redacted marker]
+[line removed: key fingerprint]
+[line removed: key fingerprint]
+[line removed: password, token, secret or code]
+[line removed: redacted marker]
+[line removed: next to a redacted marker]
+install: the site keys are not sealed (above): fix deploy/site/hardening.conf (KEK_BACKEND) and re-run; docs/security/01-the-host.md

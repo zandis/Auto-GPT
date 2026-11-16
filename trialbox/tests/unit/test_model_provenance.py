@@ -330,7 +330,7 @@ def test_the_serving_record_names_the_template_sha(tmp_path: Path) -> None:
     container = "/models/chat-templates/t/chat_template.jinja"
     assert sc.template_sha256(models, container) == sha  # what capture writes for the server
     assert sc.template_sha256(models, "/models/missing.jinja") is None
-    good = _record({"chat_template": container, "chat_template_sha256": sha})
+    good = _record({"chat_template": container, "chat_template_sha256": sha, "chat_template_content_format": "string"})
     assert sc.validate(good) == [] and sc.chat_template_of(good) == (container, sha)
     assert sc.template_problems(good, sha) == []
     assert sc.template_problems(good, "ef" * 32) and "is not the pinned" in sc.template_problems(good, "ef" * 32)[0]

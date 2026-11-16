@@ -50,15 +50,20 @@ from tools import feas_demo as fd  # noqa: E402
 TRIAL, COHORT = "GZQO", "GOUT-COH"
 PI_PRACTITIONER = "P12345"
 COHORT_CLINICS = "P12345,P23456,P34567,P45678"
-EXTRA_EXCLUSION = "Participation in another interventional drug trial within the last 30 days."
+# D-758: within the 40 characters a draft's short label takes in English, a whole phrase ("Participation in another
+# interventional" was cut); the same meaning as GZQO-EXC-14, which it rewords
+EXTRA_EXCLUSION = "Any other drug trial within 30 days."
 # the scenarios: trial -> (registry, investigator, registry clinics, added exclusion, "need info" note, site)
 SCENARIOS: dict[str, dict[str, Any]] = {
     "GZQO": {
         "cohort": COHORT,
         "pi": PI_PRACTITIONER,
         "clinics": COHORT_CLINICS,
-        "extra": EXTRA_EXCLUSION,
-        "need_info": "HbA1c の最新値を確認",
+        "extra": None,
+        # DEMO-SEED (D-757): the note in the seed's language (a Japanese note showed in an English session)
+        "need_info": {"ja": "HbA1c の最新値を確認", "en": "Check the latest HbA1c", "zh-TW": "確認最新的 HbA1c 數值"},
+        # D-757: GZQO-EXC-14 (another interventional study within 30 days) reworded, not added again beside itself
+        "reword": ("Participation in another interventional study within 30 days before screening.", EXTRA_EXCLUSION),
         "profile": "ci",
         "settings": None,
     },
@@ -67,7 +72,11 @@ SCENARIOS: dict[str, dict[str, Any]] = {
         "pi": "P90001",
         "clinics": "P90001,P90002,P90003",
         "extra": "スクリーニング前30日以内に他の治験に参加した者。",
-        "need_info": "アミロイドPETまたは脳脊髄液検査の結果を確認",
+        "need_info": {
+            "ja": "アミロイドPETまたは脳脊髄液検査の結果を確認",
+            "en": "Check the amyloid PET or cerebrospinal fluid result",
+            "zh-TW": "確認類澱粉蛋白PET或腦脊髓液檢查結果",
+        },
         "profile": "jp-ad",
         "settings": fd.SITE_JP,
     },
@@ -114,18 +123,22 @@ DAY_ENV = "TB_DEMO_DAY"
 
 
 def seed_day(today: date) -> date:
-    """The day the seed plays for a demo started on ``today`` (D-496): the Tuesday before the last Wednesday on or
-    before ``today``. The seed ends with the screening cadence (e2e stage 17), which ingests the data of the Tuesday
-    after the seed day and screens it on the Wednesday; seeding on that Tuesday's eve keeps the data date, that
-    Wednesday's run and every mark on or before ``today``, never after it (a Friday seed showed "data as of" the next
-    Tuesday). A Tuesday is a working day, so the coordinator's morning digest still goes out."""
-    wednesday = today - timedelta(days=(today.weekday() - 2) % 7)
-    return wednesday - timedelta(days=1)
+    """The day the seed plays for a demo started on ``today``: the last working day (Monday to Friday) before
+    ``today`` (DEMO-SEED, D-757; D-496 played the Tuesday before the last Wednesday, so the data was up to a week old
+    and every study page said "more than two days old" on the demo day). The seed ends with the screening cadence
+    (e2e stage 17), which ingests the seed day's data in the night after it (:func:`cadence_night`): the data date,
+    that night's run and every mark stay on or before ``today``, never after it; a working day, so the coordinator's
+    morning digest still goes out. On a Tuesday to a Saturday the data is as of yesterday."""
+    day = today - timedelta(days=1)
+    while day.weekday() >= 5:
+        day -= timedelta(days=1)
+    return day
 
 
 def cadence_night(day: date) -> date:
-    """The Wednesday the screening cadence (e2e stage 17) plays after a seed on ``day``: the next Wednesday."""
-    return day + timedelta(days=(2 - day.weekday()) % 7 or 7)
+    """The night the screening cadence (e2e stage 17) plays after a seed on ``day``: the next day (its ingest takes
+    the seed day's data, its run is that night); on or before the demo day (:func:`seed_day`)."""
+    return day + timedelta(days=1)
 
 
 def demo_day(
@@ -194,6 +207,11 @@ def criteria_text(ruleset: str, trial: str = TRIAL) -> str:
     text = fd.pasted_criteria(ruleset)
     if ruleset == sc["cohort"]:  # one criterion reworded
         return text.replace("1. ", "1. 年齢18歳以上で、", 1)
+    if sc.get("reword"):  # D-757: an exclusion reworded (the trial's own, so its labels are its own in every language)
+        old, new = sc["reword"]
+        if old not in text:
+            raise ValueError(f"{ruleset}: no criterion reads {old!r} to reword")
+        return text.replace(old, new, 1)
     n = len(re.findall(r"^\d+\. ", text.split("除外基準", 1)[-1], re.M)) + 1
     return text.rstrip("\n") + f"\n{n}. {sc['extra']}\n"  # one exclusion added to the trial
 
@@ -384,7 +402,7 @@ def run(work: Path, password: str, lang: str = "ja", trial: str = TRIAL, day: da
     assert len(picks) == 3, "fewer than three patients on the list"
     marks = [
         ("approach", {}),
-        ("need_info", {"note": str(sc["need_info"])}),
+        ("need_info", {"note": str(sc["need_info"].get(lang) or sc["need_info"]["en"])}),
         ("not_now", {"recheck": (day + timedelta(days=28)).isoformat()}),
     ]
     lst = ok(pi.get(f"/studies/{trial}/week?list=all"), "list")

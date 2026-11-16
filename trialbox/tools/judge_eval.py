@@ -100,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
     from tb_common.llm import LlmClient
 
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--set", type=Path, default=ROOT / "tests" / "fixtures" / "llm" / "judge_set.jsonl")
+    ap.add_argument("--set", type=Path, default=ROOT / "eval" / "qualification" / "judge_set.jsonl")
     ap.add_argument("--gateway-url", default=os.environ.get("TB_GATEWAY_URL", ""), help="a DEV or TEST gateway")
     ap.add_argument("--model", default="", help="an alias the gateway may route the judge role to")
     ap.add_argument("--prompt", default="judge")

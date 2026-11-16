@@ -34,30 +34,30 @@ DOMAINS = ("observation", "condition", "medication", "procedure", "report", "enc
 SQL = """
 SELECT 'observation' AS domain, oid AS rid, code, system, CAST(effective AS DATE) AS d, value_num, unit, value_code,
        value_cmp
-FROM observation WHERE list_contains(CAST($1 AS VARCHAR[]), pid) AND list_contains(CAST($2 AS VARCHAR[]), oid)
+FROM observation WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) AND oid IN (SELECT unnest(CAST($2 AS VARCHAR[])))
 UNION ALL
 SELECT 'condition', cid, code, system, coalesce(onset, recorded), NULL, NULL, NULL, NULL
-FROM condition WHERE list_contains(CAST($1 AS VARCHAR[]), pid) AND list_contains(CAST($2 AS VARCHAR[]), cid)
+FROM condition WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) AND cid IN (SELECT unnest(CAST($2 AS VARCHAR[])))
 UNION ALL
 SELECT 'medication', mid, coalesce(nullif(atc, ''), nhi_code),
        CASE WHEN coalesce(atc, '') <> '' THEN CAST($3 AS VARCHAR) ELSE CAST($4 AS VARCHAR) END, authored,
        NULL, NULL, NULL, NULL
-FROM medication WHERE list_contains(CAST($1 AS VARCHAR[]), pid) AND list_contains(CAST($2 AS VARCHAR[]), mid)
+FROM medication WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) AND mid IN (SELECT unnest(CAST($2 AS VARCHAR[])))
 UNION ALL
 SELECT 'procedure', prid, code, system, performed, NULL, NULL, NULL, NULL
-FROM procedure WHERE list_contains(CAST($1 AS VARCHAR[]), pid) AND list_contains(CAST($2 AS VARCHAR[]), prid)
+FROM procedure WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) AND prid IN (SELECT unnest(CAST($2 AS VARCHAR[])))
 UNION ALL
 SELECT 'report', rid, code, system, effective, NULL, NULL, NULL, NULL
-FROM report WHERE list_contains(CAST($1 AS VARCHAR[]), pid) AND list_contains(CAST($2 AS VARCHAR[]), rid)
+FROM report WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) AND rid IN (SELECT unnest(CAST($2 AS VARCHAR[])))
 UNION ALL
 SELECT 'encounter', eid, dept, CAST($5 AS VARCHAR), CAST(start AS DATE), NULL, NULL, NULL, NULL
-FROM encounter WHERE list_contains(CAST($1 AS VARCHAR[]), pid) AND list_contains(CAST($2 AS VARCHAR[]), eid)
+FROM encounter WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) AND eid IN (SELECT unnest(CAST($2 AS VARCHAR[])))
 UNION ALL
 SELECT 'claim', kid, product, CAST($4 AS VARCHAR), created, NULL, NULL, NULL, NULL
-FROM claim WHERE list_contains(CAST($1 AS VARCHAR[]), pid) AND list_contains(CAST($2 AS VARCHAR[]), kid)
+FROM claim WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))) AND kid IN (SELECT unnest(CAST($2 AS VARCHAR[])))
 """
 CODE_SYSTEMS = (SYSTEMS["atc"], SYSTEMS["nhi_drug"], SYSTEMS["department"])
-PATIENTS = "SELECT pid, birth_date, sex FROM patient WHERE list_contains(CAST($1 AS VARCHAR[]), pid)"
+PATIENTS = "SELECT pid, birth_date, sex FROM patient WHERE pid IN (SELECT unnest(CAST($1 AS VARCHAR[])))"
 
 log = logging.getLogger("matching.coded_values")
 

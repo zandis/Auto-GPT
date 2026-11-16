@@ -29,6 +29,7 @@
     {% else %}<p class="big"><span class="pill bad" data-testid="ops-backup-age">{{ t('ops.backup.none') }}</span></p>{% endif %}
     {% if not sm.backup_key %}<p class="warn">{{ t('ops.backup.nokey') }}</p>{% endif %}
     <p>{{ t('ops.backup.last_check') }}: {% if sm.last_check %}{{ res(sm.last_check) }}{% else %}–{% endif %}</p>
+    <p data-testid="ops-drill">{{ t('ops.drill.last') }}: {% if sm.drill_at %}<span class="pill {{ 'bad' if sm.drill_red or not sm.drill_ok else 'ok' }}">{{ sm.drill_at|local }}, {{ t('ops.drill.pass') if sm.drill_ok else t('ops.drill.fail') }}</span>{% else %}<span class="pill {{ 'bad' if sm.drill_red else '' }}">{{ t('ops.drill.none') }}</span>{% endif %}</p>
     <a href="/admin/ops?tab=backups">{{ t('ops.open') }}</a>
   </section>
   <section class="card tile" data-testid="ops-update-tile">
@@ -77,6 +78,9 @@
 <tbody>{% for f in tg.files %}<tr><td class="mono">{{ f.name }}</td><td class="nowrap">{{ f.at|local }}</td><td>{{ (f.bytes / 1048576)|round(1) }} MB</td></tr>{% endfor %}</tbody></table></div>
 {% else %}<p class="hint">{{ t('ops.backup.none') }}</p>{% endif %}{% endfor %}
 <p class="hint">{{ t('ops.backup.verify_cli') }}</p>
+<p data-testid="ops-drill-tab">{{ t('ops.drill.last') }}: {% if sm.drill_at %}{{ sm.drill_at|local }}, {{ t('ops.drill.pass') if sm.drill_ok else t('ops.drill.fail') }}{% else %}{{ t('ops.drill.none') }}{% endif %}</p>
+<p class="hint">{{ t('ops.drill.cli') }}</p>
+<pre class="mono" data-testid="ops-drill-cmd">{{ sm.drill_cmd }}</pre>
 </section>
 
 {% elif tab == 'update' %}

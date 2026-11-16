@@ -15,6 +15,11 @@ Run on the host as root (the secrets volume), from the install folder with ``PYT
     python -m tools.keys rotate pid_map                     # a new pid_map.key; every pid map row re-encrypted
     python -m tools.keys seal-objects [--store DIR]         # T-210c: uploads and outputs sealed under objects.key
     python -m tools.keys seal-objects --check               # exit 1 when the store is not sealed or a file is plain
+    python -m tools.keys ceremony-record --custodian A --custodian B --custodian C --witness W [--shares-dir DIR]
+                                                            # TB-SOP-03 (D-893): the record the custodians sign
+    python -m tools.keys escrow-shares --threshold 2 --shares 3 --escrow-out /media/usb --custodian A ... (x3)
+                                                            # D-894: the escrow copy of a TPM-sealed KEK
+    python -m tools.keys unseal --share FILE --share FILE --witness W   # a TPM box on a new board, from escrow
 
 The secrets folder is ``--secrets``, else ``TB_SECRETS_DIR``, else the compose volume on the host. Nothing here prints
 a key, a share or a passphrase: shares go to files (0600) for the stewards to take away, one each. ``init`` refuses a
@@ -36,13 +41,15 @@ from tb_common import kek as K
 
 HOST_SECRETS = "/var/lib/docker/volumes/trialbox_tb-secrets/_data"
 HOST_OBJECTS = "/var/lib/docker/volumes/trialbox_objects-data/_data"
+DEFAULT_DEPLOY = str(Path(__file__).resolve().parents[1] / "deploy")
 
 #: OPS-058: every key of a box. "code" is the command that rotates it, or None where the rule is a procedure.
 INVENTORY: tuple[dict[str, Any], ...] = (
     {"key": "KEK (key-encryption key)", "where": "not on the box's disks: steward shares, a passphrase, or a "
      "TPM-sealed credential; unsealed into /run/trialbox/kek (tmpfs)",
      "protects": "site_hmac.key, pid_map.key, objects.key, audit_sign.key, edc_sign.key",
-     "holder": "the site's key stewards (shares) or hospital IT (TPM, passphrase)",
+     "holder": "the site's key stewards (shares) or hospital IT (TPM, passphrase); a TPM KEK's escrow shares with "
+     "their custodians (escrow-shares, D-894)",
      "rotation": "yearly, and when a steward leaves", "code": "python -m tools.keys rotate-kek",
      "breaks": "nothing, when done with the old KEK unsealed; old shares stop working",
      "compromise": "rotate-kek at once; then rotate pid_map (the wrapped files may have been copied)"},
@@ -169,6 +176,14 @@ def new_kek(a: argparse.Namespace, sec: Path, env: Mapping[str, str], pass_var: 
         params = K.kms_seal(kek, url, a.kms_key, env.get("TB_KMS_TOKEN") or "")
         _say(f"KEK sealed by the KMS key {a.kms_key} at {url}; kek.json holds only the KMS ciphertext")
         return kek, K.new_meta("kms", kek, **params)
+    if getattr(a, "kek_in", None):
+        # D-836: a KEK sealed before any key is wrapped under it (seal_keys.sh): a failed seal changes nothing
+        given = Path(a.kek_in)
+        _outside(given, sec, "the KEK file")
+        kek = given.read_bytes() if given.is_file() else b""
+        if len(kek) != K.KEK_LEN:
+            raise K.KekError(f"{given} is not a KEK ({K.KEK_LEN} bytes): nothing was changed")
+        return kek, K.new_meta("file", kek)
     if not a.kek_out:
         raise K.KekError("--kek-out PATH is needed for the file back end (outside the secrets folder)")
     out = Path(a.kek_out)
@@ -244,9 +259,12 @@ def cmd_unseal(a: argparse.Namespace, env: Mapping[str, str]) -> int:
             raise K.KekError("that is not this box's passphrase")
     elif meta["backend"] == "kms":
         kek = K.kms_open(meta, env)
+    elif a.share:
+        return _unseal_escrow(a, env, sec, meta)
     else:
         if not a.kek_in:
-            raise K.KekError("--from PATH is needed for the file back end (the opened TPM credential or the media)")
+            raise K.KekError("--from PATH is needed for the file back end (the opened TPM credential or the media); "
+                             "--share FILE (repeat) with --witness opens it from its escrow shares")  # fmt: skip
         kek = Path(a.kek_in).read_bytes()
         if kek_id_mismatch(kek, meta):
             raise K.KekError(f"{a.kek_in} is not this box's KEK")
@@ -254,6 +272,69 @@ def cmd_unseal(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     _outside(out, sec, "the unsealed KEK")
     K._write_private(out, kek)
     _say(f"KEK {meta['kek_id']} unsealed to {out} (mode 0600; on tmpfs it is gone at the next boot)")
+    return 0
+
+
+def _unseal_escrow(a: argparse.Namespace, env: Mapping[str, str], sec: Path, meta: Mapping[str, Any]) -> int:
+    """D-894: a TPM box's KEK from its escrow shares (a new board): a witnessed event with its own record."""
+    from tools import key_escrow as ke
+
+    witness = (a.witness or "").strip()
+    if not witness:
+        raise K.KekError("opening the KEK from escrow shares is witnessed: --witness NAME (not a custodian)")
+    esc = ke.current(meta) or {}
+    if witness in {str(r.get("custodian")) for r in esc.get("shares", [])}:
+        raise K.KekError("the witness is not one of the escrow custodians")
+    where = ke.audit_dir(env, a.audit_dir)
+    texts = _share_texts(a, int(esc.get("threshold") or 2))
+    kek = K.kek_from_escrow(meta, texts)
+    out = runtime_kek_path(a.out, env)
+    _outside(out, sec, "the unsealed KEK")
+    indices = sorted({K.parse_share(t).index for t in texts if t.strip()})
+    md, rec = ke.use_record(Path(a.deploy), esc, indices, witness)
+    K._write_private(out, kek)
+    ke.audit(where, ke.USE_EVENT, ke.USE_ACTOR, {k: rec[k] for k in ("at", "set_id", "kek_id", "witness", "shares")})
+    _say(f"KEK {meta['kek_id']} unsealed from escrow set {esc['set_id']} to {out} (mode 0600)")
+    _say(f"escrow-use record written to {md} (and .json): the custodians who came and the witness sign it")
+    _say(
+        "next: put a new KEK on this board's TPM with a new escrow set: python -m tools.keys rotate-kek --backend "
+        "file --kek-out <media> --escrow-out <media> --custodian ... (the old shares then open nothing)"
+    )
+    return 0
+
+
+def cmd_escrow_shares(a: argparse.Namespace, env: Mapping[str, str]) -> int:
+    """D-894: split a TPM box's unsealed KEK into escrow shares on removable media (``tools/key_escrow.py``)."""
+    from tools import key_escrow as ke
+
+    sec = secrets_dir(a.secrets, env)
+    meta = K.read_meta(sec)
+    if meta is None:
+        raise K.KekError(f"{sec} has no KEK ({K.META_FILE}): python -m tools.keys init first")
+    if meta["backend"] != "file":
+        why = {"shamir": "its steward shares are already the KEK's recovery copy",
+               "passphrase": "a proof of concept or validation box; a site box uses the TPM or steward shares",
+               "kms": "the hospital's KMS keeps the key that seals it"}.get(str(meta["backend"]), "")  # fmt: skip
+        raise K.KekError(f"escrow shares are for a TPM-sealed KEK (back end file); this box's is {meta['backend']}: "
+                         f"{why}")  # fmt: skip
+    old = ke.current(meta)
+    if old is not None and not ke.stale(meta):
+        raise K.KekError(f"KEK {meta['kek_id']} already has escrow set {old['set_id']}: a second set puts more "
+                         "shares of the same KEK about. A lost or doubtful set: rotate-kek --backend file ... "
+                         "--escrow-out <media> (a new KEK, so the old shares open nothing)")  # fmt: skip
+    names = ke.check(a.threshold, a.shares, a.custodian or [], Path(a.escrow_out) if a.escrow_out else None, sec)
+    where = ke.audit_dir(env, a.audit_dir)
+    kek = K.load_kek(sec, env)
+    esc = ke.split(kek, a.threshold, names, Path(a.escrow_out))
+    K.write_meta(sec, {**meta, "escrow": esc})
+    ke.audit(where, ke.EVENT, ke.ACTOR, ke.summary(esc))
+    for r in esc["shares"]:
+        _say(f"escrow share {r['share']} of {r['of']} for {r['custodian']} written to {Path(a.escrow_out) / r['file']}"
+             f" (fingerprint {r['fingerprint']}); the custodian takes it away")  # fmt: skip
+    _say(
+        f"escrow set {esc['set_id']} ({esc['threshold']} of {esc['count']}) recorded in {sec / K.META_FILE}; "
+        "then python -m tools.keys ceremony-record lists it"
+    )
     return 0
 
 
@@ -317,9 +398,24 @@ def cmd_rotate_kek(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     if pending:  # a key rotation cut short (audit_sign.next.key): its staged key would stay under the old KEK
         raise K.KekError(f"{', '.join(pending)} is a key rotation not finished: finish it (run it again), then "
                          f"rotate-kek")  # fmt: skip
+    from tools import key_escrow as ke
+
+    names: list[str] = []
+    where: Path | None = None
+    if a.escrow_out:
+        if a.backend != "file":
+            raise K.KekError("--escrow-out is for a TPM-sealed KEK (--backend file)")
+        names = ke.check(a.escrow_threshold, a.escrow_shares, a.custodian or [], Path(a.escrow_out), sec)
+        where = ke.audit_dir(env, a.audit_dir)
+    old_meta = K.read_meta(sec)
     old = K.load_kek(sec, env)
     keys = {n: K.unwrap(old, K.read_wrapped(sec / n), n) for n in K.PROTECTED if K.wrapped_path(sec / n).exists()}
     new, meta = new_kek(a, sec, env, "TB_KEK_NEW_PASSPHRASE")
+    old_esc = ke.current(old_meta)
+    if a.escrow_out:
+        meta["escrow"] = ke.split(new, a.escrow_threshold, names, Path(a.escrow_out))
+    elif old_esc is not None and a.backend == "file":
+        meta["escrow"] = old_esc  # kept so doctor can say it is of the old KEK; its shares open the old KEK only
     staged = []
     for name, key in keys.items():
         nxt = K.wrapped_path(sec / name).with_name(K.wrapped_path(sec / name).name + ".next")
@@ -334,6 +430,16 @@ def cmd_rotate_kek(a: argparse.Namespace, env: Mapping[str, str]) -> int:
         K._write_private(runtime, new)
         _say(f"the unsealed KEK in {runtime} is now the new one")
     _say(f"KEK {meta['kek_id']} (back end {meta['backend']}) replaces the old one; {len(keys)} key(s) re-wrapped")
+    if "escrow" in meta and meta["escrow"]["kek_id"] == meta["kek_id"] and where is not None:
+        ke.audit(where, ke.EVENT, ke.ACTOR, ke.summary(meta["escrow"]))
+        for r in meta["escrow"]["shares"]:
+            _say(f"escrow share {r['share']} of {r['of']} for {r['custodian']} written to "
+                 f"{Path(a.escrow_out) / r['file']} (fingerprint {r['fingerprint']})")  # fmt: skip
+    elif old_esc is not None:
+        _say(
+            f"WARNING: escrow set {old_esc['set_id']} opens the old KEK only: make a new set now "
+            "(python -m tools.keys escrow-shares), then a new ceremony record"
+        )
     return 0
 
 
@@ -367,6 +473,23 @@ def cmd_rotate(a: argparse.Namespace, env: Mapping[str, str]) -> int:
         pm.close()
     os.replace(nxt, K.wrapped_path(path) if wrapped else path)
     _say(f"pid_map.key rotated (fingerprint {K.fingerprint(new)}); {moved} row(s) re-encrypted")
+    return 0
+
+
+def cmd_ceremony_record(a: argparse.Namespace, env: Mapping[str, str]) -> int:
+    """TB-SOP-03 (D-893): the key ceremony's record, fingerprints and names only (``tools/key_ceremony.py``)."""
+    from tools import key_ceremony as kc
+
+    deploy = Path(a.deploy)
+    rec = kc.build(secrets_dir(a.secrets, env), env, a.custodian or [], a.witness or "",
+                   shares_dir=Path(a.shares_dir) if a.shares_dir else None,
+                   backup_pub=Path(a.backup_pub) if a.backup_pub else kc.default_backup_pub(env, deploy))  # fmt: skip
+    md = kc.write(deploy, rec)
+    where = kc.audit(env, rec, Path(a.audit_dir) if a.audit_dir else None)
+    _say(f"ceremony record written to {md} (and .json): print it, and each custodian and the witness sign it")
+    _say(f"audit: {where}")
+    if rec["not_a_site_ceremony"]:
+        _say("note: the passphrase back end: a proof of concept or validation box, NOT a site's key ceremony")
     return 0
 
 
@@ -421,6 +544,7 @@ def parser() -> argparse.ArgumentParser:
         p.add_argument("--shares", type=int, default=3, help="shamir: shares made (default 3)")
         p.add_argument("--shares-out", help="shamir: folder for the share files (outside the secrets folder)")
         p.add_argument("--kek-out", help="file: where the new KEK is written (outside the secrets folder)")
+        p.add_argument("--kek-in", help="file: use this KEK, made and sealed already (seal_keys.sh, D-836)")
         p.add_argument("--kms-url", help="kms: the transit address, e.g. https://kms.hosp/v1/transit (TB_KMS_URL)")
         p.add_argument("--kms-key", help="kms: the name of the KMS key that seals the KEK (token: TB_KMS_TOKEN)")
         p.add_argument("--scrypt-n", type=int, help=argparse.SUPPRESS)  # tests: a cheaper scrypt
@@ -431,6 +555,9 @@ def parser() -> argparse.ArgumentParser:
     u.add_argument("--share", action="append", help="a share file (repeat); else read from the terminal or stdin")
     u.add_argument("--from", dest="kek_in", help="file back end: the opened KEK file")
     u.add_argument("--out", help=f"the runtime KEK file (TB_KEK_FILE; default {K.DEFAULT_KEK_FILE})")
+    u.add_argument("--witness", help="file back end, escrow shares: the witness's name (D-894)")
+    u.add_argument("--audit-dir", help="escrow shares: the audit folder (TB_AUDIT_DIR)")
+    u.add_argument("--deploy", default=DEFAULT_DEPLOY, help="escrow shares: the escrow-use record goes to deploy/site")
     s = with_secrets(sub.add_parser("status", help="wrapped or plain, fingerprints, the KEK"))
     s.add_argument("--json", action="store_true")
     c = with_secrets(sub.add_parser("check", help="exit 1 on a custody problem"))
@@ -440,18 +567,37 @@ def parser() -> argparse.ArgumentParser:
     r = with_secrets(sub.add_parser("rotate-kek", help="a new KEK; every wrapped key re-wrapped"))
     with_backend(r)
     r.add_argument("--out", help="the runtime KEK file to update (TB_KEK_FILE)")
+    r.add_argument("--escrow-out", help="file: a new escrow set to this removable media folder (D-894)")
+    r.add_argument("--escrow-threshold", type=int, default=2, help="escrow shares needed (default 2)")
+    r.add_argument("--escrow-shares", type=int, default=3, help="escrow shares made (default 3)")
+    r.add_argument("--custodian", action="append", help="an escrow custodian's name (repeat; share order)")
+    r.add_argument("--audit-dir", help="the audit folder (TB_AUDIT_DIR)")
     k = with_secrets(sub.add_parser("rotate", help="rotate one key"))
     k.add_argument("key", choices=("pid_map", "site_hmac", "totp", "backup"))
     k.add_argument("--db-url", help="the trial database (TB_DB_URL)")
     o = with_secrets(sub.add_parser("seal-objects", help="seal uploads and outputs under objects.key (T-210c)"))
     o.add_argument("--store", help=f"the object store folder (TB_OBJECT_STORE; default {HOST_OBJECTS})")
     o.add_argument("--check", action="store_true", help="only report; exit 1 when not sealed or a file is plain")
+    cr = with_secrets(sub.add_parser("ceremony-record", help="the key ceremony's record to sign (TB-SOP-03)"))
+    cr.add_argument("--custodian", action="append", help="a custodian's name (repeat; share order for shamir)")
+    cr.add_argument("--witness", help="the witness's name (not a custodian)")
+    cr.add_argument("--shares-dir", help="shamir: the share files, read only for their fingerprints")
+    cr.add_argument("--backup-pub", help="the box's backup public key (TB_BACKUP_PUBKEY; default deploy/secrets)")
+    cr.add_argument("--deploy", default=DEFAULT_DEPLOY, help="the box's deploy folder: the record goes to deploy/site")
+    cr.add_argument("--audit-dir", help="the audit folder (TB_AUDIT_DIR)")
+    es = with_secrets(sub.add_parser("escrow-shares", help="the escrow copy of a TPM-sealed KEK (D-894)"))
+    es.add_argument("--threshold", type=int, default=2, help="shares needed to open the KEK (default 2)")
+    es.add_argument("--shares", type=int, default=3, help="shares made, one per custodian (default 3)")
+    es.add_argument("--escrow-out", help="the mounted removable media folder for the share files")
+    es.add_argument("--custodian", action="append", help="a custodian's name (repeat; share 1 to the first name)")
+    es.add_argument("--audit-dir", help="the audit folder (TB_AUDIT_DIR)")
     return ap
 
 
 COMMANDS = {"init": cmd_init, "wrap": cmd_wrap, "unseal": cmd_unseal, "status": cmd_status, "check": cmd_check,
             "inventory": cmd_inventory, "rotate-kek": cmd_rotate_kek, "rotate": cmd_rotate,
-            "seal-objects": cmd_seal_objects}  # fmt: skip
+            "seal-objects": cmd_seal_objects, "ceremony-record": cmd_ceremony_record,
+            "escrow-shares": cmd_escrow_shares}  # fmt: skip
 
 
 def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) -> int:

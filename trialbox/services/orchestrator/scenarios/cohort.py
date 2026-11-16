@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from criteria_compiler.compile_sql.overlay import safe_sql
+from matching.batches import query_by_patients
 from tb_common.authz import norm
 from tb_common.csvfile import for_spreadsheet
 from tb_common.encoding import EncodingRefused
@@ -106,7 +107,8 @@ def population_id(rs: Ruleset) -> str:
 
 
 def items_at(ctx: Ctx, rs: Ruleset, index: date, snapshot: str | None = None) -> list[Item]:
-    rows = ctx.services.lake.query(safe_sql(rs), [[index.isoformat()], None], snapshot).to_pylist()
+    # NEW-B-53: every patient, in batches of rows (D-748's rule)
+    rows = query_by_patients(ctx.services.lake, safe_sql(rs), [index.isoformat()], None, snapshot).to_pylist()
     from matching.stored_scores import apply_rows
 
     from orchestrator import derive

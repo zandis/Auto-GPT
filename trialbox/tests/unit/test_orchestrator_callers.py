@@ -114,7 +114,9 @@ def test_every_identity_has_a_row_and_the_rows_are_what_the_card_says() -> None:
     rows = CALLER_GATE.table.services
     assert set(IDENTITIES) <= set(rows)
     mail = rows["mail-gateway"]
-    assert mail.routes == {"POST /jobs", "GET /jobs/{job_id}"} and mail.own_jobs == "mail"
+    # D-863: and whether a job's outputs are still current, asked before it sends them (a yes or no, no patient)
+    assert mail.routes == {"POST /jobs", "GET /jobs/{job_id}", "GET /jobs/{job_id}/outputs-current"}
+    assert mail.own_jobs == "mail"
     # the commands the mail intake accepts (tb_common.subject)
     assert mail.job_types is not None and set(mail.job_types) == set(COMMANDS)
     for svc in ("adapter", "lake", "criteria-compiler", "doc-parser", "gateway", "embed-service", "orchestrator"):

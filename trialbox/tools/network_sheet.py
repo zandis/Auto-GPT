@@ -53,9 +53,11 @@ IMAGE_PORTS = {"postgres": 5432, "hapiproject/hapi": 8080, "vllm/vllm-openai": 8
 # (D-394), which only reads the database and writes the audit volume
 NO_LISTEN = frozenset({"judge-sleep-init", "model-swap-init", "judge-wake-init", "audit-writer"})
 # the services of the test, demo and acceptance overlays (docker-compose.test.yml, docker-compose.testbench.yml,
-# docker-compose.acceptance.yml: T-213a, D-410)
+# docker-compose.acceptance.yml: T-213a, D-410); mail-sink: the box
+# rehearsal's SMTP stand-in, tools/rehearse_box/standins.yml (D-882)
 TEST_ONLY = frozenset({"greenmail", "mailpit", "testbench", "testbench-work", "acceptance-directory",
-                       "acceptance-directory-seed", "acceptance-mail"})  # fmt: skip
+                       "acceptance-directory-seed", "acceptance-mail",
+                       "mail-sink"})  # fmt: skip
 _VAR = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?-([^}]*))?\}")
 
 T: dict[str, dict[str, str]] = {
@@ -71,6 +73,12 @@ T: dict[str, dict[str, str]] = {
         "コンソールのポート以外、外部から到達できるものはありません。秘密情報の値はこの一覧に載せていません。",
         "zh-TW": "由下列 compose 檔以 tools/network_sheet.py 產生（D-138）。"
         "除主控台連接埠外，外部無法連到本機任何服務。本表不含任何機密的值。",
+    },
+    # T-735b (D-732): the sheet names its reader, as every handover page does
+    "reader": {
+        "en": "hospital IT (the box owner hands it to IT with IT's one page, it-one-page.en.md).",
+        "ja": "hospital IT（病院情報システム部門。オーナーが it-one-page.ja.md と一緒に渡します）。",
+        "zh-TW": "hospital IT（醫院資訊室；由擁有者連同 it-one-page.zh-TW.md 一起交給資訊室）。",
     },
     "files": {"en": "Compose files", "ja": "compose ファイル", "zh-TW": "compose 檔"},
     "ports": {"en": "Listening ports", "ja": "待ち受けポート", "zh-TW": "監聽連接埠"},
@@ -560,6 +568,7 @@ def render_md(files: list[str], env: dict[str, str] | None, lang: str, root: Pat
 
     parts = [
         f"# {L('title')}",
+        f"**Reader:** {L('reader')}",
         L("intro"),
         f"**{L('files')}:** " + ", ".join(f"`{f}`" for f in files),
         f"## {L('ports')}",
@@ -598,7 +607,7 @@ def render_html(files: list[str], env: dict[str, str] | None, lang: str, root: P
         return f"<table><tr>{th}</tr>{trs}</table>"
 
     body = [
-        f"<h1>{L('title')}</h1><p>{L('intro')}</p>",
+        f"<h1>{L('title')}</h1><p><b>Reader:</b> {L('reader')}</p><p>{L('intro')}</p>",
         f"<p><b>{L('files')}:</b> " + ", ".join(f"<code>{html.escape(f)}</code>" for f in files) + "</p>",
         f"<h2>{L('ports')}</h2>"
         + table([L("service"), L("port"), L("host"), L("nets"), L("who"), L("when")], t["ports"]),

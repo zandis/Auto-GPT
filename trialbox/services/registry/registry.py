@@ -168,6 +168,11 @@ class Build:
         return ""
 
     @property
+    def rehearsal_placeholder(self) -> bool:
+        """D-887: the box rehearsal's placeholder weights (never a model; a rehearsal box only, never promoted)."""
+        return self.weights.get("trust") == "rehearsal_placeholder"
+
+    @property
     def qualified_for_production(self) -> bool:
         """A qualification reference that qualifies PRODUCTION for exactly the pinned weights (T-012b)."""
         q = self.qualification or {}
@@ -193,6 +198,10 @@ def _status_ok(status: Status, role: str, env: Environment) -> bool:
         return True
     if role.startswith("shadow:"):
         return status == Status.SHADOW
+    if env == Environment.VALIDATION:
+        # D-823 (the owner's blocker 1): a VALIDATION box (public or synthetic data) runs the pair it is qualifying;
+        # its record (pin_model --promote) makes the pair champion before the box runs PRODUCTION
+        return status in (Status.CANDIDATE, Status.QUALIFIED, Status.SHADOW, Status.CHAMPION)
     if role in EVALUATION_ROLES:
         return status in (Status.QUALIFIED, Status.SHADOW, Status.CHAMPION)
     return status == Status.CHAMPION
@@ -257,6 +266,11 @@ class Registry:
                 reasons.append(f"{b.build_id}: sha256 not pinned [build_unpinned]")
                 continue
             why = b.unexpected_weights()
+            # D-887: the box rehearsal's placeholder pin (tools/pin_model.py), as candidate, on a rehearsal box's
+            # environment (TEST, or VALIDATION where D3 stays on the box); never PRODUCTION
+            rehearsal_env = env in (Environment.TEST, Environment.VALIDATION)
+            if why and rehearsal_env and b.status == Status.CANDIDATE and b.rehearsal_placeholder:
+                why = ""
             if why:
                 reasons.append(f"{b.build_id}: {why} [weights_unexpected]")
                 continue

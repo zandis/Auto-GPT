@@ -31,6 +31,13 @@ that card's profile. G1b runs through this command. It costs nothing by itself: 
         --model-dir judge=<judge weights> --model-dir verifier=<verifier weights> \
         --evidence n12=<file> --evidence public_e2e=<file> --evidence goldens=<file> --operator <name>
 
+On an installed box, `--box` (as root) fills in what the running box serves and you did not give: each model
+server's weight folder (its `/models` mount and `--model=` argument), its log file (Docker's json-file log) and the
+gateway's audit folder (its `/data/audit` mount); it prints each one, and names what the box could not say (D-737):
+
+    sudo python3 -m tools.trialbox eval qualify --box --profile rtxpro6000 --gateway-url <url> \
+        --evidence n12=<file> --evidence public_e2e=<file> --evidence goldens=<file> --operator <name>
+
 The command prints each step as it ends and writes the record to `eval/qualification/`. Exit 0 means `passed`.
 Exit 1 means `failed`; the record's `failed_steps` and each step's `reason` say why. Exit 2 is a usage error.
 
@@ -44,6 +51,10 @@ Exit 1 means `failed`; the record's `failed_steps` and each step's `reason` say 
   `context_unknown` (LLM-007, D-568): the registry row names it, or `pin_model --install` writes the server's
   length (`JUDGE_MAX_LEN`, `VERIFIER_MAX_LEN`) into the pin, or by hand `pin_model --build <build> --model-dir
   <folder> --context N`; run the qualification with the box's gateway in TEST (its calls are D0).
+- See what PRODUCTION routes now (D-738): `python -m tools.pin_model --resolve --env-file deploy/.env` prints, for
+  each role and data class (D1, D3), the build the gateway would call (its alias, endpoint and served name) or the
+  registry's refusal codes, from the box's topology, profile and site pins; nothing is sent to a model.
+  `--require judge --require second_opinion` exits 1 unless both route on D3.
 - Commit the record with the pull request that pins the pair.
 - **A record for a site (HW-003, D-569).** Copy a record taken with real weights on the vendor's card into
   `deploy/qualification/<profile>/` in the release. On a box the install then promotes the pinned pair when the

@@ -210,7 +210,7 @@ def test_admin_tabs_cancel_and_retry(b4: dict[str, Any]) -> None:
     bk = b4["backend"]
     cancelled: list[tuple[str, str]] = []
 
-    def cancel_job(job_id: str, by: str) -> Job | None:
+    def cancel_job(job_id: str, by: str, headers: dict[str, str] | None = None) -> Job | None:
         cancelled.append((job_id, by))
         return bk.get_job(job_id)  # type: ignore[no-any-return]
 

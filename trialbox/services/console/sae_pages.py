@@ -38,7 +38,7 @@ from urllib.parse import quote
 from datacore import lifecycle as lc
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
-from tb_common.authz import sae_allowed
+from tb_common.authz import permit, sae_allowed
 
 from console import actor, i18n_sae, s28
 from console.auth import Session
@@ -187,7 +187,10 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
             rows = reg.sync(rid, a, SYNC, at, form_author(rid, *key))
             audit(rid, SYNC, *key, rows)
             written += rows
-            if any(w["action"] == "create" for w in rows):
+            # D-764: a new case, or one serious again after it was not (its review), is told at once
+            again = any(w["action"] == "change" and not (w["body"].get("serious") or {}).get("old")
+                        and (w["body"].get("serious") or {}).get("new") for w in rows)  # fmt: skip
+            if again or any(w["action"] == "create" for w in rows):
                 office_copy(
                     rid, case_view(a, reg.case(rid, *key), reg.reports(rid, *key), day, fu, now(), rules), rules
                 )
@@ -199,16 +202,36 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
                 written += rows
         return written
 
+    def told_at_once(rid: str) -> list[str]:
+        """NEW-LIFE-7 (D-764): who hears of a new case at once: the trial office's mailbox (FIT-025) and the study's
+        PI on the delegation log today, by the mailbox of their account (``get`` gives only an enabled account that
+        has not expired)."""
+        out: list[str] = []
+        office = os.environ.get("TB_SAE_OFFICE_MAILBOX", "").strip()
+        if office:
+            out.append(office)
+        pi = h.team.pi_of(rid, today()) if h.team is not None else None
+        u = h.users.get(pi.username) if pi is not None and pi.username else None
+        if u is not None and u.mailbox:
+            out.append(u.mailbox)
+        else:  # the review of D-764: a PI who cannot be mailed is said, also when the office is told
+            au.append("console.sae", ruleset=rid, actor=SYNC,
+                      detail={"action": "pi_unreachable", "why": "no_pi" if pi is None else "no_mailbox"})  # fmt: skip
+        return list(dict.fromkeys(out))
+
     def office_copy(rid: str, v: dict[str, Any], rules: dict[str, Any]) -> None:
-        """FIT-025: a new case goes to the trial office's mailbox (an internal address), without the AE term. A mail
-        that fails is in the audit; the register and the pages do not depend on it."""
-        to = os.environ.get("TB_SAE_OFFICE_MAILBOX", "").strip()
+        """FIT-025, NEW-LIFE-7 (D-764): a new case goes at once to the trial office's mailbox and the study's PI,
+        without the AE term. Nobody to tell is audited (``notice_nobody``); a mail that fails is in the audit; the
+        register and the pages do not depend on it."""
+        to = told_at_once(rid)
         if not to:
+            au.append("console.sae", ruleset=rid, actor=SYNC,
+                      detail={"action": "notice_nobody", "record": v["record"], "event": v["event"]})  # fmt: skip
             return
         subject, body = office_notice(rid, v, rules)
         try:
-            bk.send_notice("N2", [to], subject, body, SYNC)
-            detail = {"action": "office_copy", "record": v["record"], "event": v["event"], "to": to}
+            bk.send_notice("N2", to, subject, body, SYNC)
+            detail = {"action": "office_copy", "record": v["record"], "event": v["event"], "to": ", ".join(to)}
             au.append("console.sae", ruleset=rid, actor=SYNC, detail=detail)
         except Exception as exc:
             au.append("console.sae", ruleset=rid, actor=SYNC,
@@ -243,6 +266,19 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
 
     h.life_reports = life_reports
 
+    def sae_open(rid: str) -> int:
+        """NEW-LIFE-6 (D-763): the study's serious AEs not done with, for the close check: every report still to send
+        (``saerecord.OPEN``), and every serious AE with no reporting clock (an unset or unknown rule set: no report
+        row to count) or not acknowledged by the investigator. Raises when the register cannot be read: the caller
+        refuses the close."""
+        day = today()
+        out = fetch(rid, day)
+        views, _lost = views_of(rid, day, out)
+        loose = sum(1 for a in out.get("aes") or [] if a.get("serious") and (a.get("noclock") or a.get("needs_ack")))
+        return sum(int(v.get("open") or 0) for v in views) + loose
+
+    h.sae_open = sae_open
+
     def context(rules_by: dict[str, dict[str, Any]]) -> dict[str, Any]:
         return {"study_rules": rules_by, "fu_rules": followup_rules(os.environ.get("TB_SAE_FOLLOWUP_DAYS", "")),
                 "tz": str(getattr(tz, "key", "UTC")), "parties": PARTIES}  # fmt: skip
@@ -269,12 +305,19 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
             lost += gone
         rows.sort(key=sort_key)
         live = [v for v in rows if not v["downgraded"]]
+        # D-797 (lane G's walk, finding 7): the set-up warnings go to who can act on them: the reporting rules to the
+        # study's set-up (the coordinator), the trial office mailbox also to the site's set-up (the administrator)
+        study_setup = permit(sess.user.role, "study.setup").allowed
+        site_setup = study_setup or permit(sess.user.role, "site.setup").allowed
         return h.page(request, "sae_worklist.html", sess, rows=rows, lost=lost, failed=failed,
                       overdue=sum(v["overdue"] for v in rows), late=sum(v["late"] for v in rows),
                       dates=sum(1 for v in live if set(DATE_ALERTS) & set(v["flags"])),
                       downgraded=sum(1 for v in rows if v["downgraded"]),
-                      rule_alerts=sorted(k for k, x in rules_by.items() if set(x.get("problems") or []) & RULE_ALERTS),
-                      today=day.isoformat(), **context(rules_by))  # fmt: skip
+                      rule_alerts=sorted(k for k, x in rules_by.items()
+                                         if study_setup and set(x.get("problems") or []) & RULE_ALERTS),
+                      today=day.isoformat(),
+                      no_mailbox=site_setup and not os.environ.get("TB_SAE_OFFICE_MAILBOX", "").strip(),
+                      **context(rules_by))  # fmt: skip
 
     def find(views: list[dict[str, Any]], rec: str, ev: str) -> dict[str, Any] | None:
         return next((v for v in views if (str(v["record"]), str(v["event"])) == (rec, ev)), None)
@@ -322,12 +365,13 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
     def start_of(one: dict[str, Any]) -> str:
         return str(one.get("aware") or one.get("onset") or "")
 
-    def write_sent(rid: str, rec: str, ev: str, party: str, on: str, by: str) -> None:
+    def write_sent(sess: Session, rid: str, rec: str, ev: str, party: str, on: str, by: str) -> None:
         """The day sent goes to the AE form: the one field the clock, the home pages and the mail read. Only that
         field is sent (the data core keeps every other value); a field the form hides is refused, not dropped."""
         field = lc.REPORT_FIELDS[party]
-        out = s28.call(bk, "POST", f"/studies/{rid}/entry/{quote(rec)}",
-                       {"form": AE_FORM, "event": ev, "values": {field: on}, "by": by})  # fmt: skip
+        # T-715f (D-799): an entry on the AE form, signed as one (the page asked sae.record, a narrower row)
+        out = actor.call(h, sess, "task.enter_data", rid, "POST", f"/studies/{rid}/entry/{quote(rec)}",
+                         {"form": AE_FORM, "event": ev, "values": {field: on}})  # fmt: skip
         if field in (out.get("hidden") or []) or field not in (out.get("written") or [field]):
             raise SaeError("form")
         au.append("console.data_entry", ruleset=rid, actor=by,
@@ -414,7 +458,7 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
                     audit(rid, by, rec, ev, [{"action": "report", "body": body}])
                 else:
                     try:
-                        write_sent(rid, rec, ev, f["party"], f["on"], by)
+                        write_sent(sess, rid, rec, ev, f["party"], f["on"], by)
                     except Problem as exc:
                         raise SaeError("form") from exc
                     if ref:

@@ -56,7 +56,14 @@ def test_consent_record_version_check_order_flags_and_reconsent_list(lb: dict[st
     page = c.get(f"/studies/GZQO/subjects/{no}").text
     assert 'data-state="enrolled"' in page and 'data-testid="consent-flag-enrolment_before_consent"' in page
     assert "form=tb_deviation&amp;event=dv1" in page
-    r = _save(c, csrf, no, "tb_consent", {"ic_date": "2026-10-04", "ic_version": "V1", "ic_copy": "1"})
+    r = _save(
+        c,
+        csrf,
+        no,
+        "tb_consent",
+        {"ic_date": "2026-10-04", "ic_version": "V1", "ic_copy": "1"},
+        reason="the signed form says V1, dated the 4th",
+    )  # D-778: a saved value changes with a reason
     assert "/history?" in str(r.url)  # in order and on the list: no warning
     page = c.get(f"/studies/GZQO/subjects/{no}").text
     assert "consent-flag-" not in page and 'data-testid="consent-reconsent-do"' in page

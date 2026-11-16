@@ -29,7 +29,7 @@ from xml.etree import ElementTree as ET  # building only; nothing is parsed here
 from edc import cdash
 from tb_common import sheets
 
-from datacore.forms import LANGS, XML_ILLEGAL, Field, fields_of, titles_of, xml_text
+from datacore.forms import LANGS, XML_ILLEGAL, Field, checkbox_column, fields_of, titles_of, xml_text
 from datacore.lifecycle import Lifecycle, live_steps
 from datacore.store import DataCore, DataError
 
@@ -87,7 +87,7 @@ def flat(dc: DataCore, study: str) -> tuple[list[str], list[dict[str, str]]]:
         row = rows.setdefault((r["record"], r["event"]), {})
         if f.kind == "multi":
             picked = set(str(r["value"]).split(",")) if r["value"] else set()
-            row.update({f"{f.name}___{c}": "1" if c in picked else "0" for c in f.options})
+            row.update({checkbox_column(f.name, c): "1" if c in picked else "0" for c in f.options})
         else:
             row[f.name] = str(r["value"])
     out = []
@@ -276,7 +276,8 @@ def odm(dc: DataCore, study: str, at: str, cdisc: bool = False) -> str:
     for f in fields:
         if f.kind == "multi":
             for c, d in f.options.items():
-                idf = _sub(mdv, "ItemDef", OID=f"{f.name}___{c}", Name=f"{f.name}___{c}", DataType="boolean")
+                col = checkbox_column(f.name, c)
+                idf = _sub(mdv, "ItemDef", OID=col, Name=col, DataType="boolean")
                 tr = {g: f"{f.label_in(g)} ({f.options_in(g).get(c, d)})" for g in f.labels}
                 _texts(idf, "Question", f"{f.label} ({d})", tr)
             continue
@@ -338,7 +339,12 @@ def odm(dc: DataCore, study: str, at: str, cdisc: bool = False) -> str:
                     if f.kind == "multi":
                         picked = set(vals[f.name].split(","))
                         for c in f.options:
-                            _sub(igd, "ItemData", ItemOID=f"{f.name}___{c}", Value="1" if c in picked else "0")
+                            _sub(
+                                igd,
+                                "ItemData",
+                                ItemOID=checkbox_column(f.name, c),
+                                Value="1" if c in picked else "0",
+                            )
                     else:
                         _sub(igd, "ItemData", ItemOID=f.name, Value=vals[f.name])
             if ev == event_names[0] and extra.get(rec):
@@ -354,7 +360,7 @@ def odm(dc: DataCore, study: str, at: str, cdisc: bool = False) -> str:
 
 
 def _item_oids(f: Field) -> list[str]:
-    return [f"{f.name}___{c}" for c in f.options] if f.kind == "multi" else [f.name]
+    return [checkbox_column(f.name, c) for c in f.options] if f.kind == "multi" else [f.name]
 
 
 def values_of(dc: DataCore, study: str) -> dict[tuple[str, str, str], str]:

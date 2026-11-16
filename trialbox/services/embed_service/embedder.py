@@ -115,6 +115,35 @@ def pinned_sha256(environ: Mapping[str, str]) -> str | None:
     return str(sha) if sha else None
 
 
+MAX_TOKENS = 512  # TB_EMBED_INPUT_CAP: an input is cut here (a note sentence is far shorter; a pasted report is not)
+BATCH_TOKENS = 8192  # TB_EMBED_BATCH_BUDGET: the tokens one encode call holds (its memory grows with them, not texts)
+
+
+def _setting(name: str, default: int) -> int:
+    raw = (os.environ.get(name) or "").strip()
+    return max(1, int(raw)) if raw else default
+
+
+def token_batches(lengths: list[int], max_tokens: int, budget: int) -> list[list[int]]:
+    """Indexes of the inputs in batches whose tokens (each input counted at most ``max_tokens``) stay within
+    ``budget``; inputs of like length go together, so little of a batch is padding. Every input is in one batch."""
+    order = sorted(range(len(lengths)), key=lambda i: lengths[i])
+    out: list[list[int]] = []
+    cur: list[int] = []
+    used = 0
+    for i in order:
+        n = min(lengths[i], max_tokens)
+        width = max(n, max((min(lengths[j], max_tokens) for j in cur), default=0))
+        if cur and width * (len(cur) + 1) > budget:  # padded to the longest: the batch's real size
+            out.append(cur)
+            cur, used = [], 0
+        cur.append(i)
+        used += n
+    if cur:
+        out.append(cur)
+    return out
+
+
 class LocalEmbedder:
     """The local embedder: dense vectors via sentence-transformers from the offline models volume. Never runs code
     from the folder (``trust_remote_code=False``) and never loads pickle weights (:func:`check_folder`)."""
@@ -132,10 +161,27 @@ class LocalEmbedder:
         self.dim = int(size) if size else DIM
         self.batch_size = batch_size
         self.weights_sha256 = weights_sha256
+        # red of 2026-11-15: no cap on input length and a fixed batch of 64 texts; a batch of long reports took 33 s
+        # and the memory of a batch grows with its tokens. Inputs are cut at max_tokens, batches sized by tokens
+        self.max_tokens = _setting("TB_EMBED_INPUT_CAP", MAX_TOKENS)
+        self.budget = max(self.max_tokens, _setting("TB_EMBED_BATCH_BUDGET", BATCH_TOKENS))
+        self._st.max_seq_length = min(int(getattr(self._st, "max_seq_length", 0) or self.max_tokens), self.max_tokens)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        vecs = self._st.encode(texts, batch_size=self.batch_size, normalize_embeddings=True, show_progress_bar=False)
-        return [[float(x) for x in v] for v in vecs]
+        if not texts:
+            return []
+        tok = getattr(self._st, "tokenizer", None)
+        if tok is not None:
+            lengths = [len(x) for x in tok(texts, truncation=True, max_length=self.max_tokens)["input_ids"]]
+        else:  # no tokenizer to ask: characters, never fewer than its tokens for these models
+            lengths = [len(t) for t in texts]
+        out: list[list[float]] = [[] for _ in texts]
+        for batch in token_batches(lengths, self.max_tokens, self.budget):
+            vecs = self._st.encode([texts[i] for i in batch], batch_size=len(batch), normalize_embeddings=True,
+                                   show_progress_bar=False)  # fmt: skip
+            for i, v in zip(batch, vecs, strict=True):
+                out[i] = [float(x) for x in v]
+        return out
 
 
 class HttpEmbedder:

@@ -187,8 +187,6 @@ def stream_lines(cache: Path, source_id: str) -> Iterator[str]:
     """A large corpus line by line: the kept file when there is one, else streamed and checked against its pin at the
     end (a mismatch raises after the last line: the caller's selection is then discarded, never kept)."""
     import hashlib
-    import ssl
-    import urllib.request
 
     s = src.BY_ID[source_id]
     local = src.path_of(source_id, cache)
@@ -196,10 +194,8 @@ def stream_lines(cache: Path, source_id: str) -> Iterator[str]:
         with local.open(encoding="utf-8") as fh:
             yield from fh
         return
-    ctx = ssl.create_default_context(cafile=__import__("os").environ.get("SSL_CERT_FILE") or None)
-    req = urllib.request.Request(s.url, headers={"User-Agent": src.USER_AGENT})
     h = hashlib.sha256()
-    with urllib.request.urlopen(req, timeout=900, context=ctx) as resp:
+    with src.https_open(s.url, timeout=900) as resp:
         buf = b""
         for chunk in iter(lambda: resp.read(1 << 20), b""):
             h.update(chunk)
@@ -217,10 +213,26 @@ def stream_lines(cache: Path, source_id: str) -> Iterator[str]:
 TREC_LABEL = {"2": "eligible", "1": "excluded"}
 
 
+def _xml_root(xml_text: str) -> ET.Element:
+    """The root element of an outside XML file, refusing a document type or an entity declaration before anything is
+    parsed: without them no entity can be declared (so none expands or loads), and the TREC topics files have
+    neither. defusedxml is not a dependency of this package, so the refusal is done here."""
+    for decl in ("<!DOCTYPE", "<!ENTITY"):
+        if decl in xml_text:
+            raise ValueError(f"an XML file with {decl} is refused (no document type or entity is read)")
+    parser: ET.XMLPullParser[ET.Element] = ET.XMLPullParser(events=("start",))
+    parser.feed(xml_text)
+    parser.close()
+    for event in parser.read_events():
+        if len(event) == 2 and isinstance(event[1], ET.Element):
+            return event[1]
+    raise ValueError("an XML file without an element")
+
+
 def trec_topics(xml_text: str, year: str) -> dict[str, Patient]:
     """2021/2022: one free-text note per topic. 2023: questionnaire fields, written as ``field: value`` lines (the
     patient's chart is then a structured summary, marked so)."""
-    root = ET.fromstring(xml_text)
+    root = _xml_root(xml_text)
     out = {}
     for t in root.iter("topic"):
         key = f"trec{year}:{t.get('number')}"
@@ -720,7 +732,11 @@ def read_jrct(cache: Path, n: int = 10, get: Any = None) -> Bundle:
         f = d / f"{jid}.html"
         if not f.exists():
             url = f"https://jrct.mhlw.go.jp/latest-detail/{jid}"
-            data = (get or src.polite_get)(url)
+            try:
+                data = (get or src.polite_get)(url)
+            except OSError as err:  # a record the registry does not serve now (HTTP 500 on 2026-11-15): left out, said
+                b.provenance.append(f"jRCT {jid}: not fetched ({str(err)[:80]}); left out")
+                continue
             f.write_bytes(data)
             rows.append(src.live_record(cache, "jrct", url, data))
         inc, exc, title, ncts = jrct_criteria(f.read_text(encoding="utf-8", errors="replace"))
@@ -881,8 +897,9 @@ def read_tcga(cache: Path, n_reports: int = 20, get: Any = None) -> Bundle:
             f"Public test protocol: {proj}",
             [crit],
             [],
-            ["Aged 18 years or older"],  # SCREEN runs a ruleset with at least one structured criterion
-            notes=["a test protocol written for the TCGA set, not a real trial; the age line placed"],
+            # a note criterion only: SCREEN takes a ruleset of note criteria alone since D-788 (train 20), so the
+            # age line once placed for it is gone (TCGA reports carry no age to check it against)
+            notes=["a test protocol written for the TCGA set, not a real trial; note criterion only"],
         )
     for c in chosen:
         b.patients[c] = Patient(c, "en", " ".join(reports[by_case[c]].split()), notes=["OCR'd pathology report"])

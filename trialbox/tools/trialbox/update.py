@@ -575,6 +575,12 @@ class Updater:
             ]
         if not strict:
             return []
+        rehearsal_box = getattr(self.box, "rehearsal_box", None)
+        if rehearsal_box is not None and env == "VALIDATION" and rehearsal_box():
+            # D-887 (the integrator's (i)): a rehearsal box is VALIDATION, marked by deploy/install.sh --rehearsal
+            # (deploy/site/rehearsal.json and TB_REHEARSAL=1): it takes the rehearsal bundle of a working tree. A
+            # VALIDATION box without the mark refuses it below, as before; a PRODUCTION box always does
+            return []
         if plan.release.get("rehearsal") is True:  # D-726: tools/make_bundle.sh --rehearsal
             raise UpdateRefused(
                 f"{plan.bundle_id} is a rehearsal bundle (release.json says rehearsal; tools/make_bundle.sh "
@@ -819,6 +825,14 @@ class Updater:
         source = (plan.release or {}).get("source")
         if isinstance(source, dict) and isinstance(source.get("dirty"), bool):
             record["dirty"] = source["dirty"]  # D-633: built from a working tree (a DEV or TEST box took it)
+        if (plan.release or {}).get("rehearsal") is True:
+            record["rehearsal"] = True  # D-887: the pin reads it (a site box refuses such a bundle)
+        marked = getattr(self.box, "rehearsal_mark", None)
+        if marked is not None and marked():
+            record["rehearsal_box"] = True  # D-887 (i): install.sh --rehearsal's mark, recorded; the pin reads it
+        mode = ((plan.release or {}).get("gates") or {}).get("vuln_mode")
+        if isinstance(mode, str) and mode:
+            record["vuln_mode"] = mode  # D-884: the release gates' mode, said by `apply_update.sh status` and install
         us.write_atomic(self.dir / us.INSTALLED, record)
         if plan.trust_after:
             us.write_atomic(self.dir / us.TRUST, plan.trust_after)
@@ -926,6 +940,8 @@ class Updater:
 
 
 # ------------------------------------------------------------------------------------------------ commands
+APPLY_FIXED_S = 3 * 3600  # the update's steps with fixed limits: the 3 h the whole update had before T-695
+UP_WAIT_BEFORE_S = 900  # the wait before T-695, kept only where the compose files cannot be read (no PyYAML)
 Runner = Callable[..., str]  # (argv, stdin_file=None, stdout_file=None, env=None, timeout=None) -> stdout
 
 
@@ -942,14 +958,15 @@ def run_cmd(
         fd = os.open(stdout_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         fout = os.fdopen(fd, "wb")
     try:
-        r = subprocess.run(
+        from tools.trialbox import procgroup
+
+        r = procgroup.run(  # T-695: the whole process group is killed on the limit, never an orphan left
             list(argv),
             stdin=fin,
             stdout=fout or subprocess.PIPE,
             stderr=subprocess.PIPE,
             env={**os.environ, **(env or {})},
             timeout=timeout,
-            check=False,
         )
     finally:
         for f in (fin, fout):
@@ -1069,6 +1086,18 @@ class ComposeBox(_DockerImages):
             return "TEST"
         return (named or "PRODUCTION").strip().upper()
 
+    def rehearsal_mark(self) -> bool:
+        """D-887 (the integrator's (i)): the mark only ``deploy/install.sh --rehearsal`` writes."""
+        return (self.deploy / "site" / "rehearsal.json").is_file()
+
+    def rehearsal_box(self) -> bool:
+        """A rehearsal box: the mark, and deploy/.env says TB_REHEARSAL=1 (or names no environment yet: the first
+        load, before the installer writes deploy/.env). The mark without TB_REHEARSAL is a box touched by hand."""
+        if not self.rehearsal_mark():
+            return False
+        env = _env_file(self.deploy / ".env")
+        return env.get("TB_REHEARSAL", "").strip() == "1" or not env.get("TB_ENV")
+
     def running_services(self) -> list[str] | None:
         """D-724: the compose services that run now; None when compose cannot answer."""
         try:
@@ -1126,6 +1155,39 @@ class ComposeBox(_DockerImages):
         except Exception:  # no answer: no size, so no limit (never a fixed guess)
             return None
 
+    def apply_limit_s(self) -> int | None:
+        """T-695 (D-752, F-09): the whole update's limit, from the databases' size. The steps with fixed limits (the
+        image load, the weights check, the reference data, the health waits) kept the 3 h they had; the dumps and the
+        backup container (``backup_schedule.step_timeout``, D-455) and the rollback's restore of the same dumps are
+        sized. A size that cannot be read: no limit (D-455: never a fixed guess); each step keeps its own."""
+        from tools.trialbox import backup_schedule as bsch
+
+        cfg = bsch.config(self.deploy, self.env)
+        sizes = [self.db_bytes(db, user) for db, user in (("trialbox_wf", "trialbox"), ("hapi", "hapi"))]
+        vols = bsch.volume_bytes(self.env, None)
+        if None in sizes or vols is None:
+            return None
+        steps = [cfg.timeout(n) for n in [*sizes, sum(s or 0 for s in sizes) + vols]]
+        if any(t is None for t in steps):
+            return None
+        return int(APPLY_FIXED_S + 2 * sum(t or 0 for t in steps)) + 3 * self.up_wait()
+
+    def up_wait(self) -> int:
+        """T-695 (D-752, F-24): seconds to wait for the services healthy: ``TB_INSTALL_UP_TIMEOUT`` when set, else the
+        longest start period plus retries of the box's compose files (``tools.trialbox.bootwait``); 900 s, the wait of
+        before, only when the files cannot be read here (no PyYAML on the host)."""
+        if os.environ.get("TB_INSTALL_UP_TIMEOUT"):
+            return int(os.environ["TB_INSTALL_UP_TIMEOUT"])
+        try:
+            from tools.trialbox import bootwait
+
+            return (
+                bootwait.start_wait_s(bootwait.services(bootwait.files(self.deploy, self.env), self.env))
+                or UP_WAIT_BEFORE_S
+            )
+        except Exception:  # no PyYAML, a file not readable or not YAML: the wait of before, never no wait
+            return UP_WAIT_BEFORE_S
+
     def running_jobs(self) -> int | None:
         """How many jobs the orchestrator runs now (D-455), or None when the database cannot be asked."""
         from tools.trialbox import backup_schedule as bsch
@@ -1143,6 +1205,14 @@ class ComposeBox(_DockerImages):
         pub, targets = self._backup_where()
         cfg = bsch.config(self.deploy, self.env)
         sizes = {db: self.db_bytes(db, user) for db, user in (("trialbox_wf", "trialbox"), ("hapi", "hapi"))}
+        # T-695 (D-752, F-09): never a stop under a running job; a count that cannot be taken refuses too (D-455)
+        jobs = self.running_jobs()
+        if jobs != 0:
+            what = "the jobs could not be counted" if jobs is None else f"{jobs} job(s) running or queued"
+            raise UpdateFailed(
+                f"not started: {what}, and the update stops the services; update in the quiet hour (the console's "
+                "update waits for it and for no job) or when the jobs are done"
+            )
         # a quiet box: the services stop (the database stays up), so the dump, the files and the row counts agree
         self.run(self._c("stop", *PY_SERVICES), timeout=600)
         try:
@@ -1257,7 +1327,11 @@ class ComposeBox(_DockerImages):
         files = [f for f in (self.env.get("COMPOSE_FILE") or "").split(":") if f]
         if not files:
             return
-        changes, _, missing = image_pins.resolve(self.deploy, [Path(f) for f in files])
+        # D-834: only the images the stack runs (with the box's overrides), as install.sh asks: a pinned image no
+        # service runs (Authelia without the overlay, vLLM under a model-server override) is not needed here
+        listed = self.run(self._c("config", "--images")) or ""
+        used = {line.strip() for line in listed.splitlines() if line.strip()} or None
+        changes, _, missing = image_pins.resolve(self.deploy, [Path(f) for f in files], used=used)
         if missing:
             raise UpdateFailed("pinned images neither on the box nor in the bundle: " + "; ".join(missing))
         image_pins.write_env(self.deploy / ".env", changes)
@@ -1316,7 +1390,7 @@ class ComposeBox(_DockerImages):
         connections a little earlier and is recreated by that ``up``."""
         if not self.env.get("TB_DB_URL", ""):  # as set_roles
             return "no database step on this box"
-        t = os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")
+        t = str(self.up_wait())
         again = [] if self._db_scripts_are_this_releases() else ["--force-recreate"]
         self.run(self._c("up", "-d", "--pull", self._pull(), *again, "--wait", "--wait-timeout", t, "db"),
                  timeout=int(t) + 120)  # fmt: skip
@@ -1367,7 +1441,7 @@ class ComposeBox(_DockerImages):
         if not self.env.get("TB_DB_URL", ""):  # as migrate_owned: a box that never ran install.sh's database step
             return False
         self.run(self._c("exec", "-T", "db", "/docker-entrypoint-initdb.d/30-service-roles.sh"),
-                 timeout=int(os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")))  # fmt: skip
+                 timeout=self.up_wait())  # fmt: skip
         return True
 
     def migrate_owned(self) -> bool:
@@ -1405,7 +1479,7 @@ class ComposeBox(_DockerImages):
         argv = ["sh", "-c", 'cd "$1" && shift && exec "$@"', f"tb-{cmd}", str(root),
                 python, "-m", "tools.trialbox", cmd, "--deploy", str(deploy)]  # fmt: skip
         # never shorter than the steps' own limits (the database's wait, the role script, the migrate step)
-        t = int(os.environ.get("TB_INSTALL_UP_TIMEOUT", "900"))
+        t = self.up_wait()
         try:
             out = self.run(argv, timeout=max(3600, 2 * t + 1200))
         except UpdateFailed as exc:
@@ -1436,7 +1510,7 @@ class ComposeBox(_DockerImages):
         # the schemas with an owner role (D-486) first, as the admin, once the host-side steps are done (the db is up)
         self.pre_start()
         self.db_up()
-        t = os.environ.get("TB_INSTALL_UP_TIMEOUT", "900")
+        t = str(self.up_wait())
         self.run(self._c("up", "-d", "--pull", self._pull(), "--wait", "--wait-timeout", t), timeout=int(t) + 120)
 
     def check_serving(self) -> str:

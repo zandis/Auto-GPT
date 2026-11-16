@@ -171,12 +171,9 @@ CALLERS: dict[tuple[str, str], str] = {
     ("orchestrator/jobs.py", "PinnedLake.query"): GOES_ON,
     ("orchestrator/rerun.py", "PinnedLake.query"): GOES_ON,
     ("orchestrator/scenarios/case.py", "resolve_subject"): GOES_ON,
-    ("orchestrator/scenarios/cohort.py", "items_at"): GOES_ON,
     ("orchestrator/scenarios/evaluate.py", "NoteJudge.window"): GOES_ON,
-    ("orchestrator/scenarios/evaluate.py", "SqlEngine.evaluate"): GOES_ON,
     ("orchestrator/scenarios/facts.py", "_das28"): GOES_ON,
     ("orchestrator/scenarios/facts.py", "collect"): GOES_ON,
-    ("orchestrator/scenarios/feas_compute.py", "compute"): GOES_ON,
     ("orchestrator/scenarios/microbatch.py", "run"): GOES_ON,
     ("orchestrator/scenarios/nav.py", "run"): GOES_ON,
     ("orchestrator/scenarios/screen.py", "deceased_now"): GOES_ON,
@@ -185,8 +182,11 @@ CALLERS: dict[tuple[str, str], str] = {
     ("orchestrator/scenarios/twpas.py", "_latest"): GOES_ON,
     ("edc/prefill.py", "LakeFacts._q"): GOES_ON,
     ("matching/cascade/engine.py", "_Run.s0"): GOES_ON,
-    ("matching/cascade/engine.py", "_Run.s1"): GOES_ON,
+    ("matching/cascade/engine.py", "_Run._s1_rows"): GOES_ON,
+    ("matching/batches.py", "query_by_patients"): GOES_ON,  # NEW-B-53: FEAS, cohort and SqlEngine ask through it
     ("matching/coverage.py", "Coverage.load"): GOES_ON,
+    ("matching/carried.py", "Carried.load"): GOES_ON,  # D-795: the lake's error reaches the run, as Coverage's
+    ("matching/recorded.py", "Recorded.load"): GOES_ON,  # D-914: the lake's error reaches the run, as Carried's
     ("patient_profile/twin.py", "read_lake"): GOES_ON,
     ("vec/index.py", "snapshot_notes"): GOES_ON,
     ("criteria_compiler/equivalence/gate.py", "sql_evaluations"): GOES_ON,

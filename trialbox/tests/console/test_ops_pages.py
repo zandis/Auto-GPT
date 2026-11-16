@@ -339,7 +339,7 @@ def test_the_runner_wraps_the_cli_and_writes_no_secret(tmp_path: Path) -> None:
     (deploy / "updates" / "incoming" / "b-1.tar").write_bytes(b"x")
     calls: list[list[str]] = []
 
-    def fake(argv: Any, timeout: int) -> str:
+    def fake(argv: Any, timeout: int | None) -> str:
         calls.append(list(argv))
         return "verified\n"
 
@@ -379,7 +379,7 @@ def test_on_a_site_box_the_check_and_the_sheet_run_in_a_container(tmp_path: Path
     (nas / "trialbox-CGMH-20261109T010203Z.tbbak").write_bytes(b"x")
     calls: list[list[str]] = []
 
-    def fake(argv: Any, timeout: int) -> str:
+    def fake(argv: Any, timeout: int | None) -> str:
         calls.append(list(argv))
         return '{"ok": true, "chunks": 1, "bytes": 1, "created_at": "2026-11-09T01:02:03+00:00", "sha256": "ab"}'
 
@@ -447,7 +447,7 @@ def test_a_cut_off_or_old_request_is_never_run_again(tmp_path: Path) -> None:
     (deploy / "updates" / "incoming" / "b-1.tar").write_bytes(b"x")
     calls: list[list[str]] = []
 
-    def fake(argv: Any, timeout: int) -> str:
+    def fake(argv: Any, timeout: int | None) -> str:
         calls.append(list(argv))
         return "ok\n"
 
@@ -483,7 +483,7 @@ def test_a_stale_target_fails_the_check_and_a_failed_update_says_so(tmp_path: Pa
         t.mkdir()
         (t / f"trialbox-CGMH-{stamp}.tbbak").write_bytes(b"x")
 
-    def fake(argv: Any, timeout: int) -> str:
+    def fake(argv: Any, timeout: int | None) -> str:
         return '{"ok": true, "chunks": 1, "bytes": 1, "created_at": "2026-11-09T01:02:03+00:00", "sha256": "ab"}'
 
     box_ = tb_ops.Box("compose", deploy, {"TB_BACKUP_TARGETS": f"{nas} {usb}"}, fake)
@@ -513,3 +513,28 @@ def test_an_outcome_undo_the_registry_refused_is_put_back() -> None:
         assert [o.outcome for o in store.outcomes("UNDO1", pid)] == ["reached_declined"]
     finally:
         store.close()
+
+
+def test_the_backups_tile_shows_the_last_restore_drill_and_the_command_to_type(ob: dict[str, Any]) -> None:
+    """T-730d (D-892): the drill runs on the host with the key; the page shows its last result from the box's
+    key-check record and the exact command, with the newest backup's path, never a key path."""
+    from tb_common import metrics
+
+    c, csrf = login(ob["app"])
+    c.post("/admin/ops/backup", data={"csrf": csrf, "confirm": "yes"}, follow_redirects=False)
+    newest = sorted((ob["dir"] / "nas").glob("*.tbbak"))[-1]
+    page = c.get("/admin/ops?tab=backups").text
+    assert 'data-testid="ops-drill-cmd"' in page and "restore-drill" in page and newest.name in page
+    assert "none yet" in page and str(ob["priv"]) not in page
+    metrics.record_drill(ob["deploy"], {"ok": True, "at": "2026-11-16T01:00:00+00:00", "file": newest.name,
+                                        "databases": {"trialbox_wf": {"tables": 3, "rows": 5}}})  # fmt: skip
+    c.post("/admin/ops/backup_check", data={"csrf": csrf, "confirm": "yes"}, follow_redirects=False)  # a new status
+    tile = c.get("/admin/ops").text
+    drill = tile[tile.index('data-testid="ops-drill"') :][:400]
+    assert "passed" in drill and 'class="pill ok"' in drill
+    metrics.record_drill(ob["deploy"], {"ok": False, "at": "2026-11-16T02:00:00+00:00", "file": newest.name,
+                                        "error": "pg_restore failed"})  # fmt: skip
+    c.post("/admin/ops/backup_check", data={"csrf": csrf, "confirm": "yes"}, follow_redirects=False)
+    tile = c.get("/admin/ops").text
+    drill = tile[tile.index('data-testid="ops-drill"') :][:400]
+    assert "failed" in drill and 'class="pill bad"' in drill

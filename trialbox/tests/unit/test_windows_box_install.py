@@ -369,6 +369,31 @@ def test_install_goes_on_with_the_first_run_when_the_stack_was_already_installed
     assert "box-install --firstrun" in box.log() and str(bundle) not in box.log()
 
 
+def test_install_hands_the_rehearsal_on_to_the_linux_installer(box: Box) -> None:
+    # NEW-WIN-11 (D-614): box-install.ps1 -Rehearsal -> wsl-setup.sh install BUNDLE [--yes] --rehearsal
+    bundle = _installed_tree(box, "echo '  TrialBox is ready: https://box'")
+    out = box.run("install", str(bundle), "--yes", "--rehearsal")
+    assert out.returncode == 0, out.stderr
+    assert f"box-install {bundle} --yes --rehearsal" in box.log()
+    other = Box(box.tmp / "second")
+    bundle2 = _installed_tree(other, "echo '  TrialBox is ready: https://box'")
+    assert other.run("install", str(bundle2), "--rehearsal").returncode == 0
+    assert f"box-install {bundle2} --rehearsal" in other.log()
+    assert other.run("install", str(bundle2), "--bogus").returncode != 0
+
+
+def test_the_first_run_of_a_rehearsal_box_is_not_handed_the_rehearsal_again(box: Box) -> None:
+    # box-install.sh refuses --rehearsal with --firstrun: the first run finishes the box as it was installed
+    bundle = _installed_tree(box, "echo '  TrialBox is ready: https://box'")
+    site = box.root / "deploy/site/box"
+    site.mkdir(parents=True)
+    (site / "answers.json").write_text("{}")
+    (site / "install.log").write_text("==> TrialBox is running\n")
+    out = box.run("install", str(bundle), "--yes", "--rehearsal")
+    assert out.returncode == 0, out.stderr
+    assert "box-install --firstrun" in box.log() and "--rehearsal" not in box.log()
+
+
 def test_install_refuses_a_bundle_that_is_not_there(box: Box) -> None:
     _installed_tree(box, "exit 0")
     out = box.run("install", str(box.tmp / "missing.tar"))
@@ -562,7 +587,8 @@ def test_the_installer_never_turns_bitlocker_off_and_never_logs_or_stores_a_reco
         )
     # the same for the pair the seam returns (its Password field): handed to Confirm-TbRecoveryKey and nowhere else
     uses = [ln.strip() for ln in ps1.splitlines() if "$rp.Password" in ln]
-    assert uses == ["Confirm-TbRecoveryKey $drv $rp.Password"], uses
+    # (NEW-WIN-14: with the key's ID beside it, which is no secret)
+    assert uses == ["Confirm-TbRecoveryKey $drv $rp.Password $rp.Id"], uses
 
 
 def test_the_key_probe_handles_a_dummy_value_only_and_uses_the_boot_tasks_sign_in() -> None:

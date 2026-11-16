@@ -14,13 +14,13 @@ A tier installs only when its profile has a serving record of its own uncapped c
 `deploy/measured/serving_config.<gpu>.json`, checked by `tools/serving_config.py measured`) and the machine's card
 is that card. Otherwise the installer stops before it touches anything (exit 3) and says what is missing. There is no
 override. `deploy/install.sh --tier large --tier-check` only asks. Today only `large` has a vendor record. To measure a
-new card: a trial boot on a rehearsal box (D-726; an unmeasured card is accepted on a TEST box only) with
+new card: a trial boot on a rehearsal box (D-726; an unmeasured card is accepted on a rehearsal box only) with
 `TB_COMPOSE_OVERRIDE= TB_ACCEPT_UNMEASURED_GPU=1 deploy/install.sh <bundle> --gpu <profile> --rehearsal` (the empty
 override keeps the real model servers, not the stand-ins), then on the box
 `python3 tools/serving_config.py capture --container judge=trialbox-llm-service-1 --container
 verifier=trialbox-llm-verifier-1 --models-dir deploy/models --out deploy/site/serving_config.<profile>.json`.
-The trial box stays a rehearsal box (TB_ENV TEST, doctor says "rehearsal box"): empty it before the site's install
-(RUNBOOK §16, "A rehearsal box"), keeping the record.
+The trial box stays a rehearsal box (TB_ENV VALIDATION with its mark, doctor says "REHEARSAL BOX"): empty it before
+the site's install (RUNBOOK §16, "A rehearsal box"), keeping the record.
 `python -m tools.gpu_sizing` prints the hardware estimate. Feasibility needs no GPU; notes need one. The tier
 rule is held by `tests/unit/test_install_tiers.py`.
 
@@ -59,7 +59,9 @@ mapping is never part of the image. The answers name the feed folder on the host
 mounts the one at the other, read-only), and the console's DNS name (`tls_hostname`) with `tls_mode` `hospital` (the
 default and first choice; then `tls_cert_file` and `tls_key_file`) or `internal` (Caddy's own CA: its root must be on
 every clinic PC by group policy, and personal devices cannot use it; the wizard warns). A PRODUCTION install stops without a feed folder or a TLS host
-name. The vendor builds the bundle with
+name, or without the trial office's mailbox (`sae_office_mailbox` in the answers, written as `TB_SAE_OFFICE_MAILBOX`;
+asked with the TLS name: told at once when a serious adverse event is entered, without the AE term; D-736). A re-run
+on a site that has its settings and a box install only warn, and `doctor` WARNs (`sae_mailbox`) until it is set. The vendor builds the bundle with
 `tools/make_bundle.sh` (`make release-bundle`: `--gates` is required, so only images that passed the release gates;
 the bundle carries `release.json`, the SBOMs, `NOTICE` and `CHANGELOG.md`, T-110b). The image vulnerability gate blocks
 for every image a bundle carries; the dated exceptions and open findings are in `deploy/security/known-image-findings.md`
@@ -71,7 +73,9 @@ for every image a bundle carries; the dated exceptions and open findings are in 
 1. **Host.** Ubuntu 24.04 LTS on LUKS2 with TPM2 unlock, swap off, Docker Engine 27+, nftables; the NVIDIA driver
    and container toolkit when there is a GPU (GB10: driver 580.142, held). See [Security §1](../SECURITY.md#1-the-host).
 2. **Images.** `tools/apply_update.sh trialbox-<version>.tar` loads images, models and approved rulesets. A
-   development host can build instead: `make images` (or `make images-multiarch` for x86 and GB10).
+   development host can build instead: `make images` (or `make images-multiarch` for x86 and GB10). The build host
+   needs Docker, Maven and the JDK `.java-version` names, network to Docker Hub, Maven Central and GitHub, and disk
+   for two copies of the bundle (D-830, D-885); the JVM fetch step names what is missing before it starts.
    A new box holds **no study**: the shipped example rulesets are seeded only where `TB_ENV` is DEV or TEST
    (D-640). The site's first study is compiled and approved in the console. For a synthetic run on a PRODUCTION
    box (never beside real patients), an operator installs an example after the stack is up:

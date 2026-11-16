@@ -20,6 +20,8 @@ groups:
     - POST /jobs
   job_read:
     - GET /jobs/{job_id}
+  job_outputs_current:   # NEW-MAIL-1 (D-863): the mail gateway asks before it sends a job's outputs; a yes or no
+    - GET /jobs/{job_id}/outputs-current
   jobs_list:
     - GET /jobs
     - GET /jobs/waiting-studies   # NEW-JRN-1b (D-545): study ids only, no job
@@ -131,6 +133,9 @@ groups:
     - GET /setup/terminology
     - GET /setup/remote
     - PUT /setup/remote
+    - GET /setup/instruments  # NEW-ARCH-3 slice 3 (D-864): the instrument switches
+    - PUT /setup/instruments/{iid}
+  assist:   # T-715g (D-803): the help page's draft answer phrased by the local model; reads and writes nothing
     - POST /assist
   edc:   # services/orchestrator/edc_api.py (EDC prefill; the person from the signed assertion, D-160, D-162)
     - GET /studies/{rs}/edc
@@ -145,6 +150,7 @@ groups:
     - POST /studies/{rs}/edc/sign
     - POST /studies/{rs}/edc/import/odm
     - POST /studies/{rs}/edc/send/redcap
+    - POST /studies/{rs}/edc/reconcile    # NEW-EDC-5 (D-695): what REDCap now holds differently
     - GET /studies/{rs}/edc/export/odm
     - GET /studies/{rs}/edc/trail/{record}
     - GET /studies/{rs}/edc/copy        # copy-assist (D-434): services/console/copy_assist_page.py
@@ -158,6 +164,9 @@ groups:
     - GET /dataops/batches/{bid}
     - GET /dataops/batches/{bid}/steps
     - POST /dataops/batches/{bid}/decide
+  omop_conflicts:   # NEW-ARCH-3 slice 2 (D-865): the steward's clinical conflicts of the OMOP store of record
+    - GET /omop/conflicts
+    - POST /omop/conflicts/{cid}/resolve
   api_docs:   # FastAPI's own schema pages
     - GET /openapi.json
     - GET /docs
@@ -168,9 +177,10 @@ groups:
 services:
   console:   # the front desk: services/console/backend.py, s28.call (data, entry, EDC, set-up, lifecycle pages)
     groups: [jobs_start, job_read, jobs_list, job_cancel, job_retry_scheduled, job_reveal, notices, models_read, models_canary, rulesets,
-             patients, registry, registry_export, study, datacore, lifecycle, sponsor, setup, edc, dataops]
+             patients, registry, registry_export, study, datacore, lifecycle, sponsor, setup, assist, edc, dataops,
+             omop_conflicts]
   mail-gateway:   # parses hostile mail: starts the mail commands and reads the jobs that came in by mail, nothing else
-    groups: [jobs_start, job_read]
+    groups: [jobs_start, job_read, job_outputs_current]  # D-863: and asks whether a job's outputs are still current
     job_types: [FEAS, SCREEN, COHORT, NAV, APPROVE, STATUS, CANCEL, SUBMIT, FEEDBACK, CONSENT, RELEASE, CASE]
     own_jobs: mail   # GET /jobs/{job_id}: only a job with a message_id (it came in by mail)
   operator:   # the administrator's host token (scripts, curl; runbook §2): job and model reads. tools/trialbox

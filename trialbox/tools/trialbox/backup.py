@@ -106,6 +106,7 @@ LAKE_SKIP_TOP = ("tmp",)  # DuckDB spill (lake.store temp_dir default)
 # rebuild's swap never falls between the listing and the reads, and checked against their sidecars after the read
 LAKE_LOCKED = ("db", "parquet")
 LAKE_LOCK = ".rebuild.lock"
+FD_SPARE = 256  # PERF-011: files the backup keeps free for its own work while it holds the lake's files open
 
 
 class BackupError(RuntimeError):
@@ -635,10 +636,16 @@ def select_files(name: str, root: Path) -> tuple[list[str], dict[str, int]]:
 READ_TRIES = 3
 
 
+#: ENG-011 (D-755): the other files only ever appended to, one whole line per write: the lake's record of each
+#: rebuild's source (``lake.source.record_source``)
+APPEND_ONLY_FILES = ("dirs/lake/source.jsonl",)
+
+
 def _append_only(arcname: str) -> bool:
     """The audit chain's day files (``audit/<day>.jsonl``): only ever appended to, one whole line per write
-    (``tb_common.audit``); a repair that cuts one back is the one exception, and is seen as a file that shrank."""
-    return arcname.startswith("dirs/audit/") and arcname.endswith(".jsonl")
+    (``tb_common.audit``); a repair that cuts one back is the one exception, and is seen as a file that shrank.
+    And :data:`APPEND_ONLY_FILES` (ENG-011, D-755)."""
+    return (arcname.startswith("dirs/audit/") and arcname.endswith(".jsonl")) or arcname in APPEND_ONLY_FILES
 
 
 def _line_end(fh: IO[bytes], size: int) -> int:
@@ -817,9 +824,95 @@ def _add_bytes(tar: tarfile.TarFile, data: bytes, arcname: str, mtime: float) ->
     return hashlib.sha256(data).hexdigest(), len(data)
 
 
+def _fds_for(n: int) -> bool:
+    """Whether this process may hold ``n`` more files open (PERF-011): the soft limit raised to the hard one first,
+    and :data:`FD_SPARE` kept for everything else the backup opens."""
+    import resource
+
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if hard != resource.RLIM_INFINITY and soft < hard:
+        with contextlib.suppress(ValueError, OSError):
+            resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+            soft = hard
+    return soft == resource.RLIM_INFINITY or n + FD_SPARE <= soft
+
+
+def _open_lake_files(root: Path, locked: Sequence[str]) -> dict[str, Any]:
+    """Under the lake's lock (PERF-011): each served file open, each sidecar's bytes read. A file gone between the
+    listing and here, under the lock, is a lake that moved under its own lock: the backup fails."""
+    held: dict[str, Any] = {}
+    try:
+        for rel in locked:
+            path = root / rel
+            if rel.endswith(".sha256"):
+                held[rel] = (path.read_bytes(), path.stat().st_mtime)
+            else:
+                fh = path.open("rb")
+                held[rel] = (fh, os.fstat(fh.fileno()))
+    except FileNotFoundError as e:
+        for v in held.values():
+            if hasattr(v[0], "close"):
+                v[0].close()
+        raise BackupError(f"lake file {e.filename} vanished under the lake's lock; run the backup again") from e
+    return held
+
+
+def _read_held(tar: tarfile.TarFile, held: dict[str, Any], manifest: dict[str, Any]) -> tuple[dict[str, str], int]:
+    """The files :func:`_open_lake_files` opened, read through their handles after the lock (PERF-011). A served
+    file is never written in place: one that changed while it was read fails the backup (its sidecar would too)."""
+    sides: dict[str, str] = {}
+    try:
+        for rel, (obj, meta) in held.items():
+            arc = f"dirs/lake/{rel}"
+            if rel.endswith(".sha256"):
+                manifest["files"][arc], manifest["sizes"][arc] = _add_bytes(tar, obj, arc, meta)
+                sides[rel[: -len(".sha256")]] = _sidecar_sha(obj)
+                continue
+            info = tar.gettarinfo(arcname=arc, fileobj=obj)
+            info.type, info.linkname, info.size = tarfile.REGTYPE, "", meta.st_size  # NEW-B-17: never a link
+            hr = _HashReader(obj)
+            try:
+                tar.addfile(info, hr)
+            except OSError as e:
+                raise BackupError(f"{arc} shrank while it was backed up; run the backup again") from e
+            now = os.fstat(obj.fileno())
+            if (now.st_size, now.st_mtime_ns) != (meta.st_size, meta.st_mtime_ns):
+                raise BackupError(f"{arc} was written while it was backed up; run the backup again")
+            manifest["files"][arc], manifest["sizes"][arc] = hr.sha.hexdigest(), hr.n
+    finally:
+        for obj, _ in held.values():
+            if hasattr(obj, "close"):
+                obj.close()
+    return sides, len(held)
+
+
+def _read_lake_files(
+    tar: tarfile.TarFile, root: Path, locked: Sequence[str], manifest: dict[str, Any], locked_ok: bool
+) -> tuple[dict[str, str], int]:
+    """The served files read by path, under the lake's lock when there is one (D-455, as before PERF-011)."""
+    sides: dict[str, str] = {}
+    for rel in locked:
+        arc = f"dirs/lake/{rel}"
+        try:
+            if rel.endswith(".sha256"):
+                data = (root / rel).read_bytes()
+                manifest["files"][arc], manifest["sizes"][arc] = _add_bytes(
+                    tar, data, arc, (root / rel).stat().st_mtime
+                )
+                sides[rel[: -len(".sha256")]] = _sidecar_sha(data)
+            else:
+                manifest["files"][arc], manifest["sizes"][arc] = _add(tar, root / rel, arc)
+        except FileNotFoundError as e:
+            raise BackupError(f"lake file {rel} vanished while the lake was read "
+                              f"{'under its lock' if locked_ok else '(no lake lock)'}; run the backup "
+                              "again") from e  # fmt: skip
+    return sides, len(locked)
+
+
 def _add_lake(tar: tarfile.TarFile, root: Path, manifest: dict[str, Any]) -> tuple[int, dict[str, int]]:
-    """The lake (D-455, H1). Its served files (``db/``, ``parquet/``) are listed and read under the lake's lock, so a
-    rebuild's swap waits for them: never half the old snapshot and half the new. A listing that is not one state
+    """The lake (D-455, H1). Its served files (``db/``, ``parquet/``) are listed and opened under the lake's lock and
+    read through the open files after it (PERF-011, D-755), so a rebuild's swap waits for the listing only: never
+    half the old snapshot and half the new. A listing that is not one state
     is listed again, up to ``READ_TRIES``; after the read every file taken with its sidecar must hash to it and the
     files must still be the ones listed, or the backup fails (nothing vanished, nothing new). The rest of the lake
     (NDJSON, the vector store, the site inputs) is read after, without the lock. Returns the files taken and the
@@ -827,6 +920,7 @@ def _add_lake(tar: tarfile.TarFile, root: Path, manifest: dict[str, Any]) -> tup
     left: dict[str, int] = {}
     n = 0
     for attempt in range(1, READ_TRIES + 1):
+        held: dict[str, Any] | None = None
         with _lake_lock(root) as locked_ok:
             rels, left = select_files("lake", root)
             locked = [r for r in rels if Path(r).parts[0] in LAKE_LOCKED]
@@ -839,30 +933,25 @@ def _add_lake(tar: tarfile.TarFile, root: Path, manifest: dict[str, Any]) -> tup
                     raise BackupError(f"the lake's files are not one state ({problems[:3]}) after {READ_TRIES} "
                                       "listings without a lake lock; run the backup again")  # fmt: skip
                 continue
-            sides: dict[str, str] = {}
-            for rel in locked:
-                arc = f"dirs/lake/{rel}"
-                try:
-                    if rel.endswith(".sha256"):
-                        data = (root / rel).read_bytes()
-                        manifest["files"][arc], manifest["sizes"][arc] = _add_bytes(
-                            tar, data, arc, (root / rel).stat().st_mtime
-                        )
-                        sides[rel[: -len(".sha256")]] = _sidecar_sha(data)
-                    else:
-                        manifest["files"][arc], manifest["sizes"][arc] = _add(tar, root / rel, arc)
-                except FileNotFoundError as e:
-                    raise BackupError(f"lake file {rel} vanished while the lake was read "
-                                      f"{'under its lock' if locked_ok else '(no lake lock)'}; run the backup "
-                                      "again") from e  # fmt: skip
-                n += 1
-            bad = [r for r, want in sides.items() if manifest["files"].get(f"dirs/lake/{r}") != want]
-            again = [r for r in select_files("lake", root)[0] if Path(r).parts[0] in LAKE_LOCKED]
-            if bad or again != locked:
-                raise BackupError(f"the lake changed while it was read: {len(bad)} file(s) differ from their sidecar "
-                                  f"{bad[:3]}, listing {'changed' if again != locked else 'unchanged'}; run the "
-                                  "backup again")  # fmt: skip
-            break
+            # PERF-011 (D-755): under the lock each served file is only opened, each sidecar read; the bytes are
+            # read after the lock is let go, through the open files. A rebuild's swap waits for the listing only,
+            # and a file it removes meanwhile is still read whole through its handle. Without a lock to let go, or
+            # with more files than this process may hold open, they are read under it, as before.
+            if locked_ok and _fds_for(len(locked)):
+                held = _open_lake_files(root, locked)
+            else:
+                sides, got = _read_lake_files(tar, root, locked, manifest, locked_ok)
+                again = [r for r in select_files("lake", root)[0] if Path(r).parts[0] in LAKE_LOCKED]
+        if held is not None:
+            sides, got = _read_held(tar, held, manifest)
+            again = locked  # the files read are the ones listed under the lock, whatever a swap did since
+        n += got
+        bad = [r for r, want in sides.items() if manifest["files"].get(f"dirs/lake/{r}") != want]
+        if bad or again != locked:
+            raise BackupError(f"the lake changed while it was read: {len(bad)} file(s) differ from their sidecar "
+                              f"{bad[:3]}, listing {'changed' if again != locked else 'unchanged'}; run the "
+                              "backup again")  # fmt: skip
+        break
     for rel in [r for r in rels if Path(r).parts[0] not in LAKE_LOCKED]:
         arc = f"dirs/lake/{rel}"
         try:

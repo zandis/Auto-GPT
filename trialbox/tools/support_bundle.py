@@ -23,13 +23,16 @@ value). What goes in:
 ==========================  ======================================================================================
 
 What never goes in: ``/data`` or any Docker volume, the secrets folder, a key, a backup, a rollback dump, the audit
-chain, the pid map, the lake, ``settings.yaml``, and the logs of the third-party services (PostgreSQL, HAPI FHIR,
+chain, the pid map, the lake, any database table (the judged-pair store ``orch.judged_pairs`` among them, D-908),
+``settings.yaml``, and the logs of the third-party services (PostgreSQL, HAPI FHIR,
 vLLM: they log statement values and prompts unscrubbed, OPS-035). An ``--add`` path in one of those places is
 refused and nothing is written.
 
 How it is kept free of patient data: the logs and added files go through the log scrubber
 (``tb_common.logging.redact``: Taiwan IDs, マイナンバー, insurer numbers, postcodes, phone numbers) and the site's
-chart-number pattern (``settings.yaml`` ``mrn_regex``); then every file is read by the data-handling scan
+chart-number pattern (``settings.yaml`` ``mrn_regex``); a credential of a well-known shape that no setting names (a
+private key block, a cloud or chat token, a web token: :data:`CREDENTIALS`) is replaced, as detect-secrets would
+find it; then every file is read by the data-handling scan
 (``tools.data_scan``) and each line it flags is removed, and the run says so. The finished archive is scanned once
 more; a hit there, or a file the scan cannot read, means no bundle is written.
 """
@@ -130,6 +133,7 @@ SECRET_SETTINGS = (
 NOT_SECRETS = {
     "TB_GPU_KEY": "the name of a GPU profile (rtxpro6000, gb10, ...)",
     "TB_OIDC_CLIENT_SECRET": "the path of the client secret's file (its value is read from deploy/secrets/authelia)",
+    "TB_VENDOR_KEY_SM_NAME": "the name of a Secret Manager secret (box run, R2), not key material",
 }
 #: a setting not in the list whose name says it holds a secret's value: looked for too (a site's own setting)
 _SECRET_VALUE_NAME = re.compile(r"PASS|_PW_|SECRET|TOKEN|PHRASE|API_KEY|_DSN$|CREDENTIAL|PRIVATE_KEY", re.I)
@@ -238,6 +242,32 @@ def hide_values(text: str, values: Mapping[str, str]) -> tuple[str, int]:
                 text = text.replace(form, "[redacted]")
                 n += k
     return text, n
+
+
+#: credentials of a well-known shape that no setting of the box names (a service that printed its config, a stack trace
+#: with a key in it): the bundle's own form of detect-secrets' core plugins, standard library only (the bundle is made
+#: by the host's python3). A private key is a whole block, so it is replaced as one, never line by line.
+CREDENTIALS: dict[str, re.Pattern[str]] = {
+    "private key": re.compile(
+        r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----.*?(?:-----END [A-Z0-9 ]*PRIVATE KEY"
+        r"(?: BLOCK)?-----|\Z)",
+        re.S,
+    ),
+    "AWS access key": re.compile(r"(?<![A-Z0-9])(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}(?![A-Z0-9])"),
+    "GitHub token": re.compile(r"(?<![A-Za-z0-9_])(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{60,})"),
+    "Slack token": re.compile(r"(?<![A-Za-z0-9])xox[abposr]-[A-Za-z0-9-]{10,}"),
+    "JSON web token": re.compile(r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
+}
+
+
+def hide_credentials(text: str) -> tuple[str, Counter[str]]:
+    """Every credential of :data:`CREDENTIALS` becomes ``[credential removed: <kind>]``; the text and the counts."""
+    found: Counter[str] = Counter()
+    for kind, rx in CREDENTIALS.items():
+        text, k = rx.subn(f"[credential removed: {kind}]", text)
+        if k:
+            found[kind] += k
+    return text, found
 
 
 def still_held(text: str, values: Mapping[str, str]) -> list[str]:
@@ -494,11 +524,18 @@ def _logs_part(b: Bundle, deploy: Path, env: Mapping[str, str], days: int, mrn: 
     return [d.name for d in chosen]
 
 
+def last_look(archive: Path) -> list[Any]:
+    """The scan of the finished archive before it leaves (D-723), with the exits' patterns (D-747)."""
+    from tools import data_scan as ds
+
+    return ds.run([archive], patterns=ds.load_patterns(exits=True), in_repo=False)
+
+
 def clean_lines(b: Bundle, say: Callable[[str], None]) -> None:
     """Remove every line the data-handling scan flags, in every member, and say so (counts and pattern ids only)."""
     from tools import data_scan as ds
 
-    patterns, allow = ds.load_patterns(), ds.load_allow()
+    patterns, allow = ds.load_patterns(exits=True), ds.load_allow()  # D-747: the bundle leaves the box
     for name in sorted(b.members):
         lines = ds._lines(b.members[name])
         removed: Counter[str] = Counter()
@@ -537,7 +574,6 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
           say: Callable[[str], None] = print) -> Path:  # fmt: skip
     """Make the bundle in ``out_dir``; return its path. :class:`BundleRefused` when it would hold something it must
     not (an ``--add`` path under /data, a key, a file the scan cannot read); then nothing is written."""
-    from tools import data_scan as ds
 
     now = now or datetime.now(UTC)
     deploy = deploy.resolve()
@@ -573,6 +609,13 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
         used.add(name)
         b.add(f"added/{name}", text, str(p), scrubbed=True, mrn=mrn)
     clean_lines(b, say)
+    # §3.4 (wave 1): a credential no setting names, of a well-known shape (what detect-secrets would find)
+    for name in list(b.members):
+        b.members[name], found = hide_credentials(b.members[name])
+        if found:
+            b.note(name, "credentials_removed", sum(found.values()))
+            b.changed[name]["credentials"] = dict(sorted(found.items()))
+            say(f"removed {sum(found.values())} credential(s) from {name}: {', '.join(sorted(found))}")
     # D-723: the box's own secret values, in every file and every form, whatever name (or none) stood next to them;
     # before the manifest, so its checksums are of the files as they leave
     hidden = 0
@@ -616,7 +659,7 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
         with tempfile.TemporaryDirectory(prefix="tb-support-scan-") as tmp:  # the scan names a member by path
             scan_copy = Path(tmp) / target.name
             scan_copy.write_bytes(part.read_bytes())
-            hits = ds.run([scan_copy], in_repo=False)
+            hits = last_look(scan_copy)
         if hits:
             raise BundleRefused("the finished bundle still holds what the scan flags: " + "; ".join(
                 f"{Path(h.where).name}:{h.line}: {h.pattern}" for h in hits[:5]))  # fmt: skip
@@ -625,6 +668,9 @@ def build(deploy: Path, out_dir: Path, *, days: int = DEFAULT_DAYS, add: Iterabl
                 (fh.read().decode("utf-8", errors="replace") if (fh := tar.extractfile(m)) else "")
                 for m in tar.getmembers()
             )
+        left = sorted(kind for kind, rx in CREDENTIALS.items() if rx.search(text))
+        if left:
+            raise BundleRefused(f"the finished bundle still holds a credential ({', '.join(left)}): not written")
         held = still_held(text, values)
         if held:
             raise BundleRefused(f"the finished bundle still holds the secret value of {', '.join(held)}: not written")

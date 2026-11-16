@@ -69,3 +69,21 @@ def test_every_third_party_image_of_a_bundle_is_pinned_and_has_a_licence_budget(
     allow, _ = allowlist.load(today=None)
     budgeted = {b.image for b in allow.budgets if b.ecosystem == "*"}
     assert repos <= budgeted, f"no licence budget: {sorted(repos - budgeted)}"
+
+
+def _required(*names: str) -> set[str]:
+    """Every ${VAR:?...} / ${VAR?...} of these compose files: compose refuses to render without a value."""
+    found: set[str] = set()
+    for name in names:
+        found |= set(re.findall(r"\$\{([A-Za-z0-9_]+):?\?", (ROOT / "deploy" / name).read_text(encoding="utf-8")))
+    return found
+
+
+def test_the_gates_list_has_a_value_for_every_required_variable() -> None:
+    """D-828: without deploy/.env (a CI runner, a vendor machine) compose refused TB_TZ and the list was empty."""
+    mk = (ROOT / "Makefile").read_text(encoding="utf-8")
+    call = mk[mk.index("SC_THIRD_PARTY ?=") :].split("config --images", 1)[0]
+    required = _required("docker-compose.yml", "docker-compose.test.yml", "docker-compose.identity.yml")
+    assert "TB_TZ" in required
+    missing = {v for v in required if f"{v}=" not in call}
+    assert not missing, f"the gates list renders without {sorted(missing)}"

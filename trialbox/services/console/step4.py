@@ -15,7 +15,7 @@ from fastapi.responses import RedirectResponse
 from tb_common.authz import permit, role_allowed
 from tb_contracts import Job, JobCreate
 
-from console import about, command
+from console import about, actor, command
 from console.auth import AuthError, Session, source_of
 from console.backend import Refused, Unavailable
 from console.home import Helpers
@@ -59,6 +59,15 @@ HELP_PAGES: tuple[tuple[str, str], ...] = (
     (r"^/studies/[^/]+/edc", "edc"),
     (r"^/reports", "reports"),
     (r"^/admin(/redcap)?$", "admin"),
+    # T-317 (D-774): the pages of the steward, the privacy office and the administrator's accounts get their own text
+    (r"^/ops/users", "users"),
+    (r"^/ops/accounts/requests", "account_requests"),
+    (r"^/breakglass", "breakglass"),
+    (r"^/audit", "audit"),
+    (r"^/data/conflicts", "conflicts"),
+    (r"^/data-ops", "dataops"),
+    (r"^/site/opt-outs", "optouts"),
+    (r"^/site/staff", "staff"),
     (r"^/(pilot/)?jobs", "jobs"),
     (r"^/account", "account"),
     (r"^/notices/received", "notices"),
@@ -266,6 +275,16 @@ def register(app: FastAPI, h: Helpers) -> None:
             mine=own_study(target, studies, logged),
         )
 
+    @app.get("/help/guide")
+    def role_guide(request: Request) -> Response:
+        """T-317 (D-774): the signed-in account's own role guide in its language, printable; the same text as
+        ``docs/guides/<role>.<lang>.md`` (``console.guides``), built from this help catalogue."""
+        from console import guides
+
+        sess = h.need(request)
+        role = sess.user.role if sess.user.role in guides.ROLES else "viewer"
+        return h.page(request, "role_guide.html", sess, role=role, sections=guides.sections)  # in the page's language
+
     about.register(app, h)  # T-617a: /about, the third-party notices (NOTICE), beside the help panel
 
     # ------------------------------------------------------------------ S37 Notices received
@@ -465,7 +484,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not callable(fn):
             raise Unavailable("this backend cannot cancel jobs")
         try:
-            fn(job.job_id, h.actor(sess))
+            sign = actor.assert_for(h, sess, "request.prepare", None, "POST", f"/jobs/{job.job_id}/cancel", {})
+            fn(job.job_id, h.actor(sess), headers=sign)  # T-715 refuse mode (D-871): the verified administrator
         except Refused as exc:
             raise h.problem(400, "request.refused", reason=str(exc)) from exc
         au.append(
@@ -487,7 +507,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not callable(fn):
             raise Unavailable("this backend cannot retry a scheduled job")
         try:
-            new = fn(job.job_id, reply_to=sess.user.mailbox, by=h.actor(sess), role=sess.user.role)
+            body = {"reply_to": sess.user.mailbox}  # T-715 refuse mode (D-871): signed as the verified person
+            sign = actor.assert_for(h, sess, "job.retry_scheduled", None, "POST", f"/jobs/{job.job_id}/retry", body)
+            new = fn(job.job_id, reply_to=sess.user.mailbox, by=h.actor(sess), role=sess.user.role, headers=sign)
         except Refused as exc:
             raise h.problem(400, "request.refused", reason=str(exc)) from exc
         au.append(

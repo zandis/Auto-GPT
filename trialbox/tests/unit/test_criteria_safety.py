@@ -596,7 +596,9 @@ def test_an_order_without_an_end_date_or_any_date_is_unknown_not_one_day(lake: L
     pids = ["M-FULL", "M-SHORT", "M-OPEN", "M-UNDATED", "M-NONE"]
     res = _cascade(lake, _ruleset(ULT_INC), pids)
     tiers = {pid: verdicts_of(_ruleset(ULT_INC), res.traces[pid]).tier for pid in pids}
-    assert tiers["M-SHORT"] == "excluded" and tiers["M-NONE"] == "excluded"
+    assert tiers["M-SHORT"] == "excluded"  # an order too short: the record says "not met"
+    # D-914: no medication record at all says nothing either way: unknown, to review, never excluded
+    assert tiers["M-NONE"] == "review" and res.traces["M-NONE"].outcomes[ULT_INC.id].reason == "no_record_of_kind"
     for pid in ("M-FULL", "M-OPEN", "M-UNDATED"):
         assert tiers[pid] != "excluded", (pid, tiers[pid])
     for pid in ("M-OPEN", "M-UNDATED"):

@@ -383,6 +383,7 @@ ADDED: dict[str, tuple[str, ...]] = {
     # T-202 (D-384): migration 6, the record's own before-image on tb_record_event
     # T-206a (D-441): migration 7, tb_withheld (the persons the opt-out worker keeps out)
     # SCR-01 (D-655): migration 8, a grouper row may be a code family (match 'family')
+    # T-702 (D-753): migration 9, the row ids bigint
     "omop": (
         "0eec88a07c4476ca00fdfb2e8fc414fb2257a293e381d8115a668fa7df0dc6f9",
         "36aaec4b30675bd3f2fa9006cbb7e9869f5df899613d179dde3068d19156094c",
@@ -390,6 +391,7 @@ ADDED: dict[str, tuple[str, ...]] = {
         "139401a1b2873fdd27e3b299507dd52005abea7bc62666af95c9af45ec85fcf8",
         "8e3745a426403fc8446601c4221225fa3cee581f63569387c59de741041c4523",
         "3c1516feffb316a4b8ac253e770fc5a7671553427ba6c400c57acc7426a44366",
+        "eaae339681eca35b2b01ccd356bc1e4dce55a664a2b06214f3c47274f53d0daf",
     ),
     # T-612: pidmap version 2, the site key's fingerprint
     # T-659b (D-370): pidmap version 3, the patient index as the append-only pid_alias table
@@ -420,6 +422,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "7f7cf970ce4268ca7fdc4fd725535442b586b8ea1e2b23fa631dddf9d3a7575d",
         "2ab6655ef5282d733ea7c4b2804d496be62b238fee5fbee5d7d4d9ccd78540ff",
         "cc5a0e95c1dc50da9a3d8c9fa782fa1f5d6138e370dd9e7bad0c484ac3904996",
+        # D-779 (T-305c): site version 7 (the years a close keeps the study's files)
+        "52624415f200e587c75788fec3851f6880a403abe34f504786ac76ea56c2bf93",
     ),
     "sae": ("78527251f39fb58cd728b207c0fc332740a2d06444492dbd617b4d1b0cb7b6d3",),
     # T-510 (D-331): the feedback store, new after the baseline
@@ -463,10 +467,12 @@ ADDED: dict[str, tuple[str, ...]] = {
     # (``judge_answers``)
     # D-648: orch version 4, the record of every table the alliance store was given (``cohort_stored``),
     # of where a merge read (``cohort_read``), and the tables found at the update (``cohort_tables_before``)
+    # D-908 (D-519): orch version 5, the judged-pair store (``judged_pairs``)
     "orch": (
         "444cff97a092dda26501bfa81db70438eae3dda40e545bb86721748c241eba11",
         "8333ee74b006be58803a9a2b9d78ab736096234963c149ec1549165e70ccf5b4",
         "7dc9328a293c68018db4b8292e95bfb0e905cbf680987d7f3b90c6488020e610",
+        "4f2b17e86f1c9432f09f2c7559696a3a312d5f965b6c15e2a367db9268f6487f",
     ),
     # T-310a (D-446): the weekly PI sample of criteria not matched and the site's check, new after the baseline
     "tuned": ("e8565a9e2288df90d120272ab2956fafe4595465ecd7c58c2e2debb35ee934a1",),

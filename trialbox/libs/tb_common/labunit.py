@@ -40,7 +40,9 @@ UNIT_MISMATCH = "unit_mismatch"
 ORDER_DATES = "order_dates_missing"
 # an approved answer the current rules do not confirm (compile_sql.overlay): the least specific, reported last
 RULES_CHANGED = "rules_changed"
-TOKENS = (UNIT_MISMATCH, ORDER_DATES, RULES_CHANGED)  # in the order a reason is chosen
+#: D-917: a condition atom's only records in the window are recorded with a status it does not count
+NOT_ACTIVE = "condition_not_active"
+TOKENS = (UNIT_MISMATCH, ORDER_DATES, RULES_CHANGED, NOT_ACTIVE)  # in the order a reason is chosen
 
 _DROP = "{}[]_"
 
@@ -267,6 +269,7 @@ __all__ = [
     "DIGITS",
     "FAMILIES",
     "MAX_SCALE",
+    "NOT_ACTIVE",
     "ORDER_DATES",
     "RULES_CHANGED",
     "SCALES",

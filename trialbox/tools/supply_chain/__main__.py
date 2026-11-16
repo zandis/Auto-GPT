@@ -84,6 +84,11 @@ def cmd_release_gates(args: argparse.Namespace) -> int:
         print(f"release-gates: severities must be among {', '.join(vulns.SEVERITIES)}", file=sys.stderr)
         return 2
     targets = [release.parse_target(t) for t in args.image]
+    missing = release.missing_local(targets)
+    if missing:
+        for m in missing:
+            print(f"release-gates: {m}", file=sys.stderr)
+        return 1
     record = release.run_gates(
         targets,
         cache_dir=Path(args.cache_dir),
@@ -107,14 +112,18 @@ def cmd_bundle_check(args: argparse.Namespace) -> int:
     except (OSError, json.JSONDecodeError) as exc:
         print(f"bundle-check: cannot read {args.gates}: {exc}", file=sys.stderr)
         return 1
-    images = {}
+    images: dict[str, tuple[str, ...]] = {}
+    platforms: dict[str, str] = {}
     for ref in args.image:
         try:
-            images[ref] = release.inspect_local(ref)["image_id"]
+            local = release.inspect_local(ref)
         except vulns.ReportError as exc:
             print(f"bundle-check: {exc}", file=sys.stderr)
             return 1
-    problems = release.bundle_problems(record, images)
+        # D-830: the Id and every repo digest (on the containerd store the Id is the index digest), with the platform
+        images[ref] = (local["image_id"], *(str(d).rsplit("@", 1)[-1] for d in local["repo_digests"]))
+        platforms[ref] = local["platform"]
+    problems = release.bundle_problems(record, images, platforms=platforms)
     for p in problems:
         print(f"bundle-check: {p}", file=sys.stderr)
     print(f"bundle-check: {'FAIL' if problems else 'PASS'} ({len(images)} images)")
@@ -203,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
         "--vuln-mode",
         choices=release.VULN_MODES,
         default="block",
-        help="report: fixable CRITICAL/HIGH in the images of release.VULN_REPORT_ONLY are shown, not failing",
+        help="fixable CRITICAL/HIGH in release.VULN_REPORT_ONLY images are shown, not failing, in both modes (D-827)",
     )
     severity_args(p)
     p.set_defaults(fn=cmd_release_gates)

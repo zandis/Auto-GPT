@@ -96,11 +96,14 @@ def atom_summary(atom: Atom, valuesets: dict[str, dict[str, Any]]) -> str:
         "report": "report:",
         "observation": "result of",
     }
+    # D-917: the statuses a condition atom counts, so the reviewer sees the restriction the compiler set
+    status = getattr(atom, "clinical_status", None)
+    only = f" (only recorded as {', '.join(status)}, or with no status)" if status else ""
     if q == "count>=":
-        return f"At least {atom.count} × {noun[atom.domain]} {title} {win}"
+        return f"At least {atom.count} × {noun[atom.domain]} {title} {win}{only}"
     if q == "none":
-        return f"No {noun[atom.domain]} {title} {win}"
-    return f"Any {noun[atom.domain]} {title} {win}"
+        return f"No {noun[atom.domain]} {title} {win}{only}"
+    return f"Any {noun[atom.domain]} {title} {win}{only}"
 
 
 def _num(atom: Atom) -> str:
@@ -112,6 +115,13 @@ def _num(atom: Atom) -> str:
     if v.op == "between":
         return f"{v.num:g}–{v.num2:g}{unit}"
     return f"{v.num:g}{unit}"
+
+
+def _negated(expr: Atom | BoolExpr) -> Atom | BoolExpr:
+    """What the model wrote before the positive rewrite: ``none`` of the atom, or ``not`` of the expression."""
+    if isinstance(expr, Atom) and expr.quantifier in (None, "any"):
+        return expr.model_copy(update={"quantifier": "none"})
+    return BoolExpr(op="not", args=[expr])
 
 
 def logic_summary(expr: Atom | BoolExpr, valuesets: dict[str, dict[str, Any]]) -> str:
@@ -159,6 +169,8 @@ def rows(
             summary = c.note_question or c.human_question or ""
         if c.note_question_source:
             summary += f"\n[question rewritten from the negated form: {c.note_question_source}]"
+        if "negated_logic_rewritten" in (c.flags or []) and c.logic is not None:  # red of 2026-11-15 (jmed)
+            summary += f"\n[logic rewritten from the negated form: {logic_summary(_negated(c.logic), valuesets)}]"
         out.append(
             {
                 "id": c.id,

@@ -41,8 +41,9 @@ closed). Checks:
 * ``flags``: a seed variable such as ``TB_LAKE_SOURCE`` that disagrees with its feature flag is ignored since the
   box's first start (T-008, D-207): WARN, naming the flag's value and where to change it;
 * ``backup`` (D-274; CR-058, OPS-028, OPS-048): read from the deploy folder of ``--env-file``. FAIL in PRODUCTION
-  (WARN elsewhere) when there is no target, no off-box target, no alert route (``TB_BACKUP_ALERT_CMD`` or
-  ``TB_BACKUP_MAILTO``), no ``/etc/cron.d/trialbox-backup`` on a host with ``/etc/cron.d``, no good backup or one
+  (WARN elsewhere) when there is no target, no off-box target, no alert route (``TB_BACKUP_ALERT_CMD``,
+  ``TB_BACKUP_MAILTO`` or ``TB_BACKUP_ALERT_ROUTE=health-page``, D-735), no ``/etc/cron.d/trialbox-backup`` on a
+  host with ``/etc/cron.d``, no good backup or one
   older than ``TB_BACKUP_MAX_AGE_HOURS`` (``backup-status``'s rules); WARN in PRODUCTION when WAL archiving is off;
   on a platform it passes and points to ``backup_target`` and ``backup_job``;
 * ``site_key`` (T-612, DATA-004): ``site_hmac.key`` is in the secrets folder (``TB_SECRETS_DIR``) and its fingerprint
@@ -100,6 +101,8 @@ closed). Checks:
   does not answer. The WSL2 kernel against the record's ``wsl_kernel``: FAIL when they differ, WARN while the
   record names none. PASS on a plain Linux host.
 
+* ``postgres_memory`` (T-703, D-751, scale review F-19): FAIL when ``shared_buffers`` is PostgreSQL's default on a
+  host of 64 GB or more (``tools.trialbox.pgsize``; ``deploy/install.sh`` sizes it from ``TB_MEM_DB``).
 * ``memory_caps`` (T-692, D-473, scale review F-05): ``TB_MEM_ADAPTER`` and ``TB_MEM_LAKE`` (``--env-file``, else the
   compose defaults) against what the patient count needs (``tools/trialbox/memcaps.py``: the measured record
   ``measured/ingest_memory.json`` of the deploy folder). The count is the lake's ``CURRENT`` snapshot, else
@@ -326,6 +329,45 @@ def check_channel_engine(inp: DoctorInputs) -> Check:
     return Check("channel_engine", "PASS", f"engine {cfg.engine}")
 
 
+def check_sae_mailbox(inp: DoctorInputs) -> Check:
+    """D-736 (LIFE-007): on a PRODUCTION box the trial office is mailed at once when a serious adverse event is
+    entered (``TB_SAE_OFFICE_MAILBOX``, one mail address); without it nobody is told until the next working day. A box
+    installed by ``box-install.sh`` starts without it, so this is a WARN, never a FAIL."""
+    import re
+
+    from tools.settings_wizard import MAILBOX_RE
+
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    to = (inp.env.get("TB_SAE_OFFICE_MAILBOX") or "").strip()
+    if to and re.fullmatch(MAILBOX_RE, to):
+        return Check(
+            "sae_mailbox", "PASS", f"the trial office is mailed at {to} when a serious adverse event is entered"
+        )
+    if env != "PRODUCTION":
+        return Check("sae_mailbox", "PASS", f"{env}: no SAE office mailbox needed")
+    why = (f"TB_SAE_OFFICE_MAILBOX {to!r} is not one mail address" if to else "no TB_SAE_OFFICE_MAILBOX") + (
+        ": nobody is mailed when a serious adverse event is entered; set it in deploy/.env (D-736, RUNBOOK §1)"
+    )
+    return Check("sae_mailbox", "WARN", why)
+
+
+def check_mail_auth(inp: DoctorInputs) -> Check:
+    """D-825 (D-369): the mail gateway trusts sender results only from the MTA ``TB_MAIL_AUTHSERV_ID`` names; empty, it
+    refuses every request mail (fails closed). WARN on a site box (VALIDATION, PRODUCTION), never a FAIL: a box
+    without mail is a box, and the refusal is the safe side."""
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    if (inp.env.get("TB_MAIL_AUTHSERV_ID") or "").strip():
+        return Check("mail_auth", "PASS", f"sender results trusted from {inp.env['TB_MAIL_AUTHSERV_ID'].strip()}")
+    if env not in ("VALIDATION", "PRODUCTION"):
+        return Check("mail_auth", "PASS", f"{env}: no MTA named; mail intake stays closed")
+    return Check(
+        "mail_auth",
+        "WARN",
+        "no TB_MAIL_AUTHSERV_ID: every mailed FEAS or SCREEN request is refused until the "
+        "hospital MTA's authserv-id is set (the box answers' mta_authserv_id, or deploy/.env; D-369, D-825)",
+    )
+
+
 def check_secure_cookie(inp: DoctorInputs) -> Check:
     """The console's own rule (``console.identity.secure_cookie_default``, D-192): an explicit value wins; unset or
     empty means Secure in PRODUCTION (the base compose file passes it empty) and off elsewhere."""
@@ -389,6 +431,14 @@ def _override(inp: DoctorInputs) -> Path:
     return Path(raw) if raw else _site_dir(inp) / "registry.site.yaml"
 
 
+def placeholder_note(reg: Any) -> str:
+    """D-887: the box rehearsal's placeholder pins, named wherever pins are shown ("" when there is none)."""
+    names = [b.build_id for b in reg.builds if getattr(b, "rehearsal_placeholder", False)]
+    if not names:
+        return ""
+    return f"; {', '.join(names)}: rehearsal placeholder (not a model: proves the path, never promoted)"
+
+
 def check_registry_pins(inp: DoctorInputs) -> Check:
     from registry.registry import DEFAULT_PATH, Registry, Status
 
@@ -403,9 +453,10 @@ def check_registry_pins(inp: DoctorInputs) -> Check:
         return Check("registry_pins", "WARN", f"no model build pinned ({where}): only the DEV/TEST stub routes")
     names = ", ".join(f"{b.build_id} ({b.status.value}, {b.sha256[:12] if b.sha256 else ''})" for b in pinned)
     env = inp.env.get("TB_ENV", "DEV")
-    if env in ("VALIDATION", "PRODUCTION") and not any(b.status == Status.CHAMPION for b in pinned):
+    # D-823: a VALIDATION box runs its candidate pair; only PRODUCTION routes champions alone
+    if env == "PRODUCTION" and not any(b.status == Status.CHAMPION for b in pinned):
         return Check("registry_pins", "WARN", f"pinned: {names}; none is champion, so {env} roles route nothing")
-    return Check("registry_pins", "PASS", f"{reg.version}: pinned {names}")
+    return Check("registry_pins", "PASS", f"{reg.version}: pinned {names}{placeholder_note(reg)}")
 
 
 def verifier_is_the_judge(env: Mapping[str, str]) -> str | None:
@@ -688,7 +739,7 @@ def check_serving(inp: DoctorInputs) -> Check:
         return Check("serving", "FAIL", "; ".join(fails))
     if warns:
         return Check("serving", "WARN", "; ".join(warns))
-    return Check("serving", "PASS", "; ".join(good) + "; key required")
+    return Check("serving", "PASS", "; ".join(good) + "; key required" + placeholder_note(reg))
 
 
 MAPPING_ROOT = ROOT / "services" / "adapter"
@@ -881,6 +932,9 @@ def check_backup(inp: DoctorInputs) -> Check:
     if inp.cron_dir.is_dir() and not (inp.cron_dir / bs.CRON_NAME).is_file():
         fails.append(f"no {inp.cron_dir / bs.CRON_NAME}: python3 -m tools.trialbox backup-install (RUNBOOK §5)")
     warns = []
+    if cfg.page_only(bs.has_mta()):
+        warns.append("the only backup alert route is the health page: nobody is mailed, someone must open /admin "
+                     "every working day (TB_BACKUP_ALERT_ROUTE, D-735; RUNBOOK §5)")  # fmt: skip
     if not cfg.archive_on:
         warns.append("WAL archiving is off: a crash loses up to a day (TB_PG_ARCHIVE_MODE, RUNBOOK §5)")
     off = sum(t["offbox"] for t in st["targets"])
@@ -888,7 +942,7 @@ def check_backup(inp: DoctorInputs) -> Check:
     facts = f"{len(cfg.targets)} target(s), {off} off-box; newest good " + (
         f"{Path(good['path']).name} ({st['age_hours']} h old)" if good else "none")  # fmt: skip
     if fails:
-        return Check("backup", "FAIL" if prod else "WARN", "; ".join(fails) + f" ({facts})")
+        return Check("backup", "FAIL" if prod else "WARN", "; ".join(fails + warns) + f" ({facts})")
     if warns and prod:
         return Check("backup", "WARN", "; ".join(warns) + f" ({facts})")
     return Check("backup", "PASS", facts)
@@ -983,6 +1037,49 @@ def check_key_custody(inp: DoctorInputs) -> Check:
     if c.kek == "locked":
         return Check("key_custody", "WARN", f"{', '.join(c.wrapped)} wrapped under {where}; not unsealed here")
     return Check("key_custody", "PASS", f"{', '.join(c.wrapped)} wrapped under {where}, unsealed")
+
+
+def check_key_custody_record(inp: DoctorInputs) -> Check:
+    """TB-SOP-03 (D-893): a VALIDATION or PRODUCTION box whose keys are under a KEK has the key ceremony's record
+    (IQ-05), made by ``python -m tools.keys ceremony-record`` for that KEK; a TPM box's escrow set (D-894) is of the
+    current KEK and on the newest record. A WARN, never a FAIL: no install gate."""
+    from tb_common import kek
+
+    from tools import key_ceremony as kc
+
+    name = "key_ceremony"
+    env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().upper()
+    if env not in kek.STRICT_ENVS:
+        return Check(name, "PASS", f"{env}: no key ceremony record is asked for")
+    sec = Path(inp.env.get("TB_SECRETS_DIR") or "/run/secrets/trialbox")
+    c = kek.custody(sec, {**os.environ, **inp.env}) if sec.is_dir() else None
+    if c is None or c.backend is None:
+        return Check(name, "PASS", "no KEK yet: the ceremony comes with python -m tools.keys init")
+    from tools import key_escrow as ke
+
+    try:
+        meta = kek.read_meta(sec)
+    except kek.KekError:
+        meta = None
+    esc = ke.current(meta)
+    if esc is not None and ke.stale(meta):
+        return Check(name, "WARN", f"the escrow set {esc.get('set_id')} is of an older KEK ({esc.get('kek_id')}); the "
+                     f"KEK is now {c.kek_id}: its shares open nothing here. A new set: python -m tools.keys "
+                     "escrow-shares (TB-SOP-03 §5)")  # fmt: skip
+    rec = kc.newest(inp.deploy or ROOT / "deploy")
+    how = ("python -m tools.keys ceremony-record --custodian ... --witness ..., printed and signed "
+           "(docs/security/10-key-ceremony-and-escrow.md)")  # fmt: skip
+    if rec is None:
+        return Check(name, "WARN", f"no key ceremony record for KEK {c.kek_id} ({c.backend}) in deploy/site: {how}")
+    if (rec.get("kek") or {}).get("kek_id") != c.kek_id:
+        return Check(name, "WARN", f"the newest ceremony record is of KEK {(rec.get('kek') or {}).get('kek_id')}; "
+                     f"the KEK is now {c.kek_id} (rotate-kek since): a new record, {how}")  # fmt: skip
+    if esc is not None and (rec.get("escrow") or {}).get("set_id") != esc.get("set_id"):
+        return Check(name, "WARN", f"the escrow set {esc.get('set_id')} was made after the newest ceremony record: "
+                     f"a new record lists it and its custodians sign, {how}")  # fmt: skip
+    note = "; NOT a site's ceremony (passphrase back end)" if rec.get("not_a_site_ceremony") else ""
+    return Check(name, "PASS", f"ceremony record of {str(rec.get('at'))[:10]} for KEK {c.kek_id}, "
+                 f"{len(rec.get('custodians') or [])} custodian(s){note}")  # fmt: skip
 
 
 def check_clock(inp: DoctorInputs) -> Check:
@@ -1279,17 +1376,20 @@ def _standins_in_compose(inp: DoctorInputs) -> str:
 
 
 def check_rehearsal(inp: DoctorInputs) -> Check:
-    """REHEARSAL (D-726): a rehearsal box says so. ``deploy/install.sh --rehearsal`` writes ``TB_REHEARSAL=1`` and
-    ``TB_ENV=TEST`` to deploy/.env and the mark ``deploy/site/rehearsal.json``: WARN "rehearsal box" on a TEST box
-    (model stand-ins, an unmeasured card, synthetic data only); FAIL when either is on a box of any other
-    environment (someone changed TB_ENV of a rehearsal box by hand)."""
-    marked = (inp.env.get("TB_REHEARSAL") or "").strip() == "1"
+    """REHEARSAL (D-726, D-887): a rehearsal box says so. ``deploy/install.sh --rehearsal`` writes the mark
+    ``deploy/site/rehearsal.json``, then ``TB_REHEARSAL=1`` and ``TB_ENV`` to deploy/.env: VALIDATION since the
+    integrator's (i) (D3 stays on the box, so SCREEN reaches the pinned builds), TEST before. On a rehearsal box the
+    line is a standing WARN no setting turns off: "REHEARSAL BOX: placeholder models, synthetic data only". A
+    VALIDATION box needs both marks (TB_REHEARSAL=1 alone, or the file alone, is a site box touched by hand); a mark
+    on a box of any other environment FAILs (someone changed TB_ENV of a rehearsal box by hand)."""
+    flag = (inp.env.get("TB_REHEARSAL") or "").strip() == "1"
     mark = _site_dir(inp) / "rehearsal.json"
-    if mark.is_file():
-        marked = True
+    has_mark = mark.is_file()
+    marked = flag or has_mark
     env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().strip("\"'").strip().upper()
+    rehearsal = (env == "TEST" and marked) or (env == "VALIDATION" and flag and has_mark)
     standins = _standins_in_compose(inp)
-    if standins and (env != "TEST" or not marked):
+    if standins and not rehearsal:
         what = env if env != "TEST" else "TEST box that is no rehearsal box"
         return Check(
             "rehearsal",
@@ -1299,19 +1399,32 @@ def check_rehearsal(inp: DoctorInputs) -> Check:
         )
     if not marked:
         return Check("rehearsal", "PASS", "not a rehearsal box")
-    if env != "TEST":
+    if not rehearsal:
+        half = " (a VALIDATION rehearsal box has both TB_REHEARSAL=1 and the mark file)" if env == "VALIDATION" else ""
         return Check(
             "rehearsal",
             "FAIL",
-            f"a rehearsal mark (TB_REHEARSAL=1 or {mark}) on a {env} box: a rehearsal box is TEST only. Install "
-            "the site's box afresh (deploy/install.sh without --rehearsal, on an empty box), never this one",
+            f"a rehearsal mark (TB_REHEARSAL=1 or {mark}) on a {env} box{half}: a rehearsal box is made by "
+            "deploy/install.sh --rehearsal only. Install the site's box afresh (deploy/install.sh without "
+            "--rehearsal, on an empty box), never this one",
         )
     return Check(
         "rehearsal",
         "WARN",
-        "rehearsal box: TEST, the model stand-ins and an unmeasured card are allowed; synthetic data only, never a "
-        "site's patients (D-726)",
+        f"REHEARSAL BOX: placeholder models, synthetic data only (a {env} rehearsal box; the model stand-ins and "
+        "an unmeasured card are allowed; never a site's patients; nothing is qualified or promoted on it; D-726, "
+        "D-887)",
     )
+
+
+def check_postgres_memory(inp: DoctorInputs) -> Check:
+    """T-703 (D-751, scale review F-19): PostgreSQL's buffers against the host (``tools.trialbox.pgsize``)."""
+    from tools.trialbox import pgsize
+
+    if inp.deploy is None:
+        return Check("postgres_memory", "WARN", "PostgreSQL's sizes were not judged: give --env-file <deploy/.env>")
+    status, detail = pgsize.check(inp.env, inp.proc)
+    return Check("postgres_memory", status, detail)
 
 
 def check_memory_caps(inp: DoctorInputs) -> Check:
@@ -1820,6 +1933,8 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_perimeter_addresses,
     check_channel_engine,
     check_secure_cookie,
+    check_sae_mailbox,
+    check_mail_auth,
     check_console_mfa,
     check_ldap_ca,
     check_publish_gate,
@@ -1833,12 +1948,14 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_chartno_rule,
     check_backup,
     check_key_custody,
+    check_key_custody_record,
     check_clock,
     check_ops_runner,
     check_audit_heads,
     check_anchor_mount,
     check_rehearsal,
     check_memory_caps,
+    check_postgres_memory,
     check_db_passwords,
     check_wsl2_memory,
     check_update_window,
@@ -1919,6 +2036,33 @@ def check_two_device(inp: DoctorInputs) -> Check:
 TWO_DEVICE: tuple[Callable[[DoctorInputs], Check], ...] = (check_two_device,)
 
 
+# D-837: the checks of a host facility a plain VM has not got (the TPM-sealed keys, the off-box anchor folder): under
+# TB_HOST_PROFILE=poc on a box that is not PRODUCTION their FAIL is a WARN, and one line lists them. D-887 (the box
+# rehearsal on VALIDATION): the ops runner's systemd timer (a poc box installs no units, TB_SYSTEMD=0) and a missing
+# anchor folder for the signed heads; a stale or broken head where a folder is set stays a FAIL
+HOST_FACILITY_CHECKS = ("key_custody", "anchor_mount", "ops_runner", "audit_heads")
+HOST_FACILITY_ONLY: dict[str, str] = {"audit_heads": "no anchor folder"}  # eased only when the FAIL says this
+
+
+def host_profile(inp: DoctorInputs, out: list[Check]) -> list[Check]:
+    if (inp.env.get("TB_HOST_PROFILE") or "").strip() != "poc":
+        return out
+    from tb_common.config import environment_name
+
+    if environment_name(inp.env) == "PRODUCTION":
+        return [*out, Check("host_profile", "FAIL", "TB_HOST_PROFILE=poc on a PRODUCTION box: never relaxed there")]
+    eased = [
+        c.name
+        for c in out
+        if c.name in HOST_FACILITY_CHECKS
+        and c.status == "FAIL"
+        and c.detail.startswith(HOST_FACILITY_ONLY.get(c.name, ""))
+    ]
+    out = [replace(c, status="WARN", detail=f"{c.detail} [host profile poc]") if c.name in eased else c for c in out]
+    said = ", ".join(eased) if eased else "none failed"
+    return [*out, Check("host_profile", "WARN", f"host profile poc: host-facility checks as WARN: {said}")]
+
+
 def run(inp: DoctorInputs, checks: tuple[Callable[[DoctorInputs], Check], ...] = CHECKS) -> list[Check]:
     out: list[Check] = [Check("inputs", "FAIL", why) for why in inp.input_errors]
     for fn in checks:
@@ -1927,7 +2071,7 @@ def run(inp: DoctorInputs, checks: tuple[Callable[[DoctorInputs], Check], ...] =
             out.append(fn(inp))
         except Exception as e:  # fail closed: a check that cannot run is a failure
             out.append(Check(name, "FAIL", f"check error: {type(e).__name__}: {e}"))
-    return out
+    return host_profile(inp, out)
 
 
 def ok(checks: list[Check]) -> bool:

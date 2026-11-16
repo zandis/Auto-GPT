@@ -88,6 +88,12 @@ class OwnerAnswers:
     # NEW-DIN-3 (D-544, D-579): how the hospital writes chart numbers (``tb_common.chartno``: ``asis``,
     # ``digits[:width]``, ``hex[:width][:lower]``); empty: not answered, the installer keeps the rule the box runs on
     chartno_rule: str = ""
+    # D-822 (the owner's blocker 8): PRODUCTION, or VALIDATION for public or synthetic data (D-127); a box is never
+    # DEV or TEST (a rehearsal box is made by its own installer argument, D-726, D-887)
+    environment: str = "PRODUCTION"
+    # D-825 (the owner's blocker 9): the authserv-id the hospital MTA writes first in Authentication-Results; empty:
+    # no sender can be authenticated and the box refuses every request mail (D-369, fails closed)
+    mta_authserv_id: str = ""
 
     @property
     def hostname(self) -> str:
@@ -98,6 +104,11 @@ class OwnerAnswers:
         d["backup"]["kind"] = self.backup.kind.value
         d["source"] = self.source.value
         return d
+
+
+BOX_ENVIRONMENTS = ("PRODUCTION", "VALIDATION")  # D-822
+# D-825: one host name (labels of letters, digits and inner hyphens, at least one dot), as an MTA names itself
+_HOST = re.compile(r"(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?")
 
 
 def _s(raw: Any, limit: int = 200) -> str:
@@ -155,11 +166,28 @@ def parse(raw: dict[str, Any], *, disks: tuple[str, ...] = ()) -> tuple[OwnerAns
     rule = chartno_rule(raw)
     if rule is None:
         problems.append(Problem("chartno_rule", "chartno_rule"))
+    environment = _s(raw.get("environment"), 16).upper() or "PRODUCTION"
+    if environment not in BOX_ENVIRONMENTS:
+        problems.append(Problem("environment", "environment"))
+    authserv = _s(raw.get("mta_authserv_id"), 253).lower()
+    if authserv and not _HOST.fullmatch(authserv):
+        problems.append(Problem("mta_authserv_id", "mta_authserv_id"))
     if problems or kind is None or rule is None:
         return None, problems
     backup = Backup(kind, disk if kind is BackupKind.SECOND_DISK else "", share if kind is BackupKind.SHARE else "")
     return (
-        OwnerAnswers(site_name, tz, language, Owner(full_name, username, email), box_name, backup, source, rule),
+        OwnerAnswers(
+            site_name,
+            tz,
+            language,
+            Owner(full_name, username, email),
+            box_name,
+            backup,
+            source,
+            rule,
+            environment,
+            authserv,
+        ),
         [],
     )
 

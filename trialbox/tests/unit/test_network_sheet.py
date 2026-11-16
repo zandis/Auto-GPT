@@ -134,3 +134,14 @@ def test_the_identity_overlay_shows_443_ldaps_and_no_console_port(tmp_path: Path
     assert "authelia -> domain controller:636 (LDAPS)" in md
     assert "host -> backup share (/mnt/tb-backup)" in md and "UDP 123" in md
     assert "Caddy's internal CA keys" in md and "| oidc_client_secret |" in md
+
+
+def test_the_rehearsal_stand_ins_render_as_test_only(tmp_path: Path) -> None:
+    """I-7 (D-882): install.sh writes the sheet on a rehearsal box too, where tools/rehearse_box/standins.yml adds
+    mail-sink; the sheet names it test-only instead of stopping the install with a KeyError."""
+    files = ["deploy/docker-compose.yml", "deploy/docker-compose.secrets.yml", "tools/rehearse_box/standins.yml"]
+    for lang in ns.LANGS:
+        md = ns.render_md(files, None, lang)
+        row = next(line for line in md.splitlines() if line.startswith("| mail-sink "))
+        assert ns.T["test_only"][lang] in row
+    assert ns.main(["--files", ":".join(files), "--out", str(tmp_path / "s")]) == 0

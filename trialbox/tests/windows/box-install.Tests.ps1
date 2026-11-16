@@ -61,10 +61,11 @@ BeforeAll {
     return $s
   }
 
-  function Invoke-Run([switch]$Resume, [switch]$Ask) {
+  function Invoke-Run([switch]$Resume, [switch]$Ask, [switch]$Rehearsal) {
     $s = $script:S
     $p = @{ MediaRoot = $s.Media; DataDrive = $s.Data; StateDir = $s.StateDir; Lang = "en"; Yes = (-not $Ask) }
     if ($Resume) { $p.Remove("MediaRoot"); $p["Resume"] = $true }
+    if ($Rehearsal) { $p["Rehearsal"] = $true }
     return (Invoke-TbInstall @p)
   }
   function Get-Log { return (Get-Content -LiteralPath (Join-Path $script:S.StateDir "box-install.log") -Raw) }
@@ -907,6 +908,64 @@ Describe "box-install.ps1" {
     }
   }
 
+  Context "a rehearsal install (NEW-WIN-11, D-614; lane D's --rehearsal, D-726)" {
+    BeforeEach {
+      $script:S.Features = @{ "VirtualMachinePlatform" = $true; "Microsoft-Windows-Subsystem-Linux" = $true }
+      $script:S.WslInstalled = $true
+    }
+    It "hands --rehearsal to the Linux installer, says so before anything is changed, and records it" {
+      Invoke-Run -Rehearsal | Should -Be 0
+      $script:S.Console.Count | Should -Be 1
+      $script:S.Console[0] | Should -Match "wsl-setup\.sh install \S+trialbox-1\.0\.0\.tar --yes --rehearsal$"
+      ($script:S.Said -join "`n") | Should -Match "rehearsal"
+      $log = Get-Log
+      $log | Should -Match "rehearsal: yes"
+      $log.IndexOf("rehearsal: yes") | Should -BeLessThan $log.IndexOf("step 1/")   # before step 1 changes anything
+      (Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json).rehearsal | Should -BeTrue
+    }
+    It "does not make a finished install that was no rehearsal one afterwards" {
+      Invoke-Run | Should -Be 0
+      Invoke-Run -Rehearsal | Should -Be 0
+      (Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json).rehearsal | Should -BeFalse
+      Get-Log | Should -Match "-Rehearsal ignored: this install is finished and is not a rehearsal"
+      ($script:S.Said -join "`n") | Should -Match "not a rehearsal"     # said on screen too (review finding 4)
+      $script:S.Console.Count | Should -Be 1
+    }
+    It "never hands it on without the switch" {
+      Invoke-Run | Should -Be 0
+      $script:S.Console[0] | Should -Not -Match "rehearsal"
+      (Get-Content -LiteralPath (Join-Path $script:S.StateDir "state.json") -Raw | ConvertFrom-Json).rehearsal | Should -BeFalse
+    }
+    It "stays a rehearsal over the restart: the resume task's command line names it (review finding 3)" {
+      $script:S.Features = @{ "VirtualMachinePlatform" = $false; "Microsoft-Windows-Subsystem-Linux" = $false }
+      $script:S.WslInstalled = $false
+      Invoke-Run -Rehearsal | Should -Be 3010
+      $script:S.ResumeMore | Should -Match " -Rehearsal$"
+      $script:S.InstallExit = 1; $script:S.StateLine = "installed=0"   # step 14 stops after the restart
+      Invoke-Run -Resume -Rehearsal | Should -Be 1
+      $script:S.Console[0] | Should -Match "--rehearsal$"
+    }
+    It "stops, changing nothing, when an unfinished rehearsal is started again by hand without the switch (review finding 3)" {
+      # a rehearsal that stopped, its box emptied, then started with a site's media and no -Rehearsal: never made
+      # a rehearsal unasked
+      $script:S.InstallExit = 1; $script:S.StateLine = "installed=0"
+      Invoke-Run -Rehearsal | Should -Be 1
+      $script:S.InstallExit = 0; $script:S.StateLine = "installed=1"
+      Invoke-Run | Should -Be 1
+      $script:S.Console.Count | Should -Be 1
+      ($script:S.Said -join "`n") | Should -Match "-Rehearsal"
+      Get-Log | Should -Match "unfinished rehearsal started without -Rehearsal: stopped"
+      Invoke-Run -Rehearsal | Should -Be 0                             # with the switch it goes on
+      $script:S.Console[1] | Should -Match "--rehearsal$"
+    }
+    It "never names it in the resume task's command line without the switch" {
+      $script:S.Features = @{ "VirtualMachinePlatform" = $false; "Microsoft-Windows-Subsystem-Linux" = $false }
+      $script:S.WslInstalled = $false
+      Invoke-Run | Should -Be 3010
+      $script:S.ResumeMore | Should -Not -Match "Rehearsal"
+    }
+  }
+
   Context "small pieces" {
     It "turns a Windows path into the path WSL2 mounts it at" {
       ConvertTo-TbWslPath "D:\TrialBox\install\wsl-setup.sh" | Should -Be "/mnt/d/TrialBox/install/wsl-setup.sh"
@@ -976,6 +1035,20 @@ Describe "box-install.ps1" {
       $log = Get-Log
       $log.IndexOf("turning BitLocker on for C:") | Should -BeLessThan $log.IndexOf("import: start")
       $log.IndexOf("recovery key of C:: shown, confirmed") | Should -BeLessThan $log.IndexOf("turning BitLocker on for C:")
+    }
+    It "shows and prints each key with the key ID Windows' recovery screen shows (NEW-WIN-14, D-617)" {
+      Set-DrivesOff
+      $script:S.KeyIds["C:"] = "{8b2f1a3c-1111-2222-3333-444455556666}"
+      $script:S.KeyIds[$script:S.Data] = "{0d9e7f21-aaaa-bbbb-cccc-ddddeeeeffff}"
+      foreach ($a in @("n", "123456", "y", "654321")) { [void]$script:S.Answers.Add($a) }
+      Invoke-Run -Ask | Should -Be 0
+      $said = $script:S.Said -join "`n"
+      $said | Should -Match "drive C:, key ID 8B2F1A3C"
+      $said | Should -Match ("drive {0}, key ID 0D9E7F21" -f [regex]::Escape($script:S.Data))
+      $script:S.Printed[0] | Should -Match "key ID 0D9E7F21"
+      Format-TbKeyId "{8b2f1a3c-1111-2222-3333-444455556666}" | Should -Be "8B2F1A3C"
+      Format-TbKeyId "" | Should -Be "?"
+      Get-Log | Should -Match "recovery key of C: \(key ID 8B2F1A3C\): shown, confirmed"   # the ID is no secret
     }
     It "never starts encryption when the owner did not confirm the key (review H2)" {
       Set-DrivesOff

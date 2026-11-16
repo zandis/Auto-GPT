@@ -47,7 +47,18 @@ from tb_common.timeutil import add_months, month_ends
 from tb_contracts import CriterionIR
 
 from matching import excerpts as excerpt_builder
-from matching.cascade.judge import JudgeClient, JudgeReply, expected_tokens, norm, sentence_hash, verify_span
+from matching.carried import NOT_CARRIED, Carried
+from matching.cascade.judge import (
+    ASKING,
+    Asking,
+    JudgeClient,
+    JudgeReply,
+    expected_tokens,
+    norm,
+    question_digest,
+    sentence_hash,
+    verify_span,
+)
 from matching.cascade.model import (
     STAGES,
     STRATUM_INDEX,
@@ -70,11 +81,13 @@ from matching.cascade.s2b_semantic import (
     SourceFallback,
     SourceRanking,
     ThresholdTable,
+    boilerplate,
     screen,
 )
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
 from matching.excerpts import sentences
 from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS, Proposed
+from matching.recorded import NO_RECORD, Recorded
 from matching.stored_scores import apply_rows
 
 PATIENT_CLASS = "D3"  # every cascade output is patient level (§7.1)
@@ -104,6 +117,20 @@ class LakeLike:
         raise NotImplementedError
 
 
+def s1_rows(environ: Mapping[str, str] | None = None) -> int:
+    """``TB_CASCADE_S1_ROWS``: the rows (patients times index dates) one S1 query may carry (D-748). A whole number
+    above 0, else the setting is refused."""
+    import os
+
+    from tb_common.config import DECLARED
+
+    env = os.environ if environ is None else environ
+    raw = env.get("TB_CASCADE_S1_ROWS") or DECLARED["TB_CASCADE_S1_ROWS"].default
+    if not raw.isascii() or not raw.isdigit() or int(raw) <= 0:
+        raise CascadeError(f"TB_CASCADE_S1_ROWS={raw!r}: give a whole number of rows above 0")
+    return int(raw)
+
+
 @dataclass
 class CascadeConfig:
     study_id: str
@@ -115,6 +142,9 @@ class CascadeConfig:
     step_id: str = ""
     # CAS-4: the budget of S3 pairs. None: no budget (T-689, D-456: SCREEN's default is the population's own pairs)
     max_llm_items: int | None = 2000
+    # T-694 part 3: S2 and S2b run on this many patients at a time, reading only their notes; None: all at once. The
+    # statuses, metrics and stage logs are the same for any size
+    note_batch: int | None = None
     # model calls in flight at once (S3, S4): the serving profile's sequences (vLLM --max-num-seqs); 1 = one by one.
     # Each patient's criteria stay in order (CAS-3 stops at a hard fail); patients run side by side (D-142, A-07)
     llm_concurrency: int = 1
@@ -132,6 +162,8 @@ class CascadeConfig:
     require_retrieval: bool = False
     language: str = "zh-TW"  # language stratum of the site notes (S2b thresholds)
     sample_per_stratum: int | None = None  # CAS-8: ≤ 200 in feasibility runs; None screens everyone
+    # NEW-B-47 (D-748): the rows (patients times index dates) one S1 query may carry; None: TB_CASCADE_S1_ROWS
+    s1_rows: int | None = None
     seed: int = 20261025
     snapshot: str | None = None
     # D-442: the stored derived rows (``tb_common.derived_store.stored_read``, None while the flag is off)
@@ -144,6 +176,9 @@ class CascadeConfig:
     population: Sequence[str] | None = None
     note_block: bool = True
     absence_semantics: bool = True
+    # D-904 (lane G's review): False skips S2b for a zero-hit pair the judge reads anyway (no absence semantics, not
+    # the index sweep) when every note of its window fits the excerpt budget: the ranking would change no prompt
+    s2b_when_fits: bool = True
     # T-708 (D-477): the consent state of S0, given by the caller's decision context (the orchestrator). None: a
     # caller with no job (a tool) and S0 reads the lake by the same rule (``tb_common.optout.registry_state``).
     registry: Callable[[], RegistryState | None] | None = None
@@ -349,6 +384,11 @@ class _Run:
         self.items = 0
         self.tokens = 0
         self.coverage = Coverage()  # rows in a code system nobody can read (F-10, D-130); loaded at S1
+        self._s2_excluded = 0  # patients S2 excluded on a certified zero hit, summed over the batches (T-694 part 3)
+        self.carried = Carried()  # the code systems the site's rows carry (F11, D-795); loaded at S1
+        self.recorded = Recorded()  # the kinds of coded record each patient has at all (D-914); loaded at S1
+        self._uncarried_index: set[str] = set()  # index conditions whose list no row can carry: absence never excludes
+        self.coded = True  # whether S1 applied a coded criterion (D-788); set at S1
         self.proposed = Proposed()  # facts read from a chart, not yet confirmed (D-135); loaded at S1
 
     def log(self, stage: Stage, p_in: int, p_out: int, q_in: int, q_out: int, **detail: Any) -> None:
@@ -434,16 +474,45 @@ class _Run:
             return v is True
         return v is not True
 
+    def _s1_rows(self, idx: list[date], scope: list[str]) -> list[dict[str, Any]]:
+        """NEW-B-47 (D-748): the ruleset's SQL over the scope in batches of patients: its rows are per patient and
+        index date, so the batches change no row; the lake holds one batch, not the whole scope, at a time. The
+        lake's memory grows with the rows the query carries (patients times index dates), so a batch is as many
+        patients as fit the rows a query may carry."""
+        rows_ = s1_rows() if self.cfg.s1_rows is None else self.cfg.s1_rows
+        if rows_ <= 0:
+            raise CascadeError(f"s1_rows={rows_}: give a whole number of rows above 0")
+        size = max(1, rows_ // max(1, len(idx)))
+        dates_ = [d.isoformat() for d in idx]
+        sql = safe_sql(self.rs)
+        rows: list[dict[str, Any]] = []
+        for start in range(0, max(len(scope), 1), size):
+            rows += self.lake.query(sql, [dates_, scope[start : start + size]], self.cfg.snapshot).to_pylist()
+        return rows
+
     def s1(self, idx: list[date]) -> list[CriterionIR]:
         applied = self.applied()
         scope = [t.pid for t in self.traces.values() if t.in_scope]
+        # A-NOTES-ONLY (D-788): a ruleset with no coded criterion is screened (lane G's public sets): the SQL still
+        # lists each in-scope patient alive at each index date, every patient passes S1 at its latest one, and the
+        # notes decide. Such a run needs a pair budget, since every patient goes to the models. D-909 (red of lane G's
+        # run, 2026-11-16): a ruleset where nothing decides (every criterion a person's) is an answer, not an error:
+        # S0 and S1 still scope the patients, nobody is judged, and every patient in scope goes to review
+        self.coded = bool(applied)
         if not applied:
-            raise CascadeError(f"ruleset {self.rs.id} has no compiled structured criteria")
+            if not any(c.class_ in JUDGED and c.kind in ("inclusion", "exclusion") for c in self.rs.active()):
+                self.metrics.nothing_decides = True
+            elif self.cfg.max_llm_items is None:
+                raise CascadeError(
+                    f"ruleset {self.rs.id} has no coded criterion, so every patient goes to the models: set max_pairs"
+                )
         # D-275: SQL approved before the unit / sex / order-date rules runs guarded by them (unknown on a difference)
-        table = self.lake.query(safe_sql(self.rs), [[d.isoformat() for d in idx], scope], self.cfg.snapshot).to_pylist()
+        table = self._s1_rows(idx, scope)
         # D-442: the stored-row read, the same function as the v1 engine's (only while the flag is on: cfg.stored)
         apply_rows(table, applied, self.cfg.stored, self.cfg.snapshot, getattr(self.rs.manifest, "derived_pins", None))
         self.coverage = Coverage.for_criteria(self.lake, applied, scope, self.cfg.snapshot, self.rs.valuesets)
+        self.carried = Carried.for_criteria(self.lake, applied, self.cfg.snapshot)
+        self.recorded = Recorded.for_criteria(self.lake, applied, scope, self.cfg.snapshot)
         self.proposed = Proposed.for_criteria(self.lake, applied, scope, self.cfg.snapshot, self.rs.valuesets)
         by_pid: dict[str, list[dict[str, Any]]] = {}
         for row in table:
@@ -509,10 +578,23 @@ class _Run:
         """The S1 outcome of one structured criterion, with D-135's rule on top: a proposed fact (read from a
         chart, not confirmed) that could change the coded answer makes it unknown. The patient needs information; the
         fact never excludes and never counts as met."""
+        # F11 (D-795): a list in a system no row of the domain carries cannot answer: a person looks, never excluded.
+        # The study's own condition keeps its note sweep (the notes may still find it); its absence never excludes
+        doubt = bool(self.carried.doubt(c, self.rs.valuesets, row.get(f"C_{c.id}")))
+        if doubt and is_index_criterion(c):
+            self._uncarried_index.add(c.id)
+            doubt = False
         out = self._s1_coded(c, row)
         if out.reason == UNKNOWN_CODE_SYSTEM:
             return out
         fids = self.proposed.refs(c, str(row["pid"]), row["index_date"], row.get(f"C_{c.id}"))
+        if not fids and doubt:  # a proposed fact, when there is one, says more to the person who looks
+            return Outcome(c.id, "pass" if c.kind == "exclusion" else "unknown", "S1", unknown_kind="data_gap",
+                           reason=NOT_CARRIED)  # fmt: skip
+        # D-914: a patient with no coded record of the atom's kind at all: their record says nothing either way
+        if not fids and not is_index_criterion(c) and self.recorded.doubt(c, str(row["pid"]), row.get(f"C_{c.id}")):
+            return Outcome(c.id, "pass" if c.kind == "exclusion" else "unknown", "S1", unknown_kind="data_gap",
+                           reason=NO_RECORD)  # fmt: skip
         if not fids:
             return out
         ev = [{"source": "lake", "record": x.split("|")[0], "date": x.split("|")[1] if "|" in x else None,
@@ -650,8 +732,12 @@ class _Run:
         return EXCERPT_TOKENS
 
     # -------------------------------------------------------------------------------------------- S2 / S2b
-    def s2(self, note_crit: list[CriterionIR]) -> tuple[list[_Route], list[tuple[str, str, list[_Note]]]]:
-        alive = self.alive()
+    def s2(
+        self, note_crit: list[CriterionIR], pids: Collection[str] | None = None, record: bool = True
+    ) -> tuple[list[_Route], list[tuple[str, str, list[_Note]]]]:
+        """S2 over the alive patients, or those of ``pids`` (a batch, T-694 part 3); ``record``: write the stage log
+        (a batched run writes it once, from the totals)."""
+        alive = [t for t in self.alive() if pids is None or t.pid in pids]
         rescue = [t for t in alive if any(o.reason == "index_absent" for o in t.outcomes.values())]
         notes = self.notes([t.pid for t in alive])
         terms_of: dict[str, list[str]] = {}
@@ -724,20 +810,25 @@ class _Run:
                 self._rescue(t, cid, "S2", hit)
             else:
                 zero.append((t.pid, f"index:{cid}", pnotes))
+        self._s2_excluded += excluded_here
+        if record:
+            self._log_s2(len(alive), len(note_crit), len(routes) + len(zero))
+        return routes, zero
+
+    def _log_s2(self, p_in: int, n_crit: int, q_out: int) -> None:
         alive_after = self.alive()
         self.log(
             "S2",
-            len(alive),
+            p_in,
             len(alive_after),
-            len(alive) * len(note_crit),
-            len(routes) + len(zero),
+            p_in * n_crit,
+            q_out,
             hits=self.metrics.pairs_s2_hit,
             zero_hit=self.metrics.pairs_s2_zero_hit,
             no_notes=self.metrics.pairs_s2_no_notes,
-            excluded_zero_hit=excluded_here,
+            excluded_zero_hit=self._s2_excluded,
         )
         self.metrics.n_after["S2"] = len(alive_after)
-        return routes, zero
 
     def _rescue(self, t: PatientTrace, cid: str, stage: Stage, sentence: str) -> None:
         o = t.outcomes[cid]
@@ -745,7 +836,7 @@ class _Run:
         o.rescue = {"stage": stage, "sentence_hash": sentence_hash(sentence)}
         self.metrics.rescued += 1
 
-    def s2b(self, zero: list[tuple[str, str, list[_Note]]], routes: list[_Route]) -> None:
+    def s2b(self, zero: list[tuple[str, str, list[_Note]]], routes: list[_Route], record: bool = True) -> None:
         alive_before = len(self.alive())
         n_in = len(zero)
         for pid, key, win in zero:
@@ -754,6 +845,14 @@ class _Run:
             cid = key.split(":", 1)[1] if index_sweep else key
             c = self.crit[cid]
             sents = [(n, s) for n in win for s in n.sents]
+            if sents and not index_sweep and not self.cfg.absence_semantics and not self.cfg.s2b_when_fits:
+                shown, left = self.excerpt_set(win, {}, self.budget_of(c, t.index_date))
+                if left == sum(1 for n in win if not n.text.strip()):  # every note with text shown in full
+                    self.metrics.pairs_s2b_above += 1
+                    self.metrics.s2b_skipped_fit += 1
+                    sset = sorted({sentence_hash(x) for _, x in sents})
+                    routes.append(_Route(pid, cid, shown, _set_hash(sset), "S2b", 0.0, left_out=left))
+                    continue
             query = " ".join([c.note_question or c.text, *lexicon_terms(c, self.cfg.lexicon)])
             thr = self.cfg.thresholds.get(c.kind, self.cfg.language)
             stored = self._from_store(t, query, win, len(sents)) if sents else None
@@ -764,12 +863,34 @@ class _Run:
             elif self.embedder is None:
                 res_above, best, top = True, 1.0, list(range(min(5, len(sents))))  # no S2b: never absence
             else:
-                res = screen(self.embedder, query, [s for _, s in sents], thr)
-                res_above, best, top = res.above, res.best, [i for i, _ in res.top]
+                skip = boilerplate([n.sents for n in win])  # D-905: recurring template lines are not embedded
+                idx = [i for i, (_, x) in enumerate(sents) if x.strip() not in skip] or list(range(len(sents)))
+                res = screen(self.embedder, query, [sents[i][1] for i in idx], thr)
+                res_above, best, top = res.above, res.best, [idx[i] for i, _ in res.top]
+            held = (
+                index_sweep
+                and res_above
+                and stored is None
+                and self.embedder is not None
+                and thr.source == "public_prior"
+                and not str(self.embedder.model).startswith("hash")
+            )
+            if held:
+                # NEW-LLM-2: the placeholder threshold was set for the hash stub; a real model's similarities clear it
+                # almost always, so its score above it never rescues an index condition until the refit (as D-449 for
+                # stored vectors), and a rescue held back is never an absence either: a person looks. A score below it
+                # keeps its earlier path
+                res_above = False
             if index_sweep:
                 if res_above and sents:
                     self._rescue(t, cid, "S2b", sents[top[0]][1])
-                elif not self.cfg.absence_semantics:
+                elif cid in self._uncarried_index:  # F11 (D-795): no code could be there, so absence says nothing
+                    t.outcomes[
+                        cid
+                    ].reason = (
+                        f"index condition not found in the notes, its list's codes not carried ({NOT_CARRIED}); review"
+                    )
+                elif held or not self.cfg.absence_semantics:
                     t.outcomes[cid].reason = "index condition not coded and not found in the notes; review"
                 else:
                     o = t.outcomes[cid]
@@ -806,6 +927,10 @@ class _Run:
             else:
                 t.outcomes[cid] = Outcome(cid, "pass", "S2b", evidence=[detail], reason="S2b below: absence")
         self.metrics.s2b_embed_batches = self.embedder.batches if self.embedder else 0
+        if record:
+            self._log_s2b(alive_before, n_in)
+
+    def _log_s2b(self, alive_before: int, n_in: int) -> None:
         alive = self.alive()
         self.log(
             "S2b",
@@ -870,6 +995,47 @@ class _Run:
             "vec_model": ",".join(models) or None,
         }
 
+    def note_stage(self, note_crit: list[CriterionIR]) -> list[_Route]:
+        """S2 then S2b (T-694 part 3). With ``cfg.note_batch`` both run on that many alive patients at a time, each
+        batch reading only its patients' notes, which are let go after it; the stage logs are written once from the
+        totals and the routes are put in the order of an unbatched run, so the statuses, the metrics and a pair budget
+        are the same for any batch size."""
+        size = self.cfg.note_batch
+        if size is None:
+            routes, zero = self.s2(note_crit)
+            self.s2b(zero, routes)
+            return routes
+        if size < 1:
+            raise CascadeError("note_batch must be at least 1 patient")
+        order = [t.pid for t in self.alive()]
+        rank = {p: i for i, p in enumerate(order)}
+        crit_rank = {c.id: i for i, c in enumerate(note_crit)}
+        s2_routes: list[_Route] = []
+        s2b_routes: list[_Route] = []
+        n_zero = n_s2_out = 0
+        after_s2: set[str] = set(order)
+        for start in range(0, len(order), size):
+            batch = set(order[start : start + size])
+            routes, zero = self.s2(note_crit, batch, record=False)
+            n_s2_out += len(routes) + len(zero)
+            n_zero += len(zero)
+            after_s2 -= {p for p in batch if self.traces[p].exit_stage is not None}
+            s2_routes += routes
+            before = len(routes)
+            self.s2b(zero, routes, record=False)
+            s2b_routes += routes[before:]
+        # the stage logs of an unbatched run: S2 counted before any S2b exclusion, S2b from S2's survivors
+        exited_s2b = {p for p in order if self.traces[p].exit_stage == "S2b"}
+        s2b_back = {p: self.traces[p].exit_stage for p in exited_s2b}
+        for p in exited_s2b:  # S2's count is taken as if S2b had not run yet
+            self.traces[p].exit_stage = None
+        self._log_s2(len(order), len(note_crit), n_s2_out)
+        for p, stage in s2b_back.items():
+            self.traces[p].exit_stage = stage
+        self._log_s2b(len(after_s2), n_zero)
+        key = lambda r: (rank.get(r.pid, len(rank)), crit_rank.get(r.cid, len(crit_rank)))  # noqa: E731
+        return sorted(s2_routes, key=key) + sorted(s2b_routes, key=key)
+
     # -------------------------------------------------------------------------------------------- CAS-8 sample
     def sample(self, routes: list[_Route]) -> None:
         cap = self.cfg.sample_per_stratum
@@ -897,22 +1063,34 @@ class _Run:
         assert self.judge is not None
         c = self.crit[r.cid]
         lo, hi = window_of(c, t.index_date)
-        key = json.dumps([r.pid, self.hashes[r.cid], r.sentence_set, role, lo.isoformat(), hi.isoformat()])
+        # D-907: the canonical hash drops the criterion's text, so two criteria with one note question and structure
+        # would share an answer whenever their sentence sets meet (always on D-904's whole-window path); the text's
+        # hash keeps one criterion's answer from being read as another's
+        text = hashlib.sha256(c.text.encode("utf-8")).hexdigest()
+        key = json.dumps([r.pid, self.hashes[r.cid], text, r.sentence_set, role, lo.isoformat(), hi.isoformat()])
         with self._lock:
             if key in self.cache:
                 self.metrics.cache_hits += 1
                 return self.cache[key], True
-        reply = self.judge.judge(
-            role=role,
-            criterion_text=c.text,
-            note_question=c.note_question or c.text,
-            index_date=t.index_date,
-            excerpts=r.excerpts,
-            study_id=self.cfg.study_id,
-            data_class=self.cfg.notes_class,
-            step_id=self.cfg.step_id or f"cascade:{self.cfg.study_id}",
-            purpose=self.cfg.purpose,
-        )
+        # D-908: the store below the judge keys and erases by these; an audit sample (CAS-8) is always asked live
+        question = question_digest(c.text, c.note_question or c.text, t.index_date.isoformat(), list(r.excerpts))
+        asking = ASKING.set(Asking(r.pid, self.hashes[r.cid], (lo.isoformat(), hi.isoformat()),
+                                   audit=self.cfg.sample_per_stratum is not None, role=role,
+                                   question=question))  # fmt: skip
+        try:
+            reply = self.judge.judge(
+                role=role,
+                criterion_text=c.text,
+                note_question=c.note_question or c.text,
+                index_date=t.index_date,
+                excerpts=r.excerpts,
+                study_id=self.cfg.study_id,
+                data_class=self.cfg.notes_class,
+                step_id=self.cfg.step_id or f"cascade:{self.cfg.study_id}",
+                purpose=self.cfg.purpose,
+            )
+        finally:
+            ASKING.reset(asking)
         with self._lock:
             if reply.refused:
                 self.metrics.gateway_refusals += 1
@@ -1128,6 +1306,8 @@ class _Run:
                 kinds.add("uncertain")  # T-603: a note the models did not read in full: a person looks
             if any(self._weak_met(o) for o in t.outcomes.values()):
                 kinds.add("uncertain")  # T-709 (D-478, review M1a): a "met" below the floor is a person's check
+            if not self.coded and not any(o.status == "pass" and o.stage in ("S3", "S4") for o in t.outcomes.values()):
+                kinds.add("uncertain")  # D-788 review: with nothing coded, "strong" needs a judged "met", not absence
             if "uncertain" in kinds:
                 t.tier = "potential:uncertain"
             elif "data_gap" in kinds:
@@ -1224,8 +1404,7 @@ def run_cascade(
     note_crit = [c for c in rs.active() if c.class_ in JUDGED and c.kind in ("inclusion", "exclusion")]
     human = [c for c in rs.active() if c.class_ == "human"]
     run.metrics.note_criteria = len(note_crit)
-    routes, zero = run.s2(note_crit)
-    run.s2b(zero, routes)
+    routes = run.note_stage(note_crit)
     alive = {t.pid for t in run.alive()}
     routes = [r for r in routes if r.pid in alive]
     run.sample(routes)

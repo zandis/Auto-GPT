@@ -15,7 +15,7 @@ from orchestrator.i18n import population_line, t
 from orchestrator.reports import feasibility_pdf, feasibility_xlsx
 from orchestrator.reports.common import ReportMeta, fmt_count
 from orchestrator.scenarios import calibration, feas_profile
-from orchestrator.scenarios.feas_compute import FeasError, FeasParams, compute, parse_variant_option, raw_json
+from orchestrator.scenarios.feas_compute import FeasError, FeasParams, compute, parse_variant_option, raw_json, steps
 from orchestrator.scenarios.review import approved_or_none, compile_draft, protocol_input, recipients, require_approved
 from orchestrator.scenarios.screen import NO_MODEL, pinned_clock_note, provenance
 
@@ -42,6 +42,15 @@ def run(ctx: Ctx) -> Outcome:
     rs = approved if approved is not None else require_approved(ctx, rs_id, opts.get("version"))
     ctx.update(ruleset_version=rs.version)
     ctx.state("running")
+    if not any(s.applied for s in steps(rs)):  # red of 2026-11-15: an answer, not a failed job (D-901)
+        ctx.metrics(patients_scoped=0)
+        lang = job_language(ctx)
+        alias = rs.manifest.trial_alias or rs.id
+        return Outcome(
+            state="done",
+            summary_md=t(lang, "feas.nothing", trial=alias, rs=rs.id, ver=rs.version),
+            headline=t(lang, "feas.nothing_headline"),
+        )
     snapshot = ctx.services.lake.snapshot()
     if not snapshot:
         raise StepFailed("running", "The data lake has no snapshot yet; the nightly ingest must run first.")

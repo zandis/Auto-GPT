@@ -21,7 +21,7 @@ from tests.console.test_console_app import box, login, name_pi  # noqa: F401 - t
 from tests.console.test_lifecycle_pages import PW, _save, lb  # noqa: F401 - the fixture is used by name
 
 TPE = timezone(timedelta(hours=8))
-TW = lc.report_rules("Asia/Taipei")
+TW = lc.report_rules("Asia/Taipei", rules="tw_trial")  # D-766: a named set (no set chosen gives no clock)
 
 
 def _ae(**kw: str) -> dict[str, Any]:
@@ -101,8 +101,9 @@ def test_named_rule_sets_and_the_regulator_from_the_site_country() -> None:
     or a zone of no known country is an alert, never the Taiwan clock."""
     jp = lc.clock_rules("jp_crb", "Asia/Tokyo")
     assert jp["regulator"] == "MHLW" and jp["parties"]["irb"] == (7, 15) and jp["problems"] == []
+    # NEW-LIFE-8 (D-766): no set chosen: no clock (it was the country's default), an alert, the regulator still named
     tw = lc.clock_rules("", "Asia/Taipei")
-    assert tw["name"] == "tw_trial" and tw["regulator"] == "TFDA" and tw["problems"] == ["default_rules"]
+    assert tw["parties"] == {} and tw["regulator"] == "TFDA" and tw["problems"] == ["unconfirmed"]
     assert lc.clock_rules("", "Asia/Tokyo")["regulator"] == "PMDA"
     assert lc.clock_rules("", "Japan")["country"] == "JP"  # site.tz: Japan is Japan, not Taiwan (CR-009)
     unknown = lc.clock_rules("jp_gcp_typo", "Asia/Tokyo")
@@ -112,7 +113,8 @@ def test_named_rule_sets_and_the_regulator_from_the_site_country() -> None:
     assert "other_country" in lc.clock_rules("jp_gcp", "Asia/Taipei")["problems"]
     bad = lc.clock_rules("tw_trial", "Asia/Taipei", "irb=7/x, sponsor=1")
     assert "bad_override" in bad["problems"] and bad["parties"]["irb"] == (7, 15)
-    assert set(lc.RULE_SETS) >= {"jp_gcp", "jp_gcp_ii", "jp_crb", "jp_guideline", "tw_trial", "tw_research"}
+    assert set(lc.RULE_SETS) >= {"jp_gcp", "jp_gcp_ii", "jp_crb", "jp_guideline", "tw_trial", "tw_research",
+                                 "tw_trial_sponsor"}  # fmt: skip
 
 
 def test_clocks_zero_raise_an_alert() -> None:
@@ -223,12 +225,14 @@ def test_write_path_office_copy_ack_and_named_rule(lb: dict[str, Any], monkeypat
     assert c.post("/studies/GZQO/sae/sync", data={"csrf": csrf}).status_code in (200, 303)
     case = SaeStore().case("GZQO", no, "ae1")
     assert case is not None and case["created_by"] == sr.SYNC
-    office = [n for n in lb["backend"].notices if n[1] == ["trial-office@hospa.test"]]
+    # D-764 (LIFE-007): the same mail goes to the study's PI at once
+    office = [n for n in lb["backend"].notices if "trial-office@hospa.test" in n[1]]
+    assert office and sorted(office[0][1]) == ["pi@hospa.test", "trial-office@hospa.test"]
     assert len(office) == 1 and no in office[0][2] and "Myocardial" not in office[0][3] and "tw_trial" in office[0][3]
     # a save through the console is the other write path: the second AE is in the register at once
     _save(c, csrf, no, "tb_adverse_event", {**FATAL, "ae_term": "Stroke"}, "ae2")
     assert SaeStore().case("GZQO", no, "ae2") is not None
-    assert len([n for n in lb["backend"].notices if n[1] == ["trial-office@hospa.test"]]) == 2
+    assert len([n for n in lb["backend"].notices if "trial-office@hospa.test" in n[1]]) == 2
     # the worklist names the rule set, the regulator (TFDA in every language) and who confirmed it
     page = c.get("/sae").text
     assert 'data-testid="sae-rules-GZQO"' in page and "tw_trial" not in page  # the set's name, in words
@@ -276,6 +280,7 @@ def test_rule_follow_ups_reach_the_home_page_and_the_mail(lb: dict[str, Any]) ->
     c, csrf = login(lb["app"], "crc", PW)
     c.post("/studies/GZQO/forms/builtin", data={"csrf": csrf})
     c.get("/studies/GZQO/subjects")
+    c.post("/studies/GZQO/setup/sae", data={"csrf": csrf, "rule_set": "tw_trial"})  # D-766: the clock runs once chosen
     lb["clock"]["now"] = datetime(2026, 11, 30, 1, 0, tzinfo=UTC)
     sent = {"ae_rep_sponsor": "2026-11-09", "ae_rep_irb": "2026-11-10", "ae_rep_reg": "2026-11-10"}
     _save(c, csrf, no, "tb_adverse_event", {**FATAL, **sent}, "ae1")

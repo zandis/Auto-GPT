@@ -37,12 +37,12 @@ UNKNOWN_CODE_SYSTEM = "unknown_code_system"
 SQL = """
 SELECT pid, 'condition' AS domain, cid AS rid, coalesce(onset, recorded) AS d, coalesce(system, '') AS system
 FROM condition
-WHERE (CAST($1 AS VARCHAR[]) IS NULL OR list_contains(CAST($1 AS VARCHAR[]), pid))
+WHERE (CAST($1 AS VARCHAR[]) IS NULL OR pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))))
   AND (coalesce(code, '') = '' OR coalesce(system, '') = '' OR NOT list_contains(CAST($2 AS VARCHAR[]), system))
 UNION ALL
 SELECT pid, 'medication' AS domain, mid AS rid, authored AS d, '' AS system
 FROM medication
-WHERE (CAST($1 AS VARCHAR[]) IS NULL OR list_contains(CAST($1 AS VARCHAR[]), pid))
+WHERE (CAST($1 AS VARCHAR[]) IS NULL OR pid IN (SELECT unnest(CAST($1 AS VARCHAR[]))))
   AND coalesce(atc, '') = ''
 ORDER BY pid, domain, d, rid
 """

@@ -58,13 +58,17 @@ def test_default_install_passes() -> None:
         "site_key",
         "chartno_rule",  # D-621
         "key_custody",
+        "key_ceremony",  # D-893
         "db_passwords",
         "clock",
         "ops_runner",
         "audit_heads",
         "anchor_mount",  # D-638
         "rehearsal",  # D-726
+        "sae_mailbox",  # D-736
+        "mail_auth",  # D-825
         "memory_caps",
+        "postgres_memory",  # D-751
         "wsl2_memory",
         "update_window",
         "wsl2_versions",

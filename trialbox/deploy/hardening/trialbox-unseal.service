@@ -18,6 +18,8 @@ RuntimeDirectoryPreserve=yes
 WorkingDirectory=@TB_ROOT@
 Environment=PYTHONPATH=@TB_ROOT@/libs:@TB_ROOT@
 ExecStart=/usr/bin/env python3 -m tools.keys unseal --secrets @TB_SECRETS@ --from ${CREDENTIALS_DIRECTORY}/trialbox-kek --out /run/trialbox/kek
+# D-887: the services (the secrets folder's owner, uid 10001) read the KEK; the folder stays 0700, the file 0600
+ExecStartPost=/bin/sh -c 'chown "$$(stat -c %%u:%%g @TB_SECRETS@)" /run/trialbox /run/trialbox/kek'
 
 [Install]
 WantedBy=multi-user.target

@@ -116,7 +116,8 @@ def test_the_conformance_project_is_the_kit_plus_the_repeating_set_and_the_three
     assert {f["field_name"] for f in k.CRF} <= set(by_name)
     assert by_name["joints"]["field_type"] == "checkbox"
     assert by_name["visit_dmy"]["text_validation_type_or_show_slider_number"] == "date_dmy"
-    assert by_name["temp"]["text_validation_type_or_show_slider_number"] == "number_1dp"
+    assert by_name["temp"]["text_validation_type_or_show_slider_number"] == "number"  # D-840: no number_1dp there
+    assert by_name["temp"]["field_annotation"] == "@TB-DECIMALS=1"
     assert by_name["bmi"]["field_type"] == "calc" and by_name["ae_sae_reason"]["branching_logic"]
     assert {e["arm_num"] for e in k.CONF_EVENTS} == {1, 2} and len(k.CONF_EVENTS) == 4
     assert {r["form_name"] for r in k.CONF_REPEATING} == {"ae"}
@@ -145,25 +146,34 @@ def test_one_command_runs_r1_to_r9_against_the_stand_in_and_writes_the_record(dr
 
 
 def test_the_stand_in_fails_exactly_where_the_simulator_is_known_to_be_laxer_than_redcap(dry: dict[str, Any]) -> None:
-    """EDC-001: the simulator takes values REDCap refuses, takes a bare checkbox column and refuses the ``___``
-    columns, has no locking, no rights per token and no log. NEW-EDC-1 makes it as strict; this list then shrinks,
-    on purpose."""
+    """EDC-001: the simulator took values REDCap refuses, had no locking, no rights per token and no log. NEW-EDC-1
+    makes it as strict; this list then shrinks, on purpose. NEW-EDC-3b (D-842) made its checkbox REDCap's: a bare
+    column is refused, the ``___`` columns go in and come back, so R2 passes and R6 compares (the simulator computes
+    with TrialBox's own logic, so R6 says nothing of REDCap's until our instance runs it). CGRD-B5a (D-843) made its
+    values REDCap's: a value REDCap refuses is refused, the whole file with it, so R1 passes."""
     rec = dry["record"]
-    assert rec["failed"] == ["R1 validation", "R2 checkbox", "R3 lock", "R4 rights", "R6 logic", "R7 auto-number",
-                             "R9 log"]  # fmt: skip
+    assert rec["failed"] == ["R4 rights", "R7 auto-number"]  # D-845: R3 and R9 pass (the simulator locks and logs)
     r1 = {(c["field"], c["value"]): c for c in rec["results"]["R1 validation"]["cases"]}
     lax = [f for (f, _v), c in r1.items() if c["redcap_must_refuse"] and not c["redcap_refused"]]
-    assert lax == ["sex", "mh_gout", "weight", "brthdat", "visit_dmy"]  # the simulator took what REDCap refuses
+    assert lax == []  # D-843: the simulator refuses what REDCap refuses
     assert all(r1[k2]["trialbox_refused"] for k2 in r1 if k2[0] in ("sex", "mh_gout", "weight", "brthdat"))
-    t37 = r1[("temp", "37")]  # number_1dp: refused as 37, and TrialBox sends 37.0 for it (STD-061)
-    assert t37["redcap_refused"] and not t37["trialbox_refused"] and t37["trialbox_sends"] == "37.0"
+    t37 = r1[("temp", "37")]  # D-840: REDCap's number takes 37; TrialBox sends 37.0 for it (one place, its own)
+    assert not t37["redcap_refused"] and not t37["trialbox_refused"] and t37["trialbox_sends"] == "37.0"
+    assert r1[("temp", "37.55")]["trialbox_refused"] and r1[("temp", "37.55")]["trialbox_code"] == "decimals"
     assert not r1[("temp", "37.0")]["redcap_refused"] and not r1[("visit_dmy", "2026-11-05")]["redcap_refused"]
-    assert rec["results"]["R1 validation"]["batch"]["the_good_row_was_written"] is True  # the lax batch
-    assert rec["results"]["R2 checkbox"]["bare_column"]["status"] == 200
-    assert rec["results"]["R3 lock"]["not_run"] and rec["notes"]
+    assert rec["results"]["R1 validation"]["batch"]["the_good_row_was_written"] is False  # D-843: refused whole
+    r2 = rec["results"]["R2 checkbox"]  # NEW-EDC-3b: refused as REDCap refuses it; the three columns come back
+    assert r2["bare_column"]["status"] == 400 and r2["exported"] == {"joints___1": "1", "joints___2": "0",
+                                                                     "joints___3": "1", "joints____99": "0"}  # fmt: skip
+    r3 = rec["results"]["R3 lock"]  # D-845: one locked form refuses the whole import; record 2 alone goes in
+    assert r3["pass"] and r3["one_locked_form_refuses_the_whole_import"] and not r3["the_locked_record_was_written"]
+    r9 = rec["results"]["R9 log"]  # D-845: the log holds the write, with the user
+    assert r9["pass"] and r9["the_entry_of_this_write"][0]["username"] == "tb_api" and rec["notes"]
     assert rec["results"]["R5 repeat and arms"]["rows_not_read_back_equal"] == []
-    r6 = rec["results"]["R6 logic"]  # the simulator refuses the ``___`` columns: nothing is compared, no "differ"
-    assert r6["not_compared"] and "differ" not in r6 and r6["expressions"] == 23
+    r6 = rec["results"]["R6 logic"]  # the ``___`` columns go in now (NEW-EDC-3b): each expression is compared
+    # RC13-C (D-850): the checkbox case is left to the evaluator (REDCap's import does not recalculate it): 22 of 23
+    assert r6["pass"] and len(r6["cases"]) == 22 and all(c["equal"] for c in r6["cases"])
+    assert any("[cb(2)] + [cb(3)]" in n for n in r6["not_run"])
     r7 = rec["results"]["R7 auto-number"]  # the ids parse, but the stand-in cannot run the two halves
     assert r7["no_group"]["ids_parse"] and len(r7["not_run"]) == 2
     assert len(r7["no_group"]["records_with_that_number_after_a_blind_retry"]) == 2  # why the link looks up first

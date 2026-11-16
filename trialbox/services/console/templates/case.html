@@ -2,7 +2,7 @@
 {% block title %}{{ t('case.title') }}{% endblock %}
 {% block content %}
 <h1>{{ t('case.title') }}</h1>
-{% if not user.can_request %}<p class="warn">{{ t('request.viewer') }}</p>{% endif %}
+{% if not may_case %}<p class="warn">{{ t('request.viewer') }}</p>{% endif %}
 {% if error %}<p class="error" role="alert" data-testid="case-error">{{ error }}</p>{% endif %}
 <p class="warn" role="note" data-testid="case-notice">{{ t('case.notice') }}</p>
 <section class="card">
@@ -24,7 +24,7 @@
     <option value="">{{ t('case.lang.auto') }}</option>
     {% for l in langs %}<option value="{{ l }}" lang="{{ l }}">{{ t('lang.name.' + l) }}</option>{% endfor %}
   </select>
-  <button type="submit" {{ 'disabled' if not user.can_request else '' }} data-testid="case-submit">{{ t('case.submit') }}</button>
+  <button type="submit" {{ 'disabled' if not may_case else '' }} data-testid="case-submit">{{ t('case.submit') }}</button>
 </form>
 </section>
 {% endblock %}

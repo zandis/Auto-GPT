@@ -511,21 +511,6 @@ class HostFingerprint(BaseModel):
     fingerprint_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
 
 
-class IEBlock(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        populate_by_name=True,
-    )
-    inclusion: list[str]
-    exclusion: list[str]
-    renewal: list[str] | None = None
-    documentation: list[str] | None = None
-    refs: dict[str, str] | None = None
-    """
-    criterion text -> source reference (section/page)
-    """
-
-
 class IngestRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -538,6 +523,25 @@ class IngestRequest(BaseModel):
     load_fhir: bool = True
     rebuild_lake: bool = True
     validate_: bool = Field(True, alias="validate")
+
+
+class ItemRef(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    section: str
+    """
+    the title of the section the item comes from
+    """
+    n: int = Field(..., ge=1)
+    """
+    the item's number in its section, from 1
+    """
+    parent: int | None = None
+    """
+    index, in the same kind's list, of the lead-in line the item stands under (NEW-LIFE-2), or null
+    """
 
 
 class JobError(BaseModel):
@@ -983,28 +987,6 @@ class ParseRequest(BaseModel):
     minio_key: str
     job_id: str | None = None
     language_hint: str | None = None
-
-
-class ParsedDoc(BaseModel):
-    """
-    doc-parser POST /parse response (SPEC 4.2). Deterministic: same file gives the same JSON bytes. Schema version 1.0.0.
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-        populate_by_name=True,
-    )
-    source_sha256: str
-    filename: str
-    parser: Literal["docling", "lite"]
-    language: str
-    pages: int | None = None
-    ocr_used: bool = False
-    sections: list[DocSection]
-    tables: list[DocTable]
-    ie_block: IEBlock
-    ie_source: Literal["heuristic", "llm", "none"] | None = None
-    warnings: list[str] | None = None
 
 
 class PatientEvaluation(BaseModel):
@@ -2288,6 +2270,17 @@ class Atom(BaseModel):
     """
     computed observation; egfr_ckd_epi and egfr_jsn name the equation (D-149), a plain egfr is CKD-EPI 2021
     """
+    clinical_status: (
+        list[
+            Literal[
+                "active", "recurrence", "relapse", "inactive", "remission", "resolved"
+            ]
+        ]
+        | None
+    ) = Field(None, min_length=1)
+    """
+    condition atoms only (D-917): the clinical statuses that count; a row recorded with another status makes the answer unknown, a row with no status counts as before
+    """
 
 
 class B200Layout(BaseModel):
@@ -2474,6 +2467,25 @@ class FeasibilityResult(BaseModel):
     provenance: ReportProvenance | None = None
 
 
+class IEBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    inclusion: list[str]
+    exclusion: list[str]
+    renewal: list[str] | None = None
+    documentation: list[str] | None = None
+    refs: dict[str, str] | None = None
+    """
+    criterion text -> source reference (section/page)
+    """
+    item_refs: dict[str, list[ItemRef]] | None = None
+    """
+    per kind, in the items' order: each item's section, number and parent (positional; NEW-LIFE-2)
+    """
+
+
 class IngestReport(BaseModel):
     """
     adapter ingest_report.json (SPEC 4.6). Schema version 1.5.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop; 1.5.0: fhir_unread).
@@ -2637,6 +2649,28 @@ class NavRow(BaseModel):
     draft_doc_key: str | None = None
     twpas_bundle_key: str | None = None
     precheck: Precheck | None = None
+
+
+class ParsedDoc(BaseModel):
+    """
+    doc-parser POST /parse response (SPEC 4.2). Deterministic: same file gives the same JSON bytes. Schema version 1.1.0 (1.1.0: ie_block.item_refs, NEW-LIFE-2).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    source_sha256: str
+    filename: str
+    parser: Literal["docling", "lite"]
+    language: str
+    pages: int | None = None
+    ocr_used: bool = False
+    sections: list[DocSection]
+    tables: list[DocTable]
+    ie_block: IEBlock
+    ie_source: Literal["heuristic", "llm", "none"] | None = None
+    warnings: list[str] | None = None
 
 
 class ProfileDerivedItem(BaseModel):

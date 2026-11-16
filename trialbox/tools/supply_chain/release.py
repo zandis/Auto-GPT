@@ -19,7 +19,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -31,7 +31,8 @@ from tools.supply_chain.allowlist import Allowlist
 # bundle carries them (tools/make_bundle.sh leaves the test file out, OPS-017), and bundle_problems refuses any image
 # with a report-mode finding anyway. Every image a bundle can carry blocks: ours, and the third-party HAPI FHIR, vLLM
 # and identity images, whose open findings are dated per-image entries of deploy/supply-chain-allowlist.yaml
-# (deploy/security/known-image-findings.md). `--vuln-mode report` changes nothing for any other image.
+# (deploy/security/known-image-findings.md). D-827: the mail servers are report-only in every mode, block too (their
+# newest releases carry the findings, no patched tag exists); `--vuln-mode` changes nothing for any other image.
 VULN_REPORT_ONLY = frozenset(
     {
         "greenmail/standalone",
@@ -50,8 +51,9 @@ def report_only(ref: str) -> bool:
 def split_report_mode(
     failing: list[vulns.Finding], ref: str, vuln_mode: str
 ) -> tuple[list[vulns.Finding], list[vulns.Finding]]:
-    """(blocking, deferred): only a fixable CRITICAL/HIGH finding of a report-mode image is deferred."""
-    if vuln_mode != "report" or not report_only(ref):
+    """(blocking, deferred): only a fixable CRITICAL/HIGH finding of a report-mode image is deferred, in every
+    mode (D-827). ``vuln_mode`` is checked by run_gates; it no longer changes the split."""
+    if not report_only(ref):
         return list(failing), []
     blocking: list[vulns.Finding] = []
     deferred: list[vulns.Finding] = []
@@ -120,6 +122,26 @@ def inspect_local(ref: str) -> dict[str, Any]:
     return {"image_id": str(data["Id"]), "repo_digests": list(data.get("RepoDigests") or []), "platform": plat}
 
 
+# D-886: the make target that builds each of our images (every other one: `make images`)
+BUILT_BY = {"trialbox-demo": "make demo-bundle"}
+
+
+def missing_local(targets: list[Target], *, inspect: Callable[[str], dict[str, Any]] | None = None) -> list[str]:
+    """Every local image the gates are given and Docker does not have, with the target that builds it: said before
+    any scan (lane G's build failed in the scan step on the demo image, which `make images` does not build)."""
+    look = inspect or inspect_local
+    out = []
+    for t in targets:
+        if t.remote:
+            continue
+        try:
+            look(t.ref)
+        except vulns.ReportError:
+            how = BUILT_BY.get(repository(t.ref), "make images")
+            out.append(f"{t.ref} is not a local image: build it with `{how}` (or leave it out: SC_OWN_IMAGES)")
+    return out
+
+
 def same_platform(asked: str, got: str) -> bool:
     """``linux/arm64`` matches ``linux/arm64`` and ``linux/arm64/v8``; never ``linux/amd64``."""
     want, have = asked.strip("/").split("/"), got.strip("/").split("/")
@@ -180,7 +202,7 @@ def run_gates(
 ) -> dict[str, Any]:
     """Scan and gate every target; return the record (also written to ``out_dir/gates.json``).
 
-    ``vuln_mode="report"``: for the images in ``VULN_REPORT_ONLY`` only, a fixable CRITICAL/HIGH finding is
+    For the images in ``VULN_REPORT_ONLY`` only, in either ``vuln_mode`` (D-827), a fixable CRITICAL/HIGH finding is
     recorded and shown but does not fail the image. Everything else still fails: such findings in any other image,
     a missing or odd severity, an unreadable or empty report, a scan or SBOM that does not name the image."""
     if vuln_mode not in VULN_MODES:
@@ -258,7 +280,7 @@ def run_gates(
                 sbom_sha256=sbom.sha256(sbom_path),
                 failing=[f"{f.id} {f.package} {f.version}" for f in blocking],
                 failing_detail=[finding_row(f) for f in blocking],
-                vuln_mode="report" if vuln_mode == "report" and report_only(target.ref) else "block",
+                vuln_mode="report" if report_only(target.ref) else "block",
                 report_mode_findings=[finding_row(f) for f in deferred],
                 accepted=[f"{f.id} {f.package}: {why}" for f, why in result.accepted],
                 reported=len(result.reported),
@@ -314,9 +336,8 @@ def summary_markdown(record: dict[str, Any]) -> str:
         + (
             " (fixable CRITICAL/HIGH findings in the test-only images "
             + ", ".join(sorted(VULN_REPORT_ONLY))
-            + " are reported, not blocking; no bundle carries them; see deploy/security/known-image-findings.md)"
-            if mode == "report"
-            else ""
+            + " are reported, not blocking, in every mode (D-827); no bundle carries them; see"
+            " deploy/security/known-image-findings.md)"
         ),
         "",
         "| Image | Platform | Result | Blocking findings | Reported findings | Errors |",
@@ -372,10 +393,18 @@ def render(record: dict[str, Any]) -> str:
 
 
 def bundle_problems(
-    record: Any, images: Mapping[str, str | tuple[str, ...]], *, now: dt.datetime | None = None
+    record: Any,
+    images: Mapping[str, str | tuple[str, ...]],
+    *,
+    now: dt.datetime | None = None,
+    platforms: Mapping[str, str] | None = None,
 ) -> list[str]:
     """Images (ref -> local image id, or every digest that names the image) a bundle may not carry under this
-    record (passing, and at most ``vulns.MAX_DB_AGE_DAYS`` old: a newer advisory may have arrived since)."""
+    record (passing, and at most ``vulns.MAX_DB_AGE_DAYS`` old: a newer advisory may have arrived since).
+
+    D-830: with ``platforms`` (ref -> the local image's platform), a digest also matches a passing entry's repo
+    digest (the index a registry image was pinned by before its scan) on that entry's platform only: on the
+    containerd store a pulled image's Id is its index digest, while the gates record its config digest."""
     if not isinstance(record, dict) or not record.get("ok"):
         return ["the gate record did not pass (or is not a gate record)"]
     created = vulns.parse_time(record.get("created"))
@@ -389,10 +418,19 @@ def bundle_problems(
         for e in record.get("images", [])
         if e.get("ok") and e.get("image_id") and not e.get("report_mode_findings")
     }
+    by_index: dict[str, list[str]] = {}  # repo digest -> the platforms it passed on (D-830)
+    for e in record.get("images", []):
+        if e.get("ok") and e.get("image_id") and not e.get("report_mode_findings"):
+            for rd in e.get("repo_digests") or []:
+                by_index.setdefault(str(rd).rsplit("@", 1)[-1], []).append(str(e.get("platform") or ""))
     problems = []
     for ref, image_id in images.items():
         ids = (image_id,) if isinstance(image_id, str) else tuple(image_id)
-        if not any(i and i in passed for i in ids):  # D-570: the image id differs by image store, the content not
+        plat = (platforms or {}).get(ref, "")
+        on_index = bool(plat) and any(
+            i.startswith("sha256:") and same_platform(plat, p) for i in ids if i for p in by_index.get(i, [])
+        )
+        if not on_index and not any(i and i in passed for i in ids):  # D-570: the id differs by image store
             problems.append(
                 f"{ref} ({ids[0] if ids else ''}) is not a passing image of this record; run make release-gates"
             )

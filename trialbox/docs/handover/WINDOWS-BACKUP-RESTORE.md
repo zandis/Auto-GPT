@@ -1,5 +1,7 @@
 # Backup and restore on a Windows workstation (NEW-WIN-7, D-608)
 
+**Reader:** the box owner, with hospital IT.
+
 For the box owner and the hospital's IT. The backup itself is the same as on any box (RUNBOOK §5: one encrypted
 file per night, `trialbox backup-nightly`, written to every folder of `TB_BACKUP_TARGETS`). What is different on
 Windows is where those folders may be, how fast they are, and what a restore on another machine starts with.
@@ -13,7 +15,7 @@ file, on the data drive, or on the system drive is lost with the PC. A target co
 - **the hospital's share**, mounted inside WSL2 (`/mnt/share`, from `\\server\share`); or
 - **an outside drive** (a USB disk with BitLocker), mounted inside WSL2 under its letter (`/mnt/e`). It counts
   once the installer has checked it with Windows and marked it. With the disk plugged in, in an administrator
-  PowerShell: `<media>\windows\box-install.ps1 -BackupDrive E:`. Only a disk attached by USB that is none of the
+  PowerShell: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<media>\windows\box-install.ps1" -BackupDrive E:`. Only a disk attached by USB that is none of the
   PC's own drives is marked; the mark is a small file on the disk, so it goes with the disk. A disk on
   Thunderbolt, eSATA or a card reader is refused (Windows does not say it is outside): use the share.
 

@@ -265,9 +265,9 @@
     "zh-TW": "您選擇了每次重新啟動都輸入 PIN（tpm_pin），但磁碟機 {0} 尚未設定 TPM 加 PIN 的解鎖。請先與資訊單位設定（需要 Windows 原則），然後再啟動安裝程式。安裝程式不會設定 PIN。"
   },
   "recovery_show": {
-    "en": "BitLocker recovery key for drive {0}. Without it, a broken security chip loses everything on the drive. Write it down or print it, and keep it away from this PC. The installer stores it nowhere.",
-    "ja": "ドライブ {0} の BitLocker 回復キーです。これがないと、セキュリティチップが故障したときにドライブの内容をすべて失います。書き写すか印刷し、この PC とは別の場所に保管してください。インストーラーはどこにも保存しません。",
-    "zh-TW": "磁碟機 {0} 的 BitLocker 修復金鑰。若沒有它，安全晶片故障時將失去磁碟機上的所有內容。請抄寫或列印，並保存在這台電腦以外的地方。安裝程式不會將它儲存在任何地方。"
+    "en": "BitLocker recovery key for drive {0}, key ID {1} (Windows' recovery screen shows the same key ID, so you know which key it asks for). Without it, a broken security chip loses everything on the drive. Write it down or print it with its key ID, and keep it away from this PC. The installer stores it nowhere.",
+    "ja": "ドライブ {0} の BitLocker 回復キーです（キー ID {1}。Windows の回復画面にも同じキー ID が表示されるので、どのキーが求められているかわかります）。これがないと、セキュリティチップが故障したときにドライブの内容をすべて失います。キー ID とともに書き写すか印刷し、この PC とは別の場所に保管してください。インストーラーはどこにも保存しません。",
+    "zh-TW": "磁碟機 {0} 的 BitLocker 修復金鑰，金鑰 ID {1}（Windows 的修復畫面會顯示相同的金鑰 ID，讓您知道要輸入哪一組金鑰）。若沒有它，安全晶片故障時將失去磁碟機上的所有內容。請連同金鑰 ID 一起抄寫或列印，並保存在這台電腦以外的地方。安裝程式不會將它儲存在任何地方。"
   },
   "recovery_print_ask": {
     "en": "Print it now on the printer '{0}'? Only if that printer is beside you and keeps no copy. Type y and Enter, or just Enter for no",
@@ -453,5 +453,20 @@
     "en": "Warning: {0} already exists and was not written by TrialBox: it was not changed, but it does not set both swap=0 and localhostForwarding=false under [wsl2]. On this Windows TrialBox needs both: without swap=0 the host check reports it; without localhostForwarding=false WSL2 may take port 443 on this PC before the console's forwarding does. WSL2's memory, processors and disk limit are that file's or WSL's own. networkingMode is not used on this Windows.",
     "ja": "注意: {0} はすでに存在し、TrialBox が書いたものではないため変更していませんが、[wsl2] の下に swap=0 と localhostForwarding=false の両方が設定されていません。この Windows では TrialBox は両方を必要とします。swap=0 がないとホスト検査がこれを報告し、localhostForwarding=false がないと、コンソールの転送より先に WSL2 がこの PC のポート 443 を使うことがあります。WSL2 のメモリ、プロセッサ数、ディスク上限は、そのファイルの値または WSL の既定値になります。この Windows では networkingMode は使われません。",
     "zh-TW": "警告：{0} 已存在，且不是 TrialBox 寫入的，因此未做變更，但其中 [wsl2] 下沒有同時設定 swap=0 與 localhostForwarding=false。在這個 Windows 上 TrialBox 兩者都需要：沒有 swap=0，主機檢查會回報此項；沒有 localhostForwarding=false，WSL2 可能比主控台的轉送更早占用這台電腦的連接埠 443。WSL2 的記憶體、處理器與磁碟上限將依該檔案或 WSL 的預設值。這個 Windows 不使用 networkingMode。"
+  },
+  "rehearsal_on": {
+    "en": "This is a rehearsal install: the box will be a test box and say \"rehearsal box\", with stand-in model servers and a rehearsal bundle. It is never a site's box: a site's box is a new install.",
+    "ja": "これはリハーサルのインストールです。ボックスはテスト用となり「rehearsal box」と表示され、代替のモデルサーバーとリハーサル用バンドルを使います。サイトのボックスにはなりません。サイトのボックスは新しいインストールで作ります。",
+    "zh-TW": "這是演練安裝：此 box 將是測試用 box，並顯示「rehearsal box」，使用替代的模型伺服器與演練用套件。它絕不會成為院方的 box：院方的 box 需重新安裝。"
+  },
+  "rehearsal_unasked": {
+    "en": "This install began as a rehearsal and is not finished, but it was started without -Rehearsal. Nothing was changed. To go on with the rehearsal, start the installer again with -Rehearsal. For a site's box, empty the rehearsal box first (docs/runbook/16-box-install-rehearsal.md, \"A rehearsal box\"), remove {0}, and start a new install.",
+    "ja": "このインストールはリハーサルとして始まり、まだ完了していませんが、-Rehearsal なしで起動されました。何も変更していません。リハーサルを続けるには、-Rehearsal を付けてインストーラーをもう一度起動してください。サイトのボックスにするには、先にリハーサルのボックスを空にし（docs/runbook/16-box-install-rehearsal.md の「A rehearsal box」）、{0} を削除してから、新しいインストールを始めてください。",
+    "zh-TW": "此安裝以演練方式開始且尚未完成，但這次啟動時沒有加上 -Rehearsal。未做任何變更。若要繼續演練，請加上 -Rehearsal 再次啟動安裝程式。若要作為院方的 box，請先清空演練用 box（docs/runbook/16-box-install-rehearsal.md 的「A rehearsal box」），刪除 {0}，再開始新的安裝。"
+  },
+  "rehearsal_ignored": {
+    "en": "-Rehearsal was ignored: this install is finished and is not a rehearsal. A rehearsal is a new install on a box that holds no site's install.",
+    "ja": "-Rehearsal は無視されました。このインストールは完了しており、リハーサルではありません。リハーサルは、サイトのインストールを含まないボックスへの新しいインストールで行います。",
+    "zh-TW": "已忽略 -Rehearsal：此安裝已完成，且不是演練。演練需在不含院方安裝的 box 上重新安裝。"
   }
 }

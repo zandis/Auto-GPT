@@ -24,6 +24,11 @@
 
 Also run `make test-egress` (§1 of [Security](../SECURITY.md)) and keep the host check output.
 
+**Keys (IQ-05, D-893).** Keep the signed key ceremony record (`deploy/site/key-ceremony-<time>.md`, made by `python -m
+tools.keys ceremony-record`, TB-SOP-03 in [security §10](../security/10-key-ceremony-and-escrow.md)) with the
+acceptance; `trialbox doctor` (`key_ceremony`) shows it is there for the box's KEK. And one restore drill that
+passed (`trialbox restore-drill`, §5, D-892).
+
 **REDCap version per site** (DEP-026, D-393). The connector accepts REDCap 14, 15 and 16 (`SUPPORTED_MAJORS` in
 `services/rc_bridge/client.py`) but has been tested only against the simulator (`rc_sim`). Before go-live, ask the
 site's REDCap administrator for the version, or read it with the project's token (`content=version`, which the

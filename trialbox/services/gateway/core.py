@@ -21,7 +21,8 @@ Processing order for ``POST /v1/chat/completions`` (each step passes or refuses;
    suites); a free-form role (no prompt header) is not resolved;
 3. route lookup: ``(role, class, topology, environment, profile)`` → ordered candidates, each checked with
    ``may_reach`` (§7.2) — no route or no permitted endpoint is refused (``no_route``, ``class_route_mismatch``);
-4. PHI tripwire on D0–D2 calls (LLM-15): a hit blocks the call, it is never relabelled;
+4. PHI tripwire on D0–D2 calls (LLM-15, D-792): a hit keeps the call on the box (topology A's perimeter) or blocks
+   it when no on-box build is left; it is never relabelled;
 5. registry resolution of each candidate alias to a pinned build (S1-07; unpinned builds are refused); a candidate
    outside the perimeter (``external``, ``dev_public``) also needs a provider pin for that endpoint (S1-14), because a
    weight hash cannot vouch for what a third party serves (``provider_unpinned``); a request whose estimated size
@@ -59,7 +60,9 @@ when it reports one (OpenRouter does), else the routing-table price.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import logging
 import os
 import threading
 import time
@@ -147,6 +150,7 @@ _TRANSIENT_4XX = (408, 429)
 _TOO_LONG = ("maximum context length", "context length", "context_length", "too many tokens", "prompt is too long")
 # chat() and activate() called inside the gateway's own process (``trialbox doctor``'s judge-route check, tests): no
 # network boundary, so no service token to bind the caller to (D-437). The HTTP app always passes the verified service
+log = logging.getLogger("gateway")
 IN_PROCESS = "<in-process>"
 REQUIRED = ("x-tb-caller", "x-tb-data-class", "x-tb-purpose", "x-tb-role", "x-tb-study", "x-tb-context-of-use")
 
@@ -157,6 +161,9 @@ class GatewayConfig:
     environment: Environment = Environment.DEV
     profile: str = "P-GB10"
     cloud_opt_in: bool = False
+    # D-506 (the owner's ruling, blocker 4): the PHI tripwire guards the routes that leave the box; on by default,
+    # TB_GATEWAY_PHI_TRIPWIRE=off turns it off
+    phi_tripwire: bool = True
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> GatewayConfig:
@@ -166,7 +173,19 @@ class GatewayConfig:
             environment=Environment(environment_name(e)),
             profile=e.get("TB_PROFILE", "P-GB10"),
             cloud_opt_in=e.get("TB_CLOUD_OPT_IN", "").lower() in ("1", "true", "yes"),
+            phi_tripwire=_tripwire_setting(e.get("TB_GATEWAY_PHI_TRIPWIRE")),
         )
+
+
+def _tripwire_setting(raw: str | None) -> bool:
+    """``TB_GATEWAY_PHI_TRIPWIRE`` (D-792): ``off`` (``0``, ``false``, ``no``) turns the tripwire off; unset, ``on``
+    (``1``, ``true``, ``yes``) keeps it on; any other value keeps it on and says so."""
+    v = (raw or "on").strip().lower()
+    if v in ("off", "0", "false", "no"):
+        return False
+    if v not in ("on", "1", "true", "yes"):
+        log.warning("TB_GATEWAY_PHI_TRIPWIRE=%r is neither on nor off: the PHI tripwire stays on", raw)
+    return True
 
 
 @dataclass
@@ -263,6 +282,12 @@ class Gateway:
         self.registry = registry
         self.audit = audit
         self.config = config or GatewayConfig()
+        if not self.config.phi_tripwire:  # D-792: the owner's setting; said once at start, and on every call's audit
+            log.warning(
+                "the PHI tripwire is off (TB_GATEWAY_PHI_TRIPWIRE=off): D0-D2 calls may leave the box unchecked "
+                "(environment %s)",
+                self.config.environment.value,
+            )
         # T-608 (D-445): connect 5 s, read 180 s; each attempt is cut to the call's budget left
         self.http = http or httpx.Client(timeout=httpx.Timeout(UPSTREAM_READ_S, connect=CONNECT_S))
         self.guard = guard or Guard.from_settings()
@@ -403,6 +428,7 @@ class Gateway:
         except Refusal as r:
             said: dict[str, Any] = {"upstream_kinds": list(r.upstream_kinds)} if r.upstream_kinds else {}
             self._record("llm.gateway.refuse", call, reason=r.reason, message=str(r), **said)
+            self._trace_refusal(call, body, r)
             headers = {
                 "X-TB-Call-Id": call.call_id,
                 "X-TB-Refusal": r.reason,
@@ -415,6 +441,40 @@ class Gateway:
                 r.status,
                 {"error": {"type": "tb_refusal", "code": r.reason, "message": str(r), "call_id": call.call_id, **said}},
                 headers,
+            )
+
+    #: the refusals of a call that was cleared for a model and failed there: its prompt is kept with the reason
+    #: (D-911); a refusal of the call itself (its class, its caller, its prompt's registration) keeps no prompt
+    MODEL_REFUSALS = frozenset({"upstream_failed", "upstream_down", "prompt_too_long"})
+
+    def _trace_refusal(self, call: _Call, body: dict[str, Any], r: Refusal) -> None:
+        """A refused call leaves a trace with its reason (D-911; red of lane G's run: 11 ``ir_extract`` calls refused
+        as ``upstream_failed`` left nothing in the trace store to read). A failing trace write never changes the
+        answer."""
+        if self.traces is None:
+            return
+        attributes = {
+            "tb.call_id": call.call_id,
+            "tb.data_class": call.data_class,
+            "tb.model_alias": call.alias,
+            "tb.role": call.role,
+            "tb.purpose": call.purpose,
+            "tb.study_id": call.study,
+            "tb.prompt": call.prompt,
+            "tb.refusal": r.reason,
+            "tb.upstream_kinds": list(r.upstream_kinds),
+        }
+        kept = r.reason in self.MODEL_REFUSALS
+        with contextlib.suppress(Exception):
+            self.traces.write(
+                {
+                    "call_id": call.call_id,
+                    "span": "refusal",
+                    "sc": kept,  # a kept prompt is read as special-category: never less guarded than an allowed call
+                    "attributes": attributes,
+                    "prompt": body.get("messages") if kept else None,
+                    "output": None,
+                }
             )
 
     # ------------------------------------------------------------------------------------------------ pipeline
@@ -510,12 +570,28 @@ class Gateway:
         else:
             call.expected_alias = candidates[0].alias
 
-        # 4 tripwire
-        if label.data_class.rank <= 2:
+        # 4 tripwire (D-506, blocker 4): it guards the routes that leave the box. A hit drops the candidates outside
+        # the box and the call goes on to an on-box model; it is refused only when none is left. A declared setting
+        # turns it off (on by default)
+        if label.data_class.rank <= 2 and not cfg.phi_tripwire:
+            call.guard = "off"
+        elif label.data_class.rank <= 2:
             verdict = self.guard.tripwire(_content_text(messages))
             call.guard = "hit:" + ",".join(verdict.kinds) if verdict.hit else "clear"
             if verdict.hit:
-                raise Refusal("phi_tripwire", f"PHI tripwire hit on a {label.tag} call ({', '.join(verdict.kinds)})")
+                # on the box: a perimeter endpoint on topology A only. On topology B the perimeter is the tenant's
+                # serving router, which is not on the box (D-142, ``RoutingPolicy.perimeter_checked``; review of D-792)
+                on_box = [c for c in candidates if c.endpoint.zone == "perimeter" and cfg.topology == Topology.A]
+                if not on_box:
+                    raise Refusal(
+                        "phi_tripwire", f"PHI tripwire hit on a {label.tag} call ({', '.join(verdict.kinds)})"
+                    )
+                if call.expected_alias not in {c.alias for c in on_box}:
+                    call.expected_alias = on_box[
+                        0
+                    ].alias  # defensive: no shipped route puts an external build first (D-792)
+                candidates = on_box
+                call.guard += ":on_box"
 
         # 5-8 resolve, cache, dispatch, echo
         registry_refusals: list[RegistryError] = []

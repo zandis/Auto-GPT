@@ -443,6 +443,18 @@ def problems(release: Any, manifest: dict[str, Any], lock: Any = None) -> list[s
     return out
 
 
+def gates_mode_line(bundle: Path) -> str:
+    """D-884: the gates' vuln mode as ``release check`` says it; "report" is never read as a green release."""
+    try:
+        with tarfile.open(bundle) as tf:
+            m = tf.extractfile("release.json")
+            rel = json.loads(m.read()) if m is not None else {}
+    except (OSError, KeyError, tarfile.TarError, json.JSONDecodeError):
+        return "gates mode unknown"
+    mode = str(((rel or {}).get("gates") or {}).get("vuln_mode") or "unknown")
+    return f"gates {mode}" if mode == "block" else f"gates {mode}: not a green release"
+
+
 def check_bundle(bundle: Path) -> list[str]:
     """Open a signed bundle (tools/sign_bundle.py layout) and check its release.json against the manifest."""
     try:
@@ -517,7 +529,7 @@ def main(argv: list[str] | None = None) -> int:
             found = check_bundle(args.bundle)
             for p in found:
                 print(f"release check: {p}", file=sys.stderr)
-            print(f"release check: {'FAIL' if found else 'PASS'} ({args.bundle.name})")
+            print(f"release check: {'FAIL' if found else 'PASS'} ({args.bundle.name}; {gates_mode_line(args.bundle)})")
             return 1 if found else 0
     except ReleaseError as exc:
         print(f"release: {exc}", file=sys.stderr)

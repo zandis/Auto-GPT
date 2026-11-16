@@ -1,0 +1,26 @@
+{
+ "attempts": 1,
+ "boots": [
+  "45600162-ee47-446f-9116-bbe5a1fc9ebb"
+ ],
+ "detail": {
+  "key_left_on_tmpfs": false,
+  "mode": "validation",
+  "not_a_release": true
+ },
+ "ended": "2026-11-15T07:13:15Z",
+ "minutes": 0.08,
+ "ok": false,
+ "seconds": 5.03,
+ "started": "2026-11-15T07:13:10Z",
+ "status": "stop",
+ "step": "b05-sign",
+ "stop": {
+  "log_tail": [
+   "+ d_sign_throwaway (1 words) 07:13:10",
+   "TB-THROWAWAY-KEY: made on this VM for a validation bundle; the bundle is NOT a release",
+   "make_bundle: compose listed no trialbox-py image (docker compose config)"
+  ],
+  "reason": "signing the bundle (tools/make_bundle.sh with a throwaway key made on this VM: not a release): exit 2"
+ }
+}

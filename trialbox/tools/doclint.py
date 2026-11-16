@@ -111,6 +111,7 @@ END = "<!-- end of the generated index -->"
 NUMBERS = "## Section numbers"
 # T-735a (D-729): every page of the RUNBOOK names its reader on a ``**Reader:**`` line under its title
 READER_HUB = "docs/RUNBOOK.md"
+READER_FOLDERS = ("docs/handover",)  # T-735b (D-732): the pages that leave with the box
 READERS = (
     "the box owner",
     "hospital IT",
@@ -316,6 +317,15 @@ def reader_problems(rel: str, text: str) -> list[str]:
     return []
 
 
+def handover_problems() -> list[str]:
+    """T-735b (D-732): every Markdown page of the handover folder names its reader."""
+    errs: list[str] = []
+    for folder in READER_FOLDERS:
+        for f in sorted((ROOT / folder).glob("*.md")):
+            errs += reader_problems(f"{folder}/{f.name}", f.read_text(encoding="utf-8"))
+    return errs
+
+
 def check_sections(hub: str) -> list[str]:
     """Index, number and set problems of one hub, then the document checks of each of its section files."""
     if not (ROOT / hub).exists():
@@ -397,6 +407,7 @@ def main(argv: list[str] | None = None) -> int:
     for hub in HUBS:
         errs += check_sections(hub)
     errs += check_gone()
+    errs += handover_problems()
     warns = [] if strict else [e for e in errs if any(k in e for k in WARN_KINDS)]
     errs = [e for e in errs if e not in warns]
     for w in warns:

@@ -1,5 +1,7 @@
 # Using the TrialBox workstation as a desktop
 
+**Reader:** the trial team, who also use this PC as a desktop.
+
 This PC is also the hospital's TrialBox. It reads charts every night and answers the TrialBox console all day,
 on the same graphics card your screen uses (NEW-WIN-6, D-607; plan v7 section 2.3, rules 5 and 6).
 

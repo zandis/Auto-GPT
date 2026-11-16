@@ -325,7 +325,7 @@ def subject_view(life: Lifecycle, rs: str, sub: dict[str, Any], today: date,
     # T-516 (LIFE-019): an enrolment or a visit recorded without a consent form; the subject is held before consent
     missing = life.consent_missing(rs, str(sub["record"]), str(sub["state"]))
     # D-399 (T-302a): every consent recorded, the last one, and what is out of order (LIFE-018, LIFE-019)
-    consent = life.consent_record(rs, str(sub["record"]), str(sub["state"]))
+    consent = life.consent_record(rs, str(sub["record"]), str(sub["state"]), today=today)
     return {**sub, "visits": n, "next": list(lc.NEXT.get(str(sub["state"]), ())), "consent_missing": missing,
             "consent": consent}  # fmt: skip
 
@@ -527,7 +527,7 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         why = mirror(svc.registry, rid, str(sub["pid"]), str(sub["state"]), who.name, svc.now())
         svc.audit.append("life.step", ruleset=rid, actor=who.name,
                          detail={"record": rec, "steps": [[before["state"] if before else None, sub["state"]]],
-                                 "source": "undo"})  # fmt: skip
+                                 "source": "undo", "reason": " ".join(body.note.split())})  # fmt: skip
         return {"subject": sub, "screening_log": why or "ok"}
 
     @r.get("/studies/{rs}/schedule")

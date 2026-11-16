@@ -1,5 +1,7 @@
 # P-0, for the owner: from a fresh checkout to a Windows PC running the installer
 
+**Reader:** the box owner, for the P-0 rehearsal.
+
 One page. What you need, the commands in order, and what you do on the Windows PC. The questions P-0 answers are
 on the sheet `docs/handover/P-0-windows-rehearsal.md`; this page gets you to its line 1.
 
@@ -27,14 +29,16 @@ The two lines that decide the next card are **26a** (does WSL2 start from the bo
   **Today step 14 stops here too**, by reading: a card with no serving record is refused unless the install is
   started as a trial, and the model servers cannot load placeholder files. The Linux installer now has a
   rehearsal profile (`--rehearsal`, D-726: the box is TEST, says "rehearsal box", runs stand-in model servers, and
-  takes a bundle built with `make_bundle.sh --rehearsal`). The Windows installer cannot pass that switch on yet:
-  a `-Rehearsal` switch for it is lane W's next card. Do Stage B once that card is on `master`; this page then gets
-  the exact command.
+  takes a bundle built with `make_bundle.sh --rehearsal`). The Windows installer hands it on when started with
+  `-Rehearsal` (NEW-WIN-11, D-614): Stage B is started that way, with a bundle built with `--rehearsal` (the
+  commands below). By reading, not run.
 
 Do Stage A first and send its answers back. Stage B can follow on the same PC: the installer goes on where it
-stopped. One thing first, because Stage A left its stand-in key in the box and the installer refuses a media
-whose key differs from the one already there (by reading `wsl-setup.sh`, step `host-tree`; not run): in an
-administrator PowerShell, `wsl -d TrialBox -u root -- rm /opt/trialbox/deploy/keys/vendor_ed25519.pub`.
+stopped. One thing first: the Linux side keeps the host tree it unpacked in Stage A (by reading `wsl-setup.sh`,
+step `host-tree`: an existing `/opt/trialbox` is kept), so step 14 would run Stage A's Linux installer, which may
+not know `--rehearsal`, and the installer refuses a media whose key differs from Stage A's. Remove Stage A's tree,
+which holds nothing of yours, in an administrator PowerShell:
+`wsl -d TrialBox -u root -- rm -rf /opt/trialbox`. Stage B's media then unpacks its own.
 
 ## What you need
 
@@ -92,10 +96,11 @@ for d in gemma-4-26b-a4b-it-4bit qwen3.5-9b-4bit; do mkdir -p $K/models/$d
 printf 'TB_TZ=Asia/Taipei\n' > $K/.env
 IMGS="trialbox-py:1.0.0 trialbox-jvm:1.0.0 trialbox-postgres:16-1 $(docker compose --project-directory $K -f deploy/docker-compose.yml config --images | sort -u | grep -v '^trialbox-' | tr '\n' ' ')"
 for i in $IMGS; do docker image inspect $i >/dev/null 2>&1 || docker pull -q $i; done
-make release-bundle SC_LOCAL_IMAGES=1 SC_IMAGES="$IMGS" BUNDLE_ARGS="--key $K/keys/vendor_ed25519.key --id 2026.11-p0 --release-seq 1 --out $PWD/dist/trialbox-2026.11-p0.tar --models $K/models --refdata $(ls $K/refdata/trialbox-refdata-*.tar) $(for i in $IMGS; do printf -- '--image %s ' $i; done)"
+make release-bundle SC_LOCAL_IMAGES=1 SC_IMAGES="$IMGS" BUNDLE_ARGS="--rehearsal --key $K/keys/vendor_ed25519.key --id 2026.11-p0 --release-seq 1 --out $PWD/dist/trialbox-2026.11-p0.tar --models $K/models --refdata $(ls $K/refdata/trialbox-refdata-*.tar) $(for i in $IMGS; do printf -- '--image %s ' $i; done)"
 ```
 
-Then step 4 with `--version 2026.11-p0 --bundle dist/trialbox-2026.11-p0.tar --vendor-pub dist/p0/keys/vendor_ed25519.pub`,
+`--rehearsal` marks the bundle as a rehearsal's (D-726): a site box refuses it, and the Windows installer must be
+started with `-Rehearsal` to take it. Then step 4 with `--version 2026.11-p0 --bundle dist/trialbox-2026.11-p0.tar --vendor-pub dist/p0/keys/vendor_ed25519.pub`,
 and step 5. Lane D's notes: `dist/` is ignored by git, so the checkout stays clean (the bundle script refuses a
 checkout that differs from its commit); the release gates need to download a vulnerability database on first run.
 Not known: whether the image list above includes the model server's image (it sits behind a compose profile), and
@@ -106,14 +111,25 @@ so whether the media is nearer 5 GB or 13 GB.
 1. Install the NVIDIA Windows driver first, if the PC does not have it.
 2. Decide about BitLocker before you start (the sheet, Part 4, "Choose first"): on a PC that must stay
    unencrypted, start the installer from an administrator PowerShell with
-   `<usb>\TRIALBOX-<version>\windows\box-install.ps1 -SkipBitLocker`; otherwise double-click `Install-TrialBox.cmd`.
+   `powershell.exe -NoProfile -ExecutionPolicy Bypass -NoExit -File "<usb>\TRIALBOX-<version>\windows\box-install.ps1" -SkipBitLocker` (Windows
+   blocks a script started by its name alone; `-ExecutionPolicy Bypass` lets this one run, as `Install-TrialBox.cmd`
+   does); otherwise double-click `Install-TrialBox.cmd`.
 3. Sign in as the administrator who will own the box, plug in the USB disk, start the installer, and follow the
    sheet line by line. Write the "Record" column down as you go. Never write a recovery key down for us: only
    "shown" and "confirmed".
-4. Stage A: when the window stops in step 14 ("stopped before the set-up was finished"), that is the expected
+4. Stage B only: start the installer from an administrator PowerShell with `-Rehearsal`:
+   `powershell.exe -NoProfile -ExecutionPolicy Bypass -NoExit -File "<usb>\TRIALBOX-2026.11-p0\windows\box-install.ps1" -Rehearsal` (add
+   `-DataDrive G:` and `-SkipBitLocker` as you chose for Stage A). Give `-Rehearsal` every time you start it by
+   hand until the install is finished: without it the installer stops and changes nothing. The window says it is a rehearsal install before it changes anything; the install stays
+   one to its end, also over the restart. After Stage A on the same PC the installer goes on where it stopped; by
+   reading (not run), Stage A's stop in step 14 came before the Linux installer wrote anything of a site, so the
+   Linux installer takes the box as a rehearsal. If it refuses ("holds a site's install ... from no rehearsal"),
+   record the line: the box is then emptied as `docs/runbook/16-box-install-rehearsal.md` ("A rehearsal box")
+   says before Stage B.
+5. Stage A: when the window stops in step 14 ("stopped before the set-up was finished"), that is the expected
    end (the sheet's line 13): write down the last lines above it. Go on with Part 2, Part 3 (lines 24, 25, 26a, 27a, 27b, 27d), Part 4,
    Part 6 and Part 8 as listed above.
-5. Send back: the sheet with its Record column, and the log
+6. Send back: the sheet with its Record column, and the log
    `C:\ProgramData\TrialBox\box-install\box-install.log` (it holds no secret; line 35 checks that).
 
 ## On your own computer
@@ -121,7 +137,8 @@ so whether the media is nearer 5 GB or 13 GB.
 **Windows 10 22H2 can take P-0** (owner ruling D-503; NEW-WIN-10, D-613). The sheet's Part 9 has its own lines:
 Windows 10 has no mirrored networking for WSL2, so the console reaches other PCs through a forwarding rule that a
 task keeps pointed at WSL2. On a PC with several data drives, name the one with room: on yours, start the
-installer from an administrator PowerShell as `<usb>\TRIALBOX-<version>\windows\box-install.ps1 -DataDrive G:`
+installer from an administrator PowerShell as
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -NoExit -File "<usb>\TRIALBOX-<version>\windows\box-install.ps1" -DataDrive G:`
 (G:, H: and I: have about 2 TB free; C: has 222 GB, too little for a box). An RTX 3080 is enough for Stage A;
 it is not a tier's card, so Stage B's install runs as a rehearsal box only.
 
