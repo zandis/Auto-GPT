@@ -37,7 +37,7 @@ from datetime import date
 from typing import Any
 
 from tb_common.quotes import CUT
-from tb_llm.budget import excerpt_tokens
+from tb_llm.budget import COPIES, excerpt_tokens
 
 #: the budget when no client can tell its context: what fits beside the judge prompt and its answer on the smallest
 #: registered build (8k, T-603). A known context replaces it; it is the one fixed number of this module (OD-10)
@@ -281,8 +281,21 @@ def _order(n: Note) -> tuple[Any, ...]:
     return (tuple(-ord(ch) for ch in day), natural, n.text)
 
 
-#: D-941: an excerpt's key for the earlier dates of the notes with the same text (copy-forward, D-905), oldest first
-SAME_TEXT_ALSO_ON = "same_text_also_written_on"
+def _copies(days: set[str] | None) -> dict[str, Any]:
+    """D-941: what a note shown for copies of its text says of them (``tb_llm.budget.COPIES``): the earliest day the
+    same text was written and how many other copies there are; nothing for a note with none."""
+    if not days:
+        return {}
+    first, many = COPIES
+    return {first: min(days), many: len(days)}
+
+
+def _copies_cost(days: set[str] | None) -> int:
+    """The tokens :func:`_copies` adds to an excerpt (``tb_llm.budget.excerpt_tokens``)."""
+    if not days:
+        return 0
+    base = {"date": "0000-00-00", "note_type": "", "text": ""}
+    return excerpt_tokens(base | _copies(days)) - excerpt_tokens(base)
 
 
 def build(
@@ -331,7 +344,7 @@ def build(
             # not shown, and left out (review of T-710: the first version skipped it without counting)
             cut.append(n.did)
             continue
-        cost = tokens(n.text)
+        cost = tokens(n.text) + _copies_cost(also.get(n.did))  # D-941: the copies' two values are read too
         if cost <= left:
             shown.append((n, n.text))
             left -= cost
@@ -349,8 +362,6 @@ def build(
             left -= part_cost
     shown.sort(key=lambda x: _order(x[0]))
     out = [
-        {"date": n.iso, "note_type": n.type, "text": text, "did": n.did}
-        | ({SAME_TEXT_ALSO_ON: sorted(also[n.did])} if n.did in also else {})
-        for n, text in shown
+        {"date": n.iso, "note_type": n.type, "text": text, "did": n.did} | _copies(also.get(n.did)) for n, text in shown
     ]
     return ExcerptSet(out, len(cut), cut, dups)
