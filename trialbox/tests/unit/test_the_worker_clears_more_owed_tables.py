@@ -97,3 +97,39 @@ def test_the_registry_lists_the_facts_on_the_clear() -> None:
     assert e.kind == erasure.ERASE and e.clear == "owed_tables" and not e.owed_by
     for k in ("edc.draft", "recall.recall_observation", "recall.recall_known_positive"):  # the review of D-866
         assert erasure.entries()[k].owed_by, k
+
+
+def test_a_sheet_is_not_kept_when_the_register_does_not_answer(svc: Any) -> None:
+    """The re-check of D-866: the register is read before anything of the sheet is stored."""
+    from sitesetup.store import SetupError
+
+    def down() -> frozenset[str]:
+        raise ConnectionError("the trial database did not answer")
+
+    svc.gone = down
+    with pytest.raises(SetupError) as e:
+        svc.add_sheet(WS, "sheet", "b.csv", _sheet(), {}, "crc")
+    assert e.value.code == "SETUP-OPTOUT" and svc.store.inputs(WS) == []
+
+
+class _Published(Exception):
+    pass
+
+
+def test_a_publish_leaves_out_a_patient_opted_out_since(svc: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The re-check of D-866: a fact (or a chart's text) kept before the opt-out is never published after it."""
+    from sitesetup import publish
+
+    svc.gone = frozenset
+    svc.add_sheet(WS, "sheet", "b.csv", _sheet(), {}, "crc")
+    seen: dict[str, Any] = {}
+
+    def resources(facts: Any, mapping: Any, texts: Any) -> Any:
+        seen.update(facts=list(facts), texts=list(texts))
+        raise _Published
+
+    monkeypatch.setattr(publish, "resources", resources)
+    svc.gone = lambda: frozenset({pid("10000001")})
+    with pytest.raises(_Published):
+        svc.publish(WS, "crc", force=True)
+    assert {f["pid"] for f in seen["facts"]} == {pid("10000002")}

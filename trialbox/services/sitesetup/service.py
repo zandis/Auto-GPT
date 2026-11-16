@@ -183,6 +183,7 @@ class SiteSetup:
         grid, merged = intake.read_grid(clean_name, data)  # refuse an unreadable file before anything is stored
         # FIT-U09 (T-629): and a chart-number column that Excel turned into numbers, naming the column
         intake.refuse_chart_column(clean_name, data, messy.clean(grid, merged, roles), self.mrn_regex)
+        self._opted_out()  # the review of D-866: a register that does not answer keeps nothing of the sheet
         iid = self.store.add_input(ws, kind, clean_name, sha256_bytes(data), "", "", by, self.stamp(), roles)
         self.store.set_input(iid, path=self._save(ws, iid, clean_name, data))
         out = self.reread(iid, by, first=True)
@@ -215,9 +216,9 @@ class SiteSetup:
         ws = inp["ws"]
         cleaned = messy.clean(grid, merged, inp["roles"], answers)
         facts, locs, pids = intake.sheet_facts(cleaned, self.pseudonym)
+        gone = {p.lower() for p in self._opted_out()}  # D-866: read before anything of the sheet is written
         for domain, system, code, display in locs:
             self.store.put_local(ws, domain, system, code, display, mapping.suggest(domain, system, code, display))
-        gone = {p.lower() for p in self._opted_out()}  # D-866: an opted-out patient's facts are never written
         facts = [f for f in facts if str(f.get("pid") or "").lower() not in gone]
         at = self.stamp()
         self.store.replace_facts(ws, input_id, facts, at)
@@ -478,7 +479,11 @@ class SiteSetup:
         until a person presses Publish. No time limit on the rebuild (OD-10). A box with no site facts that never
         published starts no rebuild."""
         with self._lock:
-            res = publish.resources(self.store.facts(ws), self.store.mapping(ws), self.chart_texts(ws))
+            # the review of D-866: a patient opted out since a chart or a fact was kept is never published
+            gone = {p.lower() for p in self._opted_out()}
+            facts = [f for f in self.store.facts(ws) if str(f.get("pid") or "").lower() not in gone]
+            texts = [t for t in self.chart_texts(ws) if str(t["pid"]).lower() not in gone]
+            res = publish.resources(facts, self.store.mapping(ws), texts)
             dg = publish.digest(res)
             lake = self.lake(ws)
             rec = self._record(ws)
