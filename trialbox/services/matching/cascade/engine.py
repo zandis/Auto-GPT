@@ -48,7 +48,17 @@ from tb_contracts import CriterionIR
 
 from matching import excerpts as excerpt_builder
 from matching.carried import NOT_CARRIED, Carried
-from matching.cascade.judge import JudgeClient, JudgeReply, expected_tokens, norm, sentence_hash, verify_span
+from matching.cascade.judge import (
+    ASKING,
+    Asking,
+    JudgeClient,
+    JudgeReply,
+    expected_tokens,
+    norm,
+    question_digest,
+    sentence_hash,
+    verify_span,
+)
 from matching.cascade.model import (
     STAGES,
     STRATUM_INDEX,
@@ -77,6 +87,7 @@ from matching.cascade.s2b_semantic import (
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
 from matching.excerpts import sentences
 from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS, Proposed
+from matching.recorded import NO_RECORD, Recorded
 from matching.stored_scores import apply_rows
 
 PATIENT_CLASS = "D3"  # every cascade output is patient level (§7.1)
@@ -375,6 +386,7 @@ class _Run:
         self.coverage = Coverage()  # rows in a code system nobody can read (F-10, D-130); loaded at S1
         self._s2_excluded = 0  # patients S2 excluded on a certified zero hit, summed over the batches (T-694 part 3)
         self.carried = Carried()  # the code systems the site's rows carry (F11, D-795); loaded at S1
+        self.recorded = Recorded()  # the kinds of coded record each patient has at all (D-914); loaded at S1
         self._uncarried_index: set[str] = set()  # index conditions whose list no row can carry: absence never excludes
         self.coded = True  # whether S1 applied a coded criterion (D-788); set at S1
         self.proposed = Proposed()  # facts read from a chart, not yet confirmed (D-135); loaded at S1
@@ -483,13 +495,14 @@ class _Run:
         scope = [t.pid for t in self.traces.values() if t.in_scope]
         # A-NOTES-ONLY (D-788): a ruleset with no coded criterion is screened (lane G's public sets): the SQL still
         # lists each in-scope patient alive at each index date, every patient passes S1 at its latest one, and the
-        # notes decide. Review of D-788: a ruleset where nothing decides is refused (every patient read "high"), and
-        # such a run needs a pair budget, since every patient goes to the models
+        # notes decide. Such a run needs a pair budget, since every patient goes to the models. D-909 (red of lane G's
+        # run, 2026-11-16): a ruleset where nothing decides (every criterion a person's) is an answer, not an error:
+        # S0 and S1 still scope the patients, nobody is judged, and every patient in scope goes to review
         self.coded = bool(applied)
         if not applied:
             if not any(c.class_ in JUDGED and c.kind in ("inclusion", "exclusion") for c in self.rs.active()):
-                raise CascadeError(f"ruleset {self.rs.id} has nothing that decides: no coded and no note criterion")
-            if self.cfg.max_llm_items is None:
+                self.metrics.nothing_decides = True
+            elif self.cfg.max_llm_items is None:
                 raise CascadeError(
                     f"ruleset {self.rs.id} has no coded criterion, so every patient goes to the models: set max_pairs"
                 )
@@ -499,6 +512,7 @@ class _Run:
         apply_rows(table, applied, self.cfg.stored, self.cfg.snapshot, getattr(self.rs.manifest, "derived_pins", None))
         self.coverage = Coverage.for_criteria(self.lake, applied, scope, self.cfg.snapshot, self.rs.valuesets)
         self.carried = Carried.for_criteria(self.lake, applied, self.cfg.snapshot)
+        self.recorded = Recorded.for_criteria(self.lake, applied, scope, self.cfg.snapshot)
         self.proposed = Proposed.for_criteria(self.lake, applied, scope, self.cfg.snapshot, self.rs.valuesets)
         by_pid: dict[str, list[dict[str, Any]]] = {}
         for row in table:
@@ -577,6 +591,10 @@ class _Run:
         if not fids and doubt:  # a proposed fact, when there is one, says more to the person who looks
             return Outcome(c.id, "pass" if c.kind == "exclusion" else "unknown", "S1", unknown_kind="data_gap",
                            reason=NOT_CARRIED)  # fmt: skip
+        # D-914: a patient with no coded record of the atom's kind at all: their record says nothing either way
+        if not fids and not is_index_criterion(c) and self.recorded.doubt(c, str(row["pid"]), row.get(f"C_{c.id}")):
+            return Outcome(c.id, "pass" if c.kind == "exclusion" else "unknown", "S1", unknown_kind="data_gap",
+                           reason=NO_RECORD)  # fmt: skip
         if not fids:
             return out
         ev = [{"source": "lake", "record": x.split("|")[0], "date": x.split("|")[1] if "|" in x else None,
@@ -1045,22 +1063,34 @@ class _Run:
         assert self.judge is not None
         c = self.crit[r.cid]
         lo, hi = window_of(c, t.index_date)
-        key = json.dumps([r.pid, self.hashes[r.cid], r.sentence_set, role, lo.isoformat(), hi.isoformat()])
+        # D-907: the canonical hash drops the criterion's text, so two criteria with one note question and structure
+        # would share an answer whenever their sentence sets meet (always on D-904's whole-window path); the text's
+        # hash keeps one criterion's answer from being read as another's
+        text = hashlib.sha256(c.text.encode("utf-8")).hexdigest()
+        key = json.dumps([r.pid, self.hashes[r.cid], text, r.sentence_set, role, lo.isoformat(), hi.isoformat()])
         with self._lock:
             if key in self.cache:
                 self.metrics.cache_hits += 1
                 return self.cache[key], True
-        reply = self.judge.judge(
-            role=role,
-            criterion_text=c.text,
-            note_question=c.note_question or c.text,
-            index_date=t.index_date,
-            excerpts=r.excerpts,
-            study_id=self.cfg.study_id,
-            data_class=self.cfg.notes_class,
-            step_id=self.cfg.step_id or f"cascade:{self.cfg.study_id}",
-            purpose=self.cfg.purpose,
-        )
+        # D-908: the store below the judge keys and erases by these; an audit sample (CAS-8) is always asked live
+        question = question_digest(c.text, c.note_question or c.text, t.index_date.isoformat(), list(r.excerpts))
+        asking = ASKING.set(Asking(r.pid, self.hashes[r.cid], (lo.isoformat(), hi.isoformat()),
+                                   audit=self.cfg.sample_per_stratum is not None, role=role,
+                                   question=question))  # fmt: skip
+        try:
+            reply = self.judge.judge(
+                role=role,
+                criterion_text=c.text,
+                note_question=c.note_question or c.text,
+                index_date=t.index_date,
+                excerpts=r.excerpts,
+                study_id=self.cfg.study_id,
+                data_class=self.cfg.notes_class,
+                step_id=self.cfg.step_id or f"cascade:{self.cfg.study_id}",
+                purpose=self.cfg.purpose,
+            )
+        finally:
+            ASKING.reset(asking)
         with self._lock:
             if reply.refused:
                 self.metrics.gateway_refusals += 1

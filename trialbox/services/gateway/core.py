@@ -60,6 +60,7 @@ when it reports one (OpenRouter does), else the routing-table price.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -427,6 +428,7 @@ class Gateway:
         except Refusal as r:
             said: dict[str, Any] = {"upstream_kinds": list(r.upstream_kinds)} if r.upstream_kinds else {}
             self._record("llm.gateway.refuse", call, reason=r.reason, message=str(r), **said)
+            self._trace_refusal(call, body, r)
             headers = {
                 "X-TB-Call-Id": call.call_id,
                 "X-TB-Refusal": r.reason,
@@ -439,6 +441,40 @@ class Gateway:
                 r.status,
                 {"error": {"type": "tb_refusal", "code": r.reason, "message": str(r), "call_id": call.call_id, **said}},
                 headers,
+            )
+
+    #: the refusals of a call that was cleared for a model and failed there: its prompt is kept with the reason
+    #: (D-911); a refusal of the call itself (its class, its caller, its prompt's registration) keeps no prompt
+    MODEL_REFUSALS = frozenset({"upstream_failed", "upstream_down", "prompt_too_long"})
+
+    def _trace_refusal(self, call: _Call, body: dict[str, Any], r: Refusal) -> None:
+        """A refused call leaves a trace with its reason (D-911; red of lane G's run: 11 ``ir_extract`` calls refused
+        as ``upstream_failed`` left nothing in the trace store to read). A failing trace write never changes the
+        answer."""
+        if self.traces is None:
+            return
+        attributes = {
+            "tb.call_id": call.call_id,
+            "tb.data_class": call.data_class,
+            "tb.model_alias": call.alias,
+            "tb.role": call.role,
+            "tb.purpose": call.purpose,
+            "tb.study_id": call.study,
+            "tb.prompt": call.prompt,
+            "tb.refusal": r.reason,
+            "tb.upstream_kinds": list(r.upstream_kinds),
+        }
+        kept = r.reason in self.MODEL_REFUSALS
+        with contextlib.suppress(Exception):
+            self.traces.write(
+                {
+                    "call_id": call.call_id,
+                    "span": "refusal",
+                    "sc": kept,  # a kept prompt is read as special-category: never less guarded than an allowed call
+                    "attributes": attributes,
+                    "prompt": body.get("messages") if kept else None,
+                    "output": None,
+                }
             )
 
     # ------------------------------------------------------------------------------------------------ pipeline

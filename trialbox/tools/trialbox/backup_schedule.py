@@ -799,6 +799,16 @@ def recorded_good(dirs: Sequence[Path], good_file: Mapping[str, Any] | None) -> 
     return None
 
 
+def drill_failure(deploy: Path) -> str:
+    """T-730d (D-892): the last restore drill's failure in plain words, or "" (none, or a later one passed)."""
+    rec = _read_json(deploy / "site" / "backup-verified.json")
+    failed, passed = str(rec.get("drill_failed_at") or ""), str(rec.get("at") or "")
+    if not failed or (passed and passed > failed):
+        return ""
+    return (f"the restore drill of {failed[:10]} failed: {str(rec.get('drill_error') or '?')[:200]} "
+            "(trialbox restore-drill, RUNBOOK §5)")  # fmt: skip
+
+
 def status(
     cfg: Config,
     now: datetime | None = None,
@@ -840,6 +850,9 @@ def status(
         problems.append(f"the last nightly backup at {last.get('at', '?')} failed (deploy/site/backup-last.json)")
     if last.get("pgbackrest") and not last["pgbackrest"].get("ok"):
         problems.append("the last pgBackRest backup failed (deploy/site/backup-last.json)")
+    drill = drill_failure(cfg.deploy)
+    if drill:  # T-730d (D-892): a failed restore drill goes through the alert route, until a drill passes
+        problems.append(drill)
     if cfg.archive_on and archiver is not None:
         mode = archiver.get("archive_mode")
         if archiver.get("error"):

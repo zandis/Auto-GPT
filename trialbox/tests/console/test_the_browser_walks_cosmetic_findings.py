@@ -88,3 +88,31 @@ def test_the_sae_set_up_warnings_go_to_who_can_act(lb: dict[str, Any], monkeypat
 def test_the_new_words_are_in_every_language() -> None:
     for lang in LANGS:
         assert CATALOGUES[lang].get("life.reports.row_noclock"), lang
+
+
+# ---------------------------------------------------------------------------------------------- D-861 (2026-11-16)
+_STUDY = {"name": "", "regulator": "", "parties": {"regulator_expected": True}, "confirmed_by": "", "source": "country",
+          "problems": ["not_chosen"]}  # fmt: skip
+
+
+def _card(role: str, study: dict[str, Any], fu: dict[str, Any] | None = None) -> str:
+    from tb_common.authz import permit
+
+    src = '{% from "_sae_rules.html" import rules_card with context %}{{ rules_card(rules, fu, "Asia/Taipei") }}'
+    env = Environment(loader=FileSystemLoader(str(ROOT / "services" / "console" / "templates")), autoescape=True)
+    env.globals.update(t=lambda key, **kw: translate("en", key, **kw), permit=permit)
+    env.filters.update(who=str, local=str)
+    return env.from_string(src).render(rules={"GZQO": study}, fu=fu or {}, user=type("U", (), {"role": role})())
+
+
+def test_the_sae_set_up_notes_go_to_who_can_act_and_no_empty_line_is_printed() -> None:
+    """Lane G's walk (2026-11-16): an investigator saw, per study, "The site has not confirmed these deadlines ... the
+    country's default", "the study has not chosen its SAE rule set" and an empty deadlines line."""
+    pi = _card("investigator", _STUDY)
+    assert 'data-testid="sae-unconfirmed"' not in pi and "sae-rule-problem" not in pi
+    assert 'data-testid="sae-deadlines"' not in pi and 'data-testid="sae-followup"' not in pi  # nothing to say
+    assert ": ." not in pi and 'data-testid="sae-rules-GZQO"' in pi
+    crc = _card("coordinator", _STUDY)
+    assert 'data-testid="sae-unconfirmed"' in crc and 'data-testid="sae-rule-problem-not_chosen"' in crc
+    dated = _card("investigator", {**_STUDY, "parties": {"sponsor": [7, 15]}}, {"sponsor": [7, 15]})
+    assert 'data-testid="sae-deadlines"' in dated and "7/15" in dated and 'data-testid="sae-followup"' in dated

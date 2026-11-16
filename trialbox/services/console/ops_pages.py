@@ -60,6 +60,29 @@ def _hours_since(iso: str, now: datetime) -> float | None:
     return round((now - t).total_seconds() / 3600, 1)
 
 
+DRILL_CMD = "sudo python3 -m tools.trialbox restore-drill {file} --key <the key from the envelope>"
+
+
+def _drill(st: Mapping[str, Any], now: datetime, env: Mapping[str, str]) -> dict[str, Any]:
+    """T-730d (D-892): the last restore drill as the health check reads it, and the exact command to type (the newest
+    backup file's path when the status lists one). The key's path is never known here: the drill runs on the host."""
+    from tb_common import metrics
+
+    rec = ((st.get("health") or {}).get("verified")) or None
+    chk = metrics.check_verified(rec, now, metrics.Thresholds.from_env(env))
+    files = [(str(f.get("at") or ""), f"{tg.get('path')}/{f.get('name')}")
+             for tg in ((st.get("backups") or {}).get("targets") or []) for f in tg.get("files") or []]  # fmt: skip
+    newest = max(files)[1] if files else "<backup file>"
+    failed = str((rec or {}).get("drill_failed_at") or "")
+    passed = str((rec or {}).get("at") or "") if (rec or {}).get("drill") else ""
+    return {
+        "drill_at": failed if failed and failed >= passed else passed,
+        "drill_ok": bool(passed) and not (failed and failed >= passed),
+        "drill_red": chk.level == metrics.RED,
+        "drill_cmd": DRILL_CMD.format(file=newest),
+    }
+
+
 def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
     from tools.trialbox import ops as tb_ops
 
@@ -104,6 +127,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             "backup_red": age is None or age > tb_ops.STALE_HOURS,
             "backup_key": bool((st.get("backups") or {}).get("key")),
             "last_check": check,
+            **_drill(st, now, env),
             "agent_seen_h": seen,
             "agent_late": not inline and not busy and (seen is None or seen > 0.25),
             "agent_busy": busy,

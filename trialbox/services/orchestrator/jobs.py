@@ -528,6 +528,25 @@ class KeptAnswers:
         self._db.answer_put(self.job_id, key, raw, self._now(), replace=other)
 
 
+def judged_pairs_for(ctx: Any) -> Any:
+    """The judged-pair store of a SCREEN job (D-908, D-519): on unless ``TB_JUDGED_STORE=off`` (off, it is still
+    there to apply the snapshots' retention at the job's end). Its snapshot is the job's, read when it is first used
+    (the job pins it after its services are built); the opt-out register is read before each write and read hit."""
+    from orchestrator import judged_store
+
+    ret = getattr(getattr(getattr(ctx, "cfg", None), "settings", None), "retention", None)
+    nightly = getattr(ret, "nightly_snapshots", None)
+    months = getattr(ret, "month_end_snapshots_months", None)
+    return judged_store.JudgedPairs(
+        ctx.orch.db,
+        lambda: ctx.job.snapshot_date.isoformat() if ctx.job.snapshot_date else "",
+        ctx.decision.register_now,
+        lambda: ctx.orch._now().isoformat(),
+        on=judged_store.enabled(),
+        retention=(int(nightly if nightly is not None else 3), int(months if months is not None else 36)),
+    )
+
+
 class GuardedLlm:
     """A job's view of one model client: the cancel check before each call, the wait on a model outage, the kept
     answers of a screening job and, for SCREEN, the breaker."""
@@ -540,6 +559,7 @@ class GuardedLlm:
         label: str,
         outage: OutageBudget | None = None,
         answers: KeptAnswers | None = None,
+        pairs: Any = None,
     ) -> None:
         self.inner = inner
         self._should_stop = should_stop
@@ -547,6 +567,7 @@ class GuardedLlm:
         self._label = label
         self._outage = outage
         self._answers = answers
+        self.pairs = pairs  # D-908: the judged-pair store of a SCREEN job (orchestrator.judged_store), or None
 
     def __getattr__(self, name: str) -> Any:  # model, base_url, gateway, text_budget ... of the wrapped client
         return getattr(self.inner, name)
@@ -625,15 +646,35 @@ class GuardedLlm:
 
     def chat_json(self, *args: Any, **kw: Any) -> Any:
         key = None
+        schema = (args[2] if len(args) > 2 else kw.get("schema")) if len(args) >= 2 else None
         if self._answers is not None and len(args) >= 2:
-            schema = args[2] if len(args) > 2 else kw.get("schema")
             key = self._answers.key(self._label, self.inner, str(args[0]), args[1], schema)
         if key is not None and self._answers is not None:
             self._check_stop()
             kept = self._answers.get(key, self._label)
             if kept is not None:
                 return kept
-        out = self._call(self.inner.chat_json, *args, **kw)
+        # D-908: the judged-pair store, after the job's own kept answers and before the model
+        variables = args[1] if len(args) >= 2 else None
+        stored_key = None
+        if self.pairs is not None and variables is not None:
+            stored_key = self.pairs.key(self._label, self.inner, str(args[0]), variables, schema)
+            if stored_key is not None:
+                self._check_stop()
+                stored = self.pairs.get(stored_key, variables)
+                if stored is not None:
+                    return stored
+        try:
+            out = self._call(self.inner.chat_json, *args, **kw)
+        except LlmError:
+            if self.pairs is not None and variables is not None:
+                self.pairs.asked(self._label, None, variables)
+            raise
+        if self.pairs is not None and variables is not None:
+            self.pairs.asked(self._label, out, variables)  # the role's build is the one this answer names
+            stored_key = self.pairs.key(self._label, self.inner, str(args[0]), variables, schema)
+            if stored_key is not None:
+                self.pairs.put(stored_key, self._label, out, variables)
         if key is not None and self._answers is not None:
             self._answers.put(key, out, self._label)
         return out
@@ -692,12 +733,14 @@ def guarded_services(ctx: Ctx, base: Services) -> Services:
             lambda: ctx.orch._now().isoformat(),
         )
 
+    pairs = judged_pairs_for(ctx) if ctx.job.type == "SCREEN" else None
+
     def guard(client: Any, label: str) -> Any:
         if client is None:
             return None
         if id(client) not in wrapped:
             b = breaker_for(ctx.orch, client) if screen else None
-            wrapped[id(client)] = GuardedLlm(client, stop, b, label, outage, answers)
+            wrapped[id(client)] = GuardedLlm(client, stop, b, label, outage, answers, pairs)
         return wrapped[id(client)]
 
     return replace(base, llm=guard(base.llm, "judge"), verifier=guard(base.verifier, "verifier"))

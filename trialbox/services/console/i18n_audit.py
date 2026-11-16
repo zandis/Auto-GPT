@@ -147,6 +147,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
         "管理員重新執行失敗的排程作業",
     ),
     "scheduler.held": ("Scheduled run held", "予定処理の保留", "保留排程作業"),
+    "selftest.unreached": (
+        "Model self-test could not reach the models (tried again)",
+        "モデル自己テストがモデルに接続できず（再試行）",
+        "模型自我測試無法連線到模型（將重試）",
+    ),
     "rerun.checked": ("Re-run checked", "再実行の確認", "檢查重新執行"),
     "microbatch.budget": ("Night budget used", "夜間予算の使用", "使用夜間額度"),
     "notice.sent": ("Notice sent", "通知の送信", "寄送通知"),
@@ -348,6 +353,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     ),
     "ctgov.search": ("Trial registry searched", "臨床試験登録の検索", "搜尋臨床試驗登錄"),
     "compile.start": ("Criteria compiling started", "基準の変換開始", "開始轉換條件"),
+    "compile.error": (
+        "Criteria compiler error (bug)",
+        "基準変換サービスのエラー（不具合）",
+        "條件轉換服務錯誤（程式錯誤）",
+    ),
     "compile.done": ("Criteria compiled", "基準の変換完了", "完成轉換條件"),
     "approve.done": ("Criteria approved", "基準の承認", "核准條件"),
     "approve.max_rounds": (

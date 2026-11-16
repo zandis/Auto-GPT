@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+import contextlib
+import logging
 import os
-from collections.abc import AsyncIterator
+import uuid
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from lake.client import LakeHttp
+from pydantic import ValidationError
 from tb_common.audit_writer import open_audit
 from tb_common.config import get_config
 from tb_common.fhir import FhirEvaluator
-from tb_common.http import make_app
+from tb_common.http import make_app, trace_of
 from tb_common.llm import LlmClient
 from tb_common.objstore import from_config
 from tb_common.ruleset import SEED_RULESETS, examples_allowed
@@ -29,6 +33,7 @@ from tb_contracts import (
 
 from criteria_compiler.compile_cql.translator import Translator, available
 from criteria_compiler.repo import RulesetRepo
+from criteria_compiler.semantics import CompileError
 from criteria_compiler.service import CompileFailed, Compiler, CompilerDeps
 from criteria_compiler.terminology import resolver
 
@@ -91,39 +96,59 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 app = make_app("criteria-compiler", lifespan=lifespan)
+log = logging.getLogger("criteria-compiler")
 
 
 def _fail(exc: CompileFailed) -> HTTPException:
     return HTTPException(status_code=422, detail={"step": exc.step, "message": str(exc)})
 
 
-@app.post("/compile")
-def compile_(req: CompileRequest) -> CompileResult:
+def _answer[T](step: str, call: Callable[[], T]) -> T:
+    """One route's work, with every failure answered (D-910; red of lane G's run, 11 HTTP 500s on FEAS and APPROVE).
+
+    * ``CompileFailed``: 422 with its step and reason, as before.
+    * A criterion or ruleset the compiler cannot build (``CompileError``, a model's output outside the IR): 422 with
+      the step and the reason; for an IR refusal, where it was refused, never the refused value.
+    * Anything else is a bug: 500 with an error id, and the error's type and frames (never its text, D-557) in the
+      service's log and in the audit chain, which the box keeps (the container's own log is gone with it)."""
     try:
-        return compiler().compile(req)
+        return call()
     except CompileFailed as exc:
         raise _fail(exc) from exc
+    except CompileError as exc:
+        raise HTTPException(status_code=422, detail={"step": step, "message": str(exc)}) from exc
+    except ValidationError as exc:
+        where = ", ".join(".".join(str(x) for x in e["loc"]) or "input" for e in exc.errors()[:5])
+        detail = {"step": step, "message": f"the ruleset is not valid here: {where}"}
+        raise HTTPException(status_code=422, detail=detail) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        error_id = uuid.uuid4().hex[:12]
+        trace = trace_of(exc)
+        log.error("unhandled error", extra={"step": step, "error_id": error_id, **trace})
+        with contextlib.suppress(Exception):  # the audit is where the box keeps it; a failing audit adds nothing
+            compiler()._audit("compile.error", detail={"step": step, "error_id": error_id, **trace})
+        raise HTTPException(
+            status_code=500, detail={"step": step, "error": "internal error", "error_id": error_id}
+        ) from exc
+
+
+@app.post("/compile")
+def compile_(req: CompileRequest) -> CompileResult:
+    return _answer("compile", lambda: compiler().compile(req))
 
 
 @app.post("/ctgov/search")
 def ctgov_search(req: CtgovSearchRequest) -> CtgovSearchResult:
-    try:
-        return compiler().ctgov_search(req)
-    except CompileFailed as exc:
-        raise _fail(exc) from exc
+    return _answer("ctgov", lambda: compiler().ctgov_search(req))
 
 
 @app.post("/diff")
 def diff(req: DiffRequest) -> DiffResult:
-    try:
-        return compiler().diff(req)
-    except CompileFailed as exc:
-        raise _fail(exc) from exc
+    return _answer("diff", lambda: compiler().diff(req))
 
 
 @app.post("/approve")
 def approve(req: ApproveRequest) -> ApproveResult:
-    try:
-        return compiler().approve(req)
-    except CompileFailed as exc:
-        raise _fail(exc) from exc
+    return _answer("approve", lambda: compiler().approve(req))

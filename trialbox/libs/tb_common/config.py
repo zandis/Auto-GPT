@@ -427,6 +427,8 @@ DECLARED: dict[str, Declared] = {
     "TB_CANARY_GATE": Declared("bool", "", "note answers gated on a passed canary"),
     "TB_CANARY_MAX_AGE_H": Declared("float", "", "hours a passed canary stays valid"),
     "TB_CANARY_RESULT": Declared("str", "", "platform check: path of the canary result"),
+    "TB_CANARY_RETRY_MAX_S": Declared("float", "600", "longest wait between canaries that could not reach a model"),
+    "TB_CANARY_RETRY_S": Declared("float", "30", "first wait before a canary that could not reach a model runs again"),
     "TB_CANARY_WHY_CASES": Declared(
         "int", "2", "wrong cases named in a failed canary's line, read on one screen line (the report keeps ten)"
     ),
@@ -508,6 +510,7 @@ DECLARED: dict[str, Declared] = {
     "TB_DEMO_MODE": Declared("str", "", "demo mode flag"),
     "TB_DEMO_OPINIONS": Declared("str", "", "demo: recorded first and second checks"),
     "TB_DEMO_PASSWORD": Declared("str", "", "demo: account password (synthetic)"),
+    "TB_DEMO_PEOPLE": Declared("str", "", "demo: the VM's people (name:role), recipients of the study lists (D-758)"),
     "TB_DEMO_RUN": Declared("str", "/etc/trialbox-demo/run.sh", "demo: start script"),
     "TB_DEMO_SITE_LANG": Declared("str", "", "demo: hospital records and notes in ja or zh-TW (unset: both campuses)"),
     # the small demo VM (deploy/gcp/demo-vm.sh): each limit's reason is in deploy/gcp/demo_vm.py (OD-10); prices are
@@ -665,6 +668,9 @@ DECLARED: dict[str, Declared] = {
     "TB_JOB_POLL_SECONDS": Declared("float", "5", "longest pause between reads of a polled job's state (D-472)"),
     "TB_JP_INGREDIENT_ATC": Declared("str", "", "compiler: Japanese ingredient to ATC map"),
     "TB_JVM_IMAGE": Declared("str", "", "platform: JVM image"),
+    "TB_JUDGED_STORE": Declared(
+        "str", "on", "SCREEN: the judged-pair store, on or off; off asks every note question live (D-908, D-519)"
+    ),
     "TB_JOB_MAX_RESTARTS": Declared(
         "int",
         "3",

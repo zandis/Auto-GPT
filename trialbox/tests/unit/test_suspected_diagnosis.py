@@ -161,7 +161,9 @@ def test_sql_engine_never_excludes_on_a_suspected_diagnosis(setup: tuple[LakeLoc
         assert evidence is not None and evidence.reason == "suspected_diagnosis"
     assert v["P-REFUTED"][1].verdict == "pass"
     assert v["P-SUSP-GOUT"][0].verdict == "unknown" and v["P-GOUT"][0].verdict == "pass"
-    assert v["P-NONE"][0].verdict == "fail"  # nothing at all: the coded answer stands
+    # D-914: no diagnosis record at all says nothing either way: unknown, with its own reason (not a suspected one)
+    p_none = v["P-NONE"][0]
+    assert p_none.verdict == "unknown" and p_none.evidence is not None and p_none.evidence.reason == "no_record_of_kind"
 
 
 def test_cascade_lists_a_suspected_diagnosis_as_needing_information(setup: tuple[LakeLocal, Ruleset]) -> None:
@@ -180,7 +182,7 @@ def test_cascade_lists_a_suspected_diagnosis_as_needing_information(setup: tuple
     )
     res = run_cascade(lake, rs, cfg, judge=None, embedder=HashEmbedder(), reviewer=None)
     tiers = {pid: verdicts_of(rs, res.traces[pid]).tier for pid in PIDS}
-    assert tiers["P-CONF"] == "excluded" and tiers["P-NONE"] == "excluded"
+    assert tiers["P-CONF"] == "excluded" and tiers["P-NONE"] == "review"  # D-914: no record of the kind
     for pid in ("P-SUSP", "P-DIFF", "P-SUSP-GOUT"):
         assert tiers[pid] == "review", (pid, tiers[pid])
     o = res.traces["P-SUSP"].outcomes["SUSP-EXC-01"]

@@ -513,3 +513,28 @@ def test_an_outcome_undo_the_registry_refused_is_put_back() -> None:
         assert [o.outcome for o in store.outcomes("UNDO1", pid)] == ["reached_declined"]
     finally:
         store.close()
+
+
+def test_the_backups_tile_shows_the_last_restore_drill_and_the_command_to_type(ob: dict[str, Any]) -> None:
+    """T-730d (D-892): the drill runs on the host with the key; the page shows its last result from the box's
+    key-check record and the exact command, with the newest backup's path, never a key path."""
+    from tb_common import metrics
+
+    c, csrf = login(ob["app"])
+    c.post("/admin/ops/backup", data={"csrf": csrf, "confirm": "yes"}, follow_redirects=False)
+    newest = sorted((ob["dir"] / "nas").glob("*.tbbak"))[-1]
+    page = c.get("/admin/ops?tab=backups").text
+    assert 'data-testid="ops-drill-cmd"' in page and "restore-drill" in page and newest.name in page
+    assert "none yet" in page and str(ob["priv"]) not in page
+    metrics.record_drill(ob["deploy"], {"ok": True, "at": "2026-11-16T01:00:00+00:00", "file": newest.name,
+                                        "databases": {"trialbox_wf": {"tables": 3, "rows": 5}}})  # fmt: skip
+    c.post("/admin/ops/backup_check", data={"csrf": csrf, "confirm": "yes"}, follow_redirects=False)  # a new status
+    tile = c.get("/admin/ops").text
+    drill = tile[tile.index('data-testid="ops-drill"') :][:400]
+    assert "passed" in drill and 'class="pill ok"' in drill
+    metrics.record_drill(ob["deploy"], {"ok": False, "at": "2026-11-16T02:00:00+00:00", "file": newest.name,
+                                        "error": "pg_restore failed"})  # fmt: skip
+    c.post("/admin/ops/backup_check", data={"csrf": csrf, "confirm": "yes"}, follow_redirects=False)
+    tile = c.get("/admin/ops").text
+    drill = tile[tile.index('data-testid="ops-drill"') :][:400]
+    assert "failed" in drill and 'class="pill bad"' in drill
