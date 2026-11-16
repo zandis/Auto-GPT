@@ -52,7 +52,9 @@ restic does the incremental backup, on these conditions:
       which this build leaves out; the scanner flags the module from the binary's module list. The ruling's
       conditions: the version pinned (an exact version, its sum under GOSUMDB, `go mod verify`), the licence count
       still 86, and restic's own test suite (`go test -short ./...`) run in the build on these modules before the
-      binary is kept; the restore rehearsal on the built binary is R4.
+      binary is kept; the restore rehearsal on the built binary is R4. The suite runs as an unprivileged user (`gotest`):
+      restic's tests that make a file unreadable expect an error that root never gets. A failing run prints the
+      failing tests, since the build log keeps only the step's tail.
     - `x/crypto` v0.59.0 requires `golang.org/x/text` v0.44.0 (its own `go.mod`), so `x/text` goes to v0.44.0, one
       past restic's main branch (v0.43.0), as part of the same ruling; the build with v0.43.0 failed in `go get` with
       exactly that conflict. `x/sys` (v0.50.0) and `x/term` (v0.48.0) rise with them by Go's minimal version
