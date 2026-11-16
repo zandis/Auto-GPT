@@ -11,10 +11,10 @@ import os
 import re
 import subprocess
 import sys
-import sysconfig
 from pathlib import Path
 
 import pytest
+import yaml
 
 from tools.trialbox import pgsize
 
@@ -28,7 +28,9 @@ def host_path(tmp_path: Path) -> Path:
     """A folder holding PyYAML alone: what the installer requires of the host's python3."""
     only = tmp_path / "host-site"
     only.mkdir()
-    site = Path(sysconfig.get_paths()["purelib"])
+    # where PyYAML really is: under `uv run --with` (make test-random, T-653) the interpreter's own purelib is an
+    # overlay that holds only the added plugin, and the project's packages come from a layer below it
+    site = Path(yaml.__file__).resolve().parent.parent
     for name in ("yaml", "_yaml"):
         if (site / name).exists():
             (only / name).symlink_to(site / name)
