@@ -6,7 +6,7 @@
 
   **Date:** 2026-11-16. **Status:** reserved.
 - **Decision**
-  - **In `kind`, a derived value is a score this box computes, compared as a number.** That means `check_value`, and `in` is refused. The contract's enum already refuses an unknown name; `kind` refuses it again for IR built without validation.
+  - **In `kind`, a derived value is a score this box computes, and a comparison of it is numeric.** That means `check_value`, and `in` is refused. A derived value with no comparison is "computable" (D-149), as before. The contract's enum already refuses an unknown name; `kind` refuses it again for IR built without validation.
   - **In `postprocess`, a derived value runs only when its line names that score.** The test (`derived_said`) is by family: BMI or body mass index; eGFR, GFR or glomerular filtration (Japanese and Chinese spellings too); DAS28; BASDAI; ASDAS; CDAI; SDAI. Matching uses ASCII edges, so "eGFRが" counts. Otherwise the coded part cannot run: a person reads it, or the notes do for a mixed line once D-954 is in.
   - All 13 derived atoms in the shipped rulesets name their score, and `build_rulesets --check` is unchanged.
 - **Test:** `tests/unit/test_derived_values_are_checked.py`, including the run's own misplaced names.

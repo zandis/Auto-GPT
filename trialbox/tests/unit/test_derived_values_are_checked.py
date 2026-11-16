@@ -4,7 +4,8 @@ and the CQL held ``(None in { })``, which failed the translator. The run's trace
 example names onto atoms that are not those scores ("sdai" on a brain injury, "egfr" on an FEV1/FVC ratio or on a
 serum creatinine, which would compile as eGFR < 0.7 or > 3.0).
 
-* ``kind``: a derived value is a score this box computes, with a numeric comparison (``check_value``; no ``in``).
+* ``kind``: a derived value is a score this box computes; a comparison of it is numeric (``check_value``; no
+  ``in``); with none it is "computable" (D-149), as before.
 * ``postprocess``: a derived value runs only when its line names that score; else the coded part cannot run.
 * Every shipped derived criterion names its score (the 13 atoms of the shipped rulesets).
 
@@ -29,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.mark.parametrize(
     ("derived", "value", "why"),
     [("cholesterol_ratio", {"op": ">", "num": 5}, "not one this box computes"),
-     ("asdas", {"op": "in", "codes": ["1"]}, "is a number"), ("egfr", None, "needs a comparison"),
+     ("asdas", {"op": "in", "codes": ["1"]}, "is a number"),
      ("egfr", {"op": "between", "num": 30}, "requires num and num2")],
 )  # fmt: skip
 def test_a_derived_value_is_a_known_score_compared_as_a_number(derived: str, value: Any, why: str) -> None:
