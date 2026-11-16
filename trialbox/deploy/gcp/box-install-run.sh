@@ -936,7 +936,9 @@ step_b_source() {
   [ "$(git -C "$BUILD/tb" rev-parse HEAD)" = "$COMMIT" ] || { STOP="HEAD is not $COMMIT"; return 1; }
   note commit "\"$COMMIT\""
 }
-step_b_make() { need "make $*" make -C "$CK" "$@"; }
+# F31 (2026-11-16): the build is the commit's own: the run's TB_SETTINGS_FILE (./settings.yaml, the box's compose
+# calls, F16) is not the build's; master's fetch_jvm_deps.sh reads TB_SETTINGS_FILE as a path from the build tree
+step_b_make() { need "make $*" env -u TB_SETTINGS_FILE make -C "$CK" "$@"; }
 # the build's own tools the release commit's targets call on the host: `make images` runs tools/fetch_jvm_deps.sh,
 # which needs Maven and the JDK of .java-version (CI: actions/setup-java); installed only when missing
 d_build_prereq() {
@@ -988,7 +990,7 @@ step_b_images() { b_prereq && step_b_make images && need "the demo image (demo/D
 d_demo_image() { (cd "$CK" && docker build -f demo/Dockerfile -t trialbox-demo:step5 .); }
 step_b_gates() {
   local args=""
-  need "make trivy-db" make -C "$CK" trivy-db || return 1
+  need "make trivy-db" env -u TB_SETTINGS_FILE make -C "$CK" trivy-db || return 1
   # the demo image the gates scan, when a resumed build kept a b03 that did not build it
   docker image inspect trialbox-demo:step5 >/dev/null 2>&1 || need "the demo image (demo/Dockerfile)" d_demo_image || return 1
   # production: enforcing (no --vuln-mode report): a FAIL here stops the build, and the vendor key is never read.
@@ -996,7 +998,7 @@ step_b_gates() {
   # defers only the fixable findings of the two test-only mail servers no bundle carries (tools/supply_chain/
   # release.py VULN_REPORT_ONLY); every image a bundle carries still blocks. Recorded in records/bundle.json.
   if [ "$MODE" = validation ]; then args="--vuln-mode report"; note gates_vuln_mode '"report (test-only mail images deferred)"'; fi
-  if ! watched make -C "$CK" release-gates ${args:+RELEASE_GATES_ARGS="$args"}; then
+  if ! watched env -u TB_SETTINGS_FILE make -C "$CK" release-gates ${args:+RELEASE_GATES_ARGS="$args"}; then
     STOP="TB-GATES-FAILED: make release-gates did not pass (enforcing): $(grep -a '^FAIL' "$STEP_LOG" | head -3 | tr '\n' ' ')"
     return 1
   fi
