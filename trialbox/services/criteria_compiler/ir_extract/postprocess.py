@@ -147,27 +147,6 @@ def _positive_logic(logic: Any) -> Any:
     return None
 
 
-# G5 of the P1b review (D-956): the model copies the prompt's example derived names onto atoms that are not those
-# scores ("sdai" on a brain injury, "egfr" on an FEV1/FVC ratio, which would compile as eGFR < 0.7). A derived value
-# runs only when its line names that score
-_L, _R = r"(?<![A-Za-z])", r"(?![A-Za-z])"  # ASCII edges: "eGFRが" names eGFR (が is a word character to \b)
-_DERIVED_SAID = {
-    "bmi": _L + r"bmi" + _R + r"|body\s*mass\s*index|身體質量指數|体格指数|ボディマス",
-    "egfr": _L + r"e?gfr" + _R + r"|glomerular\s+filtration|糸球体濾過|腎絲球過濾|肾小球滤过",
-    "das28": _L + r"das\s*-?\s*28",
-    "basdai": _L + r"basdai" + _R,
-    "asdas": _L + r"asdas" + _R,
-    "cdai": _L + r"cdai" + _R,
-    "sdai": _L + r"sdai" + _R,
-}
-
-
-def derived_said(derived: str, text: str) -> bool:
-    """The line names the derived score its atom computes (``egfr_jsn`` and ``das28_crp`` by their family)."""
-    family = next((f for f in _DERIVED_SAID if derived == f or derived.startswith(f + "_")), None)
-    return family is not None and re.search(_DERIVED_SAID[family], text or "", re.IGNORECASE) is not None
-
-
 def derived_valueset(ruleset: str, derived: str, version: str, term: Terminology) -> dict[str, Any]:
     concepts = []
     for comp in COMPONENTS[derived]:
@@ -309,3 +288,24 @@ def postprocess(
             ir = ir.model_copy(update={"flags": sorted(set(flags) | {"needs_review"})})
         criteria.append(ir)
     return PostResult(criteria, dict(sorted(valuesets.items())), mappings, warnings)
+
+
+# G5 of the P1b review (D-956): the model copies the prompt's example derived names onto atoms that are not those
+# scores ("sdai" on a brain injury, "egfr" on an FEV1/FVC ratio, which would compile as eGFR < 0.7). A derived value
+# runs only when its line names that score
+_L, _R = r"(?<![A-Za-z])", r"(?![A-Za-z])"  # ASCII edges: "eGFRが" names eGFR (が is a word character to \b)
+_DERIVED_SAID = {
+    "bmi": _L + r"bmi" + _R + r"|body\s*mass\s*index|身體質量指數|体格指数|ボディマス",
+    "egfr": _L + r"e?gfr" + _R + r"|glomerular\s+filtration|糸球体濾過|腎絲球過濾|肾小球滤过",
+    "das28": _L + r"das\s*-?\s*28",
+    "basdai": _L + r"basdai" + _R,
+    "asdas": _L + r"asdas" + _R,
+    "cdai": _L + r"cdai" + _R,
+    "sdai": _L + r"sdai" + _R,
+}
+
+
+def derived_said(derived: str, text: str) -> bool:
+    """The line names the derived score its atom computes (``egfr_jsn`` and ``das28_crp`` by their family)."""
+    family = next((f for f in _DERIVED_SAID if derived == f or derived.startswith(f + "_")), None)
+    return family is not None and re.search(_DERIVED_SAID[family], text or "", re.IGNORECASE) is not None
