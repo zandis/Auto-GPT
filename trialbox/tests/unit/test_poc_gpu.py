@@ -105,3 +105,60 @@ def test_a_first_run_makes_its_env_file(tmp_path: Path) -> None:
     assert res.returncode == 0, res.stderr
     env = (root / "deploy/.env").read_text(encoding="utf-8")
     assert "change-me" not in env.split("POSTGRES_WF_PASSWORD=", 1)[1].split("\n", 1)[0]
+
+
+# ---------------------------------------------------------------------------------- the weights after a reboot (D-896)
+def _weights(where: Path) -> None:
+    for d in ("gemma-4-26b-a4b-it-4bit", "qwen3.5-9b-4bit"):
+        (where / d).mkdir(parents=True)
+        (where / d / "config.json").write_text("{}", encoding="utf-8")
+    tpl = where / "chat-templates/gemma-4-26b-a4b-it/chat_template.jinja"
+    tpl.parent.mkdir(parents=True)
+    tpl.write_text("{{ messages }}", encoding="utf-8")
+
+
+def _env_line(root: Path, var: str) -> list[str]:
+    return [x for x in (root / "deploy/.env").read_text(encoding="utf-8").splitlines() if x.startswith(f"{var}=")]
+
+
+def test_a_models_folder_of_its_own_is_kept_in_the_env_file_for_every_later_start(tmp_path: Path) -> None:
+    """F15/W6 (lane G, PoC-1): the weights were bound into deploy/models by hand and the bind was gone after a reboot;
+    llm-service came back on an empty folder. A folder given once in TB_MODELS_DIR is written to deploy/.env, which
+    compose, check_weights.sh and the doctor read, so a restart and the next run use it without the variable."""
+    root = _root(tmp_path, models=False)
+    weights = tmp_path / "weights"
+    _weights(weights)
+    res, _ = _run(tmp_path, root, TB_MODELS_DIR=str(weights))
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert _env_line(root, "TB_MODELS_DIR") == [f"TB_MODELS_DIR={weights}"]
+    assert f"the models folder {weights} is kept in deploy/.env" in res.stdout
+    res, log = _run(tmp_path, root)  # the next run: no TB_MODELS_DIR in the environment
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert f"ok    model folder {weights}/gemma-4-26b-a4b-it-4bit" in res.stdout
+    assert any(f"{weights}:/m:ro" in s for s in log)  # the pin reads the kept folder
+    assert _env_line(root, "TB_MODELS_DIR") == [f"TB_MODELS_DIR={weights}"]  # once, not appended again
+
+
+def test_a_relative_models_folder_is_kept_as_an_absolute_path(tmp_path: Path) -> None:
+    root = _root(tmp_path, models=False)
+    _weights(root / "weights")
+    res, _ = _run(tmp_path, root, TB_MODELS_DIR="weights")
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert _env_line(root, "TB_MODELS_DIR") == [f"TB_MODELS_DIR={root / 'weights'}"]
+
+
+def test_a_hand_made_mount_on_the_models_folder_is_named_before_anything_starts(tmp_path: Path) -> None:
+    """deploy/models a mount point that no fstab line or mount unit brings back: said, with the setting to use."""
+    root = _root(tmp_path)
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "mountpoint").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")  # it is a mount point
+    (bindir / "findmnt").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")  # no fstab line for it
+    (bindir / "systemctl").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")  # no mount unit for it
+    for f in bindir.iterdir():
+        f.chmod(0o755)
+    res, _ = _run(tmp_path, root)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "is a mount made by hand" in res.stderr and "lost at the next reboot" in res.stderr
+    assert "TB_MODELS_DIR=" in res.stderr
+    assert not _env_line(root, "TB_MODELS_DIR")  # the default folder is not written

@@ -222,7 +222,6 @@ def build(
     measured: Path | None = None,
     link: bool = False,
     source: Path = ROOT,
-    p0: dict[str, bool] | None = None,
 ) -> Path:
     if not VERSION_RE.match(version):
         raise MediaError(f"version '{version}': letters, digits, dot, dash and underscore only")
@@ -278,13 +277,6 @@ def build(
             link,
             source,
         )
-        if p0 is not None:
-            # the P-0 launcher and the choices made for this P-0 when the media was built (owner ruling D-510: the
-            # owner only starts it); the installer reads them with -P0 only
-            _text(source / "deploy/windows" / P0_LAUNCHER, media / P0_LAUNCHER, "\r\n")
-            choices = {"rehearsal": bool(p0.get("rehearsal")), "skip_bitlocker": bool(p0.get("skip_bitlocker"))}
-            (media / P0_CHOICES).write_text(json.dumps(choices) + "\n", encoding="utf-8")
-            write_sums(media)
         problems = check(media)
         if problems:  # never hand over a media the installer would stop on
             raise MediaError("the media just built does not pass its own check: " + "; ".join(problems))
@@ -357,6 +349,17 @@ def cut_parts(media: Path, out: Path, max_bytes: int = PART_BYTES) -> Path:
     body = {"media": media.name, "sha256": sink.whole.hexdigest(), "parts": sink.parts}
     manifest.write_text(json.dumps(body, indent=1) + "\n", encoding="utf-8")
     return manifest
+def add_p0(media: Path, *, rehearsal: bool, skip_bitlocker: bool, source: Path = ROOT) -> None:
+    """A P-0 media (NEW-WIN-12, D-615; owner ruling D-510: the owner only starts it): the P-0 launcher at the root
+    and the choices made for this P-0 when the media was built, read by the installer with -P0 only. The list is
+    written again and the media checked again."""
+    _text(source / "deploy/windows" / P0_LAUNCHER, media / P0_LAUNCHER, "\r\n")
+    choices = {"rehearsal": bool(rehearsal), "skip_bitlocker": bool(skip_bitlocker)}
+    (media / P0_CHOICES).write_text(json.dumps(choices) + "\n", encoding="utf-8")
+    write_sums(media)
+    problems = check(media)
+    if problems:
+        raise MediaError("the P-0 media does not pass its own check: " + "; ".join(problems))
 
 
 def _lay_out(
@@ -512,12 +515,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "build":
             if (args.rehearsal or args.skip_bitlocker) and not args.p0:
                 raise MediaError("--rehearsal and --skip-bitlocker are choices of a P-0 media: add --p0")
-            p0 = {"rehearsal": args.rehearsal, "skip_bitlocker": args.skip_bitlocker} if args.p0 else None
             media = build(
                 out=args.out, version=args.version, bundle=args.bundle, wsl_msi=args.wsl_msi, rootfs=args.rootfs,
                 debs=args.debs, vendor_pub=args.vendor_pub, nvidia_driver=args.nvidia_driver, measured=args.measured,
-                link=args.link, p0=p0,
+                link=args.link,
             )  # fmt: skip
+            if args.p0:
+                add_p0(media, rehearsal=args.rehearsal, skip_bitlocker=args.skip_bitlocker)
             print(f"media: {media} ({len(_files(media))} files; {SUMS} written, not signed)")
             return 0
         if args.cmd == "parts":

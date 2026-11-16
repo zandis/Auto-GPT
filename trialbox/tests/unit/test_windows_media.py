@@ -67,10 +67,13 @@ def _inputs(tmp: Path) -> dict[str, Path]:
     return {**files, "debs": src / "debs"}
 
 
-def _build(tmp: Path, **over: object) -> Path:
+def _build(tmp: Path, p0: dict[str, bool] | None = None, **over: object) -> Path:
     args: dict[str, object] = {**_inputs(tmp), "out": tmp / "out", "version": "1.0.0"}
     args.update(over)
-    return wm.build(**args)  # type: ignore[arg-type]
+    media = wm.build(**args)  # type: ignore[arg-type]
+    if p0 is not None:  # NEW-WIN-12 (D-615): what `build --p0` adds
+        wm.add_p0(media, rehearsal=p0["rehearsal"], skip_bitlocker=p0["skip_bitlocker"])
+    return media
 
 
 def test_a_media_is_laid_out_as_the_installer_reads_it_and_passes_its_own_check(tmp_path: Path) -> None:
