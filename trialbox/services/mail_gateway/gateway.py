@@ -44,13 +44,18 @@ class OptedOutSince(RuntimeError):
     """A job's outputs name a patient opted out since they were made: the mail is held, never sent (D-863)."""
 
 
+def _orchestrator(base_url: str) -> ServiceClient:
+    """The mail gateway's client of the orchestrator: one request is a job started, or one mail's files asked about."""
+    return ServiceClient(base_url, "orchestrator", timeout=60, retries=1)
+
+
 class NoSuchJob(LookupError):
     """D-863: the orchestrator has no such job (removed by retention, or never there): nothing can vouch for it."""
 
 
 def http_outputs_current(base_url: str) -> OutputsCurrent:
     """D-863: the orchestrator's answer (``GET /jobs/{job_id}/outputs-current``), asked just before a send."""
-    client = ServiceClient(base_url, "orchestrator", timeout=30, retries=1)
+    client = _orchestrator(base_url)
 
     def ask(job_id: str, keys: list[str]) -> bool:
         try:
@@ -77,7 +82,7 @@ class JobRefused(RuntimeError):
 
 
 def http_job_sink(base_url: str) -> JobSink:
-    client = ServiceClient(base_url, "orchestrator", timeout=60, retries=1)
+    client = _orchestrator(base_url)
 
     def create(req: JobCreate) -> Job:
         try:
