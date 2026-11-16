@@ -1,9 +1,10 @@
-"""ERASE-B (D-867): an opt-out reaches the OMOP tables no loader writes yet, and the clinical conflicts.
+"""ERASE-B (D-867): an opt-out reaches the OMOP tables no loader writes yet.
 
 The withhold (``omop.load.withhold``, D-441) deleted the clinical tables the loaders write. Twelve more CDM tables
 hold a person's rows when a loader writes them (eras, episodes, specimens, visit details, payer plan periods,
-devices, cohorts, costs, an address), and ``tb_conflict`` holds every source's value of a disputed item. Each is now
-cleared by person at the opt-out, so a later loader is covered from its first row. Another person's rows stay.
+devices, cohorts, costs, an address). Each is now cleared by person at the opt-out, so a later loader is covered from
+its first row. Another person's rows stay. The clinical conflicts stay while the patient is only withheld (a lift
+undoes the withhold, and a steward's ruling has no before-image: the review of D-867).
 
 Synthetic ids only: every required column gets a placeholder."""
 
@@ -19,7 +20,7 @@ A, C = 7, 8  # the persons of the pseudonyms P-A (opts out) and P-C (does not)
 BY_PERSON = {
     "condition_era": "person_id", "drug_era": "person_id", "dose_era": "person_id", "device_exposure": "person_id",
     "specimen": "person_id", "visit_detail": "person_id", "payer_plan_period": "person_id", "episode": "person_id",
-    "cohort": "subject_id", "tb_conflict": "person_id",
+    "cohort": "subject_id",
 }  # fmt: skip
 
 
@@ -66,8 +67,6 @@ def db(db_url: str) -> Any:
         _put(d, "person", {"person_id": person, "location_id": n}, n)
         for table, col in BY_PERSON.items():
             extra: dict[str, Any] = {"episode_id": n} if table == "episode" else {}
-            if table == "tb_conflict":
-                extra = {"claims": "[]", "state": "open", "values_sha": f"s{n}"}
             _put(d, table, {col: person, **extra}, n)
         _put(d, "episode_event", {"episode_id": n}, n)
         _put(d, "drug_exposure", {"drug_exposure_id": n, "person_id": person}, n)
@@ -94,6 +93,17 @@ def test_an_opt_out_clears_every_table_by_person_and_keeps_another_persons(db: A
     assert all(v == 1 for v in _left(db, C, 101).values()), _left(db, C, 101)
 
 
+def test_a_conflict_and_its_ruling_stay_while_the_patient_is_withheld(db: Any) -> None:
+    """The review of D-867: a lift undoes the withhold; the steward's ruling on a disputed item has no before-image,
+    so the conflict stays (owed until retention), or the value the steward rejected would stand alone after a lift."""
+    from omop import load
+
+    _put(db, "tb_conflict", {"person_id": A, "claims": "[]", "state": "resolved", "values_sha": "s1"}, 1)
+    _put(db, "tb_record", {"cdm_table": "person", "record_id": A, "person_id": A, "status": "coded"}, 1)
+    load.withhold(db, ["P-A"])
+    assert db.fetchval("SELECT count(*) FROM tb_conflict WHERE person_id = ?", (A,)) == 1
+
+
 def test_the_worker_reads_every_table_back(db: Any, db_url: str) -> None:
     from datacore.optout_worker import _verify_one_omop
 
@@ -101,7 +111,7 @@ def test_the_worker_reads_every_table_back(db: Any, db_url: str) -> None:
         _put(db, "tb_record", {"cdm_table": table, "record_id": rid, "person_id": A, "status": "coded"}, i + 1)
 
     before = _verify_one_omop("omop", db, frozenset({"P-A"}))
-    for k in ("omop.cohort", "omop.episode_event", "omop.tb_conflict", "omop.condition_era", "omop.visit_detail"):
+    for k in ("omop.cohort", "omop.episode_event", "omop.condition_era", "omop.visit_detail"):
         assert before[k] == 1, (k, before)
     from omop import load
 

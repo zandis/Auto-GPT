@@ -1888,8 +1888,9 @@ def withhold(db: Database, pids: Iterable[str], actor: str = "optout-worker") ->
 
 
 #: ERASE-B (D-867): the CDM tables no loader writes yet, deleted by person at an opt-out so that a loader that writes
-#: them later is covered from its first row; with the clinical conflicts (``tb_conflict``: every source's value).
-#: Children first. ``cost`` is reached through the person's events, ``episode_event`` through the person's episodes.
+#: them later is covered from its first row. Children first. Not ``tb_conflict``: the withhold is undone by a lift, and
+#: a steward's ruling has no before-image (the review of D-867: the rejected value would stand alone after a lift).
+#: ``cost`` is reached through the person's events, ``episode_event`` through the person's episodes.
 UNLOADED_BY_PERSON = (
     "DELETE FROM cost WHERE (cost_domain_id = 'Drug' AND cost_event_id IN "
     "(SELECT drug_exposure_id FROM drug_exposure WHERE person_id = ANY(?))) "
@@ -1917,7 +1918,6 @@ UNLOADED_BY_PERSON = (
     "DELETE FROM visit_detail WHERE person_id = ANY(?)",
     "DELETE FROM payer_plan_period WHERE person_id = ANY(?)",
     "DELETE FROM cohort WHERE subject_id = ANY(?)",
-    "DELETE FROM tb_conflict WHERE person_id = ANY(?)",
 )
 
 

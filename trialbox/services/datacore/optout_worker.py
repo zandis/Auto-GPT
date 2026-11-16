@@ -187,7 +187,6 @@ OMOP_BY_PERSON = (
     "dose_era",
     "payer_plan_period",
     "episode",
-    "tb_conflict",
 )
 
 

@@ -36,7 +36,7 @@ KNOWN_OWED = frozenset(
     {
         "edc.draft", "lake:backfill", "lake:db", "lake:embed_cache.duckdb", "lake:fhir_ledger", "lake:ndjson",
         "lake:ndjson-rerun", "lake:parquet", "lake:site", "lake:tmp", "mail.send_keys", "objects:attachments",
-        "objects:outputs", "omop.tb_record", "omop.tb_record_event",
+        "objects:outputs", "omop.tb_conflict", "omop.tb_record", "omop.tb_record_event",
         "orch.candidate_events", "orch.candidates", "orch.jobs", "outside:backups", "outside:fhir_store",
         "outside:sitesetup_space_omop", "pidmap.identity", "recall.recall_known_positive", "recall.recall_observation",
         "site.pi_marks", "site.screening_no", "site.weekly_seen", "sitesetup.check_item", "sitesetup.fact", "sitesetup.fix",
