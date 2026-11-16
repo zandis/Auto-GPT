@@ -40,6 +40,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -372,6 +373,8 @@ def _open(url: str, schema: str) -> Any:
         return Database.connect(url, "orch")
     if schema == "derived":
         return Database.connect(url, "derived")
+    if schema == "sitesetup":  # ERASE-A1 (D-866), ERASE-A4 (D-869): the site set-up's facts and uploads
+        return Database.connect(url, "sitesetup")
     if schema == "mail":  # NEW-MAIL-1 (D-863): the outbox's held mail
         return Database.connect(url, "mail")
     raise ValueError(f"no owed table in store {schema!r}")
@@ -496,6 +499,43 @@ def clear_held_mail(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
 
 def verify_held_mail(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
     return _held_mail(pids, env, False)
+
+
+# ------------------------------------------------------------------------------------------------ the set-up's uploads
+def _setup_uploads(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, int]:
+    """ERASE-A4 (D-869): a per-patient upload of the site set-up (a chart: ``sitesetup.input`` with the patient's
+    pseudonym) goes whole: its check items, its column fixes, its facts, the row, and its files on disk (the upload,
+    its text and its lake text, ``<ws>/inputs/<id>.*`` under the set-up's folder). A sheet of many patients is not a
+    patient's own upload: it stays owed. Counts uploads only."""
+    url = str(env.register.db.url)
+    want = sorted(pids)
+    if not want or not store_has(url, "sitesetup", "input"):
+        return {"sitesetup.input": 0}
+    with _open(url, "sitesetup") as db:
+        rows = [(int(r[0]), str(r[1])) for r in db.fetchall("SELECT id, ws FROM input WHERE pid = ANY(?)", (want,))]
+        if not delete or not rows:
+            return {"sitesetup.input": len(rows)}
+        root = env.extra.get("setup_root")
+        if root is None:  # the uploads are there and their files cannot be reached: never called cleared
+            raise RuntimeError("no site set-up folder for the uploads")
+        for iid, ws in rows:  # the files first: a crash after them leaves the rows, and the next tick ends the job
+            for f in (Path(root) / ws / "inputs").glob(f"{iid}.*"):
+                f.unlink(missing_ok=True)
+        ids = [i for i, _ in rows]
+        with db.transaction() as tx:
+            tx.execute("DELETE FROM check_item WHERE input_id = ANY(?)", (ids,))
+            tx.execute("DELETE FROM fix WHERE input_id = ANY(?)", (ids,))
+            tx.execute("DELETE FROM fact WHERE input_id = ANY(?)", (ids,))
+            tx.execute("DELETE FROM input WHERE id = ANY(?)", (ids,))
+    return {"sitesetup.input": len(rows)}
+
+
+def clear_setup_uploads(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    return _setup_uploads(pids, env, True)
+
+
+def verify_setup_uploads(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
+    return _setup_uploads(pids, env, False)
 
 
 def run_once(env: WorkerEnv) -> dict[str, Any]:
@@ -651,6 +691,7 @@ def tick(orch: Any) -> dict[str, Any] | None:
         env = WorkerEnv(
             register=reg, audit=orch.audit, now=now, lake=orch.services.lake, jobs=orch.db, omop=omop,
             not_opened=not_opened, omop_more=more,
+            extra={"setup_root": Path(orch.data_dir) / "sitesetup" if getattr(orch, "data_dir", None) else None},
         )  # fmt: skip
         out = run_once(env)
     except Exception as exc:
