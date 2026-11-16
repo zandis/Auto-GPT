@@ -205,11 +205,12 @@ def strip_stray(node: Any, text: str = "", kind_: str = "inclusion") -> tuple[An
       only when the line says years or age and no shorter unit). Any demographic atom: derived /
       quantifier / value / count / window / duration are dropped (``stray_field``). A ``quantifier: none`` on a line
       with a negation word is held for a person (``demographic_negated``): the age compare never read the "not".
-    * Any other atom: an age is dropped when the line does not write its numbers (or one past them: "before the
-      age of 40" as at most 39) beside an age word, "before", "onset" or "diagnosed", else held for a person
-      (``age_on_non_demographic``: an age at onset, which dropping would widen). A ``derived`` name off an
-      observation atom is left for ``kind`` to refuse: its review found that the prompt's placeholder names ride on
-      atoms carrying other junk, which compiling would put in front of patients."""
+    * Any other atom: an age whose numbers the line never writes (a placeholder, the prompt's 0-150) is dropped; one
+      it writes (or one past: "before the age of 40" as at most 39) beside an age word, "before", "onset" or
+      "diagnosed" is held for a person (``age_on_non_demographic``: an age at onset, which dropping would widen); one
+      it writes otherwise ("<36 weeks gestation") is left as it was, for the rule of ages in short units (D-947).
+      A ``derived`` name off an observation atom is left for ``kind`` to refuse: its review found that the prompt's
+      placeholder names ride on atoms carrying other junk, which compiling would put in front of patients."""
     flags: list[str] = []
 
     def walk(n: Any) -> Any:
@@ -232,15 +233,13 @@ def strip_stray(node: Any, text: str = "", kind_: str = "inclusion") -> tuple[An
         if out.get("age") is not None:
             nums = [float(b) for b in (out["age"].get("min"), out["age"].get("max")) if b is not None]
             written = {float(m) for m in _NUMBER.findall(text)}
-            if (
-                nums
-                and _AGE_WORD.search(text)
-                and all(b in written or b + 1 in written or b - 1 in written for b in nums)
-            ):
+            said = bool(nums) and all(b in written or b + 1 in written or b - 1 in written for b in nums)
+            if said and _AGE_WORD.search(text):
                 flags.append("age_on_non_demographic")
-            else:
+            elif not said:  # a placeholder (the prompt's 0-150): the line never writes it
                 out.pop("age")
                 flags.append("stray_field")
+            # else the line writes it without an age word ("<36 weeks gestation"): left as it was, for D-947
         return out
 
     return walk(node), sorted(set(flags))

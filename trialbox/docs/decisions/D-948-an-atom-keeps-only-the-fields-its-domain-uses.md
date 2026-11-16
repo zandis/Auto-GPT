@@ -22,7 +22,9 @@
       So "Age 50 to 89 years" written as `value >= 50` is not repaired, and neither are `>`, "18 and over", "6 months", "32 weeks" or "Body weight >= 40".
     - A `quantifier: none` on a line with a negation word goes to a person (`demographic_negated`).
   - **Other atoms**
-    - An age is dropped unless the line writes its numbers, or one past them ("before the age of 40" as at most 39), next to an age word, "before", "onset" or "diagnosed". If it does, the line goes to a person (`age_on_non_demographic`), because it may be an age at onset that dropping would widen.
+    - An age whose numbers the line never writes is a placeholder (the prompt's 0-150) and is dropped.
+    - An age the line writes (or one past it: "before the age of 40" as at most 39) next to an age word, "before", "onset" or "diagnosed" goes to a person (`age_on_non_demographic`). It may be an age at onset, which dropping would widen.
+    - An age the line writes without such a word ("<36 weeks gestation") is left as it was, for D-947's rule on ages in short units.
     - A `derived` name off an observation atom is left for `kind` to refuse, as before.
 - **Adversarial review** (this card) ran the whole run's 1,036 criteria on master and on the branch. Its blockers, all fixed:
   - **Dropping a placeholder `derived` name put junk in front of patients.** The prompt's names ride on atoms that carry other junk: `quantifier none` on "uncontrolled asthma", `or(any heparin, any aspirin…)` for a hypersensitivity, and `and(not(antibiotics))`. Master's refusal kept those lines with a person, so it is kept.
