@@ -1,0 +1,22 @@
+[
+  {
+    "record_id": "1",
+    "redcap_event_name": "screening_arm_1",
+    "redcap_repeat_instrument": "",
+    "redcap_repeat_instance": "",
+    "eligible": "1",
+    "icf_dt": "2026-01-02",
+    "mrn": "SYN-100",
+    "ae_term": ""
+  },
+  {
+    "record_id": "1",
+    "redcap_event_name": "screening_arm_1",
+    "redcap_repeat_instrument": "adverse_event",
+    "redcap_repeat_instance": "1",
+    "eligible": "",
+    "icf_dt": "",
+    "mrn": "",
+    "ae_term": "headache"
+  }
+]

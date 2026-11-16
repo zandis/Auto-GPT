@@ -104,12 +104,27 @@ def check_token(token: str) -> str:
     return tok
 
 
-def api_url(base: str) -> str:
+def _loopback_http(base: str) -> bool:
+    """Plain ``http://`` only for a loopback host with no user or password in the URL."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(base.strip())
+    if parsed.scheme.lower() != "http" or parsed.username or parsed.password:
+        return False
+    host = (parsed.hostname or "").lower().rstrip(".")
+    return host in {"127.0.0.1", "localhost", "::1"}
+
+
+def api_url(base: str, *, loopback_http: bool = False) -> str:
     """The ``/api/`` endpoint of a REDCap base URL (``https://redcap.example/`` or ``.../api/``). Only ``https://``:
     the token travels in every request body, so plain ``http://`` is refused (SEC-14, T-115). ``inproc://`` is the
-    demo's and tests' in-process simulator."""
+    demo's and tests' in-process simulator. ``loopback_http`` (the internal EDC on this machine) also allows
+    ``http://127.0.0.1``, ``http://localhost`` and ``http://[::1]``."""
     b = base.strip()
-    if not (b.lower().startswith("https://") or b.startswith(INPROC_PREFIX)):
+    allowed = b.lower().startswith("https://") or b.startswith(INPROC_PREFIX)
+    if loopback_http and _loopback_http(b):
+        allowed = True
+    if not allowed:
         raise RcError("RC-UPSTREAM", "the REDCap URL must start with https://")
     b = b.rstrip("/")
     return b if b.endswith("/api") else b + "/api"
@@ -122,9 +137,42 @@ def major_of(version: str) -> int:
     return int(m.group(1))
 
 
+_UPLOAD_NAME = re.compile(r"[A-Za-z0-9._ -]{1,120}")
+
+
+def _upload_name(name: str) -> str:
+    """A file name safe to send: the base name only, no path and no header characters."""
+    base = name.replace("\\", "/").rsplit("/", 1)[-1].strip()
+    if not _UPLOAD_NAME.fullmatch(base):
+        raise RcError("RC-UPSTREAM", "the file name has characters the connector will not send")
+    return base
+
+
+def _attachment_name(header: str) -> str:
+    """The file name REDCap puts on ``Content-Type`` or ``Content-Disposition``, or ``upload.bin``."""
+    for pattern in (r'(?:filename|name)\s*=\s*"([^"]*)"', r"(?:filename|name)\s*=\s*([^;\s]+)"):
+        match = re.search(pattern, header or "", re.IGNORECASE)
+        if not match:
+            continue
+        try:
+            return _upload_name(match.group(1))
+        except RcError:
+            return "upload.bin"
+    return "upload.bin"
+
+
 class RedcapClient:
-    def __init__(self, base_url: str, token: str, http: httpx.Client | None = None, timeout: float = 10.0) -> None:
-        self.url = api_url(base_url)
+    def __init__(
+        self,
+        base_url: str,
+        token: str,
+        http: httpx.Client | None = None,
+        timeout: float = 10.0,
+        *,
+        loopback_http: bool = False,
+        declare_host: bool = False,
+    ) -> None:
+        self.url = api_url(base_url, loopback_http=loopback_http)
         self.token = check_token(token)
         self._own = http is None
         if http is None:
@@ -135,9 +183,17 @@ class RedcapClient:
                 http = _LOCAL[key]()
                 self.url = "/api/"
             else:  # T-212d (D-450): the URL an administrator typed goes through the SSRF guard
+                from urllib.parse import urlparse
+
                 from tb_common.http import guarded_client
 
-                http = guarded_client(timeout=timeout)
+                extra: list[tuple[str, int]] = []
+                if declare_host:  # this call's own host, still refused when it is a metadata address
+                    parsed = urlparse(self.url)
+                    host = (parsed.hostname or "").lower()
+                    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+                    extra = [(host, port)]
+                http = guarded_client(timeout=timeout, extra=extra)
         self.http = http
 
     def close(self) -> None:
@@ -150,12 +206,18 @@ class RedcapClient:
     def __exit__(self, *_: object) -> None:
         self.close()
 
-    def _send(self, content: str, extra: dict[str, str] | None = None) -> httpx.Response:
-        """One API call; the answer when REDCap says 200, an :class:`RcError` otherwise."""
+    def _send(
+        self, content: str, extra: dict[str, str] | None = None, files: dict[str, tuple[str, bytes, str]] | None = None
+    ) -> httpx.Response:
+        """One API call; the answer when REDCap says 200, an :class:`RcError` otherwise. ``files`` is a file-field
+        upload (multipart). The token is a form field and is never put in an error."""
         data = {"token": self.token, "content": content, "format": "json", "returnFormat": "json", **(extra or {})}
         url = self.url if self.url.endswith("/") else self.url + "/"
         try:
-            resp = self.http.post(url, data=data)
+            if files is None:  # omit the argument: a record call stays an ordinary form post
+                resp = self.http.post(url, data=data)
+            else:
+                resp = self.http.post(url, data=data, files=files)
         except EgressRefused as exc:
             raise RcError("RC-UPSTREAM", f"the REDCap address is not allowed ({exc.reason}): {exc.host}") from exc
         except httpx.HTTPError as exc:
@@ -274,3 +336,86 @@ class RedcapClient:
         if auto_number:  # "new_id,given_name" pairs
             return [str(x).split(",", 1)[0] for x in out]
         return [str(x) for x in out]
+
+    def import_metadata(self, csv_text: str) -> Any:
+        """Replace the data dictionary with a REDCap data-dictionary CSV (public ``content=metadata``,
+        ``format=csv``). A production project should not be sent this unless the site means to replace it."""
+        if not csv_text.strip():
+            raise RcError("RC-UPSTREAM", "the data dictionary is empty")
+        return self._post("metadata", {"format": "csv", "data": csv_text})
+
+    def _rows(self, content: str, extra: dict[str, str] | None, what: str) -> list[dict[str, Any]]:
+        out = self._post(content, extra)
+        if not isinstance(out, list):
+            raise RcError("RC-UPSTREAM", f"{what} is not a list")
+        return [dict(row) for row in out]
+
+    def instruments(self) -> list[dict[str, Any]]:
+        """``content=instrument``: ``instrument_name`` and ``instrument_label``."""
+        return self._rows("instrument", None, "the instrument list")
+
+    def arms(self) -> list[dict[str, Any]]:
+        """``content=arm``. A classic project has none; REDCap then answers 400 and this raises."""
+        return self._rows("arm", None, "the arm list")
+
+    def users(self) -> list[dict[str, Any]]:
+        """``content=user``. The rows can carry e-mail addresses; callers do not log them."""
+        return self._rows("user", None, "the user list")
+
+    def report(self, report_id: str) -> list[dict[str, Any]]:
+        """``content=report`` for one report id. Rows are record-shaped; treat them as an export."""
+        if not str(report_id).strip():
+            raise RcError("RC-UPSTREAM", "the report id is missing")
+        return self._rows("report", {"report_id": str(report_id).strip()}, "the report")
+
+    def project_log(self, logtype: str = "", begin_time: str = "", end_time: str = "") -> list[dict[str, Any]]:
+        """``content=log``. ``logtype=record`` is the record writes. Times are ``YYYY-MM-DD HH:MM`` when set."""
+        extra: dict[str, str] = {}
+        if logtype:
+            extra["logtype"] = logtype
+        if begin_time:
+            extra["beginTime"] = begin_time
+        if end_time:
+            extra["endTime"] = end_time
+        return self._rows("log", extra, "the log")
+
+    def survey_link(self, record: str, instrument: str, event: str = "", repeat_instance: str = "") -> str:
+        """``content=surveyLink``. REDCap answers with the URL as plain text, not JSON."""
+        extra: dict[str, str] = {"record": record.strip(), "instrument": instrument.strip()}
+        if not extra["record"] or not extra["instrument"]:
+            raise RcError("RC-UPSTREAM", "the survey link needs a record and an instrument")
+        if event:
+            extra["event"] = event
+        if repeat_instance:
+            extra["repeat_instance"] = str(repeat_instance)
+        return self._send("surveyLink", extra).text.strip()
+
+    def _file_extra(self, action: str, record: str, field: str, event: str, repeat_instance: str) -> dict[str, str]:
+        if not _FIELD_NAME.fullmatch(field.strip()):
+            raise RcError("RC-UPSTREAM", "a field name is lower-case letters, digits and _")
+        rec = record.strip()
+        if not rec or len(rec) > 100 or any(c in rec for c in "\r\n"):
+            raise RcError("RC-UPSTREAM", "the record id is missing or not usable")
+        extra = {"action": action, "record": rec, "field": field.strip()}
+        if event:
+            extra["event"] = event
+        if repeat_instance:
+            extra["repeat_instance"] = str(repeat_instance)
+        return extra
+
+    def export_file(self, record: str, field: str, event: str = "", repeat_instance: str = "") -> tuple[bytes, str]:
+        """``content=file`` ``action=export``. Returns the bytes and the file name. One record, one field."""
+        resp = self._send("file", self._file_extra("export", record, field, event, repeat_instance))
+        header = resp.headers.get("content-type", "") + " " + resp.headers.get("content-disposition", "")
+        return resp.content, _attachment_name(header)
+
+    def import_file(
+        self, record: str, field: str, filename: str, body: bytes, event: str = "", repeat_instance: str = ""
+    ) -> None:
+        """``content=file`` ``action=import``. ``repeat_instance`` may be ``new`` on REDCap 17.4 and later."""
+        extra = self._file_extra("import", record, field, event, repeat_instance)
+        self._send("file", extra, files={"file": (_upload_name(filename), body, "application/octet-stream")})
+
+    def delete_file(self, record: str, field: str, event: str = "", repeat_instance: str = "") -> None:
+        """``content=file`` ``action=delete``. There is no undo."""
+        self._send("file", self._file_extra("delete", record, field, event, repeat_instance))
