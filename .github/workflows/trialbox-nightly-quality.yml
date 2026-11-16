@@ -8,6 +8,12 @@
 # branch-coverage: the unit suite with branches measured (the classic tracer: slower, so not on a pull request), in
 #   twelve shards (branch-coverage-shard, D-727), then combined and tools/coverage_ratchet.py with the branch figures:
 #   a package more than 0.5 point under its baseline, or a safety-core file under its floor, fails.
+#
+# Private ARM runner, fail-closed. mutation and branch-coverage-shard stay on ubuntu-24.04 (the image that already
+# carries PostgreSQL 16) unless every clause holds: the event is schedule or workflow_dispatch, the event repository
+# is private, and the Actions variable TB_PRIVATE_RUNNER is exactly enabled. pull_request and pull_request_target
+# never select it. A public repository stays on the hosted image even when the variable is set. TB_RUNNER is not
+# read. mutation-score and branch-coverage only combine artifacts and stay on ubuntu-latest.
 name: TrialBox nightly quality
 
 on:
@@ -32,7 +38,9 @@ env:
 
 jobs:
   mutation:
-    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
+    # tb-private-runner: fail-closed. Hosted ubuntu-24.04 unless schedule/workflow_dispatch, private, and enabled.
+    runs-on: >-
+      ${{ ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.event.repository.private == true && github.event.repository.visibility == 'private' && vars.TB_PRIVATE_RUNNER == 'enabled') && fromJSON('["self-hosted","Linux","ARM64","trialbox"]') || 'ubuntu-24.04' }}
     timeout-minutes: 300  # the runner starts no mutant after 200 minutes (--budget-minutes); the rest are listed
     strategy:
       fail-fast: false
@@ -125,7 +133,9 @@ jobs:
   # request's tools (each test file in one shard, tools/test_shard.py); `branch-coverage` combines them.
   branch-coverage-shard:
     name: branch-coverage-shard (${{ matrix.shard }}/${{ strategy.job-total }})
-    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
+    # tb-private-runner: fail-closed. Hosted ubuntu-24.04 unless schedule/workflow_dispatch, private, and enabled.
+    runs-on: >-
+      ${{ ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.event.repository.private == true && github.event.repository.visibility == 'private' && vars.TB_PRIVATE_RUNNER == 'enabled') && fromJSON('["self-hosted","Linux","ARM64","trialbox"]') || 'ubuntu-24.04' }}
     timeout-minutes: 90  # D-727: about a twelfth of a run that takes hours with the classic tracer; whole files stay in one shard, so room for a slow file
     strategy:
       fail-fast: false  # every shard reports
