@@ -79,6 +79,7 @@ sast:
   - {path: tools/trialbox/update.py, rule: B310, count: 1, reason: "the box's own health URL, given by the update code"}
   # B314: xml.etree on an outside file. Python 3.12's expat limits entity expansion and ElementTree never loads
   # external entities.
+  - {path: services/criteria_compiler/terminology/installed.py, rule: B314, count: 1, reason: "CMS's ICD-10-CM release XML; a document with a DTD or an entity is refused first"}
   - {path: services/rc_sim/app.py, rule: B314, count: 1, reason: "a document with a DTD or an entity is refused first"}
   - {path: tools/open_cohorts_eval.py, rule: B314, count: 1, reason: "public TREC topics file; evaluation tool"}
   - {path: tools/refdata_fetch.py, rule: B314, count: 2, reason: "public reference files the operator fetched"}
