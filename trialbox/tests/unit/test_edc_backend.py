@@ -300,8 +300,11 @@ def test_the_client_refuses_a_bad_answer_and_reads_the_extra_calls() -> None:
     assert error_marker("classic projects") == "classic"
     assert error_marker("no repeating instruments") == "repeat"
     assert error_marker("a form is locked") == ""
+    def _no_client() -> httpx.Client:
+        raise AssertionError("the factory is not called")
+
     with pytest.raises(ValueError):
-        register_local("https://rc.example", lambda: None)
+        register_local("https://rc.example", _no_client)
     with pytest.raises(RcError):
         major_of("nope")
     assert _attachment_name('attachment; filename="note.txt"') == "note.txt"
