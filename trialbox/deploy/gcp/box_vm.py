@@ -987,7 +987,7 @@ def acc_set(
         b = before.get(rs) or {}
         if (
             not compile_only
-            and a["feas"] == "failed"
+            and a["feas"] in ("failed", "done")  # F38: on master FEAS with nothing to count is "done" (D-901)
             and not xlsx
             and "approve_job" not in a
             and b.get("approve") == "done"

@@ -429,3 +429,26 @@ def test_acc_set_runs_protocols_side_by_side(tmp_path: Path) -> None:
     assert sorted(box.sent) == sorted(f"{k} NCT9000000{i}" for i in range(1, 5) for k in ("FEAS", "APPROVE", "SCREEN"))
     answers = json.loads((tmp_path / "work" / "answers.json").read_text(encoding="utf-8"))
     assert len(answers) == 4 and all(a["outcome"] == "screened" for a in answers.values())
+
+
+def test_a_redone_set_screens_when_feas_of_the_kept_version_is_done(tmp_path: Path) -> None:
+    """F38: on master a FEAS with nothing to count is "done" (D-901) with no workbook; the earlier approval holds."""
+    built = _built(tmp_path, trials=1)
+
+    class DoneFeasBox(FakeBox):
+        def call(self, svc: str, cmd: str, a: dict[str, Any] | None = None, timeout: float | None = None) -> Any:
+            r = super().call(svc, cmd, a, timeout)
+            if cmd == "wait" and self.jobs[(a or {})["job"]]["kind"] == "FEAS":
+                r["state"], r["error"] = "done", None
+            return r
+
+    box = DoneFeasBox(tripwire="NCT90000001")  # its FEAS returns no files, as the box's did
+    old = tmp_path / "old"
+    old.mkdir()
+    (old / "progress.json").write_text(json.dumps({"NCT90000001": {
+        "approve": "done", "approve_job": "jA", "version": "1.0.0", "draft": [{"id": "exc-1", "text": "Pregnancy"}]}}))  # fmt: skip
+    box.jobs["jA"] = {"kind": "APPROVE", "rs": "NCT90000001", "fail": False, "subject": "APPROVE", "from": "pi"}
+    kw = {"sender": "c@x", "reviewer": "pi@x", "run_id": "r1-r3", "compile_only": False, "job_s": 5}
+    box_vm.acc_set("sigir", built, tmp_path / "work", box, earlier=[old], **kw)
+    a = json.loads((tmp_path / "work" / "answers.json").read_text(encoding="utf-8"))["NCT90000001"]
+    assert box.sent == ["FEAS NCT90000001", "SCREEN NCT90000001"] and a["outcome"] == "screened"

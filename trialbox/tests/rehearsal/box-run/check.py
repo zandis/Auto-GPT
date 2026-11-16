@@ -159,7 +159,7 @@ full_start = case in ("happy", "reboot", "oom", "list-differs")
 if full_start:
     ok(keys(START) and all(parts[n]["status"] == "done" for n in START), "G-2: the start steps, done")
     ok(
-        parts["07g-gate"].get("pass") is True and calls["canary-gate"] == 1,
+        parts["07g-gate"].get("pass") is True and calls["canary-gate"] == 2,
         "B2: the canary through the box's own gate holds a passing record",
     )
     ok(calls["install"] == 1 and calls["hostcheck"] == 1, "the installer ran once (prepare), the first run once")
@@ -229,7 +229,8 @@ if case == "happy":
         "G-9 power cycle: asked in one boot, finished in the next",
     )
     ok(
-        calls["compose-restart orchestrator"] == 1
+        # 07g-gate restarts the orchestrator once too (its own startup canary), before G-9 begins
+        calls["compose-restart orchestrator"] == 1 + ("07g-gate" in parts)
         and calls["compose-restart gateway"] == 1
         and calls["compose-stop llm-service"] == 1,
         "G-9: two restarts and the judge's outage, once each",

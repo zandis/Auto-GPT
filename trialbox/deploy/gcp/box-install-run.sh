@@ -1392,28 +1392,44 @@ step_canary() { watched d_canary; local rc=$?; note canary_exit "$rc"; [ "$rc" =
 # "Run now": POST /models/canary in the orchestrator), so the gate holds a passing record and a note-read "not met" may
 # exclude (D-117: a passing pair canary under 36 h, no failed wake check since). The host's selftest above records
 # nothing in the box. The gate's status (GET /models) is kept in records/canary-gate.json.
-d_gate() {   # the operator's token (allowed everywhere; the orchestrator refuses its own token: 403), from the box image
-  local otok="$BOXROOT/deploy/secrets/services/operator.token" IMG_NET=trialbox-net tk=()
-  [ -s "$otok" ] && tk=(-v "$otok:/run/tb-operator.token:ro" -e TB_SERVICE_TOKEN_FILE=/run/tb-operator.token)
-  docker run --rm -i --user 0 --network "${IMG_NET:-none}" ${tk[@]+"${tk[@]}"} "$(img_py)" python - <<'PYG'
+d_gate() {
+  # F35/F38 (2026-11-16): the orchestrator refused the admin "Run now" (POST /models/canary) from lane G's token (403).
+  # The gate's other way in is its own: at start the orchestrator runs the full pair canary in the background
+  # (canary_gate.startup). So the orchestrator is restarted once the model servers answer, and the gate's status is
+  # read (GET /models, a read) until a report other than the one before the restart is there.
+  local before IMG_NET=trialbox-net
+  before=$(gate_read once | tail -n 1)
+  echo "gate before the restart: $before"
+  dc restart orchestrator || return 1
+  for _ in $(seq 1 60); do d_healthy && break; sleep 5; done
+  TB_GATE_BEFORE="$before" gate_read wait
+}
+gate_read() {  # $1 once | wait: the gate's status from GET /models (wait: until a new report, not running)
+  local IMG_NET=trialbox-net
+  docker run --rm -i --user 0 --network "${IMG_NET:-none}" -e "TB_GATE_MODE=$1" -e "TB_GATE_BEFORE=${TB_GATE_BEFORE:-}" "$(img_py)" python - <<'PYG'
 # tb-boxrun: canary-gate
-import json, time, urllib.request
-from tb_common.service_auth import auth_headers
-base = "http://orchestrator:8010"
-def call(method, path):
-    req = urllib.request.Request(base + path, method=method, headers=auth_headers(), data=b"" if method == "POST" else None)
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return json.loads(r.read() or b"{}")
-start = call("POST", "/models/canary")
-print(json.dumps({"started": start}), flush=True)
-t0 = time.time()
+import json, os, time, urllib.error, urllib.request
+base, mode = "http://orchestrator:8010", os.environ.get("TB_GATE_MODE", "once")
+try:
+    b_ = json.loads(os.environ.get("TB_GATE_BEFORE") or "{}")
+    before = (b_.get("gate") or b_).get("at")
+except (ValueError, AttributeError):
+    before = None
+start, c = time.time(), {}
 while True:
-    time.sleep(15)
-    c = call("GET", "/models").get("canary") or {}
-    print(json.dumps({"elapsed_s": int(time.time() - t0), "running": c.get("running")}), flush=True)
-    if not c.get("running") or time.time() - t0 > 1800:
-        print(json.dumps({"gate": c}), flush=True)
+    try:
+        with urllib.request.urlopen(base + "/models", timeout=60) as r:
+            c = json.loads(r.read() or b"{}").get("canary") or {}
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        c = {"error": str(exc)[:200]}
+    if mode == "once":
+        print(json.dumps({"at": c.get("at"), "ok": c.get("ok")}), flush=True)
         break
+    print(json.dumps({"elapsed_s": int(time.time() - start), "running": c.get("running"), "at": c.get("at")}), flush=True)
+    if (c.get("at") and c.get("at") != before and not c.get("running")) or time.time() - start > 1500:
+        break
+    time.sleep(15)
+print(json.dumps({"gate": c}), flush=True)
 PYG
 }
 step_gate() {
