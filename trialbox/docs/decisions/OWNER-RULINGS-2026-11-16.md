@@ -1,74 +1,71 @@
-# The owner's rulings of 2026-11-16 whose numbers were already taken (owner's D-520 to D-537)
+# The owner's rulings of 2026-11-16: the numbers they were relayed under, and their numbers now
 
 **Reader:** the people who build TrialBox
 
-The integrator numbers the owner's rulings. On 2026-11-16 it gave the numbers D-520 to D-537 to eighteen rulings.
-Seventeen of those numbers already belonged to decisions on master (the fix cards of 2026-11-12 and 2026-11-13:
-`docs/decisions/D-520-reject-key-value-free.md` to `D-537-every-name-in-a-backup-has-its-bytes.md`).
+The integrator relayed eighteen rulings of the owner to the lanes on 2026-11-16 as D-520 to D-537. Seventeen of those
+numbers were already held by decisions on master. A number belongs to whoever has it on master, and the index allows
+one text per number. So the integrator renumbered the seventeen: D-5nn became D-10nn, with the same last two digits.
 
-- A number belongs to whoever has it on master (the registry's rule), and `tools/decisions_index.py --check` fails
-  when one number has two texts. So these rulings have no `D-nnn-<slug>.md` file and no registry row of their own.
-- Their text is kept here so that it is on master. This file's name does not start with `D-`, so the index does not
-  read it.
-- The one free number, D-526, has its own file (`docs/decisions/D-526-superseded-the-same-day.md`). The rulings
-  D-503 to D-519 were free too and have one file each.
-- Until the integrator gives these rulings new numbers, cite one as "the owner's ruling D-5nn of 2026-11-16". On
-  master, D-847 to D-850 and D-852 already cite the owner's D-521 and D-524 this way.
-- A bare "D-520" to "D-537" in code or a test means the decision in the table's last column, not the ruling.
+- D-526 was free and keeps its number. D-1026 is not used.
+- Each ruling has its own file `docs/decisions/D-10nn-<slug>.md` and a `merged` registry row.
+- A bare D-520 to D-537 in code, a test or a record means the decision in the last column, except in the citations
+  listed at the end of this page.
+- The owner's rulings continue from D-1038.
 
-Every ruling below is the owner's, numbered and relayed by the integrator, dated 2026-11-16. The wording is the
-integrator's record of it.
+## The mapping
 
-| Owner's number | The ruling | The same number on master is |
-| --- | --- | --- |
-| D-520 | Recovery (escrow) shares for a TPM-sealed key-encryption key are approved (D-894 lands). | the rejected-row key (NEW-B-1) |
-| D-521 | The rule that REDCap is never downloaded by a session is lifted for testing only, in lane E's private container. Nothing of REDCap's source, SQL or text enters the repository, a PR, CI, an image, the bucket or the external worker. | the OMOP load refuses non-western years (NEW-B-2) |
-| D-522 | Lane E may push its REDCap fix cards (our code and synthetic tests only). | the restore hold (NEW-B-3) |
-| D-523 | Lane W restarts now (lifts "after PoC-1"). | the ingest follows a running run (NEW-PERF-2) |
-| D-524 | REDCap 13.7 is a supported version (the hospital's production version). | the step engine removed (NEW-ARCH-2) |
-| D-525 | The box-rehearsal check `rehearse-result` becomes a required check; the owner sets it in the repository settings. | derived generations readable (NEW-B-4) |
-| D-527 | The plan's build dates are removed and the freeze of plan 33 section 3.2 is lifted: every card may be built now, ordered only by what it depends on. | a number too long is a rejected row (NEW-B-6) |
-| D-528 | Terminology: code systems are loaded onto each box at install by a loader with a manifest. The site's own code lists are the primary source and never enter the repository. NHI open data may ship with attribution. LOINC, WHO ICD-10 and ATC are loaded at install and not committed. (Amended by the owner's D-529.) | a delta row left out is gone (NEW-B-7) |
-| D-529 | Public-domain US government code data (ICD-10-CM, ICD-10-PCS) may be committed and shipped, each with a licence-register row. | no future snapshot (NEW-PERF-3) |
-| D-530 | The Windows P-0 media: the public pre-release points to upstream sources for GPL/LGPL programs and is deleted after P-0. P-0 does not turn BitLocker on on the owner's personal PC (moves to P-10). No second-computer check in P-0 (moves to P-14). | a reference-data outage does not hold the night (NEW-B-8) |
-| D-531 | `omop.tb_record_event`'s before-images of an opted-out patient are kept hidden until retention and blanked at retention (the rule of D-513). `omop.tb_record` is a keep entry. `tb_record.extra` gets the same check. It supersedes the owner's D-526 of the same day. | publish promotes its generation (NEW-B-10) |
-| D-532 | The screening log of a never-consented patient: the row and its number are kept, the pseudonym is replaced by a random token, the investigator's free text goes. A trial subject's rows stay. | the job lease (NEW-B-11) |
-| D-533 | No receiver for REDCap's Data Entry Trigger now; revisit after the pilot. | the scale gate's dense profile (T-687) |
-| D-534 | The REDCap specification stays out of the repository in every form. | the limits lint lists every timeout (NEW-B-12) |
-| D-535 | Incremental backup with restic is approved on conditions: the repository password is a sealed box key covered by the escrow shares; the target holds ciphertext only; restore is rehearsed in the box rehearsal; restic is pinned in the offline media and the licence register. | first-load completeness (NEW-B-13) |
-| D-536 | No supervised remote session into a hospital box for the pilot; revisit after the pilot with the hospital's IT. | ATC is the ATC system (NEW-B-16) |
-| D-537 | The integrator judged an outside review of master `828cb3d3`; its three lists are below. PR #813 stays parked. | every name in a backup has its bytes (NEW-B-17) |
+| Relayed as | Now | The owner's ruling | The decision on master that holds the relayed number |
+| --- | --- | --- | --- |
+| D-520 | D-1020 | Recovery shares for a TPM-sealed key-encryption key are approved | The key a rejected row is counted under holds no feed value |
+| D-521 | D-1021 | REDCap may be downloaded for testing only, in lane E's private container | The OMOP path refuses a date whose year is not a western year |
+| D-522 | D-1022 | Lane E may push its REDCap fix cards | A restore that is not complete holds the box's list jobs until a person releases the hold |
+| D-523 | D-1023 | Lane W restarts now | On 409 the orchestrator's INGEST job follows the ingest that is running |
+| D-524 | D-1024 | REDCap 13.7 is a supported version | The unused step engine, its outbox dispatcher and schema `wf` are removed |
+| D-525 | D-1025 | The box-rehearsal check becomes a required check | A finished generation of the derived rows stays readable |
+| D-527 | D-1027 | The plan's build dates are removed and the freeze is lifted | A number the mapping cannot compute is a rejected row, not the end of the night |
+| D-528 | D-1028 | Terminology: code systems are loaded onto each box at install | On a delta night, a row the mapping now leaves out takes its earlier record with it |
+| D-529 | D-1029 | Public-domain US government code data may be committed and shipped | A night dated after the site's today is refused |
+| D-530 | D-1030 | The Windows P-0 media, BitLocker and the second-computer check | An outage of the reference data does not hold the night; the night says what it could not map |
+| D-531 | D-1031 | The before-images of a record event are kept hidden until retention | The publish promotes the generation it built, or nothing |
+| D-532 | D-1032 | The screening log of a never-consented patient | A running job holds a lease: one worker runs a job at a time, in every process |
+| D-533 | D-1033 | No receiver for REDCap's Data Entry Trigger now | The scale gate's dense profile: about 500 records and 40 notes per patient |
+| D-534 | D-1034 | The REDCap specification stays out of the repository | The limits lint lists every fixed wait, not only those above a minute |
+| D-535 | D-1035 | Incremental backup with restic is approved on conditions | The first load says what a night says about its tables and its codes |
+| D-536 | D-1036 | No supervised remote session into a hospital box for the pilot | A drug code is ATC only when its coding's system is the ATC system |
+| D-537 | D-1037 | The outside review of master 828cb3d3, as the integrator judged it | Every file name in a backup is stored with its own bytes, also the second name of one file |
+| D-526 | D-526 | Superseded the same day (by D-1031) | none: the number was free |
 
-## The owner's D-537: the outside review of master 828cb3d3
+D-1037's file also holds its three lists (adopted now, build later, declined) and the fact that the charts at the
+pilot hospital are mainly in English.
 
-**Adopted now:**
+## Citations on master that mean the owner's ruling
 
-- its CI findings, as input to lane D;
-- no self-hosted runner while the repository is public;
-- the TFDA pre-fill rule, checked against our design;
-- an independent check of the masker with an open-source de-identification tool, in measurement only;
-- shadow mode with an effectiveness report, as a design card;
-- provenance on every AI output, as a design card.
+These lines were written under the relayed numbers and mean the owner's ruling, not the decision that holds the
+number. They belong to lane E, which corrects them to the new number. This change does not edit them. Found at
+master `9d5853f3` by the number and the words around it; a line that cites the number without those words may be
+missing.
 
-**Build later (in the plan, `docs/plan/42-plan-2026-11-16.md` section 4):**
-
-- ICH M11 / USDM with CDISC's rules engine;
-- a FHIR validator as a separate process;
-- an HL7 v2 library and an integration engine, when a site needs them;
-- FHIR-to-CDISC mapping for eSource;
-- a trial-retrieval A/B;
-- a load-test tool;
-- a published Taiwan evaluation set.
-
-**Declined:**
-
-- an MCP endpoint;
-- a sponsor A2A interface;
-- an ePRO app;
-- an identity provider inside the box;
-- prompt-optimisation and RAG-scoring tools.
-
-## A fact the owner gave with these rulings (2026-11-16)
-
-The charts at the pilot hospital, and in Taiwan generally, are mainly in English on a zh-TW site. It is a fact, not a
-ruling, and has no number. It bears on the gold set (D-517: English first, then zh-TW) and on the masker's check.
+| File | Lines | Written | Means |
+| --- | --- | --- | --- |
+| `docs/decisions/D-847-redcap-13-refusals-read-as-their-kinds.md` | 3 | D-521 | D-1021 |
+| `docs/decisions/D-848-the-dictionary-has-redcaps-18-columns.md` | 3 | D-521 | D-1021 |
+| `docs/decisions/D-849-a-group-users-token-works-with-a-group-link.md` | 3 | D-521 | D-1021 |
+| `docs/decisions/D-850-the-instance-tool-fits-redcap-13-7.md` | 3 | D-521 | D-1021 |
+| `docs/decisions/D-851-the-dictionary-keeps-calculations-and-places.md` | 3 | D-521 | D-1021 |
+| `docs/decisions/D-852-redcap-13-is-supported.md` | 7, 15 | D-521 | D-1021 |
+| `docs/decisions/D-852-redcap-13-is-supported.md` | 3 | D-524 | D-1024 |
+| `docs/decisions/D-853-redcap-timeout-narrow-export-one-wait.md` | 7 | D-521 | D-1021 |
+| `docs/decisions/D-853-redcap-timeout-narrow-export-one-wait.md` | 3 | D-527 | D-1027 |
+| `docs/decisions/D-854-a-long-reason-is-refused-never-cut.md` | 3 | D-527 | D-1027 |
+| `docs/decisions/D-855-lakefacts-is-tested-on-a-lake.md` | 3 | D-527 | D-1027 |
+| `docs/decisions/REGISTRY.md` | 674 | D-524 | D-1024 |
+| `services/rc_bridge/client.py` | 79 | D-521 | D-1021 |
+| `tests/unit/test_dictionary_all_columns.py` | 3 | D-521 | D-1021 |
+| `tests/unit/test_dictionary_keeps_calculations.py` | 6 | D-521 | D-1021 |
+| `tests/unit/test_edc_018_timeout_narrow_retry.py` | 6 | D-521 | D-1021 |
+| `tests/unit/test_group_bound_token.py` | 3 | D-521 | D-1021 |
+| `tests/unit/test_redcap_13_refusals.py` | 3 | D-521 | D-1021 |
+| `tests/unit/test_redcap_13_supported.py` | 4 | D-521 | D-1021 |
+| `tests/unit/test_redcap_13_supported.py` | 1 | D-524 | D-1024 |
+| `tests/unit/test_redcap_instance_on_13_7.py` | 3 | D-521 | D-1021 |
+| `tools/redcap_instance.py` | 23 | D-521 | D-1021 |

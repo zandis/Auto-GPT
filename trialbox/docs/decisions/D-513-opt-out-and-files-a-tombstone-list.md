@@ -16,4 +16,4 @@ The integrator's session.
 
 ## Used by
 
-D-860, D-862, D-908; the owner's ruling D-531 of 2026-11-16 applies the same rule.
+D-860, D-862, D-908; D-1031 applies the same rule.

@@ -6,8 +6,7 @@
 
 ## Ruling
 
-1. Superseded the same day by the owner's ruling D-531 of 2026-11-16 (`docs/decisions/OWNER-RULINGS-2026-11-16.md`:
-   the before-images of `omop.tb_record_event`).
+1. Superseded the same day by D-1031 (the before-images of `omop.tb_record_event`), which was relayed as D-531.
 
 ## Where the wording comes from
 
