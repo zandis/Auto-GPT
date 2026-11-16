@@ -1224,6 +1224,7 @@ def _stage16(res: dict[str, Any], pi: Any, crc: Any, password: str, lang: str, b
         "kind": "sponsor_letter",
         "reference": "",
         "ack_date": visit.isoformat(),
+        "dataflow_ref": "DMP v1.0 §5 (data flow)",  # EDC-023 (D-859)
         "reentry_pages": "30",
         "reentry_accuracy": "98.6",
     }

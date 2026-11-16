@@ -10,7 +10,8 @@ one text per number. So the integrator renumbered the seventeen: D-5nn became D-
 - Each ruling has its own file `docs/decisions/D-10nn-<slug>.md` and a `merged` registry row.
 - A bare D-520 to D-537 in code, a test or a record means the decision in the last column, except in the citations
   listed at the end of this page.
-- The owner's rulings continue from D-1038.
+- D-1038 and D-1039 followed on the same day. The integrator's numbers continue from D-1060 (lane E holds D-1040
+  to D-1059).
 
 ## The mapping
 

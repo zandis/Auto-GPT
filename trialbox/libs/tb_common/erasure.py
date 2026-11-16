@@ -370,7 +370,11 @@ TABLES: dict[str, Entry] = {
         "(the review of D-866: the registry's status now is not enough)",
     ),
     **_each("edc", ("copy_tick", "decision", "sent", "signature", "signature_void"), _OD8),
-    **_each("edc", ("item_map", "map_event", "reentry_record", "switch", "switch_event", "target"), _CONFIG),
+    **_each(
+        "edc",
+        ("direct_source_event", "item_map", "map_event", "reentry_record", "switch", "switch_event", "target"),
+        _CONFIG,
+    ),
     **_each("sae", ("sae_case", "sae_report", "sae_trail"), _keep("OD-8", "the SAE register of a trial subject")),
     **_each("app", ("flag", "flag_event"), _CONFIG),
     "derived.score_row": _erase("owed_tables", "a derived score of a pseudonym"),

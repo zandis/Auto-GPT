@@ -31,8 +31,11 @@ def _values(svc: EdcService, rs: str, record: str | None) -> list[dict[str, Any]
     patient's."""
     sigs = {int(s["id"]): s for s in svc.store.signatures(rs, record)}
     gone = set(svc.optouts())
+    direct = svc.store.direct_source(rs)
     out = []
     for d in svc.store.signed(rs, record):
+        if str(d["item"]) in direct:
+            continue  # EDC-023 (D-859): recorded directly in the tool (TFDA §4.7 ¶2); never copied in from a record
         s = sigs.get(int(d["signature_id"]))
         if s is None or int(s.get("sig_version") or 1) != SIG_VERSION:
             continue  # a version-1 row is never a source here (D-434)
@@ -80,9 +83,10 @@ def sheet(svc: EdcService, rs: str, record: str | None, by: str, fmt: str = "pag
     ok = {int(d["id"]) for d in values}
     ticks = svc.store.ticks(rs, record)
     gone = set(svc.optouts())
+    direct = svc.store.direct_source(rs)
     records: dict[str, dict[str, dict[str, Any]]] = {}
     for d in svc.store.drafts(rs, record):  # every current draft names its visit; only the sheet's carry a value
-        if str(d["pid"]) in gone:
+        if str(d["pid"]) in gone or str(d["item"]) in direct:
             continue
         v = records.setdefault(str(d["record"]), {}).setdefault(
             str(d["visit"]), {"visit": d["visit"], "visit_date": d["visit_date"], "waiting": 0, "forms": {}}
@@ -113,7 +117,8 @@ def sheet(svc: EdcService, rs: str, record: str | None, by: str, fmt: str = "pag
         out.append({"record": rec, "visits": visits})
     n = len(values)
     svc._audit("edc.copy_view", rs, by, {**detail, "values": n, "records": len(out)})
-    return {"study": rs, "state": svc.store.switch(rs).state, "records": out, "values": n}
+    return {"study": rs, "state": svc.store.switch(rs).state, "records": out, "values": n,
+            "direct_source": sorted(direct)}  # fmt: skip
 
 
 def tick(svc: EdcService, rs: str, record: str, ids: list[int], action: str, by: str,
