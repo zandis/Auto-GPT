@@ -174,6 +174,20 @@ def _queue() -> dict[str, Any]:
     return {"queued_or_running": len(o.db.find(state="running")) + len(o.db.find(state="received"))}
 
 
+class WorkersNotAlive(RuntimeError):
+    """D-895: fewer job workers alive than were started; the health line names it (and the box's watchdog restarts
+    the service on its failing health check)."""
+
+
+def _workers() -> dict[str, Any]:
+    """D-895: every started job worker is alive. A dead worker leaves jobs accepted and never taken."""
+    o = orch()
+    alive, started = o.workers_alive()
+    if alive < started:
+        raise WorkersNotAlive(f"{alive} of {started} job workers alive")
+    return {"workers_alive": f"{alive}/{started}"}
+
+
 # D-114: every changing call carries the box's service token; D-130 (plan v4 F4): every read too (jobs and their
 # outputs, the registry, studies, the data core), since they are patient level. /healthz stays open.
 # T-713 (D-464): which verified service reaches which route is one table (route_callers.yaml), enforced right after the
@@ -181,7 +195,7 @@ def _queue() -> dict[str, Any]:
 CALLER_GATE = Gate(load_callers(), lambda: orch().audit)
 route_actor.bind(lambda: orch().audit)  # T-715 (D-483): where a refused person is recorded
 #: the stage before `require_actor` (route_actors.yaml): a changing call without a v3 assertion is counted
-app = make_app("orchestrator", checks=[_queue], lifespan=lifespan, protect_reads=True, route_gate=CALLER_GATE)
+app = make_app("orchestrator", checks=[_queue, _workers], lifespan=lifespan, protect_reads=True, route_gate=CALLER_GATE)
 
 
 def _claim(request: Request, fallback: str | None = None) -> Actor:
