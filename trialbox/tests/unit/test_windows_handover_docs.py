@@ -160,6 +160,10 @@ def test_the_recovery_screen_page_has_the_same_parts_in_three_languages_and_tell
             "WINDOWS-BACKUP-RESTORE.md",
             f"windows-owner.{lang}.md",
             "D-617",
+            # review: the blue screen is the system drive's; a data drive locks after sign-in; IT may hold its key
+            "C:",
+            "Active Directory",
+            "Entra",
         ):
             assert must in text, (lang, must)
         # never told to turn the protection off to get past the screen, nor to send the key anywhere

@@ -29,6 +29,15 @@ type. Nothing said what to do when the key is lost, or why the screen came.
    "repair" the drive to get past the screen. The owner's pages send the reader to it; the media carries it.
 3. **The three languages have the same parts** and pass the wording rules (tests).
 
+**After the review** (one fresh reviewer, "fix first", no HIGH; the code was found sound): the page now says the
+blue screen is always the system drive's; a locked data drive (after sign-in, a padlock in File Explorer, no blue
+screen) has its own part, where any recovery key of that drive opens it and a key that does not match means "call
+us", not "lost"; the causes add USB media, docks and the start order (the first thing to check when the screen
+comes at every start), boot-manager and chip updates, and too many wrong PINs; before a key counts as lost, the
+last change is undone, hospital IT looks the key ID up (Active Directory, Entra, the Microsoft account), and we are
+called; the Japanese page names the health line as the owner's page does. Not proven: which protector's key ID
+Windows names when a data drive is locked (the installer adds a second recovery password to it, D-603 point 3).
+
 **Reuse check.** Nothing to reuse: the page describes Windows' own screen and this installer's keys. The integrator
 held drafts of such a page from another session that did not pass doclint's Reader rule; they had not reached
 lane W when this was written, and this page was written from the installer.
