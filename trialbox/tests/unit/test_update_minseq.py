@@ -100,7 +100,9 @@ PINNED = {
     # release yet, so none is on a release without the two commands (lane D's word, 2026-11-13).
     # D-722: one more host-side step, a refusal that makes nothing; the floor stays 0 for the same reason
     "pre-start": ["image pins", "model key", "actor signing key", "FHIR store password", "hospital directory CA"],
-    "db-up": ["FHIR store password is set", "database", "service roles", "owned schemas"],
+    # D-921: one more database step, in the new tree's own db-up (an updater that has the command runs it); an
+    # updater from before db-up leaves the migrations to each service's start, as before. The floor stays 0
+    "db-up": ["FHIR store password is set", "database", "service roles", "owned schemas", "service stores"],
     "floor": 0,
 }
 
