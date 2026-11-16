@@ -58,6 +58,57 @@ def _wait(read: Callable[[], dict[str, Any]], while_state: str = "running") -> d
     raise AssertionError(f"the run stayed {while_state}")
 
 
+def _started(r: Any) -> str:
+    """The run id of a POST /run that must have started a run (the answer in the message when it did not)."""
+    assert r.status_code == 202, (r.status_code, r.text, r.headers.get("X-TB-Run"))
+    return str(r.json()["run"])
+
+
+class _Gate:
+    """The service's run gate, recording at each release what every run's answer said at that moment."""
+
+    def __init__(self, runs_now: dict[str, dict[str, Any]]) -> None:
+        self.lock = threading.Lock()
+        self.runs = runs_now
+        self.at_release: list[list[str]] = []
+
+    def acquire(self, blocking: bool = True) -> bool:
+        return self.lock.acquire(blocking)
+
+    def release(self) -> None:
+        self.at_release.append([str(r["state"]) for r in self.runs.values()])
+        self.lock.release()
+
+
+@pytest.mark.parametrize("mode", ["process", "thread"])
+def test_an_answer_that_says_the_run_ended_means_the_next_run_is_accepted(
+    api: Any, monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    """NEW-B-56 (train 62's red): the run's end was written into its answer before the gate was given back, so a
+    reader that saw "failed" and posted again could meet a 409. The gate is now given back first: at every release
+    the run still reads "running", and its end is shown after."""
+    from adapter import app as adapter_app
+
+    monkeypatch.setenv("TB_ADAPTER_RUN", mode)
+    gate = _Gate(adapter_app._runs)
+    monkeypatch.setattr(adapter_app, "_running", gate)
+
+    def no_process(*a: Any, **kw: Any) -> Any:
+        raise OSError("cannot start a process")
+
+    def no_ingest(*a: Any, **kw: Any) -> Any:
+        raise RuntimeError("the ingest failed")
+
+    with monkeypatch.context() as mp:
+        mp.setattr(subprocess, "Popen", no_process)
+        mp.setattr(adapter_app, "run_ingest", no_ingest)
+        rid = _started(api.post("/run", json=BODY))
+        st = _wait(lambda: api.get(f"/run/{rid}").json())
+    assert st["state"] == "failed"
+    assert gate.at_release == [["running"]]  # given back while the answer still said "running"
+    assert not gate.lock.locked()  # so "failed" read by anyone means a new run is accepted
+
+
 def _child(rid: str) -> subprocess.Popen[bytes]:
     from adapter import app as adapter_app
 
@@ -140,15 +191,15 @@ def test_a_process_that_cannot_be_started_or_exits_with_an_error_is_a_failed_run
 
     with monkeypatch.context() as mp:
         mp.setattr(subprocess, "Popen", no_process)
-        rid = api.post("/run", json=BODY).json()["run"]
+        rid = _started(api.post("/run", json=BODY))
         st = _wait(lambda: api.get(f"/run/{rid}").json())
     assert st["state"] == "failed" and "OSError" in st["detail"] and not runs.running(api.lake_dir)
     with monkeypatch.context() as mp:
         mp.setattr(adapter_app, "_run_command", lambda fd, spec: [sys.executable, "-c", "import sys; sys.exit(3)"])
-        rid = api.post("/run", json=BODY).json()["run"]
+        rid = _started(api.post("/run", json=BODY))  # NEW-B-56: right after "failed", never a 409
         st = _wait(lambda: api.get(f"/run/{rid}").json())
     assert st["state"] == "failed" and "exit code 3" in st["detail"]
-    rid = api.post("/run", json=BODY).json()["run"]  # and the adapter is free for the next night
+    rid = _started(api.post("/run", json=BODY))  # and the adapter is free for the next night
     assert _wait(lambda: api.get(f"/run/{rid}").json())["state"] == "done"
 
 
