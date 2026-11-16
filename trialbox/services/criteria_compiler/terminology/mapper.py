@@ -128,9 +128,22 @@ ConceptMapLLM = Callable[[str, str, list[Concept]], tuple[list[tuple[str, str, f
 NameSynonyms = Callable[[str, str], list[dict[str, Any]]]
 
 
+FHIR_ID_MAX = 64  # FHIR R4 id: [A-Za-z0-9\-\.]{1,64}
+
+
 def vs_resource_id(ruleset: str, vs_name: str) -> str:
-    """FHIR id for a ValueSet: ``<RULESET>-<NAME>`` with underscores replaced (D-06)."""
-    return f"{ruleset}-{vs_name}".replace("_", "-")
+    """FHIR id for a ValueSet: ``<RULESET>-<NAME>`` with underscores replaced (D-06).
+
+    G1 of the P1b review (D-955): a public protocol's ruleset id (14) and a concept's name (up to 60) made ids of 75
+    characters; the FHIR server refuses an id over 64 (HTTP 422), and all 12 such protocols failed. An id that would be
+    longer, or hold a character an id may not, keeps its first 55 characters and ends in 8 hex characters of the whole
+    name's hash: unique, stable, and every id that fitted before is unchanged."""
+    rid = f"{ruleset}-{vs_name}".replace("_", "-")
+    if len(rid) <= FHIR_ID_MAX and re.fullmatch(r"[A-Za-z0-9.\-]+", rid):
+        return rid
+    tag = hashlib.sha256(rid.encode("utf-8")).hexdigest()[:8]
+    head = re.sub(r"[^A-Za-z0-9.\-]+", "-", rid)[: FHIR_ID_MAX - 9].rstrip("-.")
+    return f"{head}-{tag}"
 
 
 def vs_name_for(concept: str, unique: bool = False) -> str:

@@ -302,7 +302,8 @@
           "type": "string"
         },
         "language": {
-          "type": "string"
+          "type": "string",
+          "description": "The language the report is written in: the site's report language (its locale), not the language of the notes that were read (G12 of the P1b review, D-980)."
         },
         "site": {
           "type": "string"

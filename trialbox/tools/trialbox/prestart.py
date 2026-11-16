@@ -134,6 +134,11 @@ def _owned_schemas(box: ComposeBox) -> str:
     return "made by the box's admin" if box.migrate_owned() else "no database step on this box"
 
 
+def _service_stores(box: ComposeBox) -> str:
+    done = box.migrate_stores()
+    return ("migrated in a one-off container each: " + ", ".join(done)) if done else "no database step on this box"
+
+
 #: name, step; in the order they run, once the database is up and before any other service starts (D-624). The
 #: database comes first: the role script reads each service's password from the database container's environment,
 #: so a release that adds a role needs the container on its own settings before the script runs.
@@ -142,6 +147,7 @@ DB_STEPS: list[tuple[str, Callable[[ComposeBox], str]]] = [
     ("database", _database),
     ("service roles", _service_roles),
     ("owned schemas", _owned_schemas),
+    ("service stores", _service_stores),  # D-921: each service's start-time migrations, never under a health wait
 ]
 
 #: command -> its steps

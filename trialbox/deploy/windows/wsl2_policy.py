@@ -440,6 +440,20 @@ def check_network_form(facts: Facts, v: Verdicts) -> None:
         v.ok(f"console forwarding: port 443 to WSL2 at {to}, kept pointed by TrialBox-Console-Proxy ({task})")
 
 
+def check_site_key(facts: Facts, v: Verdicts) -> None:
+    """NEW-WIN-15 (D-618): a KEK kept by Windows reaches WSL2 only through its task at each start."""
+    store, task = facts.get("site_key_store"), facts.get("site_key_task", "")
+    if store in (None, "none"):
+        return  # facts of an earlier release, or another key back end
+    if task in ("", "missing", "Disabled"):
+        v.policy(f"site keys: the KEK is kept by Windows ({store}) but the task TrialBox-Site-Key is "
+                 f"{task or 'missing'}: after a restart the site keys wait. "
+                 "Start the Windows installer again")  # fmt: skip
+    else:
+        v.ok(f"site keys: the KEK kept by Windows ({store}), handed into WSL2 at each start by "
+             f"TrialBox-Site-Key ({task})")  # fmt: skip
+
+
 def check_keepalive(facts: Facts, v: Verdicts) -> None:
     name = facts.get("keepalive_task_name", "TrialBox-WSL2")
     if facts.get("keepalive_task_found") != "1":
@@ -523,6 +537,7 @@ CHECKS: tuple[Callable[[Facts, Verdicts], None], ...] = (
     check_gpu_programs,
     check_admin_accounts,
     check_network_form,
+    check_site_key,
     check_keepalive,
     check_clock,
     check_vhdx,

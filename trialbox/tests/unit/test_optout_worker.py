@@ -783,7 +783,8 @@ def test_the_worker_knows_every_name_an_omop_store_can_have() -> None:
         "tools/omop_parity.py": ["schema.schema_for(lake_dir)"],
         # D-720/D-721: the drill's write paths: the box's own store as each service role, then a second lake's,
         # named by schema.schema_for(folder) (second_lake)
-        "tools/role_paths.py": ["omop", "omop", "omop", "name", "name", "omop", "name"],
+        # D-872: and the console refused the second lake's store
+        "tools/role_paths.py": ["omop", "omop", "omop", "name", "name", "name", "omop", "name"],
         "tools/trialbox/omop_store.py": ["name"],  # D-721: name = schema.schema_for(lake_dir), made for the group
     }
 

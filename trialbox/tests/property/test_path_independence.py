@@ -594,6 +594,13 @@ INTENDED: dict[str, Intended] = {
         "and on a CASE sheet.",
         "D-441 (the 'contact: deny' item)",
     ),
+    "feas.unknown": Intended(
+        "FEAS's funnel counts a patient as remaining only when every applied inclusion is true: an inclusion with "
+        "no value drops the patient from the count, which reports that drop per step and always adds the "
+        "'unknown as pass' variant; SCREEN keeps such a patient for review. A count is a lower bound with its "
+        "sensitivity beside it, a list is who a person looks at (ENG-005: was finding M4 in KNOWN).",
+        "D-18",
+    ),
     "feas.population": Intended(
         "FEAS counts the patients seen in the lookback (an encounter) at month-ends; SCREEN the study's patients "
         "with a booked visit or a recent encounter at the run date. Every planted patient has both, and nothing in "
@@ -650,7 +657,7 @@ RULES: dict[str, Rule] = {r.path: r for r in [
     Rule("microbatch.new", "screen.cascade", "screen", ("microbatch.new",)),
     Rule("nav", "screen.cascade", "nav", ("nav.lists", "nav.scope")),
     Rule("case", "screen.cascade", "case", ("case.chart", "case.no_status", "counts.contact")),
-    Rule("feas", "screen.cascade", "feas", ("counts.notes", "counts.contact", "feas.population")),
+    Rule("feas", "screen.cascade", "feas", ("counts.notes", "counts.contact", "feas.population", "feas.unknown")),
     Rule("cohort", "screen.cascade", "cohort", ("counts.notes", "counts.contact", "cohort.documented",
                                                 "cohort.contactable")),
     # one model on the box (no verifier): NAV against SCREEN on the same box
@@ -699,7 +706,9 @@ def expected_status(w: World, rule: Rule, key: str) -> str | None:
         return None if why in ("register", "refused") else "sheet"
     struct_fail = any(structured_truth(w, key, c) == "fail" for c in STRUCTURED)
     if rule.family == "feas":
-        return "-" if why in ("register", "refused") or struct_fail else "member"
+        # D-18: an applied inclusion with no value drops the patient from the funnel (feas.unknown)
+        unknown_inc = any(structured_truth(w, key, c) == "unknown" for c in STRUCTURED & INCLUSIONS)
+        return "-" if why in ("register", "refused") or struct_fail or unknown_inc else "member"
     if rule.family == "cohort":
         documented = structured_truth(w, key, "PI-INC-01") == "pass"
         return "member" if documented and why not in ("register", "refused") else "-"
@@ -730,11 +739,8 @@ class Known:
     why: str
 
 
-M4U = Known("M4", "FEAS drops an inclusion with no value (IS TRUE); SCREEN keeps the patient for review")
-
-KNOWN: dict[tuple[str, str, str], Known] = {
-    ("feas", "NOAGE", "status"): M4U,
-}
+# ENG-005: empty. M4 (FEAS drops an inclusion with no value) is D-18's rule, now read from INTENDED ("feas.unknown")
+KNOWN: dict[tuple[str, str, str], Known] = {}
 
 
 def _checks() -> list[Any]:

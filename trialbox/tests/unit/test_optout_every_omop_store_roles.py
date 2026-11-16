@@ -73,9 +73,12 @@ def test_a_per_lake_store_belongs_to_the_omop_group_and_every_omop_service_opens
     with Database.connect(box, "omop") as db:
         owner = db.fetchval("SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = ?", (SITE_STORE,))
     assert owner == "tbs_omop"
-    for role in ("tb_lake", "tb_adapter", "tb_orchestrator", "tb_console"):
+    for role in ("tb_lake", "tb_adapter", "tb_orchestrator"):
         with schema.connect(_as(box, role), SITE_STORE, lake_dir=SITE_LAKE) as db:
             assert db.fetchval("SELECT current_user") == "tbs_omop", role
+    # D-872: the console opens no OMOP store (its clinical conflicts are the orchestrator's routes, D-865)
+    with pytest.raises(Exception):  # noqa: B017 - refused however the role meets the schema it may not use
+        schema.connect(_as(box, "tb_console"), SITE_STORE, lake_dir=SITE_LAKE).close()
 
 
 def test_the_worker_finds_every_store_and_clears_the_patient_from_each(

@@ -189,3 +189,18 @@ def test_with_nothing_coded_absence_alone_is_never_strong(env: dict[str, Any]) -
     for t in res.traces.values():
         if t.tier == "strong":
             assert any(o.status == "pass" and o.stage in ("S3", "S4") for o in t.outcomes.values()), t.pid
+
+
+def test_a_screen_with_no_budget_set_gives_a_notes_only_ruleset_its_populations_pairs(env: dict[str, Any]) -> None:
+    """G7 of the P1b review (D-953): every notes-only ruleset stopped at "running" on the guard above, since the mail
+    sets no max_pairs. SCREEN gives it the population's own pairs; a coded ruleset keeps no budget."""
+    from orchestrator.scenarios.screen_cascade import notes_only_budget
+
+    rs = _notes_only(env["rs"])
+    pids = [t.pid for t in _run(env, rs, max_llm_items=10_000).traces.values() if t.in_scope]
+    budget = notes_only_budget(rs, pids)
+    judged = [c for c in rs.active() if c.class_ in ("note", "mixed") and c.kind in ("inclusion", "exclusion")]
+    assert budget == len(pids) * len(judged)
+    res = _run(env, rs, max_llm_items=budget)
+    assert res.metrics.unprocessed == 0  # every pair fits: the budget stops nothing a screen would read
+    assert notes_only_budget(env["rs"], pids) is None  # coded: unchanged

@@ -73,7 +73,7 @@ path under `/data`, the secrets folder or a backup target is refused).
 
 ## The supervised remote session
 
-*Default until the owner answers (TB-DR-09 Q2).* Aimedics has **no standing remote access**: no account, no VPN, no
+*For the pilot (the owner, 2026-11-16, D-967):* TrialBox builds no remote session and the box has no remote way in; what follows is the hospital's own screen share from a hospital PC, nothing on the box. After the pilot this stays the default until the owner answers (TB-DR-09 Q2) with the hospital's IT. Aimedics has **no standing remote access**: no account, no VPN, no
 open port (IT security pack A.3). When a fix needs Aimedics to see the box, the hospital may start a supervised
 screen share. The rules:
 
