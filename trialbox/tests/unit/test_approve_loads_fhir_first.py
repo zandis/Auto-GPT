@@ -5,6 +5,8 @@ promoted the ruleset, unguarded: the ruleset was left approved and released whil
 * The load runs before anything is written: a refusal is a ``CompileFailed`` at the approve step (a 422), with the
   server's text, and the repo has no tag, no promotion and no approved manifest.
 * A load that succeeds approves as before.
+* The refusal says what the server said through ``server_said`` (D-959): a patient's id in it is masked; a transport
+  error is named by its type.
 
 The shipped GZQO protocol with the stub model; a FHIR stand-in.
 """
@@ -42,7 +44,8 @@ def test_a_refused_load_fails_the_approval_and_releases_nothing(env: dict[str, A
     before = (repo.tags("GZQO/"), repo.ref("main"))
     with pytest.raises(CompileFailed) as exc:
         _approve(env, _decisions(env["store"], res.review_xlsx_key))
-    assert exc.value.step == "approve" and str(error)[:20] in str(exc.value)
+    said = str(error)[:20] if isinstance(error, FhirEvalError) else type(error).__name__
+    assert exc.value.step == "approve" and said in str(exc.value)
     assert (repo.tags("GZQO/"), repo.ref("main")) == before  # no tag, no promotion, nothing written to main
     assert "GZQO/v1.0.0" not in repo.tags("GZQO/")
 
@@ -52,3 +55,12 @@ def test_a_load_that_succeeds_approves_as_before(env: dict[str, Any]) -> None:  
     env["deps"].fhir = fhir = Fhir()
     out = _approve(env, _decisions(env["store"], res.review_xlsx_key))
     assert out.status == "approved" and out.tag == "GZQO/v1.0.0" and fhir.loads == 1
+
+
+def test_a_patients_id_in_the_servers_refusal_is_masked(env: dict[str, Any]) -> None:  # noqa: F811
+    """D-952 with D-959: the job's error and the log carry the server's text, never a patient's id in it."""
+    res = _compile(env)
+    env["deps"].fhir = Fhir(FhirEvalError("PUT Library/x: 422 evaluating Patient/P00012345 failed"))
+    with pytest.raises(CompileFailed) as exc:
+        _approve(env, _decisions(env["store"], res.review_xlsx_key))
+    assert "422" in str(exc.value) and "P00012345" not in str(exc.value)
