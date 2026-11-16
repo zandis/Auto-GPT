@@ -502,7 +502,10 @@ def verify_tables(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
 
 
 # ------------------------------------------------------------------------------------------------ a held mail
-_HELD = "SELECT key, request FROM send_keys WHERE state = 'failed' AND last_error = ? AND request IS NOT NULL"
+_HELD = (
+    "SELECT key, request FROM send_keys WHERE request IS NOT NULL AND ((state = 'failed' AND last_error = ?) "
+    "OR state = 'queued')"
+)
 
 
 def _held_mail(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, int]:
@@ -512,7 +515,10 @@ def _held_mail(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, 
     dropped: its request and recipients go, so nothing can send it again. A held mail of lists names no one in the
     outbox (its files by key) and stays for a person to drop or resend (asked again): the review of D-863 (a list
     held for a patient on another list must not be lost without a person). The job's files themselves stay: other
-    patients' pages read them, withheld on read until retention (D-513, D-860). Counts mails only."""
+    patients' pages read them, withheld on read until retention (D-513, D-860). ERASE-D (D-874): a queued mail
+    carrying such a file goes the same way (the gateway would hold it: it asks before each send, D-863); one the
+    gateway has taken to send since is left (the update asks the state again), and an uncertain one stays owed (it
+    may have left: a person checks the mailbox). Counts mails only."""
     from tb_common import patient_files
 
     url = str(env.register.db.url)
@@ -532,7 +538,7 @@ def _held_mail(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, 
         if delete and names:
             db.execute(
                 "UPDATE send_keys SET state = 'dropped', resolved_by = ?, request = NULL, recipients = NULL, at = ?, "
-                "next_at = NULL WHERE key = ANY(?) AND state = 'failed'",
+                "next_at = NULL WHERE key = ANY(?) AND state IN ('failed', 'queued')",
                 (ACTOR, env.now.isoformat(), names),
             )
         return {"mail.send_keys": len(names)}

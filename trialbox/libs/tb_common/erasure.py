@@ -251,8 +251,9 @@ TABLES: dict[str, Entry] = {
     "mail.send_keys": _erase(
         "held_mail",
         "the outbox's send request while queued (attachments by key, a per-patient file's name, recipients)",
-        "a queued, uncertain or held mail of lists: its files are asked about before each send (D-863), its row stays "
-        "until a person or the send ends it; only a held mail of the patient's own file is dropped",
+        "an uncertain mail (it may have left: a person checks), and a queued or held mail of lists: its files are "
+        "asked about before each send (D-863), its row stays until a person or the send ends it; a held or queued mail "
+        "of the patient's own file is dropped (D-874)",
     ),
     "mail.sent": _none("a mail sent: subject, recipients, tag"),
     **_each(
@@ -504,8 +505,9 @@ OBJECTS: dict[str, Entry] = {
         "kept until retention (D-513): other patients' pages read the same files, so no clear deletes them",
     ),
     "objects:attachments": _owed(
-        "files mailed or uploaded to a job (consent forms, review sheets, case requests)",
-        "a CASE chart is parsed before the subject's opt-out is checked (D-862)",
+        "files mailed or uploaded to a job (consent forms, review sheets, case requests); a CASE chart of an "
+        "opted-out subject is refused before it is read (D-873)",
+        "the files kept with a job until retention (D-513): an attached chart of a patient who opted out after it came",
     ),
     "objects:ctgov": _none("public registry text and its parse"),
 }
