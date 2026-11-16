@@ -98,6 +98,12 @@ CLEARS: dict[str, Clear] = {
             "the staged chart number and identity of the patient go; a later night stages them again (D-489)",
         ),
         Clear(
+            "held_mail",
+            f"{_W}:clear_held_mail",
+            f"{_W}:verify_held_mail",
+            "a mail held because its job's outputs name an opted-out patient: those files go (D-863)",
+        ),
+        Clear(
             "owed_tables",
             f"{_W}:clear_tables",
             f"{_W}:verify_tables",
@@ -438,10 +444,11 @@ LAKE: dict[str, Entry] = {
 
 # ------------------------------------------------------------------------------------------------ object store
 OBJECTS: dict[str, Entry] = {
-    "objects:outputs": _owed(
-        "job outputs: candidate and excluded lists, micro-batch pids (365 days); withheld on read (D-513, D-860): the "
-        "console's pages and downloads (a per-patient file by its patient), a submission and a feedback row",
-        "the mail of a job's outputs reads them at publish only (T-206b part 2b checks the rest)",
+    "objects:outputs": _erase(
+        "held_mail",
+        "job outputs: candidate and excluded lists, micro-batch pids (365 days); withheld on read and kept until "
+        "retention (D-513): the console's pages and downloads (D-860), a submission and a feedback row, and the mail "
+        "outbox, which asks before each send (D-863); a held mail's files that name the patient go",
     ),
     "objects:attachments": _owed("files mailed or uploaded to a job (consent forms, review sheets, case requests)"),
     "objects:ctgov": _none("public registry text and its parse"),

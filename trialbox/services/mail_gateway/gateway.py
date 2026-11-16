@@ -18,6 +18,7 @@ from email.utils import format_datetime, make_msgid
 from pathlib import Path
 from typing import Any
 
+from tb_common import patient_files
 from tb_common.audit import AuditLog, mask_ids
 from tb_common.config import Config
 from tb_common.crypto import sha256_bytes
@@ -33,6 +34,26 @@ from mail_gateway.store import MailDB, SendUncertain
 log = logging.getLogger("mail-gateway")
 GENERIC = "This mailbox accepts requests only from authorised hospital addresses. Your message was not processed."
 JobSink = Callable[[JobCreate], Job]
+#: NEW-MAIL-1 (D-863): is this job's output still current against the opt-out register? True, False, or raises
+OutputsCurrent = Callable[[str], bool]
+
+
+class OptedOutSince(RuntimeError):
+    """A job's outputs name a patient opted out since they were made: the mail is held, never sent (D-863)."""
+
+
+def http_outputs_current(base_url: str) -> OutputsCurrent:
+    """D-863: the orchestrator's answer (``GET /jobs/{job_id}/outputs-current``), asked just before a send."""
+    client = ServiceClient(base_url, "orchestrator", timeout=30, retries=1)
+
+    def ask(job_id: str) -> bool:
+        got = client._request("GET", f"/jobs/{job_id}/outputs-current").json()
+        current = got.get("current") if isinstance(got, dict) else None
+        if not isinstance(current, bool):
+            raise RuntimeError("the orchestrator gave no yes or no")
+        return current
+
+    return ask
 
 
 class OrchestratorDown(RuntimeError):
@@ -56,6 +77,10 @@ def http_job_sink(base_url: str) -> JobSink:
 
     return create
 
+
+#: D-863: the typed reasons of a mail held for the opt-out register
+OPTED_OUT = patient_files.HELD  # the opt-out worker finds the held mail by it (its held_mail clear)
+NO_ANSWER = "opt-out not checked: the orchestrator did not answer; not sent"
 
 # the transport refused before the server accepted the message (D-127, F-02): safe to try again later
 REFUSED_BEFORE_SENDING = (
@@ -114,6 +139,8 @@ class Gateway:
     authserv_id: str = ""  # D-369 (SEC-11): empty means no Authentication-Results header is trusted (fails closed)
     allow_phi_zip: bool = False  # D-369 (OD-1): a patient file as a password zip only on a synthetic box (DEV, TEST)
     per_recipient_per_day: int = PER_RECIPIENT_PER_DAY  # T-108c: mails to one address in 24 hours; 0 = no limit
+    #: D-863: asked before a job's patient-level files are sent; None (not wired) holds every such mail (fail closed)
+    outputs_current: OutputsCurrent | None = None
 
     @property
     def sender(self) -> str:
@@ -150,7 +177,26 @@ class Gateway:
             return Outcome(SendResult.model_validate_json(done), "duplicate")
         return self._attempt(req, key, None, 0, from_outbox=False)
 
+    def _still_current(self, req: SendRequest) -> str:
+        """NEW-MAIL-1 (D-863, the integrator's ruling): the one door of every send of a job's patient-level files (at
+        publish, a queued try, a person's resend): the orchestrator is asked whether the job's outputs are still
+        current against the opt-out register. "" to send; else why not (an answer of no, no answer, an error): the
+        mail is held, never sent. A mail of aggregate counts, or with no file, is not asked."""
+        if req.tag != "phi" or not req.attachments:
+            return ""
+        if not req.job_id or self.outputs_current is None:
+            return "no job to ask about"
+        try:
+            return "" if self.outputs_current(req.job_id) else OPTED_OUT
+        except Exception as exc:
+            return f"{NO_ANSWER}: {type(exc).__name__}"
+
     def _attempt(self, req: SendRequest, key: str, message_id: str | None, attempts: int, from_outbox: bool) -> Outcome:
+        why = self._still_current(req)
+        if why == OPTED_OUT:  # a person decides (drop, or resend: asked again); never sent as it is
+            return self._hold(req, key, message_id or "", False, [], "failed", attempts, why)
+        if why:  # not known now: tried again later, and still only sent on a yes
+            return self._hold(req, key, message_id or "", False, [], "queued", attempts, why, wait_s=RETRY_BASE_S)
         try:
             p = self._prepare(req, message_id)  # routing, encryption, attachments: nothing has left yet
         except Exception as exc:

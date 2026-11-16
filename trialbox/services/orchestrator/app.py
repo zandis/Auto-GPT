@@ -386,6 +386,26 @@ def waiting_studies() -> list[str]:
     return orch().db.waiting_rulesets()
 
 
+@app.get("/jobs/{job_id}/outputs-current")
+def job_outputs_current(job_id: str) -> dict[str, bool]:
+    """NEW-MAIL-1 (D-863, the integrator's ruling): whether a job's outputs are still current against the opt-out
+    register, asked by the mail gateway just before it sends them (at publish, a queued try, a person's resend).
+    ``current`` false: an output names a patient opted out since it was made, and the mail is held, never sent. The
+    answer is one yes or no, never a patient or a count. A register that does not answer is a 503: the gateway
+    holds the mail."""
+    from orchestrator.decision_context import register_now
+
+    o = orch()
+    job = o.db.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="no such job")
+    try:
+        gone = frozenset(register_now())
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="the opt-out register did not answer") from exc
+    return {"current": not outputs_name_opted_out(o, job, gone)}
+
+
 @app.get("/jobs/{job_id}")
 def get_job(job_id: str, request: Request) -> Job:
     job = orch().db.get(job_id)
@@ -435,6 +455,18 @@ EXPORTS = RevealLimit("TB_EXPORT_MAX_PER_HOUR", 10)  # screening-log exports wit
 # T-103 (D-438): the calling service's total across every name it signs
 REVEALS_SERVICE = RevealLimit("TB_REVEAL_MAX_PER_HOUR_PER_SERVICE", 600, "reveal_service")
 EXPORTS_SERVICE = RevealLimit("TB_EXPORT_MAX_PER_HOUR_PER_SERVICE", 60, "export_service")
+
+
+def outputs_name_opted_out(o: Any, job: Any, gone: frozenset[str]) -> bool:
+    """NEW-MAIL-1 (D-863): whether a job's patient-level outputs name a patient on the opt-out register now
+    (:func:`tb_common.patient_files.naming`). An output that cannot be read counts as naming one (fail closed)."""
+    from tb_common import patient_files
+
+    outs = list(job.outputs or [])
+    try:
+        return bool(patient_files.naming(o.store.get, outs, outs, gone))
+    except Exception:
+        return True
 
 
 def listed_pids(o: Any, job: Any) -> set[str]:

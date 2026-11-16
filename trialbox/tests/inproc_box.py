@@ -204,6 +204,7 @@ def make_box(
         secrets_dir=tmp_path,
         authserv_id=f"mx.{domain}",  # the hospital MTA of the test mails (AUTH); D-369: no authserv-id trusts nothing
         allow_phi_zip=True,  # a synthetic box: the tests open the zip (unzip_phi); a real box refuses it (D-369)
+        outputs_current=lambda job_id: _outputs_current(holder["o"], job_id),  # D-863: the orchestrator's answer
     )
     services = Services(
         lake=LakeLocal(lake_dir, HashEmbedder()), parser=InprocParser(store), compiler=comp, mail=gw, llm=llm
@@ -282,3 +283,14 @@ def unzip_phi(box: Box, mail: Sent) -> dict[str, bytes]:
     with tempfile.TemporaryDirectory() as td, py7zr.SevenZipFile(io.BytesIO(data), password=password) as z:
         z.extractall(td)
         return {p.name: p.read_bytes() for p in Path(td).rglob("*") if p.is_file()}
+
+
+def _outputs_current(orch: Any, job_id: str) -> bool:
+    """D-863: what ``GET /jobs/{job_id}/outputs-current`` answers, in process (the box's own orchestrator)."""
+    from orchestrator.app import outputs_name_opted_out
+    from orchestrator.decision_context import register_now
+
+    job = orch.db.get(job_id)
+    if job is None:
+        raise KeyError(job_id)
+    return not outputs_name_opted_out(orch, job, frozenset(register_now()))

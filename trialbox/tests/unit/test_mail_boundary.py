@@ -55,6 +55,7 @@ def _gateway(
         secrets_dir=tmp_path,
         authserv_id=authserv_id,
         allow_phi_zip=allow_phi_zip,
+        outputs_current=lambda _job: True,  # D-863: the orchestrator says the job's outputs are current
     )
 
 

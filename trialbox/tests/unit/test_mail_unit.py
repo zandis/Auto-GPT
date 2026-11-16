@@ -308,6 +308,7 @@ def _send_gateway(tmp_path: Path, transport, allow_phi_zip: bool = True):  # typ
         jobs=lambda req: pytest.fail("no job"),
         secrets_dir=tmp_path,
         allow_phi_zip=allow_phi_zip,  # the example settings' zip mode: a synthetic box unless a test says otherwise
+        outputs_current=lambda _job: True,  # D-863: the orchestrator says the job's outputs are current
     )
 
 
