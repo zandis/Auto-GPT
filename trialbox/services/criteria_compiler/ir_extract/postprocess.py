@@ -63,7 +63,7 @@ def _one_age(c: CriterionIR) -> tuple[float | None, float | None] | None:
 
 
 def decided_once(criteria: list[CriterionIR], warnings: list[str]) -> list[CriterionIR]:
-    """F5 of the P1b review (D-…): one age fact decided twice in 5 of sigir's rulesets (NCT01790477: INC age >= 18,
+    """F5 of the P1b review (D-982): one age fact decided twice in 5 of sigir's rulesets (NCT01790477: INC age >= 18,
     EXC age <= 17), so a minor failed two criteria and the counts and the reasons said it twice. An exclusion whose
     age is the exact complement of an inclusion's (``max m-1`` against ``min m``; ``min M+1`` against ``max M``)
     decides nothing the inclusion does not: it is kept, marked rejected with a comment naming the inclusion
