@@ -13,7 +13,7 @@ from typing import Any
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from tb_common.authz import permit, role_allowed
-from tb_common.optout import is_erased
+from tb_common.erased import is_erased
 from tb_contracts import Job, JobCreate
 
 from console import about, actor, command

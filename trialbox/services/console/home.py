@@ -29,7 +29,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from tb_common.authz import NO_STANDING, Decision, conditional, study_bound
 from tb_common.authz import permit as permit_row
-from tb_common.optout import Gone, GoneOn
+from tb_common.erased import Gone, GoneOn
 from tb_common.service_auth import bind_session
 from tb_contracts import Job
 

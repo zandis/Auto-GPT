@@ -108,7 +108,7 @@ CLEARS: dict[str, Clear] = {
             f"{_W}:clear_screening_log",
             f"{_W}:verify_screening_log",
             "a never-consented patient's screening-log rows stay, numbered, under a random token; the PI's note and "
-            "the registry's reasons go; a trial subject's stay (OD-8, D-532, D-875)",
+            "the registry's reasons go; a trial subject's stay (OD-8, D-1032, D-875)",
         ),
         Clear(
             "setup_uploads",

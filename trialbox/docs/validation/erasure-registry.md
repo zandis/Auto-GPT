@@ -17,7 +17,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `owed_tables` | T-206b part 1 (D-798): the patient's rows in the site, team, PI feedback and derived tables go (the nightly derive skips an opted-out patient); a batch's failed list loses the pseudonym | `derived.batch_run`, `derived.conflict`, `derived.input_link`, `derived.score_row`, `orch.feedback`, `orch.judged_pairs`, `orch.submissions`, `site.contact_outcomes`, `site.excluded_review`, `sitesetup.fact`, `team.approach_overrides`, `team.candidate_views`, `team.referral_events`, `team.referrals`, `tuned.tuned_patients` |
 | `pid_pending` | the staged chart number and identity of the patient go; a later night stages them again (D-489) | `pidmap.pending` |
 | `profile` | ProfileStore.erase: every version of the twin (D-440) | `profile.tb_patient_profile` |
-| `screening_log` | a never-consented patient's screening-log rows stay, numbered, under a random token; the PI's note and the registry's reasons go; a trial subject's stay (OD-8, D-532, D-875) | `datacore.subject`, `orch.candidate_events`, `site.pi_marks`, `site.screening_no`, `site.weekly_seen` |
+| `screening_log` | a never-consented patient's screening-log rows stay, numbered, under a random token; the PI's note and the registry's reasons go; a trial subject's stay (OD-8, D-1032, D-875) | `datacore.subject`, `orch.candidate_events`, `site.pi_marks`, `site.screening_no`, `site.weekly_seen` |
 | `setup_uploads` | a patient's own upload to the site set-up (a chart) goes whole: rows, items, facts and files (D-869) | `sitesetup.check_item`, `sitesetup.fix`, `sitesetup.input` |
 | `vec` | VecStore.delete_patient: the chunks and every vector no other chunk uses (D-439) | `vec.embedding`, `vec.note_chunk` |
 

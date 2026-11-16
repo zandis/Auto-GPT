@@ -1,4 +1,4 @@
-"""ERASE-A2 (D-875, the owner's D-532): the screening log keeps its rows, not the patient.
+"""ERASE-A2 (D-875, the owner's D-1032): the screening log keeps its rows, not the patient.
 
 * a never-consented patient's rows in the screening log's five tables stay, numbered, under one random token per
   study that carries the site's day of the opt-out; the PI's note and the registry's reasons go; another patient's
@@ -273,7 +273,7 @@ def test_a_source_that_cannot_be_read_stops_the_clear(box: Any, monkeypatch: pyt
 
 
 def test_the_console_counts_a_token_as_opted_out() -> None:
-    from tb_common.optout import Gone, GoneOn, erased_token
+    from tb_common.erased import Gone, GoneOn, erased_token
 
     t = erased_token("2026-11-12")
     gone, on = Gone({A}), GoneOn({A: "2026-11-13"})

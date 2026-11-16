@@ -33,7 +33,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from tb_common.csvfile import for_spreadsheet
-from tb_common.optout import is_erased
+from tb_common.erased import is_erased
 
 from console import actor, s28
 from console.api_first import before_body, page_twin

@@ -1,4 +1,4 @@
-"""ERASE-A2 (D-875, the owner's D-532): the screening log keeps its rows, not the patient.
+"""ERASE-A2 (D-875, the owner's D-1032): the screening log keeps its rows, not the patient.
 
 A never-consented patient who opts out keeps every screening-log row and its number (D-762: the numbered row stays,
 and a deleted number would be given again to the next patient), and the rows lose the pseudonym: in each study the
@@ -6,7 +6,7 @@ patient's rows in ``site.screening_no``, ``site.weekly_seen``, ``site.pi_marks``
 ``orch.candidate_events`` take one random token (:func:`tb_common.optout.erased_token`, with the site's day of the
 opt-out, which the log shows), and the free text goes (the PI's note, the registry's reasons).
 
-A trial subject's rows stay (OD-8), per study, erring toward keeping (the definition of D-532). A study is a trial
+A trial subject's rows stay (OD-8), per study, erring toward keeping (the definition of D-1032). A study is a trial
 study of a patient when any of these shows consent for the patient or a chart merged with theirs (``pid_alias``,
 both ways) or one of their screening numbers in it:
 
@@ -27,7 +27,7 @@ from contextlib import ExitStack
 from datetime import datetime
 from typing import Any
 
-from tb_common.optout import erased_token
+from tb_common.erased import erased_token
 
 #: the registry statuses that mean consent was given (a later ``withdrawn`` or ``screen_fail`` needs the history)
 REGISTRY_CONSENT = ("consented", "enrolled")
