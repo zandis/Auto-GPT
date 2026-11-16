@@ -255,6 +255,7 @@ def test_cohort_and_alliance_merge(tmp_path: Path) -> None:
     """Phase 7 on compose: ``COHORT GOUT-COH`` on the root box (site A) -> alliance CSV, report PDF and the trial
     simulation for the three recruiting gout trials; site B's table (an in-process member box on the site-B export)
     arrives by email as ``COHORT MERGE`` from trialbox@hospb.test -> merged table with both sites."""
+    import codecs
     import csv
     from datetime import date
 
@@ -268,7 +269,10 @@ def test_cohort_and_alliance_merge(tmp_path: Path) -> None:
     done = wait_for(lambda m: is_job_mail(str(m["Subject"]), "done", str(job["job_id"])) and bool(attachments(m)), 1800)
     files = attachments(done)
     table = next(v for k, v in files.items() if k.startswith("cohort_table_GOUT-COH_DEMO-A_"))
-    rows = list(csv.DictReader(io.StringIO(table.decode("utf-8"))))
+    # OUT-cohort-bom (2026-11-13): a cohort table leaves the box with the UTF-8 mark (a spreadsheet on a Japanese or
+    # Chinese Windows reads it as UTF-8); read as a person's tool reads it, the mark is not part of the first column
+    assert table.startswith(codecs.BOM_UTF8)
+    rows = list(csv.DictReader(io.StringIO(table.decode("utf-8-sig"))))
     assert {r["quarter"] for r in rows} == {"2025Q4", "2026Q1", "2026Q2", "2026Q3"}
     wb = load_workbook(io.BytesIO(next(v for k, v in files.items() if k.startswith("trial_sim_"))))
     ncts = [r[0] for r in list(wb["trials"].iter_rows(values_only=True))[1:]]
@@ -303,7 +307,9 @@ def test_cohort_and_alliance_merge(tmp_path: Path) -> None:
     merge = _job_by_tag("COHORT", tag2)
     out = wait_for(lambda x: is_job_mail(str(x["Subject"]), "done", str(merge["job_id"])) and bool(attachments(x)), 600)
     assert "trialbox@hospb.test" in str(out["To"])
-    merged = list(csv.DictReader(io.StringIO(next(iter(attachments(out).values())).decode("utf-8"))))
+    merged_csv = next(iter(attachments(out).values()))
+    assert merged_csv.startswith(codecs.BOM_UTF8)  # the merged table carries the mark too
+    merged = list(csv.DictReader(io.StringIO(merged_csv.decode("utf-8-sig"))))
     pop = {r["site_id"]: r for r in merged if r["criterion_id"] == "GOUT-COH-INC-01" and r["quarter"] == "2026Q3"}
     assert set(pop) == {"DEMO-A", "DEMO-B", "ALLIANCE"}
     assert int(pop["ALLIANCE"]["n"]) == int(pop["DEMO-A"]["n"]) + int(pop["DEMO-B"]["n"])
