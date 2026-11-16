@@ -168,6 +168,9 @@ compiled external module). That is optional, on a machine that is allowed to hol
 server the person starts themselves. It is the wrong tool for the hospital's REDCap, and it must not be pointed
 at REDCap's source.
 
+What the EDC server now provides, and what is still open on this side, is
+[§14](14-edc-integration-handoff.md).
+
 ## Contract version 1 (D-916)
 
 The internal service's contract, section 20 of its architecture, is what this box implements. The record API is
