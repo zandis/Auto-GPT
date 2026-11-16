@@ -12,9 +12,9 @@ from typing import Any
 
 from tb_contracts import SendRequest
 
+from tests.unit.test_mail_resolve import MTA
 from tests.unit.test_the_outbox_asks_before_it_sends import (
     JOB,
-    MTA,
     A,
     Register,
     _gw,
