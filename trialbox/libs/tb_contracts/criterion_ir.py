@@ -247,6 +247,10 @@ class MedicationDetail(_Model):
 
 
 DiagnosisRole = Literal["primary", "principal", "admitting", "discharge", "secondary", "any"]
+#: FHIR Condition.clinicalStatus (D-917): the statuses a condition atom counts; a row recorded with another status
+#: makes the answer unknown, a row with no status counts as it always did
+ClinicalStatus = Literal["active", "recurrence", "relapse", "inactive", "remission", "resolved"]
+ACTIVE_STATUSES: tuple[ClinicalStatus, ...] = ("active", "recurrence", "relapse")
 
 
 class Atom(_Model):
@@ -270,6 +274,7 @@ class Atom(_Model):
     aggregate: Aggregate | None = None
     medication: MedicationDetail | None = None
     diagnosis_role: DiagnosisRole | None = None
+    clinical_status: list[ClinicalStatus] | None = None
 
     @model_validator(mode="after")
     def _shape(self) -> Atom:
@@ -285,6 +290,8 @@ class Atom(_Model):
             raise ValueError("an atom has either `change` or `aggregate`, not both")
         if self.diagnosis_role is not None and self.domain not in ("condition", "encounter", "claim"):
             raise ValueError("`diagnosis_role` applies to condition, encounter and claim atoms")
+        if self.clinical_status is not None and (self.domain != "condition" or not self.clinical_status):
+            raise ValueError("`clinical_status` is a non-empty list on condition atoms only")
         return self
 
 
@@ -446,7 +453,9 @@ V1_DERIVED_CALC: dict[str, str] = {
     "sdai": "sdai@1.0.0",  # D-189: catalogue rheum.sdai@1
 }
 _CALC_V1 = {v: k for k, v in V1_DERIVED_CALC.items()}
-_V1_ATOM_KEYS = ("domain", "valueset", "quantifier", "count", "value", "window", "duration", "age", "sex")
+_V1_ATOM_KEYS = (
+    "domain", "valueset", "quantifier", "count", "value", "window", "duration", "age", "sex", "clinical_status",
+)  # fmt: skip
 _V1_VALUE_KEYS = ("op", "num", "num2", "unit", "codes")
 _V1_WINDOW_KEYS = ("from_days", "to_days", "anchor")
 _V1_TOP_PASSTHROUGH = (

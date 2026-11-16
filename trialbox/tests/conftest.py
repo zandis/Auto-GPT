@@ -298,6 +298,7 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    _write_trace(session)  # NEW-STD-3
     if _RULESETS_AT_START is None or hasattr(session.config, "workerinput"):
         return
     from tests.rulesets_guard import describe, snapshot
@@ -352,6 +353,10 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     if bad:
         raise pytest.UsageError(f"@pytest.mark.req names unknown spec v4 requirement ids: {', '.join(bad)}")
     _mark_pure_modules(items)
+    for item in items:  # NEW-STD-3: what a test proves travels with its report (tools/traceability.py)
+        ids = sorted({str(i) for m in item.iter_markers("req") for i in m.args})
+        if ids:
+            item.user_properties.append(("req", " ".join(ids)))
     egress = pytest.mark.skip(reason="host egress test: run `make test-egress` as root with the stack up")
     for item in items:
         if item.get_closest_marker("egress") and os.environ.get("TB_EGRESS_TEST") != "1":
@@ -484,3 +489,31 @@ def orch_box(synth_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     from tests.orch_box import build
 
     return build(tmp_path / "orch-box", synth_dir, monkeypatch)
+
+
+# ------------------------------------------------------------------ NEW-STD-3: the run's traceability record
+_TRACE: dict[str, dict[str, str]] = {}
+
+
+def pytest_runtest_logreport(report: pytest.TestReport) -> None:
+    """With TB_TRACE_OUT set (``make test TRACE=FILE``), every test that declares what it proves (``req``) is recorded
+    with its result; under xdist the reports reach the controller, which writes the file once."""
+    if not os.environ.get("TB_TRACE_OUT"):
+        return
+    reqs = next((str(v) for k, v in report.user_properties if k == "req"), "")
+    if not reqs:
+        return
+    if report.when == "call" or (report.when == "setup" and not report.passed):
+        result = "failed" if report.failed else "skipped" if report.skipped else "passed"
+        _TRACE[report.nodeid] = {"test": report.nodeid, "result": result, "req": reqs}
+
+
+def _write_trace(session: pytest.Session) -> None:
+    out = os.environ.get("TB_TRACE_OUT")
+    if not out or hasattr(session.config, "workerinput"):  # an xdist worker: the controller writes
+        return
+    import json
+
+    rows = sorted(_TRACE.values(), key=lambda r: r["test"])
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    Path(out).write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")

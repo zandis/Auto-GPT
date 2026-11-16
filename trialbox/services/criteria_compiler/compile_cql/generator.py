@@ -248,17 +248,32 @@ class CqlGenerator:
                 raise CompileError(f"unsupported domain {atom.domain}")
         joiner = " " if retrieve.endswith(" and") else " where "
         un, qn = q("U_" + p), q("Q_" + p)
+        # D-917, as the SQL: a condition atom with ``clinical_status`` counts a row whose status (its first coded
+        # clinicalStatus, as the lake keeps it) is listed or missing; a row of another status only makes it unknown
+        statuses = atom.clinical_status if atom.domain == "condition" else None
+        status = "Lower(First(X.clinicalStatus.coding C where C.code.value is not null return C.code.value))"
+        listed_st = ", ".join(f"'{st}'" for st in statuses or ())
+        counted = f" and ({status} is null or {status} in {{ {listed_st} }})" if statuses else ""
         # an undated record cannot be placed in the window: unknown where the dated ones do not settle the atom, as
         # the SQL says (scenario run DUMP-01)
         defs = [
-            f"define {qn}:\n  {retrieve}{joiner}{date} in {win}",
+            f"define {qn}:\n  {retrieve}{joiner}{date} in {win}{counted}",
             f"define {un}:\n  {retrieve}{joiner}{date} is null",
         ]
         quant = atom.quantifier or "any"
+        unknown = [un]
+        if statuses:
+            sn = q("S_" + p)
+            defs.append(
+                f"define {sn}:\n  {retrieve}{joiner}{date} in {win} and {status} is not null "
+                f"and not ({status} in {{ {listed_st} }})"
+            )
+            unknown.append(sn)
         if quant == "count>=":
-            settled, reach = f"Count({qn}) >= {atom.count}", f"Count({qn}) + Count({un}) >= {atom.count}"
+            settled = f"Count({qn}) >= {atom.count}"
+            reach = " + ".join([f"Count({qn})", *(f"Count({x})" for x in unknown)]) + f" >= {atom.count}"
         else:
-            settled, reach = f"exists ({qn})", f"exists ({un})"
+            settled, reach = f"exists ({qn})", " or ".join(f"exists ({x})" for x in unknown)
         hit, miss = ("false", "true") if quant == "none" else ("true", "false")
         a = f"if {settled} then {hit} else if {reach} then null as Boolean else {miss}"
         ev = f"{qn} X return X.id + '|' + ToString({date})"
@@ -279,10 +294,11 @@ class CqlGenerator:
                 f"    and exists (({FAMILY_CODINGS[atom.domain][1]}) Cd where ({in_family}) "
                 f"and not (FHIRHelpers.ToCode(Cd) in {vs}))"
             )
+        unknown.append(q("UO_" + p))
         if quant == "count>=":
-            reach = f"Count({qn}) + Count({un}) + Count({q('UO_' + p)}) >= {atom.count}"
+            reach = " + ".join([f"Count({qn})", *(f"Count({x})" for x in unknown)]) + f" >= {atom.count}"
         else:
-            reach = f"exists ({un}) or exists ({q('UO_' + p)})"
+            reach = " or ".join(f"exists ({x})" for x in unknown)
         a = f"if {settled} then {hit} else if exists ({on}) then null as Boolean else if {reach} then null as Boolean else {miss}"
         ev = f"if exists ({qn}) then ({ev}) else ({on} X return X.id + '|' + ToString({date}))"
         return defs, a, ev

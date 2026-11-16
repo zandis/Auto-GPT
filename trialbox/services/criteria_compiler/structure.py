@@ -38,6 +38,20 @@ _PHASE = re.compile(
 # alternatives inside one line: one of, any of, either … or, いずれか, 任一, 之一
 _ANY = re.compile(r"\b(?:one|any)\s+of\b|\beither\b.+\bor\b|いずれか|任一|之一", re.I)
 # a lead-in of lines that are all required: it opens no group of alternatives
+# NEW-LIFE-18 (NCT02629159): a line that permits rather than requires ("subjects with prior exposure to one bDMARD
+# may be enrolled (up to 20 %)", "History of secondary Sjogren's Syndrome is permitted"). Made a required inclusion it
+# excludes every patient without it (most of them), silently; inside an exclusion it is an exception to it
+_PERMIT = re.compile(
+    r"\bmay\s+(?:also\s+)?(?:be\s+)?(?:enrolled|included|eligible|enter|participate)\b|\b(?:is|are)\s+(?:also\s+)?"
+    r"(?:permitted|allowed|acceptable)\b|\bup\s+to\s+\d+\s*%\s+of\b|組み入れ(?:可|ても(?:よい|良い))|可(?:以)?納入|得納入|允許",
+    re.I,
+)
+# a line for part of the study's population only ("… criteria - does not apply to safety cohort")
+_PART = re.compile(
+    r"\b(?:does|do)\s+not\s+apply\s+to\b|\bnot\s+applicable\s+(?:to|for)\b|\bapplies\s+only\s+to\b"
+    r"|\bonly\s+(?:for|in)\s+(?:the\s+)?\w+\s+(?:cohort|arm|part|sub-?study)\b|適用しない|適用外|不適用",
+    re.I,
+)
 _ALL = re.compile(r"\ball\b|\bmust\b|\bagree|すべて|全て|全部|所有|均須|皆須|均需", re.I)
 _LEAD = re.compile(r"[:：]\s*[.。]?\s*$")
 _CJK = re.compile(r"[\u3040-\u30ff\u4e00-\u9fff]")
@@ -52,6 +66,9 @@ MESSAGES = {
     "other_phase": "names another study phase, part, period or cohort (an extension, a rollover, a study already "
     "completed)",
     "second_section": "comes from a second {kind} section ({title}): another study phase or population",
+    "permission": "permits rather than requires (may be enrolled, is permitted, up to a share of the study): compiled "
+    "as a required criterion it would exclude every patient without it",
+    "part_population": "applies to part of the study's population only (does not apply to a cohort, an arm or a part)",
 }
 # what the reviewer is asked, by the first flag found in this order
 QUESTIONS = (
@@ -62,6 +79,10 @@ QUESTIONS = (
      "confirm it applies."),
     ("second_section", "This line comes from a second section (another phase or population): reject it for this "
      "screening, or confirm it applies."),
+    ("permission", "This line permits rather than requires: reject it as a criterion, or rewrite what it requires "
+     "(an exclusion's exception goes into the exclusion's own wording)."),
+    ("part_population", "This line applies to part of the population only: reject it for this screening, or confirm "
+     "it applies."),
     ("alternatives_in_line", "This line holds alternatives: rewrite it so that one of them is enough, or confirm."),
     ("group_member", "This line may be one of several alternatives: rewrite the group as one criterion, or confirm it "
      "is required on its own."),
@@ -153,6 +174,10 @@ def check(lines: Sequence[dict[str, Any]], doc_kind: str = "trial") -> Report:
             found.append(("alternatives_in_line", MESSAGES["alternatives_in_line"]))
         if _HEADING.search(text):
             found.append(("heading_in_line", MESSAGES["heading_in_line"]))
+        if _PERMIT.search(text):
+            found.append(("permission", MESSAGES["permission"]))
+        if _PART.search(text):
+            found.append(("part_population", MESSAGES["part_population"]))
         if _PHASE.search(text) or (section and _PHASE.search(section)):
             found.append(("other_phase", MESSAGES["other_phase"]))
         rep.findings += [Finding(i, flag, msg) for flag, msg in found]

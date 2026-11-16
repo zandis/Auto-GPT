@@ -374,6 +374,8 @@ def _open(url: str, schema: str) -> Any:
         return Database.connect(url, "derived")
     if schema == "mail":  # NEW-MAIL-1 (D-863): the outbox's held mail
         return Database.connect(url, "mail")
+    if schema == "sitesetup":  # ERASE-A1 (D-866): the site set-up's facts by pseudonym
+        return Database.connect(url, "sitesetup")
     raise ValueError(f"no owed table in store {schema!r}")
 
 
@@ -439,7 +441,21 @@ def _owed_tables(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str
                     out.update({k: int(v or 0) for k, v in _derived(tx, want, True).items()})
             else:
                 out.update(_derived(db, want, False))
+    out.update(_more_owed(pids, env, delete))
     return out
+
+
+def _more_owed(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, int]:
+    """ERASE-A1 (D-866): ``sitesetup.fact``, a fact read from an uploaded file, by pseudonym, goes. The site set-up
+    no longer writes one again (a re-read of the sheet, a chart: ``sitesetup.service.SiteSetup``)."""
+    url = str(env.register.db.url)
+    want = sorted(pids)
+    if not want or not store_has(url, "sitesetup", "fact"):
+        return {"sitesetup.fact": 0}
+    with _open(url, "sitesetup") as db:
+        if delete:
+            return {"sitesetup.fact": int(db.execute("DELETE FROM fact WHERE pid = ANY(?)", (want,)) or 0)}
+        return {"sitesetup.fact": int(db.fetchval("SELECT count(*) FROM fact WHERE pid = ANY(?)", (want,)))}
 
 
 def clear_tables(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:

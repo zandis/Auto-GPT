@@ -206,16 +206,32 @@ def derive_status(link: ProjectLink, vals: dict[str, str]) -> tuple[str | None, 
     return None, None
 
 
+GROUP_COLUMN = "redcap_data_access_group"
+
+
+def in_group(rows: list[dict[str, Any]], dag: str) -> tuple[list[dict[str, Any]], bool]:
+    """RC13-D (D-849): the rows of the link's data access group, and whether the token is a group user's. Such a
+    token's export holds its own group's records only and never the group column, even when asked for (REDCap 13.7);
+    its group is taken to be the link's, which the API cannot confirm to a group user. With the column, the rows of
+    other groups are left out as before."""
+    if not dag:
+        return rows, False
+    if rows and not any(GROUP_COLUMN in r for r in rows):
+        return rows, True
+    return [r for r in rows if str(r.get(GROUP_COLUMN) or "") == dag], False
+
+
 def read_back(link: ProjectLink, rows: list[dict[str, Any]], screening: dict[str, str], id_field: str) -> ReadBack:
     """Join exported rows (one per record and event) to pids through ``screening`` (screening number -> pid)."""
     screening = {k.strip().upper(): v for k, v in screening.items()}
     merged: dict[str, dict[str, str]] = {}
     dag_of: dict[str, str] = {}
+    bound = in_group(rows, link.dag)[1]  # RC13-D (D-849): a group user's export has no group column
     for row in rows:
         rid = str(row.get(id_field) or "")
         if not rid:
             continue
-        dag = str(row.get("redcap_data_access_group") or "")
+        dag = str(row.get(GROUP_COLUMN) or "") or (link.dag if bound else "")
         if dag:
             dag_of[rid] = dag
         vals = merged.setdefault(rid, {})

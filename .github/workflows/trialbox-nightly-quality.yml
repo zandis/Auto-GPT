@@ -2,8 +2,9 @@
 # coverage of the unit suite. Never on a pull request: the mutation run takes hours, and the pull-request
 # unit job already checks line coverage (trialbox-ci.yml, step "Coverage ratchet"). Every night and on demand.
 #
-# mutation: tools/mutation.py over the targets of tools/mutation.toml, in three shards; the `mutation-score` job adds
-#   them up and fails under the floor of the config (the target is 90 %). The JSON of every mutant is an artifact.
+# mutation: tools/mutation.py over the targets of tools/mutation.toml, in four shards (engine.py in two parts); the
+#   `mutation-score` job adds them up and fails under the floor of the config (the target is 90 %). The JSON of every
+#   mutant is an artifact.
 # branch-coverage: the unit suite with branches measured (the classic tracer: slower, so not on a pull request), in
 #   twelve shards (branch-coverage-shard, D-727), then combined and tools/coverage_ratchet.py with the branch figures:
 #   a package more than 0.5 point under its baseline, or a safety-core file under its floor, fails.
@@ -37,8 +38,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - shard: engine
-            targets: --target services/matching/cascade/engine.py
+          # ENG-006: engine.py alone ran out of the 200 minutes (114 mutants not run, 2026-11-15): two parts, every
+          # mutant in exactly one (tools/mutation.py --part)
+          - shard: engine-1
+            targets: --target services/matching/cascade/engine.py --part 1/2
+          - shard: engine-2
+            targets: --target services/matching/cascade/engine.py --part 2/2
           - shard: evaluate
             targets: --target services/orchestrator/scenarios/evaluate.py
           - shard: rules
@@ -105,7 +110,7 @@ jobs:
         run: |
           shopt -s nullglob
           reports=("$RUNNER_TEMP"/mutation/mutation-*.json)
-          test "${#reports[@]}" -eq 3 || { echo "expected 3 shard reports, found ${#reports[@]}"; exit 1; }
+          test "${#reports[@]}" -eq 4 || { echo "expected 4 shard reports, found ${#reports[@]}"; exit 1; }
           python3 -m tools.mutation --merge "${reports[@]}" --report "$RUNNER_TEMP/mutation.json"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: always()

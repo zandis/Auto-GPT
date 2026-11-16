@@ -42,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        run: [public-e2e, backup-drill, update-drill, perf-5k]
+        run: [public-e2e, backup-drill, update-drill, perf-5k, pure]
     name: ${{ matrix.run }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -89,6 +89,11 @@ jobs:
       - name: Update drill
         if: matrix.run == 'update-drill'
         run: TB_ENV=DEV PYTHONPATH=libs:services:. .venv/bin/python -m tools.update_drill --dir "$RUNNER_TEMP/update"
+      # T-653 (ENG-028): the pure tests with the server binaries pointing nowhere and no TB_TEST_DB_URL: a pure test that
+      # reaches for the database fails here (the runner's PostgreSQL is never started for them)
+      - name: Pure tests with no PostgreSQL
+        if: matrix.run == 'pure'
+        run: make test-pure PYTEST_N=auto
       - name: Performance gate (the stub at 5,000 patients against tools/bench_baseline.json)
         if: matrix.run == 'perf-5k'
         run: |
