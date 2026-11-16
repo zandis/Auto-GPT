@@ -673,17 +673,26 @@ function Step-Drive {
   Say "drive" @($script:TbDataRoot, $facts.FreeGB)
   Set-TbBitLocker   # before any data is put on the drive
 }
-function Confirm-TbRecoveryKey([string]$Drive, [string]$secret) {
+function Format-TbKeyId([string]$Id) {
+  # the key ID as Windows' BitLocker recovery screen shows it: the first eight characters of the protector's id, in
+  # capitals (NEW-WIN-14, D-617). An owner with two keys finds the one the screen asks for by it
+  $t = ($Id -replace "[{}]", "").ToUpper()
+  if ($t.Length -lt 8) { return "?" }
+  return $t.Substring(0, 8)
+}
+function Confirm-TbRecoveryKey([string]$Drive, [string]$secret, [string]$Id) {
   # The recovery key goes to the window, and to the printer when the owner says so. It is never written to the
-  # log, the state or any file. The owner types its last six digits back, then the window is cleared.
+  # log, the state or any file. The owner types its last six digits back, then the window is cleared. Its key ID
+  # (not a secret: it names which key) is shown, printed and logged with it.
   if ($secret -notmatch "^(\d{6}-){7}\d{6}$") { Stop-TbStep "recovery_unreadable" @($Drive) }
   if (Test-TbTranscription) { Stop-TbStep "transcription_on" @($Drive) }
-  Write-TbScreen (Get-TbText "recovery_show" @($Drive) $script:TbLang)
+  $kid = Format-TbKeyId $Id
+  Write-TbScreen (Get-TbText "recovery_show" @($Drive, $kid) $script:TbLang)
   Write-TbScreen ("        " + $secret)
   $printer = Get-TbDefaultPrinter
   if ($printer -and ([string](Read-TbLine (Get-TbText "recovery_print_ask" @($printer) $script:TbLang))).Trim() -match "^(y|yes)$") {
     try {
-      Send-TbToPrinter @((Get-TbText "recovery_show" @($Drive) $script:TbLang), "", ("    " + $secret))
+      Send-TbToPrinter @((Get-TbText "recovery_show" @($Drive, $kid) $script:TbLang), "", ("    " + $secret))
       Say "recovery_printed" @($printer)
     } catch { Say "recovery_print_failed" @([string]$_.Exception.Message) }
   }
@@ -696,7 +705,7 @@ function Confirm-TbRecoveryKey([string]$Drive, [string]$secret) {
     Write-TbScreen (Get-TbText "recovery_wrong" @() $script:TbLang)
   }
   Clear-TbScreen   # the key does not stay in a window on a desktop that staff share
-  Write-TbLog ("    recovery key of {0}: shown, confirmed by the owner (its last six digits typed back), the window cleared" -f $Drive)
+  Write-TbLog ("    recovery key of {0} (key ID {1}): shown, confirmed by the owner (its last six digits typed back), the window cleared" -f $Drive, $kid)
 }
 function Set-TbBitLocker {
   # NEW-WIN-8 (D-603): BitLocker on the system drive and the data drive, opened by the TPM. The order per drive is
@@ -729,7 +738,7 @@ function Set-TbBitLocker {
       $known = @(([string]$script:TbState.recovery_confirmed) -split "," | Where-Object { $_ })
       $mark = $drv + "=" + $rp.Id
       if ($known -notcontains $mark) {
-        Confirm-TbRecoveryKey $drv $rp.Password
+        Confirm-TbRecoveryKey $drv $rp.Password $rp.Id
         $script:TbState.recovery_confirmed = ((@($known | Where-Object { $_ -notlike ($drv + "=*") }) + $mark) -join ",")
         Save-TbState
       }

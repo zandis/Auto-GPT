@@ -418,13 +418,14 @@ def mapping_text(tz: str) -> str:
     )
 
 
-def hardening_conf(hw: Hardware) -> str:
+def hardening_conf(hw: Hardware, *, mdns: bool = False) -> str:
+    """``mdns``: the box answers its ``.local`` name (OPS-005): UDP 5353 from the box's network in the firewall."""
     backend = "tpm" if hw.tpm else "passphrase"
     ranges = hw.lan or "127.0.0.1/32"
     return (
         "# The box's host baseline (T-729, D-466): written by tools/box/plan.py from the detected hardware; the\n"
         "# IT-managed form (Tang, the clinic ranges from IT) is deploy/hardening/hardening.example.conf (T-634).\n"
-        f'CLINIC_RANGES="{ranges}"\nSSH=off\nIT_RANGES=""\n'
+        f'CLINIC_RANGES="{ranges}"\nSSH=off\nIT_RANGES=""\nMDNS={"on" if mdns else "off"}\n'
         f"KEK_BACKEND={backend}\n"
         'KEK_SHARES_OUT=""\nTANG_URLS=""\n'
     )
@@ -503,7 +504,8 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         "ctgov_mode": "offline",
         "env_extra": env,
     }
-    files = {"site/hardening.conf": hardening_conf(hw), f"site/{BOX_MAPPING}": mapping_text(a.tz)}
+    files = {"site/hardening.conf": hardening_conf(hw, mdns=a.hostname.endswith(".local")),
+             f"site/{BOX_MAPPING}": mapping_text(a.tz)}  # fmt: skip
     if not hw.tpm:
         warnings.append(
             "no usable TPM (systemd-creds has-tpm2): the site keys are sealed under a passphrase the owner "

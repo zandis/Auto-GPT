@@ -142,3 +142,40 @@ def test_the_p0_pages_and_the_checklist_take_windows_10_22h2_at_the_installers_o
     assert (
         '$script:TbProxyTask = "TrialBox-Console-Proxy"' in PS1 and '$script:TbFirewallRule = "TrialBox-Console"' in PS1
     )
+
+
+# NEW-WIN-14 (D-617): the page for the BitLocker recovery screen (plan section 2.3, replacing T-730's locked-box page)
+def test_the_recovery_screen_page_has_the_same_parts_in_three_languages_and_tells_how_to_find_the_key() -> None:
+    shapes = {}
+    for lang in LANGS:
+        text = (DOCS / f"windows-bitlocker-recovery.{lang}.md").read_text(encoding="utf-8")
+        assert check(text) == [], lang
+        assert re.search(r"(?m)^\*\*Reader:\*\* the box owner", text), lang
+        shapes[lang] = _shape(text)
+        for must in (
+            "BitLocker",
+            "key ID",
+            "F1",
+            "F10",
+            "WINDOWS-BACKUP-RESTORE.md",
+            f"windows-owner.{lang}.md",
+            "D-617",
+            # review: the blue screen is the system drive's; a data drive locks after sign-in; IT may hold its key
+            "C:",
+            "Active Directory",
+            "Entra",
+        ):
+            assert must in text, (lang, must)
+        # never told to turn the protection off to get past the screen, nor to send the key anywhere
+        for never in ("manage-bde -off", "Disable-BitLocker", "Suspend-BitLocker"):
+            assert never not in text, (lang, never)
+    assert shapes["en"] == shapes["ja"] == shapes["zh-TW"]
+
+
+def test_the_owners_pages_send_the_reader_to_the_recovery_screen_page_and_the_media_carries_it() -> None:
+    from tools import windows_media
+
+    for lang in LANGS:
+        owner = (DOCS / f"windows-owner.{lang}.md").read_text(encoding="utf-8")
+        assert f"windows-bitlocker-recovery.{lang}.md" in owner, lang
+        assert f"windows-bitlocker-recovery.{lang}.md" in windows_media.HANDOVER_DOCS
