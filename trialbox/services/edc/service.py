@@ -50,7 +50,7 @@ from edc import mapping, odm, prefill
 from edc.layout import Layout, Slot, split_visit
 from edc.logic import LogicError
 from edc.rows import Key, Rows, watched
-from edc.store import CHANGED_SAYS, EdcError, EdcStore
+from edc.store import CHANGED_SAYS, EdcError, EdcStore, said
 
 log = logging.getLogger("edc")
 
@@ -305,6 +305,7 @@ class EdcService:
             # EDC-010 (D-581): the reason and the citation's words go into the trail and the ODM file
             texts = [("reason", reason), *((f"citation {k}", str(v)) for k, v in (citation or {}).items())]
             for what, text in texts:
+                said(text, what)  # EDC-022 (D-854): too long is refused (audited), never cut
                 if forms.XML_ILLEGAL.search(text):
                     raise EdcError("edc.chars", f"the {what} holds a character that cannot be stored (a control "
                                    "character from pasted text)", 400)  # fmt: skip
