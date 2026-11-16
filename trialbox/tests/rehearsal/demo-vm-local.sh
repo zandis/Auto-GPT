@@ -55,7 +55,8 @@ printf %s "${TB_DEMO_VM_HOURS:-12}" > "$W/md/instance/attributes/tb-demo-hours"
 printf %s 'owner:investigator;guest:coordinator' > "$W/md/instance/attributes/tb-demo-people"
 printf %s 24 > "$W/md/instance/attributes/tb-demo-enrol-hours"
 printf %s gs://local/demo-vm > "$W/md/instance/attributes/tb-demo-handoff"
-printf %s ja > "$W/md/instance/attributes/tb-demo-lang"
+printf %s "${TB_DEMO_LANG:-ja}" > "$W/md/instance/attributes/tb-demo-lang"
+[ -z "${TB_DEMO_SITE_LANG:-}" ] || printf %s "$TB_DEMO_SITE_LANG" > "$W/md/instance/attributes/tb-demo-site-lang"
 cp "$BOOT" "$W/md/instance/attributes/startup-script"
 
 cat > "$W/bin/curl" <<EOS
@@ -129,8 +130,9 @@ hsts=$("$REAL_CURL" -s -D - -o /dev/null --cacert "$ROOT_CRT" https://127.0.0.1/
   && ok "the console listens on 127.0.0.1:8080 only" || bad "the console is not on 127.0.0.1:8080 only"
 # the people's codes: in the private object only, nothing left on the VM
 OBJ=$(ls "$W"/bucket/demo-vm/enrol-*.txt 2>/dev/null | tail -1 || true)
-[ -n "$OBJ" ] && grep -q '^owner (investigator): https://127.0.0.1/enrol ' "$OBJ" && grep -q '^guest (coordinator): ' "$OBJ" \
-  && ok "the one-time codes for owner and guest are in the private object ($(basename "$OBJ"))" || bad "no codes object"
+[ -n "$OBJ" ] && grep -q '^owner (investigator): https://127.0.0.1/enrol#u=owner&c=[a-z0-9-]*  ' "$OBJ" \
+  && grep -q '^guest (coordinator): https://127.0.0.1/enrol#u=guest&c=[a-z0-9-]*  ' "$OBJ" \
+  && ok "the one-time links (D-776) for owner and guest are in the private object ($(basename "$OBJ"))" || bad "no links object"
 [ ! -e /etc/tb-demo-vm/people.tsv ] && [ ! -e /etc/tb-demo-vm/handoff.txt ] \
   && ok "no file with the codes is left on the VM" || bad "a codes file is left in /etc/tb-demo-vm"
 (umask 077; sed -n 's/^.*  code: \([^ ]*\)  .*$/\1/p' "$OBJ" > "$W/codes")
@@ -140,7 +142,9 @@ sed -n 's/^TB_DEMO_PASSWORD=//p' /etc/tb-demo-vm/secret.env > "$W/seedpw"  # the
 if python3 - "$ROOT_CRT" "$OBJ" "$W/chosen" <<'PY'
 import http.client, re, ssl, sys, urllib.parse
 ctx = ssl.create_default_context(cafile=sys.argv[1])
-lines = {m.group(1): m.group(2) for m in re.finditer(r"^(\S+) \(\w+\): \S+  user name: \S+  code: (\S+)  ", open(sys.argv[2]).read(), re.M)}
+found = re.findall(r"^(\S+) \(\w+\): https://127\.0\.0\.1/enrol#u=(\S+)&c=(\S+)  user name: (\S+)  code: (\S+)  ", open(sys.argv[2]).read(), re.M)
+assert found and all(n == u == un and c == k for n, u, c, un, k in found), "a link does not carry its own name and code"
+lines = {n: c for n, _u, c, _un, _k in found}
 chosen = open(sys.argv[3]).read()
 def req(method, path, body=None, cookies=None, ctype="application/x-www-form-urlencoded"):
     c = http.client.HTTPSConnection("127.0.0.1", 443, context=ctx, timeout=30)
