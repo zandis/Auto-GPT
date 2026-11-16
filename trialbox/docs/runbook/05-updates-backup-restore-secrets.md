@@ -156,6 +156,19 @@ least the last two weeks:
    "--target=2026-11-08 14:05:00+09" --target-action=promote restore`, and start everything again. Then run
    `backup-nightly` so a new full chain starts.
 
+**Restore drill (T-730d, D-892).** Proof that the newest backup restores, without touching the box's data. Hospital
+IT brings the key from the envelope and types, on the box's host (the Operations page's backups tab shows this line
+with the newest file filled in): `sudo python3 -m tools.trialbox restore-drill <backup file> --key <the key>`. It
+checks free space first (the unpacked backup and scratch databases; it says how many GB it needs and starts nothing
+when short), opens the backup with the key and checks every file against its signed manifest, restores each
+database into a scratch database (`tb_drill_<id>_<name>`, never the live one), compares rows and content hashes
+with the manifest, and drops the scratch databases and the unpacked files, after a failure too. Exit 0 is a pass,
+1 a fail, 2 nothing started. The result (never the key or its path) is the box's key-check record and an audit
+event (`backup.restore_drill`): the health check's `backup_verified` turns red after `TB_HEALTH_VERIFIED_DAYS` (100)
+days without one, or at once on a failed drill until one passes, and a failed drill is a backup problem that goes
+through the alert route (mail, or the health page). Run it at least every 90 days, after hardware changes and before
+go-live acceptance (§6).
+
 **Restore.** Bring three things: the backup file, the private key (hospital IT) and **the vendor reference data
 pack** the backup names. A backup holds no vendor pack rows (layout 2, above), so a restore onto a fresh box is not
 whole without the pack (DATA-018). To see which pack: `trialbox backup-verify <file> --key <private key>` lists it
