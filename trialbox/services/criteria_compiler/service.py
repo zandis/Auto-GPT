@@ -20,7 +20,7 @@ from tb_common.config import site_tz
 from tb_common.derived import country_of, egfr_for_site
 from tb_common.fhir import FhirEvalError, FhirEvaluator, library_resource
 from tb_common.http import ServiceError
-from tb_common.llm import LlmClient, LlmError
+from tb_common.llm import LlmClient, LlmError, LlmUpstreamFailed
 from tb_common.objstore import ObjectStore
 from tb_common.phi_guard import PhiScan, scan, variables_text
 from tb_common.ruleset import Ruleset
@@ -134,18 +134,7 @@ def lines_per_part(max_tokens: int | None = None, read_s: float | None = None) -
     return max(1, min(by_tokens, by_time))
 
 
-SLOW = ("upstream_failed", "timed out")  # an answer the gateway cut or gave up waiting for (G4): asked in halves
 MAX_HALVINGS = 2
-
-
-def too_slow(exc: BaseException) -> bool:
-    """A refusal a shorter part can avoid: the gateway's ``upstream_failed`` (a read timeout, an answer past the cap)
-    or the caller's own timeout; never a model that is down, a prompt too long or unqualified."""
-    from tb_common.llm import LlmModelFault, LlmPromptTooLong, LlmPromptUnqualified
-
-    if isinstance(exc, LlmModelFault | LlmPromptTooLong | LlmPromptUnqualified):
-        return False
-    return any(s in str(exc) for s in SLOW)
 
 
 def extraction_parts(lines: list[dict[str, Any]], size: int) -> list[tuple[int, list[dict[str, Any]]]]:
@@ -420,18 +409,19 @@ class Compiler:
         where: str,
         depth: int = 0,
     ) -> list[Any]:
-        """G4 of the P1b review (D-…): a part the gateway gave up on (``too_slow``) is asked again as two halves, each
-        a smaller answer, at most :data:`MAX_HALVINGS` times deep; any other failure, or a single line, fails as
-        before. The halves are cut where :func:`extraction_parts` would cut (a line never apart from the lines under
-        it); the answers are matched to their lines by text afterwards (D-912), so their order does not matter."""
+        """G4 of the P1b review (D-981): a part the gateway gave up on (``LlmUpstreamFailed``) is asked again as two
+        halves, each a smaller answer, at most :data:`MAX_HALVINGS` times deep; any other failure, or a single line,
+        fails as before. The halves are cut where :func:`extraction_parts` would cut (a line never apart from the
+        lines under it); the answers are matched to their lines by text afterwards (D-912)."""
         try:
             return self._ask_extract(job_id, ruleset, language, part, guard, where)
         except CompileFailed as exc:
-            cause = exc.__cause__
+            # by the cause's type (D-651: never its text): the gateway gave up on the answer, a shorter one may do
             halves = extraction_parts(part, max(1, (len(part) + 1) // 2)) if len(part) > 1 else []
-            if cause is None or not too_slow(cause) or depth >= MAX_HALVINGS or len(halves) < 2:
+            if not isinstance(exc.__cause__, LlmUpstreamFailed) or depth >= MAX_HALVINGS or len(halves) < 2:
                 raise
-            log.warning("ir_extract%s: %s; asking it again in %d parts", where, cause, len(halves))
+            log.warning("ir_extract%s: the gateway gave up on the answer; asking it again in %d parts", where,
+                        len(halves))  # fmt: skip
             out: list[Any] = []
             for _, half in halves:
                 out.extend(self._ask_in_halves(job_id, ruleset, language, half, guard, where, depth + 1))
