@@ -10,3 +10,7 @@
 The data is the public SIGIR 2016 set (NCBI TrialGPT; see `eval/criterion_ml/LICENSE.NCBI`) and protocol text from
 ClinicalTrials.gov. It holds no hospital data. This branch is a hand-over between sessions and is never merged;
 fixtures made from it go into `tests/` in the usual small form.
+
+`jmed.tgz` is the same for the jmed set of the same run. Its patients are synthetic: JMED-Personas-100k by Sociocom
+(NAIST), `huggingface.co/datasets/sociocom/JMED-Personas`, licensed CC BY 4.0. Keep that attribution with any
+fixture made from it.
