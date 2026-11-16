@@ -413,8 +413,8 @@ TABLES: dict[str, Entry] = {
 # ------------------------------------------------------------------------------------------------ the lake
 # D-513 (the owner, 2026-11-15): the kept snapshots are not rebuilt; they are withheld on read and kept until
 # retention rewrites them. Every job's patient scope drops an opted-out pseudonym at receipt and again at publish,
-# audited by count (D-441); still owed: the criteria compiler's equivalence sample and a direct call of the lake's
-# /query (T-206b part 2b)
+# audited by count (D-441); still owed (D-862): the criteria compiler's equivalence sample and a direct call of the
+# lake's /query
 _SNAPSHOTS = (
     "withheld on read by every job's scope (D-441, D-860); still read whole: the criteria compiler's "
     "equivalence sample (every patient) and a direct call of the lake's /query (D-862)"
