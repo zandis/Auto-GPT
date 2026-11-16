@@ -64,6 +64,20 @@ restic does the incremental backup, on these conditions:
     fixed and tested.
   - Who runs it: R3 calls `restic-key` from the nightly's host step before the first incremental backup, and mounts
     `/run/trialbox:ro` in the backup container so that `password()` can open the key there.
+- **R3a, the restic runner (landed: `agent/PERF-010-R3a-the-restic-runner`).** `restic_repo.Repo` is one
+  repository, `<target>/trialbox-restic`, under the box's password:
+  - `ensure()` makes it when the target has none and refuses one that the box's password does not open (exit 12).
+  - `ensure(like=first)` makes each other target's repository with the first's chunker parameters
+    (`init --from-repo --copy-chunker-params`), so `restic copy` deduplicates them the same.
+  - `backup()` takes exactly the listed files (`--files-from-verbatim`, from the lake's root) and returns the
+    snapshot id. An incomplete snapshot (exit 3: a listed file could not be read) fails it.
+  - `copy_from()`, `forget(keep=N)`, `prune()`, `snapshot_ids()` and `restore()` do what their names say.
+    `restored_root()` says where a restore puts the files, since restic keeps absolute paths.
+  - The password reaches restic through `restic_env()` only. It is never in an argument list, and an error message
+    has it replaced if restic ever echoed it.
+  - The command is `TB_RESTIC` (default `restic`, the image's pinned binary).
+  - The tests use a stand-in (`tests/fixtures/restic/fake_restic.py`) with restic's subcommands and exit codes; the
+    real binary runs in the box rehearsal (R4).
 - **R3, the lake goes to restic.**
   - The lake's Parquet and DuckDB files go to `<target>/trialbox-restic/`. The other targets are filled with
     `restic copy`.
@@ -101,3 +115,14 @@ R2: `tests/unit/test_restic_password.py`:
 - another key is refused and the copy kept;
 - a link at the final or the old temporary name is never written through;
 - the support bundle redacts the name.
+
+R3a: `tests/unit/test_restic_runner.py`:
+- a new target gets a repository and a second run keeps it;
+- a repository under another password is refused, and the error names no password;
+- backup takes exactly the listed files and restores them;
+- a vanished file fails the backup;
+- the other targets are copies made with the first's chunker;
+- forget keeps the newest;
+- the password is never in an argument list;
+- outside restic settings choose nothing;
+- a missing restic is said plainly.

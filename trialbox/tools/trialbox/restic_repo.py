@@ -26,6 +26,7 @@ import json
 import os
 import secrets
 import stat
+import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -164,3 +165,125 @@ def open_from_target(target: Path, share_texts: list[str]) -> str:
     if not hmac.compare_digest(str(wrapped.get("kek_id")), K.kek_id(kek)):
         raise ResticKeyError("the wrapped key on the target is not under the KEK the shares give")
     return K.unwrap(kek, wrapped, KEY).hex()
+
+
+# ------------------------------------------------------------------------------------------------ the runner (R3a)
+
+#: the restic command (the image's /usr/local/bin/restic, pinned in R1); a command line for the tests' stand-in
+CMD_ENV = "TB_RESTIC"
+#: the repository's folder on a backup target, beside the escrow file
+REPO_DIR = "trialbox-restic"
+LAKE_TAG = "lake"
+#: restic's exit codes (0.19): 3 a snapshot was made but some files could not be read; 10 no repository; 12 the
+#: password does not open the repository
+INCOMPLETE, NO_REPO, WRONG_PASSWORD = 3, 10, 12
+TIMEOUT_S = 6 * 3600  # one restic step at most: a first lake copy of tens of GB to a slow share, with room
+
+
+class ResticError(RuntimeError):
+    """A restic step failed: the message says which step and restic's own last words, never the password."""
+
+
+def _cmd(env: Mapping[str, str]) -> list[str]:
+    import shlex
+
+    return shlex.split(env.get(CMD_ENV) or "restic")
+
+
+def restored_root(into: Path, root: Path) -> Path:
+    """Where ``restore --target into`` puts the files backed up from ``root``: restic keeps their absolute path."""
+    return into / str(root.resolve()).lstrip("/")
+
+
+class Repo:
+    """One restic repository (``<target>/trialbox-restic``) under the box's password."""
+
+    def __init__(self, path: Path, pw: str, env: Mapping[str, str] | None = None) -> None:
+        self.path = path
+        self._pw = pw
+        self._base = dict(os.environ if env is None else env)
+
+    def __repr__(self) -> str:  # never the password
+        return f"Repo({self.path})"
+
+    def _run(self, args: list[str], *, what: str, cwd: Path | None = None, extra: Mapping[str, str] | None = None,
+             ok: tuple[int, ...] = (0,)) -> subprocess.CompletedProcess[str]:  # fmt: skip
+        env = restic_env(self._pw, self._base)
+        env.update(extra or {})
+        argv = [*_cmd(self._base), "-r", str(self.path), *args]
+        try:
+            r = subprocess.run(argv, env=env, cwd=cwd, capture_output=True, text=True, timeout=TIMEOUT_S, check=False)
+        except FileNotFoundError:
+            raise ResticError(
+                f"restic is not on this machine ({argv[0]}): the backup image carries it (D-968)"
+            ) from None
+        except subprocess.TimeoutExpired:
+            raise ResticError(f"restic {what} took over {TIMEOUT_S // 3600} h and was stopped") from None
+        if r.returncode not in ok:
+            tail = (r.stderr or r.stdout).strip().splitlines()[-1:] or [""]
+            raise ResticError(f"restic {what} failed (exit {r.returncode}): {tail[0]}".replace(self._pw, "[redacted]"))
+        return r
+
+    def ensure(self, like: Repo | None = None) -> bool:
+        """Make the repository when the target has none; whether one was made. One the box's password does not open
+        is refused. ``like``: the first target's repository, whose chunker parameters a copy repository takes."""
+        r = self._run(["cat", "config"], what="open", ok=(0, NO_REPO, WRONG_PASSWORD))
+        if r.returncode == WRONG_PASSWORD:
+            raise ResticError(
+                f"{self.path} is a restic repository under another password: it is not this box's (nothing written)"
+            )
+        if r.returncode == 0:
+            return False
+        args = ["init"]
+        extra: dict[str, str] = {}
+        if like is not None:
+            args += ["--from-repo", str(like.path), "--copy-chunker-params"]
+            extra["RESTIC_FROM_PASSWORD"] = like._pw
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._run(args, what="init", extra=extra)
+        return True
+
+    def backup(self, root: Path, files: list[str], *, tag: str) -> str:
+        """Back up exactly ``files`` (paths under ``root``); the new snapshot's id. A file restic could not read
+        fails the backup: an incomplete snapshot is not a backup."""
+        import tempfile
+
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".list", delete=False) as fh:
+            fh.write("".join(f"{f}\n" for f in files))
+            listing = fh.name
+        try:
+            r = self._run(["backup", "--files-from-verbatim", listing, "--tag", tag, "--host", "trialbox", "--json"],
+                          what="backup", cwd=root, ok=(0, INCOMPLETE))  # fmt: skip
+        finally:
+            os.unlink(listing)
+        sid = ""
+        for line in r.stdout.splitlines():
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(msg, dict) and msg.get("message_type") == "summary":
+                sid = str(msg.get("snapshot_id") or "")
+        if r.returncode == INCOMPLETE:
+            raise ResticError(f"restic backup was incomplete: a listed file could not be read (snapshot {sid[:8]})")
+        if not sid:
+            raise ResticError("restic backup gave no snapshot id")
+        return sid
+
+    def copy_from(self, src: Repo, snapshot: str) -> None:
+        self._run(["copy", "--from-repo", str(src.path), snapshot], what="copy",
+                  extra={"RESTIC_FROM_PASSWORD": src._pw})  # fmt: skip
+
+    def forget(self, *, keep: int, tag: str) -> None:
+        self._run(["forget", "--tag", tag, "--keep-last", str(keep)], what="forget")
+
+    def prune(self) -> None:
+        self._run(["prune"], what="prune")
+
+    def snapshot_ids(self) -> list[str]:
+        r = self._run(["snapshots", "--json"], what="snapshots")
+        return [str(s["id"]) for s in json.loads(r.stdout or "[]")]
+
+    def restore(self, snapshot: str, into: Path) -> None:
+        into.mkdir(parents=True, exist_ok=True)
+        self._run(["restore", snapshot, "--target", str(into)], what="restore")
