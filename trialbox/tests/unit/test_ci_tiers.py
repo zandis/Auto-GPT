@@ -85,22 +85,54 @@ def test_unit_is_skipped_on_a_draft_and_never_success() -> None:
     assert 'needs.unit-shard.result }}" != "success"' in first and "exit 1" in first  # skipped shards are not a pass
 
 
-def _full(event: str, draft: str, head_ref: str, tmp_path: Path, proved: str = "", docs_only: str = "") -> str:
-    """Run the `changes` job's tier step as the runner would, with the values it reads."""
-    step = next(s for s in _wf(CI)["jobs"]["changes"]["steps"] if s.get("id") == "tier")
+def _full(
+    event: str,
+    draft: str,
+    head_ref: str,
+    tmp_path: Path,
+    proved: str = "",
+    docs_only: str = "",
+    *,
+    card_tier: str | None = None,
+    changed: tuple[str, ...] = (),
+    labels: tuple[str, ...] = (),
+    gh_fails: bool = False,
+    out_key: str = "full",
+) -> str:
+    """Run the `changes` job's tier step as the runner would, with the values it reads (D-970: the labels from a
+    stand-in ``gh``, the changed paths from ``$RUNNER_TEMP/changed``, ``CARD_TIER`` from the workflow's env unless
+    given)."""
+    doc = _wf(CI)
+    step = next(s for s in doc["jobs"]["changes"]["steps"] if s.get("id") == "tier")
     assert step["env"] == {
         "EVENT": "${{ github.event_name }}",
         "DRAFT": "${{ github.event.pull_request.draft }}",
         "HEAD_REF": "${{ github.head_ref }}",
         "PROVED": "${{ steps.proved.outputs.proved }}",
         "DOCS_ONLY": "${{ steps.diff.outputs.docs_only }}",
+        "PR": "${{ github.event.pull_request.number }}",
+        "REPO": "${{ github.repository }}",
+        "GH_TOKEN": "${{ github.token }}",
     }  # values reach the script through the environment, never pasted into it
     out = tmp_path / "out"
     out.write_text("", encoding="utf-8")
+    runner = tmp_path / "runner"
+    runner.mkdir(exist_ok=True)
+    if changed:
+        (runner / "changed").write_text("".join(f"{p}\n" for p in changed), encoding="utf-8")
+    bindir = tmp_path / "bin"
+    bindir.mkdir(exist_ok=True)
+    gh = bindir / "gh"
+    body = "exit 1" if gh_fails else "".join(f"echo '{x}'\n" for x in labels)
+    gh.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
+    gh.chmod(0o755)
     env = {"EVENT": event, "DRAFT": draft, "HEAD_REF": head_ref, "PROVED": proved, "DOCS_ONLY": docs_only,
-           "GITHUB_OUTPUT": str(out), "PATH": "/usr/bin:/bin"}  # fmt: skip
-    subprocess.run(["bash", "-euo", "pipefail", "-c", step["run"]], env=env, check=True, capture_output=True)
-    return dict(ln.split("=", 1) for ln in out.read_text(encoding="utf-8").split())["full"]
+           "PR": "7", "REPO": "o/r", "GH_TOKEN": "x", "RUNNER_TEMP": str(runner),
+           "CARD_TIER": doc["env"]["CARD_TIER"] if card_tier is None else card_tier,
+           "GITHUB_OUTPUT": str(out), "PATH": f"{bindir}:/usr/bin:/bin"}  # fmt: skip
+    subprocess.run(["bash", "-euo", "pipefail", "-c", step["run"]], env=env, check=True, capture_output=True,
+                   cwd=ROOT.parent)  # fmt: skip
+    return dict(ln.split("=", 1) for ln in out.read_text(encoding="utf-8").split())[out_key]
 
 
 @pytest.mark.parametrize(
@@ -115,7 +147,11 @@ def _full(event: str, draft: str, head_ref: str, tmp_path: Path, proved: str = "
     ],
 )
 def test_the_tier_of_a_run(event: str, draft: str, head_ref: str, full: str, tmp_path: Path) -> None:
-    assert _full(event, draft, head_ref, tmp_path) == full
+    """D-564's rule, which CARD_TIER=touched (D-970's revert of the trial) keeps for a card's change to a service."""
+    assert (
+        _full(event, draft, head_ref, tmp_path, card_tier="touched", changed=("trialbox/services/lake/build.py",))
+        == full
+    )
 
 
 @pytest.mark.parametrize(
@@ -131,7 +167,7 @@ def test_the_tier_of_a_run(event: str, draft: str, head_ref: str, full: str, tmp
 def test_a_master_push_at_a_proved_tree_runs_the_fast_tier(
     event: str, draft: str, head_ref: str, proved: str, full: str, tmp_path: Path
 ) -> None:
-    assert _full(event, draft, head_ref, tmp_path, proved) == full
+    assert _full(event, draft, head_ref, tmp_path, proved, card_tier="touched") == full
 
 
 @pytest.mark.parametrize(
@@ -147,7 +183,7 @@ def test_a_master_push_at_a_proved_tree_runs_the_fast_tier(
 def test_a_docs_only_card_runs_the_fast_tier(
     event: str, draft: str, head_ref: str, docs_only: str, full: str, tmp_path: Path
 ) -> None:
-    assert _full(event, draft, head_ref, tmp_path, docs_only=docs_only) == full
+    assert _full(event, draft, head_ref, tmp_path, docs_only=docs_only, card_tier="touched") == full
 
 
 def test_the_proved_rule_asks_for_every_full_tier_job() -> None:
@@ -275,3 +311,67 @@ def test_the_shards_limit_is_the_measured_one() -> None:
     assert job["timeout-minutes"] == 40
     block = text[: text.index("    timeout-minutes: 40\n")].rsplit("unit-shard:", 1)[1]
     assert "24.8" in block and "1.5" in block  # the derivation stays beside the number (OD-10)
+
+
+CARD = ("pull_request", "false", "agent/T-1-a-card")
+
+
+def test_the_workflow_runs_the_trial_of_e() -> None:
+    """D-970: the one line the integrator changes to revert the trial."""
+    assert _wf(CI)["env"]["CARD_TIER"] == "fast"
+
+
+@pytest.mark.parametrize(
+    ("changed", "labels", "full"),
+    [
+        (("trialbox/services/lake/build.py",), (), "false"),  # E: a card on no full-tier path runs the fast tier
+        (("trialbox/services/matching/engine.py",), (), "true"),  # decides about a patient
+        (("trialbox/services/lake/build.py", "trialbox/services/adapter/x.py"), (), "true"),  # one is enough
+        (("trialbox/services/lake/sqlguard.py",), (), "true"),  # which rows a query may return
+        (("trialbox/services/lake/build.py",), ("ci:full",), "true"),  # the label forces it
+        (("trialbox/services/lake/build.py",), ("bug", "ci:fullish"), "false"),  # only that exact label
+    ],
+)
+def test_a_card_runs_the_fast_tier_unless_on_the_list_or_labelled(
+    changed: tuple[str, ...], labels: tuple[str, ...], full: str, tmp_path: Path
+) -> None:
+    assert _full(*CARD, tmp_path, changed=changed, labels=labels) == full
+
+
+def test_labels_that_cannot_be_read_mean_the_full_tier(tmp_path: Path) -> None:
+    assert _full(*CARD, tmp_path, changed=("trialbox/services/lake/build.py",), gh_fails=True) == "true"
+
+
+def test_a_train_and_master_run_everything_on_the_trial(tmp_path: Path) -> None:
+    assert _full("pull_request", "false", "train/9", tmp_path, changed=("trialbox/services/lake/build.py",)) == "true"
+    assert _full("push", "", "", tmp_path) == "true"
+    assert _full("pull_request", "true", "train/9", tmp_path, out_key="scenarios") == "true"
+
+
+def test_a_draft_runs_the_fast_tier_unless_labelled(tmp_path: Path) -> None:
+    on_list = ("trialbox/services/matching/engine.py",)
+    assert _full("pull_request", "true", "agent/T-1-a-card", tmp_path, changed=on_list) == "false"
+    assert _full("pull_request", "true", "agent/T-1-a-card", tmp_path, changed=on_list, labels=("ci:full",)) == "true"
+
+
+@pytest.mark.parametrize(
+    ("changed", "scenarios"),
+    [
+        (("trialbox/deploy/install.sh", "trialbox/tools/make_bundle.sh"), "false"),  # D: no scenario jobs
+        ((".github/workflows/trialbox-e2e.yml",), "false"),
+        (("trialbox/deploy/install.sh", "trialbox/services/lake/build.py"), "true"),
+        (("trialbox/tools/keys.py",), "true"),  # on the full-tier list: everything
+    ],
+)
+def test_touched_skips_the_scenario_jobs_for_deploy_and_tools_only(
+    changed: tuple[str, ...], scenarios: str, tmp_path: Path
+) -> None:
+    assert _full(*CARD, tmp_path, card_tier="touched", changed=changed) == "true"
+    assert _full(*CARD, tmp_path, card_tier="touched", changed=changed, out_key="scenarios") == scenarios
+
+
+def test_the_scenario_jobs_wait_for_their_own_output() -> None:
+    jobs = _wf(CI)["jobs"]
+    for name in ("goldens", "e2e-simple", "demo-boot"):
+        assert "needs.changes.outputs.scenarios == 'true'" in str(jobs[name]["if"]), name
+    assert _wf(CI)["jobs"]["changes"]["outputs"]["scenarios"] == "${{ steps.tier.outputs.scenarios }}"
