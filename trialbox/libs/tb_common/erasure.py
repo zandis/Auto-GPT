@@ -98,6 +98,12 @@ CLEARS: dict[str, Clear] = {
             "the staged chart number and identity of the patient go; a later night stages them again (D-489)",
         ),
         Clear(
+            "held_mail",
+            f"{_W}:clear_held_mail",
+            f"{_W}:verify_held_mail",
+            "a held mail carrying an opted-out patient's own file is dropped: its request and recipients go (D-863)",
+        ),
+        Clear(
             "owed_tables",
             f"{_W}:clear_tables",
             f"{_W}:verify_tables",
@@ -211,7 +217,12 @@ TABLES: dict[str, Entry] = {
     **_each("sitesetup", ("local_code", "setting"), _CONFIG),
     "sitesetup.published": _none("a publish: when, snapshot, digest, counts"),
     "mail.intake": _none("a mail received: sender, action, job"),
-    "mail.send_keys": _owed("the outbox's send request while queued (attachments by key, recipients)"),
+    "mail.send_keys": _erase(
+        "held_mail",
+        "the outbox's send request while queued (attachments by key, a per-patient file's name, recipients)",
+        "a queued, uncertain or held mail of lists: its files are asked about before each send (D-863), its row stays "
+        "until a person or the send ends it; only a held mail of the patient's own file is dropped",
+    ),
     "mail.sent": _none("a mail sent: subject, recipients, tag"),
     **_each(
         "library",
@@ -451,8 +462,9 @@ LAKE: dict[str, Entry] = {
 OBJECTS: dict[str, Entry] = {
     "objects:outputs": _owed(
         "job outputs: candidate and excluded lists, micro-batch pids (365 days); withheld on read (D-513, D-860): the "
-        "console's pages and downloads (a per-patient file by its patient), a submission and a feedback row",
-        "the mail of a job's outputs reads them at publish only (T-206b part 2b checks the rest)",
+        "console's pages and downloads (a per-patient file by its patient), a submission and a feedback row; the mail "
+        "outbox asks before each send (D-863)",
+        "kept until retention (D-513): other patients' pages read the same files, so no clear deletes them",
     ),
     "objects:attachments": _owed(
         "files mailed or uploaded to a job (consent forms, review sheets, case requests)",
