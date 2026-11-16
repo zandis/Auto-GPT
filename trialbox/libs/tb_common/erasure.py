@@ -306,7 +306,7 @@ TABLES: dict[str, Entry] = {
     "team.candidate_views": _erase(
         "owed_tables",
         "a cross-department view of a candidate: the row stays for the reveal cap and for who saw an identity, its "
-        "pseudonym becomes a random token (D-868; the patient's disclosure report reads the audit log, D-771)",
+        "pseudonym becomes a random token, unlinked in this table; the kept audit log keeps the link (D-868, D-771)",
     ),
     "team.referrals": _erase("owed_tables", "a referral of a patient, by pseudonym"),
     "team.referral_events": _erase("owed_tables", "a referral's events, by pseudonym"),
@@ -338,7 +338,7 @@ TABLES: dict[str, Entry] = {
     "tuned.tuned_patients": _erase(
         "owed_tables",
         "the weekly PI sample of patients not matched: the row stays so a reviewed week is never drawn again, its "
-        "pseudonym becomes a random token, counted as removed on the page (D-868)",
+        "pseudonym becomes a random token and the PI's note goes; counted as removed on the page (D-868)",
     ),
     "tuned.not_matched_check": _none("the site's check of the sample: who, when, a note"),
     "vec.note_chunk": _erase("vec", "the masked chunks of a patient's notes"),

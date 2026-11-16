@@ -348,15 +348,16 @@ OWED_TABLES: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
          "DELETE FROM referral_events WHERE pid = ANY(?)"),
         ("referrals", "SELECT count(*) FROM referrals WHERE pid = ANY(?)", "DELETE FROM referrals WHERE pid = ANY(?)"),
         # ERASE-C (D-868): the reveal cap counts a person's rows and they say who saw an identity, so each row stays
-        # and its pseudonym becomes a random token (the patient's disclosure report reads the audit log, D-771)
+        # and its pseudonym becomes a random token: unlinked in this table; the kept audit log keeps the link (D-771)
         ("candidate_views", "SELECT count(*) FROM candidate_views WHERE pid = ANY(?)",
          "UPDATE candidate_views SET pid = 'erased:' || gen_random_uuid() WHERE pid = ANY(?)"),
     )),
     ("tuned", (
         # ERASE-C (D-868): a reviewed week's sample keeps its size (it is never drawn again for the week); the row's
-        # pseudonym becomes a random token, which the not-matched page counts as removed
+        # pseudonym becomes a random token, which the not-matched page counts as removed, and the PI's free-text note
+        # goes (the review of D-868: its copy in site.excluded_review is deleted by the same clear)
         ("tuned_patients", "SELECT count(*) FROM tuned_patients WHERE pid = ANY(?)",
-         "UPDATE tuned_patients SET pid = 'erased:' || gen_random_uuid() WHERE pid = ANY(?)"),
+         "UPDATE tuned_patients SET pid = 'erased:' || gen_random_uuid(), note = NULL WHERE pid = ANY(?)"),
     )),
     ("orch", (
         ("feedback", "SELECT count(*) FROM feedback WHERE pid = ANY(?)", "DELETE FROM feedback WHERE pid = ANY(?)"),

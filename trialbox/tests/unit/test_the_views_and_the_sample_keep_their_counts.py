@@ -53,8 +53,10 @@ def test_a_reviewed_weeks_sample_keeps_its_size_and_the_page_counts_the_row_remo
     got, drawn = sample_week(store, "GZQO", "2026-W47", doc, job_id="J1", snapshot="s", gone=(), by="pi",
                              at="2026-11-16T09:00:00+00:00")  # fmt: skip
     assert drawn and {t.pid for t in got} == {A, C}
+    store.db.execute("UPDATE tuned_patients SET note = 'synthetic note' WHERE pid = ?", (A,))
     env = _env(db_url)
     assert clear_tables(frozenset({A}), env)["tuned.tuned_patients"] == 1
+    assert store.db.fetchval("SELECT count(*) FROM tuned_patients WHERE note IS NOT NULL") == 0  # the PI's note goes
     assert verify_tables(frozenset({A}), env)["tuned.tuned_patients"] == 0
     again, drawn = sample_week(store, "GZQO", "2026-W47", doc, job_id="J1", snapshot="s", gone=(A,), by="pi",
                                at="2026-11-16T10:00:00+00:00")  # fmt: skip
