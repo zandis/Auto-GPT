@@ -3,7 +3,8 @@
 
 It holds fingerprints and names only, never a key, a share or a passphrase: each wrapped key's fingerprint, the KEK's
 back end and id (for shamir the threshold, the count and which custodian took which share, with each share file's
-fingerprint when the files are given), the backup key's fingerprint, the box, the release and the date, and a
+fingerprint when the files are given; for a TPM box its escrow set, D-894, with each share's custodian and
+fingerprint), the backup key's fingerprint, the box, the release and the date, and a
 signature line for each custodian and the witness. It is refused before ``python -m tools.keys init`` and while any
 key is still plain or the custody has a problem. A passphrase box (a proof of concept or a validation run) gets a
 record marked as such: it is not a site's ceremony. The record goes to ``deploy/site/key-ceremony-<time>.md`` and
@@ -101,11 +102,29 @@ def build(
         "shares": _shares(meta, custodians, shares_dir) if c.backend == "shamir" else [],
         "not_a_site_ceremony": c.backend == "passphrase",
     }
+    if c.backend == "file":
+        rec["escrow"] = _escrow(meta, custodians)
     if backup_pub is not None and backup_pub.is_file():
         from tools.trialbox import backup as bk
 
         rec["backup_key"] = bk.fingerprint(bk.load_public(backup_pub).public_bytes_raw())
     return rec
+
+
+def _escrow(meta: Mapping[str, Any], custodians: Sequence[str]) -> dict[str, Any] | None:
+    """A TPM box's escrow set (D-894) as the record lists it; each escrow custodian signs the record."""
+    from tools import key_escrow as ke
+
+    esc = ke.current(meta)
+    if esc is None:
+        return None
+    if ke.stale(meta):
+        raise K.KekError(f"the escrow set {esc.get('set_id')} is of an older KEK: make a new set first "
+                         "(python -m tools.keys escrow-shares), then the record")  # fmt: skip
+    missing = [str(r["custodian"]) for r in esc.get("shares", []) if r.get("custodian") not in custodians]
+    if missing:
+        raise K.KekError(f"the escrow custodians {', '.join(missing)} are not named (--custodian): each signs")
+    return ke.summary(esc)
 
 
 def _release() -> str:
@@ -128,6 +147,13 @@ def render(rec: Mapping[str, Any]) -> str:
         f"- KEK: {k['backend']} {k['kek_id']}" + (f", {k['threshold']} of {k['count']} shares" if "count" in k else ""),
         f"- What it means: {k['meaning']}",
     ]
+    esc = rec.get("escrow")
+    if k["backend"] == "file":
+        lines.append(
+            f"- Escrow: set {esc['set_id']}, {esc['threshold']} of {esc['count']} shares (made {esc['made_at']})"
+            if esc
+            else "- Escrow: none: a dead board means the wrapped keys cannot be opened (TB-SOP-03 §3)"
+        )
     if rec.get("backup_key"):
         lines.append(f"- Backup key: {rec['backup_key']} (the private half in hospital IT's sealed envelope)")
     lines += ["", "| Key | Fingerprint |", "| --- | --- |"]
@@ -135,6 +161,9 @@ def render(rec: Mapping[str, Any]) -> str:
     if rec["shares"]:
         lines += ["", "| Share | Custodian | Share fingerprint |", "| --- | --- | --- |"]
         lines += [f"| {s['share']} of {s['of']} | {s['custodian']} | `{s['fingerprint']}` |" for s in rec["shares"]]
+    if esc:
+        lines += ["", "| Escrow share | Custodian | Share fingerprint |", "| --- | --- | --- |"]
+        lines += [f"| {s['share']} of {s['of']} | {s['custodian']} | `{s['fingerprint']}` |" for s in esc["shares"]]
     lines += ["", "No key, share or passphrase is in this record. Signed by:", ""]
     lines += [f"- Custodian {name}: ____________________ date ______" for name in rec["custodians"]]
     lines += [f"- Witness {rec['witness']}: ____________________ date ______", ""]
@@ -161,6 +190,8 @@ def audit(env: Mapping[str, str], rec: Mapping[str, Any], audit_dir: Path | None
     from tb_common.audit import AuditLog
 
     detail = {k: rec[k] for k in ("at", "kek", "keys", "custodians", "witness", "shares", "not_a_site_ceremony")}
+    if rec.get("escrow"):
+        detail["escrow"] = rec["escrow"]
     AuditLog(where).append(EVENT, actor=ACTOR, input_sha="", detail=detail)
     return str(where)
 
