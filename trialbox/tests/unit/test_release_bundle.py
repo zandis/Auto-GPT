@@ -37,6 +37,7 @@ SCRIPT = ROOT / "tools" / "make_bundle.sh"
 HAPI = "hapiproject/hapi:v8.12.0-2@sha256:" + "a" * 64
 VLLM = "vllm/vllm-openai:v0.32.0"
 OWN = ("trialbox-py:1.0.0", "trialbox-jvm:1.0.0", "trialbox-postgres:16-1")
+BACKUP = "trialbox-backup:1.0.0"  # PERF-010 (D-968): no compose service; make_bundle names it
 
 pytestmark = pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
 
@@ -186,14 +187,14 @@ def test_the_staged_env_renders_every_required_compose_variable(kit: dict[str, A
         text = (ROOT / "deploy" / name).read_text(encoding="utf-8")
         required |= set(re.findall(r"\$\{([A-Za-z0-9_]+):?\?", text))
     assert {"TB_TZ", "TB_TLS_HOSTNAME"} <= required
-    gates, sbom_dir = _gate_record(kit["tmp"], [*OWN, HAPI, VLLM])
+    gates, sbom_dir = _gate_record(kit["tmp"], [*OWN, BACKUP, HAPI, VLLM])
     res = _make(kit, "--release-seq", "1", "--gates", str(gates), "--sbom-dir", str(sbom_dir))
     assert "is missing a value" not in res.stderr, res.stderr
     assert "compose listed no" not in res.stderr, res.stderr
 
 
 def test_a_failed_compose_render_shows_compose_own_error(kit: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
-    gates, sbom_dir = _gate_record(kit["tmp"], [*OWN, HAPI, VLLM])
+    gates, sbom_dir = _gate_record(kit["tmp"], [*OWN, BACKUP, HAPI, VLLM])
     env_err = "required variable TB_SOMETHING is missing a value: set it"
     monkeypatch.setenv("FAKE_COMPOSE_ERR", env_err)
     res = _make(kit, "--release-seq", "1", "--gates", str(gates), "--sbom-dir", str(sbom_dir))
@@ -206,7 +207,7 @@ def test_too_little_disk_stops_the_build_before_the_first_save(
     kit: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """D-830: the space is said before any image is saved (TMPDIR moves the staging)."""
-    gates, sbom_dir = _gate_record(kit["tmp"], [*OWN, HAPI, VLLM])
+    gates, sbom_dir = _gate_record(kit["tmp"], [*OWN, BACKUP, HAPI, VLLM])
     monkeypatch.setenv("FAKE_IMAGE_SIZE", str(1 << 60))
     res = _make(kit, "--release-seq", "1", "--gates", str(gates), "--sbom-dir", str(sbom_dir))
     assert res.returncode == 2
@@ -216,7 +217,7 @@ def test_too_little_disk_stops_the_build_before_the_first_save(
 
 
 def test_an_image_outside_the_gate_record_is_refused(kit: dict[str, Any]) -> None:
-    gates, sbom = _gate_record(kit["tmp"], [*OWN, HAPI])  # vLLM was never gated
+    gates, sbom = _gate_record(kit["tmp"], [*OWN, BACKUP, HAPI])  # vLLM was never gated
     res = _make(kit, "--release-seq", "1", "--gates", str(gates), "--sbom-dir", str(sbom))
     assert res.returncode == 1, res.stdout + res.stderr
     assert "not a passing image of this record" in res.stderr
@@ -224,7 +225,7 @@ def test_an_image_outside_the_gate_record_is_refused(kit: dict[str, Any]) -> Non
 
 
 def test_an_image_that_passed_only_in_report_mode_is_refused(kit: dict[str, Any]) -> None:
-    gates, sbom = _gate_record(kit["tmp"], [*OWN, HAPI, VLLM], report_mode=(VLLM,))
+    gates, sbom = _gate_record(kit["tmp"], [*OWN, BACKUP, HAPI, VLLM], report_mode=(VLLM,))
     res = _make(kit, "--release-seq", "1", "--gates", str(gates), "--sbom-dir", str(sbom))
     assert res.returncode == 1
     assert not (kit["tmp"] / "out.tar").exists()
@@ -246,7 +247,7 @@ def test_release_build_rechecks_the_saved_archives(tmp_path: Path) -> None:
 def test_release_json_in_the_bundle_names_every_component(kit: dict[str, Any]) -> None:
     from tools.verify_update import verify
 
-    gates, sbom = _gate_record(kit["tmp"], [*OWN, HAPI, VLLM])
+    gates, sbom = _gate_record(kit["tmp"], [*OWN, BACKUP, HAPI, VLLM])
     res = _make(kit, "--release-seq", "4", "--gates", str(gates), "--sbom-dir", str(sbom))
     assert res.returncode == 0, res.stdout + res.stderr
     assert "release check: PASS" in res.stdout
@@ -260,7 +261,7 @@ def test_release_json_in_the_bundle_names_every_component(kit: dict[str, Any]) -
     files = {f["path"]: f for f in manifest["files"]}
     assert {c["path"]: c["sha256"] for c in rel["components"]} == {p: f["sha256"] for p, f in files.items()}
     # every image: its archive, its config digest, its SBOM in the bundle
-    assert set(rel["images"]) == {"py", "jvm", "db", "hapi", "vllm-openai"}
+    assert set(rel["images"]) == {"py", "backup", "jvm", "db", "hapi", "vllm-openai"}
     for img in rel["images"].values():
         assert img["archive"] in files and files[img["archive"]]["kind"] == "image"
         assert img["sbom"] in files and files[img["sbom"]]["sha256"] == img["sbom_sha256"]
@@ -287,7 +288,7 @@ def test_release_json_in_the_bundle_names_every_component(kit: dict[str, Any]) -
 
 def test_no_test_mail_server_in_a_bundle(kit: dict[str, Any]) -> None:
     """OPS-017: the bundle takes the box's compose file only (profiles stub and gpu), never the test file."""
-    gates, sbom = _gate_record(kit["tmp"], [*OWN, HAPI, VLLM])
+    gates, sbom = _gate_record(kit["tmp"], [*OWN, BACKUP, HAPI, VLLM])
     assert _make(kit, "--release-seq", "1", "--gates", str(gates), "--sbom-dir", str(sbom)).returncode == 0
     compose_calls = [ln for ln in kit["log"].read_text(encoding="utf-8").splitlines() if ln.startswith("compose")]
     assert compose_calls and all(

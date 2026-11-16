@@ -373,8 +373,9 @@ Python packages
 
 Programs inside the image (licence register, kind software)
   restic 0.19.1 (https://github.com/restic/restic), the incremental backup's tool (PERF-010, D-968), at
-    /usr/local/bin/restic in the trialbox-py image; pinned by version and per-architecture sha256 in
-    deploy/docker/python.Dockerfile and register row `restic`.
+    /usr/local/bin/restic in the trialbox-backup image (the nightly backup's container only), built from its source
+    archive pinned by sha256 in deploy/docker/backup.Dockerfile and register row `restic`. Its Go modules are under
+    their own licences, listed by the release's SBOM report (dist/sbom/licences.md).
   Licence: BSD 2-Clause License (https://opensource.org/license/bsd-2-clause).
     Copyright (c) 2014, Alexander Neumann <alexander@bumpern.de>. All rights reserved.
   Obligation: this notice and the licence's terms go with the binary.

@@ -115,6 +115,8 @@ if [ ${#IMAGES[@]} -eq 0 ]; then
   case " ${IMAGES[*]-} " in *" trialbox-py:"*) ;; *)
     echo "make_bundle: compose listed no trialbox-py image (docker compose config):" >&2
     cat "$STAGE/compose.err" >&2; exit 2 ;; esac
+  # PERF-010 (D-968): the nightly backup's image is no compose service (the nightly runs it), so it is named here
+  case " ${IMAGES[*]} " in *" trialbox-backup:1.0.0 "*) ;; *) IMAGES+=("trialbox-backup:1.0.0") ;; esac
   if [ "$THIRD" = 1 ]; then
     n3=0; for img in "${IMAGES[@]}"; do case "$img" in trialbox-*) ;; *) n3=$((n3 + 1)) ;; esac; done
     [ "$n3" -gt 0 ] || { echo "make_bundle: compose listed no third-party image (docker compose config)" >&2; exit 2; }
