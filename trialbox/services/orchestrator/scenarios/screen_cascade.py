@@ -663,6 +663,10 @@ def _screen(ctx: Ctx, rs: Ruleset, cfg: CascadeConfig, judge: Any, note_judge: A
         judging = {**judging, "mode": "nothing"}
     elif judge is not None:
         judging = {**judging, "disagreements": judge.disagreements, "failures": judge.failures}
+        for role in ("judge", "verifier"):  # G12 (D-960): the model that answered, not the configured default
+            name = judge.served_name(role)
+            if name and judging.get(f"{role}_model"):
+                judging[f"{role}_model"] = name
         m = ctx.job.metrics
         ctx.metrics(
             llm_calls=(m.llm_calls if m else 0) + judge.calls,

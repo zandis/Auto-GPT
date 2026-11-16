@@ -145,8 +145,11 @@ def judging_info(judge: NoteJudge | None, ctx: Any = None) -> dict[str, Any]:
     may_block, policy, reason, code = nb.may_block, nb.policy, nb.reason, nb.code
     return {
         "mode": judge.mode if judge is not None else "none",
-        "judge_model": judge.llm.model if judge is not None else None,
-        "verifier_model": judge.verifier.model if judge is not None and judge.verifier is not None else None,
+        # G12 (D-960): the model that answered, by the name it answered under; the configured one until it has
+        "judge_model": (judge.served_name("judge") or judge.llm.model) if judge is not None else None,
+        "verifier_model": (judge.served_name("verifier") or judge.verifier.model)
+        if judge is not None and judge.verifier is not None
+        else None,
         "note_block": policy,
         "note_block_reason": reason,
         "note_block_code": code,

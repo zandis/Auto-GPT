@@ -265,6 +265,14 @@ class NoteJudge:
     # the counters are bumped from the evaluator's worker threads: one lock, so the >10 % model-down rule and the
     # audit counts never lose an increment (review F-27)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    # G12 of the P1b review (D-960): the names each model answered under ("judge" / "verifier" -> name -> answers);
+    # the report named the configured default, not the model that served
+    served: dict[str, dict[str, int]] = field(default_factory=dict, repr=False, compare=False)
+
+    def served_name(self, role: str) -> str | None:
+        """The name the ``role``'s model answered under most on this run; None when it never answered."""
+        names = self.served.get(role) or {}
+        return max(names, key=lambda n: (names[n], n)) if names else None
 
     def _count(self, **inc: int) -> None:
         with self._lock:
@@ -408,6 +416,10 @@ class NoteJudge:
             self._count(failures=1)
             return NoteResult("unknown", 0.0, reason=Reason.MODEL_DOWN.value, source=source)
         self._count(calls=1, tokens_in=res.tokens_in, tokens_out=res.tokens_out)
+        role = "verifier" if self.verifier is not None and client is self.verifier else "judge"
+        with self._lock:
+            names = self.served.setdefault(role, {})
+            names[str(res.model)] = names.get(str(res.model), 0) + 1
         r = postprocess(res.data, excerpts, source)
         return replace(
             r,
