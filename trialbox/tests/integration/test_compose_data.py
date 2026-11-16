@@ -29,7 +29,15 @@ def test_adapter_run_passes(ingest_report: dict[str, object]) -> None:
     assert isinstance(counts, dict) and counts["Patient"] >= 500
     val = ingest_report["validation"]
     assert isinstance(val, dict) and val["validator"] == "hl7-validator" and val["errors"] == 0
-    assert ingest_report["fhir_loaded"] == sum(counts.values())
+    # NEW-B-57: the FHIR load is a delta against what the store already holds (T-725, D-491: PUT what is new or
+    # changed, DELETE what the night no longer has). The fixture re-runs a night this stack may hold already, so
+    # this run loads anything from none (the same night again) to every resource (a fresh stack); either way the
+    # store then holds every resource of the night
+    loaded, total = ingest_report["fhir_loaded"], sum(counts.values())
+    assert isinstance(loaded, int) and 0 <= loaded <= total, (loaded, total)
+    for rtype, n in counts.items():
+        held = httpx.get(f"{FHIR}/{rtype}", params={"_summary": "count"}, timeout=60).json()["total"]
+        assert held >= n, (rtype, held, n)  # at least: other modules of this stack may add to the store
 
 
 def test_fhir_store_has_patients(ingest_report: dict[str, object]) -> None:
