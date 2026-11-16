@@ -161,11 +161,10 @@ TABLES: dict[str, Entry] = {
         ("recall_cell", "recall_registration", "recall_run_cell", "recall_sequence_state"),
         _none("recall cells and sequences: counts by criterion, no patient"),
     ),
-    "recall.recall_observation": _erase(
-        "owed_tables", "a recall draw (pid_hash: an unsalted hash of the pseudonym), made unlinkable (D-866)"
-    ),
-    "recall.recall_known_positive": _erase(
-        "owed_tables", "a known positive's draw (pid_hash: an unsalted hash of the pseudonym), made unlinkable (D-866)"
+    "recall.recall_observation": _owed("pid_hash: an unsalted hash of the pseudonym, linkable"),
+    "recall.recall_known_positive": _owed(
+        "pid_hash and draw_id: an unsalted hash of the pseudonym, linkable",
+        "both columns, with the certificate not adding the patient again (the review of D-866)",
     ),
     **_each("study", ("rc_connection", "rc_project_link", "screen_scope", "study_settings"), _CONFIG),
     "study.rc_read_log": _none("a REDCap read: when, who, ok, counts"),
@@ -321,10 +320,10 @@ TABLES: dict[str, Entry] = {
     "feedback.entry": _none("in-product feedback from staff, not about a patient (record inventory O-02)"),
     "breakglass.grants": _keep("D-430", "the record of an emergency access to a patient, for the steward's review"),
     "breakglass.uses": _keep("D-430", "each use of a break-glass grant, for the steward's review"),
-    "edc.draft": _erase(
-        "owed_tables",
-        "an EDC draft, by pseudonym: a never-consented patient's go; a consented or enrolled subject's, and a "
-        "signed or sent draft, stay (OD-8, D-866)",
+    "edc.draft": _owed(
+        "an EDC draft, by pseudonym",
+        "the drafts of a patient who never enrolled, told from a trial subject by the subject's whole history "
+        "(the review of D-866: the registry's status now is not enough)",
     ),
     **_each("edc", ("copy_tick", "decision", "sent", "signature", "signature_void"), _OD8),
     **_each("edc", ("item_map", "map_event", "reentry_record", "switch", "switch_event", "target"), _CONFIG),

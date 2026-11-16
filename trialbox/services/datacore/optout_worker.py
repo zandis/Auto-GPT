@@ -374,10 +374,6 @@ def _open(url: str, schema: str) -> Any:
         return Database.connect(url, "derived")
     if schema == "mail":  # NEW-MAIL-1 (D-863): the outbox's held mail
         return Database.connect(url, "mail")
-    if schema == "edc":  # ERASE-A1 (D-866): a never-consented patient's EDC drafts
-        return Database.connect(url, "edc")
-    if schema == "recall":  # ERASE-A1 (D-866): the recall ledger's pseudonym hash
-        return Database.connect(url, "recall")
     if schema == "sitesetup":  # ERASE-A1 (D-866): the site set-up's facts by pseudonym
         return Database.connect(url, "sitesetup")
     raise ValueError(f"no owed table in store {schema!r}")
@@ -449,67 +445,17 @@ def _owed_tables(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str
     return out
 
 
-def _kept_pairs(env: WorkerEnv, pids: frozenset[str]) -> set[tuple[str, str]]:
-    """(study, pseudonym) of the patients a trial keeps: consented or enrolled in the candidate registry (OD-8)."""
-    if env.jobs is None:
-        raise RuntimeError("no candidate registry to tell a trial subject from a never-consented patient")
-    out: set[tuple[str, str]] = set()
-    for rs in sorted({str(s["ruleset"]) for s in env.jobs.candidate_summaries()}):
-        for row in env.jobs.candidates(rs):
-            if str(row["pid"]) in pids and row["status"] in ("consented", "enrolled"):
-                out.add((rs.upper(), str(row["pid"])))
-    return out
-
-
-#: the recall ledger's draws by the pseudonym's hash: the count, and the draw made unlinkable (written out)
-_RECALL = (
-    ("recall_observation", "SELECT count(*) FROM recall_observation WHERE pid_hash = ANY(?)",
-     "UPDATE recall_observation SET pid_hash = 'erased:' || gen_random_uuid() WHERE pid_hash = ANY(?)"),
-    ("recall_known_positive", "SELECT count(*) FROM recall_known_positive WHERE pid_hash = ANY(?)",
-     "UPDATE recall_known_positive SET pid_hash = 'erased:' || gen_random_uuid() WHERE pid_hash = ANY(?)"),
-)  # fmt: skip
-
-
 def _more_owed(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, int]:
-    """ERASE-A1 (D-866): three more owed stores, each by the pseudonym.
-
-    * ``edc.draft``: the drafts of a patient who never consented or enrolled go; a trial subject's stay (OD-8), and
-      so does any draft already signed or sent (the record of what was done).
-    * ``recall.recall_observation`` and ``recall.recall_known_positive``: the recall ledger keeps each draw for its
-      estimate; the draw's ``pid_hash`` (an unsalted hash of the pseudonym, linkable) becomes a random token, so the
-      count stays and the patient can no longer be found in it.
-    * ``sitesetup.fact``: a fact read from an uploaded file, by pseudonym, goes."""
-    from matching.cascade.certificate import pid_hash
-
+    """ERASE-A1 (D-866): ``sitesetup.fact``, a fact read from an uploaded file, by pseudonym, goes. The site set-up
+    no longer writes one again (a re-read of the sheet, a chart: ``sitesetup.service.SiteSetup``)."""
     url = str(env.register.db.url)
     want = sorted(pids)
-    out: dict[str, int] = {"edc.draft": 0, "recall.recall_observation": 0, "recall.recall_known_positive": 0,
-                           "sitesetup.fact": 0}  # fmt: skip
-    if not want:
-        return out
-    if store_has(url, "edc", "draft"):
-        kept = _kept_pairs(env, pids)
-        with _open(url, "edc") as db:
-            rows = db.fetchall("SELECT id, study, pid FROM draft WHERE pid = ANY(?) AND signature_id IS NULL "
-                               "AND sent_at IS NULL", (want,))  # fmt: skip
-            gone = [int(r[0]) for r in rows if (str(r[1]).upper(), str(r[2])) not in kept]
-            if delete and gone:
-                db.execute("DELETE FROM draft WHERE id = ANY(?)", (gone,))
-            out["edc.draft"] = len(gone)
-    hashes = sorted(pid_hash(p) for p in want)
-    for table, count, unlink in _RECALL:
-        if not store_has(url, "recall", table):
-            continue
-        with _open(url, "recall") as db:
-            n = db.execute(unlink, (hashes,)) if delete else db.fetchval(count, (hashes,))
-            out[f"recall.{table}"] = int(n or 0)
-    if store_has(url, "sitesetup", "fact"):
-        with _open(url, "sitesetup") as db:
-            if delete:
-                out["sitesetup.fact"] = int(db.execute("DELETE FROM fact WHERE pid = ANY(?)", (want,)) or 0)
-            else:
-                out["sitesetup.fact"] = int(db.fetchval("SELECT count(*) FROM fact WHERE pid = ANY(?)", (want,)))
-    return out
+    if not want or not store_has(url, "sitesetup", "fact"):
+        return {"sitesetup.fact": 0}
+    with _open(url, "sitesetup") as db:
+        if delete:
+            return {"sitesetup.fact": int(db.execute("DELETE FROM fact WHERE pid = ANY(?)", (want,)) or 0)}
+        return {"sitesetup.fact": int(db.fetchval("SELECT count(*) FROM fact WHERE pid = ANY(?)", (want,)))}
 
 
 def clear_tables(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
