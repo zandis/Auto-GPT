@@ -212,6 +212,12 @@ def walk_list(s: dict[str, Any], lang: str) -> dict[str, Any]:
     return {
         "listed": listed,
         "coded_listed": coded,
+        # D-914: listed because a coded answer is unknown for want of any record of its kind (to review, not out)
+        "no_record_listed": {
+            s["mrn"][p]
+            for p, r in res["rows"].items()
+            if any(((v.get("evidence") or {}).get("reason") == "no_record_of_kind") for v in r.get("criteria") or [])
+        },
         "note_only_listed": note_only & listed,
         "gold_candidates": {m for m, v in st.items() if v.get("archetype") == "rajak" and rajak.coded_candidate(v)},
         "list_html": page.text,
