@@ -49,6 +49,7 @@ from orchestrator.callers import Gate
 from orchestrator.callers import load as load_callers
 from orchestrator.candidates import CandidateRegistry, RegistryError
 from orchestrator.clients import AdapterHttp, CompilerHttp, MailHttp, ParserHttp
+from orchestrator.conflicts_api import router as conflicts_router
 from orchestrator.core import NotRetryable, Orchestrator, Rejected, Services
 from orchestrator.datacore_api import router as datacore_router
 from orchestrator.dataops_api import router as dataops_router
@@ -859,6 +860,24 @@ def _dataops_store() -> Any:
 
 # NEW-ARCH-3 (D-761): the night's data operations, and the steward's accept that publishes a held night (D-760)
 app.include_router(dataops_router(_dataops_store, lambda: orch().services.adapter, lambda: orch().audit))
+
+
+_OMOP: dict[str, Any] = {}
+_OMOP_LOCK = threading.Lock()
+
+
+def _omop_store() -> Any:
+    """The OMOP store of record, opened once (NEW-ARCH-3 slice 2, D-865: the console no longer opens it)."""
+    from omop import schema
+
+    with _OMOP_LOCK:
+        if "db" not in _OMOP:
+            _OMOP["db"] = schema.connect()
+        return _OMOP["db"]
+
+
+# NEW-ARCH-3 slice 2 (D-865): the clinical conflicts of the store of record, and the steward's settling of one
+app.include_router(conflicts_router(_omop_store))
 
 
 class DeceasedRequest(BaseModel):
