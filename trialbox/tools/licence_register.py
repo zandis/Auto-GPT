@@ -23,8 +23,9 @@ The check fails when:
   ``own-work``; a build past ``candidate`` needs ``verified: true``;
 * a vocabulary the OMOP Athena loader allows (``omop.vocab_load.ATHENA_ALLOW``, when it exists) has no row;
 * a ``software`` row (a third-party program inside an image, D-968: restic) disagrees with its pin in
-  ``deploy/docker/python.Dockerfile``: ``ARG <ID>_VERSION`` must be the row's version and every
-  ``ARG <ID>_SHA256_<ARCH>`` must be written in the row's evidence. A software row ships no path of its own.
+  ``deploy/docker/backup.Dockerfile``: ``ARG <ID>_VERSION`` must be the row's version and every
+  ``ARG <ID>_SHA256_<PART>`` (the source archive, or one release file per architecture) must be written in the row's
+  evidence. A software row ships no path of its own.
 
 The rows are rendered by hand into ``NOTICE`` (T-617a); the register is the data behind it.
 """
@@ -49,7 +50,7 @@ MODELS = ROOT / "models/registry.yaml"
 COLUMNS = ("id", "kind", "standard", "version", "source", "licence", "spdx", "obligation", "holder", "status",
            "checked", "evidence", "text_sha256", "athena", "paths")  # fmt: skip
 KINDS = frozenset({"code-system", "map", "data-set", "fhir", "model", "software"})
-IMAGE = ROOT / "deploy/docker/python.Dockerfile"  # where a software row's tool is pinned (D-968)
+IMAGE = ROOT / "deploy/docker/backup.Dockerfile"  # where a software row's tool is pinned (D-968)
 STATUSES = frozenset({"cleared", "own-work", "synthetic", "site-loaded", "permission-to-ask", "removed"})
 SHIPS_NOTHING = frozenset({"site-loaded", "removed"})
 MODEL_OK = frozenset({"cleared", "own-work"})

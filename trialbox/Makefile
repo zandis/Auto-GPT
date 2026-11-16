@@ -221,7 +221,7 @@ ci: venv-check
 	$(MAKE) data-scan
 	$(MAKE) security-scan
 	git ls-files -z '*.sh' | xargs -0 shellcheck --severity=warning  # OPS-076: warnings gate, as in CI
-	@if command -v hadolint >/dev/null; then hadolint --failure-threshold warning deploy/docker/python.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile; else echo "ci: images: hadolint not installed, skipped"; fi
+	@if command -v hadolint >/dev/null; then hadolint --failure-threshold warning deploy/docker/python.Dockerfile deploy/docker/backup.Dockerfile deploy/docker/jvm.Dockerfile demo/Dockerfile; else echo "ci: images: hadolint not installed, skipped"; fi
 	$(MAKE) lock-check allowlist-check
 
 HL7_ENV := TB_HL7_VALIDATOR_JAR=$(CURDIR)/.cache/jvm/validator_cli.jar TB_FHIR_PACKAGE_HOME=$(CURDIR)/.cache/jvm/fhir-home
@@ -314,6 +314,8 @@ PLATFORM_ARG := $(if $(PLATFORM),--platform $(PLATFORM),)
 images: jvm-deps $(FONTS)
 	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) --build-arg TB_REVISION=$(TB_REVISION) \
 		-f deploy/docker/python.Dockerfile -t trialbox-py:1.0.0 .
+	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/backup.Dockerfile \
+		-t trialbox-backup:1.0.0 .
 	docker build $(PLATFORM_ARG) $(OCI_LABELS) -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .
 	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/embed.Dockerfile \
 		-t trialbox-embed:1.0.0 .
@@ -333,6 +335,9 @@ REGISTRY ?= localhost:5000
 images-multiarch: jvm-deps $(FONTS)
 	docker buildx build --platform $(PLATFORMS) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) \
 		--build-arg TB_REVISION=$(TB_REVISION) -f deploy/docker/python.Dockerfile -t $(REGISTRY)/trialbox-py:1.0.0 --push .
+	docker buildx build --platform $(PLATFORMS) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) \
+		--build-arg BASE_IMAGE=$(REGISTRY)/trialbox-py:1.0.0 -f deploy/docker/backup.Dockerfile \
+		-t $(REGISTRY)/trialbox-backup:1.0.0 --push .
 	docker buildx build --platform $(PLATFORMS) $(OCI_LABELS) --build-arg BASE_IMAGE=$(REGISTRY)/trialbox-py:1.0.0 \
 		-f deploy/docker/jvm.Dockerfile -t $(REGISTRY)/trialbox-jvm:1.0.0 --push .
 	docker buildx build --platform $(PLATFORMS) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) \
@@ -491,7 +496,7 @@ SCANNERS := $(CURDIR)/.cache/scanners/bin
 TRIVY_CACHE ?= .cache/trivy
 # every image a bundle carries: ours (make images, make demo-bundle) and the third-party images compose pulls,
 # the same list tools/make_bundle.sh exports
-SC_OWN_IMAGES ?= trialbox-py:1.0.0 trialbox-jvm:1.0.0 trialbox-embed:1.0.0 trialbox-postgres:16-1 trialbox-demo:step5
+SC_OWN_IMAGES ?= trialbox-py:1.0.0 trialbox-backup:1.0.0 trialbox-jvm:1.0.0 trialbox-embed:1.0.0 trialbox-postgres:16-1 trialbox-demo:step5
 # The identity overlay too (Caddy, Authelia; D-574): make_bundle.sh puts it in every bundle, and an image the gates
 # never saw cannot pass bundle-check. Its host name is a placeholder here, as there: only the images are read.
 SC_THIRD_PARTY ?= $(shell TB_TLS_HOSTNAME=bundle.invalid TB_TZ=$${TB_TZ:-UTC} docker compose --project-directory deploy \
