@@ -82,6 +82,11 @@ def kind(atom: Atom) -> Kind:
             raise CompileError("an age bound below 0")
         if lo is not None and hi is not None and lo > hi:  # D-914: matched by no one ("80 to 18")
             raise CompileError(f"age range {lo} to {hi} is reversed")
+        # D-946 (F2 of P1b, NCT01260883 "0.17 years"): the age is complete years (D-442), so a bound of 0.17 is met by
+        # no one under 1 and 1.5 by no one under 2; a person reads it (months are not compared)
+        for b in (lo, hi):
+            if b is not None and float(b) != int(b):
+                raise CompileError(f"age bound {b:g} is not a whole number of years; the age is counted in years")
         return Kind.DEMOGRAPHIC
     if atom.derived is not None:
         if atom.domain != "observation":
