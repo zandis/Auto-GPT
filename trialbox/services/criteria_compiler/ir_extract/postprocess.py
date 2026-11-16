@@ -132,24 +132,60 @@ def _age_atom(logic: Any) -> Atom | None:
     return None
 
 
-def exclusion_age(text: str, logic: Any) -> tuple[Any, str | None]:
-    """An exclusion that is one age atom, read against its line (red of P1b): ``(logic, flag)``.
+Bounds = tuple[float | None, float | None]
+
+
+def _num_in(text: str, x: float) -> bool:
+    """The number is written in the line (18 or 18.0 as "18")."""
+    n = f"{x:g}"
+    return re.search(rf"(?<![\d.]){re.escape(n)}(?![\d.])", text) is not None
+
+
+def inclusion_ages(logics: list[Any]) -> set[Bounds]:
+    """The age bounds of every demographic age atom in the inclusions' raw logic (the ruleset's own range)."""
+    out: set[Bounds] = set()
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            if "args" in node:
+                for x in node["args"] or []:
+                    walk(x)
+            elif node.get("domain") == "demographic" and isinstance(node.get("age"), dict):
+                out.add((node["age"].get("min"), node["age"].get("max")))
+
+    for lg in logics:
+        walk(lg)
+    return out
+
+
+def exclusion_age(text: str, logic: Any, inclusion: set[Bounds] | None = None) -> tuple[Any, str | None]:
+    """An exclusion that is one age atom, read against its line and the inclusions' ages: ``(logic, flag)``.
 
     * A range (a minimum and a maximum) whose line says outside / not within / 範囲外 / 以外 is the range's
-      complement: ``not(range)``, flagged ``age_range_inverted`` (it was the range itself, which excluded every
-      patient inside it). A range whose line does not say so goes to a person (``age_range_exclusion``): an
-      exclusion of the patients inside a range is rare, and a model that copied an inclusion's range is not.
+      complement, ``not(range)``, flagged ``age_range_inverted``, only when the range is known: both its numbers are
+      in the line, or it is an inclusion's range exactly ("Age outside of range specified", NCT00606840, copied the
+      inclusion's 18-35; its complement then decides as the inclusion does). An outside range from nowhere goes to a
+      person (``age_range_exclusion``), as does a range whose line does not say outside: an exclusion of the patients
+      inside a range is rare, and a model that copied an inclusion's range is not.
+    * One bound equal to an inclusion's ("aged 18 or older" as an exclusion, ``min 18`` as the inclusion) restates
+      the inclusion and goes to a person (``exclusion_restates_inclusion``); one bound inside it (an exclusion of
+      over-75s under an 18+ inclusion) is ordinary and stays.
     * One bound whose line points the other way ("under 18" as ``min 18``; "≥ 75" as ``max 75``), or both ways
       ("< 18 or > 65" as ``min 65``), goes to a person (``age_direction``).
     A patient with no birth date is unknown either way (the age is NULL)."""
     atom = _age_atom(logic)
     if atom is None or atom.age is None:
         return logic, None
+    inclusion = inclusion or set()
     lo, hi = atom.age.min, atom.age.max
     if lo is not None and hi is not None:
-        if _OUTSIDE.search(text):
+        if (lo, hi) in inclusion and not _OUTSIDE.search(text):
+            return logic, "exclusion_restates_inclusion"
+        if _OUTSIDE.search(text) and ((_num_in(text, lo) and _num_in(text, hi)) or (lo, hi) in inclusion):
             return BoolExpr(op="not", args=[atom]), "age_range_inverted"
         return logic, "age_range_exclusion"
+    if (lo, hi) in inclusion:
+        return logic, "exclusion_restates_inclusion"
     below, above = bool(_BELOW.search(text)), bool(_ABOVE.search(text))
     if (lo is not None and below and not above) or (hi is not None and above and not below) or (below and above):
         return logic, "age_direction"  # one bound for a line that points both ways ("< 18 or > 65") also goes
@@ -220,6 +256,7 @@ def postprocess(
             if res.method == "none":
                 warnings.append(f"concept '{cand.name}' ({cand.domain}) could not be mapped")
     # 2. criteria -> IR
+    incl_ages = inclusion_ages([dump(ec).get("logic") for ec in extracted.criteria if ec.kind == "inclusion"])
     for ec in extracted.criteria:
         code = KIND_CODE[ec.kind]
         counters[code] = counters.get(code, 0) + 1
@@ -257,7 +294,7 @@ def postprocess(
             flags.append("negated_logic_rewritten")
             warnings.append(f"{cid}: exclusion logic was negated; rewritten to the positive form (check it)")
         if ir.kind == "exclusion" and ir.class_ in FILTERED and ir.logic is not None:
-            fixed, age_flag = exclusion_age(ir.text, ir.logic)
+            fixed, age_flag = exclusion_age(ir.text, ir.logic, incl_ages)
             if age_flag == "age_range_inverted":
                 ir = ir.model_copy(update={"logic": fixed})
                 flags.append(age_flag)
