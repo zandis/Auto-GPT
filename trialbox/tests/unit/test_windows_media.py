@@ -6,6 +6,7 @@ file holds the builder to what that step looks for."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -487,9 +488,9 @@ def test_a_media_is_cut_into_parts_no_bigger_than_asked_and_joins_back_whole(tmp
     for p in data["parts"]:
         blob = (out / p["name"]).read_bytes()
         assert len(blob) <= 4096 and len(blob) == p["size"]
-        assert wm.hashlib.sha256(blob).hexdigest() == p["sha256"]
+        assert hashlib.sha256(blob).hexdigest() == p["sha256"]
         joined += blob
-    assert wm.hashlib.sha256(joined).hexdigest() == data["sha256"]
+    assert hashlib.sha256(joined).hexdigest() == data["sha256"]
     with tf.open(fileobj=io.BytesIO(joined)) as t:
         names = {m.name for m in t.getmembers() if m.isfile()}
     assert f"{media.name}/Install-TrialBox-P0.cmd" in names and f"{media.name}/SHA256SUMS" in names

@@ -22,12 +22,15 @@ WF_PATH = ROOT.parent / ".github" / "workflows" / "trialbox-p0-media.yml"
 
 
 def _wf() -> dict[Any, Any]:
-    return yaml.safe_load(WF_PATH.read_text())
+    data = yaml.safe_load(WF_PATH.read_text())
+    assert isinstance(data, dict)
+    return data
 
 
 def test_the_workflow_runs_by_hand_only_and_may_write_only_the_release() -> None:
     wf = _wf()
     on = wf.get("on", wf.get(True))
+    assert on is not None
     assert list(on) == ["workflow_dispatch"]
     assert wf["permissions"] == {"contents": "read"}
     jobs = wf["jobs"]
