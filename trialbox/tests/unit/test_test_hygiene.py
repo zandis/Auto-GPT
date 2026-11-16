@@ -25,7 +25,10 @@ WORKFLOW = ROOT.parent / ".github" / "workflows" / "trialbox-e2e.yml"
 def _pytest(args: list[str], env: dict[str, str], cwd: Path = ROOT) -> subprocess.CompletedProcess[str]:
     base = {k: v for k, v in os.environ.items() if not k.startswith(("PYTEST_", "TB_TEST_DB_URL", "TB_STRICT"))}
     base.update(PYTHONPATH=os.pathsep.join(str(ROOT / p) for p in ("libs", "services", ".")), **env)
-    return subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-n", "0", *args],
+    # a probe's own order is part of what it checks: under `make test-random` the randomly plugin is installed in this
+    # interpreter and would shuffle the probe's tests too (the nightly's random-order shard 3/6, 2026-11-15)
+    return subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-p", "no:randomly", "-n", "0",
+                           *args],
                           cwd=cwd, env=base, capture_output=True, text=True, timeout=600, check=False)  # fmt: skip
 
 
@@ -232,3 +235,16 @@ def test_the_baseline_can_be_adopted_from_a_nightly_report(tmp_path: Path) -> No
     assert doc["metrics"] == cur["metrics"] and doc["host"] == {"cpu": "runner"} and doc["adopted_from"] == report.name
     report.write_text(json.dumps({"passed": False, "current": {**cur, "passed": False}}), encoding="utf-8")
     assert bench.main(["--gate", "--adopt", str(report), "--baseline", str(out)]) == 1
+
+
+def test_the_pure_tests_run_every_night_with_no_postgresql() -> None:
+    """T-653's acceptance names `make test-pure` (pure tests with the server binaries pointing nowhere); no workflow
+    ran it, so a pure test that reached for the database was found only by hand."""
+    wf = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    nightly = wf["jobs"]["nightly"]
+    assert "pure" in nightly["strategy"]["matrix"]["run"]
+    steps = [s for s in nightly["steps"] if s.get("if") == "matrix.run == 'pure'"]
+    assert len(steps) == 1 and "make test-pure" in steps[0]["run"]
+    make = (ROOT / "Makefile").read_text(encoding="utf-8")
+    target = make[make.index("\ntest-pure:") : make.index("\n\n", make.index("\ntest-pure:"))]
+    assert "TB_PG_BIN=/nonexistent" in target and "-u TB_TEST_DB_URL" in target  # no cluster can start
