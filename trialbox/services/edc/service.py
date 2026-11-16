@@ -492,6 +492,7 @@ class EdcService:
                     cur.know_events(c.records(fields=[rid], records=recs))
                 imports: dict[Key, dict[str, str]] = {}
                 planned: list[tuple[dict[str, Any], str, Slot]] = []
+                seen_at: dict[int, str] = {}
                 taken: set[Key] = set()  # NEW-EDC-2: repeat instances that hold a value TrialBox did not write
                 judged: dict[Key, bool] = {}
                 for d in todo:
@@ -568,6 +569,7 @@ class EdcService:
                                                "TrialBox did not write; not overwritten", by, at)  # fmt: skip
                         continue
                     planned.append((d, rec, slot))
+                    seen_at[int(d["id"])] = there  # EDC-011 (D-856): what REDCap held when it was read
                     cur.lay(rec, slot, str(d["item"]), value)
                 # NEW-EDC-2 (EDC-002): a repeat instance is written whole or not at all. One that holds a value on any
                 # of its fields that TrialBox did not write is another person's entry or another event: every value
@@ -608,6 +610,33 @@ class EdcService:
                         self.store.record_sent(rs, d, "redcap", rec, "changed", "changed since the send began; "
                                                "not sent", by, at)  # fmt: skip
                     planned = [p for p in planned if int(p[0]["id"]) in still]
+                    imports = {k: v for k, v in imports.items() if set(v) - KEY_COLS - {rid}}
+                if imports:
+                    # EDC-011 (D-856): REDCap's values of the planned fields, read once more just before the import.
+                    # A value a person changed in REDCap since the first read is not overwritten (REDCap's API has no
+                    # conditional write: this narrows the window, it cannot close it). A repeat instance is held
+                    # whole, as NEW-EDC-2 holds one
+                    again = c.records(fields=[rid, *sorted({str(p[0]["item"]) for p in planned})],
+                                      records=sorted({p[1] for p in planned}))  # fmt: skip
+                    now = Rows(lay, meta, rid, again, self.today())
+                    moved = [p for p in planned
+                             if now.value(p[1], p[2], str(p[0]["item"])) != seen_at[int(p[0]["id"])]]  # fmt: skip
+                    gone_keys = {lay.key(rec, slot) for _d, rec, slot in moved if slot.repeat}
+                    for d, rec, slot in planned:
+                        was = seen_at[int(d["id"])]
+                        if (d, rec, slot) in moved:
+                            got = now.value(rec, slot, str(d["item"]))
+                            out["conflict"].append({**_brief(d), "redcap": got})
+                            self.store.record_sent(rs, d, "redcap", rec, "conflict", "a person changed it in REDCap "
+                                                   f"while the send ran (it held {was!r} when read); not overwritten",
+                                                   by, at)  # fmt: skip
+                        elif lay.key(rec, slot) in gone_keys:
+                            out["instance_taken"].append(_brief(d))
+                            self.store.record_sent(rs, d, "redcap", rec, "instance_taken", INSTANCE_TAKEN, by, at)
+                        else:
+                            continue
+                        imports[lay.key(rec, slot)].pop(str(d["item"]), None)
+                    planned = [p for p in planned if p not in moved and lay.key(p[1], p[2]) not in gone_keys]
                     imports = {k: v for k, v in imports.items() if set(v) - KEY_COLS - {rid}}
                 if imports:
                     # NEW-EDC-8 (EDC-008): the ledger says what is about to be written, and by whom, before REDCap is
