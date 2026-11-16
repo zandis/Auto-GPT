@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import ValidationError
 from tb_common.derived import CODES, COMPONENTS
 from tb_contracts import Atom, BoolExpr, CriterionIR, LlmExtractOutput, dump
 
@@ -87,6 +88,19 @@ def _convert_logic(
             raise CompileError(f"{node.get('domain')} atom has no concept")
         atom["valueset"] = concept_vs.get(concept.strip().lower()) or vs_name_for(concept)
     return atom
+
+
+def _question(text: str) -> str:
+    return f"Does the patient meet this criterion: {text.strip()}?"
+
+
+def _for_a_person(cid: str, ruleset: str, kind_: str, text: str, source_ref: Any) -> CriterionIR:
+    """A criterion the compiler could not build, kept as a person's check (D-910): its line, its kind, no logic."""
+    return CriterionIR.model_validate(
+        {"id": cid, "ruleset": ruleset, "kind": kind_, "class": "human", "text": text or cid,
+         "human_question": _question(text or cid), "logic": {"domain": "demographic", "valueset": "NONE"},
+         "review": {"status": "draft"}, **({"source_ref": source_ref} if source_ref else {})}
+    )  # fmt: skip
 
 
 def _positive_logic(logic: Any) -> Any:
@@ -167,7 +181,16 @@ def postprocess(
             logic, flags = {"domain": "demographic", "valueset": "NONE"}, ["needs_review", "logic_invalid"]
         ir_dict = {k: v for k, v in raw.items() if k not in ("concept_candidates", "logic") and v is not None}
         ir_dict.update({"id": cid, "ruleset": ruleset, "logic": logic, "review": {"status": "draft"}})
-        ir = CriterionIR.model_validate(ir_dict)
+        try:
+            ir = CriterionIR.model_validate(ir_dict)
+        except ValidationError as exc:
+            # D-910: one criterion the model wrote outside the IR (a public protocol is messier than the shipped
+            # ones) failed the whole compile with an HTTP 500. It is kept as a person's check, flagged, with where
+            # the IR refused it (never the refused value)
+            where = ", ".join(".".join(str(x) for x in e["loc"]) or "criterion" for e in exc.errors()[:3])
+            warnings.append(f"{cid}: not a valid criterion ({where}); kept for a person to check")
+            ir = _for_a_person(cid, ruleset, ec.kind, str(raw.get("text") or ""), raw.get("source_ref"))
+            flags = [*flags, "ir_invalid"]
         moved = sorted({str(c.name) for c in ec.concept_candidates if c.name.strip().lower() in refiled})
         if moved and ir.logic is not None and any(a.domain == "condition" for a in atoms(ir.logic)):
             flags.append("domain_refiled")
@@ -199,6 +222,12 @@ def postprocess(
             except CompileError as exc:
                 warnings.append(f"{cid}: {exc}")
                 flags.append("logic_invalid")
+        if "logic_invalid" in flags and ir.class_ in FILTERED:
+            # D-910: logic the compiler cannot run (an age-or-sex atom with neither, an atom of no kind) went into
+            # the SQL as written ("()") and failed later, at approval, with an HTTP 500. A person checks it instead
+            ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
+                                       "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
+            warnings.append(f"{cid}: its logic cannot be run; kept for a person to check")
         if ir.class_ in JUDGED and not ir.note_question:
             flags.append("missing_note_question")
         if ir.class_ == "human" and not ir.human_question:

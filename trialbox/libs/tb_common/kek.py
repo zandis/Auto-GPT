@@ -17,7 +17,9 @@ end and the back end's public parameters. Back ends:
   ``tools/keys.py unseal`` takes ``k`` shares, checks them against ``kek.json`` and writes the KEK to a runtime file;
 * ``file``: a random KEK written once to a place outside the data volume that the host protects: a TPM-sealed
   systemd credential (``systemd-creds encrypt --with-key=tpm2``; the service then reads
-  ``$CREDENTIALS_DIRECTORY/trialbox-kek``), Windows DPAPI on the WSL2 host, or removable media;
+  ``$CREDENTIALS_DIRECTORY/trialbox-kek``), Windows DPAPI on the WSL2 host, or removable media. Its recovery copy
+  (D-894) is an escrow set: the KEK split into custodians' shares, recorded in ``kek.json``'s ``escrow`` (set id,
+  threshold, count, the KEK id it opens, each share's custodian and fingerprint; never a share);
 * ``kms``: the platform variant (T-319, D-432; IT pack §A.6 "KEK in KMS"). A random KEK sealed by the hospital's key
   management service, which keeps the key that seals it; ``kek.json`` holds the KMS address, the key's name and the
   KMS ciphertext (useless without the KMS). The client speaks the transit protocol of Vault and OpenBao
@@ -347,19 +349,34 @@ def kek_from_shares(meta: Mapping[str, Any], texts: list[str]) -> bytes:
     split, a share given twice, too few shares, or shares that do not give this box's KEK."""
     if meta.get("backend") != "shamir":
         raise KekError(f"this box's KEK is not split into shares (back end {meta.get('backend')})")
-    need = int(meta["threshold"])
+    return _combine_checked(str(meta["set_id"]), int(meta["threshold"]), str(meta["kek_id"]), texts)
+
+
+def kek_from_escrow(meta: Mapping[str, Any], texts: list[str]) -> bytes:
+    """D-894: the KEK of a TPM box (back end ``file``) from its escrow shares (``kek.json``'s ``escrow``), for a new
+    board. Refused as :func:`kek_from_shares`, and when the box has no escrow set or its set is of an older KEK."""
+    esc = meta.get("escrow")
+    if meta.get("backend") != "file" or not isinstance(esc, Mapping):
+        raise KekError(f"this box's KEK has no escrow shares (back end {meta.get('backend')}, no escrow set)")
+    if esc.get("kek_id") != meta["kek_id"]:
+        raise KekError(f"the escrow set {esc.get('set_id')} is of an older KEK ({esc.get('kek_id')}); "
+                       f"kek.json names {meta['kek_id']}: its shares do not open this box")  # fmt: skip
+    return _combine_checked(str(esc["set_id"]), int(esc["threshold"]), str(meta["kek_id"]), texts)
+
+
+def _combine_checked(set_id: str, need: int, want_id: str, texts: list[str]) -> bytes:
     shares = [parse_share(t) for t in texts if t.strip()]
     seen: set[int] = set()
     for s in shares:
-        if s.set_id != meta["set_id"]:
-            raise KekError(f"share {s.index} is of another set ({s.set_id}, this box's is {meta['set_id']})")
+        if s.set_id != set_id:
+            raise KekError(f"share {s.index} is of another set ({s.set_id}, this box's is {set_id})")
         if s.index in seen:
             raise KekError(f"share {s.index} was given twice: each steward gives their own share once")
         seen.add(s.index)
     if len(shares) < need:
         raise KekError(f"{len(shares)} share(s) given; {need} are needed")
     kek = combine_shares([(s.index, s.data) for s in shares])
-    if not hmac.compare_digest(kek_id(kek), str(meta["kek_id"])):
+    if not hmac.compare_digest(kek_id(kek), want_id):
         raise KekError("the shares do not give this box's KEK (a wrong or damaged share)")
     return kek
 

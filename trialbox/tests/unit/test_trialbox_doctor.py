@@ -58,6 +58,7 @@ def test_default_install_passes() -> None:
         "site_key",
         "chartno_rule",  # D-621
         "key_custody",
+        "key_ceremony",  # D-893
         "db_passwords",
         "clock",
         "ops_runner",

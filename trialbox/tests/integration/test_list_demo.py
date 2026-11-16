@@ -44,7 +44,8 @@ def test_a_later_clinic_day_moves_the_box_with_the_console(tmp_path: Path, monke
     assert r.status_code == 403
 
 
-def test_approve_list_mark_and_mail(tmp_path: Path) -> None:
+def test_approve_list_mark_and_mail(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TB_DEMO_PEOPLE", "ana:investigator,cy:viewer")  # D-758: as the demo VM's boot names them
     res = list_demo.run(tmp_path, "pw-" + "x" * 16, "ja")
     box, h = res["box"], res["app"].state.helpers
     assert res["day"] == fd.data_day() and not res["live"]  # TB_DEMO_DAY unset: the data's own day, nothing moved
@@ -58,9 +59,22 @@ def test_approve_list_mark_and_mail(tmp_path: Path) -> None:
     # D-757: one CASE job on a synthetic chart gives "Check one patient" its sheet
     from tools import demo
 
-    job_id = demo.seed_case(res["pi"], box, "ja")
+    job_id = demo.seed_case(res["pi"], box, "zh-TW")  # the demo of 17 November is shown in zh-TW
     assert job_id is not None and box.orch.db.get(job_id).type == "CASE"
     assert res["pi"].get(f"/pilot/jobs/{job_id}").status_code == 200
+    # D-758: the sheet reads what the synthetic chart states, and the demo's investigator is a named recipient
+    import json as _json
+
+    got = res["pi"].get(f"/pilot/jobs/{job_id}/files/case_GZQO_{job_id}.json")
+    assert got.status_code == 200, got.status_code
+    sheet = _json.loads(got.content)
+    verdict = {r["id"]: r["verdict"] for r in sheet["criteria"]}
+    assert verdict["GZQO-INC-03"] == "pass", verdict  # BMI 31.4 against BMI ≥27
+    # an exclusion's "pass" is the patient passing it: HbA1c 7.6 % is not over 10 %, the exclusion does not apply
+    assert verdict["GZQO-EXC-06"] == "pass", verdict
+    assert verdict["GZQO-INC-05"] == "pass", verdict  # two dated flares within the year
+    assert sheet["counts"].get("met", sheet["counts"].get("pass", 0)) >= 1, sheet["counts"]
+    assert "ana@hospa.test" in sheet["recipients"] and "cy@hospa.test" not in sheet["recipients"]
     assert res["approvals"]["GOUT-COH"]["amber"] == ["GOUT-COH-INC-01"]
     assert all(v["feas_state"] == "done" for v in res["approvals"].values())
     html = res["approvals"]["GOUT-COH"]["html"]
