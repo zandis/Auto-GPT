@@ -17,7 +17,7 @@ from edc_backend.config import EdcConfigError, load_config
 from edc_backend.connection import EdcConnection, connect, copy_records
 from edc_backend.mapping import map_project
 from fastapi.testclient import TestClient
-from rc_bridge.client import RcError, RedcapClient
+from rc_bridge.client import RcError, RedcapClient, _attachment_name, error_marker, major_of, register_local
 from rc_sim.app import create_app
 
 from tests.rc_kit import TOKEN_A, TOKEN_B
@@ -293,3 +293,94 @@ def test_a_classic_project_has_no_events_and_a_bare_file_call_is_still_refused()
     with pytest.raises(RcError) as err:
         client._post("file")
     assert (err.value.code, err.value.status) == ("RC-UPSTREAM", 502)
+
+
+def test_the_client_refuses_a_bad_answer_and_reads_the_extra_calls() -> None:
+    """The lists, the survey link and the schedule import, and the answers that are not what the client asked for."""
+    assert error_marker("classic projects") == "classic"
+    assert error_marker("no repeating instruments") == "repeat"
+    assert error_marker("a form is locked") == ""
+    with pytest.raises(ValueError):
+        register_local("https://rc.example", lambda: None)
+    with pytest.raises(RcError):
+        major_of("nope")
+    assert _attachment_name('attachment; filename="note.txt"') == "note.txt"
+    assert _attachment_name('inline; filename="a*b"') == "upload.bin"
+    assert _attachment_name("") == "upload.bin"
+    with pytest.raises(RcError, match="no in-process"):
+        RedcapClient("inproc://not-a-simulator", TOKEN_A)
+    owned = RedcapClient("https://rc.example/", TOKEN_A, declare_host=True)
+    owned.close()
+
+    app = create_app()
+    http = TestClient(app, base_url="http://rc")
+    client = RedcapClient("https://rc.example/", TOKEN_A, http=http)
+    client.url = "/api/"
+    assert client.users() == []
+    assert client.import_records([]) == []
+    assert client.import_arms([]) == {"count": 0}
+    with pytest.raises(RcError):
+        client.report("")
+    with pytest.raises(RcError) as err:
+        client.report("9")
+    assert err.value.refused
+    assert client.project_log("record", "2026-01-01 00:00", "2026-12-31 00:00") == []
+    with pytest.raises(RcError):
+        client.survey_link("", "")
+    assert client.survey_link("1", "screening", event="screening_arm_1", repeat_instance="1").startswith("http")
+    with pytest.raises(RcError):
+        client.import_metadata("  ")
+    with pytest.raises(RcError):
+        client.export_file("1", "Not A Field")
+    with pytest.raises(RcError, match="not usable"):
+        client.export_file("a\nb", "record_id")
+    with pytest.raises(RcError):
+        client.export_file("1", "record_id", event="screening_arm_1")
+    assert client.import_repeating([{"event_name": "", "form_name": "screening"}])["count"] == 1
+    raw = http.post("/api/", data={"token": TOKEN_A, "content": "arm", "format": "json", "data": "not-json"})
+    assert raw.status_code == 400
+    raw = http.post("/api/", data={"token": TOKEN_A, "content": "event", "format": "json", "data": "{}"})
+    assert raw.status_code == 400
+    raw = http.post("/api/", data={"token": TOKEN_A, "content": "file", "format": "json"})
+    assert raw.status_code == 400
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        body = parse_qs(request.content.decode())
+        content = body.get("content", [""])[0]
+        if content == "project":
+            return httpx.Response(200, text="not-json")
+        if content == "metadata":
+            return httpx.Response(200, json={"not": "a list"})
+        if content == "record":
+            return httpx.Response(400, text="plain refusal")
+        return httpx.Response(200, json="no")
+
+    mocked = RedcapClient("https://rc.example/api/", TOKEN_A, http=httpx.Client(transport=httpx.MockTransport(answer)))
+    with pytest.raises(RcError, match="not JSON"):
+        mocked.project()
+    with pytest.raises(RcError, match="not a list"):
+        mocked.metadata()
+    with pytest.raises(RcError) as err:
+        mocked.records()
+    assert err.value.kind == "" and not err.value.refused
+    with pytest.raises(RcError, match="not a list"):
+        mocked.repeating_forms_events()
+    mocked.close()
+
+    def odd(request: httpx.Request) -> httpx.Response:
+        body = parse_qs(request.content.decode())
+        content = body.get("content", [""])[0]
+        if content == "record" and "data" in body:
+            return httpx.Response(200, json={"ids": 1})
+        if content == "record":
+            return httpx.Response(200, json={"rows": 1})
+        return httpx.Response(200, json={"users": 1})
+
+    odd_client = RedcapClient("https://rc.example/api/", TOKEN_A, http=httpx.Client(transport=httpx.MockTransport(odd)))
+    with pytest.raises(RcError, match="not a list"):
+        odd_client.records()
+    with pytest.raises(RcError, match="record ids"):
+        odd_client.import_records([{"record_id": "1"}])
+    with pytest.raises(RcError, match="not a list"):
+        odd_client.users()
+    odd_client.close()
