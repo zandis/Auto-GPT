@@ -235,7 +235,7 @@ if [ -n "$RESUME" ]; then
   fi
   # one launch's own asks (F24): a step to run again and a set budget hold for the launch that names them, never
   # for the next resume (a redo sent twice would throw away the set it just ran)
-  for k in tb-redo tb-acc-deadline tb-acc-protocols tb-site-env tb-acc-streams tb-skip tb-serving; do
+  for k in tb-redo tb-acc-deadline tb-acc-protocols tb-site-env tb-acc-streams tb-skip tb-serving tb-qualify-timebox; do
     if [ -n "${V[$k]:-}" ]; then
       printf '%s' "${V[$k]}" > "$OUT/md/$k"
       case ",$RFILES," in *",$k="*) ;; *) RFILES="$RFILES,$k=$OUT/md/$k" ;; esac
