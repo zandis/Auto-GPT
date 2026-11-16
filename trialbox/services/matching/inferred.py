@@ -11,7 +11,9 @@ findings counted into a diagnosis) is an inference and goes to review. The quote
 the model's reason, which claimed a diagnosis on every one of these. A generic diagnosis word (症, 診断, "known") is
 not the condition: 健康診断 or "diagnosed with atrial fibrillation" states no hypertension.
 
-The criterion is its text only, never the note question, whose filler (があります) would count as the condition.
+A criterion in one language is read against notes in another through the concepts below and the cascade's own
+bilingual terms table (an English "gout flare" is stated by 急性痛風發作). The criterion is its text only, never the
+note question, whose filler (があります) would count as the condition.
 A criterion that is itself a value, a drug or a procedure (ALT > 3x ULN, eGFR < 30, corticosteroids, HBsAg positive)
 is out of scope: there the value or the drug IS what the line asks about.
 """
@@ -139,7 +141,18 @@ def _terms(criterion: str) -> list[str]:
     for concept in _CONCEPTS:
         if any(_pattern(t).search(criterion) for t in concept):
             terms += concept
-    return terms
+    return terms + _translated(criterion)
+
+
+def _translated(criterion: str) -> list[str]:
+    """The site's bilingual terms table, both ways: an English criterion's words in zh-TW / ja (gout: 痛風), and a
+    zh-TW / ja criterion's terms in English. A criterion in English is often read against notes in Chinese; one Han
+    character alone (痛) names nothing."""
+    from orchestrator.scenarios.terms import TERMS, keywords  # D-985; the cascade's own S2 table (D-103)
+
+    out = [t for t in keywords(criterion, limit=len(criterion)) if len(t) > 1]
+    out += [k for k, ts in TERMS.items() if any(len(t) > 1 and t in criterion for t in ts)]
+    return out
 
 
 def _stated_at(quote: str, start: int, end: int) -> bool:

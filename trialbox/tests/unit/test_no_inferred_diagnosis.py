@@ -50,6 +50,7 @@ INFERRED = [  # (criterion, quote): the run's replies the models agreed on, and 
     (DM, "糖尿病薬を内服"),
     (DM, "病歴: 特記なし、メトホルミン内服"),
     ("History of diabetes requiring insulin", "HbA1c 8.2%, on metformin"),
+    ("History of diabetes", "服用二甲雙胍"),
 ]  # fmt: skip
 STATED = [
     (HT, "BMI28.3の肥満と軽度の高血圧があり、内科で生活習慣指導を受けています。"),
@@ -71,6 +72,14 @@ STATED = [
     ("心筋梗塞の既往がある患者", "AMIにてステント留置"),
     ("慢性腎臓病の患者", "CKDステージ4"),
     (HT, "併存症として高血圧症がありますが、特記すべき家族歴はありません。"),
+    # a criterion in one language, the note in another (the cascade's bilingual terms table): CI's rerun test found
+    # the synthetic site's gout flare read as an inference
+    (
+        "Acute gout flare ongoing at screening (within 14 days).",
+        "目前右側第一蹠趾關節急性紅腫熱痛，診斷為急性痛風發作中。",
+    ),
+    ("Active tuberculosis", "肺結核治療中"),
+    ("痛風の既往", "history of gout, on allopurinol"),
 ]
 OUT_OF_SCOPE = [  # the value or the drug is what the line asks about
     ("ALT > 3x ULN", "ALT 250 U/L"),
