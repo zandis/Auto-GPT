@@ -17,6 +17,8 @@ from __future__ import annotations
 import logging
 import os
 import re
+import time
+from collections.abc import Callable
 from typing import Any, cast
 
 import yaml
@@ -204,24 +206,33 @@ def _submit(orch: Orchestrator, jtype: str, ruleset: str | None = None, options:
 
 LLM_JOBS = ("MICROBATCH", "NAV", "COHORT", "CALIBRATION")  # night jobs that ask the models
 _gate: dict[str, bool] = {}  # date -> canary result, so the self-test runs once a night
+_unreached: dict[str, float] = {}  # date -> monotonic time before which a canary that met no model is not re-asked
 
 
-def night_gate(orch: Orchestrator, today: str | None = None) -> bool:
+def night_gate(orch: Orchestrator, today: str | None = None, clock: Callable[[], float] = time.monotonic) -> bool:
     """The night's model self-test (:mod:`orchestrator.selftest`), run before the first LLM job of the day; the LLM
     jobs start only when it passed. Its result is kept for the day, so a failed canary holds every LLM job that
-    night and a passed one runs once."""
+    night and a passed one runs once. D-915: a canary that could not reach a model did not run; it is not kept, and
+    is asked again on a tick at least ``TB_CANARY_RETRY_S`` seconds later (the jobs held until then)."""
     from tb_common.timeutil import today as site_today
 
+    from orchestrator import canary_gate
     from orchestrator.selftest import preflight
 
     # the site's night, not the container's UTC date (D-270); not orch.today(), which a test stack may pin
     day = today or site_today(orch.cfg.env.tz).isoformat()
     if day not in _gate:
+        if clock() < _unreached.get(day, float("-inf")):
+            return False
         try:
-            _gate[day] = preflight(orch)
+            ok = preflight(orch)
         except Exception as exc:  # the gate itself must not take the scheduler down
             log.exception("night self-test errored: %s", exc)
-            _gate[day] = False
+            ok = False
+        if not ok and canary_gate.GATE.waiting is not None:
+            _unreached[day] = clock() + canary_gate.retry_seconds()
+            return False
+        _gate[day] = ok
     return _gate[day]
 
 
