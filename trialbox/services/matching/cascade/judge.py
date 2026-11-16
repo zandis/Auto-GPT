@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import unicodedata
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, Protocol
@@ -26,6 +27,23 @@ from tb_common.quotes import quote_in, quote_key
 from tb_llm.budget import estimate_tokens
 
 JUDGE_PROMPT = "judge"
+
+
+@dataclass(frozen=True)
+class Asking:
+    """Who and what a judge question is about, beside the prompt (D-908, the owner's D-519): set by the cascade
+    around each question so a model client below it (the judged-pair store of SCREEN) can key and erase an answer by
+    the patient's pseudonym, the criterion's canonical hash and the window. ``audit``: a question of an audit sample
+    (CAS-8's stratified draw), which is always asked live and never stored."""
+
+    pid: str
+    criterion_hash: str
+    window: tuple[str, str]
+    audit: bool = False
+
+
+#: the question being asked in this thread (None outside the cascade's judge calls)
+ASKING: ContextVar[Asking | None] = ContextVar("tb_cascade_asking", default=None)
 
 
 @dataclass(frozen=True)

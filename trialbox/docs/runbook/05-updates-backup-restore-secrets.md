@@ -75,7 +75,9 @@ backup. Driver updates are outside the bundle and need a change request. Held by
 /media/usb/trialbox-backup.key --public deploy/secrets/backup.pub`. The private key goes in their sealed envelope; the
 box keeps only the public key and cannot read its own backups. A backup (`.tbbak`) holds the trial and HAPI
 databases, every data folder and a manifest, compressed with zstd level 3 on every core and then encrypted
-(AES-256-GCM to an X25519 key). The box keeps running: each database is dumped and counted in one database snapshot,
+(AES-256-GCM to an X25519 key). The trial database includes the judged-pair store (`orch.judged_pairs`, D-908): model
+answers to note questions, by pseudonym; after a restore the opt-out worker deletes again the rows of every patient on
+the register (it clears the owed tables). The box keeps running: each database is dumped and counted in one database snapshot,
 and a file that changes while it is read is read again. Left out on purpose: the vendor reference pack's rows (public;
 the pack file is kept in `deploy/refdata/loaded` and loaded again by the restore; the hospital's own reference rows
 are in the backup), the lake's NDJSON except that of `CURRENT` and the two newest snapshots (every Parquet and DuckDB

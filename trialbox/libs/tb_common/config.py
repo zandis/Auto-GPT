@@ -665,6 +665,9 @@ DECLARED: dict[str, Declared] = {
     "TB_JOB_POLL_SECONDS": Declared("float", "5", "longest pause between reads of a polled job's state (D-472)"),
     "TB_JP_INGREDIENT_ATC": Declared("str", "", "compiler: Japanese ingredient to ATC map"),
     "TB_JVM_IMAGE": Declared("str", "", "platform: JVM image"),
+    "TB_JUDGED_STORE": Declared(
+        "str", "on", "SCREEN: the judged-pair store, on or off; off asks every note question live (D-908, D-519)"
+    ),
     "TB_JOB_MAX_RESTARTS": Declared(
         "int",
         "3",

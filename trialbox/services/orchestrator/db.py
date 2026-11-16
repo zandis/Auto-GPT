@@ -198,7 +198,24 @@ INSERT INTO cohort_tables_before (seq, site_id, disease, quarter, criterion_id, 
 SELECT seq, site_id, disease, quarter, criterion_id, definition_version, criterion_label, n, n_contactable,
   received_from, job_id FROM cohort_tables
 """
-MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4)
+# D-908 (the owner's D-519): the judged-pair store. One row per model answer (the judge's and the verifier's apart,
+# never a combined verdict), by the key of ``orchestrator.judged_store``; the patient's pseudonym and the snapshot
+# of the run that last used it are columns so an opt-out deletes the patient's rows and the snapshots' retention
+# (D-452) takes the rows with it. Class D3: never exported, never in a support bundle.
+SCHEMA_V5 = """
+CREATE TABLE IF NOT EXISTS judged_pairs (
+  key TEXT PRIMARY KEY,
+  pid TEXT NOT NULL,
+  snapshot TEXT NOT NULL,
+  role TEXT NOT NULL,
+  build_sha TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS judged_pairs_pid ON judged_pairs (pid);
+CREATE INDEX IF NOT EXISTS judged_pairs_snapshot ON judged_pairs (snapshot);
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5)
 SCHEMA_NAME = "orch"
 
 TERMINAL = ("done", "failed")
@@ -525,6 +542,45 @@ class JobDB:
                     "j.job_id = a.job_id AND j.state NOT IN ('done','failed'))"
                 )
             )
+
+    # ------------------------------------------------------------------ the judged-pair store (D-908, D-519)
+    def pair_get(self, key: str) -> tuple[str, str] | None:
+        """``(pid, answer)`` of a stored model answer."""
+        row = self._db.fetchone("SELECT pid, answer FROM judged_pairs WHERE key = ?", (key,))
+        return (str(row[0]), str(row[1])) if row else None
+
+    def pair_put(self, key: str, pid: str, snapshot: str, role: str, build_sha: str, answer: str, at: str) -> None:
+        """Store one model answer; one already stored under the key gives way (the key names its build)."""
+        with self.tx() as con:
+            con.execute(
+                "INSERT INTO judged_pairs (key, pid, snapshot, role, build_sha, answer, at) VALUES (?,?,?,?,?,?,?) "
+                "ON CONFLICT (key) DO UPDATE SET snapshot = EXCLUDED.snapshot, answer = EXCLUDED.answer, "
+                "at = EXCLUDED.at",
+                (key, pid, snapshot, role, build_sha, answer, at),
+            )
+
+    def pair_touch(self, key: str, snapshot: str) -> None:
+        """A stored answer read by a run of ``snapshot`` now goes with that snapshot (D-452)."""
+        with self.tx() as con:
+            con.execute(
+                "UPDATE judged_pairs SET snapshot = ? WHERE key = ? AND snapshot < ?", (snapshot, key, snapshot)
+            )
+
+    def pair_snapshots(self) -> list[str]:
+        return [str(r[0]) for r in self._db.fetchall("SELECT DISTINCT snapshot FROM judged_pairs")]
+
+    def pairs_drop_snapshots(self, keep: list[str]) -> int:
+        """Delete the answers of every snapshot not in ``keep`` (the snapshots' retention, D-452)."""
+        with self.tx() as con:
+            return int(con.execute("DELETE FROM judged_pairs WHERE NOT (snapshot = ANY(?))", (list(keep),)))
+
+    def pairs_drop_pids(self, pids: list[str]) -> int:
+        """Delete every answer about these patients (an opt-out, D-513)."""
+        with self.tx() as con:
+            return int(con.execute("DELETE FROM judged_pairs WHERE pid = ANY(?)", (list(pids),)))
+
+    def pair_count(self) -> int:
+        return int(self._db.fetchval("SELECT count(*) FROM judged_pairs") or 0)
 
     def unfinished(self, type_: str, ruleset: str | None) -> list[str]:
         """The jobs of ``type_`` for ``ruleset`` (none: the box-wide jobs, INGEST and RETENTION) that are queued or
