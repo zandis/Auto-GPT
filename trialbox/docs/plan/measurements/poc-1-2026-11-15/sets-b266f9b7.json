@@ -1,0 +1,875 @@
+{
+ "meta": {
+  "commit": "b266f9b7f45194afb86b217619f0da78156f0eaf",
+  "master": "2d354036 (train 37)",
+  "run": "box-20261116T023816Z-b266f9b7f",
+  "serving": "shipped (max-num-seqs 16, enforce-eager)",
+  "embed_memory": {
+   "tcga_brca_gate_failed": "limit 16 GB left in deploy/.env (F37), peak sampled 1.27 GiB, 0 restarts",
+   "tcga_brca_gate_ok": "limit 6 GB (master default), peak sampled 908 MiB, 0 restarts"
+  },
+  "labels": {
+   "jmed": "measures the compiler (structured and mixed criteria); 0 disagreements",
+   "tcga": "criterion level measures the judge; pair level measures the product's rule with note_block as recorded"
+  },
+  "note": "counts only: no raw answer, no patient id; the cascade's stage log carries counts and practitioner ids of the synthetic site only"
+ },
+ "sets": {
+  "jmed": {
+   "protocols_run": 2,
+   "outcomes": {
+    "screened": 2
+   },
+   "screen_jobs": [
+    {
+     "ruleset": "M3JMED-DM",
+     "patients_scoped": 297,
+     "seconds": 59.594,
+     "model_calls": 449
+    },
+    {
+     "ruleset": "M3JMED-HT",
+     "patients_scoped": 297,
+     "seconds": 1.002,
+     "model_calls": 0
+    }
+   ],
+   "screen_job_seconds_median": 59.594,
+   "model_calls_screen": 449,
+   "pair_on_judge_calls": {
+    "one model only": 157,
+    "agree": 111
+   },
+   "verdicts": {
+    "fail|coded": 68,
+    "fail|pair": 34,
+    "pass|coded": 524,
+    "pass|pair": 75,
+    "unknown|-": 419
+   },
+   "tiers": {
+    "review": 451,
+    "high": 75,
+    "excluded": 68
+   },
+   "score": {
+    "criteria": {
+     "answered": 594,
+     "unanswered": 0,
+     "rows": [
+      {
+       "lang": "ja",
+       "stratum": "jmed-family-only",
+       "kind": "exclusion",
+       "gold": "not excluded",
+       "n": 147,
+       "open": 100,
+       "no_block": 46,
+       "block": 1,
+       "block_is": "wrong exclusion"
+      },
+      {
+       "lang": "ja",
+       "stratum": "jmed-none",
+       "kind": "exclusion",
+       "gold": "not excluded",
+       "n": 208,
+       "open": 121,
+       "no_block": 87,
+       "block_is": "wrong exclusion"
+      },
+      {
+       "lang": "ja",
+       "stratum": "jmed-own",
+       "kind": "exclusion",
+       "gold": "excluded",
+       "n": 239,
+       "open": 196,
+       "block": 33,
+       "no_block": 10,
+       "block_is": "catch"
+      }
+     ],
+     "wrong_exclusion": {
+      "k": 1,
+      "n": 355,
+      "rate": 0.0028,
+      "ci95": [
+       0.0001,
+       0.0156
+      ]
+     },
+     "caught": {
+      "k": 33,
+      "n": 239,
+      "rate": 0.1381,
+      "ci95": [
+       0.097,
+       0.1884
+      ]
+     },
+     "not_compiled": 0,
+     "evidence": {}
+    },
+    "compiled": {
+     "protocols": 2,
+     "criteria": 4,
+     "class_split": {
+      "mixed": 1,
+      "structured": 3
+     },
+     "screened": 2
+    }
+   },
+   "judging_per_protocol": {
+    "M3JMED-DM": {
+     "may_block": false,
+     "note_block": "never",
+     "note_block_code": "failed",
+     "configured_note_block": "both_agree",
+     "disagreements": 1,
+     "failures": 0,
+     "cascade_metrics": {
+      "cache_hits": 0,
+      "context_unknown": {},
+      "gateway_refusals": 0,
+      "llm_share": 1.0,
+      "no_retrieval": {},
+      "note_criteria": 1,
+      "pairs_judged": {
+       "S3": 263,
+       "S4": 75
+      },
+      "pairs_s2_hit": 0,
+      "pairs_s2_no_notes": 0,
+      "pairs_s2_zero_hit": 263,
+      "pairs_s2b_above": 263,
+      "pairs_s2b_below": 0,
+      "tokens_in": 334925,
+      "tokens_out": 39315,
+      "unprocessed": 0
+     },
+     "stages": [
+      {
+       "detail": {
+        "contact_denied": 0,
+        "opted_out": 0,
+        "population": "297 patients given by the caller (screening scope)"
+       },
+       "pairs_in": 1594,
+       "pairs_out": 594,
+       "patients_in": 797,
+       "patients_out": 297,
+       "stage": "S0"
+      },
+      {
+       "detail": {
+        "deferred_index": 0,
+        "index_dates": 1,
+        "semantics": "v1",
+        "unknown_code_system": 0
+       },
+       "pairs_in": 594,
+       "pairs_out": 263,
+       "patients_in": 297,
+       "patients_out": 263,
+       "stage": "S1"
+      },
+      {
+       "detail": {
+        "excluded_zero_hit": 0,
+        "hits": 0,
+        "no_notes": 0,
+        "zero_hit": 263
+       },
+       "pairs_in": 263,
+       "pairs_out": 263,
+       "patients_in": 263,
+       "patients_out": 263,
+       "stage": "S2"
+      },
+      {
+       "detail": {
+        "above": 263,
+        "below": 0,
+        "embed_batches": 0,
+        "embed_model": "e-embed-1"
+       },
+       "pairs_in": 263,
+       "pairs_out": 263,
+       "patients_in": 263,
+       "patients_out": 263,
+       "stage": "S2b"
+      },
+      {
+       "detail": {
+        "cache_hits": 0,
+        "judged": 263,
+        "sampled": 263,
+        "unprocessed": 0
+       },
+       "pairs_in": 263,
+       "pairs_out": 229,
+       "patients_in": 263,
+       "patients_out": 263,
+       "stage": "S3"
+      },
+      {
+       "detail": {
+        "disagreements": 0
+       },
+       "pairs_in": 75,
+       "pairs_out": 75,
+       "patients_in": 263,
+       "patients_out": 263,
+       "stage": "S4"
+      },
+      {
+       "detail": {
+        "candidates": 263,
+        "contact_denied": 0,
+        "reviewed": 0
+       },
+       "pairs_in": 155,
+       "pairs_out": 0,
+       "patients_in": 263,
+       "patients_out": 0,
+       "stage": "S5"
+      }
+     ]
+    },
+    "M3JMED-HT": {
+     "may_block": false,
+     "note_block": "never",
+     "note_block_code": "failed",
+     "configured_note_block": "both_agree",
+     "disagreements": 0,
+     "failures": 0,
+     "cascade_metrics": {
+      "cache_hits": 0,
+      "context_unknown": {},
+      "gateway_refusals": 0,
+      "llm_share": 0.0,
+      "no_retrieval": {},
+      "note_criteria": 0,
+      "pairs_judged": {
+       "S3": 0,
+       "S4": 0
+      },
+      "pairs_s2_hit": 0,
+      "pairs_s2_no_notes": 0,
+      "pairs_s2_zero_hit": 0,
+      "pairs_s2b_above": 0,
+      "pairs_s2b_below": 0,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "unprocessed": 0
+     },
+     "stages": [
+      {
+       "detail": {
+        "contact_denied": 0,
+        "opted_out": 0,
+        "population": "297 patients given by the caller (screening scope)"
+       },
+       "pairs_in": 1594,
+       "pairs_out": 594,
+       "patients_in": 797,
+       "patients_out": 297,
+       "stage": "S0"
+      },
+      {
+       "detail": {
+        "deferred_index": 0,
+        "index_dates": 1,
+        "semantics": "v1",
+        "unknown_code_system": 0
+       },
+       "pairs_in": 594,
+       "pairs_out": 526,
+       "patients_in": 297,
+       "patients_out": 263,
+       "stage": "S1"
+      },
+      {
+       "detail": {
+        "excluded_zero_hit": 0,
+        "hits": 0,
+        "no_notes": 0,
+        "zero_hit": 0
+       },
+       "pairs_in": 0,
+       "pairs_out": 0,
+       "patients_in": 263,
+       "patients_out": 263,
+       "stage": "S2"
+      },
+      {
+       "detail": {
+        "above": 0,
+        "below": 0,
+        "embed_batches": 0,
+        "embed_model": "e-embed-1"
+       },
+       "pairs_in": 0,
+       "pairs_out": 0,
+       "patients_in": 263,
+       "patients_out": 263,
+       "stage": "S2b"
+      },
+      {
+       "detail": {
+        "cache_hits": 0,
+        "judged": 0,
+        "sampled": 263,
+        "unprocessed": 0
+       },
+       "pairs_in": 0,
+       "pairs_out": 0,
+       "patients_in": 263,
+       "patients_out": 263,
+       "stage": "S3"
+      },
+      {
+       "detail": {
+        "disagreements": 0
+       },
+       "pairs_in": 0,
+       "pairs_out": 0,
+       "patients_in": 263,
+       "patients_out": 263,
+       "stage": "S4"
+      },
+      {
+       "detail": {
+        "candidates": 263,
+        "contact_denied": 0,
+        "reviewed": 0
+       },
+       "pairs_in": 1,
+       "pairs_out": 0,
+       "patients_in": 263,
+       "patients_out": 0,
+       "stage": "S5"
+      }
+     ]
+    }
+   }
+  },
+  "tcga_brca_gate_failed": {
+   "protocols_run": 1,
+   "outcomes": {
+    "screened": 1
+   },
+   "screen_jobs": [
+    {
+     "ruleset": "G3TCGA-BRCA",
+     "patients_scoped": 500,
+     "seconds": 324.657,
+     "model_calls": 1014
+    }
+   ],
+   "screen_job_seconds_median": 324.657,
+   "model_calls_screen": 1014,
+   "pair_on_judge_calls": {
+    "agree": 465,
+    "one model only": 31,
+    "disagree": 4
+   },
+   "verdicts": {
+    "fail|pair": 377,
+    "pass|pair": 48,
+    "unknown|-": 75
+   },
+   "tiers": {
+    "high": 48,
+    "review": 452
+   },
+   "score": {
+    "pairs": {
+     "en": {
+      "answered": 500,
+      "eligible_lost": {
+       "k": 0,
+       "n": 50,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.0711
+       ]
+      },
+      "excluded_caught": {
+       "k": 0,
+       "n": 450,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.0082
+       ]
+      },
+      "wrong_exclusions": {
+       "k": 0,
+       "n": 0,
+       "rate": null,
+       "ci95": [
+        0.0,
+        1.0
+       ]
+      },
+      "unanswered": {
+       "k": 4500,
+       "n": 5000,
+       "rate": 0.9,
+       "ci95": [
+        0.8913,
+        0.9082
+       ]
+      },
+      "left_open": {
+       "k": 75,
+       "n": 5000,
+       "rate": 0.015,
+       "ci95": [
+        0.0118,
+        0.0188
+       ]
+      },
+      "other_strata": {}
+     }
+    },
+    "criteria": {
+     "answered": 500,
+     "unanswered": 0,
+     "rows": [
+      {
+       "lang": "en",
+       "stratum": "tcga-included",
+       "kind": "inclusion",
+       "gold": "included",
+       "n": 500,
+       "no_block": 48,
+       "open": 2,
+       "not_compiled": 450,
+       "block_is": "wrong exclusion"
+      },
+      {
+       "lang": "en",
+       "stratum": "tcga-not-included",
+       "kind": "inclusion",
+       "gold": "not included",
+       "n": 4500,
+       "not_compiled": 4050,
+       "block": 377,
+       "open": 73,
+       "block_is": "catch"
+      }
+     ],
+     "wrong_exclusion": {
+      "k": 0,
+      "n": 50,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.0711
+      ]
+     },
+     "caught": {
+      "k": 377,
+      "n": 450,
+      "rate": 0.8378,
+      "ci95": [
+       0.8004,
+       0.8706
+      ]
+     },
+     "not_compiled": 4500,
+     "evidence": {}
+    },
+    "compiled": {
+     "protocols": 1,
+     "criteria": 1,
+     "class_split": {
+      "mixed": 1
+     },
+     "screened": 1
+    }
+   },
+   "judging_per_protocol": {
+    "G3TCGA-BRCA": {
+     "may_block": false,
+     "note_block": "never",
+     "note_block_code": "failed",
+     "configured_note_block": "both_agree",
+     "disagreements": 41,
+     "failures": 3,
+     "cascade_metrics": {
+      "cache_hits": 0,
+      "context_unknown": {},
+      "gateway_refusals": 0,
+      "llm_share": 1.0,
+      "no_retrieval": {},
+      "note_criteria": 1,
+      "pairs_judged": {
+       "S3": 500,
+       "S4": 48
+      },
+      "pairs_s2_hit": 0,
+      "pairs_s2_no_notes": 0,
+      "pairs_s2_zero_hit": 500,
+      "pairs_s2b_above": 500,
+      "pairs_s2b_below": 0,
+      "tokens_in": 1498980,
+      "tokens_out": 116607,
+      "unprocessed": 0
+     },
+     "stages": [
+      {
+       "detail": {
+        "contact_denied": 0,
+        "opted_out": 0,
+        "population": "500 patients given by the caller (screening scope)"
+       },
+       "pairs_in": 797,
+       "pairs_out": 500,
+       "patients_in": 797,
+       "patients_out": 500,
+       "stage": "S0"
+      },
+      {
+       "detail": {
+        "deferred_index": 0,
+        "index_dates": 1,
+        "semantics": "v1",
+        "unknown_code_system": 0
+       },
+       "pairs_in": 500,
+       "pairs_out": 0,
+       "patients_in": 500,
+       "patients_out": 500,
+       "stage": "S1"
+      },
+      {
+       "detail": {
+        "excluded_zero_hit": 0,
+        "hits": 0,
+        "no_notes": 0,
+        "zero_hit": 500
+       },
+       "pairs_in": 500,
+       "pairs_out": 500,
+       "patients_in": 500,
+       "patients_out": 500,
+       "stage": "S2"
+      },
+      {
+       "detail": {
+        "above": 500,
+        "below": 0,
+        "embed_batches": 0,
+        "embed_model": "e-embed-1"
+       },
+       "pairs_in": 500,
+       "pairs_out": 500,
+       "patients_in": 500,
+       "patients_out": 500,
+       "stage": "S2b"
+      },
+      {
+       "detail": {
+        "cache_hits": 0,
+        "judged": 500,
+        "sampled": 500,
+        "unprocessed": 0
+       },
+       "pairs_in": 500,
+       "pairs_out": 123,
+       "patients_in": 500,
+       "patients_out": 500,
+       "stage": "S3"
+      },
+      {
+       "detail": {
+        "disagreements": 0
+       },
+       "pairs_in": 48,
+       "pairs_out": 48,
+       "patients_in": 500,
+       "patients_out": 500,
+       "stage": "S4"
+      },
+      {
+       "detail": {
+        "candidates": 500,
+        "contact_denied": 0,
+        "reviewed": 0
+       },
+       "pairs_in": 75,
+       "pairs_out": 0,
+       "patients_in": 500,
+       "patients_out": 0,
+       "stage": "S5"
+      }
+     ]
+    }
+   }
+  },
+  "tcga_brca_gate_ok": {
+   "protocols_run": 1,
+   "outcomes": {
+    "screened": 1
+   },
+   "screen_jobs": [
+    {
+     "ruleset": "G3TCGA-BRCA",
+     "patients_scoped": 500,
+     "seconds": 317.09,
+     "model_calls": 1013
+    }
+   ],
+   "screen_job_seconds_median": 317.09,
+   "model_calls_screen": 1013,
+   "pair_on_judge_calls": {
+    "agree": 464,
+    "one model only": 35,
+    "disagree": 3
+   },
+   "verdicts": {
+    "fail|notes": 384,
+    "pass|pair": 48,
+    "unknown|-": 68
+   },
+   "tiers": {
+    "high": 48,
+    "review": 68,
+    "excluded": 384
+   },
+   "score": {
+    "pairs": {
+     "en": {
+      "answered": 500,
+      "eligible_lost": {
+       "k": 0,
+       "n": 50,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.0711
+       ]
+      },
+      "excluded_caught": {
+       "k": 384,
+       "n": 450,
+       "rate": 0.8533,
+       "ci95": [
+        0.8172,
+        0.8847
+       ]
+      },
+      "wrong_exclusions": {
+       "k": 0,
+       "n": 384,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.0096
+       ]
+      },
+      "unanswered": {
+       "k": 4500,
+       "n": 5000,
+       "rate": 0.9,
+       "ci95": [
+        0.8913,
+        0.9082
+       ]
+      },
+      "left_open": {
+       "k": 68,
+       "n": 5000,
+       "rate": 0.0136,
+       "ci95": [
+        0.0106,
+        0.0172
+       ]
+      },
+      "other_strata": {}
+     }
+    },
+    "criteria": {
+     "answered": 500,
+     "unanswered": 0,
+     "rows": [
+      {
+       "lang": "en",
+       "stratum": "tcga-included",
+       "kind": "inclusion",
+       "gold": "included",
+       "n": 500,
+       "no_block": 48,
+       "open": 2,
+       "not_compiled": 450,
+       "block_is": "wrong exclusion"
+      },
+      {
+       "lang": "en",
+       "stratum": "tcga-not-included",
+       "kind": "inclusion",
+       "gold": "not included",
+       "n": 4500,
+       "not_compiled": 4050,
+       "block": 384,
+       "open": 66,
+       "block_is": "catch"
+      }
+     ],
+     "wrong_exclusion": {
+      "k": 0,
+      "n": 50,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.0711
+      ]
+     },
+     "caught": {
+      "k": 384,
+      "n": 450,
+      "rate": 0.8533,
+      "ci95": [
+       0.8172,
+       0.8847
+      ]
+     },
+     "not_compiled": 4500,
+     "evidence": {}
+    },
+    "compiled": {
+     "protocols": 1,
+     "criteria": 1,
+     "class_split": {
+      "mixed": 1
+     },
+     "screened": 1
+    }
+   },
+   "judging_per_protocol": {
+    "G3TCGA-BRCA": {
+     "may_block": true,
+     "note_block": "both_agree",
+     "note_block_code": "ok",
+     "configured_note_block": "both_agree",
+     "disagreements": 33,
+     "failures": 2,
+     "cascade_metrics": {
+      "cache_hits": 0,
+      "context_unknown": {},
+      "gateway_refusals": 0,
+      "llm_share": 1.0,
+      "no_retrieval": {},
+      "note_criteria": 1,
+      "pairs_judged": {
+       "S3": 500,
+       "S4": 48
+      },
+      "pairs_s2_hit": 0,
+      "pairs_s2_no_notes": 0,
+      "pairs_s2_zero_hit": 500,
+      "pairs_s2b_above": 500,
+      "pairs_s2b_below": 0,
+      "tokens_in": 1499305,
+      "tokens_out": 115519,
+      "unprocessed": 0
+     },
+     "stages": [
+      {
+       "detail": {
+        "contact_denied": 0,
+        "opted_out": 0,
+        "population": "500 patients given by the caller (screening scope)"
+       },
+       "pairs_in": 797,
+       "pairs_out": 500,
+       "patients_in": 797,
+       "patients_out": 500,
+       "stage": "S0"
+      },
+      {
+       "detail": {
+        "deferred_index": 0,
+        "index_dates": 1,
+        "semantics": "v1",
+        "unknown_code_system": 0
+       },
+       "pairs_in": 500,
+       "pairs_out": 0,
+       "patients_in": 500,
+       "patients_out": 500,
+       "stage": "S1"
+      },
+      {
+       "detail": {
+        "excluded_zero_hit": 0,
+        "hits": 0,
+        "no_notes": 0,
+        "zero_hit": 500
+       },
+       "pairs_in": 500,
+       "pairs_out": 500,
+       "patients_in": 500,
+       "patients_out": 500,
+       "stage": "S2"
+      },
+      {
+       "detail": {
+        "above": 500,
+        "below": 0,
+        "embed_batches": 0,
+        "embed_model": "e-embed-1"
+       },
+       "pairs_in": 500,
+       "pairs_out": 500,
+       "patients_in": 500,
+       "patients_out": 500,
+       "stage": "S2b"
+      },
+      {
+       "detail": {
+        "cache_hits": 0,
+        "judged": 500,
+        "sampled": 500,
+        "unprocessed": 0
+       },
+       "pairs_in": 500,
+       "pairs_out": 116,
+       "patients_in": 500,
+       "patients_out": 116,
+       "stage": "S3"
+      },
+      {
+       "detail": {
+        "disagreements": 0
+       },
+       "pairs_in": 48,
+       "pairs_out": 48,
+       "patients_in": 116,
+       "patients_out": 116,
+       "stage": "S4"
+      },
+      {
+       "detail": {
+        "candidates": 116,
+        "contact_denied": 0,
+        "reviewed": 0
+       },
+       "pairs_in": 68,
+       "pairs_out": 0,
+       "patients_in": 116,
+       "patients_out": 0,
+       "stage": "S5"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

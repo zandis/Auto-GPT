@@ -1,0 +1,11 @@
+{
+ "run": "box-20261115T123832Z-1157c9bfa",
+ "commit": "1157c9bfa514e71cdd4f6e430250665c0c9481a2",
+ "g1_identity": {"pass": true, "chat_template_served_is_pinned": true, "images_in_images_lock": true, "weights_match_pins": true, "served_prompts_named": true},
+ "g1_tokens": {"pass": false, "prompts": 20, "tokens": 2268, "server_vs_folder_token_ids": false, "passed_vs_folder_token_ids": true, "passed_vs_folder_text_sha256": false, "finding": "on the 10 prompts with a system message the server's ids carry one more token, at position 22, than the weights folder's tokenizer gives"},
+ "canary": {"cases": 54,
+  "judge": {"alias": "j-workhorse", "manifest_sha256": "5e5bef7a61feffc04e388886d2f1996dbffd1fa10b1722e2fa2a832c39e28a76", "answered": 54, "correct": 53, "flips": 1, "seconds": 119.8},
+  "second_opinion": {"alias": "v-verifier", "manifest_sha256": "869b525324626a867331f26126a5605aeb10ae40e9dfbc14fee9849ac3e15982", "answered": 54, "correct": 48, "flips": 1, "seconds": 95.2},
+  "pair": {"correct": 52, "disagreed_left_to_a_person": 2, "decided_wrong": 0},
+  "pass": true}
+}
