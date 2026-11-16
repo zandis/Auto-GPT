@@ -307,7 +307,7 @@ def test_the_lifecycles_subject_takes_the_token_and_is_never_mirrored_back(box: 
         def rows(self, rs: str) -> list[Any]:
             raise AssertionError("an erased subject is never looked up on the log")
 
-    assert mirror(Registry(), RS, token, "approached", "crc", NOW) is None
+    assert mirror(Registry(), RS, token, "consented", "crc", NOW) == "an erased row: the screening log is not updated"
 
 
 def test_a_number_is_compared_as_the_lifecycle_keys_it(db_url: str) -> None:

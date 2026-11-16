@@ -223,8 +223,10 @@ def mirror(registry: Any, rs: str, pid: str, state: str, by: str, now: Any) -> s
     """Put the subject's state on the screening log (the candidate registry); None, or why it could not."""
     from tb_contracts import RegistryUpdate
 
-    if registry is None or not pid or is_erased(pid):  # D-875: an erased subject is never put back on the log
+    if registry is None or not pid:
         return None
+    if is_erased(pid):  # D-875: an erased subject is never put back on the log; the step says so (the review)
+        return "an erased row: the screening log is not updated"
     want = lc.REGISTRY_OF[state]
     try:
         cur = next((e.status for e in registry.rows(rs) if e.pid == pid), None)

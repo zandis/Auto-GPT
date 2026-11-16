@@ -410,7 +410,7 @@ def _open(url: str, schema: str) -> Any:
         return Database.connect(url, "mail")
     if schema == "pidmap":  # ERASE-A2 (D-875): read only, the chart merges a patient's consent is looked for under
         return Database.connect(url, "pidmap")
-    if schema == "datacore":  # ERASE-A2 (D-875): read only, the lifecycle and the consent forms
+    if schema == "datacore":  # ERASE-A2 (D-875): the lifecycle and the consent forms (a subject's pseudonym is tokened)
         return Database.connect(url, "datacore")
     if schema == "study":  # ERASE-A2 (D-875): read only, REDCap's read-back and its link
         return Database.connect(url, "study")

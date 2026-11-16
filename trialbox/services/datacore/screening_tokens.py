@@ -236,11 +236,13 @@ def apply(todo: dict[Pair, tuple[list[str], int]], days: dict[str, str], has: Ha
     if not todo:
         return 0
     stores = [(schema, [upd for s, t, _c, upd in TOKENED if s == schema and has(s, t)])
-              for schema in ("site", "datacore", "orch")]  # fmt: skip
+              for schema in ("orch", "site", "datacore")]  # fmt: skip
     n = 0
     # the stores in one go: a failure before the commits leaves them all as they were (the next tick plans again).
-    # The commits run orchestrator, lifecycle, site; a failure between two leaves the rest to the next tick, with a
-    # token of their own (a row then reads as an opted-out patient's with its registry status unknown, never who)
+    # The commits run lifecycle, site, orchestrator (the review of D-875): the registry commits last and holds its
+    # re-check's lock until then, and a lifecycle subject never names a patient the registry no longer has (the
+    # lifecycle refresh would put them back on the log). A failure between two leaves the rest to the next tick, with
+    # a token of their own (a row then reads as an opted-out patient's with its registry status unknown, never who)
     with ExitStack() as stack:
         txs = {schema: (stack.enter_context(stack.enter_context(open_(schema)).transaction()), upds)
                for schema, upds in stores if upds}  # fmt: skip

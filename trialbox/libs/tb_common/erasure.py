@@ -293,8 +293,9 @@ TABLES: dict[str, Entry] = {
     ),
     "datacore.subject": _erase(
         "screening_log",
-        "the lifecycle's subject of a screening number: a never-consented patient's pseudonym takes the screening "
-        "log's token (the review of D-875); a trial subject's stays (OD-8)",
+        "the lifecycle's subject of a screening number: a never-consented patient's pid column takes the screening "
+        "log's token (the review of D-875; a record keyed by the pseudonym itself keeps it as its key, D-772); a "
+        "trial subject's stays (OD-8)",
     ),
     **_each(
         "datacore",
