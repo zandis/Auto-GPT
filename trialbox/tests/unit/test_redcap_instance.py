@@ -171,7 +171,9 @@ def test_the_stand_in_fails_exactly_where_the_simulator_is_known_to_be_laxer_tha
     assert r9["pass"] and r9["the_entry_of_this_write"][0]["username"] == "tb_api" and rec["notes"]
     assert rec["results"]["R5 repeat and arms"]["rows_not_read_back_equal"] == []
     r6 = rec["results"]["R6 logic"]  # the ``___`` columns go in now (NEW-EDC-3b): each expression is compared
-    assert r6["pass"] and len(r6["cases"]) == 23 and all(c["equal"] for c in r6["cases"])
+    # RC13-C (D-850): the checkbox case is left to the evaluator (REDCap's import does not recalculate it): 22 of 23
+    assert r6["pass"] and len(r6["cases"]) == 22 and all(c["equal"] for c in r6["cases"])
+    assert any("[cb(2)] + [cb(3)]" in n for n in r6["not_run"])
     r7 = rec["results"]["R7 auto-number"]  # the ids parse, but the stand-in cannot run the two halves
     assert r7["no_group"]["ids_parse"] and len(r7["not_run"]) == 2
     assert len(r7["no_group"]["records_with_that_number_after_a_blind_retry"]) == 2  # why the link looks up first
