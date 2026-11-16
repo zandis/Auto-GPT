@@ -109,7 +109,8 @@ def _convert_logic(
     if "op" in node and "args" in node:
         return {"op": node["op"], "args": [_convert_logic(a, concept_vs, egfr, refiled) for a in node["args"]]}
     atom = {k: v for k, v in node.items() if k != "concept" and v is not None}
-    if atom.get("domain") == "procedure" and str(node.get("concept") or "").strip().lower() in refiled:
+    refilable = atom.get("domain") in ("procedure", "encounter")  # G2 (D-957): a diagnosis filed as an encounter too
+    if refilable and str(node.get("concept") or "").strip().lower() in refiled:
         atom["domain"] = "condition"
     if atom.get("derived") == "egfr" and egfr != "egfr":  # D-149: the site's equation, named in the ruleset
         atom["derived"] = egfr
@@ -178,7 +179,7 @@ def postprocess(
     for ec in extracted.criteria:
         for cand in ec.concept_candidates:
             key = cand.name.strip().lower()
-            if cand.domain == "procedure" and is_diagnosis_name(cand.name):
+            if cand.domain in ("procedure", "encounter") and is_diagnosis_name(cand.name):
                 refiled.add(key)
                 cand = cand.model_copy(update={"domain": "condition"})
             if key in concept_vs or cand.domain == "demographic":
@@ -254,6 +255,10 @@ def postprocess(
                     if a.valueset not in ("NONE",) and a.valueset not in valuesets:
                         raise CompileError(f"ValueSet {a.valueset} has no concept candidate")
                     m = mappings.get(a.valueset)
+                    if a.domain == "encounter" and (m is None or not m.concepts):
+                        # G2 of the P1b review (D-957): an encounter type no code was found for compiled as
+                        # ``X.serviceType in`` an empty ValueSet, which the FHIR server refused (four protocols)
+                        raise CompileError(f"encounter type {a.valueset} has no code on this box")
                     if m is not None and (m.needs_review or not m.concepts):
                         flags.append("concept_unmapped" if not m.concepts else "concept_needs_review")
                     unit = unit_check.check(a, valuesets.get(a.valueset))
