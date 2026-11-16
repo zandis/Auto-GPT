@@ -15,6 +15,8 @@ Run on the host as root (the secrets volume), from the install folder with ``PYT
     python -m tools.keys rotate pid_map                     # a new pid_map.key; every pid map row re-encrypted
     python -m tools.keys seal-objects [--store DIR]         # T-210c: uploads and outputs sealed under objects.key
     python -m tools.keys seal-objects --check               # exit 1 when the store is not sealed or a file is plain
+    python -m tools.keys ceremony-record --custodian A --custodian B --custodian C --witness W [--shares-dir DIR]
+                                                            # TB-SOP-03 (D-893): the record the custodians sign
 
 The secrets folder is ``--secrets``, else ``TB_SECRETS_DIR``, else the compose volume on the host. Nothing here prints
 a key, a share or a passphrase: shares go to files (0600) for the stewards to take away, one each. ``init`` refuses a
@@ -378,6 +380,23 @@ def cmd_rotate(a: argparse.Namespace, env: Mapping[str, str]) -> int:
     return 0
 
 
+def cmd_ceremony_record(a: argparse.Namespace, env: Mapping[str, str]) -> int:
+    """TB-SOP-03 (D-893): the key ceremony's record, fingerprints and names only (``tools/key_ceremony.py``)."""
+    from tools import key_ceremony as kc
+
+    deploy = Path(a.deploy)
+    rec = kc.build(secrets_dir(a.secrets, env), env, a.custodian or [], a.witness or "",
+                   shares_dir=Path(a.shares_dir) if a.shares_dir else None,
+                   backup_pub=Path(a.backup_pub) if a.backup_pub else kc.default_backup_pub(env, deploy))  # fmt: skip
+    md = kc.write(deploy, rec)
+    where = kc.audit(env, rec, Path(a.audit_dir) if a.audit_dir else None)
+    _say(f"ceremony record written to {md} (and .json): print it, and each custodian and the witness sign it")
+    _say(f"audit: {where}")
+    if rec["not_a_site_ceremony"]:
+        _say("note: the passphrase back end: a proof of concept or validation box, NOT a site's key ceremony")
+    return 0
+
+
 def objects_dir(arg: str | None, env: Mapping[str, str]) -> Path:
     """``--store``, else the path of ``TB_OBJECT_STORE`` (``fs:<path>``), else the compose volume on the host."""
     if arg:
@@ -455,12 +474,20 @@ def parser() -> argparse.ArgumentParser:
     o = with_secrets(sub.add_parser("seal-objects", help="seal uploads and outputs under objects.key (T-210c)"))
     o.add_argument("--store", help=f"the object store folder (TB_OBJECT_STORE; default {HOST_OBJECTS})")
     o.add_argument("--check", action="store_true", help="only report; exit 1 when not sealed or a file is plain")
+    cr = with_secrets(sub.add_parser("ceremony-record", help="the key ceremony's record to sign (TB-SOP-03)"))
+    cr.add_argument("--custodian", action="append", help="a custodian's name (repeat; share order for shamir)")
+    cr.add_argument("--witness", help="the witness's name (not a custodian)")
+    cr.add_argument("--shares-dir", help="shamir: the share files, read only for their fingerprints")
+    cr.add_argument("--backup-pub", help="the box's backup public key (TB_BACKUP_PUBKEY; default deploy/secrets)")
+    cr.add_argument("--deploy", default=str(Path(__file__).resolve().parents[1] / "deploy"),
+                    help="the box's deploy folder: the record goes to deploy/site")  # fmt: skip
+    cr.add_argument("--audit-dir", help="the audit folder (TB_AUDIT_DIR)")
     return ap
 
 
 COMMANDS = {"init": cmd_init, "wrap": cmd_wrap, "unseal": cmd_unseal, "status": cmd_status, "check": cmd_check,
             "inventory": cmd_inventory, "rotate-kek": cmd_rotate_kek, "rotate": cmd_rotate,
-            "seal-objects": cmd_seal_objects}  # fmt: skip
+            "seal-objects": cmd_seal_objects, "ceremony-record": cmd_ceremony_record}  # fmt: skip
 
 
 def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) -> int:
