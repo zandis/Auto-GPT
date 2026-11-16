@@ -80,8 +80,9 @@ INVENTORY: tuple[dict[str, Any], ...] = (
      "holder": "the orchestrator", "rotation": "on compromise (no command yet)", "code": None,
      "breaks": "every signature made under it stops verifying: its values are not sent until signed again",
      "compromise": "rotate-kek; a new key means the open signatures are signed again (a later card)"},
-    {"key": "restic.key", "where": "secrets volume, wrapped (restic.key.wrapped); a copy of the wrapped file and of "
-     "kek.json beside each restic repository on the backup targets (KEK ciphertext only)", "protects": "the "
+    {"key": "restic.key", "where": "secrets volume, wrapped (restic.key.wrapped); beside each restic repository on "
+     "the backup targets, trialbox-restic.key.json: the wrapped key and the KEK's share set (no salt, no names), "
+     "written only for a shamir KEK or a TPM KEK with current escrow shares", "protects": "the "
      "incremental backup's repository (D-968)", "holder": "the box; the custodians through the KEK's escrow shares "
      "(D-894) and the copy on the target", "rotation": "never in place: a new key means a new repository (the old "
      "one stays readable with the old key)", "code": None, "breaks": "every snapshot of the repository it opens",
