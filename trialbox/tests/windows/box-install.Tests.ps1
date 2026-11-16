@@ -1036,6 +1036,20 @@ Describe "box-install.ps1" {
       $log.IndexOf("turning BitLocker on for C:") | Should -BeLessThan $log.IndexOf("import: start")
       $log.IndexOf("recovery key of C:: shown, confirmed") | Should -BeLessThan $log.IndexOf("turning BitLocker on for C:")
     }
+    It "shows and prints each key with the key ID Windows' recovery screen shows (NEW-WIN-14, D-617)" {
+      Set-DrivesOff
+      $script:S.KeyIds["C:"] = "{8b2f1a3c-1111-2222-3333-444455556666}"
+      $script:S.KeyIds[$script:S.Data] = "{0d9e7f21-aaaa-bbbb-cccc-ddddeeeeffff}"
+      foreach ($a in @("n", "123456", "y", "654321")) { [void]$script:S.Answers.Add($a) }
+      Invoke-Run -Ask | Should -Be 0
+      $said = $script:S.Said -join "`n"
+      $said | Should -Match "drive C:, key ID 8B2F1A3C"
+      $said | Should -Match ("drive {0}, key ID 0D9E7F21" -f [regex]::Escape($script:S.Data))
+      $script:S.Printed[0] | Should -Match "key ID 0D9E7F21"
+      Format-TbKeyId "{8b2f1a3c-1111-2222-3333-444455556666}" | Should -Be "8B2F1A3C"
+      Format-TbKeyId "" | Should -Be "?"
+      Get-Log | Should -Match "recovery key of C: \(key ID 8B2F1A3C\): shown, confirmed"   # the ID is no secret
+    }
     It "never starts encryption when the owner did not confirm the key (review H2)" {
       Set-DrivesOff
       foreach ($a in @("n", "")) { [void]$script:S.Answers.Add($a) }

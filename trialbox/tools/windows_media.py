@@ -91,7 +91,11 @@ HANDOVER_DOCS = (
     "P-0-windows-rehearsal.md",
     "WINDOWS-INSTALL-CHECKLIST.md",
     "WINDOWS-BACKUP-RESTORE.md",
-    *(f"{stem}.{lang}.md" for stem in ("windows-owner", "desktop-use") for lang in ("en", "ja", "zh-TW")),
+    *(
+        f"{stem}.{lang}.md"
+        for stem in ("windows-owner", "desktop-use", "windows-bitlocker-recovery")
+        for lang in ("en", "ja", "zh-TW")
+    ),
 )
 OS_RELEASE_FILES = ("etc/os-release", "usr/lib/os-release")  # the first that is a file
 DPKG_STATUS = "var/lib/dpkg/status"
