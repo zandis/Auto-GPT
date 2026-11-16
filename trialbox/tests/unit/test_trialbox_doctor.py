@@ -39,6 +39,7 @@ def test_default_install_passes() -> None:
     assert status(checks, "secure_cookie").status == "WARN"  # DEV may serve http on localhost
     assert {c.name for c in checks} == {
         "topology",
+        "terminology",  # D-858 (lane E's hunk): the code systems loaded on the box
         "env_class_ceiling",
         "routing_perimeter",
         "gateway_only_model_reach",

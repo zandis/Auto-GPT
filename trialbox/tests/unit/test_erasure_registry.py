@@ -214,8 +214,9 @@ def test_every_clear_resolves_and_the_worker_runs_each() -> None:
     # T-206b part 1 (D-798) adds owed_tables: the plain tables keyed by the pseudonym
     # NEW-MAIL-1 (D-863) adds held_mail: a mail held for an opt-out loses the job files that name the patient
     # ERASE-A4 (D-869) adds setup_uploads: a patient's own upload to the site set-up goes whole
+    # ERASE-A2 (D-875) adds screening_log: a never-consented patient's screening-log rows stay under a token
     assert names == ["candidate_pool", "candidate_registry", "held_mail", "omop", "owed_tables", "pid_pending",
-                     "profile", "setup_uploads", "vec"]  # fmt: skip
+                     "profile", "screening_log", "setup_uploads", "vec"]  # fmt: skip
     for c in erasure.clears():
         clear, verify = c.resolve()
         assert callable(clear) and callable(verify), c.name
