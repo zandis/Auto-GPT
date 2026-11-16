@@ -1,9 +1,10 @@
-"""TERM-1 (D-858): a condition named in a protocol resolves to ICD-10-CM families through code systems loaded on the
-box at install (D-528: never committed): ICD-10-CM's blocks and its Alphabetic Index, beside the full code list.
+"""TERM-1 (D-858): a condition named in a protocol resolves to ICD-10-CM families through ICD-10-CM's blocks and its
+Alphabetic Index, beside the full code list. The FY2026 tables ship (US public domain, D-529); a later release loaded
+on the box at install (D-528) is read in their place, only when its manifest line vouches for it.
 
-Launch P1b's review (public ClinicalTrials.gov protocols): 47 of 588 drafted condition concepts resolved. The tables
-here are loaded from a stand-in of CMS's code-tables zip written by the test (a few blocks and index terms, worded
-as the release words them); the real release is loaded on the box by ``tools.terminology_install``."""
+Launch P1b's review (public ClinicalTrials.gov protocols): 47 of 588 drafted condition concepts resolved. The install
+tests load a stand-in of CMS's code-tables zip written by the test (a few blocks and index terms, worded as the
+release words them)."""
 
 from __future__ import annotations
 
@@ -86,11 +87,16 @@ def test_a_name_no_table_knows_stays_unmapped_and_conditions_only(term: Terminol
     assert term.map("medication", "epilepsy").method != "icd10cm"
 
 
-def test_without_the_loaded_tables_blocks_and_index_do_not_answer(tmp_path: Path) -> None:
+def test_with_nothing_loaded_the_shipped_tables_answer(tmp_path: Path) -> None:
     t = Terminology(installed=tmp_path / "nothing")
-    assert t.map("condition", "ischemic heart disease").method == "none"  # the block is loaded at install only
-    assert t.map("condition", "bipolar disorder").method != "icd10cm" or "F31" in _families(
-        t.map("condition", "bipolar disorder"))  # the shipped list's own description may still answer  # fmt: skip
+    assert t.icd_sources == {"icd10cm_blocks": "shipped", "icd10cm_index": "shipped"} and not t.installed_problems
+    assert {"I20", "I25"} <= _families(t.map("condition", "ischemic heart disease"))
+    assert "G40" in _families(t.map("condition", "epilepsy"))
+
+
+def test_a_release_loaded_at_install_is_read_in_place_of_the_shipped_one(term: Terminology) -> None:
+    assert term.icd_sources == {"icd10cm_blocks": "ICD-10-CM 2026", "icd10cm_index": "ICD-10-CM 2026"}
+    assert len(term.icd_blocks) == 6 and len(term.icd_index) == 5  # the stand-in's rows, not the shipped 280
 
 
 def test_a_table_without_its_manifest_line_or_with_other_bytes_is_refused(loaded: Path, tmp_path: Path) -> None:
@@ -98,7 +104,8 @@ def test_a_table_without_its_manifest_line_or_with_other_bytes_is_refused(loaded
     copy.mkdir()
     (copy / "icd10cm_blocks.parquet").write_bytes((loaded / "icd10cm_blocks.parquet").read_bytes())
     t = Terminology(installed=copy)  # copied by hand: no manifest
-    assert t.icd_blocks == {} and any("no line in manifest.json" in p for p in t.installed_problems)
+    assert any("no line in manifest.json" in p for p in t.installed_problems)
+    assert t.icd_sources["icd10cm_blocks"] == "shipped" and len(t.icd_blocks) > 6  # the copy is not read
     data = json.loads((loaded / "manifest.json").read_text(encoding="utf-8"))
     data["tables"]["icd10cm_blocks"]["sha256"] = "0" * 64
     (copy / "manifest.json").write_text(json.dumps(data), encoding="utf-8")
@@ -118,4 +125,29 @@ def test_doctor_says_what_is_loaded(loaded: Path, tmp_path: Path) -> None:
     ok = doctor.check_terminology(doctor.DoctorInputs(env={"TB_TERMINOLOGY_DIR": str(loaded)}))
     assert ok.status == "PASS" and "icd10cm_blocks 6 rows (ICD-10-CM 2026)" in ok.detail
     none = doctor.check_terminology(doctor.DoctorInputs(env={"TB_TERMINOLOGY_DIR": str(tmp_path / "empty")}))
-    assert none.status == "WARN" and "terminology_install" in none.detail
+    assert none.status == "PASS" and "shipped tables answer" in none.detail
+
+
+# concept names the compiler drafted (condition domain) from P1b's public protocols, as written
+P1B = ["esophageal squamous cell carcinoma", "basal cell skin carcinoma", "carcinoma in situ of the cervix",
+       "epilepsy", "cerebrovascular disease", "migraine", "alcohol abuse", "hypertension", "ischemic heart disease",
+       "chronic heart failure", "unstable angina", "bronchiectasis", "cystic fibrosis", "bipolar disorder",
+       "neutropenia", "endometriosis", "ectopic pregnancy", "systemic lupus erythematosus", "dyslipidemia",
+       "claudication", "seizure disorder", "cerebrovascular accident", "tuberculosis", "malignancy", "liver disease",
+       "asthma", "major depressive disorder", "chronic subdural hematoma", "uterine fibroids", "copd"]  # fmt: skip
+
+
+def test_most_p1b_condition_names_resolve_through_the_shipped_tables(tmp_path: Path) -> None:
+    t = Terminology(installed=tmp_path / "nothing")
+    hits = [n for n in P1B if t.map("condition", n).concepts]
+    assert len(hits) >= 25, sorted(set(P1B) - set(hits))
+
+
+def test_a_release_that_declares_a_dtd_or_an_entity_is_refused_before_parsing(tmp_path: Path) -> None:
+    z = tmp_path / "bad.zip"
+    with zipfile.ZipFile(z, "w") as f:
+        f.writestr("icd10cm_tabular_2026.xml", '<?xml version="1.0"?><!DOCTYPE x [<!ENTITY e "boom">]><x>&e;</x>')
+        f.writestr("icd10cm_index_2026.xml", INDEX)
+    with pytest.raises(ValueError, match="DTD or an entity"):
+        installed.install_icd10cm(z, tmp_path / "out", "2026")
+    assert not (tmp_path / "out" / "manifest.json").exists()

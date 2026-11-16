@@ -1,7 +1,8 @@
-# D-858 A condition's name resolves through ICD-10-CM itself; its blocks and index are loaded at install
+# D-858 A condition's name resolves through ICD-10-CM itself: its blocks and index ship, a later release loads at install
 
 - **Task:** TERM-1 (the review of GPU launch P1b; the owner: "do everything to remedy these ... make it works"),
-  reworked on the owner's ruling D-528 (no standard code system committed beyond what is there; loaded at install)
+  on the owner's rulings D-528 (code systems loaded at install) and D-529 (public-domain US government code data,
+  ICD-10-CM's codes, blocks and index included, may be committed and shipped)
 - **PR:** this branch (`agent/TERM-1-icd10cm-names-blocks-index`)
 - **Date:** 2026-11-16
 - **Status:** proposed (merges on green CI)
@@ -9,13 +10,17 @@
 
 ## Decision
 
-1. **Loaded at install, never committed (D-528).** `python -m tools.terminology_install icd10cm <CMS code-tables
-   zip>` reads CMS's ICD-10-CM release (US public domain) without unpacking it and loads two tables into
-   `TB_TERMINOLOGY_DIR` (default `/data/terminology`): the tabular list's blocks and chapters, and the Alphabetic
-   Index's main terms and first-level subterms. Each table has its line in `manifest.json`: source (the zip's name
-   and sha256), version, licence note, the table's sha256, rows, when loaded. A table with no line, or whose bytes
-   differ from it, is refused: never read, reported by the mapper and by `trialbox doctor` (`terminology`: FAIL; none
-   loaded: WARN).
+1. **Shipped, and loadable at install (D-529, D-528).** ICD-10-CM FY2026's blocks and chapters (280) and its
+   Alphabetic Index's main terms and first-level subterms (28,792) are committed beside the full code list:
+   `src/icd10cm_blocks_2026.csv`, `src/icd10cm_index_2026.csv.gz` (written by `tools/icd10cm_cms.py` from CMS's
+   code-tables zip, US public domain) and their Parquet, under the `icd10cm` licence-register row. A later release
+   is loaded onto a box without a new image by `python -m tools.terminology_install icd10cm <zip>` into
+   `TB_TERMINOLOGY_DIR` (default `/data/terminology`), each table with its line in `manifest.json`: source (the zip's
+   name and sha256), version, licence note, the table's sha256, rows, when loaded; the mapper then reads it in place
+   of the shipped table. A loaded table with no line, or whose bytes differ from it, is refused: never read, the
+   shipped table answers, and the mapper and `trialbox doctor` report it (`terminology`: FAIL; nothing loaded: PASS,
+   the shipped tables answer). The same loader, manifest and refusal serve the code systems that are not committed
+   (LOINC, WHO ICD-10, ATC, a site's own lists: D-528), as their loaders come.
 2. **A new step 2d in `Terminology.map`, for conditions only**, after every curated step and before the model's: a
    block's or chapter's name (every category in it, as families); a code's own description in the shipped full list
    (that code; a category: its family); an Alphabetic Index term, following "see" references and read turned
@@ -23,8 +28,8 @@
    our own English trial words and abbreviations (COPD, CHF, MI, CKD, T2DM, SLE, "cancer"). An index term or one of
    our words is for review; curated rows still win.
 3. **Measured offline** on P1b's stored drafts (public ClinicalTrials.gov protocols), with the 2026 release loaded by
-   the same command into a private folder: of 588 drafted condition concepts, 47 resolved before; 162 with this
-   change and nothing loaded (the shipped descriptions and our words); **255 with the blocks and index loaded**.
+   the same command into a private folder: of 588 drafted condition concepts, 47 resolved before; 162 with the
+   descriptions and our words alone; **255 with the blocks and index** (shipped, or the same release loaded).
 4. **Which ICD-10.** Taiwan's NHI codes diagnoses in ICD-10-CM (its Chinese edition: 2014 until 2024-12-31, 2023
    from 2025-01-01, D-171), not WHO ICD-10; the US release's blocks and index name the same categories. The
    differences that matter for mapping: ICD-10-CM adds detail below the WHO category (up to seven characters), splits

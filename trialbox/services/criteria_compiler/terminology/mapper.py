@@ -4,8 +4,9 @@ Tables (``terminology/*.parquet``, built by ``tools/build_terminology.py`` from 
 official NHI / LOINC releases): ``icd10cm_tw``, ``nhi_drug`` (with ATC), ``atc``, ``loinc_tw`` (with
 ``component_of`` for panel members), ``nhi_order``, ``department``, ``synonyms``.
 
-Loaded at install (D-528, D-858): ICD-10-CM's blocks and Alphabetic Index (``terminology.installed``), when the box has
-them, resolve a condition's name to its families after every curated step.
+ICD-10-CM's blocks and Alphabetic Index (D-858; committed as US public domain, D-529: ``icd10cm_blocks``,
+``icd10cm_index``) resolve a condition's name to its families after every curated step; a newer release loaded on
+the box at install (``terminology.installed``) is read in their place.
 
 Full code lists (D-122): ``icd10cm_full`` holds every ICD-10-CM code (CMS/CDC 2026 release, public domain, built
 from ``src/icd10cm_2026.csv.gz``). It answers code lookups and code-prefix groupers ("malignancy" = C0..C9 lists
@@ -223,23 +224,33 @@ class Terminology:
             path = directory / f"{fname}.parquet"
             if path.exists():
                 self.full[key] = pq.read_table(path).to_pylist()
-        # TERM-1 (D-858): block name -> categories, index term -> code or the term it sees, display -> codes. The
-        # blocks and the index are loaded on the box at install (D-528: never committed), read only when their
-        # manifest line vouches for them; a refused table is reported (``installed_problems``), never read
+        # TERM-1 (D-858, D-529): block name -> categories, index term -> code or the term it sees, display -> codes.
+        # The blocks and the index ship beside the tables (US public domain, D-529); a newer release loaded on the box
+        # at install (``terminology.installed``) is read instead when its manifest line vouches for it. A refused
+        # table is reported (``installed_problems``), never read, and the shipped one answers
         from criteria_compiler.terminology import installed as inst
 
         self.icd_blocks: dict[str, list[str]] = {}
         self.icd_index: dict[str, tuple[str, str]] = {}
         self.icd_display: dict[str, list[str]] = {}
+        self.icd_sources: dict[str, str] = {}
         self.installed_problems: list[str] = []
         where = installed if installed is not None else inst.installed_dir()
         cats = sorted({str(r["code"]) for r in self.full.get("icd10cm", []) if len(str(r["code"])) == 3})
         for name in (inst.ICD_BLOCKS, inst.ICD_INDEX):
             try:
-                rows = inst.read_table(where, name) or []
+                rows = inst.read_table(where, name)
             except inst.TerminologyRefused as exc:
                 self.installed_problems.append(str(exc))
-                rows = []
+                rows = None
+            if rows is not None:
+                self.icd_sources[name] = str(inst.manifest(where)["tables"][name].get("version") or "installed")
+            else:
+                # beside the tables, else the shipped ones (a box's vocabulary-built tables hold codes, not these)
+                path = directory / f"{name}.parquet"
+                path = path if path.exists() else TERM_DIR / f"{name}.parquet"
+                rows = pq.read_table(path).to_pylist() if path.exists() else []
+                self.icd_sources[name] = "shipped" if rows else ""
             for r in rows:
                 if name == inst.ICD_BLOCKS:
                     inside = [c for c in cats if str(r["first"]) <= c <= str(r["last"])]

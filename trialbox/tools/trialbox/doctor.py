@@ -1928,9 +1928,9 @@ def check_chartno_rule(
 
 
 def check_terminology(inp: DoctorInputs) -> Check:
-    """D-528, D-858 (lane E's hunk): the code systems loaded on the box (``TB_TERMINOLOGY_DIR``), each with its rows and
-    version. A table without its manifest line, or whose bytes differ from it, is FAIL (it is never read). None loaded
-    is WARN: a condition's name then matches the curated rows and the code descriptions only."""
+    """D-528, D-529, D-858 (lane E's hunk): the code systems loaded on the box (``TB_TERMINOLOGY_DIR``), each with its
+    rows and version. A table without its manifest line, or whose bytes differ from it, is FAIL (it is never read).
+    None loaded is PASS: the shipped tables (ICD-10-CM FY2026 with its blocks and index, D-529) answer."""
     from criteria_compiler.terminology import installed
 
     where = installed.installed_dir(dict(inp.env))
@@ -1939,8 +1939,8 @@ def check_terminology(inp: DoctorInputs) -> Check:
     if bad:
         return Check("terminology", "FAIL", "; ".join(bad))
     if not tables:
-        return Check("terminology", "WARN", f"no code system loaded in {where} (python -m tools.terminology_install): "
-                     "condition names match the curated rows and code descriptions only")  # fmt: skip
+        return Check("terminology", "PASS", f"nothing loaded in {where}: the shipped tables answer (ICD-10-CM "
+                     "FY2026 with its blocks and index); python -m tools.terminology_install loads more")  # fmt: skip
     return Check("terminology", "PASS", "; ".join(f"{t.name} {t.rows} rows ({t.version})" for t in tables))
 
 

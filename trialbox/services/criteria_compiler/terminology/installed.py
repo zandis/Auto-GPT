@@ -1,19 +1,19 @@
-"""Code systems loaded on the box at install (D-528; TERM-1, D-858).
+"""Code systems loaded on the box at install (D-528, D-529; TERM-1, D-858).
 
-No standard code system beyond the tables already in the repository is committed (the owner's ruling D-528): a
-site's or vendor's official files are loaded onto each box at install and at update, by
-``python -m tools.terminology_install``, into ``TB_TERMINOLOGY_DIR`` (default ``/data/terminology``). Every table
-written there has its line in ``manifest.json``: the source, the version, the licence note, the file's sha256, its
-rows and when it was loaded. A table with no line, or whose bytes do not match its line, is refused: it is not read,
-and ``trialbox doctor`` says so.
+A code system that may not be committed (LOINC, WHO ICD-10, ATC, a site's own lists: D-528 as amended by D-529) is
+loaded onto each box at install and at update, by ``python -m tools.terminology_install``, into
+``TB_TERMINOLOGY_DIR`` (default ``/data/terminology``). Every table written there has its line in ``manifest.json``:
+the source, the version, the licence note, the file's sha256, its rows and when it was loaded. A table with no line,
+or whose bytes do not match its line, is refused: it is not read, and ``trialbox doctor`` says so.
 
-Loaded today:
+Loaders today:
 
 * ``icd10cm_blocks`` and ``icd10cm_index``, from CMS's ICD-10-CM code-tables zip (the tabular list and the
   Alphabetic Index, US public domain): the blocks and chapters (``Ischemic heart diseases``, I20 to I25) and the
-  index's main terms and first-level subterms (``Epilepsy``; ``Accident, cerebrovascular``). The mapper reads them to
-  resolve a condition's name to its ICD-10-CM families (D-858). Taiwan's NHI codes diagnoses in ICD-10-CM (its
-  2023 edition since 2025-01-01, D-171); the US release's blocks and index serve its names.
+  index's main terms and first-level subterms (``Epilepsy``; ``Accident, cerebrovascular``). The FY2026 tables also
+  ship in the repository (D-529); a later release loaded here is read in their place, so a box takes the next
+  year's names without a new image. Taiwan's NHI codes diagnoses in ICD-10-CM (its 2023 edition since 2025-01-01,
+  D-171); the US release's blocks and index serve its names.
 """
 
 from __future__ import annotations
@@ -101,16 +101,23 @@ def status(directory: Path) -> list[Loaded]:
 
 
 # ------------------------------------------------------------------------------------------------ ICD-10-CM (CMS)
-def _member(z: zipfile.ZipFile, suffix: str) -> bytes:
+def zip_member(z: zipfile.ZipFile, suffix: str) -> bytes:
     names = [n for n in z.namelist() if n.lower().endswith(suffix)]
     if len(names) != 1:
         raise ValueError(f"the zip holds {len(names)} files ending {suffix!r}: not a CMS ICD-10-CM code-tables zip")
     return z.read(names[0])
 
 
+def _xml(data: bytes) -> ET.Element:
+    """A release's XML, refused when it declares a DTD or an entity: nothing for the parser to expand or fetch."""
+    if b"<!DOCTYPE" in data or b"<!ENTITY" in data:
+        raise ValueError("the release's XML declares a DTD or an entity: refused, not a CMS ICD-10-CM file")
+    return ET.fromstring(data)  # noqa: S314 - refused above when the document declares a DTD or an entity
+
+
 def icd10cm_blocks(tabular: bytes) -> list[dict[str, str]]:
     """Every block and chapter of the tabular list: ``name, first, last``."""
-    root = ET.fromstring(tabular)  # noqa: S314 (the official release the site supplies, read from its zip)
+    root = _xml(tabular)
     out: list[dict[str, str]] = []
     for ch in root.iter("chapter"):
         ranges = []
@@ -128,7 +135,7 @@ def icd10cm_blocks(tabular: bytes) -> list[dict[str, str]]:
 
 def icd10cm_index(index: bytes) -> list[dict[str, str]]:
     """Every main term and first-level subterm of the Alphabetic Index that leads to a code or to another term."""
-    root = ET.fromstring(index)  # noqa: S314
+    root = _xml(index)
     out: list[dict[str, str]] = []
     for mt in root.iter("mainTerm"):
         title = " ".join((mt.findtext("title") or "").split())
@@ -155,7 +162,7 @@ def _write(directory: Path, name: str, rows: list[dict[str, str]], cols: tuple[s
 def install_icd10cm(zip_path: Path, directory: Path, year: str, now: datetime | None = None) -> dict[str, int]:
     """Load ICD-10-CM's blocks and Alphabetic Index from CMS's code-tables zip of ``year`` (read, never unpacked)."""
     with zipfile.ZipFile(zip_path) as z:
-        tab, idx = _member(z, f"icd10cm_tabular_{year}.xml"), _member(z, f"icd10cm_index_{year}.xml")
+        tab, idx = zip_member(z, f"icd10cm_tabular_{year}.xml"), zip_member(z, f"icd10cm_index_{year}.xml")
     directory.mkdir(parents=True, exist_ok=True)
     when = (now or datetime.now(UTC)).isoformat(timespec="seconds")
     line = {"source": f"CMS ICD-10-CM {year} code tables ({zip_path.name}, sha256 {_sha(zip_path)[:16]})",
