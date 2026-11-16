@@ -24,6 +24,7 @@ Normative semantics (DECISIONS D-17):
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -82,6 +83,11 @@ def kind(atom: Atom) -> Kind:
             raise CompileError("an age bound below 0")
         if lo is not None and hi is not None and lo > hi:  # D-914: matched by no one ("80 to 18")
             raise CompileError(f"age range {lo} to {hi} is reversed")
+        # D-946 (F2 of P1b, NCT01260883 "0.17 years"): the age is complete years (D-442), so a bound of 0.17 is met by
+        # no one under 1 and 1.5 by no one under 2; a person reads it (months are not compared)
+        for b in (lo, hi):  # review: NaN and infinity are refused too (int() raised past every CompileError catch)
+            if b is not None and not (math.isfinite(float(b)) and float(b).is_integer()):
+                raise CompileError(f"age bound {b!r} is not a whole number of years; the age is counted in years")
         return Kind.DEMOGRAPHIC
     if atom.derived is not None:
         if atom.domain != "observation":
