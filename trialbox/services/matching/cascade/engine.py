@@ -1045,7 +1045,11 @@ class _Run:
         assert self.judge is not None
         c = self.crit[r.cid]
         lo, hi = window_of(c, t.index_date)
-        key = json.dumps([r.pid, self.hashes[r.cid], r.sentence_set, role, lo.isoformat(), hi.isoformat()])
+        # D-907: the canonical hash drops the criterion's text, so two criteria with one note question and structure
+        # would share an answer whenever their sentence sets meet (always on D-904's whole-window path); the text's
+        # hash keeps one criterion's answer from being read as another's
+        text = hashlib.sha256(c.text.encode("utf-8")).hexdigest()
+        key = json.dumps([r.pid, self.hashes[r.cid], text, r.sentence_set, role, lo.isoformat(), hi.isoformat()])
         with self._lock:
             if key in self.cache:
                 self.metrics.cache_hits += 1

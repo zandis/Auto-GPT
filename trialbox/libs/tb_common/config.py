@@ -508,6 +508,7 @@ DECLARED: dict[str, Declared] = {
     "TB_DEMO_MODE": Declared("str", "", "demo mode flag"),
     "TB_DEMO_OPINIONS": Declared("str", "", "demo: recorded first and second checks"),
     "TB_DEMO_PASSWORD": Declared("str", "", "demo: account password (synthetic)"),
+    "TB_DEMO_PEOPLE": Declared("str", "", "demo: the VM's people (name:role), recipients of the study lists (D-758)"),
     "TB_DEMO_RUN": Declared("str", "/etc/trialbox-demo/run.sh", "demo: start script"),
     "TB_DEMO_SITE_LANG": Declared("str", "", "demo: hospital records and notes in ja or zh-TW (unset: both campuses)"),
     # the small demo VM (deploy/gcp/demo-vm.sh): each limit's reason is in deploy/gcp/demo_vm.py (OD-10); prices are

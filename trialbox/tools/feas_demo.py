@@ -175,6 +175,18 @@ def build(work: Path) -> tuple[Any, Any, Path, dict[str, Any]]:
     return build_site(work)
 
 
+def people_mailboxes(environ: Mapping[str, str] | None = None) -> tuple[str, ...]:
+    """D-758: the demo VM's people (``TB_DEMO_PEOPLE``, ``name:role`` by commas, as deploy/gcp/demo-vm-boot.sh names
+    them) whose role reads patient data, as the mailboxes their accounts get (``<name>@hospa.test``)."""
+    raw = str((os.environ if environ is None else environ).get("TB_DEMO_PEOPLE") or "")
+    out = []
+    for part in (p.strip() for p in raw.split(",")):
+        name, _, role = part.partition(":")
+        if name and role.strip() in ("investigator", "coordinator"):
+            out.append(f"{name.strip()}@hospa.test")
+    return tuple(out)
+
+
 def build_site(
     work: Path, profile: str = "ci", settings_update: dict[str, Any] | None = None, day: date | None = None
 ) -> tuple[Any, Any, Path, dict[str, Any]]:
@@ -212,7 +224,8 @@ def build_site(
         snapshot = REF - timedelta(days=1) + timedelta(days=shift)
         ingest_site(hospital, work / "lake", sec, snapshot.isoformat(), site_id=site_id)
     shutil.rmtree(work / "box", ignore_errors=True)  # the box (jobs, mail, repo) starts fresh on every run
-    box = make_box(work / "box", work / "lake", sec, day or data_day(), settings_update=settings_update)
+    box = make_box(work / "box", work / "lake", sec, day or data_day(), settings_update=settings_update,
+                   extra_list_to=people_mailboxes())  # fmt: skip
     orch_app._orch = box.orch
     return box, orch_client(orch_app.app), work / "box" / "repo", summary
 

@@ -303,7 +303,8 @@ FORWARDED_ALLOW_IPS=*
 TB_DEMO_LANG=$LANG_UI
 TB_CONSOLE_SECURE_COOKIE=1
 TB_CONSOLE_PUBLIC_URL=https://$IP${SITE_LANG:+
-TB_DEMO_SITE_LANG=$SITE_LANG}"
+TB_DEMO_SITE_LANG=$SITE_LANG}${PEOPLE:+
+TB_DEMO_PEOPLE=$PEOPLE}"  # D-758: the seed names the people recipients of the studies' lists and CASE sheets
 if [ "$DRY" = 1 ]; then echo "+ write $ETC/demo.env (mode 0400):"; printf '%s\n' "$DEMO_ENV" | sed 's/^/    | /'
 else (umask 077; printf '%s\n' "$DEMO_ENV" >"$ETC/demo.env"); fi
 
