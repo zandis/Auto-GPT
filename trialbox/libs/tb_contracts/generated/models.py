@@ -1401,6 +1401,9 @@ class ReportProvenance(BaseModel):
     clock: str
     job_id: str
     language: str
+    """
+    The language the report is written in: the site's report language (its locale), not the language of the notes that were read (G12 of the P1b review, D-980).
+    """
     site: str
 
 
