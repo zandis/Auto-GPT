@@ -28,7 +28,7 @@ import math
 from dataclasses import dataclass
 from enum import StrEnum
 
-from tb_common.derived import DEFAULT_WINDOW_DAYS
+from tb_common.derived import COMPONENTS, DEFAULT_WINDOW_DAYS
 from tb_contracts import Atom, BoolExpr, CriterionIR
 
 UNBOUNDED_PAST = "1900-01-01"
@@ -92,6 +92,16 @@ def kind(atom: Atom) -> Kind:
     if atom.derived is not None:
         if atom.domain != "observation":
             raise CompileError("derived values are observation atoms")
+        # G5 of the P1b review (D-956, NCT01187901): a derived name that does not exist, with value.op "in", reached
+        # the CQL as ``(None in { })`` and failed the translator. A derived value is a known score, compared as a number
+        if atom.derived not in COMPONENTS:
+            raise CompileError(f"derived value {atom.derived!r} is not one this box computes ({', '.join(COMPONENTS)})")
+        if atom.value is not None:  # none: "computable" (TRUE when the score can be computed, D-149)
+            if atom.value.op == "in":
+                raise CompileError(
+                    f"derived value {atom.derived} is a number: 'in' a list of codes does not compare it"
+                )
+            check_value(atom)
         return Kind.DERIVED
     if atom.duration is not None:
         if atom.domain != "medication" or atom.duration.min_days is None:
