@@ -17,7 +17,7 @@ from lake.client import LakeAPI
 from tb_common.audit import AuditLog
 from tb_common.config import site_tz
 from tb_common.derived import country_of, egfr_for_site
-from tb_common.fhir import FhirEvalError, FhirEvaluator, library_resource
+from tb_common.fhir import FhirEvalError, FhirEvaluator, library_resource, server_said
 from tb_common.http import ServiceError
 from tb_common.llm import LlmClient, LlmError
 from tb_common.objstore import ObjectStore
@@ -502,14 +502,18 @@ class Compiler:
             report = run_gate(active, art.sql, art.library, self.d.lake, self.d.fhir, index_date, seed, threshold)
         except (FhirEvalError, ServiceError, httpx.HTTPError) as exc:
             # D-910: the FHIR server refusing a ruleset's CQL or ValueSets, or the lake its SQL, is a reason the
-            # equivalence check could not run, said by type and status (never the server's text: it can quote a
-            # patient's id), not an HTTP 500
+            # equivalence check could not run, said by type and status, not an HTTP 500. G11 (D-959): with what the
+            # server said, masked (``server_said``: never a patient's id), in the job's error and the log
             status = getattr(exc, "status", None) or getattr(getattr(exc, "response", None), "status_code", None)
             where = "the FHIR server" if isinstance(exc, FhirEvalError) else "the data lake"
+            said = server_said(exc) if isinstance(exc, FhirEvalError) else ""
+            log.warning("equivalence of %s could not run: %s refused it: %s", art.library, where,
+                        said or type(exc).__name__)  # fmt: skip
             raise CompileFailed(
                 "equivalence",
                 f"the comparison of the compiled CQL and SQL could not run: {where} refused it "
-                f"({type(exc).__name__}{f', HTTP {status}' if status else ''}); check the criteria flagged for review",
+                f"({type(exc).__name__}{f', HTTP {status}' if status else ''}){f': {said}' if said else ''}; "
+                f"check the criteria flagged for review",
             ) from exc
         return self.enforce(report, active)
 
