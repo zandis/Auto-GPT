@@ -294,9 +294,24 @@ def postprocess(
 # scores ("sdai" on a brain injury, "egfr" on an FEV1/FVC ratio, which would compile as eGFR < 0.7). A derived value
 # runs only when its line names that score
 _L, _R = r"(?<![A-Za-z])", r"(?![A-Za-z])"  # ASCII edges: "eGFRが" names eGFR (が is a word character to \b)
+# D-986: capitals "EGFR" is the growth factor receptor ("EGFR mutation"); the kidney's only beside a kidney word or a
+# comparison with a number, and never when an oncology word follows it
+_EGFR_SAID = (
+    _L
+    + r"(?:(?-i:eGFR|egfr|e-GFR|Egfr)|gfr)"
+    + _R
+    + r"|glomerular\s+filtration|糸球体濾過|腎絲球過濾|肾小球滤过|"
+    + _L
+    + r"(?-i:EGFR)"
+    + _R
+    + r"(?!\W{0,3}(?:tki|mutat|exon|tyrosine|amplif|positive|negative|變異|変異|突變))"
+    r"(?=.*(?:ml\s*/\s*min|creatinine|renal|kidney|ckd|腎))|"
+    + _L
+    + r"(?-i:EGFR)\s*(?:[<>≤≥≦≧=]|of|below|above|under|over)\s*\d"
+)
 _DERIVED_SAID = {
     "bmi": _L + r"bmi" + _R + r"|body\s*mass\s*index|身體質量指數|体格指数|ボディマス",
-    "egfr": _L + r"e?gfr" + _R + r"|glomerular\s+filtration|糸球体濾過|腎絲球過濾|肾小球滤过",
+    "egfr": _EGFR_SAID,
     "das28": _L + r"das\s*-?\s*28",
     "basdai": _L + r"basdai" + _R,
     "asdas": _L + r"asdas" + _R,

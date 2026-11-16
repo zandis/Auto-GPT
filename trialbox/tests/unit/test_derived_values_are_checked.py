@@ -86,3 +86,14 @@ def test_every_shipped_derived_criterion_names_its_score() -> None:
                 kind(a)
                 assert pp.derived_said(a.derived, c.text), f.name
     assert seen >= 13
+
+
+@pytest.mark.parametrize(
+    ("text", "said"),
+    [("eGFR < 30 mL/min/1.73m²", True), ("EGFR < 30", True), ("EGFR 30 mL/min or on dialysis", True),
+     ("GFR below 60", True), ("EGFR mutation-positive NSCLC", False), ("EGFR exon 19 deletion", False),
+     ("Prior EGFR-TKI; creatinine clearance ≥ 50 mL/min", False), ("EGFR mutation-positive; creatinine < 1.5", False)],
+)  # fmt: skip
+def test_capital_egfr_is_the_receptor_unless_the_line_says_kidney(text: str, said: bool) -> None:
+    """D-986: "EGFR" in capitals is the growth factor receptor; an `egfr` atom on such a line is a copied name."""
+    assert pp.derived_said("egfr", text) is said, text
