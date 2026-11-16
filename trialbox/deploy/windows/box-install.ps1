@@ -25,7 +25,8 @@
 #    9 packages       no Linux NVIDIA driver, before and after; Docker Engine and the NVIDIA Container Toolkit from
 #                     the media's linux/debs
 #   10 gpu-container  a container started with --gpus all sees the card
-#   11 host-tree      the release's host tree unpacked to /opt/trialbox (never over an existing one)
+#   11 host-tree      the release's host tree unpacked to /opt/trialbox (never over one an install has used; an
+#                     unused one of another release is replaced, NEW-WIN-12)
 #   12 boot-task      start without a person (NEW-WIN-2, D-602): hibernation and sleep off; the task TrialBox-WSL2
 #                     (register_keepalive.ps1) starts the distribution at boot, signed in or not. Windows Update
 #                     (NEW-WIN-5, D-606): installs and restarts only in the declared update window, never takes a
@@ -76,6 +77,11 @@ param(
   # TEST and says "rehearsal box", runs stand-in model servers, takes a bundle built with make_bundle.sh
   # --rehearsal; a site box refuses such a bundle). Kept in state.json: the install stays one to its end
   [switch]$Rehearsal,
+  # P-0 on a PC that is not a site's (NEW-WIN-12, D-615; owner ruling D-510: the owner only starts it). A record of
+  # what the sheet asks for after every run and at every start of Windows (p0-record.ps1), copied to the media's
+  # P0-RECORD folder; the data drive with the most room when there are several; the rehearsal and the BitLocker
+  # choice from the media's windows\p0.json, which the media's builder writes (tools.windows_media build --p0)
+  [switch]$P0,
   # where Windows keeps the site keys' KEK (NEW-WIN-15, D-618; NEW-WIN-8 part 2): "acl_file", a file in the
   # installer's closed folder, which the boot task's S4U sign-in is expected to read; "dpapi_user", this account's
   # protected store, once P-0 line 36a shows that sign-in can open it with nobody signed in (D-603 point 8)
@@ -115,6 +121,7 @@ $script:TbEditions = @("Professional", "ProfessionalWorkstation", "Enterprise", 
   "ProfessionalEducation")
 $script:TbFeatures = @("VirtualMachinePlatform", "Microsoft-Windows-Subsystem-Linux")
 $script:TbResumeTask = "TrialBox-Install-Resume"
+$script:TbP0Task = "TrialBox-P0-Record"
 $script:TbSiteKeyTask = "TrialBox-Site-Key"
 $script:TbMirroredBuild = 22621  # Windows 11 22H2: the first build with WSL2's mirrored networking (Microsoft Learn,
                                   # "Accessing network applications with WSL"); earlier builds take the port proxy
@@ -443,6 +450,23 @@ function Remove-TbProxyRow([int]$Port) {
 }
 function Unregister-TbProxyTask([string]$TaskName) { Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false }
 function Remove-TbHostFirewallRule([string]$RuleName) { Remove-NetFirewallRule -Name $RuleName }
+function Get-TbP0TaskInfo([string]$TaskName) {
+  $t = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  if ($null -eq $t) { return $null }
+  return @{ State = [string]$t.State }
+}
+function Register-TbP0RecordTask([string]$Account, [string]$Script, [string]$StateDir, [string]$Distro, [string]$WslConfig) {
+  # the recorder registers its own task (one definition, as console-proxy.ps1)
+  & $Script -Register -User $Account -StateDir $StateDir -Distro $Distro -WslConfig $WslConfig | Out-Null
+}
+function Invoke-TbKeyProbeArm([string]$Script, [string]$Distro) {
+  # key-probe.ps1 -AtStartup (NEW-WIN-8, D-603): its dummy values stored as this account, its task at the next start
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Script -AtStartup -Distro $Distro 2>&1 | ForEach-Object { Write-TbLog ("    " + [string]$_) }
+}
+function Invoke-TbP0Record([string]$Script, [string]$When, [string]$StateDir, [string]$Distro, [string]$WslConfig, [string]$CopyTo) {
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Script -When $When -StateDir $StateDir -Distro $Distro `
+    -WslConfig $WslConfig -CopyTo $CopyTo 2>&1 | ForEach-Object { Write-TbLog ("    " + [string]$_) }
+}
 function Invoke-TbSiteKey([string]$Script, [string]$Mode, [string]$Store, [string]$Distro) {
   # site-key.ps1 -Take: its own output is one status line; the KEK never passes through this process
   $out = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Script -Take -Store $Store -Dir $script:TbStateDir -Distro $Distro 2>&1)
@@ -558,7 +582,7 @@ function Save-TbState {
 function Read-TbState {
   $s = @{ version = 1; account = ""; media_root = ""; data_drive = ""; distro = ""; imported = $false; import_started = $false
     desktop_share_pct = -1; update_window = ""; update_window_told = ""; drives_told = ""; recovery_confirmed = ""; bitlocker_unlock = ""; bitlocker_turned_on = ""
-    restart_pending = $false; finished = $false; rehearsal = $false }
+    restart_pending = $false; finished = $false; rehearsal = $false; p0 = $false; p0_probe_armed = $false }
   if (Test-Path -LiteralPath $script:TbStatePath) {
     $j = Get-Content -LiteralPath $script:TbStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
     foreach ($k in @($s.Keys)) { if ($null -ne $j.$k) { $s[$k] = $j.$k } }
@@ -632,12 +656,23 @@ function Step-GpuDriver {
   if ($r.ExitCode -ne 0 -or -not $card) { Stop-TbStep "no_windows_driver" @() }
   Say "card" @($card)
 }
+function Select-TbP0Drive([string[]]$Candidates, [int]$MinGB) {
+  # P-0 (D-615): the fixed NTFS drive with the most room, of those with the room the box needs; "" when none has it
+  $best = ""; $bestGB = -1
+  foreach ($c in $Candidates) {
+    $f = Get-TbDriveFacts $c
+    if ($null -ne $f -and $f.Fixed -and $f.FileSystem -eq "NTFS" -and $f.FreeGB -ge $MinGB -and $f.FreeGB -gt $bestGB) { $best = $c; $bestGB = $f.FreeGB }
+  }
+  return $best
+}
 function Step-Drive {
   $d = $script:TbState.data_drive
   if (-not $d) {
     $mediaDrive = ""; if ($script:TbState.media_root -match "^([A-Za-z]:)") { $mediaDrive = $Matches[1].ToUpper() }
     $cands = @(Get-TbDataDriveCandidates @($script:TbFacts.SystemDrive.ToUpper(), $mediaDrive))
-    if ($cands.Count -eq 1) { $d = $cands[0] }
+    $p0Pick = ""; if ($P0 -and $cands.Count -gt 1) { $p0Pick = Select-TbP0Drive $cands $MinFreeGB }
+    if ($p0Pick) { $d = $p0Pick; Write-TbLog ("    P-0: data drive {0}, the one with the most room of {1}" -f $d, ($cands -join ", ")) }
+    elseif ($cands.Count -eq 1) { $d = $cands[0] }
     elseif ($Yes) { Stop-TbStep "drive_unclear" @(($cands -join ", ")) }
     else {
       Say "drive_ask" @(($cands -join ", "), $script:TbFacts.SystemDrive)
@@ -773,7 +808,7 @@ function Step-WslEnable {
     # the copy the task runs must not depend on the media's drive letter after the restart
     $copy = Join-Path $script:TbStateDir "scripts"
     Protect-TbDirectory $copy $script:TbFacts.Account
-    foreach ($n in @("box-install.ps1", "box-install.messages.json", "register_keepalive.ps1", "console-proxy.ps1", "site-key.ps1")) {
+    foreach ($n in @("box-install.ps1", "box-install.messages.json", "register_keepalive.ps1", "console-proxy.ps1", "p0-record.ps1", "key-probe.ps1", "site-key.ps1")) {
       $from = Join-Path $script:TbHere $n; $to = Join-Path $copy $n
       if ($from -ne $to) { Copy-Item -LiteralPath $from -Destination $to -Force }  # the copy itself asked again
     }
@@ -781,7 +816,8 @@ function Step-WslEnable {
     $more = "-MinFreeGB {0} -MinWindowsBuild {1} -ProxyEveryMinutes {9} -StartWaitSeconds {2} -DesktopSharePercent {3} -UpdateWindowStart {7} -UpdateWindowHours {8} -Distro {4} -Lang {5} -BitLockerUnlock {6} -KeyStore {10}" -f $MinFreeGB,
       $MinWindowsBuild, $StartWaitSeconds, $script:TbShare, $script:TbState.distro, $script:TbLang, $script:TbUnlock, $script:TbUpdate[0], $script:TbUpdate[1], $ProxyEveryMinutes, $KeyStore
     if ($SkipBitLocker) { $more += " -SkipBitLocker" }
-    if ($script:TbState.rehearsal) { $more += " -Rehearsal" }  # D-614: the run after the restart is asked for it again
+    if ($script:TbState.rehearsal) { $more += " -Rehearsal" }
+    if ($P0) { $more += " -P0" }  # D-614: the run after the restart is asked for it again
     Register-TbResumeTask (Join-Path $copy "box-install.ps1") $script:TbFacts.Account $script:TbStateDir $more
     $script:TbState.restart_pending = $true
     Save-TbState
@@ -1174,7 +1210,7 @@ function Step-LinuxInstall {
 # ------------------------------------------------------------------------------------------------ the run
 function Invoke-TbInstall {
   param([string]$MediaRoot, [string]$DataDrive, [string]$Distro = "TrialBox", [string]$Lang, [string]$StateDir,
-    [switch]$Resume, [switch]$Yes, [switch]$Rehearsal)
+    [switch]$Resume, [switch]$Yes, [switch]$Rehearsal, [switch]$P0)
   # a cmdlet that reports an error stops its step: nothing goes on after a failed copy, permission change or task
   # registration (Invoke-TbNative sets its own preference for a program's error text)
   $ErrorActionPreference = "Stop"
@@ -1201,6 +1237,32 @@ function Invoke-TbInstall {
   $script:TbStop = $null
   Write-TbLog ("box-install.ps1 started by {0}; resume={1}; Windows {2} build {3}; language {4}" -f $script:TbFacts.Account,
     [bool]$Resume, $script:TbFacts.EditionId, $script:TbFacts.Build, $script:TbLang)
+  if ($P0 -and -not $Resume) {
+    # P-0 (D-615): the media's windows\p0.json, written by its builder, says whether this P-0 is a rehearsal (Stage B)
+    # and whether BitLocker is left as it is. Read at each run started by hand, from the media found in the same
+    # order as the install's own (given, else beside this installer, else the one in the state: never an earlier
+    # media's when this one is here, review 5); the resume task names both switches. None, or one that cannot be
+    # read, stops the run before anything changes
+    $media = $MediaRoot
+    if (-not $media) { $up = Split-Path -Parent $script:TbHere; if (Test-Path -LiteralPath (Join-Path $up "SHA256SUMS")) { $media = $up } }
+    if (-not $media) { $media = [string]$script:TbState.media_root }
+    $pj = "p0.json"; if ($media) { $pj = Join-Path (Join-Path $media "windows") "p0.json" }
+    $cfg = $null
+    if (Test-Path -LiteralPath $pj) { try { $cfg = Get-Content -LiteralPath $pj -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $cfg = $null } }
+    $ok = $null -ne $cfg
+    foreach ($k in @("rehearsal", "skip_bitlocker")) { if ($ok -and $null -ne $cfg.$k -and $cfg.$k -isnot [bool]) { $ok = $false } }
+    if (-not $ok) {
+      Write-TbLog ("    P-0: {0} is missing or cannot be read (rehearsal and skip_bitlocker are true or false): stopped, nothing changed" -f $pj)
+      Write-TbScreen (Get-TbText "p0_config_bad" @($pj) $script:TbLang)
+      return 1
+    }
+    if ($cfg.rehearsal) { $Rehearsal = $true }
+    if ($cfg.skip_bitlocker) { $SkipBitLocker = $true }
+    $yn = "no"; if ($Rehearsal) { $yn = "yes" }
+    $bl = "turned on"; if ($SkipBitLocker) { $bl = "skipped" }
+    Write-TbLog ("    P-0: the media's p0.json: rehearsal {0}, BitLocker {1}" -f $yn, $bl)
+  }
+  if ($P0) { $script:TbState.p0 = $true }
   # a rehearsal (D-614) goes on only when asked for again: a run without -Rehearsal on an unfinished rehearsal stops
   # here, before anything changes. Its box may have been emptied since (RUNBOOK section 16), and the Linux installer
   # would then take a site's media as a rehearsal unasked (review finding 3). The resume task names the switch
@@ -1277,7 +1339,7 @@ function Invoke-TbInstall {
   }
   # the media: the one named; else the one this script was started from; else the one of the last run; else a
   # media found on a drive (its letter may have changed over the restart)
-  $here = Split-Path -Parent $PSScriptRoot
+  $here = Split-Path -Parent $script:TbHere
   if ($MediaRoot) { $script:TbState.media_root = $MediaRoot }
   elseif (Test-Path -LiteralPath (Join-Path $here "SHA256SUMS")) { $script:TbState.media_root = $here }
   elseif (-not $script:TbState.media_root -or -not (Test-Path -LiteralPath (Join-Path $script:TbState.media_root "SHA256SUMS"))) {
@@ -1317,8 +1379,47 @@ function Invoke-TbInstall {
   return 0
 }
 
-if (-not $LoadOnly) {
+function Invoke-TbP0After([bool]$P0) {
+  # P-0 (D-615): the recorder beside the state, its task for each start of Windows, and one record of this run,
+  # copied to the media. Only on a run started with -P0 whose p0.json was read (review 8). Never changes the result
+  if (-not $P0 -or $null -eq $script:TbState -or -not $script:TbState.p0 -or -not $script:TbStateDir) { return }
+  try {
+    $rec = Join-Path $script:TbStateDir "p0-record.ps1"
+    $from = Join-Path $script:TbHere "p0-record.ps1"
+    if ($from -ne $rec) { Copy-Item -LiteralPath $from -Destination $rec -Force }
+    $cfg = Join-Path $script:TbFacts.UserProfile ".wslconfig"
+    $distro = [string]$script:TbState.distro; if (-not $distro) { $distro = "TrialBox" }
+    if ($null -eq (Get-TbP0TaskInfo $script:TbP0Task)) {
+      Register-TbP0RecordTask $script:TbFacts.Account $rec $script:TbStateDir $distro $cfg
+      Write-TbLog ("    P-0: task {0} registered: a record at each start of Windows" -f $script:TbP0Task)
+    }
+    # line 36a: the key probe armed once, as this account, as soon as the boot task exists (step 12); the recorder
+    # collects its lines at the next start of Windows
+    if (-not $script:TbState.p0_probe_armed -and $null -ne (Get-TbBootTaskInfo)) {
+      $probe = Join-Path $script:TbStateDir "key-probe.ps1"
+      $pfrom = Join-Path $script:TbHere "key-probe.ps1"
+      if ($pfrom -ne $probe) { Copy-Item -LiteralPath $pfrom -Destination $probe -Force }
+      Invoke-TbKeyProbeArm $probe $distro
+      $script:TbState.p0_probe_armed = $true
+      Save-TbState
+      Write-TbLog "    P-0: key probe armed for the next start of Windows (line 36a)"
+    }
+    $copy = ""; if ($script:TbState.media_root) { $copy = Join-Path ([string]$script:TbState.media_root) "P0-RECORD" }
+    Invoke-TbP0Record $rec "after-run" $script:TbStateDir $distro $cfg $copy
+  } catch { Write-TbLog ("    P-0: the record was not written: " + [string]$_.Exception.Message) }
+}
+function Invoke-TbRun {
+  param([string]$MediaRoot, [string]$DataDrive, [string]$Distro = "TrialBox", [string]$Lang, [string]$StateDir,
+    [switch]$Resume, [switch]$Yes, [switch]$Rehearsal, [switch]$P0)
+  $script:TbState = $null; $script:TbStateDir = ""
   $code = Invoke-TbInstall -MediaRoot $MediaRoot -DataDrive $DataDrive -Distro $Distro -Lang $Lang -StateDir $StateDir `
-    -Resume:$Resume -Yes:$Yes -Rehearsal:$Rehearsal
+    -Resume:$Resume -Yes:$Yes -Rehearsal:$Rehearsal -P0:$P0
+  Invoke-TbP0After $P0.IsPresent
+  return $code
+}
+
+if (-not $LoadOnly) {
+  $code = Invoke-TbRun -MediaRoot $MediaRoot -DataDrive $DataDrive -Distro $Distro -Lang $Lang -StateDir $StateDir `
+    -Resume:$Resume -Yes:$Yes -Rehearsal:$Rehearsal -P0:$P0
   exit $code
 }

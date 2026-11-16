@@ -1,15 +1,27 @@
-# P-0, for the owner: from a fresh checkout to a Windows PC running the installer
+# P-0: the owner starts it; lane W does the rest
 
-**Reader:** the box owner, for the P-0 rehearsal.
+**Reader:** the box owner for "Your part" below; lane W for the rest, for the P-0 rehearsal.
 
-One page. What you need, the commands in order, and what you do on the Windows PC. The questions P-0 answers are
-on the sheet `docs/handover/P-0-windows-rehearsal.md`; this page gets you to its line 1.
+**Your part (owner ruling D-510).** Lane W builds the media and reads what P-0 writes down; you only start it.
+
+1. Plug the USB disk lane W sends into the Windows PC (signed in as the administrator who will own the box). If
+   the PC has no NVIDIA Windows driver yet, install it first.
+2. Double-click `Install-TrialBox-P0.cmd` on the disk and approve Windows' prompt. The window then goes by
+   itself: it restarts Windows once if WSL2 needs it and goes on after you sign in again. If BitLocker is on for
+   this P-0 (your decision on the integrator's inbox), it shows a recovery key once: keep it as the window says.
+   It never needs to be written down for us.
+3. When the window says it is done, or has stopped, leave the USB disk plugged in, restart the PC once and do not
+   sign in for ten minutes (that start is recorded too, onto the disk), then hand the USB disk back. Everything P-0 asks is in its
+   `P0-RECORD` folder (no recovery key and no first-run code are ever written there).
+
+Nothing else on this page is yours: the rest is how lane W builds the media and what the records answer.
 
 **What has been run, and what has not.** Stage A's commands below were run for real on a Linux build machine, last on
-2026-11-14 from a fresh checkout of `master` (d2d74f30): 16 packages, 84 MB; a media of 428 MB that passes its check
-after a copy. Microsoft's WSL package was a stand-in there (only Windows checks its signature). Stage B's
-bundle commands are lane D's, written by reading the rehearsal script; nobody has run them in this form (no
-Docker where they were written). Nothing has run on Windows: that is what P-0 is.
+2026-11-15 from a clean checkout of `master` (8a7ad118): a media of 41 files that passes its check. Microsoft's WSL
+package was a stand-in there (only Windows checks its signature). Stage B's bundle commands are lane D's, written by
+reading the rehearsal script; nobody has run them in this form (no Docker where they were written). Nothing has run
+on Windows: that is what P-0 is. The recorder (`windows/p0-record.ps1`, NEW-WIN-12, D-615) is tested with Pester
+only.
 
 ## Two stages, the short one first
 
@@ -33,14 +45,11 @@ The two lines that decide the next card are **26a** (does WSL2 start from the bo
   `-Rehearsal` (NEW-WIN-11, D-614): Stage B is started that way, with a bundle built with `--rehearsal` (the
   commands below). By reading, not run.
 
-Do Stage A first and send its answers back. Stage B can follow on the same PC: the installer goes on where it
-stopped. One thing first: the Linux side keeps the host tree it unpacked in Stage A (by reading `wsl-setup.sh`,
-step `host-tree`: an existing `/opt/trialbox` is kept), so step 14 would run Stage A's Linux installer, which may
-not know `--rehearsal`, and the installer refuses a media whose key differs from Stage A's. Remove Stage A's tree,
-which holds nothing of yours, in an administrator PowerShell:
-`wsl -d TrialBox -u root -- rm -rf /opt/trialbox`. Stage B's media then unpacks its own.
+Stage A comes first and its records come back. Stage B can follow on the same PC: the installer goes on where it
+stopped, and replaces Stage A's host tree inside WSL2 by itself (no install has used it, and Stage B's media holds
+another release), so Stage B's Linux installer and key are the ones that run.
 
-## What you need
+## What lane W needs to build it
 
 | | Stage A | Stage B, in addition |
 | --- | --- | --- |
@@ -106,40 +115,29 @@ checkout that differs from its commit); the release gates need to download a vul
 Not known: whether the image list above includes the model server's image (it sits behind a compose profile), and
 so whether the media is nearer 5 GB or 13 GB.
 
-## On the Windows PC
+## On the Windows PC (what the owner's double-click does)
 
-1. Install the NVIDIA Windows driver first, if the PC does not have it.
-2. Decide about BitLocker before you start (the sheet, Part 4, "Choose first"): on a PC that must stay
-   unencrypted, start the installer from an administrator PowerShell with
-   `powershell.exe -NoProfile -ExecutionPolicy Bypass -NoExit -File "<usb>\TRIALBOX-<version>\windows\box-install.ps1" -SkipBitLocker` (Windows
-   blocks a script started by its name alone; `-ExecutionPolicy Bypass` lets this one run, as `Install-TrialBox.cmd`
-   does); otherwise double-click `Install-TrialBox.cmd`.
-3. Sign in as the administrator who will own the box, plug in the USB disk, start the installer, and follow the
-   sheet line by line. Write the "Record" column down as you go. Never write a recovery key down for us: only
-   "shown" and "confirmed".
-4. Stage B only: start the installer from an administrator PowerShell with `-Rehearsal`:
-   `powershell.exe -NoProfile -ExecutionPolicy Bypass -NoExit -File "<usb>\TRIALBOX-2026.11-p0\windows\box-install.ps1" -Rehearsal` (add
-   `-DataDrive G:` and `-SkipBitLocker` as you chose for Stage A). Give `-Rehearsal` every time you start it by
-   hand until the install is finished: without it the installer stops and changes nothing. The window says it is a rehearsal install before it changes anything; the install stays
-   one to its end, also over the restart. After Stage A on the same PC the installer goes on where it stopped; by
-   reading (not run), Stage A's stop in step 14 came before the Linux installer wrote anything of a site, so the
-   Linux installer takes the box as a rehearsal. If it refuses ("holds a site's install ... from no rehearsal"),
-   record the line: the box is then emptied as `docs/runbook/16-box-install-rehearsal.md` ("A rehearsal box")
-   says before Stage B.
-5. Stage A: when the window stops in step 14 ("stopped before the set-up was finished"), that is the expected
-   end (the sheet's line 13): write down the last lines above it. Go on with Part 2, Part 3 (lines 24, 25, 26a, 27a, 27b, 27d), Part 4,
-   Part 6 and Part 8 as listed above.
-6. Send back: the sheet with its Record column, and the log
-   `C:\ProgramData\TrialBox\box-install\box-install.log` (it holds no secret; line 35 checks that).
+`Install-TrialBox-P0.cmd` starts `windows\box-install.ps1 -P0` as administrator. With `-P0` the installer:
+
+- takes this P-0's choices from the media's `windows\p0.json`, written at build (`tools.windows_media build --p0`
+  with `--rehearsal` for Stage B and `--skip-bitlocker` when the owner decides so); a `p0.json` it cannot read
+  stops it before anything changes;
+- picks the fixed NTFS drive with the most room when there are several (no `-DataDrive` to type);
+- writes a record of what the sheet asks after every run, also a run that stopped, and copies the records to the
+  disk's `P0-RECORD` folder; registers the task `TrialBox-P0-Record`, which writes one at each start of Windows six
+  minutes in, signed in or not (sheet lines 26a and 79);
+- for Stage B after Stage A on the same PC, replaces Stage A's host tree inside WSL2 by itself (`wsl-setup.sh
+  host-tree`: a tree no install has used, from another release), so no command is needed between the stages.
+
+Stage A ends with the window's stop in step 14 ("stopped before the set-up was finished"): expected (the sheet's
+line 13). The records answer the sheet's lines by section (the sheet, "How lane W reads the records").
 
 ## On your own computer
 
 **Windows 10 22H2 can take P-0** (owner ruling D-503; NEW-WIN-10, D-613). The sheet's Part 9 has its own lines:
 Windows 10 has no mirrored networking for WSL2, so the console reaches other PCs through a forwarding rule that a
-task keeps pointed at WSL2. On a PC with several data drives, name the one with room: on yours, start the
-installer from an administrator PowerShell as
-`powershell.exe -NoProfile -ExecutionPolicy Bypass -NoExit -File "<usb>\TRIALBOX-<version>\windows\box-install.ps1" -DataDrive G:`
-(G:, H: and I: have about 2 TB free; C: has 222 GB, too little for a box). An RTX 3080 is enough for Stage A;
+task keeps pointed at WSL2. On the owner's PC (G:, H: and I: have about 2 TB free; C: has 222 GB, too little for a
+box) the P-0 installer picks the drive with the most room by itself. An RTX 3080 is enough for Stage A;
 it is not a tier's card, so Stage B's install runs as a rehearsal box only.
 
 P-0 can run on the computer you work on. It holds no patient data and needs none: the installer reads only the USB
@@ -155,6 +153,7 @@ But some of what it does is for the whole computer, not only for TrialBox. Decid
 | Inbound connections to WSL set to "block", one rule lets the console's port in from your own network | every WSL distribution on the computer, not only TrialBox's | if you use other WSL distributions that others connect to, say so before P-0 |
 | `%USERPROFILE%\.wslconfig` with memory, processors, no swap and mirrored networking. A `.wslconfig` you already have is kept as it is (the network lines of Part 5 will then show it) | every WSL distribution of your account | a copy of any earlier file is kept beside it (`.wslconfig.before-trialbox-<time>`) |
 | A task `TrialBox-WSL2` that starts TrialBox's WSL system at every boot | the computer | `Unregister-ScheduledTask TrialBox-WSL2` |
+| P-0 only: the task `TrialBox-P0-Record` (a record at each start of Windows, six minutes in, into `C:\ProgramData\TrialBox\box-install\P0-RECORD`) | the computer: one short read-only run at each start | `Unregister-ScheduledTask TrialBox-P0-Record` (lane W does it with the rest when the P-0 box is removed) |
 | Windows 10 only: a port-proxy rule `0.0.0.0:443` to WSL2, a task `TrialBox-Console-Proxy` that keeps it pointed, and a Windows Firewall rule `TrialBox-Console` (port 443, your own network, private and domain networks) | the computer: nothing else can listen on port 443 | `netsh interface portproxy delete v4tov4 listenport=443 listenaddress=0.0.0.0`; `Unregister-ScheduledTask TrialBox-Console-Proxy`; `Remove-NetFirewallRule -Name TrialBox-Console` |
 | Windows 10 only, if it was stopped or started on demand: the IP Helper service (`iphlpsvc`) set to start automatically and started (it is Windows' default) | the computer | `Set-Service iphlpsvc -StartupType Manual` to put it back as it was (the installer's log names what it was) |
 | Windows 10 only: `localhostForwarding=false` in `.wslconfig` | every WSL distribution of your account: `localhost` on Windows no longer reaches a program inside WSL | remove the line from `.wslconfig`, then `wsl --shutdown` |
