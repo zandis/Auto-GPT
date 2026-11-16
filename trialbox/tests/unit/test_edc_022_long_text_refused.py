@@ -29,7 +29,8 @@ def test_a_reason_of_301_characters_is_refused_and_nothing_is_stored(tmp_path: P
     with pytest.raises(EdcError) as e:
         svc.decide(k.STUDY, d["id"], "edit", value="73", reason="r" * (TEXT_MAX + 1), citation=SHEET, by="crc")
     assert e.value.code == "edc.too_long" and e.value.status == 400
-    assert svc.store.draft(k.STUDY, d["id"])["fate"] == d["fate"]  # nothing changed
+    now = svc.store.draft(k.STUDY, d["id"])
+    assert now is not None and now["fate"] == d["fate"]  # nothing changed
 
 
 def test_a_reason_of_300_characters_is_kept_whole(tmp_path: Path) -> None:
@@ -38,7 +39,8 @@ def test_a_reason_of_300_characters_is_kept_whole(tmp_path: Path) -> None:
     d = _drafts(svc)["weight"]
     reason = "scale re-read " + "x" * (TEXT_MAX - 14)
     svc.decide(k.STUDY, d["id"], "edit", value="73", reason=reason, citation=SHEET, by="crc")
-    assert svc.store.draft(k.STUDY, d["id"])["reason"] == reason
+    now = svc.store.draft(k.STUDY, d["id"])
+    assert now is not None and now["reason"] == reason
 
 
 def test_a_citation_text_of_301_characters_is_refused(tmp_path: Path) -> None:
