@@ -103,6 +103,50 @@ def _for_a_person(cid: str, ruleset: str, kind_: str, text: str, source_ref: Any
     )  # fmt: skip
 
 
+# red of lane G's P1b run (#639, 2026-11-16): "Age outside of range specified", an exclusion, was compiled as the
+# inclusion's range itself (min 18, max 35), so it excluded every patient inside the range. An exclusion's age line
+# says which side is excluded; its words are read against the atom's bounds
+_OUTSIDE = re.compile(
+    r"\boutside\b|\bnot\s+(?:with)?in\b|\bnot\s+between\b|\bbeyond\b|範囲外|範囲以外|以外|範圍外|範圍以外|不在",
+    re.IGNORECASE,
+)
+_BELOW = re.compile(
+    r"\b(?:under|below|younger|less\s+than|fewer\s+than)\b|<|未満|以下|未滿|不足|小於|低於", re.IGNORECASE
+)
+_ABOVE = re.compile(r"\b(?:over|above|older|more\s+than|greater\s+than)\b|>|超|以上|大於|高於|逾", re.IGNORECASE)
+
+
+def _age_atom(logic: Any) -> Atom | None:
+    """The logic when it is one age atom (no sex): the case the age rules read."""
+    if isinstance(logic, Atom) and logic.domain == "demographic" and logic.age is not None and logic.sex is None:
+        return logic
+    return None
+
+
+def exclusion_age(text: str, logic: Any) -> tuple[Any, str | None]:
+    """An exclusion that is one age atom, read against its line (red of P1b): ``(logic, flag)``.
+
+    * A range (a minimum and a maximum) whose line says outside / not within / 範囲外 / 以外 is the range's
+      complement: ``not(range)``, flagged ``age_range_inverted`` (it was the range itself, which excluded every
+      patient inside it). A range whose line does not say so goes to a person (``age_range_exclusion``): an
+      exclusion of the patients inside a range is rare, and a model that copied an inclusion's range is not.
+    * One bound whose line points the other way ("under 18" as ``min 18``; "over 65" as ``max 65``) goes to a person
+      (``age_direction``).
+    A patient with no birth date is unknown either way (the age is NULL)."""
+    atom = _age_atom(logic)
+    if atom is None or atom.age is None:
+        return logic, None
+    lo, hi = atom.age.min, atom.age.max
+    if lo is not None and hi is not None:
+        if _OUTSIDE.search(text):
+            return BoolExpr(op="not", args=[atom]), "age_range_inverted"
+        return logic, "age_range_exclusion"
+    below, above = bool(_BELOW.search(text)), bool(_ABOVE.search(text))
+    if (lo is not None and below and not above) or (hi is not None and above and not below):
+        return logic, "age_direction"
+    return logic, None
+
+
 def _positive_logic(logic: Any) -> Any:
     """The positive form of a wholly negated logic (an atom with quantifier ``none``, or ``not(x)``); None otherwise."""
     if isinstance(logic, BoolExpr):
@@ -203,6 +247,17 @@ def postprocess(
             ir = ir.model_copy(update={"logic": pos})
             flags.append("negated_logic_rewritten")
             warnings.append(f"{cid}: exclusion logic was negated; rewritten to the positive form (check it)")
+        if ir.kind == "exclusion" and ir.class_ in FILTERED and ir.logic is not None:
+            fixed, age_flag = exclusion_age(ir.text, ir.logic)
+            if age_flag == "age_range_inverted":
+                ir = ir.model_copy(update={"logic": fixed})
+                flags.append(age_flag)
+                warnings.append(f"{cid}: an age range excluded its own patients; read as outside the range (check it)")
+            elif age_flag is not None:
+                flags.append(age_flag)
+                ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
+                                           "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
+                warnings.append(f"{cid}: its age line may exclude the wrong side; kept for a person to check")
         if ir.class_ in FILTERED:
             try:
                 check_bool(ir.logic)
