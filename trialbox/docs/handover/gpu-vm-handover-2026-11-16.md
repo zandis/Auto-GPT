@@ -1,5 +1,7 @@
 # GPU VM hand-over (lane G to the integrator), 2026-11-16
 
+**Reader:** the people who build TrialBox, and the integrator who runs the next pass on this VM.
+
 Draft for `docs/handover/gpu-vm-handover-2026-11-16.md`. Lane G wrote it from the run log, the driver's code at
 lane G's branch head `f49973efefffe7d7fbd190df59a470ac9b81de18`, and read-only `gcloud` calls made on 2026-11-16 at
 about 02:30 UTC. It holds no secret, key, address, sign-in code or demo stop time.
@@ -42,7 +44,7 @@ Read by the probe launch (L4, 2026-11-15 08:50) and later launches:
   registry pins, the chat template, and the embedder's files (placed by `box_vm.py models-place`).
 - `/srv/tb-build`: the build checkout of the last dev launch.
 - `/opt/trialbox`: the installed box (the bundle's host tree, then `current -> releases/dev-<commit12>`),
-  `deploy/.env` and `deploy/settings.yaml` from the settings wizard, `deploy/secrets`, `deploy/site` (the site pins).
+  `deploy/.env` and `/opt/trialbox/deploy/settings.yaml` from the settings wizard, `/opt/trialbox/deploy/secrets`, `deploy/site` (the site pins).
 - `/var/lib/tb`: the driver's state (run folders, accuracy sets, lane G's accuracy tools).
 
 Before lane G's box runs, the VM's usual startup script was `deploy/gcp/gpu-sim-startup.sh`. It starts three private
@@ -183,7 +185,7 @@ uses it with `--direct`, or on a resume:
 | Step | What it does | Writes | Time |
 |---|---|---|---|
 | 01-bundle (start only) | fetch, sha256, manifest check, host tree unpacked | `records/release.json` | 75 s |
-| 02-install (direct) | host packages; weights placed and bound into `deploy/models`; old private servers removed; `secrets init`; `pin_model --install` as root (F11) and the three pins checked; site keys made, not sealed; database and `db-up`; `compose up --wait` (900 s); the serving check | `deploy/site/registry.site.yaml`, `records/stack.txt` | 281 s (bundle tree), 145 s and 157 s (1157c9bf) |
+| 02-install (direct) | host packages; weights placed and bound into `/opt/trialbox/deploy/models`; old private servers removed; `secrets init`; `pin_model --install` as root (F11) and the three pins checked; site keys made, not sealed; database and `db-up`; `compose up --wait` (900 s); the serving check | `deploy/site/registry.site.yaml`, `records/stack.txt` | 281 s (bundle tree), 145 s and 157 s (1157c9bf) |
 | 03-wizard | the box says VALIDATION (`deploy/.env`) | | under 1 s |
 | 04-pin | the site pins are there | | 5 s |
 | 05-serving | the serving record of the running pair | `records/serving_config.json` | 25-30 s |
@@ -378,7 +380,7 @@ Locally, `.cache/box-run/<run id>/` holds:
 | W3 | Qualify gets the same commit's `tests`, `docs`, `eval`, `images.lock` mounted read-only | F13: the image lacks them | D-838, train 30. The host GPU facts and the code identity are master's own settings (D-881, D-889, train 32) |
 | W4 | The direct route instead of `install.sh`; `pin_model --install` as root | F10 (a half install cannot be re-run), F11 (pins cannot be written as uid 10001) | none yet (the installer hand-over is #717) |
 | W5 | Site keys made by `adapter keys-init`, not sealed (`TB_BOX_DEFER_SEAL=1` on the installer route) | F9; the owner's ruling for a public-data PoC | none (a ruling, not a fault) |
-| W6 | The weights' bind into `deploy/models` made again at every boot, and the model servers and the embedder restarted | F15 | none yet (no systemd unit on the direct route) |
+| W6 | The weights' bind into `/opt/trialbox/deploy/models` made again at every boot, and the model servers and the embedder restarted | F15 | none yet (no systemd unit on the direct route) |
 | W7 | `feed_completeness.optional_tables` from the feed; `validation_error_max_pct` 10 | F17, F20: a public-data site lacks tables and birth dates | none needed (site settings, as a hospital sets them) |
 | W8 | `TB_GATEWAY_PHI_TRIPWIRE=off`, `TB_JOBS_PER_SENDER_PER_DAY=0`, `TB_MAIL_PER_RECIPIENT_PER_DAY=0` | public data; one sender mails hundreds of jobs | none needed (declared settings, D-506, D-511, D-775) |
 | W9 | `TB_MEM_EMBED=16g` (`--site-env`) | F27: the embed service lost mid-SCREEN at 4g | D-900 and D-890, train 33 (the embed service and its 6 GB limit). D-902, train 34 (SCREEN waits out an embed outage). Do not pass it on master (owner's plan, part B) |
@@ -463,7 +465,7 @@ Notes on the table:
 | T1 | **The root file system grows only at boot.** The disk was grown online from 200 to 400 GiB (2026-11-15 09:21). The file system followed only at the next boot. b05 ran out of space before that (F8). | `grow_root` runs at every boot and writes `records/disk.json`. Grow the disk only while the VM is stopped, or expect the space at the next boot. Note: hyperdisk can grow but never shrink. |
 | T2 | **The mail intake keeps one job per mail id (F28).** A redo that mails the same ids gets the old jobs back, with their failures. | `--redo` mails under new ids (`-r<retry>`). Never resend by hand under an old id. |
 | T3 | **The box keeps an approved ruleset version (F29).** A second FEAS of an approved ruleset fails with "no structured criteria to count" and no workbook. | A second run on one box uses new ruleset ids: `--acc-rs-tag <letters or digits>`. |
-| T4 | **The weights' mount is lost at reboot (F15).** The model servers and the embedder restart on an empty `deploy/models` and stay unhealthy. | The driver binds `/models` again and restarts those three before any step (`TB-STACK`). A reboot by hand (B11) needs the same, unless master's start path does it (that is what B11 tests). |
+| T4 | **The weights' mount is lost at reboot (F15).** The model servers and the embedder restart on an empty `/opt/trialbox/deploy/models` and stay unhealthy. | The driver binds `/models` again and restarts those three before any step (`TB-STACK`). A reboot by hand (B11) needs the same, unless master's start path does it (that is what B11 tests). |
 | T5 | **The kernel's 128 KiB limit on one argument (F30).** A long protocol in base64 as an argument failed with "Argument list too long". | Any argument over 100 KB goes in the program text (d44e3978). Keep that rule for new calls. |
 | T6 | **The shared accuracy folder (F21).** Every run used `/var/lib/tb/acc`, so a later run took an earlier run's progress as its own and said "done". | Per-run folders `/var/lib/tb/acc/<run id>/`. A run that built its data before this rule keeps the shared folder. Do not reuse an old run id for new work. |
 | T7 | **A bare start replays the last launch.** The VM keeps the last launch's `tb-*` keys until a collect or `--stop` resets them. | Use the driver. To boot without a run, `--stop` first. |
