@@ -4,7 +4,10 @@
 
 The file is asked for up to three times (waiting 2, then 5 seconds) when the transfer fails: a refused connection, a
 timeout, an HTTP error, a short read. A mirror that answers 404 once and 200 a minute later does not fail a build.
-What is written is the pinned sha256, or nothing is written; a file with another sha256 is refused at once and not
+A rate limit (HTTP 429, or 503) waits longer before the next ask (D-899): the server's ``Retry-After`` in seconds
+when it gives one, at most two minutes, else 30, then 60 seconds; still three asks in all. Three CI builds at once
+had Maven Central answer 429 three times within 2 and 5 seconds. What is written is the pinned sha256, or nothing
+is written; a file with another sha256 is refused at once and not
 asked for again (that is not the network's fault). ``SSL_CERT_FILE`` names the build's CA file, as before.
 Standard library only: the demo image runs it before anything is installed for it.
 """
@@ -27,6 +30,9 @@ from pathlib import Path
 
 WAITS = (2, 5)  # seconds before the second and the third ask; three asks in all, never more
 TRANSFER_FAULTS = (urllib.error.URLError, OSError, http.client.HTTPException, TimeoutError)
+RATE_LIMITED = (429, 503)  # D-899: the server asks to be asked later
+RATE_WAITS = (30, 60)  # seconds before the second and the third ask after a rate limit, without a Retry-After
+RATE_LIMIT_MAX = 120  # a Retry-After is honoured up to this; a build never sleeps longer between asks
 
 
 class FetchError(RuntimeError):
@@ -75,19 +81,31 @@ def fetch_bytes(
     try's reason; :class:`PinError` at once for other bytes."""
     _https(url)
     reasons: list[str] = []
+    limited: float | None = None  # the wait a rate limit asked for, before the next ask
     for n in range(len(waits) + 1):
         if n:
-            sleep(waits[n - 1])
+            sleep(max(waits[n - 1], limited) if limited is not None else waits[n - 1])
+        limited = None
         try:
             data = get(url)
         except TRANSFER_FAULTS as exc:
             reasons.append(f"try {n + 1}: {type(exc).__name__}: {exc}")
+            if isinstance(exc, urllib.error.HTTPError) and exc.code in RATE_LIMITED:
+                limited = _rate_wait(exc, n)
             continue
         got = hashlib.sha256(data).hexdigest()
         if got != sha256:
             raise PinError(f"{url}: sha256 {got} is not the pinned {sha256}; refusing it")
         return data
     raise FetchError(f"{url}: not fetched in {len(waits) + 1} tries ({'; '.join(reasons)})")
+
+
+def _rate_wait(exc: urllib.error.HTTPError, n: int) -> float:
+    """D-899: the server's Retry-After in seconds (capped), else the plain rate-limit wait for ask ``n + 2``."""
+    raw = (exc.headers.get("Retry-After") if exc.headers is not None else None) or ""
+    if raw.strip().isdigit():
+        return float(min(int(raw.strip()), RATE_LIMIT_MAX))
+    return float(RATE_WAITS[min(n, len(RATE_WAITS) - 1)])
 
 
 def fetch(url: str, out: Path, sha256: str, **kw: object) -> None:
