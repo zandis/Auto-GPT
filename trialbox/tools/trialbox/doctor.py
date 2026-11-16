@@ -1041,7 +1041,8 @@ def check_key_custody(inp: DoctorInputs) -> Check:
 
 def check_key_custody_record(inp: DoctorInputs) -> Check:
     """TB-SOP-03 (D-893): a VALIDATION or PRODUCTION box whose keys are under a KEK has the key ceremony's record
-    (IQ-05), made by ``python -m tools.keys ceremony-record`` for that KEK. A WARN, never a FAIL: no install gate."""
+    (IQ-05), made by ``python -m tools.keys ceremony-record`` for that KEK; a TPM box's escrow set (D-894) is of the
+    current KEK and on the newest record. A WARN, never a FAIL: no install gate."""
     from tb_common import kek
 
     from tools import key_ceremony as kc
@@ -1054,6 +1055,17 @@ def check_key_custody_record(inp: DoctorInputs) -> Check:
     c = kek.custody(sec, {**os.environ, **inp.env}) if sec.is_dir() else None
     if c is None or c.backend is None:
         return Check(name, "PASS", "no KEK yet: the ceremony comes with python -m tools.keys init")
+    from tools import key_escrow as ke
+
+    try:
+        meta = kek.read_meta(sec)
+    except kek.KekError:
+        meta = None
+    esc = ke.current(meta)
+    if esc is not None and ke.stale(meta):
+        return Check(name, "WARN", f"the escrow set {esc.get('set_id')} is of an older KEK ({esc.get('kek_id')}); the "
+                     f"KEK is now {c.kek_id}: its shares open nothing here. A new set: python -m tools.keys "
+                     "escrow-shares (TB-SOP-03 §5)")  # fmt: skip
     rec = kc.newest(inp.deploy or ROOT / "deploy")
     how = ("python -m tools.keys ceremony-record --custodian ... --witness ..., printed and signed "
            "(docs/security/10-key-ceremony-and-escrow.md)")  # fmt: skip
@@ -1062,6 +1074,9 @@ def check_key_custody_record(inp: DoctorInputs) -> Check:
     if (rec.get("kek") or {}).get("kek_id") != c.kek_id:
         return Check(name, "WARN", f"the newest ceremony record is of KEK {(rec.get('kek') or {}).get('kek_id')}; "
                      f"the KEK is now {c.kek_id} (rotate-kek since): a new record, {how}")  # fmt: skip
+    if esc is not None and (rec.get("escrow") or {}).get("set_id") != esc.get("set_id"):
+        return Check(name, "WARN", f"the escrow set {esc.get('set_id')} was made after the newest ceremony record: "
+                     f"a new record lists it and its custodians sign, {how}")  # fmt: skip
     note = "; NOT a site's ceremony (passphrase back end)" if rec.get("not_a_site_ceremony") else ""
     return Check(name, "PASS", f"ceremony record of {str(rec.get('at'))[:10]} for KEK {c.kek_id}, "
                  f"{len(rec.get('custodians') or [])} custodian(s){note}")  # fmt: skip
