@@ -124,7 +124,7 @@ def test_jar_list_is_well_formed_and_names_the_translator() -> None:
         names.append(m.group(2))
     assert len(names) == len(set(names))
     assert any(n.startswith("cql-to-elm") for n in names)
-    assert "-C" in SCRIPT.read_text(encoding="utf-8").split("dependency:copy-dependencies")[0].rsplit("mvn", 1)[1]
+    assert "-C" in SCRIPT.read_text(encoding="utf-8").split(":copy-dependencies")[0].rsplit("mvn", 1)[1]
 
 
 def test_one_tampered_byte_in_a_cached_translator_jar_fails(tmp_path: Path) -> None:

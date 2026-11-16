@@ -2,48 +2,77 @@
 # `make rehearse-box` makes offline media the way the vendor does (the release gates, a signed bundle, placeholder
 # weights), clears the images, and runs the REAL deploy/install.sh in a clean Ubuntu 24.04 container with the strict
 # vLLM stand-ins: install, doctor, offline, guard, console, SCREEN, a power loss and the restart.
-#   test:        the rehearsal as it is (a TEST rehearsal box).
-#   validation:  VALIDATION's settings on the rehearsal box: no TPM and the passphrase KEK, TB_HOST_PROFILE=poc, a
-#                root-owned deploy/site, the same bundle installed twice. The box stays TEST: the model stand-ins are
-#                honoured on a TEST box only (D-726), so the environment name VALIDATION itself is not rehearsed.
-# By hand, and on a pull request that touches the installer path. Never on a schedule (D-511: no nightly). The
-# repository is public: the hosted runners cost nothing. Not a required check until it has passed once on master.
-# Every action is pinned to a commit (tag in the comment).
+#   test:        a rehearsal box, first install (VALIDATION since D-514; the passphrase KEK, TB_HOST_PROFILE=poc).
+#   validation:  the same, plus a root-owned deploy/site and the same bundle installed twice.
+# By hand, and on every pull request: the `changes` job says whether it touches the installer path, the legs run only
+# then, and `rehearse-result` is the one check a branch rule requires (D-891): it passes when the legs passed or were
+# skipped (no installer change), and fails otherwise. Never on a schedule (D-511: no nightly). The repository is
+# public: the hosted runners cost nothing. Every action is pinned to a commit (tag in the comment).
 name: TrialBox box rehearsal
 
 on:
   workflow_dispatch:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - "trialbox/deploy/install.sh"
-      - "trialbox/deploy/box-install.sh"
-      - "trialbox/deploy/hardening/**"
-      - "trialbox/deploy/check_host.sh"
-      - "trialbox/deploy/docker-compose*.yml"
-      - "trialbox/deploy/docker/**"
-      - "trialbox/tools/make_bundle.sh"
-      - "trialbox/tools/apply_update.sh"
-      - "trialbox/tools/verify_update.py"
-      - "trialbox/tools/sign_bundle.py"
-      - "trialbox/tools/release.py"
-      - "trialbox/tools/supply_chain/**"
-      - "trialbox/tools/trialbox/**"
-      - "trialbox/tools/rehearse_box/**"
-      - "trialbox/tools/qualify.py"
-      - "trialbox/tools/pin_model.py"
-      - "trialbox/Makefile"
-      - ".github/workflows/trialbox-rehearse-box.yml"
 
 permissions:
   contents: read
+  pull-requests: read  # the changes job lists the pull request's files
 
 concurrency:
   group: trialbox-rehearse-box-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # D-891: whether the pull request touches the installer path (by hand: always). The path list lives here only
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      installer: ${{ steps.files.outputs.installer }}
+    steps:
+      - id: files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          INSTALLER_PATHS: |
+            trialbox/deploy/install.sh
+            trialbox/deploy/box-install.sh
+            trialbox/deploy/hardening/**
+            trialbox/deploy/check_host.sh
+            trialbox/deploy/docker-compose*.yml
+            trialbox/deploy/docker/**
+            trialbox/tools/make_bundle.sh
+            trialbox/tools/apply_update.sh
+            trialbox/tools/verify_update.py
+            trialbox/tools/sign_bundle.py
+            trialbox/tools/release.py
+            trialbox/tools/supply_chain/**
+            trialbox/tools/trialbox/**
+            trialbox/tools/rehearse_box/**
+            trialbox/tools/qualify.py
+            trialbox/tools/pin_model.py
+            trialbox/tools/fetch_jvm_deps.sh
+            trialbox/Makefile
+            .github/workflows/trialbox-rehearse-box.yml
+        run: |
+          if [ "$EVENT" != pull_request ]; then echo "installer=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          files="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate --jq '.[].filename')"
+          hit=false
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            while IFS= read -r pat; do
+              [ -n "$pat" ] || continue
+              # shellcheck disable=SC2254  # the pattern is meant to glob (`*` and `**` cross folders here)
+              case "$f" in ${pat//\*\*/*}) hit=true; echo "installer path: $f ($pat)" ;; esac
+            done <<< "$INSTALLER_PATHS"
+          done <<< "$files"
+          echo "installer=$hit" >> "$GITHUB_OUTPUT"
+
   rehearse:
+    needs: changes
+    if: needs.changes.outputs.installer == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -112,3 +141,23 @@ jobs:
             ${{ runner.temp }}/tb/rehearse-box/logs
           if-no-files-found: warn
           retention-days: 30
+
+  # D-891: the one check a branch rule requires. A pull request without an installer change skips the legs and passes
+  # here; a failed, cancelled or timed-out leg (or a changes job that could not say) fails here
+  rehearse-result:
+    needs: [changes, rehearse]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          CHANGES: ${{ needs.changes.result }}
+          LEGS: ${{ needs.rehearse.result }}
+          INSTALLER: ${{ needs.changes.outputs.installer }}
+        run: |
+          echo "changes: $CHANGES (installer path: ${INSTALLER:-?}); rehearsal legs: $LEGS"
+          [ "$CHANGES" = success ] || { echo "the changes job did not finish: nothing can be said" >&2; exit 1; }
+          case "$INSTALLER:$LEGS" in
+            true:success|false:skipped) echo "rehearse-result: pass" ;;
+            *) echo "rehearse-result: FAIL (installer path $INSTALLER, legs $LEGS)" >&2; exit 1 ;;
+          esac
