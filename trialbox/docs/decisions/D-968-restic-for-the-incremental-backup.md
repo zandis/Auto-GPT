@@ -58,7 +58,10 @@ restic does the incremental backup, on these conditions:
       The FUSE mount tests are skipped with restic's own switch (`RESTIC_TEST_FUSE=0`): a build has no FUSE, and the
       box never mounts a repository. `go vet` is off (`-vet=off`): it is a lint, and Go 1.26's checks are newer than
       the release's code; the run that showed this (#894, rehearse at `6f20780c`) failed only on the mount test and
-      on one helper package that `go test` reported as "build failed".
+      on one helper package that `go test` reported as "build failed". With vet off that package passed; the next run failed only
+      on `TestStdinFromCommandNoOutput`, one of four tests that run `python` (absent from the Go image) to test
+      `backup --stdin-from-command`, which the box never uses. Those four are skipped by name (`-skip
+      '^TestStdinFromCommand'`); every other test of the release runs.
     - `x/crypto` v0.59.0 requires `golang.org/x/text` v0.44.0 (its own `go.mod`), so `x/text` goes to v0.44.0, one
       past restic's main branch (v0.43.0), as part of the same ruling; the build with v0.43.0 failed in `go get` with
       exactly that conflict. `x/sys` (v0.50.0) and `x/term` (v0.48.0) rise with them by Go's minimal version
