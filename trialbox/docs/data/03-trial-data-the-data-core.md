@@ -37,7 +37,8 @@ screening write-back fills three fields on TrialBox's own instrument (`tb_screen
 `tb_status_date`) and never a field REDCap owns; modes `off`, `existing`, `create`. A blank never erases a value
 (`overwriteBehavior=normal`). The site's REDCap builder creates the instrument from the dictionary in
 `services/rc_sim/fixtures/`. Evidence: `tests/unit/test_rc_writeback.py`, `tests/unit/test_datacore.py`,
-`e2e_simple` stages 8 and 9.
+`e2e_simple` stages 8 and 9. Choosing the site's REDCap or an internal service that speaks the same API is
+[§13](13-redcap-and-the-edc-backend.md). It stays off until `TB_EDC_BACKEND` is set, so this path is unchanged.
 
 **Schema versions and the database image** ([D-204](../decisions/D-204-db-image-and-checksummed-migrations.md)). Every
 store's schema versions are whole scripts, append-only, recorded in the store's own `_schema_version` with the

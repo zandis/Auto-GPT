@@ -105,6 +105,13 @@ EN: dict[str, str] = {
     "rc.write.waiting": "Waiting for the coordinator to create the REDCap record ({n}): {list}",
     "rc.write.failed": "The write to REDCap failed and is retried on the next run: {msg}",
     "rc.err.RC-LINK-WRITE": "TrialBox's instrument may not hold a field TrialBox reads: {fields}",
+    "edc.title": "EDC connection",
+    "edc.help": "Maps a study, a site and a subject onto the EDC, and confirms a tool write. Off unless the EDC backend is set.",
+    "edc.map": "Saved map",
+    "edc.studies": "studies",
+    "edc.confirm": "Tool writes waiting for a person",
+    "edc.none": "None waiting.",
+    "edc.confirm_one": "Confirm this write",
 }
 
 JA: dict[str, str] = {
@@ -209,6 +216,13 @@ JA: dict[str, str] = {
     "rc.write.waiting": "CRC による REDCap レコードの作成待ち（{n}）：{list}",
     "rc.write.failed": "REDCap への書き込みに失敗しました。次回の実行で再試行します：{msg}",
     "rc.err.RC-LINK-WRITE": "TrialBox の調査票に、TrialBox が読むフィールドを置くことはできません：{fields}",
+    "edc.title": "EDC 接続",
+    "edc.help": "試験・施設・被験者を EDC に対応させ、ツールの書き込みを人が確認します。EDC バックエンドを設定しない限り使われません。",
+    "edc.map": "保存した対応",
+    "edc.studies": "試験",
+    "edc.confirm": "担当者の確認を待つツールの書き込み",
+    "edc.none": "待ちはありません。",
+    "edc.confirm_one": "この書き込みを確認する",
 }
 
 ZH: dict[str, str] = {
@@ -313,4 +327,11 @@ ZH: dict[str, str] = {
     "rc.write.waiting": "等待研究護理師建立 REDCap 紀錄（{n}）：{list}",
     "rc.write.failed": "寫入 REDCap 失敗，下次執行時重試：{msg}",
     "rc.err.RC-LINK-WRITE": "TrialBox 的表單不可包含 TrialBox 讀取的欄位：{fields}",
+    "edc.title": "EDC 連線",
+    "edc.help": "將試驗、院區與受試者對應到 EDC，並由人員確認工具寫入。未設定 EDC 後端時不使用。",
+    "edc.map": "已儲存的對應",
+    "edc.studies": "試驗",
+    "edc.confirm": "等待人員確認的工具寫入",
+    "edc.none": "沒有等待中的項目。",
+    "edc.confirm_one": "確認此寫入",
 }

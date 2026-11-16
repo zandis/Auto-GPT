@@ -362,6 +362,7 @@ DECLARED_FAMILIES: dict[str, str] = {
     "TB_DB_PW_": "compose: the password of one service's database role, TB_DB_PW_<SERVICE> (D-378, D-481)",
     "TB_EP_": "egress: one allowed endpoint per variable (deploy/egress.py, D-140)",
     "TB_MEM_": "compose: memory cap of one service, TB_MEM_<SERVICE> (D-360)",
+    "TB_REDCAP_TOKEN_": "REDCap connector: one project's API token, TB_REDCAP_TOKEN_<ref> (secret)",
 }
 
 DECLARED: dict[str, Declared] = {
@@ -567,8 +568,20 @@ DECLARED: dict[str, Declared] = {
     "TB_DOTENV": Declared("str", ".env", "path of the .env file config reads"),
     "TB_DRILL_DIR": Declared("path", "", "backup drill: work folder"),
     "TB_E2E_DIR": Declared("path", "", "e2e tool: work folder"),
+    "TB_EDC_BACKEND": Declared("str", "", "edc backend: redcap or internal; unset leaves the box unchanged"),
+    "TB_EDC_EVENT_DIR": Declared("path", "", "EDC events: folder of the idempotency log"),
+    "TB_EDC_EVENT_SECRET": Declared("str", "", "EDC events: HMAC secret for X-TrialBox-Signature (secret)"),
+    "TB_EDC_OIDC": Declared("bool", "0", "EDC: TrialBox is an OIDC issuer for the EDC when 1"),
+    "TB_EDC_OIDC_CLIENT_ID": Declared("str", "", "EDC OIDC: client id the EDC stores"),
+    "TB_EDC_OIDC_CLIENT_SECRET": Declared("str", "", "EDC OIDC: client secret the EDC stores (secret)"),
+    "TB_EDC_OIDC_ISSUER": Declared("str", "", "EDC OIDC: issuer URL TrialBox advertises"),
+    "TB_EDC_OIDC_REDIRECT": Declared("str", "", "EDC OIDC: allowed redirect URIs, comma-separated"),
+    "TB_EDC_INTERNAL_TOKEN": Declared("str", "", "internal EDC: API token of its REDCap-compatible API (secret)"),
+    "TB_EDC_INTERNAL_URL": Declared("str", "", "internal EDC: base URL of its REDCap-compatible API"),
     "TB_EDC_ODM_MAX_BYTES": Declared("int", "5000000", "EDC: largest ODM file an import reads (D-435)"),
     "TB_EDC_SIGN_KEY_FILE": Declared("path", "", "EDC: key that signs eCRF records"),
+    "TB_EDC_TOOL_TOKEN": Declared("str", "", "EDC tools: token for /api/v1/tools, not the /api/ token (secret)"),
+    "TB_EDC_TOOL_URL": Declared("str", "", "EDC tools: base URL; empty uses the backend URL"),
     "TB_EGRESS_STATE": Declared(
         "str", "/var/lib/trialbox/egress-state.json", "egress: state file of the applied table"
     ),
@@ -863,6 +876,12 @@ DECLARED: dict[str, Declared] = {
     "TB_RC_SIM_HOST": Declared("str", "127.0.0.1", "REDCap simulator: address"),
     "TB_RC_SIM_PORT": Declared("int", "8790", "REDCap simulator: port"),
     "TB_RC_SIM_VERSION": Declared("str", "16.0.10", "REDCap simulator: version shown"),
+    "TB_REDCAP_API_TOKEN": Declared("str", "", "REDCap connector: default API token (secret)"),
+    "TB_REDCAP_API_URL": Declared("str", "", "REDCap connector: https URL of the server"),
+    "TB_REDCAP_FILE_MAX_BYTES": Declared("int", "26214400", "REDCap connector: largest file accepted, bytes"),
+    "TB_REDCAP_MAX_PER_MINUTE": Declared("int", "0", "REDCap connector: calls per minute; 0 is no cap"),
+    "TB_REDCAP_MIN_INTERVAL_MS": Declared("int", "0", "REDCap connector: milliseconds between calls"),
+    "TB_REDCAP_PROJECT_TOKENS": Declared("str", "", "REDCap connector: comma-separated ref:TOKEN (secret)"),
     "TB_REDCAP_READ_AT": Declared("str", "03:00", "console: REDCap read time"),
     "TB_REDCAP_TEST_DAY": Declared("str", "", "REDCap test instance (D-584): the day a run takes as today"),
     "TB_REDCAP_TEST_PORT": Declared("int", "8791", "REDCap test instance (D-584): its loopback port"),

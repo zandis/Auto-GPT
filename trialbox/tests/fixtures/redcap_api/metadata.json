@@ -1,0 +1,57 @@
+[
+  {
+    "field_name": "record_id",
+    "form_name": "screening",
+    "field_type": "text",
+    "field_label": "Record",
+    "select_choices_or_calculations": "",
+    "text_validation_type_or_show_slider_number": "",
+    "identifier": "",
+    "required_field": "y",
+    "branching_logic": ""
+  },
+  {
+    "field_name": "eligible",
+    "form_name": "screening",
+    "field_type": "yesno",
+    "field_label": "Eligible",
+    "select_choices_or_calculations": "",
+    "text_validation_type_or_show_slider_number": "",
+    "identifier": "",
+    "required_field": "",
+    "branching_logic": ""
+  },
+  {
+    "field_name": "icf_dt",
+    "form_name": "screening",
+    "field_type": "text",
+    "field_label": "Consent date",
+    "select_choices_or_calculations": "",
+    "text_validation_type_or_show_slider_number": "date_ymd",
+    "identifier": "",
+    "required_field": "",
+    "branching_logic": "[eligible] = '1'"
+  },
+  {
+    "field_name": "mrn",
+    "form_name": "screening",
+    "field_type": "text",
+    "field_label": "Chart number",
+    "select_choices_or_calculations": "",
+    "text_validation_type_or_show_slider_number": "",
+    "identifier": "y",
+    "required_field": "",
+    "branching_logic": ""
+  },
+  {
+    "field_name": "ae_term",
+    "form_name": "adverse_event",
+    "field_type": "text",
+    "field_label": "Adverse event term",
+    "select_choices_or_calculations": "",
+    "text_validation_type_or_show_slider_number": "",
+    "identifier": "",
+    "required_field": "",
+    "branching_logic": ""
+  }
+]
