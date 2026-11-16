@@ -36,11 +36,6 @@ OWED: dict[tuple[str, str, str], str] = {
     ("conflicts_page.py", "omop", "schema"): "slice 2: the OMOP conflicts over the orchestrator's routes",
     ("conflicts_page.py", "omop", "conflicts"): "slice 2",
     ("conflicts_page.py", "omop.schema", "OmopError"): "slice 2",
-    (
-        "instruments_page.py",
-        "sitesetup.store",
-        "SetupStore",
-    ): "slice 3: the box's switches over the orchestrator's routes",
 }
 
 

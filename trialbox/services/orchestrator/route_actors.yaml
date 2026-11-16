@@ -81,6 +81,7 @@ reads_without_patient:
   GET /setup/{ws}/feasibility: "counts per criterion"
   GET /setup/terminology: "which licensed code lists are loaded"
   GET /setup/remote: "whether remote help is on"
+  GET /setup/instruments: "D-864: the instrument copyright switches (what the site keeps of each); no patient"
   GET /studies/{rs}/edc/map/suggest: "suggested field mappings"
   GET /registry: "per study, counts of the registry's states"
   GET /registry/{ruleset}/export.xlsx: "every chart number of a study; the handler verifies the signed person, role and studies itself (v2, D-273, S-09) and audits it"

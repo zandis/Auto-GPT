@@ -131,6 +131,8 @@ groups:
     - GET /setup/terminology
     - GET /setup/remote
     - PUT /setup/remote
+    - GET /setup/instruments  # NEW-ARCH-3 slice 3 (D-864): the instrument switches
+    - PUT /setup/instruments/{iid}
   assist:   # T-715g (D-803): the help page's draft answer phrased by the local model; reads and writes nothing
     - POST /assist
   edc:   # services/orchestrator/edc_api.py (EDC prefill; the person from the signed assertion, D-160, D-162)

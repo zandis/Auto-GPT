@@ -214,7 +214,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/breakglass/{gid}/review` | - | - | - | - | - | - | - | Y | - |
 | POST | `/data-ops/batches/{bid}/decide` | - | - | - | - | - | - | - | Y | - |
 | POST | `/data/conflicts/{cid}/resolve` | - | - | - | - | - | - | - | Y | - |
-| POST | `/data/instruments/{iid}` | Y | - | - | - | - | - | - | - | - |
+| POST | `/data/instruments/{iid}` | U | - | - | - | - | - | - | - | - |
 | POST | `/demo/ack` | n | n | n | n | n | n | n | n | n |
 | POST | `/enrol` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | POST | `/feedback` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
