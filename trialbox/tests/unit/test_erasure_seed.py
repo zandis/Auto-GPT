@@ -40,7 +40,7 @@ KNOWN_OWED = frozenset(
         "orch.candidate_events", "orch.candidates", "orch.jobs", "outside:backups", "outside:fhir_store",
         "outside:sitesetup_space_omop", "pidmap.identity", "recall.recall_known_positive", "recall.recall_observation",
         "site.pi_marks", "site.screening_no", "site.weekly_seen", "sitesetup.check_item", "sitesetup.fix",
-        "sitesetup.input", "study.rc_record", "study.rc_write", "team.candidate_views", "trace.traces", "tuned.tuned_patients",
+        "sitesetup.input", "study.rc_record", "study.rc_write", "trace.traces",
     }
 )  # fmt: skip
 

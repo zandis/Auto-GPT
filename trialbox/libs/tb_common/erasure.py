@@ -315,9 +315,10 @@ TABLES: dict[str, Entry] = {
         "OD-8", "a monitoring visit's record: the subjects reviewed are trial subjects (an essential record)"
     ),
     "team.approach_overrides": _erase("owed_tables", "an override of an approach warning, by pseudonym"),
-    "team.candidate_views": _owed(
-        "a cross-department view of a candidate, by pseudonym",
-        "the reveal cap counts these rows and they say who saw an identity: a clear that keeps both",
+    "team.candidate_views": _erase(
+        "owed_tables",
+        "a cross-department view of a candidate: the row stays for the reveal cap and for who saw an identity, its "
+        "pseudonym becomes a random token, unlinked in this table; the kept audit log keeps the link (D-868, D-771)",
     ),
     "team.referrals": _erase("owed_tables", "a referral of a patient, by pseudonym"),
     "team.referral_events": _erase("owed_tables", "a referral's events, by pseudonym"),
@@ -348,9 +349,10 @@ TABLES: dict[str, Entry] = {
     **_each("dataops", ("batch", "batch_step"), _none("ingest batches and their steps: counts")),
     "dataops.built": _none("which generation each derived artefact is built from: names, states and times (D-491)"),
     "dataops.built_kept": _none("the finished generations of the derived rows and their batch ids: no patient (D-525)"),
-    "tuned.tuned_patients": _owed(
-        "the weekly PI sample of patients not matched, by pseudonym",
-        "a clear that does not redraw a reviewed week's sample",
+    "tuned.tuned_patients": _erase(
+        "owed_tables",
+        "the weekly PI sample of patients not matched: the row stays so a reviewed week is never drawn again, its "
+        "pseudonym becomes a random token and the PI's note goes; counted as removed on the page (D-868)",
     ),
     "tuned.not_matched_check": _none("the site's check of the sample: who, when, a note"),
     "vec.note_chunk": _erase("vec", "the masked chunks of a patient's notes"),

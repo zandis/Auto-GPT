@@ -348,7 +348,8 @@ def verify_profile(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
 # numbers, candidate events, REDCap records) are not here: LIFE-005 is frozen and OD-8 keeps a consented subject's.
 # The adversarial review of D-798 kept four out: site.weekly_seen (the kept screening-log row's first-listed day),
 # orch.submissions (NHI's send-once guard), team.candidate_views (the reveal cap's ledger) and tuned.tuned_patients (a
-# reviewed week's sample would be drawn again); they stay on the owed list with why.
+# reviewed week's sample would be drawn again). D-860 took the submissions' dry runs; D-868 keeps the last two's rows
+# and makes their pseudonym a random token.
 #: per store, per table: the count and the delete of the patients' rows (written out: no SQL is put together)
 OWED_TABLES: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
     ("site", (
@@ -363,6 +364,17 @@ OWED_TABLES: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
         ("referral_events", "SELECT count(*) FROM referral_events WHERE pid = ANY(?)",
          "DELETE FROM referral_events WHERE pid = ANY(?)"),
         ("referrals", "SELECT count(*) FROM referrals WHERE pid = ANY(?)", "DELETE FROM referrals WHERE pid = ANY(?)"),
+        # ERASE-C (D-868): the reveal cap counts a person's rows and they say who saw an identity, so each row stays
+        # and its pseudonym becomes a random token: unlinked in this table; the kept audit log keeps the link (D-771)
+        ("candidate_views", "SELECT count(*) FROM candidate_views WHERE pid = ANY(?)",
+         "UPDATE candidate_views SET pid = 'erased:' || gen_random_uuid() WHERE pid = ANY(?)"),
+    )),
+    ("tuned", (
+        # ERASE-C (D-868): a reviewed week's sample keeps its size (it is never drawn again for the week); the row's
+        # pseudonym becomes a random token, which the not-matched page counts as removed, and the PI's free-text note
+        # goes (the review of D-868: its copy in site.excluded_review is deleted by the same clear)
+        ("tuned_patients", "SELECT count(*) FROM tuned_patients WHERE pid = ANY(?)",
+         "UPDATE tuned_patients SET pid = 'erased:' || gen_random_uuid(), note = NULL WHERE pid = ANY(?)"),
     )),
     ("orch", (
         ("feedback", "SELECT count(*) FROM feedback WHERE pid = ANY(?)", "DELETE FROM feedback WHERE pid = ANY(?)"),
@@ -385,6 +397,8 @@ def _open(url: str, schema: str) -> Any:
         return Database.connect(url, "site")
     if schema == "team":
         return Database.connect(url, "team")
+    if schema == "tuned":  # ERASE-C (D-868): the PI's weekly sample of patients not matched
+        return Database.connect(url, "tuned")
     if schema == "orch":
         return Database.connect(url, "orch")
     if schema == "derived":
