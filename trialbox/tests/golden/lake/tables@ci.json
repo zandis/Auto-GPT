@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "f930873878f13ea2c6c68ba5d3dcf5a04c2c1bb5",
+  "head": "24d6a78f44cbf94542108343570279d3d093fce2",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "D-846: the base mapping gains a systolic-only and a diastolic-only observation for an unpaired pressure; mapping_version moves, no data row changes",
+  "reason": "lane G B1 (P1b review): public-en birth date = visit minus stated age; chart 70000014 (sigir-201414, 85-year-old) is 85 at the run date, not 86, so df261f5f meets AD-MAB-INC-01 (50-85) and is a candidate",
   "ref_date": "2026-11-01",
   "seed": 42,
   "written_with_source": "legacy+omop"
@@ -173,18 +173,18 @@
     },
     "patient": {
      "columns": {
-      "birth_date": "4498dbe4a2ce6d0492decc72680b8aa6c622189899a0f25450a61d25ed9f0651",
+      "birth_date": "610d2a38db00dff2c5b1c25b293eafeb628b4de43f01aed9fd9ce2f56d23598f",
       "deceased": "c8e79ab1981ffd64484247ab521bbc60a15220ffbf5a132decc11badbb090cd1",
       "deceased_date": "c8e79ab1981ffd64484247ab521bbc60a15220ffbf5a132decc11badbb090cd1",
       "ingested_at": "12784dceae2bf64db113c5767160edea6fdb41927cc6c69c39384fa84df7a74c",
       "mapping_version": "4d7694e02bf4816ef46eda9680b8db020e48982c901145bccf07f1b357c6d102",
       "pid": "0b4e3d3289634bfacbe1fb5e08543ae0ebd71d4fcee6255c75f0e70f78749088",
       "sex": "ed108a4c23482985e25aa0c0644e9fb67d34cdac80c4eefd668f9ef50c9864bc",
-      "src_row_hash": "544849105de5b20a2faa3b4f63a3ee1ce3435ef845fef3d09c12d224ed10d7e3",
+      "src_row_hash": "34a7b5140d4ed4cdb8b095f119619f910eda08233969f304fa703a4e688aea5e",
       "src_table": "2edb2a67f6469cf0e593fc250e5ad239a188d274d6bcdbe537ef6b3229a75fab"
      },
      "rows": 53,
-     "sha": "afb14b45d190f44ece9c1761417d0ea2e6236ae6ea34f089dfd63e0116bc4328"
+     "sha": "d46befb833f623df75ea7174f49bce3f7aeb1ff67b7decc0978efbf3f6c45018"
     },
     "practitioner": {
      "columns": {
