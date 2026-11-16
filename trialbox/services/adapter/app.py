@@ -200,15 +200,19 @@ def run(req: IngestRequest) -> JSONResponse:
         if waits:  # behind the accept, however long it takes (never timed: OD-10)
             gate.acquire()
             state["detail"] = ""
+        # NEW-B-56: the run's end is made in a copy and shown (``_runs``) only once the gate is given back, so an
+        # answer that reads "failed" or "done" always means the next run is accepted (never a 409 behind it)
+        end = dict(state)
         if process:  # D-663: the night is a process of its own; this thread starts it and waits for it
             try:
-                _run_in_process(state, ac.lake_dir, {
+                _run_in_process(end, ac.lake_dir, {
                     "source": req.source, "path": path, "since": req.since,
                     "snapshot": req.snapshot.isoformat() if req.snapshot else None, "load_fhir": req.load_fhir,
                     "rebuild_lake": req.rebuild_lake, "validate": req.validate_,
                 })  # fmt: skip
             finally:
                 gate.release()
+                state.update(end)
             return
         try:
             report = run_ingest(
@@ -221,15 +225,16 @@ def run(req: IngestRequest) -> JSONResponse:
                 rebuild_lake=req.rebuild_lake,
                 validate=req.validate_,
             )
-            state.update(state="done", report=dump(report))
+            end.update(state="done", report=dump(report))
         except (SiteKeyError, NoRoomForNight, LakeBudgetError) as exc:  # T-612, D-679: refused before anything was read
-            state.update(state="refused", detail=f"night refused: {exc}")
+            end.update(state="refused", detail=f"night refused: {exc}")
         except Exception as exc:
             failure.log_failure(log, f"ingest run {rid} failed", exc)
-            state.update(state="failed", detail=failure.words(exc, rid))  # D-668: the type, never a foreign text
+            end.update(state="failed", detail=failure.words(exc, rid))  # D-668: the type, never a foreign text
         finally:
-            state["ended"] = _now()
+            end["ended"] = _now()
             gate.release()
+            state.update(end)
 
     _spawn(work)
     return JSONResponse(dict(state), status_code=202, headers={"Location": f"/run/{rid}"})
@@ -321,25 +326,27 @@ def publish(body: PublishBody) -> JSONResponse:
     _publishes[rid] = state
 
     def work() -> None:
+        end: dict[str, Any] = {}  # NEW-B-56: shown only once the gate is given back (the steps are shown as they go)
         try:
             out = publish_held(ac, body.snapshot, on_step=lambda _s, steps: state.update(steps=steps))
-            state.update(steps=dict(out.steps), promoted=out.promoted)
+            end.update(steps=dict(out.steps), promoted=out.promoted)
             if out.ok and out.promoted:  # review HIGH-1: "done" is a night that is served, nothing less
-                state.update(state="done")
+                end.update(state="done")
             else:
                 ended = "busy" if out.lake_busy else "stale" if out.stale else "failed"
-                state.update(state=ended, detail="; ".join(out.errors)[:500])
+                end.update(state=ended, detail="; ".join(out.errors)[:500])
         except Exception as exc:
             failure.log_failure(log, f"publish {rid} failed", exc)
-            state.update(state="failed", detail=failure.words(exc, rid))  # D-668
+            end.update(state="failed", detail=failure.words(exc, rid))  # D-668
             # second review (H1): what the lake serves is read, also when the publish raised. Unreadable: it stays
             # unset, and the console keeps the accept recorded
             with contextlib.suppress(OSError):
-                state["promoted"] = (ac.lake_dir / "CURRENT").read_text(encoding="utf-8").strip() == body.snapshot
+                end["promoted"] = (ac.lake_dir / "CURRENT").read_text(encoding="utf-8").strip() == body.snapshot
         finally:
-            state["ended"] = _now()
+            end["ended"] = _now()
             _accepting.clear()
             _running.release()
+            state.update(end)
 
     _spawn(work)
     return JSONResponse(dict(state), status_code=202, headers={"Location": f"/publish/{rid}"})
