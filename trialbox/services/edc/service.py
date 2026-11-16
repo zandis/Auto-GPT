@@ -150,7 +150,7 @@ class EdcService:
         self._audit("edc.switch", rs, by, {"on": sw.on, "state": sw.state, "kind": sw.kind, "reference": sw.reference,
                                            "ack_date": sw.ack_date, "reentry_pages": sw.reentry_pages,
                                            "reentry_accuracy": sw.reentry_accuracy, "reentry_id": sw.reentry_id,
-                                           "role": role})  # fmt: skip
+                                           "dataflow_ref": sw.dataflow_ref, "role": role})  # fmt: skip
         return sw.as_dict()
 
     @audits_refusals("edc.reentry")
@@ -217,6 +217,13 @@ class EdcService:
             err = EdcError("edc.map", "the map has problems")
             err.problems = bad  # type: ignore[attr-defined]
             raise err
+        direct = self.store.direct_source(rs)
+        named = [{"item": m.item, "code": "direct_source"} for m in maps if m.drafted and m.item in direct]
+        if named:  # EDC-023 (D-859; TFDA, May 2024, §4.7 ¶2): recorded directly in the tool, never prefilled
+            err = EdcError("edc.direct_source", "the protocol names these fields as recorded directly in the data "
+                           "collection tool: they are not prefilled")  # fmt: skip
+            err.problems = named  # type: ignore[attr-defined]
+            raise err
         body = [m.as_dict() for m in maps]
         at = self.stamp()
         self.store.put_target(rs, target["token_ref"], target["key_field"], target["id_field"], by, at)
@@ -234,6 +241,29 @@ class EdcService:
             },
         )
         return {"items": len(body), "drafted": sum(1 for m in maps if m.drafted), "superseded": len(gone)}
+
+    @audits_refusals("edc.direct_source")
+    def set_direct_source(self, rs: str, fields: list[str], reference: str, by: str) -> dict[str, Any]:
+        """Keep the protocol's list of the fields recorded directly in the data collection tool, as source data
+        (EDC-023, D-859; TFDA, May 2024, §4.7 ¶2), with the protocol section that names them. Such a field is never
+        a prefill target: the map refuses a drafted row of it, the send holds a value of it back
+        (``direct_source``), the copy sheet leaves it out. Answers the drafted map rows the list now stops."""
+        ref = reference.strip()
+        if not ref or len(ref) > 120:  # EDC-022 (D-854): refused, never cut
+            raise EdcError("edc.direct_source_ref", "the protocol section that names these fields is needed, in at "
+                           "most 120 characters", 400)  # fmt: skip
+        known = self.dc.fields(rs)
+        unknown = sorted({f for f in fields if f not in known})
+        if unknown:
+            err = EdcError("edc.direct_source_field", "not a field of the study's data dictionary", 400)
+            err.problems = [{"item": f, "code": "not_in_dictionary"} for f in unknown]  # type: ignore[attr-defined]
+            raise err
+        names = sorted(set(fields))
+        self.store.put_direct_source(rs, names, ref, by, self.stamp())
+        mapped = sorted(str(m["item"]) for m in self.store.map(rs)
+                        if str(m["item"]) in names and mapping.ItemMap.from_dict(m).drafted)  # fmt: skip
+        self._audit("edc.direct_source", rs, by, {"fields": names, "reference": ref, "mapped": mapped})
+        return {"fields": names, "reference": ref, "mapped": mapped}
 
     def _built(self, rs: str, item: str) -> dict[str, str]:
         """What a value of ``item`` is decided under now (E-15, E-16): its map row, its dictionary entry, the
@@ -488,13 +518,16 @@ class EdcService:
                 live = {f.name: f for f in (forms.field_of(m) for m in meta.values())}
                 local = self.dc.fields(rs)
                 rows_now = {str(m["item"]): mapping.item_sha(m) for m in self.store.map(rs)}
+                direct = self.store.direct_source(rs)
                 held = []
                 for d in todo:
                     item = str(d["item"])
                     lf = live.get(item)
                     want = str(d.get("dict_sha") or "") or (forms.field_sha(local[item]) if item in local else "")
                     why = ""
-                    if d.get("target") and d["target"] != str(target["token_ref"]):
+                    if item in direct:  # EDC-023 (D-859): named recorded directly in the tool after it was signed
+                        why, text = "direct_source", "the protocol names this field as recorded directly in the tool"
+                    elif d.get("target") and d["target"] != str(target["token_ref"]):
                         why, text = "target_changed", "built for another REDCap target; not sent"
                     elif d.get("map_sha") and rows_now.get(item) != d["map_sha"]:
                         why, text = "stale_map", "the item's map row changed since it was signed; not sent"
@@ -1185,7 +1218,7 @@ class EdcService:
 SEND_RESULTS = ("sent", "already_there", "conflict", "no_record", "readback", "opted_out", "duplicate", "no_event",
                 "target_changed", "stale_map", "dictionary_changed", "format", "not_on_event", "wrong_arm",
                 "repeating_form", "not_repeating_form", "hidden", "logic", "instance_taken", "refused",
-                "source_changed", "changed_in_redcap")  # fmt: skip
+                "source_changed", "changed_in_redcap", "direct_source")  # fmt: skip
 #: NEW-EDC-2 (EDC-002): why every value for a repeat instance is held
 ATTEMPT = "about to be written; REDCap's answer not read yet"  # NEW-EDC-8: closed by the next read-back
 ATTEMPT_HELD = ("REDCap holds the value of a TrialBox send whose answer was lost, or a person's equal entry; TrialBox "
