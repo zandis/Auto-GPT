@@ -89,6 +89,24 @@ Three rules keep the billed runner minutes down (D-578):
 * To repeat a train's failure: `make test SHARD=i/N` for a unit shard, the job's own `make` target for the others
   (RUNBOOK §3, the build-gate parts).
 
+## Where the heavy jobs run
+
+Repository variable `TB_RUNNER`, under Settings → Secrets and variables → Actions → Variables.
+
+* Unset, empty, or any value other than `trialbox`: every job stays on the GitHub-hosted image it uses today.
+* `trialbox`: the heavy jobs run on the self-hosted runner labelled `self-hosted`, `Linux`, `ARM64` and `trialbox`.
+* A pull request whose head repository is not this repository stays on the GitHub-hosted image even when the
+  variable is `trialbox`.
+
+The heavy jobs are `unit-shard`, `e2e-simple`, `goldens` and `demo-boot`; the nightly runs `public-e2e`,
+`backup-drill`, `update-drill`, `perf-5k`, `random-order` and `compose`; and the nightly-quality shards `mutation`
+and `branch-coverage-shard`. `tests/unit/test_ci_runner.py` holds that list. The image gates, the supply-chain lock,
+the short checks and `scale-50k` stay on GitHub-hosted runners. `tools/ci_postgres.sh` installs PostgreSQL 16 when
+the runner does not already have it, and drops the TCP cluster that package starts.
+
+While this repository is public, a fork can edit a workflow and remove the fork check. Fork pull request workflows
+from outside collaborators should require approval before they run. This page does not change that setting.
+
 ## Documents
 
 * **Nine documents.** README and the eight under `docs/`: Architecture, Runbook, Security, Data, Validation, User

@@ -8,6 +8,8 @@
 # branch-coverage: the unit suite with branches measured (the classic tracer: slower, so not on a pull request), in
 #   twelve shards (branch-coverage-shard, D-727), then combined and tools/coverage_ratchet.py with the branch figures:
 #   a package more than 0.5 point under its baseline, or a safety-core file under its floor, fails.
+# mutation and branch-coverage-shard follow TB_RUNNER the same way as trialbox-ci.yml. The jobs that only add up
+# the shards (mutation-score, branch-coverage) stay on GitHub-hosted runners. No pull_request trigger.
 name: TrialBox nightly quality
 
 on:
@@ -32,8 +34,10 @@ env:
 
 jobs:
   mutation:
-    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
-    timeout-minutes: 300  # the runner starts no mutant after 200 minutes (--budget-minutes); the rest are listed
+    # TB_RUNNER=trialbox -> self-hosted; otherwise ubuntu-24.04. A fork pull request stays on ubuntu-24.04.
+    runs-on: >-
+      ${{ fromJSON( (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '["ubuntu-24.04"]' || (vars.TB_RUNNER == 'trialbox' && '["self-hosted","Linux","ARM64","trialbox"]') || '["ubuntu-24.04"]' ) }}
+    timeout-minutes: 300  # the runner starts no mutant after 200 minutes (--budget-minutes); the rest are listed. On one ARM machine the three shards run one after another and each mutant is slower, so a shard lists more of them; the limit stays 300.
     strategy:
       fail-fast: false
       matrix:
@@ -125,8 +129,10 @@ jobs:
   # request's tools (each test file in one shard, tools/test_shard.py); `branch-coverage` combines them.
   branch-coverage-shard:
     name: branch-coverage-shard (${{ matrix.shard }}/${{ strategy.job-total }})
-    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
-    timeout-minutes: 90  # D-727: about a twelfth of a run that takes hours with the classic tracer; whole files stay in one shard, so room for a slow file
+    # TB_RUNNER=trialbox -> self-hosted; otherwise ubuntu-24.04. A fork pull request stays on ubuntu-24.04.
+    runs-on: >-
+      ${{ fromJSON( (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '["ubuntu-24.04"]' || (vars.TB_RUNNER == 'trialbox' && '["self-hosted","Linux","ARM64","trialbox"]') || '["ubuntu-24.04"]' ) }}
+    timeout-minutes: 120  # D-727: about a twelfth of a run that takes hours with the classic tracer; whole files stay in one shard. 90 was the x64 allowance; 120 is the ceiling for a slow file on the ARM host.
     strategy:
       fail-fast: false  # every shard reports
       matrix:

@@ -8,6 +8,11 @@
 # The security job (secret scan, static security scan) is T-654. The nightly drills are in trialbox-e2e.yml; the
 # supply-chain gates (lock-check, allow-list, pip-audit, licences) are trialbox-supply-chain.yml (D-185, D-186) and
 # are not repeated here. A job marked continue-on-error carries the date and the reason.
+# Heavy jobs (unit-shard, e2e-simple, goldens, demo-boot) take their runner from the repository variable TB_RUNNER.
+# Unset, empty, or any value other than trialbox: the GitHub-hosted image that job uses today. trialbox: the
+# self-hosted labels self-hosted, Linux, ARM64, trialbox. A pull_request whose head repository is not this
+# repository stays on the GitHub-hosted image even then (tests/unit/test_ci_runner.py). A fork can still edit this
+# file and delete that check: while the repository is public, fork workflows should require approval before they run.
 name: TrialBox CI
 
 # No `paths:` filter on the triggers: a required check whose workflow never starts blocks a pull request for ever.
@@ -251,14 +256,19 @@ jobs:
   # and the record of what it collected and kept; the job `unit` below checks them all.
   unit-shard:
     name: unit-shard (${{ matrix.shard }}/${{ strategy.job-total }})
-    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
+    # TB_RUNNER=trialbox -> self-hosted; otherwise ubuntu-24.04 (it carries PostgreSQL 16, so ci_postgres.sh installs
+    # nothing). A fork pull request stays on ubuntu-24.04. tools/ci_postgres.sh installs the major when it is absent.
+    runs-on: >-
+      ${{ fromJSON( (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '["ubuntu-24.04"]' || (vars.TB_RUNNER == 'trialbox' && '["self-hosted","Linux","ARM64","trialbox"]') || '["ubuntu-24.04"]' ) }}
     needs: changes
     if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
     # D-564, from the shards' own times (142 green shard jobs of the 40 runs before 2026-11-12 14:00 UTC): the slowest
     # shard (3/6) has a median of 24.8 minutes and reached 29.6; a slow runner took up to 1.5 times a shard's median
-    # (6/6: 18.6 against 12.4). 24.8 x 1.5 = 37.2, rounded up to the next five. At 30 a shard that had passed its
-    # tests was cancelled while it kept its record (#307). Measure again when the split or the suite changes.
-    timeout-minutes: 40
+    # (6/6: 18.6 against 12.4). 24.8 x 1.5 = 37.2, rounded up to the next five, which was 40 on those x64 runners.
+    # At 30 a shard that had passed its tests was cancelled while it kept its record (#307). The self-hosted box is
+    # the same 4 cores on Ampere ARM64, slower per core, and the six shards queue on the one machine: 70 is about
+    # 2.8 times that median, so a slow shard still writes its record. Measure again when the split or the suite changes.
+    timeout-minutes: 70
     # no service container: the tests start throwaway clusters from the runner's own PostgreSQL (tools/pglocal.py),
     # so pg_dump/pg_restore and the server are one version, as on a developer machine (a postgres:16 service with the
     # runner's newer client tools failed the backup tests on transaction_timeout)
@@ -498,10 +508,14 @@ jobs:
   # required check of branch protection); the OMOP run is "<job> (omop)". Neither may fail (fail-fast off).
   e2e-simple:
     name: ${{ matrix.lake_source == 'legacy' && 'e2e-simple' || 'e2e-simple (omop)' }}
-    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
+    # TB_RUNNER=trialbox -> self-hosted; otherwise ubuntu-24.04. A fork pull request stays on ubuntu-24.04.
+    runs-on: >-
+      ${{ fromJSON( (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '["ubuntu-24.04"]' || (vars.TB_RUNNER == 'trialbox' && '["self-hosted","Linux","ARM64","trialbox"]') || '["ubuntu-24.04"]' ) }}
     needs: changes
     if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
-    timeout-minutes: 15
+    # 15 on the GitHub-hosted image, where PostgreSQL 16 is already installed. The self-hosted path may apt-install
+    # it once, and the ARM cores are slower: 40 still ends a hang.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -544,10 +558,14 @@ jobs:
 
   goldens:
     name: ${{ matrix.lake_source == 'legacy' && 'goldens' || 'goldens (omop)' }}
-    runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
+    # TB_RUNNER=trialbox -> self-hosted; otherwise ubuntu-24.04. A fork pull request stays on ubuntu-24.04.
+    runs-on: >-
+      ${{ fromJSON( (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '["ubuntu-24.04"]' || (vars.TB_RUNNER == 'trialbox' && '["self-hosted","Linux","ARM64","trialbox"]') || '["ubuntu-24.04"]' ) }}
     needs: changes
     if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
-    timeout-minutes: 15
+    # same allowance as e2e-simple: apt for PostgreSQL 16 when the host lacks it, and slower ARM cores. 15 was the
+    # GitHub-hosted image, which already carries the package.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -701,19 +719,27 @@ jobs:
   # started with no -e flag: /login answers and every seeded account signs in (over plain http here: the Secure cookie
   # is only a header to the server), within the memory and start-time budget of trialbox/demo/README.md
   demo-boot:
-    runs-on: ubuntu-latest
+    # TB_RUNNER=trialbox -> self-hosted; otherwise ubuntu-latest (today's image for this job). A fork pull request
+    # stays on ubuntu-latest. The container is published on 127.0.0.1:8080 only, never port 4000.
+    runs-on: >-
+      ${{ fromJSON( (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '["ubuntu-latest"]' || (vars.TB_RUNNER == 'trialbox' && '["self-hosted","Linux","ARM64","trialbox"]') || '["ubuntu-latest"]' ) }}
     needs: changes
     if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
-    timeout-minutes: 40
+    # 40 covered a warm GitHub-hosted build. A cold demo image on the ARM host (apt, PostgreSQL, pip) plus the
+    # 600 s wait for /login needs 90. A hang still ends here.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
       - name: Build demo/Dockerfile from the fresh checkout
         run: |
           test ! -e .cache/jvm
+          docker rm -f tb-demo >/dev/null 2>&1 || true
           DOCKER_BUILDKIT=1 docker build -f demo/Dockerfile -t trialbox-demo:ci .
       - name: Start it with no -e flag and wait for /login (budget 600 s)
         run: |
-          docker run -d --name tb-demo -p 8080:8080 trialbox-demo:ci
+          docker rm -f tb-demo >/dev/null 2>&1 || true
+          # loopback only, and not port 4000: the self-hosted host already listens there (an unrelated LiteLLM)
+          docker run -d --name tb-demo -p 127.0.0.1:8080:8080 trialbox-demo:ci
           start=$(date +%s)
           until curl -fsS -o /dev/null http://127.0.0.1:8080/login; do
             if [ "$(docker inspect -f '{{.State.Running}}' tb-demo)" != true ]; then
@@ -790,3 +816,10 @@ jobs:
       - name: The container log (password line left out)
         if: always()
         run: docker logs tb-demo 2>&1 | grep -v '^password' | tail -80 || true
+      - name: Remove this job's container and image
+        if: always()
+        run: |
+          # this job's names only. No `docker system prune` and no `docker builder prune`: on the self-hosted
+          # host the daemon also holds other projects' images. The build cache for this Dockerfile stays.
+          docker rm -f tb-demo >/dev/null 2>&1 || true
+          docker image rm trialbox-demo:ci >/dev/null 2>&1 || true
