@@ -70,7 +70,7 @@ services:
     # Multi-arch index digest (linux/amd64 and linux/arm64 manifests). One volume, one backup, one restore.
     # D-187 (WS-08.6): WAL compressed with zstd, TOAST with lz4 (PG 16 offers pglz and lz4 only); new clusters get
     # data checksums. WAL archiving to pgBackRest (point-in-time restore) is off until the site turns it on: it needs
-    # an image with pgBackRest (POSTGRES_IMAGE, deploy/pgbackrest/Dockerfile), the repository on the hospital share
+    # pgBackRest (in this image, D-371; never another POSTGRES_IMAGE), the repository on the hospital share
     # (TB_PGBACKREST_REPO) and the cipher file in deploy/secrets/pgbackrest (RUNBOOK §5). Never set archive_mode=on
     # without a working archive_command: Postgres would keep every WAL file until the disk is full.
     logging: *logging
