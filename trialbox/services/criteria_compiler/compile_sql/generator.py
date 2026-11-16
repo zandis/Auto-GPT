@@ -25,7 +25,7 @@ from tb_common.derived import (
     UNIT,
     unit_sql,
 )
-from tb_common.labunit import ORDER_DATES, UNIT_MISMATCH, value_sql
+from tb_common.labunit import NOT_ACTIVE, ORDER_DATES, UNIT_MISMATCH, value_sql
 from tb_contracts import Atom, BoolExpr, CriterionIR
 
 from criteria_compiler.semantics import (
@@ -206,9 +206,18 @@ class SqlGenerator:
             cols = [*cols, (lit(YJ_STEM), YJ_STEM_OF.format(col="x.nhi_code"))]
         rid_sel = "rid" if rid == "rid" else f"{rid} AS rid"
 
-        def src(match: Callable[[str, str, str], str]) -> str:
+        def src(match: Callable[[str, str, str], str], status: str = "") -> str:
             cond = " OR ".join(match(vsn, sc, cc) for sc, cc in cols)
-            return f"SELECT pid, {rid_sel}, {d} AS d FROM {table} x WHERE {cond}"
+            where = f"({cond}){status}" if status else cond  # a shipped atom's SQL stays byte for byte what it was
+            return f"SELECT pid, {rid_sel}, {d} AS d FROM {table} x WHERE {where}"
+
+        # D-917: a condition atom with ``clinical_status`` counts a row whose status is listed or not recorded; a row
+        # recorded with another status (resolved, in remission) cannot settle it and makes the answer unknown, as an
+        # undated row does: never a silent true for "active cancer" from a cured one, never a silent false either
+        statuses = atom.clinical_status if atom.domain == "condition" else None
+        listed_st = ", ".join(lit(st) for st in statuses or ())
+        counted = f" AND (x.status IS NULL OR lower(x.status) IN ({listed_st}))" if statuses else ""
+        other = f" AND x.status IS NOT NULL AND lower(x.status) NOT IN ({listed_st})" if statuses else ""
 
         def cte(n: str, source: str) -> str:
             return (
@@ -236,14 +245,20 @@ class SqlGenerator:
             f"  GROUP BY b.pid, b.index_date)"
         )
         u = f"coalesce({nd}.n, 0)"
+        ctes = [cte(name, src(self._vs_match, counted)), undated]
+        ev_other = ""
+        if statuses:
+            st = f"{name}_st"
+            ctes.append(cte(st, src(listed_or_family, other)))
+            u = f"({u} + coalesce({st}.n, 0))"
+            ev_other = f"{st}.ev || ';{NOT_ACTIVE}', "  # the reason, read back by labunit.reason_of
         settled = f"({n} > 0)" if quant != "count>=" else f"({n} >= {atom.count})"
         reach = f"({u} > 0)" if quant != "count>=" else f"({n} + {u} >= {atom.count})"
         hit = "TRUE" if quant != "none" else "FALSE"
         miss = "FALSE" if quant != "none" else "TRUE"
-        ctes = [cte(name, src(self._vs_match)), undated]
         if not self.vs.families(vsn):
             expr = f"(CASE WHEN {settled} THEN {hit} WHEN {reach} THEN NULL ELSE {miss} END)"
-            return ctes, expr, f"coalesce({name}.ev, {nd}.ev)"
+            return ctes, expr, f"coalesce({name}.ev, {ev_other}{nd}.ev)"
         # fail closed (D-113): when the listed codes do not settle the atom but the patient has a record coded inside
         # the grouper's family that the list lacks, the answer is unknown (NULL), never a silent false / true
         off = f"{name}_off"
@@ -252,7 +267,7 @@ class SqlGenerator:
             f"(CASE WHEN {settled} THEN {hit} WHEN coalesce({off}.n, 0) > 0 THEN NULL WHEN {reach} THEN NULL "
             f"ELSE {miss} END)"
         )
-        return ctes, expr, f"coalesce({name}.ev, {off}.ev, {nd}.ev)"
+        return ctes, expr, f"coalesce({name}.ev, {off}.ev, {ev_other}{nd}.ev)"
 
     def _obs_source(self, atom: Atom, w: Window) -> str:
         """The rows of a value comparison. D-275 (review S-1): ``value_num`` is the row's number in the criterion's
