@@ -237,6 +237,11 @@ NCBI TrialGPT data (SIGIR 2016 cohort, TREC CT trial corpus)
   Licence: U.S. Government work, public domain notice kept (eval/criterion_ml/LICENSE.NCBI),
     https://github.com/ncbi-nlp/TrialGPT
   Attribution: TrialGPT, National Center for Biotechnology Information, U.S. National Library of Medicine.
+  The SIGIR 2016 patient descriptions inside it (eval/criterion_ml/notes_en.json, and its ja, zh-TW and mixed
+    translations, which adapt them): Koopman B., Zuccon G., A test collection for matching patients to clinical
+    trials, SIGIR 2016. Licence: CC BY-SA 4.0, https://creativecommons.org/licenses/by-sa/4.0/ . All Rights
+    (including copyright) CSIRO, U.S. National Institute of Standards, U.S. National Institutes of Health 2016.
+    The translations are shared under the same licence.
 
 TREC Clinical Trials 2021, 2022, 2023 topics and relevance judgements
   Where: model answers and scores only (eval/trec_ct, eval/open_cohorts, eval/ad); the topics stay in .cache.
@@ -266,6 +271,26 @@ Synthea
   Where: cohort counts only (eval/synthea).
   Licence: Apache License 2.0, https://github.com/synthetichealth/synthea
   Attribution: Synthea, The MITRE Corporation.
+
+Public accuracy run (tools/public_accuracy): fetched at run time into .cache/public_accuracy, each file pinned by
+sha256; none is committed or in the image. Register rows pubacc-*.
+  TREC Clinical Trials 2021, 2022, 2023 (NIST; no licence stated): TREC Clinical Trials Track, National Institute of
+    Standards and Technology. Trial texts: NCBI TrialGPT corpora (public domain notice), from ClinicalTrials.gov.
+  SIGIR 2016 collection (NCBI copy) and TrialGPT-Criterion-Annotations: as the two entries above (CC BY-SA 4.0,
+    CSIRO; public domain notice, NCBI).
+  Taiwan FDA drug trial list (台灣藥品臨床試驗現況資料集, data.gov.tw 177198): Taiwan Food and Drug Administration,
+    Open Government Data License, version 1.0.
+  jRCT single records: Japan Registry of Clinical Trials, Ministry of Health, Labour and Welfare, Public Data
+    License 1.0 (single records only; bulk collection needs the helpdesk's permission).
+  TCGA-Reports: Kefeli J., Tatonetti N., Mendeley Data V1, doi:10.17632/hyg5xkznpx.1, CC BY 4.0; the cancer project
+    of each case from the NCI Genomic Data Commons (open access).
+  ACI-Bench: Yim W. et al., Sci Data 2023, CC BY 4.0. MACCROBAT: Caufield J.H. et al., figshare
+    doi:10.6084/m9.figshare.9764942, CC BY 4.0. JMED-Personas-100k: Social Computing Laboratory, NAIST, CC BY 4.0
+    (synthetic patients). OpenTWBench tw-exam-bench: Apache License 2.0 (questions of the Ministry of Examination,
+    Taiwan).
+  Chinese-language PMC case reports: each article under its own CC BY licence, credited to its journal and authors
+    by PMCID; Simplified Chinese as published (any conversion is marked; never presented as Taiwanese charts).
+  ClinicalTrials.gov records: as the first entry of this section, with the retrieval date of each record.
 
 
 ===============================================================================================================

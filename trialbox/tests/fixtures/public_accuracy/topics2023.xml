@@ -1,0 +1,8 @@
+<topics task="synthetic 2023">
+  <topic number="1" template="synthetic">
+    <field name="definitive diagnosis">made-up condition</field>
+    <field name="age">52</field>
+    <field name="sex">female</field>
+    <field name="prior surgery">no</field>
+  </topic>
+</topics>
