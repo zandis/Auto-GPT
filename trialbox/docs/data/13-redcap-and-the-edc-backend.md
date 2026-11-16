@@ -146,8 +146,8 @@ de-identified (the study link's `mrn` mode is already refused).
 Part 11 and ICH-GCP expectations for an electronic record (who changed which field, a reason, a signature, access
 control) belong to the system that stores the CRF. For data TrialBox stores, that remains TrialBox's own EDC.
 This connector is a pipe: it does not sign a record and it does not replace that audit. The internal service has
-to provide its own audit, roles and timestamps; this door only speaks the API. Wiring the study-link page and the
-03:00 read to the door is later work, so the 2026-11-17 demo does not take this path.
+to provide its own audit, roles and timestamps. When `TB_EDC_BACKEND` is set, the study-link page and the 03:00
+read use this door (D-916). When it is unset, the 2026-11-17 demo does not take this path.
 
 ## rea
 
@@ -168,11 +168,42 @@ compiled external module). That is optional, on a machine that is allowed to hol
 server the person starts themselves. It is the wrong tool for the hospital's REDCap, and it must not be pointed
 at REDCap's source.
 
+## Contract version 1 (D-916)
+
+The internal service's contract, section 20 of its architecture, is what this box implements. The record API is
+still `POST /api/`. The study-link page and the 03:00 read (`console.rc_read`, Run now) use that connection when
+`TB_EDC_BACKEND` is set, including a 13.7 server. When it is unset they keep the S36 URL and the 14–17 check.
+
+`content=user` is not called.
+
+An empty project can be given arms, events, the form-event map and repeating instruments
+(`EdcConnection.ensure_schedule`). Dates stay year-month-day. HTTP 400 means the import wrote nothing.
+
+`GET /api/edc/health` answers `{"version": "1"}`.
+
+`POST /api/edc/events/v1` takes `record.saved`, `form.completed`, `query.opened` and `ae.reported`. The header
+`X-TrialBox-Signature` is `sha256=` and the hex HMAC-SHA256 of the raw body, keyed by `TB_EDC_EVENT_SECRET`.
+Without that secret the route answers 404. A repeated `id` is one event. The body has no field values. A
+`record.saved`, `form.completed` or `ae.reported` event whose project is in the map re-reads that study; a
+failure answers 503 so the sender's retries (1 s, 5 s, 30 s, 5 min) still apply. The log is
+`TB_EDC_EVENT_DIR`.
+
+The map (`GET` and `PUT /api/edc/map`, an administrator) stores a study ref to an EDC project id, a site to a
+data access group, and a subject to the study record id. The subject key is the screening number, not a chart
+number.
+
+`GET {edc}/api/v1/capabilities` says whether the `trialbox` module is on. `POST {edc}/api/v1/tools` uses
+`TB_EDC_TOOL_TOKEN`, which is not the `/api/` token, and `TB_EDC_TOOL_URL` when that origin differs. Answers are
+de-identified. `apply_draft` and `open_query` are not sent until an administrator confirms them on `/admin/edc`
+(`POST /api/edc/tools/{id}/confirm`). The other tools are reads. If the module is absent the call is not sent.
+
+`TB_EDC_OIDC=1` makes TrialBox an OIDC issuer for the EDC only: discovery, authorize, token and userinfo under
+`/api/edc/oidc/`. The EDC stores `TB_EDC_OIDC_ISSUER`, `TB_EDC_OIDC_CLIENT_ID` and `TB_EDC_OIDC_CLIENT_SECRET`,
+and maps `sub` to its own user. Redirects must be listed in `TB_EDC_OIDC_REDIRECT`. Off, those routes answer 404.
+The console's own sign-in is unchanged.
+
 ## What is left
 
-1. The internal EDC itself, in its own repository: the same `/api/`, plus the audit, roles and signatures a CRF
-   store needs. This door already speaks to it when `TB_EDC_BACKEND=internal`.
-2. Point the study-link page and the 03:00 read at `connect()`, including 13.7 on that page. Not done here.
-3. Create arms, events and repeating instruments through the API when a new internal project is empty. Record
-   and dictionary copy are in; the schedule still has to exist on the destination.
-4. Stream large files instead of holding them, if a site's uploads exceed the cap often.
+1. The internal service itself stays in its own repository. Point `TB_EDC_INTERNAL_URL` at it.
+2. Streaming a file larger than the cap, if a site's uploads exceed it often.
+3. The OIDC issuer is the authorization-code flow with an HMAC id token. It is not a general hospital IdP.

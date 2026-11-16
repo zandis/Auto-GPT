@@ -1375,6 +1375,9 @@ def create_app(
     screening_log.register(app, helpers)
     notify.register(app, helpers)
     study_setup.register(app, helpers)  # S21 and S36 (D-109)
+    from console import edc_door
+
+    edc_door.register(app, helpers)  # D-916: EDC events, map, tool confirm, optional OIDC; not in the menu
     data_pages.register(app, helpers)  # TB-PLAN-04 step 3: Sources, Conflicts, Forms and their /api/v1 (D-123)
     entry_pages.register(app, helpers)  # TB-PLAN-04 step 4: Entry, History, exports, built-in forms (D-129)
     lifecycle_pages.register(app, helpers)  # TB-PLAN-04 step 5: participants, visits, schedule, report (D-134)

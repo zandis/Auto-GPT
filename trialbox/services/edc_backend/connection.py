@@ -167,6 +167,28 @@ class EdcConnection:
         self._go()
         return self.client.import_records(rows, auto_number=auto_number)
 
+    def ensure_schedule(
+        self,
+        *,
+        arms: list[dict[str, Any]] | None = None,
+        events: list[dict[str, Any]] | None = None,
+        mapping: list[dict[str, Any]] | None = None,
+        repeating: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Create arms, events, the form-event map and repeating instruments on an empty project."""
+        out: dict[str, Any] = {}
+        for key, rows, call in (
+            ("arms", arms, self.client.import_arms),
+            ("events", events, self.client.import_events),
+            ("mapping", mapping, self.client.import_form_event_mapping),
+            ("repeating", repeating, self.client.import_repeating),
+        ):
+            if not rows:
+                continue
+            self._go()
+            out[key] = call(rows)
+        return out
+
     def import_dictionary(self, csv_text: str) -> Any:
         """Send a data-dictionary CSV. Use this against an empty internal project, not a live REDCap, by default."""
         self._go()
@@ -229,9 +251,12 @@ def connect(
     if not cfg.url:
         which = "TB_EDC_INTERNAL_URL" if cfg.kind == "internal" else "TB_REDCAP_API_URL"
         raise EdcConfigError(f"{which} is not set")
-    if cfg.url.startswith(INPROC_PREFIX):
-        raise EdcConfigError("the backend URL is https, or http on this machine for the internal service")
     token = cfg.token_for(project)
+    if cfg.url.startswith(INPROC_PREFIX):
+        client = RedcapClient(cfg.url, token, http=http)
+        return EdcConnection(
+            cfg.kind, client, pace=Pace(cfg.min_interval_ms, cfg.max_per_minute), file_max_bytes=cfg.file_max_bytes
+        )
     client = RedcapClient(
         cfg.url,
         token,

@@ -86,6 +86,62 @@ def _local_now() -> str:
     return datetime.now(site_zone()).replace(microsecond=0, tzinfo=None).isoformat()
 
 
+def _apply_schedule(proj: dict[str, Any], content: str, raw: str) -> Any:
+    """Import arms, events, the form-event map or repeating rows onto a project, including an empty classic one."""
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        return _err(400, "the import is not in a valid format")
+    if not isinstance(parsed, list):
+        return _err(400, "the import is not in a valid format")
+    rows = [dict(row) for row in parsed if isinstance(row, dict)]
+    if content == "arm":
+        proj["arms"] = [
+            {"arm_num": int(row.get("arm_num") or 1), "name": str(row.get("name") or "Arm")} for row in rows
+        ]
+        if rows:
+            proj["project"]["is_longitudinal"] = 1
+        return {"count": len(rows)}
+    if content == "event":
+        proj["events"] = [
+            {
+                "arm_num": int(row.get("arm_num") or 1),
+                "unique_event_name": str(row.get("unique_event_name") or ""),
+                "event_name": str(row.get("event_name") or ""),
+                "custom_event_label": str(row.get("custom_event_label") or ""),
+                "day_offset": int(row.get("day_offset") or 0),
+                "offset_min": int(row.get("offset_min") or 0),
+                "offset_max": int(row.get("offset_max") or 0),
+            }
+            for row in rows
+            if str(row.get("unique_event_name") or "")
+        ]
+        if proj["events"]:
+            proj["project"]["is_longitudinal"] = 1
+        return {"count": len(proj["events"])}
+    if content == "formEventMapping":
+        proj["form_event_mapping"] = [
+            {
+                "arm_num": int(row.get("arm_num") or 1),
+                "unique_event_name": str(row.get("unique_event_name") or ""),
+                "form": str(row.get("form") or ""),
+            }
+            for row in rows
+        ]
+        return {"count": len(proj["form_event_mapping"])}
+    proj["repeating"] = [
+        {
+            "event_name": str(row.get("event_name") or ""),
+            "form_name": str(row.get("form_name") or ""),
+            "custom_form_label": str(row.get("custom_form_label") or ""),
+        }
+        for row in rows
+    ]
+    if proj["repeating"]:
+        proj["project"]["has_repeating_instruments_or_events"] = 1
+    return {"count": len(proj["repeating"])}
+
+
 def _err(status: int, msg: str) -> JSONResponse:
     return JSONResponse({"error": msg}, status_code=status)
 
@@ -680,6 +736,8 @@ def create_app(fixtures_dir: Path | None = None, version: str | None = None, rat
             return entries
         if content == "dag":
             return proj["dags"]
+        if content in ("arm", "event", "formEventMapping", "repeatingFormsEvents") and str(form.get("data") or ""):
+            return _apply_schedule(proj, content, str(form.get("data")))
         if content == "repeatingFormsEvents":  # REDCap answers it only for a project that repeats something
             if not _repeating(proj):
                 return _err(400, "There are no repeating instruments or events in this project")
@@ -695,6 +753,8 @@ def create_app(fixtures_dir: Path | None = None, version: str | None = None, rat
             events = [{"day_offset": 0, "offset_min": 0, "offset_max": 0, **e} for e in proj.get("events", [])]
             if content == "event":
                 return events
+            if proj.get("arms"):
+                return list(proj["arms"])
             arms = sorted({int(e.get("arm_num") or 1) for e in events})
             return [{"arm_num": a, "name": f"Arm {a}"} for a in arms]
         if str(form.get("type") or "flat") != "flat":

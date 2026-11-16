@@ -132,6 +132,7 @@ PURE_MODULES: tuple[str, ...] = (
     "tests/unit/test_doclint.py",
     "tests/unit/test_doctor_serving.py",
     "tests/unit/test_edc_backend.py",
+    "tests/unit/test_edc_contract.py",
     "tests/unit/test_egress_rules.py",
     "tests/unit/test_encoding.py",
     "tests/unit/test_env_settings_gate.py",

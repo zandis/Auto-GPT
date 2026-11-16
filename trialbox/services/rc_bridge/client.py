@@ -419,3 +419,27 @@ class RedcapClient:
     def delete_file(self, record: str, field: str, event: str = "", repeat_instance: str = "") -> None:
         """``content=file`` ``action=delete``. There is no undo."""
         self._send("file", self._file_extra("delete", record, field, event, repeat_instance))
+
+    def _import_json(self, content: str, rows: list[dict[str, Any]]) -> Any:
+        """An import of arms, events, the form-event map or repeating instruments. ``data`` is a JSON list."""
+        import json
+
+        if not rows:
+            return {"count": 0}
+        return self._post(content, {"data": json.dumps(rows, ensure_ascii=False)})
+
+    def import_arms(self, arms: list[dict[str, Any]]) -> Any:
+        """Create or replace arms on an empty project. Each row has ``arm_num`` and ``name``."""
+        return self._import_json("arm", arms)
+
+    def import_events(self, events: list[dict[str, Any]]) -> Any:
+        """Create events. Each row has ``unique_event_name``, ``event_name`` and ``arm_num``."""
+        return self._import_json("event", events)
+
+    def import_form_event_mapping(self, rows: list[dict[str, Any]]) -> Any:
+        """Which instrument is collected on which event."""
+        return self._import_json("formEventMapping", rows)
+
+    def import_repeating(self, rows: list[dict[str, Any]]) -> Any:
+        """Repeating instruments and events. ``form_name`` is blank for a whole repeating event."""
+        return self._import_json("repeatingFormsEvents", rows)

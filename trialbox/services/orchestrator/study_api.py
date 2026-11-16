@@ -73,18 +73,30 @@ class StudyService:
         return self.now().isoformat(timespec="seconds")
 
     def client(self, token_ref: str) -> RedcapClient:
+        """The project token. When ``TB_EDC_BACKEND`` is set this is the edc_backend connection (D-916); otherwise
+        the URL and token saved on S36, unchanged."""
+        from edc_backend.study import open_client
+
+        chosen = open_client(self.store, token_ref)
+        if chosen is not None:
+            return chosen
         conn = self.store.connection(token_ref)
         token = self.store.token(token_ref)
         if conn is None or token is None:
             raise RcError("RC-TOKEN", f"no REDCap token named {token_ref!r} is set (S36)")
         return RedcapClient(str(conn["url"]), token)
 
+    def _version(self, rc: RedcapClient) -> str:
+        from edc_backend.study import accept_version
+
+        return accept_version(rc)
+
     # ------------------------------------------------------------------ S36
     def test_connection(self, token_ref: str) -> dict[str, Any]:
         at = self.stamp()
         try:
             with self.client(token_ref) as rc:
-                version = rc.check_version()
+                version = self._version(rc)
                 project = rc.project()
         except RcError as exc:
             if self.store.connection(token_ref) is not None:
@@ -100,7 +112,7 @@ class StudyService:
         """The project behind a token and its data dictionary, for the set-up page's field pickers (D-133, review
         F-11: the coordinator picks a field from a list instead of typing a REDCap variable name). Read only."""
         with self.client(token_ref) as rc:
-            rc.check_version()
+            self._version(rc)
             project = rc.project()
             meta = rc.metadata()
         fields = [
@@ -120,7 +132,7 @@ class StudyService:
     def check_link(self, link: ProjectLink) -> tuple[RedcapClient, dict[str, Any], list[dict[str, Any]]]:
         rc = self.client(link.token_ref)
         try:
-            rc.check_version()
+            self._version(rc)
             project = rc.project()
             meta = rc.metadata()
             validate(link, meta, project)
