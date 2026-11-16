@@ -236,3 +236,25 @@ def test_the_command_line_plans_and_makes_a_code(tmp_path: Path, capsys: Any) ->
     bad = tmp_path / "owner.json"
     bad.write_text(json.dumps({**OWNER, "tz": "nowhere"}), encoding="utf-8")
     assert main(["plan", "--hardware", str(hw), "--owner", str(bad), "--deploy", str(deploy), "--out", str(out)]) == 1
+
+
+def test_the_tpm_is_the_one_seal_keys_can_seal_to_not_only_a_device_node(tmp_path: Path) -> None:
+    """D-897: the plan decided "tpm" from /dev/tpm* alone, while seal_keys.sh, check_host.sh and install.sh ask
+    ``systemd-creds has-tpm2`` (D-836). A node systemd-creds cannot use (a vTPM without its driver, a TPM 1.2) gave a
+    hardening.conf with KEK_BACKEND=tpm and a seal step that stopped. Now both must hold."""
+    assert not bp.tpm_usable(tmp_path, has_tpm2=lambda: True)  # no device node
+    (tmp_path / "dev").mkdir()
+    (tmp_path / "dev/tpmrm0").touch()
+    assert bp.tpm_usable(tmp_path, has_tpm2=lambda: True)
+    assert not bp.tpm_usable(tmp_path, has_tpm2=lambda: False)  # a node systemd-creds cannot use
+    no_tpm = bp.plan(_answers(), _hw(tpm=bp.tpm_usable(tmp_path, has_tpm2=lambda: False)))
+    assert "KEK_BACKEND=passphrase" in no_tpm.files["site/hardening.conf"]
+    assert any("no usable TPM" in w for w in no_tpm.warnings)
+
+
+def test_has_tpm2_is_false_without_systemd_creds(monkeypatch: pytest.MonkeyPatch) -> None:
+    def missing(*_a: object, **_k: object) -> None:
+        raise FileNotFoundError("systemd-creds")
+
+    monkeypatch.setattr("tools.box.plan.subprocess.run", missing)
+    assert bp._has_tpm2() is False
