@@ -171,7 +171,10 @@ TABLES: dict[str, Entry] = {
         _none("recall cells and sequences: counts by criterion, no patient"),
     ),
     "recall.recall_observation": _owed("pid_hash: an unsalted hash of the pseudonym, linkable"),
-    "recall.recall_known_positive": _owed("pid_hash: an unsalted hash of the pseudonym, linkable"),
+    "recall.recall_known_positive": _owed(
+        "pid_hash and draw_id: an unsalted hash of the pseudonym, linkable",
+        "both columns, with the certificate not adding the patient again (the review of D-866)",
+    ),
     **_each("study", ("rc_connection", "rc_project_link", "screen_scope", "study_settings"), _CONFIG),
     "study.rc_read_log": _none("a REDCap read: when, who, ok, counts"),
     "study.rc_record": _owed(
@@ -220,7 +223,7 @@ TABLES: dict[str, Entry] = {
     "orch.mails": _none("a mail sent: message id, job, kind, subject"),
     "orch.trial_cache": _none("the public registry cache"),
     "sitesetup.input": _owed("an uploaded file and the patient it belongs to"),
-    "sitesetup.fact": _owed("a fact read from an uploaded file, by pseudonym"),
+    "sitesetup.fact": _erase("owed_tables", "a fact read from an uploaded file, by pseudonym (D-866)"),
     "sitesetup.check_item": _owed("the raw value of an uploaded row"),
     "sitesetup.fix": _owed("example values of an uploaded column"),
     **_each("sitesetup", ("local_code", "setting"), _CONFIG),
@@ -327,7 +330,9 @@ TABLES: dict[str, Entry] = {
     "breakglass.grants": _keep("D-430", "the record of an emergency access to a patient, for the steward's review"),
     "breakglass.uses": _keep("D-430", "each use of a break-glass grant, for the steward's review"),
     "edc.draft": _owed(
-        "an EDC draft, by pseudonym", "the drafts of a patient who never enrolled (an enrolled subject's stay, OD-8)"
+        "an EDC draft, by pseudonym",
+        "the drafts of a patient who never enrolled, told from a trial subject by the subject's whole history "
+        "(the review of D-866: the registry's status now is not enough)",
     ),
     **_each("edc", ("copy_tick", "decision", "sent", "signature", "signature_void"), _OD8),
     **_each("edc", ("item_map", "map_event", "reentry_record", "switch", "switch_event", "target"), _CONFIG),

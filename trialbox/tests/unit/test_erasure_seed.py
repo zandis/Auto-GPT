@@ -39,7 +39,7 @@ KNOWN_OWED = frozenset(
         "objects:outputs", "omop.tb_conflict", "omop.tb_record", "omop.tb_record_event",
         "orch.candidate_events", "orch.candidates", "orch.jobs", "outside:backups", "outside:fhir_store",
         "outside:sitesetup_space_omop", "pidmap.identity", "recall.recall_known_positive", "recall.recall_observation",
-        "site.pi_marks", "site.screening_no", "site.weekly_seen", "sitesetup.check_item", "sitesetup.fact", "sitesetup.fix",
+        "site.pi_marks", "site.screening_no", "site.weekly_seen", "sitesetup.check_item", "sitesetup.fix",
         "sitesetup.input", "study.rc_record", "study.rc_write", "team.candidate_views", "trace.traces", "tuned.tuned_patients",
     }
 )  # fmt: skip

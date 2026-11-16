@@ -17,6 +17,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from rc_bridge.link import GROUP_COLUMN, in_group
 from tb_common import encoding
 
 from datacore.store import DataError
@@ -42,6 +43,7 @@ class RedcapSource:
     id_field: str = "record_id"
     pid_field: str = ""  # a field holding TrialBox's pseudonym: the key when the screening number is blank
     refused: list[dict[str, str]] = field(default_factory=list)
+    group_bound: bool = False  # RC13-D (D-849): the token is a group user's (read from the last pull)
 
     def _tb(self, rc_field: str) -> str:
         return self.field_map.get(rc_field, rc_field)
@@ -55,6 +57,7 @@ class RedcapSource:
             self.id_field = str(meta[0]["field_name"])
             wanted = [self.id_field, self.key_field, *([self.pid_field] if self.pid_field else []), *self.field_map]
             rows = rc.records(fields=list(dict.fromkeys(wanted)), dags=bool(self.dag))
+        rows, self.group_bound = in_group(rows, self.dag)  # RC13-D (D-849): a group user's token
         keys: dict[str, str] = {}
         for r in rows:  # the key field may live on another event than the data (longitudinal)
             if str(r.get(self.key_field) or "").strip():
@@ -69,8 +72,6 @@ class RedcapSource:
         merged: dict[str, Row] = {}  # longitudinal, no event configured: one row per record (D-142, review B-03)
         spread: dict[str, dict[str, set[str]]] = {}
         for r in rows:
-            if self.dag and str(r.get("redcap_data_access_group") or "") != self.dag:
-                continue
             rid = str(r.get(self.id_field) or "")
             key = keys.get(rid)
             if not key:
@@ -155,8 +156,8 @@ class RedcapSource:
                 if r.source_id:
                     upd += split(r.source_id, vals, base)
                 elif self.create:
-                    if self.dag:
-                        base["redcap_data_access_group"] = self.dag
+                    if self.dag and not self.group_bound:  # a group user's import may not carry the column
+                        base[GROUP_COLUMN] = self.dag
                     new.append((r.record, split(f"tb-new-{len(new) + 1}", {self.key_field: r.record, **vals}, base)))
             if upd:
                 rc.import_records(upd)

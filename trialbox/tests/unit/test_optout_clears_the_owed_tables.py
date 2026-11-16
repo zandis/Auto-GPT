@@ -29,6 +29,8 @@ NOW = datetime(2026, 11, 3, 9, 0, tzinfo=UTC)
 PLAIN = ("site.contact_outcomes", "site.excluded_review", "team.approach_overrides", "team.referral_events",
          "team.referrals", "orch.feedback", "orch.judged_pairs", "derived.input_link", "derived.conflict",
          "derived.score_row")  # fmt: skip
+#: ERASE-A1 (D-866): cleared by the same clear; its rows are tested in test_the_worker_clears_more_owed_tables
+MORE = ("sitesetup.fact",)
 #: the adversarial review of D-798: these stay owed (the screening log, NHI's send-once guard, the reveal cap, the
 #: not-matched sample) and the clear never touches them
 KEPT_OWED = ("site.weekly_seen", "team.candidate_views", "tuned.tuned_patients")
@@ -123,7 +125,7 @@ def test_the_owed_tables_lose_the_opted_out_patient_and_keep_the_others(db_url: 
     _fill(db_url)
     env = _env(db_url)
     before = verify_tables(frozenset({A}), env)
-    assert set(before) == set(PLAIN) | {"derived.batch_run", "orch.submissions"}
+    assert set(before) == set(PLAIN) | set(MORE) | {"derived.batch_run", "orch.submissions"}
     assert all(before[k] for k in (*PLAIN, "derived.batch_run"))
     out = clear_tables(frozenset({A}), env)
     assert A not in json.dumps(out) and sum(out.values()) >= len(PLAIN)  # counts only, never who
@@ -150,7 +152,7 @@ def test_a_box_without_a_store_skips_it(db_url: str) -> None:
 
 def test_the_registry_no_longer_owes_the_cleared_tables() -> None:
     owed = {k for k, _card, _what in erasure.owed()}
-    cleared = set(PLAIN) | {"derived.batch_run", "orch.submissions"}  # D-860: its dry runs
+    cleared = set(PLAIN) | set(MORE) | {"derived.batch_run", "orch.submissions"}  # D-860: its dry runs; D-866
     assert not cleared & owed
     assert all(erasure.entries()[k].clear == "owed_tables" for k in cleared)
     assert set(erasure.tables_of("owed_tables")) == cleared

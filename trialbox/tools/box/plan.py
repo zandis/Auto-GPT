@@ -33,6 +33,7 @@ import shutil
 import socket
 import subprocess
 import unicodedata
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -125,6 +126,23 @@ def _run(cmd: list[str]) -> str:
         return ""
 
 
+def _has_tpm2() -> bool:
+    """``systemd-creds has-tpm2``: what seal_keys.sh, check_host.sh and install.sh ask (D-836); False without it."""
+    try:
+        done = subprocess.run(["systemd-creds", "has-tpm2"], capture_output=True, timeout=30, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return done.returncode == 0
+
+
+def tpm_usable(host_root: Path = Path("/"), has_tpm2: Callable[[], bool] | None = None) -> bool:
+    """D-897: a TPM the KEK can be sealed to: a device node and ``systemd-creds has-tpm2``. A node alone (a vTPM
+    without its driver, a TPM 1.2) gave KEK_BACKEND=tpm and a seal step that stopped."""
+    if not ((host_root / "dev/tpmrm0").exists() or (host_root / "dev/tpm0").exists()):
+        return False
+    return (has_tpm2 or _has_tpm2)()
+
+
 def detect(deploy: Path = DEPLOY, host_root: Path = Path("/")) -> Hardware:  # pragma: no cover - reads the machine
     """This machine, as the wizard and :func:`plan` need it. Read-only."""
     gpu = _run(["nvidia-smi", "--query-gpu=name,memory.total,mig.mode.current", "--format=csv,noheader,nounits"])
@@ -147,7 +165,7 @@ def detect(deploy: Path = DEPLOY, host_root: Path = Path("/")) -> Hardware:  # p
         gpu_name=name,
         gpu_mem_gib=round(float(mem) / 1024, 1) if re.fullmatch(r"[0-9.]+", mem or "") else 0.0,
         mig=mig if mig not in ("[N/A]", "N/A") else "",
-        tpm=(host_root / "dev/tpmrm0").exists() or (host_root / "dev/tpm0").exists(),
+        tpm=tpm_usable(host_root),
         disks=parse_lsblk(_run(["lsblk", "-J", "-b", "-o", "PATH,SIZE,TYPE,TRAN,MOUNTPOINT"])),
         lan=clinic_ranges(
             _run(["ip", "-j", "addr", "show", "scope", "global"]),
@@ -400,13 +418,14 @@ def mapping_text(tz: str) -> str:
     )
 
 
-def hardening_conf(hw: Hardware) -> str:
+def hardening_conf(hw: Hardware, *, mdns: bool = False) -> str:
+    """``mdns``: the box answers its ``.local`` name (OPS-005): UDP 5353 from the box's network in the firewall."""
     backend = "tpm" if hw.tpm else "passphrase"
     ranges = hw.lan or "127.0.0.1/32"
     return (
         "# The box's host baseline (T-729, D-466): written by tools/box/plan.py from the detected hardware; the\n"
         "# IT-managed form (Tang, the clinic ranges from IT) is deploy/hardening/hardening.example.conf (T-634).\n"
-        f'CLINIC_RANGES="{ranges}"\nSSH=off\nIT_RANGES=""\n'
+        f'CLINIC_RANGES="{ranges}"\nSSH=off\nIT_RANGES=""\nMDNS={"on" if mdns else "off"}\n'
         f"KEK_BACKEND={backend}\n"
         'KEK_SHARES_OUT=""\nTANG_URLS=""\n'
     )
@@ -485,9 +504,13 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         "ctgov_mode": "offline",
         "env_extra": env,
     }
-    files = {"site/hardening.conf": hardening_conf(hw), f"site/{BOX_MAPPING}": mapping_text(a.tz)}
+    files = {"site/hardening.conf": hardening_conf(hw, mdns=a.hostname.endswith(".local")),
+             f"site/{BOX_MAPPING}": mapping_text(a.tz)}  # fmt: skip
     if not hw.tpm:
-        warnings.append("no TPM: the site keys are sealed under a passphrase the owner sets, typed after every restart")
+        warnings.append(
+            "no usable TPM (systemd-creds has-tpm2): the site keys are sealed under a passphrase the owner "
+            "sets, typed after every restart"
+        )
     return BoxPlan(profile, mode, wizard, env, files, warnings)
 
 

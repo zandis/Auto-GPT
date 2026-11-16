@@ -96,11 +96,14 @@ def atom_summary(atom: Atom, valuesets: dict[str, dict[str, Any]]) -> str:
         "report": "report:",
         "observation": "result of",
     }
+    # D-917: the statuses a condition atom counts, so the reviewer sees the restriction the compiler set
+    status = getattr(atom, "clinical_status", None)
+    only = f" (only recorded as {', '.join(status)}, or with no status)" if status else ""
     if q == "count>=":
-        return f"At least {atom.count} × {noun[atom.domain]} {title} {win}"
+        return f"At least {atom.count} × {noun[atom.domain]} {title} {win}{only}"
     if q == "none":
-        return f"No {noun[atom.domain]} {title} {win}"
-    return f"Any {noun[atom.domain]} {title} {win}"
+        return f"No {noun[atom.domain]} {title} {win}{only}"
+    return f"Any {noun[atom.domain]} {title} {win}{only}"
 
 
 def _num(atom: Atom) -> str:

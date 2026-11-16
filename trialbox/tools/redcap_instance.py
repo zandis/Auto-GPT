@@ -19,7 +19,9 @@ checkbox, one ``date_dmy`` and one number TrialBox keeps to one decimal place (D
 **What has run and what has not.** ``check``, the unpacking, ``database.php``, the project builder and R1 to R9 run
 in the unit tests against a stand-in archive and the simulator (``rc_sim``). The install itself (``up``: the
 containers, REDCap's own SQL, the rows this tool writes into REDCap's tables for the users, the tokens and the lock)
-has **never run**: it needs the zip. Every such step is in :class:`RealAdmin` and says so.
+has never run in its containers. RC13-C (D-850): the project builder, the tokens, the lock and R1 to R9 of
+:class:`RealAdmin` ran against the owner's REDCap 13.7.23, installed privately and offline outside compose (D-521):
+all nine pass with this tool's fixes; the compose path stays unrun.
 
 The record of a run holds, for each test, the status and body REDCap gave, what was written, and pass or fail
 against the "pass" column of the deep review of 2026-11-12 (``10-redcap-edc.md`` section 8). No token is in it.
@@ -57,12 +59,25 @@ COMPOSE = ROOT / "deploy" / "redcap-test" / "compose.yml"
 INSTANCE = "instance.json"  # the instance's address, project ids and tokens: mode 0600, never printed
 _VERSION_PATH = re.compile(r"^redcap/redcap_v([^/]+)/")  # every entry under a version folder names it
 _VERSION = re.compile(r"\d+\.\d+\.\d+")
+_README = re.compile(r"[A-Za-z0-9 ._-]+\.txt")  # a top-level text file of the release: never unpacked
 _HEX = re.compile(r"[0-9A-Fa-f]{32,}")  # a token, whatever its case or its length (32 or 64)
 # what an install reads from the zip, relative to ``redcap/redcap_v<version>/``
 INSTALL_SQL = ("Resources/sql/install.sql", "Resources/sql/install_data.sql")
 R8_RECORDS = 1000  # R8 of the review: "1,000 synthetic records; one send"
 
 Post = Callable[[dict[str, str]], tuple[int, str]]
+# RC13-C (D-850): REDCap's dictionary import reads its 18 columns by position, in this order (REDCap 13.7)
+DICTIONARY_COLUMNS = (
+    "field_name", "form_name", "section_header", "field_type", "field_label", "select_choices_or_calculations",
+    "field_note", "text_validation_type_or_show_slider_number", "text_validation_min", "text_validation_max",
+    "identifier", "branching_logic", "required_field", "custom_alignment", "question_number", "matrix_group_name",
+    "matrix_ranking", "field_annotation",
+)  # fmt: skip
+
+
+def full_rows(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Dictionary rows with all 18 columns, in REDCap's order (a missing one empty)."""
+    return [{c: str(r.get(c, "")) for c in DICTIONARY_COLUMNS} for r in rows]
 
 
 class ZipMissing(RuntimeError):
@@ -101,6 +116,8 @@ def inspect_zip(path: Path) -> dict[str, Any]:
             names = z.namelist()
     except zipfile.BadZipFile as exc:
         raise ZipRefused(f"{path} is not a zip file") from exc
+    # RC13-C (D-850): the release's own read-me texts at the top (its licence, its upgrade notes) are left in the zip
+    names = [n for n in names if not _README.fullmatch(n)]
     bad = [n for n in names if n.startswith(("/", "\\")) or ".." in Path(n).parts or not n.startswith("redcap/")]
     if bad:
         raise ZipRefused(f"{path}: {len(bad)} entries are outside the folder redcap/ (the first: {bad[0][:60]!r})")
@@ -108,11 +125,32 @@ def inspect_zip(path: Path) -> dict[str, Any]:
     if len(versions) != 1 or not _VERSION.fullmatch(versions[0]):
         raise ZipRefused(f"{path}: one folder redcap/redcap_v<version>/ is expected, found {len(versions)}")
     base = f"redcap/redcap_v{versions[0]}/"
-    need = ["redcap/database.php", "redcap/install.php", *(base + f for f in INSTALL_SQL)]
+    root = ["redcap/database.php", "redcap/install.php"]
+    # RC13-C (D-850): an upgrade zip (the version folder only) installs through the installer it carries; the tool
+    # then writes its own entry points (:func:`entry_points`). A zip with one root file and not the other is refused.
+    full = not all(n not in names for n in root) or base + "install.php" not in names
+    need = [*(root if full else [base + "install.php"]), *(base + f for f in INSTALL_SQL)]
     lost = [n for n in need if n not in names]
     if lost:
         raise ZipRefused(f"{path}: not a full install zip, missing {', '.join(lost)}")
-    return {"path": str(path), "version": versions[0], "entries": len(names), "base": base}
+    return {"path": str(path), "version": versions[0], "entries": len(names), "base": base, "full": full}
+
+
+def entry_points(www: Path, info: dict[str, Any]) -> None:
+    """RC13-C (D-850): for an upgrade zip, the web entry points an install zip has at its root, written by this
+    tool (two lines each, nothing of REDCap's): the API and the survey pages, which REDCap also calls itself. And the
+    two folders REDCap writes to (its temp and its uploaded files): without them a dictionary import crashed."""
+    root = www / "redcap"
+    version_dir = Path(str(info["base"])).name
+    for folder, target in (("api", "API/index.php"), ("surveys", "Surveys/index.php")):
+        (root / folder).mkdir(parents=True, exist_ok=True)
+        if not (root / folder / "index.php").exists():
+            (root / folder / "index.php").write_text(
+                f'<?php\nrequire dirname(__DIR__) . "/{version_dir}/{target}";\n', encoding="utf-8"
+            )
+    for folder in ("temp", "edocs"):  # written by the web server's user in the container (compose mounts them)
+        (root / folder).mkdir(parents=True, exist_ok=True)
+        (root / folder).chmod(0o777)
 
 
 def unpack(path: Path, dest: Path) -> dict[str, Any]:
@@ -120,7 +158,7 @@ def unpack(path: Path, dest: Path) -> dict[str, Any]:
     info = inspect_zip(path)
     dest.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path) as z:
-        z.extractall(dest)  # every entry was checked to be under redcap/ with no ``..``
+        z.extractall(dest, [n for n in z.namelist() if n.startswith("redcap/")])  # checked: no ``..``
     return info
 
 
@@ -281,7 +319,8 @@ class SimAdmin(Admin):
 
 
 class RealAdmin(Admin):
-    """REDCap itself, in the containers of ``deploy/redcap-test/compose.yml``. **Never run**: it needs the zip.
+    """REDCap itself, in the containers of ``deploy/redcap-test/compose.yml`` (unrun there; its build and R1 to R9
+    ran against REDCap 13.7.23 outside compose, RC13-C).
 
     What goes through REDCap's API is REDCap's documented API (project creation with a super API token, the
     imports of the dictionary, the arms, events, mappings, repeating instruments, groups and users). What the API
@@ -322,6 +361,7 @@ class RealAdmin(Admin):
             self.cfg = {"port": port(), "password": secrets.token_urlsafe(24), "salt": secrets.token_hex(16)}
             _private(self.work / "db.json", json.dumps(self.cfg))
         unpack(zip_file, self.work / "www")
+        entry_points(self.work / "www", info)  # RC13-C (D-850): an upgrade zip's entry points and folders
         (self.work / "www" / "redcap" / "database.php").write_text(
             database_php("db", "redcap", "redcap", self.cfg["password"], self.cfg["salt"]), encoding="utf-8"
         )
@@ -373,7 +413,7 @@ class RealAdmin(Admin):
         main = self._project(post, super_token, "TrialBox conformance", True)
         logic = self._project(post, super_token, "TrialBox logic", False)
         for token, rows in ((main, k.CONF_CRF), (logic, logic_dictionary())):
-            self._must("import the data dictionary", call(post, token, "metadata", data=_data(rows)))
+            self._must("import the data dictionary", call(post, token, "metadata", data=_data(full_rows(rows))))
         self._must("import the arms", call(post, main, "arm", action="import", override="1", data=_data(k.CONF_ARMS)))
         self._must("import the events", call(post, main, "event", action="import", override="1",
                                              data=_data(k.CONF_EVENTS)))  # fmt: skip
@@ -381,12 +421,16 @@ class RealAdmin(Admin):
                                                              data=_data(k.CONF_DESIGNATED)))  # fmt: skip
         self._must("set the repeating instrument", call(post, main, "repeatingFormsEvents",
                                                         data=_data(k.CONF_REPEATING)))  # fmt: skip
+        new_groups = [{**d, "unique_group_name": ""} for d in k.CONF_DAGS]  # RC13-C: REDCap names a new group
         self._must("import the data access groups", call(post, main, "dag", action="import",
-                                                         data=_data(k.CONF_DAGS)))  # fmt: skip
+                                                         data=_data(new_groups)))  # fmt: skip
         pid = int(self._must("read the project", call(post, main, "project"))["project_id"])
         logic_pid = int(self._must("read the logic project", call(post, logic, "project"))["project_id"])
         tokens = {"logic": logic}
-        users = [{k2: v for k2, v in u.items() if k2 != "data_access_group"} for u in k.CONF_USERS.values()]
+        # RC13-C (D-850): a user made through the API has no instrument, export or logging right unless given one
+        rights = {str(r["form_name"]): 1 for r in k.CONF_CRF}
+        users = [{**{k2: v for k2, v in u.items() if k2 != "data_access_group"}, "forms": rights,
+                  "forms_export": rights, "logging": 1} for u in k.CONF_USERS.values()]  # fmt: skip
         names = ", ".join(f"('{u['username']}', '{u['username']}@example.org', 'TrialBox', 'Test')" for u in users)
         self.sql("INSERT IGNORE INTO redcap_user_information (username, user_email, user_firstname, user_lastname) "
                  f"VALUES {names};")  # fmt: skip
@@ -645,6 +689,11 @@ def r6_logic(admin: Admin, inst: Instance, today: date) -> dict[str, Any]:
     cases = [(f"calc_{i:02d}", text, row, text) for i, (text, row) in enumerate(k.CONF_CALC, 1)]
     cases += [(f"show_{i:02d}", text, row, f"if({text}, 1, 0)") for i, (text, row) in enumerate(k.CONF_BRANCH, 1)]
     not_run = ["[baseline_arm_1][w] - [w] (it reads another event; the logic project is classic)"]
+    # RC13-C (D-850): REDCap 13.7's import recalculates no calculation driven by a checkbox: the evaluator alone
+    # computes those (its own tests), so REDCap's blank is not compared
+    not_run += [f"{text} (REDCap's import does not recalculate a calculation driven by a checkbox)"
+                for _n, text, _r, _e in cases if "[cb(" in text]  # fmt: skip
+    cases = [c for c in cases if "[cb(" not in c[1]]
     rows: list[dict[str, str]] = []
     for n, (_name, _text, row, _expr) in enumerate(cases, 1):
         flat = {"record_id": str(n)}
@@ -654,7 +703,13 @@ def r6_logic(admin: Admin, inst: Instance, today: date) -> dict[str, Any]:
             else:
                 flat[f] = v
         rows.append(flat)
-    got = import_rows(post, tok, rows)
+    # RC13-C (D-850): one import per case: REDCap recalculates only the calculations driven by the fields of a
+    # batch's first row, so one batch of different rows leaves the later rows' calculations stale
+    got: tuple[int, Any] = (200, {"count": 0})
+    for one in rows:
+        got = import_rows(post, tok, [one])
+        if _refused(got):
+            break
     exported = export_rows(post, tok) if not _refused(got) else None
     if exported is None:
         return {"pass": False, "import": _said(got), "not_compared": "REDCap did not take or give back the rows",
