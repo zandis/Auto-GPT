@@ -49,6 +49,13 @@ def test_every_get_route_is_a_patient_read_or_says_why_it_is_not() -> None:
     assert ra.route_problems(app, CALLER_GATE.table.group_of) == []
 
 
+#: NEW-ARCH-3 slice 2 (D-865): a patient read of the whole site that is no set-up workspace's (its claim names no
+#: study): the steward's clinical conflicts of the store of record, and nothing else
+SITE_WIDE = {"GET /omop/conflicts"}
+#: a role that holds each read's action (the matrix): the coordinator sees patient data; the steward settles conflicts
+HOLDER = {"phi.view": ("console:crc", "coordinator"), "conflicts.resolve": ("console:stw1", "steward")}
+
+
 def test_each_patient_read_names_the_person_and_the_study_it_checks() -> None:
     """The walk sees ``require_actor`` with the table's action on every patient read; the study is the route's
     own ``{rs}`` or ``{ruleset}``, and a set-up route of the whole site checks a claim that names no study."""
@@ -57,7 +64,7 @@ def test_each_patient_read_names_the_person_and_the_study_it_checks() -> None:
     marked = {f"{m} {p}": (st, act) for m, p, st, act, _ in ra.walk(app)}
     for key, action in patient_reads.PATIENT_READS.items():
         assert marked[key] == ("refuse", action), (key, marked[key])
-        assert "{rs}" in key or "{ruleset}" in key or key.startswith("GET /setup/{ws}/"), key
+        assert "{rs}" in key or "{ruleset}" in key or key.startswith("GET /setup/{ws}/") or key in SITE_WIDE, key
 
 
 def test_the_route_problems_find_an_unlisted_get_and_a_patient_read_without_the_check() -> None:
@@ -91,12 +98,13 @@ def test_a_patient_read_refuses_no_claim_another_study_and_a_role_without_the_ri
     orch_box: OrchBox, template: str
 ) -> None:
     path = _concrete(template.split(" ", 1)[1])
-    study = "" if path.startswith("/setup/") else STUDY
+    study = "" if path.startswith("/setup/") or template in SITE_WIDE else STUDY
+    action = patient_reads.actions(template)[0]  # D-865: the read's own action (phi.view for every study read)
     c = orch_box.client("console")
     cases = {
         "no claim": {},
-        "another study": signed("phi.view", "OTHER1" if study else STUDY, "GET", path),
-        "a role without the right": signed("phi.view", study, "GET", path, sub="console:viewer1", role="viewer"),
+        "another study": signed(action, "OTHER1" if study else STUDY, "GET", path),
+        "a role without the right": signed(action, study, "GET", path, sub="console:viewer1", role="viewer"),
         "another action": signed("study.setup", study, "GET", path),
     }
     for why, headers in cases.items():
@@ -104,7 +112,8 @@ def test_a_patient_read_refuses_no_claim_another_study_and_a_role_without_the_ri
         assert r.status_code == 403 and r.json()["detail"]["code"] == "ACTOR", (why, r.status_code, r.text[:200])
     refused = [e for e in orch_box.events("actor.refused") if e["detail"]["route"] == template]
     assert len(refused) == len(cases), refused
-    r = c.get(path, headers=signed("phi.view", study, "GET", path, sub="console:crc", role="coordinator"))
+    sub, role = HOLDER[action]
+    r = c.get(path, headers=signed(action, study, "GET", path, sub=sub, role=role))
     assert r.status_code != 403, (r.status_code, r.text[:300])
 
 

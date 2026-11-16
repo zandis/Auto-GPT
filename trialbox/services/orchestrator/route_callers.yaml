@@ -162,6 +162,9 @@ groups:
     - GET /dataops/batches/{bid}
     - GET /dataops/batches/{bid}/steps
     - POST /dataops/batches/{bid}/decide
+  omop_conflicts:   # NEW-ARCH-3 slice 2 (D-865): the steward's clinical conflicts of the OMOP store of record
+    - GET /omop/conflicts
+    - POST /omop/conflicts/{cid}/resolve
   api_docs:   # FastAPI's own schema pages
     - GET /openapi.json
     - GET /docs
@@ -172,7 +175,8 @@ groups:
 services:
   console:   # the front desk: services/console/backend.py, s28.call (data, entry, EDC, set-up, lifecycle pages)
     groups: [jobs_start, job_read, jobs_list, job_cancel, job_retry_scheduled, job_reveal, notices, models_read, models_canary, rulesets,
-             patients, registry, registry_export, study, datacore, lifecycle, sponsor, setup, assist, edc, dataops]
+             patients, registry, registry_export, study, datacore, lifecycle, sponsor, setup, assist, edc, dataops,
+             omop_conflicts]
   mail-gateway:   # parses hostile mail: starts the mail commands and reads the jobs that came in by mail, nothing else
     groups: [jobs_start, job_read]
     job_types: [FEAS, SCREEN, COHORT, NAV, APPROVE, STATUS, CANCEL, SUBMIT, FEEDBACK, CONSENT, RELEASE, CASE]

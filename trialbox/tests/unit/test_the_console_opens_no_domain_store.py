@@ -32,11 +32,7 @@ OPENERS: set[tuple[str, str]] = {
     ("orchestrator.candidates", "CandidateRegistry"),  # the screening registry
 }
 #: what is left, by file, with the slice that takes it out (only shrinks)
-OWED: dict[tuple[str, str, str], str] = {
-    ("conflicts_page.py", "omop", "schema"): "slice 2: the OMOP conflicts over the orchestrator's routes",
-    ("conflicts_page.py", "omop", "conflicts"): "slice 2",
-    ("conflicts_page.py", "omop.schema", "OmopError"): "slice 2",
-}
+OWED: dict[tuple[str, str, str], str] = {}  # NEW-ARCH-3 slices 2 and 3 (D-865, D-864): none left
 
 
 def _found() -> set[tuple[str, str, str]]:

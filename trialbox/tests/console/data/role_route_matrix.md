@@ -69,7 +69,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/cmd` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/data-ops` | Y | - | - | - | - | - | - | Y | - |
 | GET | `/data-ops/batches/{bid}` | n | - | - | - | - | - | - | n | - |
-| GET | `/data/conflicts` | - | - | - | - | - | - | - | Y | - |
+| GET | `/data/conflicts` | - | - | - | - | - | - | - | U | - |
 | GET | `/data/instruments` | Y | - | - | - | - | - | - | - | - |
 | GET | `/data/items` | - | - | - | - | - | - | - | Y | - |
 | GET | `/demo/ack` | n | n | n | n | n | n | n | n | n |

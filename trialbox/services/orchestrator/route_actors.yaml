@@ -25,6 +25,7 @@ refuse:
   - dataops               # NEW-SEC-4 (D-760): the steward's accept of a held night (dataops.decide)
   - datacore              # T-715f (D-799): the study's set-up, data entry and an SAE report's day sent
   - setup                 # T-715g (D-803): the site's set-up, the opt-out desk's pseudonym, the remote help switch
+  - omop_conflicts        # NEW-ARCH-3 slice 2 (D-865): the steward settles a clinical conflict (conflicts.resolve)
 
 report: []
 
