@@ -366,19 +366,26 @@ else
     say "the people's accounts could not be opened: the demo was removed and tcp:443 stays closed"
     echo DEMO-VM-NOT-READY; exit 3
   fi
-  (
+  if ! (
     umask 077
     {
       echo "TrialBox demo VM https://$IP/ (boot $STAMP). Synthetic data only. Give each person their own line, privately."
-      echo "Each person: open https://$IP/enrol (the browser warns once: Caddy's own certificate), type the user name"
-      echo "and the code, choose a password of at least 12 characters, and sign in. The code then works no more."
+      echo "Each person: open their one-time link (best in a private window; the browser warns once: Caddy's own"
+      echo "certificate). The page fills the user name and the code; choose a password of at least 12 characters and"
+      echo "sign in. The link then works no more. If the two fields stay empty, type the user name and the code shown."
       echo
       while IFS=$'\t' read -r name role code expires; do
-        printf '%s (%s): https://%s/enrol  user name: %s  code: %s  (unused, it expires %s)\n' \
-          "$name" "$role" "$IP" "$name" "$code" "$expires"
+        # D-776: the code after '#' never reaches the box; the console's script fills /enrol from it, then clears it
+        [[ "$code" =~ ^[A-Za-z0-9-]+$ ]] || exit 4
+        printf '%s (%s): https://%s/enrol#u=%s&c=%s  user name: %s  code: %s  (one-time link; unused, it expires %s)\n' \
+          "$name" "$role" "$IP" "$name" "$code" "$name" "$code" "$expires"
       done <"$ETC/people.tsv"
     } >"$ETC/handoff.txt"
-  )
+  ); then
+    rm -f "$ETC/people.tsv" "$ETC/handoff.txt"; docker rm -f tb-demo >/dev/null 2>&1 || true
+    say "a one-time code is not of the product's form (letters, digits, hyphens): the demo was removed"
+    echo DEMO-VM-NOT-READY; exit 3
+  fi
   rm -f "$ETC/people.tsv"
   if ! gcloud storage cp "$ETC/handoff.txt" "$OBJECT" >/dev/null 2>&1; then
     rm -f "$ETC/handoff.txt"; docker rm -f tb-demo >/dev/null 2>&1 || true
