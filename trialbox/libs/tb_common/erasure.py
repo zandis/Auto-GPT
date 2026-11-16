@@ -101,7 +101,7 @@ CLEARS: dict[str, Clear] = {
             "held_mail",
             f"{_W}:clear_held_mail",
             f"{_W}:verify_held_mail",
-            "a mail held because its files name an opted-out patient is dropped: its request and recipients go (D-863)",
+            "a held mail carrying an opted-out patient's own file is dropped: its request and recipients go (D-863)",
         ),
         Clear(
             "owed_tables",
@@ -215,8 +215,8 @@ TABLES: dict[str, Entry] = {
     "mail.send_keys": _erase(
         "held_mail",
         "the outbox's send request while queued (attachments by key, a per-patient file's name, recipients)",
-        "a queued or uncertain mail: its files are asked about before each send (D-863), its row stays until a person "
-        "or the send ends it",
+        "a queued, uncertain or held mail of lists: its files are asked about before each send (D-863), its row stays "
+        "until a person or the send ends it; only a held mail of the patient's own file is dropped",
     ),
     "mail.sent": _none("a mail sent: subject, recipients, tag"),
     **_each(

@@ -388,6 +388,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     ),
     "optout.worker": ("Opt-out worker run", "利用拒否処理の実行", "執行拒絕研究使用處理"),
     "optout.worker_failed": ("Opt-out worker failed", "利用拒否処理の失敗", "拒絕研究使用處理失敗"),
+    "optout.outputs_asked": (
+        "Mail checked against opt-outs",
+        "メール送信前の利用拒否確認",
+        "寄信前核對拒絕研究使用",
+    ),
     "notmatched.held": (
         "Weekly sample of criteria not matched held",
         "条件に合致しない患者の週次抽出の保留",

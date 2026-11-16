@@ -451,29 +451,40 @@ def verify_tables(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
 
 
 # ------------------------------------------------------------------------------------------------ a held mail
-_HELD = "FROM send_keys WHERE state = 'failed' AND last_error = ? AND (request IS NOT NULL OR recipients IS NOT NULL)"
+_HELD = "SELECT key, request FROM send_keys WHERE state = 'failed' AND last_error = ? AND request IS NOT NULL"
 
 
 def _held_mail(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, int]:
     """NEW-MAIL-1 (D-863, the integrator's ruling): a mail the gateway held because its files name a patient opted
-    out since they were made (``send_keys`` ``failed`` with :data:`tb_common.patient_files.HELD`) is dropped: its
-    kept request (the files by key, a per-patient file's name carrying the pseudonym's prefix) and its recipients
-    go, so nothing can send it again. The job's files themselves stay: other patients' pages read them, and they
-    are withheld on read until retention (D-513, D-860; the review of D-863). Counts mails only."""
+    out since they were made (``send_keys`` ``failed`` with :data:`tb_common.patient_files.HELD`) and that carries a
+    per-patient file of such a patient (its name ends in the pseudonym's prefix, which the kept request holds) is
+    dropped: its request and recipients go, so nothing can send it again. A held mail of lists names no one in the
+    outbox (its files by key) and stays for a person to drop or resend (asked again): the review of D-863 (a list
+    held for a patient on another list must not be lost without a person). The job's files themselves stay: other
+    patients' pages read them, withheld on read until retention (D-513, D-860). Counts mails only."""
     from tb_common import patient_files
 
     url = str(env.register.db.url)
     if not pids or not store_has(url, "mail", "send_keys"):
         return {"mail.send_keys": 0}
+    low = {p.lower() for p in pids}
     with _open(url, "mail") as db:
-        if delete:
-            n = db.execute(
+        names: list[str] = []
+        for key, raw in db.fetchall(_HELD, (patient_files.HELD,)):
+            try:
+                atts = json.loads(raw).get("attachments") or []
+            except (TypeError, ValueError, AttributeError):
+                continue  # a request that cannot be read: a person decides
+            owners = {patient_files.owner_of(str(a.get("filename") or "")) for a in atts if isinstance(a, dict)}
+            if any(o and any(p.startswith(o) for p in low) for o in owners):
+                names.append(str(key))
+        if delete and names:
+            db.execute(
                 "UPDATE send_keys SET state = 'dropped', resolved_by = ?, request = NULL, recipients = NULL, at = ?, "
-                "next_at = NULL WHERE key IN (SELECT key " + _HELD + ")",
-                (ACTOR, env.now.isoformat(), patient_files.HELD),
+                "next_at = NULL WHERE key = ANY(?) AND state = 'failed'",
+                (ACTOR, env.now.isoformat(), names),
             )
-            return {"mail.send_keys": int(n or 0)}
-        return {"mail.send_keys": int(db.fetchval("SELECT count(*) " + _HELD, (patient_files.HELD,)))}
+        return {"mail.send_keys": len(names)}
 
 
 def clear_held_mail(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:

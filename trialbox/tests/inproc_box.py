@@ -287,7 +287,7 @@ def unzip_phi(box: Box, mail: Sent) -> dict[str, bytes]:
         return {p.name: p.read_bytes() for p in Path(td).rglob("*") if p.is_file()}
 
 
-def _outputs_current(orch: Any, job_id: str, files: list[str]) -> bool:
+def _outputs_current(orch: Any, job_id: str, keys: list[str]) -> bool:
     """D-863: what ``GET /jobs/{job_id}/outputs-current`` answers, in process (the box's own orchestrator)."""
     from orchestrator.app import outputs_name_opted_out
     from orchestrator.decision_context import register_now
@@ -295,4 +295,4 @@ def _outputs_current(orch: Any, job_id: str, files: list[str]) -> bool:
     job = orch.db.get(job_id)
     if job is None:
         raise KeyError(job_id)
-    return not outputs_name_opted_out(orch, job, frozenset(register_now()), files or None)
+    return not outputs_name_opted_out(orch, job, frozenset(register_now()), keys or None)

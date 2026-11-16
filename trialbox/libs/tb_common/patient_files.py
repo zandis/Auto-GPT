@@ -3,8 +3,8 @@
 One judgment, used by the orchestrator's answer to the mail gateway (``GET /jobs/{job_id}/outputs-current``) and by
 the opt-out worker's clear of a held mail (``held_mail``): a per-patient file (a TWPAS bundle, a draft) by its own
 patient, named by the 12 to 32 hex characters that end its name; a text file by its content, in any case; a
-compressed file (a PDF, a workbook, a zip) by the job's text list of the same name (``candidate_list_X.xlsx`` by
-``candidate_list_X.json``), else by all of the job's text lists, and with no text list to judge it by it counts as
+compressed file (a PDF, a workbook, a zip) by the text list mailed with it, else by the job's text list of the
+same name, else by all of the job's text lists, and with no text list to judge it by it counts as
 naming one (fail closed, as the console's D-860 rule). A file of counts (``tag`` ``aggregate``) names no one. This
 module reads no register: the caller passes the pseudonyms opted out now."""
 
@@ -33,14 +33,20 @@ def _text_names(read: Read, key: str, low: set[str]) -> bool:
     return any(p.encode("ascii") in text for p in low)
 
 
+def owner_of(filename: str) -> str | None:
+    """The pseudonym prefix a per-patient file's name ends in, or None (a list, a sheet of counts)."""
+    return _owner(filename)
+
+
 def _stem(filename: str) -> str:
     return filename.rsplit(".", 1)[0].lower()
 
 
 def naming(read: Read, files: Iterable[Any], outputs: Iterable[Any], gone: frozenset[str]) -> list[str]:
     """The object keys of ``files`` (each with ``filename``, ``minio_key`` and maybe ``tag``) that name a patient in
-    ``gone``. A compressed file is judged by the text lists among ``outputs`` (the job's own outputs), its own name's
-    first. ``read`` raises for a file it cannot read; the caller decides what that means (the mail fails closed)."""
+    ``gone``. A compressed file is judged by the text lists among ``outputs`` (the job's own outputs), the one
+    mailed with it first. ``read`` raises for a file it cannot read; the caller decides what that means (the mail
+    fails closed)."""
     if not gone:
         return []
     low = {p.lower() for p in gone}
@@ -49,6 +55,8 @@ def naming(read: Read, files: Iterable[Any], outputs: Iterable[Any], gone: froze
         for t in outputs
         if getattr(t, "tag", "phi") != "aggregate" and _owner(t.filename) is None and t.filename.lower().endswith(TEXT)
     ]
+    files = list(files)
+    carried = {f.minio_key for f in files}
     said: dict[str, bool] = {}
 
     def names(key: str) -> bool:
@@ -66,7 +74,12 @@ def naming(read: Read, files: Iterable[Any], outputs: Iterable[Any], gone: froze
         elif f.filename.lower().endswith(TEXT):
             hit = names(f.minio_key)
         else:
-            mine = [t for t in lists if _stem(t.filename) == _stem(f.filename)] or lists
+            # the list mailed with it, else the list of its own name, else every list of the job
+            mine = (
+                [t for t in lists if t.minio_key in carried]
+                or [t for t in lists if _stem(t.filename) == _stem(f.filename)]
+                or lists
+            )
             hit = not mine or any(names(t.minio_key) for t in mine)  # nothing to judge it by: names one
         if hit:
             out.append(f.minio_key)

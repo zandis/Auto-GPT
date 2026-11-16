@@ -35,8 +35,8 @@ from mail_gateway.store import MailDB, SendUncertain
 log = logging.getLogger("mail-gateway")
 GENERIC = "This mailbox accepts requests only from authorised hospital addresses. Your message was not processed."
 JobSink = Callable[[JobCreate], Job]
-#: NEW-MAIL-1 (D-863): is this job's output still current against the opt-out register? True, False, or raises
-#: D-863: ``(job_id, file names) -> current``; raises :class:`NoSuchJob` for a job the orchestrator does not have
+#: NEW-MAIL-1 (D-863): ``(job_id, the object keys a mail carries) -> current`` against the opt-out register; raises
+#: :class:`NoSuchJob` for a job the orchestrator does not have
 OutputsCurrent = Callable[[str, list[str]], bool]
 
 
@@ -52,9 +52,9 @@ def http_outputs_current(base_url: str) -> OutputsCurrent:
     """D-863: the orchestrator's answer (``GET /jobs/{job_id}/outputs-current``), asked just before a send."""
     client = ServiceClient(base_url, "orchestrator", timeout=30, retries=1)
 
-    def ask(job_id: str, files: list[str]) -> bool:
+    def ask(job_id: str, keys: list[str]) -> bool:
         try:
-            query = urlencode([("file", f) for f in files])
+            query = urlencode([("key", k) for k in keys])
             got = client._request("GET", f"/jobs/{job_id}/outputs-current?{query}").json()
         except ServiceError as exc:
             if exc.status == 404:
@@ -204,7 +204,7 @@ class Gateway:
         if self.outputs_current is None:
             return f"{NO_ANSWER}: no way to ask"
         try:
-            return "" if self.outputs_current(req.job_id, [a.filename for a in atts]) else OPTED_OUT
+            return "" if self.outputs_current(req.job_id, [a.minio_key for a in atts]) else OPTED_OUT
         except (NoSuchJob, KeyError):
             return NO_JOB
         except Exception as exc:

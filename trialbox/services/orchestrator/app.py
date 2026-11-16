@@ -387,9 +387,9 @@ def waiting_studies() -> list[str]:
 
 
 @app.get("/jobs/{job_id}/outputs-current")
-def job_outputs_current(job_id: str, file: Annotated[list[str] | None, Query()] = None) -> dict[str, bool]:
-    """NEW-MAIL-1 (D-863, the integrator's ruling): whether the files of a job a mail carries (``file``, by name;
-    every output when none is named) are still current against the opt-out register, asked by the mail gateway just
+def job_outputs_current(job_id: str, key: Annotated[list[str] | None, Query()] = None) -> dict[str, bool]:
+    """NEW-MAIL-1 (D-863, the integrator's ruling): whether the files of a job a mail carries (``key``, by object
+    key; every output when none is named) are still current against the opt-out register, asked by the mail gateway just
     before it sends them (at publish, a queued try, a person's resend). ``current`` false: one names a patient opted
     out since it was made, and the mail is held, never sent. The answer is one yes or no, never a patient or a
     count. A register that does not answer is a 503: the gateway holds the mail."""
@@ -403,7 +403,11 @@ def job_outputs_current(job_id: str, file: Annotated[list[str] | None, Query()] 
         gone = frozenset(register_now())
     except Exception as exc:
         raise HTTPException(status_code=503, detail="the opt-out register did not answer") from exc
-    return {"current": not outputs_name_opted_out(o, job, gone, list(file or []) or None)}
+    keys = list(key or [])
+    current = not outputs_name_opted_out(o, job, gone, keys or None)
+    # the review of D-863: each ask is audited, by count (a yes or no for so many files; never a name or a patient)
+    o.audit.append("optout.outputs_asked", job_id=job_id, detail={"files": len(keys), "current": current})
+    return {"current": current}
 
 
 @app.get("/jobs/{job_id}")
@@ -457,16 +461,16 @@ REVEALS_SERVICE = RevealLimit("TB_REVEAL_MAX_PER_HOUR_PER_SERVICE", 600, "reveal
 EXPORTS_SERVICE = RevealLimit("TB_EXPORT_MAX_PER_HOUR_PER_SERVICE", 60, "export_service")
 
 
-def outputs_name_opted_out(o: Any, job: Any, gone: frozenset[str], files: list[str] | None = None) -> bool:
-    """NEW-MAIL-1 (D-863): whether the job's patient-level outputs named in ``files`` (all of them when None) name a
-    patient on the opt-out register now (:func:`tb_common.patient_files.naming`). A file named that is not one of
-    the job's outputs, or an output that cannot be read, counts as naming one (fail closed)."""
+def outputs_name_opted_out(o: Any, job: Any, gone: frozenset[str], keys: list[str] | None = None) -> bool:
+    """NEW-MAIL-1 (D-863): whether the job's patient-level outputs a mail carries (``keys``, by object key; all of
+    them when None) name a patient on the opt-out register now (:func:`tb_common.patient_files.naming`). A key that
+    is not one of the job's outputs, or an output that cannot be read, counts as naming one (fail closed)."""
     from tb_common import patient_files
 
     outs = list(job.outputs or [])
-    mine = outs if files is None else [f for f in outs if f.filename in set(files)]
-    if files is not None and len({f.filename for f in mine}) < len(set(files)):
-        return True
+    mine = outs if keys is None else [f for f in outs if f.minio_key in set(keys)]
+    if keys is not None and len({f.minio_key for f in mine}) < len(set(keys)):
+        return True  # the review of D-863: matched by the key the gateway attaches, never by a name it was given
     try:
         return bool(patient_files.naming(o.store.get, mine, outs, gone))
     except Exception:
