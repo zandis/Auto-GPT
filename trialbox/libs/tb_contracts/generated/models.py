@@ -598,7 +598,10 @@ class Judging(BaseModel):
         extra="forbid",
         populate_by_name=True,
     )
-    mode: Literal["agreement", "single", "none"]
+    mode: Literal["agreement", "single", "none", "nothing"]
+    """
+    nothing: D-909, no criterion a machine decides (every one is a person's); the judges were not called.
+    """
     judge_model: str | None = None
     verifier_model: str | None = None
     note_block: Literal["both_agree", "never"]
