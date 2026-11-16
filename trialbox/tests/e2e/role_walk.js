@@ -62,7 +62,10 @@ async function walk(browser, role, L, V) {
     await page.fill("#username", role.user);
     await page.fill("#password", args.password);
     await Promise.all([page.waitForLoadState("load"), page.click("[data-testid=login-submit]")]);
-    await page.waitForSelector("[data-testid=whoami]", { timeout: 20000 });
+    // D-975: signed in = the header names the person. On a phone the name sits in the menu, which stays folded until
+    // opened (console.css .menu-body), so wait for it in the page, not for it to be shown; the walk opens the menu
+    // below and checks the name is shown there
+    await page.waitForSelector("[data-testid=whoami]", { state: "attached", timeout: 20000 });
     const url = new URL(page.url());
     check(new RegExp(`^(${role.home})$`).test(url.pathname), `${tag}: lands on its home (${url.pathname})`);
     check((await page.locator(role.mark).count()) > 0, `${tag}: home shows ${role.mark}`);
@@ -72,6 +75,10 @@ async function walk(browser, role, L, V) {
     if (V.name === "phone") {
       const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       check(over <= 1, `${tag}: no horizontal scroll on the phone (${over}px)`);
+      // D-975: the person's name is in the folded menu; opening it shows the name
+      await page.click("[data-testid=menu-button]");
+      check(await page.isVisible("[data-testid=whoami]"), `${tag}: the menu opens and shows who is signed in`);
+      await page.click("[data-testid=menu-button]");
     }
     if (SHOTS[tag] && args.shots) {
       await page.screenshot({ path: path.join(args.shots, SHOTS[tag]), fullPage: true });
