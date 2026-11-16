@@ -13,8 +13,9 @@
 # v0.44.0, so x/text goes there too (main: v0.43.0). x/sys and x/term rise with them by Go's version selection.
 # restic's own test suite (`go test -short ./...`) runs on these modules before the binary is kept (D-1039), as an
 # unprivileged user (restic's tests that make a file unreadable fail as root), without its FUSE mount tests (no FUSE
-# in a build; RESTIC_TEST_FUSE=0, restic's own switch) and without `go vet` (a lint, not a test); a failure prints the
-# failing tests and any compiler line.
+# in a build; RESTIC_TEST_FUSE=0, restic's own switch), without the four TestStdinFromCommand* tests (they run a
+# `python` the Go image does not have; the box never uses --stdin-from-command) and without `go vet` (a lint, not a
+# test); a failure prints the failing tests and any compiler line.
 # Optional build secret "extra_ca" (PEM): trusted for the downloads only (corporate TLS proxies).
 ARG GO_IMAGE=golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
 ARG BASE_IMAGE=trialbox-py:1.0.0
@@ -37,7 +38,7 @@ RUN --mount=type=secret,id=extra_ca,required=false \
     go mod download; \
     useradd --create-home --uid 10001 gotest; chown -R gotest /src; \
     if ! runuser -u gotest -- env HOME=/home/gotest PATH="$PATH" GOFLAGS="$GOFLAGS" GOTOOLCHAIN=local CGO_ENABLED=0 \
-         GOMODCACHE=/go/pkg/mod RESTIC_TEST_FUSE=0 go test -short -vet=off -count=1 ./... > /tmp/go-test.log 2>&1; then \
+         GOMODCACHE=/go/pkg/mod RESTIC_TEST_FUSE=0 go test -short -vet=off -count=1 -skip '^TestStdinFromCommand' ./... > /tmp/go-test.log 2>&1; then \
       grep -E '^(--- FAIL|FAIL|panic:|# |vet: )|\.go:[0-9]+(:[0-9]+)?:' /tmp/go-test.log | tail -80; exit 1; \
     fi; \
     tail -3 /tmp/go-test.log; \
