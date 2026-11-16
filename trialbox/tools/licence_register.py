@@ -21,7 +21,10 @@ The check fails when:
 * a build of ``models/registry.yaml`` disagrees with its row: ``verified: true`` needs ``register: <id>``, a ``model``
   row whose source is the build's repository, whose SPDX id is the build's, and whose status is ``cleared`` or
   ``own-work``; a build past ``candidate`` needs ``verified: true``;
-* a vocabulary the OMOP Athena loader allows (``omop.vocab_load.ATHENA_ALLOW``, when it exists) has no row.
+* a vocabulary the OMOP Athena loader allows (``omop.vocab_load.ATHENA_ALLOW``, when it exists) has no row;
+* a ``software`` row (a third-party program inside an image, D-968: restic) disagrees with its pin in
+  ``deploy/docker/python.Dockerfile``: ``ARG <ID>_VERSION`` must be the row's version and every
+  ``ARG <ID>_SHA256_<ARCH>`` must be written in the row's evidence. A software row ships no path of its own.
 
 The rows are rendered by hand into ``NOTICE`` (T-617a); the register is the data behind it.
 """
@@ -45,7 +48,8 @@ REGISTER = ROOT / "docs/licences/register.csv"
 MODELS = ROOT / "models/registry.yaml"
 COLUMNS = ("id", "kind", "standard", "version", "source", "licence", "spdx", "obligation", "holder", "status",
            "checked", "evidence", "text_sha256", "athena", "paths")  # fmt: skip
-KINDS = frozenset({"code-system", "map", "data-set", "fhir", "model"})
+KINDS = frozenset({"code-system", "map", "data-set", "fhir", "model", "software"})
+IMAGE = ROOT / "deploy/docker/python.Dockerfile"  # where a software row's tool is pinned (D-968)
 STATUSES = frozenset({"cleared", "own-work", "synthetic", "site-loaded", "permission-to-ask", "removed"})
 SHIPS_NOTHING = frozenset({"site-loaded", "removed"})
 MODEL_OK = frozenset({"cleared", "own-work"})
@@ -216,7 +220,7 @@ def row_problems(rows: list[Row]) -> list[str]:
                 out.append(f"{where}: {col} is empty")
         if r.raw["checked"] and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", r.raw["checked"]):
             out.append(f"{where}: checked must be a date (YYYY-MM-DD)")
-        if r.paths and (r.status in SHIPS_NOTHING or r.kind == "model"):
+        if r.paths and (r.status in SHIPS_NOTHING or r.kind in ("model", "software")):
             out.append(f"{where}: a {r.kind} row with status {r.status} ships no file, yet names paths")
         sha = r.raw["text_sha256"]
         if sha and not re.fullmatch(r"[0-9a-f]{64}", sha):
@@ -258,6 +262,27 @@ def model_problems(rows: list[Row], builds: list[dict[str, Any]]) -> list[str]:
     return out
 
 
+def software_problems(rows: list[Row], image: str) -> list[str]:
+    """A software row against its pin in the image's Dockerfile: the version, and each architecture's sha256."""
+    out = []
+    for r in rows:
+        if r.kind != "software":
+            continue
+        name = r.id.upper().replace("-", "_").replace(".", "_")
+        version = re.search(rf"^ARG {name}_VERSION=(\S+)$", image, re.M)
+        if version is None:
+            out.append(f"register row {r.id}: the image has no ARG {name}_VERSION")
+        elif version.group(1) != r.raw["version"]:
+            pinned = f"{name}_VERSION={version.group(1)}"
+            out.append(f"register row {r.id}: version {r.raw['version']!r}, the image pins {pinned}")
+        sums = re.findall(rf"^ARG ({name}_SHA256_[A-Z0-9]+)=(\S+)$", image, re.M)
+        if not sums:
+            out.append(f"register row {r.id}: the image has no ARG {name}_SHA256_<ARCH>")
+        out += [f"register row {r.id}: {arg}={sha} is not in the row's evidence" for arg, sha in sums
+                if sha not in r.raw["evidence"]]  # fmt: skip
+    return out
+
+
 def athena_problems(rows: list[Row]) -> list[str]:
     try:
         from omop.vocab_load import ATHENA_ALLOW
@@ -275,6 +300,9 @@ def check(root: Path = ROOT, register: Path | None = None, models: Path | None =
     mfile = models or root / "models/registry.yaml"
     if mfile.is_file():
         out += model_problems(rows, list((yaml.safe_load(mfile.read_text(encoding="utf-8")) or {}).get("builds") or []))
+    image = root / IMAGE.relative_to(ROOT)
+    if image.is_file():
+        out += software_problems(rows, image.read_text(encoding="utf-8"))
     return out + athena_problems(rows)
 
 

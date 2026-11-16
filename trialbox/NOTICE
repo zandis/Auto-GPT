@@ -371,6 +371,14 @@ Python packages
   Obligation: each installed package keeps its licence file in its dist-info folder inside the image
     (/usr/local/lib/python3.12/site-packages/*.dist-info).
 
+Programs inside the image (licence register, kind software)
+  restic 0.19.1 (https://github.com/restic/restic), the incremental backup's tool (PERF-010, D-968), at
+    /usr/local/bin/restic in the trialbox-py image; pinned by version and per-architecture sha256 in
+    deploy/docker/python.Dockerfile and register row `restic`.
+  Licence: BSD 2-Clause License (https://opensource.org/license/bsd-2-clause).
+    Copyright (c) 2014, Alexander Neumann <alexander@bumpern.de>. All rights reserved.
+  Obligation: this notice and the licence's terms go with the binary.
+
 Base image and operating-system packages
   python:3.12-slim pinned by digest in demo/Dockerfile (Debian; CPython under the PSF License 2.0,
   https://docs.python.org/3/license.html) and the Debian postgresql packages (PostgreSQL Licence,

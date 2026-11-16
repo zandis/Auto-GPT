@@ -24,6 +24,25 @@ COPY deploy/requirements.lock /tmp/requirements.lock
 RUN --mount=type=secret,id=extra_ca,required=false \
     set -eux; CERT=""; if [ -f /run/secrets/extra_ca ]; then CERT="--cert /run/secrets/extra_ca"; fi; \
     pip install $CERT --only-binary=:all: -r /tmp/requirements.lock
+# PERF-010 (D-968): restic, the incremental backup's tool, run by `trialbox backup` in this image. The release file of
+# the build's architecture comes through tools/fetch_pinned.py (https; written only at its pinned sha256, D-632) and is
+# unpacked by python (no bzip2 in the slim base, no OS package: D-23). The licence register's row `restic` holds the
+# same version and sums (tools/licence_register.py --check fails when they differ).
+ARG RESTIC_VERSION=0.19.1
+ARG RESTIC_SHA256_AMD64=f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c
+ARG RESTIC_SHA256_ARM64=a5f64aaab53d51e311fa3829124c5b703f2d14cf187d8640b6be3b2b49376465
+ARG TARGETARCH
+COPY tools/fetch_pinned.py /tmp/fetch_pinned.py
+RUN --mount=type=secret,id=extra_ca,required=false \
+    set -eux; if [ -f /run/secrets/extra_ca ]; then export SSL_CERT_FILE=/run/secrets/extra_ca; fi; \
+    case "$TARGETARCH" in amd64) sha="$RESTIC_SHA256_AMD64" ;; arm64) sha="$RESTIC_SHA256_ARM64" ;; \
+      *) echo "no restic pin for architecture '$TARGETARCH'" >&2; exit 1 ;; esac; \
+    python /tmp/fetch_pinned.py \
+      "https://github.com/restic/restic/releases/download/v$RESTIC_VERSION/restic_${RESTIC_VERSION}_linux_${TARGETARCH}.bz2" \
+      /tmp/restic.bz2 "$sha"; \
+    python -c "import bz2,sys; open(sys.argv[2],'wb').write(bz2.decompress(open(sys.argv[1],'rb').read()))" \
+      /tmp/restic.bz2 /usr/local/bin/restic; \
+    chmod 0755 /usr/local/bin/restic; rm -f /tmp/restic.bz2 /tmp/fetch_pinned.py; restic version
 # Report fonts (SPEC §9: Noto Sans TC/JP embedded; OFL). Prerequisite: tools/fetch_fonts.py fills .cache/fonts.
 COPY .cache/fonts/OFL.txt .cache/fonts/NotoSansTC-Regular.ttf .cache/fonts/NotoSansTC-Bold.ttf \
      .cache/fonts/NotoSansJP-Regular.ttf .cache/fonts/NotoSansJP-Bold.ttf /opt/trialbox/fonts/
