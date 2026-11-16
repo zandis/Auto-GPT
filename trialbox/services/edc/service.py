@@ -29,14 +29,16 @@ writes one too, with its code. The decision and the signature write theirs insid
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import logging
 import os
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
-from functools import partial
-from typing import Any
+from functools import partial, wraps
+from typing import Any, TypeVar, cast
 
 from datacore import forms
 from datacore.export import BASE_EVENT
@@ -73,6 +75,35 @@ ODM_MEANING = ("With this electronic signature I confirm that I compared each va
                "by TrialBox is a copy of the hospital record, not the record itself.")  # fmt: skip
 
 
+_F = TypeVar("_F", bound=Callable[..., Any])
+_REFUSED = threading.local()  # EDC-019 (D-857): the code of the refusal this thread's call last audited
+
+
+def audits_refusals(event: str) -> Callable[[_F], _F]:
+    """EDC-019 (D-857): an entry point whose refusal (an ``EdcError``) was not audited by the code that raised it is
+    audited here, under ``event``, with ``refused`` and its code: every refusal of the service leaves a line (E-20).
+    A refusal the code already audited (with its own detail) is not written twice."""
+
+    def wrap(fn: _F) -> _F:
+        sig = inspect.signature(fn)
+
+        @wraps(fn)
+        def inner(self: EdcService, *a: Any, **kw: Any) -> Any:
+            _REFUSED.code = None
+            try:
+                return fn(self, *a, **kw)
+            except EdcError as exc:
+                if getattr(_REFUSED, "code", None) != exc.code:
+                    got = sig.bind_partial(self, *a, **kw).arguments
+                    by = str(got.get("by") or got.get("signer") or "")
+                    self._audit(event, str(got.get("rs") or ""), by, {"refused": exc.code})
+                raise
+
+        return cast(_F, inner)
+
+    return wrap
+
+
 @dataclass
 class EdcService:
     store: EdcStore
@@ -92,6 +123,8 @@ class EdcService:
 
     def _audit(self, event: str, rs: str, by: str, detail: dict[str, Any]) -> None:
         self.audit.append(event, ruleset=rs, actor=by, detail=detail)
+        if "refused" in detail:  # EDC-019: this refusal has its line
+            _REFUSED.code = detail["refused"]
 
     def _not_opted_out(self, rs: str, by: str, event: str, pids: set[str], detail: dict[str, Any]) -> None:
         if pids & set(self.optouts()):
@@ -106,6 +139,7 @@ class EdcService:
                 "target": self.store.target(rs), "mapped": sum(1 for i in items if i.get("source", "none") != "none"),
                 "subjects": self.store.subjects(rs), "fields": len(self.dc.fields(rs))}  # fmt: skip
 
+    @audits_refusals("edc.switch")
     def set_switch(self, rs: str, on: bool, *, by: str, role: str, **ack: Any) -> dict[str, Any]:
         try:
             sw = self.store.set_switch(rs, on, by=by, role=role, at=self.stamp(), today=self.today(),
@@ -119,6 +153,7 @@ class EdcService:
                                            "role": role})  # fmt: skip
         return sw.as_dict()
 
+    @audits_refusals("edc.reentry")
     def record_reentry(self, rs: str, *, pages: int, accuracy: float, document: str, by: str,
                        source: str = "admin") -> dict[str, Any]:  # fmt: skip
         """Keep the blind re-entry result with the id of its filed report (E-14); audited, refusals too."""
@@ -140,6 +175,7 @@ class EdcService:
             raise EdcError("edc.token_bound", "this REDCap connection is another study's target")
 
     # ------------------------------------------------------------------ dictionary and map
+    @audits_refusals("edc.dictionary")
     def import_dictionary(self, rs: str, token_ref: str, by: str, record_field: str = "") -> dict[str, Any]:
         """Read the REDCap project's data dictionary through the API into the study's forms (identifiers dropped)."""
         self._bound(rs, token_ref, by, "edc.dictionary")
@@ -168,6 +204,7 @@ class EdcService:
         fields = list(self.dc.fields(rs).values())
         return [m.as_dict() for m in mapping.suggest(fields, self._protected(rs, self.store.target(rs)))]
 
+    @audits_refusals("edc.map")
     def put_map(self, rs: str, items: list[dict[str, Any]], target: dict[str, str], by: str) -> dict[str, Any]:
         for k in ("token_ref", "key_field", "id_field"):
             if not str(target.get(k) or "").strip():
@@ -209,6 +246,7 @@ class EdcService:
                 "target": str(target["token_ref"]) if target else ""}  # fmt: skip
 
     # ------------------------------------------------------------------ drafts
+    @audits_refusals("edc.drafts")
     def build(self, rs: str, record: str, pid: str, visit: str, visit_date: str, by: str) -> list[dict[str, Any]]:
         self.store.require_drafting(rs)  # prefill on, or copy-assist (D-434)
         self._not_opted_out(rs, by, "edc.drafts", {pid}, {"record": record})
@@ -272,6 +310,7 @@ class EdcService:
         )
         return self.store.drafts(rs, record, visit or BASE_EVENT)
 
+    @audits_refusals("edc.decide")
     def decide(self, rs: str, draft_id: int, action: str, *, value: str = "", reason: str = "",
                citation: dict[str, Any] | None = None, by: str, unlock: bool = False,
                mark: str = "") -> dict[str, Any]:  # fmt: skip
@@ -344,6 +383,7 @@ class EdcService:
             self._audit("edc.decide", rs, by, {"draft": draft_id, "action": action, "refused": exc.code})
             raise
 
+    @audits_refusals("edc.sign")
     def sign(self, rs: str, record: str, visit: str, *, signer: str, printed_name: str, role: str, meaning: str,
              meaning_text: str, lang: str, seen: dict[int, str],
              method: str = "password") -> dict[str, Any]:  # fmt: skip
@@ -397,6 +437,7 @@ class EdcService:
                                "which; prefill does not send to it")  # fmt: skip
         return Layout.read(proj, events, designations, repeating)
 
+    @audits_refusals("edc.sent")
     def send_redcap(self, rs: str, by: str, record: str | None = None) -> dict[str, Any]:
         self.store.require_on(rs)
         target = self.store.target(rs)
@@ -492,6 +533,7 @@ class EdcService:
                     cur.know_events(c.records(fields=[rid], records=recs))
                 imports: dict[Key, dict[str, str]] = {}
                 planned: list[tuple[dict[str, Any], str, Slot]] = []
+                seen_at: dict[int, str] = {}
                 taken: set[Key] = set()  # NEW-EDC-2: repeat instances that hold a value TrialBox did not write
                 judged: dict[Key, bool] = {}
                 for d in todo:
@@ -568,6 +610,7 @@ class EdcService:
                                                "TrialBox did not write; not overwritten", by, at)  # fmt: skip
                         continue
                     planned.append((d, rec, slot))
+                    seen_at[int(d["id"])] = there  # EDC-011 (D-856): what REDCap held when it was read
                     cur.lay(rec, slot, str(d["item"]), value)
                 # NEW-EDC-2 (EDC-002): a repeat instance is written whole or not at all. One that holds a value on any
                 # of its fields that TrialBox did not write is another person's entry or another event: every value
@@ -608,6 +651,33 @@ class EdcService:
                         self.store.record_sent(rs, d, "redcap", rec, "changed", "changed since the send began; "
                                                "not sent", by, at)  # fmt: skip
                     planned = [p for p in planned if int(p[0]["id"]) in still]
+                    imports = {k: v for k, v in imports.items() if set(v) - KEY_COLS - {rid}}
+                if imports:
+                    # EDC-011 (D-856): REDCap's values of the planned fields, read once more just before the import.
+                    # A value a person changed in REDCap since the first read is not overwritten (REDCap's API has no
+                    # conditional write: this narrows the window, it cannot close it). A repeat instance is held
+                    # whole, as NEW-EDC-2 holds one
+                    again = c.records(fields=[rid, *sorted({str(p[0]["item"]) for p in planned})],
+                                      records=sorted({p[1] for p in planned}))  # fmt: skip
+                    now = Rows(lay, meta, rid, again, self.today())
+                    moved = [p for p in planned
+                             if now.value(p[1], p[2], str(p[0]["item"])) != seen_at[int(p[0]["id"])]]  # fmt: skip
+                    gone_keys = {lay.key(rec, slot) for _d, rec, slot in moved if slot.repeat}
+                    for d, rec, slot in planned:
+                        was = seen_at[int(d["id"])]
+                        if (d, rec, slot) in moved:
+                            got = now.value(rec, slot, str(d["item"]))
+                            out["conflict"].append({**_brief(d), "redcap": got})
+                            self.store.record_sent(rs, d, "redcap", rec, "conflict", "a person changed it in REDCap "
+                                                   f"while the send ran (it held {was!r} when read); not overwritten",
+                                                   by, at)  # fmt: skip
+                        elif lay.key(rec, slot) in gone_keys:
+                            out["instance_taken"].append(_brief(d))
+                            self.store.record_sent(rs, d, "redcap", rec, "instance_taken", INSTANCE_TAKEN, by, at)
+                        else:
+                            continue
+                        imports[lay.key(rec, slot)].pop(str(d["item"]), None)
+                    planned = [p for p in planned if p not in moved and lay.key(p[1], p[2]) not in gone_keys]
                     imports = {k: v for k, v in imports.items() if set(v) - KEY_COLS - {rid}}
                 if imports:
                     # NEW-EDC-8 (EDC-008): the ledger says what is about to be written, and by whom, before REDCap is
@@ -675,6 +745,7 @@ class EdcService:
             log.error("EDC re-read after the send failed for study %s (%s)", rs, type(exc).__name__)
             return [], "edc.reread"
 
+    @audits_refusals("edc.reconciled")
     def reconcile(self, rs: str, by: str, record: str | None = None) -> list[dict[str, Any]]:
         """NEW-EDC-5 (EDC-005): read REDCap for every value TrialBox delivered (signed, sent as it is, and written by
         TrialBox itself at least once: a value only ever found already there is the person's, D-693) and list each
@@ -762,6 +833,7 @@ class EdcService:
             raise EdcError("edc.no_slot", "the visit is not an event, or a repeat instance, of the REDCap project", 400)
         return slot
 
+    @audits_refusals("edc.preview")
     def preview(self, rs: str, record: str, visit: str, by: str) -> dict[str, Any]:
         """What REDCap would make of one subject and visit's decided values, before they are sent (T-302b): the
         row they go to, the values that would not be written there and why (``misplaced``, ``hidden``, ``logic``),
@@ -821,6 +893,7 @@ class EdcService:
                                             "hidden": len(hidden), "calc": len(calcs)})  # fmt: skip
         return out
 
+    @audits_refusals("edc.erase_hidden")
     def erase_hidden(self, rs: str, record: str, visit: str, by: str) -> dict[str, Any]:
         """REDCap's "erase hidden values" for what TrialBox wrote (T-302b): on one subject's row, a field whose
         branching logic now hides it and that still holds the value TrialBox last sent there is erased in REDCap
@@ -908,6 +981,7 @@ class EdcService:
                                                  "kept": [k["item"] for k in kept]})  # fmt: skip
         return {"erased": erased, "kept": kept}
 
+    @audits_refusals("edc.export")
     def export_odm(self, rs: str, by: str, meaning_text: str = ODM_MEANING) -> str:
         self.store.require_on(rs)
         gone = set(self.optouts())
@@ -972,6 +1046,7 @@ class EdcService:
         sub = Lifecycle(self.dc).subject(rs, record)
         return str(sub["pid"]) if sub is not None and sub.get("pid") else None
 
+    @audits_refusals("edc.odm_import")
     def import_odm(self, rs: str, data: bytes, by: str, name: str = "") -> dict[str, Any]:
         """Read a CDISC ODM file into open drafts that cite it (D-435): proposals a person confirms, edits or rejects
         and signs, never a decided or signed value. The file is refused whole on any problem (``odm.*``), and so

@@ -157,12 +157,14 @@ def test_this_releases_steps_are_the_database_then_the_roles_then_the_owned_sche
         "database",
         "service roles",
         "owned schemas",
+        "service stores",
     ]
     assert [ln.split(":")[1].strip() for ln in lines] == [
         "FHIR store password is set",
         "database",
         "service roles",
         "owned schemas",
+        "service stores",
     ]
     assert all(ln.startswith("db-up: ") for ln in lines)
     # the role script reads each service's password from the database container's environment: a release that adds
@@ -179,7 +181,7 @@ def test_a_box_that_never_ran_the_installers_database_step_is_left_alone(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     lines, calls = _steps(tmp_path, monkeypatch, "TB_SITE_ID=T\n")
-    assert calls == [] and len(lines) == len(prestart.DB_STEPS) == 4
+    assert calls == [] and len(lines) == len(prestart.DB_STEPS) == 5
 
 
 def test_the_command_refuses_a_deploy_folder_that_is_not_there(tmp_path: Path) -> None:
@@ -226,7 +228,7 @@ def test_review_the_real_command_names_its_three_steps(tmp_path: Path) -> None:
                        capture_output=True, text=True, cwd=ROOT, check=False)  # fmt: skip
     assert r.returncode == 0, r.stderr
     names = [ln.split(":")[1].strip() for ln in r.stdout.splitlines() if ln.startswith("db-up: ")]
-    assert names == ["FHIR store password is set", "database", "service roles", "owned schemas"]
+    assert names == ["FHIR store password is set", "database", "service roles", "owned schemas", "service stores"]
 
 
 def test_review_the_install_gives_the_command_no_compose_line_of_its_own() -> None:
@@ -245,13 +247,14 @@ def test_review_the_parent_waits_as_long_as_the_steps_may_take(tmp_path: Path, m
 
     def fake(argv: Sequence[str], **kw: Any) -> str:
         if "db-up" in argv:
-            seen.append(int(kw["timeout"]))
-        return ""
+            seen.append(kw["timeout"])
+        return "1000000" if "pg_database_size" in " ".join(argv) else ""
 
     box.run = fake
     monkeypatch.setenv("TB_INSTALL_UP_TIMEOUT", "2000")
     box.db_up()
     assert seen and seen[0] >= (2000 + 120) + 2000 + 900
+    assert seen[0] >= (2000 + 120) + 2000 + 900 + len(up.STORE_SERVICES) * (box.migrate_limit_s() or 0)  # D-921
 
 
 def test_review_the_pages_do_not_say_every_service_is_stopped() -> None:

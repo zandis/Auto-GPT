@@ -6,6 +6,8 @@ file holds the builder to what that step looks for."""
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import subprocess
 import sys
@@ -66,10 +68,13 @@ def _inputs(tmp: Path) -> dict[str, Path]:
     return {**files, "debs": src / "debs"}
 
 
-def _build(tmp: Path, **over: object) -> Path:
+def _build(tmp: Path, p0: dict[str, bool] | None = None, **over: object) -> Path:
     args: dict[str, object] = {**_inputs(tmp), "out": tmp / "out", "version": "1.0.0"}
     args.update(over)
-    return wm.build(**args)  # type: ignore[arg-type]
+    media = wm.build(**args)  # type: ignore[arg-type]
+    if p0 is not None:  # NEW-WIN-12 (D-615): what `build --p0` adds
+        wm.add_p0(media, rehearsal=p0["rehearsal"], skip_bitlocker=p0["skip_bitlocker"])
+    return media
 
 
 def test_a_media_is_laid_out_as_the_installer_reads_it_and_passes_its_own_check(tmp_path: Path) -> None:
@@ -93,6 +98,47 @@ def test_a_media_is_laid_out_as_the_installer_reads_it_and_passes_its_own_check(
     # every file but the list itself is listed, by a path with forward slashes
     listed = {ln.split("  ", 1)[1] for ln in (media / "SHA256SUMS").read_text().splitlines()}
     assert listed == names - {"SHA256SUMS"}
+
+
+def test_a_p0_media_carries_its_launcher_and_the_choices_made_when_it_was_built(tmp_path: Path) -> None:
+    # NEW-WIN-12 (D-615; owner ruling D-510): the owner double-clicks one file; the choices are the media's
+    media = _build(tmp_path, p0={"rehearsal": True, "skip_bitlocker": False})
+    assert b"\r\n" in (media / "Install-TrialBox-P0.cmd").read_bytes()
+    assert json.loads((media / "windows/p0.json").read_text()) == {"rehearsal": True, "skip_bitlocker": False}
+    assert (media / "windows/p0-record.ps1").is_file()
+    assert wm.check(media) == []
+    listed = {ln.split("  ", 1)[1] for ln in (media / "SHA256SUMS").read_text().splitlines()}
+    assert {"Install-TrialBox-P0.cmd", "windows/p0.json", "windows/p0-record.ps1"} <= listed
+
+
+def test_a_media_built_without_p0_has_no_p0_launcher_and_no_choices(tmp_path: Path) -> None:
+    media = _build(tmp_path)
+    assert not (media / "Install-TrialBox-P0.cmd").exists() and not (media / "windows/p0.json").exists()
+    assert (media / "windows/p0-record.ps1").is_file()  # the recorder goes on every media (it runs only with -P0)
+
+
+def test_the_p0_launcher_is_the_launcher_with_p0_added_and_nothing_else() -> None:
+    plain = (wm.WINDOWS / "Install-TrialBox.cmd").read_text().splitlines()
+    p0 = (wm.WINDOWS / "Install-TrialBox-P0.cmd").read_text().splitlines()
+    code = [ln for ln in plain if not ln.startswith("rem ")]
+    code_p0 = [ln for ln in p0 if not ln.startswith("rem ")]
+    assert len(code) == len(code_p0)
+    diff = [(a, b) for a, b in zip(code, code_p0, strict=True) if a != b]
+    assert len(diff) == 1 and diff[0][1] == diff[0][0].replace("+ [char]34)", "+ [char]34 + ' -P0')"), diff
+
+
+def test_the_p0_choices_need_p0(tmp_path: Path) -> None:
+    i = _inputs(tmp_path)
+    base = ["build", "--out", str(tmp_path / "o"), "--version", "1", "--bundle", str(i["bundle"]), "--wsl-msi",
+            str(i["wsl_msi"]), "--rootfs", str(i["rootfs"]), "--debs", str(i["debs"]), "--vendor-pub", str(i["vendor_pub"])]  # fmt: skip
+    assert wm.main([*base, "--rehearsal"]) == 1
+    assert wm.main([*base, "--skip-bitlocker"]) == 1
+    assert not (tmp_path / "o").exists()
+    assert wm.main([*base, "--p0", "--rehearsal"]) == 0
+    assert json.loads((tmp_path / "o/TRIALBOX-1/windows/p0.json").read_text()) == {
+        "rehearsal": True,
+        "skip_bitlocker": False,
+    }
 
 
 def test_the_media_carries_the_pages_a_person_on_site_reads(tmp_path: Path) -> None:
@@ -425,3 +471,39 @@ def test_nothing_is_downloaded_and_no_windows_payload_is_in_the_repository() -> 
         p for p in (ROOT / "deploy/windows").rglob("*") if p.suffix.lower() in (".msi", ".exe", ".gz", ".deb", ".vhdx")
     ]
     assert payload == []
+
+
+# NEW-WIN-13 (D-616; D-504): the media in parts a GitHub release can carry (each asset under 2 GiB)
+def test_a_media_is_cut_into_parts_no_bigger_than_asked_and_joins_back_whole(tmp_path: Path) -> None:
+    import io
+    import tarfile as tf
+
+    media = _build(tmp_path, p0={"rehearsal": False, "skip_bitlocker": True})
+    out = tmp_path / "release"
+    manifest = wm.cut_parts(media, out, max_bytes=4096)
+    data = json.loads(manifest.read_text())
+    assert data["media"] == media.name
+    assert len(data["parts"]) > 1
+    joined = b""
+    for p in data["parts"]:
+        blob = (out / p["name"]).read_bytes()
+        assert len(blob) <= 4096 and len(blob) == p["size"]
+        assert hashlib.sha256(blob).hexdigest() == p["sha256"]
+        joined += blob
+    assert hashlib.sha256(joined).hexdigest() == data["sha256"]
+    with tf.open(fileobj=io.BytesIO(joined)) as t:
+        names = {m.name for m in t.getmembers() if m.isfile()}
+    assert f"{media.name}/Install-TrialBox-P0.cmd" in names and f"{media.name}/SHA256SUMS" in names
+    assert all(n.startswith(media.name + "/") for n in names)
+
+
+def test_only_a_media_that_passes_its_check_is_cut(tmp_path: Path) -> None:
+    media = _build(tmp_path)
+    (media / "windows/box-install.ps1").write_text("changed")
+    with pytest.raises(wm.MediaError, match="does not pass its check"):
+        wm.cut_parts(media, tmp_path / "release")
+    assert not (tmp_path / "release").exists()
+
+
+def test_the_part_size_keeps_under_githubs_asset_limit() -> None:
+    assert wm.PART_BYTES < 2 * 1024**3

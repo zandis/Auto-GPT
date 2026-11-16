@@ -1,0 +1,41 @@
+# D-948 An atom keeps only the fields its domain uses
+
+- **Task:** F4 of the integrator's root-cause review of the P1b run (#639, 2026-11-16), and the first part of G10 of the second review. **Date:** 2026-11-16. **Status:** reserved.
+  - **What the run's 1,032 extracted sigir criteria carried** (`raw-traces.json`):
+    - On demographic atoms: 111 quantifiers, 134 values and 8 `derived`.
+      - Every demographic `quantifier: none` is on a plain age or sex line ("Aged 40 years or older", "Female participants only").
+      - 64 of the "Aged N years or older" lines put the number in `value` instead of `age`, so they went to a person.
+      - NCT00606840 EXC-02 is one of the 8 `derived`: quantifier all, derived egfr.
+    - On other atoms: 35 ages and 29 `derived` names. 28 of the ages are numbers not written in the line, such as the prompt's 0-150; the names include the prompt's "asdas".
+  - **What the compile did with them:**
+    - It ignored the demographic fields and an age on a non-demographic atom.
+    - It refused a `derived` name off an observation atom, so the whole line went to a person.
+- **Decision** (`postprocess.strip_stray`, on the raw logic before `_convert_logic`). A field the compile ignored is dropped and flagged, which changes no answer. Only a line whose own words may give the field a meaning goes to a person; a held mixed line keeps its note question and the notes decide, as `demote_uncompilable` does (D-98). Holding every case would have demoted more lines (G9).
+  - **Demographic atoms**
+    - `derived`, `quantifier`, `value`, `count`, `window` and `duration` are dropped (`stray_field`). An explicit `quantifier: any` is not flagged.
+    - **On an inclusion only, an age written in `value` becomes `age`** (`value_read_as_age`), when every one of these holds:
+      - the concept is age or none;
+      - the unit is years or none, and the line says years, aged or 歳, with no shorter unit such as months, weeks, days or gestation;
+      - the op is `>=`, `<=` or `between`;
+      - the line's numbers are exactly the value's.
+
+      So "Age 50 to 89 years" written as `value >= 50` is not repaired, and neither are `>`, "18 and over", "6 months", "32 weeks" or "Body weight >= 40".
+    - A `quantifier: none` on a line with a negation word goes to a person (`demographic_negated`).
+  - **Other atoms**
+    - An age whose numbers the line never writes is a placeholder (the prompt's 0-150) and is dropped.
+    - An age the line writes (or one past it: "before the age of 40" as at most 39) next to an age word, "before", "onset" or "diagnosed" goes to a person (`age_on_non_demographic`). It may be an age at onset, which dropping would widen.
+    - An age the line writes without such a word ("<36 weeks gestation") is left as it was, for D-947's rule on ages in short units.
+    - A `derived` name off an observation atom is left for `kind` to refuse, as before.
+- **Adversarial review** (this card) ran the whole run's 1,036 criteria on master and on the branch. Its blockers, all fixed:
+  - **Dropping a placeholder `derived` name put junk in front of patients.** The prompt's names ride on atoms that carry other junk: `quantifier none` on "uncontrolled asthma", `or(any heparin, any aspirin…)` for a hypersensitivity, and `and(not(antibiotics))`. Master's refusal kept those lines with a person, so it is kept.
+  - **The `value`→`age` repair took a missing unit as years** ("6 months", "32 weeks", a body weight), **and it ignored kind**: a mis-kinded exclusion "aged 18-55" would have excluded every adult. Now it needs years or age in the line, and inclusions only.
+  - **An age at onset written one past its bound was dropped** ("age less than 22" as at most 21).
+  - **A combined age-and-condition mixed line was demoted to a person.** It now keeps its note question.
+- **After the fixes, on the run's data:**
+  - 62 inclusions now compile where they went to a person. All are `value_read_as_age` age lines, which the review judged correct.
+  - 5 combined age-and-condition lines are read from notes; before, they went to a person or were half-compiled.
+  - 55 lines lose only ignored fields.
+- **Not in this card:**
+  - The second part of G10: the prompt's example derived names, as a new prompt version with its canary. Removing them at the source is the fix for the junk above.
+  - The ValueSet keyed "NONE".
+- **Test:** `tests/unit/test_stray_atom_fields.py`, using the run's own lines and the review's cases.

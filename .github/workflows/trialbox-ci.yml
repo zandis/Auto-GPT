@@ -49,6 +49,8 @@ jobs:
       trialbox: ${{ steps.diff.outputs.trialbox }}
       # D-564: 'true' when the full tier runs: not on a draft pull request, except a merge train (train/*)
       full: ${{ steps.tier.outputs.full }}
+      # D-969: the tests that read the documents of a docs-only pull request (empty otherwise), run by `cross-card`
+      docs_tests: ${{ steps.diff.outputs.docs_tests }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -56,13 +58,18 @@ jobs:
       - id: diff
         working-directory: .
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ]; then echo "trialbox=true" >> "$GITHUB_OUTPUT"; exit 0; fi
-          if git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" \
-              | grep -qE '^(trialbox/|\.github/workflows/trialbox-)'; then
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            printf 'trialbox=true\ndocs_only=false\ndocs_tests=\n' >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" > "$RUNNER_TEMP/changed"
+          if grep -qE '^(trialbox/|\.github/workflows/trialbox-)' "$RUNNER_TEMP/changed"; then
             echo "trialbox=true" >> "$GITHUB_OUTPUT"
           else
             echo "trialbox=false" >> "$GITHUB_OUTPUT"
           fi
+          # D-969: only documents changed: the fast tier, and the tests that read them (a train runs everything)
+          echo "docs_only=$(python3 trialbox/tools/ci_docs_only.py docs-only < "$RUNNER_TEMP/changed")" >> "$GITHUB_OUTPUT"
+          echo "docs_tests=$(python3 trialbox/tools/ci_docs_only.py tests < "$RUNNER_TEMP/changed")" >> "$GITHUB_OUTPUT"
       # D-578: a push to master whose tree a merged train's green `unit` already proved runs the fast tier only
       # (tools/ci_proved_tree.py: every full-tier check green on the train's head; any doubt or error says false).
       - id: proved
@@ -71,7 +78,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: echo "proved=$(python3 trialbox/tools/ci_proved_tree.py)" >> "$GITHUB_OUTPUT"
-      # D-564: the tiers. Fast (every push): changes, checks, data-scan, cross-card, powershell, differential. Full (a pull request that is not a draft, a branch train/*, master, a run by hand): unit-shard,
+      # D-564: the tiers. Fast (every push; D-969: also a card's pull request that changes only documents): changes, checks, data-scan, cross-card, powershell, differential. Full (a pull request that is not a draft, a branch train/*, master, a run by hand): unit-shard,
       # unit, property, goldens, e2e-simple, demo-boot, security, standards, images. tests/unit/test_ci_tiers.py
       # holds the two lists; a new job is put in one.
       - id: tier
@@ -81,9 +88,10 @@ jobs:
           DRAFT: ${{ github.event.pull_request.draft }}
           HEAD_REF: ${{ github.head_ref }}
           PROVED: ${{ steps.proved.outputs.proved }}
+          DOCS_ONLY: ${{ steps.diff.outputs.docs_only }}
         run: |
           full=true
-          if [ "$EVENT" = pull_request ] && [ "$DRAFT" = true ]; then
+          if [ "$EVENT" = pull_request ] && { [ "$DRAFT" = true ] || [ "$DOCS_ONLY" = true ]; }; then
             case "$HEAD_REF" in train/*) ;; *) full=false ;; esac
           fi
           if [ "$EVENT" = push ] && [ "$PROVED" = true ]; then full=false; fi
@@ -389,6 +397,15 @@ jobs:
         env:
           TB_DATA_DIR: ${{ runner.temp }}/tb-data
         run: make cross-card PYTEST_N=auto
+      # D-969: a docs-only pull request runs the fast tier; the tests that read its documents run here
+      - name: The tests that read the changed documents (a docs-only pull request)
+        if: ${{ !cancelled() }}
+        env:
+          TB_DATA_DIR: ${{ runner.temp }}/tb-data
+          DOCS_TESTS: ${{ needs.changes.outputs.docs_tests }}
+        run: |
+          if [ -z "$DOCS_TESTS" ]; then echo "not a docs-only pull request (or no test reads its documents)"; exit 0; fi
+          make cross-card PYTEST_N=auto CROSS_CARD_TESTS="$DOCS_TESTS"
 
   # T-737 (D-463, plan §7.5): the `property` gate. The safety properties (tests/unit/test_safety_properties.py), the
   # hypothesis properties of the unit tests and tests/property/ when it exists; `make property`. The unit job runs the

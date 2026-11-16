@@ -163,7 +163,7 @@ def test_active_set_is_the_newest_version_per_id() -> None:
     rows = prompt_registry.active_set()
     by = {r["id"]: r for r in rows}
     assert len(rows) == len(by) == len({e.id for e in ENTRIES})
-    assert by["judge"]["ref"] == "judge@5" and by["ir_extract"]["version"] == 3  # T-606 (D-359)
+    assert by["judge"]["ref"] == "judge@5" and by["ir_extract"]["version"] == 4  # T-606 (D-359); D-984
     assert by["judge"]["sha256"] == load_prompt("judge").sha256
     assert set(by["judge"]) >= {"sha256", "schema", "approved_by", "date", "qualification"}
 

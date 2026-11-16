@@ -19,6 +19,7 @@ TRIALBOX-<version>/                      one folder per release, read-only on th
     wsl-setup.sh                         its steps inside WSL2
     register_keepalive.ps1               the start-at-boot task the installer registers (NEW-WIN-2)
     console-proxy.ps1                    Windows 10: keeps the console's forwarding pointed at WSL2 (NEW-WIN-10)
+    site-key.ps1                         keeps the site keys' KEK on Windows, hands it to WSL2 at start (NEW-WIN-15)
     key-probe.ps1                        which Windows key store the boot task can open (NEW-WIN-8; P-0 line 36)
     preflight.ps1, host_facts.ps1        deploy/windows/: the read-only checks (D-421)
     wsl/wsl.<version>.x64.msi            WSL itself, signed by Microsoft (the Store is not used); exactly one
