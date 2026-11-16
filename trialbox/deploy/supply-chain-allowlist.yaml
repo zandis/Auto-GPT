@@ -730,6 +730,13 @@ budgets:
     max: 3
     reason: gosu and its Go modules from the official postgres base image, counted because Go binaries carry no licence data
     review_by: 2027-02-01
+  # trialbox-backup (PERF-010, D-968): restic and its Go modules, built from source in the nightly backup's own image.
+  # The owner's yes of 2026-11-16 (D-1038) is for this licence count only, at most 86; it is no vulnerability waiver.
+  - image: trialbox-backup
+    ecosystem: golang
+    max: 86
+    reason: restic and its Go modules, built from source; Syft reads no licence from a Go binary (restic BSD-2-Clause; module licences listed in dist/sbom/licences.md); D-1038
+    review_by: 2027-02-01
   # Our images: Syft reads no licence from most jars (pom.properties only), so they are counted, not named.
   # The jars are the HL7 validator and the CQL translator with their dependencies (tools/fetch_jvm_deps.sh).
   - image: trialbox-jvm
