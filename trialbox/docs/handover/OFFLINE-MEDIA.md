@@ -83,6 +83,23 @@ installer does). `SHA256SUMS.sig`, the network sheets and the PDFs under
 `docs/` are added by the release's own steps, then `SHA256SUMS` is written again with
 `python3 -m tools.windows_media sums <folder>` (`check` fails until it is).
 
+**The media for a bare Ubuntu box** (OPS-006, D-966; the parked Ubuntu form). The same `TRIALBOX-<version>/`
+with only its `linux/` half, `measured/` and `docs/`; `linux/` also holds `box-prepare.sh`, and `linux/debs/` the
+Linux NVIDIA driver (`nvidia-driver-580-server-open`), python3's yaml and cryptography, and avahi-daemon besides the
+Windows set. `tools/linux_media.py` reuses the two tools above:
+
+```
+python3 -m tools.linux_media debs --rootfs <the Ubuntu 24.04 server image the box starts from> --out debs/
+python3 -m tools.linux_media build --out dist/media --version <version> --bundle dist/trialbox-<version>.tar \
+    --debs debs/ --vendor-pub keys/vendor_ed25519.pub --measured deploy/measured      # or: make media-linux
+python3 -m tools.linux_media sign dist/media/TRIALBOX-<version> --key <the vendor key, on the signing machine>
+python3 -m tools.linux_media check /media/usb/TRIALBOX-<version>                      # again on the disk
+```
+
+`sign` writes `SHA256SUMS.sig`, a raw Ed25519 signature `openssl` checks, because a bare Ubuntu has no
+python3-cryptography yet. On the box, `sudo bash <media>/linux/box-prepare.sh <media> --pub <the key given out of
+band>` checks the system, the key, the signature and every file before it installs anything (RUNBOOK §16).
+
 **The bundle** (`trialbox-<version>.tar`, `tools/make_bundle.sh`, verified by `tools/verify_update.py`; D-125
 estimated 30 GB, the sizes below make it nearer 40 GB, so plan a 128 GB disk):
 
