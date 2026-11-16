@@ -27,6 +27,8 @@ class Reason(StrEnum):
     NO_RECORD_OF_KIND = "no_record_of_kind"
     PROPOSED_FACT = "proposed_fact"  # a fact read from a chart that a person has not confirmed yet (D-135)
     SUSPECTED_DIAGNOSIS = "suspected_diagnosis"  # a diagnosis recorded as suspected (疑い, provisional; D-142)
+    # the criterion asks for an active condition and the record says resolved, inactive or in remission (D-917)
+    CONDITION_NOT_ACTIVE = "condition_not_active"
     ABSTAINED = "abstained"  # the model said it cannot tell from the notes
     QUOTE_NOT_FOUND = "quote_not_found"  # the model's quote is not in the notes
     VERIFIER_QUOTE_MISSING = "verifier_quote_missing"  # the second model's quote is not in the notes
@@ -83,6 +85,7 @@ _RULES: tuple[tuple[tuple[str, ...], Reason], ...] = (
     (("unknown code system", "unknown_code_system"), Reason.UNKNOWN_CODE_SYSTEM),
     (("code_system_not_carried",), Reason.CODE_SYSTEM_NOT_CARRIED),
     (("no_record_of_kind",), Reason.NO_RECORD_OF_KIND),
+    (("condition_not_active",), Reason.CONDITION_NOT_ACTIVE),
     (("proposed_fact", "proposed fact"), Reason.PROPOSED_FACT),
     (("derived_unit",), Reason.DERIVED_UNIT),
     (("derived_adult_only",), Reason.DERIVED_ADULT_ONLY),
@@ -129,6 +132,11 @@ LABELS: dict[str, dict[str, str]] = {
         "en": "the patient has no coded record of this kind at all: please check",
         "ja": "この種類のコード化された記録が患者にまったくありません：確認してください",
         "zh-TW": "此病人完全沒有此類的編碼紀錄：請確認",
+    },
+    "condition_not_active": {
+        "en": "the condition is recorded as resolved or inactive, the criterion asks for an active one: please check",
+        "ja": "記録では治癒・非活動ですが、基準は活動性を求めています：確認してください",
+        "zh-TW": "紀錄顯示已痊癒或非活動，但條件要求活動性：請確認",
     },
     "proposed_fact": {
         "en": "a fact read from a chart, not yet confirmed: please check",

@@ -152,8 +152,17 @@ _CONFIG = _none("settings and configuration, no patient")
 _STAFF = _none("staff, accounts or sign-in state, no patient")
 _OD8 = _keep("OD-8", "the trial record of a consented or enrolled subject stays (GCP)")
 _OMOP_CLEARED = _erase("omop", "OMOP clinical rows of the person (deleted by the withhold, D-441)")
-_OMOP_UNWRITTEN = _owed(
-    "a CDM table keyed by person that no loader writes today", "a delete by person when a loader writes it"
+_OMOP_UNWRITTEN = _erase(
+    "omop",
+    "a CDM table keyed by person that no loader writes today: deleted by person at the withhold, so a loader that "
+    "writes it later is covered from its first row, and read back by the worker (D-867)",
+)
+#: D-867: reached only through the person (an event, the person row): deleted then, and not read back after it
+_OMOP_THROUGH = _erase(
+    "omop",
+    "a CDM table no loader writes today, reached through the person: deleted at the withhold with the person's "
+    "events (cost, by domain) or its last person (an address); not read back, as nothing names the person after it "
+    "(D-867)",
 )
 _OMOP_VOCAB = _none("OMOP vocabulary and metadata")
 
@@ -168,7 +177,10 @@ TABLES: dict[str, Entry] = {
         _none("recall cells and sequences: counts by criterion, no patient"),
     ),
     "recall.recall_observation": _owed("pid_hash: an unsalted hash of the pseudonym, linkable"),
-    "recall.recall_known_positive": _owed("pid_hash: an unsalted hash of the pseudonym, linkable"),
+    "recall.recall_known_positive": _owed(
+        "pid_hash and draw_id: an unsalted hash of the pseudonym, linkable",
+        "both columns, with the certificate not adding the patient again (the review of D-866)",
+    ),
     **_each("study", ("rc_connection", "rc_project_link", "screen_scope", "study_settings"), _CONFIG),
     "study.rc_read_log": _none("a REDCap read: when, who, ok, counts"),
     "study.rc_record": _owed(
@@ -222,7 +234,7 @@ TABLES: dict[str, Entry] = {
         "empty marker (D-869)",
         "a sheet of many patients that names the patient (its file and its rows are not keyed by patient)",
     ),
-    "sitesetup.fact": _owed("a fact read from an uploaded file, by pseudonym"),
+    "sitesetup.fact": _erase("owed_tables", "a fact read from an uploaded file, by pseudonym (D-866)"),
     "sitesetup.check_item": _erase(
         "setup_uploads",
         "the raw value of an uploaded row: those of a patient's own upload go with it (D-869)",
@@ -322,9 +334,10 @@ TABLES: dict[str, Entry] = {
         "OD-8", "a monitoring visit's record: the subjects reviewed are trial subjects (an essential record)"
     ),
     "team.approach_overrides": _erase("owed_tables", "an override of an approach warning, by pseudonym"),
-    "team.candidate_views": _owed(
-        "a cross-department view of a candidate, by pseudonym",
-        "the reveal cap counts these rows and they say who saw an identity: a clear that keeps both",
+    "team.candidate_views": _erase(
+        "owed_tables",
+        "a cross-department view of a candidate: the row stays for the reveal cap and for who saw an identity, its "
+        "pseudonym becomes a random token, unlinked in this table; the kept audit log keeps the link (D-868, D-771)",
     ),
     "team.referrals": _erase("owed_tables", "a referral of a patient, by pseudonym"),
     "team.referral_events": _erase("owed_tables", "a referral's events, by pseudonym"),
@@ -337,7 +350,9 @@ TABLES: dict[str, Entry] = {
     "breakglass.grants": _keep("D-430", "the record of an emergency access to a patient, for the steward's review"),
     "breakglass.uses": _keep("D-430", "each use of a break-glass grant, for the steward's review"),
     "edc.draft": _owed(
-        "an EDC draft, by pseudonym", "the drafts of a patient who never enrolled (an enrolled subject's stay, OD-8)"
+        "an EDC draft, by pseudonym",
+        "the drafts of a patient who never enrolled, told from a trial subject by the subject's whole history "
+        "(the review of D-866: the registry's status now is not enough)",
     ),
     **_each("edc", ("copy_tick", "decision", "sent", "signature", "signature_void"), _OD8),
     **_each("edc", ("item_map", "map_event", "reentry_record", "switch", "switch_event", "target"), _CONFIG),
@@ -353,9 +368,10 @@ TABLES: dict[str, Entry] = {
     **_each("dataops", ("batch", "batch_step"), _none("ingest batches and their steps: counts")),
     "dataops.built": _none("which generation each derived artefact is built from: names, states and times (D-491)"),
     "dataops.built_kept": _none("the finished generations of the derived rows and their batch ids: no patient (D-525)"),
-    "tuned.tuned_patients": _owed(
-        "the weekly PI sample of patients not matched, by pseudonym",
-        "a clear that does not redraw a reviewed week's sample",
+    "tuned.tuned_patients": _erase(
+        "owed_tables",
+        "the weekly PI sample of patients not matched: the row stays so a reviewed week is never drawn again, its "
+        "pseudonym becomes a random token and the PI's note goes; counted as removed on the page (D-868)",
     ),
     "tuned.not_matched_check": _none("the site's check of the sample: who, when, a note"),
     "vec.note_chunk": _erase("vec", "the masked chunks of a patient's notes"),
@@ -401,19 +417,21 @@ TABLES: dict[str, Entry] = {
             "episode",
             "episode_event",
             "payer_plan_period",
-            "cost",
             "cohort",
-            "location",
         ),
         _OMOP_UNWRITTEN,
     ),
+    **_each("omop", ("cost", "location"), _OMOP_THROUGH),
     "omop.tb_record": _erase(
         "omop",
         "the record ledger: the person's live records are tombstoned",
         "the tombstoned row keeps the person id and the source record id",
     ),
     "omop.tb_record_event": _owed("every change of a record with its before-image", "the before-images"),
-    "omop.tb_conflict": _owed("a source conflict of a person"),
+    "omop.tb_conflict": _owed(
+        "a source conflict of a person, every source's value and the steward's ruling",
+        "at retention, or with a before-image: a lift undoes the withhold, and the ruling must still hold (D-867)",
+    ),
     "omop.tb_consent": _keep("D-441", "the refusal itself must reach the lake, or the registry would read as silent"),
     "omop.tb_id_map": _keep("D-441", "pseudonym to person id: the worker and the loader must still find the person"),
     "omop.tb_withheld": _keep("D-441", "the register's copy the loader reads to keep the patient out"),

@@ -7,6 +7,10 @@
   did not map, is flagged ``needs_review`` (never silently dropped);
 * units (D-418): a numeric lab atom with no unit, or with a unit its analyte's usual unit cannot convert to, is
   flagged ``value_unit_missing`` / ``value_unit_unconvertible`` (``criteria_compiler.unit_check``);
+* clinical status (D-917): a criterion whose line says the condition is active or current ("active tuberculosis",
+  活動性結核, 現在治療中) and not that it is past ("history of") counts only conditions recorded as active, recurrent or
+  relapsed, or recorded with no status (``clinical_status`` on its condition atoms, ``clinical_status_from_text``): a
+  condition recorded as resolved or in remission then makes the answer unknown, never a silent "active";
 * polarity (D-98): an exclusion ``note_question`` in the negative is rewritten to its positive form when a safe
   English rewrite exists (``negated_question_rewritten``, original kept in ``note_question_source``), else flagged
   ``negated_question`` for the reviewer. Either way the criterion needs review.
@@ -21,6 +25,7 @@ from typing import Any
 from pydantic import ValidationError
 from tb_common.derived import CODES, COMPONENTS
 from tb_contracts import Atom, BoolExpr, CriterionIR, LlmExtractOutput, dump
+from tb_contracts.criterion_ir import ACTIVE_STATUSES
 
 from criteria_compiler import unit_check
 from criteria_compiler.ir_extract.polarity import is_negated, positive
@@ -61,6 +66,36 @@ _OPERATION = re.compile(
     r"imaging|therapy|radiation|手術|切除|摘出|術|移植|生検|照射",
     re.IGNORECASE,
 )
+
+
+# D-917: the line says the condition is active or current, and does not say it is past
+_ACTIVE = re.compile(
+    r"\b(?:active|current|currently|ongoing)\b|活動性|活動期|現在|治療中|進行中|目前|現患", re.IGNORECASE
+)
+# the line says it is past, over or ever (review of D-917: "in remission", "non-active", "no longer", 非活動性,
+# 活動性のない, 現在までに "so far, ever", "cured"): no restriction, every row counts as before
+_PAST = re.compile(
+    r"\b(?:history|previous|previously|prior|past|former|ever|remission|resolved|cured|healed|no longer|"
+    r"non-?active|inactive|not active)\b|既往|過去|以前|病史|曾|寛解|治癒|緩解|痊癒|非活動|活動性のない|"
+    r"活動性でない|現在まで",
+    re.IGNORECASE,
+)
+
+
+def says_active(text: str) -> bool:
+    """The criterion's line says its condition is active or current and not that it is past (D-917)."""
+    return bool(_ACTIVE.search(text)) and not _PAST.search(text)
+
+
+def _active_only(logic: Any) -> tuple[Any, bool]:
+    """``logic`` with ``clinical_status`` set to the active statuses on every condition atom that has none, and
+    whether any changed."""
+    if isinstance(logic, BoolExpr):
+        parts = [_active_only(a) for a in logic.args]
+        return logic.model_copy(update={"args": [p for p, _ in parts]}), any(c for _, c in parts)
+    if isinstance(logic, Atom) and logic.domain == "condition" and logic.clinical_status is None:
+        return logic.model_copy(update={"clinical_status": list(ACTIVE_STATUSES)}), True
+    return logic, False
 
 
 def is_diagnosis_name(name: str) -> bool:
@@ -203,6 +238,12 @@ def postprocess(
             ir = ir.model_copy(update={"logic": pos})
             flags.append("negated_logic_rewritten")
             warnings.append(f"{cid}: exclusion logic was negated; rewritten to the positive form (check it)")
+        if ir.class_ in FILTERED and ir.logic is not None and says_active(ir.text):
+            active, changed = _active_only(ir.logic)
+            if changed:
+                ir = ir.model_copy(update={"logic": active})
+                flags.append("clinical_status_from_text")
+                warnings.append(f"{cid}: counts only conditions recorded as active or with no status (check it)")
         if ir.class_ in FILTERED:
             try:
                 check_bool(ir.logic)

@@ -101,7 +101,8 @@
         "duration": {"$ref": "#/$defs/duration"},
         "age": {"$ref": "#/$defs/age"},
         "sex": {"enum": ["male", "female"]},
-        "derived": {"enum": ["bmi", "egfr", "egfr_ckd_epi", "egfr_jsn", "das28", "basdai", "asdas", "cdai", "sdai"], "description": "computed observation; egfr_ckd_epi and egfr_jsn name the equation (D-149), a plain egfr is CKD-EPI 2021"}
+        "derived": {"enum": ["bmi", "egfr", "egfr_ckd_epi", "egfr_jsn", "das28", "basdai", "asdas", "cdai", "sdai"], "description": "computed observation; egfr_ckd_epi and egfr_jsn name the equation (D-149), a plain egfr is CKD-EPI 2021"},
+        "clinical_status": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["active", "recurrence", "relapse", "inactive", "remission", "resolved"]}, "description": "condition atoms only (D-917): the clinical statuses that count; a row recorded with another status makes the answer unknown, a row with no status counts as before"}
       }
     }
   }

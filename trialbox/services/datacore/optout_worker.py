@@ -179,6 +179,15 @@ OMOP_BY_PERSON = (
     "note",
     "tb_appointment",
     "tb_claim",
+    # ERASE-B (D-867): the tables no loader writes yet, and the clinical conflicts
+    "device_exposure",
+    "specimen",
+    "visit_detail",
+    "condition_era",
+    "drug_era",
+    "dose_era",
+    "payer_plan_period",
+    "episode",
 )
 
 
@@ -206,6 +215,14 @@ def _verify_one_omop(name: str, db: Any, pids: frozenset[str]) -> dict[str, int]
         return out
     for t in OMOP_BY_PERSON:
         out[f"{name}.{t}"] = int(db.fetchval(f"SELECT count(*) FROM {t} WHERE person_id = ANY(?)", (persons,)))
+    out[f"{name}.cohort"] = int(db.fetchval("SELECT count(*) FROM cohort WHERE subject_id = ANY(?)", (persons,)))
+    out[f"{name}.episode_event"] = int(
+        db.fetchval(
+            "SELECT count(*) FROM episode_event WHERE episode_id IN (SELECT episode_id FROM episode "
+            "WHERE person_id = ANY(?))",
+            (persons,),
+        )
+    )
     out[f"{name}.tb_record"] = int(
         db.fetchval(
             "SELECT count(*) FROM tb_record WHERE status <> 'tombstoned' AND (person_id = ANY(?) OR "
@@ -332,7 +349,8 @@ def verify_profile(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
 # numbers, candidate events, REDCap records) are not here: LIFE-005 is frozen and OD-8 keeps a consented subject's.
 # The adversarial review of D-798 kept four out: site.weekly_seen (the kept screening-log row's first-listed day),
 # orch.submissions (NHI's send-once guard), team.candidate_views (the reveal cap's ledger) and tuned.tuned_patients (a
-# reviewed week's sample would be drawn again); they stay on the owed list with why.
+# reviewed week's sample would be drawn again). D-860 took the submissions' dry runs; D-868 keeps the last two's rows
+# and makes their pseudonym a random token.
 #: per store, per table: the count and the delete of the patients' rows (written out: no SQL is put together)
 OWED_TABLES: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
     ("site", (
@@ -347,6 +365,17 @@ OWED_TABLES: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
         ("referral_events", "SELECT count(*) FROM referral_events WHERE pid = ANY(?)",
          "DELETE FROM referral_events WHERE pid = ANY(?)"),
         ("referrals", "SELECT count(*) FROM referrals WHERE pid = ANY(?)", "DELETE FROM referrals WHERE pid = ANY(?)"),
+        # ERASE-C (D-868): the reveal cap counts a person's rows and they say who saw an identity, so each row stays
+        # and its pseudonym becomes a random token: unlinked in this table; the kept audit log keeps the link (D-771)
+        ("candidate_views", "SELECT count(*) FROM candidate_views WHERE pid = ANY(?)",
+         "UPDATE candidate_views SET pid = 'erased:' || gen_random_uuid() WHERE pid = ANY(?)"),
+    )),
+    ("tuned", (
+        # ERASE-C (D-868): a reviewed week's sample keeps its size (it is never drawn again for the week); the row's
+        # pseudonym becomes a random token, which the not-matched page counts as removed, and the PI's free-text note
+        # goes (the review of D-868: its copy in site.excluded_review is deleted by the same clear)
+        ("tuned_patients", "SELECT count(*) FROM tuned_patients WHERE pid = ANY(?)",
+         "UPDATE tuned_patients SET pid = 'erased:' || gen_random_uuid(), note = NULL WHERE pid = ANY(?)"),
     )),
     ("orch", (
         ("feedback", "SELECT count(*) FROM feedback WHERE pid = ANY(?)", "DELETE FROM feedback WHERE pid = ANY(?)"),
@@ -369,6 +398,8 @@ def _open(url: str, schema: str) -> Any:
         return Database.connect(url, "site")
     if schema == "team":
         return Database.connect(url, "team")
+    if schema == "tuned":  # ERASE-C (D-868): the PI's weekly sample of patients not matched
+        return Database.connect(url, "tuned")
     if schema == "orch":
         return Database.connect(url, "orch")
     if schema == "derived":
@@ -442,7 +473,21 @@ def _owed_tables(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str
                     out.update({k: int(v or 0) for k, v in _derived(tx, want, True).items()})
             else:
                 out.update(_derived(db, want, False))
+    out.update(_more_owed(pids, env, delete))
     return out
+
+
+def _more_owed(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, int]:
+    """ERASE-A1 (D-866): ``sitesetup.fact``, a fact read from an uploaded file, by pseudonym, goes. The site set-up
+    no longer writes one again (a re-read of the sheet, a chart: ``sitesetup.service.SiteSetup``)."""
+    url = str(env.register.db.url)
+    want = sorted(pids)
+    if not want or not store_has(url, "sitesetup", "fact"):
+        return {"sitesetup.fact": 0}
+    with _open(url, "sitesetup") as db:
+        if delete:
+            return {"sitesetup.fact": int(db.execute("DELETE FROM fact WHERE pid = ANY(?)", (want,)) or 0)}
+        return {"sitesetup.fact": int(db.fetchval("SELECT count(*) FROM fact WHERE pid = ANY(?)", (want,)))}
 
 
 def clear_tables(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:

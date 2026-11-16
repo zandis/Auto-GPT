@@ -171,11 +171,16 @@ elif [ -f "$BOX/applied" ]; then
 else
 cp "$BOX/hardware.json" "$FR/hardware.json" && chmod 600 "$FR/hardware.json" && chown 10001:10001 "$FR/hardware.json" 2>/dev/null || true
 HOST="$(json_get "$BOX/answers.json" tls_hostname)"
+box_address() {  # OPS-005: the box's first address on its network, for a computer that cannot resolve .local
+  { hostname -I 2>/dev/null || true; } | awk '{print $1}'
+}
 show_code() {
   CODE="$(python3 -m tools.box code --firstrun "$FR")"
   chown 10001:10001 "$FR/code.json" 2>/dev/null || true
-  local text
+  local text addr
   text="$(printf '\n  TrialBox set-up:  https://%s/login/first-run\n  One-time code:    %s\n' "$HOST" "$CODE")"
+  addr="$(box_address)"
+  [ -z "$addr" ] || text="$text$(printf '\n  If the name does not open: https://%s/login/first-run (the browser warns about the certificate: it names %s)\n' "$addr" "$HOST")"
   if [ "$WSL2" = 0 ]; then  # the box's own screen; under WSL2 the Windows installer's window shows this output
     mkdir -p "$(dirname "$ISSUE")"
     printf '%s\n\n' "$text" > "$ISSUE"
@@ -222,6 +227,18 @@ if [ -n "$OWNER" ]; then  # D-898: the host's zone from the answers file, then t
   date -u +%FT%TZ > "$BOX/applied"
 fi
 HOST="$(json_get "$BOX/answers.json" tls_hostname)"  # the box's name the owner chose
+# OPS-005: the name the box prints resolves on the clinic's network: the host takes the owner's name and the mDNS
+# responder answers it (the firewall lets UDP 5353 in from the box's network when hardening.conf says MDNS=on)
+if [ "$WSL2" = 0 ] && [ "$(id -u)" = 0 ] && [ -z "${TB_BOX_PY:-}" ] && [ "${HOST%.local}" != "$HOST" ]; then
+  if command -v hostnamectl >/dev/null; then
+    hostnamectl set-hostname "${HOST%.local}" || echo "box-install: warning: the host name is not ${HOST%.local}" >&2
+  fi
+  if command -v avahi-daemon >/dev/null && command -v systemctl >/dev/null; then
+    systemctl enable --now avahi-daemon >/dev/null 2>&1 || echo "box-install: warning: avahi-daemon did not start" >&2
+  else
+    echo "box-install: warning: no mDNS responder (avahi-daemon): $HOST will not resolve on the clinic's computers; install avahi-daemon (the box's media) or use the address printed above" >&2
+  fi
+fi
 chown "$(id -u):10001" deploy/settings.yaml 2>/dev/null && chmod 640 deploy/settings.yaml
 # shellcheck disable=SC2086 # a command line on purpose (tests)
 ${TB_BOX_COMPOSE:-docker compose --project-directory deploy} up -d --wait || die "the stack did not restart on the new settings"

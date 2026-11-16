@@ -7,7 +7,8 @@ its validation or a date it cannot read came back as "REDCap's own text is not s
 The Chinese phrases sit beside each English marker now. The phrases are REDCap's interface words (its language
 file), not any record's value; the texts below are written for the test.
 
-REDCap 17 was exercised on a real instance (the browser run of R1 to R9): it joins the supported majors."""
+REDCap 17 was exercised on a real instance (the browser run of R1 to R9): it joins the supported majors. (13 joined later,
+RC13-F, D-852.)"""
 
 from __future__ import annotations
 
@@ -39,8 +40,10 @@ def test_a_chinese_text_of_no_known_kind_is_still_not_shown() -> None:
     )
 
 
-@pytest.mark.parametrize(("version", "ok"), [("17.3.15", True), ("16.0.10", True), ("18.0.1", False),
-                                             ("13.9.0", False)])  # fmt: skip
+# RC13-F (D-852): 13 is supported now (13.9.0 was the refused example); 12 is not
+@pytest.mark.parametrize(
+    ("version", "ok"), [("17.3.15", True), ("16.0.10", True), ("18.0.1", False), ("12.9.0", False)]
+)
 def test_redcap_17_is_supported(version: str, ok: bool) -> None:
     from tests.rc_kit import TOKEN_A
 
