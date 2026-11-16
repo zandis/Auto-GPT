@@ -1,5 +1,6 @@
 """``python -m tools.trialbox <command>`` (spec v4 §18). Commands: ``doctor``, ``eval``, ``backup-keygen``,
-``backup``, ``backup-check`` (D-178), ``backup-verify``, ``restore`` (D-126, ``tools/trialbox/backup.py``);
+``backup``, ``backup-check`` (D-178), ``backup-verify``, ``restore`` (D-126, ``tools/trialbox/backup.py``),
+``restore-drill`` (T-730d, D-892, ``restore_drill.py``);
 ``backup-nightly``, ``backup-status`` and ``backup-install`` (the schedule, the age alert and install.sh's backup
 step, D-187, D-274, ``backup_schedule.py``); ``secrets``
 (per-service tokens, D-128 / D-138, ``svc_secrets.py``), ``logs`` (retention, ``logs.py``) and ``update`` (the update
@@ -138,6 +139,15 @@ def main(argv: list[str] | None = None) -> int:
     kept = Path(__file__).resolve().parents[2] / "deploy" / "refdata" / "loaded"
     r.add_argument("--refdata", type=Path, default=Path(os.environ.get("TB_REFDATA_DIR") or kept),
                    help="the kept reference packs (default: TB_REFDATA_DIR or deploy/refdata/loaded)")  # fmt: skip
+    rd = sub.add_parser("restore-drill", help="prove a backup restores, into scratch databases (needs the key; D-892)")
+    rd.add_argument("file", type=Path)
+    rd.add_argument("--key", type=Path, required=True)
+    rd.add_argument("--dir", action="append", default=[], help="the audit folder, as restore takes it")
+    rd.add_argument("--work", type=Path, default=None, help="where the backup is unpacked (default: the temp folder)")
+    rd.add_argument("--db-dir", type=Path, default=None,
+                    help="the database's folder, for the space check (default: Docker root, else --work)")  # fmt: skip
+    rd.add_argument("--deploy", type=Path, default=Path(__file__).resolve().parents[2] / "deploy",
+                    help="where deploy/site/backup-verified.json goes")  # fmt: skip
     deploy = Path(__file__).resolve().parents[2] / "deploy"
     bn = sub.add_parser("backup-nightly", help="the scheduled backup to TB_BACKUP_TARGETS, then pgBackRest (D-187)")
     bn.add_argument("--deploy", type=Path, default=deploy)
@@ -284,6 +294,8 @@ def main(argv: list[str] | None = None) -> int:
         return bsch.main_status(a.deploy, a.json, a.quiet)
     if a.cmd in ("backup-keygen", "backup", "backup-check", "backup-verify", "restore"):
         return _backup_cmd(a)
+    if a.cmd == "restore-drill":
+        return _drill_cmd(a)
     if a.cmd in ("platform-images", "platform-egress"):
         return _platform_cmd(a)
     if a.cmd == "doctor":
@@ -419,6 +431,25 @@ def _secrets_cmd(a: argparse.Namespace) -> int:
     except sx.SecretsError as exc:
         print(f"secrets: {exc}", file=sys.stderr)
         return 1
+
+
+def _drill_cmd(a: argparse.Namespace) -> int:
+    """T-730d (D-892): the restore drill, printed as JSON; exit 0 on a pass, 1 on a fail, 2 when nothing started."""
+    from tools.trialbox import backup as bk
+    from tools.trialbox import restore_drill as rd
+
+    docker_root = Path("/var/lib/docker")
+    db_dir = a.db_dir or (docker_root if docker_root.is_dir() else None)
+    try:
+        res = rd.drill(a.file, a.key, os.environ, work=a.work, db_dir=db_dir)
+    except (rd.DrillError, bk.BackupError, OSError) as e:
+        print(f"restore-drill: {e}", file=sys.stderr)
+        return 2
+    res["audit"] = rd.record(a.deploy, res, os.environ, bk.layout(os.environ, a.dir))
+    print(json.dumps(res, indent=1, ensure_ascii=False))
+    if not res["ok"]:
+        print(f"restore-drill: FAILED: {res.get('error')}", file=sys.stderr)
+    return 0 if res["ok"] else 1
 
 
 def _backup_cmd(a: argparse.Namespace) -> int:
