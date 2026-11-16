@@ -471,7 +471,7 @@ Notes on the table:
 | T7 | **A bare start replays the last launch.** The VM keeps the last launch's `tb-*` keys until a collect or `--stop` resets them. | Use the driver. To boot without a run, `--stop` first. |
 | T8 | **`TB_SETTINGS_FILE` leaks into the build (F31).** | Fixed in 8d564b6f. Any new host-side `make` call must unset it. |
 | T9 | **`--stop` sets the usual startup script back.** `gpu-sim-startup.sh` starts three private model containers that hold about 31 GB of the card and port 80 on loopback. | The box run removes them at 02 (`d_old_servers`). A boot outside the driver starts them. |
-| T10 | **Collect and resume rewrite the metadata.** The collect at a run's end removes the launch's keys (F2). | `--resume` sends them again from `.cache/box-run/<run>/md/`. Keep that folder. |
+| T10 | **Collect and resume rewrite the metadata.** The collect at a run's end removes the launch's keys (F2). | `--resume` sends them again from `.cache/box-run/<run>/md/`. Lane G's copies of that folder, with `metadata-keys` and `cap-hours`, are in the bucket as `boxruns/<run id>/driver-md.tgz` for box-20261115T123832Z-1157c9bfa, box-20261115T162830Z-04138db7c and box-20261116T023816Z-b266f9b7f. Unpack one into `.cache/box-run/<run id>/` before a `--resume`. |
 | T11 | **A set's slowdown measured on a set that answered nothing (F22).** Every later set got the 600 s minimum. | Fixed (e9c29464): only a whole answered set measures it. |
 | T12 | **A step cut by the watchdog loses no work, but a silent step is cut.** The full qualify ran 1 h 52 min with no visible progress. | Use `--qualify-timebox` or `--qualify-args`; read the checkpoints. |
 | T13 | **Spot.** The VM can be pre-empted. | It boots again only on `--resume`; finished steps are kept. |
