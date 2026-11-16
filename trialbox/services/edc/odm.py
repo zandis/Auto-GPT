@@ -32,7 +32,7 @@ from typing import Any
 from xml.etree import ElementTree as ET  # building only; nothing is parsed here
 
 from datacore.export import BASE_EVENT, ODM_NS, _sub, _texts, item_def_attrs, write_xml
-from datacore.forms import Field
+from datacore.forms import Field, checkbox_column
 
 from edc.cdash import sds_name
 from edc.layout import Slot, split_visit
@@ -119,12 +119,20 @@ def build(study: str, fields: dict[str, Field], items: list[dict[str, Any]], val
     for fm, fs in groups.items():
         ig = _sub(mdv, "ItemGroupDef", OID=group_oid[fm], Name=fm, Repeating="No")
         for f in fs:
-            _sub(ig, "ItemRef", ItemOID=f.name, Mandatory="No")
+            for oid in _oids(f):  # a checkbox: one item per choice, as REDCap takes it (NEW-EDC-3b, review F3)
+                _sub(ig, "ItemRef", ItemOID=oid, Mandatory="No")
     codelists: list[Field] = []
     for f in used:
         m = by_item[f.name]
         tag = str(m.get("cdash") or "")
-        attrs = item_def_attrs(f) if f.kind != "multi" else {"DataType": "text", "Length": "999"}
+        if f.kind == "multi":  # one boolean item per choice, named as REDCap names the column (NEW-EDC-3b)
+            for c, d in f.options.items():
+                idf = _sub(mdv, "ItemDef", OID=checkbox_column(f.name, c), Name=checkbox_column(f.name, c),
+                           DataType="boolean")  # fmt: skip
+                tr = {g: f"{f.label_in(g)} ({f.options_in(g).get(c, d)})" for g in f.labels}
+                _texts(idf, "Question", f"{f.label or f.name} ({d})", tr)
+            continue
+        attrs = item_def_attrs(f)
         idf = _sub(mdv, "ItemDef", OID=f.name, Name=f.name, **attrs,
                    SDSVarName=sds_name(tag.split(".", 1)[1]) if "." in tag else "")  # fmt: skip
         _texts(idf, "Question", f.label or f.name, f.labels)
@@ -197,20 +205,36 @@ def _items(igd: ET.Element, fs: list[Field], here: dict[str, dict[str, Any]], si
         v = here.get(f.name)
         if v is None:
             continue
-        idat = _sub(igd, "ItemData", ItemOID=f.name, Value=str(v["final"]), TransactionType="Upsert")
-        ar = _sub(idat, "AuditRecord")
-        _sub(ar, "UserRef", UserOID=user_oid(str(v["decided_by"])))
-        _sub(ar, "LocationRef", LocationOID=LOCATION_OID)
-        _sub(ar, "DateTimeStamp").text = str(v["decided_at"])
-        if v["fate"] == "edited" and v.get("reason"):
-            _sub(ar, "ReasonForChange").text = str(v["reason"])
-        sid = source_id(v.get("final_citation"))
-        if sid:
-            _sub(ar, "SourceID").text = sid
-        sig = signatures.get(int(v["signature_id"]))
-        if sig is not None:
-            sg = _sub(idat, "Signature")
-            _sub(sg, "UserRef", UserOID=user_oid(str(sig["signer"])))
-            _sub(sg, "LocationRef", LocationOID=LOCATION_OID)
-            _sub(sg, "SignatureRef", SignatureOID=signature_def_oid(*words(sig)))
-            _sub(sg, "DateTimeStamp").text = str(sig["at"])
+        if f.kind == "multi":  # each choice its own item, 1 chosen and 0 not (NEW-EDC-3b, review F3)
+            chosen = {c.strip() for c in str(v["final"]).split(",") if c.strip()}
+            for c in f.options:
+                idat = _sub(igd, "ItemData", ItemOID=checkbox_column(f.name, c), Value="1" if c in chosen else "0",
+                            TransactionType="Upsert")  # fmt: skip
+                _record(idat, v, signatures, words)
+            continue
+        _record(_sub(igd, "ItemData", ItemOID=f.name, Value=str(v["final"]), TransactionType="Upsert"), v, signatures,
+                words)  # fmt: skip
+
+
+def _oids(f: Field) -> list[str]:
+    return [checkbox_column(f.name, c) for c in f.options] if f.kind == "multi" else [f.name]
+
+
+def _record(idat: ET.Element, v: dict[str, Any], signatures: dict[int, dict[str, Any]], words: Any) -> None:
+    """One value's audit record and signature under its ``ItemData``."""
+    ar = _sub(idat, "AuditRecord")
+    _sub(ar, "UserRef", UserOID=user_oid(str(v["decided_by"])))
+    _sub(ar, "LocationRef", LocationOID=LOCATION_OID)
+    _sub(ar, "DateTimeStamp").text = str(v["decided_at"])
+    if v["fate"] == "edited" and v.get("reason"):
+        _sub(ar, "ReasonForChange").text = str(v["reason"])
+    sid = source_id(v.get("final_citation"))
+    if sid:
+        _sub(ar, "SourceID").text = sid
+    sig = signatures.get(int(v["signature_id"]))
+    if sig is not None:
+        sg = _sub(idat, "Signature")
+        _sub(sg, "UserRef", UserOID=user_oid(str(sig["signer"])))
+        _sub(sg, "LocationRef", LocationOID=LOCATION_OID)
+        _sub(sg, "SignatureRef", SignatureOID=signature_def_oid(*words(sig)))
+        _sub(sg, "DateTimeStamp").text = str(sig["at"])

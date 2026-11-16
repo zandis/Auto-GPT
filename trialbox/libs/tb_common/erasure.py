@@ -181,9 +181,10 @@ TABLES: dict[str, Entry] = {
         "deleted when the job ends in any state, and at the orchestrator's start for jobs finished or gone",
     ),
     "orch.jobs": _owed("a job's request may name a pseudonym (CASE, a reveal)"),
-    "orch.submissions": _owed(
-        "NAV submissions, by pseudonym",
-        "a decision: the row is NHI's send-once guard and the record of a disclosure (keep, or erase dry runs only)",
+    "orch.submissions": _erase(
+        "owed_tables",
+        "NAV submissions, by pseudonym: a dry run goes; a live one stays (D-513: NHI's send-once guard and the record "
+        "of a disclosure already made)",
     ),
     "orch.cohort_tables": _none("aggregate counts per quarter and criterion"),
     "orch.cohort_stored": _none(
@@ -410,7 +411,11 @@ TABLES: dict[str, Entry] = {
 }
 
 # ------------------------------------------------------------------------------------------------ the lake
-_SNAPSHOTS = "kept snapshots (3 nightly + 36 month-ends): rebuild without the patient, or a tombstone list read"
+# D-513 (the owner, 2026-11-15): the kept snapshots are not rebuilt; they are withheld on read and kept until
+# retention rewrites them. Every job's patient scope drops an opted-out pseudonym at receipt and again at publish,
+# audited by count (D-441); still owed: the criteria compiler's equivalence sample and a direct call of the lake's
+# /query (T-206b part 2b)
+_SNAPSHOTS = "withheld on read by every job's scope (D-441, D-860); the compiler's equivalence sample, direct /query"
 LAKE: dict[str, Entry] = {
     "lake:ndjson": _owed("the nightly NDJSON extracts (3 nightly + month-ends kept)", _SNAPSHOTS),
     "lake:ndjson-rerun": _owed("a re-run of a promoted night until it passes the gate (D-271)", _SNAPSHOTS),
@@ -433,7 +438,11 @@ LAKE: dict[str, Entry] = {
 
 # ------------------------------------------------------------------------------------------------ object store
 OBJECTS: dict[str, Entry] = {
-    "objects:outputs": _owed("job outputs: candidate and excluded lists, micro-batch pids (365 days)"),
+    "objects:outputs": _owed(
+        "job outputs: candidate and excluded lists, micro-batch pids (365 days); withheld on read (D-513, D-860): the "
+        "console's pages and downloads (a per-patient file by its patient), a submission and a feedback row",
+        "the mail of a job's outputs reads them at publish only (T-206b part 2b checks the rest)",
+    ),
     "objects:attachments": _owed("files mailed or uploaded to a job (consent forms, review sheets, case requests)"),
     "objects:ctgov": _none("public registry text and its parse"),
 }

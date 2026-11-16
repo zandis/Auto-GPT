@@ -42,7 +42,7 @@ def test_the_real_app_is_staged_as_the_table_says() -> None:
     refuse = [r for r in rows if r[2] == "refuse"]
     report = [r for r in rows if r[2] == "report" and r[0] not in sa.SAFE_METHODS]
     # lifecycle, sponsor, the registry and the study router converted; the rest counted
-    assert len(refuse) >= 31 and len(report) == 14  # T-715f (D-799): the data core's nine left `report`
+    assert len(refuse) >= 44 and len(report) == 0  # T-715f/g (D-799, D-803): the data core and the setup router
     # D-717: a patient read names the actions it takes (phi.view, or monitor.read too); each is a matrix row
     assert {a for r in refuse for a in ((r[3],) if isinstance(r[3], str) else r[3])} <= set(MATRIX)
     # NEW-SEC-1 (D-717): a refuse route takes no person from its request; the two EDC reads of the v2 group keep
@@ -56,7 +56,7 @@ def test_the_real_app_is_staged_as_the_table_says() -> None:
     assert (
         groups
         == set(ra.TABLE["refuse"])
-        == {"lifecycle", "sponsor", "job_reveal", "registry", "study", "dataops", "datacore"}
+        == {"lifecycle", "sponsor", "job_reveal", "registry", "study", "dataops", "datacore", "setup"}
     )  # T-715f (D-799)
     changing = [r for r in rows if r[0] not in sa.SAFE_METHODS]
     assert all(r[2] or CALLER_GATE.table.group_of(f"{r[0]} {r[1]}") in (*ra.TABLE["v2"], *ra.TABLE["no_person"])
@@ -427,9 +427,27 @@ def test_the_standing_in_the_claim_is_what_the_matrix_is_asked_with() -> None:
 
 
 # ------------------------------------------------------------------------------------------------ report stage
+def _report_route() -> TestClient:
+    """T-715g (D-803): no route of the app is in stage `report` any more; the stage (kept for a router that is moved
+    there first) is held on a route of its own, with the app's audit (the ``box`` fixture's)."""
+    from fastapi import FastAPI
+
+    mini = FastAPI()
+
+    @mini.post("/setup/{ws}/codes", dependencies=[ra.report_actor])
+    def x(ws: str) -> dict[str, str]:
+        return {"ws": ws}
+
+    @mini.get("/setup/{ws}/codes")
+    def y(ws: str) -> dict[str, str]:
+        return {"ws": ws}
+
+    return TestClient(mini)
+
+
 def test_a_report_route_counts_an_unsigned_call_and_lets_it_through(box: Any) -> None:
-    client, events = box
-    # T-715d (D-554) and T-715f (D-799): the settings and data core routes refuse now; a site set-up route reports
+    _client, events = box
+    client = _report_route()
     path, body = "/setup/w1/codes", {"by": "dr_tanaka"}
     key = "POST /setup/{ws}/codes"
     before = sum(n for (route, _), n in ra.UNSIGNED.items() if route == key)
@@ -442,18 +460,15 @@ def test_a_report_route_counts_an_unsigned_call_and_lets_it_through(box: Any) ->
     assert sum(n for (route, _), n in ra.UNSIGNED.items() if route == key) == before + 1
     client.post(path, json=body, headers=signed("site.setup", "", "POST", path, {"other": 1}))
     assert ra.UNSIGNED[(key, "body")] >= 1
-    assert (
-        client.get("/studies/GZQO/forms").status_code != 403
-        and ra.UNSIGNED.get(("GET /studies/{rs}/forms", "no v3 assertion")) is None
-    )
+    assert client.get(path).status_code == 200 and ra.UNSIGNED.get(("GET /setup/{ws}/codes", "no v3 assertion")) is None
 
 
 def test_a_report_route_counts_a_claim_for_another_study_or_without_the_right(box: Any) -> None:
     """Review M1: in stage `report` a claim counts as a verified person only when it is for this study and the
     matrix allows its own action to its role; the first of each route and reason is in the audit trail."""
-    client, events = box
-    # T-715f (D-799): the last report routes are the site set-up's, which name no study: the other-study case is
-    # held by the refuse walk (test_every_refuse_route_refuses_an_unsigned_call_and_a_role_without_the_right)
+    _client, events = box
+    client = _report_route()
+    # the other-study case: test_a_report_stage_route_that_names_a_study_counts_a_claim_for_another
     path, body = "/setup/w1/codes", {"by": "dr_tanaka"}
     key = "POST /setup/{ws}/codes"
     for reason, headers in (

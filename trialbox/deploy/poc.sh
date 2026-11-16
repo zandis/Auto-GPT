@@ -4,8 +4,9 @@
 #   deploy/poc.sh                          # stub model (no GPU, no key): any Docker host
 #   TB_LLM_MODE=openrouter deploy/poc.sh   # OpenRouter (D0 synthetic data only); key from OPENROUTER_API_KEY or
 #                                          #   deploy/poc/secrets/openrouter_api_key (never stored in the repository)
-#   TB_LLM_MODE=gpu deploy/poc.sh          # local GPU (vLLM; DGX Spark / GB10 adds docker-compose.gb10.yml); needs a
-#                                          #   pinned model in deploy/site (make spark-e2e or tools/pin_model.py)
+#   TB_LLM_MODE=gpu deploy/poc.sh          # the real pair on a plain GPU VM (D-839): rtxpro6000 or gb10 (deploy/
+#                                          #   gpu_profile.sh, or TB_GPU_PROFILE); the weights in deploy/models (the
+#                                          #   pinned builds of models/registry.yaml); checks, pins, starts, canary
 #   deploy/poc.sh down                     # stop (volumes kept);  deploy/poc.sh reset  # stop and delete volumes
 #   deploy/poc.sh status                   # URLs and container states
 #
@@ -29,12 +30,62 @@ OPENROUTER_MODEL="${TB_OPENROUTER_MODEL:-nvidia/nemotron-3-nano-30b-a3b}"
 
 say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
 die() { printf 'poc: %s\n' "$*" >&2; exit 1; }
-rand() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-32}"; }
+# D-839: tr is stopped by the closed pipe once head has its characters; under pipefail that made `X="$(rand)"` end
+# the script (exit 141) on a first run
+rand() { { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-32}"; } || true; }
 envfile_get() { [ -f deploy/.env ] && sed -n "s/^$1=//p" deploy/.env | tail -1 | tr -d "\"'" || true; }
 
 command -v docker >/dev/null || die "Docker is not installed (Docker Desktop, or Docker Engine 27+ with compose)"
 docker info >/dev/null 2>&1 || die "Docker is not running (start Docker Desktop, or: sudo systemctl start docker)"
 docker compose version >/dev/null 2>&1 || die "the docker compose plugin is missing"
+
+# D-839: a long step prints a line a minute (a watchdog sees life); started with alive_start, ended with alive_stop
+ALIVE_PID=""
+alive_start() {
+  local what="$1" me=$$
+  ( s=""; trap 'kill "$s" 2>/dev/null; exit 0' TERM; n=0
+    while kill -0 "$me" 2>/dev/null; do
+      sleep "${TB_POC_ALIVE_S:-60}" & s=$!; wait "$s"; n=$((n + 1))
+      kill -0 "$me" 2>/dev/null && echo "    ... still $what ($n)" >&2
+    done ) & ALIVE_PID=$!
+}
+alive_stop() { [ -n "$ALIVE_PID" ] || return 0; kill "$ALIVE_PID" 2>/dev/null || true; wait "$ALIVE_PID" 2>/dev/null || true; ALIVE_PID=""; }
+ok() { printf '    ok    %s\n' "$*"; }
+compose_default() { sed -n "s/.*\${$1:-\([^}]*\)}.*/\1/p" "$2" | head -1; }
+
+# GPU PREFLIGHT (D-839): everything the real pair needs, checked before anything is written or started
+GPU=""
+if [ "$MODE" = gpu ]; then
+  say "GPU host check (nothing is changed yet)"
+  command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1 \
+    || die "gpu mode: nvidia-smi finds no GPU (install the NVIDIA driver)"
+  ok "GPU: $(nvidia-smi -L 2>/dev/null | head -1)"
+  docker info 2>/dev/null | grep -qi nvidia || die "gpu mode: Docker lists no nvidia runtime (install nvidia-container-toolkit, then nvidia-ctk runtime configure --runtime=docker and restart Docker)"
+  ok "Docker's nvidia runtime"
+  GPU="${TB_GPU_PROFILE:-$(sh deploy/gpu_profile.sh)}"
+  case "$GPU" in
+    rtxpro6000|gb10) ok "GPU profile $GPU" ;;
+    *) die "gpu mode: GPU profile '$GPU': the one-command PoC serves the pair on rtxpro6000 or gb10 (TB_GPU_PROFILE); others: deploy/install.sh" ;;
+  esac
+  OVR="deploy/docker-compose.$GPU.yml"
+  MODELS="${TB_MODELS_DIR:-deploy/models}"
+  for v in JUDGE_MODEL_DIR VERIFIER_MODEL_DIR; do
+    d="${!v:-$(compose_default "$v" "$OVR")}"
+    [ -f "$MODELS/$d/config.json" ] || die "gpu mode: no model in $MODELS/$d (no config.json): put the weights of the pinned build there (models/registry.yaml, profile $GPU; RUNBOOK §8) or set $v"
+    ok "model folder $MODELS/$d"
+  done
+  tpl="${JUDGE_CHAT_TEMPLATE:-$(compose_default JUDGE_CHAT_TEMPLATE "$OVR")}"
+  [ -z "$tpl" ] || [ -f "$MODELS/$tpl" ] || die "gpu mode: no chat template $MODELS/$tpl (the pinned file of models/registry.yaml, D-567)"
+  [ -z "$tpl" ] || ok "chat template $MODELS/$tpl"
+  need="${TB_POC_MIN_FREE_GB:-30}"
+  droot="$(docker info -f '{{.DockerRootDir}}' 2>/dev/null || echo /var/lib/docker)"
+  for d in "$droot" "$MODELS"; do
+    free="$(df -Pk "$d" 2>/dev/null | awk 'NR==2 {print int($4/1048576)}')"
+    [ -z "$free" ] || [ "$free" -ge "$need" ] || die "gpu mode: $free GB free under $d, $need GB needed (TB_POC_MIN_FREE_GB)"
+    [ -z "$free" ] || ok "$free GB free under $d"
+  done
+fi
+# ---- end of GPU PREFLIGHT
 
 export TB_SETTINGS_FILE="./poc/settings.yaml"
 export TB_POC_ADMIN_EMAIL="$ADMIN_EMAIL"
@@ -59,7 +110,7 @@ case "$MODE" in
     COMPOSE+=(-f deploy/docker-compose.test.yml -f deploy/docker-compose.poc.yml --profile stub ${MAILPROF[@]+"${MAILPROF[@]}"})
     export TB_ENV=DEV TB_GATEWAY_MODEL=j-workhorse TB_SITE_DIR="./poc/site" ;;
   gpu)
-    if [ "$(uname -m)" = "aarch64" ] || [ "$(uname -m)" = "arm64" ]; then COMPOSE+=(-f deploy/docker-compose.gb10.yml); fi
+    COMPOSE+=(-f "deploy/docker-compose.$GPU.yml")  # D-839: the profile's shipped serving settings
     COMPOSE+=(-f deploy/docker-compose.test.yml -f deploy/docker-compose.poc.yml --profile gpu ${MAILPROF[@]+"${MAILPROF[@]}"})
     export TB_ENV=TEST TB_GATEWAY_MODEL=j-workhorse TB_SITE_DIR="${TB_SITE_DIR:-./site}" ;;
   *) die "TB_LLM_MODE must be stub, openrouter or gpu (got $MODE)" ;;
@@ -153,19 +204,40 @@ if [ "$MODE" = openrouter ]; then
   docker run --rm -v "$POC/site:/out" "${ca[@]}" --user "$(id -u):$(id -g)" "$IMAGE_PY" python -m console.cli \
     poc-openrouter-pin --model "$OPENROUTER_MODEL" --out /out/registry.site.yaml
 elif [ "$MODE" = gpu ]; then
-  [ -s "deploy/${TB_SITE_DIR#./}/registry.site.yaml" ] \
-    || die "gpu mode: no pinned model in deploy/${TB_SITE_DIR#./}/registry.site.yaml (run make spark-e2e once, or tools/pin_model.py; RUNBOOK §8)"
+  # D-839: the pair pinned from the weights in deploy/models (as install.sh does), then what each role routes to
+  SITE="deploy/${TB_SITE_DIR#./}"; mkdir -p "$SITE"
+  say "pinning the $GPU pair from $MODELS (tools/pin_model.py --install; hashing the weights takes minutes)"
+  alive_start "hashing the model weights"
+  docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/deploy:/d" -v "$(cd "$MODELS" && pwd):/m:ro" \
+    -e JUDGE_MODEL_DIR -e JUDGE_MODEL -e JUDGE_CHAT_TEMPLATE -e VERIFIER_MODEL_DIR -e VERIFIER_MODEL "$IMAGE_PY" \
+    python -m tools.pin_model --install "$GPU" --models-root /m --out "/d/${SITE#deploy/}/registry.site.yaml" \
+    || { alive_stop; die "gpu mode: the pair could not be pinned (above)"; }
+  alive_stop
+  docker run --rm -v "$ROOT/deploy:/d:ro" "$IMAGE_PY" \
+    python -m tools.pin_model --resolve --out "/d/${SITE#deploy/}/registry.site.yaml" 2>&1 | sed 's/^/    /' || true
 fi
 
 # ------------------------------------------------------------------------------------------------ up
 say "starting the stack ($MODE model); first start pulls images and takes a few minutes"
 "${COMPOSE[@]}" config -q
 "${COMPOSE[@]}" rm -sf gateway >/dev/null 2>&1 || true   # the gateway reads model pins at start
+alive_start "starting the stack (the model servers load their weights)"
 "${COMPOSE[@]}" up -d --wait --wait-timeout "${TB_POC_UP_TIMEOUT:-900}" \
-  || { "${COMPOSE[@]}" ps; die "the stack did not become healthy (deploy/poc.sh status; docker compose logs)"; }
+  || { alive_stop; "${COMPOSE[@]}" ps; die "the stack did not become healthy (deploy/poc.sh status; docker compose logs)"; }
+alive_stop
 
 say "console administrator"
 "${COMPOSE[@]}" exec -T console python -m console.cli bootstrap-admin --username admin --mailbox "$ADMIN_EMAIL"
+
+if [ "$MODE" = gpu ]; then
+  # D-839: the 54-case pair canary through the box's gateway, inside the orchestrator (no model port is published)
+  say "the pair canary (54 cases, each model and the pair; tools/canary.py)"
+  alive_start "the pair canary"
+  "${COMPOSE[@]}" exec -T orchestrator python -m tools.canary \
+    || { alive_stop; die "gpu mode: the pair canary did not pass (above): check the card, the driver and the model servers' logs"; }
+  alive_stop
+  echo "    G-1 (the served chat template against the weights folder's): python -m tools.complete_run --only chat-template --judge-url <judge /v1> from a checkout with the model server's image (tools/chat_template_check.py)"
+fi
 
 if [ "${TB_POC_SKIP_INGEST:-0}" != 1 ]; then
   say "ingesting synthetic site A (600 patients)"

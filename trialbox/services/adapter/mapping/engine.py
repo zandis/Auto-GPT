@@ -266,6 +266,69 @@ def join_key(row: Row, parts: list[str]) -> str:
     return KEY_JOIN.join(values) if all(values) else ""
 
 
+def pivot_rows(rows: Iterator[Row], spec: dict[str, Any], key_col: str, workdir: Path,
+               counts: dict[str, int]) -> Iterator[Row]:  # fmt: skip
+    """CGRD-A8 (D-846): rows written one item per row (``spec["item"]`` and ``spec["value"]``) as one row per
+    ``spec["keys"]`` (patient and exact time), each listed item code in its canonical column (``spec["columns"]``).
+    Grouped on disk (a long table never sits in memory). Two different values of one item at one key leave it empty
+    (``values_that_disagree``); an item code not listed is counted (``items_not_listed``); a row without a key part
+    is counted (``rows_without_their_keys``). ``key_col`` is the joined key; the other columns come from the group's
+    first row. Counts only."""
+    import json as _json
+    import sqlite3
+
+    keys, item_col, value_col = list(spec["keys"]), str(spec["item"]), str(spec["value"])
+    columns = {str(k).strip(): str(v) for k, v in spec["columns"].items()}
+
+    def count(what: str) -> None:
+        counts[what] = counts.get(what, 0) + 1
+
+    workdir.mkdir(parents=True, exist_ok=True)
+    path = workdir / "pivot.sqlite"
+    path.unlink(missing_ok=True)
+    con = sqlite3.connect(path)
+    try:
+        # a scratch table, gone with the file when the pivot ends: not a record (TEMP says so)
+        con.execute("CREATE TEMP TABLE item (k TEXT, col TEXT, value TEXT, carry TEXT)")
+        for row in rows:
+            k = join_key(row, keys)
+            if not k:
+                count("rows_without_their_keys")
+                continue
+            col = columns.get(str(row.get(item_col) or "").strip())
+            if col is None:
+                count("items_not_listed")
+                continue
+            carry = {c: v for c, v in row.items() if c not in (item_col, value_col)}
+            con.execute("INSERT INTO item VALUES (?, ?, ?, ?)",
+                        (k, col, str(row.get(value_col) or "").strip(), _json.dumps(carry, default=str)))  # fmt: skip
+        con.commit()
+        out: Row | None = None
+        seen: dict[str, set[str]] = {}
+        for k, col, value, carry in con.execute("SELECT k, col, value, carry FROM item ORDER BY k, rowid"):
+            if out is None or out[key_col] != k:
+                if out is not None:
+                    yield _settled(out, seen, counts)
+                out, seen = {**_json.loads(carry), **dict.fromkeys(columns.values(), ""), key_col: k}, {}
+            if value:
+                seen.setdefault(col, set()).add(value)
+        if out is not None:
+            yield _settled(out, seen, counts)
+    finally:
+        con.close()
+        path.unlink(missing_ok=True)
+
+
+def _settled(row: Row, seen: dict[str, set[str]], counts: dict[str, int]) -> Row:
+    for col, values in seen.items():
+        if len(values) == 1:
+            row[col] = next(iter(values))
+        else:  # two values of one item at one time: neither is the measurement (never guessed)
+            row[col] = ""
+            counts["values_that_disagree"] = counts.get("values_that_disagree", 0) + 1
+    return row
+
+
 @dataclass
 class Lookup:
     name: str
@@ -402,7 +465,8 @@ class Mapping:
     def read_whole(self) -> set[str]:
         """The tables read whole on a delta night (F7, D-806): a visit table a link by day looks up. An unchanged visit
         missing from the night's rows would make a day of two visits look like a day of one: a wrong link."""
-        return {str(spec["table"]) for _, _, spec in self.by_day}
+        pivots = {t for t, spec in self.tables.items() if (spec or {}).get("pivot")}  # CGRD-A8: pairs across nights
+        return {str(spec["table"]) for _, _, spec in self.by_day} | pivots
 
     # F8 (D-807): the western values read in a ``roc_or_western`` column, by (table, column): counts only
     western_read: Counter[tuple[str, str]] = field(default_factory=Counter)
@@ -529,6 +593,19 @@ class Mapping:
             )
             for r in doc.get("resources") or []
         ]
+        for t, tspec in (doc.get("tables") or {}).items():  # CGRD-A8 (D-846): one item per row, turned to columns
+            pv = (tspec or {}).get("pivot")
+            if pv is None:
+                continue
+            ok = (isinstance(pv, dict) and isinstance(pv.get("keys"), list) and pv["keys"]
+                  and all(isinstance(x, str) and x for x in pv["keys"]) and isinstance(pv.get("item"), str)
+                  and pv["item"] and isinstance(pv.get("value"), str) and pv["value"]
+                  and isinstance(pv.get("columns"), dict) and pv["columns"]
+                  and all(isinstance(v, str) and v for v in pv["columns"].values()))  # fmt: skip
+            if not ok:
+                raise MappingError(
+                    f"{path}: {t}.pivot is {{keys: [..], item: <c>, value: <c>, columns: {{code: col}}}}"
+                )
         for t, tspec in (doc.get("tables") or {}).items():  # CGRD-A2 (D-813): a table's own rows of a shared source
             rule = (tspec or {}).get("rows")
             if rule is None:

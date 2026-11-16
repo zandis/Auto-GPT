@@ -569,11 +569,16 @@ DECLARED: dict[str, Declared] = {
     "TB_EGRESS_STATE": Declared(
         "str", "/var/lib/trialbox/egress-state.json", "egress: state file of the applied table"
     ),
+    "TB_EMBED_BATCH_BUDGET": Declared("int", "8192", "embed service: tokens one encode call holds (D-900)"),
+    "TB_EMBED_CACHE_VECTORS": Declared("int", "20000", "SCREEN: embedding vectors kept by text hash, 0 off (D-900)"),
+    "TB_EMBED_CONCURRENCY": Declared("int", "1", "embed service: requests encoded at a time (D-900)"),
     "TB_EMBED_DEVICE": Declared("str", "cpu", "embedder device (cpu or cuda)"),
     "TB_EMBED_IMAGE": Declared("str", "", "platform: embedder image"),
+    "TB_EMBED_INPUT_CAP": Declared("int", "512", "embed service: an input is cut at this many tokens (D-900)"),
     "TB_EMBED_MODE": Declared(
         "str", "hash", "embedder: model or hash (stub, refused in PRODUCTION); unset: model in PRODUCTION (D-429)"
     ),
+    "TB_EMBED_OUTAGE_WAIT_S": Declared("int", "600", "SCREEN: seconds a job waits for the embed service to return"),
     "TB_EMBED_MODEL_PATH": Declared("path", "/models/embedder", "embedder weights folder (pinned as e-embed-1)"),
     "TB_ENV": Declared("str", "PRODUCTION", "DEV, TEST, VALIDATION or PRODUCTION (unset is PRODUCTION)"),
     "TB_EP_SERVING_URL": Declared("str", "", "scenario tool: judge endpoint"),
@@ -643,6 +648,8 @@ DECLARED: dict[str, Declared] = {
     "TB_HOST_ROOT": Declared("path", "", "host scripts: fake host root for the tests only, empty on the box (D-408)"),
     "TB_HOST_TZ": Declared("str", "", "doctor: the host's zone to compare"),
     "TB_IMAGE": Declared("str", "trialbox-py:1.0.0", "the Python services' image"),
+    "TB_CODE_IMAGE": Declared("str", "", "qualify: the image id naming the code with no release tree (D-881)"),
+    "TB_HOST_GPU": Declared("str", "", "qualify in the image: the host's NVIDIA driver, CUDA, card as JSON (D-889)"),
     "TB_INGEST_SORT_MB": Declared(
         "int", "", "ingest: MB of NDJSON lines one sort run of the merge holds (unset: a sixteenth of the cap; D-473)"
     ),
@@ -666,6 +673,20 @@ DECLARED: dict[str, Declared] = {
     "TB_KEK_HOST_DIR": Declared("path", "/run/trialbox", "host folder of the unsealed KEK, mounted read-only (D-347)"),
     "TB_KEK_FILE": Declared("path", "", "the key-encryption key file"),
     "TB_KEK_NEW_PASSPHRASE": Declared("str", "", "keys tool: new KEK passphrase (secret)"),
+    "TB_HOST_PROFILE": Declared(
+        "str",
+        "site",
+        "site or poc: poc (a plain VM) makes host-facility checks WARN and listed; never PRODUCTION (D-837)",
+    ),
+    "TB_BOX_DEFER_SEAL": Declared(
+        "bool", "0", "install.sh: the site keys are sealed later, at box-install.sh's apply step (T-729, D-837)"
+    ),
+    "TB_SYSTEMD": Declared(
+        "bool", "1", "install.sh and seal_keys.sh: 0 skips the systemd units (the poc host profile's default, D-837)"
+    ),
+    "TB_KEK_BACKEND": Declared(
+        "str", "", "seal_keys.sh: the KEK back end (tpm, shamir or passphrase) without a hardening.conf (D-836)"
+    ),
     "TB_KEK_PASSPHRASE": Declared("str", "", "KEK passphrase (secret)"),
     "TB_KMS_TOKEN": Declared("str", "", "kms KEK back end: the hospital KMS token (secret; T-319)"),
     "TB_KMS_URL": Declared("str", "", "kms KEK back end: the KMS transit address when it moved from kek.json's"),
@@ -840,12 +861,13 @@ DECLARED: dict[str, Declared] = {
     "TB_REDCAP_TEST_TIMEOUT_S": Declared("float", "120", "REDCap test instance (D-584): seconds one API call may take"),
     # default deploy/site/redcap/redcap.zip (an ignored folder); never committed, bundled or downloaded
     "TB_REDCAP_ZIP": Declared("str", "", "REDCap test instance (D-584): path of the zip the owner supplies"),
-    "TB_REHEARSAL": Declared("str", "", "install.sh --rehearsal: a rehearsal box, TEST only; doctor says so (D-726)"),
+    "TB_REHEARSAL": Declared("str", "", "install.sh --rehearsal: a rehearsal box; doctor says so (D-726, D-887)"),
     "TB_REFDATA_DIR": Declared("path", "", "reference data folder"),
     "TB_REGISTRY_OVERRIDE": Declared("str", "", "model registry override"),
     "TB_REGISTRY_PATH": Declared("path", "", "model registry file"),
     "TB_REHEARSAL_DIR": Declared("path", "", "rehearsal work folder (tools)"),
     "TB_RELEASE_FILE": Declared("path", "", "release.json path"),
+    "TB_RELEASE_TREE": Declared("path", "", "qualify in the image: the signed release tree mounted read-only (D-881)"),
     "TB_RESTORE_ACTOR": Declared("str", "trialbox restore", "restore: actor in the audit"),
     "TB_RESTORE_FILE": Declared("str", "newest", "platform restore job: the backup on the share to restore (T-633)"),
     "TB_RESTORE_KEEP_DIR": Declared("path", "deploy/pre-restore", "restore: where the old files go"),

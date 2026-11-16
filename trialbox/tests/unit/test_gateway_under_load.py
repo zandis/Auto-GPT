@@ -468,7 +468,7 @@ def test_the_cascade_judge_validates_the_answer_against_the_schema() -> None:
 def test_judge_eval_on_the_stub_says_it_is_a_wiring_test(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
     from tools import judge_eval
 
-    items = (ROOT / "tests" / "fixtures" / "llm" / "judge_set.jsonl").read_text(encoding="utf-8").splitlines()[:5]
+    items = (ROOT / "eval" / "qualification" / "judge_set.jsonl").read_text(encoding="utf-8").splitlines()[:5]
     p = tmp_path / "set.jsonl"
     p.write_text("\n".join(items) + "\n", encoding="utf-8")
     assert judge_eval.main(["--set", str(p), "--gateway-url", ""]) == 0
@@ -489,7 +489,7 @@ def test_judge_eval_goes_through_a_gateway_with_a_model(tmp_path: Path) -> None:
         env={},
     )
     client = GatewayClient("http://gw/v1", "eval", http=TestClient(create_app(gw)))
-    items = [json.loads(x) for x in (ROOT / "tests/fixtures/llm/judge_set.jsonl").read_text().splitlines()[:3]]
+    items = [json.loads(x) for x in (ROOT / "eval/qualification/judge_set.jsonl").read_text().splitlines()[:3]]
     report = evaluate(items, GatewayEval(client))
     assert report["n"] == 3
     calls = [r for r in _records(tmp_path) if r["event"] == "llm.gateway.call"]

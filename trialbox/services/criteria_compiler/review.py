@@ -114,6 +114,13 @@ def _num(atom: Atom) -> str:
     return f"{v.num:g}{unit}"
 
 
+def _negated(expr: Atom | BoolExpr) -> Atom | BoolExpr:
+    """What the model wrote before the positive rewrite: ``none`` of the atom, or ``not`` of the expression."""
+    if isinstance(expr, Atom) and expr.quantifier in (None, "any"):
+        return expr.model_copy(update={"quantifier": "none"})
+    return BoolExpr(op="not", args=[expr])
+
+
 def logic_summary(expr: Atom | BoolExpr, valuesets: dict[str, dict[str, Any]]) -> str:
     if isinstance(expr, Atom):
         return atom_summary(expr, valuesets)
@@ -159,6 +166,8 @@ def rows(
             summary = c.note_question or c.human_question or ""
         if c.note_question_source:
             summary += f"\n[question rewritten from the negated form: {c.note_question_source}]"
+        if "negated_logic_rewritten" in (c.flags or []) and c.logic is not None:  # red of 2026-11-15 (jmed)
+            summary += f"\n[logic rewritten from the negated form: {logic_summary(_negated(c.logic), valuesets)}]"
         out.append(
             {
                 "id": c.id,

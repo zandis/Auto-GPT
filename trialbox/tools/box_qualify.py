@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path, PurePosixPath
@@ -98,8 +99,73 @@ def fill(given: list[str], found: list[str]) -> list[str]:
     return out
 
 
+def in_image(root: Path) -> bool:
+    """qualify imports the services' code: it runs where ``services/`` is (the trialbox-py image, a checkout), not
+    from the host's release tree (tools, libs, deploy only)."""
+    return (root / "services").is_dir()
+
+
+# options whose value names a host file or folder: mounted where it is (read-only), --out read-write (D-881)
+PATH_OPTS = ("--model-dir", "--server-log", "--audit-dir", "--evidence", "--check")
+
+
+def host_gpu_versions(run: Run) -> dict[str, str]:
+    """D-889: this host's NVIDIA driver, CUDA version and card (nvidia-smi), or {} when it has none; what qualify in
+    the image reports as the serving record's (TB_HOST_GPU)."""
+    try:
+        rows = run(["nvidia-smi", "--query-gpu=driver_version,name", "--format=csv,noheader"]).strip().splitlines()
+        full = run(["nvidia-smi"])
+    except Exception:
+        return {}
+    first = rows[0].split(",") if rows else []
+    if len(first) < 2 or not first[0].strip():
+        return {}
+    cuda = next((w.split()[0] for w in full.split("CUDA Version:")[1:2] if w.split()), "unknown")
+    return {"driver": first[0].strip(), "cuda": cuda, "gpu": first[-1].strip()}
+
+
+def relaunch_command(filled: list[str], root: Path, run: Run, env: dict[str, str] | None = None) -> list[str]:
+    """D-881: ``docker run`` of qualify in the trialbox-py image, from the host. The release tree (``root``, resolved:
+    ``/opt/trialbox/current``) is mounted read-only as TB_RELEASE_TREE and names the code; TB_CODE_IMAGE is the
+    image's id; every path qualify is given is mounted where it is; the container joins the gateway's network; the
+    operator's TB_* settings pass by name (a secret's value never on the command line)."""
+    env = dict(os.environ if env is None else env)
+    docker = shlex.split(env.get("TB_DOCKER") or "docker")
+    image = env.get("TB_IMAGE") or "trialbox-py:1.0.0"
+    image_id = run([*docker, "image", "inspect", "-f", "{{.Id}}", image]).strip()
+    tree = root.resolve()
+    cmd = [*docker, "run", "--rm", "-v", f"{tree}:/release:ro", "-e", "TB_RELEASE_TREE=/release",
+           "-e", f"TB_CODE_IMAGE={image_id}"]  # fmt: skip
+    # D-889: the image has no GPU; the serving record's driver, CUDA and card are this host's (nvidia-smi here)
+    host_gpu = host_gpu_versions(run)
+    if host_gpu:
+        cmd += ["-e", "TB_HOST_GPU=" + json.dumps(host_gpu, separators=(",", ":"))]
+    compose = shlex.split(
+        env.get("TB_COMPOSE") or f"docker compose --project-directory {shlex.quote(str(tree / 'deploy'))}"
+    )
+    cid = run([*compose, "ps", "-q", "gateway"]).strip().splitlines()
+    if cid:
+        got = json.loads(run([*docker, "inspect", cid[0]]) or "[]")
+        nets = sorted(((got[0] if got else {}).get("NetworkSettings") or {}).get("Networks") or {})
+        if nets:
+            cmd += ["--network", nets[0]]
+    seen: set[str] = set()
+    for opt, val in _pairs(filled):
+        if opt == "--out":
+            out = Path(val)
+            out.mkdir(parents=True, exist_ok=True)
+            cmd += ["-v", f"{out}:{out}"]
+        elif opt in PATH_OPTS:
+            path = val.split("=", 1)[1] if opt in ("--model-dir", "--evidence") and "=" in val else val
+            if path not in seen and Path(path).exists():
+                seen.add(path)
+                cmd += ["-v", f"{path}:{path}:ro"]
+    for name in sorted(n for n in env if n.startswith("TB_") and n not in ("TB_DOCKER", "TB_COMPOSE")):
+        cmd += ["-e", name]
+    return [*cmd, image, "python", "-m", "tools.qualify", *filled]
+
+
 def main(argv: list[str] | None = None) -> int:
-    from tools import qualify
     from tools.trialbox.update import run_cmd
 
     given = list(sys.argv[1:] if argv is None else argv)
@@ -114,4 +180,11 @@ def main(argv: list[str] | None = None) -> int:
     filled = fill(given, found)
     for opt, val in _pairs(filled[len(given) :]):
         print(f"qualify --box: {opt} {val}", file=sys.stderr)
+    if not in_image(ROOT):
+        # D-881: on the host, in the image, with the release tree naming the code
+        cmd = relaunch_command(filled, ROOT, run_cmd)
+        print("qualify --box: in the trialbox-py image, the release tree mounted read-only", file=sys.stderr)
+        return subprocess.run(cmd, check=False).returncode
+    from tools import qualify
+
     return qualify.main(filled)

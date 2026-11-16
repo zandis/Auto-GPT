@@ -195,9 +195,18 @@ def _sim_values(sim: Any, token: str) -> dict[tuple[str, str, str], str]:
     for r in rows:
         ev = r.pop("redcap_event_name", "")
         rid = r.pop("record_id")
+        boxes: dict[str, list[str]] = {}  # REDCap exports a checkbox as one 1/0 column per choice (NEW-EDC-3b)
         for k, v in r.items():
-            if v != "":
+            base, sep, code = k.partition("___")
+            if sep:
+                boxes.setdefault(base, [])
+                if v == "1":
+                    boxes[base].append(code)
+            elif v != "":
                 out[(rid, "" if ev == export.BASE_EVENT else ev, k)] = v
+        for base, codes in boxes.items():
+            if codes:
+                out[(rid, "" if ev == export.BASE_EVENT else ev, base)] = ",".join(codes)
     return out
 
 

@@ -431,6 +431,14 @@ def _override(inp: DoctorInputs) -> Path:
     return Path(raw) if raw else _site_dir(inp) / "registry.site.yaml"
 
 
+def placeholder_note(reg: Any) -> str:
+    """D-887: the box rehearsal's placeholder pins, named wherever pins are shown ("" when there is none)."""
+    names = [b.build_id for b in reg.builds if getattr(b, "rehearsal_placeholder", False)]
+    if not names:
+        return ""
+    return f"; {', '.join(names)}: rehearsal placeholder (not a model: proves the path, never promoted)"
+
+
 def check_registry_pins(inp: DoctorInputs) -> Check:
     from registry.registry import DEFAULT_PATH, Registry, Status
 
@@ -445,9 +453,10 @@ def check_registry_pins(inp: DoctorInputs) -> Check:
         return Check("registry_pins", "WARN", f"no model build pinned ({where}): only the DEV/TEST stub routes")
     names = ", ".join(f"{b.build_id} ({b.status.value}, {b.sha256[:12] if b.sha256 else ''})" for b in pinned)
     env = inp.env.get("TB_ENV", "DEV")
-    if env in ("VALIDATION", "PRODUCTION") and not any(b.status == Status.CHAMPION for b in pinned):
+    # D-823: a VALIDATION box runs its candidate pair; only PRODUCTION routes champions alone
+    if env == "PRODUCTION" and not any(b.status == Status.CHAMPION for b in pinned):
         return Check("registry_pins", "WARN", f"pinned: {names}; none is champion, so {env} roles route nothing")
-    return Check("registry_pins", "PASS", f"{reg.version}: pinned {names}")
+    return Check("registry_pins", "PASS", f"{reg.version}: pinned {names}{placeholder_note(reg)}")
 
 
 def verifier_is_the_judge(env: Mapping[str, str]) -> str | None:
@@ -730,7 +739,7 @@ def check_serving(inp: DoctorInputs) -> Check:
         return Check("serving", "FAIL", "; ".join(fails))
     if warns:
         return Check("serving", "WARN", "; ".join(warns))
-    return Check("serving", "PASS", "; ".join(good) + "; key required")
+    return Check("serving", "PASS", "; ".join(good) + "; key required" + placeholder_note(reg))
 
 
 MAPPING_ROOT = ROOT / "services" / "adapter"
@@ -1324,17 +1333,20 @@ def _standins_in_compose(inp: DoctorInputs) -> str:
 
 
 def check_rehearsal(inp: DoctorInputs) -> Check:
-    """REHEARSAL (D-726): a rehearsal box says so. ``deploy/install.sh --rehearsal`` writes ``TB_REHEARSAL=1`` and
-    ``TB_ENV=TEST`` to deploy/.env and the mark ``deploy/site/rehearsal.json``: WARN "rehearsal box" on a TEST box
-    (model stand-ins, an unmeasured card, synthetic data only); FAIL when either is on a box of any other
-    environment (someone changed TB_ENV of a rehearsal box by hand)."""
-    marked = (inp.env.get("TB_REHEARSAL") or "").strip() == "1"
+    """REHEARSAL (D-726, D-887): a rehearsal box says so. ``deploy/install.sh --rehearsal`` writes the mark
+    ``deploy/site/rehearsal.json``, then ``TB_REHEARSAL=1`` and ``TB_ENV`` to deploy/.env: VALIDATION since the
+    integrator's (i) (D3 stays on the box, so SCREEN reaches the pinned builds), TEST before. On a rehearsal box the
+    line is a standing WARN no setting turns off: "REHEARSAL BOX: placeholder models, synthetic data only". A
+    VALIDATION box needs both marks (TB_REHEARSAL=1 alone, or the file alone, is a site box touched by hand); a mark
+    on a box of any other environment FAILs (someone changed TB_ENV of a rehearsal box by hand)."""
+    flag = (inp.env.get("TB_REHEARSAL") or "").strip() == "1"
     mark = _site_dir(inp) / "rehearsal.json"
-    if mark.is_file():
-        marked = True
+    has_mark = mark.is_file()
+    marked = flag or has_mark
     env = (inp.env.get("TB_ENV") or "PRODUCTION").strip().strip("\"'").strip().upper()
+    rehearsal = (env == "TEST" and marked) or (env == "VALIDATION" and flag and has_mark)
     standins = _standins_in_compose(inp)
-    if standins and (env != "TEST" or not marked):
+    if standins and not rehearsal:
         what = env if env != "TEST" else "TEST box that is no rehearsal box"
         return Check(
             "rehearsal",
@@ -1344,18 +1356,21 @@ def check_rehearsal(inp: DoctorInputs) -> Check:
         )
     if not marked:
         return Check("rehearsal", "PASS", "not a rehearsal box")
-    if env != "TEST":
+    if not rehearsal:
+        half = " (a VALIDATION rehearsal box has both TB_REHEARSAL=1 and the mark file)" if env == "VALIDATION" else ""
         return Check(
             "rehearsal",
             "FAIL",
-            f"a rehearsal mark (TB_REHEARSAL=1 or {mark}) on a {env} box: a rehearsal box is TEST only. Install "
-            "the site's box afresh (deploy/install.sh without --rehearsal, on an empty box), never this one",
+            f"a rehearsal mark (TB_REHEARSAL=1 or {mark}) on a {env} box{half}: a rehearsal box is made by "
+            "deploy/install.sh --rehearsal only. Install the site's box afresh (deploy/install.sh without "
+            "--rehearsal, on an empty box), never this one",
         )
     return Check(
         "rehearsal",
         "WARN",
-        "rehearsal box: TEST, the model stand-ins and an unmeasured card are allowed; synthetic data only, never a "
-        "site's patients (D-726)",
+        f"REHEARSAL BOX: placeholder models, synthetic data only (a {env} rehearsal box; the model stand-ins and "
+        "an unmeasured card are allowed; never a site's patients; nothing is qualified or promoted on it; D-726, "
+        "D-887)",
     )
 
 
@@ -1977,6 +1992,33 @@ def check_two_device(inp: DoctorInputs) -> Check:
 TWO_DEVICE: tuple[Callable[[DoctorInputs], Check], ...] = (check_two_device,)
 
 
+# D-837: the checks of a host facility a plain VM has not got (the TPM-sealed keys, the off-box anchor folder): under
+# TB_HOST_PROFILE=poc on a box that is not PRODUCTION their FAIL is a WARN, and one line lists them. D-887 (the box
+# rehearsal on VALIDATION): the ops runner's systemd timer (a poc box installs no units, TB_SYSTEMD=0) and a missing
+# anchor folder for the signed heads; a stale or broken head where a folder is set stays a FAIL
+HOST_FACILITY_CHECKS = ("key_custody", "anchor_mount", "ops_runner", "audit_heads")
+HOST_FACILITY_ONLY: dict[str, str] = {"audit_heads": "no anchor folder"}  # eased only when the FAIL says this
+
+
+def host_profile(inp: DoctorInputs, out: list[Check]) -> list[Check]:
+    if (inp.env.get("TB_HOST_PROFILE") or "").strip() != "poc":
+        return out
+    from tb_common.config import environment_name
+
+    if environment_name(inp.env) == "PRODUCTION":
+        return [*out, Check("host_profile", "FAIL", "TB_HOST_PROFILE=poc on a PRODUCTION box: never relaxed there")]
+    eased = [
+        c.name
+        for c in out
+        if c.name in HOST_FACILITY_CHECKS
+        and c.status == "FAIL"
+        and c.detail.startswith(HOST_FACILITY_ONLY.get(c.name, ""))
+    ]
+    out = [replace(c, status="WARN", detail=f"{c.detail} [host profile poc]") if c.name in eased else c for c in out]
+    said = ", ".join(eased) if eased else "none failed"
+    return [*out, Check("host_profile", "WARN", f"host profile poc: host-facility checks as WARN: {said}")]
+
+
 def run(inp: DoctorInputs, checks: tuple[Callable[[DoctorInputs], Check], ...] = CHECKS) -> list[Check]:
     out: list[Check] = [Check("inputs", "FAIL", why) for why in inp.input_errors]
     for fn in checks:
@@ -1985,7 +2027,7 @@ def run(inp: DoctorInputs, checks: tuple[Callable[[DoctorInputs], Check], ...] =
             out.append(fn(inp))
         except Exception as e:  # fail closed: a check that cannot run is a failure
             out.append(Check(name, "FAIL", f"check error: {type(e).__name__}: {e}"))
-    return out
+    return host_profile(inp, out)
 
 
 def ok(checks: list[Check]) -> bool:

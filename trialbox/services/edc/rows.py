@@ -21,6 +21,8 @@ from collections.abc import Iterable, Mapping
 from datetime import date
 from typing import Any
 
+from datacore import forms
+
 from edc import logic
 from edc.layout import Layout, Slot, row_slot
 
@@ -55,20 +57,46 @@ class Rows:
         for r in rows:
             self.rows[layout.key(str(r.get(rid) or ""), row_slot(r, layout.longitudinal))] = r
         self.overlay: dict[Key, dict[str, str]] = {}
+        self.events_of: dict[str, set[str]] = {}  # CGRD-B3 (D-841): record -> every event it has a row on
 
     def form(self, field: str) -> str:
         return str((self.meta.get(field) or {}).get("form_name") or "")
 
     def arms(self, record: str) -> set[int]:
-        """The arms the record already has rows on (empty: a record with no event row yet)."""
-        return {self.layout.events.get(k[1], 1) for k in self.rows if k[0] == record}
+        """The arms the record already has rows on (empty: a record with no event row yet), from the rows read and
+        from :meth:`know_events` (CGRD-B3, D-841: every event row of the record, whatever fields were read)."""
+        seen = {k[1] for k in self.rows if k[0] == record} | self.events_of.get(record, set())
+        return {self.layout.events.get(ev, 1) for ev in seen}
+
+    def know_events(self, rows: Iterable[dict[str, Any]]) -> None:
+        """CGRD-B3 (D-841): the events each record has a row on, from an export of the record id alone: a REDCap
+        may leave out of a narrower read an event row that holds none of the fields asked for."""
+        for r in rows:
+            rec, ev = str(r.get(self.rid) or ""), str(r.get("redcap_event_name") or "")
+            if rec and ev:
+                self.events_of.setdefault(rec, set()).add(ev)
 
     def value(self, record: str, slot: Slot, field: str) -> str:
         """The value on the row: the one about to be sent, else what REDCap holds."""
         k = self.layout.key(record, slot)
         if field in self.overlay.get(k, {}):
             return self.overlay[k][field]
-        return str((self.rows.get(k) or {}).get(field) or "")
+        return self.held(record, slot, field)
+
+    def held(self, record: str, slot: Slot, field: str) -> str:
+        """What REDCap holds on the row, never what the send is about to lay over it."""
+        return self.held_at(self.layout.key(record, slot), field)
+
+    def held_at(self, key: Key, field: str) -> str:
+        """:meth:`held` by the row's key. A checkbox (REDCap exports one column per choice, named as
+        :func:`datacore.forms.checkbox_column` names it) is the codes ticked, in its choice order (NEW-EDC-3b)."""
+        row = self.rows.get(key) or {}
+        m = self.meta.get(field) or {}
+        if str(m.get("field_type") or "") == "checkbox" and field not in row:
+            codes = [p.split(",", 1)[0].strip() for p in str(m.get("select_choices_or_calculations") or "").split("|")
+                     if p.strip()]  # fmt: skip
+            return ",".join(c for c in codes if str(row.get(forms.checkbox_column(field, c)) or "") == "1")
+        return str(row.get(field) or "")
 
     def lay(self, record: str, slot: Slot, field: str, value: str) -> None:
         self.overlay.setdefault(self.layout.key(record, slot), {})[field] = value
@@ -94,10 +122,9 @@ class Rows:
                 at = Slot(ev, "", instance or slot.instance)
             else:
                 at = Slot(ev)
-            val = self.value(record, at, field)
+            val = self.value(record, at, field)  # a checkbox: its ticks as laid, else as REDCap holds (NEW-EDC-3b)
             if code is not None:
-                ticked = self.value(record, at, f"{field}___{code}")
-                return "1" if ticked == "1" or code in [c.strip() for c in val.split(",")] else "0"
+                return "1" if code in [c.strip() for c in val.split(",")] else "0"
             return val
 
         return lookup

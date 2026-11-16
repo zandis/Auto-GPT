@@ -270,7 +270,11 @@ def verify(
             raise Rejected(f"the box is at release_seq {have}; this bundle needs at least "
                            f"{manifest['min_installed_version']} installed first (min_installed_version)")  # fmt: skip
         downgrade = None
-        if seq <= have:
+        # D-833: the very bundle that is installed (same sequence, same manifest) is a repeat, not a downgrade:
+        # install.sh run again continues from where it stopped, and the update answers "already installed". A key
+        # rotation is never repeated (_rotate refuses it above)
+        repeat = seq == have and manifest_sha == inst.get("manifest_sha256") and not manifest.get("rotation")
+        if seq <= have and not repeat:
             if not allow_downgrade or not allow_downgrade.strip():
                 raise Rejected(f"release_seq {seq} is not above the installed {have} (a downgrade or a repeat); "
                                "refused (--allow-downgrade REASON overrides it, audited)")  # fmt: skip
@@ -357,7 +361,7 @@ def verify(
     # trust_sha256: the trust.json this bundle was verified against (None: the deploy/keys files); the update path
     # refuses under its lock when trust.json is no longer exactly that file (a rotation applied in between)
     manifest.update(manifest_sha256=manifest_sha, compat=meta[COMPAT], release=release, trust_after=trust_after,
-                    trust_sha256=trust_sha, downgrade=downgrade, compat_notes=notes)  # fmt: skip
+                    trust_sha256=trust_sha, downgrade=downgrade, compat_notes=notes, repeat=repeat)  # fmt: skip
     return dict(manifest)
 
 
@@ -516,7 +520,7 @@ def _cleanup(stage: Path) -> None:
 
 SUMMARY_KEYS = ("bundle_id", "signer", "manifest_sha256", "release_seq", "min_installed_version", "key_id",
                 "not_after", "compat", "release", "rotation", "trust_after", "trust_sha256", "downgrade",
-                "compat_notes")  # fmt: skip
+                "compat_notes", "repeat")  # fmt: skip
 
 
 def summary(m: dict[str, Any]) -> dict[str, Any]:

@@ -188,6 +188,8 @@ def run(ctx: Ctx) -> Outcome:
         raise StepFailed("received", f"NAV job {nav.job_id} is {nav.state}, not done.")
     if nav.received_at.date() < ctx.today() - timedelta(days=MAX_AGE_DAYS):
         raise StepFailed("received", f"NAV job {nav.job_id} is older than {MAX_AGE_DAYS} days; run NAV again.")
+    if pid in ctx.decision.register_now():  # D-513 (D-860): a bundle made before the opt-out is withheld on read
+        raise StepFailed("received", "the patient has opted out since the NAV list was made; not submitted.")
     out = next((o for o in nav.outputs or [] if o.filename == _bundle_name(ruleset, pid)), None)
     if out is None:
         raise StepFailed("received", f"NAV job {nav.job_id} holds no TWPAS bundle for pid {pid[:12]}.")

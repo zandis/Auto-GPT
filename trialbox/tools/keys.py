@@ -169,6 +169,14 @@ def new_kek(a: argparse.Namespace, sec: Path, env: Mapping[str, str], pass_var: 
         params = K.kms_seal(kek, url, a.kms_key, env.get("TB_KMS_TOKEN") or "")
         _say(f"KEK sealed by the KMS key {a.kms_key} at {url}; kek.json holds only the KMS ciphertext")
         return kek, K.new_meta("kms", kek, **params)
+    if getattr(a, "kek_in", None):
+        # D-836: a KEK sealed before any key is wrapped under it (seal_keys.sh): a failed seal changes nothing
+        given = Path(a.kek_in)
+        _outside(given, sec, "the KEK file")
+        kek = given.read_bytes() if given.is_file() else b""
+        if len(kek) != K.KEK_LEN:
+            raise K.KekError(f"{given} is not a KEK ({K.KEK_LEN} bytes): nothing was changed")
+        return kek, K.new_meta("file", kek)
     if not a.kek_out:
         raise K.KekError("--kek-out PATH is needed for the file back end (outside the secrets folder)")
     out = Path(a.kek_out)
@@ -421,6 +429,7 @@ def parser() -> argparse.ArgumentParser:
         p.add_argument("--shares", type=int, default=3, help="shamir: shares made (default 3)")
         p.add_argument("--shares-out", help="shamir: folder for the share files (outside the secrets folder)")
         p.add_argument("--kek-out", help="file: where the new KEK is written (outside the secrets folder)")
+        p.add_argument("--kek-in", help="file: use this KEK, made and sealed already (seal_keys.sh, D-836)")
         p.add_argument("--kms-url", help="kms: the transit address, e.g. https://kms.hosp/v1/transit (TB_KMS_URL)")
         p.add_argument("--kms-key", help="kms: the name of the KMS key that seals the KEK (token: TB_KMS_TOKEN)")
         p.add_argument("--scrypt-n", type=int, help=argparse.SUPPRESS)  # tests: a cheaper scrypt

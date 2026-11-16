@@ -18,8 +18,10 @@ one named funnel (S0 / S1 / S3 / S4, D-102) is now the engine's own stage log.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import logging
 import os
+import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
@@ -153,29 +155,121 @@ def job_vec_s2b(ctx: Ctx) -> bool:
     return on
 
 
+EMBED_OUTAGE_WAIT_S = 600  # TB_EMBED_OUTAGE_WAIT_S: seconds of one job spent waiting for the embed service
+
+
+def _transport_fault(exc: BaseException) -> bool:
+    """The embed service did not answer (a dropped or refused connection, a timeout, a 5xx): worth waiting for. A 4xx
+    or a malformed answer is not: it would fail again."""
+    import httpx
+
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code >= 500
+    return isinstance(exc, httpx.TransportError)
+
+
+class _VectorCache:
+    """Vectors the embed service gave, by model and text hash, least recently used out first (red of 2026-11-15:
+    S2b embeds a patient's window sentences for every zero-hit criterion, and again for every protocol; the same
+    sentence is now embedded once). ``TB_EMBED_CACHE_VECTORS`` of them (about 4 kB each); in this process only."""
+
+    def __init__(self, size: int) -> None:
+        from collections import OrderedDict
+
+        self.size = size
+        self._d: OrderedDict[tuple[str, str], tuple[float, ...]] = OrderedDict()
+        self._lock = threading.Lock()
+
+    @classmethod
+    def from_env(cls) -> _VectorCache:
+        raw = (os.environ.get("TB_EMBED_CACHE_VECTORS") or "").strip()
+        return cls(max(0, int(raw)) if raw else 20000)
+
+    @staticmethod
+    def _key(model: str, text: str) -> tuple[str, str]:
+        return model, hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    def get(self, model: str, text: str) -> list[float] | None:
+        k = self._key(model, text)
+        with self._lock:
+            v = self._d.get(k)
+            if v is None:
+                return None
+            self._d.move_to_end(k)
+            return list(v)
+
+    def put(self, model: str, text: str, vec: list[float]) -> None:
+        if self.size <= 0:
+            return
+        k = self._key(model, text)
+        with self._lock:
+            self._d[k] = tuple(vec)
+            self._d.move_to_end(k)
+            while len(self._d) > self.size:
+                self._d.popitem(last=False)
+
+
+_VECTORS = _VectorCache.from_env()
+
+
 class _Served:
     """The embed service's model for one job. NEW-LLM-2 (review): a service that stops answering, or changes its model,
     after the probe stops the job with a sentence; never a generic error, never two embedders in one run."""
 
-    def __init__(self, inner: Any) -> None:
+    def __init__(self, inner: Any, clock: Any = None, sleep: Any = None) -> None:
+        import time
+
         self.inner = inner
         self.model = str(inner.model)
+        self._clock = clock or time.monotonic
+        self._sleep = sleep or time.sleep
+        self.requests = 0  # answered, for the sentence a job that gives up says (red of 2026-11-15)
+        self.sentences = 0
+        self.waited = 0.0  # this job's seconds spent waiting for the service to come back
+
+    def _send(self, texts: list[str]) -> list[list[float]]:
+        """One request, sent again after a growing wait while it fails in transport (the service restarting) and the
+        job's ``TB_EMBED_OUTAGE_WAIT_S`` lasts, as a model outage is waited out (T-689)."""
+        from matching.cascade.engine import CascadeError
+
+        allowance = float(os.environ.get("TB_EMBED_OUTAGE_WAIT_S") or EMBED_OUTAGE_WAIT_S)
+        step = 2.0
+        while True:
+            try:
+                out = list(self.inner.embed(texts))
+            except Exception as exc:
+                if not _transport_fault(exc) or self.waited >= allowance:
+                    raise CascadeError(
+                        f"the embed service stopped answering during the run ({type(exc).__name__}) after "
+                        f"{self.requests} request{'s' if self.requests != 1 else ''} and {self.sentences} sentences "
+                        f"embedded; those are kept, so the request sent again starts where this one stopped"
+                    ) from exc
+                t0 = self._clock()
+                self._sleep(step)
+                self.waited += self._clock() - t0
+                step = min(step * 2, 30.0)
+                continue
+            self.requests += 1
+            self.sentences += len(texts)
+            return out
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         from matching.cascade.engine import CascadeError
 
-        try:
-            out = self.inner.embed(texts)
-        except Exception as exc:
-            raise CascadeError(
-                f"the embed service stopped answering during the run ({type(exc).__name__}); send the request again"
-            ) from exc
-        if str(self.inner.model) != self.model:
-            raise CascadeError(
-                f"the embed service changed its model during the run ({self.model} to {self.inner.model}); send the "
-                f"request again"
-            )
-        return list(out)
+        got: list[list[float] | None] = [_VECTORS.get(self.model, t) for t in texts]
+        todo = list(dict.fromkeys(t for t, v in zip(texts, got, strict=True) if v is None))
+        fresh: dict[str, list[float]] = {}
+        if todo:
+            out = self._send(todo)
+            if str(self.inner.model) != self.model:
+                raise CascadeError(
+                    f"the embed service changed its model during the run ({self.model} to {self.inner.model}); send "
+                    f"the request again"
+                )
+            for t, v in zip(todo, out, strict=True):
+                fresh[t] = list(v)
+                _VECTORS.put(self.model, t, fresh[t])
+        return [v if v is not None else fresh[t] for t, v in zip(texts, got, strict=True)]
 
 
 def screen_embedder(url: str | None) -> Any:
@@ -518,6 +612,7 @@ def screen_with_cascade(
         population=pids,
         note_block=may_block,
         absence_semantics=False,
+        s2b_when_fits=False,  # D-904: where every window note fits, the ranking changes no prompt; no embedding
         require_retrieval=True,  # NEW-LLM-2: nothing to retrieve with is said, never the first sentences read
         max_llm_items=max_pairs,
         note_batch=note_batch_of(),  # T-694 part 3: the notes of a batch of patients at a time, same answers

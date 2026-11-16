@@ -171,7 +171,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def signed_post(sess: Session, path: str, body: dict[str, Any]) -> Any:
         """T-719 (D-487): a chart or a sheet turns chart numbers into pseudonyms at the orchestrator, which asks
         for the verified person of the call (`site.setup`, the row `need_change` asked)."""
-        return actor.call(h, sess, "site.setup", None, "POST", path, body)
+        return actor.call(h, sess, "site.setup", None, "POST", path, body)  # T-715g (D-803): every set-up change
 
     def q(ws: str, rs: str, **more: str) -> str:
         return urlencode({"ws": ws, "study": rs, **{k: v for k, v in more.items() if v}})
@@ -195,7 +195,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         # the same per-person cap as the opt-out door, taken before the call and audited after it
         if h.chart_lookup is not None:
             h.chart_lookup(sess, "chart")
-        body: dict[str, Any] = {"chart_no": chart_no[:40], "lang": lang_of(sess), "by": h.actor(sess)}
+        body: dict[str, Any] = {"chart_no": chart_no[:40], "lang": lang_of(sess)}
         if data:
             body |= {"name": name[:200], "b64": base64.b64encode(data).decode("ascii")}
         else:
@@ -213,7 +213,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def act_fact(sess: Session, ws: str, fid: int, action: str, changes: dict[str, str]) -> dict[str, Any]:
         need_change(sess, "/site/facts")
-        out = dict(post(f"/setup/{ws}/facts/{fid}", {"action": action, "changes": changes, "by": h.actor(sess)}))
+        out = dict(signed_post(sess, f"/setup/{ws}/facts/{fid}", {"action": action, "changes": changes}))
         au.append("console.site_fact", actor=h.actor(sess), detail={"ws": ws, "fact": fid, "action": action})
         return out
 
@@ -225,7 +225,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             "medication": "http://www.whocc.no/atc",
         }.get(domain, "")
         out = dict(
-            post(
+            signed_post(
+                sess,
                 f"/setup/{ws}/codes",
                 {
                     "domain": domain,
@@ -233,7 +234,6 @@ def register(app: FastAPI, h: Helpers) -> None:
                     "code": code,
                     "target_system": tsys,
                     "target_code": target.strip().upper(),
-                    "by": h.actor(sess),
                 },
             )
         )
@@ -242,7 +242,7 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def act_check(sess: Session, ws: str, cid: int, answer: str) -> dict[str, Any]:
         need_change(sess, "/site/checks")
-        out = dict(post(f"/setup/{ws}/checks/{cid}", {"answer": answer, "by": h.actor(sess)}))
+        out = dict(signed_post(sess, f"/setup/{ws}/checks/{cid}", {"answer": answer}))
         au.append("console.site_check", actor=h.actor(sess), detail={"ws": ws, "check": cid, "answer": answer})
         return out
 
@@ -540,7 +540,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                 demo_guard.guard(request, h.problem)  # T-502: no upload in demo mode
                 need_change(sess, "/site/codes")
                 data = await up.read(MAX_UPLOAD + 1)
-                post(f"/setup/{w}/codes/sheet", {"b64": base64.b64encode(data).decode("ascii"), "by": h.actor(sess)})
+                signed_post(sess, f"/setup/{w}/codes/sheet", {"b64": base64.b64encode(data).decode("ascii")})
                 au.append("console.site_map", actor=h.actor(sess), detail={"ws": w, "sheet": True})
             else:
                 target = str(form.get("use") or form.get("target") or "")
@@ -624,7 +624,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             iid = str(form.get("input") or "")
             if iid.isdigit():  # new column roles for a sheet already in
                 roles = {str(k)[5:]: str(v) for k, v in form.items() if str(k).startswith("role:") and v in ROLES}
-                signed_post(sess, f"/setup/{w}/sheets/{iid}/roles", {"roles": roles, "by": h.actor(sess)})
+                signed_post(sess, f"/setup/{w}/sheets/{iid}/roles", {"roles": roles})
             else:
                 up = form.get("file")
                 if up is None or isinstance(up, str) or not getattr(up, "filename", None):
@@ -640,7 +640,6 @@ def register(app: FastAPI, h: Helpers) -> None:
                         "name": str(up.filename)[:200],
                         "roles": {},
                         "b64": base64.b64encode(data).decode("ascii"),
-                        "by": h.actor(sess),
                     },
                 )
             au.append("console.site_sheet", actor=h.actor(sess), detail={"ws": w})
@@ -676,9 +675,9 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(400, "csrf")
         w, rs = ws_of(str(form.get("ws") or "")), study_of(sess, str(form.get("study") or ""))
         need_change(sess, request.url.path)
-        body = {k: str(form.get(k) or "") for k in ("pid", "what", "keep")} | {"by": h.actor(sess)}
+        body = {k: str(form.get(k) or "") for k in ("pid", "what", "keep")}
         try:
-            post(f"/setup/{w}/people/resolve", body)
+            signed_post(sess, f"/setup/{w}/people/resolve", body)
             au.append("console.site_resolve", actor=h.actor(sess), detail={"ws": w, "pid": body["pid"][:8]})
         except Problem:
             return RedirectResponse(f"/site/people?{q(w, rs, done='refused')}", status_code=303)
@@ -730,7 +729,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         rs = study_of(sess, str(form.get("study") or ""))
         action = "reset" if str(form.get("action") or "") == "reset" else "load"
         try:
-            post(f"/setup/practice/{action}", {"by": h.actor(sess)})
+            signed_post(sess, f"/setup/practice/{action}", {})
         except (Problem, Unavailable):
             return RedirectResponse(f"/site/help?{q('main', rs, err='unavailable')}", status_code=303)
         au.append("console.site_practice", actor=h.actor(sess), detail={"action": action})
@@ -748,9 +747,9 @@ def register(app: FastAPI, h: Helpers) -> None:
             au.append("console.denied", actor=h.actor(sess), detail={"action": "remote help"})
             raise h.problem(403, "forbidden")
         on = str(form.get("on") or "") == "1"
-        body = {"on": on, "approved_by": str(form.get("approved_by") or "")[:80], "by": h.actor(sess)}
+        body = {"on": on, "hospital_approval": str(form.get("approved_by") or "")[:80]}  # T-715g (D-803): signed
         try:
-            s28.call(bk, "PUT", "/setup/remote", body)
+            actor.call(h, sess, "ops.network", None, "PUT", "/setup/remote", body)
         except Problem as exc:
             return RedirectResponse(f"/site/help?{urlencode({'err': exc.code})}#remote", status_code=303)
         au.append("console.site_remote", actor=h.actor(sess), detail={"on": on})

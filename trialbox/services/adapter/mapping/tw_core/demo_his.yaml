@@ -254,6 +254,36 @@ resources:
       component[1].valueQuantity.unit: {const: mmHg}
       component[1].valueQuantity.system: {template: "{sys.ucum}"}
       component[1].valueQuantity.code: {const: "mm[Hg]"}
+  # CGRD-A8 (D-846): a systolic or diastolic pressure with no partner at that time is an observation of its own,
+  # never a blood-pressure panel with one half (the profile needs both)
+  - type: Observation
+    table: vital
+    id: {hid: vital_no, suffix: "-SBP"}
+    where: [{column: sbp, not_empty: true}, {column: dbp, not_empty: false}]
+    elements:
+      status: {const: final}
+      category[0].coding[0]: {const: {system: "http://terminology.hl7.org/CodeSystem/observation-category", code: vital-signs}}
+      code.coding[0]: {const: {system: "http://loinc.org", code: 8480-6, display: Systolic blood pressure}}
+      subject.reference: {ref: {type: Patient, pid: mrn}}
+      effectiveDateTime: {column: measure_datetime, type: datetime}
+      valueQuantity.value: {column: sbp, type: decimal}
+      valueQuantity.unit: {const: mmHg}
+      valueQuantity.system: {template: "{sys.ucum}"}
+      valueQuantity.code: {const: "mm[Hg]"}
+  - type: Observation
+    table: vital
+    id: {hid: vital_no, suffix: "-DBP"}
+    where: [{column: dbp, not_empty: true}, {column: sbp, not_empty: false}]
+    elements:
+      status: {const: final}
+      category[0].coding[0]: {const: {system: "http://terminology.hl7.org/CodeSystem/observation-category", code: vital-signs}}
+      code.coding[0]: {const: {system: "http://loinc.org", code: 8462-4, display: Diastolic blood pressure}}
+      subject.reference: {ref: {type: Patient, pid: mrn}}
+      effectiveDateTime: {column: measure_datetime, type: datetime}
+      valueQuantity.value: {column: dbp, type: decimal}
+      valueQuantity.unit: {const: mmHg}
+      valueQuantity.system: {template: "{sys.ucum}"}
+      valueQuantity.code: {const: "mm[Hg]"}
   - type: MedicationRequest
     table: medication
     id: {hid: rx_no}

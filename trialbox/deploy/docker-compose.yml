@@ -194,7 +194,7 @@ services:
 
   embed-service:
     <<: *py
-    mem_limit: ${TB_MEM_EMBED:-4g}
+    mem_limit: ${TB_MEM_EMBED:-6g}   # D-890: one load about 3.5 GB (weights, runtime, a batch); 4g was too tight
     # ENG-003 (D-563): the embedder's own image (trialbox-py plus the hashed `embed` extra, CPU wheels); the
     # other services do not carry the library
     image: ${TB_EMBED_IMAGE:-trialbox-embed:1.0.0}

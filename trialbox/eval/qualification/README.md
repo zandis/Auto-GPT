@@ -14,6 +14,9 @@ Check a record before you rely on it:
 `--check` recomputes the status and the body's sha256. It refuses an edited record, a record of another profile and,
 for PRODUCTION, synthetic weights or a stub run.
 
+`judge_set.jsonl` is the synthetic judge set (`tools/make_judge_set.py`, D-55) the `pin` step and the bake-off
+read. It sits here, not under `tests/`, because the box image carries it and no product image carries `tests/`.
+
 `schema_probes.yaml` holds one adversarial probe per prompt id for the `schema` step (all data synthetic). Add a
 probe in the same pull request as a new prompt id: a prompt with no probe fails the step.
 

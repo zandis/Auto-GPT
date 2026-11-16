@@ -53,7 +53,9 @@ def _client(tmp_path: Path, known: Any) -> TestClient:
     # the door (T-719, D-487) has its own tests; here every caller is let in and its record is dropped
     door = lambda request, actions, service=False: SimpleNamespace(record=lambda *a, **k: None)  # noqa: E731
     app.include_router(setup_router(lambda: svc, lambda rs: {}, lambda rs: {}, lambda rs: None, lambda: False, door))
-    return TestClient(app)
+    from tests.actor3 import SignedClient
+
+    return SignedClient(app, sub="console:stw", role="steward")  # T-715g (D-803): the desk's signed call
 
 
 def test_the_route_says_whether_the_box_knows_the_pseudonym(tmp_path: Path, db_url: str) -> None:
