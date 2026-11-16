@@ -60,8 +60,12 @@ CONDITIONS = [
     _cond("P-BOTH", "c6", "C50.9", "relapse"),  # an earlier one cured, a relapse now: active
     _cond("P-RES-UNDATED", "c7", "C34.9", "resolved"),
     _cond("P-RES-UNDATED", "c8", "C34.9", None, onset=None),
+    _cond("P-SPACE", "c9", "C34.9", " Active "),  # a padded code: the CQL engine's parser trims it, so does the SQL
+    _cond("P-MIX", "c10", "C34.9", "active"),
+    _cond("P-MIX", "c11", "C34.9", "resolved"),
+    _cond("P-MIX", "c12", "C50.9", "resolved"),
 ]
-PIDS = ["P-ACTIVE", "P-RESOLVED", "P-REMISSION", "P-NOSTATUS", "P-BOTH", "P-RES-UNDATED", "P-NONE"]
+PIDS = ["P-ACTIVE", "P-RESOLVED", "P-REMISSION", "P-NOSTATUS", "P-BOTH", "P-RES-UNDATED", "P-SPACE", "P-MIX", "P-NONE"]
 VS = {"VS_MALIG": valueset("CS", "VS_MALIG", "malignancy", [Concept(ICD, "C34.9", "lung"), Concept(ICD, "C50.9", "breast")],
                            "1.0.0")}  # fmt: skip
 
@@ -114,6 +118,9 @@ EXPECTED: dict[str, dict[str, bool | None]] = {
     "P-NOSTATUS": {"CS-EXC-01": True, "CS-EXC-02": True, "CS-INC-01": False, "CS-INC-02": False},
     "P-BOTH": {"CS-EXC-01": True, "CS-EXC-02": True, "CS-INC-01": False, "CS-INC-02": None},
     "P-RES-UNDATED": {"CS-EXC-01": None, "CS-EXC-02": True, "CS-INC-01": None, "CS-INC-02": None},
+    "P-SPACE": {"CS-EXC-01": True, "CS-EXC-02": True, "CS-INC-01": False, "CS-INC-02": False},
+    # one active and two resolved: two active records cannot be told, so unknown
+    "P-MIX": {"CS-EXC-01": True, "CS-EXC-02": True, "CS-INC-01": False, "CS-INC-02": None},
     "P-NONE": {"CS-EXC-01": False, "CS-EXC-02": False, "CS-INC-01": True, "CS-INC-02": False},
 }
 
@@ -141,6 +148,15 @@ def test_a_resolved_condition_is_unknown_with_its_own_reason_never_an_exclusion(
     assert structured_verdict(exc, ev["P-ACTIVE"]).verdict == "fail"
     assert structured_verdict(exc, ev["P-NOSTATUS"]).verdict == "fail"
     assert structured_verdict(rs.criteria[1], ev["P-RESOLVED"]).verdict == "fail"  # history of: as before
+    # review of D-917: two active records asked, one active and two resolved: unknown for the resolved rows, which
+    # are shown; a decided answer shows only the rows that decided it
+    mix = structured_verdict(rs.criteria[3], ev["P-MIX"])
+    assert mix.verdict == "unknown" and mix.evidence is not None
+    assert mix.evidence.reason == Reason.CONDITION_NOT_ACTIVE.value
+    assert {r.split("|")[0] for r in mix.evidence.resource_refs or []} == {"c10", "c11", "c12"}
+    both = structured_verdict(exc, ev["P-BOTH"])
+    assert both.verdict == "fail" and both.evidence is not None
+    assert {r.split("|")[0] for r in both.evidence.resource_refs or []} == {"c6"}
     assert set(LABELS[Reason.CONDITION_NOT_ACTIVE.value]) == {"en", "ja", "zh-TW"}
 
 
@@ -192,6 +208,14 @@ def _extracted(text: str, kind: str = "exclusion") -> LlmExtractOutput:
         ("悪性腫瘍の既往", False),
         ("曾罹患惡性腫瘍", False),
         ("Inactive hepatitis B carrier", False),  # "inactive" is not "active"
+        # review of D-917: lines that say it is over, or ever, keep every row
+        ("Currently in remission from AML", False),
+        ("Non-active hepatitis B carrier", False),
+        ("No longer active disease", False),
+        ("Patients whose cancer is currently cured", False),
+        ("非活動性B型肝炎", False),
+        ("活動性のない結核", False),
+        ("現在までに悪性腫瘍と診断された", False),
     ],
 )
 def test_the_compiler_reads_active_from_the_line(text: str, active: bool) -> None:
@@ -201,6 +225,13 @@ def test_the_compiler_reads_active_from_the_line(text: str, active: bool) -> Non
     assert (status == ACTIVE) is active, (text, status)
     assert ("clinical_status_from_text" in (c.flags or [])) is active
     assert any("recorded as active" in w for w in post.warnings) is active
+
+
+def test_the_reviewer_sees_the_restriction() -> None:
+    from criteria_compiler.review import atom_summary
+
+    assert "only recorded as active, recurrence, relapse, or with no status" in atom_summary(CRIT[0].logic, VS)  # type: ignore[arg-type]
+    assert "only recorded" not in atom_summary(CRIT[1].logic, VS)  # type: ignore[arg-type]
 
 
 def test_only_condition_atoms_take_a_status_and_the_library_keeps_it() -> None:

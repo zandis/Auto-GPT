@@ -72,7 +72,14 @@ _OPERATION = re.compile(
 _ACTIVE = re.compile(
     r"\b(?:active|current|currently|ongoing)\b|活動性|活動期|現在|治療中|進行中|目前|現患", re.IGNORECASE
 )
-_PAST = re.compile(r"\b(?:history|previous|previously|prior|past|former|ever)\b|既往|過去|以前|病史|曾", re.IGNORECASE)
+# the line says it is past, over or ever (review of D-917: "in remission", "non-active", "no longer", 非活動性,
+# 活動性のない, 現在までに "so far, ever", "cured"): no restriction, every row counts as before
+_PAST = re.compile(
+    r"\b(?:history|previous|previously|prior|past|former|ever|remission|resolved|cured|healed|no longer|"
+    r"non-?active|inactive|not active)\b|既往|過去|以前|病史|曾|寛解|治癒|緩解|痊癒|非活動|活動性のない|"
+    r"活動性でない|現在まで",
+    re.IGNORECASE,
+)
 
 
 def says_active(text: str) -> bool:

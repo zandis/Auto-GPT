@@ -216,8 +216,9 @@ class SqlGenerator:
         # undated row does: never a silent true for "active cancer" from a cured one, never a silent false either
         statuses = atom.clinical_status if atom.domain == "condition" else None
         listed_st = ", ".join(lit(st) for st in statuses or ())
-        counted = f" AND (x.status IS NULL OR lower(x.status) IN ({listed_st}))" if statuses else ""
-        other = f" AND x.status IS NOT NULL AND lower(x.status) NOT IN ({listed_st})" if statuses else ""
+        st_code = "nullif(lower(trim(x.status)), '')"  # the CQL engine's FHIR parser trims a code; empty is none
+        counted = f" AND ({st_code} IS NULL OR {st_code} IN ({listed_st}))" if statuses else ""
+        other = f" AND {st_code} IS NOT NULL AND {st_code} NOT IN ({listed_st})" if statuses else ""
 
         def cte(n: str, source: str) -> str:
             return (
@@ -246,19 +247,28 @@ class SqlGenerator:
         )
         u = f"coalesce({nd}.n, 0)"
         ctes = [cte(name, src(self._vs_match, counted)), undated]
-        ev_other = ""
+        st = f"{name}_st"
         if statuses:
-            st = f"{name}_st"
             ctes.append(cte(st, src(listed_or_family, other)))
             u = f"({u} + coalesce({st}.n, 0))"
-            ev_other = f"{st}.ev || ';{NOT_ACTIVE}', "  # the reason, read back by labunit.reason_of
         settled = f"({n} > 0)" if quant != "count>=" else f"({n} >= {atom.count})"
         reach = f"({u} > 0)" if quant != "count>=" else f"({n} + {u} >= {atom.count})"
         hit = "TRUE" if quant != "none" else "FALSE"
         miss = "FALSE" if quant != "none" else "TRUE"
+
+        def with_status(ev: str, off: str = "") -> str:
+            """D-917: the other-status rows are shown beside the others, with the reason token (read back by
+            ``labunit.reason_of``, never shown as a record) unless an off-list family code is the reason."""
+            if not statuses:
+                return ev
+            # only an unknown answer shows them: a decided one shows the rows that decided it
+            skip = f"{settled} OR NOT {reach} OR " + (f"coalesce({off}.n, 0) > 0 OR " if off else "")
+            token = f"CASE WHEN {skip}{st}.ev IS NULL THEN NULL ELSE {st}.ev || ';{NOT_ACTIVE}' END"
+            return f"nullif(concat_ws(';', {ev}, {token}), '')"
+
         if not self.vs.families(vsn):
             expr = f"(CASE WHEN {settled} THEN {hit} WHEN {reach} THEN NULL ELSE {miss} END)"
-            return ctes, expr, f"coalesce({name}.ev, {ev_other}{nd}.ev)"
+            return ctes, expr, with_status(f"coalesce({name}.ev, {nd}.ev)")
         # fail closed (D-113): when the listed codes do not settle the atom but the patient has a record coded inside
         # the grouper's family that the list lacks, the answer is unknown (NULL), never a silent false / true
         off = f"{name}_off"
@@ -267,7 +277,7 @@ class SqlGenerator:
             f"(CASE WHEN {settled} THEN {hit} WHEN coalesce({off}.n, 0) > 0 THEN NULL WHEN {reach} THEN NULL "
             f"ELSE {miss} END)"
         )
-        return ctes, expr, f"coalesce({name}.ev, {off}.ev, {ev_other}{nd}.ev)"
+        return ctes, expr, with_status(f"coalesce({name}.ev, {off}.ev, {nd}.ev)", off)
 
     def _obs_source(self, atom: Atom, w: Window) -> str:
         """The rows of a value comparison. D-275 (review S-1): ``value_num`` is the row's number in the criterion's

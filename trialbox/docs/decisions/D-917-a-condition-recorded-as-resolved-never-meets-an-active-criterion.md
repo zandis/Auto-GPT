@@ -16,4 +16,9 @@
 
     The criterion is flagged `clinical_status_from_text` with a warning, so the reviewer sees it. A wrong match costs a review, never an answer, because the rule only ever turns a status-blind TRUE or FALSE into unknown. "History of X" keeps every row.
   - **Nothing shipped changes.** Shipped rulesets keep their approved IR, and none carries the field. Their SQL and CQL are byte for byte what they were (`build_rulesets --check`: equal), and so are the goldens. A protocol compiled from now on gets the field where its line says so. RA-BIO's "一年內有活動性結核病" would get it on a recompile, which needs the owner's re-approval and is not part of this card.
+- **Adversarial review (D-519 rule: this decides who is excluded).** It found no decided answer that flips. It made four findings, all fixed or answered:
+  - **(1) The text rule read lines that mean the opposite** as active: "in remission", "non-active", "no longer active", "cured", 非活動性, 活動性のない, 現在までに. The past words now include them, and the reviewer's line says "only recorded as …, or with no status" (`review.atom_summary`).
+  - **(2) A padded status code** (" active") gave NULL in the SQL and TRUE in the CQL. The SQL now trims, as the CQL engine's FHIR parser does, and reads an empty code as none.
+  - **(3) An unknown from a count threshold with mixed statuses** showed the reason `code_outside_list` and hid the resolved rows. The other-status rows are now shown with the reason `condition_not_active` whenever the answer is unknown for them. A decided answer shows only the rows that decided it.
+  - **(4) The approval's boundary table cannot exercise the field**, because no shipped ruleset carries it. The test runs the SQL and the CQL side by side on every status case instead.
 - **Test:** `tests/unit/test_clinical_status.py`.
