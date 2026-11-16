@@ -180,6 +180,7 @@ class GatewayJudge:
             )
         schema = p.meta.output_schema
         data = null_absent(load_schema(schema), res.data) if isinstance(res.data, dict) else None
+        data = no_sentinel_date(data) if isinstance(data, dict) else data
         if not isinstance(data, dict) or schema_errors(schema, data):
             # LLM-022: a reply outside the judge schema is no answer; it never reaches the verdict (fails safe)
             self.refusals.append("schema_invalid")
@@ -210,6 +211,19 @@ class GatewayJudge:
             tokens_in=res.tokens_in,
             tokens_out=res.tokens_out,
         )
+
+
+def no_sentinel_date(data: dict[str, Any]) -> dict[str, Any]:
+    """G8 of the P1b review (D-958): a quote date that is no real date ("0000-01-01", the model's way of saying it has
+    none) is no date: null, so an "unknown" with it is an answer, not a reply outside the schema."""
+    qd = data.get("quote_date")
+    if qd is None:
+        return data
+    try:
+        ok = date.fromisoformat(str(qd)[:10]).year >= 1900
+    except ValueError:
+        ok = False
+    return data if ok else {**data, "quote_date": None}
 
 
 @dataclass
