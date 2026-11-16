@@ -108,6 +108,13 @@ def test_trec_topics_qrels_and_a_balanced_sample() -> None:
     assert {p.patient for p in s1} == {"trec2021:1", "trec2021:2", "trec2021:3"} and len(s1) == 4
 
 
+def test_an_xml_file_with_a_doctype_or_an_entity_is_refused() -> None:
+    bomb = '<?xml version="1.0"?><!DOCTYPE t [<!ENTITY a "aaaa">]><topics><topic number="1">&a;</topic></topics>'
+    for text in (bomb, '<!ENTITY a "x"><topics/>'):
+        with pytest.raises(ValueError, match="is refused"):
+            sets.trec_topics(text, "2021")
+
+
 def test_only_an_https_address_is_opened() -> None:
     for url in ("file:///etc/passwd", "http://h.invalid/a", "ftp://h.invalid/a"):
         with pytest.raises(ValueError, match="only https"):

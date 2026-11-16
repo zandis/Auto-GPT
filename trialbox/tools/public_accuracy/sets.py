@@ -213,10 +213,26 @@ def stream_lines(cache: Path, source_id: str) -> Iterator[str]:
 TREC_LABEL = {"2": "eligible", "1": "excluded"}
 
 
+def _xml_root(xml_text: str) -> ET.Element:
+    """The root element of an outside XML file, refusing a document type or an entity declaration before anything is
+    parsed: without them no entity can be declared (so none expands or loads), and the TREC topics files have
+    neither. defusedxml is not a dependency of this package, so the refusal is done here."""
+    for decl in ("<!DOCTYPE", "<!ENTITY"):
+        if decl in xml_text:
+            raise ValueError(f"an XML file with {decl} is refused (no document type or entity is read)")
+    parser: ET.XMLPullParser[ET.Element] = ET.XMLPullParser(events=("start",))
+    parser.feed(xml_text)
+    parser.close()
+    for event in parser.read_events():
+        if len(event) == 2 and isinstance(event[1], ET.Element):
+            return event[1]
+    raise ValueError("an XML file without an element")
+
+
 def trec_topics(xml_text: str, year: str) -> dict[str, Patient]:
     """2021/2022: one free-text note per topic. 2023: questionnaire fields, written as ``field: value`` lines (the
     patient's chart is then a structured summary, marked so)."""
-    root = ET.fromstring(xml_text)
+    root = _xml_root(xml_text)
     out = {}
     for t in root.iter("topic"):
         key = f"trec{year}:{t.get('number')}"
