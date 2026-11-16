@@ -47,7 +47,7 @@ from criteria_compiler.compile_cql.generator import CqlGenerator, render_common
 from criteria_compiler.compile_cql.translator import TranslationError, Translator, fhirhelpers_source
 from criteria_compiler.compile_sql.generator import SqlGenerator
 from criteria_compiler.ctgov import CtGov, CtgovError
-from criteria_compiler.equivalence.gate import run_gate, unproven
+from criteria_compiler.equivalence.gate import run_gate, unproven, without_pseudonyms
 from criteria_compiler.ir_extract.postprocess import KIND_CODE, postprocess
 from criteria_compiler.repo import RulesetRepo
 from criteria_compiler.review import draft_zip, json_bytes, review_html, review_xlsx
@@ -477,7 +477,7 @@ class Compiler:
             if name != "FHIRHelpers":
                 files[f"cql/elm/{name}.json"] = text.encode("utf-8")
         files[f"sql/{manifest.id}.sql"] = art.sql.encode("utf-8")
-        files["tests/equivalence.json"] = json_bytes(dump(tests))
+        files["tests/equivalence.json"] = json_bytes(dump(without_pseudonyms(tests)))  # D-862: no pseudonym kept
         return files
 
     def _manifest(
