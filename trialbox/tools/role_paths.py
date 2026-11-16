@@ -143,7 +143,8 @@ def optout_tick(url: str) -> None:
 
 def second_lake(url: str) -> None:
     """D-721: a second lake's OMOP store. A service does not make it (it would be the service's own); the admin's
-    step makes it for the OMOP group; the adapter loads it and the lake, the orchestrator and the console read it."""
+    step makes it for the OMOP group; the adapter loads it and the lake and the orchestrator read it; the console is
+    refused (D-872)."""
     from omop import load, schema
     from omop.schema import OmopError
 
@@ -163,13 +164,23 @@ def second_lake(url: str) -> None:
         load.load_batch(writer, "feed", SNAPSHOT, _patient())
     finally:
         writer.close()
-    for role in ("tb_lake", "tb_orchestrator", "tb_console"):
+    for role in ("tb_lake", "tb_orchestrator"):
         db = schema.connect(_as(url, role), name, lake_dir=folder)
         try:
             if db.fetchval("SELECT count(*) FROM person") != 1:
                 raise RuntimeError(f"{role} does not read what tb_adapter loaded into {name}")
         finally:
             db.close()
+    # D-872: the console opens no OMOP store (its clinical conflicts are the orchestrator's routes, D-865)
+    try:
+        db = schema.connect(_as(url, "tb_console"), name, lake_dir=folder)
+        try:
+            db.fetchval("SELECT count(*) FROM person")
+        finally:
+            db.close()
+    except Exception:  # refused: the console's role is not of the OMOP group
+        return
+    raise RuntimeError(f"tb_console still reads {name}: the console's role should not hold the OMOP group")
 
 
 def site_space(url: str) -> None:

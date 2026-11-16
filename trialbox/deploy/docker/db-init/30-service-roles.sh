@@ -24,6 +24,8 @@
 #   tables of such a schema are made by the install step (`python -m orchestrator.migrate`, as `trialbox`), not by
 #   the service at start. First on the list: `edc`.
 # * `tuned` (tb_common.notmatched: the not-matched reasons) is read and written by the orchestrator and the console.
+# * D-872 (NEW-ARCH-3, after D-864 and D-865): `omop` and `sitesetup` are off the console's list: the console reads
+#   the clinical conflicts and the instrument switches over the orchestrator's routes and opens neither store.
 # * D-543 (NEW-ARCH-18): `profile` (the patient twin, built by the orchestrator) is on the console's list too: the
 #   console reads it for `GET /api/v1/studies/{rs}/patients/{pid}/twin` (it could not open the store on a box).
 # * D-541 (NEW-TRUST-1): the FHIR store signs in as `tb_fhir_store`, a role of its own (no superuser, no CREATEDB,
@@ -76,8 +78,8 @@ DECLARE
                         "study", "team", "terminology", "tuned", "vec"],
     "tb_mail_gateway": ["app", "mail"],
     "tb_gateway": ["app", "trace"],
-    "tb_console": ["app", "auth", "breakglass", "datacore", "derived", "feedback", "library", "mpi", "omop",
-                   "optout", "orch", "pidmap", "profile", "recall", "refdata", "sae", "site", "sitesetup", "study",
+    "tb_console": ["app", "auth", "breakglass", "datacore", "derived", "feedback", "library", "mpi",
+                   "optout", "orch", "pidmap", "profile", "recall", "refdata", "sae", "site", "study",
                    "team", "terminology", "tuned"]
   }';
   -- END SERVICE SCHEMAS
