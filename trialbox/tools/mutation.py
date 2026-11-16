@@ -355,11 +355,16 @@ def run(
     only: Sequence[str] = (),
     log: bool = True,
     budget_s: float | None = None,
+    part: tuple[int, int] = (1, 1),
 ) -> tuple[list[Result], dict[str, object]]:
+    """``part`` (K, N): only every N-th mutant of each target, from the K-th (ENG-006: a target too big for one
+    shard's budget is split; the parts' reports merge into the whole run, each mutant in exactly one part)."""
     python = python or sys.executable
+    k, n = part
     targets = [t for t in config.targets if not only or t.file in only]
     results: list[Result] = []
     meta: dict[str, object] = {"targets": {}}
+    mine: set[str] = set()  # the mutants of this part (all of them when the run is whole)
     scratch = scratch_root()  # never a fixed folder under the shared /tmp
     scratch.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="tb-mutation-", dir=scratch) as tmp:
@@ -367,10 +372,12 @@ def run(
         jobs: queue.Queue[tuple[Mutant, list[str], float]] = queue.Queue()
         for target in targets:
             source = (root / target.file).read_text(encoding="utf-8")
-            mutants = enumerate_mutants(source, target.file)
+            mutants = [m for i, m in enumerate(enumerate_mutants(source, target.file)) if i % n == k - 1]
+            mine.update(m.id for m in mutants)
             lines, seconds, rc = covered_lines(trees[0], python, target, timeout=600)
             timeout = max(60.0, 3 * seconds + 30)
-            meta["targets"][target.file] = {"mutants": len(mutants), "baseline_s": round(seconds, 1), "rc": rc}  # type: ignore[index]
+            key = target.file if n == 1 else f"{target.file} (part {k}/{n})"
+            meta["targets"][key] = {"mutants": len(mutants), "baseline_s": round(seconds, 1), "rc": rc}  # type: ignore[index]
             if rc != 0:
                 results += [Result(m.id, "error") for m in mutants]
                 continue
@@ -408,8 +415,30 @@ def run(
             t.join()
     files = {t.file for t in targets}
     seen = {r.mutant for r in results if r.status == "accepted"}
-    meta["stale_accepted"] = sorted(m for m in config.accepted if m.split(":", 1)[0] in files and m not in seen)
+    # an accepted mutant of another part is not stale here; one that no part finds is reported by part 1 only
+    stale = (m for m in config.accepted if m.split(":", 1)[0] in files and m not in seen)
+    meta["stale_accepted"] = sorted(m for m in stale if m not in mine and (n == 1 or (k == 1 and _gone(m, root))))
     return results, meta
+
+
+def _gone(mutant: str, root: Path) -> bool:
+    """An accepted mutant that no longer exists in its file (with parts, only part 1 says so: once)."""
+    file = mutant.split(":", 1)[0]
+    path = root / file
+    if not path.is_file():
+        return True
+    return mutant not in {m.id for m in enumerate_mutants(path.read_text(encoding="utf-8"), file)}
+
+
+def parse_part(text: str) -> tuple[int, int]:
+    """``K/N`` with 1 <= K <= N."""
+    try:
+        k, n = (int(x) for x in text.split("/", 1))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"--part K/N, not {text!r}") from None
+    if not 1 <= k <= n:
+        raise argparse.ArgumentTypeError(f"--part {text}: K is 1 to N")
+    return k, n
 
 
 def score(results: Sequence[Result]) -> tuple[float, dict[str, int]]:
@@ -466,6 +495,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--report", type=Path, help="write the results as JSON here")
     ap.add_argument("--list", action="store_true", help="print the mutants and run nothing")
     ap.add_argument("--merge", type=Path, nargs="+", help="score the JSON reports of several shards, run nothing")
+    ap.add_argument("--part", type=parse_part, default=(1, 1), help="K/N: every N-th mutant from the K-th (ENG-006)")
     args = ap.parse_args(argv)
     config = load_config(args.config)
     if args.merge:
@@ -478,7 +508,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"{n} mutants", file=sys.stderr)
         return 0
     budget = args.budget_minutes * 60 if args.budget_minutes else None
-    results, meta = run(config, workers=args.workers, only=args.target, budget_s=budget)
+    results, meta = run(config, workers=args.workers, only=args.target, budget_s=budget, part=args.part)
     return _report(config, results, meta, args.report)
 
 
