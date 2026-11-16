@@ -29,6 +29,7 @@ calls the function once with the judge as given.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
@@ -102,7 +103,9 @@ class DeferredVerifier:
         self.inner = inner
         self.judge = judge
         self.answers: dict[str, LlmResult | LlmError] = {}
-        self.pending: dict[str, tuple[str, dict[str, Any], str | None, dict[str, Any]]] = {}
+        # each pending question with the context it was asked in (D-908: the cascade's question, which the
+        # judged-pair store below the verifier keys by, is read in the worker thread that answers it)
+        self.pending: dict[str, tuple[str, dict[str, Any], str | None, dict[str, Any], contextvars.Context]] = {}
         self.strict = False
         self.live_calls = 0
         self._lock = threading.Lock()
@@ -115,7 +118,7 @@ class DeferredVerifier:
         with self._lock:
             got = self.answers.get(k)
             if got is None and not self.strict:
-                self.pending.setdefault(k, (prompt_id, variables, schema, kw))
+                self.pending.setdefault(k, (prompt_id, variables, schema, kw, contextvars.copy_context()))
         if isinstance(got, LlmError):
             raise got
         if got is not None:
@@ -135,12 +138,12 @@ class DeferredVerifier:
         with self._lock:
             todo, self.pending = dict(self.pending), {}
 
-        def one(item: tuple[str, tuple[str, dict[str, Any], str | None, dict[str, Any]]]) -> None:
-            k, (pid, variables, schema, kw) = item
+        def one(item: tuple[str, tuple[str, dict[str, Any], str | None, dict[str, Any], contextvars.Context]]) -> None:
+            k, (pid, variables, schema, kw, asked_in) = item
             try:
                 if broken:
                     raise LlmError(broken)
-                res: LlmResult | LlmError = self.inner.chat_json(pid, variables, schema, **kw)
+                res: LlmResult | LlmError = asked_in.run(self.inner.chat_json, pid, variables, schema, **kw)
             except LlmError as exc:
                 res = exc
             with self._lock:

@@ -723,6 +723,10 @@ class Orchestrator:
             t.start()
             self._threads.append(t)
 
+    def workers_alive(self) -> tuple[int, int]:
+        """D-895: ``(alive, started)`` worker threads; the health line is red when a started worker is dead."""
+        return sum(t.is_alive() for t in self._threads), len(self._threads)
+
     def stop(self) -> None:
         self._stop.set()
         with self._wake:
@@ -736,8 +740,22 @@ class Orchestrator:
         # T-704 (D-458; scale review F-33): with two or more workers the first is the ingest's: long jobs on every
         # other worker never make the night's ingest wait
         only = INGEST_ONLY if self.n_workers > 1 and threading.current_thread().name == "worker-0" else ()
+        down = 0  # D-895: claims in a row that could not reach the database
         while not self._stop.is_set():
-            jid = self.db.claim(only)
+            try:
+                jid = self.db.claim(only)
+            except Exception as exc:  # the database not reachable (a restart, a reboot's start order): never end
+                down += 1
+                pause = min(WORKER_RETRY_MAX, WORKER_RETRY_FIRST * 2 ** min(down - 1, 10))
+                if down == 1 or (pause >= WORKER_RETRY_MAX and down % 10 == 0):
+                    log.warning("worker cannot claim a job (%s, %d time(s) in a row); retrying in %.1f s",
+                                type(exc).__name__, down, pause)  # fmt: skip
+                with self._wake:
+                    self._wake.wait(timeout=pause)
+                continue
+            if down:
+                log.info("worker reaches the database again after %d failed claim(s)", down)
+                down = 0
             if jid is None:
                 try:
                     if self._rewatch():  # D-532: a job its holder left unfinished is queued again
@@ -772,6 +790,11 @@ class Orchestrator:
             self.run(jid)
             if total is not None and time.monotonic() - start > total:
                 raise TimeoutError("queue not drained")
+
+
+#: D-895: a worker that cannot reach the database waits this long, doubling to the cap, and tries again
+WORKER_RETRY_FIRST = 1.0
+WORKER_RETRY_MAX = 30.0
 
 
 def job_language(ctx: Ctx) -> str:

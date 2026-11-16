@@ -9,8 +9,8 @@
 #   deploy/gcp/demo-vm.sh up [--yes]       network, subnet, the tcp:443 rule, the VM (or start the stopped one);
 #                                          without --yes it only prints, as --dry-run
 #   deploy/gcp/demo-vm.sh status           the VM, its address, the rule's ranges, the hard stop, the boot log's end
-#   deploy/gcp/demo-vm.sh links            the people's one-time codes (written by the VM after the seed): prints
-#                                          them once and deletes the object; give each person their own line
+#   deploy/gcp/demo-vm.sh links            the people's one-time links (D-776; written by the VM after the seed):
+#                                          prints them once and deletes the object; give each person their own line
 #   deploy/gcp/demo-vm.sh down             stop the VM and check that it shows TERMINATED (the disk stays)
 #   deploy/gcp/demo-vm.sh delete [--yes]   delete the VM (and its disk), the rule, the subnet and the network
 #
@@ -199,8 +199,8 @@ up() {
   fi
   say "https://$(vm_ip)/ answers after the seed (about 10 minutes; \`demo-vm.sh status\` shows DEMO-VM-READY)"
   say "the browser warns once (Caddy's own certificate)"
-  say "after DEMO-VM-READY: deploy/gcp/demo-vm.sh links prints each person's one-time code once (then deletes it);"
-  say "  each person opens https://<address>/enrol, types the user name and the code, and chooses a password"
+  say "after DEMO-VM-READY: deploy/gcp/demo-vm.sh links prints each person's one-time link once (then deletes it);"
+  say "  each person opens their link (https://<address>/enrol#u=...&c=...: the page fills the two fields) and chooses a password"
   if [ "$OPEN_ANY" = 1 ]; then say "$OPEN_TEXT"; fi
   say "it powers itself off $HOURS h after its start; stop it earlier with: deploy/gcp/demo-vm.sh down"
 }
@@ -275,11 +275,11 @@ delete() {
   fi
 }
 
-links() {  # the codes' object(s) the VM wrote: the newest printed once, then every one deleted
+links() {  # the links' object(s) the VM wrote: the newest printed once, then every one deleted
   local objs newest o
   if [ "$DRY" = 1 ]; then
     echo "+ gcloud storage ls $HANDOFF/enrol-*.txt"
-    echo "+ gcloud storage cat <the newest>   # the one-time codes, printed once"
+    echo "+ gcloud storage cat <the newest>   # the one-time links, printed once"
     echo "+ gcloud storage rm <each enrol-*.txt there>"
     return 0
   fi

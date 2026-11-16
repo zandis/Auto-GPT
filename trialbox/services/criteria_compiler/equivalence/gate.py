@@ -162,3 +162,15 @@ def run_gate(
 
 def summary(report: EquivalenceReport) -> dict[str, Any]:
     return {"overall_pct": report.overall_pct, "failing": report.failing, "sample_size": report.sample_size}
+
+
+def without_pseudonyms(report: EquivalenceReport) -> EquivalenceReport:
+    """T-206b part 2b (D-862): the report as it is stored (the draft's ``tests/equivalence.json``, kept in the
+    criteria library's history): each disagreeing patient is a case label (``case-001``, in the order first named),
+    never the pseudonym, and no evidence (its lake resource ids and dates lead back to the patient). The run itself
+    keeps both in memory; nothing reads a stored disagreement's patient or evidence back (``enforce`` reads the
+    failing criteria and the percentages). Reports stored before this change keep theirs in the history."""
+    labels: dict[str, str] = {}
+    out = [d.model_copy(update={"pid": labels.setdefault(d.pid, f"case-{len(labels) + 1:03d}"), "evidence_cql": [],
+                                "evidence_sql": ""}) for d in report.disagreements or []]  # fmt: skip
+    return report.model_copy(update={"disagreements": out})
