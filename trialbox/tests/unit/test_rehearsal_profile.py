@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from tests.unit.test_release_bundle import HAPI, OWN, VLLM, _gate_record, _make, kit  # noqa: F401
+from tests.unit.test_release_bundle import BACKUP, HAPI, OWN, VLLM, _gate_record, _make, kit  # noqa: F401
 from tests.unit.test_release_dirty_refused import EnvBox, _release, _upd, _with
 from tools.trialbox import doctor
 from tools.trialbox import update as up
@@ -202,7 +202,7 @@ def test_doctor_has_nothing_to_say_on_a_box_that_is_no_rehearsal(tmp_path: Path)
 
 # ------------------------------------------------------- 5. a rehearsal bundle is marked; a site box refuses it
 def test_a_bundle_built_for_a_rehearsal_says_so(kit: dict[str, Any]) -> None:  # noqa: F811
-    gates, sbom = _gate_record(kit["tmp"], [*OWN, HAPI, VLLM])
+    gates, sbom = _gate_record(kit["tmp"], [*OWN, BACKUP, HAPI, VLLM])
     res = _make(kit, "--release-seq", "4", "--gates", str(gates), "--sbom-dir", str(sbom), "--rehearsal")
     assert res.returncode == 0, res.stdout + res.stderr
     with tarfile.open(kit["tmp"] / "out.tar") as tf:
@@ -211,7 +211,7 @@ def test_a_bundle_built_for_a_rehearsal_says_so(kit: dict[str, Any]) -> None:  #
 
 
 def test_a_bundle_built_for_a_site_does_not(kit: dict[str, Any]) -> None:  # noqa: F811
-    gates, sbom = _gate_record(kit["tmp"], [*OWN, HAPI, VLLM])
+    gates, sbom = _gate_record(kit["tmp"], [*OWN, BACKUP, HAPI, VLLM])
     res = _make(kit, "--release-seq", "4", "--gates", str(gates), "--sbom-dir", str(sbom))
     assert res.returncode == 0, res.stdout + res.stderr
     with tarfile.open(kit["tmp"] / "out.tar") as tf:

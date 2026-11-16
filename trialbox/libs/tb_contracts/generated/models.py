@@ -1319,6 +1319,10 @@ class ReleaseImage(BaseModel):
     archive: str
     sbom: str
     sbom_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+    runs: Literal["service", "job"] | None = None
+    """
+    How the box runs the image (D-968): `service`, a compose service's container; `job`, a one-off container (the nightly backup), so no box container runs it between runs. Absent in a bundle built before: a service.
+    """
 
 
 class ReleaseSource(BaseModel):
