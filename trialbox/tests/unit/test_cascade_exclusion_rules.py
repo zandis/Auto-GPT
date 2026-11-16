@@ -50,7 +50,7 @@ PATIENTS: dict[str, list[tuple[date, str]]] = {
     "P-NONE": [],
     "P-QUIET": [(date(2026, 9, 20), "Routine visit\nBlood pressure stable")],
     # six long notes, each with the evidence sentence: only two fit the excerpt budget
-    "P-MANY": [(date(2026, 9, d), f"{FLARE}\n{FILLER}") for d in range(1, 7)],
+    "P-MANY": [(date(2026, 9, d), f"{FLARE}\n{FILLER} Visit {d}.") for d in range(1, 7)],  # distinct (D-905)
 }
 
 

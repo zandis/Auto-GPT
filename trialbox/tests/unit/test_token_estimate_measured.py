@@ -65,7 +65,8 @@ def test_the_cascades_excerpt_set_fits_its_budget_as_the_prompt_counts_it(text: 
     """Review of D-645: the cascade sized its set on the notes' text alone; the prompt shows each note with its
     date and type as JSON. Hundreds of short notes passed as "all shown, none left out" and the gateway then
     refused the whole call as too long. The set is sized with the count the prompt is sized with."""
-    notes = [cascade_engine._Note(f"d{i}", date(2026, 1, 1), "progress", text, sentences(text)) for i in range(400)]
+    texts = [f"{text} {i}" for i in range(400)]  # distinct: copies forward are shown once (D-905)
+    notes = [cascade_engine._Note(f"d{i}", date(2026, 1, 1), "progress", t, sentences(t)) for i, t in enumerate(texts)]
     shown, left_out = cascade_engine._Run.excerpt_set(notes, {}, budget=cascade_engine.EXCERPT_TOKENS)
     assert sum(excerpt_tokens(e) for e in shown) <= cascade_engine.EXCERPT_TOKENS
     assert left_out == 400 - len(shown) > 0

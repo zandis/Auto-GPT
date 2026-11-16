@@ -71,6 +71,7 @@ from matching.cascade.s2b_semantic import (
     SourceFallback,
     SourceRanking,
     ThresholdTable,
+    boilerplate,
     screen,
 )
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
@@ -164,6 +165,9 @@ class CascadeConfig:
     population: Sequence[str] | None = None
     note_block: bool = True
     absence_semantics: bool = True
+    # D-904 (lane G's review): False skips S2b for a zero-hit pair the judge reads anyway (no absence semantics, not
+    # the index sweep) when every note of its window fits the excerpt budget: the ranking would change no prompt
+    s2b_when_fits: bool = True
     # T-708 (D-477): the consent state of S0, given by the caller's decision context (the orchestrator). None: a
     # caller with no job (a tool) and S0 reads the lake by the same rule (``tb_common.optout.registry_state``).
     registry: Callable[[], RegistryState | None] | None = None
@@ -823,6 +827,14 @@ class _Run:
             cid = key.split(":", 1)[1] if index_sweep else key
             c = self.crit[cid]
             sents = [(n, s) for n in win for s in n.sents]
+            if sents and not index_sweep and not self.cfg.absence_semantics and not self.cfg.s2b_when_fits:
+                shown, left = self.excerpt_set(win, {}, self.budget_of(c, t.index_date))
+                if left == sum(1 for n in win if not n.text.strip()):  # every note with text shown in full
+                    self.metrics.pairs_s2b_above += 1
+                    self.metrics.s2b_skipped_fit += 1
+                    sset = sorted({sentence_hash(x) for _, x in sents})
+                    routes.append(_Route(pid, cid, shown, _set_hash(sset), "S2b", 0.0, left_out=left))
+                    continue
             query = " ".join([c.note_question or c.text, *lexicon_terms(c, self.cfg.lexicon)])
             thr = self.cfg.thresholds.get(c.kind, self.cfg.language)
             stored = self._from_store(t, query, win, len(sents)) if sents else None
@@ -833,8 +845,10 @@ class _Run:
             elif self.embedder is None:
                 res_above, best, top = True, 1.0, list(range(min(5, len(sents))))  # no S2b: never absence
             else:
-                res = screen(self.embedder, query, [s for _, s in sents], thr)
-                res_above, best, top = res.above, res.best, [i for i, _ in res.top]
+                skip = boilerplate([n.sents for n in win])  # D-905: recurring template lines are not embedded
+                idx = [i for i, (_, x) in enumerate(sents) if x.strip() not in skip] or list(range(len(sents)))
+                res = screen(self.embedder, query, [sents[i][1] for i in idx], thr)
+                res_above, best, top = res.above, res.best, [idx[i] for i, _ in res.top]
             held = (
                 index_sweep
                 and res_above
