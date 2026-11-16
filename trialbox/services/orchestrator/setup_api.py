@@ -67,6 +67,24 @@ def _sees_patients(who: Claim, request: Request) -> None:
         raise route_actor.refusal(request, "site.setup", "right", who.sub, None)
 
 
+class InstrumentBody(BaseModel):
+    """NEW-ARCH-3 slice 3 (D-864): an instrument's switch: what the site keeps of it, and the site's licence
+    reference (an empty one is refused for a level above the catalogue's)."""
+
+    model_config = ConfigDict(extra="forbid")  # the person is the verified one, never a field
+    storable: str = Field(default="", max_length=40)
+    licence_ref: str = Field(default="", max_length=200)
+
+
+def _admin_only(who: Claim, request: Request) -> None:
+    """NEW-ARCH-3 slice 3 (D-864): the instrument switches are the box's data steward's, the administrator, as the
+    console's page has always asked: a coordinator holds ``site.setup`` too and is refused here."""
+    from orchestrator import actor as route_actor
+
+    if who.role != "admin":  # on the record as every refusal (actor.refused)
+        raise route_actor.refusal(request, "site.setup", "right", who.sub, None)
+
+
 class SheetBody(BaseModel):
     model_config = ConfigDict(extra="forbid")  # T-715g (D-803): the person is the verified one, never a field
     kind: str = Field(pattern=r"^(sheet|dump)$")
@@ -471,6 +489,34 @@ def router(
             detail={"on": body.on, "approved_by": body.hospital_approval[:80], "real_data": real_data()},
         )
         return {"on": body.on, "approved_by": approval, "real_data": real_data()}
+
+    @r.get("/setup/instruments")
+    def get_instruments() -> dict[str, Any]:
+        """NEW-ARCH-3 slice 3 (D-864): the instrument switches as stored (``tb_common.instruments``); no patient."""
+        from tb_common import instruments
+
+        return {"setting": get().store.setting(instruments.SETTING)}
+
+    @r.put("/setup/instruments/{iid}")
+    def put_instrument(iid: str, body: InstrumentBody, request: Request, who: Claim = AS_SITE) -> dict[str, Any]:
+        """NEW-ARCH-3 slice 3 (D-864): the data steward's switch of one instrument (T-307, D-375): a level above
+        the catalogue's needs the site's licence reference (400 with its code), the catalogue's own level needs
+        none. The console writes the audit event, as before."""
+        from tb_common import catalogue, instruments
+
+        _admin_only(who, request)
+        svc = get()
+        at = svc.stamp()
+        have = instruments.switches(svc.store.setting(instruments.SETTING))
+        try:
+            new = instruments.switch(have, iid[:40], body.storable, body.licence_ref, who.name, at)
+        except instruments.SwitchRefused as exc:
+            raise HTTPException(status_code=400, detail={"code": exc.code, "message": "switch refused"}) from exc
+        except catalogue.CatalogueError as exc:
+            raise HTTPException(status_code=503, detail={"code": "register", "message": "register unreadable"}) from exc
+        svc.store.set_setting(instruments.SETTING, instruments.dump(new), who.name, at)
+        sw = new.get(iid)
+        return {"storable": sw.storable if sw else "catalogue", "licence_ref": sw.licence_ref if sw else ""}
 
     @r.post("/assist")
     def assist(body: AssistBody) -> dict[str, Any]:

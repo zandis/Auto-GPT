@@ -25,6 +25,7 @@ refuse:
   - dataops               # NEW-SEC-4 (D-760): the steward's accept of a held night (dataops.decide)
   - datacore              # T-715f (D-799): the study's set-up, data entry and an SAE report's day sent
   - setup                 # T-715g (D-803): the site's set-up, the opt-out desk's pseudonym, the remote help switch
+  - omop_conflicts        # NEW-ARCH-3 slice 2 (D-865): the steward settles a clinical conflict (conflicts.resolve)
 
 report: []
 
@@ -82,6 +83,7 @@ reads_without_patient:
   GET /setup/{ws}/feasibility: "counts per criterion"
   GET /setup/terminology: "which licensed code lists are loaded"
   GET /setup/remote: "whether remote help is on"
+  GET /setup/instruments: "D-864: the instrument copyright switches (what the site keeps of each); no patient"
   GET /studies/{rs}/edc/map/suggest: "suggested field mappings"
   GET /registry: "per study, counts of the registry's states"
   GET /registry/{ruleset}/export.xlsx: "every chart number of a study; the handler verifies the signed person, role and studies itself (v2, D-273, S-09) and audits it"
