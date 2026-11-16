@@ -321,6 +321,29 @@
      ],
      "default": null,
      "title": "Diagnosis Role"
+    },
+    "clinical_status": {
+     "anyOf": [
+      {
+       "items": {
+        "enum": [
+         "active",
+         "recurrence",
+         "relapse",
+         "inactive",
+         "remission",
+         "resolved"
+        ],
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Clinical Status"
     }
    },
    "required": [
