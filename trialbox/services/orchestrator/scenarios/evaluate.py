@@ -229,6 +229,12 @@ def _vote(r: NoteResult) -> Vote:
     return Vote(r.predicate, r.confidence, r.reason, served_keys(r.model, r.build_sha))
 
 
+def served(judge: Any, role: str) -> str | None:
+    """The name ``role``'s model answered under on this run (G12, D-980); None for a judge that keeps none."""
+    fn = getattr(judge, "served_name", None)
+    return fn(role) if callable(fn) else None
+
+
 @dataclass
 class NoteJudge:
     """The note judge of both screening paths, with the two-model rule of :mod:`tb_common.pair` (D-118).

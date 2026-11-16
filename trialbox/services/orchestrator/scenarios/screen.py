@@ -52,6 +52,7 @@ from orchestrator.scenarios.evaluate import (
     is_note_answer,
     not_in_snapshot,
     row,
+    served,
     sort_key,
 )
 from orchestrator.scenarios.review import recipients, require_approved
@@ -146,8 +147,8 @@ def judging_info(judge: NoteJudge | None, ctx: Any = None) -> dict[str, Any]:
     return {
         "mode": judge.mode if judge is not None else "none",
         # G12 (D-960): the model that answered, by the name it answered under; the configured one until it has
-        "judge_model": (judge.served_name("judge") or judge.llm.model) if judge is not None else None,
-        "verifier_model": (judge.served_name("verifier") or judge.verifier.model)
+        "judge_model": (served(judge, "judge") or judge.llm.model) if judge is not None else None,
+        "verifier_model": (served(judge, "verifier") or judge.verifier.model)
         if judge is not None and judge.verifier is not None
         else None,
         "note_block": policy,
