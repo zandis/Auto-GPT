@@ -281,6 +281,10 @@ def _order(n: Note) -> tuple[Any, ...]:
     return (tuple(-ord(ch) for ch in day), natural, n.text)
 
 
+#: D-941: an excerpt's key for the earlier dates of the notes with the same text (copy-forward, D-905), oldest first
+SAME_TEXT_ALSO_ON = "same_text_also_written_on"
+
+
 def build(
     window: Sequence[Note],
     evidence: Mapping[str, Collection[str]],
@@ -296,10 +300,16 @@ def build(
     seen: dict[str, Note] = {}
     dups: list[str] = []
     kept: list[Note] = []
+    # D-941 (review of D-940): the dates of the copies a shown note stands for. A line in relative time ("last dose
+    # given today") read only under the newest copy's date would move an event forward; the models see that the same
+    # text was also written on these days
+    also: dict[str, set[str]] = {}
     for n in newest_first:
         same = " ".join(n.text.split())
         if same and same in seen:
             dups.append(n.did)
+            if n.iso != seen[same].iso:
+                also.setdefault(seen[same].did, set()).add(n.iso)
             if n.did in evidence and seen[same].did not in evidence:  # its evidence is the kept copy's too
                 evidence = {**evidence, seen[same].did: evidence[n.did]}
             continue
@@ -338,5 +348,9 @@ def build(
             shown.append((n, part))
             left -= part_cost
     shown.sort(key=lambda x: _order(x[0]))
-    out = [{"date": n.iso, "note_type": n.type, "text": text, "did": n.did} for n, text in shown]
+    out = [
+        {"date": n.iso, "note_type": n.type, "text": text, "did": n.did}
+        | ({SAME_TEXT_ALSO_ON: sorted(also[n.did])} if n.did in also else {})
+        for n, text in shown
+    ]
     return ExcerptSet(out, len(cut), cut, dups)
