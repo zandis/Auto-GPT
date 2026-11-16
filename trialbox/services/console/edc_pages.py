@@ -138,6 +138,7 @@ class ApiSwitch(BaseModel):
     reentry_accuracy: float = Field(default=0.0, ge=0.0, le=1.0)
     reason: str = Field(default="", max_length=300)
     copy_assist: bool = False  # D-434: on as copy-assist (no acknowledgement; never a write to the sponsor's EDC)
+    dataflow_ref: str = Field(default="", max_length=120)  # EDC-023 (D-859): TFDA §4.7 ¶3, the data-flow section
 
 
 class ApiEdcDictionary(BaseModel):
@@ -272,6 +273,7 @@ SEND_RESULTS = (
     "refused",  # NEW-EDC-7 (D-692): REDCap refused the import of the record
     "source_changed",  # NEW-EDC-4 (D-694): the source changed since the value was decided
     "changed_in_redcap",  # NEW-EDC-5 (D-695): a value TrialBox sent that REDCap now holds differently
+    "direct_source",  # EDC-023 (D-859): the protocol names the field as recorded directly in the EDC
 )  # T-115: held back, with the reason
 
 
@@ -526,7 +528,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             body = ApiSwitch(on=on, kind=str(form.get("kind") or ""), reference=str(form.get("reference") or ""),
                              ack_date=str(form.get("ack_date") or ""), reentry_pages=pages,
                              reentry_accuracy=min(acc, 1.0), reason=str(form.get("reason") or ""),
-                             copy_assist=on and str(form.get("mode") or "") == "copy")  # fmt: skip
+                             copy_assist=on and str(form.get("mode") or "") == "copy",
+                             dataflow_ref=str(form.get("dataflow_ref") or ""))  # fmt: skip
         except ValueError:
             return status_page(request, sess, rid, {"code": "edc.reentry", "fields": "", "problems": []}, 400)
         try:

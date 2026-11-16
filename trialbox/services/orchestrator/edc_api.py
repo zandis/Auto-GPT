@@ -84,6 +84,15 @@ class SwitchBody(BaseModel):
     reason: str = Field(default="", max_length=300)
     by: str | None = Field(default=None, pattern=_USER)
     copy_assist: bool = False  # D-434: on as copy-assist (no acknowledgement; never a write to the sponsor's EDC)
+    dataflow_ref: str = Field(default="", max_length=120)  # EDC-023 (D-859): TFDA §4.7 ¶3, the data-flow section
+
+
+class DirectSourceBody(BaseModel):
+    """EDC-023 (D-859): the fields the protocol names as recorded directly in the tool (TFDA §4.7 ¶2), whole."""
+
+    fields: list[str] = Field(default_factory=list, max_length=500)
+    reference: str = Field(default="", max_length=120)
+    by: str | None = Field(default=None, pattern=_USER)
 
 
 class ReentryBody(BaseModel):
@@ -243,7 +252,7 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
                                             reference=body.reference, ack_date=body.ack_date,
                                             reentry_pages=body.reentry_pages,
                                             reentry_accuracy=body.reentry_accuracy, reason=body.reason,
-                                            copy=body.copy_assist))  # fmt: skip
+                                            copy=body.copy_assist, dataflow_ref=body.dataflow_ref))  # fmt: skip
 
     @r.post("/studies/{rs}/edc/reentry")
     def reentry(rs: str, body: ReentryBody, request: Request) -> dict[str, Any]:
@@ -267,6 +276,11 @@ def router(get: Callable[[], EdcService], claim: Claim = claim_of) -> APIRouter:
     def put_map(rs: str, body: MapBody, request: Request) -> dict[str, Any]:
         a = who(request, "map", body.by, rs)
         return run(lambda: get().put_map(_rs(rs), body.items, body.target.model_dump(), a.name))
+
+    @r.put("/studies/{rs}/edc/direct_source")
+    def direct_source(rs: str, body: DirectSourceBody, request: Request) -> dict[str, Any]:
+        a = who(request, "map", body.by, rs)  # a protocol fact beside the map: who may save the map keeps it
+        return run(lambda: get().set_direct_source(_rs(rs), body.fields, body.reference, a.name))
 
     @r.post("/studies/{rs}/edc/drafts")
     def drafts(rs: str, body: DraftBody, request: Request) -> list[dict[str, Any]]:

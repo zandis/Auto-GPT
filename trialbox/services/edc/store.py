@@ -118,10 +118,19 @@ SCHEMA_V6 = """
 ALTER TABLE draft ADD COLUMN IF NOT EXISTS source_changed TEXT;
 ALTER TABLE draft ADD COLUMN IF NOT EXISTS source_seen TEXT
 """
-MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6)
+# EDC-023 (D-859): TFDA's guideline on computerised systems (May 2024) §4.7: the reference to the protocol's or the
+# data-management plan's section that describes TrialBox's data flow, kept with the switch (¶3); and the fields the
+# protocol names as recorded directly in the tool, never a prefill target (¶2), as a list with its reference
+SCHEMA_V7 = """
+ALTER TABLE switch ADD COLUMN IF NOT EXISTS dataflow_ref TEXT NOT NULL DEFAULT '';
+ALTER TABLE switch_event ADD COLUMN IF NOT EXISTS dataflow_ref TEXT NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS direct_source_event (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  study TEXT NOT NULL, fields TEXT NOT NULL, reference TEXT NOT NULL, by_user TEXT NOT NULL, at TEXT NOT NULL)
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7)
 #: tables that only ever grow (D-281): a trigger refuses UPDATE, DELETE and TRUNCATE on each
 APPEND_ONLY = ("decision", "signature", "signature_void", "sent", "switch_event", "map_event", "reentry_record",
-               "copy_tick")  # fmt: skip
+               "copy_tick", "direct_source_event")  # fmt: skip
 #: the send's lines that say what REDCap held for an item after TrialBox's write, and the write itself (NEW-EDC-8)
 READ_BACK = ("attempt", "sent", "readback", "erased", "already_there", "conflict", "instance_taken", "refused")
 #: NEW-EDC-5b: the words before REDCap's value in a ``changed_in_redcap`` line, and the ledger detail's length
@@ -165,6 +174,7 @@ class Switch:
     by: str = ""
     at: str = ""
     reentry_id: int = 0  # the stored re-entry record the switch went on with (E-14); 0: typed (DEV or TEST only)
+    dataflow_ref: str = ""  # EDC-023 (D-859): where the protocol or data-management plan describes the data flow
 
     @property
     def on(self) -> bool:
@@ -180,7 +190,7 @@ class Switch:
         return {"study": self.study, "state": self.state, "kind": self.kind, "reference": self.reference,
                 "ack_date": self.ack_date, "reentry_pages": self.reentry_pages,
                 "reentry_accuracy": self.reentry_accuracy, "by": self.by, "at": self.at,
-                "reentry_id": self.reentry_id}  # fmt: skip
+                "reentry_id": self.reentry_id, "dataflow_ref": self.dataflow_ref}  # fmt: skip
 
 
 #: what a draft was built under (T-115, E-15, E-16): in the value's hash when set, so a draft from before keeps its
@@ -373,7 +383,8 @@ class EdcStore:
             return Switch(study)
         r = rows[0]
         return Switch(study, r["state"], r["kind"], r["reference"], r["ack_date"], int(r["reentry_pages"]),
-                      float(r["reentry_accuracy"]), r["by_user"], r["at"], int(r.get("reentry_id") or 0))  # fmt: skip
+                      float(r["reentry_accuracy"]), r["by_user"], r["at"], int(r.get("reentry_id") or 0),
+                      str(r.get("dataflow_ref") or ""))  # fmt: skip
 
     # ------------------------------------------------------------------ the blind re-entry result (E-14)
     def add_reentry(self, study: str, *, pages: int, accuracy: float, document: str, source: str, by: str,
@@ -401,7 +412,8 @@ class EdcStore:
 
     def set_switch(self, study: str, on: bool, *, kind: str = "", reference: str = "", ack_date: str = "",
                    reentry_pages: int = 0, reentry_accuracy: float = 0.0, reason: str = "", by: str, role: str,
-                   at: str, today: date, typed_reentry: bool = False, copy: bool = False) -> Switch:  # fmt: skip
+                   at: str, today: date, typed_reentry: bool = False, copy: bool = False,
+                   dataflow_ref: str = "") -> Switch:  # fmt: skip
         """Turn prefill on (every condition checked here) or off (always allowed). Kept in ``switch_event``.
 
         The re-entry result is the newest stored record (E-14), never the numbers typed with the switch, and the
@@ -409,7 +421,11 @@ class EdcStore:
         box with no record yet) lets the typed numbers stand, as before T-115; the switch then says reentry_id 0.
 
         ``copy`` (with ``on``, D-434): copy-assist. The re-entry result is needed as for prefill; the sponsor's
-        acknowledgement is not, because nothing is written to the sponsor's EDC (the send and the export refuse)."""
+        acknowledgement is not, because nothing is written to the sponsor's EDC (the send and the export refuse).
+
+        ``dataflow_ref`` (EDC-023, D-859): prefill on also needs the reference to the section of the protocol or the
+        data-management plan that describes TrialBox's transfer to the EDC (TFDA, May 2024, §4.7 ¶3); copy-assist
+        does not (a person types the values: nothing is transferred electronically)."""
         reentry_id = 0
         if on:
             rec = self.reentry(study)
@@ -423,7 +439,7 @@ class EdcStore:
                 raise EdcError("edc.reentry_record", "no blind re-entry result is on record for this study")
         if on and copy:  # no acknowledgement is needed; one already on record stays there, as with off
             cur0 = self.switch(study)
-            kind, reference, ack_date = cur0.kind, cur0.reference, cur0.ack_date
+            kind, reference, ack_date, dataflow_ref = cur0.kind, cur0.reference, cur0.ack_date, cur0.dataflow_ref
         elif on:
             if kind not in ACK_KINDS:
                 raise EdcError("edc.ack_kind", "say how the sponsor acknowledged (letter, or the PI is the sponsor)")
@@ -435,31 +451,53 @@ class EdcStore:
                 raise EdcError("edc.ack_date", "the acknowledgement's date is needed") from exc
             if ack > today:
                 raise EdcError("edc.ack_date", "the acknowledgement's date is in the future")
+            if not dataflow_ref.strip():
+                raise EdcError("edc.dataflow_ref", "the reference to the protocol's or the data-management plan's "
+                               "section that describes TrialBox's data flow to the EDC is needed")  # fmt: skip
         if on and (reentry_pages < REENTRY_PAGES or reentry_accuracy < REENTRY_ACCURACY):
             raise EdcError("edc.reentry", f"the blind re-entry needs at least {REENTRY_PAGES} pages at "
                                           f"{REENTRY_ACCURACY:.0%} or better")  # fmt: skip
         state = ("copy" if copy else "on") if on else "off"
         cur = self.switch(study)
         if not on:  # off keeps the acknowledgement on record; only the state changes
-            kind, reference, ack_date = cur.kind, cur.reference, cur.ack_date
+            kind, reference, ack_date, dataflow_ref = cur.kind, cur.reference, cur.ack_date, cur.dataflow_ref
             reentry_pages, reentry_accuracy, reentry_id = cur.reentry_pages, cur.reentry_accuracy, cur.reentry_id
         with self._db.transaction() as tx:
+            flow = dataflow_ref.strip()
             tx.execute("INSERT INTO switch (study, state, kind, reference, ack_date, reentry_pages, reentry_accuracy, "
-                       "by_user, at, reentry_id) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(study) DO UPDATE SET "
-                       "state = excluded.state, "
+                       "by_user, at, reentry_id, dataflow_ref) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(study) DO "
+                       "UPDATE SET state = excluded.state, "
                        "kind = excluded.kind, reference = excluded.reference, ack_date = excluded.ack_date, "
                        "reentry_pages = excluded.reentry_pages, reentry_accuracy = excluded.reentry_accuracy, "
-                       "by_user = excluded.by_user, at = excluded.at, reentry_id = excluded.reentry_id",
+                       "by_user = excluded.by_user, at = excluded.at, reentry_id = excluded.reentry_id, "
+                       "dataflow_ref = excluded.dataflow_ref",
                        (study, state, kind, reference.strip()[:120], ack_date, int(reentry_pages),
-                        float(reentry_accuracy), by, at, reentry_id))  # fmt: skip
+                        float(reentry_accuracy), by, at, reentry_id, flow))  # fmt: skip
             tx.execute("INSERT INTO switch_event (study, state, kind, reference, ack_date, reentry_pages, "
-                       "reentry_accuracy, reason, by_user, role, at, reentry_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                       "reentry_accuracy, reason, by_user, role, at, reentry_id, dataflow_ref) VALUES "
+                       "(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                        (study, state, kind, reference.strip()[:120], ack_date, int(reentry_pages),
-                        float(reentry_accuracy), reason[:300], by, role, at, reentry_id))  # fmt: skip
+                        float(reentry_accuracy), reason[:300], by, role, at, reentry_id, flow))  # fmt: skip
         return self.switch(study)
 
     def switch_events(self, study: str) -> list[dict[str, Any]]:
         return self._all("SELECT * FROM switch_event WHERE study = ? ORDER BY id", (study,))
+
+    # ------------------------------------------------------------------ fields recorded directly in the tool
+    def put_direct_source(self, study: str, fields: list[str], reference: str, by: str, at: str) -> None:
+        """Keep the protocol's list of the fields recorded directly in the data collection tool (EDC-023, D-859;
+        TFDA, May 2024, §4.7 ¶2), whole, with the protocol section that names them; the newest row holds."""
+        self._db.execute("INSERT INTO direct_source_event (study, fields, reference, by_user, at) VALUES (?,?,?,?,?)",
+                         (study, json.dumps(sorted(set(fields))), reference.strip()[:120], by, at))  # fmt: skip
+
+    def direct_source_events(self, study: str) -> list[dict[str, Any]]:
+        rows = self._all("SELECT * FROM direct_source_event WHERE study = ? ORDER BY id", (study,))
+        return [{**r, "fields": json.loads(str(r["fields"]))} for r in rows]
+
+    def direct_source(self, study: str) -> set[str]:
+        """The fields the protocol names as recorded directly in the tool now: never a prefill target."""
+        rows = self.direct_source_events(study)
+        return set(rows[-1]["fields"]) if rows else set()
 
     def require_on(self, study: str) -> None:
         if not self.switch(study).on:
