@@ -32,12 +32,13 @@ SNAP = "2026-11-02"
 
 #: the erasure owed today (T-206b builds these on the registry; T-728 the backups' restore half). A card that adds a
 #: clear takes its line out; a card that adds a store with patient data and no clear adds one. ERASE-A2 (D-875) took
-#: the screening log's five tables out (the screening_log clear).
+#: the screening log's five tables out (the screening_log clear); D-1031 the OMOP record ledger (a keep; its events
+#: stay owed until retention).
 KNOWN_OWED = frozenset(
     {
         "edc.draft", "lake:backfill", "lake:db", "lake:embed_cache.duckdb", "lake:fhir_ledger", "lake:ndjson",
         "lake:ndjson-rerun", "lake:parquet", "lake:site", "lake:tmp", "mail.send_keys", "objects:attachments",
-        "objects:outputs", "omop.tb_conflict", "omop.tb_record", "omop.tb_record_event",
+        "objects:outputs", "omop.tb_conflict", "omop.tb_record_event",
         "orch.jobs", "outside:backups", "outside:fhir_store",
         "outside:sitesetup_space_omop", "pidmap.identity", "recall.recall_known_positive", "recall.recall_observation",
         "sitesetup.check_item", "sitesetup.fix",
