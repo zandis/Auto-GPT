@@ -20,13 +20,21 @@ restic does the incremental backup, on these conditions:
 
 ## The plan (four cards)
 
-- **R1, pin restic (this PR).** restic 0.19.1 goes into the `trialbox-py` image, which is the backup container. Each
-  architecture's release file (`linux_amd64.bz2`, `linux_arm64.bz2`) is fetched through `tools/fetch_pinned.py` at
-  the sha256 from restic's release `SHA256SUMS`. Python unpacks it, so no OS package is added (D-23). An architecture
-  without a pin stops the build. The image rides in the signed bundle, so the offline media carries the pinned
-  binary. The licence register gets a `software` kind and the row `restic` (BSD-2-Clause, the same version and both
-  sums). `licence_register --check` fails when the register and the image's `ARG RESTIC_*` disagree, and a software
-  row ships no path. NOTICE §7 names it.
+- **R1, pin restic (this PR).** restic 0.19.1 is built from its release's source archive (pinned by sha256) with a
+  patched Go (`golang:1.26.11-bookworm`, pinned by index digest; `GOTOOLCHAIN=local`, `-mod=readonly`, so only the
+  modules of restic's own `go.sum` are fetched) into its own image, `trialbox-backup` (`deploy/docker/backup.Dockerfile`:
+  `trialbox-py` plus `/usr/local/bin/restic`). Only the nightly backup's container runs it, with no network; no service
+  image carries Go code. It is built by `make images` and `images-multiarch`, gated by the release gates
+  (`SC_OWN_IMAGES`), carried in the signed bundle (`make_bundle.sh` names it, since it is no compose service) and in
+  the box rehearsal's media, so the offline media carries the pinned build. The licence register gets a `software`
+  kind and the row `restic` (BSD-2-Clause, the same version and source sum). `licence_register --check` fails when the
+  register and the image's `ARG RESTIC_*` disagree, and a software row ships no path. NOTICE §7 names it.
+  - **Why its own image, built from source.** The first form (the release binaries in `trialbox-py`, #887) failed
+    the release gates twice: the binaries' Go standard library (Go 1.26.4) had open findings, and `trialbox-py`
+    gained Go modules without licence data (Syft reads none from a Go binary), with no golang budget for that image.
+    The integrator's order (#639): build from source with a patched Go first; if the gates still find something in
+    restic's own modules, its own image, and the exact budget and licence entries go to the owner for one yes or no.
+    Both are done here; the rehearsal's gate run gives the exact count.
 - **R2, the password is a box key (landed: `agent/PERF-010-R2-restic-password-is-a-box-key`).**
   - `restic.key` is in `kek.PROTECTED` (and in `OPTIONAL`, since a box has none until its first incremental backup),
     so the custody report, `rotate-kek`, `doctor` and the key ceremony's record treat it like the other keys. It is in
@@ -136,14 +144,18 @@ box or rebuilt from the custodians' shares.
 ## Test
 
 R1: `tests/unit/test_restic_pinned.py`:
-- both architectures are pinned;
-- the download goes through the pinned fetch, with no OS package and a refusal for any other architecture;
+- restic is built from its pinned source archive with a Go image pinned by digest, under its `go.sum` only;
+- no service image (`python`, `jvm`, `embed`, `db`) carries restic;
+- the image is built by `make images` and `images-multiarch`, gated (`SC_OWN_IMAGES`) and bundled;
 - the register row matches the image;
 - the check names a version or a sum that differs, and an image with no pin;
 - a software row ships no path;
 - the whole register check passes.
 
-The image build in CI runs `restic version` after the unpack.
+`tests/unit/test_release_bundle.py` (and `test_rehearsal_profile.py`, which shares its fixtures) gate
+`trialbox-backup` like the compose images, and the bundle's `release.json` names it (`backup`).
+
+The image build runs `restic version` in the builder and in the image.
 
 R2: `tests/unit/test_restic_password.py`:
 - the key is protected and in the inventory;
