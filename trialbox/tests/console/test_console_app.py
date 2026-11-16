@@ -162,7 +162,9 @@ class FakeBackend:
         )
         return self.add_job(job)
 
-    def retry_scheduled_job(self, job_id: str, *, reply_to: str, by: str, role: str) -> Job:
+    def retry_scheduled_job(
+        self, job_id: str, *, reply_to: str, by: str, role: str, headers: dict[str, str] | None = None
+    ) -> Job:
         """T-746 (D-474): what the orchestrator does, in short: the failed job copied, never the caller's fields."""
         if self.refuse:
             raise Refused(self.refuse)

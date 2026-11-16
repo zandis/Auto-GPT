@@ -15,7 +15,7 @@ from fastapi.responses import RedirectResponse
 from tb_common.authz import permit, role_allowed
 from tb_contracts import Job, JobCreate
 
-from console import about, command
+from console import about, actor, command
 from console.auth import AuthError, Session, source_of
 from console.backend import Refused, Unavailable
 from console.home import Helpers
@@ -484,7 +484,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not callable(fn):
             raise Unavailable("this backend cannot cancel jobs")
         try:
-            fn(job.job_id, h.actor(sess))
+            sign = actor.assert_for(h, sess, "request.prepare", None, "POST", f"/jobs/{job.job_id}/cancel", {})
+            fn(job.job_id, h.actor(sess), headers=sign)  # T-715 refuse mode (D-871): the verified administrator
         except Refused as exc:
             raise h.problem(400, "request.refused", reason=str(exc)) from exc
         au.append(
@@ -506,7 +507,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         if not callable(fn):
             raise Unavailable("this backend cannot retry a scheduled job")
         try:
-            new = fn(job.job_id, reply_to=sess.user.mailbox, by=h.actor(sess), role=sess.user.role)
+            body = {"reply_to": sess.user.mailbox}  # T-715 refuse mode (D-871): signed as the verified person
+            sign = actor.assert_for(h, sess, "job.retry_scheduled", None, "POST", f"/jobs/{job.job_id}/retry", body)
+            new = fn(job.job_id, reply_to=sess.user.mailbox, by=h.actor(sess), role=sess.user.role, headers=sign)
         except Refused as exc:
             raise h.problem(400, "request.refused", reason=str(exc)) from exc
         au.append(
