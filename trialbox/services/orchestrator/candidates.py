@@ -162,7 +162,7 @@ class CandidateRegistry:
             from orchestrator.decision_context import register_now
 
             exclude = register_now()
-        from tb_common.optout import is_erased
+        from tb_common.erased import is_erased
 
         # D-875: an erased row is an opted-out patient's (its contact work is never exported, D-762)
         rows = [r for r in self.db.candidates(ruleset) if str(r["pid"]) not in exclude and not is_erased(r["pid"])]

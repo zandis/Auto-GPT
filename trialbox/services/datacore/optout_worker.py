@@ -562,7 +562,7 @@ def verify_held_mail(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
 
 # ------------------------------------------------------------------------------------------------ the screening log
 def _screening_log(pids: frozenset[str], env: WorkerEnv, change: bool) -> dict[str, int]:
-    """ERASE-A2 (D-875, the owner's D-532): a never-consented patient's screening-log rows stay, numbered, under a
+    """ERASE-A2 (D-875, the owner's D-1032): a never-consented patient's screening-log rows stay, numbered, under a
     random token (:mod:`datacore.screening_tokens`); a trial subject's stay as they are (OD-8). Counts only."""
     from datacore import screening_tokens
 

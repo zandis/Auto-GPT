@@ -48,7 +48,7 @@ from tb_common import sheets
 from tb_common.actor_v3 import Claim
 from tb_common.audit import AuditLog
 from tb_common.deterministic import normalize_ooxml
-from tb_common.optout import is_erased
+from tb_common.erased import is_erased
 from tb_common.patient_reads import MONITOR as _MONITOR
 from tb_common.patient_reads import PHI as _PHI
 
