@@ -115,3 +115,37 @@ def test_only_https_is_ever_asked_for(tmp_path: Path, url: str) -> None:
 def test_the_scan_has_no_entry_left_for_a_fetch_that_moved() -> None:
     ignores = (ROOT / "tools" / "security_scan_ignores.yaml").read_text(encoding="utf-8")
     assert "tools/fetch_fonts.py" not in ignores and "tools/fetch_pinned.py" not in ignores
+
+
+# ------------------------------------------------------------------- FETCH-429 (D-899): a rate limit is waited out
+def _limited(code: int = 429, retry_after: str | None = None) -> urllib.error.HTTPError:
+    headers = {"Retry-After": retry_after} if retry_after is not None else {}
+    return urllib.error.HTTPError(URL, code, "Too Many Requests", headers, io.BytesIO(b""))  # type: ignore[arg-type]
+
+
+def test_a_rate_limit_is_waited_out_longer_than_a_bad_answer(tmp_path: Path) -> None:
+    """Three PRs building at once (2026-11-16, #820's demo-boot): Maven Central answered 429 three times within the
+    seven seconds of 2 and 5 and the build failed. A 429 or 503 waits 30, then 60 seconds; still three asks."""
+    for code in (429, 503):
+        net = Net(_limited(code), DATA)
+        fetch_pinned.fetch(URL, tmp_path / f"q{code}.jar", SHA, get=net.get, sleep=net.waits.append)
+        assert net.asked == 2 and net.waits == [30]
+    net = Net(_limited(), _limited(), _limited(), DATA)
+    with pytest.raises(fetch_pinned.FetchError) as exc:
+        fetch_pinned.fetch(URL, tmp_path / "q.jar", SHA, get=net.get, sleep=net.waits.append)
+    assert net.asked == 3 and net.waits == [30, 60] and "429" in str(exc.value)
+
+
+def test_the_servers_retry_after_is_honoured_within_a_cap(tmp_path: Path) -> None:
+    net = Net(_limited(retry_after="7"), DATA)
+    fetch_pinned.fetch(URL, tmp_path / "a.jar", SHA, get=net.get, sleep=net.waits.append)
+    assert net.waits == [7]  # the server's own word, when it gives one
+    net = Net(_limited(retry_after="86400"), DATA)
+    fetch_pinned.fetch(URL, tmp_path / "b.jar", SHA, get=net.get, sleep=net.waits.append)
+    assert net.waits == [fetch_pinned.RATE_LIMIT_MAX]  # never a build that sleeps for a day
+    net = Net(_limited(retry_after="Wed, 21 Oct 2015 07:28:00 GMT"), DATA)  # a date: the plain rate-limit wait
+    fetch_pinned.fetch(URL, tmp_path / "c.jar", SHA, get=net.get, sleep=net.waits.append)
+    assert net.waits == [30]
+    net = Net(_404(), DATA)  # anything else keeps its short wait
+    fetch_pinned.fetch(URL, tmp_path / "d.jar", SHA, get=net.get, sleep=net.waits.append)
+    assert net.waits == [2]
