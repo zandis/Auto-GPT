@@ -76,8 +76,9 @@ def test_master_registry_holds_the_agreed_rows() -> None:
                       (313, "T-012a"), (306, "T-002"), (307, "T-508"), (308, "T-501")]:  # fmt: skip
         assert card in rows[(num, num)].holder
     assert rows[(305, 305)].state == "unused"  # T-012a took D-313
-    for num in (208, 211, 240, 262):
+    for num in (208, 240, 262):  # log-range numbers still held by a card, with no file
         assert rows[(num, num)].state == "reserved"
+    assert rows[(211, 211)].state == "merged"  # its file is on master (--flip-merged, 2026-11-16)
     assert rows[(210, 210)].state == "merged" and "T-111" in rows[(210, 210)].holder  # PR #83, a file
 
 
@@ -221,14 +222,12 @@ def test_flip_merged(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None
     ret = di.main(["--flip-merged", "--root", str(root)])
     assert ret == 0
     out = capsys.readouterr().out
-    assert out == "flipped 3 row(s) to merged\n"
+    assert out == "flipped 2 row(s) to merged\n"
     reg_path = root / "docs" / "decisions" / "REGISTRY.md"
     new_reg = reg_path.read_text(encoding="utf-8")
-    expected = (
-        registry.replace("| D-01 | reserved |", "| D-01 | merged |")
-        .replace("| D-09 | reserved |", "| D-09 | merged |")
-        .replace("| D-10 | `reserved` |", "| D-10 | `merged` |")
-    )
+    expected = registry.replace("| D-01 | reserved |", "| D-01 | merged |").replace(
+        "| D-10 | `reserved` |", "| D-10 | `merged` |"
+    )  # D-09 is a log entry: its row is kept
     assert new_reg == expected
     # second run
     ret2 = di.main(["--flip-merged", "--root", str(root)])

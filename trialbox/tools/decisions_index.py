@@ -206,7 +206,7 @@ def index(c: Corpus) -> str:
 
 
 def flip_merged(c: Corpus, root: Path) -> int:
-    """Flip reserved single-number rows to merged if text is on master.
+    """Flip reserved single-number rows to merged when their decision file is on master.
 
     Only changes the state cell; prints count; returns 0.
     """
@@ -221,7 +221,7 @@ def flip_merged(c: Corpus, root: Path) -> int:
         if r.state != "reserved" or r.first != r.last:
             continue
         num = r.first
-        if num in c.log or num in c.files:
+        if num in c.files:  # a row of the frozen log (D-01 to D-270) keeps the state it was given
             idx = r.line - 1
             if 0 <= idx < len(lines):
                 line = lines[idx]
