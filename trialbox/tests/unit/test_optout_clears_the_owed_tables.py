@@ -25,8 +25,10 @@ from tb_common.optout import OptOutRegister
 
 A, C = "a1b2c3d4e5f6a001", "a1b2c3d4e5f6a003"  # A opts out; C never does
 NOW = datetime(2026, 11, 3, 9, 0, tzinfo=UTC)
+# orch.judged_pairs: D-908, the judged-pair store
 PLAIN = ("site.contact_outcomes", "site.excluded_review", "team.approach_overrides", "team.referral_events",
-         "team.referrals", "orch.feedback", "derived.input_link", "derived.conflict", "derived.score_row")  # fmt: skip
+         "team.referrals", "orch.feedback", "orch.judged_pairs", "derived.input_link", "derived.conflict",
+         "derived.score_row")  # fmt: skip
 #: the adversarial review of D-798: these stay owed (the screening log, NHI's send-once guard, the reveal cap, the
 #: not-matched sample) and the clear never touches them
 KEPT_OWED = ("site.weekly_seen", "team.candidate_views", "tuned.tuned_patients")

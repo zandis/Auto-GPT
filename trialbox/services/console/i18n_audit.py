@@ -147,6 +147,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
         "管理員重新執行失敗的排程作業",
     ),
     "scheduler.held": ("Scheduled run held", "予定処理の保留", "保留排程作業"),
+    "selftest.unreached": (
+        "Model self-test could not reach the models (tried again)",
+        "モデル自己テストがモデルに接続できず（再試行）",
+        "模型自我測試無法連線到模型（將重試）",
+    ),
     "rerun.checked": ("Re-run checked", "再実行の確認", "檢查重新執行"),
     "microbatch.budget": ("Night budget used", "夜間予算の使用", "使用夜間額度"),
     "notice.sent": ("Notice sent", "通知の送信", "寄送通知"),
@@ -393,6 +398,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     ),
     "optout.worker": ("Opt-out worker run", "利用拒否処理の実行", "執行拒絕研究使用處理"),
     "optout.worker_failed": ("Opt-out worker failed", "利用拒否処理の失敗", "拒絕研究使用處理失敗"),
+    "optout.outputs_asked": (
+        "Mail checked against opt-outs",
+        "メール送信前の利用拒否確認",
+        "寄信前核對拒絕研究使用",
+    ),
     "notmatched.held": (
         "Weekly sample of criteria not matched held",
         "条件に合致しない患者の週次抽出の保留",

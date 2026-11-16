@@ -12,6 +12,11 @@ product's gate instead of a night-job precondition only:
   them wrong, flips one, or answers fewer than five is not trusted for the rest of that run
   (:func:`orchestrator.twophase.two_phase` turns its answers into errors, so ``unknown``), and the gate stays shut
   until the next full canary passes.
+* **Models not up yet (D-915).** A canary that could not reach a model (every call a model fault: the gateway's
+  ``upstream_down`` while the model servers load after a reboot) did not run: it is not a failure and is not recorded
+  over the last result. The gate shows ``waiting`` (the console: waiting for the models; doctor: a warning) and stays
+  shut unless a passing result already stands; the canary at start asks again with backoff (``TB_CANARY_RETRY_S``,
+  doubling to ``TB_CANARY_RETRY_MAX_S``) until a model answers, and the night gate asks again on its next tick.
 * **The gate.** :func:`allows_block` is True only with a passing pair canary younger than ``TB_CANARY_MAX_AGE_H``
   (36 h) and no failed wake check since. Otherwise :func:`orchestrator.scenarios.evaluate.effective_note_block`
   falls back to ``never``: a note answer may send a patient to review, never out, and the run says why.
@@ -22,6 +27,7 @@ stub model of the demos and tests would never pass a canary. The admin Models ti
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -64,7 +70,9 @@ class Gate:
         self.path: Path | None = None
         self.report: dict[str, Any] | None = None
         self.at: float | None = None  # epoch seconds of the report
+        self.mtime: float | None = None  # of selftest.json when last read (D-916)
         self.wake_failure: dict[str, Any] | None = None
+        self.waiting: dict[str, Any] | None = None  # D-915: the last canary could not reach a model
         self.running = False
         self._lock = threading.Lock()
 
@@ -74,35 +82,78 @@ class Gate:
         with self._lock:
             if self.path == p:
                 return
-            self.path, self.report, self.at, self.wake_failure = p, None, None, None
-            try:
-                rep = json.loads(p.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
+            self.path, self.report, self.at, self.wake_failure, self.waiting = p, None, None, None, None
+            self.mtime = None
+            self._read_newer()
+
+    def written(self, path: Path) -> None:
+        """This process wrote ``path`` (its own result, already recorded): not a newer result to read back."""
+        with self._lock:
+            if path == self.path:
+                with contextlib.suppress(OSError):
+                    self.mtime = path.stat().st_mtime
+
+    def _read_newer(self) -> None:
+        """D-916: take ``selftest.json`` when it holds a newer result than this process has (a canary run by
+        ``trialbox selftest`` in the container writes it; it is applied as :meth:`record` would). Under the lock."""
+        p = self.path
+        if p is None:
+            return
+        try:
+            mtime = p.stat().st_mtime
+            if self.mtime is not None and mtime <= self.mtime:
                 return
-            self.report = rep
-            self.at = float(rep.get("at_epoch") or p.stat().st_mtime)
+            rep = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        self.mtime = mtime
+        at = float(rep.get("at_epoch") or mtime)
+        if self.at is not None and at <= self.at:
+            return  # this process's own result, or an older one
+        self.report, self.at, self.waiting = rep, at, None
+        if rep.get("ok") and (self.wake_failure is None or at > float(self.wake_failure.get("at_epoch") or 0)):
+            self.wake_failure = None  # a pass after the failed wake check reopens the gate, an older one does not
 
     def record(self, report: dict[str, Any]) -> None:
         with self._lock:
             self.report = report
             self.at = float(report.get("at_epoch") or time.time())
+            self.waiting = None  # a model answered: the canary ran
             if report.get("ok"):
                 self.wake_failure = None  # a full pass after the failed wake check reopens the gate
 
+    def record_unreached(self, report: dict[str, Any]) -> None:
+        """D-915: a canary that could not reach a model; the last real result stays."""
+        with self._lock:
+            tries = (self.waiting or {}).get("tries", 0) + 1
+            self.waiting = {"at": report.get("at"), "roles": list(report.get("unreached") or []), "tries": tries,
+                            "why": "; ".join(report.get("problems") or [])}  # fmt: skip
+
     def record_wake(self, endpoint: str, why: str) -> None:
         with self._lock:
-            self.wake_failure = {"endpoint": endpoint, "why": why, "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+            self.wake_failure = {"endpoint": endpoint, "why": why, "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                 "at_epoch": round(time.time(), 3)}  # fmt: skip
 
     def check(self) -> tuple[bool, str, str]:
         """(may a note answer exclude, code, why not). Codes: ``ok``, ``off`` (gate switched off), ``wake`` (a
-        failed wake check since the last pass), ``none`` (no canary yet), ``failed``, ``single`` (one model
-        only), ``stale`` (older than ``TB_CANARY_MAX_AGE_H``). The console shows the code, translated."""
+        failed wake check since the last pass), ``waiting`` (the last canary could not reach a model, and no
+        passing result stands, D-915), ``none`` (no canary yet), ``failed``, ``single`` (one model only), ``stale``
+        (older than ``TB_CANARY_MAX_AGE_H``). The console shows the code, translated."""
         if not gate_on():
             return True, "off", ""
         with self._lock:
-            rep, at, wake = self.report, self.at, self.wake_failure
+            self._read_newer()
+            rep, at, wake, waiting = self.report, self.at, self.wake_failure, self.waiting
         if wake is not None:
             return False, "wake", f"the {wake['endpoint']} model failed its wake check ({wake['why']})"
+        ok, code, why = self._result(rep, at)
+        if not ok and waiting is not None:
+            roles = " and ".join(waiting["roles"]) or "the models"
+            return False, "waiting", f"waiting for the models: the self-test could not reach {roles} ({waiting['why']})"
+        return ok, code, why
+
+    @staticmethod
+    def _result(rep: dict[str, Any] | None, at: float | None) -> tuple[bool, str, str]:
         if rep is None:
             return False, "none", "the model self-test (canary) has not run on this box yet"
         if not rep.get("ok"):
@@ -141,6 +192,7 @@ class Gate:
                 {k: m.get(k) for k in ("role", "model", "correct", "flips", "ok")} for m in rep.get("models") or []
             ],
             "wake_failure": self.wake_failure,
+            "waiting": self.waiting,
         }
 
 
@@ -253,14 +305,45 @@ def check_pair(orch: Any) -> str | None:
     return why
 
 
+def _seconds(name: str, default: float) -> float:
+    try:
+        return max(1.0, float(os.environ.get(name) or default))
+    except ValueError:
+        return default
+
+
+RETRY_S = 30.0
+RETRY_MAX_S = 600.0
+
+
+def retry_seconds() -> float:
+    """The first wait before a canary that could not reach a model is asked again (D-915)."""
+    return _seconds("TB_CANARY_RETRY_S", RETRY_S)
+
+
+def canary_until_reached(orch: Any, sleep: Callable[[float], None] = time.sleep) -> dict[str, Any] | None:
+    """D-915: the canary at start, asked again while it cannot reach a model (the model servers still loading after
+    a reboot), after ``TB_CANARY_RETRY_S`` seconds, doubling up to ``TB_CANARY_RETRY_MAX_S``, until a model answers.
+    An admin's "Run now" meanwhile counts as an attempt. Returns the last real report."""
+    delay, cap = retry_seconds(), _seconds("TB_CANARY_RETRY_MAX_S", RETRY_MAX_S)
+    while True:
+        if not GATE.running:
+            run_canary(orch)
+        if GATE.waiting is None:
+            return GATE.report
+        sleep(delay)
+        delay = min(delay * 2, cap)
+
+
 def startup(orch: Any) -> threading.Thread | None:
     """At orchestrator start: read the last report, and with the gate on run the canary in the background (a
-    run started meanwhile simply cannot exclude on a note answer until it passes)."""
+    run started meanwhile simply cannot exclude on a note answer until it passes), again with backoff while the
+    models cannot be reached (:func:`canary_until_reached`)."""
     GATE.configure(orch.data_dir)
     check_pair(orch)
     if not gate_on() or orch.services.llm is None or (os.environ.get("TB_CANARY_AT_START") or "1") == "0":
         return None
-    t = threading.Thread(target=run_canary, args=(orch,), name="canary-at-start", daemon=True)
+    t = threading.Thread(target=canary_until_reached, args=(orch,), name="canary-at-start", daemon=True)
     t.start()
     return t
 
@@ -269,9 +352,11 @@ __all__ = [
     "GATE",
     "Gate",
     "allows_block",
+    "canary_until_reached",
     "check",
     "check_wake",
     "gate_on",
+    "retry_seconds",
     "run_canary",
     "startup",
     "status",

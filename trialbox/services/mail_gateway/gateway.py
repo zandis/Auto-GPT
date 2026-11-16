@@ -17,7 +17,9 @@ from email.message import EmailMessage
 from email.utils import format_datetime, make_msgid
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
+from tb_common import patient_files
 from tb_common.audit import AuditLog, mask_ids
 from tb_common.config import Config
 from tb_common.crypto import sha256_bytes
@@ -33,6 +35,42 @@ from mail_gateway.store import MailDB, SendUncertain
 log = logging.getLogger("mail-gateway")
 GENERIC = "This mailbox accepts requests only from authorised hospital addresses. Your message was not processed."
 JobSink = Callable[[JobCreate], Job]
+#: NEW-MAIL-1 (D-863): ``(job_id, the object keys a mail carries) -> current`` against the opt-out register; raises
+#: :class:`NoSuchJob` for a job the orchestrator does not have
+OutputsCurrent = Callable[[str, list[str]], bool]
+
+
+class OptedOutSince(RuntimeError):
+    """A job's outputs name a patient opted out since they were made: the mail is held, never sent (D-863)."""
+
+
+def _orchestrator(base_url: str) -> ServiceClient:
+    """The mail gateway's client of the orchestrator: one request is a job started, or one mail's files asked about."""
+    return ServiceClient(base_url, "orchestrator", timeout=60, retries=1)
+
+
+class NoSuchJob(LookupError):
+    """D-863: the orchestrator has no such job (removed by retention, or never there): nothing can vouch for it."""
+
+
+def http_outputs_current(base_url: str) -> OutputsCurrent:
+    """D-863: the orchestrator's answer (``GET /jobs/{job_id}/outputs-current``), asked just before a send."""
+    client = _orchestrator(base_url)
+
+    def ask(job_id: str, keys: list[str]) -> bool:
+        try:
+            query = urlencode([("key", k) for k in keys])
+            got = client._request("GET", f"/jobs/{job_id}/outputs-current?{query}").json()
+        except ServiceError as exc:
+            if exc.status == 404:
+                raise NoSuchJob(job_id) from exc
+            raise
+        current = got.get("current") if isinstance(got, dict) else None
+        if not isinstance(current, bool):
+            raise RuntimeError("the orchestrator gave no yes or no")
+        return current
+
+    return ask
 
 
 class OrchestratorDown(RuntimeError):
@@ -44,7 +82,7 @@ class JobRefused(RuntimeError):
 
 
 def http_job_sink(base_url: str) -> JobSink:
-    client = ServiceClient(base_url, "orchestrator", timeout=60, retries=1)
+    client = _orchestrator(base_url)
 
     def create(req: JobCreate) -> Job:
         try:
@@ -56,6 +94,12 @@ def http_job_sink(base_url: str) -> JobSink:
 
     return create
 
+
+#: D-863: the typed reasons of a mail held for the opt-out register
+OPTED_OUT = patient_files.HELD  # the opt-out worker finds the held mail by it (its held_mail clear)
+NO_ANSWER = "opt-out not checked: the orchestrator did not answer; not sent"
+#: D-863: nothing can vouch for the files: no job named, no such job, or a file outside the job's own outputs
+NO_JOB = "opt-out not checked: the files are not of a job the orchestrator has; not sent"
 
 # the transport refused before the server accepted the message (D-127, F-02): safe to try again later
 REFUSED_BEFORE_SENDING = (
@@ -114,6 +158,8 @@ class Gateway:
     authserv_id: str = ""  # D-369 (SEC-11): empty means no Authentication-Results header is trusted (fails closed)
     allow_phi_zip: bool = False  # D-369 (OD-1): a patient file as a password zip only on a synthetic box (DEV, TEST)
     per_recipient_per_day: int = PER_RECIPIENT_PER_DAY  # T-108c: mails to one address in 24 hours; 0 = no limit
+    #: D-863: asked before a job's patient-level files are sent; None (not wired) holds every such mail (fail closed)
+    outputs_current: OutputsCurrent | None = None
 
     @property
     def sender(self) -> str:
@@ -150,7 +196,34 @@ class Gateway:
             return Outcome(SendResult.model_validate_json(done), "duplicate")
         return self._attempt(req, key, None, 0, from_outbox=False)
 
+    def _still_current(self, req: SendRequest) -> str:
+        """NEW-MAIL-1 (D-863, the integrator's ruling): the one door of every send of a job's patient-level files (at
+        publish, a queued try, a person's resend): the orchestrator is asked whether the files this mail carries are
+        still current against the opt-out register. "" to send; else why not: the mail is held, never sent. A mail
+        is patient-level as ``outbound.prepare`` judges it (its tag, or any file's). A mail of counts is not asked."""
+        atts = req.attachments or []
+        if not atts or (req.tag != "phi" and not any(a.tag == "phi" for a in atts)):
+            return ""
+        if not req.job_id or not all(a.minio_key.startswith(f"outputs/{req.job_id}/") for a in atts):
+            return NO_JOB  # the review of D-863: the job asked about is the job whose files are sent
+        if self.outputs_current is None:
+            return f"{NO_ANSWER}: no way to ask"
+        try:
+            return "" if self.outputs_current(req.job_id, [a.minio_key for a in atts]) else OPTED_OUT
+        except (NoSuchJob, KeyError):
+            return NO_JOB
+        except Exception as exc:
+            return f"{NO_ANSWER}: {type(exc).__name__}"
+
     def _attempt(self, req: SendRequest, key: str, message_id: str | None, attempts: int, from_outbox: bool) -> Outcome:
+        why = self._still_current(req)
+        if why in (OPTED_OUT, NO_JOB):  # a person decides (drop, or resend: asked again); never sent as it is
+            return self._hold(req, key, message_id or "", False, [], "failed", attempts, why)
+        if why:  # not known now: tried again with back-off, counted, and failed for a person at the limit
+            n = attempts + 1
+            state = "failed" if n >= MAX_ATTEMPTS else "queued"
+            return self._hold(req, key, message_id or "", False, [], state, n, why,
+                              wait_s=min(RETRY_BASE_S * 2 ** (n - 1), RETRY_MAX_S))  # fmt: skip
         try:
             p = self._prepare(req, message_id)  # routing, encryption, attachments: nothing has left yet
         except Exception as exc:

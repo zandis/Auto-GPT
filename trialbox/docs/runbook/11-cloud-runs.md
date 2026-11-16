@@ -333,11 +333,14 @@ Manager secret. After the seed the boot opens one account per person (`TB_DEMO_V
 (`TB_DEMO_VM_HANDOFF`, default `$TB_BUCKET/demo-vm/enrol-<time>.txt`; the VM's service account has objectAdmin there),
 and only then opens tcp:443. The codes are never in the metadata, the serial console, a log or a file left on the
 VM. After `status` shows `DEMO-VM-READY` the lead runs `deploy/gcp/demo-vm.sh links`: it prints the newest object
-once and deletes every one; the lead gives each person their own line in a private channel. Each person opens
-`https://<address>/enrol`, types the user name and the code, chooses a password (the product's rule: at least 12
+once and deletes every one; the lead gives each person their own line in a private channel. Each line carries the
+person's one-time link (D-776), `https://<address>/enrol#u=<name>&c=<code>`, with the user name and the code also
+written out. The part after `#` never reaches the box; the console's script fills the first sign-in's two fields from
+it and removes it from the address bar (without the script the person types the two values). Each person opens the
+link, best in a private window, chooses a password (the product's rule: at least 12
 characters, no white space at either end; `console/auth.py`), and is signed in. The code then works no more; an unused
 one expires after `TB_DEMO_VM_ENROL_HOURS` (24, the product's own default). Every `up` of a stopped VM reseeds, so it
-makes new accounts and new codes (`links` again). The seed's own accounts (`admin`, `crc`, `pi`, ...) get a password
+makes new accounts and new links (`links` again). The seed's own accounts (`admin`, `crc`, `pi`, ...) get a password
 the boot makes from 48 random bytes and tells nobody; the boot uses it once, inside the container, for demo mode.
 Failed sign-ins: five within 15 minutes lock that account from that browser address for 15 minutes, many from one
 address slow it (at most a minute a try), 50 from all addresses lock it everywhere (D-279); the console counts the
@@ -378,7 +381,7 @@ key file's path only; the project is the gcloud config's):
     deploy/gcp/demo-vm.sh --dry-run           # every gcloud command `up` would run; runs none
     deploy/gcp/demo-vm.sh up --yes            # network, subnet, the tcp:443 rule, the VM (or starts the stopped VM)
     deploy/gcp/demo-vm.sh status              # RUNNING, the address, the rule's ranges, the hard stop, DEMO-VM-READY
-    deploy/gcp/demo-vm.sh links               # each person's one-time code, printed once, then deleted
+    deploy/gcp/demo-vm.sh links               # each person's one-time link, printed once, then deleted
 
 `up` creates, in order: on the `default` network the rule `tb-demo-vm-deny` (INGRESS, all, deny, priority 510, tag
 `tb-demo-vm`); with `own` instead the network `tb-demo-vm-net` (custom subnets, no rules) and the subnet
@@ -391,8 +394,9 @@ and the hard stop and starts it. The first answer comes 5 to 10 minutes after th
 3-to-6-minute seed); start it at least 30 minutes before the demo. Without `TB_DEMO_KEEP` every start reseeds, so a
 stop and start resets the demo.
 
-**What the guest sees.** `https://<address>/enrol` once with the code, then `https://<address>/` (the address `up` and
-`status` print): the browser's warning once, then the TrialBox sign-in page in Japanese (`TB_DEMO_LANG`; `/lang` switches to zh-TW or en); after sign-in the role's
+**What the guest sees.** Their one-time link once, then `https://<address>/` (the address `up` and
+`status` print): the browser's warning once, then the TrialBox sign-in page in the browser's language (`TB_DEMO_LANG`, ja by default, is the language the seed's
+notes and tasks are written in; the demo of 2026-11-17 is seeded with zh-TW; `/lang` switches); after sign-in the role's
 home on the synthetic hospital (made-up patients, studies GZQO and GOUT-COH). With an address list instead of
 `any`, other addresses get nothing.
 
