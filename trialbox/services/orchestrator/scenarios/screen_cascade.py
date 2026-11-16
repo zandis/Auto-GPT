@@ -444,6 +444,8 @@ def verdicts_of(
     # as before, does not count: the status is the one function's over the outcomes the cascade has
     st = decision.status_of(rs.by_id(), judged_rows, policy or DEFAULT_POLICY)
     tier, actions, unknown = st.tier, list(st.actions), st.n_unknown
+    if tier == "high" and not any(o.status in ("pass", "fail") for o in t.outcomes.values()):
+        tier = "review"  # D-909: nothing the records or the models decided says this patient may meet the criteria
     if tier == "excluded" and TIER.get(t.tier, "review") != "excluded":
         tier = "review"  # the engine did not exclude: the rows never exclude on their own (cannot happen by CAS-7)
     if tier == "high" and (t.notes_over_budget or TIER.get(t.tier, "review") == "review"):
@@ -493,6 +495,7 @@ def summary(res: CascadeResult) -> dict[str, Any]:
             "pairs_s2_hit": m.pairs_s2_hit,
             "pairs_s2_zero_hit": m.pairs_s2_zero_hit,
             "pairs_s2_no_notes": m.pairs_s2_no_notes,
+            "nothing_decides": m.nothing_decides,  # D-909
             "pairs_s2b_above": m.pairs_s2b_above,
             "pairs_s2b_below": m.pairs_s2b_below,
             "pairs_judged": dict(m.pairs_judged),
@@ -638,7 +641,9 @@ def screen_with_cascade(
     for pid in pids:
         if pid not in results:  # not in the lake's patient table on this snapshot: a person looks (D-118)
             results[pid] = not_in_snapshot(rs, pid)
-    if judge is not None:
+    if res.metrics.nothing_decides:  # D-909: nothing a machine decides; every patient in scope goes to review
+        judging = {**judging, "mode": "nothing"}
+    elif judge is not None:
         judging = {**judging, "disagreements": judge.disagreements, "failures": judge.failures}
         m = ctx.job.metrics
         ctx.metrics(

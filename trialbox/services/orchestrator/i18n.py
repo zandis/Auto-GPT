@@ -69,6 +69,8 @@ T: dict[str, dict[str, str]] = {
         "screen.scores_unverified": "Scores not verified for snapshot {snapshot}: the score batch did not finish, so "
         "criteria on eGFR, DAS28, CDAI and SDAI read as needing information on this list.",
         "screen.judging.none": "Note criteria were not read (no model on this box): they go to review.",
+        "screen.judging.nothing": "Nothing in this ruleset can be decided from the records: every criterion is checked "
+        "by a person, so every patient in scope is listed for review and no one under criteria not matched.",
         "screen.judging.pair": "Note criteria: read by {judge} and checked by {verifier}; a note answer puts a patient "
         "under criteria not matched only when both models agree.",
         "screen.judging.single": "Note criteria: read by {judge} alone; on this run a note answer put no one under "
@@ -199,6 +201,8 @@ T: dict[str, dict[str, str]] = {
         "screen.scores_unverified": "スナップショット {snapshot} のスコアは未確認です（スコアの一括計算が完了していません）。"
         "このリストでは eGFR、DAS28、CDAI、SDAI を使う基準は「情報が必要」です。",
         "screen.judging.none": "記録基準は読み取っていません（この装置にモデルなし）：確認待ちに回します。",
+        "screen.judging.nothing": "このルールセットには記録から判定できる基準がありません：すべての基準を人が確認するため、"
+        "対象の患者全員を確認待ちとし、基準に合致しないとはしません。",
         "screen.judging.pair": "記録基準：{judge} が読み取り {verifier} が検証。両モデルが一致したときのみ、記録の回答で基準に合致しないとします。",
         "screen.judging.single": "記録基準：{judge} のみが読み取り。この実行では記録の回答で基準に合致しないとした患者はいません（{why}）。"
         "記録基準に該当しない患者は確認待ちに載せています。",
@@ -323,6 +327,8 @@ T: dict[str, dict[str, str]] = {
         "提高 max_pairs 後重新執行即可判讀。",
         "screen.scores_unverified": "快照 {snapshot} 的分數未經確認（分數批次計算未完成）：本名單中使用 eGFR、DAS28、CDAI、SDAI 的條件列入「需要更多資訊」。",
         "screen.judging.none": "病歷條件未經判讀（本機沒有模型）：列為待確認。",
+        "screen.judging.nothing": "本規則集沒有可由病歷判定的條件：所有條件皆由人員確認，因此範圍內的病人全部列為待確認，"
+        "不列為未符合條件。",
         "screen.judging.pair": "病歷條件：由 {judge} 判讀、{verifier} 驗證；兩個模型一致時病歷判讀才會將病人列為未符合條件。",
         "screen.judging.single": "病歷條件：僅由 {judge} 判讀；本次執行中病歷判讀未將任何人列為未符合條件（{why}）。病歷條件不符的病人列入待確認。",
         "screen.judging.why.held": "病歷判讀已暫停",
