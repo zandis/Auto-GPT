@@ -1891,6 +1891,9 @@ step_acc_ingest() {
   before=$(d_current 2>/dev/null)
   need "the box's ingest of the feed" d_ingest "$mount/acc" "$snap" || return 1
   t0=$(date +%s)
+  # F33 (2026-11-16): a second run on one box on the same day ingests into the snapshot that is already current, so
+  # CURRENT does not change: the ingest (synchronous above) is then the publication, said
+  if [ "$before" = "$snap" ]; then note current "\"$before\""; note same_snapshot_again true; return 0; fi
   while [ "$(d_current 2>/dev/null)" = "$before" ]; do
     touch "$HB"
     [ $(($(date +%s) - t0)) -lt $((ACC_JOB_MIN * MIN_S)) ] || { STOP="the lake did not publish the ingest in $ACC_JOB_MIN minutes"; return 1; }
