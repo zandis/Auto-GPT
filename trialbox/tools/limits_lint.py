@@ -42,7 +42,7 @@ ALLOW = ROOT / "tools" / "limits_allow.yaml"
 _SQL_LIMIT = re.compile(r"\bLIMIT\s+(\d+)\b", re.IGNORECASE)
 _SQL_HINT = re.compile(r"\b(SELECT|FROM|WHERE|ORDER BY)\b", re.IGNORECASE)
 # a reason names a finding, a card, a decision, or says why the count is not a cut
-_REASON = re.compile(r"\b(F-\d{2}|T-\d{3}[a-z]?|D-\d{2,3}|G1-\d)\b|not a cut|a setting")
+_REASON = re.compile(r"\b(F-\d{2}|T-\d{3}[a-z]?|D-\d{2,4}|G1-\d)\b|not a cut|a setting")
 
 Key = tuple[str, str, str]
 

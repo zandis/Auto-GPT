@@ -127,7 +127,7 @@
       "required": ["mode", "note_block", "may_block"],
       "additionalProperties": false,
       "properties": {
-        "mode": {"type": "string", "enum": ["agreement", "single", "none"]},
+        "mode": {"type": "string", "enum": ["agreement", "single", "none", "nothing"], "description": "nothing: D-909, no criterion a machine decides (every one is a person's); the judges were not called."},
         "judge_model": {"type": ["string", "null"]},
         "verifier_model": {"type": ["string", "null"]},
         "note_block": {"type": "string", "enum": ["both_agree", "never"]},

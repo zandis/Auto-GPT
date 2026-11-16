@@ -258,6 +258,15 @@ prompts:
     approved_by: T-606 (D-359; no named reviewer, D-311)
     date: 2026-11-11
     qualification: null
+  - id: ir_extract  # G10 of the P1b review (D-984): no example score names to copy; age in `age`; no placeholders
+    version: 4
+    file: ir_extract_v4.md
+    sha256: cfe46a5791d1f19c6b0b4f74a9e31e22483e592c58699c6a3e440bc6d5998200
+    schema: llm_extract_output
+    schema_sha256: 28fa435ca4df203d489bfd8f4f6d8a09869b2359238c69768c721a4aa3031baf
+    approved_by: lane A2 (D-984; no named reviewer, D-311)
+    date: 2026-11-16
+    qualification: null  # its canary: eval/qualification/ir_extract_v4_canary.jsonl, on the next GPU qualification
   - id: judge
     version: 5
     file: judge_v5.md

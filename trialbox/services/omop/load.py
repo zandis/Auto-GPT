@@ -1887,6 +1887,45 @@ def withhold(db: Database, pids: Iterable[str], actor: str = "optout-worker") ->
     return rep
 
 
+#: ERASE-B (D-867): the CDM tables no loader writes yet, deleted by person at an opt-out so that a loader that writes
+#: them later is covered from its first row. Children first. Not ``tb_conflict``: the withhold is undone by a lift, and
+#: a steward's ruling has no before-image (the review of D-867: the rejected value would stand alone after a lift).
+#: ``cost`` is reached through the person's events, ``episode_event`` through the person's episodes.
+UNLOADED_BY_PERSON = (
+    "DELETE FROM cost WHERE (cost_domain_id = 'Drug' AND cost_event_id IN "
+    "(SELECT drug_exposure_id FROM drug_exposure WHERE person_id = ANY(?))) "
+    "OR (cost_domain_id = 'Visit' AND cost_event_id IN "
+    "(SELECT visit_occurrence_id FROM visit_occurrence WHERE person_id = ANY(?))) "
+    "OR (cost_domain_id = 'Procedure' AND cost_event_id IN "
+    "(SELECT procedure_occurrence_id FROM procedure_occurrence WHERE person_id = ANY(?))) "
+    "OR (cost_domain_id = 'Device' AND cost_event_id IN "
+    "(SELECT device_exposure_id FROM device_exposure WHERE person_id = ANY(?))) "
+    "OR (cost_domain_id = 'Measurement' AND cost_event_id IN "
+    "(SELECT measurement_id FROM measurement WHERE person_id = ANY(?))) "
+    "OR (cost_domain_id = 'Observation' AND cost_event_id IN "
+    "(SELECT observation_id FROM observation WHERE person_id = ANY(?))) "
+    "OR (cost_domain_id = 'Condition' AND cost_event_id IN "
+    "(SELECT condition_occurrence_id FROM condition_occurrence WHERE person_id = ANY(?))) "
+    "OR (cost_domain_id = 'Specimen' AND cost_event_id IN "
+    "(SELECT specimen_id FROM specimen WHERE person_id = ANY(?)))",
+    "DELETE FROM episode_event WHERE episode_id IN (SELECT episode_id FROM episode WHERE person_id = ANY(?))",
+    "DELETE FROM episode WHERE person_id = ANY(?)",
+    "DELETE FROM condition_era WHERE person_id = ANY(?)",
+    "DELETE FROM drug_era WHERE person_id = ANY(?)",
+    "DELETE FROM dose_era WHERE person_id = ANY(?)",
+    "DELETE FROM device_exposure WHERE person_id = ANY(?)",
+    "DELETE FROM specimen WHERE person_id = ANY(?)",
+    "DELETE FROM visit_detail WHERE person_id = ANY(?)",
+    "DELETE FROM payer_plan_period WHERE person_id = ANY(?)",
+    "DELETE FROM cohort WHERE subject_id = ANY(?)",
+)
+
+
+def _drop_unloaded(tx: Any, persons: list[int]) -> None:
+    for stmt in UNLOADED_BY_PERSON:
+        tx.execute(stmt, tuple(persons for _ in range(stmt.count("?"))))
+
+
 def withhold_persons(tx: Any, pids: Sequence[str], actor: str) -> int:
     """Tombstone every live record of the patients ``pids`` with the reason ``opted out`` (before-images kept), in
     the caller's transaction; the consent statements stay (:data:`KEEP_WITHHELD`). Returns the records tombstoned.
@@ -1900,6 +1939,7 @@ def withhold_persons(tx: Any, pids: Sequence[str], actor: str) -> int:
     ]
     if not persons:
         return 0
+    _drop_unloaded(tx, persons)
     live = tx.fetchall(
         "SELECT record_key, cdm_table, record_id, status, content_sha FROM tb_record WHERE status <> 'tombstoned' "
         "AND (person_id = ANY(?) OR (cdm_table = 'person' AND record_id = ANY(?))) "
@@ -1924,6 +1964,13 @@ def withhold_persons(tx: Any, pids: Sequence[str], actor: str) -> int:
     before = _drop_rows(tx, by_table)
     tx.execute("DELETE FROM observation_period WHERE person_id = ANY(?)", (persons,))
     tx.execute("DELETE FROM death WHERE person_id = ANY(?)", (persons,))
+    # ERASE-B (D-867): an address of these people only (no other person, no care site) goes with them
+    tx.execute(
+        "DELETE FROM location l WHERE l.location_id IN (SELECT location_id FROM person WHERE person_id = ANY(?)) "
+        "AND NOT EXISTS (SELECT 1 FROM person p WHERE p.location_id = l.location_id AND p.person_id <> ALL(?)) "
+        "AND NOT EXISTS (SELECT 1 FROM care_site c WHERE c.location_id = l.location_id)",
+        (persons, persons),
+    )
     tx.execute("DELETE FROM person WHERE person_id = ANY(?)", (persons,))
     tx.execute(
         "UPDATE tb_record SET status = 'tombstoned', tombstoned_at = now(), changed_at = now() "

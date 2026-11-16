@@ -63,6 +63,8 @@ OUTSIDE: dict[tuple[str, str], str] = {
 #: Lines the patterns match that read nothing (prose).
 NOT_A_READ: dict[tuple[str, str], str] = {
     ("services/console/i18n_life.py", "FROM consent"): 'a sentence of the page ("from consent")',
+    ("services/console/migrate_stores.py", "register module"): "db-up's migration step (D-921) opens the register's "
+    "store to apply its schema versions and closes it; it reads no row and decides nothing about a patient",
 }
 
 
