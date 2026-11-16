@@ -1046,19 +1046,28 @@ class Compiler:
             }
         )
         files = self._files(manifest, updated, valuesets, art, tests)
-        self.d.repo.write_dir(
-            branch, "main", f"{req.ruleset}/", files, f"approve {req.ruleset} v{req.version} by {req.by}", req.by
-        )
-        tag = f"{req.ruleset}/v{req.version}"
-        self.d.repo.tag(tag, branch, f"{req.ruleset} v{req.version} approved by {req.by}", req.by)
-        self.d.repo.promote(req.ruleset, tag, f"release {tag}", req.by)
+        # G3 of the P1b review (D-952): the FHIR load ran after the tag and the promotion, unguarded; a server that
+        # refused it (FhirEvalError) left the ruleset approved and released while the job failed with an HTTP 500. It
+        # runs first: a refusal changes nothing in the repo and fails the approval by its step, with the server's text
         if self.d.fhir is not None and art.elm:
             libs = [
                 library_resource("FHIRHelpers", "4.0.1", fhirhelpers_source(), art.elm.get("FHIRHelpers")),
                 library_resource("TB_Common", "1.0.0", art.cql["TB_Common"], art.elm.get("TB_Common")),
                 library_resource(art.library, art.library_version, art.cql[art.library], art.elm[art.library]),
             ]
-            self.d.fhir.load(libs, valuesets.values())
+            try:
+                self.d.fhir.load(libs, valuesets.values())
+            except (FhirEvalError, httpx.HTTPError) as exc:
+                log.warning("approve %s v%s: the FHIR server refused the load: %s", req.ruleset, req.version, exc)
+                raise CompileFailed(
+                    "approve", f"the FHIR server did not take the ruleset's libraries or value sets: {exc}"
+                ) from exc
+        self.d.repo.write_dir(
+            branch, "main", f"{req.ruleset}/", files, f"approve {req.ruleset} v{req.version} by {req.by}", req.by
+        )
+        tag = f"{req.ruleset}/v{req.version}"
+        self.d.repo.tag(tag, branch, f"{req.ruleset} v{req.version} approved by {req.by}", req.by)
+        self.d.repo.promote(req.ruleset, tag, f"release {tag}", req.by)
         self._audit(
             "approve.done",
             job_id=req.job_id,
