@@ -137,6 +137,7 @@ def test_the_whole_update_is_limited_from_the_databases_size(tmp_path: Path, mon
     box = up.ComposeBox(tmp_path, run=run)
     cfg = bsch.config(tmp_path, box.env)
     want = up.APPLY_FIXED_S + 2 * sum(cfg.timeout(n) or 0 for n in (50 * gb, 10 * gb, 100 * gb)) + 300
+    want += len(up.STORE_SERVICES) * (cfg.timeout(50 * gb) or 0)  # D-921: each service's migrations, sized
     assert box.apply_limit_s() == int(want) and box.apply_limit_s() > up.APPLY_FIXED_S  # type: ignore[operator]
     monkeypatch.setattr(bsch, "volume_bytes", lambda env, _: None)
     assert box.apply_limit_s() is None  # a size not known: no limit, each step keeps its own (D-455)
