@@ -18,7 +18,9 @@ Describe "site-key.ps1" {
     Mock Read-TbWslHandout { [void]$script:W.Cmds.Add("read"); return [string]$script:W.Handout }
     Mock Get-TbWslHandoutSha { return (Get-TbHexSha ([string]$script:W.Handout)) }
     Mock Remove-TbWslHandout { $script:W.Shredded++ }
-    Mock Send-TbWslKek { [void]$script:W.Sent.Add($Hex); return [int]$script:W.HandExit }
+    Mock Send-TbWslKek { [void]$script:W.Sent.Add($Hex); $c = [int]$script:W.HandExit; if ($script:W.HandExits.Count -gt 0) { $c = $script:W.HandExits[0]; $script:W.HandExits.RemoveAt(0) }; return $c }
+    $script:W.HandExits = New-Object System.Collections.ArrayList
+    Mock Start-TbSleep { }
     Mock Protect-TbUserBytes { param([byte[]]$Bytes) return ([byte[]](@(0xAA) + $Bytes)) }      # a stand-in for DPAPI
     Mock Unprotect-TbUserBytes { param([byte[]]$Bytes) return ([byte[]]($Bytes[1..($Bytes.Length - 1)])) }
   }
@@ -53,11 +55,27 @@ Describe "site-key.ps1" {
     $script:W.Shredded | Should -Be 0
   }
 
-  It "never writes over a stored KEK (a second install keeps the first: the site keys are wrapped under it)" {
+  It "a hand-out equal to the stored KEK is only shredded (a take cut between store and shred, review 1)" {
     Save-TbSiteKey -Dir $script:Dir -Store "acl_file" -Distro "TrialBox" | Should -Be "stored"
-    $script:W.Handout = "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"
     Save-TbSiteKey -Dir $script:Dir -Store "acl_file" -Distro "TrialBox" | Should -Be "exists"
-    (Read-TbSiteKey -Dir $script:Dir -Store "acl_file") | Should -Be $script:Kek
+    $script:W.Shredded | Should -Be 2
+    $script:W.Handout = ""
+    Save-TbSiteKey -Dir $script:Dir -Store "acl_file" -Distro "TrialBox" | Should -Be "exists"
+  }
+
+  It "a new KEK from the Linux side replaces the stored one, which wraps nothing any more (review 1)" {
+    Save-TbSiteKey -Dir $script:Dir -Store "acl_file" -Distro "TrialBox" | Should -Be "stored"
+    # the distribution reinstalled: the Linux side made a new KEK (only when it has none) and wrapped under it
+    $script:W.Handout = "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"
+    Save-TbSiteKey -Dir $script:Dir -Store "acl_file" -Distro "TrialBox" | Should -Be "replaced"
+    (Read-TbSiteKey -Dir $script:Dir -Store "acl_file") | Should -Be $script:W.Handout
+    $script:W.Shredded | Should -Be 2
+    # a mismatch on the replacement keeps the old store and the hand-out
+    $script:W.Handout = "1111111111111111111111111111111111111111111111111111111111111111"
+    Mock Get-TbWslHandoutSha { return "0000" }
+    Save-TbSiteKey -Dir $script:Dir -Store "acl_file" -Distro "TrialBox" | Should -Be "mismatch"
+    (Read-TbSiteKey -Dir $script:Dir -Store "acl_file") | Should -Be "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100"
+    @(Get-ChildItem -LiteralPath $script:Dir -Filter "*.part").Count | Should -Be 0
   }
 
   It "hands the stored KEK into WSL2 at a start, on standard input only" {
@@ -69,10 +87,34 @@ Describe "site-key.ps1" {
     (Send-TbSiteKey -Dir $script:Dir -Store "acl_file" -Distro "TrialBox") | Should -Be "refused"
   }
 
+  It "tries again while WSL2 is starting, and hands nothing when WSL2 already holds the KEK (review 2)" {
+    Save-TbSiteKey -Dir $script:Dir -Store "acl_file" -Distro "TrialBox" | Out-Null
+    $script:W.Sent.Clear()
+    foreach ($c in @(1, 1, 0)) { [void]$script:W.HandExits.Add($c) }
+    (Send-TbSiteKey -Dir $script:Dir -Store "acl_file" -Distro "TrialBox") | Should -Be "handed"
+    $script:W.Sent.Count | Should -Be 3
+    [void]$script:W.HandExits.Add(3)                                    # 3: WSL2 has it already
+    (Send-TbSiteKey -Dir $script:Dir -Store "acl_file" -Distro "TrialBox") | Should -Be "held"
+  }
+
+  It "says the store could not be read, apart from no store at all (review 5)" {
+    Save-TbSiteKey -Dir $script:Dir -Store "dpapi_user" -Distro "TrialBox" | Out-Null
+    Mock Unprotect-TbUserBytes { throw "the key cannot be used in this state" }
+    (Send-TbSiteKey -Dir $script:Dir -Store "dpapi_user" -Distro "TrialBox") | Should -Be "unreadable"
+    $script:W.Sent.Count | Should -Be 0
+  }
+
+  It "writes the 64 figures to standard input with no line end, and its task runs at start and every few minutes (review 2, 3)" {
+    $text = Get-Content -LiteralPath (Join-Path $script:Root "deploy/windows/site-key.ps1") -Raw
+    $text | Should -Match 'StandardInput\.Write\(\$Hex\)'
+    $text | Should -Not -Match '\$Hex \| & wsl'
+    $text | Should -Match "RepetitionInterval"
+    $text | Should -Match "\[ -e /run/trialbox/kek \]"
+  }
+
   It "never puts the KEK in a command line, a log line or the screen" {
     $text = Get-Content -LiteralPath (Join-Path $script:Root "deploy/windows/site-key.ps1") -Raw
-    # the seams that reach WSL2 take the KEK on standard input (a pipe into wsl.exe), never as an argument
-    $text | Should -Match '\$Hex \| & wsl\.exe'
+    # the seam that reaches WSL2 takes the KEK on standard input, never as an argument
     foreach ($line in ($text -split "`n" | Where-Object { $_ -match '\$(Hex|hex|kek)\b' })) {
       $line | Should -Not -Match "Write-Output|Write-Host|Add-Content|Out-File|-Argument" -Because $line
     }

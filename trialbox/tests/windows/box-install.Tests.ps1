@@ -995,6 +995,12 @@ Describe "box-install.ps1" {
       Invoke-Run | Should -Be 1
       $script:S.SiteKeyRuns | Should -Be @("take|acl_file")
     }
+    It "keeps a new KEK the Linux side made after a reinstall in place of the old one (review 1)" {
+      $script:S.SiteKeyStatus = "replaced"
+      Invoke-Run | Should -Be 0
+      Get-Log | Should -Match "site key: replaced \(store acl_file\)"
+      $script:S.SiteKeyRegistered | Should -Be 1
+    }
     It "does nothing more when the Linux side used another back end (no hand-out)" {
       Invoke-Run | Should -Be 0
       $script:S.SiteKeyRegistered | Should -Be 0

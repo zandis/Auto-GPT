@@ -411,6 +411,15 @@ def test_install_asks_for_the_windows_key_back_end_only_when_the_host_tree_has_i
     (other.root / "deploy/hardening").mkdir(parents=True)
     (other.root / "deploy/hardening/seal_keys.sh").write_text('case "$KEK_BACKEND" in\n  windows)\n    ;;\nesac\n')
     assert other.run("install", str(bundle2)).returncode == 0
+    assert "kek=none" in other.log()  # the back end without its unseal unit: not asked for (review 7)
+    (other.root / "deploy/hardening/trialbox-kek-from-windows.service").write_text("[Unit]\n")
+    (other.root / "deploy/site/box").mkdir(parents=True, exist_ok=True)
+    for f in (other.root / "deploy/site/box").iterdir():
+        f.unlink()
+    done = other.root / "deploy/site/box/windows-install-done"
+    if done.exists():
+        done.unlink()
+    assert other.run("install", str(bundle2)).returncode == 0
     assert "kek=windows" in other.log()
 
 

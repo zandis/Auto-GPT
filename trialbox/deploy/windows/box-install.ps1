@@ -1131,7 +1131,7 @@ function Set-TbSiteKey([bool]$Quiet) {
   if ($from -ne $script) { Copy-Item -LiteralPath $from -Destination $script -Force }
   $st = Invoke-TbSiteKey $script "take" $KeyStore $script:TbState.distro
   if ($st -eq "no_handout") { Write-TbLog "    site key: no hand-out from the Linux side (another key back end): nothing to keep"; return }
-  if (@("stored", "exists") -notcontains $st) {
+  if (@("stored", "replaced", "exists") -notcontains $st) {
     if ($Quiet) { Say "site_key_failed" @($st); return }
     Stop-TbStep "site_key_failed" @($st)
   }

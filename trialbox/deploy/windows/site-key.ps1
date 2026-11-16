@@ -48,10 +48,22 @@ function Remove-TbWslHandout([string]$Distro) {
   & wsl.exe -d $Distro -u root --exec sh -c ("shred -u {0} 2>/dev/null || rm -f {0}" -f $script:TbHandout) | Out-Null
 }
 function Send-TbWslKek([string]$Distro, [string]$Hex) {
-  $sh = "umask 077; mkdir -p /run/trialbox; cat > {0}.part && mv -f {0}.part {0}" -f $script:TbHandIn
-  $Hex | & wsl.exe -d $Distro -u root --exec sh -c $sh | Out-Null
-  return $LASTEXITCODE
+  # exit 3: WSL2 holds the KEK already (unsealed, or handed and not yet taken): nothing is written. The 64 figures go
+  # to wsl.exe's standard input exactly, with no line end (a pipe from PowerShell 5.1 would add CR LF, review 3)
+  $sh = "[ -e /run/trialbox/kek ] && exit 3; [ -e {0} ] && exit 3; umask 077; mkdir -p /run/trialbox; cat > {0}.part && mv -f {0}.part {0}" -f $script:TbHandIn
+  $psi = New-Object Diagnostics.ProcessStartInfo
+  $psi.FileName = "wsl.exe"
+  $psi.Arguments = ("-d {0} -u root --exec sh -c `"{1}`"" -f $Distro, $sh)
+  $psi.UseShellExecute = $false
+  $psi.RedirectStandardInput = $true
+  $psi.RedirectStandardOutput = $true
+  $proc = [Diagnostics.Process]::Start($psi)
+  try { $proc.StandardInput.Write($Hex) } finally { $proc.StandardInput.Close() }
+  [void]$proc.StandardOutput.ReadToEnd()
+  $proc.WaitForExit()
+  return $proc.ExitCode
 }
+function Start-TbSleep([int]$Seconds) { Start-Sleep -Seconds $Seconds }
 function Protect-TbUserBytes([byte[]]$Bytes) {
   Add-Type -AssemblyName System.Security
   return [Security.Cryptography.ProtectedData]::Protect($Bytes, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)
@@ -77,48 +89,78 @@ function Get-TbStorePath([string]$Dir, [string]$Store) {
   return (Join-Path $Dir "site-key.bin")
 }
 function Read-TbSiteKey([string]$Dir, [string]$Store) {
+  # "" when there is no store; throws when there is one that cannot be read (DPAPI under another sign-in)
   $p = Get-TbStorePath $Dir $Store
   if (-not (Test-Path -LiteralPath $p)) { return "" }
   $bytes = [IO.File]::ReadAllBytes($p)
   if ($Store -eq "dpapi_user") { $bytes = Unprotect-TbUserBytes $bytes }
+  if ($null -eq $bytes) { throw "the store gave nothing back" }
   return (ConvertTo-TbHex $bytes)
 }
-function Save-TbSiteKey([string]$Dir, [string]$Store, [string]$Distro) {
-  # Returns stored | exists | no_handout | bad_handout | mismatch
-  foreach ($s in @("acl_file", "dpapi_user")) { if (Test-Path -LiteralPath (Get-TbStorePath $Dir $s)) { return "exists" } }
-  $hex = Read-TbWslHandout $Distro
-  if (-not $hex) { return "no_handout" }
-  if ($hex -notmatch "^[0-9a-f]{64}$") { return "bad_handout" }
-  $bytes = ConvertTo-TbBytes $hex
+function Write-TbStore([string]$Dir, [string]$Store, [string]$Hex) {
+  $bytes = ConvertTo-TbBytes $Hex
   if ($Store -eq "dpapi_user") { $bytes = Protect-TbUserBytes $bytes }
   $path = Get-TbStorePath $Dir $Store
-  [IO.File]::WriteAllBytes($path + ".part", $bytes)
-  Move-Item -LiteralPath ($path + ".part") -Destination $path -Force
+  try {
+    [IO.File]::WriteAllBytes($path + ".part", $bytes)
+    Move-Item -LiteralPath ($path + ".part") -Destination $path -Force
+  } finally { Remove-Item -LiteralPath ($path + ".part") -Force -ErrorAction SilentlyContinue }   # never a stray copy
+}
+function Save-TbSiteKey([string]$Dir, [string]$Store, [string]$Distro) {
+  # Returns stored | replaced | exists | no_handout | bad_handout | mismatch
+  $have = ""
+  foreach ($s in @("acl_file", "dpapi_user")) { if (Test-Path -LiteralPath (Get-TbStorePath $Dir $s)) { $have = $s } }
+  $hex = Read-TbWslHandout $Distro
+  if ($have -and -not $hex) { return "exists" }
+  if (-not $hex) { return "no_handout" }
+  if ($hex -notmatch "^[0-9a-f]{64}$") { return "bad_handout" }
+  if ($have) {
+    # a take cut between store and shred left the same KEK on both sides: only the hand-out goes
+    if ((Read-TbSiteKey $Dir $have) -eq $hex) { Remove-TbWslHandout $Distro; return "exists" }
+    # another KEK: the Linux side makes one only when it has none (seal_keys.sh), and wraps the keys under it, so
+    # the stored one wraps nothing any more (the distribution was installed again); it is replaced below, after the
+    # same check, and kept when the check fails (review 1)
+  }
+  $old = $null
+  if ($have) { $old = [IO.File]::ReadAllBytes((Get-TbStorePath $Dir $have)) }
+  Write-TbStore $Dir $Store $hex
+  if ($have -and $have -ne $Store) { Remove-Item -LiteralPath (Get-TbStorePath $Dir $have) -Force }
   # the store read back must be the file inside WSL2, by its own hash there, before that file is removed: the KEK
   # has one copy until then, and the site keys are wrapped under it
-  $back = Read-TbSiteKey $Dir $Store
+  $back = ""; try { $back = Read-TbSiteKey $Dir $Store } catch { $back = "" }
   if ($back -ne $hex -or (Get-TbHexSha $back) -ne (Get-TbWslHandoutSha $Distro)) {
-    Remove-Item -LiteralPath $path -Force
+    Remove-Item -LiteralPath (Get-TbStorePath $Dir $Store) -Force -ErrorAction SilentlyContinue
+    if ($null -ne $old) { [IO.File]::WriteAllBytes((Get-TbStorePath $Dir $have), $old) }   # the old store as it was
     return "mismatch"
   }
   Remove-TbWslHandout $Distro
+  if ($have) { return "replaced" }
   return "stored"
 }
-function Send-TbSiteKey([string]$Dir, [string]$Store, [string]$Distro) {
-  # Returns handed | no_key | refused
-  $hex = Read-TbSiteKey $Dir $Store
+function Send-TbSiteKey([string]$Dir, [string]$Store, [string]$Distro, [int]$Tries = 10, [int]$WaitSeconds = 15) {
+  # Returns handed | held | no_key | unreadable | refused. WSL2 may still be starting at a start of Windows: tried
+  # again, the task itself does not restart an action that ended (review 2)
+  try { $hex = Read-TbSiteKey $Dir $Store } catch { return "unreadable" }
   if (-not $hex) { return "no_key" }
-  if ((Send-TbWslKek $Distro $hex) -ne 0) { return "refused" }
-  return "handed"
+  if ($hex -notmatch "^[0-9a-f]{64}$") { return "unreadable" }
+  for ($i = 1; $i -le $Tries; $i++) {
+    $rc = Send-TbWslKek $Distro $hex
+    if ($rc -eq 0) { return "handed" }
+    if ($rc -eq 3) { return "held" }
+    if ($i -lt $Tries) { Start-TbSleep $WaitSeconds }
+  }
+  return "refused"
 }
 function Register-TbSiteKeyTask([string]$Account, [string]$Name, [string]$Self, [string]$Folder, [string]$Kind) {
-  # at each start, signed in or not (S4U, as the boot task); a WSL2 still starting is retried every minute
+  # at each start and every few minutes after, signed in or not (S4U, as the boot task): a WSL2 started again
+  # without a start of Windows (wsl --shutdown, an update) gets the KEK again; one that holds it is left alone
   $arg = "-NoProfile -ExecutionPolicy Bypass -File `"{0}`" -Hand -Store {1} -Dir `"{2}`" -Distro {3}" -f $Self, $Kind, $Folder, $Distro
   $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arg
   $principal = New-ScheduledTaskPrincipal -UserId $Account -LogonType S4U -RunLevel Highest
   $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
-    -ExecutionTimeLimit (New-TimeSpan -Minutes 5) -RestartCount 10 -RestartInterval (New-TimeSpan -Minutes 1)
-  Register-ScheduledTask -TaskName $Name -Action $action -Trigger (New-ScheduledTaskTrigger -AtStartup) -Principal $principal `
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 5) -MultipleInstances IgnoreNew
+  $repeat = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
+  Register-ScheduledTask -TaskName $Name -Action $action -Trigger @((New-ScheduledTaskTrigger -AtStartup), $repeat) -Principal $principal `
     -Settings $settings -Description "TrialBox: hand the site keys' KEK into WSL2 at start (NEW-WIN-15)" -Force | Out-Null
 }
 
@@ -134,5 +176,5 @@ if ($Take) { $r = Save-TbSiteKey -Dir $Dir -Store $Store -Distro $Distro }
 elseif ($Hand) { $r = Send-TbSiteKey -Dir $Dir -Store $Store -Distro $Distro }
 else { Write-Output "site-key: -Take, -Hand or -Register"; exit 2 }
 Write-Output ("status={0}" -f $r)
-if (@("stored", "exists", "handed") -contains $r) { exit 0 }
+if (@("stored", "replaced", "exists", "handed", "held") -contains $r) { exit 0 }
 exit 1
