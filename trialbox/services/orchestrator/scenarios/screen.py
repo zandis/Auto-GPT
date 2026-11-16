@@ -362,7 +362,7 @@ def provenance(ctx: Ctx, rs: Ruleset, meta: ReportMeta, judging: dict[str, Any] 
         "run_date": meta.run_date,
         "clock": meta.clock or "system clock",
         "job_id": meta.job_id,
-        "language": meta.locale,
+        "language": meta.locale,  # the report's language (the site's locale), not the notes' (G12, D-980)
         "site": meta.site_id,
     }
 
