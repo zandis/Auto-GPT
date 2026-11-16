@@ -35,6 +35,10 @@ TAIWAN_CHART = (
         (TAIWAN_CHART, "en"),  # the expected case at a Taiwan site (the owner, 2026-11-16)
         ("高血圧で Amlodipine 5mg を服用している。浮腫はない。", "ja"),
         ("病人有高血壓，服用 Amlodipine 5mg，血壓控制良好。", "zh-TW"),
+        # D-983's review: Japanese in kanji, Chinese full of abbreviations
+        ("既往歴：高血圧、糖尿病。内服薬なし。", "ja"),
+        ("肺腺癌、EGFR変異陽性。化学療法施行中。", "ja"),
+        ("主訴：SOB x3d，發燒，給予 Augmentin，追蹤 CBC/CRP，胸部X光右下肺浸潤。", "zh-TW"),
         ("BP 120/80", None),
         ("", None),
     ],
@@ -95,3 +99,31 @@ def test_english_notes_at_a_zh_tw_site_never_exclude_on_a_threshold_not_fitted_t
 def test_notes_in_the_sites_own_language_keep_the_earlier_rule(text: str, setting: str) -> None:
     t = _index_run(text, notes_language=setting).traces["I-1"]  # type: ignore[attr-defined]
     assert t.exit_stage == "S2b" and t.outcomes["X-INC-01"].hard  # as before D-983 (CAS-11, CAS-18)
+
+
+def test_a_long_lab_table_does_not_outweigh_the_narrative() -> None:
+    lab = "WBC 12.3 Hb 10.2 PLT 230 Na 135 K 4.1 Cr 1.2 BUN 20 " * 20
+    assert main_language([lab, "病人今日出院，狀況穩定，門診追蹤，持續服藥，無發燒。"], "en") == "zh-TW"
+
+
+@pytest.mark.parametrize(
+    ("locale", "lang"), [("ja-JP", "ja"), ("zh-Hant", "zh-TW"), ("zh-TW", "zh-TW"), ("en-US", "en")]
+)
+def test_a_locale_is_read_as_its_language(locale: str, lang: str) -> None:
+    from matching.notelang import family
+
+    assert family(locale) == lang
+
+
+def test_a_patients_language_is_read_from_all_their_notes_not_one_window() -> None:
+    from datetime import date
+
+    from matching.cascade.engine import _Note, _Run
+
+    run = _Run.__new__(_Run)
+    run._notes_lang = {}
+    run.cfg = type("C", (), {"notes_language": "auto", "language": "zh-TW"})()
+    short = _Note("d1", date(2026, 10, 1), "progress", "DM, HTN", ["DM, HTN"])
+    long = _Note("d2", date(2025, 1, 1), "progress", EN_NOTE, [EN_NOTE])
+    run._learn_language("P1", [short, long])  # what S2 does with all the patient's notes, before any criterion
+    assert run.language_of("P1", [short]) == "en" and run.mismatched("P1", [short]) == "en"

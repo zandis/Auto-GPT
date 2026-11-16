@@ -24,6 +24,16 @@
     - A certified zero hit counts only when the criterion's terms include one in the notes' script.
     - Where the language is the site's own, or cannot be told, the earlier rules stand, and their safety tests pass unchanged (CAS-11, CAS-13, CAS-18).
     - **For the integrator:** a stricter reading would apply both rules to every language until a stratum has a fit. That stops FEAS's index-absent exclusions everywhere, and it contradicts the agreed safety tests, so it is not built here.
+- **Adversarial review** (this card). No blockers: nothing drops a patient that was kept before.
+  - **High, fixed: the language cache.** It was filled from whichever criterion's window came first, so a short first window, or a Chinese window before an English one, decided by criterion order. It is now read once per patient from all their notes, at S2.
+  - **Medium, fixed: detection.**
+    - Japanese mostly in kanji is now ja: one Japanese-only kanji (歴 薬 変 検 …) suffices, since Chinese writes those characters differently.
+    - Chinese with English abbreviations is now zh-TW: a word needs three letters or more with lower case, so SOB, CBC, Hb and Na are none.
+    - A long lab table no longer outweighs the narrative: notes are weighed by their words and characters, not their length.
+  - **Medium, fixed: cost.** The certified-list test runs before the language. That list is empty in screening.
+  - **Low, fixed: the locale is read as its language** (ja-JP → ja, zh-Hant → zh-TW).
+  - **Low, open:** once per-language fits exist, a patient read as en is judged on the en fit. If that fit is stricter, the index sweep may exclude where the zh-TW fit would have rescued. Calibration owns that, after D-517.
+  - **Inert today:** screening runs with absence semantics off and no certified list, and no site fit exists. In production the change today names the right language in the trace and picks the same prior.
 - **Not in this card:**
   - Calibration: no claim until the D-517 gold set exists per language.
   - S2's lexicon coverage: the 35-word table, and its "egfr" read as the receptor.

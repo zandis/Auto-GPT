@@ -87,7 +87,7 @@ from matching.cascade.s2b_semantic import (
 )
 from matching.coverage import UNKNOWN_CODE_SYSTEM, Coverage
 from matching.excerpts import sentences
-from matching.notelang import LANGS, main_language, notes_language
+from matching.notelang import LANGS, family, main_language, notes_language
 from matching.proposed import PROPOSED_FACT, SUSPECTED_DIAGNOSIS, Proposed
 from matching.recorded import NO_RECORD, Recorded
 from matching.stored_scores import apply_rows
@@ -398,7 +398,7 @@ class _Run:
         self.tokens = 0
         self.coverage = Coverage()  # rows in a code system nobody can read (F-10, D-130); loaded at S1
         self._s2_excluded = 0  # patients S2 excluded on a certified zero hit, summed over the batches (T-694 part 3)
-        self._notes_lang: dict[str, str] = {}  # D-983: the language of each patient's notes, read once per run
+        self._notes_lang: dict[str, tuple[str, bool]] = {}  # D-983: each patient's notes' language, and if it is known
         self.carried = Carried()  # the code systems the site's rows carry (F11, D-795); loaded at S1
         self.recorded = Recorded()  # the kinds of coded record each patient has at all (D-914); loaded at S1
         self._uncarried_index: set[str] = set()  # index conditions whose list no row can carry: absence never excludes
@@ -748,17 +748,25 @@ class _Run:
     # -------------------------------------------------------------------------------------------- S2 / S2b
     def language_of(self, pid: str, notes: Sequence[_Note]) -> str:
         """The language of ``pid``'s notes for a language-dependent choice (D-983): the site's declared one, else read
-        from the notes of the window (once per patient and run), else the site's report locale."""
+        from all the patient's notes (set once per patient and run by :meth:`s2`, the first stage that reads them),
+        else the site's report locale."""
         if pid not in self._notes_lang:
-            self._notes_lang[pid] = notes_language(self.cfg.notes_language, (n.text for n in notes), self.cfg.language)
-        return self._notes_lang[pid]
+            self._learn_language(pid, notes)
+        return self._notes_lang[pid][0]
+
+    def _learn_language(self, pid: str, notes: Sequence[_Note]) -> None:
+        texts = [n.text for n in notes]
+        read = main_language(texts, "")
+        lang = notes_language(self.cfg.notes_language, texts, family(self.cfg.language))
+        self._notes_lang[pid] = (lang, self.cfg.notes_language in LANGS or read != "")
 
     def mismatched(self, pid: str, notes: Sequence[_Note]) -> str | None:
         """D-983's fail safe: the notes' language when it is known (declared, or read from the notes) and is not the
-        one the site's tables were set for (the report locale); None otherwise, where the earlier rules stand."""
+        one the site's tables were set for (the report locale's language); None otherwise, where the earlier rules
+        stand."""
         lang = self.language_of(pid, notes)
-        known = self.cfg.notes_language in LANGS or main_language((n.text for n in notes), "") != ""
-        return lang if known and lang != self.cfg.language else None
+        known = self._notes_lang[pid][1]
+        return lang if known and lang != family(self.cfg.language) else None
 
     def s2(
         self, note_crit: list[CriterionIR], pids: Collection[str] | None = None, record: bool = True
@@ -780,6 +788,8 @@ class _Run:
         excluded_here = 0
         for t in alive:
             pnotes = notes.get(t.pid, [])
+            if t.pid not in self._notes_lang:  # D-983: from all the patient's notes, never one criterion's window
+                self._learn_language(t.pid, pnotes)
             for c in note_crit:
                 if c.id in t.outcomes and t.outcomes[c.id].stage == "S1":
                     continue  # D-98 mixed: the codes settled it
@@ -815,8 +825,10 @@ class _Run:
                     routes.append(_Route(t.pid, c.id, shown, _set_hash(sset), "S2", left_out=left))
                     continue
                 self.metrics.pairs_s2_zero_hit += 1
-                other = self.mismatched(t.pid, win)
-                certified = c.id in self.cfg.zero_hit_allowed and (other is None or has_term_for(keys, other))
+                certified = c.id in self.cfg.zero_hit_allowed  # the cheap test first: the list is empty in screening
+                if certified:
+                    other = self.mismatched(t.pid, win)
+                    certified = other is None or has_term_for(keys, other)
                 if certified:  # CAS-13 certified: absence semantics directly after S2; D-983: only with a term the
                     # notes' language could hold (English keys never find a Chinese note's mention, nor the reverse)
                     if c.kind == "inclusion":
