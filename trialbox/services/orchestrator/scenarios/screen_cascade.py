@@ -612,6 +612,7 @@ def screen_with_cascade(
         population=pids,
         note_block=may_block,
         absence_semantics=False,
+        s2b_when_fits=False,  # D-904: where every window note fits, the ranking changes no prompt; no embedding
         require_retrieval=True,  # NEW-LLM-2: nothing to retrieve with is said, never the first sentences read
         max_llm_items=max_pairs,
         note_batch=note_batch_of(),  # T-694 part 3: the notes of a batch of patients at a time, same answers

@@ -44,8 +44,9 @@ note checks reach both pinned builds on the box) and runs as a validation run on
 no TPM and the poc host profile; it mounts the Docker host's `/run/trialbox` and volumes folder in the box
 container, as on a site's host. Its doctor step names what only a site's host has (`clock`, `ops_runner`,
 `audit_heads`) as not reached by a rehearsal and fails on any other FAIL. CI runs both variants by hand and on every pull
-request that touches the installer (`.github/workflows/trialbox-rehearse-box.yml`). It needs a Docker host with no other TrialBox stack and port
-8090 free. The box container uses the host's Docker through its socket, so the work folder has the same path inside.
+request that touches the installer (`.github/workflows/trialbox-rehearse-box.yml`); its `rehearse-result` check passes
+when they passed or were skipped (no installer change), so a branch rule can require it (D-891). It needs a Docker
+host with no other TrialBox stack and port 8090 free. The box container uses the host's Docker through its socket, so the work folder has the same path inside.
 `DOCKER_HOST=unix:///path/docker.sock` rehearses on another daemon. Run it on both Docker image stores before a
 release: the containerd store (the default of new Docker installs) and the classic `overlay2` store (older hosts,
 and hosts upgraded from them). The classic store keeps no image digests (below).

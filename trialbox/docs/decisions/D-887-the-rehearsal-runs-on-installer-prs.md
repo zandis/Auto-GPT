@@ -48,8 +48,8 @@
    registry routes it on a TEST box only (services/registry, one condition); `--promote` and qualify refuse it by
    name; the doctor's serving and registry_pins lines and the served step say "rehearsal placeholder". The install's
    earlier "a rehearsal box goes on unpinned" is gone: a refused pin stops every box.
-9. **The rehearsal box is VALIDATION** (the integrator's (i), 2026-11-15; it amends D-726's "a rehearsal box is
-   TEST", every refusal of D-726 for a box without the mark standing). Its fifth run showed why: SCREEN's note checks
+9. **The rehearsal box is VALIDATION** (the integrator's (i), 2026-11-15; the owner's yes is D-514; it amends
+   D-726's "a rehearsal box is TEST", every refusal of D-726 for a box without the mark standing). Its fifth run showed why: SCREEN's note checks
    are D3, a TEST box has no step confirmer and its class ceiling is D0, so the gateway refused all twelve
    (`step_unconfirmed`, then `class_not_allowed_in_env`) and no SCREEN could reach the pinned builds there.
    - The mark: `deploy/install.sh --rehearsal` writes `deploy/site/rehearsal.json` before the bundle loads (the

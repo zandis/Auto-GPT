@@ -203,8 +203,8 @@ def test_v1_not_met_is_not_final_when_the_budget_left_retrieved_notes_out(monkey
 
     monkeypatch.setattr(evaluate, "FULL_RECORD_TOKENS", 2500)
     filler = "Routine follow-up, vitals stable, no change in plan. " * 75
-    small = _Chunks([_chunk(n, f"{FLARE}. Seen in clinic.") for n in range(1, 6)])
-    large = _Chunks([_chunk(n, f"{FLARE}. {filler}") for n in range(1, 6)])
+    small = _Chunks([_chunk(n, f"{FLARE}. Seen in clinic, visit {n}.") for n in range(1, 6)])
+    large = _Chunks([_chunk(n, f"{FLARE}. Visit {n}. {filler}") for n in range(1, 6)])  # distinct notes (D-905)
     assert _v1(small, "fail") == ("excluded", "note")  # control: every retrieved note was read
     assert _v1(large, "fail") == ("review", "notes_over_budget")
     # T-603 (CR-004 flag half): an answer that keeps the patient stands, flagged: review, with the reason
@@ -223,7 +223,7 @@ def test_v1_an_answer_on_the_whole_window_is_final_when_the_context_holds_it() -
     cuts (above) are read whole by models with room for them, and an answer on the whole window is final. Before,
     this was the evaluator's second, "full record" read."""
     filler = "Routine follow-up, vitals stable, no change in plan. " * 75
-    large = _Chunks([_chunk(n, f"{FLARE}. {filler}") for n in range(1, 6)])
+    large = _Chunks([_chunk(n, f"{FLARE}. Visit {n}. {filler}") for n in range(1, 6)])  # distinct notes (D-905)
     nj = NoteJudge(
         lake=large,  # type: ignore[arg-type]
         llm=_Roomy("judge-a", says("fail", FLARE)),  # type: ignore[arg-type]
