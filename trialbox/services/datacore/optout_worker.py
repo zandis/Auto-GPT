@@ -38,7 +38,6 @@ import json
 import logging
 import os
 import re
-import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -505,42 +504,49 @@ def verify_held_mail(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:
 # ------------------------------------------------------------------------------------------------ the set-up's uploads
 def _setup_uploads(pids: frozenset[str], env: WorkerEnv, delete: bool) -> dict[str, int]:
     """ERASE-A4 (D-869): a per-patient upload of the site set-up (a chart: ``sitesetup.input`` with the patient's
-    pseudonym) goes whole: its check items, its column fixes, its facts, the row, and its files on disk (the upload,
-    its text and its lake text, ``<ws>/inputs/<id>.*`` under the set-up's folder). A sheet of many patients is not a
-    patient's own upload: it stays owed. Counts uploads only."""
+    pseudonym) is erased: its files on disk (the upload, its text and its lake text, ``<ws>/inputs/<id>.*`` under the
+    set-up's folder), its check items, its column fixes and its facts go, and its row stays as a marker (status
+    ``erased``; no pseudonym, name, hash, path or summary), which no page lists. Each tick sweeps the marked ids again,
+    so an upload that raced the clear (its files or facts written after the row was marked) is finished on the next
+    tick; nothing else is ever swept (the review of D-869: a sweep of every file no row names would delete every
+    upload of a database restored behind its files). A sheet of many patients is not a patient's own upload: it stays
+    owed. Counts uploads, and what is left of the marked ones."""
     url = str(env.register.db.url)
     want = sorted(pids)
     if not want or not store_has(url, "sitesetup", "input"):
         return {"sitesetup.input": 0}
+    root = env.extra.get("setup_root")
     with _open(url, "sitesetup") as db:
-        rows = [(int(r[0]), str(r[1])) for r in db.fetchall("SELECT id, ws FROM input WHERE pid = ANY(?)", (want,))]
+        new = [(int(r[0]), str(r[1])) for r in db.fetchall("SELECT id, ws FROM input WHERE pid = ANY(?)", (want,))]
+        marked = [(int(r[0]), str(r[1])) for r in db.fetchall("SELECT id, ws FROM input WHERE status = 'erased'")]
+        rows = new + marked
+        ids = [i for i, _ in rows]
         if not delete:
-            return {"sitesetup.input": len(rows)}
-        root = env.extra.get("setup_root")
-        if root is None and rows:  # the uploads are there and their files cannot be reached: never called cleared
+            left = 0
+            if ids:
+                left = int(db.fetchval("SELECT count(*) FROM fact WHERE input_id = ANY(?)", (ids,)))
+            if root is not None:
+                left += sum(1 for iid, ws in marked if any((Path(root) / ws / "inputs").glob(f"{iid}.*")))
+            return {"sitesetup.input": len(new) + left}
+        if not rows:
+            return {"sitesetup.input": 0}
+        if root is None:  # the uploads are there and their files cannot be reached: never called cleared
             raise RuntimeError("no site set-up folder for the uploads")
         for iid, ws in rows:  # the files first: a crash after them leaves the rows, and the next tick ends the job
-            for f in (Path(root) / ws / "inputs").glob(f"{iid}.*"):  # type: ignore[arg-type]
-                f.unlink(missing_ok=True)
-        ids = [i for i, _ in rows]
-        with db.transaction() as tx:
-            if ids:
-                tx.execute("DELETE FROM check_item WHERE input_id = ANY(?)", (ids,))
-                tx.execute("DELETE FROM fix WHERE input_id = ANY(?)", (ids,))
-                tx.execute("DELETE FROM fact WHERE input_id = ANY(?)", (ids,))
-                tx.execute("DELETE FROM input WHERE id = ANY(?)", (ids,))
-            # the review of D-869: an upload that raced the clear (its row gone before its facts were written) leaves
-            # facts of no upload; they belong to nothing, and go
-            tx.execute("DELETE FROM fact WHERE NOT EXISTS (SELECT 1 FROM input i WHERE i.id = fact.input_id)")
-            asked = time.time()
-            known = {int(r[0]) for r in tx.fetchall("SELECT id FROM input")}
-        if root is not None:  # and its files, which no row names (a row is written before its files); a file
-            # written after the ids were read may be an upload whose row came after them: left for the next tick
-            for f in Path(root).glob("*/inputs/*"):
-                head = f.name.split(".", 1)[0]
-                if head.isdigit() and int(head) not in known and f.stat().st_mtime < asked:
+            for f in (Path(root) / ws / "inputs").glob(f"{iid}.*"):
+                if f.is_file():
                     f.unlink(missing_ok=True)
-    return {"sitesetup.input": len(rows)}
+        with db.transaction() as tx:
+            tx.execute("DELETE FROM check_item WHERE input_id = ANY(?)", (ids,))
+            tx.execute("DELETE FROM fix WHERE input_id = ANY(?)", (ids,))
+            tx.execute("DELETE FROM fact WHERE input_id = ANY(?)", (ids,))
+            if new:
+                tx.execute(
+                    "UPDATE input SET status = 'erased', pid = NULL, name = '', sha256 = '', path = '', "
+                    "summary = '{}', roles = '{}' WHERE id = ANY(?)",
+                    ([i for i, _ in new],),
+                )
+    return {"sitesetup.input": len(new)}
 
 
 def clear_setup_uploads(pids: frozenset[str], env: WorkerEnv) -> dict[str, int]:

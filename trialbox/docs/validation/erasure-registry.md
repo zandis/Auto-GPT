@@ -67,7 +67,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `sitesetup.check_item` | T-206b | a sheet's rows of the patient (not keyed by patient) | the raw value of an uploaded row: those of a patient's own upload go with it (D-869) |
 | `sitesetup.fact` | T-206b | the clear | a fact read from an uploaded file, by pseudonym |
 | `sitesetup.fix` | T-206b | a sheet's examples of the patient (not keyed by patient) | example values of an uploaded column: those of a patient's own upload go with it (D-869) |
-| `sitesetup.input` | T-206b | a sheet of many patients that names the patient (its file and its rows are not keyed by patient) | an uploaded file and the patient it belongs to: a patient's own upload goes whole, file included (D-869) |
+| `sitesetup.input` | T-206b | a sheet of many patients that names the patient (its file and its rows are not keyed by patient) | an uploaded file and the patient it belongs to: a patient's own upload is erased, file included, its row an empty marker (D-869) |
 | `study.rc_record` | T-206b | the rows of a patient never consented (a consented subject's stay, OD-8) | the REDCap project's records linked to pseudonyms |
 | `study.rc_write` | T-206b | the clear | what was written to REDCap, by link value and record |
 | `team.candidate_views` | T-206b | the reveal cap counts these rows and they say who saw an identity: a clear that keeps both | a cross-department view of a candidate, by pseudonym |

@@ -218,7 +218,8 @@ TABLES: dict[str, Entry] = {
     "orch.trial_cache": _none("the public registry cache"),
     "sitesetup.input": _erase(
         "setup_uploads",
-        "an uploaded file and the patient it belongs to: a patient's own upload goes whole, file included (D-869)",
+        "an uploaded file and the patient it belongs to: a patient's own upload is erased, file included, its row an "
+        "empty marker (D-869)",
         "a sheet of many patients that names the patient (its file and its rows are not keyed by patient)",
     ),
     "sitesetup.fact": _owed("a fact read from an uploaded file, by pseudonym"),

@@ -43,7 +43,7 @@ def test_a_patients_own_chart_goes_whole_and_another_stays(svc: Any, db_url: str
     assert clear_setup_uploads(gone, env) == {"sitesetup.input": 1}
     assert verify_setup_uploads(gone, env) == {"sitesetup.input": 0}
     assert _files(svc.root, a["input"]) == [] and _files(svc.root, c["input"])  # the other chart's files stay
-    assert {i["id"] for i in svc.store.inputs(WS)} == {c["input"]}
+    assert {i["id"] for i in svc.store.inputs(WS)} == {c["input"]}  # the marker of A is listed nowhere
     assert all(f["pid"] != pid("10000001") for f in svc.store.facts(WS))
     env.register.close()
 
@@ -59,26 +59,28 @@ def test_with_no_folder_the_uploads_are_never_called_cleared(svc: Any, db_url: s
     env.register.close()
 
 
-def test_an_upload_that_raced_the_clear_leaves_no_orphan(svc: Any, db_url: str) -> None:
-    """The review of D-869: facts of no upload and old files no row names are swept; a newer file is left."""
-    import os
-    import time
+def test_an_upload_that_raced_the_clear_is_finished_and_nothing_else_is_swept(svc: Any, db_url: str) -> None:
+    """The review of D-869: the erased upload's row stays as a marker, and each tick sweeps the marked ids only: a
+    file or fact the racing upload wrote after the clear goes on the next tick; a file no row names is never swept
+    (a database restored behind its files would otherwise lose every upload)."""
+    from datacore.optout_worker import clear_setup_uploads, verify_setup_uploads
 
-    from datacore.optout_worker import clear_setup_uploads
-
-    c = svc.add_chart(WS, "10000002", "c.txt", CHART, "crc")
-    inputs = svc.root / WS / "inputs"
-    old, new = inputs / "999.txt", inputs / "998.txt"
-    old.write_text("synthetic orphan")
-    os.utime(old, (time.time() - 3600, time.time() - 3600))
-    svc.store.db.execute("INSERT INTO fact (ws, input_id, pid, domain, status, at) VALUES (?, 999, ?, 'dx', 'ok', 'n')",
-                         (WS, pid("10000001")))  # fmt: skip
+    a = svc.add_chart(WS, "10000001", "a.txt", CHART, "crc")
     env = _env(db_url, svc.root)
-    new.write_text("an upload whose row is on its way")
-    os.utime(new, (time.time() + 3600, time.time() + 3600))
-    clear_setup_uploads(frozenset({pid("10000001")}), env)
-    assert not old.exists() and new.exists() and _files(svc.root, c["input"])
-    assert all(f["input_id"] != 999 for f in svc.store.facts(WS))
+    gone = frozenset({pid("10000001")})
+    clear_setup_uploads(gone, env)
+    row = svc.store.db.fetchone("SELECT status, pid, name, sha256 FROM input WHERE id = ?", (a["input"],))
+    assert row is not None and tuple(row) == ("erased", None, "", "")  # the marker: nothing of the patient
+    inputs = svc.root / WS / "inputs"
+    late, stray = inputs / f"{a['input']}.lake.txt", inputs / "999.txt"
+    late.write_text("the racing upload's text")
+    stray.write_text("a file no row names")
+    svc.store.db.execute("INSERT INTO fact (ws, input_id, pid, domain, status, at) VALUES (?, ?, ?, 'dx', 'ok', 'n')",
+                         (WS, a["input"], pid("10000001")))  # fmt: skip
+    assert verify_setup_uploads(gone, env)["sitesetup.input"] == 2  # the late file and the late fact
+    clear_setup_uploads(gone, env)
+    assert verify_setup_uploads(gone, env)["sitesetup.input"] == 0
+    assert not late.exists() and stray.exists()
     env.register.close()
 
 
