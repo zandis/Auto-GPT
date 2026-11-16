@@ -349,6 +349,9 @@ OWED_TABLES: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
     )),
     ("orch", (
         ("feedback", "SELECT count(*) FROM feedback WHERE pid = ANY(?)", "DELETE FROM feedback WHERE pid = ANY(?)"),
+        # D-908 (the owner's D-519): the judged-pair store's model answers about the patient
+        ("judged_pairs", "SELECT count(*) FROM judged_pairs WHERE pid = ANY(?)",
+         "DELETE FROM judged_pairs WHERE pid = ANY(?)"),
         # D-513 (the owner, 2026-11-15; D-860): a dry run goes; a live submission is NHI's send-once guard and the
         # record of a disclosure already made, and stays
         ("submissions", "SELECT count(*) FROM submissions WHERE pid = ANY(?) AND dry_run = 1",

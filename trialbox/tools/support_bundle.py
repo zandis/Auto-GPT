@@ -23,7 +23,8 @@ value). What goes in:
 ==========================  ======================================================================================
 
 What never goes in: ``/data`` or any Docker volume, the secrets folder, a key, a backup, a rollback dump, the audit
-chain, the pid map, the lake, ``settings.yaml``, and the logs of the third-party services (PostgreSQL, HAPI FHIR,
+chain, the pid map, the lake, any database table (the judged-pair store ``orch.judged_pairs`` among them, D-908),
+``settings.yaml``, and the logs of the third-party services (PostgreSQL, HAPI FHIR,
 vLLM: they log statement values and prompts unscrubbed, OPS-035). An ``--add`` path in one of those places is
 refused and nothing is written.
 

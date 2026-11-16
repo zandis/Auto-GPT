@@ -88,6 +88,10 @@ def test_sql_engine_keeps_unreadable_codes_unknown(fixture: dict[str, Any]) -> N
     ids = exp["criteria"]
     evals = SqlEngine(fixture["lake"]).evaluate(rs, list(exp["compiled"]), index_date(exp), ids)
     want = compiled(exp)
+    from matching.recorded import NO_RECORD, Recorded
+
+    rec = Recorded.load(fixture["lake"], list(exp["compiled"]), None)  # D-914: each patient's kinds of record
+    by_id = {c.id: c for c in fixture["crit"]}
     for pid, vals in want.items():
         changed = exp["runtime"].get(pid, {})
         for cid, v in vals.items():
@@ -100,6 +104,9 @@ def test_sql_engine_keeps_unreadable_codes_unknown(fixture: dict[str, Any]) -> N
                 verdict = structured_verdict(c, ev)
                 assert verdict.verdict == "unknown" and verdict.evidence is not None
                 assert verdict.evidence.reason == Reason.UNKNOWN_CODE_SYSTEM.value
+            elif (ev.reasons or {}).get(cid) == NO_RECORD:
+                # D-914: an excluding coded answer for a patient with no record of its kind at all reads unknown
+                assert ev.results[cid] is None and rec.doubt(by_id[cid], pid, v), (pid, cid, v)
             else:
                 assert ev.results[cid] is v, (pid, cid)
     # an exclusion never changes (FALSE keeps the patient anyway), nor a TRUE "none" inclusion
