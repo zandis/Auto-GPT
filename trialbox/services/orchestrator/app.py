@@ -646,8 +646,9 @@ class RetryScheduled(BaseModel):
 
 #: T-715 refuse mode (D-871): the last two v2 routes of the console's own operations take a verified v3 person
 AS_RETRY = route_actor.require_actor("job.retry_scheduled")
-#: a cancel is the administrator's (the console's jobs page, ``need_admin``): the row that starts a request, and the
-#: orchestrator asks for the administrator as the page does (no row of its own: the guides are frozen)
+#: a cancel on this route is the operator's (the console's jobs page, ``need_admin``: ``ops.view``): the row that
+#: starts a request, and the orchestrator asks ``ops.view`` as the page does (no row of its own: the guides are
+#: frozen). A requester's CANCEL command (``command.CANCEL``) goes through ``POST /jobs`` instead
 AS_CANCEL = route_actor.require_actor("request.prepare")
 
 
@@ -671,7 +672,10 @@ def retry_scheduled_job(job_id: str, body: RetryScheduled, who: Claim = AS_RETRY
 def cancel_job(job_id: str, request: Request, who: Claim = AS_CANCEL) -> Job:
     """S26 Cancel (FR-PLAT-12): the verified administrator (T-715 refuse mode, D-871: no ``by``, no v2 name). A
     queued job fails at once, a running one stops at its next step."""
-    if who.role != "admin":  # the console's jobs page is the administrator's; on the record as every refusal
+    from tb_common.authz import permit
+
+    # the console's jobs page is the operator's (``need_admin``: ``ops.view``); on the record as every refusal
+    if not permit(who.role, "ops.view").allowed:
         raise route_actor.refusal(request, "request.prepare", "right", who.sub, None)
     try:
         return orch().cancel(job_id, who.name)
