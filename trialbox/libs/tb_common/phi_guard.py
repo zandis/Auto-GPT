@@ -428,11 +428,15 @@ _ROLE_ANCHOR = re.compile(
 _HONORIFIC_ANCHOR = re.compile(
     r"老先生|老太太|先生|小姐|女士|太太|阿嬤|阿公|伯伯|伯母|奶奶|爺爺|媽媽|叔叔|阿姨|婆婆|阿伯|君|さん|様|氏|くん|ちゃん"
 )
-_NOTE_WINDOWS: dict[int, tuple[re.Pattern[str], int, int]] = {}
+_NOTE_WINDOWS: dict[int, tuple[re.Pattern[str], int, int, bool]] = {}
 
 
-def _windowed(rx: re.Pattern[str], anchor: re.Pattern[str], before: int, after: int) -> re.Pattern[str]:
-    _NOTE_WINDOWS[id(rx)] = (anchor, before, after)
+def _windowed(
+    rx: re.Pattern[str], anchor: re.Pattern[str], before: int, after: int, to_line_end: bool = True
+) -> re.Pattern[str]:
+    """``to_line_end``: the window runs on to its line's end (a pattern with a look ahead); False for a pattern with
+    none, whose window then ends ``after`` characters past the anchor (NEW-B-51: a long line stays one pass)."""
+    _NOTE_WINDOWS[id(rx)] = (anchor, before, after, to_line_end)
     return rx
 
 
@@ -443,12 +447,13 @@ def _finditer(rx: re.Pattern[str], text: str) -> Iterator[re.Match[str]]:
     if win is None:
         yield from rx.finditer(text)
         return
-    anchor, before, after = win
+    anchor, before, after, to_line_end = win
     spans: list[list[int]] = []
     for a in anchor.finditer(text):
         lo, hi = max(0, a.start() - before), min(len(text), a.end() + after)
-        end = text.find("\n", hi)
-        hi = len(text) if end < 0 else end
+        if to_line_end:
+            end = text.find("\n", hi)
+            hi = len(text) if end < 0 else end
         if spans and lo <= spans[-1][1]:
             spans[-1][1] = max(spans[-1][1], hi)
         else:
@@ -478,7 +483,9 @@ _NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("address", _windowed(ADDRESS_ZH, re.compile("號"), 90, 40)),
     ("address", ADDRESS_JA),
     ("address", ADDRESS_EN),
-    ("email", EMAIL),
+    # NEW-B-51 (D-759): around each "@" only, the longest local part (64) before it and the longest domain (255)
+    # after: from every position of a long run of digits the shape took 0.65 s
+    ("email", _windowed(EMAIL, re.compile("@"), 64, 255, to_line_end=False)),
     # insurance and ID numbers after their label
     ("id", ID_LABELLED),
     ("id", TW_ID),
@@ -658,6 +665,11 @@ _NOTE_GATES: tuple[Callable[[_Facts], bool], ...] = (
     lambda f: f.alpha,
     lambda f: f.alpha,
 )
+
+
+def find_emails(text: str) -> Iterator[re.Match[str]]:
+    """Every email address of ``text`` (:data:`EMAIL`), looked for around each "@" only (NEW-B-51, D-759)."""
+    return _finditer(EMAIL, text)
 
 
 def note_spans(text: str, mrn_regex: str | None = None) -> list[tuple[str, int, int]]:
