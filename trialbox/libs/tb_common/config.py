@@ -829,6 +829,7 @@ DECLARED: dict[str, Declared] = {
     "TB_PG_DUMP_DIR": Declared("path", "", "backup: dump folder"),
     "TB_PG_RESTORE_CMD": Declared("str", "pg_restore", "pg_restore command"),
     "TB_PG_SPOOL": Declared("path", "", "platform restore job: the folder pg-spool.sh serves (T-633)"),
+    "TB_RESTIC": Declared("str", "restic", "incremental backup: the restic command (D-968; a stand-in in the tests)"),
     "TB_PLANNED_FROM": Declared("str", "", "complete-run tool: plan start"),
     "TB_PLATFORM_API_SERVER": Declared("str", "", "platform: API server"),
     "TB_PLATFORM_BACKUP_EVIDENCE": Declared("str", "", "platform: backup evidence file"),
