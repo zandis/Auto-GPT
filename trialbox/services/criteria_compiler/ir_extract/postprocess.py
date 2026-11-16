@@ -147,6 +147,59 @@ def _positive_logic(logic: Any) -> Any:
     return None
 
 
+# D-954's review (the run's 173 moved criteria, judged by hand against the physicians' gold): 74 were risky to give
+# the models. The rules below are its general ones (not the phrases particular to that run): a line or question the
+# notes cannot settle, or that the models would answer wider than the line, stays with a person
+_LACK = re.compile(r"\b(?:lack|lacks|lacking)\b", re.I)
+_UNOBSERVABLE = re.compile(
+    r"consent|willing|desire|plann?ed|plans?\b|likely|expected|agree|particip|investigator|physician|cardiologist|"
+    r"contracept|birth\s+control|complian|refus|childbearing|pregnan\w*\s+(?:test|during)|study\s+(?:drug|period)|"
+    r"judg(?:e?ment)|opinion|prognos|life\s+expectancy|passing\s+away|able\s+to|eligible|switch|"
+    r"同意|意思|予定|治験|試験への参加|研究者",
+    re.I,
+)
+_INFERRED = re.compile(
+    r"\bscore\b|\bcriteria\b|\bone\s+or\s+more\b|\b\d+\s+(?:of|out\s+of)\s+\d+\b|\bINR\b|creatinine|"
+    r"blood\s+tests?|drug\s+screen|immunocompromis|performance\s+status|\bASA\b|such\s+as|e\.g\.",
+    re.I,
+)
+_FRAGMENT = re.compile(r"(?:,|;)?\s*\bor\s*[:.]?\s*$|^\s*(?:and/or|or)\b|will\s+be\s+(?:included|eligible)", re.I)
+_PLAIN_HAVE = re.compile(r"^(?:does|did|has|is)\s+the\s+(?:patient|subject)\s+(?:have|had|has|been|a)\b", re.I)
+# an exclusion's question with a severity or an organ-level word is wider than its line's qualifiers ("serious
+# cardiac failure" for one that the line limits); a number is a threshold the models would read off the notes
+_VAGUE = re.compile(
+    r"\b(?:serious|severe|significant|uncontrolled|major|any|other|medical|problems?|impairment|insufficiency|"
+    r"dysfunction|failure|illness(?:es)?|condition|disorder|abnormalit\w*)\b",
+    re.I,
+)
+_NUMBER_ASKED = re.compile(r"\d|\b(?:less|more|greater|fewer)\s+than\b", re.I)
+
+
+def notes_can_decide(kind_: str, text: str, question: str) -> str | None:
+    """None when the notes may decide a mixed criterion whose coded part cannot run (D-954); else why a person keeps
+    it: the question is negated (the polarity rewrite does not cover "lack"), an inclusion line is a negation ("No
+    significant cardiopulmonary disease" asked as "Does the patient have…"), the subject is not in the notes (consent,
+    plans, contraception, an investigator's judgement), the answer would be inferred (a score, a count of criteria,
+    an INR, "such as metformin"), the line is a fragment of an "or", the question asks a number, or an exclusion is
+    not a plain "Does the patient have …" of a named condition (a vague "any serious illness" excludes everyone)."""
+    both = f"{text} {question}"
+    if is_negated(question) or _LACK.search(question):
+        return "negated_question"
+    if kind_ == "inclusion" and is_negated(text):
+        return "negated_line"
+    if _UNOBSERVABLE.search(both):
+        return "not_in_notes"
+    if _INFERRED.search(both):
+        return "inferred"
+    if _FRAGMENT.search(text):
+        return "fragment"
+    if _NUMBER_ASKED.search(question):
+        return "threshold"
+    if kind_ == "exclusion" and (not _PLAIN_HAVE.search(question.strip()) or _VAGUE.search(question)):
+        return "broad_exclusion"
+    return None
+
+
 def derived_valueset(ruleset: str, derived: str, version: str, term: Terminology) -> dict[str, Any]:
     concepts = []
     for comp in COMPONENTS[derived]:
@@ -263,7 +316,8 @@ def postprocess(
             except CompileError as exc:
                 warnings.append(f"{cid}: {exc}")
                 flags.append("logic_invalid")
-        if "logic_invalid" in flags and ir.class_ == "mixed" and ir.note_question:
+        held = notes_can_decide(ir.kind, ir.text, ir.note_question or "") if ir.class_ == "mixed" else "no_question"
+        if "logic_invalid" in flags and ir.class_ == "mixed" and ir.note_question and held is None:
             # G9 of the P1b review (D-954): 111 of sigir's mixed criteria had a note question and went to a person
             # only because their coded part could not run, while ``demote_uncompilable`` keeps such a criterion as
             # note (D-98); this is what made the all-human and notes-only rulesets. The notes decide it, as there
@@ -271,6 +325,8 @@ def postprocess(
             ir = ir.model_copy(update={"class_": "note", "logic": Atom(domain="demographic", valueset="NONE")})
             warnings.append(f"{cid}: its coded part cannot be run; the notes decide it (check it)")
         elif "logic_invalid" in flags and ir.class_ in FILTERED:
+            if ir.class_ == "mixed" and ir.note_question:
+                flags.append(f"notes_cannot_decide_{held}")
             # D-910: logic the compiler cannot run (an age-or-sex atom with neither, an atom of no kind) went into
             # the SQL as written ("()") and failed later, at approval, with an HTTP 500. A person checks it instead
             ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
