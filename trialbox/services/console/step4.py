@@ -285,7 +285,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             "help.html",
             sess,
             slug=help_slug(target.split("?")[0]),
-            page_key=help_key(help_slug(target.split("?")[0]), sess.user.role),
+            page_key=help_key(help_slug(target.split("?")[0]), sess.user.role).removeprefix("help.page."),
             back=target,
             studies=studies,
             mine=own_study(target, studies, logged),

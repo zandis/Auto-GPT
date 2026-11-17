@@ -14,7 +14,7 @@ from typing import Any
 
 from tb_common.authz import conditional, permit
 
-from console.i18n import translate
+from console.i18n import lookup, translate
 from console.step4 import help_key
 
 #: the console's roles, in the order the guides are listed
@@ -212,8 +212,8 @@ def examples(role: str, lang: str) -> list[str]:
     out = []
     for n in range(1, EXAMPLES + 1):
         key = f"cmd.ex.{role}.{n}"
-        ex = translate(lang, key)
-        if ex != key:
+        ex = lookup(lang, key)
+        if ex is not None:
             out.append(ex.replace("GZQO", "STUDY"))
     return out
 
