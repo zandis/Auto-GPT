@@ -39,7 +39,11 @@ digest. No base digest clears these findings until upstream rebuilds gosu.
    other file has Go build info. The apt step therefore starts with `rm /usr/local/bin/gosu`, the shim is copied
    after it, and a last step checks the path is the script. A unit test pins that order.
 6. **The allow-list.** The 28 gosu entries and the zlib1g one match nothing once the image is built this way. Their removal is an allow-list
-   change: it goes with the train-ready line as an exact diff, and the integrator applies it on the train.
+   change: it goes with the train-ready line as an exact diff, and the integrator applies it on the train. Two tests pinned the db image's entries, and they now pin the state after the removal, so this card and the
+   removal land together:
+   - `test_authelia_x509_entry`: the Authelia entry of CVE-2026-111943 is the only entry of that id, and it stands on
+     its own;
+   - `test_release_bundle`: no own image, trialbox-postgres included, has an entry.
 
 ## Test
 
