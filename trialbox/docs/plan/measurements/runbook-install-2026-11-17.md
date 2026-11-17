@@ -64,6 +64,29 @@ A note for the rehearsal, not a runbook finding: its answers (`tools/rehearse_bo
 folder under `/opt/trialbox` (`./site/feed-a`). §1's order now needs that folder empty before the one command, so a
 reader cannot use those values as they are. The follower used §1's own example instead, and records that it did.
 
+## With D-998 (H-24b): finding 5 stays open, unmeasured
+
+Lane D's #1004 (D-998, `agent/H22-STUB-a-no-gpu-production-box-embeds` at `14febc39`, on card 1) is meant to close
+finding 5. In stub mode the installer now pins `e-embed-1` from the bundle's weights, `release check` refuses a site
+bundle without them, and §1:44 says so. H-24b stacks H-24 on it (branch `claude/lane-h-24b-finding-5-closed`).
+
+**Finding 5 is not moved to `closed`**, because the follower has not seen it gone:
+
+- **The text:** §1 now says what a box without a GPU needs. Finding 5 was never a text check, so no check changes.
+- **The unit run:** it stops at its stand-in Docker before the pin step, as before.
+- **The container follow:** not re-run on this tree. A bundle that carries the embedder could not be built here.
+  This container's disk allowance (20.1 GB free) is below `make_bundle.sh`'s own space estimate for the seven images
+  alone (20.8 GB). With the embedder (2.3 GB, 18 files) the estimate is about 26 GB, before the 2.3 GB download.
+  Lane D's space check was not bypassed, and the weights were not downloaded.
+- **The committed container record** (`run-container.json`) is H-24's, at `7731d855`, before D-998. It is the
+  evidence that finding 5 was seen. It says nothing about this tree, and it is not claimed as a run of this tree.
+
+The follower's bundle step now asks for the embedder: `python -m tools.runbook_install bundle|run --models <dir>`, a
+folder holding `embedder/`. It refuses before anything slow without one, and never fetches the weights. The run that
+closes finding 5 is that command with the weights on a machine with about 30 GB free: this container with a larger
+disk allowance, or the clean VM below. Expect every service healthy, `embed-service` included; then
+`stub-production-embedder` leaves `findings` for `closed`, and the test holds it there.
+
 ## H-22 (before D-996)
 
 ### What was followed

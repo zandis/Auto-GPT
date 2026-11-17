@@ -20,7 +20,8 @@
    "step": "one-command",
    "seen_on": [
     "container"
-   ]
+   ],
+   "status_h24b": "D-998 (lane D, #1004, agent/H22-STUB-a-no-gpu-production-box-embeds at 14febc39) is meant to close it: the installer pins e-embed-1 in stub mode and release check refuses a site bundle without the embedder. It stays open here because the follower has not seen it gone: the container follow was not re-run on this tree. This container's disk allowance (20.1 GB free) is below make_bundle.sh's own estimate for the seven images alone (20.8 GB), and about 26 GB with the embedder, so no bundle carrying the embedder could be built. The evidence is H-24's container record (at 7731d855, before D-998). It moves to closed when a container or VM run with an embedder bundle (runbook_install run --models <dir>) shows every service healthy."
   }
  ],
  "closed": [

@@ -1162,11 +1162,28 @@ OUR_IMAGES = ["trialbox-py:1.0.0", "trialbox-jvm:1.0.0", "trialbox-postgres:16-1
 JOB_IMAGES = ["trialbox-backup:1.0.0"]
 
 
-def vendor_bundle(work: Path, py: str) -> tuple[Path, Path, list[tuple[str, str]]]:
+def models_args(models: str | Path | None) -> list[str]:
+    """``make_bundle.sh --models``: since D-998 a site bundle carries the embedder (``release check`` refuses one whose
+    ``embedder/`` files do not hash to the registry's expected manifest for e-embed-1). The follower never fetches
+    the weights itself: the caller gives a models folder holding ``embedder/`` (BGE-M3 at the registry's revision,
+    without its three pickle files)."""
+    if not models:
+        raise SystemExit(
+            "runbook_install: a site bundle carries the embedder since D-998: give --models <dir> holding embedder/ "
+            "(models/registry.yaml, e-embed-1)"
+        )
+    d = Path(models)
+    if not (d / "embedder").is_dir():
+        raise SystemExit(f"runbook_install: --models {d} holds no embedder/ folder (models/registry.yaml, e-embed-1)")
+    return ["--models", str(d.resolve())]
+
+
+def vendor_bundle(work: Path, py: str, models: str | Path | None = None) -> tuple[Path, Path, list[tuple[str, str]]]:
     """A site bundle made the vendor's way (as the box rehearsal's media step makes its own, but not ``--rehearsal``
     and not ``--allow-dirty``: a site box refuses both): a throwaway vendor key, the release gates over exactly these
     images, ``tools/make_bundle.sh`` with the reference data pack. Returns the bundle, the public key, and (ref, id) of
     each image."""
+    margs = models_args(models)  # refused before anything slow runs
     v, log = work / "vendor", work / "logs" / "vendor.log"
     # a PRODUCTION box refuses a bundle built from a working tree (release.json "dirty"): build from a commit
     dirty = subprocess.run(
@@ -1254,6 +1271,7 @@ def vendor_bundle(work: Path, py: str) -> tuple[Path, Path, list[tuple[str, str]
         "dist/sbom",
         "--refdata",
         str(pack),
+        *margs,
     ]
     for i in imgs:
         args += ["--job-image" if i in JOB_IMAGES else "--image", i]
@@ -1294,7 +1312,7 @@ def _cmd_run(a: argparse.Namespace) -> int:
         if listed.is_file():
             pairs = [(r, i) for r, i in (ln.split() for ln in listed.read_text(encoding="utf-8").splitlines() if ln)]
     else:
-        bundle, pub, pairs = vendor_bundle(work, py)
+        bundle, pub, pairs = vendor_bundle(work, py, a.models)
     # the USB stick: the bundle and its .sha256 as the vendor handed them over, in a folder of their own (mounted
     # read-only at /media/usb in the machine); a lift may rewrite the stick's checksum file, never the vendor's copy
     usb = work / "usb"
@@ -1348,7 +1366,7 @@ def _cmd_run(a: argparse.Namespace) -> int:
 
 def _cmd_bundle(a: argparse.Namespace) -> int:
     """Only the vendor side of ``run``: a site bundle from a commit, its .sha256, the throwaway key, the image list."""
-    bundle, pub, _ = vendor_bundle(Path(a.work).resolve(), a.py or sys.executable)
+    bundle, pub, _ = vendor_bundle(Path(a.work).resolve(), a.py or sys.executable, a.models)
     print(f"bundle: {bundle}\nvendor key: {pub}")
     return 0
 
@@ -1387,12 +1405,14 @@ def main(argv: Iterable[str] | None = None) -> int:
     r.add_argument("--bundle", default="", help="a site bundle already made (else one is made the vendor's way)")
     r.add_argument("--vendor-pub", default="")
     r.add_argument("--py", default="")
+    r.add_argument("--models", default="", help="a models folder holding embedder/ (D-998); never fetched here")
     r.add_argument("--strict", action="store_true")
     r.add_argument("--keep", action="store_true", help="leave the box and the machine running")
     r.add_argument("--extra-ca", default="", help="a PEM for apt behind a TLS proxy (the host image's build)")
     bu = sub.add_parser("bundle", help="only the vendor side of run: a site bundle made the vendor's way")
     bu.add_argument("--work", default=WORK_DEFAULT)
     bu.add_argument("--py", default="")
+    bu.add_argument("--models", default="", help="a models folder holding embedder/ (D-998); never fetched here")
     c = sub.add_parser("compare")
     c.add_argument("run")
     a = ap.parse_args(list(argv) if argv is not None else None)

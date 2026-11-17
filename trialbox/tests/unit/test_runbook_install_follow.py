@@ -218,6 +218,20 @@ def test_a_stand_in_machine_without_the_bootstrap_knobs_is_refused(tmp_path: Pat
         ri.LocalMachine(tmp_path / "opt", "/usr/bin:/bin")
 
 
+def test_a_site_bundle_is_asked_for_the_embedder(tmp_path: Path) -> None:
+    """D-998: release check refuses a site bundle without the embedder; the follower's own bundle step asks for a models
+    folder holding embedder/ before anything slow runs, and never fetches the weights."""
+    with pytest.raises(SystemExit, match="carries the embedder since D-998"):
+        ri.models_args(None)
+    with pytest.raises(SystemExit, match="holds no embedder/"):
+        ri.models_args(tmp_path)
+    (tmp_path / "embedder").mkdir()
+    assert ri.models_args(tmp_path) == ["--models", str(tmp_path.resolve())]
+    with pytest.raises(SystemExit, match="since D-998"):
+        ri.vendor_bundle(tmp_path / "work", sys.executable)
+    assert not (tmp_path / "work").exists()
+
+
 def test_compare_fails_on_a_vanished_and_on_a_new_finding() -> None:
     committed: list[dict[str, Any]] = [
         {"id": "a", "step": "one-command", "seen_on": ["unit"]},
