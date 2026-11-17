@@ -20,9 +20,10 @@ Each hit is put under a store key as the registry names stores (``schema.table``
 Commands::
 
     python -m tools.erasure_reach live --marker marker.json --out reach.json
-        # against a running box: TB_DB_URL (and TB_OMOP_DB_URL), TB_REACH_LAKE_DIR, TB_REACH_OBJECTS_DIR,
-        # TB_REACH_SETUP_DIR, TB_REACH_LOG_DIR and TB_REACH_FHIR_URL from the environment; any one may be unset and is
-        # then reported as not searched. TB_REACH_FHIR_TOKEN, when set, is sent as a bearer token and never printed.
+        # against a running box: TB_DB_URL (and TB_OMOP_DB_URL), ERASURE_REACH_LAKE_DIR,
+        # ERASURE_REACH_OBJECTS_DIR, ERASURE_REACH_SETUP_DIR, ERASURE_REACH_LOG_DIR and ERASURE_REACH_FHIR_URL from
+        # the environment; any one may be unset and is then reported as not searched. ERASURE_REACH_FHIR_TOKEN, when
+        # set, is sent as a bearer token and never printed. The names are the tool's, not the box's settings.
     python -m tools.erasure_reach owed            # print the owed table, costed (markdown)
     python -m tools.erasure_reach owed --check PAGE
         # exit 1 when the owed table in PAGE (between the two marker comments) is not what the registry gives now
@@ -151,11 +152,6 @@ def _forms(value: str) -> list[bytes]:
     return [v.encode("utf-8") for v in variants(value)]
 
 
-def _any_of(expr: str, n: int, mark: str) -> str:
-    """``expr`` holds any of ``n`` strings (each a parameter ``mark``): a plain substring test, no LIKE escapes."""
-    return "(" + " OR ".join(f"strpos({expr}, {mark}) > 0" for _ in range(n)) + ")"
-
-
 def search_bytes(data: bytes, marker: Marker) -> Hits:
     return {k: 1 for k, v in marker.needles().items() if any(f in data for f in _forms(v))}
 
@@ -176,7 +172,13 @@ def search_db(url: str, marker: Marker, key: Callable[[str, str], str] | None = 
     compared with the marker's person ids. ``key(schema, table)`` names the store (default: the schema less the
     prefix, a dot, the table)."""
     import psycopg
+    from psycopg import sql
     from tb_common.db import split_url
+
+    def _count_any(n: int) -> Any:
+        """``count(*)`` of the rows whose text holds any of ``n`` strings (a plain substring test, no LIKE)."""
+        test = sql.SQL(" OR ").join([sql.SQL("strpos(t::text, %s) > 0")] * n)
+        return sql.SQL("count(*) FILTER (WHERE {})").format(test)
 
     dsn, prefix = split_url(url)
     found = Found()
@@ -200,15 +202,17 @@ def search_db(url: str, marker: Marker, key: Callable[[str, str], str] | None = 
                 continue
             name = key(schema[len(prefix) :], table) if key else f"{schema[len(prefix) :]}.{table}"
             found.seen(name)
-            rel = f"{_ident(schema)}.{_ident(table)}"
             try:
                 forms = [variants(v) for v in needles.values()]
-                parts = [f"count(*) FILTER (WHERE {_any_of('t::text', len(f), '%s')})" for f in forms]
+                parts = [_count_any(len(f)) for f in forms]
                 args: list[Any] = [x for f in forms for x in f]
                 if (schema, table) in person and marker.person_ids:
-                    parts.append("count(*) FILTER (WHERE t.person_id = ANY(%s))")
+                    parts.append(sql.SQL("count(*) FILTER (WHERE t.person_id = ANY(%s))"))
                     args.append(list(marker.person_ids))
-                got = con.execute(f"SELECT {', '.join(parts)} FROM {rel} t", args).fetchone() or ()
+                query = sql.SQL("SELECT {} FROM {}.{} t").format(
+                    sql.SQL(", ").join(parts), sql.Identifier(schema), sql.Identifier(table)
+                )
+                got = con.execute(query, args).fetchone() or ()
             except Exception as exc:  # a table this login may not read: said, never passed over as clean
                 found.errors[name] = type(exc).__name__
                 continue
@@ -219,12 +223,20 @@ def search_db(url: str, marker: Marker, key: Callable[[str, str], str] | None = 
 
 
 # ------------------------------------------------------------------------------------------------ folders
-def _duck_rows(con: Any, rel: str, marker: Marker) -> Hits:
-    needles = marker.needles()
-    forms = [variants(v) for v in needles.values()]
-    parts = [f"count(*) FILTER (WHERE {_any_of('CAST(t AS VARCHAR)', len(f), '?')})" for f in forms]
-    got = con.execute(f"SELECT {', '.join(parts)} FROM {rel} t", [x for f in forms for x in f]).fetchone()
-    return {k: int(n) for k, n in zip(needles, got or (), strict=False) if n}
+def _rows_hits(rel: Any, marker: Marker, batch: int = 5000) -> Hits:
+    """Each row of a DuckDB relation read as text (each value's own text, nested values in their Python form),
+    counted per needle that any of its forms is in."""
+    forms = {k: variants(v) for k, v in marker.needles().items()}
+    out: Hits = {}
+    while True:
+        rows = rel.fetchmany(batch)
+        if not rows:
+            return out
+        for row in rows:
+            text = "\x1f".join(map(str, row))  # each value as text: a date as 1937-07-27, a list as its repr
+            for k, fs in forms.items():
+                if any(f in text for f in fs):
+                    out[k] = out.get(k, 0) + 1
 
 
 def search_duckdb(path: Path, marker: Marker) -> Hits:
@@ -233,10 +245,11 @@ def search_duckdb(path: Path, marker: Marker) -> Hits:
     out: Hits = {}
     con = duckdb.connect(str(path), read_only=True)
     try:
-        for schema, table in con.execute(
+        names = con.execute(
             "SELECT schema_name, table_name FROM duckdb_tables() WHERE database_name = current_database()"
-        ).fetchall():
-            for k, n in _duck_rows(con, f"{_ident(str(schema))}.{_ident(str(table))}", marker).items():
+        ).fetchall()
+        for schema, table in names:
+            for k, n in _rows_hits(con.table(f"{_ident(str(schema))}.{_ident(str(table))}"), marker).items():
                 out[k] = out.get(k, 0) + n
     finally:
         con.close()
@@ -248,8 +261,7 @@ def search_parquet(path: Path, marker: Marker) -> Hits:
 
     con = duckdb.connect(":memory:")
     try:
-        quoted = "'" + str(path).replace("'", "''") + "'"
-        return _duck_rows(con, f"read_parquet({quoted})", marker)
+        return _rows_hits(con.read_parquet(str(path)), marker)
     finally:
         con.close()
 
@@ -311,14 +323,15 @@ Fetch = Callable[[str], tuple[int, bytes]]
 
 
 def _http_fetch(token: str | None) -> Fetch:
-    import urllib.request
+    import httpx
+
+    headers = {"Accept": "application/fhir+json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
 
     def fetch(url: str) -> tuple[int, bytes]:
-        req = urllib.request.Request(url, headers={"Accept": "application/fhir+json"})
-        if token:
-            req.add_header("Authorization", f"Bearer {token}")
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return int(resp.status), resp.read()
+        resp = httpx.get(url, headers=headers, timeout=30)
+        return int(resp.status_code), resp.content
 
     return fetch
 
@@ -609,21 +622,21 @@ def live(marker: Marker, env: Mapping[str, str], fetch: Fetch | None = None) -> 
                 places[var] = f"not searched: {type(exc).__name__}"
         else:
             places[var] = "not set"
-    for var, key in (("TB_REACH_LAKE_DIR", lake_key), ("TB_REACH_OBJECTS_DIR", objects_key),
-                     ("TB_REACH_SETUP_DIR", lambda rel: "files:sitesetup"),
-                     ("TB_REACH_LOG_DIR", lambda rel: "logs:files")):  # fmt: skip
+    for var, key in (("ERASURE_REACH_LAKE_DIR", lake_key), ("ERASURE_REACH_OBJECTS_DIR", objects_key),
+                     ("ERASURE_REACH_SETUP_DIR", lambda rel: "files:sitesetup"),
+                     ("ERASURE_REACH_LOG_DIR", lambda rel: "logs:files")):  # fmt: skip
         d = env.get(var)
         if d and Path(d).is_dir():
             found.merge(search_tree(Path(d), marker, key))
             places[var] = "searched"
         else:
             places[var] = "not set" if not d else "not a folder"
-    base = env.get("TB_REACH_FHIR_URL")
+    base = env.get("ERASURE_REACH_FHIR_URL")
     if base:
-        found.merge(search_fhir(base, marker, fetch or _http_fetch(env.get("TB_REACH_FHIR_TOKEN"))))
-        places["TB_REACH_FHIR_URL"] = "searched"
+        found.merge(search_fhir(base, marker, fetch or _http_fetch(env.get("ERASURE_REACH_FHIR_TOKEN"))))
+        places["ERASURE_REACH_FHIR_URL"] = "searched"
     else:
-        places["TB_REACH_FHIR_URL"] = "not set"
+        places["ERASURE_REACH_FHIR_URL"] = "not set"
     rows = reach_rows(None, found, erasure.entries())
     for r in rows:
         r["verdict"] = verdict_of(r)

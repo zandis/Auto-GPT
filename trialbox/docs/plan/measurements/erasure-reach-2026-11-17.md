@@ -252,7 +252,7 @@ written age-out rule instead.
 
 ## Findings
 
-| Id | Place (master `d7c91fc3`) | Expected (where it is written) | What happened | Severity | Lane | Basis |
+| Id | Place (master `d7c91fc3`; the same lines at `3f6a02ec`) | Expected (where it is written) | What happened | Severity | Lane | Basis |
 | --- | --- | --- | --- | --- | --- | --- |
 | V1-01 | `libs/tb_common/erasure.py:581` (`owed()`) | No owed entry for a store inside the box (plan 8 §3, criterion 8) | 26 owed, 25 inside the box | High | B2 (C2, A2, E, D for their rows) | shown: `test_criterion_8_no_owed_entry_for_a_store_inside_the_box` |
 | V1-02 | `libs/tb_common/erasure.py:517` (`LAKE`) | The pseudonym in no store or snapshot (criterion 8) | After the tick the lake's snapshot, its generation and reader copies, the Parquet copy and the NDJSON hold the pseudonym and the date of birth; the snapshot and Parquet also the name, chart number and phone from the note | High | B2 | shown: the `lake:db`, `lake:parquet`, `lake:ndjson` cases |

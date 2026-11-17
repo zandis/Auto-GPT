@@ -2,7 +2,7 @@
  "card": "V-1",
  "date": "2026-11-17",
  "source": "docs/plan/measurements/erasure-reach-2026-11-17.md",
- "master": "d7c91fc3",
+ "master": "d7c91fc3 (the places are the same at 3f6a02ec)",
  "record": "docs/plan/measurements/erasure-reach-2026-11-17/reach.json",
  "note": "Written by hand from the runs of tests/unit/test_erasure_reach.py, test_erasure_reach_restore.py and test_erasure_reach_tool.py; each shown finding is held by a strict xfail or by reach.json.",
  "findings": [

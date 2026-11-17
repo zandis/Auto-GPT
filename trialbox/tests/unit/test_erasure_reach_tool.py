@@ -39,16 +39,16 @@ def test_files_of_every_kind_are_opened(tmp_path: Path) -> None:
     (root / "ndjson" / "x").mkdir(parents=True)
     (root / "clean").mkdir()
     con = duckdb.connect(str(root / "db" / "x.duckdb"))
-    con.execute("CREATE TABLE note (pid VARCHAR, text VARCHAR, v FLOAT[])")
-    con.execute("INSERT INTO note VALUES (?, ?, [0.1, 0.2])", [M.pid, f"seen: {M.name}"])
+    con.execute("CREATE TABLE note (pid VARCHAR, text VARCHAR, v FLOAT[], born DATE)")
+    con.execute("INSERT INTO note VALUES (?, ?, [0.1, 0.2], ?)", [M.pid, f"seen: {M.name}", M.dob])
     con.execute(f"COPY note TO '{root / 'parquet' / 'snapshot=x' / 'note.parquet'}' (FORMAT PARQUET)")
     con.close()
     (root / "ndjson" / "x" / "Patient.ndjson.gz").write_bytes(gzip.compress(json.dumps({"id": M.pid}).encode()))
     (root / "clean" / "a.txt").write_text("no one", encoding="utf-8")
     found = er.search_tree(root, M, er.lake_key)
     assert found.searched == {"lake:db", "lake:parquet", "lake:ndjson", "lake:clean"}
-    assert set(found.stores["lake:db"]) >= {"pid", "name"}
-    assert set(found.stores["lake:parquet"]) >= {"pid", "name"}
+    assert set(found.stores["lake:db"]) >= {"pid", "name", "dob"}  # a DATE value is read as its text
+    assert set(found.stores["lake:parquet"]) >= {"pid", "name", "dob"}
     assert set(found.stores["lake:ndjson"]) == {"pid", "pid_prefix"}
     assert "lake:clean" not in found.stores
     assert found.files["lake:parquet"] == ["parquet/snapshot=x/note.parquet"]
@@ -119,8 +119,8 @@ def test_the_fhir_store_is_read_by_its_answers() -> None:
 def test_live_mode_says_what_it_did_not_search(tmp_path: Path) -> None:
     (tmp_path / "obj" / "outputs" / "J1").mkdir(parents=True)
     (tmp_path / "obj" / "outputs" / "J1" / "list.csv").write_text(f"pid\n{M.pid}\n", encoding="utf-8")
-    out = er.live(M, {"TB_REACH_OBJECTS_DIR": str(tmp_path / "obj")})
-    assert out["places"]["TB_DB_URL"] == "not set" and out["places"]["TB_REACH_FHIR_URL"] == "not set"
+    out = er.live(M, {"ERASURE_REACH_OBJECTS_DIR": str(tmp_path / "obj")})
+    assert out["places"]["TB_DB_URL"] == "not set" and out["places"]["ERASURE_REACH_FHIR_URL"] == "not set"
     rows = {r["store"]: r for r in out["stores"]}
     assert rows["objects:outputs"]["verdict"] == "owed"
     assert rows["outside:fhir_store"]["verdict"] == "not_searched"
@@ -136,9 +136,9 @@ def test_live_mode_prints_no_value(tmp_path: Path, capsys: pytest.CaptureFixture
 
     old = dict(os.environ)
     try:
-        os.environ["TB_REACH_LAKE_DIR"] = str(tmp_path / "lake")
-        os.environ["TB_REACH_FHIR_TOKEN"] = "not-a-real-token"
-        for k in ("TB_DB_URL", "TB_OMOP_DB_URL", "TB_REACH_FHIR_URL"):
+        os.environ["ERASURE_REACH_LAKE_DIR"] = str(tmp_path / "lake")
+        os.environ["ERASURE_REACH_FHIR_TOKEN"] = "not-a-real-token"
+        for k in ("TB_DB_URL", "TB_OMOP_DB_URL", "ERASURE_REACH_FHIR_URL"):
             os.environ.pop(k, None)
         rc = er.main(["live", "--marker", str(marker), "--out", str(tmp_path / "reach.json")])
     finally:
