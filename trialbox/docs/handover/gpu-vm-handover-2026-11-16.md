@@ -849,3 +849,60 @@ brings that code back applies them:
 2. MedTxt: test the denial in the mention's own clause first (up to the next 、 or 。), then "treated".
 3. MedTxt: assert the proposed fact's status; a treated mention proposed as current counts as an error.
 4. Lane A2's own card: SCREEN's compiled SQL reads condition rows whatever their clinical status.
+
+## 15. How to give the owner a live session (D-1123, D-1130 to D-1133)
+
+Lane H, card H-13. A session is the owner looking at the product with the served models: **nothing from it is
+evidence**. Public or synthetic text only. The owner's yes on the posted estimate, worst case and running total
+comes first (D-505). Spot (the integrator's answer 3), on the same US$200 cap (answer 4).
+
+**Today a DEV session is refused for free** (`tools/box_run.py session-check --env DEV`, exit 9). This tree's routing
+table gives DEV no route to the box's served pair, and its egress table opens the bake-off endpoint to the gateway
+(D-1132 item 2). Until that changes, a session runs only with `--session-env validation`, one account per role,
+when the integrator names it.
+
+Run from `trialbox/` with the credentials of section 2. Each command, what it must print:
+
+1. `deploy/gcp/box-run.sh --estimate --mode validation --steps dev,session --session-hours 3`: free. Must print the
+   rows with sources, then `Session (D-1123 section 5): bring-up 0.61 to 0.98 h ...; worst case the cap 4 h =
+   US$10.96 spot` and the session-check's line. Post it with the running total; wait for the owner's yes.
+2. `python -m tools.box_run src-bundle --commit <sha> --out /tmp/src.bundle`: the commit's bundle, proved (4.2).
+3. `deploy/gcp/box-run.sh --preflight --mode validation --steps dev,session --release-id dev-<commit12>
+   --commit <sha> --src-bundle /tmp/src.bundle --session-allow <the owner's range> --session-env <dev|validation>`:
+   free, no cloud call. It must print:
+   - the door's two rules (`tb-session-deny`, `tb-session-https` tcp:443 from the range only);
+   - `session-check: a box in <ENV> routes the session's calls to its own served pair only and lets no text out`;
+   - `preflight: every free check passed`.
+
+   A range broader than /24, `any` or 0.0.0.0/0 is refused (exit 2). A DEV session is refused today (exit 9).
+4. The same command without `--preflight`, with `--no-wait`: PAID. It must print:
+   - the door made, then `door: reaches the VM: tcp:443 from <range> only`, with `default-allow-ssh` and
+     `tb-gpu-door` "beaten by tb-session-deny";
+   - `bucket: gs://... names no allUsers and no allAuthenticatedUsers`;
+   - then `run <id> started`.
+
+   Exit 7: the door or the bucket did not hold. Nothing was started.
+5. `deploy/gcp/box-run.sh --session-status <run id>` until its last line is `session: TB-SESSION-READY (this boot;
+   ...)`: about 0.6 to 1 h. `TB-SESSION-NOT-READY` names the reason above it: give no link and run `--stop <run id>`.
+6. `deploy/gcp/box-run.sh --links <run id>`: ONCE. It must print:
+   - `door: reaches the VM: tcp:443 from <range> only` and the bucket's line;
+   - the owner's line(s);
+   - `== boot id`, `== the box's root certificate SHA-256` and `== the session closes at (UTC)`;
+   - `== deleted from the bucket`.
+
+   Give the owner his line in the integrator's own session (answer 5): the link, the hosts line it names, the stop
+   time, and that nothing from the session is evidence.
+7. `deploy/gcp/box-run.sh --collect <run id> --follow`: the VM closes the session at its stop (`TB-SESSION-END`),
+   uploads, powers off. The collect then puts the VM back and removes the session's tag and rules. Early:
+   `deploy/gcp/box-run.sh --stop <run id>` (the accounts are disabled at the next boot of any run).
+
+**Healthy:**
+
+- `records/session.json` says `"evidence": "nothing from this session is evidence"`, with `closed_by` "the session's
+  stop";
+- `records/session-egress.json` says `"text_can_leave": false`;
+- `parts/57-session-open.json` says `ended_by` "the session's stop";
+- the box's `deploy/.env` is back to `TB_ENV=VALIDATION`.
+
+Pre-empted (spot): the page stops answering. The next boot of any run disables the session's accounts before any
+step, and a session is never reopened: more time is a new launch (D-1123 4.4).
