@@ -135,13 +135,3 @@ mapped by the rule above from what the finding says; the source's own word is no
 | H18-12 | 2026-11-17 | [p2b-review-2026-11-17.md](../plan/measurements/p2b-review-2026-11-17.md) | Medium (mapped) | The product's quote check on tcga is not shown: the 42 verifier quotes not found are the trace's own whitespace-and-case match, against the run's 45 disagreements | H | not_run | open |
 | H18-13 | 2026-11-17 | [p2b-review-2026-11-17.md](../plan/measurements/p2b-review-2026-11-17.md) | Medium (mapped) | The stored sets keep no serving settings (the answer's token budget), so what the 2 cut-off tcga verifier replies would have said is not known | H | not_run | open |
 | H18-14 | 2026-11-17 | [p2b-review-2026-11-17.md](../plan/measurements/p2b-review-2026-11-17.md) | Medium (mapped) | Level (b) of the 3 failed protocols' SCREEN was not run: it needs the models, and the stored replies cover only the questions asked | H | not_run | open |
-
-## H36: launch P3 reviewed: why sigir ran slower, and the pathology report that moved
-
-| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| H36-01 | 2026-11-17 | [p3-review-2026-11-17.md](../plan/measurements/p3-review-2026-11-17.md) | High | APPROVE costs about 41 s more per approval on 15108f46 than on 57263236 whatever the protocol (30 s to 71 s on one stream); with sigir's 3 streams it took 219 s per protocol and the budget cut 38 of 104 | A2 | shown | open |
-| H36-02 | 2026-11-17 | [p3-review-2026-11-17.md](../plan/measurements/p3-review-2026-11-17.md) | Medium | Which step of Compiler.approve costs the 41 s is in no record: no job records a step's time | A2 | not_run | open |
-| H36-03 | 2026-11-17 | [p3-review-2026-11-17.md](../plan/measurements/p3-review-2026-11-17.md) | Medium | Approvals of different rulesets appear to wait on each other in the compiler (2 or more in flight 78 % of P3's sigir seconds, each about 3 times its time alone) | A2 | hypothesis | open |
-| H36-04 | 2026-11-17 | [p3-review-2026-11-17.md](../plan/measurements/p3-review-2026-11-17.md) | Low | On P3 the judge answered unknown on TCGA-EM-A3FK while its own reason is a plain fail, so the report moved from excluded (P2b) to open | A2 | shown | open |
-| H36-05 | 2026-11-17 | [p3-review-2026-11-17.md](../plan/measurements/p3-review-2026-11-17.md) | Medium | P3's tcga read 939 of 1,020 note answers from the judged-pair store, so its 378 is not an independent measurement of the pair's run-to-run variation, and no figure says so | H | shown | open |
