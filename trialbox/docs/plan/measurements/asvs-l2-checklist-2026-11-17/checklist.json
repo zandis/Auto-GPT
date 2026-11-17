@@ -1,7 +1,7 @@
 {
  "card": "V-3",
  "standard": "OWASP ASVS 4.0.3, Level 2",
- "commit": "d7c91fc3bcd215096fda815c73c80f1dd270ec34",
+ "commit": "3f6a02ecc703582667ad2027233043f870ca8790",
  "note": "Line numbers are for the named commit. Paraphrases are this card's own words.",
  "requirements": [
   {
@@ -12,7 +12,7 @@
    "verdict": "meets",
    "basis": "shown",
    "file": "services/console/auth.py",
-   "line": 246,
+   "line": 252,
    "also": [
     "services/console/auth.py:63"
    ],
@@ -32,7 +32,7 @@
    "verdict": "partly",
    "basis": "shown",
    "file": "services/console/app.py",
-   "line": 1033,
+   "line": 1038,
    "also": [
     "services/console/templates/login.html:23",
     "services/console/templates/account.html:36"
@@ -54,9 +54,9 @@
    "verdict": "partly",
    "basis": "shown",
    "file": "services/console/app.py",
-   "line": 1033,
+   "line": 1038,
    "also": [
-    "services/console/auth.py:609"
+    "services/console/auth.py:618"
    ],
    "test": [
     "tests/console/test_asvs_evidence.py::test_v2_1_2_a_long_password_that_is_accepted_also_signs_in"
@@ -74,7 +74,7 @@
    "verdict": "partly",
    "basis": "hypothesis",
    "file": "services/console/auth.py",
-   "line": 248,
+   "line": 254,
    "also": [],
    "test": [],
    "note": "Any character is allowed inside the password; white space at either end is refused.",
@@ -127,7 +127,7 @@
    "verdict": "partly",
    "basis": "hypothesis",
    "file": "services/console/auth.py",
-   "line": 250,
+   "line": 256,
    "also": [
     "services/console/breached.py:14"
    ],
@@ -164,7 +164,7 @@
    "verdict": "meets",
    "basis": "hypothesis",
    "file": "services/console/auth.py",
-   "line": 241,
+   "line": 247,
    "also": [],
    "test": [],
    "note": "check_password_policy asks for length, no white space at the ends and the breached list only.",
@@ -180,7 +180,7 @@
    "verdict": "does not meet",
    "basis": "shown",
    "file": "services/console/auth.py",
-   "line": 616,
+   "line": 625,
    "also": [
     "docs/decisions/D-447-identity-leftovers.md:31"
    ],
@@ -236,8 +236,8 @@
    "file": "services/console/identity.py",
    "line": 68,
    "also": [
-    "services/console/auth.py:677",
-    "services/console/auth.py:694",
+    "services/console/auth.py:686",
+    "services/console/auth.py:703",
     "deploy/docker-compose.yml:366",
     "deploy/docker-compose.identity.yml:93"
    ],
@@ -259,7 +259,7 @@
    "verdict": "meets",
    "basis": "hypothesis",
    "file": "services/console/identity.py",
-   "line": 710,
+   "line": 716,
    "also": [
     "deploy/identity/authelia/configuration.example.yml:22"
    ],
@@ -279,7 +279,7 @@
    "file": "services/console/account_rules.py",
    "line": 135,
    "also": [
-    "services/console/auth.py:1102"
+    "services/console/auth.py:1162"
    ],
    "test": [],
    "note": "A reset or opening by someone else is told at the next sign-in and to the steward and PI (D-719). The holder is not told of their own password change, of a sign-in from a new place, or of a replayed code.",
@@ -297,9 +297,9 @@
    "file": "services/console/account_rules.py",
    "line": 132,
    "also": [
-    "services/console/auth.py:271",
-    "services/console/auth.py:961",
-    "services/console/auth.py:1160"
+    "services/console/auth.py:277",
+    "services/console/auth.py:1021",
+    "services/console/auth.py:1220"
    ],
    "test": [],
    "note": "Random (about 99 bits) and replaced at first sign-in (must_change). A new account's code expires in 24 hours, but a password an administrator resets has no expiry: it works until used.",
@@ -349,7 +349,7 @@
    "verdict": "meets",
    "basis": "hypothesis",
    "file": "services/console/auth.py",
-   "line": 218,
+   "line": 224,
    "also": [
     "services/console/auth.py:76"
    ],
@@ -367,7 +367,7 @@
    "verdict": "meets",
    "basis": "hypothesis",
    "file": "services/console/auth.py",
-   "line": 217,
+   "line": 223,
    "also": [],
    "test": [],
    "note": "16 random bytes per hash.",
@@ -383,7 +383,7 @@
    "verdict": "not applicable",
    "basis": "hypothesis",
    "file": "services/console/auth.py",
-   "line": 218,
+   "line": 224,
    "also": [],
    "test": [],
    "note": "scrypt, not PBKDF2.",
@@ -399,7 +399,7 @@
    "verdict": "not applicable",
    "basis": "hypothesis",
    "file": "services/console/auth.py",
-   "line": 218,
+   "line": 224,
    "also": [],
    "test": [],
    "note": "scrypt, not bcrypt.",
@@ -415,7 +415,7 @@
    "verdict": "does not meet",
    "basis": "hypothesis",
    "file": "services/console/auth.py",
-   "line": 216,
+   "line": 222,
    "also": [],
    "test": [],
    "note": "No pepper: the hash depends on the password and its stored salt only.",
@@ -431,9 +431,9 @@
    "verdict": "meets",
    "basis": "shown",
    "file": "services/console/identity.py",
-   "line": 710,
+   "line": 716,
    "also": [
-    "services/console/auth.py:1011"
+    "services/console/auth.py:1071"
    ],
    "test": [
     "tests/console/test_a_one_time_sign_in_link.py::test_the_link_works_once_like_the_code"
@@ -451,7 +451,7 @@
    "verdict": "meets",
    "basis": "hypothesis",
    "file": "services/console/auth.py",
-   "line": 241,
+   "line": 247,
    "also": [],
    "test": [],
    "note": "None exist (grep for 'hint' and 'question' in the sign-in and account code).",
@@ -467,7 +467,7 @@
    "verdict": "meets",
    "basis": "hypothesis",
    "file": "services/console/auth.py",
-   "line": 870,
+   "line": 930,
    "also": [],
    "test": [],
    "note": "Only hashes are stored; a reset gives a new code or password.",
@@ -483,7 +483,7 @@
    "verdict": "partly",
    "basis": "hypothesis",
    "file": "services/console/auth.py",
-   "line": 1154,
+   "line": 1214,
    "also": [
     "services/console/cli.py:133"
    ],
@@ -503,7 +503,7 @@
    "file": "services/console/account_rules.py",
    "line": 135,
    "also": [
-    "services/console/auth.py:1102"
+    "services/console/auth.py:1162"
    ],
    "test": [],
    "note": "Told when someone else resets it (D-719). Not told of their own change.",
@@ -519,7 +519,7 @@
    "verdict": "meets",
    "basis": "shown",
    "file": "services/console/identity.py",
-   "line": 716,
+   "line": 722,
    "also": [
     "services/console/account_rules.py:132"
    ],
@@ -540,7 +540,7 @@
    "verdict": "not determined",
    "basis": "not_run",
    "file": "services/console/identity.py",
-   "line": 716,
+   "line": 722,
    "also": [],
    "test": [],
    "note": "A procedure, not code: would be determined by the runbook's identity steps and a site's record of one reset.",
@@ -754,7 +754,7 @@
    "verdict": "meets",
    "basis": "shown",
    "file": "services/console/auth.py",
-   "line": 861,
+   "line": 921,
    "also": [],
    "test": [
     "tests/console/test_identity.py::test_a_totp_code_is_refused_when_wrong_or_replayed"
@@ -772,9 +772,9 @@
    "verdict": "partly",
    "basis": "hypothesis",
    "file": "services/console/identity.py",
-   "line": 499,
+   "line": 500,
    "also": [
-    "services/console/identity.py:502"
+    "services/console/identity.py:503"
    ],
    "test": [
     "tests/console/test_identity.py::test_a_totp_code_is_refused_when_wrong_or_replayed"
@@ -792,7 +792,7 @@
    "verdict": "meets",
    "basis": "shown",
    "file": "services/console/auth.py",
-   "line": 870,
+   "line": 930,
    "also": [],
    "test": [
     "tests/console/test_identity.py::test_admin_resets_an_authenticator_and_only_an_admin_may"
@@ -930,10 +930,10 @@
    "file": "services/console/app.py",
    "line": 648,
    "also": [
-    "services/console/auth.py:777"
+    "services/console/auth.py:799"
    ],
    "test": [],
-   "note": "Cookie for pages, bearer header for /api/v1. The re-authentication proof in a URL (identity.py:610) is a one-time 2-minute proof, not a session token.",
+   "note": "Cookie for pages, bearer header for /api/v1. The re-authentication proof in a URL (identity.py:616) is a one-time 2-minute proof, not a session token.",
    "finding": "",
    "id_check": false,
    "delegate": ""
@@ -946,9 +946,9 @@
    "verdict": "meets",
    "basis": "shown",
    "file": "services/console/auth.py",
-   "line": 752,
+   "line": 761,
    "also": [
-    "services/console/app.py:1046"
+    "services/console/app.py:1052"
    ],
    "test": [
     "tests/console/test_asvs_evidence.py::test_v3_2_1_sign_in_makes_a_new_token_and_ignores_a_planted_one"
@@ -966,7 +966,7 @@
    "verdict": "meets",
    "basis": "shown",
    "file": "services/console/auth.py",
-   "line": 752,
+   "line": 761,
    "also": [],
    "test": [
     "tests/console/test_asvs_evidence.py::test_v3_2_1_sign_in_makes_a_new_token_and_ignores_a_planted_one"
@@ -984,7 +984,7 @@
    "verdict": "meets",
    "basis": "shown",
    "file": "services/console/app.py",
-   "line": 1054,
+   "line": 1060,
    "also": [],
    "test": [
     "tests/console/test_identity.py::test_production_cookies_are_secure_httponly_and_strict"
@@ -1002,7 +1002,7 @@
    "verdict": "meets",
    "basis": "hypothesis",
    "file": "services/console/auth.py",
-   "line": 752,
+   "line": 761,
    "also": [],
    "test": [],
    "note": "Python secrets.",
@@ -1018,9 +1018,9 @@
    "verdict": "meets",
    "basis": "shown",
    "file": "services/console/app.py",
-   "line": 1064,
+   "line": 1070,
    "also": [
-    "services/console/auth.py:783",
+    "services/console/auth.py:805",
     "services/console/app.py:589"
    ],
    "test": [
@@ -1042,7 +1042,7 @@
    "file": "services/console/identity.py",
    "line": 124,
    "also": [
-    "services/console/auth.py:782",
+    "services/console/auth.py:804",
     "deploy/identity/authelia/configuration.example.yml:64"
    ],
    "test": [
@@ -1061,7 +1061,7 @@
    "verdict": "meets",
    "basis": "hypothesis",
    "file": "services/console/auth.py",
-   "line": 626,
+   "line": 635,
    "also": [],
    "test": [],
    "note": "Every session of the account ends at once (not an option: always).",
@@ -1077,7 +1077,7 @@
    "verdict": "does not meet",
    "basis": "hypothesis",
    "file": "services/console/auth.py",
-   "line": 840,
+   "line": 900,
    "also": [],
    "test": [],
    "note": "No page lists sessions; end_sessions is never called by a page (grep). A new sign-in leaves older sessions alive.",
@@ -1113,7 +1113,7 @@
    "verdict": "meets",
    "basis": "shown",
    "file": "services/console/app.py",
-   "line": 1054,
+   "line": 1060,
    "also": [],
    "test": [
     "tests/console/test_identity.py::test_production_cookies_are_secure_httponly_and_strict"
@@ -1131,7 +1131,7 @@
    "verdict": "meets",
    "basis": "shown",
    "file": "services/console/app.py",
-   "line": 1054,
+   "line": 1060,
    "also": [],
    "test": [
     "tests/console/test_identity.py::test_production_cookies_are_secure_httponly_and_strict"
@@ -1201,7 +1201,7 @@
    "verdict": "meets",
    "basis": "shown",
    "file": "services/console/auth.py",
-   "line": 762,
+   "line": 784,
    "also": [],
    "test": [
     "tests/console/test_asvs_evidence.py::test_v4_the_api_refuses_a_page_cookie_as_a_bearer_and_a_bearer_as_a_cookie"
@@ -1219,7 +1219,7 @@
    "verdict": "not applicable",
    "basis": "hypothesis",
    "file": "services/console/auth.py",
-   "line": 755,
+   "line": 764,
    "also": [],
    "test": [],
    "note": "Sessions are server-side rows. The actor assertion between services (D-447) is signed and single-use, but it is no session token.",
@@ -1237,7 +1237,7 @@
    "file": "services/console/breakglass.py",
    "line": 189,
    "also": [
-    "services/console/identity.py:306",
+    "services/console/identity.py:307",
     "services/console/step4.py:235"
    ],
    "test": [
@@ -1278,9 +1278,9 @@
    "verdict": "meets",
    "basis": "hypothesis",
    "file": "services/console/auth.py",
-   "line": 788,
+   "line": 810,
    "also": [
-    "services/console/auth.py:817"
+    "services/console/auth.py:840"
    ],
    "test": [],
    "note": "The role comes from the account row on the server. The acting role is granted only by a boot tool on a test box (D-877).",
@@ -1355,10 +1355,10 @@
    "verdict": "meets",
    "basis": "shown",
    "file": "services/console/auth.py",
-   "line": 1163,
+   "line": 1223,
    "also": [
     "services/console/app.py:732",
-    "services/console/app.py:1021"
+    "services/console/app.py:1026"
    ],
    "test": [
     "tests/console/test_asvs_evidence.py::test_v4_2_2_every_changing_page_route_refuses_a_post_without_the_csrf_token",
@@ -1419,7 +1419,7 @@
    "verdict": "meets",
    "basis": "shown",
    "file": "services/console/identity.py",
-   "line": 306,
+   "line": 307,
    "also": [
     "services/console/account_rules.py:112"
    ],
@@ -1509,7 +1509,7 @@
    "file": "services/console/next_page.py",
    "line": 23,
    "also": [
-    "services/console/app.py:1126"
+    "services/console/app.py:1132"
    ],
    "test": [
     "tests/console/test_asvs_evidence.py::test_v5_1_5_the_language_switch_stays_on_the_console"
@@ -1563,7 +1563,7 @@
    "verdict": "meets",
    "basis": "hypothesis",
    "file": "services/console/auth.py",
-   "line": 730,
+   "line": 739,
    "also": [
     "services/lake/sqlguard.py:60"
    ],
@@ -1617,7 +1617,7 @@
    "verdict": "meets",
    "basis": "hypothesis",
    "file": "services/console/identity.py",
-   "line": 416,
+   "line": 417,
    "also": [
     "services/console/totp.py:114"
    ],
@@ -1683,9 +1683,9 @@
    "verdict": "meets",
    "basis": "hypothesis",
    "file": "services/console/auth.py",
-   "line": 752,
+   "line": 761,
    "also": [
-    "services/console/auth.py:217"
+    "services/console/auth.py:223"
    ],
    "test": [],
    "note": "",
@@ -1751,10 +1751,10 @@
    "verdict": "meets",
    "basis": "hypothesis",
    "file": "services/console/auth.py",
-   "line": 757,
+   "line": 766,
    "also": [
     "deploy/identity/Caddyfile:52",
-    "services/console/identity.py:710"
+    "services/console/identity.py:716"
    ],
    "test": [],
    "note": "Sessions stored as SHA-256; Caddy drops Cookie and Authorization from its log.",
@@ -1790,10 +1790,10 @@
    "verdict": "partly",
    "basis": "hypothesis",
    "file": "services/console/app.py",
-   "line": 1036,
+   "line": 1041,
    "also": [
-    "services/console/app.py:1047",
-    "services/console/identity.py:300",
+    "services/console/app.py:1053",
+    "services/console/identity.py:301",
     "services/console/app.py:735",
     "services/console/breakglass.py:211"
    ],
@@ -1811,9 +1811,9 @@
    "verdict": "meets",
    "basis": "hypothesis",
    "file": "services/console/identity.py",
-   "line": 303,
+   "line": 304,
    "also": [
-    "services/console/app.py:1037"
+    "services/console/app.py:1042"
    ],
    "test": [],
    "note": "",
@@ -1829,9 +1829,9 @@
    "verdict": "meets",
    "basis": "shown",
    "file": "services/console/app.py",
-   "line": 1036,
+   "line": 1041,
    "also": [
-    "services/console/identity.py:502"
+    "services/console/identity.py:503"
    ],
    "test": [
     "tests/console/test_identity.py::test_a_totp_code_is_refused_when_wrong_or_replayed"
@@ -2107,7 +2107,7 @@
    "verdict": "meets",
    "basis": "hypothesis",
    "file": "services/console/app.py",
-   "line": 2056,
+   "line": 2065,
    "also": [
     "services/console/app.py:98",
     "deploy/identity/Caddyfile:62"
@@ -2142,7 +2142,7 @@
    "verdict": "meets",
    "basis": "hypothesis",
    "file": "services/console/auth.py",
-   "line": 777,
+   "line": 799,
    "also": [],
    "test": [],
    "note": "The API token is a bearer header.",
@@ -2158,7 +2158,7 @@
    "verdict": "meets",
    "basis": "shown",
    "file": "services/console/auth.py",
-   "line": 777,
+   "line": 799,
    "also": [],
    "test": [
     "tests/console/test_asvs_evidence.py::test_v4_the_api_refuses_a_page_cookie_as_a_bearer_and_a_bearer_as_a_cookie"
