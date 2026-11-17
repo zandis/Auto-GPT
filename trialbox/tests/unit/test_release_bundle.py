@@ -403,9 +403,11 @@ def test_the_committed_exceptions_are_scoped_and_dated() -> None:
     scoped = [e for e in allow.vulnerabilities if e.image]
     # caddy and authelia/authelia since D-574: the owner's ruling of 2026-11-12, when the gates first saw them
     assert scoped and {e.image for e in scoped} == {
-        "hapiproject/hapi", "vllm/vllm-openai", "trialbox-postgres", "caddy", "authelia/authelia"
+        "hapiproject/hapi", "vllm/vllm-openai", "caddy", "authelia/authelia"
     }  # fmt: skip
-    assert not any(e.image in {"trialbox-py", "trialbox-jvm", "trialbox-demo"} for e in scoped)
+    # our own images carry no accepted finding; trialbox-postgres since D-993 (its gosu binary, the source of its
+    # entries, is deleted from the image, and the zlib1g one is fixed by the pinned security update)
+    assert not any(e.image in {"trialbox-py", "trialbox-jvm", "trialbox-demo", "trialbox-postgres"} for e in scoped)
     assert all(e.review_by <= dt.date(2026, 12, 10) for e in scoped)
     assert not [e for e in allow.vulnerabilities if not e.image]  # nothing accepted everywhere
 

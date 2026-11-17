@@ -271,7 +271,7 @@ SKEW_ENV = "TB_AUDIT_TS_MAX_SKEW_S"
 #: shared libraries (and helpers of each other): their rows cover every family written anywhere in the modules
 #: they import. A service that reads outside input (mail, model output, hospital files, protocols) has the
 #: narrowest row: exactly what its own folder writes, plus :data:`EDGE_EXTRA`, each with its reason.
-_SHARED = ("flag", "flow", "llm", "mail")  # written through tb_common by the service that hosts the call
+_SHARED = ("ai", "flag", "flow", "llm", "mail")  # written through tb_common by the service that hosts the call
 #: NEW-SEC-2 (D-718): the chain's own records. Its writers write them themselves (the drain, the file writer, the
 #: host's signer); none comes through the journal. A row of this family from any role but the audit's own writer and
 #: the administrator is written under :data:`RESERVED_NAME`, with the name it was sent as (security review SEC-10).
@@ -299,7 +299,11 @@ EXACT_EVENTS: dict[str, dict[str, str]] = {
 }
 #: what an edge service writes beyond its own folder's events, and why
 EDGE_EXTRA: dict[str, dict[str, str]] = {
-    "tb_criteria_compiler": {"llm": "its model calls go through tb_common.llm, which audits them in the caller's log"},
+    "tb_criteria_compiler": {
+        "llm": "its model calls go through tb_common.llm, which audits them in the caller's log",
+        "ai": "an extracted criterion's ai.used and a review decision's ai.confirmed go through tb_common.provenance "
+        "(D-989)",
+    },
 }
 ROLE_EVENTS: dict[str, frozenset[str]] = {
     "tb_console": frozenset({*_CONSOLE, *_SHARED}),
@@ -308,7 +312,7 @@ ROLE_EVENTS: dict[str, frozenset[str]] = {
     "tb_gateway": frozenset({"llm"}),
     "tb_lake": frozenset({"lake"}),
     "tb_adapter": frozenset({"ingest", "terminology"}),
-    "tb_criteria_compiler": frozenset({"approve", "compile", "ctgov", "llm"}),
+    "tb_criteria_compiler": frozenset({"ai", "approve", "compile", "ctgov", "llm"}),
     "tb_audit_writer": frozenset({"audit", "journal"}),  # D-718: the drain's own record of a reserved name
 }
 
