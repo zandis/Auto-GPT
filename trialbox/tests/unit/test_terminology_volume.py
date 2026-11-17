@@ -120,3 +120,34 @@ def test_the_rehearsal_finds_a_table_loaded_at_install_in_the_compiler() -> None
     assert re.search(r"touch /data/terminology/[^\n]*\n\s*fail ", step), "a reader that can write must fail"
     steps = re.findall(r"^step ([a-z-]+) ", (ROOT / "tools/rehearse_box/rehearse.sh").read_text(encoding="utf-8"), re.M)
     assert "terminology" in steps and steps.index("terminology") > steps.index("install")
+
+
+def test_the_platform_form_is_the_same() -> None:
+    """D-991 (train 69): the platform form mounts the claim read-only in the same readers; only the restore job (as
+    for every claim) mounts it writable; the backup takes it read-only under the appliance's name."""
+    docs = [
+        d for d in yaml.safe_load_all((DEPLOY / "platform" / "base" / "apps.yaml").read_text(encoding="utf-8")) if d
+    ]
+    docs += [
+        d for d in yaml.safe_load_all((DEPLOY / "platform" / "base" / "day2.yaml").read_text(encoding="utf-8")) if d
+    ]
+    seen: dict[str, list[dict[str, Any]]] = {}
+    for d in docs:
+        spec = (d.get("spec") or {}).get("template") or ((d.get("spec") or {}).get("jobTemplate") or {}).get(
+            "spec", {}
+        ).get("template")
+        if not spec:
+            continue
+        pod = spec["spec"]
+        for c in pod.get("containers", []) + pod.get("initContainers", []):
+            for m in c.get("volumeMounts") or []:
+                if m["name"] == "tb-terminology":
+                    seen.setdefault(d["metadata"]["name"], []).append(m)
+    readers = {n for n, ms in seen.items() if all(m.get("readOnly") for m in ms)}
+    writers = {n for n, ms in seen.items() if not all(m.get("readOnly") for m in ms)}
+    assert set(READERS) <= readers and "trialbox-backup" in readers
+    assert writers == {"trialbox-restore"}
+    storage = list(yaml.safe_load_all((DEPLOY / "platform" / "base" / "storage.yaml").read_text(encoding="utf-8")))
+    assert any(
+        d and d["kind"] == "PersistentVolumeClaim" and d["metadata"]["name"] == "tb-terminology" for d in storage
+    )

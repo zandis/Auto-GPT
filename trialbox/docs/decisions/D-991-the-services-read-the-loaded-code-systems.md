@@ -47,6 +47,13 @@ nothing there.
      none can write there;
    - the doctor's `terminology` line names it.
 
+7. **The platform form does the same** (added on train 69, whose unit shard found the gap). The claim
+   `tb-terminology` (`deploy/platform/base/storage.yaml`) is mounted read-only at `/data/terminology` in the
+   criteria-compiler, orchestrator and console deployments. The backup CronJob mounts it read-only and names it
+   `terminology` in `TB_BACKUP_DIRS`, the appliance's name, so a backup restores on either form. The restore job mounts
+   it writable, as it does every claim. The kind drill's reset deletes it with the other claims. A loading job for the
+   platform form is not part of this card: the site loads code systems on the box form today.
+
 ## Test
 
 `tests/unit/test_terminology_volume.py`:
@@ -57,4 +64,6 @@ nothing there.
 - the host check's doctor mounts it read-only;
 - the installer makes the staging folder;
 - a backup takes the volume;
-- the rehearsal step loads at install and looks in every reader, failing a reader that can write.
+- the rehearsal step loads at install and looks in every reader, failing a reader that can write;
+- the platform form: the readers and the backup mount the claim read-only, only the restore job writes it, and the claim
+  exists. `tests/platform/test_day2.py` counts it among the data claims the backup reads read-only.
