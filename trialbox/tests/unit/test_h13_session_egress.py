@@ -165,8 +165,9 @@ def _with(line: str, form: str) -> str:
         return REAL.replace("\t\tct state established,related accept\n",
                             f"\t\tct state established,related accept\n\t\t{line}\n", 1)  # fmt: skip
     script, _ = egress.render(egress.Box(subnets=REAL_NETS, addresses={}), [], resolver=lambda h: [h])
-    return script.replace("    ct state established,related accept\n",
-                          f"    ct state established,related accept\n    {line}\n", 1)  # fmt: skip
+    out: str = script.replace("    ct state established,related accept\n",
+                              f"    ct state established,related accept\n    {line}\n", 1)  # fmt: skip
+    return out
 
 
 @pytest.mark.parametrize(

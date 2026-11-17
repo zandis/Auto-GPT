@@ -50,7 +50,10 @@ NO_POLICY: dict[str, Any] = {"firewalls": [], "firewallPolicys": []}
 def _check(rules: list[dict[str, Any]], tags: list[str] | None = None, inst: dict[str, Any] | None = None,
            eff: dict[str, Any] | None = None) -> tuple[bool, dict[str, Any]]:  # fmt: skip
     i = inst if inst is not None else _instance(tags)
-    return sv.rules_check(rules, "default", sv.instance_tags(i), [OWNER], i, eff if eff is not None else NO_POLICY)
+    ok, report = sv.rules_check(
+        rules, "default", sv.instance_tags(i), [OWNER], i, eff if eff is not None else NO_POLICY
+    )
+    return bool(ok), dict(report)
 
 
 def _rules(**over: dict[str, Any] | None) -> list[dict[str, Any]]:
