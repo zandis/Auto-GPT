@@ -80,3 +80,21 @@ Status: proposed (in review). Trace: URS-STW-03, RSK-06; TST-UNIT-04.
 * The compiler reads its terminology once at start: after a release loads with `TB_TERMINOLOGY_SOURCE=vocab` it
   must be restarted to compile against the new release (until then its rulesets are pinned to the old one and are
   refused, which is safe).
+
+## The loaded tables in the stamp (TERM-2 follow-up, 2026-11-17)
+
+The release id (`TR-...`) covers the terminology the compiler ships or reads from the vocabulary. TERM-2's tables
+loaded at install (a site list, the NHI lists, ICD-10-PCS, a licensed LOINC, WHO ICD-10 or ATC table, a later
+ICD-10-CM release; D-1113 to D-1116) were outside it, so two boxes could compile one protocol differently under one
+stamp. Now:
+
+- **The stamp names them.** A compiled manifest carries `terminology_tables` beside `terminology_release`: each loaded
+  table the compile read, with the URI of the code system it serves (`site` for a site list, the shape of lane E's
+  `terminology_refused`, E-TERM-3), its version and the
+  sha256 of its manifest line (ruleset manifest 1.1.0, `TerminologyTable`, class D1: codes only). Absent: no loaded
+  table was read, which is every committed ruleset; their files do not change. The release id itself is unchanged,
+  so no committed pin moves.
+- **The equivalence report carries the same list** (`tests/equivalence.json`, `EquivalenceReport.terminology_tables`).
+- **Approval waits for the same terminology.** A draft whose release or loaded tables differ from the box's (one
+  compiled on another box, or before the site's IT loaded, removed or replaced a table) is blocked at approval, the
+  tables named (added, gone, version and sha256 prefix before and after): it is compiled again first.

@@ -376,19 +376,6 @@ class EmbedResponse(BaseModel):
     dim: int
 
 
-class EquivalenceReport(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        populate_by_name=True,
-    )
-    overall_pct: float
-    per_criterion: dict[str, float]
-    failing: list[str]
-    sample_size: int
-    disagreements: list[Disagreement] | None = None
-    engine: str | None = None
-
-
 class EquivalenceSummary(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2086,6 +2073,21 @@ class SiteSchema(BaseModel):
     """
 
 
+class TerminologyTable(BaseModel):
+    """
+    One table loaded at install that a compile read (TERM-2 follow-up): its name, the URI of the code system it serves (site for a site list, as lane E's terminology_refused entries name it), its version and the sha256 of its manifest line. Codes and names only, never a patient value.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    table: str
+    system: str | None = None
+    version: str | None = None
+    sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+
+
 class TierSummary(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2413,6 +2415,23 @@ class CtgovSearchResult(BaseModel):
     source: Literal["api", "cassette", "refdata"]
     fetched_at: AwareDatetime
     studies: list[CtgovStudy]
+
+
+class EquivalenceReport(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    overall_pct: float
+    per_criterion: dict[str, float]
+    failing: list[str]
+    sample_size: int
+    disagreements: list[Disagreement] | None = None
+    engine: str | None = None
+    terminology_tables: list[TerminologyTable] | None = None
+    """
+    TERM-2 follow-up: the loaded terminology tables the compared compile read, as its manifest names them (absent: none, the shipped Parquet alone)
+    """
 
 
 class ExtractedAtom(BaseModel):
@@ -3021,7 +3040,7 @@ class PatientProfile(BaseModel):
 
 class RulesetManifest(BaseModel):
     """
-    rulesets/<ID>/manifest.yaml (SPEC 3.4). Schema version 1.0.0.
+    rulesets/<ID>/manifest.yaml (SPEC 3.4). Schema version 1.1.0 (1.1.0: optional terminology_tables, the TERM-2 follow-up).
     """
 
     model_config = ConfigDict(
@@ -3088,6 +3107,10 @@ class RulesetManifest(BaseModel):
     prompt_pins: dict[str, PromptPin] | None = None
     """
     the prompts the approved ruleset runs with, by prompt id (D-318): SCREEN runs the pinned version and text until the investigator re-approves; a newer registered version puts the study in approval needed
+    """
+    terminology_tables: list[TerminologyTable] | None = None
+    """
+    TERM-2 follow-up: each table loaded at install (a site list, the NHI lists, ICD-10-PCS, a licensed table, a later ICD-10-CM release) the compile read, beside terminology_release (the shipped Parquet). Absent: no loaded table was read. Approval is blocked while the box's loaded tables differ from these
     """
     derived_pins: dict[str, DerivedPin] | None = None
     """

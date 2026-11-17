@@ -10,6 +10,8 @@ import unicodedata
 import pytest
 from tb_common import encoding
 
+pytestmark = [pytest.mark.guard, pytest.mark.nodb]  # D-1119: the guard step of `checks`; no database
+
 BASE = "id,note\n1,Age 20 years or older at consent\n2,Serum urate above 7.0 mg/dL\n"
 
 

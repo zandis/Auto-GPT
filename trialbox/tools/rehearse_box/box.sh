@@ -3,7 +3,7 @@
 # rehearse.sh starts, one phase per call, and exits non-zero when the phase's assertion fails. Every TrialBox file it
 # uses comes from the offline media in $TB_RH_MEDIA (the release tree, the signed bundle, the vendor key).
 #
-#   box.sh wsl2|media-negative|install|reinstall|doctor|served|offline|console|screen|after-restart|restic-restore|wrong-name|missing-key
+#   box.sh wsl2|media-negative|install|reinstall|doctor|served|offline|console|screen|after-restart|restic-restore|terminology|wrong-name|missing-key
 #
 # Environment (set by rehearse.sh): TB_RH_DIR (work dir, the same path on the Docker host), TB_RH_MEDIA (the media
 # folder), TB_RH_BUNDLE (the bundle file name), TB_RH_BOX (where the box is installed: the site's /opt/trialbox).
@@ -55,6 +55,8 @@ doctor() {  # the model key as the gateway reads it: the key file only (D-437, D
   sec="$(docker volume inspect -f '{{.Mountpoint}}' trialbox_tb-secrets 2>/dev/null)"
   [ -n "$sec" ] && [ -d "$sec" ] && more+=(-v "$sec:/run/secrets/trialbox:ro")
   [ -d /run/trialbox ] && more+=(-v /run/trialbox:/run/trialbox:ro)
+  # D-991: the loaded code systems, read-only, as the host check gives them
+  docker volume inspect trialbox_tb-terminology >/dev/null 2>&1 && more+=(-v trialbox_tb-terminology:/data/terminology:ro)
   # ...and every compose file of COMPOSE_FILE outside deploy/ (the stand-ins) at its own path, as the host check does
   local cf; local IFS=:
   for cf in $(sed -n 's/^COMPOSE_FILE=//p' "$BOX/deploy/.env" | tail -1); do
@@ -506,6 +508,35 @@ done = [j for j in jobs if j.get("comment") == "rehearsal-first" and j["state"] 
 assert done, "no finished SCREEN from before the restart"
 print(f"ok: SCREEN {done[0]['job_id']} from before the restart is still on the box")
 EOF
+  ;;
+
+# ------------------------------------------------------------------------------------------------ terminology
+terminology)
+  # D-991 (TERM-VOL): a code system loaded at install reaches the services. A synthetic site list (two made-up local
+  # codes) is staged in deploy/site/terminology and loaded by deploy/terminology.sh, the volume's one writer; then
+  # criteria-compiler, orchestrator and console each read it from their read-only mount, none can write there, and the
+  # doctor's terminology line names it
+  stage="$BOX/deploy/site/terminology"
+  [ -d "$stage" ] || fail "the installer made no staging folder deploy/site/terminology"
+  printf 'local_code,local_name,code,display\nRH-0001,rehearsal synthetic chest pain,I20.9,Angina pectoris unspecified\nRH-0002,rehearsal synthetic seizure,G40.909,Epilepsy unspecified\n' \
+    > "$stage/rehearsal_local.csv"
+  (cd "$BOX" && deploy/terminology.sh site-list /stage/rehearsal_local.csv --name rehearsal --system icd10cm) \
+    || fail "deploy/terminology.sh could not load the synthetic site list"
+  # the same check in each reader: the table is there, vouched for by its manifest line, with its two rows
+  read_it='from criteria_compiler.terminology import installed as i
+t = {x.name: x for x in i.status(i.installed_dir())}.get("site_rehearsal")
+assert t and not t.problem and t.rows == 2, t
+print(f"{t.name} {t.rows} rows")'
+  for svc in criteria-compiler orchestrator console; do
+    out="$(dc exec -T "$svc" python -c "$read_it")" || fail "$svc does not read the table loaded at install"
+    if dc exec -T "$svc" sh -c 'touch /data/terminology/.written-by-a-service' 2>/dev/null; then
+      fail "$svc can write the terminology volume (it must be read-only there)"
+    fi
+    ok "$svc reads $out from /data/terminology, read-only"
+  done
+  doctor 2>&1 | grep -E '(^|[^a-z_])terminology' | grep -q "site_rehearsal 2 rows" \
+    || { doctor 2>&1 | grep -i terminology; fail "the doctor's terminology line does not name the loaded table"; }
+  ok "doctor: terminology names site_rehearsal (loaded at install, read through the volume)"
   ;;
 
 # ------------------------------------------------------------------------------------------------ restic-restore

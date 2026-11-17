@@ -958,6 +958,14 @@ def acc_score(d: Path) -> dict[str, Any]:
             for k, v in res.items()
             if k in SCORE_SUMMARY_KEYS
         }
+        if "conflicted" in (res.get("pairs") or {}):  # D-1064: the pairs set aside, by id, and the findings to trace
+            res["summary"]["conflicted"] = [
+                {k: c.get(k) for k in ("patient", "trial", "excluding", "box", "blocked_on", "on_another_line")}
+                for c in res["pairs"]["conflicted"]["pairs"]
+            ]
+            res["summary"]["conflicted_excluded_on_another_line"] = [
+                f"{c['patient']} x {c['trial']}" for c in res["pairs"]["conflicted_excluded_on_another_line"]
+            ]
         (sd / "score.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
         if res.get("not_scored_because"):
             out[sd.name] = {"scored": False, "why": res["not_scored_because"], "summary": res.get("summary")}

@@ -185,6 +185,7 @@ markers = [
   "perf: performance benchmarks",
   "egress: host nftables egress test (root, nft, iproute2, running compose stack; TB_EGRESS_TEST=1)",
   "slow: slow tests",
+  "guard: reads the tree for something that must not be there; no database, no service (D-1119: the guard step of `checks`, `make guard`)",
 ]
 timeout = 900
 filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]

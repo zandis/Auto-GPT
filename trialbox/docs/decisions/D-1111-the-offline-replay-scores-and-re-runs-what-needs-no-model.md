@@ -42,8 +42,10 @@ checks that run after a model's verdict.
 3. A stored tarball is untrusted. It is unpacked into a new empty folder outside the repository, member by member;
    an absolute name, a `..` part, a link or a special file refuses the whole archive before anything is written.
    Nothing in it is run.
-4. The exit code is 0 when the replay ran, whatever the figures. `--require-targets` exits 3 when a target is not
-   met at the highest level the replay reached.
+4. The exit code is 0 when the replay ran, whatever the figures. `--require-targets` exits 3 when a figure at the
+   highest level the replay reached is not within its target. No figure of the replay meets a target: a target is
+   met only by a launch (D-1064 item 4; the report's `met` is false and `within_target` says where the figure lies,
+   D-1117).
 
 ## Test
 
