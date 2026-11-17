@@ -2,8 +2,8 @@
 
 Keys missing in a language fall back to English; ``tests/console/test_console_app.py`` checks that every language
 has every key. D-1220: ``python -m tools.text_keys`` (``make lint``, ``tests/unit/test_text_keys.py``) fails on a key
-defined twice with different words and on a key a page asks for that no catalogue has; under the test suite
-(``TB_STRICT_TEXT=1``) ``translate`` raises on a missing key instead of showing it.
+defined twice with different words and on a key a page asks for that no catalogue has; in the test suite's own
+process (``STRICT``, set by ``tests/conftest.py``) ``translate`` raises on a missing key instead of showing it.
 """
 
 from __future__ import annotations
@@ -1129,12 +1129,13 @@ ZH: dict[str, str] = {
 CATALOGUES: dict[str, dict[str, str]] = {"en": EN, "ja": JA, "zh-TW": ZH}
 
 
-#: D-1220: the test suite sets it (tests/conftest.py); a box leaves it unset and shows a missing key as the key itself
+#: D-1220: the test suite sets it in its own process (tests/conftest.py, never through the environment, so a box a
+#: test starts keeps the fallback); a box shows a missing key as the key itself, unless TB_STRICT_TEXT=1 by hand
 STRICT = os.environ.get("TB_STRICT_TEXT") == "1"
 
 
 class MissingText(KeyError):
-    """A text key no catalogue has, asked for under the test suite (``STRICT``)."""
+    """A text key no catalogue has, asked for while ``STRICT`` is on."""
 
 
 def lookup(lang: str, key: str) -> str | None:

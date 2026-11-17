@@ -6,7 +6,7 @@
 * G-5: the administrator's EDC connection page ``/admin/edc`` was titled "EDC prefill" with the prefill page's help:
   both pages defined ``edc.title`` and ``edc.help``, and the later module won.
 
-Under the suite a key no catalogue has raises (``TB_STRICT_TEXT``), so these pages could not render with a raw key;
+In the suite's process a key no catalogue has raises (``console.i18n.STRICT``), so these pages could not render with a raw key;
 the tests also read the words. Synthetic data only."""
 
 from __future__ import annotations

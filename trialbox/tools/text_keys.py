@@ -19,9 +19,13 @@ written, so the loser of an override is seen too, and fails on:
   checked member by member (``FAMILIES``: every value the code can produce has its key) nor listed in
   ``UNCHECKED_FAMILIES`` with the reason; and a family no catalogue key starts with (a misspelled prefix).
 
-What it cannot see is caught at run time: under the test suite (``TB_STRICT_TEXT=1``, set by ``tests/conftest.py``)
-``translate`` raises on a key no catalogue has, so a page a test renders cannot show a raw key. A box keeps the old
-fallback (the key itself), so a missing text never takes a page down.
+It reads the source with ``ast`` and ``ast.literal_eval`` only (no code of a module runs, apart from importing the
+console to read the served catalogue); a definition that is not a literal is a problem of its own.
+
+What it cannot see is caught at run time: in the test suite's own process (``console.i18n.STRICT``, switched on by
+``tests/conftest.py``) ``translate`` raises on a key no catalogue has, so a page a test renders cannot show a raw
+key. A box, a box a test starts included, keeps the old fallback (the key itself), so a missing text never takes a
+page down; ``TB_STRICT_TEXT=1`` turns strict mode on for a box by hand.
 """
 
 from __future__ import annotations
@@ -67,18 +71,126 @@ def _module(path: Path) -> ModuleType:
     return importlib.import_module(f"console.{path.stem}")
 
 
-def _entries(node: ast.Dict, scope: dict[str, Any]) -> Iterator[tuple[str, Any, int]]:
-    """Each ``key: value`` of a dict display, evaluated in its module's namespace (a ``**{...}`` unpack too)."""
+@dataclass(frozen=True)
+class Dynamic:
+    """A definition in a catalogue dict that is not a literal the reader can read (``**something``, an f-string key, a
+    name): a problem, named with its place, so that no definition escapes the double check unseen."""
 
-    def value(expr: ast.expr) -> Any:
-        return eval(compile(ast.Expression(expr), "<text_keys>", "eval"), dict(scope))
+    where: str
+    expr: str
 
+
+_NO = object()  # not a literal
+
+
+def _literal(node: ast.expr) -> Any:
+    """The value of a literal node (a string, implicit concatenation and parentheses included; a tuple or a dict of
+    literals), read with ``ast.literal_eval``; ``_NO`` for anything else. No code is evaluated."""
+    try:
+        return ast.literal_eval(node)
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        return _NO
+
+
+def _tables(tree: ast.Module) -> dict[str, ast.expr]:
+    """The module-level ``NAME = {...}`` displays: the tables a comprehension or a loop joins under a prefix."""
+    out: dict[str, ast.expr] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            out[node.targets[0].id] = node.value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
+            out[node.target.id] = node.value
+    return out
+
+
+Entry = tuple[str, Any, int] | Dynamic
+
+
+def _key_parts(key: ast.expr, name: str) -> list[str | None] | None:
+    """The pieces of ``f"prefix.{name}"``: strings, and None where the table's key goes; None for another shape."""
+    if not isinstance(key, ast.JoinedStr):
+        return None
+    parts: list[str | None] = []
+    for part in key.values:
+        if isinstance(part, ast.Constant) and isinstance(part.value, str):
+            parts.append(part.value)
+        elif (
+            isinstance(part, ast.FormattedValue)
+            and part.conversion == -1
+            and part.format_spec is None
+            and isinstance(part.value, ast.Name)
+            and part.value.id == name
+        ):
+            parts.append(None)
+        else:
+            return None
+    return parts
+
+
+def _comprehension(dc: ast.DictComp, tables: dict[str, ast.expr], bound: dict[str, int], where: str) -> list[Entry]:
+    """``{f"prefix.{k}": v for k, v in TABLE.items()}`` (or ``v[i]``, ``i`` the loop's index over the three
+    catalogues) over a literal module-level ``TABLE``, read without running code; any other shape is ``Dynamic``."""
+    dyn: list[Entry] = [Dynamic(where, ast.unparse(dc))]
+    gen = dc.generators[0]
+    it, target = gen.iter, gen.target
+    if (
+        len(dc.generators) != 1
+        or gen.ifs
+        or gen.is_async
+        or not isinstance(target, ast.Tuple)
+        or len(target.elts) != 2
+        or not isinstance(it, ast.Call)
+        or it.args
+        or not isinstance(it.func, ast.Attribute)
+        or it.func.attr != "items"
+        or not isinstance(it.func.value, ast.Name)
+        or it.func.value.id not in tables
+    ):
+        return dyn
+    kn, vn = (e.id if isinstance(e, ast.Name) else "" for e in target.elts)
+    table = _literal(tables[it.func.value.id])
+    parts = _key_parts(dc.key, kn)
+    if not isinstance(table, dict) or parts is None or not kn or not vn:
+        return dyn
+    val = dc.value
+    index: int | None = None
+    if isinstance(val, ast.Subscript) and isinstance(val.value, ast.Name) and val.value.id == vn:
+        sl = val.slice
+        if isinstance(sl, ast.Constant) and isinstance(sl.value, int):
+            index = sl.value
+        elif isinstance(sl, ast.Name) and sl.id in bound:
+            index = bound[sl.id]
+        else:
+            return dyn
+    elif not (isinstance(val, ast.Name) and val.id == vn):
+        return dyn
+    return [
+        ("".join(str(k) if p is None else p for p in parts), v if index is None else v[index], dc.lineno)
+        for k, v in table.items()
+    ]
+
+
+def _entries(node: ast.expr, tables: dict[str, ast.expr], bound: dict[str, int], rel: str) -> list[Entry]:
+    """Each ``key: value`` of a dict display (or of a comprehension over a table), read as literals."""
+    if isinstance(node, ast.DictComp):
+        return _comprehension(node, tables, bound, f"{rel}:{node.lineno}")
+    if not isinstance(node, ast.Dict):
+        return [Dynamic(f"{rel}:{node.lineno}", ast.unparse(node))]
+    out: list[Entry] = []
     for k, v in zip(node.keys, node.values, strict=True):
         if k is None:  # ``**mapping``
-            for kk, vv in value(v).items():
-                yield str(kk), vv, v.lineno
+            if isinstance(v, ast.Name) and isinstance(tables.get(v.id), ast.Dict):
+                if not CAT_NAME.match(v.id):  # a catalogue-named table is read where it is written
+                    out += _entries(tables[v.id], tables, bound, rel)
+                continue
+            out += _entries(v, tables, bound, rel)
+            continue
+        key, text = _literal(k), _literal(v)
+        if key is _NO or text is _NO:
+            out.append(Dynamic(f"{rel}:{k.lineno}", f"{ast.unparse(k)}: {ast.unparse(v)}"))
         else:
-            yield value(k), value(v), k.lineno
+            out.append((key, text, k.lineno))
+    return out
 
 
 def _dicts(tree: ast.Module) -> Iterator[tuple[str, ast.Dict]]:
@@ -109,59 +221,70 @@ def _dicts(tree: ast.Module) -> Iterator[tuple[str, ast.Dict]]:
                 yield LANG_OF[m.group(1)], node.args[0]
 
 
-def _loop_updates(tree: ast.Module, scope: dict[str, Any]) -> Iterator[tuple[str, dict[Any, Any], int]]:
-    """(language, joined dict, line) of ``for _i, _cat in enumerate((EN, JA, ZH)): _cat.update({...})`` at module
-    level (i18n_audit: a label table ``name -> (en, ja, zh-TW)`` joined under a prefix), one per language."""
+def _loop_updates(tree: ast.Module) -> Iterator[tuple[str, ast.expr, dict[str, int]]]:
+    """(language, the joined expression, the loop's index) of ``for _i, _cat in enumerate((EN, JA, ZH)):
+    _cat.update({...})`` at module level (i18n_audit: a label table ``name -> (en, ja, zh-TW)`` joined under a
+    prefix), one per language."""
     for node in tree.body:
         if not isinstance(node, ast.For):
             continue
         it, numbered = node.iter, False
         if isinstance(it, ast.Call) and getattr(it.func, "id", "") == "enumerate" and it.args:
             it, numbered = it.args[0], True
-        if not isinstance(it, ast.Tuple) or not all(CAT_NAME.match(getattr(e, "id", "")) for e in it.elts):
+        if not isinstance(it, ast.Tuple):
             continue
-        names = [t.id for t in (node.target.elts if isinstance(node.target, ast.Tuple) else [node.target])]  # type: ignore[attr-defined]
-        for i, elt in enumerate(it.elts):
-            lang = LANG_OF[CAT_NAME.match(elt.id).group(1)]  # type: ignore[attr-defined,union-attr]
-            bound = dict(zip(names, (i, None) if numbered else (None,), strict=False))
+        langs = [CAT_NAME.match(e.id) if isinstance(e, ast.Name) else None for e in it.elts]
+        targets = node.target.elts if isinstance(node.target, ast.Tuple) else [node.target]
+        names = [t.id for t in targets if isinstance(t, ast.Name)]
+        if not names or not all(langs):
+            continue
+        for i, m in enumerate(langs):
+            bound = {names[0]: i} if numbered and len(names) == 2 else {}
             for sub in node.body:
                 call = sub.value if isinstance(sub, ast.Expr) else None
                 if (
-                    isinstance(call, ast.Call)
+                    m is not None
+                    and isinstance(call, ast.Call)
                     and isinstance(call.func, ast.Attribute)
                     and call.func.attr == "update"
-                    and getattr(call.func.value, "id", "") == names[-1]
+                    and isinstance(call.func.value, ast.Name)
+                    and call.func.value.id == names[-1]
                     and call.args
                 ):
-                    expr = ast.Expression(call.args[0])
-                    got = eval(compile(expr, "<text_keys>", "eval"), {**scope, **bound})
-                    yield lang, got, call.lineno
+                    yield LANG_OF[m.group(1)], call.args[0], bound
 
 
-def definitions(served: dict[str, dict[str, str]] | None = None) -> list[Definition]:
-    """Every literal definition of a text key in the console's modules, in file order. A dict counts when at least
-    one of its keys is in the served catalogue of its language (``_SRC_EN`` of i18n_demoja is the raw material of a
-    comprehension, not a catalogue: its keys are not text keys)."""
+def read_definitions(served: dict[str, dict[str, str]] | None = None) -> tuple[list[Definition], list[Dynamic]]:
+    """Every definition of a text key in the console's modules, in file order, read from the source with ``ast`` and
+    ``ast.literal_eval`` only (no code runs), and every definition that is not a literal (``Dynamic``). A dict counts
+    when one of its keys is in the served catalogue of its language, or when it holds something that is not a literal
+    (``_SRC_EN`` of i18n_demoja is the raw material of a comprehension: its keys are not text keys)."""
     served = served if served is not None else served_catalogue()
     out: list[Definition] = []
+    dynamic: list[Dynamic] = []
     for path in sorted(CONSOLE.glob("*.py")):
         text = path.read_text(encoding="utf-8")
         if not re.search(r"\b(EN|JA|ZH)\b|\"zh-TW\"", text):
             continue
         tree = ast.parse(text)
-        found = list(_dicts(tree))
-        if not found:
-            continue
-        scope = vars(_module(path))
         rel = path.relative_to(ROOT).as_posix()
-        groups = [(lang, list(_entries(d, scope))) for lang, d in found]
-        groups += [(lang, [(k, v, line) for k, v in got.items()]) for lang, got, line in _loop_updates(tree, scope)]
+        tables = _tables(tree)
+        groups = [(lang, _entries(d, tables, {}, rel)) for lang, d in _dicts(tree)]
+        groups += [(lang, _entries(e, tables, bound, rel)) for lang, e, bound in _loop_updates(tree)]
         for lang, entries in groups:
-            rows = [(k, v, line) for k, v, line in entries if isinstance(k, str) and isinstance(v, str)]
-            if not any(k in served[lang] for k, _, _ in rows):
+            dyn = [e for e in entries if isinstance(e, Dynamic)]
+            rows = [
+                e for e in entries if not isinstance(e, Dynamic) and isinstance(e[0], str) and isinstance(e[1], str)
+            ]
+            if not dyn and not any(k in served[lang] for k, _, _ in rows):
                 continue
+            dynamic += dyn
             out += [Definition(lang, k, v, f"{rel}:{line}") for k, v, line in rows]
-    return out
+    return out, dynamic
+
+
+def definitions(served: dict[str, dict[str, str]] | None = None) -> list[Definition]:
+    return read_definitions(served)[0]
 
 
 def served_catalogue() -> dict[str, dict[str, str]]:
@@ -344,7 +467,7 @@ _ERR = "a refusal, error or failure code that a service or a form returns"
 _DONE = "the word a page is sent back with after an action (?done=...), set by the route that redirects"
 _AUDIT = "an audit kind: tests/console/test_audit_browser.py holds every one the code writes"
 #: a family not checked member by member, with the reason. What a test renders is still checked: under the suite a
-#: missing member raises (``TB_STRICT_TEXT``). A family asked with ``t_or`` has its own fallback and is not listed.
+#: missing member raises (``console.i18n.STRICT``). A family asked with ``t_or`` has its own fallback and is not listed.
 UNCHECKED_FAMILIES: dict[str, str] = {
     "audit.kind.": _AUDIT,
     **dict.fromkeys(
@@ -549,8 +672,8 @@ UNCHECKED_FAMILIES: dict[str, str] = {
 
 def problems() -> list[str]:
     served = served_catalogue()
-    defs = definitions(served)
-    out: list[str] = []
+    defs, dynamic = read_definitions(served)
+    out = [f"dynamic definition at {d.where}: {d.expr[:100]} (not a literal: write it as one)" for d in dynamic]
     bad, _same = doubles(defs)
     for c in bad:
         rows = "; ".join(f"{r.where} {r.text!r}" for r in c.rows)

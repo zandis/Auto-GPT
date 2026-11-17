@@ -4,11 +4,15 @@ The catalogue is joined from about forty modules with a plain ``dict.update``, s
 different words was won by the later one (``edc.title`` titled the administrator's EDC connection page "EDC prefill")
 and a key nobody defined showed raw ("life.vstate.unplanned" on the participant page). ``tools.text_keys`` reads every
 definition where it is written and every use; these tests hold its findings at zero, and show that it would see each
-kind of mistake. Under the suite ``translate`` raises on a missing key (``TB_STRICT_TEXT``, tests/conftest.py)."""
+kind of mistake. In the suite's own process ``translate`` raises on a missing key (``console.i18n.STRICT``, tests/conftest.py); a box a
+test starts as a child process does not."""
 
 from __future__ import annotations
 
 import ast
+import os
+import subprocess
+import sys
 
 import pytest
 
@@ -73,11 +77,55 @@ def test_the_edc_connection_page_and_the_prefill_page_have_their_own_words(serve
 
 
 # ------------------------------------------------------------------ the reader sees each kind of mistake
+def _read(source: str) -> tuple[list[tk.Definition], list[tk.Dynamic]]:
+    tree = ast.parse(source)
+    tables = tk._tables(tree)
+    groups = [(lang, tk._entries(d, tables, {}, "x.py")) for lang, d in tk._dicts(tree)]
+    groups += [(lang, tk._entries(e, tables, b, "x.py")) for lang, e, b in tk._loop_updates(tree)]
+    defs: list[tk.Definition] = []
+    dyn: list[tk.Dynamic] = []
+    for lang, entries in groups:
+        for e in entries:
+            if isinstance(e, tk.Dynamic):
+                dyn.append(e)
+            else:
+                defs.append(tk.Definition(lang, e[0], e[1], f"x.py:{e[2]}"))
+    return defs, dyn
+
+
 def _defs_of(source: str) -> list[tk.Definition]:
-    out = []
-    for lang, d in tk._dicts(ast.parse(source)):
-        out += [tk.Definition(lang, k, v, f"x.py:{line}") for k, v, line in tk._entries(d, {})]
-    return out
+    defs, dyn = _read(source)
+    assert dyn == []
+    return defs
+
+
+def test_a_comprehension_and_a_loop_over_a_label_table_are_read_without_running_code() -> None:
+    """i18n_demoja's ``**{f"refdata.src.{k}": v for k, v in _SRC_EN.items()}`` and i18n_audit's ``for _i, _cat in
+    enumerate((EN, JA, ZH)): _cat.update({f"audit.ev.{n}": labels[_i] ...})`` are read from literal tables."""
+    defs = _defs_of(
+        '_SRC = {"ctgov": "CT.gov"}\n'
+        'EVENTS = {"x.done": ("Done", "完了", "完成")}\n'
+        'EN = {"a.b": "A", **{f"src.{k}": v for k, v in _SRC.items()}}\n'
+        "JA = {}\nZH = {}\n"
+        "for _i, _cat in enumerate((EN, JA, ZH)):\n"
+        '    _cat.update({f"audit.ev.{name}": labels[_i] for name, labels in EVENTS.items()})\n'
+    )
+    assert {(d.lang, d.key, d.text) for d in defs} == {
+        ("en", "a.b", "A"), ("en", "src.ctgov", "CT.gov"),
+        ("en", "audit.ev.x.done", "Done"), ("ja", "audit.ev.x.done", "完了"), ("zh-TW", "audit.ev.x.done", "完成"),
+    }  # fmt: skip
+
+
+def test_a_definition_that_is_not_a_literal_is_a_problem_of_its_own() -> None:
+    _defs, dyn = _read('EN = {"a.b": WORDS, f"c.{X}": "c", **other()}\nJA = {**{k: v for k, v in sorted(T)}}\n')
+    assert [d.expr for d in dyn] == ["'a.b': WORDS", "f'c.{X}': 'c'", "other()", "{k: v for k, v in sorted(T)}"]
+
+
+def test_the_reader_runs_no_code_of_the_modules_it_reads() -> None:
+    """The scan's rule (no eval, no exec): the reader takes literals only (``ast.literal_eval``)."""
+    tree = ast.parse((tk.ROOT / "tools" / "text_keys.py").read_text(encoding="utf-8"))
+    calls = {n.func.id for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    assert not calls & {"eval", "exec", "compile", "__import__"}
 
 
 def test_a_double_in_two_dicts_and_a_double_inside_one_dict_are_both_seen() -> None:
@@ -118,11 +166,27 @@ def test_a_new_family_must_be_checked_or_listed(monkeypatch: pytest.MonkeyPatch)
     assert [p for p in tk.problems() if "'wstatus.'" in p and "neither FAMILIES nor" in p]
 
 
-# ------------------------------------------------------------------ translate under the suite and on a box
-def test_a_missing_key_raises_under_the_suite_and_shows_raw_on_a_box(monkeypatch: pytest.MonkeyPatch) -> None:
+# ------------------------------------------------------------------ translate in the suite and on a box
+def test_a_box_the_suite_starts_as_a_child_process_is_not_strict() -> None:
+    """Strict mode never leaks into a box a test starts (a walk's demo box, an e2e console): the suite switches it on
+    in process, not through the environment, so a child process started with the suite's environment keeps the
+    fallback, and a missing text there is the key, never a 500 that fails another lane's walk."""
+    assert "TB_STRICT_TEXT" not in os.environ
+    child = subprocess.run(
+        [sys.executable, "-c", "from console import i18n; print(i18n.STRICT, i18n.translate('en', 'no.such.key'))"],
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(str(tk.ROOT / p) for p in ("libs", "services", "."))},
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=True,
+    )
+    assert child.stdout.split() == ["False", "no.such.key"], child.stderr
+
+
+def test_a_missing_key_raises_in_the_suite_and_shows_raw_on_a_box(monkeypatch: pytest.MonkeyPatch) -> None:
     from console import i18n
 
-    assert i18n.STRICT  # tests/conftest.py sets TB_STRICT_TEXT=1 before the console is imported
+    assert i18n.STRICT  # tests/conftest.py switches it on in the suite's own process
     with pytest.raises(i18n.MissingText, match="no.such.key"):
         i18n.translate("ja", "no.such.key")
     assert i18n.lookup("ja", "no.such.key") is None

@@ -20,9 +20,19 @@ os.environ["TB_LAKE_BUILD"] = "thread"
 # D-663: the same for the adapter's ingest: most tests hand the adapter a configuration in memory (``build_config``
 # replaced); tests/unit/test_adapter_run_process.py runs the box's way, with real processes.
 os.environ["TB_ADAPTER_RUN"] = "thread"
-# D-1220: a text key no catalogue has is an error under the suite (console.i18n.translate raises), so a page a test
-# renders cannot show a raw key; a box shows the key. Set before any console module is imported (i18n reads it once).
-os.environ["TB_STRICT_TEXT"] = "1"
+
+
+@pytest.fixture(autouse=True)
+def _strict_text() -> None:
+    """D-1220: a text key no catalogue has is an error in the suite's own process (console.i18n.translate raises), so
+    a page a test renders cannot show a raw key. Switched on here, in process, and never through the environment: a
+    box a test starts as a child process (a walk's demo box, an e2e console) keeps the box's fallback and shows the
+    key, so a missing text never fails another walk with a 500. tests/unit/test_text_keys.py holds both."""
+    try:
+        from console import i18n
+    except ImportError:  # a run without services/ on the path
+        return
+    i18n.STRICT = True
 
 
 @pytest.fixture
