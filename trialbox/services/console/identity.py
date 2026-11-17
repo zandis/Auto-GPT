@@ -278,9 +278,10 @@ class Identity:
         """A local account signs in with a TOTP code when TOTP is on; provider accounts get their factor there."""
         return self.settings.totp_required and not self.users.is_sso(user.username)
 
-    def second_step(self, user: User, enrol_ok: bool = False) -> Response:
-        """The authenticator step next; ``enrol_ok``: the holder came through the enrolment code (D-719)."""
-        token, _ = self.users.new_pending(user.username, enrol_ok=enrol_ok)
+    def second_step(self, user: User, enrol_ok: bool = False, role: str = "") -> Response:
+        """The authenticator step next; ``enrol_ok``: the holder came through the enrolment code (D-719); ``role``:
+        the role chosen on the sign-in page, taken once the code is right (D-1151)."""
+        token, _ = self.users.new_pending(user.username, enrol_ok=enrol_ok, role=role)
         resp = RedirectResponse("/login/totp", status_code=303)
         resp.set_cookie(MFA_COOKIE, token, httponly=True, samesite="strict", secure=self.secure, max_age=600)
         return resp
@@ -505,9 +506,14 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
                 us.drop_pending(token)
                 return _locked_page(request, username)
             return _code_form(request, username, csrf, sealed_enrol if enrolling else None, failed=reason, status=401)
+        chosen = us.pending_role(token)  # D-1151: the role chosen on the sign-in page, now that the code is right
         us.drop_pending(token)
         us.clear_failures(username, src)
         user = us.get(username)
+        if user is not None and chosen:
+            from console import acting
+
+            acting.at_sign_in(us, au, username, chosen)
         if user is None:  # disabled or expired between the two steps
             resp = h.login_page(request, 401, failed=True, uninitialised=False)
             _clear(resp, MFA_COOKIE)
