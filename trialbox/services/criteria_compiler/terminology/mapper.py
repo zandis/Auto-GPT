@@ -165,6 +165,43 @@ def norm(text: str) -> str:
     return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text).strip().lower())
 
 
+# TERM-2 (D-1113 to D-1116): the systems of the tables loaded at install (``terminology.installed``) that the shipped
+# tables lack, beside ``SYSTEMS``; NHI's service and order codes are the shipped ``nhi_order`` system
+LOADED_SYSTEMS = {**SYSTEMS, "icd10pcs": "http://www.cms.gov/Medicare/Coding/ICD10", "icd10_who": ICD10_WHO}
+# which systems of a site list answer which IR domain (the site's lists win over every other table, D-1113)
+SITE_DOMAIN_SYSTEMS: dict[str, tuple[str, ...]] = {
+    "condition": ("icd10cm", "icd10_who"),
+    "observation": ("loinc",),
+    "report": ("loinc",),
+    "medication": ("atc", "nhi_drug"),
+    "procedure": ("icd10pcs", "nhi_order"),
+    "encounter": ("department",),
+    "claim": ("nhi_drug",),
+}
+# LOINC's specimens a lab named without one is read from (a component's codes in blood, serum or plasma)
+_LOINC_BLOOD = frozenset({"bld", "blda", "bldc", "bldv", "plas", "ser", "ser/plas", "ser/plas/bld"})
+
+
+def _name_keys(text: str) -> list[str]:
+    """A name as the loaded tables are matched: as written (``norm``; zh and ja names), then as ICD-10-CM's lists
+    are matched (``_icd_key``: punctuation and a plain plural dropped)."""
+    out = [norm(text)]
+    k = _icd_key(text)
+    if k and k not in out:
+        out.append(k)
+    return [x for x in out if x]
+
+
+def _ingredient(text: str) -> str:
+    """The ingredient of an NHI 成分 field, without strength or salt (``FLUPENTIXOL (2HCL) 3 MG``: flupentixol); empty
+    for a combination."""
+    t = norm(text)
+    if re.search(r"[+&;]|\band\b", t):
+        return ""
+    t = re.split(r"[0-9(]", t, maxsplit=1)[0]
+    return " ".join(t.replace(",", " ").split())
+
+
 @dataclass(frozen=True)
 class Concept:
     system: str
@@ -178,7 +215,7 @@ class MappingResult:
     name: str
     domain: str
     concepts: list[Concept]
-    method: str  # exact | synonym | dictionary (D-172, always reviewed) | llm | none
+    method: str  # exact | synonym | dictionary (D-172, always reviewed) | icd10cm | site | loaded | llm | none
     needs_review: bool
     notes: list[str] = field(default_factory=list)
     families: list[tuple[str, str]] = field(default_factory=list)  # (system, code prefix) of prefix groupers
@@ -283,6 +320,12 @@ class Terminology:
             for r in rows:
                 c = self._concept(key, r)
                 self._by_code[(c.system, c.code)] = c
+        # TERM-2 (D-1113 to D-1116): the site's lists and the code systems loaded at install
+        self.site_names: dict[str, dict[str, tuple[str, list[Concept]]]] = {}  # system -> name -> (list, concepts)
+        self.site_codes: dict[tuple[str, str], Concept] = {}  # (system, local code) -> its standard concept
+        self.loaded_names: dict[str, dict[str, tuple[list[Concept], frozenset[tuple[str, str]], bool, str]]] = {}
+        self.loaded_sources: dict[str, str] = {}
+        self._load_term2(where)
 
     _release: str | None = None
 
@@ -331,6 +374,10 @@ class Terminology:
     ) -> MappingResult:
         primary = norm(name)
         names = [primary] + [norm(s) for s in synonyms or []]
+        # 0. TERM-2 (D-1113): the site's own lists win over every shipped and loaded table
+        found = self._site_list(name, domain)
+        if found is not None:
+            return found
 
         def exact(candidates: list[str]) -> list[Concept]:
             return [
@@ -396,6 +443,10 @@ class Terminology:
         found = self._icd10cm(name, domain)
         if found is not None:
             return found
+        # 2e. TERM-2: a name in a code system loaded at install (ICD-10-PCS, the NHI lists, LOINC, WHO ICD-10, ATC)
+        found = self._loaded(name, domain)
+        if found is not None:
+            return found
         # 3. LLM-proposed candidates (always needs_review)
         cands = self.candidates(domain, names, 20)
         if llm is not None and cands:
@@ -446,6 +497,151 @@ class Terminology:
         note = f"ICD-10-CM {how}: {cats[0]}" + (f"-{cats[-1]}" if len(cats) > 1 else "")
         return MappingResult(name, domain, _dedupe(hits), "icd10cm", review, [note],
                              families=sorted(fams | who_only_families(fams)))  # fmt: skip
+
+    def _load_term2(self, where: Path) -> None:
+        """The site's lists and the TERM-2 tables loaded in ``where`` (each read only when its manifest line vouches
+        for it; a refused one is reported in ``installed_problems`` and never read)."""
+        from criteria_compiler.terminology import installed as inst
+
+        have = sorted(p.stem for p in where.glob("*.parquet")) if where.is_dir() else []
+        order = [n for n in have if n.startswith(inst.SITE_PREFIX)] + [
+            n for n in (inst.ATC_INDEX, inst.NHI_DRUGS, inst.NHI_SERVICES, inst.ICD_PCS, inst.LOINC_TABLE,
+                        inst.ICD10_WHO) if n in have]  # fmt: skip
+        loose: list[tuple[str, str, list[Concept], frozenset[tuple[str, str]], str]] = []
+        for table in order:
+            try:
+                rows = inst.read_loaded(where, table)
+            except inst.TerminologyRefused as exc:
+                self.installed_problems.append(str(exc))
+                continue
+            if rows is None:
+                continue
+            self.loaded_sources[table] = str(inst.manifest(where)["tables"][table].get("version") or "installed")
+            if table.startswith(inst.SITE_PREFIX):
+                self._index_site(table, rows)
+            else:
+                loose.extend(self._index_loaded(inst, table, rows))
+        for domain, key, concepts, fams, note in loose:  # a component or an ingredient: after every exact name
+            self.loaded_names.setdefault(domain, {}).setdefault(key, (concepts, fams, True, note))
+
+    def _index_site(self, table: str, rows: list[dict[str, Any]]) -> None:
+        mine: dict[tuple[str, str], list[Concept]] = {}
+        for r in rows:
+            sy, code = str(r["system"]), str(r["code"])
+            uri = LOADED_SYSTEMS[sy]
+            known = self.concept(uri, code)
+            c = Concept(uri, code, str(r.get("display") or "") or (known.display if known else "")
+                        or str(r.get("local_name") or "") or code)  # fmt: skip
+            if r.get("local_code"):
+                self.site_codes.setdefault((sy, str(r["local_code"])), c)
+            for key in _name_keys(str(r.get("local_name") or "")):
+                if key not in self.site_names.get(sy, {}):  # an earlier list (by name) keeps a name it has
+                    mine.setdefault((sy, key), []).append(c)
+        for (sy, key), concepts in mine.items():
+            self.site_names.setdefault(sy, {})[key] = (table, concepts)
+
+    def _index_loaded(self, inst: Any, table: str, rows: list[dict[str, Any]]) -> list[Any]:
+        """Index a loaded code system's exact names (``loaded_names``); return its looser keys (a LOINC component, an
+        NHI ingredient), which only answer when no exact name does."""
+        exact: list[tuple[str, str, list[Concept], frozenset[tuple[str, str]]]] = []
+        loose: list[Any] = []
+        if table == inst.ATC_INDEX:
+            uri = LOADED_SYSTEMS["atc"]
+            under: dict[str, list[Concept]] = {}  # an ATC group -> its substances (level 5)
+            for x in rows:
+                if len(str(x["code"])) == 7:
+                    for n in (1, 3, 4, 5):
+                        under.setdefault(str(x["code"])[:n], []).append(Concept(uri, str(x["code"]), str(x["display"])))
+            for r in rows:
+                code = str(r["code"])
+                concepts = [Concept(uri, code, str(r["display"]))] if len(code) == 7 else under.get(code, [])
+                fams = frozenset({(uri, code)}) if len(code) < 7 else frozenset()
+                exact += [("medication", k, concepts, fams) for k in _name_keys(str(r["display"])) if concepts]
+        elif table == inst.NHI_DRUGS:
+            uri = LOADED_SYSTEMS["atc"]
+            by: dict[str, set[str]] = {}
+            for r in rows:
+                ing = _ingredient(str(r.get("ingredient") or ""))
+                if ing and r.get("atc") and len(str(r["atc"])) == 7:
+                    by.setdefault(ing, set()).add(str(r["atc"]))
+            for ing, codes in by.items():
+                concepts = [self.concept(uri, c) or Concept(uri, c, ing) for c in sorted(codes)]
+                loose += [("medication", k, concepts, frozenset(), "NHI drug list ingredient") for k in _name_keys(ing)]
+        elif table == inst.NHI_SERVICES:
+            uri = LOADED_SYSTEMS["nhi_order"]
+            for r in rows:
+                c = Concept(uri, str(r["code"]), str(r.get("display_en") or r["display"]))
+                for n in (r.get("display"), r.get("display_en")):
+                    exact += [("procedure", k, [c], frozenset()) for k in _name_keys(str(n or ""))]
+        elif table == inst.ICD_PCS:
+            uri = LOADED_SYSTEMS["icd10pcs"]
+            for r in rows:
+                if str(r.get("valid")) == "1":
+                    c = Concept(uri, str(r["code"]), str(r["display"]))
+                    for n in (r.get("display"), r.get("short")):
+                        exact += [("procedure", k, [c], frozenset()) for k in _name_keys(str(n or ""))]
+        elif table == inst.LOINC_TABLE:
+            uri = LOADED_SYSTEMS["loinc"]
+            comp: dict[str, list[Concept]] = {}
+            for r in rows:
+                if str(r.get("status") or "").upper() == "DEPRECATED":
+                    continue
+                c = Concept(uri, str(r["code"]), str(r["display"]))
+                for n in (r.get("display"), r.get("shortname")):
+                    exact += [
+                        (d, k, [c], frozenset()) for d in ("observation", "report") for k in _name_keys(str(n or ""))
+                    ]
+                if str(r.get("specimen") or "").lower() in _LOINC_BLOOD:
+                    comp.setdefault(str(r.get("component") or ""), []).append(c)
+            for n, concepts in comp.items():
+                loose += [(d, k, concepts, frozenset(), "LOINC component") for d in ("observation", "report")
+                          for k in _name_keys(n)]  # fmt: skip
+        elif table == inst.ICD10_WHO:
+            cat: dict[str, list[Concept]] = {}  # a category -> its codes (itself included)
+            for x in rows:
+                if "-" not in str(x["code"]):
+                    cat.setdefault(str(x["code"])[:3], []).append(Concept(ICD10_WHO, str(x["code"]), str(x["display"])))
+            for r in rows:
+                code = str(r["code"])
+                if "-" in code:
+                    continue
+                concepts = (cat.get(code) if len(code) == 3 else None) or [Concept(ICD10_WHO, code, str(r["display"]))]
+                fams = frozenset({(ICD10_WHO, code)}) if len(code) == 3 else frozenset()
+                exact += [("condition", k, concepts, fams) for k in _name_keys(str(r["display"]))]
+        for domain, key, concepts, fams in exact:
+            self.loaded_names.setdefault(domain, {}).setdefault(key, (concepts, fams, False, table))
+        return [(d, k, cs, f, f"{note} ({table})") for d, k, cs, f, note in loose]
+
+    def _site_list(self, name: str, domain: str) -> MappingResult | None:
+        """Step 0 (D-1113): the concept's name in one of the site's own lists, for a system of its domain."""
+        for sy in SITE_DOMAIN_SYSTEMS.get(domain, ()):
+            for key in _name_keys(name):
+                got = self.site_names.get(sy, {}).get(key)
+                if got is None:
+                    continue
+                table, concepts = got
+                fams: set[tuple[str, str]] = set()
+                out: list[Concept] = []
+                for c in concepts:
+                    if sy == "icd10cm" and len(c.code) == 3 and "." not in c.code:  # a category: its family
+                        out += self.expand("icd10cm", c.code, "prefix") or [c]
+                        fams.add((c.system, c.code))
+                    else:
+                        out.append(c)
+                return MappingResult(name, domain, _dedupe(out), "site", False, [f"site list {table}"],
+                                     families=sorted(fams | who_only_families(fams)))  # fmt: skip
+        return None
+
+    def _loaded(self, name: str, domain: str) -> MappingResult | None:
+        """Step 2e: the concept's name in a code system loaded at install; a LOINC component or an NHI ingredient
+        (looser than a name) is for review."""
+        for key in _name_keys(name):
+            got = self.loaded_names.get(domain, {}).get(key)
+            if got is not None:
+                concepts, fams, review, note = got
+                return MappingResult(name, domain, _dedupe(concepts), "loaded", review, [f"loaded at install: {note}"],
+                                     families=sorted(fams))  # fmt: skip
+        return None
 
     def _index_code(self, key: str, hops: int = 0) -> str:
         """The code an Alphabetic Index term leads to, following at most two "see" references; "" for none."""
