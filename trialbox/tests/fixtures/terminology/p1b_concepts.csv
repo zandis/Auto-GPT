@@ -1,0 +1,1046 @@
+domain,name,count
+claim,axis I disorder,1
+claim,bipolar disorder,1
+claim,mental retardation,1
+claim,serious medical illness,1
+condition,AV block,2
+condition,Addison's disease,1
+condition,Bipolar I disorder,1
+condition,Bipolar II disorder,1
+condition,Bipolar disorder NOS,1
+condition,Boerhaave's syndrome,1
+condition,CNS manifestation,1
+condition,CNS neoplasm,1
+condition,COPD,4
+condition,COPD exacerbation,4
+condition,Chronic obstructive pulmonary disease,1
+condition,Congestive Heart Failure,1
+condition,Contrast allergy,1
+condition,Cyclothymic disorder,1
+condition,Dementia,1
+condition,ECG abnormality,1
+condition,Familial Adenomatous Polyposis,1
+condition,Fontaine stage 2a,1
+condition,GERD,1
+condition,HBV,1
+condition,HCV,1
+condition,HIV,1
+condition,IBD,1
+condition,Inability to provide consent,1
+condition,Kawasaki Disease,1
+condition,Kawasaki disease,1
+condition,Lyme borreliosis,1
+condition,MRI contraindication,1
+condition,NSAID allergy,1
+condition,NYHA Class III,1
+condition,NYHA Class IV,1
+condition,NYHA class,1
+condition,Open Wound,1
+condition,Raynaud's disease,1
+condition,Rutherford stage 2,1
+condition,SLE flare,1
+condition,ST-segment elevation myocardial infarction,1
+condition,Supraventricular tachycardia,1
+condition,WHO performance status,1
+condition,active CNS infection,1
+condition,active esophageal variceal bleeding,1
+condition,active pathologic bleeding,1
+condition,active pulmonary tuberculosis,1
+condition,active use,1
+condition,acute,1
+condition,acute coronary syndrome,2
+condition,acute disease,1
+condition,acute exacerbation of chronic obstructive pulmonary disease,2
+condition,acute ischemia,1
+condition,acute myocardial infarction,1
+condition,acute respiratory distress syndrome,2
+condition,acute surgical abdomen,1
+condition,acute_infection,1
+condition,adenomyosis,2
+condition,advanced HIV infection,1
+condition,advanced cancer,1
+condition,adverse event,1
+condition,alcohol abuse,3
+condition,alcohol dependence,1
+condition,alcohol or substance dependence,1
+condition,alcoholism,1
+condition,allergic rhinitis,1
+condition,allergy,2
+condition,allergy to carbetocin,1
+condition,allergy to chlorhexidine gluconate,1
+condition,allergy to oxytocin,1
+condition,amyloidosis,1
+condition,anaphylaxis,1
+condition,anatomic lung disease,1
+condition,anemia,1
+condition,ankle fracture,1
+condition,anovulation,1
+condition,arrhythmia,1
+condition,arterial thrombosis,1
+condition,arthropathy,1
+condition,asthma,3
+condition,asthma exacerbation due to NSAIDs,1
+condition,asthma_exacerbation,1
+condition,atelectasis,1
+condition,attention deficit hyperactivity disorder,1
+condition,autoimmune disease,1
+condition,autoimmune thyroid disease,1
+condition,autoimmune thyroiditis,1
+condition,bad performance scale,1
+condition,basal cell carcinoma,2
+condition,basal cell skin carcinoma,1
+condition,beta blocker contraindication,1
+condition,bipolar I disorder,1
+condition,bipolar II disorder,1
+condition,bipolar disorder,3
+condition,bipolar disorder criteria,1
+condition,bleeding diathesis,2
+condition,bleeding disorder,3
+condition,bleeding history,1
+condition,blindness,2
+condition,brain injury,1
+condition,brain trauma,1
+condition,breastfeeding,4
+condition,bronchiectasis,3
+condition,bronchopneumonia,1
+condition,bulk symptoms,1
+condition,cancer,3
+condition,carcinoma in situ of the cervix,1
+condition,carcinoma of the cervix,1
+condition,cardiac arrhythmia,2
+condition,cardiac condition,1
+condition,cardiac failure,1
+condition,cardiogenic shock,1
+condition,cardiomyopathy,1
+condition,cardiopulmonary disease,1
+condition,cardiovascular disease,1
+condition,cardiovascular_disease,1
+condition,centor criteria,1
+condition,cerebral palsy,1
+condition,cerebral vascular disease,1
+condition,cerebrovascular accident,1
+condition,cerebrovascular disease,3
+condition,cervical cancer in situ,1
+condition,childbearing potential,1
+condition,chronic drug use,1
+condition,chronic gastrointestinal disease,1
+condition,chronic heart failure,1
+condition,chronic pulmonary disease,1
+condition,chronic renal failure,2
+condition,chronic stable angina,1
+condition,chronic subdural hematoma,3
+condition,cirrhosis,1
+condition,claudication,3
+condition,claustrophobia,1
+condition,closed head injury with loss of consciousness,1
+condition,coagulopathy,2
+condition,cognitive complaints,1
+condition,cognitive impairment,1
+condition,community-acquired pneumonia,1
+condition,condition affecting tremor or heart rate,1
+condition,conditions requiring treatment with immune suppressants,1
+condition,congenital defect,1
+condition,congenital heart disease,1
+condition,congenital hypothyroidism due to thyroglobulin defective synthesis,1
+condition,congestive heart failure,7
+condition,contraindication for MRA,1
+condition,contraindication for laparoscopy,1
+condition,contraindication to EGD,1
+condition,contraindication to LMWH or VKA,1
+condition,contraindication with salmeterol or fluticasone,1
+condition,coronary disease,1
+condition,cough,2
+condition,cystic fibrosis,2
+condition,deafness,1
+condition,debilitation,1
+condition,deep vein thrombosis,2
+condition,deep vein thrombosis of the leg,1
+condition,degenerative neurological condition,1
+condition,dehydration,1
+condition,dementia,1
+condition,demyelinating disease,1
+condition,diabetes,2
+condition,diabetes mellitus,1
+condition,diabetes mellitus requiring insulin,1
+condition,disease requiring antibiotics,1
+condition,drug abuse,2
+condition,drug dependence,1
+condition,drug-induced systemic lupus erythematosus,1
+condition,drug_sensitivity,1
+condition,drug_sensitivity_amphotericin,1
+condition,duodenal polyps,1
+condition,dysphagia,2
+condition,eating disorder,2
+condition,eclampsia,1
+condition,ectopic pregnancy,2
+condition,endometriosis,1
+condition,enlarged cervical lymph nodes,1
+condition,enrolled in clinical trial,1
+condition,epilepsy,2
+condition,esophageal squamous cell carcinoma,1
+condition,esophageal varices,1
+condition,exercise training risk classification,1
+condition,failed MRI metal screening,1
+condition,femur fracture,1
+condition,fever,2
+condition,fibroid,1
+condition,focal demineralization,1
+condition,food impaction,1
+condition,foot fracture,1
+condition,fracture,1
+condition,gastrointestinal absorption pathology,1
+condition,gastrointestinal bleeding,3
+condition,gastrointestinal condition,1
+condition,genitourinary bleeding,1
+condition,glucose-6-phosphate dehydrogenase deficiency,1
+condition,hearing loss,1
+condition,heart disease,2
+condition,heart failure,6
+condition,heart failure symptoms,1
+condition,hematemesis,1
+condition,hematochezia,1
+condition,hemolytic anemia,1
+condition,heparin-induced thrombocytopenia,1
+condition,hepatic disease,3
+condition,hepatic dysfunction,1
+condition,hepatic encephalopathy,1
+condition,hepatic impairment,2
+condition,hepatitis,1
+condition,hepatitis B,1
+condition,hepatitis C,1
+condition,high energy trauma,1
+condition,high risk pregnancy due to uterine factors,1
+condition,history of repeated aspiration or velopharyngeal incompetence,1
+condition,history of uterine atony or postpartum hemorrhage,1
+condition,hiv infection,1
+condition,home oxygen therapy,1
+condition,hydrosalpinx,2
+condition,hydroxychloroquine allergy,1
+condition,hydroxychloroquine eye toxicity,1
+condition,hyperparathyroidism,1
+condition,hypersensitivity to ABR-215757 or excipients,1
+condition,hypersensitivity to erlotinib,1
+condition,hypersensitivity to etanercept,1
+condition,hypersensitivity to nicorandil,1
+condition,hypersensitivity to sulindac,1
+condition,hypersplenism,1
+condition,hypertension,2
+condition,hyperthyroidism,1
+condition,hypertrophic cardiomyopathy,1
+condition,hypocellular bone marrow,1
+condition,hypokalemia,1
+condition,hypothalamic amenorrhea,1
+condition,idiopathic osteoporosis,1
+condition,illness precluding the use of LAM,1
+condition,immobilization,1
+condition,immune deficiency,2
+condition,immunocompromised status,1
+condition,immunodeficiency,1
+condition,immunodeficiency disorder,1
+condition,immunosuppressive disease,1
+condition,impaired coagulation,1
+condition,impaired cortical function,1
+condition,impaired lung function,1
+condition,inappropriate situation,1
+condition,indication for long-term anticoagulant therapy,1
+condition,ineligible for Tc 99m SPECT,1
+condition,infection,2
+condition,infectious disease,1
+condition,infertility,1
+condition,injury,1
+condition,interstitial lung diseases,1
+condition,intravenous drug abuse,1
+condition,ischemic CNS disease,1
+condition,ischemic heart disease,2
+condition,jaundice,1
+condition,kidney problem,1
+condition,lack of contraception,1
+condition,lack of contraceptive measures,1
+condition,lactation,5
+condition,left atrial hypertension,1
+condition,life expectancy < 3 months,1
+condition,limb amputation,1
+condition,limb_ischemia,1
+condition,lipid metabolism abnormality,1
+condition,liver cirrhosis,1
+condition,liver disease,1
+condition,liver dysfunction,1
+condition,liver problem,1
+condition,lobar pneumonia,1
+condition,long QT syndrome,1
+condition,lung abscess,1
+condition,lung cancer,3
+condition,lung malignancy,1
+condition,lyme disease,1
+condition,macrosomia,1
+condition,major depressive disorder,3
+condition,major depressive disorder with psychotic features,1
+condition,major limb amputation,1
+condition,major psychiatric diagnosis,1
+condition,major psychiatric disorder,1
+condition,malignancy,4
+condition,malignant tumor,1
+condition,mediastinal mass,1
+condition,medical illness,1
+condition,melena,1
+condition,meningeosis carcinomatosa,1
+condition,menopause,1
+condition,menorrhagia,1
+condition,mental illness,1
+condition,metallic objects,1
+condition,metastatic disease,1
+condition,microthrombosis,1
+condition,migraine,1
+condition,mixed episode,3
+condition,moderate peripheral vascular disease,1
+condition,moribund,1
+condition,moribund state,1
+condition,motor vehicle accident,1
+condition,multiple gestation,1
+condition,multiple sclerosis,2
+condition,mycobacterial disease,1
+condition,myocardial infarction,6
+condition,myocarditis,2
+condition,neonatal systemic lupus erythematosus,1
+condition,neurogenic osteoarthropathy,1
+condition,neurologic conditions,1
+condition,neurologic disease,1
+condition,neurologic dysfunction,1
+condition,neurological deficit,1
+condition,neurological disease,2
+condition,neurological disorder,2
+condition,neurological illness,1
+condition,neuropathic disease,1
+condition,neuropsychiatric illness,1
+condition,non-ST-segment elevation myocardial infarction,1
+condition,non-acute chest pain,1
+condition,non-compliance,1
+condition,non_healing_ulcer,1
+condition,noncardiac comorbid conditions,1
+condition,nonmalignant medical illness,1
+condition,not using accepted contraception,1
+condition,not using contraception,1
+condition,obstructive cardiomyopathy,1
+condition,obstructive sleep apnea syndrome,1
+condition,optic neuritis,2
+condition,other disease,1
+condition,pacemaker,1
+condition,participation in clinical trial,2
+condition,participation in other clinical trials,1
+condition,pathological fracture,1
+condition,pelvic infection,1
+condition,pericarditis,2
+condition,peripheral vascular disease,2
+condition,peritonitis,1
+condition,physical illness,1
+condition,placenta previa,1
+condition,pleural effusion,2
+condition,pleuritis,1
+condition,pneumonia,2
+condition,polyhydramnios,1
+condition,postmenopausal,1
+condition,preeclampsia,1
+condition,pregnancy,21
+condition,premature birth,1
+condition,primary diagnosis,1
+condition,primary focal dystonia,1
+condition,primary immunodeficiency,1
+condition,protocol_interference_condition,1
+condition,proximal humerus fracture,1
+condition,pseudomonas aeruginosa colonization,1
+condition,psychiatric disease,1
+condition,psychopathology,1
+condition,psychosis,1
+condition,psychotic disorder,1
+condition,psychotic features,1
+condition,pulmonary disease,1
+condition,pulmonary embolism,2
+condition,pulmonary fibrosis,1
+condition,pulmonary mass,1
+condition,pulmonary thromboembolism,1
+condition,rash,1
+condition,recurrent hematoma,1
+condition,renal disease,3
+condition,renal dysfunction,1
+condition,renal failure,1
+condition,renal impairment,1
+condition,renal insufficiency,3
+condition,renal lupus,1
+condition,respiratory condition,1
+condition,respiratory distress,1
+condition,resting_ischemic_pain,1
+condition,revascularization_ineligibility,1
+condition,risk factor for acute renal failure,1
+condition,schizoaffective disorder,1
+condition,schizophrenia,1
+condition,second malignancy,1
+condition,segmental pneumonia,1
+condition,seizure,3
+condition,seizure disorder,3
+condition,severe cardiac condition,1
+condition,severe cardio-cerebral vascular disease,1
+condition,severe infection,2
+condition,severe kidney disease,1
+condition,severe liver disease,1
+condition,severe or unstable medical illness,1
+condition,severe pulmonary disease,1
+condition,severe renal disease,1
+condition,severe respiratory condition,1
+condition,severe respiratory disease,1
+condition,shock,2
+condition,shortness of breath,1
+condition,significant unstable medical disease not related to SLE,1
+condition,skin lesion,1
+condition,smoking,1
+condition,smoking habit,1
+condition,smoking history,1
+condition,sore throat,1
+condition,spontaneous spinal CSF fistula,1
+condition,squamous cell carcinoma,1
+condition,squamous cell carcinoma of the skin,1
+condition,stage III or IV endometriosis,1
+condition,stroke,1
+condition,structural brain damage from trauma,1
+condition,submucous fibroids,1
+condition,substance abuse,3
+condition,substance use disorder,1
+condition,surgically incapable of childbearing,1
+condition,survival_impairing_illness,1
+condition,suspected allergy to penicillin,1
+condition,suspected appendicitis,1
+condition,syndromal remission,1
+condition,systemic autoimmune disease,1
+condition,systemic lupus erythematosus,6
+condition,systemic vasculitis,1
+condition,tense ascites,1
+condition,term pregnancy,1
+condition,tonsillar exudate,1
+condition,transient ischemic attack,2
+condition,transverse myelitis,2
+condition,traumatic dyspnea,1
+condition,traumatic injury,1
+condition,tuberculosis,2
+condition,tumor,1
+condition,type 1 diabetes mellitus,1
+condition,type 2 diabetes mellitus,1
+condition,uncontrolled angina,1
+condition,uncontrolled hypertension,1
+condition,uncontrolled illness,1
+condition,unstable angina,6
+condition,unstable angina pectoris,1
+condition,unstable cardiac status,1
+condition,unstable cardiovascular disease,1
+condition,unstable or life threatening comorbidity,1
+condition,upper limb deep vein thrombosis,2
+condition,upper limb peripheral arterial disease,1
+condition,upper limb peripheral vascular disease,1
+condition,uterine fibroids,4
+condition,uterine pathology,1
+condition,valvular disease,1
+condition,valvular heart disease,1
+condition,vascular disease,1
+condition,venous thrombosis,1
+condition,ventricular arrhythmia,1
+condition,vp-shunt over-drainage,1
+encounter,Down syndrome,1
+encounter,GI bleeding,1
+encounter,active bleeding,1
+encounter,acute abdominal disease,1
+encounter,acute appendicitis,1
+encounter,acute gastroenteritis,1
+encounter,anaplastic thyroid cancer,1
+encounter,aphasia,1
+encounter,atrial fibrillation,1
+encounter,cyanotic congenital heart disease,1
+encounter,deep vein thrombosis,1
+encounter,dental follow-up,1
+encounter,diabetes mellitus,1
+encounter,differentiated thyroid cancer,1
+encounter,early transfer,1
+encounter,egfr,1
+encounter,emergency department triage category,1
+encounter,facial palsy,1
+encounter,hemorrhagic disorder,1
+encounter,hemorrhagic stroke,1
+encounter,hepatic impairment,1
+encounter,hospitalization,3
+encounter,hypersensitivity to ASA or ticagrelor,1
+encounter,informed consent,1
+encounter,intracranial bleeding,1
+encounter,intraocular bleeding,1
+encounter,ischemic stroke,1
+encounter,long-term care facility,1
+encounter,major depressive disorder,2
+encounter,major surgery,1
+encounter,major trauma,1
+encounter,"medical condition or medication affecting growth, nutrition, blood glucose, insulin secretion, or thyroid function",1
+encounter,mitral stenosis,1
+encounter,motor deficit,1
+encounter,neurological deficit,1
+encounter,neuropathic pain,1
+encounter,oral informed consent,1
+encounter,pain,1
+encounter,prosthetic heart valve,1
+encounter,pulmonary embolism,1
+encounter,pulmonary hypertension,1
+encounter,retroperitoneal bleeding,1
+encounter,shortness of breath,1
+encounter,spinal bleeding,1
+encounter,subclinical hypothyroidism,1
+encounter,symptom onset,1
+encounter,traumatic spinal cord injury,1
+encounter,unstable congenital heart disease,1
+medication,ARB,1
+medication,ASA,1
+medication,Advair,1
+medication,Aspirin,1
+medication,B-cell depletion therapy,1
+medication,Biolimus,2
+medication,CYP3A4 inducer,1
+medication,CYP3A4 inhibitor,1
+medication,Clopidogrel,1
+medication,Contrast media,1
+medication,Everolimus,1
+medication,GnRH,1
+medication,Heparin,1
+medication,ICS,1
+medication,Intravenous immunoglobulin,1
+medication,L-thyroxine,1
+medication,LABA,1
+medication,LAM,2
+medication,LT4,1
+medication,Nonsteroidal anti-inflammatory drugs,1
+medication,QT prolonging medication,1
+medication,Symbicort,1
+medication,TNF alpha antagonist,1
+medication,Vitamin A,1
+medication,Zotarolimus,1
+medication,acetazolamide,1
+medication,adrenal steroids,1
+medication,amoxicillin,1
+medication,anabolic steroids,1
+medication,angiogenic_therapy,1
+medication,antacid,1
+medication,antacids,1
+medication,anti-CD20 antibody,1
+medication,anti-CTLA-4 antibody,1
+medication,anti-coagulation medication,1
+medication,anti-coagulation therapy,1
+medication,anti-diuretic,1
+medication,antibiotic,2
+medication,antibiotic treatment,1
+medication,antibiotic with antiborrelial activity,1
+medication,antibiotics,4
+medication,anticoagulants,1
+medication,anticonvulsants,1
+medication,antimalarial,1
+medication,antineoplastic_drugs,1
+medication,antipsychotic,2
+medication,antithrombotic treatment,1
+medication,antithyroid drug,2
+medication,autoimmune thyroiditis medication,1
+medication,azathioprine,1
+medication,beta receptor blocker,2
+medication,beta-agonists,1
+medication,beta-lactam antibiotic,2
+medication,birth control,2
+medication,bisphosphonate,1
+medication,calcitonin,1
+medication,calcium channel blocker,1
+medication,calcium supplement,1
+medication,calcium supplementation,1
+medication,clopidogrel,1
+medication,cold medication,1
+medication,contraindication with salmeterol or fluticasone,1
+medication,corticosteroid,2
+medication,corticosteroids,1
+medication,cough drops,1
+medication,cyclophosphamide,1
+medication,decanoate,1
+medication,depo-provera,1
+medication,depot medication,1
+medication,dexamethasone,1
+medication,dexamethasone sodium phosphate,1
+medication,dichlorphenamide,1
+medication,diuretic,1
+medication,dobutamine,1
+medication,dopamine,1
+medication,dosing change,1
+medication,doxycycline,1
+medication,endocrine therapy,1
+medication,estrogen,1
+medication,everolimus,1
+medication,experimental drug,1
+medication,fibrinolytic therapy,1
+medication,fluoride,1
+medication,furosemide,1
+medication,glibenclamide,2
+medication,glycoprotein IIb/IIIa inhibitors,1
+medication,gonadotropin treatment in normal ovulators,1
+medication,haloperidol,1
+medication,heparin,2
+medication,hormone therapy,1
+medication,hydroxychloroquine,1
+medication,immunoglobulin,1
+medication,immunosuppressant,2
+medication,immunosuppressive agent,1
+medication,immunosuppressive drug,2
+medication,insulin,1
+medication,interferon-alpha,1
+medication,intravenous cephalosporin or azithromycin,1
+medication,intravenous corticosteroid,1
+medication,intravenous cyclophosphamide,1
+medication,investigational drug,1
+medication,investigational product,1
+medication,iodine rich substance,1
+medication,isoniazid,1
+medication,levothyroxine or anti-thyroid hormone,1
+medication,lithium carbonate,1
+medication,live vaccine,1
+medication,major tranquilizers,1
+medication,measles mumps rubella vaccine,1
+medication,medication affecting tremor or heart rate,1
+medication,menthol-containing products,1
+medication,metformin,1
+medication,methotrexate,1
+medication,mycophenolate mofetil,1
+medication,nephrolithiasis associated medication,1
+medication,nicorandil,2
+medication,non-steroidal treatment for excessive vaginal bleeding,1
+medication,nonsteroidal anti-inflammatory drug,1
+medication,oral corticosteroid,1
+medication,oral corticosteroids,1
+medication,oral lithium,1
+medication,other drug use,1
+medication,pioglitazone,1
+medication,positive inotropic therapy,1
+medication,prednisolone equivalent,1
+medication,prednisone,1
+medication,psychoactive medication,1
+medication,rabies immune globulin,1
+medication,rabies vaccine,2
+medication,rituximab,1
+medication,rosiglitazone,1
+medication,short-acting analgesics/antipyretics,1
+medication,steroid,2
+medication,steroids,1
+medication,strong cytochrome P-450 3A inducer,1
+medication,strong cytochrome P-450 3A inhibitor,1
+medication,sulfasalazine,1
+medication,sulfonylurea,1
+medication,supplemental oxygen,1
+medication,systemic anticoagulation,1
+medication,systemic glucocorticoids,1
+medication,systemic steroids,1
+medication,tamoxifen,1
+medication,tetracycline,1
+medication,theophylline,1
+medication,therapeutic anticoagulants,1
+medication,throat lozenges,1
+medication,throat spray,1
+medication,thyroxine,1
+medication,treatment for obstructive sleep apnea,1
+medication,triamterene,1
+medication,tricyclic antidepressant,1
+medication,varicella vaccine,1
+medication,vasopressors,1
+medication,vitamin D supplementation,1
+medication,warfarin,1
+medication,zonisamide,1
+medication,zotarolimus,1
+observation,ACQ,1
+observation,ADHD symptoms,1
+observation,ALT,1
+observation,ASA score,1
+observation,AST,1
+observation,BMI,1
+observation,CGI-BP,1
+observation,CK-MB,1
+observation,CT scan,1
+observation,E2,1
+observation,ECOG performance status,1
+observation,FEV1,3
+observation,FEV1/FVC,1
+observation,FEV1/FVC ratio,2
+observation,FEV1_percent_predicted,1
+observation,FSH,1
+observation,FSH > 15 mIU/mL,1
+observation,FVC,1
+observation,Glasgow Coma Scale,2
+observation,HAM-D17 score,1
+observation,Hashimoto's thyroiditis,1
+observation,LA test,1
+observation,MADRS,1
+observation,MRC Dyspnea Scale,1
+observation,Mini-cog score,1
+observation,Myocardial infarction,1
+observation,PaCO2,1
+observation,PaO2/FIO2 ratio,1
+observation,QTc interval,1
+observation,SLE ACR criteria,1
+observation,Serum Creatinine,1
+observation,Serum creatinine,1
+observation,Sore Throat Pain Intensity Scale (STPIS),1
+observation,T4,1
+observation,TSH,3
+observation,TSH level,1
+observation,Tonsillo-Pharyngitis Score (TPS),1
+observation,WBC count,1
+observation,YMRS,1
+observation,aCL IgG/M,1
+observation,aPL positivity,1
+observation,abdominal scarring,1
+observation,ability to sign consent,1
+observation,ability to stand independently,1
+observation,ability to take oral medication,1
+observation,able to attend all study visits,1
+observation,able to communicate sensations,1
+observation,abnormal electrocardiogram,1
+observation,absolute neutrophil count,2
+observation,acanthosis nigricans,1
+observation,active SLE symptoms,1
+observation,active infection,1
+observation,acute appendicitis symptoms,1
+observation,adenocarcinoma,1
+observation,adenosquamous carcinoma,1
+observation,adequate sperm test,1
+observation,agreement to maintain treatment status,1
+observation,alanine amino transferase,1
+observation,alcohol consumption,1
+observation,alkaline phosphatase,1
+observation,allergy,1
+observation,allergy to COX-2 inhibitors,1
+observation,allergy to NSAIDs,1
+observation,allergy to acetaminophen,1
+observation,allergy to contrast agent,1
+observation,allergy to study medication,1
+observation,allergy to sulfonamides,1
+observation,anemia,1
+observation,apache ii score,1
+observation,arthritis,1
+observation,aspartate amino transferase,1
+observation,ast,1
+observation,auscultatory findings,1
+observation,aβ2GPI IgG/M,1
+observation,bilateral pulmonary infiltrates,1
+observation,bilirubin,2
+observation,biologic_therapy,1
+observation,blood pressure,2
+observation,bmi,5
+observation,bmi > 38,1
+observation,body weight,3
+observation,breastfeeding,1
+observation,caffeine beverage intake,1
+observation,cap_symptoms,1
+observation,carcinoma_in_situ_cervix,1
+observation,cd4 count,1
+observation,celiac node involvement,1
+observation,cerebral edema,1
+observation,cervical esophageal carcinoma,1
+observation,cervical spinal cord injury,1
+observation,chemotherapy,2
+observation,clinically normal PAP smear,1
+observation,clinically significant abnormal laboratory value,1
+observation,clinically significant finding,1
+observation,complicated appendicitis,1
+observation,congestive heart failure,1
+observation,contraception,1
+observation,cough,2
+observation,creatinine,1
+observation,creatinine clearance,2
+observation,creatinine_clearance,1
+observation,critical illness,1
+observation,decreased level of consciousness,1
+observation,desire pregnancy within 12 months,1
+observation,device accessible fibroids,1
+observation,diffuse axonal injury,1
+observation,disease characteristics,1
+observation,driving distance,1
+observation,dyslipidemia,1
+observation,egfr,2
+observation,elevated INR,1
+observation,elevated blood pressure,1
+observation,end-stage thyroiditis,1
+observation,energy drink consumption,1
+observation,epidural hematoma,1
+observation,epworth sleepiness score,1
+observation,erythema migrans,1
+observation,esophageal_cancer,1
+observation,esophagus carcinoma,1
+observation,estradiol > 100 pg/mL,1
+observation,extracutaneous manifestations of Lyme borreliosis,1
+observation,failed to conceive for more than 1 year,1
+observation,family history of type II diabetes,1
+observation,fever,1
+observation,fixed dilated pupils,1
+observation,fluid retention,1
+observation,focal stroke-like symptoms,1
+observation,gastroesophageal junction carcinoma,1
+observation,handedness,1
+observation,hearing,2
+observation,heart rate,1
+observation,hematocrit,2
+observation,hematopoietic status,1
+observation,hemoglobin,5
+observation,hemoglobin a1c,1
+observation,hepatic status,1
+observation,hepatitis B surface antigen,1
+observation,hepatitis C antibody,1
+observation,hiv positive,1
+observation,human immunodeficiency virus antibody,1
+observation,hyperandrogenism,1
+observation,hypomania/mania symptoms,1
+observation,inability to answer questions,1
+observation,inability to complete neuropsychological tests,1
+observation,inability to understand study,1
+observation,inactivity,1
+observation,inclusion failure,1
+observation,increased creatinine,1
+observation,increased work of breathing,1
+observation,infectious mononucleosis,1
+observation,infiltrates,1
+observation,inflammatory skin rash,1
+observation,inr,1
+observation,insulin resistance,1
+observation,intracranial hemorrhage,1
+observation,investigator opinion of non-compliance,1
+observation,irregular sleep pattern,1
+observation,laboratory values,1
+observation,largest fibroid diameter,1
+observation,leucopenia,1
+observation,leukocyte count,1
+observation,life expectancy,5
+observation,liver insufficiency,1
+observation,low albumin,1
+observation,major depressive symptoms,1
+observation,malignancy,1
+observation,malignancy near DFU,1
+observation,malignant celiac node,1
+observation,malignant wound,1
+observation,malnutrition,1
+observation,mobility,1
+observation,motor score,1
+observation,mouth-breathing,1
+observation,multiple erythema migrans,1
+observation,neurodevelopmental disability,1
+observation,neutropenia,1
+observation,non-acute onset,1
+observation,non-compliance,1
+observation,non-functional pelvis after surgery,1
+observation,nonfunctional fallopian tube due to ectopic pregnancy,1
+observation,nonmelanoma_skin_cancer,1
+observation,normal hearing,1
+observation,normal ovarian function,1
+observation,normal vision,1
+observation,not_specified,1
+observation,nursing_status,1
+observation,oliguria,1
+observation,oral ulcers,1
+observation,other_clinical_status,1
+observation,outpatient readiness,1
+observation,pain score,1
+observation,pain severity,1
+observation,participation in other study,1
+observation,patent fallopian tube,1
+observation,patient characteristics,1
+observation,pelvic adhesions or endometriosis not restored/ablated,1
+observation,pelvic mass,1
+observation,penetrating brain injury,1
+observation,performance status,1
+observation,physician judgment of detriment,1
+observation,plan egg donation,1
+observation,plan sperm donation,1
+observation,plasma lactate,1
+observation,platelet count,4
+observation,poor compliance,1
+observation,positive alcohol breath test,1
+observation,post-traumatic seizure,1
+observation,pregnancy test,1
+observation,pregnancy_status,1
+observation,presence of MDMA,1
+observation,presence of amphetamines,1
+observation,presence of barbiturates,1
+observation,presence of benzodiazepines,1
+observation,presence of cannabinoids,1
+observation,presence of cocaine,1
+observation,presence of opiates,1
+observation,primary CAP diagnosis,1
+observation,prior_therapy,1
+observation,prolactin,1
+observation,psychotic symptoms,1
+observation,pulmonary edema,1
+observation,radiographic abnormality,1
+observation,red blood cell count,1
+observation,refractory shock,1
+observation,refusal to cooperate,1
+observation,renal insufficiency,1
+observation,renal_function,1
+observation,resectable disease,1
+observation,respiratory rate,1
+observation,reversible ischemic changes,1
+observation,semen analysis,1
+observation,serum bilirubin,1
+observation,serum creatinine,2
+observation,serum transaminases,1
+observation,severe male factor semen analysis,1
+observation,severe traumatic brain injury,1
+observation,significant_illness,1
+observation,smoking status,1
+observation,sperm concentration,1
+observation,sperm morphology,1
+observation,squamous cell carcinoma,1
+observation,tachypnoea,1
+observation,thrombocytopenia,2
+observation,thyroid peroxidase antibody,1
+observation,tobacco use,1
+observation,total bilirubin,2
+observation,transaminase,1
+observation,troponin,1
+observation,tumor visible on non-contrast MRI,1
+observation,type 2 diabetes mellitus,1
+observation,uncontrolled hypertension,2
+observation,undergoing fertility treatment,1
+observation,undifferentiated carcinoma,1
+observation,unstable coronary symptoms,1
+observation,urinary casts,1
+observation,urinary protein,1
+observation,urine output,1
+observation,use of donor semen,1
+observation,uterine cavity status,1
+observation,uterine fibroid,1
+observation,uterine size,1
+observation,uterus size,1
+observation,vision,1
+observation,visual acuity,1
+observation,wagner grade 1 or 2 foot ulcer,1
+observation,wbc_count,2
+observation,weight,1
+observation,weight gain,1
+observation,weight loss percentage,1
+observation,willing to give consent,1
+observation,willingness to comply,1
+procedure,211.3,1
+procedure,45380,1
+procedure,45385,1
+procedure,AIS score,1
+procedure,ASA score,1
+procedure,CABG,1
+procedure,CT brain showing gross structural abnormalities,1
+procedure,CT calcium scoring,1
+procedure,CT pulmonary angiogram,1
+procedure,CT scan of abdomen,1
+procedure,EEG with frank paroxysmal activity,1
+procedure,Exercise Myocardial Perfusion SPECT Scan,1
+procedure,GIFT,1
+procedure,Hemodialysis,1
+procedure,Hip Replacement,1
+procedure,ICD therapy,1
+procedure,IUI,1
+procedure,IVF,1
+procedure,IVGTT,1
+procedure,LVRS,1
+procedure,LVRS evaluation,1
+procedure,MRI,2
+procedure,OGTT,1
+procedure,PARADYM CRT-D implantation,1
+procedure,PTCA,1
+procedure,ST segment depression,1
+procedure,ST segment elevation,1
+procedure,TET,1
+procedure,UPPP,1
+procedure,ZIFT,1
+procedure,action plan adherence,1
+procedure,acupuncture,1
+procedure,adenoidectomy,1
+procedure,ankle,1
+procedure,ankle_brachial_index,1
+procedure,arteriovenous fistula surgery,1
+procedure,aspergillus culture,1
+procedure,aspergillus galactomannan,1
+procedure,axillary surgery,1
+procedure,blood product administration,1
+procedure,blunt abdominal trauma,1
+procedure,bronchoalveolar lavage,1
+procedure,bronchoscopy,1
+procedure,cardiac pacing,1
+procedure,cardiac resynchronization therapy,1
+procedure,cardiac revascularization,1
+procedure,cardiac surgery,1
+procedure,carotid endarterectomy,1
+procedure,central vena catheterization,2
+procedure,central venous puncture or catheterization,1
+procedure,chemotherapy,2
+procedure,chest drainage,1
+procedure,chest radiograph,1
+procedure,chest tube,1
+procedure,clinical trial participation,1
+procedure,colonoscopy,1
+procedure,contraception,1
+procedure,coronary angioplasty,1
+procedure,coronary artery bypass grafting,1
+procedure,coronary artery diameter,1
+procedure,coronary artery stenosis,1
+procedure,cranial CT,1
+procedure,craniotomy,1
+procedure,damage control laparotomy,1
+procedure,dialysis,4
+procedure,do-not-resuscitate order,1
+procedure,elective cesarean delivery under spinal anesthesia,1
+procedure,elective surgery,2
+procedure,emergency laparotomy,1
+procedure,endovascular abdominal aneurysm repair,1
+procedure,heart transplant,1
+procedure,hemodialysis,2
+procedure,home care services,1
+procedure,implantation site,1
+procedure,implanted metallic device,1
+procedure,informed consent,2
+procedure,injury severity score,1
+procedure,intensive care unit admission,1
+procedure,intrauterine contraceptive device,1
+procedure,knee,1
+procedure,laparoscopy,1
+procedure,life expectancy,1
+procedure,lower limb revascularisation,1
+procedure,lung transplant evaluation,1
+procedure,major surgery,2
+procedure,mechanical valve,1
+procedure,mechanical ventilation,3
+procedure,nodular goiter excision,1
+procedure,obstructive spirometry,1
+procedure,open abdominal aortic aneurysm repair,1
+procedure,open abdominal laparotomy with primary closure,2
+procedure,osteochondral lesion,2
+procedure,oxygen therapy,1
+procedure,participation in drug study,1
+procedure,penetrating abdominal trauma,1
+procedure,percutaneous coronary intervention,2
+procedure,pharyngeal surgery,1
+procedure,positive pressure ventilation,1
+procedure,pre-OR abdominal incision,1
+procedure,prolonged hospital admission,1
+procedure,radiation therapy,1
+procedure,radioiodine treatment,2
+procedure,radiotherapy,2
+procedure,randomization,1
+procedure,refusal of consent,1
+procedure,renal replacement therapy,1
+procedure,secondary admittance,1
+procedure,stent implantation,1
+procedure,surgeon estimate of survival,1
+procedure,surgery,3
+procedure,surgical resection of esophageal tumor,1
+procedure,temporary abdominal wall closure,1
+procedure,thoracic radiotherapy,1
+procedure,thrombolysis time window,1
+procedure,tonsillectomy,1
+procedure,total thyroidectomy,1
+procedure,trauma team admission,1
+procedure,trial enrollment,1
+procedure,tricuspid valve replacement,1
+procedure,tubal ligation at the junction of the uterus and fallopian tubes,1
+procedure,tubal reconstructive surgery,1
+procedure,ultrasound of abdomen,1
+procedure,urine drug screen,1
+procedure,vaccination,2
+procedure,written informed consent,1
