@@ -397,7 +397,9 @@ def _pi_approach(s: Site) -> None:
     page = sheet(s, user, rs, pid)
     assert 'data-testid="irb-warning"' in page.text  # no IRB approval date, no consent-form version
     r = mark(s, user, rs, pid, "approach")
-    assert r.status_code == 200 and "Approved. The coordinator has a task to contact this patient." in text(r.text)
+    assert r.status_code == 200 and "Marked Approach. The coordinator has a task to contact this patient." in text(
+        r.text
+    )
     no = s.h.store.screening_no(rs, pid)
     assert no and no.startswith(f"{rs}-")
     log = text(s.get(user, f"/studies/{rs}/screening-log").text)

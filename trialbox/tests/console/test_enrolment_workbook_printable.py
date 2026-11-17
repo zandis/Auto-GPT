@@ -60,6 +60,21 @@ def test_the_machine_sheets_stay_as_they_were() -> None:
     assert next(wb["states"].iter_rows(values_only=True)) == ("state", "now", "ever")
 
 
+def test_a_code_with_no_words_is_kept_as_written_not_lost_with_the_sheet() -> None:
+    """D-1220: an unknown state or reason code reads as written (``lookup``); under strict mode it no longer raises
+    inside the report and drops the whole sheet for people."""
+    from console.lifecycle_pages import _printable_report
+
+    wb = load_workbook(io.BytesIO(_machine()))
+    wb["states"].append(["not_a_state", 1, 1])
+    wb["withdrawals"].append(["GZQO-002", "2026-11-12", "99"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    out = load_workbook(io.BytesIO(_printable_report(buf.getvalue(), "ja")))
+    cells = {str(c) for row in out.worksheets[1].iter_rows(values_only=True) for c in row if c is not None}
+    assert {"not_a_state", "99"} <= cells
+
+
 def test_a_file_that_is_not_the_report_is_given_back_as_it_was() -> None:
     assert printable_report(b"not a workbook", "ja") == b"not a workbook"
 

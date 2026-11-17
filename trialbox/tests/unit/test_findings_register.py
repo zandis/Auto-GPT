@@ -182,15 +182,17 @@ def test_the_walk_seed_holds_every_finding_of_the_walks_page() -> None:
 
 def test_the_install_seed_holds_the_install_runs_12_findings() -> None:
     data = json.loads(INSTALL_JSON.read_text(encoding="utf-8"))
-    source = {f["id"]: f["severity"] for f in data["findings"]}
+    # a finding the follower no longer sees moves to "closed" (D-1139); the register keeps its row, so both lists count
+    source = {f["id"]: f["severity"] for f in [*data["findings"], *data.get("closed", [])]}
     assert len(source) == 12
     scale = {"stops the install": "High", "slows the reader": "Medium"}
     rows = {r.id.removeprefix("H22-"): r for r in by_card("H22")}
     assert set(rows) == set(source)
     for fid, sev in source.items():
         assert rows[fid].cells["Severity"] == f"{scale[sev]} (mapped)", fid
+    still_open = {f["id"] for f in data["findings"]}
     shown = {f["id"] for f in data["findings"] if f["seen_on"]}
-    assert {k for k, r in rows.items() if r.cells["Basis"] == "shown"} == shown
+    assert {k for k, r in rows.items() if r.cells["Basis"] == "shown" and k in still_open} == shown
 
 
 def test_the_p2b_seed_holds_its_8_proposed_cards_then_6_more_findings() -> None:

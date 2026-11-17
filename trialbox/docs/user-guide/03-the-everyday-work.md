@@ -16,7 +16,7 @@ says so in your language; the administrator can change the limits (`rate_limits_
 **Work the list (PI).** Each morning the list has two parts: *Ready to decide* (every criterion answered) and *Needs
 information* (fewest unknowns first). Open a patient: each criterion shows its answer and, for notes, the quote from
 the chart. Mark: Approach, Need info (with a note for the CRC), Ask treating doctor, Not suitable now (a reason is
-required), or Not now, re-check (with a date). Undo follows every mark; "Withdraw my mark" takes it back. On a phone
+required), or Not now, re-check (with a date). Undo follows every mark; "Take back my mark" takes it back. On a phone
 the patient sheet has Back, Next and a mark bar that stays in view.
 
 **Contact (CRC).** After the PI approves, the CRC records the outcome in two taps. The CRC and the study's PI may
