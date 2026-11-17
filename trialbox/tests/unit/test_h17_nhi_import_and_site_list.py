@@ -17,6 +17,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from criteria_compiler.terminology import installed
@@ -39,11 +40,11 @@ def _no_shipped_tables(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(installed, "SHIPPED_DIR", tmp_path / "shipped-none")
 
 
-def _measure(where: Path) -> dict:
+def _measure(where: Path) -> dict[str, Any]:
     return terminology_coverage.measure_concepts(CONCEPTS.read_text(encoding="utf-8"), Terminology(installed=where))
 
 
-def _resolved(result: dict) -> dict[str, int]:
+def _resolved(result: dict[str, Any]) -> dict[str, int]:
     return {d: v[1] for d, v in result["by_domain"].items()}
 
 
@@ -217,7 +218,7 @@ def test_the_check_finds_a_changed_or_unattributed_shipped_table(tmp_path: Path)
 
 def test_the_check_needs_a_cleared_register_row_for_a_shipped_table() -> None:
     where = ROOT / "services/criteria_compiler/terminology/shipped"
-    lines = {installed.NHI_DRUGS: {}}
+    lines: dict[str, Any] = {installed.NHI_DRUGS: {}}
     rows = licence_register.load()
     assert terminology_install.register_problems(where, lines, rows) == [
         f"services/criteria_compiler/terminology/shipped/{f}: no cleared OGDL row in docs/licences/register.csv names "

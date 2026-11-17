@@ -35,7 +35,9 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Mapping
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 ROOT = Path(__file__).resolve().parents[1]
 for _p in ("libs", "services"):
@@ -43,6 +45,9 @@ for _p in ("libs", "services"):
         sys.path.insert(0, str(ROOT / _p))
 
 from criteria_compiler.terminology import installed  # noqa: E402
+
+if TYPE_CHECKING:
+    from tools import licence_register
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -157,7 +162,7 @@ def _h17(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
 
 
 def _shipped(args: argparse.Namespace) -> int:
-    from tools import licence_register
+    from tools import licence_register  # the register is read only by nhi-check
 
     where = args.out if args.cmd == "nhi-build" else args.dir
     where = where or installed.SHIPPED_DIR
@@ -186,7 +191,7 @@ def _shipped(args: argparse.Namespace) -> int:
     return 1 if problems else 0
 
 
-def register_problems(where: Path, lines: dict[str, object], rows: list) -> list[str]:  # type: ignore[type-arg]
+def register_problems(where: Path, lines: Mapping[str, Any], rows: list[licence_register.Row]) -> list[str]:
     """Each shipped table and the shipped manifest need a ``cleared`` licence-register row naming them (D-1028
     point 3, D-1127)."""
     from tools import licence_register
