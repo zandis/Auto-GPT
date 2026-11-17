@@ -675,13 +675,21 @@ def register(app: FastAPI, h: Helpers) -> None:
                            "allowed": str(exc.detail.get("allowed") or "")})  # fmt: skip
         return JSONResponse({"error": "request.refused", "detail": detail}, status_code=status)
 
+    def masked(sess: Session, rid: str, sub: dict[str, Any]) -> dict[str, Any]:
+        """J-4 (D-1224): the twin hides what the page hides: no erased token (D-875), and no pseudonym for a reader
+        the patient sheet does not admit (``h.reads``)."""
+        pid = str(sub.get("pid") or "")
+        return {**sub, "pid": pid if pid and short_of({"pid": pid}) and h.reads(sess.user, rid) else ""}
+
     @app.get("/api/v1/studies/{rs}/subjects", response_model=None)
     def api_subjects(request: Request, rs: str) -> Any:
         sess = api_session(request)
         rid = study_or_404(sess, rs)
         refresh(rid, h.actor(sess), sess)
         try:
-            return {**get(f"/studies/{rid}/subjects?today={today().isoformat()}"), "may_step": can_enter(sess.user)}
+            out = dict(get(f"/studies/{rid}/subjects?today={today().isoformat()}"))
+            out["subjects"] = [masked(sess, rid, s) for s in out.get("subjects") or []]
+            return {**out, "may_step": can_enter(sess.user)}
         except (Problem, Unavailable) as exc:
             return refused(sess, exc)
 
@@ -690,7 +698,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess = api_session(request)
         rid = study_or_404(sess, rs)
         try:
-            return get(f"/studies/{rid}/subjects/{quote(record_key(record[:64]))}?today={today().isoformat()}")
+            one = dict(get(f"/studies/{rid}/subjects/{quote(record_key(record[:64]))}?today={today().isoformat()}"))
+            if isinstance(one.get("subject"), dict):
+                one["subject"] = masked(sess, rid, one["subject"])
+            return one
         except (Problem, Unavailable) as exc:
             return refused(sess, exc)
 

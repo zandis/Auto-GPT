@@ -196,11 +196,14 @@ def test_the_orchestrators_stamps_take_the_boxs_own_clock() -> None:
     """``tools.demo --day data``: the console's clock stands on the box's day; the orchestrator's stamps (the steps
     TrialBox derives itself: candidate, approached) take that clock too, not the wall clock."""
     from orchestrator.app import _now
+    from orchestrator.core import Orchestrator
 
     from tools.list_demo import Clock
 
     o = SimpleNamespace(cfg=SimpleNamespace(settings=SimpleNamespace(site=SimpleNamespace(tz="Asia/Tokyo"))),
-                        clock=Clock(date(2026, 11, 2), "Asia/Tokyo"))  # fmt: skip
+                        clock=Clock(date(2026, 11, 2), "Asia/Tokyo"), _clock_last=None)  # fmt: skip
+    o._clock_lock = __import__("threading").Lock()
+    o.box_now = lambda tz: Orchestrator.box_now(o, tz)  # type: ignore[arg-type]
     got = _now(o)  # type: ignore[arg-type]
     assert got.isoformat() == "2026-11-02T07:00:00+09:00"
     o.clock = None
@@ -303,7 +306,9 @@ def test_the_screening_number_link_is_a_44px_target_on_a_phone_only() -> None:
     css = (Path(__file__).resolve().parents[2] / "services/console/static/console.css").read_text(encoding="utf-8")
     rule = re.search(r"@media \(max-width: 760px\) \{ \.pill\[data-testid=screening-no\] > a \{([^}]*)\} \}", css)
     assert rule and "min-height: 44px" in rule.group(1) and "min-width: 44px" in rule.group(1)
-    assert css.count("[data-testid=screening-no]") == 1  # nothing outside the phone rule: the desktop look is kept
+    # the rule lives inside the phone media block only: the desktop look is kept
+    outside = re.sub(r"@media \(max-width: 760px\) \{[^{}]*(\{[^{}]*\}[^{}]*)*\}", "", css)
+    assert "[data-testid=screening-no] > a" not in outside
 
 
 def _box_on_a_clock(tmp_path: Any, clock: Any) -> Any:
@@ -347,3 +352,60 @@ def test_a_box_without_a_clock_keeps_the_wall_clock(tmp_path: Any) -> None:
     job = box.orch.create(JobCreate(type="RETENTION", requested_by="scheduler"))
     stored = box.orch.db.get(job.job_id)
     assert stored is not None and abs((stored.received_at - datetime.now(UTC)).total_seconds()) < 120
+
+
+# ---------------------------------------------------------------------------------------------- second review round
+def test_a_frozen_clock_never_gives_two_jobs_the_same_instant(tmp_path: Any) -> None:
+    """A MICROBATCH made after a SCREEN on the same frozen day is newer than it (``scenarios.microbatch`` skips one
+    whose ``received_at <= the last SCREEN's``); the stamps stay on the box's day."""
+    from orchestrator import app as orch_app
+    from tb_contracts import JobCreate
+
+    from tools.list_demo import Clock
+
+    clock = Clock(date(2026, 11, 2), "Asia/Tokyo")
+    box = _box_on_a_clock(tmp_path, clock)
+    screen = box.orch.create(JobCreate(type="RETENTION", requested_by="scheduler"))
+    batch = box.orch.create(JobCreate(type="RETENTION", requested_by="scheduler"))
+    a, b = box.orch.db.get(screen.job_id), box.orch.db.get(batch.job_id)
+    assert a is not None and b is not None
+    assert b.received_at > a.received_at and not (b.received_at <= a.received_at)  # microbatch's comparison
+    assert a.received_at.date() == b.received_at.date() == date(2026, 11, 2)
+    s1, s2 = orch_app._now(box.orch), box.orch._now()
+    assert s1 < s2 and s2.date() == date(2026, 11, 2)
+    box.orch.clock = lambda: datetime(2026, 11, 2, 7, 0)  # naive: refused
+    with pytest.raises(ValueError, match="aware"):
+        box.orch._now()
+
+
+def _api(c: Any, name: str, pw: str) -> dict[str, str]:
+    tok = c.post("/api/v1/session", json={"username": name, "password": pw}).json()["token"]
+    return {"Authorization": f"Bearer {tok}"}
+
+
+def test_the_api_twin_hides_what_the_page_hides(lb: dict[str, Any]) -> None:
+    from datacore.lifecycle import Lifecycle
+
+    from tests.console.test_role_pages import PW as RPW
+    from tests.console.test_team_pages import _log_pi_and_sub
+
+    no, other = lb["nos"]
+    pid = f"{1:032x}"
+    crc, _ = login(lb["app"], "crc", LPW)
+    crc.get(f"/studies/GZQO/subjects/{no}")
+    crc.get(f"/studies/GZQO/subjects/{other}")
+    pi = _user(lb, "drsato", "investigator")
+    _user(lb, "drkato", "investigator")
+    _log_pi_and_sub(lb, pi, ("enter_data",))
+    kato, _ = login(lb["app"], "drkato", RPW)
+    hk = _api(kato, "drkato", RPW)
+    one = kato.get(f"/api/v1/studies/GZQO/subjects/{no}", headers=hk).json()
+    rows = kato.get("/api/v1/studies/GZQO/subjects", headers=hk).json()["subjects"]
+    assert one["subject"]["pid"] == "" and rows and all(r["pid"] == "" for r in rows)
+    hc = _api(crc, "crc", LPW)
+    assert crc.get(f"/api/v1/studies/GZQO/subjects/{no}", headers=hc).json()["subject"]["pid"] == pid
+    token = "erased:2026-11-01:" + "ab" * 8
+    Lifecycle(lb["dc"]).db.execute("UPDATE subject SET pid = ? WHERE study = ? AND record = ?", (token, "GZQO", no))
+    one = crc.get(f"/api/v1/studies/GZQO/subjects/{no}", headers=hc).json()
+    rows = crc.get("/api/v1/studies/GZQO/subjects", headers=hc).json()["subjects"]
+    assert one["subject"]["pid"] == "" and "erased:" not in str(rows) and "erased:" not in str(one)

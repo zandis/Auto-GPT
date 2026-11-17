@@ -272,6 +272,8 @@ class Orchestrator:
         #: day), so the steps TrialBox records itself carry the box's day as the steps a person records do; None: the
         #: wall clock in the site's zone (``orchestrator.app._now``)
         self.clock: Callable[[], datetime] | None = None
+        self._clock_lock = threading.Lock()
+        self._clock_last: datetime | None = None
         self.n_workers = workers
         self._stop = threading.Event()
         self._wake = threading.Condition()
@@ -295,8 +297,23 @@ class Orchestrator:
         return self._today is not None
 
     def _now(self) -> datetime:
-        real = now(self.cfg.env.tz)
-        return self.clock().astimezone(real.tzinfo) if self.clock is not None else real  # J-4: the box's own clock
+        if self.clock is not None:  # J-4 (D-1224): the box's own clock
+            return self.box_now(now(self.cfg.env.tz).tzinfo)
+        return now(self.cfg.env.tz)
+
+    def box_now(self, tz: Any) -> datetime:
+        """J-4 (D-1224): the box clock's time in ``tz``, strictly after every stamp it gave before: a frozen clock
+        (``tools.demo --day data``) never gives two jobs the same instant (a MICROBATCH after a SCREEN, a chained
+        ingest). The clock must return an aware datetime."""
+        assert self.clock is not None
+        t = self.clock()
+        if t.tzinfo is None:
+            raise ValueError("the box clock must return an aware datetime")
+        with self._clock_lock:
+            if self._clock_last is not None and t <= self._clock_last:
+                t = self._clock_last + timedelta(microseconds=1)
+            self._clock_last = t
+        return t.astimezone(tz)
 
     # ------------------------------------------------------------------ job lifecycle
     def create(self, req: JobCreate, notify: bool = True, role: str = "", by: str = "") -> Job:
