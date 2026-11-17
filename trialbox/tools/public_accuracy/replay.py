@@ -487,7 +487,7 @@ def replay(
     *,
     rerun: bool = True,
     pathology_run: Path | None = None,
-    tz: str = "Asia/Taipei",
+    tz: str = "UTC",
     index_day: date | None = None,
     build_day: date | None = None,
     require_pin: bool = True,
@@ -738,7 +738,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--scratch", type=Path, help="an empty folder outside the repository (default: a temporary one)")
     ap.add_argument("--pathology-run", type=Path, help="a run kept as counts (sets-<commit>.json), e.g. PoC-1's")
     ap.add_argument("--no-rerun", action="store_true", help="level (a) only")
-    ap.add_argument("--tz", default=os.environ.get("TB_TZ") or "Asia/Taipei", help="the site's zone for the compile")
+    ap.add_argument("--tz", default=os.environ.get("TB_TZ") or "UTC", help="the site's zone for the compile (TB_TZ)")
     ap.add_argument("--index-day", type=date.fromisoformat, help="SCREEN's day (default: the run's build day)")
     ap.add_argument("--build-day", type=date.fromisoformat, help="the key's build day (default: MANIFEST.json's)")
     ap.add_argument("--require-targets", action="store_true", help="exit 3 when a target is not met")
