@@ -461,3 +461,38 @@ def test_redcap_consent_for_an_erased_number_is_flagged_without_the_token(tmp_pa
         flags = [x for x in r.json()["conflicts"] if x.get("code") == "RC-ERASED-CONSENT"]
         assert flags == [{"link_value": "GZQO-0901", "record_id": flags[0]["record_id"], "code": "RC-ERASED-CONSENT"}]
         assert token not in json.dumps(r.json()["conflicts"])
+
+
+def test_the_read_box_shows_the_flag_and_an_ordinary_conflict() -> None:
+    """The re-review of D-878: the console's read box (the screening log and the study set-up include it) renders a
+    stored read that holds the flag, in the console's own words, and an ordinary conflict as before."""
+    from pathlib import Path
+
+    from console import i18n_step3  # noqa: F401 - the catalogue loads its words
+    from console.i18n import translate
+    from jinja2 import Environment, FileSystemLoader
+
+    root = Path(__file__).resolve().parents[2] / "services" / "console" / "templates"
+    env = Environment(loader=FileSystemLoader(str(root)), autoescape=True)
+    env.filters["local"] = lambda v: v
+    last = {
+        "ok": True,
+        "at": "2026-11-17T09:00:00+09:00",
+        "result": {
+            "rows": 2,
+            "changes": [],
+            "duplicates": [],
+            "unmatched": [],
+            "conflicts": [
+                {"link_value": "GZQO-0901", "record_id": "7", "code": "RC-ERASED-CONSENT"},
+                {"link_value": "GZQO-0902", "record_id": "8", "trialbox": "declined", "redcap": "consented"},
+            ],
+        },
+    }
+    for lang in ("en", "ja", "zh-TW"):
+        html = env.get_template("_rc_read.html").render(
+            t=lambda k, _l=lang, **kw: translate(_l, k, **kw), rs="GZQO", link=None, last=last, user=None, csrf=""
+        )
+        assert 'data-testid="rc-erased-consent"' in html and "RC-ERASED-CONSENT" in html and "GZQO-0901" in html
+        assert 'data-testid="rc-conflict"' in html and "GZQO-0902" in html
+        assert "erased:" not in html
