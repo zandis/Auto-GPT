@@ -62,6 +62,8 @@ NOT_PAGES = ("/static/", "/api/", "/healthz", "/metrics", "/manifest.webmanifest
 #: paths a link from another site reaches as before: the sign-in and its steps, the one-time sign-in link (its code
 #: rides after "#"), the identity provider's return
 ARRIVALS = ("/login", "/logout", "/enrol", "/auth/")
+#: the groups of the menu's "More" with the flag on (templates/_nav.html, keys nav.grp.<group>)
+MENU_GROUPS = ("site", "study", "registers", "box", "lists", "settings")
 
 for _lang, _cat in (("en", i18n_phone.EN), ("ja", i18n_phone.JA), ("zh-TW", i18n_phone.ZH)):
     CATALOGUES[_lang].update(_cat)

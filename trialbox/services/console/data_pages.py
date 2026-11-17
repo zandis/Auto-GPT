@@ -36,7 +36,7 @@ from console.api_first import before_body, page_twin
 from console.auth import Session
 from console.backend import Problem, Unavailable, service_and_status
 from console.home import Helpers
-from console.i18n import translate
+from console.i18n import lookup, translate
 from console.studies import known_study
 from console.study_setup import can_change_setup, parse_map
 
@@ -394,8 +394,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                 src = next((str(c.get("source") or "") for c in read_conflicts(rid) if c.get("id") == cid), "")
             except (Problem, Unavailable):
                 src = ""
-            name = translate(lang, f"dc.source.{src}") if src and f"dc.source.{src}" != translate(
-                lang, f"dc.source.{src}") else (src or "REDCap")  # fmt: skip
+            name = (lookup(lang, f"dc.source.{src}") if src else None) or src or "REDCap"
             key = "confirm.keep" if keep == "trialbox" else "confirm.take"
             return h.confirm(request, sess, translate(lang, key, source=name), request.url.path, {"keep": keep},
                              f"/studies/{rid}/conflicts")  # fmt: skip

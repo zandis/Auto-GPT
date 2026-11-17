@@ -640,3 +640,6 @@ details.moregrp > summary { margin: 0; }
 }
 /* E-M3 (D-1222, no flag): a field put back after a session ended stays marked until it is saved or thrown away */
 form.entry .restored { outline: 2px solid var(--warn); outline-offset: 1px; background: var(--warn-bg); }
+/* J-4 (D-1224): the screening number in the outcome box is a link to the participant; on a phone it is a 44 px
+   target (D-133 step 4b), the desktop look unchanged */
+@media (max-width: 760px) { .pill[data-testid=screening-no] > a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; } }

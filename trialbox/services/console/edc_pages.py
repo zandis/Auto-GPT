@@ -51,7 +51,7 @@ from console.api_first import before_body, page_twin
 from console.auth import Session, source_of
 from console.backend import Problem, Unavailable, service_and_status
 from console.home import Helpers
-from console.i18n import translate
+from console.i18n import lookup, translate
 from console.oidc import OidcError
 from console.studies import known_study
 
@@ -86,8 +86,7 @@ _CHOICE_WORDS = frozenset({"male", "female", "yes", "no", "true", "false", "unkn
 
 def _key(lang: str, key: str) -> str:
     """The catalogue's text for ``key``, or "" when no catalogue has it."""
-    text = translate(lang, key)
-    return "" if text == key else text
+    return lookup(lang, key) or ""
 
 
 def item_words(d: Mapping[str, Any], f: Mapping[str, Any] | None, m: Mapping[str, Any] | None,

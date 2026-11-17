@@ -42,7 +42,7 @@ from console.backend import Problem, Unavailable, service_and_status
 from console.data_pages import err_of
 from console.entry_pages import can_enter, record_key
 from console.home import Helpers
-from console.i18n import translate
+from console.i18n import lookup, translate
 from console.screening_log import criteria_choices
 from console.studies import known_study
 from console.timefmt import local_today, site_zone
@@ -88,9 +88,10 @@ def why_text(lang: str, exc: Problem) -> str:
     def st(s: str) -> str:
         return translate(lang, f"life.state.{s}") if s in STATES else s
 
+    if lookup(lang, key) is None:  # a reason with no sentence of its own
+        return translate(lang, "life.why.other")
     allowed = ", ".join(st(x.strip()) for x in str(d.get("allowed") or "").split(",") if x.strip()) or "–"
-    text = translate(lang, key, state=st(str(d.get("state") or "")), to=st(str(d.get("to") or "")), allowed=allowed)
-    return translate(lang, "life.why.other") if text == key else text
+    return translate(lang, key, state=st(str(d.get("state") or "")), to=st(str(d.get("to") or "")), allowed=allowed)
 
 
 log = logging.getLogger("console.lifecycle")
@@ -128,8 +129,8 @@ def _printable_report(data: bytes, lang: str) -> bytes:
         return translate(lang, key)
 
     def word(prefix: str, code: Any) -> Any:
-        text = t(prefix + str(code))
-        return text if text != prefix + str(code) else code
+        text = lookup(lang, prefix + str(code))
+        return text if text is not None else code
 
     def as_day(v: Any) -> Any:
         try:
@@ -426,7 +427,12 @@ def register(app: FastAPI, h: Helpers) -> None:
                 raise h.problem(404, "notfound") from exc
             err = err_of(exc)
         sf_version, sf_criteria = criteria_choices(bk, rid)  # D-387: the pick list for "not eligible"
+        # J-4 (D-1224, walk F-18): the way back to the patient sheet, only for a reader the sheet admits by its own
+        # rights (``h.reads``, the sheet's check) and never for an erased pseudonym (D-875: a token is never shown)
+        pid = str((one.get("subject") or {}).get("pid") or "")
+        sheet_pid = pid if pid and short_of({"pid": pid}) and h.reads(sess.user, rid) else ""
         return h.page(request, "life_subject.html", sess, status=status, rs=rid, record=rec, one=one, err=err,
+                      sheet_pid=sheet_pid,
                       editable=can_enter(sess.user), refused=refused, done=done, sf_reasons=SF_REASONS,
                       wd_reasons=WD_REASONS, today=today().isoformat(), sf_criteria=sf_criteria,
                       sf_version=sf_version)  # fmt: skip
@@ -670,13 +676,21 @@ def register(app: FastAPI, h: Helpers) -> None:
                            "allowed": str(exc.detail.get("allowed") or "")})  # fmt: skip
         return JSONResponse({"error": "request.refused", "detail": detail}, status_code=status)
 
+    def masked(sess: Session, rid: str, sub: dict[str, Any]) -> dict[str, Any]:
+        """J-4 (D-1224): the twin hides what the page hides: no erased token (D-875), and no pseudonym for a reader
+        the patient sheet does not admit (``h.reads``)."""
+        pid = str(sub.get("pid") or "")
+        return {**sub, "pid": pid if pid and short_of({"pid": pid}) and h.reads(sess.user, rid) else ""}
+
     @app.get("/api/v1/studies/{rs}/subjects", response_model=None)
     def api_subjects(request: Request, rs: str) -> Any:
         sess = api_session(request)
         rid = study_or_404(sess, rs)
         refresh(rid, h.actor(sess), sess)
         try:
-            return {**get(f"/studies/{rid}/subjects?today={today().isoformat()}"), "may_step": can_enter(sess.user)}
+            out = dict(get(f"/studies/{rid}/subjects?today={today().isoformat()}"))
+            out["subjects"] = [masked(sess, rid, s) for s in out.get("subjects") or []]
+            return {**out, "may_step": can_enter(sess.user)}
         except (Problem, Unavailable) as exc:
             return refused(sess, exc)
 
@@ -685,7 +699,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess = api_session(request)
         rid = study_or_404(sess, rs)
         try:
-            return get(f"/studies/{rid}/subjects/{quote(record_key(record[:64]))}?today={today().isoformat()}")
+            one = dict(get(f"/studies/{rid}/subjects/{quote(record_key(record[:64]))}?today={today().isoformat()}"))
+            if isinstance(one.get("subject"), dict):
+                one["subject"] = masked(sess, rid, one["subject"])
+            return one
         except (Problem, Unavailable) as exc:
             return refused(sess, exc)
 

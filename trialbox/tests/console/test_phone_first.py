@@ -483,3 +483,9 @@ def test_a_kept_form_comes_back_once_with_a_notice_and_is_dropped_otherwise() ->
     assert got["the_address_carries_the_form"]["sent"].startswith(
         "/studies/GZQO/entry?record=S-1&event=ae1&form=tb_adverse_event"
     )
+
+
+def test_the_menu_groups_are_the_declared_family() -> None:
+    """tools.text_keys checks the family nav.grp. member by member from phone.MENU_GROUPS: the menu uses those."""
+    nav = (TEMPLATES / "_nav.html").read_text(encoding="utf-8")
+    assert set(re.findall(r"grp\(pf, '(\w+)'", nav)) == set(phone.MENU_GROUPS)
