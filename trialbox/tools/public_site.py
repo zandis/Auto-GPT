@@ -140,6 +140,46 @@ def _nfkc(s: str) -> str:
     return unicodedata.normalize("NFKC", s)
 
 
+AGE_UNITS = ("year", "month", "week", "day")
+
+
+def stated_age_en(text: str) -> tuple[int, str] | None:
+    """The age an English note states, with its unit: ``(61, "year")``, ``(6, "month")`` for "6-month-old" (B1, P1b
+    review: an infant's age in months was read as 0 years and its birth date put at the visit's year)."""
+    m = re.search(r"\b(\d{1,3})[- ](year|yr)s?[- ]old\b", text, re.I)
+    m = m or re.search(r"\b(\d{1,3}) ?(yo|y/o)\b", text, re.I)
+    if m:
+        return int(m.group(1)), "year"
+    m = re.search(r"\b(\d{1,2})[- ](month|week|day)s?[- ]old\b", text, re.I)
+    return (int(m.group(1)), m.group(2).lower()) if m else None
+
+
+def stated_age_ja(text: str) -> tuple[int, str] | None:
+    """The age a Japanese note states with its unit (``(6, "month")`` for 6か月); a decade (60歳代) is not stated."""
+    t = _nfkc(text)
+    if re.search(r"(\d{1,3})\s*歳代", t):
+        return None
+    m = re.search(r"(\d{1,3})\s*歳", t)
+    if m:
+        return int(m.group(1)), "year"
+    m = re.search(r"(\d{1,2})\s*(か月|ヶ月|カ月|ヵ月)", t)
+    return (int(m.group(1)), "month") if m else None
+
+
+def birth_on(visit: date, n: int, unit: str = "year") -> date:
+    """The birth date of a patient ``n`` ``unit`` old on ``visit`` (B1, P1b review): the visit minus the stated age, so
+    the patient is that age at the visit and still that age on any later day before the next birthday (a run date
+    less than a year after the visit). Feb 29 becomes Feb 28 in a year without it; a month past the month's end takes
+    its last day."""
+    import calendar
+
+    if unit == "year" or unit == "month":
+        months = visit.year * 12 + visit.month - 1 - (n * 12 if unit == "year" else n)
+        y, m = divmod(months, 12)
+        return date(y, m + 1, min(visit.day, calendar.monthrange(y, m + 1)[1]))
+    return visit - timedelta(days=n * (7 if unit == "week" else 1))
+
+
 def derive_en(text: str) -> tuple[int | None, bool, str | None]:
     m = re.search(r"\b(\d{1,3})[- ](year|yr)s?[- ]old\b", text, re.I) or re.search(
         r"\b(\d{1,3}) ?(yo|y/o)\b", text, re.I
@@ -261,8 +301,11 @@ def build(out: Path, ref: date = REF, sites: tuple[str, ...] = ("en", "ja")) -> 
         mrn = f"{70000000 + i}"
         visit = datetime.combine(ref - timedelta(days=7 + (i * 37) % 300), datetime.min.time()).replace(hour=10)
         birth = ""
-        if d.age is not None:
-            birth = date(visit.year - d.age - (1 if visit.month < 7 else 0), 7, 1).isoformat()
+        said = (stated_age_en(d.text) if d.lang == "en" else stated_age_ja(d.text)) if not d.age_approx else None
+        if said is not None:  # B1: the visit minus the stated age, in its own unit (an infant's months kept)
+            birth = birth_on(visit.date(), *said).isoformat()
+        elif d.age is not None:
+            birth = birth_on(visit.date(), d.age).isoformat()
         pats.append([mrn, "", "", birth, d.sex or "", "", ""])
         enc = f"E{70000000 + i}"
         encs.append([enc, mrn, visit.strftime("%Y-%m-%d %H:%M:%S"), "MED", PI_STAFF if i % 2 else "P23456", "OPD"])

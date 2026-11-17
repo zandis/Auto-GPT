@@ -230,38 +230,74 @@ def cmd_pidmap(a: dict[str, Any]) -> None:
     out({str(m): pid_for_mrn(key, str(m)) for m in a["mrns"]})
 
 
+def instant(ts: str, zone: str = "UTC") -> Any:
+    """An ISO time as an aware datetime: one with an offset as it says, one without in ``zone`` (the VM writes the
+    set's start in UTC with no offset; the audit writes the site's zone with its offset). None when unreadable."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    try:
+        t = datetime.fromisoformat(str(ts).strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo is not None else t.replace(tzinfo=ZoneInfo(zone))
+
+
+def audit_counts(lines: Any, since: str = "", site_zone: str = "UTC") -> dict[str, Any]:
+    """The gateway's audit lines since a time: calls per served prompt version, refusals per code and per job.
+
+    D5 (P1b review): the times are compared as instants, never as strings: the audit's ``ts`` carries the site's
+    offset (``+08:00`` in Asia/Taipei) and the set's start is UTC, so a string compare let in the whole day's calls
+    (sigir's audit counted 6,717 judge calls where the set made 171). A record whose time cannot be read is left out
+    of a ``since`` count, and counted as such."""
+    start = instant(since, "UTC") if since else None
+    by_prompt: dict[str, int] = {}
+    refusals: dict[str, int] = {}
+    per_job: dict[str, dict[str, int]] = {}
+    unreadable = 0
+    for line in lines:
+        if '"llm.gateway.' not in line:
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if start is not None:
+            t = instant(str(rec.get("ts") or ""), site_zone)
+            if t is None:
+                unreadable += 1
+                continue
+            if t < start:
+                continue
+        ev = str(rec.get("event") or rec.get("type") or "")
+        det = rec.get("detail") or {}
+        job = str(rec.get("job_id") or det.get("job_id") or "")
+        code = str(det.get("reason") or det.get("code") or rec.get("refusal") or "")
+        if ev.endswith(".call"):
+            pv = str(rec.get("prompt_version") or det.get("prompt_version") or "?")
+            by_prompt[pv] = by_prompt.get(pv, 0) + 1
+        if code:
+            refusals[code] = refusals.get(code, 0) + 1
+            if job:
+                per_job.setdefault(job, {})[code] = per_job.setdefault(job, {}).get(code, 0) + 1
+    return {"since": since, "calls_by_prompt": by_prompt, "refusals": refusals, "refusals_by_job": per_job,
+            "time_unreadable": unreadable}  # fmt: skip
+
+
 def cmd_audit(a: dict[str, Any]) -> None:
     from pathlib import Path
 
     from tb_common.config import get_config
 
-    since = str(a.get("since") or "")
-    d = Path(get_config().env.audit_path)
-    by_prompt: dict[str, int] = {}
-    refusals: dict[str, int] = {}
-    per_job: dict[str, dict[str, int]] = {}
-    for p in sorted(d.glob("**/*.jsonl")):
-        for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
-            if '"llm.gateway.' not in line:
-                continue
-            try:
-                rec = json.loads(line)
-            except ValueError:
-                continue
-            if since and str(rec.get("ts") or "") < since:
-                continue
-            ev = str(rec.get("event") or rec.get("type") or "")
-            det = rec.get("detail") or {}
-            job = str(rec.get("job_id") or det.get("job_id") or "")
-            code = str(det.get("reason") or det.get("code") or rec.get("refusal") or "")
-            if ev.endswith(".call"):
-                pv = str(rec.get("prompt_version") or det.get("prompt_version") or "?")
-                by_prompt[pv] = by_prompt.get(pv, 0) + 1
-            if code:
-                refusals[code] = refusals.get(code, 0) + 1
-                if job:
-                    per_job.setdefault(job, {})[code] = per_job.setdefault(job, {}).get(code, 0) + 1
-    out({"since": since, "calls_by_prompt": by_prompt, "refusals": refusals, "refusals_by_job": per_job})
+    cfg = get_config()
+    d = Path(cfg.env.audit_path)
+    zone = str(getattr(cfg.env, "tz", "") or os.environ.get("TB_TZ") or "UTC")
+
+    def lines() -> Any:
+        for p in sorted(d.glob("**/*.jsonl")):
+            yield from p.read_text(encoding="utf-8", errors="replace").splitlines()
+
+    out(audit_counts(lines(), str(a.get("since") or ""), zone))
 
 
 def cmd_traces(a: dict[str, Any]) -> None:

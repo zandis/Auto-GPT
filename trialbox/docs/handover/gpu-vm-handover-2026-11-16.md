@@ -145,11 +145,14 @@ A launch that includes `acc` runs `validation-check` itself and refuses (exit 9)
 
 ### 4.2 The source bundle (by hand, before a build or dev launch)
 
-The driver does not upload the commit. The VM clones it from `gs://trialbox-demo-runs/r2/<release id>/src.bundle`.
-The exact command used was not written in the log. A command that makes such a bundle:
+The VM clones the commit from `gs://trialbox-demo-runs/r2/<release id>/src.bundle`. Since D8 (after launch P1b, whose
+bundle came from a shallow checkout and could not be used) the bundle is made and proved here, and the driver
+uploads it only once a clone of it checks the commit out:
 
-    git bundle create /tmp/src.bundle <branch or commit>     # must contain the commit
-    gcloud storage cp /tmp/src.bundle gs://trialbox-demo-runs/r2/dev-<commit12>/src.bundle
+    python -m tools.box_run src-bundle --commit <sha> --out /tmp/src.bundle   # refused in a shallow checkout
+    deploy/gcp/box-run.sh --steps dev --commit <sha> --release-id dev-<commit12> --src-bundle /tmp/src.bundle ...
+
+A bundle made by hand is proved the same way: `python -m tools.box_run src-bundle --commit <sha> --check FILE`.
 
 ### 4.3 Build: the commit's images, and (build route only) a signed bundle
 

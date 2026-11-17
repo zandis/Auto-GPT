@@ -78,6 +78,18 @@ def ruleset_ids(trials: dict[str, Trial], prefix: str = "") -> dict[str, str]:
     return out
 
 
+def birth_date(visit: date, age: int | None, stated: tuple[int, str] | None = None) -> str:
+    """B1 (P1b review): the visit minus the stated age, in the unit the text gives (an infant's months, weeks or days
+    kept), so the patient is that age at the visit and at the run date (less than a year later). It was 1 July of the
+    year, which made 24 of 46 sigir patients a year too old at the run date, and every infant 0 years at the visit's
+    year. Empty when no age is known."""
+    from tools.public_site import birth_on
+
+    if stated is not None:
+        return birth_on(visit, int(stated[0]), str(stated[1])).isoformat()
+    return birth_on(visit, age).isoformat() if age is not None else ""
+
+
 def protocol_text(t: Trial) -> str:
     inc_h, exc_h = HEADINGS.get(t.lang, HEADINGS["en"])
     inc = [*t.inclusion, *t.placed]
@@ -141,7 +153,7 @@ def build(
     for i, (key, p) in enumerate(sorted(bundle.patients.items()), 1):
         mrn = mrns[key]
         visit = datetime.combine(ref - timedelta(days=7 + (i * 37) % 300), datetime.min.time()).replace(hour=10)
-        birth = date(visit.year - p.age - (1 if visit.month < 7 else 0), 7, 1).isoformat() if p.age is not None else ""
+        birth = birth_date(visit.date(), p.age, p.age_stated)
         pats.append([mrn, "", "", birth, p.sex or "", "", ""])
         enc = f"E{mrn}"
         encs.append([enc, mrn, visit.strftime("%Y-%m-%d %H:%M:%S"), "MED", CHART_DOCTOR[0], "OPD"])
@@ -193,6 +205,16 @@ def build(
     _jsonl(
         gold / "criteria.jsonl",
         [{**asdict(c), "mrn": mrns.get(c.patient), "ruleset": rs.get(c.trial)} for c in bundle.criteria],
+    )
+    # S3, S4: the lines the benchmark wrote that no gold row judges (the placed age and sex lines, JMED's "20歳以上"):
+    # the scorer counts the patients each of them excludes on its own row
+    (gold / "written.json").write_text(
+        json.dumps(
+            {rs[k]: [*t.placed, *t.written] for k, t in bundle.trials.items() if t.placed or t.written},
+            ensure_ascii=False,
+            indent=1,
+        ),
+        encoding="utf-8",
     )
     (gold / "compile_gold.json").write_text(
         json.dumps({rs[k]: v for k, v in bundle.compile_gold.items() if k in rs}, ensure_ascii=False, indent=1),
