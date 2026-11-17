@@ -80,7 +80,7 @@ jobs:
           - variant: test
           - variant: validation
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 60  # D-995: measured about 20 min a variant
     defaults:
       run:
         working-directory: trialbox

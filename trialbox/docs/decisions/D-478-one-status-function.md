@@ -74,3 +74,13 @@ answer dropped a patient with no review row.
 - NAV lists a patient whose exclusion one model called present, with a row to confirm, instead of dropping them.
 - The expected-failure tables of T-705 and T-706 lose their H2, M1 and H1 lines; what remains is H4 (T-710) and
   FEAS's unknown rule (T-216).
+
+## A criterion a person decides is never silent on the patient (H-10, 2026-11-17)
+
+Lane H's tested walk of a new study under the stub (H-10, #964) listed 4,064 of 4,842 patients as "may meet the
+criteria" with nothing open, though three criteria were for a person. The tier is as designed (only criteria a person
+decides are open, so the patient stays `high`), but `status_of` put an open item on the row only for a criterion's
+`action`, and the compiler makes person criteria with a `human_question` and no action (a line the model gave no
+criterion for, D-912; one whose SQL or CQL would not compile). Now each open person criterion leaves an item: its
+`action`, else its `human_question`, else "a person decides <id>". Tiers and exclusions are unchanged; only what the
+row lists. The committed rulesets' person criteria all carry an action, so their lists do not change.
