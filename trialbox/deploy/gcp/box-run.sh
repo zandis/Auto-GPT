@@ -34,9 +34,14 @@
 #   --acc-streams "set:n ...": protocols of a set in flight at once. Default (D7): 3 for a compile-bound set (sigir,
 #       trec, trec2023, tfda, jrct, chia: tools/box_run.py compile_bound), 1 for the others; the report says how many
 #       were in flight. --resume keeps --acc-rs-tag from the launch unless it is given again (D3).
-#   --src-bundle FILE (build, dev): the release commit's git bundle, proved here (cloned into a temporary folder and
-#       the commit checked out: tools/box_run.py src-bundle --check) and only then uploaded to r2/<ID>/src.bundle
-#       (D8). Make one with: tools/box_run.py src-bundle --commit <sha> --out FILE (never from a shallow checkout).
+#   --src-bundle FILE (build, dev; needed by both): the release commit's git bundle, proved here (cloned into a
+#       temporary folder as the VM clones it and the commit checked out: tools/box_run.py src-bundle --check) and only
+#       then uploaded to r2/<ID>/src.bundle (D8); the bucket's own is never taken unproved. Make one with:
+#       tools/box_run.py src-bundle --commit <full sha> --out FILE (refused in a shallow checkout).
+#   --preflight (free; no gcloud call, no TB_BUCKET needed): the launch as given, up to the point where it would
+#       upload or start anything, with every free check (tools/box_run.py preflight: the filter, the tag, the streams,
+#       the budgets, the full commit, the source bundle proved, the metadata; and the validation-check). Exit 0: the
+#       paid launch with the same options passes the same checks. A launch runs the same checks first.
 #
 # What a launch does (each gcloud call through `gc`, deploy/gcp/gcloud-auth.sh: timeouts, re-activation):
 #   1. refuses unless the VM is TERMINATED, TB_BUCKET is set and the plan's inputs are there;
@@ -54,13 +59,14 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PY="${PY:-$ROOT/.venv/bin/python}"
-DRY=0; WAIT=1; FOLLOW=0; ESTIMATE=0; STOP=0; COLLECT=""; RESUME=""; STEPS=""; MODE=production; ONLY=""; ANYWAY=0
+DRY=0; WAIT=1; FOLLOW=0; ESTIMATE=0; STOP=0; PREFLIGHT=0; COLLECT=""; RESUME=""; STEPS=""; MODE=production; ONLY=""; ANYWAY=0
 SRC_BUNDLE=""
 declare -A V=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --estimate) ESTIMATE=1; shift ;;
     --dry-run) DRY=1; shift ;;
+    --preflight) PREFLIGHT=1; DRY=1; WAIT=0; shift ;;
     --no-wait) WAIT=0; shift ;;
     --follow) FOLLOW=1; shift ;;
     --stop) STOP=1; shift; case "${1:-}" in ""|-*) ;; *) COLLECT="$1"; shift ;; esac ;;
@@ -100,7 +106,7 @@ while [ $# -gt 0 ]; do
     --src-bundle) SRC_BUNDLE="$2"; shift 2 ;;
     --bundle) V[tb-bundle]="$2"; shift 2 ;;
     --bundle-sha256) V[tb-bundle-sha256]="$2"; shift 2 ;;
-    -h|--help) sed -n 2,45p "$0"; exit 0 ;;
+    -h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d'; exit 0 ;;
     -*) echo "box-run: unknown option $1" >&2; exit 2 ;;
     *) break ;;
   esac
@@ -109,6 +115,9 @@ VM="${1:-tb-gpu-sim}"; ZONE="${2:-asia-east1-a}"
 cd "$ROOT"
 br() { env PYTHONPATH=libs:services:. "$PY" -m tools.box_run "$@"; }
 case "$MODE" in production|validation) ;; *) echo "box-run: --mode production | validation" >&2; exit 2 ;; esac
+if [ "$PREFLIGHT" = 1 ] && { [ -n "$RESUME$COLLECT" ] || [ "$STOP" = 1 ]; }; then
+  echo "box-run: --preflight checks a launch (--steps ...), not a resume, a collect or a stop" >&2; exit 2
+fi
 vcheck() {  # validation mode with acc: can a VALIDATION box route the run's calls on this tree? (free, local)
   case " $STEPS " in *" acc "*) [ "$MODE" = validation ] || return 0 ;; *) return 0 ;; esac
   if br validation-check > "${1:-/dev/stdout}"; then echo "validation-check: a VALIDATION box can route the run's calls"; return 0; fi
@@ -137,6 +146,7 @@ export GC_DRY="$DRY"
 . "$ROOT/deploy/gcp/gcloud-auth.sh"
 eval "$(br settings)"   # KEY_SECRET, SIGNER_SA, PROVISIONING (tb_common.config.DECLARED)
 BUCKET="${TB_BUCKET:-}"
+[ "$PREFLIGHT" = 0 ] || BUCKET="${BUCKET:-gs://<TB_BUCKET>}"   # nothing is read from it or written to it
 [ -n "$BUCKET" ] || { echo "box-run: set TB_BUCKET=gs://<bucket> (results, the bundle and the power-cycle request go through it)" >&2; exit 2; }
 if [ "$DRY" = 0 ]; then
   : "${CLOUDSDK_CONFIG:?set a private CLOUDSDK_CONFIG and activate the service account in it}"
@@ -145,6 +155,7 @@ fi
 gc_start || exit 5
 RUN_ID="${COLLECT:-${RESUME:-${TB_RUN_ID:-box-$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD)}}}"
 OUT="${TB_BOXRUN_DIR:-$ROOT/.cache/box-run/$RUN_ID}"
+[ "$PREFLIGHT" = 0 ] || [ -n "${TB_BOXRUN_DIR:-}" ] || OUT="$(mktemp -d)"   # a preflight leaves no run folder
 mkdir -p "$OUT"; umask 077
 OBJ="$BUCKET/boxruns/$RUN_ID"
 
@@ -327,17 +338,25 @@ else
     fi ;;
   esac
 fi
-if [ -n "$SRC_BUNDLE" ]; then  # D8: the source bundle proved (cloned, the commit checked out) before it is uploaded
-  case " $STEPS " in *" build "*|*" dev "*) ;; *) echo "box-run: --src-bundle is for a build or dev launch" >&2; exit 2 ;; esac
-  [ -n "${V[tb-commit]:-}" ] || { echo "box-run: --src-bundle needs --commit" >&2; exit 2; }
-  br src-bundle --commit "${V[tb-commit]}" --check "$SRC_BUNDLE" > "$OUT/src-bundle.json" \
-    || { echo "box-run: refused (no VM started): the source bundle does not give commit ${V[tb-commit]} (see $OUT/src-bundle.json)" >&2; exit 2; }
-  gc storage cp "$SRC_BUNDLE" "${V[tb-src]}" >/dev/null
-  echo "source bundle proved (commit ${V[tb-commit]} checks out from it) and uploaded to ${V[tb-src]}"
-fi
 case " $STEPS " in *" acc "*)  # the public-data run turns the PHI tripwire off by its declared setting (D-506, D-511)
   [ "$MODE" != validation ] || V[tb-acc-tripwire-setting]="${V[tb-acc-tripwire-setting]:-TB_GATEWAY_PHI_TRIPWIRE=off}" ;;
 esac
+if [ -n "$SRC_BUNDLE" ]; then case " $STEPS " in *" build "*|*" dev "*) ;; *) echo "box-run: --src-bundle is for a build or dev launch" >&2; exit 2 ;; esac; fi
+# H-1 (the P1b fixes): every free check at once, before anything is uploaded or started: the protocol filter and the
+# tag (D1), the streams and the set budgets (D4, D7), the full commit and the source bundle proved as the VM clones it
+# (D8), the metadata. --preflight stops here.
+pfa=(); for k in "${!V[@]}"; do pfa+=(--set "$k=${V[$k]}"); done
+br preflight --steps "$STEPS" --mode "$MODE" --only "$ONLY" ${SRC_BUNDLE:+--src-bundle "$SRC_BUNDLE"} "${pfa[@]}" > "$OUT/preflight.json" \
+  || { echo "box-run: refused (no VM started): the preflight failed (the lines above; $OUT/preflight.json)" >&2; exit 6; }
+if [ "$PREFLIGHT" = 1 ]; then
+  br estimate --steps "$STEPS" --mode "$MODE" --only "$ONLY"
+  echo "preflight: every free check passed (nothing was uploaded or started; $OUT/preflight.json)"
+  exit 0
+fi
+if [ -n "$SRC_BUNDLE" ]; then  # D8: proved by the preflight above (cloned as the VM clones it, the commit checked out)
+  gc storage cp "$SRC_BUNDLE" "${V[tb-src]}" >/dev/null
+  echo "source bundle proved (commit ${V[tb-commit]} checks out from it) and uploaded to ${V[tb-src]}"
+fi
 case " $STEPS " in *" acc "*)  # lane G's accuracy tools at this commit (git archive), for the VM to fetch and build with
   br acc-tools --out "$OUT/acc-tools.tgz" > "$OUT/acc-tools.json" || exit 2
   V[tb-acc-tools]="$OBJ/acc-tools.tgz"

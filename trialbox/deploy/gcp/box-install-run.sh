@@ -1825,12 +1825,12 @@ step_acc_settings() {
   else
     note tripwire "\"on: no setting used (gateway step 4 runs on every call of class D0 to D2)\""
   fi
-  # D7 (P1b review): a ruleset of note criteria only (tcga) is screened only with a pair budget (D-788: "set
-  # max_pairs"); lane A2's change that drops the need is not on master (2026-11-16), so the run sets the declared
-  # TB_SCREEN_MAX_PAIRS when the box has none: 20,000, the old default, far above any set's pairs per SCREEN
-  if [ -z "$(envget TB_SCREEN_MAX_PAIRS)" ]; then
-    envset_box TB_SCREEN_MAX_PAIRS "${ACC_MAX_PAIRS:-20000}"; note max_pairs "\"set by the run: ${ACC_MAX_PAIRS:-20000} (D-788 needs a budget for a notes-only ruleset)\""
-  else note max_pairs "\"the box's own: $(envget TB_SCREEN_MAX_PAIRS)\""; fi
+  # D7 (P1b review): the run sets no pair budget. A ruleset of note criteria only (tcga) gets its population's pairs
+  # as its budget from the product itself (D-953, screen_cascade.notes_only_budget, on master since #866), so the
+  # fallback of #889 (TB_SCREEN_MAX_PAIRS=20000 when unset) is gone: it would also have capped every coded SCREEN,
+  # which has no budget by default (T-689). The box's own setting, if any, is recorded.
+  if [ -n "$(envget TB_SCREEN_MAX_PAIRS)" ]; then note max_pairs "\"the box's own: $(envget TB_SCREEN_MAX_PAIRS)\""
+  else note max_pairs '"unset: the population'"'"'s own pairs (T-689; a notes-only ruleset too, D-953)"'; fi
   # every service that reads deploy/.env, not the two model servers (their settings did not change; a reload of both
   # is minutes of the card for nothing)
   local svcs=(); mapfile -t svcs < <(dc config --services | grep -v '^llm-')
