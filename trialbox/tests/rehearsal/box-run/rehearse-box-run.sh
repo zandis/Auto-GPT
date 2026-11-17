@@ -83,6 +83,51 @@
 #   probe              a facts-only launch (tb-steps probe): the VM's facts written (names and sizes), the run ends
 #   acc-qualify-fails  validation mode: the qualification fails a gate; that is a result (the record's failed step and
 #                      its figure), the pair is not promoted, resolve says what PRODUCTION routes, the run goes on
+#   session            the owner's live session (D-1132), DEV with the acting role (knob dev-routes: the DEV routing
+#                      change D-1123 section 3 asks for): dev's bring-up, the public set and the synthetic hospital
+#                      ingested, the box in DEV, its own egress rules applied and read back, one account by the
+#                      console's code, the links to one private object, the ready line with this boot's id, the
+#                      heartbeat from the owner's requests, the stop, the accounts disabled and the box back in
+#                      VALIDATION; no code in any log, result or the serial port; the record says it is no evidence
+#   session-stop       the hard stop (VALIDATION, one account per role): the session asked for longer than the cost
+#                      cap allows ends at the cap less its margin, its accounts disabled before the cap fires
+#   session-cut        a power cut while the session is open: the next boot disables its accounts before any step
+#                      and before anything is served (the box's Caddy down, the re-review's A), puts the box back in
+#                      VALIDATION, and never opens the session again
+#   session-close-fails  as session-cut, but the console cannot be asked at the next boot: the run stops there, the
+#                      box's Caddy never came up on that boot, no CLOSED marker is written (the deny stays)
+#   session-update-fails  the console's and Caddy's restart policy cannot be set to `no`: no account is opened (the
+#                      re-review's E), and the run's CLOSED marker is written all the same (C)
+#   session-cut-56     a power cut while 56 opens the accounts, then a later boot with no tb-retry (a power cycle, a
+#                      start by hand): its accounts are closed and it stops; 56 never runs again (round 3's finding 4)
+#   session-unit       lane D's trialbox.service enabled on the disk (`compose up` at every boot), a power cut while the
+#                      session is open: 56 disabled it first, the next boot's Caddy never serves the open accounts, the
+#                      unit is put back once the accounts are disabled and CLOSED is written (round 3's finding 1)
+#   session-unit-race  as session-unit, but the unit was enabled again by hand and its `compose up` lands in the middle
+#                      of the close: the close stops it and waits first; Caddy never serves the open accounts
+#   session-unit-fails the unit cannot be disabled: no account, no link, the run's CLOSED marker written
+#   session-unit-dbus  systemctl gives no answer for trialbox.service, whose unit file exists: no account (round 4's c)
+#   session-ops        lane D's Operations timer enabled again at the boot after a cut, an update's `compose up` queued:
+#                      the close stops the timers first; Caddy never serves the open accounts (round 4's b)
+#   session-quiet-fails  trialbox.service does not stop at the boot after a cut: Caddy is stopped all the same and
+#                      tcp:443 decides; never a close while Caddy may serve (round 4's a)
+#   session-ss-fails   ss gives no answer at the boot after a cut: what listens on tcp:443 cannot be told, no close
+#                      runs, the run stops and says so (round 4's f)
+#   session-ended-again  the run ends with its accounts open (the console cannot be asked), then the same run boots
+#                      again: it closes them before it hands the ended run over (round 4's g)
+#   session-wide       the driver refuses a range too wide (0.0.0.0/0, any, a /8) before anything: no VM booted
+#   session-egress     the box's egress table lets a container out (as a DEV box's opens a model host): the session
+#                      stops at 55-session-egress and no account or link is made
+#   session-skip       a session launch whose tb-skip names one of its own steps (55, the egress proof): refused at
+#                      the VM's preflight, before anything is built (the security review's finding 1)
+#   session-resume     a session cut during its bring-up, then a resume (a new tb-retry): refused, no account and no
+#                      link are made (finding 2: more time is a new launch)
+#   session-ssh        something still listens on tcp:22 after the session's stop of sshd: no session (finding 5)
+#   session-then-acc   a session (VALIDATION) to its end, then an accuracy launch on the same disk: SSH put back as it
+#                      was, the box's public address put back, the session's CLOSED marker written, and the accuracy
+#                      run's feed holds no table of the session's synthetic hospital (findings 5, 6, 11)
+#   session-dev-refused  DEV on this tree (no routing change): the box itself refuses the session's calls at
+#                      52-acc-routes, before any data, account or link
 # Needs: bash, python3 (with PyYAML), the repo's venv (.venv: cryptography, the console), curl, openssl, git, make,
 # tar, setsid. Evidence stays in $TB_BOXRUN_REHEARSAL_DIR/<case>/ (default /tmp/tb-boxrun-rehearsal).
 # Ports: one free local port per case for the door and one for the console (asked of the kernel), never a fixed
@@ -95,7 +140,10 @@ REH="${TB_BOXRUN_REHEARSAL_DIR:-/tmp/tb-boxrun-rehearsal}"
 ALL=(build build-gate-fails build-refused build-preempt happy step-fails reboot cap bad-hash bad-tar-hash
      refused-rehearsal wizard-refused oom list-differs identity-differs build-validation acc acc-preempt acc-blocked
      resume-after-stop acc-qualify-fails probe direct dev acc-cut qualify-timebox acc-gate acc-redo gate-closed gate-401 gate-never
-     acc-cut-resume)
+     acc-cut-resume
+     session session-stop session-cut session-wide session-egress session-dev-refused session-skip session-resume
+     session-ssh session-then-acc session-close-fails session-update-fails session-cut-56 session-unit session-unit-race
+     session-unit-fails session-unit-dbus session-ops session-quiet-fails session-ss-fails session-ended-again)
 # shellcheck disable=SC2206  # CASES=happy,cap: split on commas and spaces
 CASES=(${*//,/ }); [ "${#CASES[@]}" -gt 0 ] || CASES=("${ALL[@]}")
 # the harness's own ceiling for one wait (a declared setting): a case takes 5 to 40 seconds on the short clock, so
@@ -262,8 +310,38 @@ acc_collect() {  # as the driver's --collect: each set's upload fetched, unpacke
   (cd "$ROOT" && env PYTHONPATH=libs:services:. TB_ENV=DEV "$VPY" -m tools.box_run acc-score "$S/evidence/collected") \
     > "$S/evidence/acc-score.json"
 }
+session_setup() {  # session_setup DEV|VALIDATION: the site files the first start left, then the driver's session keys
+  start_setup; build_setup; m tb-mode validation; val_models; m tb-direct 1
+  mkdir -p "$S/box-root/deploy" "$S/feed"
+  printf 'TB_ENV=VALIDATION\nTB_TZ=Asia/Taipei\nTB_TLS_HOSTNAME=trialbox.hospa.test\nTB_SOURCE_DIR=%s\nTB_SOURCE_MOUNT=/data/source/site-a\n' \
+    "$S/feed" > "$S/box-root/deploy/.env"
+  printf 'site: {id: ACC-VALIDATION}\nrate_limit_per_sender_per_day: 20\n' > "$S/box-root/deploy/settings.yaml"
+  cp "$HERE/standins/network.sh" "$S/box-root/deploy/network.sh"   # the box's own egress script (stand-in)
+  echo 34.80.0.10 > "$S/external-ip"
+  BR_S="$S" python3 "$HERE/standins/box.py" wizard-done
+  mkdir -p "$BKT/boxruns/rehearsal-$CASE"
+  (cd "$ROOT" && tar -czf "$BKT/boxruns/rehearsal-$CASE/acc-tools.tgz" tools/__init__.py tools/public_accuracy \
+     tools/public_site.py tools/fetch_pinned.py eval/criterion_ml)
+  m tb-acc-tools "gs://tb-runs/boxruns/rehearsal-$CASE/acc-tools.tgz"; m tb-acc-sets "jmed:3"; m tb-acc-job-minutes 2
+  m tb-session-env "$1"; m tb-session-minutes 6; m tb-session-synth 20; m tb-session-idle-minutes 30
+  m tb-session-handoff "gs://tb-runs/session/rehearsal-$CASE"; m block-project-ssh-keys TRUE
+  m tb-skip "08-qualify 09-promote-judge 10-promote-verifier 11-resolve 12-doctor"
+  if [ "$1" = DEV ]; then m tb-session-people "owner:coordinator+investigator+steward+admin"
+  else m tb-session-people "owner-crc:coordinator,owner-inv:investigator,owner-stw:steward,owner-adm:admin"; fi
+}
+session_wide() {  # the driver, free: each too-wide range refused before anything (no gcloud on the PATH, no VM)
+  local r rc
+  mkdir -p "$S/evidence"
+  for r in 0.0.0.0/0 any 8.0.0.0/8 1.2.0.0/16 "1.2.3.4,0.0.0.0/1"; do
+    rc=0
+    env -i PATH=/usr/bin:/bin HOME="$S" PY="$VPY" TMPDIR="$S" "$ROOT/deploy/gcp/box-run.sh" --preflight --mode validation \
+      --steps dev,session --release-id dev-x --commit "$(printf '%040d' 0)" --session-allow "$r" \
+      > "$S/evidence/wide.out" 2>> "$S/evidence/wide.err" || rc=$?
+    printf '%s\t%s\n' "$r" "$rc" >> "$S/evidence/wide.rc"
+  done
+}
 boot() { "$HERE/standins/boot.sh" "$S"; }
-RES() { echo "$BKT/boxruns/rehearsal-$CASE/results.tgz"; }
+RES() { echo "$BKT/boxruns/${RUNID:-rehearsal-$CASE}/results.tgz"; }
 is_done() { grep -q '^BOX-RUN-DONE$' "$S/boot-$(cat "$S/boots").out"; }
 is_off() { [ "$(cat "$S/status")" = TERMINATED ]; }
 asks_power() { [ -f "$BKT/boxruns/rehearsal-$CASE/POWER-CYCLE-REQUEST" ]; }
@@ -388,6 +466,69 @@ for CASE in "${CASES[@]}"; do
       "$HERE/standins/reboot.sh" "$S"            # a pre-emption in the middle of the set
       to_the_end; acc_collect ;;
     acc-blocked) setup "$CASE" "start acc" acc-blocked; start_setup; acc_setup; boot; to_the_end ;;
+    session) setup "$CASE" "dev session" dev-routes; session_setup DEV; boot; to_the_end ;;
+    session-stop)   # the session asks for more than the cap leaves: it ends at the cap less its margin, closed first;
+      # lane D's units enabled on the disk (rounds 3 and 4): off while the accounts are open, put back after the close
+      setup "$CASE" "dev session" unit-enabled ops-timer; session_setup VALIDATION; m tb-session-minutes 600; m tb-max-minutes 60; boot; to_the_end ;;
+    session-cut)
+      setup "$CASE" "dev session" dev-routes; session_setup DEV; m tb-session-minutes 600; m tb-max-minutes 900; boot
+      wait_for "the session to open" grep -aq 'TB-SESSION-READY' "$S/boot-1.out"
+      "$HERE/standins/reboot.sh" "$S"            # a power cut while the owner reads a page
+      to_the_end ;;
+    session-close-fails)
+      setup "$CASE" "dev session" dev-routes; session_setup DEV; m tb-session-minutes 600; m tb-max-minutes 900; boot
+      wait_for "the session to open" grep -aq 'TB-SESSION-READY' "$S/boot-1.out"
+      touch "$S/knobs/disable-fails"             # the console cannot be asked at the next boot
+      "$HERE/standins/reboot.sh" "$S"
+      to_the_end ;;
+    session-update-fails) setup "$CASE" "dev session" update-fails; session_setup VALIDATION; boot; to_the_end ;;
+    session-cut-56)   # round 3's finding 4: a cut while 56 opens the accounts; a later boot without tb-retry
+      setup "$CASE" "dev session" dev-routes people-slow; session_setup DEV; m tb-session-minutes 600; m tb-max-minutes 900
+      boot; wait_for "56 to open the accounts" grep -q '^session-people-start$' "$S/calls.log"
+      "$HERE/standins/reboot.sh" "$S"            # a power cut (or a start by hand, a host restart): no tb-retry
+      to_the_end ;;
+    session-unit|session-unit-race)   # round 3's finding 1: lane D's trialbox.service enabled on the disk, a cut
+      k=(dev-routes unit-enabled); [ "$CASE" = session-unit ] || k+=(unit-late unit-reenabled)
+      setup "$CASE" "dev session" "${k[@]}"; session_setup DEV; m tb-session-minutes 600; m tb-max-minutes 900; boot
+      wait_for "the session to open" grep -aq 'TB-SESSION-READY' "$S/boot-1.out"
+      "$HERE/standins/reboot.sh" "$S"
+      to_the_end ;;
+    session-unit-fails) setup "$CASE" "dev session" unit-enabled unit-disable-fails; session_setup VALIDATION; boot; to_the_end ;;
+    session-unit-dbus) setup "$CASE" "dev session" unit-enabled unit-dbus-error; session_setup VALIDATION; boot; to_the_end ;;
+    session-ops|session-quiet-fails|session-ss-fails)   # round 4's b, a, f: a power cut while the session is open
+      case "$CASE" in session-ops) k=(ops-timer ops-late unit-reenabled) ;; session-quiet-fails) k=(unit-enabled unit-reenabled unit-stop-hangs) ;;
+        *) k=() ;; esac
+      setup "$CASE" "dev session" dev-routes ${k[@]+"${k[@]}"}; session_setup DEV; m tb-session-minutes 600; m tb-max-minutes 900
+      boot; wait_for "the session to open" grep -aq 'TB-SESSION-READY' "$S/boot-1.out"
+      [ "$CASE" != session-ss-fails ] || touch "$S/knobs/ss-fails"   # ss gives no answer at the next boot
+      "$HERE/standins/reboot.sh" "$S"
+      to_the_end ;;
+    session-ended-again)   # round 4's g: the run ends with its accounts open; a later boot of the same run closes them
+      setup "$CASE" "dev session" dev-routes; session_setup DEV; m tb-session-minutes 600; m tb-max-minutes 900; boot
+      wait_for "the session to open" grep -aq 'TB-SESSION-READY' "$S/boot-1.out"
+      touch "$S/knobs/disable-fails"; "$HERE/standins/reboot.sh" "$S"
+      wait_for "the done marker" is_done; wait_for "the power-off" is_off
+      rm -f "$S/knobs/disable-fails"; "$HERE/standins/boot.sh" "$S"   # started again (by hand, or a later launch's start)
+      to_the_end ;;
+    session-wide) S="$REH/$CASE"; rm -rf "$S"; mkdir -p "$S"; session_wide ;;
+    session-egress) setup "$CASE" "dev session" dev-routes egress-open; session_setup DEV; boot; to_the_end ;;
+    session-dev-refused) setup "$CASE" "dev session"; session_setup DEV; boot; to_the_end ;;
+    session-skip)
+      setup "$CASE" "dev session"; session_setup VALIDATION
+      m tb-skip "08-qualify 09-promote-judge 10-promote-verifier 11-resolve 12-doctor 55-session-egress"; boot; to_the_end ;;
+    session-resume)
+      setup "$CASE" "dev session"; session_setup VALIDATION; boot
+      wait_for "the session's data step" grep -aq 'TB-STEP 53-acc-data start' "$S/boot-1.out"
+      kill -KILL -- "-$(cat "$S/vm.pgid")" 2>/dev/null || true; echo TERMINATED > "$S/status"   # a pre-emption
+      m tb-retry "retry-1"   # the driver's --resume (refused there too; here the VM's own refusal is rehearsed)
+      boot; to_the_end ;;
+    session-ssh) setup "$CASE" "dev session" ssh-listens; session_setup VALIDATION; boot; to_the_end ;;
+    session-then-acc)
+      setup "$CASE" "dev session"; session_setup VALIDATION; boot; to_the_end
+      mv "$S/evidence/results" "$S/evidence/results-session"
+      for k in tb-session-env tb-session-minutes tb-session-synth tb-session-idle-minutes tb-session-handoff \
+               tb-session-people tb-skip block-project-ssh-keys; do rm -f "$S/metadata/$k"; done
+      RUNID="rehearsal-$CASE-acc"; m tb-run-id "$RUNID"; m tb-steps acc; boot; to_the_end; RUNID="" ;;
     *) die "no such case: $CASE" ;;
   esac
   python3 "$HERE/check.py" "$CASE" "$S" || die "case $CASE: the checks above"
