@@ -466,7 +466,7 @@ def embedder_problems(
     # TB_RELEASE_REGISTRY: the unit tests' synthetic registry only (a release reads the one it ships)
     path = registry_path or Path(os.environ.get("TB_RELEASE_REGISTRY") or ROOT / "models" / "registry.yaml")
     reg = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    row = next((b for b in reg.get("builds") or [] if b.get("build_id") == EMBED_BUILD), {})
+    row: dict[str, Any] = next((b for b in reg.get("builds") or [] if b.get("build_id") == EMBED_BUILD), {})
     want = expected_of(row)[0]
     files = [{"path": str(f["path"]).removeprefix("embedder/"), "sha256": f.get("sha256")}
              for f in manifest.get("files", []) if str(f.get("path", "")).startswith("embedder/")]  # fmt: skip
