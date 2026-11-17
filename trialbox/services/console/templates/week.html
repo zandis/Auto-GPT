@@ -2,6 +2,7 @@
 {% from "_fit.html" import fit_line, open_items with context %}
 {% from "_steps.html" import steps_bar with context %}
 {% from "_mark.html" import mark_box, mark_bar, toast, outcome_box with context %}
+{% from "_person.html" import person_pill with context %}
 {% block title %}{{ t('week.title') }} · {{ rs }}{% endblock %}
 {% block skips %}{% if wk %}<a class="skip" href="#worklist" data-testid="skip-worklist">{{ t('skip.worklist') }}</a>{% endif %}{% endblock %}
 {% block content %}
@@ -39,8 +40,8 @@
         <td><a class="rowlink" href="?list={{ lst }}&amp;page={{ page_no }}&amp;pid={{ r.pid }}#chart" data-testid="open-{{ r.short }}"{% if on %} aria-current="true"{% endif %}><b class="nowrap">{{ t('week.patient', p=r.short) }}</b></a>{% if r.practitioner %}<br>{{ given(r.practitioner, 'hint') }}{% endif %}</td>
         <td class="num nowrap"><span class="meter" aria-hidden="true"><i class="w{{ ((r.score[0] * 10) // (r.score[1] or 1)) }}"></i></span>{{ r.score[0] }}/{{ r.score[1] }}</td>
         <td class="needed">{% if r.n_open %}<span class="pill warn nowrap" data-testid="open-n-{{ r.short }}">{{ t('wb.n_open', n=r.n_open) }}</span><br>{% endif %}{% if r.fit.not_met %}<span class="bad">{{ t('fit.not_met') }} {{ r.fit.not_met[:2]|join(' · ') }}</span><br>{% endif %}{{ (r.fit.open + r.fit.person)[:3]|join(' · ') or '–' }}{% if r.sent_back %}<br><span class="pill warn" data-testid="sent-back-{{ r.short }}">{{ t('nm.back.pill') }}</span>{% endif %}{% for o in r.elsewhere or [] %}<br><span class="pill warn" data-testid="elsewhere-{{ r.short }}">{{ t('elsewhere.' + o.state, study=o.study) if o.study else t('elsewhere.' + o.state + '.other') }}</span>{% endfor %}</td>
-        <td><span class="pill tier-{{ r.tier }}">{{ t('tier.' + r.tier) }}</span> <span class="pill stt-{{ r.status }}">{{ t('wstatus.' + r.status) }}</span>{% if r.mark %}<br><span class="pill mk-{{ r.mark.mark }}" data-testid="mark-{{ r.short }}">{{ t('mark.' + r.mark.mark) }}</span>{% endif %}
-        {% if quick_outcomes and r.mark and r.mark.mark == 'approach' and r.status not in ('contacted', 'screened') %}<details class="quick" data-testid="quick-{{ r.short }}"><summary>{{ t('outcome.quick') }}</summary><form method="post" action="/studies/{{ rs }}/patients/{{ r.pid }}/outcome" class="markrow"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="list:{{ lst }}">{% for k in quick_outcomes %}<button type="submit" name="outcome" value="{{ k }}" class="{{ '' if k == 'reached_booked' else 'secondary' }} small" data-testid="quick-{{ r.short }}-{{ k }}">{{ t('outcome.' + k) }}</button>{% endfor %}</form></details>{% endif %}</td>
+        <td><span class="pill tier-{{ r.tier }}">{{ t('tier.' + r.tier) }}</span> {{ person_pill(r.person, 'state-' + r.short) }}{% if r.status == 'new' %} <span class="pill stt-new" data-testid="new-{{ r.short }}">{{ t('wstatus.new') }}</span>{% endif %}
+        {% if quick_outcomes and r.person.name == 'to_contact' %}<details class="quick" data-testid="quick-{{ r.short }}"><summary>{{ t('outcome.quick') }}</summary><form method="post" action="/studies/{{ rs }}/patients/{{ r.pid }}/outcome" class="markrow"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="list:{{ lst }}">{% for k in quick_outcomes %}<button type="submit" name="outcome" value="{{ k }}" class="{{ '' if k == 'reached_booked' else 'secondary' }} small" data-testid="quick-{{ r.short }}-{{ k }}">{{ t('outcome.' + k) }}</button>{% endfor %}</form></details>{% endif %}</td>
       </tr>{% endfor %}</tbody>
     </table></div>
     {% if pages > 1 %}<nav class="pager" aria-label="{{ t('wb.pages') }}" data-testid="pager">{% if page_no > 1 %}<a href="?list={{ lst }}&amp;page={{ page_no - 1 }}" rel="prev">← {{ t('wb.prev') }}</a>{% endif %}<span class="hint" data-testid="page-of">{{ t('wb.page_of', n=page_no, of=pages) }}</span>{% if page_no < pages %}<a href="?list={{ lst }}&amp;page={{ page_no + 1 }}" rel="next" data-testid="next-page">{{ t('wb.next') }} →</a>{% endif %}</nav>{% endif %}
@@ -58,7 +59,7 @@
       <dl>
         <div><dt>{{ t('patient.visit') }}</dt><dd>{{ (p.row.next_appointment or '')[:16].replace('T', ' ') or t('week.no_visit') }}</dd></div>
         <div><dt>{{ t('wb.doctor') }}</dt><dd>{{ given(p.practitioner) or '–' }}{% if p.row.department %} · {{ given(p.row.department) }}{% endif %}</dd></div>
-        <div><dt>{{ t('patient.tier') }}</dt><dd>{% if p.listed %}{{ t('wstatus.' + p.listed.status) }}{% else %}{{ t('tier.' + p.row.tier) }}{% endif %}{% if p.registry and not (p.listed and p.listed.status == p.registry) %} · {{ t('registry.status.' + p.registry) }}{% endif %}</dd></div>
+        <div><dt>{{ t('person.col.state') }}</dt><dd data-testid="chart-state">{{ person_pill(p.person) }}</dd></div>
       </dl>
     </div>
     <p class="whyp" data-testid="why"><b>{{ t('patient.why') }}</b> {{ fit_line(p.fit) }}</p>
@@ -67,7 +68,7 @@
     <p class="hint"><a href="/studies/{{ rs }}/candidates/{{ p.pid }}?purpose=referral" data-testid="ask-doctor">{{ t('mark.ask_doctor') }}</a>{% if p.ref_wait %} · <span class="pill ref-{{ p.ref_wait.state }}">{{ t('team.state.' + p.ref_wait.state) }}</span>{% endif %}</p>
     {{ toast(rs, p.pid, 'list:' + lst, request.query_params.get('done', '')) }}
     {% if user.can_mark %}{{ mark_box(rs, p.pid, 'list:' + lst, reasons, p.mark, p.today) }}{% if p.contact and p.contact.why == 'limit' %}<p class="pill warn" data-testid="contact-limit-pi">{{ t('outcome.limit.pi', max=p.contact.max) }}</p>{% endif %}
-    {% else %}<p class="hint">{{ t('wb.crc_hint') }}</p>{{ outcome_box(rs, p.pid, 'list:' + lst, p.outcome_keys, p.screening_no, p.outcomes, p.mark, p.contact) }}{% endif %}
+    {% else %}<p class="hint">{{ t('wb.crc_hint') }}</p>{{ outcome_box(rs, p.pid, 'list:' + lst, p.outcome_keys, p.screening_no, p.outcomes, p.mark, p.contact, p.person) }}{% endif %}
     {% for kind in ('inclusion', 'exclusion') %}{% set cs = p.crits|selectattr('kind', 'equalto', kind)|list %}{% if cs %}
     <h3 class="grp">{{ t('wb.' + kind) }}</h3>
     <ul class="critl">{% for c in cs %}<li>

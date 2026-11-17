@@ -30,6 +30,7 @@ from tb_common import sheets
 from tb_common.authz import permit
 from tb_contracts import Job
 
+from console import person_state as ps
 from console import s28
 from console import studies as st
 from console.auth import Session
@@ -42,7 +43,10 @@ from console.timefmt import local_date, site_zone
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 SMALL_CELL = 5  # FR-REP-09: the site's small-cell threshold (k) for counts that leave the study team
-COUNT_KEYS = ("listed", "reviewed", "approached", "contacted", "consented", "enrolled", "screen_fail", "declined")
+#: FR-REP-09: what happened in the year (listed, reviewed by the investigator, given a screening number), then the
+#: people whose state began in the year, by their one state (D-1221: the states of the home card and the registry)
+ACTIVITY_KEYS = ("listed", "reviewed", "approached")
+COUNT_KEYS = (*ACTIVITY_KEYS, *ps.COUNTED)
 
 
 _RC_NOTE = re.compile(r"^REDCap record (\S+)(?: \((.*)\))?$")
@@ -259,8 +263,12 @@ def register(app: FastAPI, h: Helpers) -> None:
     def prescreen(rs: str) -> list[dict[str, Any]]:
         refs: dict[str, Any] = h.team.latest_referrals(rs) if h.team is not None else {}
         gone = h.gone()
-        return prescreen_rows(store.all_marks(rs), store.screening_nos(rs), store.first_seen(rs), registry_rows(rs),
+        rows = prescreen_rows(store.all_marks(rs), store.screening_nos(rs), store.first_seen(rs), registry_rows(rs),
                               refs, gone)  # fmt: skip
+        people = ps.read(h, rs)  # D-1221: the person's one state now, beside each mark
+        for r in rows:
+            r["person"] = people.of(r["pid"])
+        return rows
 
     def log_rows(rs: str) -> list[dict[str, Any]]:
         reg = registry_rows(rs)
@@ -281,6 +289,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         for o in h.team.overrides(rs) if h.team is not None else []:
             overrides[o[0]] = o
         gone = h.opted_out_on()
+        people = ps.read(h, rs, subjects=list(life.values()))  # D-1221: the one state, as on every list
         rows = []
         for pid, no, at in store.screening_rows(rs):
             e = reg.get(pid)
@@ -298,6 +307,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                     "outcome": oc[-1] if oc else None,
                     "attempts": len(oc),
                     "status": e.status if e else "candidate",
+                    "person": people.of(pid),
                     "reason": (e.reason if e else "") or "",
                     "reason_rc": _rc_note((e.reason if e else "") or ""),
                     "updated": local_date(e.updated_at.isoformat(), tz) if e else "",
@@ -522,23 +532,22 @@ def register(app: FastAPI, h: Helpers) -> None:
             y = str(year)
             seen = store.first_seen(rid)
             marks = store.all_marks(rid)
-            reg = registry_rows(rid)
             nos = store.screening_rows(rid)
             counts = {
                 "listed": sum(1 for _j, a in seen.values() if a.startswith(y)),
                 "reviewed": len({m.pid for m in marks if m.at.startswith(y) and m.mark != "withdrawn"}),
                 "approached": sum(1 for _p, _n, a in nos if a.startswith(y)),
             }
-            rank = {"contacted": 1, "consented": 2, "enrolled": 3}
-            yr = [e for e in reg.values() if e.updated_at.year == year]
-            counts["contacted"] = sum(1 for e in yr if rank.get(e.status, 0) >= 1 or e.status in ("screen_fail",))
-            counts["consented"] = sum(1 for e in yr if rank.get(e.status, 0) >= 2)
-            counts["enrolled"] = sum(1 for e in yr if e.status == "enrolled")
-            counts["screen_fail"] = sum(1 for e in yr if e.status == "screen_fail")
-            counts["declined"] = sum(1 for e in yr if e.status == "declined")
-            if not any(counts.values()):
+            # D-1221 (review B-2): the people by their one state, read as the home card and the registry read them;
+            # a state this reader may not read is unknown ("–"), never 0 (CR-010)
+            people = ps.read(h, rid)
+            in_year = people.in_year(year)
+            states: dict[str, int | None] = {s: in_year[s] if people.readable else None for s in ps.COUNTED}
+            if not any(counts.values()) and not any(states.values()):
                 continue
-            out.append({"study": rid, "kind": info.kind or "trial", **{c: suppress(counts[c], k) for c in COUNT_KEYS}})
+            shown = {c: suppress(n, k) for c, n in counts.items()} | {
+                s: "–" if n is None else suppress(n, k) for s, n in states.items()}  # fmt: skip
+            out.append({"study": rid, "kind": info.kind or "trial", **shown})
         return out
 
     def office_allowed(sess: Session) -> bool:
@@ -551,7 +560,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(403, "forbidden")
         y = year or h.today().year  # the site's year (D-270)
         k = SMALL_CELL
-        return h.page(request, "research_office.html", sess, year=y, rows=office_counts(y, k), keys=COUNT_KEYS, small=k)
+        return h.page(request, "research_office.html", sess, year=y, rows=office_counts(y, k), keys=COUNT_KEYS,
+                      activity=ACTIVITY_KEYS, small=k)  # fmt: skip
 
     @app.get("/reports/research-office.xlsx")
     def research_office_xlsx(request: Request, year: int = 0) -> Response:

@@ -75,11 +75,12 @@ def test_the_coordinator_promotes_and_edits_through_the_console(site: dict[str, 
     r = c.post(f"/pilot/registry/{STUDY}/promote", data={"csrf": csrf}, follow_redirects=False)
     assert r.status_code == 303 and "added=" in r.headers["location"], r.text[-300:]
     pid = _rows(ob)[0]["pid"]
+    # D-1221 (R10): the console sets no registry status by hand any more; its POST is gone and nothing is written
     r = c.post(f"/pilot/registry/{STUDY}", data={"csrf": csrf, "pid": pid, "status": "contacted", "reason": "phone"},
                follow_redirects=False)  # fmt: skip
-    assert r.status_code == 303, r.text[-300:]
+    assert r.status_code == 405, r.text[-300:]
     rows = {row["pid"]: row for row in _rows(ob)}
-    assert rows[pid]["status"] == "contacted" and {row["updated_by"] for row in rows.values()} == {"console:crc"}
+    assert rows[pid]["status"] == "candidate" and {row["updated_by"] for row in rows.values()} == {"console:crc"}
     assert not ob.events("actor.refused") and not ob.events("actor.unsigned")
 
 

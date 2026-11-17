@@ -34,7 +34,8 @@ def test_consent_record_version_check_order_flags_and_reconsent_list(lb: dict[st
         c.post(f"/studies/GZQO/subjects/{rec}/step", data={"csrf": csrf, "to": "approached", "on_day": "2026-10-01"})
     # acceptance 1: an enrolment without a consent record is held, with an alert; the one consent action opens the form
     r = _save(c, csrf, no, "tb_enrolment", {"en_date": "2026-10-05", "en_eligible": "1"}, back="subject")
-    assert 'data-state="approached"' in r.text and 'data-testid="consent-missing"' in r.text
+    # D-1221: the participant's one state, as every list names it (the record's "approached" is "Contacted")
+    assert 'data-state="contacted"' in r.text and 'data-testid="consent-missing"' in r.text
     go = re.search(r'<a class="button" href="([^"]+)" data-testid="go-consented">', r.text)
     assert go and "form=tb_consent" in go.group(1) and 'value="consented"' not in r.text
     # the approved ICF versions, as history rows
@@ -97,12 +98,14 @@ def test_consent_record_version_check_order_flags_and_reconsent_list(lb: dict[st
 
 
 def test_registry_no_longer_records_consent(lb: dict[str, Any]) -> None:  # noqa: F811
+    """D-399 (UX-012): consent is recorded one way, the consent form. Since D-1221 the registry sets no status at all:
+    no status field on its page, and its POST is gone, so a hand-set "consented" cannot be sent."""
     c, _ = login(lb["app"], "crc", PW)
     page = c.get("/pilot/registry/GZQO").text
-    add = page[page.index('id="status"') : page.index("</select>", page.index('id="status"'))]
-    assert 'value="contacted"' in add and 'value="consented"' not in add
+    assert 'id="status"' not in page and 'name="status"' not in page and 'value="consented"' not in page
+    before = [(e.pid, e.status) for e in lb["reg"].rows("GZQO")]
     r = c.post("/pilot/registry/GZQO", data={"csrf": _csrf(page), "mrn": "A1001", "status": "consented"})
-    assert r.status_code == 400 and "participant page" in r.text
+    assert r.status_code == 405 and [(e.pid, e.status) for e in lb["reg"].rows("GZQO")] == before
 
 
 def test_consent_strings_in_every_language() -> None:

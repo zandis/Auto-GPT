@@ -51,9 +51,9 @@ from tb_common.reasons import label as reason_label
 from tb_common.service_auth import bind_session
 from tb_common.ulid import new_ulid
 from tb_common.verdict_word import shown_of
-from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
+from tb_contracts import Job, JobOutput, RegistryPromote
 
-from console import acting, api_first, demo_guard, feedback, firstrun, i18n_roles, next_page
+from console import acting, api_first, demo_guard, feedback, firstrun, i18n_roles, next_page, person_state
 from console import actor as console_actor
 from console.account_rules import Hooks as AccountHooks
 from console.account_rules import Rules as AccountRules
@@ -86,7 +86,6 @@ from console.identity import (
 from console.identity import register as register_identity
 from console.proposals import Classifier, Proposal, ProposalError, job_create, propose
 from console.refusals import localize as localize_refusal
-from console.registry_view import RECORDED_ELSEWHERE, STATUSES, status_options
 from console.timefmt import local_time, local_today, site_zone
 
 HERE = Path(__file__).resolve().parent
@@ -2188,10 +2187,14 @@ def create_app(
 
     # ------------------------------------------------------------------ candidate registry (D-92)
     def _registry_page(request: Request, sess: Session, rs: str, status: int = 200, **ctx: Any) -> HTMLResponse:
-        gone = helpers.gone()  # D-273 (PV-4): the screening log's page leaves out who opted out, as its export does
-        rows = [e for e in bk.registry_rows(rs) if e.pid not in gone]
-        from orchestrator.candidates import counts as _counts
-
+        # D-1221 (review R10): every person of the study with their one state (console.person_state), the same on
+        # every list; the screening log's own row (its reason, who, from where) beside it. No status is set here.
+        entries = {e.pid: e for e in bk.registry_rows(rs)}  # a refusal of the study is the page's (400)
+        people = person_state.read(helpers, rs)  # D-273 (PV-4): leaves out who opted out, as the export does
+        order = {name: i for i, name in enumerate(person_state.STATES)}
+        ranked = sorted((st_.name, pid) for pid, st_ in people.states().items() if not pid.startswith("#"))
+        rows = [{"pid": pid, "state": people.of(pid), "entry": entries.get(pid)}
+                for _, pid in sorted(ranked, key=lambda x: (order[x[0]], x[1]))]  # fmt: skip
         return page(
             request,
             "registry_ruleset.html",
@@ -2199,9 +2202,8 @@ def create_app(
             status,
             ruleset=rs,
             rows=rows,
-            counts=_counts(rows),
-            statuses=STATUSES,
-            options=status_options,
+            shown=person_state.shown_counts(people.counts()),
+            readable=people.readable,
             **ctx,
         )
 
@@ -2214,8 +2216,12 @@ def create_app(
         # a registry may outlive its ruleset version (e.g. after a re-approval): still list it
         rulesets += [RulesetInfo(rs_id, None, "registry", "trial") for rs_id in sorted(summaries) if rs_id not in known]
         rulesets = [r for r in rulesets if sess.user.sees_study(r.id)]
-        summaries = {k: v for k, v in summaries.items() if sess.user.sees_study(k)}
-        return page(request, "registry.html", sess, rulesets=rulesets, summaries=summaries, statuses=STATUSES)
+        # D-1221: each study's people by their one state, as its home card and its own page count them
+        people = {r.id: person_state.read(helpers, r.id) for r in rulesets}
+        counts = {k: v.counts() for k, v in people.items()}
+        cols = [s for s in person_state.COUNTED if any(c[s] for c in counts.values())]
+        return page(request, "registry.html", sess, rulesets=rulesets, summaries=summaries, counts=counts,
+                    readable={k: v.readable for k, v in people.items()}, cols=cols)  # fmt: skip
 
     @app.get("/pilot/registry/{ruleset}", response_class=HTMLResponse)
     def registry_view(request: Request, ruleset: str) -> Response:
@@ -2232,51 +2238,9 @@ def create_app(
         except Refused as exc:
             raise _Problem(400, "request.refused", reason=str(exc)) from exc
 
-    @app.post("/pilot/registry/{ruleset}")
-    def registry_edit(
-        request: Request,
-        ruleset: str,
-        csrf: str = Form(""),
-        pid: str = Form(""),
-        mrn: str = Form(""),
-        status: str = Form(""),
-        reason: str = Form(""),
-    ) -> Response:
-        sess = need_requester(request, csrf)
-        rs = ruleset.strip().upper()
-        if not _RULESET_ID.match(rs) or status not in STATUSES:
-            raise _Problem(400, "request.refused", reason="choose a ruleset and a status")
-        if status in RECORDED_ELSEWHERE:  # D-399 (UX-012): one way to record consent, the consent form
-            raise _Problem(
-                400, "request.refused", reason="record consent on the participant page: it opens the consent form"
-            )
-        who = actor(sess)  # T-715b (D-550): for this object only; the orchestrator takes the person from the claim
-        upd = RegistryUpdate(
-            pid=pid.strip() or None,
-            mrn=re.sub(r"\s+", "", mrn) or None,
-            status=status,  # type: ignore[arg-type]
-            reason=reason.strip()[:500] or None,
-            by=who,
-            source="manual",
-        )
-        au.append(
-            "console.registry",
-            actor=actor(sess),
-            ruleset=rs,
-            detail={"action": "update", "status": status, "by_mrn": bool(upd.mrn)},
-        )
-        # T-715b (D-550): every registry change is signed for this person and this request (T-719: a row by chart
-        # number is also this person's lookup); the box refuses a bare token
-        from console import actor as acting
-
-        def sign(method: str, path: str, body: Any) -> dict[str, str]:
-            return acting.assert_for(helpers, sess, "request.prepare", rs, method, path, body)
-
-        try:
-            bk.registry_update(rs, upd, sign)
-        except Refused as exc:
-            return _registry_page(request, sess, rs, 422, error=str(exc))
-        return RedirectResponse(f"/pilot/registry/{rs}", status_code=303)
+    # D-1221 (review B-2, R10): the registry's own status form (POST /pilot/registry/{ruleset}) is gone. A person's
+    # state follows the steps that record it: the investigator's mark, the contact outcome, the consent form and the
+    # participant's life steps; the screening log follows them (D-399, T-516).
 
     @app.post("/pilot/registry/{ruleset}/promote")
     def registry_promote(request: Request, ruleset: str, csrf: str = Form("")) -> Response:

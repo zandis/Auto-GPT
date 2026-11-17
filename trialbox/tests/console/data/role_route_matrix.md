@@ -246,7 +246,6 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/pilot/propose` | Y | Y | - | - | Y | - | - | - | - |
 | POST | `/pilot/propose/{pid}/confirm` | Y | Y | - | - | Y | - | - | - | - |
 | POST | `/pilot/protocol` | Y | Y | - | - | Y | - | - | - | - |
-| POST | `/pilot/registry/{ruleset}` | Y | Y | - | - | Y | - | - | - | - |
 | POST | `/pilot/registry/{ruleset}/promote` | Y | Y | - | - | Y | - | - | - | - |
 | POST | `/pilot/request` | Y | Y | - | - | Y | - | - | - | - |
 | POST | `/settings/notices` | Y | Y | Y | Y | Y | - | Y | Y | Y |

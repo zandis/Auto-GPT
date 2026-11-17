@@ -1749,10 +1749,11 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     t = time.perf_counter()
     s.check("S36 test connection", res["s36_ok"])
     s.check(
-        "candidate -> consented -> enrolled",
-        res["before"] == cat["registry.status.candidate"]
-        and res["after_consent"].startswith(cat["registry.status.consented"])
-        and res["after_enrol"].startswith(cat["registry.status.enrolled"]),
+        # D-1221: the log names the person's one state (approved, not reached on the first call: to contact)
+        "to contact -> consented -> enrolled",
+        res["before"] == cat["person.state.to_contact"]
+        and res["after_consent"].startswith(cat["person.state.consented"])
+        and res["after_enrol"].startswith(cat["person.state.enrolled"]),
         (res["before"], res["after_consent"], res["after_enrol"]),
     )
     s.check("sponsor subject number shown", res["subject_shown"])
@@ -1879,7 +1880,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     r = crc.post(f"/studies/{TRIAL}/redcap-read", data={"csrf": fd._csrf(r.text), "back": "log"})
     s.check(
         "next run: consent read back on the log",
-        rc_demo.status_of(r.text, new_no).startswith(cat["registry.status.consented"]),
+        rc_demo.status_of(r.text, new_no).startswith(cat["person.state.consented"]),
         rc_demo.status_of(r.text, new_no),
     )
     s.check("next run: tb_status follows (3, consented)", sim_rows().get(new_rid, {}).get("tb_status") == "3")

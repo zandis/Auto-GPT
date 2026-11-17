@@ -55,7 +55,7 @@ NO_TWIN_YET: tuple[str, ...] = (
     "/pilot/cascade", "/pilot/case", "/pilot/consent", "/pilot/jobs/{job_id}/approval/label",
     "/pilot/jobs/{job_id}/approval/tick", "/pilot/jobs/{job_id}/approve", "/pilot/jobs/{job_id}/release",
     "/pilot/jobs/{job_id}/reveal", "/pilot/mailbox", "/pilot/propose", "/pilot/propose/{pid}/confirm",
-    "/pilot/protocol", "/pilot/registry/{ruleset}", "/pilot/registry/{ruleset}/promote", "/pilot/request",
+    "/pilot/protocol", "/pilot/registry/{ruleset}/promote", "/pilot/request",
     # site set-up (FIT-019: staff directory, sheets)
     "/site/people/resolve", "/site/practice", "/site/remote", "/site/sheets", "/site/staff",
     # a study's set-up and its team (FIT-019: delegation log and its monthly check)

@@ -54,9 +54,12 @@
 </div>{% endif %}
 {% endmacro %}
 
-{% macro outcome_box(rs, pid, back, keys, screening_no, outcomes, mark=none, contact=none) %}
+{% macro outcome_box(rs, pid, back, keys, screening_no, outcomes, mark=none, contact=none, person=none) %}
 {% if user.can_request %}
-{% if not mark or mark.mark != 'approach' %}
+{# D-1221 (walk finding F-13): no contact step for a participant or a person the study has finished with #}
+{% if person and not person.contactable %}
+<div class="actp outform" data-testid="outcome-done"><strong>{{ t('outcome.title') }}</strong><p class="hint">{{ t('person.no_contact', state=t(person.key)) }}</p>{% if outcomes %}<ul class="plain hint">{% for o in outcomes[-3:] %}<li>{{ o.at|local }} · {{ o.by }} · {{ t('outcome.' + o.outcome) }}</li>{% endfor %}</ul>{% endif %}</div>
+{% elif not mark or mark.mark != 'approach' %}
 <div class="actp outform" data-testid="outcome-wait"><strong>{{ t('outcome.title') }}</strong><p class="hint">{{ t('outcome.wait_pi.hint') }}</p></div>
 {% elif ref_wait is defined and ref_wait %}{# T-516 (UX-013): Approach is paused while the treating doctor has not agreed #}
 <div class="actp outform" data-testid="outcome-paused"><strong>{{ t('outcome.title') }}</strong><p class="hint">{{ t('team.approach.paused', state=t('team.state.' + ref_wait.state)) }}</p></div>

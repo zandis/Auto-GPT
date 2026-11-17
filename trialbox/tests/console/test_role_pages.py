@@ -7,9 +7,11 @@ import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace as Row
 from typing import Any
 
 import pytest
+from console import person_state as ps
 from console import studies as st
 from console.i18n import CATALOGUES
 from console.sitestore import Mark, SiteProfile, SiteStore
@@ -243,7 +245,8 @@ def test_weekly_list_marks_and_patient_page_in_three_languages(box: dict[str, An
     r = pi.post(
         f"/studies/GZQO/patients/{'a' * 32}/mark", data={"csrf": _csrf(page), "mark": "approach"}, follow_redirects=True
     )
-    assert 'data-testid="mark-aaaaaaaa"' in r.text
+    # D-1221: the row names the person's one state: approved, nobody has called yet (walk finding F-05)
+    assert re.search(r'data-state="to_contact" data-testid="state-aaaaaaaa">To contact<', r.text)
     events = [
         json.loads(x) for f in sorted((box["dir"] / "audit").glob("*.jsonl")) for x in f.read_text().splitlines() if x
     ]
@@ -392,8 +395,12 @@ def test_worklists_pipeline_and_procedure_step() -> None:
     counts = st.worklist_counts(rows, today)
     assert counts == {"clinic": 1, "ready": 3, "needs": 0, "review": 2, "info": 1, "approached": 1, "all": 4}
     assert st.met_score(fit) == (17, 23)
-    pipe = st.pipeline_counts(rows, {"c": "contacted", "z": "consented"})
-    assert pipe == {"found": 5, "reviewed": 3, "contacted": 2, "consented": 1, "enrolled": 0}
+    # D-1221: the home card counts each person once, in their one state (console.person_state)
+    marks = {r["pid"]: r["mark"] for r in rows if r.get("mark") is not None}
+    entries = [Row(pid="c", status="contacted", updated_at="", updated_by=""),
+               Row(pid="z", status="consented", updated_at="", updated_by="")]  # fmt: skip
+    pipe = ps.gather(registry=entries, marks=marks).counts()
+    assert {k: v for k, v in pipe.items() if v} == {"need_info": 1, "contacted": 1, "consented": 1}
     kw: dict[str, Any] = {
         "approved": True,
         "feas_done": True,
@@ -429,7 +436,7 @@ def test_pi_workbench_selects_marks_and_creates_coordinator_task(box: dict[str, 
     home = crc.get("/home").text
     assert 'data-testid="task-call"' in home and 'data-testid="pipeline-GZQO"' in home
     for lang in ("ja", "zh-TW"):
-        for key in ("wb.task.call", "wb.list.clinic", "steps.weekly", "wb.pipe.consented"):
+        for key in ("wb.task.call", "wb.list.clinic", "steps.weekly", "person.state.consented"):
             assert key in CATALOGUES[lang], (lang, key)
 
 

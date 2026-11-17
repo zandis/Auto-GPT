@@ -342,20 +342,18 @@ EN: dict[str, str] = {
     "job.case.open": "Open the eligibility sheet",
     "job.case.viewer": "The sheet carries chart text. It was mailed to the study team; viewers cannot open it here.",
     "registry.title": "Candidate registry",
-    "registry.help": "Where the study team is with each candidate, per study: the site's screening log. Add patients "
-    "one by one with the chart number, take over the candidates of a SCREEN run, and record contact, consent and "
-    "enrolment as they happen. Export it for the monitor.",
-    "registry.notice": "Pseudonymous on the box; chart numbers appear only in the export. The consent status here is "
-    "the coordinator's note, not the consent record.",
+    "registry.help": "Where the study team is with each person, per study: the site's screening log. Each person's "
+    "state comes from the steps that record it (the investigator's mark, the contact outcome, the consent form, the "
+    "participant's steps). Take over the candidates of a SCREEN run here and export the log for the monitor.",
+    "registry.notice": "Pseudonymous on the box; chart numbers appear only in the export.",
+    "registry.steps": "A state is not set on this page: it follows the investigator's mark, the contact outcome, the "
+    "consent form and the participant's steps.",
     "registry.updated": "Last change",
-    "registry.add": "Add a patient",
-    "registry.add.help": "Type the chart number. The box turns it into the pseudonym and does not store the number.",
-    "registry.add.submit": "Add to the registry",
     "registry.status": "Status",
     "registry.reason": "Note (why)",
     "registry.promote": "Take over SCREEN candidates",
     "registry.promote.help": "Adds every patient of the latest SCREEN run of this study marked 'may meet the criteria' or "
-    "'to review' who is not in the registry yet, as 'candidate'.",
+    "'to review' who is not in the registry yet, as 'On the list'.",
     "registry.promote.submit": "Take over candidates",
     "registry.promoted": "{n} candidates added.",
     "registry.export": "Export the screening log (XLSX)",
@@ -364,15 +362,6 @@ EN: dict[str, str] = {
     "registry.empty": "No patients in this registry yet.",
     "registry.pid": "Pseudonym",
     "registry.source": "Source",
-    "registry.change": "Change",
-    "registry.save": "Save",
-    "registry.status.candidate": "candidate",
-    "registry.status.contacted": "contacted",
-    "registry.status.consented": "consented",
-    "registry.status.enrolled": "enrolled",
-    "registry.status.screen_fail": "screen failure",
-    "registry.status.declined": "declined",
-    "registry.status.withdrawn": "withdrawn",
     "registry.source.manual": "added by hand",
     "registry.source.screen": "SCREEN run",
     "registry.source.case": "CASE check",
@@ -721,17 +710,15 @@ JA: dict[str, str] = {
     "job.case.open": "適格性シートを開く",
     "job.case.viewer": "シートにはカルテの文章が含まれます。治験チームにメールで送付済みで、閲覧者はここでは開けません。",
     "registry.title": "候補者レジストリ",
-    "registry.help": "治験ごとに、各候補者がどの段階にあるかを記録します（施設のスクリーニングログ）。患者 ID で 1 人ずつ追加、"
-    "SCREEN 実行の候補者を引き継ぎ、連絡・同意・登録をその都度記録し、モニターへ出力します。",
-    "registry.notice": "TrialBox 内では仮名のみ。患者 ID は出力時のみ表示されます。ここでの同意状況はCRCのメモであり、同意記録ではありません。",
+    "registry.help": "治験ごとに、各人がどの段階にあるかを示します（施設のスクリーニングログ）。各人の状態は、それを記録する手順"
+    "（医師の判断、連絡結果、同意書、参加者の手順）から決まります。ここでは SCREEN 実行の候補者を引き継ぎ、モニター用に出力します。",
+    "registry.notice": "TrialBox 内では仮名のみ。患者 ID は出力時のみ表示されます。",
+    "registry.steps": "このページでは状態を設定しません。医師の判断、連絡結果、同意書、参加者の手順に従います。",
     "registry.updated": "最終更新",
-    "registry.add": "患者さんを追加",
-    "registry.add.help": "患者 ID を入力してください。TrialBox 内で仮名に変換し、番号は保存しません。",
-    "registry.add.submit": "レジストリに追加",
     "registry.status": "状況",
     "registry.reason": "メモ（理由）",
     "registry.promote": "SCREEN の候補者を引き継ぐ",
-    "registry.promote.help": "この治験の最新 SCREEN 実行で「条件に合う可能性」または「確認待ち」の患者さんのうち、未登録の方を「候補」として追加します。",
+    "registry.promote.help": "この治験の最新 SCREEN 実行で「条件に合う可能性」または「確認待ち」の患者さんのうち、未登録の方を「リスト掲載」として追加します。",
     "registry.promote.submit": "候補者を引き継ぐ",
     "registry.promoted": "{n} 名を追加しました。",
     "registry.export": "スクリーニングログを出力（XLSX）",
@@ -740,15 +727,6 @@ JA: dict[str, str] = {
     "registry.empty": "このレジストリにはまだ患者さんがいません。",
     "registry.pid": "仮名",
     "registry.source": "由来",
-    "registry.change": "変更",
-    "registry.save": "保存",
-    "registry.status.candidate": "候補",
-    "registry.status.contacted": "連絡済み",
-    "registry.status.consented": "同意取得",
-    "registry.status.enrolled": "登録",
-    "registry.status.screen_fail": "スクリーニング不適格",
-    "registry.status.declined": "辞退",
-    "registry.status.withdrawn": "中止・撤回",
     "registry.source.manual": "手入力",
     "registry.source.screen": "SCREEN 実行",
     "registry.source.case": "CASE 確認",
@@ -1089,17 +1067,15 @@ ZH: dict[str, str] = {
     "job.case.open": "開啟適格性檢核表",
     "job.case.viewer": "檢核表含病歷文字，已寄給研究團隊；檢視者無法在此開啟。",
     "registry.title": "候選者登錄",
-    "registry.help": "依研究記錄每位候選者的進度，即研究中心的篩選紀錄。可用病歷號逐一加入、接手 SCREEN 執行的候選者、"
-    "隨時記錄聯絡、同意與納入，並匯出給監測員。",
-    "registry.notice": "TrialBox 內僅存假名；病歷號只在匯出時出現。此處的同意狀態是研究護理師的註記，不是同意紀錄。",
+    "registry.help": "依研究顯示每個人的進度，即研究中心的篩選紀錄。每個人的狀態來自記錄它的步驟（主持人的標記、聯絡結果、"
+    "同意書、受試者的步驟）。可在此接手 SCREEN 執行的候選者，並匯出給監測員。",
+    "registry.notice": "TrialBox 內僅存假名；病歷號只在匯出時出現。",
+    "registry.steps": "此頁不設定狀態：狀態依主持人的標記、聯絡結果、同意書與受試者的步驟而定。",
     "registry.updated": "最後變更",
-    "registry.add": "加入病人",
-    "registry.add.help": "輸入病歷號。TrialBox 內轉為假名，不儲存病歷號。",
-    "registry.add.submit": "加入登錄",
     "registry.status": "狀態",
     "registry.reason": "註記（原因）",
     "registry.promote": "接手 SCREEN 候選者",
-    "registry.promote.help": "將此研究最新 SCREEN 執行中標為「可能符合條件」或「待確認」、且尚未登錄的病人，以「候選」加入。",
+    "registry.promote.help": "將此研究最新 SCREEN 執行中標為「可能符合條件」或「待確認」、且尚未登錄的病人，以「在名單上」加入。",
     "registry.promote.submit": "接手候選者",
     "registry.promoted": "已加入 {n} 位候選者。",
     "registry.export": "匯出篩選紀錄（XLSX）",
@@ -1108,15 +1084,6 @@ ZH: dict[str, str] = {
     "registry.empty": "此登錄尚無病人。",
     "registry.pid": "假名",
     "registry.source": "來源",
-    "registry.change": "變更",
-    "registry.save": "儲存",
-    "registry.status.candidate": "候選",
-    "registry.status.contacted": "已聯絡",
-    "registry.status.consented": "已同意",
-    "registry.status.enrolled": "已收案",
-    "registry.status.screen_fail": "篩選失敗",
-    "registry.status.declined": "拒絕",
-    "registry.status.withdrawn": "退出",
     "registry.source.manual": "手動加入",
     "registry.source.screen": "SCREEN 執行",
     "registry.source.case": "CASE 檢核",
@@ -1234,3 +1201,15 @@ from console.i18n_consent import ZH as _IC_ZH  # noqa: E402
 EN.update(_IC_EN)
 JA.update(_IC_JA)
 ZH.update(_IC_ZH)
+
+# D-1221 (review R10): one person's state in one set of words; the older key families copy them
+from console.i18n_person import EN as _PS_EN  # noqa: E402
+from console.i18n_person import JA as _PS_JA  # noqa: E402
+from console.i18n_person import ZH as _PS_ZH  # noqa: E402
+from console.i18n_person import alias as _ps_alias  # noqa: E402
+
+EN.update(_PS_EN)
+JA.update(_PS_JA)
+ZH.update(_PS_ZH)
+for _cat, _words in ((EN, _PS_EN), (JA, _PS_JA), (ZH, _PS_ZH)):
+    _ps_alias(_cat, _words)

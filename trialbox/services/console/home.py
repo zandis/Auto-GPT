@@ -35,6 +35,7 @@ from tb_contracts import Job
 
 from console import actor as console_actor
 from console import coded_view, s28, terminology_refused
+from console import person_state as ps
 from console import studies as st
 from console.api_first import before_body, page_twin
 from console.auth import Session, source_of
@@ -122,6 +123,8 @@ class Helpers:
     # set by register(): read again by console.team (D-147)
     crit_of: Callable[..., dict[str, Any]] | None = None
     registry_map: Callable[[str], dict[str, str]] | None = None
+    #: set by register() (D-1221): the people of one study and their one state each (``console.person_state.read``)
+    people: Callable[[str], ps.People] | None = None
     patient_ctx: Callable[..., dict[str, Any]] | None = None
     # set by console.team (D-147): the study team store, the opt-out register and the one permission function
     team: Any = None
@@ -343,12 +346,6 @@ def register(app: FastAPI, h: Helpers) -> None:
                 return {}  # never "no status"
             raise
 
-    def registry_counts(rs: str) -> dict[str, int]:
-        out: dict[str, int] = {}
-        for s in registry_map(rs).values():
-            out[s] = out.get(s, 0) + 1
-        return out
-
     def feas_bundle(sess: Session, rs: str, sponsor: bool) -> dict[str, Any] | None:
         jobs = bk.list_jobs(limit=500)
         job = st.latest_job(jobs, rs, ("FEAS",))
@@ -398,11 +395,14 @@ def register(app: FastAPI, h: Helpers) -> None:
             today=h.today(),
         )
         others_of(sess, rs, rows)
+        people = ps.read(h, rs)  # D-1221: the one state of each person, the same on every list
         for r in rows:
             r["sent_back"] = sent_back.get(str(r["pid"]))
+            r["person"] = people.of(str(r["pid"]))
         asof = {**data_as_of(job, h.today()), "dead": len(dead), "dead_unchecked": unchecked}
         return {"job": job, "rows": rows, "counts": st.week_counts(rows), "summary": summary or {}, "cl": cl,
-                "removed": removed, "asof": asof, "deceased": dead, "dead_unchecked": unchecked}  # fmt: skip
+                "removed": removed, "asof": asof, "deceased": dead, "dead_unchecked": unchecked,
+                "people": people}  # fmt: skip
 
     def deceased_now(cl: dict[str, Any] | None) -> tuple[set[str], bool]:
         """FIT-U04 (T-629, D-415): the listed patients whose record in the lake now says they died (T-616's
@@ -455,7 +455,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                 feas = rep["summary"]
         # the same rows as the weekly page, so "new" and "marked" agree with what the PI sees
         week: dict[str, Any] | None = week_bundle(sess, rs) if screen_job is not None else None
-        regc = registry_counts(rs)
+        people = week["people"] if week else ps.read(h, rs)  # D-1221: the counts of the registry and the office
         if waiting is not None:
             nxt = ("approve", f"/pilot/jobs/{waiting.job_id}/approval")
         elif feas_job is None:
@@ -512,14 +512,15 @@ def register(app: FastAPI, h: Helpers) -> None:
         return {
             "id": rs,
             "version": r.version,
-            "step": study_step(rs),
-            "pipeline": st.pipeline_counts(rows, reg),
+            "step": study_step(rs, people),
+            "people": people.counts(),
+            "people_shown": ps.shown_counts(people.counts()),
+            "people_readable": people.readable,
             "tasks": tasks,
             "clinic": clinic,
             "feas": feas,
             "feas_job": feas_job,
             "week": week,
-            "registry": regc,
             "site_missing": site.missing,
             "next": nxt,
         }
@@ -536,6 +537,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     h.settings_of = settings_of
     h.crit_of = crit_of
     h.registry_map = registry_map
+    h.people = lambda rs: ps.read(h, rs)
 
     def screen_or_403(sess: Session, rid: str, path: str) -> None:
         """D-147: once a study's delegation log names a PI, an investigator sees its patients only as the PI or a
@@ -560,7 +562,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         phi = sess.user.can_view_phi  # D-280 (CR-023): the administrator's study view carries no patient row
         return h.page(
             request, "home_crc.html", sess, cards=cards, tasks=tasks, clinic=clinic if phi else [], steps=st.STEPS,
-            pipeline_keys=st.PIPELINE, models=bk.models(), life=h.life_home(sess) if h.life_home and phi else None,
+            models=bk.models(), life=h.life_home(sess) if h.life_home and phi else None,
         )  # fmt: skip
 
     def admin_home(request: Request, sess: Session) -> Response:
@@ -809,15 +811,15 @@ def register(app: FastAPI, h: Helpers) -> None:
             team_due=bool(h.team_due and h.team_due(rid)),
         )
 
-    def study_step(rid: str) -> int:
+    def study_step(rid: str, people: ps.People | None = None) -> int:
         jobs = bk.list_jobs(limit=500)
-        regc = registry_counts(rid)
+        n = (people or ps.read(h, rid)).counts()  # D-1221: the step follows the same states as the counts
         return st.procedure_step(
             approved=any(r.id == rid and r.status == "approved" for r in bk.rulesets()),
             feas_done=st.latest_job(jobs, rid, ("FEAS",)) is not None,
             screen_done=st.latest_job(jobs, rid, SCREEN_TYPES) is not None,
-            contacted=sum(v for k, v in regc.items() if k != "candidate"),
-            enrolled=regc.get("enrolled", 0),
+            contacted=sum(n[k] for k in ps.STATES[ps.STATES.index("contacted") :] if k != "not_approached"),
+            enrolled=n["enrolled"] + n["on_study"] + n["completed"],
             waiting=st.latest_job(jobs, rid, ("FEAS", "SCREEN", "COMPILE"), state="awaiting_approval") is not None,
         )
 
@@ -869,6 +871,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             "practitioner": names.get(row.get("practitioner_id") or "", row.get("practitioner_id") or ""),
             "history": store.mark_history(rid, pid),
             "registry": registry_map(rid).get(pid),
+            "person": (listed or {}).get("person") or wk["people"].of(pid),  # D-1221
             "judging": (wk["cl"] or {}).get("judging") or {},
             "marks": MARKS,
             "reasons": settings_of(rid).reasons,
