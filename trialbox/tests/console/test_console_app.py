@@ -285,7 +285,7 @@ class FakeBackend:
             grants.record_use(grant, what="reveal", study=study, pid=pid, job_id=job_id, now=now)
         return mrn
 
-    def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str:
+    def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, principal: str) -> str:
         self.notices.append((kind, to, subject, body_md))
         return f"<notice-{len(self.notices)}@hospa.test>"
 
