@@ -87,7 +87,10 @@ def main(argv: list[str]) -> int:
             if not src.is_file():
                 missing.append(rel)
                 continue
-            to = dest / "data" / str(src).lstrip("/")
+            # as restic does: an absolute entry is kept under its whole path, a relative one under the relative path
+            # as written (not prefixed with the working folder; D-978, the box rehearsal's restore found the files at
+            # <target>/db/..., not <target>/<root>/db/...)
+            to = dest / "data" / (str(src).lstrip("/") if Path(rel).is_absolute() else rel)
             to.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, to)
         dest.mkdir(parents=True, exist_ok=True)

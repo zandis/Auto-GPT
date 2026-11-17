@@ -1662,7 +1662,17 @@ def verify(file: Path, key: Path, *, restic_pw: str | None = None) -> dict[str, 
     return {"ok": True, "site": m["site"], "created_at": m["created_at"], "layout": m.get("layout", 1),
             "files": len(m["files"]), "sha256": m["_sha256"], "excluded": m.get("excluded", {}),
             "refdata_packs": m.get("refdata_packs", []),
-            "databases": {k: sum(r[0] for r in v["rows"].values()) for k, v in m["databases"].items()}}  # fmt: skip
+            "databases": {k: sum(r[0] for r in v["rows"].values()) for k, v in m["databases"].items()},
+            "restic": _restic_said(m)}  # fmt: skip
+
+
+def _restic_said(m: dict[str, Any]) -> dict[str, Any] | None:
+    """D-978: a restic backup's lake as the verify restored and checked it (the snapshot, how many served files),
+    so a reader sees the lake came back from restic and was not empty; None for a single ``.tbbak``."""
+    rec = m.get("restic")
+    if not rec:
+        return None
+    return {"snapshot": str(rec.get("snapshot") or ""), "files": len(rec.get("files") or {})}
 
 
 def check(file: Path) -> dict[str, Any]:

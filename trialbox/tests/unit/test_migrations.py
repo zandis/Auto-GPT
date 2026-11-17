@@ -378,6 +378,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "d08533082518372c9c3972573a7370f745b1a7bb754798cb3c60408ecd9744a8",
         "bb7564dcd900b6be7567a5d5f0db38eff6ecef1d03f9127fcf353d55332dc1ce",
         "cc898ef7e93cba0f79116b2e2ce6602150cf6e54b1535dddaf5f7d6d2d7054ca",
+        # STEPS-ROLE (D-877): users.extra_roles, sessions.acting_role (a test box only)
+        "4775e64bb8830064e1a8b965c60bb4cd34bf2e5fae88e5ca7136d3d892606a77",
     ),
     # D-301: migration 3, the one-million block and the vocabulary tables
     # T-106 (D-339): migration 4, the large clinical tables partitioned by year
@@ -443,6 +445,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "01f49e5f642301298ffc286954e0aa41cf47ed5b849ecd78faffb61db125db36",
         # EDC-023 (D-859): edc version 7, the data-flow reference with the switch, and the direct-source list
         "237fcba81e000e604f3cc4bac1e217bd99ed1a73bc031522efb79fb04801fdac",
+        # E-PROV-1 (D-1047, D-989): edc version 8, the model calls each draft came from
+        "9d2f3dc99b16a609aeefd428212cadc11d3b1c75f7014354a9e12d83323d4697",
     ),
     # T-108c (D-401): mail version 3, the send keys as the outbox and the job type on each intake row
     "mail": ("dc540a482b5619e6226318becb615e79a639ab2be3c2d47154b43029886f8579",),

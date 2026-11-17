@@ -3,9 +3,9 @@
   "decision": "D-204, D-348, D-371",
   "about": "The container images the box runs, pinned: the one digest list (D-204, D-348). `images`: the images the box builds (only db so far; the others move here with T-110). For a built image: the base it is built FROM (reference and multi-arch index digest), the exact OS packages it adds (each installed at that version and held; the build fails otherwise), the signing keys it trusts, the extensions it provides with their versions and whether the image marks them trusted, and `digest`: the built image's digest, written by the release build (T-110 release.json carries the same value). `digest` is null until a release pins it: a locally built image is a mutable tag, and the update path must refuse a bundle while it is null or differs (T-111). tests/integration/test_db_image.py keeps this file equal to the Dockerfile's ARG defaults and the compose `db` image line. `postgres_major` is the one PostgreSQL major of the db image, the demo image and CI (D-371; tests/unit/test_pg_major.py, tools/ci_postgres.sh). `third_party`: every image the box pulls as published (D-348): `image` (repository:tag), `digest` (the multi-arch index digest, read from the registry), `platforms` (each platform's manifest digest; for a GPU image the CUDA architectures it is built for), `variables` (the compose variables that name it; every compose file writes ${VAR:-image@digest} with exactly these values: tools/images_lock.py check-compose and tests/unit/test_images_lock.py). `gpu` holds what the host must give the image (deploy/check_host.sh reads it): the CUDA version, the lowest NVIDIA driver it runs on, and the structured-output backend the serving record names. Moving the vLLM entry is a model change: requalify first.",
   "checked": {
-    "date": "2026-11-11",
-    "by": "T-677 (D-393), the patch window of dependency batch 3",
-    "result": "Every third_party tag and the db base read from Docker Hub: each index digest equals the one here, so no digest moved. HAPI v8.12.0-2 is still the newest hapiproject/hapi image of the 8.x line (Maven has 8.12.1, with no image yet). caddy 2.11.9-alpine, authelia 4.39.28, greenmail 2.1.15 and mailpit v1.33.1 are the newest patch tags of their lines. vLLM stays at v0.32.0: moving it is a model change (requalify first)."
+    "date": "2026-11-17",
+    "by": "SC-1 (D-979) and SC-2 (D-990), the 2026-12-10 lapse of the image findings",
+    "result": "The db base read from Docker Hub: postgres:16-trixie's index moved from sha256:f9a7b9eb (pinned 2026-11-11) to sha256:dd2bf3ce, linux/amd64 and linux/arm64 still in it; every pinned PGDG and Groonga package version is still published for both. SC-2 (D-990), the same day: caddy:2.11.9-alpine was rebuilt under its tag, index sha256:0bbb055b to sha256:003a9780, and moves; authelia/authelia:4.39.28 (sha256:bd97cff4) and hapiproject/hapi:v8.12.0-2 (sha256:0ff86aac) are unchanged and still the newest tags of their lines, so nothing moves for them. vLLM stays at v0.32.0: moving it is a model change (requalify first)."
   },
   "images": {
     "db": {
@@ -15,7 +15,7 @@
       "context": "deploy/docker",
       "base": {
         "ref": "postgres:16-trixie",
-        "digest": "sha256:f9a7b9ebf6f56201f949db745e47bc423c0f0f8294bafe991cc10bf74b029657",
+        "digest": "sha256:dd2bf3ce2dc83a81674cf7f217fcfd8a5009a4b325dda5b843bfee82a06cff6f",
         "platforms": [
           "linux/amd64",
           "linux/arm64"
@@ -100,7 +100,7 @@
     },
     "caddy": {
       "image": "caddy:2.11.9-alpine",
-      "digest": "sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee",
+      "digest": "sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0",
       "platforms": {
         "linux/amd64": {},
         "linux/arm64": {}

@@ -3,7 +3,7 @@
 # rehearse.sh starts, one phase per call, and exits non-zero when the phase's assertion fails. Every TrialBox file it
 # uses comes from the offline media in $TB_RH_MEDIA (the release tree, the signed bundle, the vendor key).
 #
-#   box.sh wsl2|media-negative|install|reinstall|doctor|served|offline|console|screen|after-restart|wrong-name|missing-key
+#   box.sh wsl2|media-negative|install|reinstall|doctor|served|offline|console|screen|after-restart|restic-restore|wrong-name|missing-key
 #
 # Environment (set by rehearse.sh): TB_RH_DIR (work dir, the same path on the Docker host), TB_RH_MEDIA (the media
 # folder), TB_RH_BUNDLE (the bundle file name), TB_RH_BOX (where the box is installed: the site's /opt/trialbox).
@@ -506,6 +506,79 @@ done = [j for j in jobs if j.get("comment") == "rehearsal-first" and j["state"] 
 assert done, "no finished SCREEN from before the restart"
 print(f"ok: SCREEN {done[0]['job_id']} from before the restart is still on the box")
 EOF
+  ;;
+
+# ------------------------------------------------------------------------------------------------ restic-restore
+restic-restore)
+  # PERF-010 R4 (D-978, the integrator's option A): this box's KEK is the passphrase one (no TPM here), which no
+  # custodians' shares cover, so its own nightly keeps the single .tbbak (D-977). The restic path is rehearsed with a
+  # throwaway shamir KEK in this work folder: the nightly's own backup step, the bundle's backup image, the box's
+  # real volumes read-only; then the custodians' path (two shares, no box KEK) restores the lake into a temporary
+  # folder and checks every file against the sealed manifest. The live lake is only ever read.
+  cd "$BOX" || fail "no box at $BOX"
+  export PYTHONPATH="libs:services:."
+  sec="$(docker volume inspect -f '{{.Mountpoint}}' trialbox_tb-secrets)" || fail "no secrets volume"
+  python3 - "$BOX/deploy" "$sec" <<'EOF' || fail "the box's own nightly did not keep the single backup for its passphrase KEK"
+import sys
+from pathlib import Path
+from tools.trialbox import backup_schedule as bs
+ops = bs.ComposeOps(Path(sys.argv[1]))
+ops.env["TB_SECRETS_DIR"] = sys.argv[2]  # the secrets volume where this host sees it
+use, why = ops.incremental(bs.config(ops.deploy, ops.env, process_env=False))
+assert use is False and "not covered" in why and "passphrase" in why, (use, why)
+print(f"ok: the box's own nightly keeps the single encrypted backup: {why}")
+EOF
+  rr="$W/restic-rehearsal"
+  rm -rf "$rr" && mkdir -p "$rr/sec" "$rr/kek" "$rr/nas" "$rr/record/site" "$rr/verify-deploy/site" || fail "no work folder"
+  chmod 0700 "$rr"
+  (unset TB_KEK_PASSPHRASE; python3 -m tools.keys init --secrets "$rr/sec" --backend shamir --threshold 2 --shares 3 \
+    --shares-out "$rr/shares" >/dev/null) || fail "cannot make the throwaway shamir KEK"
+  mapfile -t shares < <(ls "$rr"/shares/share-*-of-3.txt)
+  [ "${#shares[@]}" = 3 ] || fail "the throwaway KEK has ${#shares[@]} shares, not 3"
+  python3 -m tools.keys unseal --secrets "$rr/sec" --share "${shares[0]}" --share "${shares[1]}" --out "$rr/kek/kek" \
+    >/dev/null || fail "cannot unseal the throwaway KEK with two shares"
+  # the host's python3 has no zstandard (the backup's own module): the key pair and the restore run in the job image
+  img="$(envget TB_BACKUP_IMAGE)"; img="${img:-trialbox-backup:1.0.0}"   # the bundle's job image, restic inside
+  docker run --rm --network none --user 0 -v "$rr:$rr" "$img" python -m tools.trialbox backup-keygen \
+    --private "$rr/backup.key" --public "$rr/backup.pub" >/dev/null || fail "cannot make the throwaway backup key pair"
+  ok "throwaway shamir KEK (2 of 3), unsealed into the work folder, and a backup key pair: never the box's"
+  file="$(python3 - "$BOX/deploy" "$rr" <<'EOF'
+import json, sys
+from pathlib import Path
+from tools.trialbox import backup_schedule as bs
+ops, rr = bs.ComposeOps(Path(sys.argv[1])), Path(sys.argv[2])
+# the nightly's own step with the throwaway folders: the host checks this KEK and makes restic.key under it, the job
+# runs in the release's backup image with these secrets and this KEK, against the box's real volumes read-only
+ops.env.update(TB_SECRETS_DIR=str(rr / "sec"), TB_KEK_FILE=str(rr / "kek" / "kek"), TB_KEK_HOST_DIR=str(rr / "kek"))
+cfg = bs.Config(deploy=rr / "record", targets=[rr / "nas"], public_key=rr / "backup.pub", production=False, keep=3,
+                site=ops.env.get("TB_SITE_ID", ""))
+res = bs.nightly(cfg, ops.make_backup(cfg), lambda e, d: None,
+                 classify=lambda p: bs.Target(str(p), "rehearsal folder", True))
+inc = res.get("incremental") or {}
+print(json.dumps({"ok": res["ok"], "errors": res["errors"], "incremental": inc}), file=sys.stderr)
+assert res["ok"], res["errors"]
+assert inc.get("restic") is True, inc
+from tools.trialbox import restic_repo
+assert (rr / "nas" / restic_repo.repo_dir(cfg.site) / "config").is_file(), "no restic repository beside the backup"
+print(rr / "nas" / res["file"]["name"])
+EOF
+)" || fail "the nightly's backup with restic failed"
+  [ -f "$file" ] || fail "no backup file in $rr/nas"
+  ok "the nightly's backup sent the lake to restic: $(basename "$file") and its repository in the rehearsal folder"
+  # the custodians' path: a dead box's backup opened with two shares (not the pair that unsealed), no box KEK, offline
+  out="$(docker run --rm --network none --user 0 -v "$rr:$rr" "$img" \
+    python -m tools.trialbox backup-verify "$file" --key "$rr/backup.key" --deploy "$rr/verify-deploy" \
+    --restic-share "${shares[0]}" --restic-share "${shares[2]}")" || { echo "$out"; fail "the custodians could not restore the lake from restic"; }
+  echo "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+r = d.get("restic") or {}
+assert d["ok"] and r.get("snapshot") and r.get("files", 0) > 0, d
+n, snap, rest = r["files"], r["snapshot"][:12], d["files"]
+print(f"ok: restored by the custodians path: {n} lake files from restic snapshot {snap}, each equal to the sealed manifest; {rest} files in the .tbbak")
+' || fail "the restore did not bring the lake back from restic"
+  rm -rf "$rr"
+  ok "the live lake was only read; the throwaway keys and the rehearsal's backup removed"
   ;;
 
 # ------------------------------------------------------------------------------------------------ negative: name

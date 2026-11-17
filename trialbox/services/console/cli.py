@@ -32,7 +32,7 @@ from typing import Any
 
 import yaml
 
-from console.account_rules import protected
+from console.account_rules import protected_account
 from console.auth import AuthError, UserStore, random_password
 
 
@@ -277,7 +277,7 @@ def _one_factor(store: UserStore, name: str, factor: str) -> None:
     """D-719: the command line holds a protected account's rule as the pages do (one factor at a time for 30 days
     unless the holder signs in). Its user holds the box's shell, so this is a record, not a wall: the record says so."""
     role = store.role_of(name)  # disabled or past its end date too
-    held = store.factor_held(name, factor) if role and protected(role) else None
+    held = store.factor_held(name, factor) if role and protected_account(store, name) else None
     if held is not None:
         until = held[1].isoformat()[:16] if held[1] is not None else "the holder chooses a password with the code"
         raise AuthError(f"the {held[0]} of '{name}' was set by someone else and not used since; not before {until}")

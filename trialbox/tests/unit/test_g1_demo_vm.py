@@ -48,6 +48,7 @@ case "$1 $2 $3" in
   "compute instances describe")
     [ -f "$S/status" ] || nf compute.instances.describe "$4"
     case "$fmt" in
+      *lastStartTimestamp*) cat "$S/last-start" 2>/dev/null || true ;;
       *natIP*) echo 34.80.0.10 ;;
       *status*)
         n=$(cat "$S/stopping" 2>/dev/null || echo 0)
@@ -60,7 +61,23 @@ case "$1 $2 $3" in
     if [ -f "$S/never-stops" ]; then echo RUNNING > "$S/status"; else echo TERMINATED > "$S/status"; fi ;;
   "compute instances delete") rm -f "$S/status" ;;
   "compute instances add-metadata" | "compute instances set-scheduling") true ;;
-  "compute instances get-serial-port-output") cat "$S/serial" 2>/dev/null || true ;;
+  "compute instances get-serial-port-output")
+    # as the API: --start N (bytes; the console may have dropped the first $S/serial-dropped of them), at most
+    # $S/page-bytes per answer, and --format=json gives contents, start and next (int64s as strings)
+    if [ "$fmt" != json ]; then cat "$S/serial" 2>/dev/null || true; exit 0; fi
+    start=0; prev=""; for a in "$@"; do [ "$prev" = --start ] && start=$a; prev=$a; done
+    python3 -c '
+import json, os, sys
+s, start = sys.argv[1], int(sys.argv[2])
+def num(name, default):
+    p = os.path.join(s, name)
+    return int(open(p).read()) if os.path.exists(p) else default
+data = open(os.path.join(s, "serial"), "rb").read() if os.path.exists(os.path.join(s, "serial")) else b""
+dropped, page = num("serial-dropped", 0), num("page-bytes", 1 << 20)
+first = max(start, dropped)
+chunk = data[first - dropped : first - dropped + page]
+print(json.dumps({"contents": chunk.decode("utf-8", "replace"), "start": str(first), "next": str(first + len(chunk))}))
+' "$S" "$start" ;;
   "compute networks describe") [ -f "$S/net-$4" ] || nf compute.networks.describe "$4" ;;
   "compute networks create") touch "$S/net-$4" ;;
   "compute networks delete") rm -f "$S/net-$4" ;;
@@ -520,48 +537,274 @@ def test_down_never_says_stopped_when_the_status_cannot_be_read(tmp_path: Path) 
 
 
 # the serial console as the trial `up` of 2026-11-15 showed it: Compute Engine's script runner prefixes every line of
-# the startup script; the boot's tee to /dev/ttyS0 writes some lines bare as well (no address here)
+# the startup script; the boot's tee to /dev/ttyS0 writes some lines bare as well (no address here). Since D-1120 the
+# boot's first line, a refusal and the marker carry the boot's random id and its time (UTC, RFC 3339).
 RUNNER = "2026-11-15T05:08:29.98+00:00 tb-demo-vm google_metadata_script_runner[949]: "
 RUNNER += 'Metadata key("startup-script"), command("/bin/bash"): '
-SERIAL_BOOT = [
-    "TB-DEMO-VM 04:59:29 hard stop: this VM powers off 12 h after this boot\r",
-    RUNNER + "TB-DEMO-VM 04:59:29 hard stop: this VM powers off 12 h after this boot",
-    "[  OK  ] Started docker.service - Docker Application Container Engine.",
-    RUNNER + "TB-DEMO-VM 05:00:54 the demo (stub model, synthetic hospital; seeds for 3 to 6 minutes)",
-]
-SERIAL_READY = [
-    RUNNER + "TB-DEMO-VM 05:08:24 caddy on :443 (tls internal for the address)",
-    RUNNER + "TB-DEMO-VM 05:08:29 ready https://the-address/ (each person: /enrol with their code)",
-    RUNNER + "DEMO-VM-READY",
-    "Nov 15 05:08:30 tb-demo-vm google_metadata_script_runner[949]: Finished running startup scripts.",
-]
+# the instance's lastStartTimestamp, as Compute Engine writes it (RFC 3339 with an offset, here not UTC's):
+# 2026-11-15T04:59:00.123Z
+LAST_START = "2026-11-14T20:59:00.123-08:00"
+THIS, EARLIER = "aaaabbbbccccdddd", "bbbbccccddddeeee"  # boot ids (random hex on the VM)
 
 
-def _serial(tmp: Path, lines: list[str]) -> None:
+def _boot_lines(boot: str = THIS, started: str = "2026-11-15T04:59:29Z") -> list[str]:
+    first = f"TB-DEMO-VM 04:59:29 hard stop: this VM powers off 12 h after this boot (boot {boot} started {started})"
+    return [
+        first + "\r",
+        RUNNER + first,
+        "[  OK  ] Started docker.service - Docker Application Container Engine.",
+        RUNNER + "TB-DEMO-VM 05:00:54 the demo (stub model, synthetic hospital; seeds for 3 to 6 minutes)",
+    ]
+
+
+def _marker_lines(boot: str = THIS, at: str = "2026-11-15T05:08:29Z", kind: str = "READY") -> list[str]:
+    return [
+        RUNNER + "TB-DEMO-VM 05:08:24 caddy on :443 (tls internal for the address)",
+        RUNNER + "TB-DEMO-VM 05:08:29 ready https://the-address/ (each person: /enrol with their code)",
+        RUNNER + f"DEMO-VM-{kind} boot={boot} at={at}",
+        "Nov 15 05:08:30 tb-demo-vm google_metadata_script_runner[949]: Finished running startup scripts.",
+    ]
+
+
+SERIAL_BOOT = _boot_lines()
+SERIAL_READY = _marker_lines()
+# an earlier boot (before the last stop and start): its lines stay in the serial buffer
+EARLIER_BOOT = _boot_lines(EARLIER, "2026-11-14T22:10:03Z")
+EARLIER_READY = _marker_lines(EARLIER, "2026-11-14T22:19:41Z")
+STALE = "is an earlier boot's"
+
+
+def _serial(tmp: Path, lines: list[str], last_start: str | None = LAST_START) -> None:
     (tmp / "state" / "serial").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if last_start is not None:
+        (tmp / "state" / "last-start").write_text(last_start + "\n", encoding="utf-8")
+
+
+def _status(tmp: Path, lines: list[str], *args: str, last_start: str | None = LAST_START) -> str:
+    _serial(tmp, lines, last_start)
+    rc, out = _run(tmp, "status", *args)
+    assert rc == 0, out  # status exits 0 whatever the boot says (D-1120 adds no exit code)
+    return out
 
 
 def test_status_reads_the_ready_marker_behind_the_script_runners_prefix(tmp_path: Path) -> None:
     assert _run(tmp_path, "up", "--yes")[0] == 0
-    _serial(tmp_path, SERIAL_BOOT)
-    rc, out = _run(tmp_path, "status")
-    assert rc == 0 and "boot: not ready yet" in out and "DEMO-VM-READY (" not in out, out
+    out = _status(tmp_path, SERIAL_BOOT)
+    assert "boot: not ready yet" in out and "DEMO-VM-READY (" not in out, out
     assert "  TB-DEMO-VM 05:00:54 the demo" in out and "google_metadata_script_runner" not in out, out
-    _serial(tmp_path, SERIAL_BOOT + SERIAL_READY)
-    rc, out = _run(tmp_path, "status")
-    assert rc == 0 and "boot: DEMO-VM-READY" in out, out
+    out = _status(tmp_path, SERIAL_BOOT + SERIAL_READY)
+    assert "boot: DEMO-VM-READY" in out, out
     assert out.count("hard stop: this VM powers off") == 1, out  # the bare and the prefixed copy shown once
     assert "Finished running" not in out and "docker.service" not in out, out
     # a later boot (down, up) that failed: its own marker counts, not the earlier boot's READY
-    _serial(tmp_path, SERIAL_BOOT + SERIAL_READY + SERIAL_BOOT + [RUNNER + "DEMO-VM-NOT-READY"])
-    rc, out = _run(tmp_path, "status")
-    assert rc == 0 and "boot: DEMO-VM-NOT-READY" in out and "boot: DEMO-VM-READY" not in out, out
-    _serial(tmp_path, [RUNNER + "TB-DEMO-VM refused: metadata tb-demo-hours must be a whole number of hours"])
-    rc, out = _run(tmp_path, "status")
-    assert rc == 0 and "boot: refused" in out and "tb-demo-hours must be" in out, out
-    _serial(tmp_path, [])
-    rc, out = _run(tmp_path, "status")
-    assert rc == 0 and "boot: not ready yet" in out, out
+    out = _status(tmp_path, EARLIER_BOOT + EARLIER_READY + SERIAL_BOOT + _marker_lines(kind="NOT-READY"))
+    assert "boot: DEMO-VM-NOT-READY" in out and "boot: DEMO-VM-READY" not in out, out
+    refused = f"TB-DEMO-VM refused: metadata tb-demo-hours must be a whole number of hours (boot {THIS} at 2026-11-15T04:59:20Z)"
+    out = _status(tmp_path, [RUNNER + refused])
+    assert "boot: refused" in out and "tb-demo-hours must be" in out, out
+    out = _status(tmp_path, [])
+    assert "boot: not ready yet" in out, out
+
+
+# ------------------------------------------------------------------- status: only this boot's marker counts (D-1120)
+
+
+def test_status_a_stale_ready_line_of_an_earlier_boot_is_not_ready(tmp_path: Path) -> None:
+    """Lane G, 2026-11-16 23:34 UTC: after a stop and a start the earlier boot's DEMO-VM-READY was still in the serial
+    buffer and status said ready while the new boot was still seeding."""
+    assert _run(tmp_path, "up", "--yes")[0] == 0
+    out = _status(tmp_path, EARLIER_BOOT + EARLIER_READY)
+    assert "boot: not ready yet" in out and "boot: DEMO-VM-READY" not in out, out
+    assert STALE in out and f"boot {EARLIER}" in out and "2026-11-14T22:19:41+00:00" in out, out
+    assert "TB-DEMO-VM 05:08:29 ready" not in out, out  # the earlier boot's lines are not shown as this one's
+
+
+def test_status_a_fresh_ready_line_of_this_boot_is_ready(tmp_path: Path) -> None:
+    assert _run(tmp_path, "up", "--yes")[0] == 0
+    out = _status(tmp_path, SERIAL_BOOT + SERIAL_READY)
+    assert "boot: DEMO-VM-READY (the demo answers;" in out and f"this boot: {THIS}" in out, out
+    assert STALE not in out, out
+
+
+@pytest.mark.parametrize(
+    ("lines", "want"),
+    [
+        (EARLIER_BOOT + EARLIER_READY + SERIAL_BOOT, "boot: not ready yet"),  # this boot still seeding
+        (EARLIER_BOOT + EARLIER_READY + SERIAL_BOOT + _marker_lines(kind="NOT-READY"), "boot: DEMO-VM-NOT-READY"),
+        (
+            EARLIER_BOOT + _marker_lines(EARLIER, "2026-11-14T22:19:41Z", "NOT-READY") + SERIAL_BOOT + SERIAL_READY,
+            "boot: DEMO-VM-READY (",
+        ),
+    ],
+    ids=["earlier-ready-this-seeding", "earlier-ready-this-not-ready", "earlier-not-ready-this-ready"],
+)
+def test_status_with_both_boots_in_the_buffer_this_boots_latest_marker_decides(
+    tmp_path: Path, lines: list[str], want: str
+) -> None:
+    assert _run(tmp_path, "up", "--yes")[0] == 0
+    out = _status(tmp_path, lines)
+    assert want in out, out
+    for other in {"boot: not ready yet", "boot: DEMO-VM-NOT-READY", "boot: DEMO-VM-READY ("} - {want}:
+        assert other not in out, out
+
+
+def test_status_an_old_images_ready_line_cannot_tell(tmp_path: Path) -> None:
+    """An image before D-1120 prints a bare DEMO-VM-READY: no id, no stamp, so it cannot be told from an earlier
+    boot's. Never ready."""
+    assert _run(tmp_path, "up", "--yes")[0] == 0
+    old_boot = [RUNNER + "TB-DEMO-VM 04:59:29 hard stop: this VM powers off 12 h after this boot"]
+    out = _status(
+        tmp_path, [*old_boot, RUNNER + "TB-DEMO-VM 05:08:29 ready https://the-address/", RUNNER + "DEMO-VM-READY"]
+    )
+    assert "boot: cannot tell: the image prints no boot id; ready line is older format" in out, out
+    assert "boot: DEMO-VM-READY (" not in out, out
+    # a stamped earlier boot's READY and then an old image's: still cannot tell, never the stamped one
+    out = _status(tmp_path, EARLIER_BOOT + EARLIER_READY + old_boot + [RUNNER + "DEMO-VM-READY"])
+    assert "boot: cannot tell" in out and "boot: DEMO-VM-READY (" not in out, out
+    # an old image's refusal: cannot tell either, and its reason is shown
+    out = _status(tmp_path, [RUNNER + "TB-DEMO-VM refused: metadata tb-demo-hours must be a whole number of hours"])
+    assert "boot: cannot tell" in out and "tb-demo-hours must be" in out, out
+
+
+def test_status_clock_skew_the_boot_id_decides(tmp_path: Path) -> None:
+    """The rule: the boot id beats the VM's clock. Once this boot's first line is stamped at or after the start, only
+    its id counts; with --boot-id (as `links` printed it) no clock is read at all."""
+    assert _run(tmp_path, "up", "--yes")[0] == 0
+    # the VM's clock runs ahead: the earlier boot's READY is stamped after this start, but this boot (its first line
+    # after the start too) has printed no marker yet
+    ahead = _marker_lines(EARLIER, "2026-11-15T05:30:00Z")
+    out = _status(tmp_path, EARLIER_BOOT + ahead + SERIAL_BOOT)
+    assert "boot: not ready yet" in out and "boot: DEMO-VM-READY (" not in out, out
+    # the VM's clock runs behind (ten minutes): this boot's first line and its READY look older than the start
+    behind = _boot_lines(THIS, "2026-11-15T04:49:29Z") + _marker_lines(THIS, "2026-11-15T04:58:29Z")
+    out = _status(tmp_path, EARLIER_BOOT + EARLIER_READY + behind)
+    assert "boot: not ready yet" in out and STALE in out, out  # the clock alone cannot vouch for it
+    out = _status(tmp_path, EARLIER_BOOT + EARLIER_READY + behind, "--boot-id", THIS)
+    assert "boot: DEMO-VM-READY (" in out and f"this boot: {THIS}" in out, out
+    # the id of a boot that printed nothing yet: not ready, whatever an earlier boot printed
+    out = _status(tmp_path, EARLIER_BOOT + EARLIER_READY, "--boot-id", THIS)
+    assert "boot: not ready yet" in out and f"no line of boot {THIS}" in out, out
+
+
+def test_status_compares_instants_not_text(tmp_path: Path) -> None:
+    """lastStartTimestamp carries its offset (-08:00 here); the boot stamps UTC. 2026-11-14T21:10-08:00 is 05:10 UTC on
+    the 15th, so a READY stamped 05:08 UTC on the 15th is older although its text sorts after."""
+    assert _run(tmp_path, "up", "--yes")[0] == 0
+    out = _status(tmp_path, SERIAL_READY, last_start="2026-11-14T21:10:00.000-08:00")
+    assert "boot: not ready yet" in out and STALE in out, out
+    out = _status(tmp_path, SERIAL_READY, last_start="2026-11-14T21:05:00.000-08:00")
+    assert "boot: DEMO-VM-READY (" in out, out
+
+
+def test_status_of_a_vm_that_is_not_running_reads_no_ready_line(tmp_path: Path) -> None:
+    assert _run(tmp_path, "up", "--yes")[0] == 0
+    assert _run(tmp_path, "down", TB_DEMO_VM_STOP_WAIT_S="10")[0] == 0
+    (tmp_path / "state" / "argv.log").unlink()
+    out = _status(tmp_path, SERIAL_BOOT + SERIAL_READY)
+    assert "VM tb-demo-vm (asia-east1-a): TERMINATED" in out, out
+    assert "boot: the VM is TERMINATED: no ready line is read" in out and "DEMO-VM-READY (" not in out, out
+    assert not any("get-serial-port-output" in c for c in _argv(tmp_path))
+
+
+def test_status_reads_the_whole_buffer_page_by_page(tmp_path: Path) -> None:
+    """The reverse fault (the integrator, 2026-11-17: a ready VM read as not ready). One get-serial-port-output answer
+    need not hold the whole buffer: the newest bytes, where the marker is, were then never read. status pages with
+    --start from each answer's next (port 1, where the boot writes), so the marker is found, also when a page's
+    edge cuts its line in two."""
+    assert _run(tmp_path, "up", "--yes")[0] == 0
+    noise = [f"[  {i:4d}.000000] kernel: a line of the console that is not the boot's" for i in range(40)]
+    lines = SERIAL_BOOT + noise + SERIAL_READY
+    text = "\n".join(lines) + "\n"
+    page = 97  # a prime: the page edges fall inside lines, the marker's among them
+    marker = text.index("DEMO-VM-READY boot=")
+    line_start, line_end = text.rindex("\n", 0, marker) + 1, text.index("\n", marker)
+    assert any(line_start < k * page < line_end for k in range(1, len(text) // page + 1))  # the marker's line is cut
+    (tmp_path / "state" / "page-bytes").write_text(str(page))
+    assert "DEMO-VM-READY" not in text[:page]  # one answer alone (the old single call) never saw the marker
+    (tmp_path / "state" / "argv.log").unlink()
+    out = _status(tmp_path, lines)
+    assert "boot: DEMO-VM-READY (" in out, out
+    calls = [c for c in _argv(tmp_path) if c.startswith("compute instances get-serial-port-output")]
+    assert len(calls) >= len(text) // page, calls
+    assert all("--port 1 " in c and "--format=json " in c for c in calls), calls
+    starts = [int(c.split("--start ")[1].split()[0]) for c in calls]
+    assert starts[:3] == [0, page, 2 * page], starts
+
+
+def test_status_when_the_buffer_dropped_this_boots_first_line(tmp_path: Path) -> None:
+    """The console keeps the newest output only: this boot's first line can be gone while its marker is there. The
+    marker's own stamp, at or after the start, then counts; the note says the buffer was cut."""
+    assert _run(tmp_path, "up", "--yes")[0] == 0
+    (tmp_path / "state" / "serial-dropped").write_text("1048576")
+    out = _status(tmp_path, SERIAL_READY)
+    assert "boot: DEMO-VM-READY (" in out and "the serial buffer starts at byte 1048576" in out, out
+    out = _status(tmp_path, EARLIER_READY)
+    assert "boot: not ready yet" in out and STALE in out, out
+
+
+def test_status_without_the_start_time_cannot_tell(tmp_path: Path) -> None:
+    assert _run(tmp_path, "up", "--yes")[0] == 0
+    out = _status(tmp_path, SERIAL_BOOT + SERIAL_READY, last_start="")
+    assert "boot: cannot tell (the instance's lastStartTimestamp could not be read" in out, out
+    out = _status(tmp_path, SERIAL_BOOT + SERIAL_READY, "--boot-id", THIS, last_start="")
+    assert "boot: DEMO-VM-READY (" in out, out
+
+
+@pytest.mark.parametrize(
+    ("args", "why"),
+    [
+        (("status", "--boot-id", "not-hex"), "16 hex digits"),
+        (("status", "--boot-id"), "16 hex digits"),
+        (("links", "--boot-id", THIS), "for status only"),
+    ],
+    ids=["not-hex", "missing", "not-status"],
+)
+def test_status_boot_id_is_checked(tmp_path: Path, args: tuple[str, ...], why: str) -> None:
+    rc, out = _run(tmp_path, *args)
+    assert rc == 2 and why in out, out
+    assert _argv(tmp_path) == []
+
+
+def test_status_dry_run_says_how_it_reads_this_boot(tmp_path: Path) -> None:
+    rc, out = _run(tmp_path, "--dry-run", "status")
+    assert rc == 0 and "value(lastStartTimestamp)" in out and "--port 1 --start 0 --format=json" in out, out
+    assert _argv(tmp_path) == []
+
+
+def test_links_prints_the_boot_id(tmp_path: Path) -> None:
+    _env(tmp_path)
+    gcs = tmp_path / "state" / "gcs"
+    gcs.mkdir()
+    (gcs / "enrol-20261117T010000Z.txt").write_text(
+        f"TrialBox demo VM https://34.80.0.10/ (boot 20261117T010000Z, boot id {THIS}). Synthetic data only.\n"
+        "owner (investigator): https://34.80.0.10/enrol  code: abcd\n"
+    )
+    rc, out = _run(tmp_path, "links")
+    assert rc == 0 and f"== boot id: {THIS} (deploy/gcp/demo-vm.sh status --boot-id {THIS}" in out, out
+    (gcs / "enrol-20261117T020000Z.txt").write_text("owner (investigator): code: efgh\n")  # an image before D-1120
+    rc, out = _run(tmp_path, "links")
+    assert rc == 0 and "== boot id: none in the object" in out, out
+
+
+def test_the_boot_prints_its_id_and_time_on_the_lines_status_weighs(tmp_path: Path) -> None:
+    rc, out = _boot(tmp_path, "--dry-run")
+    assert rc == 0, out
+    m = re.search(r"hard stop: this VM powers off 12 h after this boot \(boot ([0-9a-f]{16}) started (\S+)\)", out)
+    assert m, out
+    from datetime import datetime
+
+    assert datetime.fromisoformat(m.group(2)).utcoffset() is not None  # RFC 3339 with its offset (Z)
+    _, out2 = _boot(tmp_path, "--dry-run")
+    m2 = re.search(r"\(boot ([0-9a-f]{16}) started", out2)
+    assert m2 and m2.group(1) != m.group(1), "the boot id is not made anew at each boot"
+    rc, out = _boot(tmp_path, "--dry-run", TB_MD_TB_DEMO_HOURS="")
+    assert rc == 3 and re.search(r"TB-DEMO-VM refused: .* \(boot [0-9a-f]{16} at \S+Z\)$", out.strip()), out
+    text = BOOT.read_text()
+    # every marker goes through marker(): READY and NOT-READY always carry the id and the time
+    assert not re.search(r"echo \"?DEMO-VM-(NOT-)?READY", text), "a bare marker in the boot script"
+    assert 'marker() { echo "DEMO-VM-$1 boot=$BOOT_ID at=$(now_utc)"; }' in text
+    assert "od -An -N8 -tx1 /dev/urandom" in text  # random, from no secret
+    assert "boot id $BOOT_ID" in text  # in the codes' object, which links prints
 
 
 def test_status_and_delete(tmp_path: Path) -> None:
@@ -867,7 +1110,7 @@ def test_the_boot_in_steps_mode_leaves_demo_mode_off_and_says_so(tmp_path: Path)
     assert rc == 0, out
     assert "steps mode (D-1062): demo mode stays OFF" in out
     assert "--print-demo-switch" not in out and "demo mode on (D-328" not in out
-    assert "python - owner.admin:admin,owner:investigator 24 < (demo-vm-boot.sh --print-people)" in out
+    assert "python - owner.admin:admin,owner:investigator 24 codes < (the steps people script)" in out
     # everything else is as in demo mode: the stub model, the hard stop, no sshd, the console behind Caddy only
     assert "TB_LLM_MODE=stub" in out and "+ shutdown -P +720" in out and "+ systemctl disable --now ssh.service" in out
     assert "-p 127.0.0.1:8080:8080" in out
@@ -882,5 +1125,67 @@ def test_the_boot_in_steps_mode_leaves_demo_mode_off_and_says_so(tmp_path: Path)
     ],
 )
 def test_the_boot_refuses_a_mode_or_a_role_it_does_not_know(tmp_path: Path, md: dict[str, str], why: str) -> None:
+    rc, out = _boot(tmp_path, "--dry-run", **md)
+    assert rc != 0 and why in out, out
+
+
+# ------------------------------------------- steps mode: one sign-in per person (D-1063) and a shared password (D-1065)
+
+ONE_EACH = "zandis:investigator+coordinator+steward+admin,wenn:investigator+coordinator+steward+admin"
+
+
+def test_steps_mode_takes_several_roles_a_person_and_the_shared_login(tmp_path: Path) -> None:
+    env = _env(tmp_path, TB_DEMO_VM_MODE="steps", TB_DEMO_VM_PEOPLE=ONE_EACH, TB_DEMO_VM_SHARED_LOGIN="1")
+    rc, out = _run(tmp_path, "--dry-run", "up", env=env)
+    assert rc == 0, out
+    assert "tb-demo-people=zandis:investigator+coordinator+steward+admin;wenn:investigator+" in out
+    assert (
+        "tb-demo-shared-login=1" in out
+        and "password" not in out.split("tb-demo-shared-login=1")[0].split("--metadata")[-1]
+    )
+
+
+@pytest.mark.parametrize(
+    ("extra", "why"),
+    [
+        ({"TB_DEMO_VM_PEOPLE": "owner:investigator+coordinator"}, "role must be one of"),  # demo mode: one role
+        ({"TB_DEMO_VM_SHARED_LOGIN": "1"}, "TB_DEMO_VM_MODE=steps only"),
+        ({"TB_DEMO_VM_MODE": "steps", "TB_DEMO_VM_SHARED_LOGIN": "yes"}, "must be 0 or 1"),
+        ({"TB_DEMO_VM_MODE": "steps", "TB_DEMO_VM_PEOPLE": "owner:admin+admin"}, "role must be one of"),
+        ({"TB_DEMO_VM_MODE": "steps", "TB_DEMO_VM_PEOPLE": "owner:admin+privacy"}, "role must be one of"),
+    ],
+)
+def test_several_roles_and_the_shared_login_are_for_steps_mode_only(
+    tmp_path: Path, extra: dict[str, str], why: str
+) -> None:
+    rc, out = _run(tmp_path, "up", "--yes", env=_env(tmp_path, **extra))
+    assert rc == 2 and why in out, out
+    assert _argv(tmp_path) == []
+
+
+def test_the_boot_in_steps_mode_opens_one_account_a_person_and_switches_the_acting_role_on(tmp_path: Path) -> None:
+    rc, out = _boot(
+        tmp_path, "--dry-run", TB_MD_TB_DEMO_MODE="steps", TB_MD_TB_DEMO_SHARED_LOGIN="1",
+        TB_MD_TB_DEMO_PEOPLE=ONE_EACH.replace(",", ";"),
+    )  # fmt: skip
+    assert rc == 0, out
+    flag = out.index("python - http://127.0.0.1:8080 steps.acting_role")
+    people = out.index(f"python - {ONE_EACH} 24 shared < (the steps people script)")
+    assert flag < people < out.index("docker run -d --name tb-demo-caddy")
+    assert f"TB_DEMO_PEOPLE={ONE_EACH}" in out  # the seed reads the roles a person holds (tools/feas_demo.py)
+    assert "--print-demo-switch" not in out
+
+
+@pytest.mark.parametrize(
+    ("md", "why"),
+    [
+        ({"TB_MD_TB_DEMO_SHARED_LOGIN": "1"}, "tb-demo-shared-login"),  # demo mode: refused
+        ({"TB_MD_TB_DEMO_MODE": "steps", "TB_MD_TB_DEMO_SHARED_LOGIN": "2"}, "tb-demo-shared-login"),
+        ({"TB_MD_TB_DEMO_PEOPLE": "owner:investigator+coordinator"}, "tb-demo-people"),  # demo mode: one role
+    ],
+)
+def test_the_boot_refuses_the_shared_login_and_several_roles_outside_steps_mode(
+    tmp_path: Path, md: dict[str, str], why: str
+) -> None:
     rc, out = _boot(tmp_path, "--dry-run", **md)
     assert rc != 0 and why in out, out

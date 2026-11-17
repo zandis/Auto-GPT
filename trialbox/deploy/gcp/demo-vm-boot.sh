@@ -36,6 +36,11 @@
 #               lock). The metadata block-project-ssh-keys=TRUE keeps the project's SSH keys off the VM.
 #   hard stop   metadata tb-demo-hours (whole hours): `shutdown -P` is armed at every boot, so the VM powers itself
 #               off that long after it started (Compute Engine's max-run-duration stops it at the same time).
+#   boot id     D-1120: each boot makes a random id (8 bytes from /dev/urandom, hex; from no secret, not a secret) and
+#               prints it, with the time in UTC (RFC 3339), on its first line, on a refusal and on its marker
+#               (DEMO-VM-READY boot=<id> at=<time>), and writes it into the codes' object, which `demo-vm.sh links`
+#               prints. `demo-vm.sh status` counts a marker only when it is this boot's (an earlier boot's marker
+#               stays in the serial console's buffer across a stop and a start).
 #
 #   demo-vm-boot.sh                    the boot run, as root
 #   demo-vm-boot.sh --dry-run          print what it would do; metadata from TB_MD_<KEY> (e.g. TB_MD_TB_DEMO_IMAGE)
@@ -52,7 +57,7 @@ while [ $# -gt 0 ]; do
     --print-caddyfile) PRINT_CADDY=1; DRY=1 ;;
     --print-demo-switch) PRINT_SWITCH=1; DRY=1 ;;
     --print-people) PRINT_PEOPLE=1; DRY=1 ;;
-    -h | --help) sed -n 2,45p "$0"; exit 0 ;;
+    -h | --help) sed -n 2,50p "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -66,8 +71,14 @@ MD=http://metadata.google.internal/computeMetadata/v1
 # the first answer on /login: CI's demo-boot budget is 600 s (demo/README.md, measured 166 to 339 s); twice that
 SEED_WAIT_S=1200
 
+# D-1120: this boot's id (random, not a secret, derived from nothing) and its time (UTC, RFC 3339) on the lines that
+# demo-vm.sh status weighs: the first line, a refusal, the marker. Never from the metadata: a boot cannot reuse an id.
+BOOT_ID=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+[[ "$BOOT_ID" =~ ^[0-9a-f]{16}$ ]] || { echo "TB-DEMO-VM refused: no boot id from /dev/urandom" >&2; exit 3; }
+now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 say() { echo "TB-DEMO-VM $(date -u +%H:%M:%S) $*"; }
-die() { echo "TB-DEMO-VM refused: $*" >&2; exit 3; }
+die() { echo "TB-DEMO-VM refused: $* (boot $BOOT_ID at $(now_utc))" >&2; exit 3; }
+marker() { echo "DEMO-VM-$1 boot=$BOOT_ID at=$(now_utc)"; }  # READY or NOT-READY, the last line of every boot
 run() { if [ "$DRY" = 1 ]; then printf '+'; printf ' %q' "$@"; printf '\n'; else "$@"; fi; }
 gone() { if [ "$DRY" = 1 ]; then echo "+ docker rm -f $1"; else docker rm -f "$1" >/dev/null 2>&1 || true; fi; }
 md() {  # md PATH [DEFAULT]: an instance metadata value; in a dry run the environment variable TB_MD_<KEY>
@@ -90,7 +101,10 @@ demo_switch() {
 import os, re, sys, urllib.error, urllib.parse, urllib.request
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8080"
+FLAG = sys.argv[2] if len(sys.argv) > 2 else "demo.mode"  # steps mode: steps.acting_role (D-1063)
 REASON = "demo VM boot (deploy/gcp/demo-vm-boot.sh): demo mode on after the seed, before tcp:443 opens (D-328)"
+if FLAG != "demo.mode":
+    REASON = f"demo VM boot (deploy/gcp/demo-vm-boot.sh), steps mode: {FLAG} on (D-1062, D-1063)"
 jar = {}
 
 
@@ -145,12 +159,15 @@ if st != 303 or loc.startswith(("/login", "/account")):
 st, _, html = call("GET", "/ops/flags")
 if st != 200:
     sys.exit(f"demo switch: /ops/flags answered {st}")
-form = {"csrf": field("csrf", html, "/ops/flags"), "name": "demo.mode", "value": "on", "reason": REASON,
+form = {"csrf": field("csrf", html, "/ops/flags"), "name": FLAG, "value": "on", "reason": REASON,
         "confirm": "yes", "old": "off"}
 st, loc, html = call("POST", "/ops/flags", form)
 if st != 303:
     keys = sorted(set(re.findall(r"flags\.err\.[a-z]+", html)))
-    sys.exit(f"demo switch: setting demo.mode answered {st} {keys}")
+    sys.exit(f"demo switch: setting {FLAG} answered {st} {keys}")
+if FLAG != "demo.mode":
+    print(f"{FLAG} on (flag.set by console:admin with the boot's reason)")
+    sys.exit(0)
 st, _, html = call("POST", "/pilot/case", multipart={"csrf": form["csrf"], "ruleset": "GZQO"})
 if st != 403 or 'data-testid="demo-banner"' not in html:
     sys.exit(f"demo switch: a multipart post answered {st}, not the demo refusal: demo mode is NOT on")
@@ -199,6 +216,46 @@ for name, role in people:
                        by="demo-vm-boot", at=now.isoformat())
     expires = (now + timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M UTC")
     print(f"{name}\t{role}\t{code}\t{expires}")
+PY
+}
+# steps mode (D-1062, D-1063, D-1065): one account per person with the roles they may act in (name:role+role), opened
+# by the console's own boot tool (console.steps_roles: a one-time code each, a test box only). With SHARED (D-1065, the
+# owner's ruling) the boot makes one password, redeems each person's code with it through the product's own first
+# sign-in (UserStore.redeem), and prints it as the first line (name "*"); only the private bucket object ever holds it.
+people_steps() {
+  cat <<'PY'
+import os, secrets, sys
+from pathlib import Path
+
+for p in (Path.cwd(), Path.cwd() / "libs", Path.cwd() / "services"):
+    sys.path.insert(0, str(p))
+# the demo's own environment (tools/demo.py sets the same default in the serving process; `docker exec` does not
+# inherit it). A container started with another TB_ENV keeps it, and steps_roles then refuses.
+os.environ.setdefault("TB_ENV", "DEV")
+from console import steps_roles  # noqa: E402
+from console.auth import UserStore  # noqa: E402
+from console.teamstore import TeamStore  # noqa: E402
+from tools import pglocal  # noqa: E402
+
+people = [(n, tuple(r.split("+"))) for n, r in (x.split(":", 1) for x in sys.argv[1].split(","))]
+hours, shared = int(sys.argv[2]), len(sys.argv) > 3 and sys.argv[3] == "shared"
+url = pglocal.for_work(Path(os.environ.get("TB_DEMO_DIR") or pglocal.scratch_root() / "tb-demo"))
+users, team = UserStore(url), TeamStore(url)
+from datetime import UTC, datetime  # noqa: E402
+
+today = datetime.now(UTC).date()
+root = Path.cwd() / "rulesets"
+studies = sorted(d.name for d in root.iterdir() if (d / "ir").is_dir() and team.pi_of(d.name, today))
+rows = steps_roles.open_people(users, team, people, studies, hours)
+if shared:
+    alphabet = "abcdefghjkmnpqrstuvwxyz23456789"  # no look-alikes; 4 x 5 of 31: about 99 bits
+    pw = "-".join("".join(secrets.choice(alphabet) for _ in range(5)) for _ in range(4))
+    for name, _roles, code, _expires in rows:
+        if users.redeem(name, code, pw, spend=True) != "ok":
+            sys.exit(f"people: {name}'s code could not be redeemed with the shared password")
+    print(f"*\tshared\t{pw}\t-")
+for name, roles, code, expires in rows:
+    print(f"{name}\t{'+'.join(roles)}\t{code}\t{expires}")
 PY
 }
 if [ "$PRINT_PEOPLE" = 1 ]; then people; exit 0; fi
@@ -261,7 +318,11 @@ SITE_LANG=$(md instance/attributes/tb-demo-site-lang "")
 MODE=$(md instance/attributes/tb-demo-mode demo)
 case "$MODE" in demo) ROLES_RE="investigator|coordinator|viewer" ;; steps) ROLES_RE="investigator|coordinator|viewer|admin|steward" ;;
   *) die "metadata tb-demo-mode must be demo or steps (got '$MODE')" ;; esac
-[[ "$PEOPLE" =~ ^[a-z][a-z0-9._-]{1,31}:($ROLES_RE)(\;[a-z][a-z0-9._-]{1,31}:($ROLES_RE))*$ ]] \
+SHARED=$(md instance/attributes/tb-demo-shared-login 0)
+case "$SHARED" in 0) ;; 1) [ "$MODE" = steps ] || die "metadata tb-demo-shared-login is for tb-demo-mode=steps only (D-1065)" ;;
+  *) die "metadata tb-demo-shared-login must be 0 or 1 (got '$SHARED')" ;; esac
+ONE="($ROLES_RE)"; [ "$MODE" != steps ] || ONE="($ROLES_RE)(\+($ROLES_RE))*"   # steps mode: name:role+role (D-1063)
+[[ "$PEOPLE" =~ ^[a-z][a-z0-9._-]{1,31}:$ONE(\;[a-z][a-z0-9._-]{1,31}:$ONE)*$ ]] \
   || die "metadata tb-demo-people must be name:role pairs (${ROLES_RE//|/, }), separated by ;"
 PEOPLE=${PEOPLE//;/,}
 for _p in ${PEOPLE//,/ }; do
@@ -279,7 +340,7 @@ elif [[ "$IMAGE" =~ ^gs://[a-z0-9._-]+/.+\.tar\.gz$ ]]; then
 else die "metadata tb-demo-image must be an image by digest or a gs:// .tar.gz (got '$IMAGE')"; fi
 
 # the hard stop first, before anything that could hang: a forgotten demo cannot bill for a week
-say "hard stop: this VM powers off $HOURS h after this boot"
+say "hard stop: this VM powers off $HOURS h after this boot (boot $BOOT_ID started $(now_utc))"
 run shutdown -P "+$((HOURS * 60))" "TrialBox demo VM: the hard stop (tb-demo-hours=$HOURS)"
 
 say "no SSH: sshd stopped and disabled (the firewall's deny-all on the VM's tag is the first lock)"
@@ -343,11 +404,11 @@ else
     if curl -sf -o /dev/null "http://127.0.0.1:8080/login" 2>/dev/null; then ok=1; break; fi
     if [ "$(docker inspect -f '{{.State.Running}}' tb-demo 2>/dev/null)" != true ]; then
       say "the demo container stopped during the seed (exit $(docker inspect -f '{{.State.ExitCode}}' tb-demo 2>/dev/null)): docker logs tb-demo (on the VM)"
-      echo DEMO-VM-NOT-READY; exit 3
+      marker NOT-READY; exit 3
     fi
     sleep 5
   done
-  [ "$ok" = 1 ] || { say "the seed gave no answer on 127.0.0.1:8080 within $SEED_WAIT_S s: docker logs tb-demo (on the VM)"; echo DEMO-VM-NOT-READY; exit 3; }
+  [ "$ok" = 1 ] || { say "the seed gave no answer on 127.0.0.1:8080 within $SEED_WAIT_S s: docker logs tb-demo (on the VM)"; marker NOT-READY; exit 3; }
 fi
 
 if [ "$MODE" = steps ]; then
@@ -355,36 +416,57 @@ if [ "$MODE" = steps ]; then
 else
 say "demo mode on (D-328: banner, uploads and pasted text refused), before tcp:443 opens"
 fi
-if [ "$MODE" = steps ]; then :
+if [ "$MODE" = steps ]; then
+  # D-1063: the acting role's flag, switched on as the administrator does it (audited), on a test box only
+  if [ "$DRY" = 1 ]; then echo "+ docker exec -i tb-demo python - http://127.0.0.1:8080 steps.acting_role < (the flag switch)"
+  elif ! demo_switch | docker exec -i tb-demo python - http://127.0.0.1:8080 steps.acting_role; then
+    docker rm -f tb-demo >/dev/null 2>&1 || true
+    say "steps.acting_role could not be switched on: the demo was removed and tcp:443 stays closed"
+    marker NOT-READY; exit 3
+  fi
 elif [ "$DRY" = 1 ]; then echo "+ docker exec -i tb-demo python - http://127.0.0.1:8080 < (demo-vm-boot.sh --print-demo-switch)"
 elif ! demo_switch | docker exec -i tb-demo python - http://127.0.0.1:8080; then
   docker rm -f tb-demo >/dev/null 2>&1 || true
   say "demo mode could not be switched on: the demo was removed and tcp:443 stays closed"
-  echo DEMO-VM-NOT-READY; exit 3
+  marker NOT-READY; exit 3
 fi
 
+SHARED_WORD=codes; [ "$SHARED" != 1 ] || SHARED_WORD=shared
 say "the people's accounts ($PEOPLE): one-time enrolment codes, $ENROL_HOURS h, to the private object only"
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 OBJECT="$HANDOFF/enrol-$STAMP.txt"
 if [ "$DRY" = 1 ]; then
+  if [ "$MODE" = steps ]; then
+    echo "+ docker exec -i tb-demo python - $PEOPLE $ENROL_HOURS $SHARED_WORD < (the steps people script) > $ETC/people.tsv (mode 0600)"
+  else
   echo "+ docker exec -i tb-demo python - $PEOPLE $ENROL_HOURS < (demo-vm-boot.sh --print-people) > $ETC/people.tsv (mode 0600)"
+  fi
   echo "+ write $ETC/handoff.txt (mode 0600) from it; gcloud storage cp $ETC/handoff.txt $OBJECT; rm both"
 else
   rm -f "$ETC/people.tsv" "$ETC/handoff.txt"
-  if ! (umask 077; people | docker exec -i tb-demo python - "$PEOPLE" "$ENROL_HOURS" >"$ETC/people.tsv"); then
+  if ! (umask 077
+        if [ "$MODE" = steps ]; then people_steps | docker exec -i tb-demo python - "$PEOPLE" "$ENROL_HOURS" "$SHARED_WORD"
+        else people | docker exec -i tb-demo python - "$PEOPLE" "$ENROL_HOURS"; fi >"$ETC/people.tsv"); then
     rm -f "$ETC/people.tsv"; docker rm -f tb-demo >/dev/null 2>&1 || true
     say "the people's accounts could not be opened: the demo was removed and tcp:443 stays closed"
-    echo DEMO-VM-NOT-READY; exit 3
+    marker NOT-READY; exit 3
   fi
   if ! (
     umask 077
     {
-      echo "TrialBox demo VM https://$IP/ (boot $STAMP). Synthetic data only. Give each person their own line, privately."
+      echo "TrialBox demo VM https://$IP/ (boot $STAMP, boot id $BOOT_ID). Synthetic data only. Give each person their own line, privately."
       echo "Each person: open their one-time link (best in a private window; the browser warns once: Caddy's own"
       echo "certificate). The page fills the user name and the code; choose a password of at least 12 characters and"
       echo "sign in. The link then works no more. If the two fields stay empty, type the user name and the code shown."
       echo
       while IFS=$'\t' read -r name role code expires; do
+        if [ "$name" = "*" ]; then   # D-1065: the one password every person's account has (steps mode, shared login)
+          [[ "$code" =~ ^[a-z0-9-]+$ ]] || exit 4
+          printf 'Shared sign-in (D-1065): open https://%s/ and sign in with your user name and this password: %s\n' "$IP" "$code"
+          printf 'Each account holds several roles: choose the acting role in the top bar. User names:\n'
+          continue
+        fi
+        if [ "$SHARED" = 1 ]; then printf '  %s (%s)\n' "$name" "$role"; continue; fi
         # D-776: the code after '#' never reaches the box; the console's script fills /enrol from it, then clears it
         [[ "$code" =~ ^[A-Za-z0-9-]+$ ]] || exit 4
         printf '%s (%s): https://%s/enrol#u=%s&c=%s  user name: %s  code: %s  (one-time link; unused, it expires %s)\n' \
@@ -394,17 +476,17 @@ else
   ); then
     rm -f "$ETC/people.tsv" "$ETC/handoff.txt"; docker rm -f tb-demo >/dev/null 2>&1 || true
     say "a one-time code is not of the product's form (letters, digits, hyphens): the demo was removed"
-    echo DEMO-VM-NOT-READY; exit 3
+    marker NOT-READY; exit 3
   fi
   rm -f "$ETC/people.tsv"
   if ! gcloud storage cp "$ETC/handoff.txt" "$OBJECT" >/dev/null 2>&1; then
     rm -f "$ETC/handoff.txt"; docker rm -f tb-demo >/dev/null 2>&1 || true
     say "the codes could not be written to $OBJECT (the VM's service account needs objectAdmin there): the demo was removed"
-    echo DEMO-VM-NOT-READY; exit 3
+    marker NOT-READY; exit 3
   fi
   rm -f "$ETC/handoff.txt"
 fi
-say "codes for $(printf '%s' "$PEOPLE" | sed 's/:[a-z]*//g') written to $OBJECT (only there; demo-vm.sh links reads and deletes it)"
+say "codes for $(printf '%s' "$PEOPLE" | sed 's/:[a-z+]*//g') written to $OBJECT (only there; demo-vm.sh links reads and deletes it)"
 
 say "caddy on :443 (tls internal for $IP)"
 if [ "$DRY" = 1 ]; then echo "+ write $ETC/Caddyfile:"; caddyfile | sed 's/^/    | /'
@@ -428,9 +510,9 @@ ROOT_FP=$(openssl x509 -noout -fingerprint -sha256 -in "$DATA/caddy/pki/authorit
 if [ "$ok" = 1 ]; then
   say "ready https://$IP/ (each person: /enrol with their code from $OBJECT, then sign in)"
   say "certificate: Caddy's local CA, root SHA-256 ${ROOT_FP:-unknown} (the browser warns once; compare this)"
-  echo DEMO-VM-READY
+  marker READY
 else
   say "no answer on https://$IP/login within $SEED_WAIT_S s: docker logs tb-demo (on the VM)"
   docker ps --format '{{.Names}} {{.Status}}' | sed 's/^/TB-DEMO-VM /'
-  echo DEMO-VM-NOT-READY
+  marker NOT-READY
 fi

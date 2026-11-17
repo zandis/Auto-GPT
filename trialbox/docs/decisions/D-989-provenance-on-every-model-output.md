@@ -82,3 +82,19 @@ One condition, part of the decision:
     draft field takes `prov: [result.call_id]`.
   - **The concept-map calls** (`concept_map`), which choose a criterion's codes, are not yet in the criterion's
     `calls`. They come with the index, where `ai.used` names them per value set.
+
+## Step 2a as built (2026-11-17): the candidate list's verdicts name their calls
+
+- **`criterion_verdict.prov`** (candidate list 1.5.0): the call ids the answer rests on. A pair's answer names the
+  judge's call and the verifier's, also behind an "unknown" the two disagreed on (both answers made it). A reused
+  judged pair names the call it first came from (the stored `LlmResult` keeps its `call_id`). A verifier that did not
+  answer adds no call.
+- **"No model" is stated:** a coded answer (S1's SQL), a person's check and a criterion nobody evaluated carry
+  `prov: []`. Absent means a row stored before the field.
+- **The verifier's call is no longer lost:** the note judge's `NoteResult` and the cascade's `JudgeReply` carry every
+  call of the pair (`calls`), and the cascade's evidence keeps them (`calls` beside `call_id`). An outcome stored
+  before this step still names its `call_id`, which the verdict reads.
+- **Next (step 2b, 2c):** the `ai.used` and `ai.confirmed` events at the write points, then the index tables, their
+  rebuild and check, and the search. The drain writes the index, so its database role needs INSERT on the two tables;
+  the grant is in the role script (`deploy/docker/db-init/30-service-roles.sh`, lane D) and goes over through the
+  integrator with that card.

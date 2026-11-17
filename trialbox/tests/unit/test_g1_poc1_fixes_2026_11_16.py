@@ -47,9 +47,11 @@ def test_d1_the_local_listing_shows_the_tag_prefix_and_refuses_a_wrong_id() -> N
     assert any("matches no protocol" in x for x in r["refused"])
     assert box_run.acc_ids("tcga", "m2", "tcga:Gm2TCGA-BRCA")["refused"] == []
     assert box_run.acc_ids("tcga", "", "jmed:MJMED-DM")["refused"][0].startswith("jmed:MJMED-DM: set jmed is not")
-    # a sampled set with no local cache: only the prefix can be checked, and it is
+    # a sampled set with no local cache: its ids are not known here
     r = box_run.acc_ids("sigir", "m2", "sigir:SNCT00163709", cache=Path("/nonexistent"))
-    assert r["sets"]["sigir"]["ids"] is None and r["refused"] and "prefix 'Sm2'" in r["refused"][0]
+    # D-1125: a set whose ids are not known here takes no filter at all (it took any id with the prefix before)
+    assert r["sets"]["sigir"]["ids"] is None and r["sets"]["sigir"]["prefix"] == "Sm2"
+    assert r["refused"] and "cannot be checked here" in r["refused"][0]
     assert box_run.main(["acc-ids", "--only", "tcga", "--rs-tag", "m2", "--protocols", "tcga:G2TCGA-BRCA"]) == 4
 
 
@@ -68,7 +70,9 @@ def test_d1_the_launch_stops_before_the_vm_starts(tmp_path: Path) -> None:
 # ---------------------------------------------------------------- D2: the gate step
 def test_d2_the_gate_is_read_with_the_token_once_first_and_waits_at_most_480_s() -> None:
     body = VM_SCRIPT[VM_SCRIPT.index("d_gate() {") : VM_SCRIPT.index("# qualify, promote, resolve.")]
-    assert "in_svc mail-gateway" in body and "auth_headers()" in body  # as d_study_ready reads
+    # D-1125: from the console's container, the caller the orchestrator lets onto GET /models (the mail gateway got
+    # a 403 on launch P2); tests/unit/test_h13_driver_callers.py holds it against the orchestrator's own table
+    assert "in_svc console" in body and "in_svc mail-gateway" not in body and "auth_headers()" in body
     assert "docker run" not in body and "urllib.request" not in body  # never a bare container without the token
     assert body.index("d_gate_read once") < body.index("dc restart orchestrator")
     assert '"allows_block": true' in body and "TB_GATE_WAIT_S:-480" in body and "1500" not in body

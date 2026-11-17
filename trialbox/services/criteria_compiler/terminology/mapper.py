@@ -28,6 +28,7 @@ import re
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -165,6 +166,64 @@ def norm(text: str) -> str:
     return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", text).strip().lower())
 
 
+# TERM-2 (D-1113 to D-1116): the systems of the tables loaded at install (``terminology.installed``) that the shipped
+# tables lack, beside ``SYSTEMS``; NHI's service and order codes are the shipped ``nhi_order`` system
+LOADED_SYSTEMS = {**SYSTEMS, "icd10pcs": "http://www.cms.gov/Medicare/Coding/ICD10", "icd10_who": ICD10_WHO}
+# which systems of a site list answer which IR domain (the site's lists win over every other table, D-1113)
+SITE_DOMAIN_SYSTEMS: dict[str, tuple[str, ...]] = {
+    "condition": ("icd10cm", "icd10_who"),
+    "observation": ("loinc",),
+    "report": ("loinc",),
+    "medication": ("atc", "nhi_drug"),
+    "procedure": ("icd10pcs", "nhi_order"),
+    "encounter": ("department",),
+    "claim": ("nhi_drug",),
+}
+# LOINC's specimens a lab named without one is read from (a component's codes in blood, serum or plasma)
+_LOINC_BLOOD = frozenset({"bld", "blda", "bldc", "bldv", "plas", "ser", "ser/plas", "ser/plas/bld"})
+
+
+def _name_keys(text: str) -> list[str]:
+    """A name as the site's lists and the loaded tables are matched: as written (``norm``), and for a name in Latin
+    letters only, also without punctuation and a plain plural (``Hepatitis-B (HBsAg)``: ``hepatitis b hbsag``). A name
+    with any other letter (zh, ja) has only its written form: TERM-2 review, stripping it to its Latin letters made
+    ``B型肝炎`` and ``B群鏈球菌感染`` one key. Brackets are kept as words, never dropped."""
+    out = [norm(text)]
+    t = unicodedata.normalize("NFKC", text).lower()
+    if t.isascii():
+        words = re.sub(r"[^a-z0-9]+", " ", t).split()
+        k = " ".join(w[:-1] if len(w) > 4 and w.endswith("s") and not w.endswith(("ss", "us", "is")) else w
+                     for w in words)  # fmt: skip
+        if k and k not in out:
+            out.append(k)
+    return [x for x in out if x]
+
+
+def _ingredient(text: str) -> str:
+    """The ingredient of an NHI 成分 field, without strength or salt (``FLUPENTIXOL (2HCL) 3 MG``: flupentixol;
+    ``VITAMIN B12 1 MG``: vitamin b12); empty for a combination."""
+    t = norm(text)
+    if re.search(r"[+&;]|\band\b", t):
+        return ""
+    t = re.split(r"\(|(?:^|\s)\d", t, maxsplit=1)[0]
+    return " ".join(t.replace(",", " ").split())
+
+
+# one entry of a loaded table's index: (domain, key, concepts, families, table, note)
+_Entry = tuple[str, str, list["Concept"], frozenset[tuple[str, str]], str, str]
+
+
+@dataclass
+class _SiteHit:
+    """A name in the site's lists: the first list that has it, its codes, whether that list gives it several codes,
+    and the later lists that give it other codes (D-1113: then a person reviews it)."""
+
+    table: str
+    concepts: list[Concept]
+    several: bool
+    others: list[str]
+
+
 @dataclass(frozen=True)
 class Concept:
     system: str
@@ -178,7 +237,7 @@ class MappingResult:
     name: str
     domain: str
     concepts: list[Concept]
-    method: str  # exact | synonym | dictionary (D-172, always reviewed) | llm | none
+    method: str  # exact | synonym | dictionary (D-172, always reviewed) | icd10cm | site | loaded | llm | none
     needs_review: bool
     notes: list[str] = field(default_factory=list)
     families: list[tuple[str, str]] = field(default_factory=list)  # (system, code prefix) of prefix groupers
@@ -283,6 +342,12 @@ class Terminology:
             for r in rows:
                 c = self._concept(key, r)
                 self._by_code[(c.system, c.code)] = c
+        # TERM-2 (D-1113 to D-1116): the site's lists and the code systems loaded at install
+        self.site_names: dict[str, dict[str, _SiteHit]] = {}  # system -> name -> the first list's answer
+        self.site_codes: dict[tuple[str, str], Concept] = {}  # (system, local code) -> its standard concept
+        self.loaded_names: dict[str, dict[str, tuple[list[Concept], frozenset[tuple[str, str]], bool, str]]] = {}
+        self.loaded_sources: dict[str, str] = {}
+        self._load_term2(where)
 
     _release: str | None = None
 
@@ -331,6 +396,10 @@ class Terminology:
     ) -> MappingResult:
         primary = norm(name)
         names = [primary] + [norm(s) for s in synonyms or []]
+        # 0. TERM-2 (D-1113): the site's own lists win over every shipped and loaded table
+        found = self._site_list(name, domain)
+        if found is not None:
+            return found
 
         def exact(candidates: list[str]) -> list[Concept]:
             return [
@@ -396,6 +465,10 @@ class Terminology:
         found = self._icd10cm(name, domain)
         if found is not None:
             return found
+        # 2e. TERM-2: a name in a code system loaded at install (ICD-10-PCS, the NHI lists, LOINC, WHO ICD-10, ATC)
+        found = self._loaded(name, domain)
+        if found is not None:
+            return found
         # 3. LLM-proposed candidates (always needs_review)
         cands = self.candidates(domain, names, 20)
         if llm is not None and cands:
@@ -446,6 +519,221 @@ class Terminology:
         note = f"ICD-10-CM {how}: {cats[0]}" + (f"-{cats[-1]}" if len(cats) > 1 else "")
         return MappingResult(name, domain, _dedupe(hits), "icd10cm", review, [note],
                              families=sorted(fams | who_only_families(fams)))  # fmt: skip
+
+    def _load_term2(self, where: Path) -> None:
+        """The site's lists and the TERM-2 tables loaded in ``where`` (each read only when its manifest line vouches
+        for it; a refused one is reported in ``installed_problems`` and never read)."""
+        from criteria_compiler.terminology import installed as inst
+
+        self.loaded_codes: set[tuple[str, str]] = set()  # every code of a loaded table (a site code is checked here)
+        self.who_categories: dict[str, list[Concept]] = {}  # a WHO ICD-10 category -> its codes, when loaded
+        have = sorted(p.stem for p in where.glob("*.parquet")) if where.is_dir() else []
+        order = [n for n in have if n.startswith(inst.SITE_PREFIX)] + [
+            n for n in (inst.ATC_INDEX, inst.NHI_DRUGS, inst.NHI_SERVICES, inst.ICD_PCS, inst.LOINC_TABLE,
+                        inst.ICD10_WHO) if n in have]  # fmt: skip
+        exact: list[_Entry] = []
+        loose: list[_Entry] = []
+        for table in order:
+            try:
+                rows = inst.read_loaded(where, table)
+            except inst.TerminologyRefused as exc:
+                self.installed_problems.append(str(exc))
+                continue
+            if rows is None:
+                continue
+            self.loaded_sources[table] = str(inst.manifest(where)["tables"][table].get("version") or "installed")
+            if table.startswith(inst.SITE_PREFIX):
+                self._index_site(table, rows)
+            else:
+                e, lo = self._index_loaded(inst, table, rows)
+                exact += e
+                loose += lo
+        self._merge(exact, False)
+        self._merge(loose, True)  # a component or an ingredient: after every exact name, always for review
+
+    def _merge(self, entries: list[_Entry], loose: bool) -> None:
+        """TERM-2 review (D-1114, D-1115): every code a name has, never the first one alone. One table's rows that give
+        one name different codes answer with all of them, for review; a name in two tables answers from the first
+        (in ``_load_term2``'s order), for review, with a note naming the others."""
+        grouped: dict[tuple[str, str], dict[str, tuple[list[Concept], set[tuple[str, str]], set[frozenset[str]], str]]]
+        grouped = {}
+        for domain, key, concepts, fams, table, note in entries:
+            g = grouped.setdefault((domain, key), {}).setdefault(table, ([], set(), set(), note))
+            g[0].extend(concepts)
+            g[1].update(fams)
+            g[2].add(frozenset(c.code for c in concepts))
+        for (domain, key), tables in grouped.items():
+            if key in self.loaded_names.get(domain, {}):
+                continue  # an exact name already answers
+            first, *others = list(tables)
+            found, families, rowsets, first_note = tables[first]
+            several = len(rowsets) > 1
+            text = first_note + ("; several codes share this name" if several else "")
+            text += f"; also in {', '.join(others)}" if others else ""
+            self.loaded_names.setdefault(domain, {})[key] = (_dedupe(found), frozenset(families),
+                                                             loose or several or bool(others), text)  # fmt: skip
+
+    def _index_site(self, table: str, rows: list[dict[str, Any]]) -> None:
+        mine: dict[tuple[str, str], list[Concept]] = {}
+        for r in rows:
+            sy, code = str(r["system"]), str(r["code"])
+            uri = LOADED_SYSTEMS[sy]
+            known = self.concept(uri, code)
+            c = Concept(uri, code, str(r.get("display") or "") or (known.display if known else "")
+                        or str(r.get("local_name") or "") or code)  # fmt: skip
+            if r.get("local_code"):
+                self.site_codes.setdefault((sy, str(r["local_code"])), c)
+            for key in _name_keys(str(r.get("local_name") or "")):
+                mine.setdefault((sy, key), []).append(c)
+        for (sy, key), concepts in mine.items():
+            codes = {c.code for c in concepts}
+            had = self.site_names.setdefault(sy, {}).get(key)
+            if had is None:  # several codes under one key of one list (names that differ only in punctuation): review
+                self.site_names[sy][key] = _SiteHit(table, _dedupe(concepts), len(codes) > 1, [])
+            elif {c.code for c in had.concepts} != codes:  # TERM-2 review (D-1113): two lists disagree, a person sees
+                had.others.append(table)
+
+    def _index_loaded(self, inst: Any, table: str, rows: list[dict[str, Any]]) -> tuple[list[_Entry], list[_Entry]]:
+        """A loaded code system's exact names and its looser keys (a LOINC component, an NHI ingredient), one entry per
+        row and key, merged by ``_merge``. An NHI code whose validity ended is left out."""
+        today = date.today().isoformat()
+        exact: list[_Entry] = []
+        loose: list[_Entry] = []
+
+        def ended(r: dict[str, Any]) -> bool:
+            end = str(r.get("valid_to") or "")
+            return bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", end)) and end < today
+
+        if table == inst.ATC_INDEX:
+            uri = LOADED_SYSTEMS["atc"]
+            under: dict[str, list[Concept]] = {}  # an ATC group -> its substances (level 5)
+            for x in rows:
+                self.loaded_codes.add((uri, str(x["code"])))
+                if len(str(x["code"])) == 7:
+                    for depth in (1, 3, 4, 5):
+                        under.setdefault(str(x["code"])[:depth], []).append(
+                            Concept(uri, str(x["code"]), str(x["display"]))
+                        )
+            for r in rows:
+                code = str(r["code"])
+                concepts = [Concept(uri, code, str(r["display"]))] if len(code) == 7 else under.get(code, [])
+                fams = frozenset({(uri, code)}) if len(code) < 7 else frozenset()
+                if concepts:
+                    exact += [("medication", k, concepts, fams, table, table) for k in _name_keys(str(r["display"]))]
+        elif table == inst.NHI_DRUGS:
+            uri = LOADED_SYSTEMS["atc"]
+            for r in rows:
+                self.loaded_codes.add((LOADED_SYSTEMS["nhi_drug"], str(r["nhi_code"])))
+                ing = _ingredient(str(r.get("ingredient") or ""))
+                atc = str(r.get("atc") or "")
+                if ing and len(atc) == 7 and not ended(r):
+                    c = self.concept(uri, atc) or Concept(uri, atc, ing)
+                    note = f"NHI drug list ingredient ({table})"
+                    loose += [("medication", k, [c], frozenset(), table, note) for k in _name_keys(ing)]
+        elif table == inst.NHI_SERVICES:
+            uri = LOADED_SYSTEMS["nhi_order"]
+            for r in rows:
+                self.loaded_codes.add((uri, str(r["code"])))
+                if ended(r):
+                    continue
+                c = Concept(uri, str(r["code"]), str(r.get("display_en") or r["display"]))
+                for n in (r.get("display"), r.get("display_en")):
+                    exact += [("procedure", k, [c], frozenset(), table, table) for k in _name_keys(str(n or ""))]
+        elif table == inst.ICD_PCS:
+            uri = LOADED_SYSTEMS["icd10pcs"]
+            for r in rows:
+                if str(r.get("valid")) == "1":
+                    self.loaded_codes.add((uri, str(r["code"])))
+                    c = Concept(uri, str(r["code"]), str(r["display"]))
+                    for n in (r.get("display"), r.get("short")):
+                        exact += [("procedure", k, [c], frozenset(), table, table) for k in _name_keys(str(n or ""))]
+        elif table == inst.LOINC_TABLE:
+            uri = LOADED_SYSTEMS["loinc"]
+            for r in rows:
+                if str(r.get("status") or "").upper() == "DEPRECATED":
+                    continue
+                self.loaded_codes.add((uri, str(r["code"])))
+                c = Concept(uri, str(r["code"]), str(r["display"]))
+                for n in (r.get("display"), r.get("shortname")):
+                    exact += [(d, k, [c], frozenset(), table, table) for d in ("observation", "report")
+                              for k in _name_keys(str(n or ""))]  # fmt: skip
+                if str(r.get("specimen") or "").lower() in _LOINC_BLOOD:
+                    note = f"LOINC component ({table})"
+                    loose += [(d, k, [c], frozenset(), table, note) for d in ("observation", "report")
+                              for k in _name_keys(str(r.get("component") or ""))]  # fmt: skip
+        elif table == inst.ICD10_WHO:
+            for x in rows:
+                if "-" not in str(x["code"]):
+                    self.loaded_codes.add((ICD10_WHO, str(x["code"])))
+                    self.who_categories.setdefault(str(x["code"])[:3], []).append(
+                        Concept(ICD10_WHO, str(x["code"]), str(x["display"]))
+                    )
+            for r in rows:
+                code = str(r["code"])
+                if "-" in code:
+                    continue
+                concepts = (self.who_categories.get(code) if len(code) == 3 else None) or [
+                    Concept(ICD10_WHO, code, str(r["display"]))
+                ]
+                fams = frozenset({(ICD10_WHO, code)}) if len(code) == 3 else frozenset()
+                exact += [("condition", k, concepts, fams, table, table) for k in _name_keys(str(r["display"]))]
+        return exact, loose
+
+    def _known(self, system: str, code: str) -> bool:
+        """A site list's code is one the full ICD-10-CM list, a shipped table or a loaded table holds."""
+        if self._icd_codes is None:
+            self._icd_codes = {str(r["code"]) for r in self.full.get("icd10cm", [])}
+        if system == SYSTEMS["icd10cm"] and code in self._icd_codes:
+            return True
+        return (system, code) in self._by_code or (system, code) in self.loaded_codes
+
+    _icd_codes: set[str] | None = None
+
+    def _site_list(self, name: str, domain: str) -> MappingResult | None:
+        """Step 0 (D-1113): the concept's name in one of the site's own lists, for a system of its domain. Reviewed
+        when a code is in no table (a code nothing can match), when one list gives the name several codes, or when two
+        lists disagree."""
+        for sy in SITE_DOMAIN_SYSTEMS.get(domain, ()):
+            for key in _name_keys(name):
+                hit = self.site_names.get(sy, {}).get(key)
+                if hit is None:
+                    continue
+                fams: set[tuple[str, str]] = set()
+                out: list[Concept] = []
+                unknown = []
+                for c in hit.concepts:
+                    if not self._known(c.system, c.code):
+                        unknown.append(c.code)
+                    if sy == "icd10cm" and len(c.code) == 3:  # a category: its family
+                        out += self.expand("icd10cm", c.code, "prefix") or [c]
+                        fams.add((c.system, c.code))
+                    elif sy == "icd10_who" and len(c.code) == 3:
+                        out += self.who_categories.get(c.code) or [c]
+                        fams.add((c.system, c.code))
+                    else:
+                        out.append(c)
+                notes = [f"site list {hit.table}"]
+                if hit.several:
+                    notes.append("several codes share this name in the list")
+                if hit.others:
+                    notes.append(f"lists {', '.join([hit.table, *hit.others])} give this name different codes")
+                if unknown:
+                    notes.append(f"in no loaded or shipped table: {', '.join(sorted(unknown))}")
+                review = hit.several or bool(hit.others) or bool(unknown)
+                return MappingResult(name, domain, _dedupe(out), "site", review, notes,
+                                     families=sorted(fams | who_only_families(fams)))  # fmt: skip
+        return None
+
+    def _loaded(self, name: str, domain: str) -> MappingResult | None:
+        """Step 2e: the concept's name in a code system loaded at install; a LOINC component or an NHI ingredient
+        (looser than a name), a name with several codes, or one in two tables is for review."""
+        for key in _name_keys(name):
+            got = self.loaded_names.get(domain, {}).get(key)
+            if got is not None:
+                concepts, fams, review, note = got
+                return MappingResult(name, domain, _dedupe(concepts), "loaded", review, [f"loaded at install: {note}"],
+                                     families=sorted(fams))  # fmt: skip
+        return None
 
     def _index_code(self, key: str, hops: int = 0) -> str:
         """The code an Alphabetic Index term leads to, following at most two "see" references; "" for none."""

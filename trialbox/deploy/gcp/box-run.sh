@@ -31,6 +31,7 @@
 #   --acc-protocols "set:RS1,RS2 ...": only these protocols of a set. Checked HERE before anything starts (D1): every
 #       id must be one of the set's on the box, whose prefix is the set's letter and --acc-rs-tag (tag m2 makes
 #       TCGA-BRCA Gm2TCGA-BRCA). Free listing: tools/box_run.py acc-ids --only SETS --rs-tag T [--protocols ...]
+#       A set whose ids are not known locally (sigir, trec2023) takes no filter: it could not be checked (D-1125).
 #   --acc-streams "set:n ...": protocols of a set in flight at once. Default (D7): 3 for a compile-bound set (sigir,
 #       trec, trec2023, tfda, jrct, chia: tools/box_run.py compile_bound), 1 for the others; the report says how many
 #       were in flight. --resume keeps --acc-rs-tag from the launch unless it is given again (D3).
