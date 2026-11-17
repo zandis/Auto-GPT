@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -45,9 +46,16 @@ def ruleset_ids(environ: dict[str, str] | os._Environ[str]) -> dict[str, str]:
     return {"en": base, "zh-TW": base + "ZH", "ja": base + "JA"}
 
 
-def recorded(n: int, kind: str) -> bool:
-    """Whether the plan's findings name the measure ``kind`` at step ``n``."""
-    return any(n in f.steps() and f.kind == kind for f in pp.FINDINGS)
+def page_of(path: str, rs: str) -> str:
+    """A measured page as the findings write it: a job, the study id, a screening number by their names."""
+    path = re.sub(r"/pilot/jobs/[0-9A-Z]{26}", "/pilot/jobs/{job}", path)
+    path = re.sub(re.escape(rs) + r"-\d{4}", "{record}", path)
+    return path.replace(rs, "{rs}")
+
+
+def recorded(n: int, kind: str, page: str = "") -> bool:
+    """Whether the plan's findings name the measure ``kind`` at step ``n`` (and on ``page``, when given)."""
+    return any(n in f.steps() and f.kind == kind and (not page or page in f.paths()) for f in pp.FINDINGS)
 
 
 @pytest.mark.e2e
@@ -74,9 +82,8 @@ def test_the_whole_life_of_a_study_on_a_phone(box: tuple[str, str], lang: str) -
         pytest.skip(out["skipped"])
     assert r.returncode == 0 and out["failed"] == 0, (out, r.stderr[-3000:])
     steps = json.loads(log.read_text(encoding="utf-8"))["steps"]
-    new = sorted(
-        {(s["n"], m["kind"], m["path"]) for s in steps for m in s["layout"] if not recorded(s["n"], m["kind"])}
-    )
+    pages = {(s["n"], m["kind"], page_of(m["path"], rs)) for s in steps for m in s["layout"]}
+    new = sorted(x for x in pages if not recorded(*x))
     assert not new, f"measures the findings do not name yet (read the log {log}): {new}"
     for s in steps:
         stop = s.get("stopped") or {}
@@ -154,3 +161,10 @@ def test_the_measures_of_a_log() -> None:
     got = pp.measures([log, {**log, "lang": "ja"}])[13]["layout"][("target under 44 px", "/studies/X/week")]
     assert got["langs"] == {"en", "ja"} and got["what"] == "2: a 30x30"
     assert "target under 44 px" in pp.summary_text([log])
+
+
+def test_a_measured_page_is_named_as_the_findings_write_it() -> None:
+    assert page_of("/pilot/jobs/01M7MNEAR90V1S663SCFNQH17V/approval", "LIFEPHONE") == "/pilot/jobs/{job}/approval"
+    assert page_of("/studies/LIFEPHONEJA/subjects/LIFEPHONEJA-0001", "LIFEPHONEJA") == "/studies/{rs}/subjects/{record}"
+    assert recorded(15, "table wider than the screen", "/studies/{rs}/subjects")
+    assert not recorded(15, "table wider than the screen", "/studies/{rs}/elsewhere")

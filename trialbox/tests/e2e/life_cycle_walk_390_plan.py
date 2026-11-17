@@ -77,9 +77,13 @@ class Finding:
     severity: str
     lane: str
     also: tuple[int, ...] = ()  # the other steps the same measure was seen at, on the same pages
+    pages: tuple[str, ...] = ()  # other pages the same measure was seen on (as ``path`` is written)
 
     def steps(self) -> tuple[int, ...]:
         return (self.step, *self.also)
+
+    def paths(self) -> tuple[str, ...]:
+        return (self.path, *self.pages)
 
 
 TABLES = "the table scrolls sideways inside its own frame, the page does not"
@@ -88,13 +92,18 @@ FINDINGS: tuple[Finding, ...] = (
     Finding("P-01", 1, "coordinator", "/home", "behind the menu",
             "on a phone the top bar's links, the language box and Sign out are behind \"☰ Menu\"; that visible "
             "label is hidden from assistive technology (`aria-hidden`), the accessible control being a hidden check "
-            "box named \"Menu\"; the walk finds the button by its data-testid, at every step and every role",
+            "box named \"Menu\"; the walk finds the button by its data-testid, at every step that opens the top bar, the "
+            "language or More",
             "one Menu button that is the control a person sees and the one assistive technology names",
             "D-133 (\"one Menu button\"); WCAG 4.1.2 in " + SPEC + " (accessibility table)",
-            "cosmetic", "C2", also=tuple(range(2, 23))),
+            "cosmetic", "C2", also=(2, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21),
+            pages=("/week", "/breakglass", "/pilot/jobs/{job}", "/pilot/jobs/{job}/approval", "/studies/{rs}/feasibility",
+                   "/studies/{rs}/setup", "/studies/{rs}/week", "/studies/{rs}/candidates", "/studies/{rs}/team",
+                   "/studies/{rs}/state", "/studies/{rs}/subjects/{record}", "/studies/{rs}/patients/{pid}/reveal",
+                   "/site/opt-outs")),
     Finding("P-02", 3, "coordinator", "/pilot/jobs/{job}", "table wider than the screen",
-            "the job page's thread table is 666 to 861 px wide and the SCREEN job's rows 783 to 894 px (en to ja); "
-            + TABLES,
+            "the job page's thread table is 720 to 915 px wide, the SCREEN job's rows 829 to 937 px and a FEAS job's "
+            "funnel 417 px (en to ja; train 79 widened them by 30 to 60 px); " + TABLES,
             "the job page in one column on a phone (not among the phone's pages)", SPEC + " §10 (phone's pages)",
             "cosmetic", "C2", also=(7, 8, 9, 10, 11, 13)),
     Finding("P-03", 4, "coordinator", "/pilot/jobs/{job}/approval", "table wider than the screen",
@@ -106,9 +115,10 @@ FINDINGS: tuple[Finding, ...] = (
             "not among the phone's pages: no expectation for a phone", SPEC + " §10 (phone's pages)",
             "cosmetic", "C2", also=(19,)),
     Finding("P-05", 9, "coordinator", "/studies/{rs}/feasibility", "table wider than the screen",
-            "the feasibility funnel is 435 to 501 px wide and the reports list 416 to 466 px; " + TABLES,
+            "the feasibility funnel is 488 to 506 px wide, the reports list 448 to 518 px and, in ja, the barriers "
+            "table 400 px; " + TABLES,
             "S3 report readable on a phone", SPEC + " §10 (phone 390–767 px: S3 report)",
-            "cosmetic", "C2"),
+            "cosmetic", "C2", pages=("/reports",)),
     Finding("P-06", 9, "coordinator", "/studies/{rs}/feasibility", "target under 44 px",
             "in zh-TW and ja the report's five step links (\"狀態 1\" … , \"状況 1\" …) are 40 and 31 px wide by 44 "
             "px; in en they are wider",
@@ -128,7 +138,8 @@ FINDINGS: tuple[Finding, ...] = (
             "not among the phone's pages: no expectation for a phone", SPEC + " §10 (phone's pages)",
             "cosmetic", "C2", also=(12, 20)),
     Finding("P-10", 12, "coordinator", "/studies/{rs}/week", "not shown on the phone",
-            "the coordinator's line \"The investigator decides here; you get a task…\" is only in the patient "
+            "the coordinator's line \"The investigator decides here; you get a task when they mark Approach…\" "
+            "(its words since train 79, J-4) is only in the patient "
             "sheet, which a phone shows after a row is tapped; the desktop shows it beside the list",
             "the list first on a phone, the sheet after a tap", "D-133 (the phone's sheet)", "cosmetic", "C2"),
     Finding("P-11", 15, "coordinator", "/studies/{rs}/week", "covered",
@@ -145,7 +156,7 @@ FINDINGS: tuple[Finding, ...] = (
             "not among the phone's pages: no expectation for a phone", SPEC + " §10 (phone's pages)",
             "cosmetic", "C2", also=(21,)),
     Finding("P-14", 21, "steward", "/audit", "table wider than the screen",
-            "the audit trail's table is 1,304 to 1,332 px wide; the worker's run sits in its first row, its time on "
+            "the audit trail's table is 1,355 to 1,383 px wide; the worker's run sits in its first row, its time on "
             "the left and its detail on the right; " + TABLES,
             "not among the phone's pages: no expectation for a phone", SPEC + " §10 (phone's pages)",
             "cosmetic", "C2"),
@@ -153,6 +164,10 @@ FINDINGS: tuple[Finding, ...] = (
             "the audit filter's \"Clear\" link (\"清除\", \"クリア\") is 32 to 40 by 24 px",
             "44 px controls on a phone (the card's size; the spec asks 24 px except for the PI's marks)",
             SPEC + " (2.5.8)", "cosmetic", "C2"),
+    Finding("P-16", 15, "coordinator", "/studies/{rs}/subjects", "table wider than the screen",
+            "the Participants list is a table 413 to 423 px wide (en, ja), seen since train 79; " + TABLES,
+            "not among the phone's pages: no expectation for a phone", SPEC + " §10 (phone's pages)",
+            "cosmetic", "C2"),
 )  # fmt: skip
 
 #: the steps the phone could not complete, and why (read from the logs)

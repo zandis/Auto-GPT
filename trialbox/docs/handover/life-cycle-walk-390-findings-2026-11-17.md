@@ -49,23 +49,40 @@ the top bar, the language or More, and "← Back to the list" where the patient 
 
 | Id | Step | Role | Page | Measure | What the phone showed | Expected (from) | Severity | Lane |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| P-01 | 1 to 22 | coordinator | `/home` | behind the menu | on a phone the top bar's links, the language box and Sign out are behind "☰ Menu"; that visible label is hidden from assistive technology (`aria-hidden`), the accessible control being a hidden check box named "Menu"; the walk finds the button by its data-testid, at every step and every role | one Menu button that is the control a person sees and the one assistive technology names (D-133 ("one Menu button"); WCAG 4.1.2 in `docs/plan/design/09-ui-ux-spec.md` (accessibility table)) | cosmetic | C2 |
-| P-02 | 3, 7, 8, 9, 10, 11, 13 | coordinator | `/pilot/jobs/{job}` | table wider than the screen | the job page's thread table is 666 to 861 px wide and the SCREEN job's rows 783 to 894 px (en to ja); the table scrolls sideways inside its own frame, the page does not | the job page in one column on a phone (not among the phone's pages) (`docs/plan/design/09-ui-ux-spec.md` §10 (phone's pages)) | cosmetic | C2 |
+| P-01 | 1, 2, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21 | coordinator | `/home` | behind the menu | on a phone the top bar's links, the language box and Sign out are behind "☰ Menu"; that visible label is hidden from assistive technology (`aria-hidden`), the accessible control being a hidden check box named "Menu"; the walk finds the button by its data-testid, at every step that opens the top bar, the language or More | one Menu button that is the control a person sees and the one assistive technology names (D-133 ("one Menu button"); WCAG 4.1.2 in `docs/plan/design/09-ui-ux-spec.md` (accessibility table)) | cosmetic | C2 |
+| P-02 | 3, 7, 8, 9, 10, 11, 13 | coordinator | `/pilot/jobs/{job}` | table wider than the screen | the job page's thread table is 720 to 915 px wide, the SCREEN job's rows 829 to 937 px and a FEAS job's funnel 417 px (en to ja; train 79 widened them by 30 to 60 px); the table scrolls sideways inside its own frame, the page does not | the job page in one column on a phone (not among the phone's pages) (`docs/plan/design/09-ui-ux-spec.md` §10 (phone's pages)) | cosmetic | C2 |
 | P-03 | 4, 5, 7, 8 | coordinator | `/pilot/jobs/{job}/approval` | table wider than the screen | in ja only, the approval table (S20) is 463 to 485 px wide; the table scrolls sideways inside its own frame, the page does not | S20 approval readable on a phone ("allowed on a phone when no row is amber") (`docs/plan/design/09-ui-ux-spec.md` §10 (phone 390–767 px: S20 approval), S20) | cosmetic | C2 |
 | P-04 | 6, 19 | steward | `/studies/{rs}/team` | table wider than the screen | the delegation log is 792 to 932 px wide; the table scrolls sideways inside its own frame, the page does not | not among the phone's pages: no expectation for a phone (`docs/plan/design/09-ui-ux-spec.md` §10 (phone's pages)) | cosmetic | C2 |
-| P-05 | 9 | coordinator | `/studies/{rs}/feasibility` | table wider than the screen | the feasibility funnel is 435 to 501 px wide and the reports list 416 to 466 px; the table scrolls sideways inside its own frame, the page does not | S3 report readable on a phone (`docs/plan/design/09-ui-ux-spec.md` §10 (phone 390–767 px: S3 report)) | cosmetic | C2 |
+| P-05 | 9 | coordinator | `/studies/{rs}/feasibility` | table wider than the screen | the feasibility funnel is 488 to 506 px wide, the reports list 448 to 518 px and, in ja, the barriers table 400 px; the table scrolls sideways inside its own frame, the page does not | S3 report readable on a phone (`docs/plan/design/09-ui-ux-spec.md` §10 (phone 390–767 px: S3 report)) | cosmetic | C2 |
 | P-06 | 9 | coordinator | `/studies/{rs}/feasibility` | target under 44 px | in zh-TW and ja the report's five step links ("狀態 1" … , "状況 1" …) are 40 and 31 px wide by 44 px; in en they are wider | 44 px controls on a phone (the card's size; the spec asks 24 px except for the PI's marks) (`docs/plan/design/09-ui-ux-spec.md` (2.5.8)) | cosmetic | C2 |
 | P-07 | 11 | operator | `/home` | target under 24 px | the administrator's home: the tabs and links "Jobs", "Services and models", "Sources and licences", "Open", "Mail notices" (seven in all) are 20 px high | targets at least 24 x 24 px (`docs/plan/design/09-ui-ux-spec.md` (2.5.8 Target size (minimum))) | slows the tester | C2 |
 | P-08 | 11, 12, 13, 14, 15, 18, 20 | coordinator | `/studies/{rs}/week` | table wider than the screen | the weekly page's worklist is a table 437 to 482 px wide; the table scrolls sideways inside its own frame, the page does not | on a phone a card list instead of a table: pseudonym, next visit, state counts, mark buttons (`docs/plan/design/09-ui-ux-spec.md` §10 ("Phone (390 px): card list instead of table"), S5 ("Table (phone: cards)"); FR-UI-09) | slows the tester | C2 |
 | P-09 | 11, 12, 20 | coordinator | `/studies/{rs}/candidates` | table wider than the screen | the candidate list is 643 to 724 px wide; the table scrolls sideways inside its own frame, the page does not | not among the phone's pages: no expectation for a phone (`docs/plan/design/09-ui-ux-spec.md` §10 (phone's pages)) | cosmetic | C2 |
-| P-10 | 12 | coordinator | `/studies/{rs}/week` | not shown on the phone | the coordinator's line "The investigator decides here; you get a task…" is only in the patient sheet, which a phone shows after a row is tapped; the desktop shows it beside the list | the list first on a phone, the sheet after a tap (D-133 (the phone's sheet)) | cosmetic | C2 |
+| P-10 | 12 | coordinator | `/studies/{rs}/week` | not shown on the phone | the coordinator's line "The investigator decides here; you get a task when they mark Approach…" (its words since train 79, J-4) is only in the patient sheet, which a phone shows after a row is tapped; the desktop shows it beside the list | the list first on a phone, the sheet after a tap (D-133 (the phone's sheet)) | cosmetic | C2 |
 | P-11 | 15 | coordinator | `/studies/{rs}/week` | covered | with a patient's sheet open, the sheet's bar ("← Back to the list") covers "☰ Menu": the coordinator taps Back first to reach the menu and My studies | the menu reachable from every page (D-133 (Back, Next and the menu on the phone's sheet)) | slows the tester | C2 |
+| P-16 | 15 | coordinator | `/studies/{rs}/subjects` | table wider than the screen | the Participants list is a table 413 to 423 px wide (en, ja), seen since train 79; the table scrolls sideways inside its own frame, the page does not | not among the phone's pages: no expectation for a phone (`docs/plan/design/09-ui-ux-spec.md` §10 (phone's pages)) | cosmetic | C2 |
 | P-12 | 17, 18 | coordinator | `/studies/{rs}/state` | table wider than the screen | in en the study's state history is 413 px wide; the table scrolls sideways inside its own frame, the page does not | not among the phone's pages: no expectation for a phone (`docs/plan/design/09-ui-ux-spec.md` §10 (phone's pages)) | cosmetic | C2 |
 | P-13 | 19, 21 | steward | `/site/opt-outs` | table wider than the screen | the opt-out register's list is 467 to 565 px wide; the table scrolls sideways inside its own frame, the page does not | not among the phone's pages: no expectation for a phone (`docs/plan/design/09-ui-ux-spec.md` §10 (phone's pages)) | cosmetic | C2 |
-| P-14 | 21 | steward | `/audit` | table wider than the screen | the audit trail's table is 1,304 to 1,332 px wide; the worker's run sits in its first row, its time on the left and its detail on the right; the table scrolls sideways inside its own frame, the page does not | not among the phone's pages: no expectation for a phone (`docs/plan/design/09-ui-ux-spec.md` §10 (phone's pages)) | cosmetic | C2 |
+| P-14 | 21 | steward | `/audit` | table wider than the screen | the audit trail's table is 1,355 to 1,383 px wide; the worker's run sits in its first row, its time on the left and its detail on the right; the table scrolls sideways inside its own frame, the page does not | not among the phone's pages: no expectation for a phone (`docs/plan/design/09-ui-ux-spec.md` §10 (phone's pages)) | cosmetic | C2 |
 | P-15 | 21 | steward | `/audit` | target under 44 px | the audit filter's "Clear" link ("清除", "クリア") is 32 to 40 by 24 px | 44 px controls on a phone (the card's size; the spec asks 24 px except for the PI's marks) (`docs/plan/design/09-ui-ux-spec.md` (2.5.8)) | cosmetic | C2 |
 
 <!-- life-cycle-walk-390: end of findings -->
+
+## Changed with train 79
+
+Train 79 (master `8778394f`: lane J's J-4 #1033 and J-1 #1026) was measured again on a fresh box. Nothing a finding
+names went away, and every finding is still seen at its steps. Since then:
+
+- **New P-16:** the Participants list is now a table wider than the screen.
+- **Changed words (P-10):** the coordinator's line on the weekly page has new words (J-4's F-01).
+- **Wider tables (P-02, P-05, P-14):** the job page's tables are 30 to 60 px wider. The report adds a "barriers"
+  table in ja. The audit trail's table is about 50 px wider.
+- **P-01 narrowed:** it names the steps and pages where the menu is opened. It used to claim every step, which steps
+  3, 4, 16 and 22 never needed.
+- **Test tightened:** a measure must now match a finding's page as well as its step and kind.
+
+The console has no `layout.phone_first` flag on this master: J-1 as merged adds none. The walk measured the box as
+it starts.
 
 ## Steps the phone cannot complete
 
@@ -78,4 +95,4 @@ a desktop: step 21 sees the worker's run after the opt-out, and step 22 reads it
 | --- | --- |
 | blocks the step | 0 |
 | slows the tester | 3 |
-| cosmetic | 12 |
+| cosmetic | 13 |
