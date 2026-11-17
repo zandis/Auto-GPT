@@ -2,20 +2,22 @@
  "card": "V-11",
  "page": "docs/plan/measurements/twice-one-effect-2026-11-17.md",
  "master": "ceae54678f5a06afba4e1526e7ff1d62752192e3",
- "note": "Each finding is held by a strict xfail test named in 'test'. 'cases' are the keys of twice.json the finding rests on. 'ruling' is left empty for the integrator.",
+ "note": "Each finding shown is held by a strict xfail test named in 'test'. 'cases' are the keys of twice.json the finding rests on. 'ruling' is empty where no decision is in question.",
  "findings": [
   {
    "id": "V11-01",
    "date": "2026-11-17",
    "source": "docs/plan/measurements/twice-one-effect-2026-11-17.md",
    "severity": "High",
-   "claim": "A second identical Approach writes a second mark, a second IRB-override record and second override and mark audit events.",
+   "claim": "A second identical Approach (what the code calls no new decision) writes a second IRB-override record and a second console.approach_override event: the override trail overcounts.",
    "lane": "C2",
    "basis": "shown",
-   "place": "services/console/home.py:1238 (store.mark), home.py:1241 (add_override)",
-   "expected": "One mark; the code's own rule at home.py:1253 (D-989, D-1152) says an Approach on an Approach of the same list is no new decision; no written rule for the mark row itself; expected by the card.",
-   "test": "tests/console/test_twice_one_effect.py::test_approach_marked_twice_is_one_mark",
-   "cases": ["approach_twice"],
+   "place": "services/console/home.py:1209 (warned), home.py:1226 (approach_override), home.py:1241 (add_override)",
+   "expected": "One override per decision. The mark rows are append-only by design (D-104, docs data dictionary), so they are not the defect; home.py:1253 (D-989, D-1152) says an Approach on an Approach of the same list is no new decision.",
+   "test": "tests/console/test_twice_one_effect.py::test_approach_marked_twice_is_one_override",
+   "cases": [
+    "approach_twice"
+   ],
    "ruling": ""
   },
   {
@@ -23,13 +25,18 @@
    "date": "2026-11-17",
    "source": "docs/plan/measurements/twice-one-effect-2026-11-17.md",
    "severity": "Medium",
-   "claim": "A second identical save of the withdrawal (also enrolment, consent) form changes nothing but answers 'Saved.' and writes a data_entry event with changed 0.",
+   "claim": "A second identical save of the withdrawal (also enrolment, consent, an SAE form) form changes nothing but answers 'Saved.' and writes a data_entry event with changed 0.",
    "lane": "C2",
    "basis": "shown",
    "place": "services/console/entry_pages.py:295",
    "expected": "The second person is told plainly that nothing changed; no written rule; expected by the card.",
    "test": "tests/console/test_twice_one_effect.py::test_the_second_withdrawal_save_says_that_nothing_changed",
-   "cases": ["withdrawal_twice", "enrolment_twice", "consent_twice"],
+   "cases": [
+    "withdrawal_twice",
+    "enrolment_twice",
+    "consent_twice",
+    "sae_record"
+   ],
    "ruling": ""
   },
   {
@@ -43,7 +50,9 @@
    "place": "services/console/notify.py:420-425 (send_all), notify.py:371 (notice_sent)",
    "expected": "One digest per person and day (notify.py:371; tests/console/test_health_mail.py:129 'once a day').",
    "test": "tests/console/test_twice_one_effect.py::test_two_send_now_at_once_send_one_mail",
-   "cases": ["notices_race"],
+   "cases": [
+    "notices_race"
+   ],
    "ruling": ""
   },
   {
@@ -51,13 +60,16 @@
    "date": "2026-11-17",
    "source": "docs/plan/measurements/twice-one-effect-2026-11-17.md",
    "severity": "Medium",
-   "claim": "Disabling an account that is already disabled writes a second 'disable' audit event and answers with the same Undo toast.",
+   "claim": "Disabling an account that is already disabled writes a second 'disable' audit event with the same Undo toast; a reset sent twice resets twice (two console.user events).",
    "lane": "C2",
    "basis": "shown",
    "place": "services/console/app.py:1321-1330",
    "expected": "One disable event; the second answer says the account is already off; no written rule; expected by the card.",
    "test": "tests/console/test_twice_one_effect.py::test_an_account_disabled_twice_is_one_disable",
-   "cases": ["account_disable_twice"],
+   "cases": [
+    "account_disable_twice",
+    "account_reset"
+   ],
    "ruling": ""
   },
   {
@@ -71,21 +83,25 @@
    "place": "services/console/templates/data_entry.html:39, services/console/entry_pages.py:295",
    "expected": "A plain refusal naming the withdrawal; no written rule; expected by the card. Not run: whether a reason given then changes the enrolment date of a withdrawn participant.",
    "test": "tests/console/test_twice_one_effect.py::test_the_enrolment_form_after_a_withdrawal_says_the_participant_is_withdrawn",
-   "cases": ["back_after_withdrawal"],
+   "cases": [
+    "back_after_withdrawal"
+   ],
    "ruling": ""
   },
   {
    "id": "V11-06",
    "date": "2026-11-17",
    "source": "docs/plan/measurements/twice-one-effect-2026-11-17.md",
-   "severity": "Medium",
-   "claim": "The ingest timer fired twice for one night makes two INGEST jobs; both run. The night's chain after it still runs once.",
+   "severity": "Low",
+   "claim": "Calling the timer's entry (scheduler._submit) twice makes two INGEST jobs. The timer itself is one in-memory APScheduler job (id 'ingest', coalesce, max_instances=1), so it was not shown to fire twice; two orchestrator processes on one job store would each have that timer (not run).",
    "lane": "B2",
-   "basis": "shown",
-   "place": "services/orchestrator/scheduler.py:196 (_submit)",
-   "expected": "One ingest per night; D-492 (M1) keys one run per study and night for the chain only; no written rule for the ingest; expected by the card.",
-   "test": "tests/unit/test_twice_one_effect_jobs_mail.py::test_the_timer_fired_twice_for_one_night_is_one_ingest",
-   "cases": ["timer_twice"],
+   "basis": "hypothesis",
+   "place": "services/orchestrator/scheduler.py:196 (_submit), scheduler.py:376 (add_job), tb_common config.py:305",
+   "expected": "One ingest per night; D-492 (M1) keys one run per study and night for the chain only; no written rule for the ingest.",
+   "test": "",
+   "cases": [
+    "timer_twice"
+   ],
    "ruling": ""
   },
   {
@@ -93,13 +109,132 @@
    "date": "2026-11-17",
    "source": "docs/plan/measurements/twice-one-effect-2026-11-17.md",
    "severity": "Medium",
-   "claim": "Two retries of one failed scheduler job at once make two jobs: the 'one already queued' read and the new job are not one step. Hypothesis: the same holds for a list job (two candidate lists).",
+   "claim": "Two retries of one failed scheduler job at once (POST /jobs/{job_id}/retry, two clients) make two jobs: the 'one already queued' read and the new job are not one step. Hypothesis: the same holds for a list job (two candidate lists).",
    "lane": "B2",
    "basis": "shown",
    "place": "services/orchestrator/core.py:385-415 (retry_scheduled), core.py:404-406",
    "expected": "One new job, the other refused (D-474; core.py:404-406 refuses a retry while one is queued or running).",
-   "test": "tests/unit/test_twice_one_effect_jobs_mail.py::test_two_retries_at_once_are_one_job",
-   "cases": ["retry_race"],
+   "test": "tests/unit/test_twice_one_effect_jobs_mail.py::test_the_admin_retry_route_twice_at_once_is_one_job",
+   "cases": [
+    "retry_race",
+    "route_retry_race"
+   ],
+   "ruling": ""
+  },
+  {
+   "id": "V11-08",
+   "date": "2026-11-17",
+   "source": "docs/plan/measurements/twice-one-effect-2026-11-17.md",
+   "severity": "High",
+   "claim": "A double click on break-glass open (the CSRF token is fixed for the session, auth.py:762 per the review) makes two grants: two console.breakglass_open events, two notices to the PI and the steward; the second ends the first.",
+   "lane": "C2",
+   "basis": "shown",
+   "place": "services/console/breakglass.py:189 (POST /breakglass)",
+   "expected": "One grant per request; no written rule; expected by the card.",
+   "test": "tests/console/test_twice_one_effect.py::test_break_glass_open_twice_is_one_grant",
+   "cases": [
+    "breakglass_open"
+   ],
+   "ruling": ""
+  },
+  {
+   "id": "V11-09",
+   "date": "2026-11-17",
+   "source": "docs/plan/measurements/twice-one-effect-2026-11-17.md",
+   "severity": "Medium",
+   "claim": "A second identical opt-out answers done=same but writes a second console.opt_out event that names what it removed, with nothing marking it a no-op.",
+   "lane": "C2",
+   "basis": "shown",
+   "place": "services/console/team.py:1177 (POST /site/opt-outs)",
+   "expected": "One event, or the second marked as no change; no written rule; same pattern as V11-04.",
+   "test": "tests/console/test_twice_one_effect.py::test_an_opt_out_twice_is_one_event",
+   "cases": [
+    "opt_out"
+   ],
+   "ruling": ""
+  },
+  {
+   "id": "V11-10",
+   "date": "2026-11-17",
+   "source": "docs/plan/measurements/twice-one-effect-2026-11-17.md",
+   "severity": "Medium",
+   "claim": "An Approach replayed after the study is closed is accepted (303): a new mark row and a new screening number on a closed study.",
+   "lane": "C2",
+   "basis": "shown",
+   "place": "services/console/home.py:1140 (apply_mark)",
+   "expected": "D-386: closed is final and a close ends recruitment.",
+   "test": "tests/console/test_twice_one_effect.py::test_approach_after_the_study_is_closed_is_refused",
+   "cases": [
+    "back_mark_after_close"
+   ],
+   "ruling": "D-386 has no rule for marks"
+  },
+  {
+   "id": "V11-11",
+   "date": "2026-11-17",
+   "source": "docs/plan/measurements/twice-one-effect-2026-11-17.md",
+   "severity": "Medium",
+   "claim": "Ending a break-glass grant that is already ended writes a second console.breakglass_end event; switching EDC prefill on when it is on writes a second edc.switch event and switch record.",
+   "lane": "C2",
+   "basis": "shown",
+   "place": "services/console/breakglass.py:217 (POST /breakglass/{gid}/end), services/edc/service.py:143 (set_switch)",
+   "expected": "One event per change; no written rule; same pattern as V11-04.",
+   "test": "tests/console/test_twice_one_effect.py::test_break_glass_end_twice_is_one_end",
+   "cases": [
+    "breakglass_end",
+    "edc_switch"
+   ],
+   "ruling": ""
+  },
+  {
+   "id": "V11-12",
+   "date": "2026-11-17",
+   "source": "docs/plan/measurements/twice-one-effect-2026-11-17.md",
+   "severity": "Medium",
+   "claim": "A double submit of /pilot/request, /pilot/case, /pilot/consent or /pilot/jobs/{id}/release sends a second job request (a second console.request event and JobCreate at the stand-in). Whether the real orchestrator then makes two jobs was not run.",
+   "lane": "C2",
+   "basis": "shown",
+   "place": "services/console/app.py:1946, app.py:2138, app.py:2079, app.py:1583 (the pilot forms)",
+   "expected": "One job per submit; no written rule; expected by the card.",
+   "test": "tests/console/test_twice_one_effect.py::test_a_request_sent_twice_asks_for_one_job",
+   "cases": [
+    "pilot_request",
+    "pilot_case",
+    "pilot_consent",
+    "release"
+   ],
+   "ruling": ""
+  },
+  {
+   "id": "V11-13",
+   "date": "2026-11-17",
+   "source": "docs/plan/measurements/twice-one-effect-2026-11-17.md",
+   "severity": "Medium",
+   "claim": "After the person opts out, the coordinator's earlier consent and enrolment forms are saved: 2 steps and 5 values written, the participant becomes enrolled.",
+   "lane": "C2",
+   "basis": "shown",
+   "place": "services/console/entry_pages.py:295",
+   "expected": "The EDC path refuses an opted-out person (services/edc/service.py:129-132); D-273 and D-441 name the readers, not the data-entry form.",
+   "test": "tests/console/test_twice_one_effect.py::test_consent_and_enrolment_after_an_opt_out_are_refused",
+   "cases": [
+    "back_consent_after_opt_out"
+   ],
+   "ruling": "no decision says whether data entry is refused after an opt-out"
+  },
+  {
+   "id": "V11-14",
+   "date": "2026-11-17",
+   "source": "docs/plan/measurements/twice-one-effect-2026-11-17.md",
+   "severity": "High",
+   "claim": "A second acknowledgement of the same SAE by the investigator (a double click) answers 303 and writes a second console.sae_ack and a second life.sae_ack event: the SAE trail shows two acknowledgements.",
+   "lane": "C2",
+   "basis": "shown",
+   "place": "services/console/lifecycle_pages.py:476 (sae_ack)",
+   "expected": "One acknowledgement per SAE; no written rule; expected by the card (an SAE is a regulated record).",
+   "test": "tests/console/test_twice_one_effect.py::test_an_sae_acknowledged_twice_is_one_acknowledgement",
+   "cases": [
+    "sae_ack"
+   ],
    "ruling": ""
   }
  ]

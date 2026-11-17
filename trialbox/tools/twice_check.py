@@ -36,25 +36,33 @@ def blocks(twice: dict[str, Any], findings: list[dict[str, Any]]) -> dict[str, s
         for c in f.get("cases", []):
             by_case.setdefault(c, []).append(f["id"])
     sev = {s: sum(1 for f in findings if f["severity"] == s) for s in ("High", "Medium", "Low")}
-    held = [k for k in cases if k not in by_case]
+    missing = [k for k, row in cases.items() if "one_effect" not in row]
+    if missing:  # the column is measured by the tests, never inferred from the findings
+        raise ValueError(f"cases without a measured one_effect: {', '.join(missing)}")
+    held = [k for k, row in cases.items() if row["one_effect"]]
+    not_held = [k for k in cases if k not in held]
     inventory = list((twice.get("inventory") or {}).get("routes") or [])
     driven = sorted({r for row in cases.values() for r in _routes(row) if r in inventory})
     verdict = (
-        f"{len(cases)} cases measured; {len(held)} held one effect; {len(cases) - len(held)} did not. "
+        f"The claim holds only in part: {len(held)} of {len(cases)} measured cases left one effect; "
+        f"{len(not_held)} did not ({', '.join(not_held)}). "
         f"{len(findings)} findings: {sev['High']} High, {sev['Medium']} Medium, {sev['Low']} Low. "
         f"Changing console routes: {len(inventory)} in the live app; {len(driven)} driven twice; "
         f"{len(inventory) - len(driven)} not driven."
     )
-    lines = ["| case | place | one effect | finding | counts |", "|---|---|---|---|---|"]
+    lines = ["| case | place | one effect (measured) | finding | counts |", "|---|---|---|---|---|"]
     for k, row in cases.items():
         place = row.get("place") or ", ".join(row.get("routes") or [row.get("route", "")])
-        counts = {a: b for a, b in row.items() if a not in ("place", "route", "routes")}
+        counts = {a: b for a, b in row.items() if a not in ("place", "route", "routes", "one_effect")}
         ids = ", ".join(by_case.get(k, []))
         shown = json.dumps(counts, sort_keys=True)
-        lines.append(f"| {k} | `{place}` | {'no' if ids else 'yes'} | {ids or '-'} | `{shown}` |")
-    flines = ["| id | severity | lane | basis | place | claim |", "|---|---|---|---|---|---|"]
+        lines.append(f"| {k} | `{place}` | {'yes' if row['one_effect'] else 'no'} | {ids or '-'} | `{shown}` |")
+    flines = ["| id | severity | lane | basis | place | claim | ruling |", "|---|---|---|---|---|---|---|"]
     for f in findings:
-        flines.append(f"| {f['id']} | {f['severity']} | {f['lane']} | {f['basis']} | `{f['place']}` | {f['claim']} |")
+        flines.append(
+            f"| {f['id']} | {f['severity']} | {f['lane']} | {f['basis']} | `{f['place']}` | {f['claim']} "
+            f"| {f.get('ruling') or '-'} |"
+        )
     nd = [r for r in inventory if r not in driven]
     return {
         "verdict": verdict,

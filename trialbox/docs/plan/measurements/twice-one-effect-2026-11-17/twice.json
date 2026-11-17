@@ -2,6 +2,7 @@
  "account_add_twice": {
   "accounts": 1,
   "audit_console_user": 1,
+  "one_effect": true,
   "route": "POST /ops/users (add)",
   "status": [
    303,
@@ -11,7 +12,36 @@
  "account_disable_twice": {
   "audit_console_user": 2,
   "location_second": "/ops/users?undo=viewer#undo",
+  "one_effect": false,
   "route": "POST /ops/users (disable)",
+  "status": [
+   303,
+   303
+  ]
+ },
+ "account_reset": {
+  "events_first": {
+   "console.user": 1
+  },
+  "events_second": {
+   "console.user": 1
+  },
+  "first_worked": true,
+  "jobs": [
+   0,
+   0
+  ],
+  "mails": [
+   0,
+   0
+  ],
+  "one_effect": false,
+  "records": [
+   0,
+   0,
+   0
+  ],
+  "route": "POST /ops/users (reset)",
   "status": [
    303,
    303
@@ -22,17 +52,20 @@
   "audit_pi_mark": 2,
   "mark_rows": 2,
   "notices": 0,
+  "one_effect": false,
   "override_records": 2,
   "route": "POST /studies/{rs}/patients/{pid}/mark (approach)",
   "status_second": 303
  },
  "back_after_declined": {
+  "one_effect": false,
   "outcomes_added": 1,
   "route": "POST /studies/{rs}/patients/{pid}/outcome",
   "status": 303
  },
  "back_after_withdrawal": {
   "form_message": "The form was not saved. Correct the 1 marked fields and save again.",
+  "one_effect": true,
   "routes": [
    "POST /studies/{rs}/entry (tb_enrolment)",
    "POST /studies/{rs}/subjects/{record}/step"
@@ -45,9 +78,148 @@
   "steps_added": 0,
   "values_added": 0
  },
+ "back_consent_after_opt_out": {
+  "one_effect": false,
+  "opt_out_status": 303,
+  "route": "POST /studies/{rs}/entry",
+  "state": "enrolled",
+  "status": [
+   200,
+   200
+  ],
+  "steps_added": 2,
+  "values_added": 5
+ },
+ "back_mark_after_close": {
+  "close_status": 303,
+  "marks_added": 1,
+  "one_effect": false,
+  "route": "POST /studies/{rs}/patients/{pid}/mark",
+  "screening_nos_added": 1,
+  "state": "closed",
+  "status": 303
+ },
+ "back_outcome_after_withdrawal": {
+  "one_effect": true,
+  "outcomes_added": 0,
+  "route": "POST /studies/{rs}/patients/{pid}/outcome",
+  "status": 404
+ },
+ "breakglass_end": {
+  "events_first": {
+   "console.breakglass_end": 1
+  },
+  "events_second": {
+   "console.breakglass_end": 1
+  },
+  "first_worked": true,
+  "jobs": [
+   0,
+   0
+  ],
+  "mails": [
+   0,
+   0
+  ],
+  "one_effect": false,
+  "records": [
+   0,
+   0,
+   0
+  ],
+  "route": "POST /breakglass/{gid}/end",
+  "status": [
+   303,
+   303
+  ]
+ },
+ "breakglass_open": {
+  "events_first": {
+   "console.breakglass_notice": 1,
+   "console.breakglass_open": 1
+  },
+  "events_second": {
+   "console.breakglass_end": 1,
+   "console.breakglass_notice": 1,
+   "console.breakglass_open": 1
+  },
+  "first_worked": true,
+  "jobs": [
+   0,
+   0
+  ],
+  "mails": [
+   1,
+   1
+  ],
+  "one_effect": false,
+  "records": [
+   0,
+   0,
+   0
+  ],
+  "route": "POST /breakglass",
+  "status": [
+   303,
+   303
+  ]
+ },
+ "breakglass_review": {
+  "events_first": {
+   "console.breakglass_review": 1
+  },
+  "events_second": {},
+  "first_worked": true,
+  "jobs": [
+   0,
+   0
+  ],
+  "mails": [
+   0,
+   0
+  ],
+  "one_effect": true,
+  "records": [
+   0,
+   0,
+   0
+  ],
+  "route": "POST /breakglass/{gid}/review",
+  "status": [
+   303,
+   303
+  ]
+ },
+ "close_study": {
+  "events_first": {
+   "console.study_state": 1
+  },
+  "events_second": {},
+  "first_worked": true,
+  "jobs": [
+   0,
+   0
+  ],
+  "mails": [
+   0,
+   0
+  ],
+  "one_effect": true,
+  "records": [
+   0,
+   1,
+   1
+  ],
+  "route": "POST /studies/{rs}/state",
+  "status": [
+   303,
+   400
+  ]
+ },
  "consent_twice": {
   "audit_data_entry": 2,
   "consents": 1,
+  "one_effect": true,
   "route": "POST /studies/{rs}/entry (tb_consent)",
   "second_changed": 0,
   "status": [
@@ -56,8 +228,177 @@
   ],
   "values_added_by_second": 0
  },
+ "dataops_decide": {
+  "events_first": {
+   "dataops.decide": 1
+  },
+  "events_second": {},
+  "first_worked": true,
+  "jobs": [
+   0,
+   0
+  ],
+  "mails": [
+   0,
+   0
+  ],
+  "one_effect": true,
+  "records": [
+   0,
+   0,
+   0
+  ],
+  "route": "POST /data-ops/batches/{bid}/decide",
+  "status": [
+   303,
+   303
+  ]
+ },
+ "dataops_decide_api": {
+  "events_first": {
+   "dataops.decide": 1
+  },
+  "events_second": {},
+  "first_worked": true,
+  "jobs": [
+   0,
+   0
+  ],
+  "mails": [
+   0,
+   0
+  ],
+  "one_effect": true,
+  "records": [
+   0,
+   0,
+   0
+  ],
+  "route": "POST /api/v1/data/batches/{bid}/decide",
+  "status": [
+   200,
+   409
+  ]
+ },
+ "edc_decide": {
+  "events_first": {
+   "edc.decide": 1
+  },
+  "events_second": {
+   "edc.decide:refused": 1
+  },
+  "first_worked": true,
+  "jobs": [
+   0,
+   0
+  ],
+  "mails": [
+   0,
+   0
+  ],
+  "one_effect": true,
+  "records": [
+   0,
+   0,
+   0
+  ],
+  "route": "POST /studies/{rs}/edc/decide/{draft_id}",
+  "status": [
+   303,
+   409
+  ]
+ },
+ "edc_send": {
+  "events_first": {
+   "edc.reconciled": 1,
+   "edc.sent": 1
+  },
+  "events_second": {
+   "edc.reconciled": 1,
+   "edc.sent:noop": 1
+  },
+  "first_worked": true,
+  "jobs": [
+   0,
+   0
+  ],
+  "mails": [
+   0,
+   0
+  ],
+  "one_effect": true,
+  "records": [
+   0,
+   0,
+   0
+  ],
+  "route": "POST /studies/{rs}/edc/send",
+  "status": [
+   303,
+   303
+  ]
+ },
+ "edc_sign": {
+  "events_first": {
+   "edc.sign": 1
+  },
+  "events_second": {
+   "edc.sign:refused": 1
+  },
+  "first_worked": true,
+  "jobs": [
+   0,
+   0
+  ],
+  "mails": [
+   0,
+   0
+  ],
+  "one_effect": true,
+  "records": [
+   0,
+   1,
+   1
+  ],
+  "route": "POST /studies/{rs}/edc/sign",
+  "status": [
+   303,
+   409
+  ]
+ },
+ "edc_switch": {
+  "events_first": {
+   "console.edc": 1,
+   "edc.switch": 1
+  },
+  "events_second": {
+   "console.edc": 1,
+   "edc.switch": 1
+  },
+  "first_worked": true,
+  "jobs": [
+   0,
+   0
+  ],
+  "mails": [
+   0,
+   0
+  ],
+  "one_effect": false,
+  "records": [
+   0,
+   0,
+   0
+  ],
+  "route": "POST /studies/{rs}/edc/switch",
+  "status": [
+   303,
+   303
+  ]
+ },
  "enrolment_twice": {
   "enrolled_steps": 1,
+  "one_effect": true,
   "route": "POST /studies/{rs}/entry (tb_enrolment)",
   "second_changed": 0,
   "second_says_saved": true,
@@ -237,6 +578,7 @@
    "done",
    "done"
   ],
+  "one_effect": true,
   "place": "Orchestrator.run after a restart",
   "work_runs": [
    [
@@ -259,6 +601,7 @@
  },
  "mail_race": {
   "copies": 1,
+  "one_effect": true,
   "place": "Gateway.deliver, two threads",
   "states": [
    "SendUncertain",
@@ -266,6 +609,11 @@
   ]
  },
  "mail_refused_then_retry": {
+  "audit": {
+   "mail.deferred": 1,
+   "mail.duplicate_suppressed": 1,
+   "mail.sent": 1
+  },
   "copies": 1,
   "drains": [
    {
@@ -274,6 +622,7 @@
    {}
   ],
   "final": "sent",
+  "one_effect": true,
   "place": "Gateway.deliver, Gateway.drain",
   "states": [
    "queued",
@@ -281,7 +630,12 @@
   ]
  },
  "mail_same_key": {
+  "audit": {
+   "mail.duplicate_suppressed": 1,
+   "mail.sent": 1
+  },
   "copies": 1,
+  "one_effect": true,
   "place": "Gateway.deliver",
   "states": [
    "sent",
@@ -289,12 +643,17 @@
   ]
  },
  "mail_uncertain": {
+  "audit": {
+   "mail.duplicate_suppressed": 1,
+   "mail.uncertain": 1
+  },
   "copies": 1,
   "drains": [
    {},
    {}
   ],
   "final": "uncertain",
+  "one_effect": true,
   "place": "Gateway.deliver, Gateway.drain",
   "states": [
    "uncertain",
@@ -304,6 +663,7 @@
  "night_twice": {
   "chain_after": 4,
   "chain_before": 4,
+  "one_effect": true,
   "place": "night.advance",
   "work_runs": 4
  },
@@ -316,24 +676,56 @@
    "N1"
   ],
   "mails": 4,
+  "one_effect": false,
   "route": "POST /ops/notices, two threads at once"
  },
  "notices_twice": {
+  "audit_console_notice": 2,
   "kinds": [
    "N2",
    "N1"
   ],
   "mails_after_first": 2,
   "mails_after_second": 2,
+  "one_effect": true,
   "route": "POST /ops/notices",
   "status": [
    200,
    200
   ]
  },
+ "opt_out": {
+  "events_first": {
+   "console.opt_out": 1
+  },
+  "events_second": {
+   "console.opt_out": 1
+  },
+  "first_worked": true,
+  "jobs": [
+   0,
+   0
+  ],
+  "mails": [
+   0,
+   0
+  ],
+  "one_effect": false,
+  "records": [
+   0,
+   0,
+   0
+  ],
+  "route": "POST /site/opt-outs",
+  "status": [
+   303,
+   303
+  ]
+ },
  "outcome_twice": {
   "audit_contact_outcome": 1,
   "audit_refused": 1,
+  "one_effect": true,
   "outcomes": 1,
   "route": "POST /studies/{rs}/patients/{pid}/outcome",
   "status": [
@@ -341,7 +733,129 @@
    409
   ]
  },
+ "pilot_case": {
+  "events_first": {
+   "console.request": 1
+  },
+  "events_second": {
+   "console.request": 1
+  },
+  "first_worked": true,
+  "jobs": [
+   1,
+   1
+  ],
+  "mails": [
+   0,
+   0
+  ],
+  "one_effect": false,
+  "records": [
+   0,
+   0,
+   0
+  ],
+  "route": "POST /pilot/case",
+  "status": [
+   303,
+   303
+  ]
+ },
+ "pilot_consent": {
+  "events_first": {
+   "console.request": 1
+  },
+  "events_second": {
+   "console.request": 1
+  },
+  "first_worked": true,
+  "jobs": [
+   1,
+   1
+  ],
+  "mails": [
+   0,
+   0
+  ],
+  "one_effect": false,
+  "records": [
+   0,
+   0,
+   0
+  ],
+  "route": "POST /pilot/consent",
+  "status": [
+   303,
+   303
+  ]
+ },
+ "pilot_request": {
+  "events_first": {
+   "console.request": 1
+  },
+  "events_second": {
+   "console.request": 1
+  },
+  "first_worked": true,
+  "jobs": [
+   1,
+   1
+  ],
+  "mails": [
+   0,
+   0
+  ],
+  "one_effect": false,
+  "records": [
+   0,
+   0,
+   0
+  ],
+  "route": "POST /pilot/request",
+  "status": [
+   303,
+   303
+  ]
+ },
+ "release": {
+  "events_first": {
+   "console.request": 1
+  },
+  "events_second": {
+   "console.request": 1
+  },
+  "first_worked": true,
+  "jobs": [
+   1,
+   1
+  ],
+  "mails": [
+   0,
+   0
+  ],
+  "one_effect": false,
+  "records": [
+   0,
+   0,
+   0
+  ],
+  "route": "POST /pilot/jobs/{job_id}/release",
+  "status": [
+   303,
+   303
+  ]
+ },
+ "requeued_while_running": {
+  "final": "done",
+  "one_effect": true,
+  "place": "JobDB.enqueue + Orchestrator.run (second worker) + retry_scheduled",
+  "retry": "refused: the job has not failed",
+  "runs": 1,
+  "second_claim": true,
+  "second_run_state": "running"
+ },
  "retry_race": {
+  "one_effect": false,
   "place": "Orchestrator.retry_scheduled, two threads",
   "rounds": [
    {
@@ -383,16 +897,203 @@
  },
  "retry_twice": {
   "ingest_jobs": 2,
+  "one_effect": true,
   "place": "Orchestrator.retry_scheduled (D-474)",
-  "second_answer": "a INGEST job of the same study is already queued or running (01M7NE5NC22XG6C2KEXFBV8QX7)"
+  "second_answer": "a INGEST job of the same study is already queued or running (<job>)"
+ },
+ "reveal_job": {
+  "events_first": {
+   "console.reveal_patient": 1
+  },
+  "events_second": {
+   "console.reveal_patient": 1
+  },
+  "first_worked": true,
+  "jobs": [
+   0,
+   0
+  ],
+  "mails": [
+   0,
+   0
+  ],
+  "one_effect": true,
+  "records": [
+   0,
+   1,
+   2
+  ],
+  "route": "POST /pilot/jobs/{job_id}/reveal",
+  "status": [
+   200,
+   200
+  ]
+ },
+ "reveal_patient": {
+  "events_first": {
+   "console.reveal_patient": 1
+  },
+  "events_second": {
+   "console.reveal_patient": 1
+  },
+  "first_worked": true,
+  "jobs": [
+   0,
+   0
+  ],
+  "mails": [
+   0,
+   0
+  ],
+  "one_effect": true,
+  "records": [
+   0,
+   1,
+   2
+  ],
+  "route": "POST /studies/{rs}/patients/{pid}/reveal",
+  "status": [
+   200,
+   200
+  ]
+ },
+ "route_retry_race": {
+  "audit_job_retried": 6,
+  "one_effect": false,
+  "place": "POST /jobs/{job_id}/retry (orchestrator), two clients at once",
+  "rounds": [
+   {
+    "codes": [
+     200,
+     200
+    ],
+    "jobs_made": 2,
+    "round": 0
+   },
+   {
+    "codes": [
+     200,
+     200
+    ],
+    "jobs_made": 2,
+    "round": 1
+   },
+   {
+    "codes": [
+     200,
+     200
+    ],
+    "jobs_made": 2,
+    "round": 2
+   }
+  ]
+ },
+ "route_send_retry": {
+  "audit": {
+   "mail.deferred": 1,
+   "mail.duplicate_suppressed": 1,
+   "mail.sent": 1
+  },
+  "copies": 1,
+  "one_effect": true,
+  "place": "POST /send (mail gateway), outbox between",
+  "states": [
+   "queued",
+   "duplicate"
+  ],
+  "status": [
+   202,
+   200
+  ]
+ },
+ "route_send_same_key": {
+  "audit": {
+   "mail.duplicate_suppressed": 1,
+   "mail.sent": 1
+  },
+  "copies": 1,
+  "one_effect": true,
+  "place": "POST /send (mail gateway)",
+  "states": [
+   "sent",
+   "duplicate"
+  ],
+  "status": [
+   200,
+   200
+  ]
  },
  "run_done_again": {
+  "one_effect": true,
   "place": "Orchestrator.run",
   "state": "done",
   "work_added": 0
  },
+ "sae_ack": {
+  "events_first": {
+   "console.sae": 1,
+   "console.sae_ack": 1,
+   "life.sae_ack": 1
+  },
+  "events_second": {
+   "console.sae_ack": 1,
+   "life.sae_ack": 1
+  },
+  "first_worked": true,
+  "jobs": [
+   0,
+   0
+  ],
+  "mails": [
+   0,
+   0
+  ],
+  "one_effect": false,
+  "records": [
+   0,
+   0,
+   0
+  ],
+  "route": "POST /studies/{rs}/subjects/{record}/aes/{event}/ack",
+  "status": [
+   303,
+   303
+  ]
+ },
+ "sae_record": {
+  "events_first": {
+   "console.data_entry": 1,
+   "console.sae": 2,
+   "data.entry": 1
+  },
+  "events_second": {
+   "console.data_entry": 1,
+   "data.entry": 1
+  },
+  "first_worked": true,
+  "jobs": [
+   0,
+   0
+  ],
+  "mails": [
+   1,
+   0
+  ],
+  "one_effect": false,
+  "records": [
+   0,
+   1,
+   1
+  ],
+  "route": "POST /studies/{rs}/entry (tb_adverse_event)",
+  "status": [
+   303,
+   303
+  ]
+ },
  "step_twice": {
   "audit_life_step": 1,
+  "one_effect": true,
   "route": "POST /studies/{rs}/subjects/{record}/step",
   "status": [
    303,
@@ -402,7 +1103,8 @@
  },
  "timer_twice": {
   "ingest_jobs": 2,
-  "place": "scheduler._submit (the timer)",
+  "one_effect": false,
+  "place": "scheduler._submit called twice (what the timer calls; not the timer firing)",
   "work_runs": [
    [
     "MICROBATCH",
@@ -466,6 +1168,7 @@
     409
    ]
   ],
+  "one_effect": true,
   "own_two_tabs": [
    403,
    403
@@ -474,7 +1177,11 @@
   "route": "POST /ops/accounts/requests"
  },
  "withdrawal_twice": {
+  "audit_data_entry": 2,
+  "audit_life_step": 1,
+  "one_effect": true,
   "route": "POST /studies/{rs}/entry (tb_withdrawal)",
+  "second_changed": 0,
   "second_says_saved": true,
   "status_second": 200,
   "values_added_by_second": 0,
