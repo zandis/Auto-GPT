@@ -132,8 +132,26 @@ The step names in the table are the part files the VM writes (`parts/<step>.json
 
     deploy/gcp/box-run.sh --estimate --mode validation --steps dev,acc --only jmed:300,tcga:500
     PYTHONPATH=libs:services:. .venv/bin/python -m tools.box_run validation-check   # exit 0 = can_run true
+    PYTHONPATH=libs:services:. .venv/bin/python -m tools.box_run acc-ids --only tcga --rs-tag m2   # the ids, free
+    deploy/gcp/box-run.sh --preflight <the launch's own options>   # every free check; exit 0 = the launch passes them
 
-A launch that includes `acc` runs `validation-check` itself and refuses (exit 9) while it names a blocker.
+`--preflight` takes the paid launch's options unchanged (`--steps`, `--mode`, `--only`, `--commit`,
+`--src-bundle`, `--acc-rs-tag`, `--acc-protocols`, `--acc-streams`, `--acc-deadline`, ...). It makes no gcloud call
+and needs no `TB_BUCKET` or credentials, and it stops where the launch would first upload anything. It checks:
+
+- **The protocol filter (D1).** Every id must be one of its set's ids under `--acc-rs-tag`. With tag `m2` the
+  TCGA-BRCA protocol is `Gm2TCGA-BRCA`, so launch P1b's `G2TCGA-BRCA` is refused, and the refusal lists the ids
+  that do exist. An empty filter is refused too.
+- **The streams and budgets (D4, D7).** `--acc-streams` must name a set of the launch, with 1 to TB_WORKERS
+  less one (3 by default). `--acc-deadline` and `--acc-min-start` must be seconds. The preflight prints how many
+  protocols each set will have in flight: 3 for a compile-bound set, else 1.
+- **The commit and the source bundle (D8).** A build or dev launch needs the full 40-character commit and
+  `--src-bundle`. The bundle is cloned as the VM clones it, and the commit is checked out from it.
+- **The metadata.** Every key the steps need is there, and no value looks like a key.
+- **The validation-check.** This one runs only when the launch has `acc` in validation mode.
+
+A launch runs the same checks first and refuses before anything is uploaded or started: exit 2 for the filter,
+exit 6 for the preflight, exit 9 for a validation-check blocker.
 
 ### 4.1 Probe (the VM's facts, nothing built)
 
@@ -145,11 +163,18 @@ A launch that includes `acc` runs `validation-check` itself and refuses (exit 9)
 
 ### 4.2 The source bundle (by hand, before a build or dev launch)
 
-The driver does not upload the commit. The VM clones it from `gs://trialbox-demo-runs/r2/<release id>/src.bundle`.
-The exact command used was not written in the log. A command that makes such a bundle:
+The VM clones the commit from `gs://trialbox-demo-runs/r2/<release id>/src.bundle`. Since D8 (after launch P1b, whose
+bundle came from a shallow checkout and could not be used) the bundle is made and proved here, and the driver
+uploads it only once a clone of it checks the commit out:
 
-    git bundle create /tmp/src.bundle <branch or commit>     # must contain the commit
-    gcloud storage cp /tmp/src.bundle gs://trialbox-demo-runs/r2/dev-<commit12>/src.bundle
+    python -m tools.box_run src-bundle --commit <sha> --out /tmp/src.bundle   # refused in a shallow checkout
+    deploy/gcp/box-run.sh --steps dev --commit <sha> --release-id dev-<commit12> --src-bundle /tmp/src.bundle ...
+
+A bundle made by hand is proved the same way: `python -m tools.box_run src-bundle --commit <sha> --check FILE`.
+The proof clones the bundle exactly as `b01-source` does (a plain `git clone`, then `git checkout --detach` of
+the commit), so it fails for a bundle whose commit is not on a branch: a plain clone of such a bundle is empty. A
+build or dev launch without `--src-bundle` is refused, because the bundle already in the bucket cannot be proved
+from here.
 
 ### 4.3 Build: the commit's images, and (build route only) a signed bundle
 

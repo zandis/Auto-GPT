@@ -21,6 +21,8 @@
 #   TB_DEMO_VM_NETWORK    default: the project's `default` network (no networkAdmin needed); the VM gets an allow
 #                         tcp:443 rule and a deny-all rule on its tag, which beats the network's SSH/RDP rules.
 #                         own: a network of its own (needs roles/compute.networkAdmin)
+#   TB_DEMO_VM_MODE       demo (default), or steps (D-1062): demo mode stays off and a person may be admin or
+#                         steward too, so a study can be walked from its first step (synthetic or public text only)
 #   TB_DEMO_VM_PEOPLE     owner:investigator,guest:coordinator: one account per person, opened with a one-time code;
 #                         each chooses the password on /enrol (no password from anyone, no Secret Manager)
 #   TB_DEMO_VM_HANDOFF    the private gs:// place for the codes' object (default $TB_BUCKET/demo-vm)
@@ -47,16 +49,16 @@ while [ $# -gt 0 ]; do
     --dry-run) DRY=1 ;;
     --yes) YES=1 ;;
     --estimate) ESTIMATE=1 ;;
-    -h | --help) sed -n 2,36p "$0"; exit 0 ;;
+    -h | --help) sed -n 2,38p "$0"; exit 0 ;;
     up | status | down | delete | links) [ -z "$CMD" ] || { echo "one command only" >&2; exit 2; }; CMD=$1 ;;
-    *) echo "unknown argument: $1" >&2; sed -n 2,36p "$0" >&2; exit 2 ;;
+    *) echo "unknown argument: $1" >&2; sed -n 2,38p "$0" >&2; exit 2 ;;
   esac
   shift
 done
 
 if [ "$ESTIMATE" = 1 ]; then exec "$PY" "$HERE/demo_vm.py" estimate; fi
 if [ -z "$CMD" ]; then
-  [ "$DRY" = 1 ] || { sed -n 2,36p "$0" >&2; exit 2; }
+  [ "$DRY" = 1 ] || { sed -n 2,38p "$0" >&2; exit 2; }
   CMD=up
 fi
 case "$CMD" in
@@ -71,7 +73,7 @@ esac
 FOR=$CMD; [ "$CMD" = up ] && [ "$DRY" = 1 ] && FOR=dry
 SETTINGS="$("$PY" "$HERE/demo_vm.py" shell "$FOR")" || exit 2
 N=""; NETWORK=""; ALLOW_PRIORITY=""; DENY_PRIORITY=""; ZONE=""; REGION=""; MACHINE=""; DISK_GB=""; HOURS=""; ALLOW=""; IMAGE=""; IMAGE_SHA256=""; PEOPLE=""; ENROL_HOURS=""; HANDOFF=""
-DEMO_LANG=""; SITE_LANG=""; STOP_WAIT_S=""; OPEN_ANY=0; GATE=""
+DEMO_LANG=""; SITE_LANG=""; STOP_WAIT_S=""; OPEN_ANY=0; GATE=""; MODE=""; MODE_TEXT=""
 eval "$SETTINGS"   # shlex-quoted assignments of the names above, from demo_vm.py only
 [ -n "$IMAGE" ] || IMAGE="<TB_DEMO_VM_IMAGE>"
 [ -n "$ALLOW" ] || ALLOW="<TB_DEMO_ALLOW>"
@@ -135,6 +137,7 @@ METADATA="block-project-ssh-keys=TRUE,tb-demo-image=$IMAGE,tb-demo-hours=$HOURS,
 METADATA="$METADATA,tb-demo-people=${PEOPLE//,/;},tb-demo-enrol-hours=$ENROL_HOURS,tb-demo-handoff=$HANDOFF"
 [ -z "$IMAGE_SHA256" ] || METADATA="$METADATA,tb-demo-image-sha256=$IMAGE_SHA256"
 [ -z "$SITE_LANG" ] || METADATA="$METADATA,tb-demo-site-lang=$SITE_LANG"
+[ "$MODE" != steps ] || METADATA="$METADATA,tb-demo-mode=steps"
 
 rules_check() {  # nothing but the VM's own rules reaches it (no SSH or port 80 added by hand, no default rule first)
   local bad
@@ -202,6 +205,7 @@ up() {
   say "after DEMO-VM-READY: deploy/gcp/demo-vm.sh links prints each person's one-time link once (then deletes it);"
   say "  each person opens their link (https://<address>/enrol#u=...&c=...: the page fills the two fields) and chooses a password"
   if [ "$OPEN_ANY" = 1 ]; then say "$OPEN_TEXT"; fi
+  [ -z "$MODE_TEXT" ] || say "$MODE_TEXT"
   say "it powers itself off $HOURS h after its start; stop it earlier with: deploy/gcp/demo-vm.sh down"
 }
 

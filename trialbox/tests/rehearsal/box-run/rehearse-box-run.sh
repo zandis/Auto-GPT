@@ -34,6 +34,10 @@
 #   happy              start (G-2) + g6 + g9 + g10 from the signed bundle; the power cycle; results through the bucket
 #                      (and the door)
 #   step-fails         the qualification fails: the run stops there with the step's record
+#   gate-closed        D2: the canary gate is closed at the first read: the orchestrator restarted, the gate read
+#                      (with the service token, from a service's container) until open, the run goes on
+#   gate-401           D2: GET /models refuses the token: a failure at once (no restart, no wait), the run stops
+#   gate-never         D2: the gate stays closed after the restart and the wait: the run stops at 07g-gate
 #   reboot             a cut in the middle of the qualification: the next boot keeps the finished steps
 #   cap                the cost cap fires during a long step; the next boot ends at once (TB-CAP-REACHED)
 #   bad-hash           a payload differs from its signed manifest: refused, the installer never runs
@@ -86,7 +90,7 @@ VPY="${TB_BOXRUN_VENV_PY:-$ROOT/.venv/bin/python}"
 REH="${TB_BOXRUN_REHEARSAL_DIR:-/tmp/tb-boxrun-rehearsal}"
 ALL=(build build-gate-fails build-refused build-preempt happy step-fails reboot cap bad-hash bad-tar-hash
      refused-rehearsal wizard-refused oom list-differs identity-differs build-validation acc acc-preempt acc-blocked
-     resume-after-stop acc-qualify-fails probe direct dev acc-cut qualify-timebox acc-gate acc-redo)
+     resume-after-stop acc-qualify-fails probe direct dev acc-cut qualify-timebox acc-gate acc-redo gate-closed gate-401 gate-never)
 # shellcheck disable=SC2206  # CASES=happy,cap: split on commas and spaces
 CASES=(${*//,/ }); [ "${#CASES[@]}" -gt 0 ] || CASES=("${ALL[@]}")
 # the harness's own ceiling for one wait (a declared setting): a case takes 5 to 40 seconds on the short clock, so
@@ -299,6 +303,9 @@ for CASE in "${CASES[@]}"; do
       door_probe
       power_cycle; to_the_end ;;
     step-fails) setup "$CASE" start fail-qualify; start_setup; boot; to_the_end ;;
+    gate-closed) setup "$CASE" start gate-closed; start_setup; boot; to_the_end ;;
+    gate-401) setup "$CASE" start gate-401; start_setup; boot; to_the_end ;;
+    gate-never) setup "$CASE" start gate-never; start_setup; boot; to_the_end ;;
     reboot)
       setup "$CASE" start; echo 3 > "$S/knobs/qualify-seconds"; start_setup; boot
       wait_for "the qualification to be running" grep -q '^qualify$' "$S/calls.log"
@@ -330,7 +337,7 @@ for CASE in "${CASES[@]}"; do
       m tb-qualify-timebox 2; m tb-progress-seconds 1; boot; to_the_end ;;
     acc-cut)
       setup "$CASE" "start acc"; echo 1.2 > "$S/knobs/acc-job-seconds"; start_setup; acc_setup
-      m tb-acc-plan "jmed:3:0.5 sigir:3:1 tfda:2:1"; m tb-acc-min-deadline 2; m tb-progress-seconds 1
+      m tb-acc-plan "jmed:3:0.5 sigir:3:1 tfda:2:1"; m tb-acc-min-deadline 2; m tb-acc-min-start 0.5; m tb-progress-seconds 1
       m tb-acc-protocols "sigir:SNCT90000002"; m tb-acc-streams "tfda:2"
       boot; to_the_end; acc_collect ;;
     dev)   # the site files the first start left (the wizard's .env), then the dev launch

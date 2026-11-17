@@ -112,6 +112,14 @@ EN: dict[str, str] = {
     "edc.confirm": "Tool writes waiting for a person",
     "edc.none": "None waiting.",
     "edc.confirm_one": "Confirm this write",
+    "edc.status": "Connection",
+    "edc.status.unset": "The EDC's tool URL or token is not set: TrialBox does not call the EDC.",
+    "edc.status.down": "The EDC did not answer, or refused the capabilities request. Check its address and the tool token.",
+    "edc.status.up": "The EDC is reachable: its capabilities were read.",
+    "edc.status.module_on": "The trialbox module is on: tool calls can be sent.",
+    "edc.status.module_off": "The trialbox module is off on the EDC: no tool call is sent until it is turned on.",
+    "edc.status.queue": "The EDC's event queue: {pending} pending, {dead} in dead letters.",
+    "edc.status.queue_unknown": "The EDC's pending and dead-letter counts: not reported by the EDC yet.",
 }
 
 JA: dict[str, str] = {
@@ -223,6 +231,14 @@ JA: dict[str, str] = {
     "edc.confirm": "担当者の確認を待つツールの書き込み",
     "edc.none": "待ちはありません。",
     "edc.confirm_one": "この書き込みを確認する",
+    "edc.status": "接続状態",
+    "edc.status.unset": "EDC のツール URL またはトークンが設定されていません。TrialBox は EDC を呼び出しません。",
+    "edc.status.down": "EDC が応答しないか、機能一覧の取得を拒否しました。アドレスとツールトークンを確認してください。",
+    "edc.status.up": "EDC に接続できます（機能一覧を取得しました）。",
+    "edc.status.module_on": "trialbox モジュールは有効です。ツールを呼び出せます。",
+    "edc.status.module_off": "EDC で trialbox モジュールが無効です。有効にするまでツールは呼び出しません。",
+    "edc.status.queue": "EDC のイベント待ち行列：未送信 {pending} 件、デッドレター {dead} 件。",
+    "edc.status.queue_unknown": "EDC の未送信件数とデッドレター件数：EDC からまだ報告されていません。",
 }
 
 ZH: dict[str, str] = {
@@ -334,4 +350,12 @@ ZH: dict[str, str] = {
     "edc.confirm": "等待人員確認的工具寫入",
     "edc.none": "沒有等待中的項目。",
     "edc.confirm_one": "確認此寫入",
+    "edc.status": "連線狀態",
+    "edc.status.unset": "尚未設定 EDC 的工具網址或金鑰：TrialBox 不會呼叫 EDC。",
+    "edc.status.down": "EDC 沒有回應，或拒絕了功能清單請求。請檢查其位址與工具金鑰。",
+    "edc.status.up": "EDC 可連線：已讀取其功能清單。",
+    "edc.status.module_on": "trialbox 模組已開啟：可以送出工具呼叫。",
+    "edc.status.module_off": "EDC 上的 trialbox 模組未開啟：開啟前不會送出工具呼叫。",
+    "edc.status.queue": "EDC 的事件佇列：待送 {pending} 筆，無法投遞 {dead} 筆。",
+    "edc.status.queue_unknown": "EDC 的待送與無法投遞筆數：EDC 尚未回報。",
 }

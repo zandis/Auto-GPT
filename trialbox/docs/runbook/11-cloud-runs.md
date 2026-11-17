@@ -354,6 +354,13 @@ referral. The seed's `pi` stays the PI, so the PI-only steps (approving criteria
 `coordinator` account is CRC on the same studies with the same tasks: the coordinator's view of the same synthetic
 hospital. `viewer` (aggregates only) is the other choice for a guest.
 
+**Steps mode (D-1062).** `TB_DEMO_VM_MODE=steps` is for the owner and his testers walking a study from its first
+step on current master. The boot leaves the flag `demo.mode` off, so a protocol can be pasted and uploaded, and
+`TB_DEMO_VM_PEOPLE` may also name `admin` and `steward`. Each account has one role, so a person who needs several
+gets one account for each (`wenn.admin:admin,wenn:investigator`). The model is still the stub, the hospital is
+still synthetic, and nothing else about the VM changes. Synthetic or public text only: tell the people so with
+their links. The default mode is `demo`.
+
 **Demo mode (D-328).** The banner, the refusal of every upload and pasted text, and the acknowledgement at each
 account's first sign-in. The boot script switches the audited flag `demo.mode` on **after** the seed and **before**
 Caddy opens tcp:443: it signs in as `admin` inside the container and sets it on `/ops/flags` with a reason (one
@@ -427,7 +434,20 @@ Owner's yes first for anything but `--estimate` and `--dry-run`.
   box reads its release record (no rehearsal mark, D-726; not dirty and the declared commit, D-633), then uploaded
   with its `.sha256` to `$TB_BUCKET/r2/<ID>/`. The git bundle of the release commit and the public key must be in
   the bucket first (`r2/<ID>/src.bundle`, `r2/keys/vendor_ed25519.pub`); the owner's one-time steps make the secret
-  and the account.
+  and the account. `--src-bundle FILE` proves the git bundle and uploads it. The proof clones it as the VM does
+  and checks the commit out. A build or dev launch needs it. Make one with
+  `python -m tools.box_run src-bundle --commit <full sha> --out FILE`.
+- **Preflight (free).** `deploy/gcp/box-run.sh --preflight` takes the launch's own options and makes no gcloud
+  call. It runs every free check, then stops before the first upload:
+  - the `--acc-protocols` filter against the set's ids under `--acc-rs-tag`, listed by `python -m tools.box_run
+    acc-ids`;
+  - `--acc-streams` and the set budgets;
+  - the full commit and the source bundle;
+  - the metadata;
+  - the validation-check.
+
+  A launch runs the same checks first and refuses before any upload or VM start.
+  See the GPU VM handover, section 4.0.
 - **Start (G-2).** From the uploaded bundle: its sha256 and every payload against the signed manifest (streamed),
   the host tree from the signed bundle as the installer's bootstrap, the vendor public key placed at
   `deploy/keys/vendor_ed25519.pub`, then `deploy/box-install.sh --prepare --yes`, then `--firstrun` with the

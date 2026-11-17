@@ -213,6 +213,11 @@ de-identified: an answer whose `deidentified` is not exactly `true` is refused a
 sent until an administrator confirms them on `/admin/edc` (`POST /api/edc/tools/{id}/confirm`, with the CSRF token
 too). The other tools are reads. If the module is absent the call is not sent.
 
+`/admin/edc` (permission `redcap.connection`) shows the connection's state at the top, in English, Traditional Chinese
+and Japanese (D-1046): whether the tool URL and token are set, whether the EDC answered `GET /api/v1/capabilities`
+with TrialBox's tool token, and whether the `trialbox` module is on. The EDC's pending and dead-letter counts are
+shown as "not reported" until the shape of the EDC's status answer is known on this side (asked of the owner).
+
 `TB_EDC_OIDC=1` makes TrialBox an OIDC issuer for the EDC only: discovery, authorize, token and userinfo under
 `/api/edc/oidc/`. The EDC stores `TB_EDC_OIDC_ISSUER`, `TB_EDC_OIDC_CLIENT_ID` and `TB_EDC_OIDC_CLIENT_SECRET`,
 and maps `sub` to its own user. Redirects must be listed in `TB_EDC_OIDC_REDIRECT`. Off, those routes answer 404.
