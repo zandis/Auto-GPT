@@ -218,14 +218,14 @@ NHI_DRUG_HEAD = ("異動,藥品代號,藥品英文名稱,藥品中文名稱,成�
                  "劑型,藥品分類,分類分組名稱,ATC代碼,給付規定章節,藥品代碼超連結,給付規定章節連結")  # fmt: skip
 
 
-def _nhi_drug(code: str, ingredient: str, atc: str, until: str = "1991231") -> str:
-    return f",{code},SYNTHETIC,合成,{ingredient},,,單方,1.00,1100101,{until},,,錠,,,{atc},,,"
+def _nhi_drug(code: str, ingredient: str, atc: str, until: str = "1991231", since: str = "1100101") -> str:
+    return f",{code},SYNTHETIC,合成,{ingredient},,,單方,1.00,{since},{until},,,錠,,,{atc},,,"
 
 
 def test_an_nhi_ingredient_keeps_its_digits_and_ended_codes_are_left_out(tmp_path: Path) -> None:
     text = "\n".join([NHI_DRUG_HEAD, _nhi_drug("ZZ00000100", "SYNTHETICOL B12 1 MG", "Z99AA01"),
                       _nhi_drug("ZZ00000200", "SYNTHETICOL B6 (HCL) 5 MG", "Z99AA02"),
-                      _nhi_drug("ZZ00000300", "SYNTHETIC ENDED 1 MG", "Z99AA03", until="1030630")]) + "\n"  # fmt: skip
+                      _nhi_drug("ZZ00000300", "SYNTHETIC ENDED 1 MG", "Z99AA03", until="1030630", since="1000101")]) + "\n"  # fmt: skip
     installed.install_nhi_drugs(_write(tmp_path, "d.csv", text), tmp_path / "t")
     t = Terminology(installed=tmp_path / "t")
     b12 = t.map("medication", "syntheticol b12")
@@ -361,8 +361,10 @@ def _answer(t: Terminology, domain: str, name: str) -> tuple[object, ...]:
     return r.method, r.needs_review, [(c.system, c.code) for c in r.concepts], r.families, r.notes
 
 
-def test_with_nothing_loaded_nothing_changes(tmp_path: Path) -> None:
-    """D-1116: with no folder and with an empty folder the mapper gives the same answers, and none is TERM-2's."""
+def test_with_nothing_loaded_nothing_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-1116: with no folder and with an empty folder the mapper gives the same answers, and none is TERM-2's. H-17
+    (D-1127): nothing shipped either (the NHI tables the image may ship are tested in test_h17_*)."""
+    monkeypatch.setattr(installed, "SHIPPED_DIR", tmp_path / "shipped-none")
     (tmp_path / "empty").mkdir()
     none, empty = Terminology(installed=tmp_path / "nothing"), Terminology(installed=tmp_path / "empty")
     for t in (none, empty):
@@ -420,8 +422,10 @@ def test_a_who_category_in_a_site_list_stands_for_its_family(loaded: Path, tmp_p
     assert (ICD10_WHO, "U98") in r.families
 
 
-def test_doctor_names_each_system_and_who_accepted(loaded: Path, tmp_path: Path) -> None:
+def test_doctor_names_each_system_and_who_accepted(loaded: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
     from tools.trialbox import doctor
+
+    monkeypatch.setattr(installed, "SHIPPED_DIR", tmp_path / "shipped-none")  # H-17: nothing shipped here either
 
     ok = doctor.check_terminology(doctor.DoctorInputs(env={"TB_TERMINOLOGY_DIR": str(loaded)}))
     assert ok.status == "PASS" and "not loaded" not in ok.detail

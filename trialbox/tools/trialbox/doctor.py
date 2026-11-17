@@ -1936,11 +1936,16 @@ def check_terminology(inp: DoctorInputs) -> Check:
     where = installed.installed_dir(dict(inp.env))
     tables = installed.status(where)
     bad = [f"{t.name}: {t.problem}" for t in tables if t.problem]
+    # H-17 (D-1127): the NHI tables shipped in the image are checked too; a refused one answers nothing
+    bad += [f"shipped {p}" for p in installed.shipped_problems()]
     if bad:
         return Check("terminology", "FAIL", "; ".join(bad))
     # TERM-2 (D-1113 to D-1116): every install-time system is named, loaded or not; a licensed one with who accepted
     missing = installed.not_loaded(where)
     rest = f"; not loaded: {', '.join(missing)}" if missing else ""
+    shipped = installed.manifest(installed.SHIPPED_DIR)["tables"] if installed.shipped_tables() else {}
+    rest += "".join(f"; shipped: {n} {line.get('rows')} rows ({line.get('version')})"
+                    for n, line in sorted(shipped.items()))  # fmt: skip
     if not tables:
         return Check("terminology", "PASS", f"nothing loaded in {where}: the shipped tables answer (ICD-10-CM "
                      "FY2026 with its blocks and index); python -m tools.terminology_install loads more"
@@ -1948,6 +1953,40 @@ def check_terminology(inp: DoctorInputs) -> Check:
     said = [f"{t.name} {t.rows} rows ({t.version})" + (f", {a}" if (a := installed.accepted(where, t.name)) else "")
             for t in tables]  # fmt: skip
     return Check("terminology", "PASS", "; ".join(said) + rest)
+
+
+def check_provenance_index(inp: DoctorInputs) -> Check:
+    """D-989 step 2c: the provenance index (``provenance.model_calls``, ``provenance.model_uses``) against the audit
+    chain it is derived from. A difference is FAIL: the chain wins, and ``trialbox provenance --rebuild`` writes the
+    index again. Not installed yet (the role script creates the tables) is WARN; no database named here is NOT
+    CHECKED."""
+    from tb_common import provenance_index as idx
+
+    url = str(inp.env.get("TB_DB_URL") or "")
+    if not url:
+        return Check(
+            "provenance_index", "PASS", "NOT CHECKED: no TB_DB_URL (run trialbox provenance --check on the box)"
+        )
+    from tb_common.audit_writer import _dsn, _psycopg
+
+    from tools.trialbox.provenance import _erased
+
+    try:
+        con = _psycopg().connect(_dsn(url), autocommit=True, connect_timeout=10)
+    except Exception as exc:
+        return Check("provenance_index", "WARN", f"the database did not answer ({type(exc).__name__})")
+    try:
+        if not idx.installed(con):
+            why = ("not installed: the role script creates provenance.model_calls and provenance.model_uses (D-989 "
+                   "step 2c); until then the chain is written without the index")  # fmt: skip
+            return Check("provenance_index", "WARN", why)
+        diff = idx.check(con, Path(str(inp.env.get("TB_AUDIT_DIR") or "/data/audit")), _erased(url))
+    finally:
+        con.close()
+    if not diff.ok:
+        return Check("provenance_index", "FAIL", f"{len(diff.missing)} row(s) missing, {len(diff.extra)} extra against "
+                     "the chain: the chain wins; run trialbox provenance --rebuild")  # fmt: skip
+    return Check("provenance_index", "PASS", "equal to the audit chain")
 
 
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
@@ -1987,6 +2026,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_wsl2_versions,
     check_backup_speed,
     check_terminology,
+    check_provenance_index,
 )
 
 
