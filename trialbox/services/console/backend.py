@@ -587,13 +587,18 @@ class HttpBackend:
         mrn = data.get("mrn") if isinstance(data, dict) else None
         return str(mrn) if mrn else None
 
-    def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str:
-        """N1 / N2 (D-108) through the orchestrator's ``POST /notices`` and the mail gateway; the message id."""
+    def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, principal: str) -> str:
+        """A notice (N1, N2, HEALTH, ACCOUNT, BG) through the orchestrator's ``POST /notices`` and the mail gateway;
+        the message id. T-715 refuse mode: signed as ``principal``, the sender's own service name (``console.actor``:
+        NOTIFY, SAE_SYNC, ACCOUNTS, BREAKGLASS), never a person: the person who caused it is in the console's audit."""
+        from console import actor
+
         body = {"kind": kind, "to": to, "subject": subject, "body_md": body_md}
+        headers = actor.assert_service(principal, actor.NOTICE_ACTION[principal], None, "POST", "/notices", body)
         try:
-            data = self.orch.post_raw("/notices", body, actor_header(by)).json()
+            data = self.orch.post_raw("/notices", body, headers).json()
         except ServiceError as exc:
-            if exc.status in (400, 422):
+            if exc.status in (400, 403, 422):
                 raise Refused(exc.detail) from exc
             raise failed(exc) from exc
         return str(data.get("message_id") or "")

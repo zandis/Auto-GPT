@@ -541,7 +541,7 @@ def create_app(
             au.append("console.account_notice", actor=f"console:{by}", detail={"user": name, "sent": 0})
             return
         try:
-            bk.send_notice("ACCOUNT", sorted(to), subject, body, f"console:{by}")
+            bk.send_notice("ACCOUNT", sorted(to), subject, body, console_actor.ACCOUNTS)
         except Exception as exc:  # best effort, as break-glass: a mail that fails is an audit event
             au.append("console.account_notice", actor=f"console:{by}",
                       detail={"user": name, "sent": 0, "error": type(exc).__name__})  # fmt: skip
