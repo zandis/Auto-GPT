@@ -137,13 +137,11 @@ def register(app: FastAPI, h: Helpers) -> None:
         return JSONResponse(_run_tool(row["tool"], row["project_id"], row["record_id"], confirm=True))
 
     def _run_tool(tool: str, project_id: str, record_id: str, *, confirm: bool) -> dict[str, Any]:
-        import httpx
-
         base = tools.tool_base()
         token = tools.tool_token()
         if not base or not token:
             return {"allow": False, "deidentified": True, "reason": "the tool client is not configured"}
-        client = tools.ToolClient(base, token, httpx.Client())
+        client = tools.ToolClient(base, token, tools.http_client())
         try:
             return client.call(tool, project_id, record_id=record_id, confirm=confirm)
         except tools.ToolError as exc:
@@ -158,7 +156,17 @@ def register(app: FastAPI, h: Helpers) -> None:
             pending = proposals.ids()
         except door.NoStorage:
             return no_storage()
-        return h.page(request, "edc_link.html", sess, saved=linkmap.load(folder()), pending=pending)
+        return h.page(request, "edc_link.html", sess, saved=linkmap.load(folder()), pending=pending,
+                      conn=connection())  # fmt: skip
+
+    def connection() -> dict[str, Any]:
+        """D-1046: the EDC connection's state for the page; one capabilities read, closed at once."""
+        base, token = tools.tool_base(), tools.tool_token()
+        http = tools.http_client()
+        try:
+            return tools.connection_status(base, token, http)
+        finally:
+            http.close()
 
     @app.get("/api/edc/oidc/.well-known/openid-configuration")
     def well_known() -> JSONResponse:
