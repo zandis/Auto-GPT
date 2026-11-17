@@ -8,7 +8,7 @@ You keep the patients' choices: you enter opt-outs from paper and phone, keep th
 
 ## What TrialBox lets you do
 
-keep the opt-out register; keep the staff directory; pseudonyms in the audit trail; the site's audit trail: filters, one patient's report, chain verification (every read recorded)
+keep the opt-out register; keep the staff directory; pseudonyms in the audit trail; the site's audit trail: filters, one patient's report, chain verification (every read recorded); which records a model, build or prompt touched (every search recorded)
 
 ## Your pages
 
