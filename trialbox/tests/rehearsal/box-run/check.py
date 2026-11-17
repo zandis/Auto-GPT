@@ -745,7 +745,7 @@ if case in ("session-egress", "session-dev-refused"):
     at = "55-session-egress" if case == "session-egress" else "52-acc-routes"
     ok(state["order"][-1] == at and parts[at]["status"] == "stop", f"stopped at {at}")
     why = parts[at]["stop"]["reason"]
-    ok(("TB-SESSION-EGRESS" in why and "lets a box container out" in why) if case == "session-egress"
+    ok(("TB-SESSION-EGRESS" in why and "could let a box container out" in why and "198.51.100.7" in why) if case == "session-egress"
        else ("TB-ACC-BLOCKED" in why and "ceiling D0" in why), "the stop names the box's own reason")  # fmt: skip
     ok(not links and not opened and not any(c.startswith("session-people") for c in calls),
        "no account and no link was made")  # fmt: skip
