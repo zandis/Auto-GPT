@@ -32,6 +32,24 @@ def test_the_image_replaces_the_go_binary_with_the_shim() -> None:
     assert "head -c 2 /usr/local/bin/gosu" in df and "command -v setpriv" in df
 
 
+def test_the_binary_is_deleted_in_a_layer_before_the_shim_is_copied() -> None:
+    """Train 70: with the shim only copied over the binary, the image gate still found Go 1.24.6 (15 stdlib ids).
+    Trivy reads the image layer by layer and keeps a file that a later layer only overwrites; a deletion is a whiteout
+    it applies. The base's only Go binary is /usr/local/bin/gosu (layer 3 of postgres:16-trixie@sha256:dd2bf3ce, read
+    on 2026-11-17), so one deletion clears it."""
+    df = (DOCKER / "db.Dockerfile").read_text(encoding="utf-8")
+    steps = re.findall(r"^(RUN|COPY|ADD)\b(.*?)(?<!\\)\n", df, re.M | re.S)
+    deleted = next(
+        i for i, (k, s) in enumerate(steps) if k == "RUN" and re.search(r"\brm (-f )?/usr/local/bin/gosu\b", s)
+    )
+    copied = next(i for i, (k, s) in enumerate(steps) if k == "COPY" and "/usr/local/bin/gosu" in s)
+    assert deleted < copied, "the shim must be copied after the layer that deletes the binary"
+    # nothing between them puts a file back at the path, and the deleting layer does not write it again
+    assert not any("/usr/local/bin/gosu" in s for k, s in steps[deleted + 1 : copied])
+    run = steps[deleted][1]
+    assert not re.search(r"(>|cp |install |mv |ln )[^;]*/usr/local/bin/gosu", run)
+
+
 def test_the_shim_runs_setpriv_with_the_users_own_ids_and_groups() -> None:
     sh = SHIM.read_text(encoding="utf-8")
     assert sh.startswith("#!/bin/sh\n")
