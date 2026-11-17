@@ -42,7 +42,7 @@ def test_a_record_names_only_the_parts_the_registry_knows() -> None:
     assert provenance.ref(ruleset="GZQO", version="1.0.0", pid=PID, crit="INC-01") == {
         "ruleset": "GZQO", "version": "1.0.0", "pid": PID, "crit": "INC-01"}  # fmt: skip
     with pytest.raises(ValueError, match="mrn"):
-        provenance.ref(mrn="00012345")
+        provenance.ref(mrn="SYNTHETIC-X")
 
 
 def test_no_model_writes_nothing_and_a_call_is_named_once(tmp_path: Path) -> None:
