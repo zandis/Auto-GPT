@@ -180,9 +180,16 @@ def _unit_machine(tmp: Path) -> tuple[ri.LocalMachine, Path, Path]:
 def _the_real_machine_is_untouched() -> Iterator[None]:
     """The unit machine is a folder: nothing the follower runs may reach this machine's own /opt/trialbox (an inner
     `sudo` resets the environment and would take the bootstrap there; the follower drops it, as root)."""
-    real = [Path(p).exists() for p in ("/opt/trialbox", "/root/site", "/srv/his-export")]
+
+    def there(p: str) -> bool | None:
+        try:
+            return Path(p).exists()
+        except PermissionError:  # a runner that is not root cannot look inside /root: then it cannot write there either
+            return None
+
+    real = [there(p) for p in ("/opt/trialbox", "/root/site", "/srv/his-export")]
     yield
-    assert [Path(p).exists() for p in ("/opt/trialbox", "/root/site", "/srv/his-export")] == real
+    assert [there(p) for p in ("/opt/trialbox", "/root/site", "/srv/his-export")] == real
 
 
 def test_the_follower_on_the_unit_machine_shows_the_committed_findings(tmp_path: Path) -> None:
