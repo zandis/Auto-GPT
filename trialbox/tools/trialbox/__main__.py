@@ -48,6 +48,10 @@ def main(argv: list[str] | None = None) -> int:
         from tools.trialbox import model_report
 
         return model_report.main(args[1:])
+    if args[:1] == ["provenance"]:  # D-989: the provenance index (check, rebuild, search)
+        from tools.trialbox import provenance
+
+        return provenance.main(args[1:])
     if args[:1] == ["support-bundle"]:  # its own options (tools/support_bundle.py)
         from tools import support_bundle
 

@@ -3,7 +3,7 @@ on one; the events the provenance index (step 2c) is built from.
 
 * a record names a patient only by pseudonym: free text, a space or a part the registry does not know is refused;
 * a record no model answered writes nothing (its ``prov: []`` says so), and a call is named once;
-* a person's decision is confirmed, changed or rejected, nothing else;
+* a person's decision is confirmed, changed, rejected or withdrawn (a confirmation taken back), nothing else;
 * the compiler writes ``ai.used`` for each criterion a model extracted, and ``ai.confirmed`` for each decision of
   the review sheet on one (approve: confirmed, edit: changed, reject: rejected); a person's own line writes neither;
 * a screening run writes ``ai.used`` for each verdict a model answered, by the patient's pseudonym;
@@ -65,6 +65,8 @@ def test_a_decision_is_confirmed_changed_or_rejected(tmp_path: Path) -> None:
     assert provenance.confirmed(log, "edc_field", rec, ["c1"], "crc1@hospa.test", "changed")
     (e,) = _events(tmp_path, provenance.CONFIRMED)
     assert (e["by"], e["decision"], e["calls"]) == ("crc1@hospa.test", "changed", ["c1"])
+    assert provenance.confirmed(log, "edc_field", rec, ["c1"], "crc1@hospa.test", "withdrawn")  # D-1152: an Undo
+    assert [e["decision"] for e in _events(tmp_path, provenance.CONFIRMED)] == ["changed", "withdrawn"]
 
 
 def test_a_screening_run_records_each_verdict_a_model_answered(tmp_path: Path) -> None:

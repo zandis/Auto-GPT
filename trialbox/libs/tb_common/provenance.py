@@ -4,8 +4,11 @@ record (``ai.used``) and where a person confirms, changes or rejects one (``ai.c
 * ``ai.used`` ``{record_kind, record_ref, calls}``: the record now holds an answer of these model calls (each call id
   resolves to its ``llm.call`` in the chain). One event per record, its calls listed; the index (step 2c) writes a row
   per call. A record no model answered writes nothing: its own ``prov: []`` says so.
-* ``ai.confirmed`` ``{record_kind, record_ref, calls, by, decision}``: ``decision`` is ``confirmed``, ``changed`` or
-  ``rejected``. A model answer nobody confirmed has no event and is reported unconfirmed, never inferred confirmed.
+* ``ai.confirmed`` ``{record_kind, record_ref, calls, by, decision}``: ``decision`` is ``confirmed``, ``changed``,
+  ``rejected`` or ``withdrawn``. ``withdrawn`` takes back an earlier confirmation of the same record and calls (a
+  Withdraw, or the Undo of an Approach; D-1152): the confirmation no longer stands, said by an event of its own and
+  never inferred from a later mark. A model answer nobody confirmed has no event and is reported unconfirmed, never
+  inferred confirmed.
 
 ``record_ref`` names the record by the ids the console and the erasure registry use: ``(ruleset, version, crit)`` for
 a criterion, ``(ruleset, version, job, pid, crit)`` for a verdict, ``(ruleset, version, valueset)`` for a value set,
@@ -22,7 +25,7 @@ from typing import Any
 
 USED, CONFIRMED = "ai.used", "ai.confirmed"
 KINDS = ("verdict", "criterion", "valueset", "edc_field")
-DECISIONS = ("confirmed", "changed", "rejected")
+DECISIONS = ("confirmed", "changed", "rejected", "withdrawn")
 REF_PARTS = ("ruleset", "version", "job", "pid", "crit", "valueset", "draft", "field")
 _TOKEN = re.compile(r"^[A-Za-z0-9_.:@-]{1,96}$")
 
