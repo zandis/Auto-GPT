@@ -280,7 +280,7 @@ ZH: dict[str, str] = {
     "problem.why.forbidden": "若您需要使用，請聯絡 TrialBox 管理者變更角色。",
     "notfound": "這個頁面不存在。",
     "forbidden": "您的角色無法開啟此頁面或執行此操作。",
-    "login": "請先登入：此網址需要已登入的工作階段或有效的存取權杖。",
+    "login": "請先登入：此網址只開放給已登入的人員，或附有效存取金鑰的請求。",
     "problem.home": "回到首頁",
     "problem.back": "回上一頁",
     "problem.help": "說明",
