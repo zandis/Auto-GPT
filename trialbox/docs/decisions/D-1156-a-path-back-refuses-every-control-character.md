@@ -1,0 +1,6 @@
+# D-1156 A path to send a person back to refuses every control character, and "//" hidden by whitespace
+
+- **Task:** lane J's finding on master 15108f46 (the integrator's High, first in lane C2's queue): `console.next_page.safe_next` (D-777, the page kept across a sign-in) refused only CR and LF among control characters. · **Date:** 2026-11-17
+- **Decision:** one rule, `console.local_path.is_local`, for every path the console sends a person back to (the page kept across a sign-in, and the role and language switches' way back): it starts with one "/", holds no backslash, no character below 0x21 (every ASCII control and the space), no DEL and none of the Unicode categories Cc, Cf, Zl and Zp (controls, formats such as zero-width and direction marks, line and paragraph separators), and is not "//" once whitespace is taken out (a browser drops some of these from a URL, so "/<tab>/evil.example" reads as another site). `safe_next` keeps its own length cap and its pages never kept.
+- **Left:** none known; a percent-encoded character stays encoded in the Location header and is not decoded here.
+- **Held by:** `tests/unit/test_safe_next_refuses_every_control.py`, one case per character class and per hidden double slash, for `safe_next` and `local_path`, and plain paths kept (failing output on master kept: `safenext-fail.txt`).
