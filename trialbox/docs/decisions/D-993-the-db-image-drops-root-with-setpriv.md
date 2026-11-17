@@ -25,7 +25,8 @@ digest. No base digest clears these findings until upstream rebuilds gosu.
    - the unit tests run the shim for real as root and check the uid, the gid, that no other group is kept and that
      bad calls are refused;
    - the image test (`test_db_image`, TB_INTEGRATION) reads `/proc/1/status` of the db container: postgres, 999 in all
-     four uid and gid slots, no group but its own;
+     four uid and gid slots, and exactly postgres's own groups from `/etc/group`. Debian puts postgres in `ssl-cert`
+     (gid 101) for the TLS key, and gosu kept that membership too. Root's group is never among them;
    - the box rehearsal's `install` step checks the same on the installed box.
 4. **zlib1g is held at the Debian security fix.** The base's `1:1.3.dfsg+really1.3.1-1+b1` carries CVE-2026-85091, and
    trixie-security publishes `1:1.3.dfsg+really1.3.1-1+deb13u1` for amd64 and arm64 (checked on 2026-11-17). The image

@@ -197,13 +197,18 @@ install)
   ok "site inputs: mapping in deploy/site/mapping (not the image), feed folder mounted, TLS on"
   wait_healthy 300
   # SC-1b (D-993): the db server dropped root through the setpriv shim, not the upstream gosu binary: PID 1 of the db
-  # container is postgres itself, uid and gid 999 (real, effective, saved, fs) and no group but its own
+  # container is postgres itself, uid and gid 999 (real, effective, saved, fs) and exactly postgres's own groups from
+  # /etc/group (Debian puts postgres in ssl-cert for the TLS key), never root's
   [ "$(dc exec -T db head -c 2 /usr/local/bin/gosu)" = "#!" ] || fail "the db image still has the gosu binary"
-  dbst="$(dc exec -T db sh -c 'grep -E "^(Uid|Gid|Groups):" /proc/1/status')" || fail "cannot read the db server's status"
-  echo "$dbst" | awk '/^Uid:/{u=$2" "$3" "$4" "$5} /^Gid:/{g=$2" "$3" "$4" "$5} /^Groups:/{$1=""; gr=$0}
-    END{gsub(/^ +| +$/, "", gr); exit !(u=="999 999 999 999" && g=="999 999 999 999" && (gr=="" || gr=="999"))}' \
-    || { echo "$dbst"; fail "the db server does not run as postgres (999) with only its own group"; }
-  ok "db server runs as postgres: uid 999, gid 999, no other group (dropped by setpriv, no gosu binary)"
+  dbst="$(dc exec -T db sh -c 'grep -E "^(Uid|Gid|Groups):" /proc/1/status; echo "Own: $(id -G postgres)"')" \
+    || fail "cannot read the db server's status"
+  echo "$dbst" | awk '/^Uid:/{u=$2" "$3" "$4" "$5} /^Gid:/{g=$2" "$3" "$4" "$5}
+    /^Groups:/{$1=""; n=split($0, a, " "); for (i=1;i<=n;i++) have[a[i]]=1}
+    /^Own:/{$1=""; m=split($0, b, " "); for (i=1;i<=m;i++) own[b[i]]=1}
+    END{ok=(u=="999 999 999 999" && g=="999 999 999 999" && !("0" in have));
+        for (k in have) if (!(k in own)) ok=0; for (k in own) if (!(k in have)) ok=0; exit !ok}' \
+    || { echo "$dbst"; fail "the db server does not run as postgres (999) with exactly postgres's own groups"; }
+  ok "db server runs as postgres: uid 999, gid 999, postgres's own groups ($(echo "$dbst" | sed -n 's/^Own: //p')), no gosu binary"
   ;;
 
 # ------------------------------------------------------------------------------------------------ reinstall

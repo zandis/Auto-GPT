@@ -280,12 +280,13 @@ def test_tb_db_check_fails_without_the_extensions() -> None:
 @pytest.mark.integration
 def test_the_server_runs_as_postgres_with_no_other_group(image_container: tuple[str, str]) -> None:
     """SC-1b (D-993): root is dropped by the setpriv shim (``/usr/local/bin/gosu`` is a shell script, not the upstream
-    Go binary): PID 1 is the server, uid and gid 999 in all four slots, no supplementary group but its own."""
+    Go binary): PID 1 is the server, uid and gid 999 in all four slots, exactly postgres's own groups (never root's)."""
     name, _ = image_container
     assert _docker("exec", name, "head", "-c", "2", "/usr/local/bin/gosu").stdout == "#!"
     status = dict(
         line.split(":", 1) for line in _docker("exec", name, "cat", "/proc/1/status").stdout.splitlines() if ":" in line
     )
     assert status["Uid"].split() == ["999"] * 4 and status["Gid"].split() == ["999"] * 4
-    assert set(status["Groups"].split()) <= {"999"}
+    own = set(_docker("exec", name, "id", "-G", "postgres").stdout.split())  # Debian adds ssl-cert (the TLS key)
+    assert set(status["Groups"].split()) == own and "0" not in own
     assert _docker("exec", name, "cat", "/proc/1/comm").stdout.strip() == "postgres"
