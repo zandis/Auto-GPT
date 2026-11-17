@@ -404,8 +404,8 @@ def test_the_loader_leaves_no_temporary_file_and_a_whole_manifest(loaded: Path) 
 
 
 def test_a_licensed_name_may_be_written_in_cjk(tmp_path: Path) -> None:
-    line = installed.licence_line("loinc_table", "王小明", "2099-01-02")
-    assert line["licence_accepted_by"] == "王小明"
+    who = "測試人員"  # SYNTHETIC: "test staff", not a person's name
+    assert installed.licence_line("loinc_table", who)["licence_accepted_by"] == who
 
 
 def test_a_who_category_in_a_site_list_stands_for_its_family(loaded: Path, tmp_path: Path) -> None:
