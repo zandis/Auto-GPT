@@ -23,7 +23,8 @@ comes with them (row `atc`; the index itself is loaded only from the site's own 
 **Shipped in the image (H-17, D-1127).** The integrator fetches the two lists as
 [nhi-open-data-fetch.md](nhi-open-data-fetch.md) says and builds them with `nhi-build`. The shipped table's manifest
 line then also carries the OGDL annex's own statement (field `ogdl_statement`: the provider, the data set and its
-version, the release under the licence, and the link to its full text).
+version, the release under the licence, and the link to its full text). `NOTICE` section 1 carries both statements
+(data sets 23715 and 174450); the integrator adds the shipped folder's line to its section 8 (the fetch page says
+which).
 
-Wherever a page or a report shows a code or a name taken from these tables, the attribution goes with it. `NOTICE`
-section 1 carries the drug list's statement already.
+Wherever a page or a report shows a code or a name taken from these tables, the attribution goes with it.

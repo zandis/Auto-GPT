@@ -179,6 +179,12 @@ SITE_DOMAIN_SYSTEMS: dict[str, tuple[str, ...]] = {
     "encounter": ("department",),
     "claim": ("nhi_drug",),
 }
+# H-17 review (D-1127): an NHI service or order item is one billing item (inpatient or outpatient, with or without
+# contrast), which may be narrower than the trial's word: an answer from it always goes to a person, as TERM-2's class B
+# rule has it for an answer that may be narrower than the word asks for. The note of an answer from a table shipped in
+# the image (not loaded at install) starts with this
+_ALWAYS_REVIEWED = frozenset({"nhi_service_list"})
+_SHIPPED_NOTE = "shipped NHI table"
 # LOINC's specimens a lab named without one is read from (a component's codes in blood, serum or plasma)
 _LOINC_BLOOD = frozenset({"bld", "blda", "bldc", "bldv", "plas", "ser", "ser/plas", "ser/plas/bld"})
 
@@ -549,6 +555,9 @@ class Terminology:
                 self._index_site(table, rows)
             else:
                 e, lo = self._index_loaded(inst, table, rows)
+                if table in shipped:  # H-17 review (D-1127): the answer says it came from the image's table
+                    said = f"{_SHIPPED_NOTE} {self.loaded_sources[table]}: "
+                    e, lo = [(*x[:5], said + x[5]) for x in e], [(*x[:5], said + x[5]) for x in lo]
                 exact += e
                 loose += lo
         self._merge(exact, False)
@@ -573,8 +582,9 @@ class Terminology:
             several = len(rowsets) > 1
             text = first_note + ("; several codes share this name" if several else "")
             text += f"; also in {', '.join(others)}" if others else ""
-            self.loaded_names.setdefault(domain, {})[key] = (_dedupe(found), frozenset(families),
-                                                             loose or several or bool(others), text)  # fmt: skip
+            review = loose or several or bool(others) or first in _ALWAYS_REVIEWED
+            self.loaded_names.setdefault(domain, {})[key] = (_dedupe(found), frozenset(families), review,
+                                                             text)  # fmt: skip
 
     def _index_site(self, table: str, rows: list[dict[str, Any]]) -> None:
         mine: dict[tuple[str, str], list[Concept]] = {}
@@ -629,7 +639,9 @@ class Terminology:
                 self.loaded_codes.add((LOADED_SYSTEMS["nhi_drug"], str(r["nhi_code"])))
                 ing = _ingredient(str(r.get("ingredient") or ""))
                 atc = str(r.get("atc") or "")
-                if ing and len(atc) == 7 and not ended(r):
+                # H-17 review (D-1127): NHIA names one ingredient in 成分 for some 複方 (combination) products; such
+                # a row never answers for that ingredient (a table without the column, TERM-2's, is read as before)
+                if ing and len(atc) == 7 and not ended(r) and str(r.get("kind") or "") != "複方":
                     c = self.concept(uri, atc) or Concept(uri, atc, ing)
                     note = f"NHI drug list ingredient ({table})"
                     loose += [("medication", k, [c], frozenset(), table, note) for k in _name_keys(ing)]
@@ -734,7 +746,8 @@ class Terminology:
             got = self.loaded_names.get(domain, {}).get(key)
             if got is not None:
                 concepts, fams, review, note = got
-                return MappingResult(name, domain, _dedupe(concepts), "loaded", review, [f"loaded at install: {note}"],
+                said = note if note.startswith(_SHIPPED_NOTE) else f"loaded at install: {note}"
+                return MappingResult(name, domain, _dedupe(concepts), "loaded", review, [said],
                                      families=sorted(fams))  # fmt: skip
         return None
 

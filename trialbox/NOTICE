@@ -122,6 +122,9 @@ Taiwan NHI drug codes, NHI order codes, department codes
   Licence: Open Government Data License, version 1.0 (Taiwan), https://data.gov.tw/license
   Attribution: 健保用藥品項查詢項目檔, National Health Insurance Administration (衛生福利部中央健康保險署), via
     data.gov.tw (dataset 23715), Open Government Data License 1.0.
+  Attribution (the service and order codes; sample rows in tests/fixtures/refdata/nhi_services_sample.csv):
+    全民健康保險醫療服務給付項目及支付標準, National Health Insurance Administration (衛生福利部中央健康保險署), via
+    data.gov.tw (dataset 174450), Open Government Data License 1.0.
 
 Taiwan NHI lab item to LOINC map (ConceptMap nhi-loinc, PAS IG)
   Version: tw.gov.mohw.nhi.pas 1.3.0, ConceptMap nhi-loinc 1.3.0, LOINC 2.77 (sample in

@@ -52,5 +52,6 @@ items, its ICD-to-local list), not for trial wording: that long tail needs the s
 the licensed tables loaded at install (LOINC, ATC), whose effect cannot be known until a site loads them.
 
 **The NHI open data, by the same tool.** A made-up extract in NHIA's layout (D-1127) moves 266 to 281 (medication 6
-to 13, all for review; procedure 0 to 8, 3 for review), only because some of its made-up names equal words P1b drafted.
-What the real lists move is not known until they are fetched and loaded.
+to 13, procedure 0 to 8, all for review), only because some of its made-up names equal words P1b drafted. What the
+real lists move is not known from the repository until they are fetched and loaded; the class B reviewer's probe on the
+publisher's files of 2026-11-17 (not reproducible from the repository, D-1127) gave 266 to 306.

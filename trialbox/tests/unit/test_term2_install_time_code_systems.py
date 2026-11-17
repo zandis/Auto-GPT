@@ -218,14 +218,14 @@ NHI_DRUG_HEAD = ("異動,藥品代號,藥品英文名稱,藥品中文名稱,成�
                  "劑型,藥品分類,分類分組名稱,ATC代碼,給付規定章節,藥品代碼超連結,給付規定章節連結")  # fmt: skip
 
 
-def _nhi_drug(code: str, ingredient: str, atc: str, until: str = "1991231") -> str:
-    return f",{code},SYNTHETIC,合成,{ingredient},,,單方,1.00,1100101,{until},,,錠,,,{atc},,,"
+def _nhi_drug(code: str, ingredient: str, atc: str, until: str = "1991231", since: str = "1100101") -> str:
+    return f",{code},SYNTHETIC,合成,{ingredient},,,單方,1.00,{since},{until},,,錠,,,{atc},,,"
 
 
 def test_an_nhi_ingredient_keeps_its_digits_and_ended_codes_are_left_out(tmp_path: Path) -> None:
     text = "\n".join([NHI_DRUG_HEAD, _nhi_drug("ZZ00000100", "SYNTHETICOL B12 1 MG", "Z99AA01"),
                       _nhi_drug("ZZ00000200", "SYNTHETICOL B6 (HCL) 5 MG", "Z99AA02"),
-                      _nhi_drug("ZZ00000300", "SYNTHETIC ENDED 1 MG", "Z99AA03", until="1030630")]) + "\n"  # fmt: skip
+                      _nhi_drug("ZZ00000300", "SYNTHETIC ENDED 1 MG", "Z99AA03", until="1030630", since="1000101")]) + "\n"  # fmt: skip
     installed.install_nhi_drugs(_write(tmp_path, "d.csv", text), tmp_path / "t")
     t = Terminology(installed=tmp_path / "t")
     b12 = t.map("medication", "syntheticol b12")

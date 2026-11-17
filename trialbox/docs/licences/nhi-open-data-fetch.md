@@ -22,13 +22,13 @@ these files (only the integrator does), and the repository holds only the public
 | Download (the page's CSV resource) | `https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-E41001-001`. Verified online; the same URL is in `libs/tb_common/refdata_tw.py` (item `nhi_drug_atc`). | `https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-D20021-001`. Verified online; the same URL is in the same file (item `nhi_services`). |
 | Formats offered | CSV only on the data set page. Verified online. | CSV only. Verified online. |
 | File name | not stated on the page; the download URL names no file. Save it as `nhi_drugs_<fetched on>.csv`. | not stated. Save it as `nhi_services_<fetched on>.csv`. |
-| Encoding | not stated on the page: not verified online. The repository's public sample (fetched for D-140, 2026-11-09) is UTF-8 with a BOM. The loader reads UTF-8 (BOM or not) or Big5 (cp950) either way. | not stated: not verified online. The repository's sample is UTF-8 without a BOM. Same loader. |
+| Encoding | not stated on the page: not verified online by this card. The repository's public sample (fetched for D-140, 2026-11-09) is UTF-8 with a BOM; the class B reviewer's probe of 2026-11-17 found the current file UTF-8 with a BOM. The loader reads UTF-8 (BOM or not) or Big5 (cp950); a Big5 file with user-defined characters is refused whole. | not stated on the page. The repository's sample is UTF-8 without a BOM; the reviewer's probe found UTF-8 with a BOM. Same loader. |
 | Columns as published (主要欄位說明, verified online) | 異動, 藥品代號, 藥品英文名稱, 藥品中文名稱, 成分, 規格量, 規格單位, 單複方, 支付價, 有效起日, 有效迄日, 藥商, 製造廠名稱, 劑型, 藥品分類, 分類分組名稱, ATC代碼, 給付規定章節, 藥品代碼超連結, 給付規定章節連結 | 診療項目代碼, 健保支付點數, 生效起日, 生效迄日, 英文項目名稱, 中文項目名稱, 備註 |
 | Columns the loader reads | 藥品代號, 藥品中文名稱, 有效起日, 有效迄日, ATC代碼 (required); 藥品英文名稱, 成分 | 診療項目代碼, 健保支付點數, 生效起日, 生效迄日, 中文項目名稱 (required); 英文項目名稱 |
-| Dates | 民國 `YYYMMDD`, sometimes with leading spaces (`  960901`), as in the sample | `YYYYMMDD` (`29101231`: open-ended), as in the sample |
+| Dates | 民國 `YYYMMDD`, 6 or 7 digits, sometimes with leading spaces (`  960901`); `9991231` is open-ended (the reviewer's probe) | `YYYYMMDD` (`29101231`: open-ended) |
 | How often it changes | "每1月" (monthly). Verified online. | "每1日" (daily). Verified online. |
 | How a version is named | the page's file update time (檔案更新時間); it read 2026-10-28 07:02:13 on 2026-11-17. The version is that time, written `data.gov.tw 23715, file updated <time>`. | the file update time; it read 2026-11-17 07:01:11. Written `data.gov.tw 174450, file updated <time>`. |
-| Size | 45,224 codes in the D-140 fetch (`libs/tb_common/refdata_tw.py`); not re-checked | 6,175 codes, 1.7 MB (2026-11-10, same file); not re-checked |
+| Size | 45,224 codes (the D-140 fetch, `libs/tb_common/refdata_tw.py`, and the reviewer's probe of 2026-11-17); every 藥品代號 10 characters (the probe) | 6,175 codes (2026-11-10, same file, and the probe) |
 | sha256 of the file fetched | `<FILL IN at the fetch: sha256sum of the saved file>` | `<FILL IN at the fetch>` |
 | Fetched on | `<FILL IN: YYYY-MM-DD>` | `<FILL IN: YYYY-MM-DD>` |
 
@@ -71,11 +71,26 @@ What each must print:
 - `nhi-build drugs`: `nhi_drug_list: <n> rows built into <the shipped folder>, sha256 <64 hex>` and the attribution
   line. `<n>` is the number of distinct 藥品代號 (about 45,000 in 2026). Exit 0.
 - `nhi-build services`: `nhi_service_list: <n> rows built into ...` (about 6,000). Exit 0.
-- `nhi-check` before the register row is changed: one `PROBLEM:` line per file, ending "no cleared OGDL row in
-  docs/licences/register.csv names it (row nhi-open-data-full)", exit 1. Then, in the same commit, set row
-  `nhi-open-data-full` to status `cleared` with the paths
-  `services/criteria_compiler/terminology/shipped/*`, and run it again: one line per table (`nhi_drug_list: <n> rows,
-  <version>, sha256 <16 hex>, from <16 hex> fetched <day>`), no `PROBLEM:` line, exit 0.
+- `nhi-check` before the register and NOTICE are changed: one `PROBLEM:` line per file, ending "no cleared OGDL row in
+  docs/licences/register.csv names it (row nhi-open-data-full)", and "NOTICE section 8 lacks the line: ...", exit 1.
+  Then, in the same commit:
+  - set row `nhi-open-data-full` to status `cleared`, with exactly these three paths and no wildcard (a wildcard would
+    clear any file put in the folder): `services/criteria_compiler/terminology/shipped/nhi_drug_list.parquet`,
+    `services/criteria_compiler/terminology/shipped/nhi_service_list.parquet`,
+    `services/criteria_compiler/terminology/shipped/manifest.json`;
+  - add this line to NOTICE section 8 (the shipped vocabulary folders), under the line of
+    `services/criteria_compiler/terminology/`:
+
+    ```
+      services/criteria_compiler/terminology/shipped/  NHI drug list and service codes, full lists (section 1)
+    ```
+
+    NOTICE section 1 already carries both attributions (data sets 23715 and 174450), for the samples; `nhi-check`
+    says so if one is missing.
+
+  Run it again: one line per table (`nhi_drug_list: <n> rows, <version>, sha256 <16 hex>, from <16 hex> fetched
+  <day>`), no `PROBLEM:` line, exit 0. `nhi-check` also flags any other file in the shipped folder, a manifest line
+  without its version, day of fetch, source sha256, licence or attribution, and a table that is not NHI open data.
 - Then `python -m tools.licence_register --check` (0 problems) and `make goldens-check` (the goldens are drafted
   without the NHI tables' names mattering to them; if one moves, say why in the train).
 
@@ -88,10 +103,17 @@ What refuses, and what to do:
   not one, a row with more or fewer fields than the header). Nothing was written. Report the row; never edit the
   publisher's file by hand.
 - `its sha256 is <x>, not the <y> recorded at the fetch`: the file is not the one fetched.
+- `rows <a> and <b>: code <c> has two periods with the same start ...`, or `<end> is before <start>`: the file
+  contradicts itself; report it.
+- `<folder> holds <files>: not a shipped folder` or `is the box's install folder`: `--out` names a folder a loader
+  uses; build into the shipped folder (the default) or an empty one.
 
 ## What the shipped table does
 
 The mapper reads a shipped NHI table when the box loaded none of its own (a table the site's IT loads with
 `nhi-drugs` or `nhi-services` is read in its place, as ICD-10-CM's blocks are). An ended code (有效迄日 or 生效迄日
 before today) answers nothing. A name several codes share answers with all of them, for review (D-1114 point 3).
-`trialbox doctor` no longer lists a shipped NHI table as "not loaded".
+A service or order item's name always answers for review: one billing item may be narrower than the trial's word
+(D-1127). A 複方 (combination) product never answers for the one ingredient its 成分 names. An answer's note says
+"shipped NHI table <version>". `trialbox doctor` lists a shipped table that reads through its manifest check
+("shipped: ..."), and is FAIL when one does not.

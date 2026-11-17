@@ -56,7 +56,8 @@ def candidates(traces: dict[str, Any]) -> Iterator[dict[str, Any]]:
 
 def measure(traces: dict[str, Any], term: Terminology, synonyms: bool = False) -> dict[str, Any]:
     """``{"calls", "candidates", "by_domain": {domain: [concepts, resolved]}, "methods": {method: n}, "unmapped":
-    {domain: {name: n}}}``; demographic candidates are counted in ``candidates`` only."""
+    {domain: {name: n}}}``. ``candidates`` counts every drafted candidate, the demographic ones included (P1b: 1,533);
+    the concepts measured, by domain, leave those out (P1b: 1,273)."""
     calls = sum(
         1 for c in traces.get("traces") or [] if (c.get("attributes") or {}).get("tb.role") == "extract_criteria"
     )
@@ -119,6 +120,8 @@ def measure_concepts(text: str, term: Terminology) -> dict[str, Any]:
         raise ValueError(f"a concept list has the columns {', '.join(CONCEPT_COLUMNS)}")
     weighted = (({"domain": r["domain"], "name": r["name"]}, int(r["count"])) for r in rows)
     result = _count(weighted, term, False)
+    # H-17 review: the list holds no demographic candidates, so here ``candidates`` is the concepts measured (1,273),
+    # not :func:`measure`'s count of every candidate (1,533)
     return {"calls": None, "candidates": sum(v[0] for v in result["by_domain"].values()), **result}
 
 
@@ -165,9 +168,10 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, ensure_ascii=False, indent=1, sort_keys=True))
         return 0
     if result["calls"] is not None:
-        print(f"{result['calls']} extract_criteria calls, {result['candidates']:,} candidates")
+        print(f"{result['calls']} extract_criteria calls, {result['candidates']:,} candidates (demographic ones "
+              "included; the table counts the others)")  # fmt: skip
     else:
-        print(f"{result['candidates']:,} concepts from {args.concepts.name}")
+        print(f"{result['candidates']:,} concepts (no demographic ones) from {args.concepts.name}")
     print(table(result))
     print("methods: " + ", ".join(f"{m} {n}" for m, n in sorted(result["methods"].items())))
     return 0

@@ -69,7 +69,7 @@ def test_utf8_and_big5_give_the_same_table(tmp_path: Path) -> None:
         big5 = tmp_path / f"big5-{src.name}"
         big5.write_bytes(text.encode("cp950"))
         assert reader(big5.read_bytes()) == reader(src.read_bytes())
-    assert len(installed.nhi_drug_rows(DRUGS.read_bytes())) == 29  # 30 rows, one code with two periods
+    assert len(installed.nhi_drug_rows(DRUGS.read_bytes())) == 31  # 32 rows, one code with two periods
     assert len(installed.nhi_service_rows(SERVICES.read_bytes())) == 19
 
 
@@ -145,8 +145,8 @@ def test_the_extract_answers_newest_periods_ended_codes_and_shared_names(nhi: Pa
     t = Terminology(installed=nhi)
     hd = t.map("procedure", "Hemodialysis")  # two items share the name: both, for review (D-1114 point 3)
     assert hd.method == "loaded" and hd.needs_review and {c.code for c in hd.concepts} == {"ZZ901C", "ZZ902B"}
-    br = t.map("procedure", "bronchoscopy")  # two periods of one code: one answer, no review
-    assert not br.needs_review and [(c.system, c.code) for c in br.concepts] == [(SYSTEMS["nhi_order"], "ZZ903C")]
+    br = t.map("procedure", "bronchoscopy")  # two periods of one code: one answer (a billing item: for review)
+    assert br.needs_review and [(c.system, c.code) for c in br.concepts] == [(SYSTEMS["nhi_order"], "ZZ903C")]
     assert t.map("procedure", "Colonoscopy").method == "none"  # ended 2020-12-31
     assert t.map("procedure", "合成項目民國日期").concepts[0].code == "ZZ907C"  # 民國 dates read
     hep = t.map("medication", "heparin")  # one ingredient, two drugs, two ATC codes: both, for review
@@ -165,7 +165,7 @@ def test_the_extract_moves_only_what_its_made_up_names_happen_to_match(nhi: Path
                                  "procedure": 0}  # fmt: skip
     assert _resolved(after) == {**_resolved(before), "medication": 13, "procedure": 8}
     assert after["methods"]["loaded"] == 15
-    assert after["for_review"]["medication"] == 7 and after["for_review"]["procedure"] == 3
+    assert after["for_review"]["medication"] == 7 and after["for_review"]["procedure"] == 8  # every service answer
 
 
 # --------------------------------------------------------------------------------------- the shipped NHI table
@@ -184,7 +184,7 @@ def test_the_build_writes_the_shipped_table_with_its_manifest_line(tmp_path: Pat
     assert "its sha256 is" in capsys.readouterr().err and not where.exists()
     assert _build(where) == 0 and _build(where, "services", SERVICES) == 0
     out = capsys.readouterr().out
-    assert "nhi_drug_list: 29 rows built into" in out and "政府資料開放授權條款" in out
+    assert "nhi_drug_list: 31 rows built into" in out and "政府資料開放授權條款" in out
     assert sorted(p.name for p in where.iterdir()) == ["manifest.json", "nhi_drug_list.parquet",
                                                       "nhi_service_list.parquet"]  # fmt: skip
     line = installed.manifest(where)["tables"][installed.NHI_DRUGS]
@@ -298,3 +298,117 @@ def test_the_concept_list_reproduces_the_launch_figures() -> None:
                                                                  "procedure": 145}  # fmt: skip
     assert result["methods"] == {"exact": 9, "icd10cm": 208, "synonym": 49}
     assert terminology_coverage.write_concepts(rows) == CONCEPTS.read_text(encoding="utf-8")
+
+
+# ------------------------------------------------------------------- after the class B review (D-1127, same PR)
+def test_review_1_a_refused_shipped_table_is_not_counted_and_the_doctor_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from tools.trialbox import doctor
+
+    shipped = tmp_path / "shipped"
+    assert _build(shipped, "services", SERVICES) == 0
+    monkeypatch.setattr(installed, "SHIPPED_DIR", shipped)
+    env = {"TB_TERMINOLOGY_DIR": str(tmp_path / "empty")}
+    good = doctor.check_terminology(doctor.DoctorInputs(env=env))
+    assert good.status == "PASS" and "shipped: nhi_service_list 19 rows (2099-01-01 SYNTHETIC)" in good.detail
+    assert "NHI service codes" not in installed.not_loaded(tmp_path / "empty")
+    (shipped / "nhi_service_list.parquet").write_bytes(b"PAR1 changed")
+    assert "NHI service codes" in installed.not_loaded(tmp_path / "empty")
+    bad = doctor.check_terminology(doctor.DoctorInputs(env=env))
+    assert bad.status == "FAIL" and "shipped" in bad.detail and "sha256 differs" in bad.detail
+
+
+def test_review_2_a_combination_product_never_answers_for_its_one_named_ingredient(nhi: Path) -> None:
+    """NHIA writes one ingredient in 成分 for some 複方 products: such a row stays out of the ingredient index."""
+    rows = {r["nhi_code"]: r for r in installed.read_table(nhi, installed.NHI_DRUGS) or []}
+    assert rows["ZZ00001900"]["kind"] == "複方" and rows["ZZ00001800"]["kind"] == "單方"
+    r = Terminology(installed=nhi).map("medication", "synthetidine")
+    assert [c.code for c in r.concepts] == ["Z99XD01"]
+
+
+@pytest.mark.parametrize(("old", "new", "error"), [
+    ("1080701", "01080701", r"row 4 \(line 4\): 有效起日 '01080701' is not a date"),  # a zero-padded 民國 date
+    ("1080701", "1900-07-01", r"row 4 \(line 4\): 有效起日 '1900-07-01' is not a date"),  # before 1911
+])  # fmt: skip
+def test_review_3_a_date_before_1911_or_zero_padded_is_refused(old: str, new: str, error: str) -> None:
+    with pytest.raises(ValueError, match=error):
+        installed.nhi_drug_rows(_swap(DRUGS.read_text(encoding="utf-8"), old, new))
+
+
+def test_review_4_conflicting_periods_of_one_code_refuse_the_file() -> None:
+    text = SERVICES.read_text(encoding="utf-8")
+    twin = text.replace("ZZ903C,60,20200101,29101231,Bronchoscopy", "ZZ903C,60,20150101,29101231,Bronchoscopy B", 1)
+    with pytest.raises(ValueError, match=r"rows 4 and 5: code ZZ903C has two periods with the same start 2015-01-01"):
+        installed.nhi_service_rows(twin.encode())
+    row = next(line for line in text.splitlines() if line.startswith("ZZ903C,50,"))
+    same = text.replace(row, f"{row}\n{row}", 1)  # a row repeated as it is: one row
+    assert installed.nhi_service_rows(same.encode()) == installed.nhi_service_rows(text.encode())
+    with pytest.raises(ValueError, match=r"row 6 \(line 7\): 生效迄日 2010-01-01 is before 生效起日 2010-12-31"):
+        installed.nhi_service_rows(_swap(text, "20100101,20201231", "20101231,20100101"))
+
+
+def test_review_5_two_of_our_columns_never_read_one_header() -> None:
+    with pytest.raises(ValueError, match="中文項目名稱 and 英文項目名稱 both read the header 中文項目名稱"):
+        installed.nhi_service_rows(SERVICES.read_bytes(), columns={"英文項目名稱": "中文項目名稱"})
+
+
+def test_review_6_the_build_hashes_the_bytes_it_parses(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    reads: list[Path] = []
+    real, sha = Path.read_bytes, _sha(DRUGS)
+
+    def counted(self: Path) -> bytes:
+        if self.name == DRUGS.name:
+            reads.append(self)
+        return real(self)
+
+    monkeypatch.setattr(Path, "read_bytes", counted)
+    assert _build(tmp_path / "shipped", sha=sha) == 0
+    assert len(reads) == 1
+
+
+def test_review_7_nhi_check_names_the_notice_lines_a_shipped_table_needs() -> None:
+    lines = {installed.NHI_DRUGS: {}, installed.NHI_SERVICES: {}}
+    got = terminology_install.notice_problems(lines, (ROOT / "NOTICE").read_text(encoding="utf-8"))
+    assert got == ["NOTICE section 8 lacks the line: " + terminology_install.NOTICE_FOLDER_LINE.strip()]
+    # both attributions are in NOTICE already (the samples of data sets 23715 and 174450 ship today)
+    assert terminology_install.notice_problems(lines, "") == [
+        "NOTICE section 8 lacks the line: " + terminology_install.NOTICE_FOLDER_LINE.strip(),
+        f"NOTICE lacks the attribution of nhi_drug_list: {installed.NHI_DRUG_ATTRIBUTION}",
+        f"NOTICE lacks the attribution of nhi_service_list: {installed.NHI_SERVICE_ATTRIBUTION}",
+    ]
+    assert terminology_install.notice_problems({}, "") == []
+
+
+def test_review_8_and_the_rule_an_answer_from_the_shipped_table_says_so_and_a_service_goes_for_review(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    shipped = tmp_path / "shipped"
+    assert _build(shipped, "services", SERVICES) == 0
+    monkeypatch.setattr(installed, "SHIPPED_DIR", shipped)
+    r = Terminology(installed=tmp_path / "empty").map("procedure", "acupuncture")
+    assert r.method == "loaded" and r.needs_review  # one billing item may be narrower than the word (D-1127)
+    assert r.notes == ["shipped NHI table 2099-01-01 SYNTHETIC: nhi_service_list"]
+
+
+def test_review_11_the_shipped_folder_holds_only_its_three_files_and_a_well_formed_line(tmp_path: Path) -> None:
+    where = tmp_path / "shipped"
+    assert _build(where) == 0
+    (where / "site_list.csv").write_text("local_name,code\nx,I10\n", encoding="utf-8")
+    assert installed.shipped_problems(where) == ["site_list.csv: not a file the shipped folder may hold"]
+    (where / "site_list.csv").unlink()
+    m = json.loads((where / "manifest.json").read_text(encoding="utf-8"))
+    m["tables"][installed.NHI_DRUGS]["fetched_on"] = "yesterday"
+    (where / "manifest.json").write_text(json.dumps(m), encoding="utf-8")
+    assert installed.shipped_problems(where) == [
+        "nhi_drug_list: its manifest line's fetched_on 'yesterday' is not a day"
+    ]
+
+
+def test_review_13_the_build_refuses_a_live_install_folder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    live = tmp_path / "terminology"
+    installed.install_site_list(SITE, live, "synthetic")
+    assert _build(live) == 2  # a folder with another table: never written, its lock never touched
+    assert installed.read_table(live, installed.NHI_DRUGS) is None and (live / ".manifest.lock").exists()
+    monkeypatch.setenv("TB_TERMINOLOGY_DIR", str(tmp_path / "box"))
+    assert _build(tmp_path / "box") == 2

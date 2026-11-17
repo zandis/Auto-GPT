@@ -181,6 +181,8 @@ def _shipped(args: argparse.Namespace) -> int:
     problems = installed.shipped_problems(where)
     lines = installed.manifest(where)["tables"] if where.is_dir() and not problems else {}
     problems += register_problems(where, lines, licence_register.load())
+    if where.resolve() == installed.SHIPPED_DIR.resolve():  # the image's own folder: NOTICE must name it
+        problems += notice_problems(lines, (ROOT / "NOTICE").read_text(encoding="utf-8"))
     for name, line in sorted(lines.items()):
         print(f"{name}: {line.get('rows')} rows, {line.get('version')}, sha256 {str(line.get('sha256'))[:16]}, "
               f"from {str(line.get('source_sha256'))[:16]} fetched {line.get('fetched_on')}")  # fmt: skip
@@ -189,6 +191,28 @@ def _shipped(args: argparse.Namespace) -> int:
     if not lines and not problems:
         print(f"no NHI table ships ({where} holds none): the box loads them at install (D-1115)")
     return 1 if problems else 0
+
+
+# H-17 review (D-1127): the line NOTICE's section 8 (shipped vocabulary folders) needs once an NHI table ships; the
+# attribution of each shipped table must be in NOTICE too (both are there today, for the samples)
+NOTICE_FOLDER_LINE = (
+    "  services/criteria_compiler/terminology/shipped/  NHI drug list and service codes, full lists (section 1)"
+)
+
+
+def notice_problems(lines: Mapping[str, Any], notice: str) -> list[str]:
+    """What NOTICE lacks for the shipped tables ``lines``: the folder line, and each table's attribution (compared
+    with NOTICE's line breaks and indents read as one space)."""
+    if not lines:
+        return []
+    flat = " ".join(notice.split())
+    out = []
+    if not any(line.split()[:1] == NOTICE_FOLDER_LINE.split()[:1] for line in notice.splitlines()):
+        out.append("NOTICE section 8 lacks the line: " + NOTICE_FOLDER_LINE.strip())
+    for name in sorted(lines):
+        if installed.SHIPPABLE[name] not in flat:
+            out.append(f"NOTICE lacks the attribution of {name}: {installed.SHIPPABLE[name]}")
+    return out
 
 
 def register_problems(where: Path, lines: Mapping[str, Any], rows: list[licence_register.Row]) -> list[str]:
