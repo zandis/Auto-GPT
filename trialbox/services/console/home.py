@@ -1013,15 +1013,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         ):
             raise h.problem(404, "notfound")
         crit = crit.strip()[:40]
-        row = ai_confirm.row_of(doc, pid)
-        version = str(doc.get("version") or job.ruleset_version or "")
 
         def decided() -> None:  # D-989 (D-1152): the review rejects the model's answers that excluded the patient
-            if row is not None and version:
-                ai_confirm.on_verdicts(au, ruleset=rid, version=version, job=job.job_id, pid=pid,
-                                       criteria=row.get("criteria") or [], by=sess.user.username,
-                                       decision=ai_confirm.REVIEW_DECISION, crit=crit, job_id=job.job_id,
-                                       actor=h.actor(sess))  # fmt: skip
+            ai_confirm.review(au, rid, job.job_id, doc, pid, crit, sess.user.username, h.actor(sess))
 
         store.send_excluded_review(rid, pid, job.job_id, crit, note.strip()[:300], h.actor(sess),
                                    h.clock().isoformat(), before_commit=decided)  # fmt: skip
@@ -1231,9 +1225,11 @@ def register(app: FastAPI, h: Helpers) -> None:
             if warned:
                 au.append("console.approach_override", job_id=wk["job"].job_id, ruleset=rid, actor=h.actor(sess),
                           detail={"pid": pid, "action": "approach", "reason": ",".join(warned)})  # fmt: skip
-            au.append("console.pi_mark", job_id=wk["job"].job_id, ruleset=rid, actor=h.actor(sess), detail=detail)
             # D-989 (D-1152): inside the transaction too, so a mark is never kept without its events
-            approach_events(sess, rid, pid, prev, value, wk, version)
+            missing = approach_events(sess, rid, pid, prev, value, wk, version)
+            if missing:
+                detail["ai"] = missing
+            au.append("console.pi_mark", job_id=wk["job"].job_id, ruleset=rid, actor=h.actor(sess), detail=detail)
 
         # D-364 (LIFE-010): the criteria version of the list the mark was made on
         version = str((wk.get("cl") or {}).get("version") or wk["job"].ruleset_version or "") or None
@@ -1246,25 +1242,35 @@ def register(app: FastAPI, h: Helpers) -> None:
         return rid, value, detail
 
     def approach_events(sess: Session, rid: str, pid: str, prev: Mark | None, value: str, wk: dict[str, Any],
-                        version: str | None) -> None:  # fmt: skip
+                        version: str | None) -> str:  # fmt: skip
         """D-989 (D-1152): an Approach that becomes the patient's mark confirms the model's answers of its list
-        (``confirmed``); an Approach that stops being it (withdrawn, undone, replaced) takes that back
-        (``withdrawn``), naming the list it was made on. Every other mark decides nothing about the answers."""
+        (``confirmed``); an Approach that stops being it (withdrawn, undone, replaced, or moved to a newer run's list
+        by a new Approach) takes that back (``withdrawn``), naming the list it was made on. Every other mark decides
+        nothing about the answers. Returns what could not be written ("" when all was), for the mark's own event."""
         was, now = prev is not None and prev.mark == "approach", value == "approach"
-        if now and not was and version:
-            job, doc, ver = wk["job"].job_id, wk["cl"], version
-            decision = ai_confirm.MARK_DECISION["approach"]
-        elif was and not now and prev is not None and prev.version:
-            job, ver = prev.job_id, prev.version
-            doc = wk["cl"] if job == wk["job"].job_id else load(bk.get_job(job), "candidate_list_", ".json")
-            decision = ai_confirm.WITHDRAWN
-        else:
-            return
-        row = ai_confirm.row_of(doc, pid)
-        if row is not None:
-            ai_confirm.on_verdicts(au, ruleset=rid, version=ver, job=job, pid=pid,
-                                   criteria=row.get("criteria") or [], by=sess.user.username, decision=decision,
-                                   job_id=job, actor=h.actor(sess))  # fmt: skip
+        new_list = (wk["job"].job_id, version or "")
+        old_list = (prev.job_id or "", prev.version or "") if was and prev is not None else None
+        if was and now and old_list == new_list:
+            return ""  # an Approach on an Approach of the same list is no new decision
+        missing = ""
+        if old_list is not None:
+            job, ver = old_list
+            doc = wk["cl"] if job == wk["job"].job_id else load(bk.get_job(job) if job else None, "candidate_list_")
+            row = ai_confirm.row_of(doc, pid) if ver else None
+            if row is None:  # the confirmation's list is gone (or from before the version): said, never silent
+                missing = f"withdrawn not written: the list of run {job} is not readable"
+            else:
+                ai_confirm.on_verdicts(au, ruleset=rid, version=ver, job=job, pid=pid,
+                                       criteria=row.get("criteria") or [], by=sess.user.username,
+                                       decision=ai_confirm.WITHDRAWN, job_id=job, actor=h.actor(sess))  # fmt: skip
+        if now and version:
+            row = ai_confirm.row_of(wk["cl"], pid)
+            if row is not None:
+                ai_confirm.on_verdicts(au, ruleset=rid, version=version, job=new_list[0], pid=pid,
+                                       criteria=row.get("criteria") or [], by=sess.user.username,
+                                       decision=ai_confirm.MARK_DECISION["approach"], job_id=new_list[0],
+                                       actor=h.actor(sess))  # fmt: skip
+        return missing
 
     @app.post("/studies/{rs}/patients/{pid}/mark")
     def patient_mark(

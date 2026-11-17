@@ -54,5 +54,28 @@ def on_verdicts(audit: Any, *, ruleset: str, version: str, job: str, pid: str, c
     return n
 
 
+def review(audit: Any, ruleset: str, job: str, doc: Mapping[str, Any] | None, pid: str, crit: str, by: str,
+           actor: str) -> int:  # fmt: skip
+    """A review of an exclusion (the not-matched page's, or the weekly sample's "send back"): ``rejected`` on the
+    model's answers that excluded the patient, in ``doc`` (the run's not-matched list)."""
+    row = row_of(doc, pid)
+    version = str((doc or {}).get("version") or "")
+    if row is None or not version:
+        return 0
+    return on_verdicts(
+        audit,
+        ruleset=ruleset,
+        version=version,
+        job=job,
+        pid=pid,
+        criteria=row.get("criteria") or [],
+        by=by,
+        decision=REVIEW_DECISION,
+        crit=crit,
+        job_id=job,
+        actor=actor,
+    )
+
+
 def row_of(doc: Mapping[str, Any] | None, pid: str) -> Mapping[str, Any] | None:
     return next((r for r in (doc or {}).get("rows") or [] if str(r.get("pid")) == pid), None)
