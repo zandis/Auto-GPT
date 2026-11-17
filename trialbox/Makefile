@@ -18,7 +18,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: differential cross-card objects-dir embed-start public-data security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box runbook-install test-console test-console-e2e site site-preview clean \
+.PHONY: differential cross-card objects-dir embed-start public-data security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure guard test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box runbook-install test-console test-console-e2e site site-preview clean \
 	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle supply-chain release-version release-tag media-linux
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
@@ -187,6 +187,12 @@ test-pure: venv-check
 	env -u TB_TEST_DB_URL TB_PG_BIN=/nonexistent TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q \
 		-n $(PYTEST_N) -m "nodb and not integration and not e2e and not llm and not perf"
 
+# the guard tests (D-1119): the files marked `guard` (pytestmark), static readers of the tree that need no database
+# and no service, the way the last step of the CI `checks` job runs them on every tier (no PostgreSQL, two workers)
+guard: venv-check
+	env -u TB_TEST_DB_URL TB_PG_BIN=/nonexistent TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -n 2 \
+		-m guard tests/unit
+
 # the data-handling scan (D-203, WS-13.10, TB-SITE-03): every tracked file, or SCAN="paths", or SCAN="--log f.log";
 # exit 2 on a hit (place and pattern only, never the value). The same scan is the pre-commit hook and a CI job.
 data-scan:
@@ -295,6 +301,14 @@ walk:
 	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
 	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.complete_run part walk --dir "$(WALK_DIR)" \
 		--shots "$(WALK_DIR)/shots"
+
+# H-10 (D-1121): a new study from its first step, in Chromium, on a local box in steps mode (D-1062: tools/demo.py,
+# demo mode off, the stub model), once per language; about 7 minutes of seed, then about 70 s per language.
+# TB_WALK_ACCOUNTS, TB_WALK_BASE, TB_WALK_PASSWORD, TB_WALK_ID: tests/e2e/test_new_study_walk.py
+.PHONY: walk-new-study
+walk-new-study:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e tests/e2e/test_new_study_walk.py
 
 # root + nftables + iproute2 + the running test stack (docs/SECURITY.md §2)
 test-egress:

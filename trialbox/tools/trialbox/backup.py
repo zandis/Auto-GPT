@@ -105,6 +105,7 @@ DEFAULT_DIRS = {
     "mail": "mail-data",
     "secrets": "tb-secrets",
     "console": "console-data",  # as the update path's backup (update.ComposeBox) already takes it
+    "terminology": "tb-terminology",  # D-991: a restored box reads the code systems it had loaded
 }
 LAKE_SKIP_TOP = ("tmp",)  # DuckDB spill (lake.store temp_dir default)
 # D-455 (H1): the lake's served files; listed and read under the lake's own lock (lake.store.lake_lock, D-462), so a

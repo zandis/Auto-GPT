@@ -16,6 +16,8 @@ import pytest
 from tests.unit.test_validation_records import TICKED, looks_like_path, resolves
 from tools import gen_traceability as gt
 
+pytestmark = [pytest.mark.guard, pytest.mark.nodb]  # D-1119: the guard step of `checks`; no database
+
 ROOT = Path(__file__).resolve().parents[2]
 DOC = ROOT / "docs" / "validation" / "record-inventory.md"
 CLASSES = {"essential", "source", "copy", "aid", "control"}

@@ -37,6 +37,8 @@ from tb_contracts import Atom, CriterionIR
 
 from tests.offlist_fixture import FIX, SNAPSHOT, index_date, offlist_ruleset
 
+pytestmark = [pytest.mark.guard, pytest.mark.nodb]  # D-1119: the guard step of `checks`; no database
+
 ROOT = Path(__file__).resolve().parents[2]
 WITH_MEDS = {"OFF-ULT-A", "OFF-ULT-B", "OFF-ULT-C", "OFF-ULT-D"}
 

@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PLATFORM = ROOT / "deploy" / "platform"
 OVERLAYS = ("shared-quota", "interim-cloud", "update")
 DATA_CLAIMS = ("lake-data", "objects-data", "audit-data", "rulesets-data", "orch-data", "mail-data", "tb-secrets",
-               "console-data")  # fmt: skip
+               "console-data", "tb-terminology")  # fmt: skip
 NOW = datetime(2026, 11, 20, 3, 0, tzinfo=UTC)
 DIGEST = "sha256:" + "ab" * 32
 PINNED = ("trialbox-py", "trialbox-jvm", "trialbox-postgres", "vllm")  # unreleased in deploy/platform/release.json

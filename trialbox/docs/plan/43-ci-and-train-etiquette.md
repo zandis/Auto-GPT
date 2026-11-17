@@ -2,11 +2,17 @@
 
 How a lane's card goes through CI and onto a merge train. The integrator points the lanes here; the rules came from the
 CI throughput measurement on #639 (2026-11-16: 682 runs in 24 hours, a full run 118 to 182 runner-minutes, the limit
-concurrency) and the integrator's answers there. Decisions: D-564 (the tiers), D-578, D-969, D-970.
+concurrency) and the integrator's answers there. Decisions: D-564 (the tiers), D-578, D-969, D-970, D-1119 (the guard
+step).
 
 ## The tiers
 
 - **Fast tier**: `changes`, `checks`, `data-scan`, `cross-card`, `powershell`, `differential`. Minutes, on every push.
+  `checks` ends with the **guard step** (D-1119): the test files marked `guard`, static readers of the tree that fail
+  when something that must not be there is (a site time zone in code, a direct model call, an undeclared setting),
+  with no database and no service, about a minute; then the collection check, which collects a pull request's
+  changed test files twice and fails on an id that differs (the clock or random bytes in a parametrize id). Every
+  tier runs both; `make guard` runs the first locally.
 - **Full tier**: the fast tier plus `unit-shard` (six), `unit`, `property`, `goldens`, `e2e-simple`, `demo-boot`,
   `security`, `standards`, `images`.
 
@@ -35,6 +41,14 @@ need. Mark it **ready for review** once, when the card is done and your own loca
 full tier on a card that would not get it, add the label `ci:full` and re-run the workflow (or push): the labels are
 read when the run starts.
 
+## The guard marker
+
+A test file whose job is "no X, only X, never X in the code or the tree" and that needs no database, no network and
+no service gets the marker on the whole file: `pytestmark = [pytest.mark.guard, pytest.mark.nodb]`. The list lives
+with the tests, not in the workflow. `tests/unit/test_ci_guard.py` fails if a marked file is not `nodb` or asks for
+a database fixture, so the step never starts PostgreSQL. Keep the step under three minutes on a runner: run
+`make guard` and give its time when you mark a file.
+
 ## The train-ready line states your own full local run
 
 The train runs everything, but a card that reaches it red costs a whole train. So a `train-ready:` line on #639
@@ -44,7 +58,7 @@ is not taken:
 ```
 train-ready: #<PR> <full head sha> base <full sha>
 local: <n> passed, <n> failed, <n> skipped (make test, or the cross-card list plus the card's tests: say which);
-       make lint clean; data_scan, decisions_index, doclint, security_scan sast and secrets clean
+       make lint clean; make guard clean; data_scan, decisions_index, doclint, security_scan sast and secrets clean
 ```
 
 Report a failure as it is: name each failed test and say why it is not this card's.

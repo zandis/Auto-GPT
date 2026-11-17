@@ -291,6 +291,7 @@ step media-negative 0 in_box media-negative
 step install 1 in_box install
 [ "$VARIANT" = validation ] && step reinstall 1 in_box reinstall
 step doctor 0 in_box doctor
+step terminology 0 in_box terminology
 step served 0 in_box served
 step offline 0 in_box offline
 step egress-override 0 in_box egress-override
