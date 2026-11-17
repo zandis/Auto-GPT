@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 import httpx
 import yaml
 from lake.client import LakeAPI
+from tb_common import provenance
 from tb_common.audit import AuditLog
 from tb_common.config import site_tz
 from tb_common.derived import country_of, egfr_for_site
@@ -214,6 +215,15 @@ def stamp_differs(manifest: RulesetManifest, term: Any) -> str:
     if not changed:
         return ""
     return "terminology differs from the compile (" + "; ".join(changed) + "): compile again before approval"
+
+
+#: D-989: a review sheet's decision as ``ai.confirmed`` names it
+DECIDED_AS = {"approve": "confirmed", "edit": "changed", "reject": "rejected"}
+
+
+def criterion_calls(c: CriterionIR) -> list[str]:
+    """The model calls a criterion was extracted by (IR ``provenance.calls``, D-989); none for a person's line."""
+    return list(c.provenance.calls) if c.provenance is not None else []
 
 
 def flag_unread(criteria: list[CriterionIR], unread: dict[int, str], warnings: list[str]) -> list[CriterionIR]:
@@ -927,6 +937,9 @@ class Compiler:
                 "branch": branch,
             },
         )
+        for c in criteria:  # D-989: each criterion a model extracted is now part of this version's draft
+            provenance.used(self.d.audit, "criterion", provenance.ref(ruleset=ruleset, version=version, crit=c.id),
+                            criterion_calls(c), job_id=req.job_id)  # fmt: skip
         return CompileResult(
             ruleset=ruleset,
             version=version,
@@ -1024,6 +1037,12 @@ class Compiler:
         unknown = sorted(set(decisions) - {c.id for c in criteria})
         if unknown:
             raise CompileFailed("approve", f"review.xlsx lists unknown criteria {unknown}")
+        for c in criteria:  # D-989: a person's decision on each criterion a model extracted, as the sheet sent it
+            d = decisions.get(c.id)
+            if d is not None and d.status in DECIDED_AS:
+                provenance.confirmed(self.d.audit, "criterion",
+                                     provenance.ref(ruleset=req.ruleset, version=req.version, crit=c.id),
+                                     criterion_calls(c), req.by, DECIDED_AS[d.status], job_id=job_id)  # fmt: skip
         edits = [d for d in req.decisions if d.status == "edit"]
         updated: list[CriterionIR] = []
         to_extract: list[tuple[CriterionIR, str]] = []

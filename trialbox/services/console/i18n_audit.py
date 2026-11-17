@@ -333,6 +333,8 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "mail.deferred": ("Mail delivery deferred", "メール配信の延期", "郵件延後寄送"),
     "mail.failed": ("Mail delivery failed", "メール配信の失敗", "郵件寄送失敗"),
     "mail.uncertain": ("Mail delivery uncertain", "メール配信の不確定", "郵件寄送狀態不確定"),
+    "ai.confirmed": ("Model answer confirmed by a person", "モデルの回答を人が確認", "模型回答經人員確認"),
+    "ai.used": ("Model answer used in a record", "モデルの回答を記録に使用", "模型回答用於紀錄"),
     "llm.call": ("Language model called", "言語モデルの呼出", "呼叫語言模型"),
     "llm.outage": ("Job waited for the language model", "言語モデルの応答待ち", "作業等待語言模型回應"),
     "llm.prompt_fallback": ("Prompt fallback used", "プロンプトの代替使用", "使用備用提示詞"),

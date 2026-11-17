@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 from matching import coded_values
 from matching.coverage import unknown_system_counts
 from tb_common import lakeprobe
+from tb_common import provenance as ai_provenance
 from tb_common.authz import norm
 from tb_common.llm import LlmError, LlmPromptUnqualified, load_prompt
 from tb_common.reasons import Reason
@@ -930,6 +931,8 @@ def run(ctx: Ctx) -> Outcome:
         srun.rows = [r for r in srun.rows if r.pid not in gone]
         srun.results = {p: v for p, v in srun.results.items() if p not in gone}
     cl = candidate_list(srun)
+    # D-989: each verdict a model answered is now part of this run's list (the patient by pseudonym only)
+    ai_provenance.verdicts_used(ctx.orch.audit, rs.id, rs.version, ctx.job.job_id, cl.rows)
     meta = report_meta(ctx, rs, snapshot, run_date, srun.judging)
     unverified = scores_unverified(ctx, rs, snapshot)  # D-442: the list says so in its own header
     if unverified:
