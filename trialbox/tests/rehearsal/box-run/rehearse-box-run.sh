@@ -91,8 +91,13 @@
 #                      VALIDATION; no code in any log, result or the serial port; the record says it is no evidence
 #   session-stop       the hard stop (VALIDATION, one account per role): the session asked for longer than the cost
 #                      cap allows ends at the cap less its margin, its accounts disabled before the cap fires
-#   session-cut        a power cut while the session is open: the next boot disables its accounts before any step,
-#                      puts the box back in VALIDATION, and never opens the session again
+#   session-cut        a power cut while the session is open: the next boot disables its accounts before any step
+#                      and before anything is served (the box's Caddy down, the re-review's A), puts the box back in
+#                      VALIDATION, and never opens the session again
+#   session-close-fails  as session-cut, but the console cannot be asked at the next boot: the run stops there, the
+#                      box's Caddy never came up on that boot, no CLOSED marker is written (the deny stays)
+#   session-update-fails  the console's and Caddy's restart policy cannot be set to `no`: no account is opened (the
+#                      re-review's E), and the run's CLOSED marker is written all the same (C)
 #   session-wide       the driver refuses a range too wide (0.0.0.0/0, any, a /8) before anything: no VM booted
 #   session-egress     the box's egress table lets a container out (as a DEV box's opens a model host): the session
 #                      stops at 55-session-egress and no account or link is made
@@ -120,7 +125,7 @@ ALL=(build build-gate-fails build-refused build-preempt happy step-fails reboot 
      resume-after-stop acc-qualify-fails probe direct dev acc-cut qualify-timebox acc-gate acc-redo gate-closed gate-401 gate-never
      acc-cut-resume
      session session-stop session-cut session-wide session-egress session-dev-refused session-skip session-resume
-     session-ssh session-then-acc)
+     session-ssh session-then-acc session-close-fails session-update-fails)
 # shellcheck disable=SC2206  # CASES=happy,cap: split on commas and spaces
 CASES=(${*//,/ }); [ "${#CASES[@]}" -gt 0 ] || CASES=("${ALL[@]}")
 # the harness's own ceiling for one wait (a declared setting): a case takes 5 to 40 seconds on the short clock, so
@@ -451,6 +456,13 @@ for CASE in "${CASES[@]}"; do
       wait_for "the session to open" grep -aq 'TB-SESSION-READY' "$S/boot-1.out"
       "$HERE/standins/reboot.sh" "$S"            # a power cut while the owner reads a page
       to_the_end ;;
+    session-close-fails)
+      setup "$CASE" "dev session" dev-routes; session_setup DEV; m tb-session-minutes 600; m tb-max-minutes 900; boot
+      wait_for "the session to open" grep -aq 'TB-SESSION-READY' "$S/boot-1.out"
+      touch "$S/knobs/disable-fails"             # the console cannot be asked at the next boot
+      "$HERE/standins/reboot.sh" "$S"
+      to_the_end ;;
+    session-update-fails) setup "$CASE" "dev session" update-fails; session_setup VALIDATION; boot; to_the_end ;;
     session-wide) S="$REH/$CASE"; rm -rf "$S"; mkdir -p "$S"; session_wide ;;
     session-egress) setup "$CASE" "dev session" dev-routes egress-open; session_setup DEV; boot; to_the_end ;;
     session-dev-refused) setup "$CASE" "dev session"; session_setup DEV; boot; to_the_end ;;

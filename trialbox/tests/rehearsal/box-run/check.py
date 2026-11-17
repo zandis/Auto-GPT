@@ -71,8 +71,19 @@ G10 = ["41-g10-image", "42-g10-canary", "43-g10-qualify"]
 
 # ---------------------------------------------------------------- every case: the cloud calls, the secrets, the power
 ok(
-    all(line in ("", "storage cp") or line.startswith("secrets versions access ") for line in gcloud),
-    "the VM's only cloud calls read secrets by name and copy to or from the bucket (no VM is started or stopped)",
+    all(
+        line in ("", "storage cp")
+        or line.startswith("secrets versions access ")
+        # a session run's own CLOSED marker, removed before its accounts open (the re-review's C), and looked for
+        or line
+        in (
+            f"storage rm gs://tb-runs/session/rehearsal-{case}/CLOSED",
+            f"storage ls gs://tb-runs/session/rehearsal-{case}/CLOSED",
+        )
+        for line in gcloud
+    ),
+    "the VM's only cloud calls read secrets by name and copy to or from the bucket, and remove the session run's own"
+    " CLOSED marker (no VM is started or stopped)",
 )
 secrets = [S / "secrets" / "answers" / "1", S / "secrets" / "vendor-key" / "1", S / "driver" / "hdr"]
 needles = []
@@ -738,7 +749,8 @@ if case.startswith("session"):
        "nothing listens on tcp:22 after the stop, checked")  # fmt: skip
     ok(all(re.search(r"TB-SESSION-BOOT boot=[0-9a-f]{16} started=", o) for o in out if "groups dev session" in o),
        "every boot of the session prints its own id")  # fmt: skip
-    ok(re.search(r"^TB_ENV=VALIDATION$", env_now, re.M) is not None and env_now.count("TB_ENV=") == 1,
+    ok(case == "session-close-fails"  # its accounts could not be closed: the box is left as the session set it
+       or (re.search(r"^TB_ENV=VALIDATION$", env_now, re.M) is not None and env_now.count("TB_ENV=") == 1),
        "the box is back in VALIDATION on the kept disk")  # fmt: skip
     ok(not list((S / "vm" / "tb" / "session").glob("*.t*")), "no codes' file left on the VM's disk")
     ok(rec == {} or rec.get("evidence") == "nothing from this session is evidence", "the record says it is no evidence")
@@ -746,9 +758,18 @@ if case.startswith("session"):
     md = "".join(f.read_text() for f in (S / "metadata").iterdir() if f.is_file() and f.name != "tb-helper")
     ok(not re.search(r"STANDIN-[0-9A-F]{12}|enrol#", md), "the metadata holds no code and no link")
     opened = [a for a in accounts if not a.startswith("_")]
-    ok(all(accounts[a]["disabled"] and not accounts[a]["extra"] for a in opened) and not accounts.get("_flag_acting"),
+    ok(case == "session-close-fails"
+       or (all(accounts[a]["disabled"] and not accounts[a]["extra"] for a in opened) and not accounts.get("_flag_acting")),
        "every session account is disabled, its extra roles taken back, the acting flag off")  # fmt: skip
+    seq = (S / "calls.log").read_text().splitlines()
+    closed_marker = BKT / "session" / f"rehearsal-{case}" / "CLOSED"
+    if case != "session-close-fails":  # the re-review's C: every session run ends with its marker, accounts or none
+        ok(closed_marker.exists() and "closed " in closed_marker.read_text(),
+           "the run's CLOSED marker is written once no session account is open (an account opened or not)")  # fmt: skip
 if case in ("session", "session-stop", "session-cut"):
+    first_people = next((i for i, c in enumerate(seq) if c.startswith("session-people")), -1)
+    ok(0 <= seq.index("network.sh apply") < seq.index("network.sh status") < first_people,
+       "the box's own egress rules applied, then read back, before any account is opened")  # fmt: skip
     ok(len(links) == 1 and len(session_codes) == len(opened) >= 1, "one links object, one code per account")
     text = links[0].read_text() if links else ""
     ok("NOTHING FROM THIS SESSION IS EVIDENCE" in text and "Public or synthetic text only" in text,
@@ -796,6 +817,33 @@ if case == "session-cut":
        "the session is never opened again after a cut (D-1123 4.4)")  # fmt: skip
     ok(rec["closed_by"].startswith("the next boot"), "the record says the next boot closed it")
     ok("TB-SESSION-NOT-READY" in b2, "the second boot says it opened no session")
+if case in ("session", "session-stop"):  # the re-review's F: the address put back first, then the console recreated
+    ups = [i for i, c in enumerate(seq) if c.startswith("compose-up-console ")]
+    dis = max(i for i, c in enumerate(seq) if c.startswith("session-disable "))
+    ok(bool(ups) and ups[-1] > dis and seq[ups[-1]] == "compose-up-console url=none",
+       "after the close the console runs on the box's own address again (it was recreated after the restore)")  # fmt: skip
+if case in ("session-cut", "session-close-fails"):  # the re-review's A: nothing served before the accounts are closed
+    boot2_at = next((i for i, c in enumerate(seq) if c.startswith("vm-boot 2 ")), -1)
+    ok(boot2_at >= 0 and seq[boot2_at] == "vm-boot 2 caddy down",
+       "the box's Caddy did not come back by itself at the next boot (its restart policy was no)")  # fmt: skip
+    after_boot2 = seq[boot2_at:] if boot2_at >= 0 else []
+    caddy_up_at = next((i for i, c in enumerate(after_boot2) if c.startswith("caddy up")), len(after_boot2))
+    if case == "session-cut":
+        ok("session-disable-caddy down" in after_boot2[:caddy_up_at] and "session-disable-caddy up" not in seq,
+           "the next boot disabled the accounts with the box's Caddy down, before anything brought it up")  # fmt: skip
+    else:
+        ok("session-disable-failed" in after_boot2 and caddy_up_at == len(after_boot2),
+           "the close could not be made: the box's Caddy never came up on that boot")  # fmt: skip
+        ok("TB-SESSION-ACCOUNTS-OPEN" in ended and "TB-STEP" not in out[-1], "the run stopped before any step")
+        ok(not closed_marker.exists(), "no CLOSED marker: the driver keeps the door's deny-all and the tag")
+if case == "session-update-fails":  # the re-review's E: no restart policy, no session
+    ok(parts["56-session-accounts"]["status"] == "stop" and "restart policy" in parts["56-session-accounts"]["stop"]["reason"],
+       "the step stops when the restart policy cannot be set to no")  # fmt: skip
+    ok(
+        not links and not opened and not any(c.startswith("session-people") for c in seq),
+        "no account and no link was made",
+    )
+    ok("TB-SESSION-READY" not in "".join(out), "the session never opened")
 if case in ("session", "session-stop", "session-then-acc"):
     closed = BKT / "session" / f"rehearsal-{case}" / "CLOSED"
     ok(closed.exists() and "closed " in closed.read_text(), "the VM wrote the CLOSED marker once the accounts closed")

@@ -398,6 +398,9 @@ finish() {  # $1 marker line, $2 phase: say why, keep it in the state, pack, DON
   if declare -F session_close >/dev/null && session_open_left; then
     session_close "the run's end ($2)" || true
   fi
+  # the re-review's C: a session run that ends with no account open (a refusal, a stop before 56) is closed too
+  if declare -F has >/dev/null && has session; then session_unclosed_add; fi
+  session_runs_closed "the run's end ($2)" || true
   # the box's facts on any way out of a start once an install was tried (a stop is when they matter most)
   if has start && [ -d "${BOXROOT:-/nonexistent}/deploy" ] && [ ! -s "$REC/facts-box.txt" ]; then
     NOTES=/dev/null; step_facts_box >/dev/null 2>&1 || true
@@ -584,6 +587,33 @@ SES_SYNTH=$(md tb-session-synth || echo 200)
 SES_IDLE=$(md tb-session-idle-minutes || echo 60)          # (setting) the session ends early after this long unread
 SES_CODE_HOURS=$(md tb-session-code-hours || echo 24)      # (setting) an unused one-time code expires (D-776)
 SES="$TB/session"   # on the kept disk, across runs: the names of a session's accounts until they are disabled
+# a session's accounts named on the disk (56 writes the names before any code exists), its environment not put back,
+# or the console's and Caddy's restart policy still `no`: the close has work to do
+session_open_left() { [ -s "$SES/accounts" ] || [ -s "$SES/env-before" ] || [ -f "$SES/norestart" ]; }
+# The re-review's C: every session run that booted on this disk gets its CLOSED marker beside its links once no
+# session account is open here, even a run that never opened one (a refusal, a stop before 56, a cut). The driver
+# (box-run.sh session_closed) keeps the door's deny-all and the tag until the marker of the run the deny names exists.
+session_unclosed_add() {  # this run's handoff, when it is a session run's of the checked form
+  [[ "${SES_HANDOFF:-}" =~ ^gs://[a-z0-9._-]{3,63}(/[A-Za-z0-9._-]+)*$ ]] || return 0
+  mkdir -p "$SES"; chmod 700 "$SES"
+  grep -qxF "$SES_HANDOFF" "$SES/unclosed" 2>/dev/null || printf '%s\n' "$SES_HANDOFF" >> "$SES/unclosed"
+}
+session_runs_closed() {  # $1 why: CLOSED for each run listed, while no session account is open on this disk
+  local h left=""
+  [ ! -s "$SES/accounts" ] || return 1
+  [ -s "$SES/unclosed" ] || return 0
+  while read -r h; do
+    [ -n "$h" ] || continue
+    printf 'closed %s by %s (run %s): no session account is open on this disk\n' "$(date -u +%FT%TZ)" "$1" "$RUN_ID" \
+      > "$SES/closed.txt"
+    if ! gcloud storage cp "$SES/closed.txt" "$h/CLOSED" > /dev/null 2>&1; then
+      left="$left$h"$'\n'
+      echo "TB-SESSION the CLOSED marker could not be written to $h (the door's deny stays)" | tee -a "$LOG"
+    fi
+  done < "$SES/unclosed"
+  rm -f "$SES/closed.txt"
+  if [ -n "$left" ]; then printf '%s' "$left" > "$SES/unclosed"; else rm -f "$SES/unclosed"; fi
+}
 ISSUE="${TB_ISSUE_DIR:-/etc/issue.d}/trialbox-firstrun.issue"
 BUNDLE="$TB/bundle/$RUN_ID.tar"
 ANSWERS="$TB/wizard-answers"
@@ -2351,8 +2381,9 @@ session_host() {  # the name the box's Caddy serves (deploy/.env TB_TLS_HOSTNAME
   if [ -n "$h" ]; then printf '%s' "$h"; else md_ip; fi
 }
 session_rec() { local a=() kv; for kv in "$@"; do a+=(--set "$kv"); done; vm session-record --file "$REC/session.json" "${a[@]}" > /dev/null; }
-svc_recreate() {  # every service that reads deploy/.env, not the two model servers (51-acc-settings' rule)
-  local svcs=(); mapfile -t svcs < <(dc config --services | grep -v '^llm-')
+svc_recreate() {  # every service that reads deploy/.env, not the two model servers (51-acc-settings' rule); $1 one more left out
+  local svcs=(); mapfile -t svcs < <(dc config --services | grep -v '^llm-' | grep -vx -e "${1:-llm-service}")
+  [ ${#svcs[@]} -gt 0 ] || { echo "no service of the box is named (compose config)"; return 1; }
   d_recreate "${svcs[@]}"
 }
 step_session_env() {
@@ -2476,12 +2507,22 @@ step_session_accounts() {
   mkdir -p "$SES"; chmod 700 "$SES"
   suffix=$(session_suffix)
   people=$(printf '%s' "$SES_PEOPLE" | tr ',' '\n' | sed "s/^\([^:]*\):/\1-$suffix:/" | paste -sd, -)
+  # the review's finding 6: while the accounts are open, the console and Caddy do not start again by themselves at a
+  # boot (compose's unless-stopped); the next boot closes the accounts with Caddy down before anything is served.
+  # The re-review's E: a policy that cannot be set is no session (nothing is opened yet)
+  touch "$SES/norestart"
+  if ! d_restart_policy no >> "$STEP_LOG" 2>&1; then
+    STOP="the console's and Caddy's restart policy could not be set to no (docker update): no session is opened"; return 1
+  fi
+  # a CLOSED marker of this run from before (a boot closed nothing yet) goes before any account is opened: the driver
+  # takes the door's deny away only while it is there
+  gcloud storage rm "$SES_HANDOFF/CLOSED" > /dev/null 2>&1 || true
+  if gcloud storage ls "$SES_HANDOFF/CLOSED" > /dev/null 2>&1; then
+    STOP="the run's CLOSED marker cannot be removed from $SES_HANDOFF: no account is opened while it says closed"; return 1
+  fi
   # the names first, before any code exists: a session account still open is closed at the next boot
   printf '%s' "$people" | tr ',' '\n' | cut -d: -f1 > "$SES/accounts"
-  printf '%s\n' "$SES_HANDOFF" > "$SES/handoff"
-  # the review's finding 6: while the accounts are open, the console and Caddy do not start again by themselves at a
-  # boot (compose's unless-stopped); the startup script brings them up and closes the accounts first thing
-  if d_restart_policy no >> "$STEP_LOG" 2>&1; then touch "$SES/norestart"; else note restart_policy '"could not be set to no"'; fi
+  session_unclosed_add
   # the window: the asked minutes, never past the cost cap less a margin (58 must run before the cap fires)
   now=$(date +%s); cap_end=$((BOOT_T0 + CAP_LEFT))
   stop=$((now + SES_MIN * MIN_S)); [ "$stop" -le $((cap_end - SES_GRACE_MIN * MIN_S)) ] || stop=$((cap_end - SES_GRACE_MIN * MIN_S))
@@ -2558,11 +2599,10 @@ step_session_open() {
   [ "$(date +%s)" -lt "$stop" ] || note ended_by '"the session'"'"'s stop"'
   session_rec "ended_at=$(date -u +%FT%TZ)"
 }
-session_open_left() { [ -s "${SES:-/nonexistent}/accounts" ] || [ -s "${SES:-/nonexistent}/env-before" ]; }
 # the console's and Caddy's restart policy (docker update; the compose files are not changed)
 d_restart_policy() { local c=(); mapfile -t c < <(cid console; cid caddy); [ ${#c[@]} -gt 0 ] && docker update --restart="$1" "${c[@]}"; }
 session_close() {  # $1 why: the accounts disabled, the box's environment as it was; 1 when the console cannot be asked
-  local names="" before url
+  local names="" before url restored=""
   rm -f "${SES:?}/people.tsv" "$SES/links.txt"   # the review's finding 10: no code left on the kept disk
   session_open_left || return 0
   if [ -s "$SES/accounts" ]; then
@@ -2571,27 +2611,46 @@ session_close() {  # $1 why: the accounts disabled, the box's environment as it 
       echo "TB-SESSION-ACCOUNTS-OPEN: the session's accounts ($names) could not be disabled ($1): the next boot tries again" | tee -a "$LOG"
       return 1
     fi
+    rm -f "$SES/accounts"
   fi
-  before=$(cat "$SES/env-before" 2>/dev/null)
-  if [ -n "$before" ] && [ "$(envget TB_ENV | tr -d "\"' \r")" != "$before" ]; then
-    envset_box TB_ENV "$before"
-    svc_recreate >> "$LOG" 2>&1 || echo "TB-SESSION the stack could not be recreated in $before (the next step's own wait)" | tee -a "$LOG"
-  fi
+  # the re-review's F: the box's settings put back first (its address, then its environment), then every service that
+  # reads them recreated, always: a VALIDATION session on a VALIDATION box changed the address only. Not Caddy: it
+  # reads neither, and a close at a boot keeps it down until the accounts are disabled (the re-review's A)
   url=$(cat "$SES/public-url-before" 2>/dev/null)
   case "$url" in
-    unset) sed -i '/^TB_CONSOLE_PUBLIC_URL=/d' "$BOXROOT/deploy/.env" ;;
-    "set "*) envset_box TB_CONSOLE_PUBLIC_URL "${url#set }" ;;
+    unset) sed -i '/^TB_CONSOLE_PUBLIC_URL=/d' "$BOXROOT/deploy/.env"; restored=1 ;;
+    "set "*) envset_box TB_CONSOLE_PUBLIC_URL "${url#set }"; restored=1 ;;
   esac
-  if [ -f "$SES/norestart" ]; then d_restart_policy unless-stopped >> "$LOG" 2>&1 || true; rm -f "$SES/norestart"; fi
-  if [ -s "$SES/handoff" ]; then   # the driver's proof that the accounts are closed (box-run.sh session_closed)
-    printf 'closed %s by %s (run %s)\n' "$(date -u +%FT%TZ)" "$1" "$RUN_ID" > "$SES/closed.txt"
-    gcloud storage cp "$SES/closed.txt" "$(cat "$SES/handoff")/CLOSED" > /dev/null 2>&1 \
-      || echo "TB-SESSION the CLOSED marker could not be written to $(cat "$SES/handoff") (the door's deny stays)" | tee -a "$LOG"
-    rm -f "$SES/closed.txt" "$SES/handoff"
+  before=$(cat "$SES/env-before" 2>/dev/null)
+  if [ -n "$before" ]; then
+    [ "$(envget TB_ENV | tr -d "\"' \r")" = "$before" ] || envset_box TB_ENV "$before"
+    restored=1
   fi
-  rm -f "$SES/accounts" "$SES/env-before" "$SES/stop-epoch" "$SES/public-url-before"
+  if [ -n "$restored" ]; then
+    svc_recreate caddy >> "$LOG" 2>&1 \
+      || echo "TB-SESSION the stack could not be recreated on its own settings (the next step's own wait)" | tee -a "$LOG"
+  fi
+  if [ -f "$SES/norestart" ]; then d_restart_policy unless-stopped >> "$LOG" 2>&1 || true; rm -f "$SES/norestart"; fi
+  rm -f "$SES/handoff" "$SES/env-before" "$SES/stop-epoch" "$SES/public-url-before"
+  session_runs_closed "$1" || true   # the driver's proof that the accounts are closed (box-run.sh session_closed)
   [ ! -d "$REC" ] || session_rec "closed_at=$(date -u +%FT%TZ)" "closed_by=$1" "accounts_disabled=$names"
   echo "TB-SESSION-END boot=$SBOOT at=$(date -u +%FT%TZ) why=$1 (accounts disabled: ${names:-none}; the box in ${before:-its environment})"
+}
+# The re-review's A: an earlier session's accounts are closed at a boot before anything is served. The box's Caddy is
+# its only door (deploy/docker-compose.identity.yml publishes 443; the console binds 127.0.0.1): it is stopped, the
+# console comes up without it, the accounts are disabled; only then does any step bring the whole stack up.
+d_caddy_running() { dc ps --format '{{.Service}} {{.State}}' 2>/dev/null | awk '$1 == "caddy" && $2 == "running" {f=1} END {exit !f}'; }
+session_close_dark() {  # $1 why
+  echo "TB-SESSION $(date -u +%T): an earlier session's accounts are disabled first, the box's Caddy down" | tee -a "$LOG"
+  dc stop caddy >> "$LOG" 2>&1 || true
+  if d_caddy_running; then
+    echo "TB-SESSION-ACCOUNTS-OPEN: the box's Caddy cannot be stopped: the accounts are not opened to anyone by a close" | tee -a "$LOG"
+    return 1
+  fi
+  d_models_bind >> "$LOG" 2>&1 || true
+  dc up -d --pull never --wait --wait-timeout 900 console >> "$LOG" 2>&1 \
+    || echo "TB-SESSION the console did not come up healthy without Caddy (the close is tried all the same)" | tee -a "$LOG"
+  session_close "$1"
 }
 step_session_close() {
   session_close "the session's stop" || { STOP="the session's accounts could not be disabled (the next boot tries again)"; return 1; }
@@ -2599,6 +2658,16 @@ step_session_close() {
 }
 
 # ------------------------------------------------------------------ the run
+# a session that did not close itself (a cut, the cap, a stop): its accounts are disabled before any step and before
+# anything is served, the box's Caddy down (the re-review's A; D-1132). A run of any kind does not go on while they
+# cannot be: nothing of this boot brings the stack (Caddy) up with them open.
+if session_open_left; then
+  session_close_dark "the next boot (the session did not close itself)" || true
+  ! session_open_left \
+    || finish "TB-SESSION-ACCOUNTS-OPEN: a session's accounts are still open on this disk and could not be closed with the box's Caddy down: this run does not go on (nothing was served)" session-open
+fi
+session_runs_closed "the next boot" || true   # the re-review's C: an earlier session run that opened no account
+has session && session_unclosed_add
 # a later boot of a direct-route box (a resume, or an acc launch): the stack as this tree starts it (the weights' bind,
 # the site's settings.yaml, every service healthy) before any step, since no systemd unit does it on this route (F15,
 # F16). Said in the log; a stack that cannot come up is the next step's stop, with its own log.
@@ -2607,11 +2676,6 @@ if [ -n "$DIRECT" ] && [ -s "$BOXROOT/deploy/.env" ] \
    && { [ "$st02" = "done" ] || { has acc && ! has dev && ! has start; }; }; then
   echo "TB-STACK $(date -u +%T): bringing the box's stack up on this boot (compose up --wait)" | tee -a "$LOG"
   d_direct_up >> "$LOG" 2>&1 && echo "TB-STACK up" | tee -a "$LOG" || echo "TB-STACK not healthy (see the log)" | tee -a "$LOG"
-fi
-# a session that did not close itself (a cut, the cap, a stop): its accounts are disabled before any step (D-1132)
-! session_open_left || session_close "the next boot (the session did not close itself)" || true
-if session_open_left && ! has session && ! has start && ! has dev; then   # no later try in this run: stop here
-  finish "TB-SESSION-ACCOUNTS-OPEN: a session's accounts are still open on this disk: this run does not go on" session-open
 fi
 [ -z "$PROBE" ] || run_step 00-facts step_facts
 if has probe; then   # a facts-only launch: the VM's facts, then the run ends (no build, no install)
@@ -2637,10 +2701,6 @@ fi
 if has start || has dev; then
   has dev || run_step 01-bundle step_bundle
   if [ -n "$DIRECT" ]; then run_step 02-install step_direct_up; else run_step 02-install step_install; fi
-  ! session_open_left || session_close "the next boot, once the stack is up" || true
-  if session_open_left && ! has session; then   # the second try failed: a run that is no session does not go on
-    finish "TB-SESSION-ACCOUNTS-OPEN: a session's accounts are still open after two tries: this run does not go on" session-open
-  fi
   if [ "$MODE" = validation ]; then run_step 03-wizard step_venv_env; else run_step 03-wizard step_wizard; fi
   if [ -n "$PROBE" ]; then
     run_step 04p-facts step_facts_box

@@ -59,6 +59,8 @@ CASES = [
     "session-resume",
     "session-ssh",
     "session-then-acc",
+    "session-close-fails",
+    "session-update-fails",
 ]
 
 pytestmark = pytest.mark.skipif(

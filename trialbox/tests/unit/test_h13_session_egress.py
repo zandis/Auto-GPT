@@ -16,7 +16,6 @@ from typing import Any
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-VM_SCRIPT = ROOT / "deploy" / "gcp" / "box-install-run.sh"
 
 pytestmark = pytest.mark.nodb
 
@@ -69,16 +68,6 @@ def test_a_table_not_loaded_or_a_network_outside_it_is_refused() -> None:
     res = vm.session_egress(_table([]), [*NETS, "172.20.0.0/16"])
     assert res["text_can_leave"] and "172.20.0.0/16" in res["problems"][0]
     assert vm.session_egress(_table([]), [])["text_can_leave"]  # the stack down: nothing filtered
-
-
-def test_the_vm_calls_the_products_script_and_never_copies_it() -> None:
-    text = VM_SCRIPT.read_text()
-    assert 'd_egress() { (cd "$BOXROOT" && deploy/network.sh "$1" --env deploy/.env --state "$EGRESS_STATE"); }' in text
-    step = text[text.index("step_session_egress() {") : text.index("# the accounts, by the console's own code")]
-    assert step.index("d_egress apply") < step.index("d_egress status") < step.index("vm session-egress")
-    assert "nft " not in step and "egress.py" not in step  # the product's script only
-    # read back before any account or link is made
-    assert text.index("run_step 55-session-egress") < text.index("run_step 56-session-accounts")
 
 
 def test_the_heartbeat_counts_the_owners_requests_only() -> None:

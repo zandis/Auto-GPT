@@ -105,6 +105,24 @@ def interrupt(what: str) -> None:
     called(what)
 
 
+# ---------------------------------------------------------------- the box's Caddy, its only door (the session's A)
+def caddy_up(new: bool | None = None, why: str = "") -> bool:
+    """Whether the box's Caddy serves, across the VM's boots: a boot brings it back only when it ran before and its
+    restart policy is not `no` (docker update, the session's finding 6); `compose up` of the whole stack or of caddy,
+    and `compose start caddy`, bring it up; `compose stop caddy` takes it down. Each change is in calls.log."""
+    st = jload(BOX / "caddy.json", {"up": False, "boot": 0})
+    boot = int((S / "boots").read_text()) if (S / "boots").exists() else 0
+    if st["boot"] != boot:
+        policy = (BOX / "restart-caddy").read_text().strip() if (BOX / "restart-caddy").exists() else "unless-stopped"
+        st = {"up": st["up"] and policy != "no", "boot": boot}
+        called(f"vm-boot {boot} caddy {'up' if st['up'] else 'down'}")
+    if new is not None and new != st["up"]:
+        st["up"] = new
+        called(f"caddy {'up' if new else 'down'} ({why})")
+    jsave(BOX / "caddy.json", st)
+    return bool(st["up"])
+
+
 def ps(argv: list[str]) -> int:
     if "-q" in argv:
         svc = argv[-1]
@@ -115,6 +133,8 @@ def ps(argv: list[str]) -> int:
     sick = time.time() < jload(BOX / "unhealthy-until.json", 0.0)
     for svc in SERVICES:
         print(f"{svc} {'exited' if svc in down else 'running'} {'starting' if sick else 'healthy'}")
+    if caddy_up():
+        print(f"caddy running {'starting' if sick else 'healthy'}")
     return 0
 
 
@@ -302,15 +322,25 @@ def session_snippet(what: str, svc: str, text: str) -> int:
         if name in accounts:
             accounts[name].update(disabled=True, extra=False)
         print(f"disabled {name}")
+    if flag("disable-fails"):  # the console cannot be asked (the close is tried again at the next boot)
+        called("session-disable-failed")
+        print("console: the database is not reachable", file=sys.stderr)
+        return 1
     accounts["_flag_acting"] = False
     jsave(BOX / "accounts.json", accounts)
     called(f"session-disable {names.group(1).strip() if names else ''}")
+    called(f"session-disable-caddy {'up' if caddy_up() else 'down'}")  # the re-review's A: served while closed?
     return 0
 
 
 def compose(argv: list[str]) -> int:
-    i = next(k for k, a in enumerate(argv) if a in ("ps", "exec", "restart", "stop", "start", "up", "run", "logs"))
+    i = next(
+        k for k, a in enumerate(argv) if a in ("ps", "exec", "restart", "stop", "start", "up", "run", "logs", "config")
+    )
     cmd, rest = argv[i], argv[i + 1 :]
+    if cmd == "config":  # config --services: the box's services, Caddy among them
+        print("\n".join([*SERVICES, "caddy"]))
+        return 0
     if cmd == "logs" and "caddy" in rest:  # the box's Caddy access log (the session's heartbeat, D-1132)
         called("compose-logs caddy")
         print('{"level":"info","logger":"http.log.access","request":{"client_ip":"127.0.0.1","uri":"/healthz"}}')
@@ -326,7 +356,16 @@ def compose(argv: list[str]) -> int:
         called("compose-run " + " ".join(a for a in rest if not a.startswith("-")))
         return 0
     if cmd == "up":  # the stack recreated on new settings (the acc group's settings step)
+        named = [a for a in rest if not a.startswith("-") and not a.isdigit() and a != "never"]
         called("compose-up " + " ".join(a for a in rest if not a.startswith("-")))
+        if not named or "console" in named:  # the address the console's one-time links name (the session's F)
+            called(f"compose-up-console url={_env_val('TB_CONSOLE_PUBLIC_URL') or 'none'}")
+        if not named or "caddy" in named:  # the whole stack, or Caddy by name
+            caddy_up(True, "compose up")
+        return 0
+    if cmd in ("stop", "start") and rest[-1:] == ["caddy"]:
+        called(f"compose-{cmd} caddy")
+        caddy_up(cmd == "start", f"compose {cmd}")
         return 0
     if cmd == "ps":
         return ps(rest)
