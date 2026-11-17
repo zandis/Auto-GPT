@@ -39,6 +39,9 @@ sheet. Both walks ran SCREEN on a new study, and withdrew and closed in one clic
    What the walk saw on the new steps is new (F-22 is H-25's): F-23 (the reason SCREEN fails is the orchestrator's
    English on every page, the state by its code), F-24 (no link from the failed job to the page that opens the
    study), F-25 (the refusal's "type for serious adverse event reporting" has no field of that name on set-up).
+   In lane V's register (D-1180) they are H20-F-23 to H20-F-25, open; the rows of F-11, F-14, F-15 and F-16 stay open
+   there until WALK-1 is on master. The page lists the findings the walk no longer sees after the findings by step,
+   so the register's reader of that table reads the open ones only, and its test holds them equal to the plan.
 4. **The testers' pages** `docs/handover/new-study-walk.{en,zh-TW,ja}.md` carry the new acts in their step tables
    (written by the plan) and a line in each language on start-up before the steps.
 

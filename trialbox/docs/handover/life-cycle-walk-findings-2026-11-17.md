@@ -103,6 +103,8 @@ only. "Guess" is anything the walk could not find by a documented label and had 
 | F-22 | 21 | steward | `/audit` | 2 | the audit trail shows each run of the opt-out worker ("Opt-out worker run") with an empty detail: what it cleared, whether a clear failed and whether a store still holds the patient are recorded in the audit log but on no page; a steward cannot see that an erase completed | the run's counts on the page: the stores cleared, failed, left (they are counts, never a pseudonym) (D-441 (one `optout.worker` event per run); `services/console/audit_page.py` `SHOWN` (the keys the browser shows); D-451) | slows the tester | C2 |
 | F-21 | 22 | operator | `/admin?tab=health` | 1 | the red opt-out worker check is on `/metrics` only (typed in); the administrator's Health tab shows no line for it | the health line turns red on a stale or failed tick, where a person reads it (D-441, T-209a) | slows the tester | C2 |
 
+<!-- life-cycle-walk: end of findings -->
+
 ### The findings the walk no longer sees
 
 | Id | Step | Changed by | What the walk sees now and asserts |
@@ -113,7 +115,7 @@ only. "Guess" is anything the walk could not find by a documented label and had 
 | F-16 | 17 | D-1153 | the day on the sheet and on the state page is the close's own site day plus five years |
 | F-20 | 21 | D-1124 | the steps-mode box starts the opt-out worker; the steward reads its run after the opt-out in the audit trail, and its record in the box's audit log names every clear of the erasure registry, none failed or left |
 
-<!-- life-cycle-walk: end of findings -->
+<!-- life-cycle-walk: end of the findings the walk no longer sees -->
 
 ## Steps a steps-mode box cannot complete
 

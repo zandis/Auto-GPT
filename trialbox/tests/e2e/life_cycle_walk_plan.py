@@ -53,6 +53,9 @@ RULESETS = {"en": "LIFEWALK", "zh-TW": "LIFEWALKZH", "ja": "LIFEWALKJA"}
 FINDINGS_PAGE = ROOT / "docs" / "handover" / "life-cycle-walk-findings-2026-11-17.md"
 BEGIN = "<!-- life-cycle-walk: findings, written by tests/e2e/life_cycle_walk_plan.py; do not edit by hand -->"
 END = "<!-- life-cycle-walk: end of findings -->"
+#: the findings the walk no longer sees stand after END, so a reader of the findings by step (lane V's register,
+#: D-1180) reads only the open ones; the generated block ends here (D-1106)
+END_FIXED = "<!-- life-cycle-walk: end of the findings the walk no longer sees -->"
 SEVERITIES = ("blocks the step", "slows the tester", "cosmetic")
 #: the lanes of the hand-over (docs/plan/38-handover-2026-11-15.md) and the integrator (D-1062's driver)
 LANES = ("C2", "A2", "B2", "D", "E", "integrator")
@@ -1123,16 +1126,18 @@ def render_findings() -> str:
             f"| {f.id} | {f.step} | {f.role} | `{f.path}` | {clicks} | {_cell(f.showed)} | "
             f"{_cell(f.expected)} ({_cell(f.source)}) | {f.severity} | {f.lane} |"
         )
-    out += ["", "### The findings the walk no longer sees", ""]
+    out += ["", END, "", "### The findings the walk no longer sees", ""]
     out += ["| Id | Step | Changed by | What the walk sees now and asserts |", "| --- | --- | --- | --- |"]
     for fid, step, by, now in FIXED:
         out.append(f"| {fid} | {step} | {by} | {_cell(now)} |")
-    out += ["", END]
+    out += ["", END_FIXED]
     return "\n".join(out)
 
 
 def block_of(page: str) -> str:
-    m = re.search(re.escape(BEGIN) + r".*?" + re.escape(END), page, re.S)
+    m = re.search(re.escape(BEGIN) + r".*?" + re.escape(END_FIXED), page, re.S) or re.search(
+        re.escape(BEGIN) + r".*?" + re.escape(END), page, re.S
+    )
     return m.group(0) if m else ""
 
 

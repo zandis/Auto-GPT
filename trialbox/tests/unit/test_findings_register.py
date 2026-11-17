@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.e2e import life_cycle_walk_plan as lp
 from tools import findings_register as fr
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -87,7 +88,7 @@ def test_the_register_keeps_no_counts_line() -> None:
 def test_counts_prints_the_open_findings(capsys: pytest.CaptureFixture[str]) -> None:
     assert fr.main(["--counts"]) == 0
     out = capsys.readouterr().out
-    assert out.startswith("open High 5, open Medium 36, open Low 4, total 48 ")
+    assert out.startswith("open High 5, open Medium 38, open Low 5, total 51 ")
 
 
 # --- the seed: every finding of the three sources, none dropped, none invented ----------------------------------------
@@ -116,6 +117,10 @@ SEED = [
     ("H20-F-20", "High (mapped)", "Int", "shown", "fixed 09b26e8ca", "552e4894f8"),
     ("H20-F-21", "Medium (mapped)", "C2", "shown", "open", "4f9ddbfe55"),
     ("H20-F-22", "Medium (mapped)", "C2", "shown", "open", "0b2c0bcc41"),
+    # H-30 (D-1106): what the walk saw on WALK-1's new steps, added to the walk's page and so here
+    ("H20-F-23", "Medium (mapped)", "C2", "shown", "open", "b1b89f94d9"),
+    ("H20-F-24", "Medium (mapped)", "C2", "shown", "open", "5652664ce2"),
+    ("H20-F-25", "Low (mapped)", "C2", "shown", "open", "ea3fd042b5"),
     ("H22-no-host-tree", "High (mapped)", "D", "shown", "open", "7446e30613"),
     ("H22-vendor-key-after-start", "High (mapped)", "D", "shown", "open", "96dce1b88a"),
     ("H22-stub-fragment-vs-tier", "Medium (mapped)", "D", "shown", "open", "dea98c5bdf"),
@@ -172,7 +177,9 @@ def test_the_walk_seed_holds_every_finding_of_the_walks_page() -> None:
         if line.startswith("| F-"):
             cells = [c.strip() for c in line.strip("|").split(" | ")]
             source[cells[0]] = (cells[-2], cells[-1])
-    assert len(source) >= 21
+    # H-30 (D-1106): the page's open findings are exactly the plan's (a finding the walk no longer sees stands after
+    # the table), so a short read fails here rather than by a floor that the page's own changes move
+    assert set(source) == {f.id for f in lp.FINDINGS} and len(source) == len(lp.FINDINGS)
     rows = {r.id.removeprefix("H20-"): r for r in by_card("H20")}
     assert set(source) <= set(rows), sorted(set(source) - set(rows))
     for fid, (sev, lane) in source.items():
