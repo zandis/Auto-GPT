@@ -274,6 +274,9 @@ reset_vm() {  # the VM as it is kept: spot, the usual startup script, the defaul
 }
 # ---------------------------------------------------------------- the session's door (D-1130), as demo-vm.sh `up`
 S_TAG=tb-session; S_ALLOW=tb-session-https; S_DENY=tb-session-deny   # session_vm.py TAG, ALLOW_RULE, DENY_RULE
+# the names session_vm.py gave (a session launch only) are the names this script uses, or nothing is started
+[ -z "${SESSION_TAG:-}" ] || [ "$SESSION_TAG $SESSION_ALLOW_RULE $SESSION_DENY_RULE" = "$S_TAG $S_ALLOW $S_DENY" ] \
+  || { echo "box-run: refused (no VM started): session_vm.py and box-run.sh name the session's tag and rules differently" >&2; exit 2; }
 rule_not_found() {  # $1 the rule, $2 gcloud's error: it says THIS rule is not found (round 4's e: a wrong project's or
   # another resource's "not found" is an error, never "the rule is gone")
   grep -qE "/firewalls/$1' was not found" "$2"
@@ -312,7 +315,7 @@ session_door() {  # a deny-all on the session's tag, the one allow (tcp:443 from
   printf '%s\n' "$SESSION_ALLOW" > "$OUT/session"   # the ranges, for --links and --session-status
 }
 session_rules_check() {  # D-1130: only tcp:443 from the owner's ranges reaches the VM (every rule, every tag of the VM)
-  local rules tags net rc=0 ranges
+  local rules net rc=0 ranges
   ranges="${SESSION_ALLOW:-${SESSION_ALLOW_RAW:-$(cat "$OUT/session" 2>/dev/null)}}"
   [ -n "$ranges" ] || { echo "box-run: no session ranges for $RUN_ID here (--session-allow RANGES gives them)" >&2; return 1; }
   if [ "$DRY" = 1 ]; then
