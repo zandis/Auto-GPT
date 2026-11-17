@@ -12,3 +12,13 @@
   - What failed NCT00277680 was not a lost answer. It was an answer the schema misread, and that is what this card fixes.
   - A minimum number of failures was considered and not chosen: it would let a model that is down pass a small job as a list of "unknown" answers.
 - **Test:** `tests/unit/test_judge_sentinel_date.py`, using the run's own reply.
+
+## On SCREEN's path too (P2b, 2026-11-17)
+
+The guard ran only in the cascade's gateway judge (`matching.cascade.judge.GatewayJudge`). SCREEN's note judge
+(`OrchestratorJudge(NoteJudge)`) asks the model through `tb_common.llm`, whose own schema check refused
+`quote_date: "0000-01-01"` (`format: date`), asked again, got the same answer and counted the call as a model that
+did not answer: three of P2b's 107 protocols failed in screen judging on it (lane H's trace). `no_sentinel_date` now
+lives in `tb_common.llm` and runs on every model answer that has a `quote_date`, before the schema reads it; the
+gateway judge imports it from there. `tests/unit/test_sentinel_date_on_screens_path.py` holds one of the three
+stored replies and fails on the commit before this one.
