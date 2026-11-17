@@ -322,6 +322,7 @@ def store_migrations() -> dict[str, list[str]]:
     from datacore import dataops, lifecycle, sponsor
     from datacore import store as datacore
     from edc import store as edc
+    from edc_backend import store as edcdoor
     from mail_gateway import store as mail
     from omop import schema as omop
     from orchestrator import db as orch
@@ -360,6 +361,7 @@ def store_migrations() -> dict[str, list[str]]:
         "tuned": list(notmatched.MIGRATIONS),
         "vec": list(vec.MIGRATIONS),
         "profile": list(twin.MIGRATIONS),
+        "edcdoor": list(edcdoor.MIGRATIONS),
     }
 
 
@@ -482,6 +484,8 @@ ADDED: dict[str, tuple[str, ...]] = {
     "vec": ("cd645d93e9d8d0a809c92eeaf6ff8997c201fb0e32b07a2d112288447f86b429",),
     # T-204 (D-440): the patient twin, new after the baseline
     "profile": ("e1107c0c7de613b72141fb70237b6eb35c1f98f5a1549f9c60f8537512a751b6",),
+    # E-EDCB-2 (D-1044): the EDC door's state (OIDC codes, held writes, event ids), new after the baseline
+    "edcdoor": ("d6190fca3834816cb6d64137dfd92f84faefb9103476d79b3ab84c0fb0f1bf73",),
 }
 #: stores whose DDL needs an extension of the box's db image (D-204); a cluster without it cannot migrate them, so
 #: :func:`test_every_store_migrates_twice_and_checks_its_record` creates the extension where the server offers it and
@@ -498,7 +502,7 @@ STORE_FILES = {
     "libs/tb_common/derived_store.py", "libs/tb_common/flags.py", "libs/tb_common/notmatched.py", "libs/tb_common/optout.py", "libs/tb_common/refdata.py", "services/adapter/licensed.py",
     "services/adapter/pidmap.py", "services/console/auth.py", "services/console/breakglass_store.py", "services/console/feedback.py", "services/console/saerecord.py",
     "services/console/sitestore.py", "services/console/teamstore.py", "services/criteria_compiler/library/repository.py",
-    "services/datacore/dataops.py", "services/datacore/store.py", "services/edc/store.py",
+    "services/datacore/dataops.py", "services/datacore/store.py", "services/edc/store.py", "services/edc_backend/store.py",
     "services/mail_gateway/store.py", "services/omop/schema.py", "services/orchestrator/db.py",
     "services/orchestrator/recall/ledger.py",
     "services/orchestrator/studystore.py", "services/patient_profile/twin.py", "services/sitesetup/store.py",

@@ -1,7 +1,8 @@
 """Optional OIDC issuer for the EDC (contract version 1). Off unless ``TB_EDC_OIDC`` is 1.
 
 The EDC stores the issuer, the client id and the client secret, and maps ``sub`` to its own user. TrialBox's
-console session is not the EDC's cookie. A code is single use.
+console session is not the EDC's cookie. A code is single use, in any process: codes are kept in the trial database
+(``edc_backend.store``, D-1044), each with the client and the redirect it was issued for.
 """
 
 from __future__ import annotations
@@ -11,15 +12,11 @@ import hashlib
 import hmac
 import json
 import os
-import secrets
-import threading
 import time
 from typing import Any
 from urllib.parse import urlencode
 
-_CODES: dict[str, tuple[str, float]] = {}
-_LOCK = threading.Lock()
-_CODE_S = 120.0
+from edc_backend import store as door
 
 
 def enabled(environ: dict[str, str] | None = None) -> bool:
@@ -61,20 +58,15 @@ def discovery(environ: dict[str, str] | None = None) -> dict[str, Any]:
     }
 
 
-def issue_code(username: str) -> str:
-    code = secrets.token_urlsafe(24)
-    with _LOCK:
-        _CODES[hashlib.sha256(code.encode()).hexdigest()] = (username, time.time() + _CODE_S)
-    return code
+def issue_code(username: str, *, client_id: str = "", redirect_uri: str = "") -> str:
+    """A code for ``username``, good once for :data:`edc_backend.store.CODE_S` seconds, in any process."""
+    return door.default_store().issue_code(username, client_id=client_id, redirect_uri=redirect_uri)
 
 
 def take_code(code: str) -> str | None:
-    key = hashlib.sha256(code.encode()).hexdigest()
-    with _LOCK:
-        row = _CODES.pop(key, None)
-    if row is None or row[1] < time.time():
-        return None
-    return row[0]
+    """The code's account, once; None for a code that is unknown, used or expired."""
+    got = door.default_store().take_code(code)
+    return got.username if got is not None else None
 
 
 def _b64(raw: bytes) -> str:
@@ -126,7 +118,7 @@ def secret_ok(given: str, environ: dict[str, str] | None = None) -> bool:
 def authorize_redirect(username: str, redirect_uri: str, state: str, environ: dict[str, str] | None = None) -> str:
     if redirect_uri not in redirects(environ):
         raise ValueError("the redirect URI is not allowed")
-    code = issue_code(username)
+    code = issue_code(username, client_id=client_id(environ), redirect_uri=redirect_uri)
     query = urlencode({"code": code, "state": state})
     sep = "&" if "?" in redirect_uri else "?"
     return f"{redirect_uri}{sep}{query}"

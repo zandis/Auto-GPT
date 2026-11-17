@@ -362,6 +362,14 @@ TABLES: dict[str, Entry] = {
         _STAFF,
     ),
     "feedback.entry": _none("in-product feedback from staff, not about a patient (record inventory O-02)"),
+    # E-EDCB-2 (D-1044): the EDC door's state; the EDC's project and record ids, never a value or a name
+    "edcdoor.oidc_code": _STAFF,
+    "edcdoor.proposal": _keep(
+        "OD-8",
+        "a write held for a staff member's confirmation, by the EDC's record id; "
+        "gone once confirmed or after 15 minutes",
+    ),
+    "edcdoor.event": _keep("OD-8", "the id of an event the trial's EDC sent, with the EDC's record id; no value"),
     "breakglass.grants": _keep("D-430", "the record of an emergency access to a patient, for the steward's review"),
     "breakglass.uses": _keep("D-430", "each use of a break-glass grant, for the steward's review"),
     "edc.draft": _owed(
