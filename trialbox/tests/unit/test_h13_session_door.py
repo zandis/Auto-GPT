@@ -323,3 +323,27 @@ def test_a_bucket_readable_by_a_whole_domain_is_refused_and_a_group_is_said() ->
     grp = {"bindings": [{"role": "roles/storage.objectViewer", "members": ["group:ops@hospa.test"]}]}
     ok, problems, notes = sv.bucket_check(PRIVATE, grp)
     assert ok and any("group:ops@hospa.test" in n for n in notes)
+
+
+# ---------------------------------------------------------------- the re-review's round 3: finding 6
+@pytest.mark.parametrize(
+    "dest, holds",
+    [(["34.80.0.10/32", "10.128.0.5/32"], False),  # the review's case: the VM's two addresses, not its alias range
+     (["34.80.0.10/32", "10.128.0.0/24"], False),  # an alias range only half held
+     (["34.80.0.10/32", "10.128.0.0/16"], True)],  # every address and the whole alias range
+    ids=["alias-not-denied", "alias-half", "alias-held"],
+)  # fmt: skip
+def test_the_deny_must_cover_the_vms_alias_ranges_too(dest: list[str], holds: bool) -> None:
+    """Round 3's finding 6: an alias IP range of the interface is an address of the VM; a deny narrowed to its
+    networkIP and natIP passed while the alias range was not denied."""
+    inst = _instance(networkIP="10.128.0.5", aliasIpRanges=[{"ipCidrRange": "10.128.1.0/25"}])
+    ok, report = _check(_rules(tb_session_deny={"destinationRanges": dest}), inst=inst)
+    assert ok is holds, report["problems"]
+    if not holds:
+        assert any("10.128.1.0/25" in p for p in report["problems"]), report["problems"]
+
+
+def test_an_alias_range_that_cannot_be_read_is_never_held() -> None:
+    inst = _instance(networkIP="10.128.0.5", aliasIpRanges=[{"subnetworkRangeName": "pods"}])
+    ok, report = _check(_rules(tb_session_deny={"destinationRanges": ["34.80.0.10/32", "10.0.0.0/8"]}), inst=inst)
+    assert not ok and any("tb-session-deny denies only traffic to" in p for p in report["problems"])

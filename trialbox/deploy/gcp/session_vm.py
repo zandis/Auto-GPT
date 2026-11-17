@@ -210,8 +210,9 @@ def instance_problems(instance: Mapping[str, object]) -> list[str]:
 
 
 def instance_addresses(instance: Mapping[str, object]) -> list[str]:
-    """The VM's own IPv4 addresses (its internal address and any external one): what an ingress rule's destination
-    ranges are matched against."""
+    """The VM's own IPv4 addresses (its internal address, any external one, and every alias IP range of its
+    interface: round 3's finding 6): what an ingress rule's destination ranges are matched against. An alias range is
+    kept as its CIDR (a deny covers it only when one of its ranges holds the whole alias range)."""
     out: list[str] = []
     for nic in instance.get("networkInterfaces") or []:  # type: ignore[attr-defined]
         if not isinstance(nic, dict):
@@ -221,7 +222,16 @@ def instance_addresses(instance: Mapping[str, object]) -> list[str]:
         for ac in nic.get("accessConfigs") or []:
             if isinstance(ac, dict) and ac.get("natIP"):
                 out.append(str(ac["natIP"]))
+        for alias in nic.get("aliasIpRanges") or []:
+            # a range that cannot be read is kept as it is: it then matches no deny range (fails closed)
+            out.append(str(alias.get("ipCidrRange") or "?") if isinstance(alias, dict) else str(alias))
     return out
+
+
+def _held(addr: str, nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network]) -> bool:
+    """An address, or an alias range, held whole by one of the deny's ranges."""
+    a = ipaddress.ip_network(addr, strict=False)  # ValueError for anything unreadable: the caller fails closed
+    return any(a.version == n.version and a.subnet_of(n) for n in nets)  # type: ignore[arg-type]
 
 
 def deny_destination_problems(deny: Mapping[str, object], instance: Mapping[str, object] | None) -> list[str]:
@@ -233,7 +243,7 @@ def deny_destination_problems(deny: Mapping[str, object], instance: Mapping[str,
     addrs = instance_addresses(instance) if instance is not None else []
     try:
         nets = [ipaddress.ip_network(d, strict=False) for d in dest]
-        covered = bool(addrs) and all(any(ipaddress.ip_address(a) in n for n in nets) for a in addrs)
+        covered = bool(addrs) and all(_held(a, nets) for a in addrs)
     except ValueError:
         covered = False
     if covered:
