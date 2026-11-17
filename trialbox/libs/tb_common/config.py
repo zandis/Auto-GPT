@@ -681,6 +681,7 @@ DECLARED: dict[str, Declared] = {
     "TB_HOST_TZ": Declared("str", "", "doctor: the host's zone to compare"),
     "TB_IMAGE": Declared("str", "trialbox-py:1.0.0", "the Python services' image"),
     "TB_CODE_IMAGE": Declared("str", "", "qualify: the image id naming the code with no release tree (D-881)"),
+    "TB_CODE_COMMIT": Declared("str", "", "qualify: the installed release's commit naming the code (D-1134)"),
     "TB_HOST_GPU": Declared("str", "", "qualify in the image: the host's NVIDIA driver, CUDA, card as JSON (D-889)"),
     "TB_INGEST_SORT_MB": Declared(
         "int", "", "ingest: MB of NDJSON lines one sort run of the merge holds (unset: a sixteenth of the cap; D-473)"

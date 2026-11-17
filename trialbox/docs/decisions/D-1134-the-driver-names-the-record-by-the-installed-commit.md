@@ -31,7 +31,8 @@ installer now records the release's commit in `installed.json` (D-994).
    `TB_CODE_IMAGE`. `tools/code_identity.head` takes it after a git checkout and a signed release tree, and before
    the image id. A 40-hex value names the code as a checkout's commit does (`dirty` false). Any other non-empty value
    gives `unknown` and dirty, which serving_record refuses. The serving record keeps the image id beside the commit
-   (`steps.serving_record.detail.code_image`). The part notes `code_commit`.
+   (`steps.serving_record.detail.code_image`). The part notes `code_commit`. `TB_CODE_COMMIT` is declared in
+   `tb_common.config.DECLARED` beside `TB_CODE_IMAGE`.
 3. **When a refusal stops the step.** In production mode, or whenever `--qualify-evidence` is given, the record can
    be the product's record. A refusal there is the step's STOP: `TB-CODE-COMMIT-REFUSED: ... <reason>`. A validation
    run without evidence, and G-10's qualify, are measurements, and their records cannot pass the evidence gates
