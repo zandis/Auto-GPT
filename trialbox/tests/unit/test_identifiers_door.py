@@ -10,6 +10,10 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
+pytestmark = [pytest.mark.guard, pytest.mark.nodb]  # D-1119: the guard step of `checks`; no database
+
 SERVICES = Path(__file__).resolve().parents[2] / "services"
 DOOR = "orchestrator/identifiers.py"
 NAMES = frozenset({"pid_for_mrn", "PidMap", "pseudonymise_bulk"})

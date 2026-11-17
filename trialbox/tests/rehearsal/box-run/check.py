@@ -10,6 +10,7 @@ import json
 import sys
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 case, S = sys.argv[1], Path(sys.argv[2])
 R = S / "evidence" / "results"
@@ -609,6 +610,91 @@ if case == "acc-blocked":
     ok("TB-ACC-BLOCKED" in parts["52-acc-routes"]["stop"]["reason"] and "ceiling D2" in parts["52-acc-routes"]["stop"]["reason"],
        "the stop names the gateway's reason (a product defect, not worked around)")  # fmt: skip
     ok(not any(c.startswith("acc-data") for c in calls), "no data fetched or built")
+
+if case == "acc-cut-resume":  # D-1129 (card H-14)
+    import tarfile
+
+    R1 = S / "evidence" / "results-attempt-1"
+    p1 = {p.stem: json.loads(p.read_text()) for p in sorted((R1 / "parts").glob("*.json"))}
+    j1 = p1["60-acc-jmed"]["detail"]
+    c1 = int(j1.get("budget_cut") or 0)
+    total = int(j1["counts"]["protocols"])
+    ok(p1["60-acc-jmed"]["status"] == "done" and c1 >= 1 and c1 == j1["counts"].get("not_run_time_budget")
+       and str(j1.get("attempts_line", "")).startswith("attempts: 1;"),
+       f"attempt 1: the set ended on its own budget, done, with {c1} of {total} protocols cut, said in its part")  # fmt: skip
+    with tarfile.open(S / "evidence" / "jmed-attempt-1.tgz") as t:
+        fh = t.extractfile("work/answers.json")
+        a1 = json.loads(fh.read()) if fh else {}
+    done1 = sorted(rs for rs, a in a1.items() if a.get("outcome") != "not_run_time_budget")
+    ok(len(done1) == total - c1 and all(a1[rs].get("attempt") == 1 for rs in done1),
+       "attempt 1: its finished protocols say attempt 1")  # fmt: skip
+    plan = json.loads((S / "evidence" / "resume-plan.json").read_text())
+    pj: dict[str, Any] = next((r for r in plan["sets"] if r["set"] == "jmed"), {})
+    ok(pj.get("budget_cut") == c1 and pj.get("budget_s") == 60 and "runs only its" in pj.get("what", "")
+       and "jmed" not in plan["needs_deadline"] and plan["state"] == "the last collect",
+       "the driver's free resume plan (no bucket read) says jmed's cut protocols run in a new attempt with 60 s")  # fmt: skip
+    others = [r for r in plan["sets"] if r["set"] != "jmed" and r["budget_cut"]]
+    ok(any(r["set"] == "sigir" for r in others) and all("stays done unless --acc-deadline" in r["what"] for r in others)
+       and sorted(plan["needs_deadline"]) == sorted(r["set"] for r in others),
+       f"the plan says the other cut sets ({[r['set'] for r in others]}) stay done without a budget of their own")  # fmt: skip
+    j = parts["60-acc-jmed"]
+    d = j["detail"]
+    ok(j["status"] == "done" and int(d.get("budget_cut") or 0) == 0 and not d["counts"].get("not_run_time_budget")
+       and d["counts"].get("screened") == total and d.get("resumed_for_budget_cut") == "retry-1",
+       "attempt 2: every protocol screened, nothing cut, the part says the resume that took it up")  # fmt: skip
+    line = f"attempts: 2; protocols finished in attempt 1: {total - c1}; in attempt 2: {c1}; still cut: 0"
+    ok(d.get("attempts_line") == line, f"the set's report says '{line}' (it says '{d.get('attempts_line')}')")
+    ok((R / "logs" / "60-acc-jmed.budget-retry-1.json").exists()
+       and (R / "logs" / "79-acc-result.budget-retry-1.json").exists() and "79-acc-result" in parts,
+       "the first attempt's part and the group's result kept beside the logs; the result read again")  # fmt: skip
+    c_1 = Counter((S / "evidence" / "calls-attempt-1.log").read_text().split("\n"))
+    later = calls - c_1
+    sends = [c for c in later if c.startswith("acc-send ") and " MNCT" in c]
+    ok(not any(c.split()[2] in done1 for c in sends),
+       "attempt 2 sent no protocol finished in attempt 1 to FEAS, APPROVE or SCREEN (calls counted)")  # fmt: skip
+    news = Counter(
+        " ".join(c.split()[1:3]) for c in calls.elements() if c.startswith("acc-send ") and c.endswith(" new")
+    )
+    jm = {k: v for k, v in news.items() if k.split()[1].startswith("MNCT")}
+    ok(all(v == 1 for v in jm.values()) and not any(c.startswith("acc-send ") and c.endswith(" dup")
+                                                    and " MNCT" in c for c in calls)
+       and sum(1 for k in jm if k.startswith("FEAS ")) == total and sum(1 for k in jm if k.startswith("SCREEN ")) == total,
+       "over both attempts each jmed protocol's FEAS, APPROVE and SCREEN went once (no mail twice, no duplicate)")  # fmt: skip
+    for k, n in (("61-acc-sigir", "sigir"), ("62-acc-tfda", "tfda")):
+        cut = int(p1[k]["detail"].get("budget_cut") or 0)
+        ok(parts[k]["attempts"] == 1 and parts[k]["detail"] == p1[k]["detail"]
+           and (not cut or f"TB-RESUME-PLAN retry-1: {k} ended on its budget with {cut} protocols cut: kept" in vm_log),
+           f"{n}: given no budget, it stayed done as it was (cut {cut}), said first thing")  # fmt: skip
+    ok(f"TB-RESUME-PLAN retry-1: 60-acc-jmed: the {c1} protocols its budget cut run again" in vm_log,
+       "the VM said what the resume takes up first thing (TB-RESUME-PLAN)")  # fmt: skip
+    W = S / "evidence" / "collected" / "acc" / "jmed" / "work"
+    ans = json.loads((W / "answers.json").read_text())
+    ok(len(ans) == total and Counter(a.get("attempt") for a in ans.values()) == Counter({1: total - c1, 2: c1})
+       and all(ans[rs]["patients"] == a1[rs]["patients"] for rs in done1),
+       "answers.json: the union, each protocol once with its attempt; attempt 1's answers untouched")  # fmt: skip
+    clk = json.loads((W / "set-clock.json").read_text())
+    ok(clk.get("attempt") == 2 and clk.get("attempt_tag") == "retry-1" and clk.get("deadline_s") == 60
+       and [x["attempt"] for x in clk.get("attempts") or []] == [1] and clk["attempts"][0]["deadline_s"] == 3,
+       "set-clock.json: attempt 2 on its own 60 s budget, attempt 1's seconds and 3 s budget kept")  # fmt: skip
+    env_tz = json.loads((R / "logs" / "acc-env-jmed.json").read_text()).get("tz")
+    ok(bool(env_tz) and clk.get("tz") == env_tz and parts["60-acc-jmed"]["detail"].get("site_tz") == env_tz,
+       f"set-clock.json records the site's zone the box reported ({env_tz}), for the replay")  # fmt: skip
+    jobs = sum(jm.values())
+    au = json.loads((W / "gateway-audit.json").read_text())
+    tr = json.loads((W / "raw-traces.json").read_text())
+    ids = [r["call_id"] for r in tr["traces"]]
+    ok(sorted(au.get("attempts") or {}) == ["1", "2"] and au["calls_by_prompt"]["ir_extract@3"] == jobs
+       and tr["calls"] == jobs == len(ids) == len(set(ids)),
+       f"the audit and the traces of attempt 2 were added to attempt 1's, nothing counted twice ({jobs} jobs)")  # fmt: skip
+    ok("== attempt 1" in (W / "services.earlier.log").read_text() and "== attempt 2" in (W / "box-calls.log").read_text(),
+       "the services' lines and the box's calls of attempt 1 kept, attempt 2's after them")  # fmt: skip
+    sc = json.loads((S / "evidence" / "collected" / "acc" / "jmed" / "score.json").read_text())
+    pr = sc["protocols"]
+    ok(sc["schema_version"] == 4 and pr["screened"] == total and pr["not_run_time_budget"] == 0
+       and pr["attempts"]["line"] == line and json.loads((S / "evidence" / "acc-score.json").read_text())["jmed"]["scored"],
+       "the scorer reads the two attempts as one: every protocol screened once, the attempts line in its block")  # fmt: skip
+    ok(state.get("kv", {}).get("acc_rate_set") != "jmed", "a set run in two attempts measures no slowdown (F22)")
+    ok(ended.startswith("TB-BOX-RUN-COMPLETE"), "the resumed run ended complete")
 
 print(f"check {case}: {'FAILED ' + str(len(fails)) if fails else 'passed'}")
 sys.exit(1 if fails else 0)

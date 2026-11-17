@@ -296,7 +296,9 @@ say "settings"
 FRESH=0; [ -f deploy/.env ] || FRESH=1   # a box installed before step 8 keeps its shared token until rotation
 # D-837: a TB_ENV written into deploy/.env before the wizard rewrites the file (ENVIRONMENT below keeps it)
 PRE_ENV=""; [ -f deploy/.env ] && PRE_ENV="$(sed -n 's/^TB_ENV=//p' deploy/.env | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
-mkdir -p deploy/keys deploy/secrets deploy/site/mapping
+mkdir -p deploy/keys deploy/secrets deploy/site/mapping deploy/site/terminology
+# D-991: deploy/site/terminology is where the site's IT puts the code-system files it loads (deploy/terminology.sh,
+# docs/handover/OFFLINE-MEDIA.md); git and the image ignore it
 # T-632 (OPS-011): the site's own mapping is in deploy/site/mapping, never in the image; the wizard and the adapter see
 # it at /etc/trialbox/mapping and look there first (adapter.mapping.site). A mapping folder beside the answers file
 # is copied in once (the site's kit: answers.yaml + mapping/), never over a file the site already has

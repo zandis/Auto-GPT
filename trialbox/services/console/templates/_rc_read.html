@@ -6,7 +6,7 @@
   {% if last.ok %}
   {% if last.result.changes %}<ul class="plain" data-testid="rc-changes">{% for c in last.result.changes %}<li>{{ t('rc.change', v=c.link_value, a=t('registry.status.' + (c['from'] or 'candidate')), b=t('registry.status.' + c.to)) }}</li>{% endfor %}</ul>{% endif %}
   {% for d in last.result.duplicates %}<p class="warn" data-testid="rc-dup">{{ t('rc.dup', v=d.link_value, ids=d.record_ids|join(', ')) }} <span class="hint mono">RC-LINK-DUP</span></p>{% endfor %}
-  {% for c in last.result.conflicts %}<p class="warn" data-testid="rc-conflict">{{ t('rc.conflict', a=t('registry.status.' + c.trialbox), b=t('registry.status.' + c.redcap), v=c.link_value, r=c.record_id) }}</p>{% endfor %}
+  {% for c in last.result.conflicts %}{% if c.code == 'RC-ERASED-CONSENT' %}<p class="warn" data-testid="rc-erased-consent">{{ t('rc.erased_consent', v=c.link_value, r=c.record_id) }}</p>{% else %}<p class="warn" data-testid="rc-conflict">{{ t('rc.conflict', a=t('registry.status.' + (c.trialbox or 'candidate')), b=t('registry.status.' + (c.redcap or 'candidate')), v=c.link_value, r=c.record_id) }}</p>{% endif %}{% endfor %}
   {% if last.result.write %}{% if last.result.write.error %}<p class="error" data-testid="rc-write">{{ t('rc.write.failed', msg=t('rc.err.' + last.result.write.error, fields='', msg=last.result.write.message)) }}</p>
   {% else %}<p data-testid="rc-write">{{ t('rc.write.last', u=last.result.write.updated, c=last.result.write.created, s=last.result.write.unchanged) }}</p>
   {% if last.result.write.conflicts %}<p class="warn" data-testid="rc-write-conflicts">{{ t('rc.write.conflicts', n=last.result.write.conflicts) }} <a href="/studies/{{ rs }}/conflicts">{{ t('dc.conflicts.title') }}</a></p>{% endif %}

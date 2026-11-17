@@ -27,6 +27,13 @@
 #       or after a STOP once this script or the helper was fixed: the VM gets this tree's startup script and helper
 #       and a new tb-retry, which clears the run's end and the stopped step (its part kept in logs/), so that step
 #       runs again; lane G's accuracy tools are uploaded again and re-fetched; --only replaces the sets still to run
+#   deploy/gcp/box-run.sh --resume <run id> --acc-deadline "set:SECONDS ..."   # D-1129: a set that ended on its own
+#       budget with protocols cut runs those protocols only, in a new attempt with this budget (the old one is
+#       spent); every finished protocol is kept and never screened again; one attempt record (answers, logs, score).
+#       Without a budget for it, it stays done. A set with nothing cut stays done. --redo keeps its meaning.
+#   deploy/gcp/box-run.sh --preflight --resume <run id> [--acc-deadline ...] [--redo ...]   # free, no gcloud call:
+#       what that resume would take up, from the run's last --collect in .cache/box-run/<run id> (tools/box_run.py
+#       resume-plan); a run whose state is only in the bucket is said so (the VM says it first thing on its boot)
 #   deploy/gcp/box-run.sh --stop [<run id>]               # stop, check TERMINATED, put the VM back as it is kept
 #   --acc-protocols "set:RS1,RS2 ...": only these protocols of a set. Checked HERE before anything starts (D1): every
 #       id must be one of the set's on the box, whose prefix is the set's letter and --acc-rs-tag (tag m2 makes
@@ -116,8 +123,14 @@ VM="${1:-tb-gpu-sim}"; ZONE="${2:-asia-east1-a}"
 cd "$ROOT"
 br() { env PYTHONPATH=libs:services:. "$PY" -m tools.box_run "$@"; }
 case "$MODE" in production|validation) ;; *) echo "box-run: --mode production | validation" >&2; exit 2 ;; esac
-if [ "$PREFLIGHT" = 1 ] && { [ -n "$RESUME$COLLECT" ] || [ "$STOP" = 1 ]; }; then
-  echo "box-run: --preflight checks a launch (--steps ...), not a resume, a collect or a stop" >&2; exit 2
+if [ "$PREFLIGHT" = 1 ] && { [ -n "$COLLECT" ] || [ "$STOP" = 1 ]; }; then
+  echo "box-run: --preflight checks a launch (--steps ...) or a resume (--resume), not a collect or a stop" >&2; exit 2
+fi
+if [ "$PREFLIGHT" = 1 ] && [ -n "$RESUME" ]; then   # D-1129: free, local: what the resume would take up
+  br resume-plan "${TB_BOXRUN_DIR:-$ROOT/.cache/box-run/$RESUME}" --deadline "${V[tb-acc-deadline]:-}" \
+    --redo "${V[tb-redo]:-}" > /dev/null || { echo "box-run: refused (no VM started): the resume's options (above)" >&2; exit 6; }
+  echo "preflight: the resume plan above (nothing was read from the bucket, uploaded or started)"
+  exit 0
 fi
 vcheck() {  # validation mode with acc: can a VALIDATION box route the run's calls on this tree? (free, local)
   case " $STEPS " in *" acc "*) [ "$MODE" = validation ] || return 0 ;; *) return 0 ;; esac
@@ -244,6 +257,9 @@ if [ -n "$COLLECT" ]; then
   exit 0
 fi
 if [ -n "$RESUME" ]; then
+  # D-1129: what the resume takes up, from the last collect (free); a budget entry that cannot hold refuses it
+  br resume-plan "$OUT" --deadline "${V[tb-acc-deadline]:-}" --redo "${V[tb-redo]:-}" > "$OUT/resume-plan.json" \
+    || { echo "box-run: refused (no VM started): the resume's options (above)" >&2; exit 6; }
   [ "$(status)" = TERMINATED ] || { echo "VM $VM is not TERMINATED" >&2; exit 2; }
   cap="$(cat "$OUT/cap-hours" 2>/dev/null || echo 4)"
   # this tree's startup script and helper, and a new tb-retry: a step that stopped runs again with the fix

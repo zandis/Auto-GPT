@@ -8,8 +8,10 @@ for that read only, and the manifest records how long the backup waited and held
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import threading
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -62,20 +64,41 @@ def test_the_store_and_its_wal_are_read_together(site: dict[str, Any]) -> None:
 
 
 def test_a_running_build_is_waited_for(site: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    """The build ends only once the backup has seen it running (an Event, not a timer): the order is the test's, so
+    it holds whatever the machine's load (lane C2's report: a 0.3 s timer under ``-n 6`` left under 0.2 s of wait)."""
     monkeypatch.setattr(bk, "LAKE_QUIET_POLL_S", 0.05)
     fh = _hold_build(site["lake"], "S")
-    real, seen = bk._add, list[bool]()
+    real_add, real_locks, seen = bk._add, bk._build_locks, list[bool]()
+    looked: list[list[str]] = []
+    waiting = threading.Event()
 
     def add(tar: Any, path: Path, arcname: str) -> Any:
         if arcname == "dirs/lake/embed_cache.duckdb":
             seen.append(fh.closed)  # read only once the build let go of its lock
-        return real(tar, path, arcname)
+        return real_add(tar, path, arcname)
+
+    @contextlib.contextmanager
+    def build_locks(root: Path) -> Iterator[list[str]]:
+        with real_locks(root) as busy:
+            looked.append(list(busy))
+            if busy:
+                waiting.set()  # the backup found the build running and is about to wait for it
+            yield busy
+
+    def build_ends() -> None:
+        assert waiting.wait(timeout=60), "the backup never looked at the build locks"
+        fh.close()
 
     monkeypatch.setattr(bk, "_add", add)
-    threading.Timer(0.3, fh.close).start()  # the build ends
+    monkeypatch.setattr(bk, "_build_locks", build_locks)
+    ender = threading.Thread(target=build_ends, daemon=True)
+    ender.start()
     m = bk.unpack(_backup(site), site["priv"], site["tmp"] / "x")
+    ender.join(timeout=60)
+    assert looked[0] == ["S"] and looked[-1] == []  # found it running, read once it had ended
     assert seen == [True]
-    assert m["lake_store"]["waited_s"] >= 0.2
+    # it waited at least one look's pause: the code sleeps LAKE_QUIET_POLL_S after a busy look, whatever the load
+    assert m["lake_store"]["waited_s"] >= bk.LAKE_QUIET_POLL_S
 
 
 def test_a_build_that_outlasts_the_wait_fails_the_backup_by_name(

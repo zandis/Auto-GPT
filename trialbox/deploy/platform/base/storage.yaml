@@ -33,6 +33,12 @@ spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 5Gi}}}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
+# D-991: the code systems loaded at install (TB_TERMINOLOGY_DIR); read-only in criteria-compiler, orchestrator, console
+metadata: {name: tb-terminology, labels: {app.kubernetes.io/component: storage}}
+spec: {accessModes: [ReadWriteMany], resources: {requests: {storage: 5Gi}}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
 metadata: {name: orch-data, labels: {app.kubernetes.io/component: storage}}
 spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 20Gi}}}
 ---

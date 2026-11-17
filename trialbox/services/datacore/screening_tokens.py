@@ -54,6 +54,16 @@ TOKENED: tuple[tuple[str, str, str, str], ...] = (
     # the patient back on the registry under the pseudonym (a subject whose pseudonym the registry no longer has)
     ("datacore", "subject", "SELECT study, pid, count(*) FROM subject WHERE pid = ANY(?) GROUP BY 1, 2",
      "UPDATE subject SET pid = ? WHERE study = ? AND pid = ?"),
+    # ERASE-A3 (D-878): REDCap's read-back of the number keeps its row (record id, status, dates) under the same
+    # token; the next read joins the number to the token again (it reads the number's owner from the screening log)
+    ("study", "rc_record", "SELECT ruleset, pid, count(*) FROM rc_record WHERE pid = ANY(?) GROUP BY 1, 2",
+     "UPDATE rc_record SET pid = ? WHERE ruleset = ? AND pid = ?"),
+    # the review of D-878: a read's stored result (its changes and conflicts name the number with the pseudonym,
+    # shown on the link page) takes the token wherever it names the patient
+    ("study", "rc_read_log", "SELECT ruleset, p, count(*) FROM rc_read_log, unnest(?::text[]) AS p "
+     "WHERE position(p in result) > 0 GROUP BY 1, 2",
+     "WITH v(t, s, p) AS (VALUES (?::text, ?::text, ?::text)) UPDATE rc_read_log r SET result = "
+     "replace(r.result, v.p, v.t) FROM v WHERE r.ruleset = v.s AND position(v.p in r.result) > 0"),
 )  # fmt: skip
 #: an open candidate is withdrawn first (the ``candidate_registry`` clear, earlier in the tick): until then it stays
 OPEN = ("candidate", "contacted")
@@ -163,8 +173,12 @@ def _trial(study: str, people: list[str], has: Has, open_: Open) -> bool:
                     return True
                 if str(status or "") == "screen_fail" and not consent_field:
                     return True
-            if link is not None and int(link[1] or 0) and set(nums) - {str(r[0]).strip().upper() for r in reads}:
-                return True  # a number not read back yet while the link is on: unknown, so kept
+            if link is not None and set(nums) - {str(r[0]).strip().upper() for r in reads}:
+                problem = db.fetchval("SELECT problem FROM rc_project_link WHERE ruleset = ?", (study,))
+                if int(link[1] or 0) or problem:
+                    # a number not read back yet while the link is on, or while a failure switched it off (the
+                    # review of D-878): unknown, so kept
+                    return True
     if has("edc", "draft"):
         with open_("edc") as db:
             if _any(db, "SELECT 1 FROM draft WHERE study = ? AND (pid = ANY(?) OR upper(record) = ANY(?))",
@@ -236,13 +250,15 @@ def apply(todo: dict[Pair, tuple[list[str], int]], days: dict[str, str], has: Ha
     if not todo:
         return 0
     stores = [(schema, [upd for s, t, _c, upd in TOKENED if s == schema and has(s, t)])
-              for schema in ("orch", "site", "datacore")]  # fmt: skip
+              for schema in ("orch", "study", "site", "datacore")]  # fmt: skip
     n = 0
     # the stores in one go: a failure before the commits leaves them all as they were (the next tick plans again).
-    # The commits run lifecycle, site, orchestrator (the review of D-875): the registry commits last and holds its
-    # re-check's lock until then, and a lifecycle subject never names a patient the registry no longer has (the
-    # lifecycle refresh would put them back on the log). A failure between two leaves the rest to the next tick, with
-    # a token of their own (a row then reads as an opted-out patient's with its registry status unknown, never who)
+    # The commits run lifecycle, site, REDCap's read-back, orchestrator (the reviews of D-875 and D-878): the registry
+    # commits last and holds its re-check's lock until then; a lifecycle subject never names a patient the registry no
+    # longer has (the lifecycle refresh would put them back on the log); and the read-back is tokened only once the
+    # screening log is (a read takes its numbers' owners from the screening log). A failure between two leaves the
+    # rest to the next tick, with a token of their own (a row then reads as an opted-out patient's with its registry
+    # status unknown, never who)
     with ExitStack() as stack:
         txs = {schema: (stack.enter_context(stack.enter_context(open_(schema)).transaction()), upds)
                for schema, upds in stores if upds}  # fmt: skip

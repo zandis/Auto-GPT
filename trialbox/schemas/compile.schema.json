@@ -96,6 +96,13 @@
         },
         "engine": {
           "type": "string"
+        },
+        "terminology_tables": {
+          "description": "TERM-2 follow-up: the loaded terminology tables the compared compile read, as its manifest names them (absent: none, the shipped Parquet alone)",
+          "type": "array",
+          "items": {
+            "$ref": "ruleset_manifest.schema.json#/$defs/terminology_table"
+          }
         }
       }
     },

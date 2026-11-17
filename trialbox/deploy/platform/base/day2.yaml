@@ -103,7 +103,7 @@ spec:
                 - {name: TB_HAPI_DB_URL, valueFrom: {secretKeyRef: {name: trialbox-db, key: TB_HAPI_DB_URL, optional: true}}}
                 - {name: TB_PG_DUMP_DIR, value: /spool}
                 - name: TB_BACKUP_DIRS  # the appliance's names (backup.DEFAULT_DIRS): a backup restores on either form
-                  value: lake=/vol/lake,objects=/vol/objects,audit=/vol/audit,rulesets=/vol/rulesets,orchestrator=/vol/orchestrator,mail=/vol/mail,secrets=/vol/secrets,console=/vol/console
+                  value: lake=/vol/lake,objects=/vol/objects,audit=/vol/audit,rulesets=/vol/rulesets,orchestrator=/vol/orchestrator,mail=/vol/mail,secrets=/vol/secrets,console=/vol/console,terminology=/vol/terminology
               resources: {requests: {cpu: 250m, memory: 512Mi}, limits: {memory: 2Gi}}
               securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
               volumeMounts:
@@ -119,6 +119,7 @@ spec:
                 - {name: mail-data, mountPath: /vol/mail, readOnly: true}
                 - {name: tb-secrets, mountPath: /vol/secrets, readOnly: true}
                 - {name: console-data, mountPath: /vol/console, readOnly: true}
+                - {name: tb-terminology, mountPath: /vol/terminology, readOnly: true}
           volumes:
             - {name: spool, emptyDir: {}}
             - {name: tmp, emptyDir: {}}
@@ -133,6 +134,7 @@ spec:
             - {name: mail-data, persistentVolumeClaim: {claimName: mail-data, readOnly: true}}
             - {name: tb-secrets, persistentVolumeClaim: {claimName: tb-secrets, readOnly: true}}
             - {name: console-data, persistentVolumeClaim: {claimName: console-data, readOnly: true}}
+            - {name: tb-terminology, persistentVolumeClaim: {claimName: tb-terminology, readOnly: true}}
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -218,7 +220,7 @@ spec:
                 - {name: TB_PG_DUMP_CMD, value: python -m tools.trialbox platform-day2 pg pg_dump}
                 - {name: TB_PG_RESTORE_CMD, value: python -m tools.trialbox platform-day2 pg pg_restore}
                 - name: TB_BACKUP_DIRS
-                  value: lake=/vol/lake,objects=/vol/objects,audit=/vol/audit,rulesets=/vol/rulesets,orchestrator=/vol/orchestrator,mail=/vol/mail,secrets=/vol/secrets,console=/vol/console
+                  value: lake=/vol/lake,objects=/vol/objects,audit=/vol/audit,rulesets=/vol/rulesets,orchestrator=/vol/orchestrator,mail=/vol/mail,secrets=/vol/secrets,console=/vol/console,terminology=/vol/terminology
               resources: {requests: {cpu: 250m, memory: 512Mi}, limits: {memory: 2Gi}}
               securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
               volumeMounts:
@@ -235,6 +237,7 @@ spec:
                 - {name: mail-data, mountPath: /vol/mail}
                 - {name: tb-secrets, mountPath: /vol/secrets}
                 - {name: console-data, mountPath: /vol/console}
+                - {name: tb-terminology, mountPath: /vol/terminology}
             - name: pg-spool  # the database tools for the restore container; exits when it is done
               image: trialbox-postgres
               command: ["sh", "/scripts/pg-spool.sh", "/spool/pg"]
@@ -262,6 +265,7 @@ spec:
             - {name: mail-data, persistentVolumeClaim: {claimName: mail-data}}
             - {name: tb-secrets, persistentVolumeClaim: {claimName: tb-secrets}}
             - {name: console-data, persistentVolumeClaim: {claimName: console-data}}
+            - {name: tb-terminology, persistentVolumeClaim: {claimName: tb-terminology}}
 ---
 # the backup and restore jobs reach the database, and nothing else (the default deny holds the rest)
 apiVersion: networking.k8s.io/v1

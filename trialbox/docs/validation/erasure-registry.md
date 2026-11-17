@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-233 entries: 87 erase, 29 keep, 117 no patient data. 28 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+233 entries: 87 erase, 29 keep, 117 no patient data. 26 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -17,7 +17,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `owed_tables` | T-206b part 1 (D-798): the patient's rows in the site, team, PI feedback and derived tables go (the nightly derive skips an opted-out patient); a batch's failed list loses the pseudonym | `derived.batch_run`, `derived.conflict`, `derived.input_link`, `derived.score_row`, `orch.feedback`, `orch.judged_pairs`, `orch.submissions`, `site.contact_outcomes`, `site.excluded_review`, `sitesetup.fact`, `team.approach_overrides`, `team.candidate_views`, `team.referral_events`, `team.referrals`, `tuned.tuned_patients` |
 | `pid_pending` | the staged chart number and identity of the patient go; a later night stages them again (D-489) | `pidmap.pending` |
 | `profile` | ProfileStore.erase: every version of the twin (D-440) | `profile.tb_patient_profile` |
-| `screening_log` | a never-consented patient's screening-log rows stay, numbered, under a random token; the PI's note and the registry's reasons go; a trial subject's stay (OD-8, D-1032, D-875) | `datacore.subject`, `orch.candidate_events`, `site.pi_marks`, `site.screening_no`, `site.weekly_seen` |
+| `screening_log` | a never-consented patient's screening-log rows stay, numbered, under a random token; the PI's note and the registry's reasons go; a trial subject's stay (OD-8, D-1032, D-875) | `datacore.subject`, `orch.candidate_events`, `site.pi_marks`, `site.screening_no`, `site.weekly_seen`, `study.rc_read_log`, `study.rc_record` |
 | `setup_uploads` | a patient's own upload to the site set-up (a chart) goes whole: rows, items, facts and files (D-869) | `sitesetup.check_item`, `sitesetup.fix`, `sitesetup.input` |
 | `vec` | VecStore.delete_patient: the chunks and every vector no other chunk uses (D-439) | `vec.embedding`, `vec.note_chunk` |
 
@@ -25,7 +25,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 
 | Store | Card | What is owed | Why it holds patient data |
 | --- | --- | --- | --- |
-| `edc.draft` | T-206b | the drafts of a patient who never enrolled, told from a trial subject by the subject's whole history (the review of D-866: the registry's status now is not enough) | an EDC draft, by pseudonym |
+| `edc.draft` | T-206b | the drafts of a patient who never consented: the EDC drafts for any numbered patient (consent is not checked), and D-1032's definition counts a draft as a trial subject's, which keeps the patient's rows; whether a draft alone makes a trial subject is the owner's question (the review of D-878) | an EDC draft, by pseudonym, with values read from the chart |
 | `lake:backfill` | T-206b | the clear | the back-fill's working copy of a year's extract |
 | `lake:db` | T-206b | withheld on read by every job's scope (D-441, D-860); still read whole: the criteria compiler's equivalence sample (every patient) and a direct call of the lake's /query (D-862) | the DuckDB snapshots (nightly and month-end) and their side files |
 | `lake:embed_cache.duckdb` | T-206b | pruning by the patient across every kept snapshot, with the nightly build not embedding them again (D-862) | vectors of note chunks by text hash, never pruned |
@@ -50,8 +50,6 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `sitesetup.check_item` | T-206b | a sheet's rows of the patient (not keyed by patient) | the raw value of an uploaded row: those of a patient's own upload go with it (D-869) |
 | `sitesetup.fix` | T-206b | a sheet's examples of the patient (not keyed by patient) | example values of an uploaded column: those of a patient's own upload go with it (D-869) |
 | `sitesetup.input` | T-206b | a sheet of many patients that names the patient (its file and its rows are not keyed by patient) | an uploaded file and the patient it belongs to: a patient's own upload is erased, file included, its row an empty marker (D-869) |
-| `study.rc_record` | T-206b | the rows of a patient never consented (a consented subject's stay, OD-8) | the REDCap project's records linked to pseudonyms |
-| `study.rc_write` | T-206b | the clear | what was written to REDCap, by link value and record |
 | `trace.traces` | T-206b | the traces of the patient (7 days kept) | a model call's redacted body: note excerpts |
 
 ## 3. Kept, with the decision
@@ -195,7 +193,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `sitesetup.setting` | settings and configuration, no patient |
 | `study.rc_connection` | settings and configuration, no patient |
 | `study.rc_project_link` | settings and configuration, no patient |
-| `study.rc_read_log` | a REDCap read: when, who, ok, counts |
+| `study.rc_write` | what was written to REDCap, by screening number and record, with the hash of the values: no pseudonym (the screening log keeps the number, D-875; D-878) |
 | `study.screen_scope` | settings and configuration, no patient |
 | `study.study_settings` | settings and configuration, no patient |
 | `team.delegation` | staff, accounts or sign-in state, no patient |
