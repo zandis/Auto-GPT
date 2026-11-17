@@ -18,8 +18,11 @@ the install path on a machine with only the bundle and what the runbook tells th
 
 from __future__ import annotations
 
+import hashlib
 import json
+import shutil
 import sys
+from collections.abc import Iterator
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -29,7 +32,7 @@ import pytest
 from tests.unit import test_runbook_install_commands as t632
 from tools import host_tree as ht
 from tools import runbook_install as ri
-from tools.sign_bundle import build, keygen
+from tools.sign_bundle import build, keygen, sign_file
 
 pytestmark = pytest.mark.nodb
 ROOT = Path(__file__).resolve().parents[2]
@@ -141,10 +144,19 @@ def test_the_static_findings_are_the_committed_ones() -> None:
 
 
 def _unit_machine(tmp: Path) -> tuple[ri.LocalMachine, Path, Path]:
+    """The stick as the vendor hands it over (D-996): the bundle (this checkout's host tree, a throwaway key), its
+    .sha256 naming each file bare as make_bundle.sh writes it, the bootstrap and its raw signature."""
     priv, pub = keygen(tmp / "vendor")
+    stick = tmp / "stick"
+    stick.mkdir()
     ht.pack(ROOT, tmp / "host.tar")
-    bundle = tmp / "trialbox-2026.11-runbook.tar"
+    bundle = stick / "trialbox-2026.11-runbook.tar"
     build(priv, "2026.11-runbook", [("host", tmp / "host.tar", ht.HOST_TAR)], bundle, release_seq=1)
+    shutil.copy(ROOT / "deploy/bootstrap.sh", stick / "trialbox-bootstrap.sh")
+    sign_file(priv, stick / "trialbox-bootstrap.sh")
+    names = [bundle.name, "trialbox-bootstrap.sh", "trialbox-bootstrap.sh.sig"]
+    sums = "".join(f"{hashlib.sha256((stick / n).read_bytes()).hexdigest()}  {n}\n" for n in names)
+    (stick / f"{bundle.name}.sha256").write_text(sums, encoding="utf-8")
     bin_dir = tmp / "bin"
     bin_dir.mkdir()
     (bin_dir / "docker").write_text(f"#!{sys.executable}\n{STAND_IN_DOCKER}", encoding="utf-8")
@@ -160,24 +172,41 @@ def _unit_machine(tmp: Path) -> tuple[ri.LocalMachine, Path, Path]:
     return m, bundle, pub
 
 
+@pytest.fixture(autouse=True)
+def _the_real_machine_is_untouched() -> Iterator[None]:
+    """The unit machine is a folder: nothing the follower runs may reach this machine's own /opt/trialbox (an inner
+    `sudo` resets the environment and would take the bootstrap there; the follower drops it, as root)."""
+    real = [Path(p).exists() for p in ("/opt/trialbox", "/root/site", "/srv/his-export")]
+    yield
+    assert [Path(p).exists() for p in ("/opt/trialbox", "/root/site", "/srv/his-export")] == real
+
+
 def test_the_follower_on_the_unit_machine_shows_the_committed_findings(tmp_path: Path) -> None:
     m, bundle, pub = _unit_machine(tmp_path)
     rec = ri.Follower(m, bundle=bundle, vendor_pub=pub, work=tmp_path / "work").follow()
     run = json.loads(json.dumps(asdict(rec)))
-    # it ran and recorded: the one command as written first, every later attempt marked with the lifts before it
-    assert rec.commands_run >= 4 and rec.steps
-    first = next(s for s in rec.steps if s["step"] == "one-command")
-    assert first["as_written"] == "sudo deploy/install.sh trialbox-<version>.tar --tier large --answers site.yaml"
-    assert first["after_lifts"] == [] and first["rc"] != 0
-    assert rec.verdict.startswith("the runbook alone does not install the box: stopped at the one command (§1:28)")
-    assert rec.machine_stop  # the stand-in docker ends the unit run; it is never a finding
+    # it ran and recorded: the one command as written (with --mode stub in place of --tier: no GPU here, §1:44)
+    one = [s for s in rec.steps if s.get("step") == "one-command"]
+    assert len(one) == 1 and one[0]["as_written"] == ri.ONE_COMMAND and one[0]["after_lifts"] == []
+    assert "--mode stub" in one[0]["ran"] and "--tier" not in one[0]["ran"] and not one[0]["ran"].startswith("sudo")
+    out = one[0]["out"]
+    assert "Signature Verified Successfully" in out and "unpacked: the release's host tree" in out
+    assert "placed: the vendor key" in out and "running: " in out and "==> bundle: verify and load" in out
+    assert (tmp_path / "opt/trialbox/deploy/keys/vendor_ed25519.pub").read_bytes() == pub.read_bytes()
+    assert {x["to"] for x in rec.supplied} >= {ri.KEY_AT, f"{ri.SITE_AT}/", ri.FEED_AT}
+    assert rec.verdict == (
+        "the runbook alone does not install the box: stopped at the one command (§1:32) because this machine's "
+        "stand-in serves no more (a machine stop)"
+    )
+    assert rec.machine_stop and rec.lifts == []  # the stand-in docker ends the unit run; it is never a finding
     assert ri.compare(run, ri.load_findings()) == []
 
 
-def test_strict_follow_stops_at_the_verdict(tmp_path: Path) -> None:
+def test_strict_follow_needs_no_lift_on_the_unit_machine(tmp_path: Path) -> None:
+    """H-22's lifts host-tree and vendor-key-first went with D-996: the strict run goes as far as the lifted one."""
     m, bundle, pub = _unit_machine(tmp_path)
     rec = ri.Follower(m, bundle=bundle, vendor_pub=pub, work=tmp_path / "work", lifts=False).follow()
-    assert rec.lifts == [] and [f["id"] for f in rec.findings] == ["no-host-tree"]
+    assert rec.lifts == [] and rec.findings == [] and rec.machine_stop
     assert [s["step"] for s in rec.steps if "rc" in s] == ["one-command"]
 
 
