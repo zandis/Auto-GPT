@@ -998,12 +998,11 @@ class ComposeOps:
         (``restic_repo.shares_cover``); the host then makes ``restic.key`` under the KEK if it is not there yet
         (``tools.keys restic-key``'s own function). Anything else keeps the single encrypted backup and says why; a
         restic key the custodians could not open is never made."""
-        from tools import keys as keys_cli
         from tools.trialbox import restic_repo as rr
 
         if cfg.restic == "off":
             return False, "TB_BACKUP_RESTIC=off: the single encrypted backup"
-        sec = Path(self.env.get("TB_SECRETS_DIR") or keys_cli.HOST_SECRETS)
+        sec = self.secrets_dir()
         why = rr.shares_cover(sec)
         if why:
             return False, why
@@ -1014,6 +1013,13 @@ class ComposeOps:
         except Exception as e:  # a locked KEK, a plain key left there: named, never with a key in it
             return False, f"no restic key ({type(e).__name__}: {str(e)[-200:]}): the single encrypted backup tonight"
         return True, "restic key made under the KEK; the lake to restic" if made else "the lake to restic"
+
+    def secrets_dir(self) -> Path:
+        """The host's secrets folder: ``TB_SECRETS_DIR`` from ``deploy/.env``, else the box's secrets volume. The
+        nightly checks this folder's KEK, makes ``restic.key`` in it, and the restic job opens the same one (D-978)."""
+        from tools import keys as keys_cli
+
+        return Path(self.env.get("TB_SECRETS_DIR") or keys_cli.HOST_SECRETS)
 
     def db_bytes(self, db: str, user: str) -> int | None:
         """``pg_database_size`` of ``db`` (D-455: what its snapshot step reads), or None when it cannot be asked."""
@@ -1163,7 +1169,8 @@ class ComposeOps:
                     use, why = self.incremental(cfg)  # D-977: tonight's choice, made on the host
                     run.incremental = {"restic": use, "why": why}  # type: ignore[attr-defined]
                     self.box._backup_container(work, cfg.public_key, [str(t) for t in targets], keep=cfg.keep,
-                                               timeout=limit, restic=use)  # fmt: skip
+                                               timeout=limit, restic=use,
+                                               secrets=self.secrets_dir() if use else None)  # fmt: skip
                     pit["files_done_at"] = datetime.now(UTC).isoformat(timespec="milliseconds")
                 finally:
                     if paused:
