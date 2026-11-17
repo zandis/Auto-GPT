@@ -13,6 +13,12 @@ Standard library only: the operator's host runs it with any Python 3.10+, before
                                                     the last boot's TB-DEMO-VM lines from the serial console (gcloud
                                                     ... get-serial-port-output) and one line `boot: ...` with its
                                                     DEMO-VM-READY or DEMO-VM-NOT-READY marker, or that it is not done
+    python3 deploy/gcp/demo_vm.py boot-state --last-start T [--boot-id ID] PAGE.json ...
+                                                    the same for `demo-vm.sh status` (D-1120): from the serial pages,
+                                                    and a marker counts only when it is this boot's (its id, or its
+                                                    stamp at or after the instance's lastStartTimestamp T)
+    python3 deploy/gcp/demo_vm.py serial-next < PAGE.json
+                                                    the byte the next serial page starts at; exit 1 at the end
 
 Every limit is a declared TB_* setting with its reason (OD-10; tb_common.config.DECLARED has the rows):
 
@@ -85,6 +91,7 @@ import shlex
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 
 HOURS_PER_DAY = 24
 HOURS_PER_WEEK = 7 * 24
@@ -448,35 +455,137 @@ def reaching_rules(
 
 # The boot's own lines on the serial console. Compute Engine's script runner echoes each with its prefix
 # ("<time> <vm> google_metadata_script_runner[<pid>]: Metadata key(...), command(...): TB-DEMO-VM ..."); the boot's tee
-# to /dev/ttyS0 writes some bare. Both are read; the same line twice is shown once.
-BOOT_LINE_RE = re.compile(r"(TB-DEMO-VM [0-9]{2}:[0-9]{2}:[0-9]{2} .*|TB-DEMO-VM refused: .*|DEMO-VM-[A-Z-]+)\s*$")
+# to /dev/ttyS0 writes some bare. Both are read; the same line twice is shown once. A marker is read wherever it
+# stands on its line (a kernel message written to the same port can follow it on the same line).
+BOOT_LINE_RE = re.compile(
+    r"(DEMO-VM-(?:NOT-)?READY(?: boot=[0-9a-f]{16} at=[0-9TZ:.+-]+)?)(?![\w=-])"
+    r"|(TB-DEMO-VM [0-9]{2}:[0-9]{2}:[0-9]{2} .*|TB-DEMO-VM refused: .*|DEMO-VM-[A-Z-]+)\s*$"
+)
 BOOT_START = "hard stop: this VM powers off"  # the first line of every boot (demo-vm-boot.sh)
 BOOT_MARKERS = ("DEMO-VM-READY", "DEMO-VM-NOT-READY")
+# D-1120: what the boot prints of itself (demo-vm-boot.sh: a random id and the time in UTC, RFC 3339)
+_START_ID_RE = re.compile(r"\(boot ([0-9a-f]{16}) started ([0-9TZ:.+-]+)\)")
+_MARKER_RE = re.compile(r"^(DEMO-VM-(?:NOT-)?READY)(?: boot=([0-9a-f]{16}) at=([0-9TZ:.+-]+))?$")
+_REFUSED_ID_RE = re.compile(r"\(boot ([0-9a-f]{16}) at ([0-9TZ:.+-]+)\)$")
+BOOT_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 
 
-def boot_state(serial: str, keep: int = 8) -> tuple[str, list[str]]:
-    """The last boot's state from the serial console's text: ``ready``, ``not-ready``, ``refused`` or ``running``
-    (no marker yet; the seed takes minutes), with its last ``keep`` lines (the boot never writes a code or a
-    password)."""
-    lines: list[str] = []
+def instant(text: str) -> datetime | None:
+    """An RFC 3339 time with its offset (Compute Engine's lastStartTimestamp, the boot's own stamps) as an instant;
+    None when it is not one. A time without an offset is not guessed at: None."""
+    try:
+        t = datetime.fromisoformat(text.strip())
+    except ValueError:
+        return None
+    return t if t.tzinfo is not None else None
+
+
+@dataclass(frozen=True)
+class _Event:
+    kind: str  # ready, not-ready, refused
+    boot: str  # the boot id; "" from an image that prints none
+    at: datetime | None  # the boot's own stamp
+    segment: int  # which boot's lines (a new one at each BOOT_START)
+    text: str
+
+
+def _parse(serial: str) -> tuple[list[list[str]], list[tuple[str, datetime | None]], list[_Event]]:
+    segments: list[list[str]] = [[]]
+    starts: list[tuple[str, datetime | None]] = [("", None)]
+    events: list[_Event] = []
     for raw in serial.replace("\r", "").splitlines():
         m = BOOT_LINE_RE.search(raw)
         if not m:
             continue
-        line = m.group(1).strip()
+        line = (m.group(1) or m.group(2)).strip()
         if BOOT_START in line:
-            lines = []  # a new boot: the earlier one's lines are not this one's
-        if not lines or lines[-1] != line:
-            lines.append(line)
-    state = "running"
-    for line in lines:
-        if line == "DEMO-VM-READY":
-            state = "ready"
-        elif line == "DEMO-VM-NOT-READY":
-            state = "not-ready"
+            s = _START_ID_RE.search(line)
+            segments.append([])  # a new boot: the earlier one's lines are not this one's
+            starts.append((s.group(1), instant(s.group(2))) if s else ("", None))
+        lines = segments[-1]
+        if lines and lines[-1] == line:
+            continue
+        lines.append(line)
+        seg = len(segments) - 1
+        mk = _MARKER_RE.match(line)
+        if mk:
+            kind = "ready" if mk.group(1) == "DEMO-VM-READY" else "not-ready"
+            events.append(_Event(kind, mk.group(2) or "", instant(mk.group(3)) if mk.group(3) else None, seg, line))
         elif line.startswith("TB-DEMO-VM refused:"):
-            state = "refused"
-    return state, lines[-keep:]
+            r = _REFUSED_ID_RE.search(line)
+            events.append(_Event("refused", r.group(1) if r else "", instant(r.group(2)) if r else None, seg, line))
+    return segments, starts, events
+
+
+def boot_state(
+    serial: str, keep: int = 8, *, last_start: datetime | None = None, boot_id: str = "", check: bool = False
+) -> tuple[str, list[str], list[str]]:
+    """This boot's state from the serial console's text: ``ready``, ``not-ready``, ``refused``, ``running`` (no
+    marker of this boot yet; the seed takes minutes) or ``unknown`` (cannot tell), with its last ``keep`` lines (the
+    boot never writes a code or a password) and notes that say why.
+
+    The serial buffer outlives a stop and a start, so the earlier boot's marker can still be in it (D-1120). With
+    ``check`` (demo-vm.sh status) a marker counts only when it is this boot's:
+
+    1. ``boot_id`` given (the id ``links`` printed): the events of that boot only; no clock is read.
+    2. Else the boot whose first line is stamped at or after ``last_start`` (the instance's lastStartTimestamp) is
+       this boot, and only the events carrying its id count, whatever their own stamps say (the id beats a skewed
+       clock: an earlier boot's marker never counts once this boot has printed its first line).
+    3. Else (this boot's first line is not in the buffer: not printed yet, or dropped at the buffer's edge) an event
+       stamped at or after ``last_start`` counts.
+    4. A marker with no id and no stamp (an image before D-1120) cannot be weighed: ``unknown``, never ``ready``.
+
+    Times are compared as instants (both carry their offsets), never as text. The latest counted event decides.
+    Without ``check`` the last boot's lines decide, as before D-1120 (the stdin form, for a local rehearsal)."""
+    segments, starts, events = _parse(serial)
+    notes: list[str] = []
+    if not check:
+        last = [e for e in events if e.segment == len(segments) - 1]
+        state = last[-1].kind if last else "running"
+        return state, segments[-1][-keep:], notes
+    counted: list[_Event] = []
+    seg = -1
+    if boot_id:
+        counted = [e for e in events if e.boot == boot_id]
+        seg = next((i for i, (b, _) in enumerate(starts) if b == boot_id), counted[-1].segment if counted else -1)
+        if seg < 0:
+            notes.append(f"no line of boot {boot_id} in the serial buffer yet")
+            return "running", [], notes
+    elif last_start is None:
+        notes.append("the instance's lastStartTimestamp could not be read: no marker can be weighed")
+        return "unknown", segments[-1][-keep:], notes
+    else:
+        fresh = [i for i, (b, t) in enumerate(starts) if b and t is not None and t >= last_start]
+        if fresh:
+            seg = fresh[-1]
+            this = starts[seg][0]
+            counted = [e for e in events if e.boot == this]
+            boot_id = this
+        else:
+            counted = [e for e in events if e.at is not None and e.at >= last_start]
+            if counted:
+                boot_id = counted[-1].boot
+                seg = counted[-1].segment
+    if counted:
+        e = counted[-1]
+        notes.append(f"this boot: {e.boot or '-'}, its marker stamped {e.at.isoformat() if e.at else '-'}")
+        return e.kind, segments[e.segment][-keep:], notes
+    if seg >= 0:
+        notes.append(f"this boot: {boot_id or '-'}, no marker yet")
+        return "running", segments[seg][-keep:], notes
+    markers = [e for e in events if e.kind in ("ready", "not-ready")]
+    latest = events[-1] if events else None
+    if latest is not None and not latest.boot and latest.at is None:
+        return "unknown", segments[latest.segment][-keep:], notes
+    if markers:
+        old = markers[-1]
+        when = old.at.isoformat() if old.at else "unstamped"
+        start = last_start.isoformat() if last_start else "-"
+        notes.append(
+            f"the last marker in the serial buffer ({old.text.split(' ')[0]} of boot {old.boot or '-'}, {when}) is an "
+            f"earlier boot's: this one started {start} and has printed none yet; its lines are not shown"
+        )
+    return "running", [], notes
 
 
 BOOT_STATE_TEXT = {
@@ -484,15 +593,101 @@ BOOT_STATE_TEXT = {
     "not-ready": "boot: DEMO-VM-NOT-READY (the lines above say why; `down` then `up --yes` boots it again)",
     "refused": "boot: refused (the lines above say why; nothing listens on tcp:443)",
     "running": "boot: not ready yet (no DEMO-VM-READY marker; the seed takes about 5 to 10 minutes; run status again)",
+    "unknown": "boot: cannot tell: the image prints no boot id; ready line is older format (D-1120: run `down` and "
+    "`up --yes` with an image of this master, or open https://<address>/ by hand)",
 }
+BOOT_STATE_TEXT_NO_START = (
+    "boot: cannot tell (the instance's lastStartTimestamp could not be read; `status --boot-id <id from links>` "
+    "reads one boot's lines without it)"
+)
+
+
+def serial_text(pages: list[str]) -> tuple[str, list[str]]:
+    """The serial console's text from the pages `demo-vm.sh status` fetched (gcloud ... get-serial-port-output
+    --start N --format=json, each started at the previous page's ``next``), joined in order, so a line cut at a page's
+    edge is whole again; with a note when the console no longer held the bytes asked for (the buffer's start moved).
+    A page that is not JSON (an older gcloud) is taken as the text itself."""
+    import json
+
+    parts: list[str] = []
+    notes: list[str] = []
+    for i, raw in enumerate(pages):
+        try:
+            page = json.loads(raw)
+        except ValueError:
+            parts.append(raw)
+            continue
+        if not isinstance(page, dict):
+            continue
+        parts.append(str(page.get("contents") or ""))
+        if i == 0 and int(page.get("start") or 0) > 0:
+            notes.append(
+                f"the serial buffer starts at byte {page.get('start')}: the console dropped the output before it"
+            )
+    return "".join(parts), notes
+
+
+def serial_next(raw: str) -> int | None:
+    """The ``next`` byte of one page (the next page starts there), or None when the page is empty or not JSON."""
+    import json
+
+    try:
+        page = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(page, dict) or not page.get("contents"):
+        return None
+    try:
+        return int(page.get("next"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _boot_state_main(argv: list[str]) -> int:
+    """boot-state [--last-start T] [--boot-id ID] [PAGE ...]: the pages (JSON) of status, or the text on stdin."""
+    last_start: datetime | None = None
+    boot_id = ""
+    pages: list[str] = []
+    check = False
+    args = list(argv)
+    while args:
+        a = args.pop(0)
+        if a == "--last-start" and args:
+            check = True
+            last_start = instant(args.pop(0))
+        elif a == "--boot-id" and args:
+            check = True
+            boot_id = args.pop(0)
+            if not BOOT_ID_RE.match(boot_id):
+                print("boot-state: --boot-id is 16 hex digits (the id `links` prints)", file=sys.stderr)
+                return 2
+        else:
+            with open(a, encoding="utf-8", errors="replace") as f:
+                pages.append(f.read())
+    if pages:
+        serial, notes = serial_text(pages)
+    else:
+        serial, notes = sys.stdin.read(), []
+    state, lines, more = boot_state(serial, last_start=last_start, boot_id=boot_id, check=check)
+    for line in lines:
+        print(f"  {line}")
+    for note in notes + more:
+        print(f"  ({note})")
+    if state == "unknown" and check and last_start is None and not boot_id:
+        print(BOOT_STATE_TEXT_NO_START)
+    else:
+        print(BOOT_STATE_TEXT[state])
+    return 0
 
 
 def main(argv: list[str], env: Mapping[str, str]) -> int:
-    if argv and argv[0] == "boot-state" and len(argv) == 1:
-        state, lines = boot_state(sys.stdin.read())
-        for line in lines:
-            print(f"  {line}")
-        print(BOOT_STATE_TEXT[state])
+    if argv and argv[0] == "boot-state":
+        return _boot_state_main(argv[1:])
+    if argv and argv[0] == "serial-next" and len(argv) == 1:
+        nxt = serial_next(sys.stdin.read())
+        if nxt is None:
+            return 1
+        print(nxt)
         return 0
     if argv and argv[0] == "rules-check" and len(argv) == 6:
         import json

@@ -388,7 +388,31 @@ key file's path only; the project is the gcloud config's):
     deploy/gcp/demo-vm.sh --dry-run           # every gcloud command `up` would run; runs none
     deploy/gcp/demo-vm.sh up --yes            # network, subnet, the tcp:443 rule, the VM (or starts the stopped VM)
     deploy/gcp/demo-vm.sh status              # RUNNING, the address, the rule's ranges, the hard stop, DEMO-VM-READY
-    deploy/gcp/demo-vm.sh links               # each person's one-time link, printed once, then deleted
+    deploy/gcp/demo-vm.sh links               # each person's one-time link, printed once, then deleted; the boot id
+    deploy/gcp/demo-vm.sh status --boot-id <id>   # this boot's lines only, the id `links` printed (D-1120)
+
+**Is it ready? (`status`, D-1120).** The serial console's buffer outlives a stop and a start, so an earlier
+boot's `DEMO-VM-READY` can still be in it while the new boot seeds. Each boot therefore makes a random id (8 bytes
+from `/dev/urandom`, hex; not a secret, derived from nothing) and prints it with the time in UTC (RFC 3339) on its
+first line (`hard stop: ... (boot <id> started <time>)`), on a refusal and on its marker
+(`DEMO-VM-READY boot=<id> at=<time>`); the codes' object carries it too, and `links` prints it
+(`== boot id: <id>`). `status` reads the instance's `lastStartTimestamp` (RFC 3339 with an offset; compared as an
+instant, never as text) and the whole buffer of serial port 1, page by page (`--start` from each answer's `next`,
+so a long buffer is read to its end and a line cut at a page's edge is joined again). A marker counts only when it
+is this boot's, in this order:
+
+1. `status --boot-id <id>` (the id `links` printed): that boot's lines only; no clock is read.
+2. Else the boot whose first line is stamped at or after `lastStartTimestamp` is this boot, and only markers with
+   its id count, whatever their own stamps say (the id beats a skewed clock).
+3. Else (that first line is not in the buffer: not printed yet, or dropped at the buffer's edge) a marker stamped
+   at or after `lastStartTimestamp` counts.
+
+The latest counted marker decides. An earlier boot's marker alone gives `boot: not ready yet` with a note that it is
+an earlier boot's. A bare `DEMO-VM-READY` with no id or stamp (an image before D-1120) gives
+`boot: cannot tell: the image prints no boot id; ready line is older format`, never ready; so does a missing
+`lastStartTimestamp` without `--boot-id`. If the VM's clock is behind by more than the seed's minutes, a fresh boot
+can read `not ready yet`: run `links`, then `status --boot-id <id>`. A VM that is not `RUNNING` gets
+`boot: the VM is <state>: no ready line is read`. `status` still exits 0 whatever the boot says.
 
 `up` creates, in order: on the `default` network the rule `tb-demo-vm-deny` (INGRESS, all, deny, priority 510, tag
 `tb-demo-vm`); with `own` instead the network `tb-demo-vm-net` (custom subnets, no rules) and the subnet
