@@ -1088,7 +1088,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
         "heading": "This week's patients · {rs}",
         "clicks": 2,
         "click_texts": ["This week's patients", "{rs}"],
-        "seconds": 2.5,
+        "seconds": 2.6,
         "guesses": [],
     },
     13: {
@@ -1096,7 +1096,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
         "heading": "This week's patients · {rs}",
         "clicks": 4,
         "click_texts": ["This week's patients", "{rs}", "patient {short}", "Approach"],
-        "seconds": 6.4,
+        "seconds": 6.8,
         "guesses": ["F-03"],
     },
     14: {
@@ -1110,7 +1110,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
             "patient {short}",
             "Reached, visit booked",
         ],
-        "seconds": 8.3,
+        "seconds": 8.6,
         "guesses": ["F-05"],
     },
     15: {
@@ -1118,7 +1118,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
         "heading": "{rs}-0001 · Participants",
         "clicks": 5,
         "click_texts": ["My studies", "Participants", "{rs}-0001", "Consent given", "Enrolled"],
-        "seconds": 4.6,
+        "seconds": 4.8,
         "guesses": ["F-07"],
     },
     16: {
@@ -1126,7 +1126,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
         "heading": "{rs}-0001 · Participants",
         "clicks": 2,
         "click_texts": ["Withdraw", "Withdraw"],
-        "seconds": 1.1,
+        "seconds": 1.2,
         "guesses": [],
     },
     17: {
@@ -1148,7 +1148,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
             "Open full chart view",
             "Show chart number (recorded with your name)",
         ],
-        "seconds": 6.0,
+        "seconds": 5.9,
         "guesses": ["F-17", "F-18"],
     },
     19: {
@@ -1164,10 +1164,18 @@ SUMMARY: dict[int, dict[str, Any]] = {
         "heading": "{rs} · Candidates",
         "clicks": 4,
         "click_texts": ["This week's patients", "{rs}", "(typed) /studies/{rs}/week?list=all&pid={pid}", "Candidates"],
-        "seconds": 5.5,
+        "seconds": 5.6,
         "guesses": ["F-18"],
     },
     21: {
+        "path": "/audit",
+        "heading": "Audit trail",
+        "clicks": 2,
+        "click_texts": ["Audit trail", "Show"],
+        "seconds": 12.6,
+        "guesses": ["F-22"],
+    },
+    22: {
         "path": "/metrics",
         "heading": "",
         "clicks": 1,

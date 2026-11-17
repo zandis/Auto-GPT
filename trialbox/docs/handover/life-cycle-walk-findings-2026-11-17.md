@@ -57,17 +57,17 @@ only. "Guess" is anything the walk could not find by a documented label and had 
 
 | Step | Role | Page reached (en) | Clicks | The clicks (en) | Median s | Refused (403) | Guesses |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 12 | coordinator | `/studies/{rs}/week` · This week's patients · {rs} | 2 | This week's patients → {rs} | 2.5 | steward: `GET /studies/{rs}/week` | – |
-| 13 | investigator | `/studies/{rs}/week` · This week's patients · {rs} | 4 | This week's patients → {rs} → patient {short} → Approach | 6.4 | coordinator: `POST /studies/{rs}/patients/{pid}/mark` | F-03 |
-| 14 | coordinator | `/studies/{rs}/week` · This week's patients · {rs} | 5 | This week's patients → {rs} → Approved and contacted → patient {short} → Reached, visit booked | 8.3 | investigator: `POST /studies/{rs}/patients/{pid}/outcome` | F-05 |
-| 15 | coordinator | `/studies/{rs}/subjects/{rs}-0001` · {rs}-0001 · Participants | 5 | My studies → Participants → {rs}-0001 → Consent given → Enrolled | 4.6 | investigator: `POST /studies/{rs}/subjects/{record}/step` | F-07 |
-| 16 | coordinator | `/studies/{rs}/subjects/{rs}-0001` · {rs}-0001 · Participants | 2 | Withdraw → Withdraw | 1.1 | investigator: `POST /studies/{rs}/subjects/{record}/undo` | – |
+| 12 | coordinator | `/studies/{rs}/week` · This week's patients · {rs} | 2 | This week's patients → {rs} | 2.6 | steward: `GET /studies/{rs}/week` | – |
+| 13 | investigator | `/studies/{rs}/week` · This week's patients · {rs} | 4 | This week's patients → {rs} → patient {short} → Approach | 6.8 | coordinator: `POST /studies/{rs}/patients/{pid}/mark` | F-03 |
+| 14 | coordinator | `/studies/{rs}/week` · This week's patients · {rs} | 5 | This week's patients → {rs} → Approved and contacted → patient {short} → Reached, visit booked | 8.6 | investigator: `POST /studies/{rs}/patients/{pid}/outcome` | F-05 |
+| 15 | coordinator | `/studies/{rs}/subjects/{rs}-0001` · {rs}-0001 · Participants | 5 | My studies → Participants → {rs}-0001 → Consent given → Enrolled | 4.8 | investigator: `POST /studies/{rs}/subjects/{record}/step` | F-07 |
+| 16 | coordinator | `/studies/{rs}/subjects/{rs}-0001` · {rs}-0001 · Participants | 2 | Withdraw → Withdraw | 1.2 | investigator: `POST /studies/{rs}/subjects/{record}/undo` | – |
 | 17 | coordinator | `/studies/{rs}/state` · {rs} · Study state and identifiers | 4 | More → {rs} · Study set-up → Study state and identifiers → Change state | 1.2 | steward: `POST /studies/{rs}/state`; operator: `POST /studies/{rs}/state` | – |
-| 18 | coordinator | `/studies/{rs}/patients/{pid}/reveal` · {rs} · patient {short} | 5 | This week's patients → {rs} → (typed) /studies/{rs}/week?list=all&pid={pid} → Open full chart view → Show chart number (recorded with your name) | 6.0 | – | F-17, F-18 |
+| 18 | coordinator | `/studies/{rs}/patients/{pid}/reveal` · {rs} · patient {short} | 5 | This week's patients → {rs} → (typed) /studies/{rs}/week?list=all&pid={pid} → Open full chart view → Show chart number (recorded with your name) | 5.9 | – | F-17, F-18 |
 | 19 | steward | `/site/opt-outs` · Opt-out register | 2 | Opt-out register → Record the opt-out | 0.3 | coordinator: `POST /site/opt-outs`; operator: `GET /site/opt-outs` | – |
-| 20 | coordinator | `/studies/{rs}/candidates` · {rs} · Candidates | 4 | This week's patients → {rs} → (typed) /studies/{rs}/week?list=all&pid={pid} → Candidates | 5.5 | – | F-18 |
-| 21 | steward | `/metrics` ·  | 1 | (typed) /metrics | 0.1 | coordinator: `GET /audit` | F-21 |
-| 22 | operator | `` ·  |  |  |  | coordinator: `GET /metrics` | – |
+| 20 | coordinator | `/studies/{rs}/candidates` · {rs} · Candidates | 4 | This week's patients → {rs} → (typed) /studies/{rs}/week?list=all&pid={pid} → Candidates | 5.6 | – | F-18 |
+| 21 | steward | `/audit` · Audit trail | 2 | Audit trail → Show | 12.6 | coordinator: `GET /audit` | F-22 |
+| 22 | operator | `/metrics` ·  | 1 | (typed) /metrics | 0.1 | coordinator: `GET /metrics` | F-21 |
 
 ### The findings by step
 
@@ -92,8 +92,8 @@ only. "Guess" is anything the walk could not find by a documented label and had 
 | F-17 | 18 | steward | `/site/opt-outs` | 5 | the opt-out form asks for the chart number ("Type the chart number"); no page of the steward shows one, so on a box the tester must get it elsewhere; the walk has the coordinator show it on the patient sheet (recorded) and carries it over | the testers' page says where the chart number comes from on a box (`team.optout.help`, `help.page.optouts`; D-1062) | slows the tester | C2 |
 | F-18 | 18 | coordinator | `/studies/{rs}/week` | 5 | after the withdrawal the patient is on none of the weekly page's lists but "All on the list" (4,000 rows, paged), and the participant's page has no link to the patient sheet; the walk types `?list=all&pid=...` here and in step 20 | a search by pseudonym or screening number, or a link from the participant to the patient sheet (D-133 (the weekly page)) | cosmetic | C2 |
 | F-19 | 19 | steward | `/site/opt-outs` | 2 | the opt-out form's note is labelled "Note for the coordinator" (the PI's mark note) on the steward's register | a label of the register's own (`mark.note`, `team.optout.help`) | cosmetic | C2 |
-| F-22 | 21 | steward | `/audit` | 1 | the audit trail shows each run of the opt-out worker ("Opt-out worker run") with an empty detail: what it cleared, whether a clear failed and whether a store still holds the patient are recorded in the audit log but on no page; a steward cannot see that an erase completed | the run's counts on the page: the stores cleared, failed, left (they are counts, never a pseudonym) (D-441 (one `optout.worker` event per run); `services/console/audit_page.py` `SHOWN` (the keys the browser shows); D-451) | slows the tester | C2 |
-| F-21 | 22 | operator | `/admin?tab=health` |  | the red opt-out worker check is on `/metrics` only (typed in); the administrator's Health tab shows no line for it | the health line turns red on a stale or failed tick, where a person reads it (D-441, T-209a) | slows the tester | C2 |
+| F-22 | 21 | steward | `/audit` | 2 | the audit trail shows each run of the opt-out worker ("Opt-out worker run") with an empty detail: what it cleared, whether a clear failed and whether a store still holds the patient are recorded in the audit log but on no page; a steward cannot see that an erase completed | the run's counts on the page: the stores cleared, failed, left (they are counts, never a pseudonym) (D-441 (one `optout.worker` event per run); `services/console/audit_page.py` `SHOWN` (the keys the browser shows); D-451) | slows the tester | C2 |
+| F-21 | 22 | operator | `/admin?tab=health` | 1 | the red opt-out worker check is on `/metrics` only (typed in); the administrator's Health tab shows no line for it | the health line turns red on a stale or failed tick, where a person reads it (D-441, T-209a) | slows the tester | C2 |
 
 <!-- life-cycle-walk: end of findings -->
 
