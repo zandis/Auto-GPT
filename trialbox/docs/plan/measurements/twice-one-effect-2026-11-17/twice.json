@@ -1,0 +1,483 @@
+{
+ "account_add_twice": {
+  "accounts": 1,
+  "audit_console_user": 1,
+  "route": "POST /ops/users (add)",
+  "status": [
+   303,
+   400
+  ]
+ },
+ "account_disable_twice": {
+  "audit_console_user": 2,
+  "location_second": "/ops/users?undo=viewer#undo",
+  "route": "POST /ops/users (disable)",
+  "status": [
+   303,
+   303
+  ]
+ },
+ "approach_twice": {
+  "audit_approach_override": 2,
+  "audit_pi_mark": 2,
+  "mark_rows": 2,
+  "notices": 0,
+  "override_records": 2,
+  "route": "POST /studies/{rs}/patients/{pid}/mark (approach)",
+  "status_second": 303
+ },
+ "back_after_declined": {
+  "outcomes_added": 1,
+  "route": "POST /studies/{rs}/patients/{pid}/outcome",
+  "status": 303
+ },
+ "back_after_withdrawal": {
+  "form_message": "The form was not saved. Correct the 1 marked fields and save again.",
+  "routes": [
+   "POST /studies/{rs}/entry (tb_enrolment)",
+   "POST /studies/{rs}/subjects/{record}/step"
+  ],
+  "state": "withdrawn",
+  "status": [
+   200,
+   409
+  ],
+  "steps_added": 0,
+  "values_added": 0
+ },
+ "consent_twice": {
+  "audit_data_entry": 2,
+  "consents": 1,
+  "route": "POST /studies/{rs}/entry (tb_consent)",
+  "second_changed": 0,
+  "status": [
+   200,
+   200
+  ],
+  "values_added_by_second": 0
+ },
+ "enrolment_twice": {
+  "enrolled_steps": 1,
+  "route": "POST /studies/{rs}/entry (tb_enrolment)",
+  "second_changed": 0,
+  "second_says_saved": true,
+  "status_second": 200,
+  "values_added_by_second": 0
+ },
+ "inventory": {
+  "place": "console.app.create_app().routes",
+  "routes": [
+   "DELETE /api/v1/session",
+   "DELETE /api/v1/studies/{rs}/sources/redcap",
+   "POST /account/password",
+   "POST /admin/jobs/{job_id}/cancel",
+   "POST /admin/jobs/{job_id}/retry",
+   "POST /admin/models/canary",
+   "POST /admin/ops/{action}",
+   "POST /admin/redcap",
+   "POST /admin/redcap/{ref}/test",
+   "POST /api/edc/events/v1",
+   "POST /api/edc/oidc/token",
+   "POST /api/edc/tools",
+   "POST /api/edc/tools/{proposal_id}/confirm",
+   "POST /api/v1/audit/patients/by-chart",
+   "POST /api/v1/audit/verify",
+   "POST /api/v1/data/batches/{bid}/decide",
+   "POST /api/v1/session",
+   "POST /api/v1/site/charts",
+   "POST /api/v1/site/checks/{cid}",
+   "POST /api/v1/site/codes",
+   "POST /api/v1/site/facts/{fid}",
+   "POST /api/v1/site/opt-outs",
+   "POST /api/v1/studies/{rs}/aes/{record}/{event}/ack",
+   "POST /api/v1/studies/{rs}/candidates/{pid}/referral",
+   "POST /api/v1/studies/{rs}/conflicts/{cid}",
+   "POST /api/v1/studies/{rs}/edc/copy/{record}/tick",
+   "POST /api/v1/studies/{rs}/edc/dictionary",
+   "POST /api/v1/studies/{rs}/edc/drafts",
+   "POST /api/v1/studies/{rs}/edc/drafts/{draft_id}/decide",
+   "POST /api/v1/studies/{rs}/edc/import/odm",
+   "POST /api/v1/studies/{rs}/edc/send",
+   "POST /api/v1/studies/{rs}/edc/sign",
+   "POST /api/v1/studies/{rs}/edc/switch",
+   "POST /api/v1/studies/{rs}/forms/builtin",
+   "POST /api/v1/studies/{rs}/forms/dictionary",
+   "POST /api/v1/studies/{rs}/icf",
+   "POST /api/v1/studies/{rs}/irb",
+   "POST /api/v1/studies/{rs}/monitor/visits",
+   "POST /api/v1/studies/{rs}/not-matched/check",
+   "POST /api/v1/studies/{rs}/not-matched/sample/{pid}",
+   "POST /api/v1/studies/{rs}/not-matched/{pid}/review",
+   "POST /api/v1/studies/{rs}/patients/{pid}/mark",
+   "POST /api/v1/studies/{rs}/patients/{pid}/outcome",
+   "POST /api/v1/studies/{rs}/patients/{pid}/reveal",
+   "POST /api/v1/studies/{rs}/referrals/{ref_id}/answer",
+   "POST /api/v1/studies/{rs}/sources/{name}/sync",
+   "POST /api/v1/studies/{rs}/state/take-back",
+   "POST /api/v1/studies/{rs}/subjects/{record}/step",
+   "POST /audit/patients/by-chart",
+   "POST /audit/verify",
+   "POST /breakglass",
+   "POST /breakglass/{gid}/end",
+   "POST /breakglass/{gid}/review",
+   "POST /data-ops/batches/{bid}/decide",
+   "POST /data/conflicts/{cid}/resolve",
+   "POST /data/instruments/{iid}",
+   "POST /demo/ack",
+   "POST /enrol",
+   "POST /feedback",
+   "POST /lang",
+   "POST /login",
+   "POST /login/first-run",
+   "POST /login/first-run/answers",
+   "POST /login/totp",
+   "POST /logout",
+   "POST /ops/accounts/requests",
+   "POST /ops/flags",
+   "POST /ops/identity",
+   "POST /ops/ingest",
+   "POST /ops/notices",
+   "POST /ops/users",
+   "POST /pilot/cascade",
+   "POST /pilot/case",
+   "POST /pilot/consent",
+   "POST /pilot/jobs/{job_id}/approval/label",
+   "POST /pilot/jobs/{job_id}/approval/tick",
+   "POST /pilot/jobs/{job_id}/approve",
+   "POST /pilot/jobs/{job_id}/release",
+   "POST /pilot/jobs/{job_id}/reveal",
+   "POST /pilot/mailbox",
+   "POST /pilot/propose",
+   "POST /pilot/propose/{pid}/confirm",
+   "POST /pilot/protocol",
+   "POST /pilot/registry/{ruleset}",
+   "POST /pilot/registry/{ruleset}/promote",
+   "POST /pilot/request",
+   "POST /role",
+   "POST /settings/notices",
+   "POST /site/charts",
+   "POST /site/checks/{cid}",
+   "POST /site/codes",
+   "POST /site/facts/{fid}",
+   "POST /site/opt-outs",
+   "POST /site/people/resolve",
+   "POST /site/practice",
+   "POST /site/remote",
+   "POST /site/sheets",
+   "POST /site/staff",
+   "POST /studies/{rs}/candidates/{pid}/referral",
+   "POST /studies/{rs}/candidates/{pid}/reveal",
+   "POST /studies/{rs}/conflicts/{cid}",
+   "POST /studies/{rs}/deviations",
+   "POST /studies/{rs}/edc/copy/{record}/tick",
+   "POST /studies/{rs}/edc/decide/{draft_id}",
+   "POST /studies/{rs}/edc/dictionary",
+   "POST /studies/{rs}/edc/drafts",
+   "POST /studies/{rs}/edc/import",
+   "POST /studies/{rs}/edc/map",
+   "POST /studies/{rs}/edc/send",
+   "POST /studies/{rs}/edc/sign",
+   "POST /studies/{rs}/edc/switch",
+   "POST /studies/{rs}/entry",
+   "POST /studies/{rs}/excluded/{pid}/review",
+   "POST /studies/{rs}/feasibility/refresh",
+   "POST /studies/{rs}/forms/builtin",
+   "POST /studies/{rs}/forms/dictionary",
+   "POST /studies/{rs}/identity",
+   "POST /studies/{rs}/irb",
+   "POST /studies/{rs}/irb-text",
+   "POST /studies/{rs}/irb/icf",
+   "POST /studies/{rs}/monitor/visits",
+   "POST /studies/{rs}/not-matched/check",
+   "POST /studies/{rs}/not-matched/sample/{pid}",
+   "POST /studies/{rs}/not-matched/{pid}/review",
+   "POST /studies/{rs}/patients/{pid}/mark",
+   "POST /studies/{rs}/patients/{pid}/outcome",
+   "POST /studies/{rs}/patients/{pid}/reveal",
+   "POST /studies/{rs}/profile",
+   "POST /studies/{rs}/redcap-read",
+   "POST /studies/{rs}/referrals/{ref_id}/answer",
+   "POST /studies/{rs}/referrals/{ref_id}/print",
+   "POST /studies/{rs}/sae/sync",
+   "POST /studies/{rs}/sae/{record}/{event}/ack",
+   "POST /studies/{rs}/sae/{record}/{event}/{what}",
+   "POST /studies/{rs}/schedule",
+   "POST /studies/{rs}/setup",
+   "POST /studies/{rs}/setup/contact",
+   "POST /studies/{rs}/setup/log",
+   "POST /studies/{rs}/setup/redcap",
+   "POST /studies/{rs}/setup/redcap/test",
+   "POST /studies/{rs}/setup/sae",
+   "POST /studies/{rs}/setup/scope",
+   "POST /studies/{rs}/setup/study",
+   "POST /studies/{rs}/sources/redcap",
+   "POST /studies/{rs}/sources/redcap/detach",
+   "POST /studies/{rs}/sources/redcap/undo",
+   "POST /studies/{rs}/sources/{name}/sync",
+   "POST /studies/{rs}/state",
+   "POST /studies/{rs}/state/take-back",
+   "POST /studies/{rs}/subjects/{record}/aes/{event}/ack",
+   "POST /studies/{rs}/subjects/{record}/step",
+   "POST /studies/{rs}/subjects/{record}/undo",
+   "POST /studies/{rs}/team",
+   "POST /studies/{rs}/team/check",
+   "POST /studies/{rs}/team/{eid}",
+   "PUT /api/edc/map",
+   "PUT /api/v1/studies/{rs}/edc/map",
+   "PUT /api/v1/studies/{rs}/records/{record}/forms/{form}",
+   "PUT /api/v1/studies/{rs}/schedule",
+   "PUT /api/v1/studies/{rs}/sources/redcap"
+  ]
+ },
+ "killed_mid_job": {
+  "killed": [
+   "ADX"
+  ],
+  "microbatch_states": [
+   "done",
+   "done"
+  ],
+  "place": "Orchestrator.run after a restart",
+  "work_runs": [
+   [
+    "MICROBATCH",
+    "ADX"
+   ],
+   [
+    "MICROBATCH",
+    "GZQO"
+   ],
+   [
+    "NAV",
+    "NHI1"
+   ],
+   [
+    "RETENTION",
+    null
+   ]
+  ]
+ },
+ "mail_race": {
+  "copies": 1,
+  "place": "Gateway.deliver, two threads",
+  "states": [
+   "SendUncertain",
+   "sent"
+  ]
+ },
+ "mail_refused_then_retry": {
+  "copies": 1,
+  "drains": [
+   {
+    "sent": 1
+   },
+   {}
+  ],
+  "final": "sent",
+  "place": "Gateway.deliver, Gateway.drain",
+  "states": [
+   "queued",
+   "queued"
+  ]
+ },
+ "mail_same_key": {
+  "copies": 1,
+  "place": "Gateway.deliver",
+  "states": [
+   "sent",
+   "duplicate"
+  ]
+ },
+ "mail_uncertain": {
+  "copies": 1,
+  "drains": [
+   {},
+   {}
+  ],
+  "final": "uncertain",
+  "place": "Gateway.deliver, Gateway.drain",
+  "states": [
+   "uncertain",
+   "uncertain"
+  ]
+ },
+ "night_twice": {
+  "chain_after": 4,
+  "chain_before": 4,
+  "place": "night.advance",
+  "work_runs": 4
+ },
+ "notices_race": {
+  "audit_console_notice": 4,
+  "kinds": [
+   "N2",
+   "N2",
+   "N1",
+   "N1"
+  ],
+  "mails": 4,
+  "route": "POST /ops/notices, two threads at once"
+ },
+ "notices_twice": {
+  "kinds": [
+   "N2",
+   "N1"
+  ],
+  "mails_after_first": 2,
+  "mails_after_second": 2,
+  "route": "POST /ops/notices",
+  "status": [
+   200,
+   200
+  ]
+ },
+ "outcome_twice": {
+  "audit_contact_outcome": 1,
+  "audit_refused": 1,
+  "outcomes": 1,
+  "route": "POST /studies/{rs}/patients/{pid}/outcome",
+  "status": [
+   303,
+   409
+  ]
+ },
+ "retry_race": {
+  "place": "Orchestrator.retry_scheduled, two threads",
+  "rounds": [
+   {
+    "answers": [
+     "made",
+     "made"
+    ],
+    "jobs_made": 2
+   },
+   {
+    "answers": [
+     "made",
+     "made"
+    ],
+    "jobs_made": 2
+   },
+   {
+    "answers": [
+     "made",
+     "made"
+    ],
+    "jobs_made": 2
+   },
+   {
+    "answers": [
+     "made",
+     "made"
+    ],
+    "jobs_made": 2
+   },
+   {
+    "answers": [
+     "made",
+     "made"
+    ],
+    "jobs_made": 2
+   }
+  ]
+ },
+ "retry_twice": {
+  "ingest_jobs": 2,
+  "place": "Orchestrator.retry_scheduled (D-474)",
+  "second_answer": "a INGEST job of the same study is already queued or running (01M7NE5NC22XG6C2KEXFBV8QX7)"
+ },
+ "run_done_again": {
+  "place": "Orchestrator.run",
+  "state": "done",
+  "work_added": 0
+ },
+ "step_twice": {
+  "audit_life_step": 1,
+  "route": "POST /studies/{rs}/subjects/{record}/step",
+  "status": [
+   303,
+   409
+  ],
+  "steps_added": 1
+ },
+ "timer_twice": {
+  "ingest_jobs": 2,
+  "place": "scheduler._submit (the timer)",
+  "work_runs": [
+   [
+    "MICROBATCH",
+    "ADX"
+   ],
+   [
+    "MICROBATCH",
+    "GZQO"
+   ],
+   [
+    "NAV",
+    "NHI1"
+   ],
+   [
+    "RETENTION",
+    null
+   ]
+  ]
+ },
+ "two_confirmers": {
+  "audit_confirmed": 10,
+  "codes": [
+   [
+    200,
+    409
+   ],
+   [
+    200,
+    409
+   ],
+   [
+    200,
+    409
+   ],
+   [
+    200,
+    409
+   ],
+   [
+    200,
+    409
+   ],
+   [
+    200,
+    409
+   ],
+   [
+    200,
+    409
+   ],
+   [
+    200,
+    409
+   ],
+   [
+    200,
+    409
+   ],
+   [
+    200,
+    409
+   ]
+  ],
+  "own_two_tabs": [
+   403,
+   403
+  ],
+  "repetitions": 10,
+  "route": "POST /ops/accounts/requests"
+ },
+ "withdrawal_twice": {
+  "route": "POST /studies/{rs}/entry (tb_withdrawal)",
+  "second_says_saved": true,
+  "status_second": 200,
+  "values_added_by_second": 0,
+  "withdrawn_steps": 1
+ }
+}
