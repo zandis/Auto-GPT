@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-233 entries: 87 erase, 29 keep, 117 no patient data. 26 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+234 entries: 88 erase, 29 keep, 117 no patient data. 27 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -43,6 +43,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `orch.jobs` | T-206b | the clear | a job's request may name a pseudonym (CASE, a reveal) |
 | `outside:backups` | T-206b | the backups (with T-728) | every backup: the databases, the lake, the FHIR store |
 | `outside:fhir_store` | T-206b | the clear | the FHIR store (HAPI, database hapi): every resource of the patient |
+| `outside:provenance_index` | D-989 | the opt-out worker's clear of the use rows, once the role script grants its role DELETE (lane D) | D-989 point 5: the provenance index (schema provenance: model_calls, model_uses), derived from the audit chain and rebuilt from it; a use row names a patient by pseudonym and goes at the opt-out (tb_common.provenance_index.erase; a rebuild leaves an opted-out patient out); the call rows name no patient |
 | `outside:sitesetup_space_omop` | T-206b | the opt-out's clear in a practice space's store | the OMOP store of a site set-up space other than the hospital's (schema omop_<hash of the space's lake folder>, made by a publish while the lake is built from OMOP), and that space's own lake (its site files and snapshot keep a deleted chart's text until the space is published again, D-869): the space's uploaded patients; Reset of the space drops it whole (D-714) |
 | `pidmap.identity` | T-206b | the crypto-shred of the opted-out identity | the encrypted identity of the patient |
 | `recall.recall_known_positive` | T-206b | both columns, with the certificate not adding the patient again (the review of D-866) | pid_hash and draw_id: an unsalted hash of the pseudonym, linkable |

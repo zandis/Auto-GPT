@@ -1950,6 +1950,40 @@ def check_terminology(inp: DoctorInputs) -> Check:
     return Check("terminology", "PASS", "; ".join(said) + rest)
 
 
+def check_provenance_index(inp: DoctorInputs) -> Check:
+    """D-989 step 2c: the provenance index (``provenance.model_calls``, ``provenance.model_uses``) against the audit
+    chain it is derived from. A difference is FAIL: the chain wins, and ``trialbox provenance --rebuild`` writes the
+    index again. Not installed yet (the role script creates the tables) is WARN; no database named here is NOT
+    CHECKED."""
+    from tb_common import provenance_index as idx
+
+    url = str(inp.env.get("TB_DB_URL") or "")
+    if not url:
+        return Check(
+            "provenance_index", "PASS", "NOT CHECKED: no TB_DB_URL (run trialbox provenance --check on the box)"
+        )
+    from tb_common.audit_writer import _dsn, _psycopg
+
+    from tools.trialbox.provenance import _erased
+
+    try:
+        con = _psycopg().connect(_dsn(url), autocommit=True, connect_timeout=10)
+    except Exception as exc:
+        return Check("provenance_index", "WARN", f"the database did not answer ({type(exc).__name__})")
+    try:
+        if not idx.installed(con):
+            why = ("not installed: the role script creates provenance.model_calls and provenance.model_uses (D-989 "
+                   "step 2c); until then the chain is written without the index")  # fmt: skip
+            return Check("provenance_index", "WARN", why)
+        diff = idx.check(con, Path(str(inp.env.get("TB_AUDIT_DIR") or "/data/audit")), _erased(url))
+    finally:
+        con.close()
+    if not diff.ok:
+        return Check("provenance_index", "FAIL", f"{len(diff.missing)} row(s) missing, {len(diff.extra)} extra against "
+                     "the chain: the chain wins; run trialbox provenance --rebuild")  # fmt: skip
+    return Check("provenance_index", "PASS", "equal to the audit chain")
+
+
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_topology,
     check_env_class_ceiling,
@@ -1987,6 +2021,7 @@ CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (
     check_wsl2_versions,
     check_backup_speed,
     check_terminology,
+    check_provenance_index,
 )
 
 
