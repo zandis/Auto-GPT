@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# TrialBox: the install's first command (H-22, D-996; RUNBOOK §1). It runs from the USB stick, before the release's
+# host tree or any TrialBox file is on the machine, and needs only what Ubuntu 24.04 has: tar, base64, openssl,
+# sha256sum and python3's standard library.
+#
+#   sudo bash trialbox-bootstrap.sh trialbox-<version>.tar --pub <vendor_ed25519.pub, given apart from the stick> \
+#       -- --tier large --answers <folder>/site.yaml
+#
+# Before it runs, RUNBOOK §1 checks this file's own signature (trialbox-bootstrap.sh.sig beside it, the vendor key's
+# raw Ed25519 signature) with openssl. Then, in order, and nothing is written until the first two pass:
+#   1. the bundle's manifest.json.sig checks with the vendor key given out of band (nothing of the manifest is read
+#      before it does);
+#   2. files/trialbox-host.tar, the release's host tree, has the sha256 the signed manifest names;
+#   3. the tree goes to /opt/trialbox, unpacked beside it and moved whole, never over a folder that holds anything
+#      else. A folder that already holds a TrialBox tree is kept: the installer replaces it from the signed bundle;
+#   4. the key goes to /opt/trialbox/deploy/keys/vendor_ed25519.pub, where the installer's first step looks for it
+#      (refused if a different key is already there);
+#   5. deploy/install.sh runs with the bundle and the arguments after `--`.
+# Run it again at any time (an install that stopped is run again by the same command): nothing it did is done twice.
+#
+# Knobs for the tests only: TB_BOOTSTRAP_NO_ROOT=1, TB_BOOTSTRAP_ROOT (/opt/trialbox).
+set -euo pipefail
+die() { echo "trialbox-bootstrap: $*" >&2; exit 1; }
+usage() {
+  echo "usage: sudo bash trialbox-bootstrap.sh trialbox-<version>.tar --pub <vendor key> [-- <install.sh options>]" >&2
+  exit 2
+}
+BUNDLE=""; PUB=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --pub) [ -n "${2:-}" ] || usage; PUB="$2"; shift ;;
+    --) shift; break ;;
+    -h|--help) sed -n 2,20p "$0"; exit 0 ;;
+    -*) echo "trialbox-bootstrap: unknown option $1 (the installer's options go after --)" >&2; usage ;;
+    *) [ -z "$BUNDLE" ] || usage; BUNDLE="$1" ;;
+  esac
+  shift
+done
+[ -n "$BUNDLE" ] && [ -n "$PUB" ] || usage
+[ "${TB_BOOTSTRAP_NO_ROOT:-0}" = 1 ] || [ "$(id -u)" = 0 ] || die "run it as root (sudo bash $0 ...)"
+[ -f "$BUNDLE" ] || die "no such bundle: $BUNDLE"
+[ -f "$PUB" ] || die "--pub: no such file: $PUB"
+for tool in tar base64 openssl sha256sum python3; do
+  command -v "$tool" >/dev/null || die "this machine has no $tool (Ubuntu 24.04 has it: RUNBOOK §1 step 1)"
+done
+BUNDLE="$(cd "$(dirname "$BUNDLE")" && pwd)/$(basename "$BUNDLE")"
+ROOT="${TB_BOOTSTRAP_ROOT:-/opt/trialbox}"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+# ----------------------------------------------------------------------------------------- 1. the signed manifest
+tar -xf "$BUNDLE" -C "$WORK" --no-same-owner manifest.json manifest.json.sig 2>/dev/null \
+  || die "$(basename "$BUNDLE") is not a TrialBox bundle (no manifest.json and manifest.json.sig)"
+base64 -d "$WORK/manifest.json.sig" > "$WORK/sig.raw" 2>/dev/null || die "manifest.json.sig is not base64"
+openssl pkeyutl -verify -pubin -inkey "$PUB" -rawin -in "$WORK/manifest.json" -sigfile "$WORK/sig.raw" >/dev/null 2>&1 \
+  || die "the bundle's signature does not check with the vendor key $PUB: the bundle is refused"
+echo "bundle: signed by the vendor key (sha256 of the key: $(sha256sum "$PUB" | cut -c1-16))"
+
+# ----------------------------------------------------------------------------------------------- 2. the host tree
+HOST="$(python3 -I -c '
+import json, re, sys
+hosts = [f for f in json.load(open(sys.argv[1], encoding="utf-8"))["files"] if f.get("kind") == "host"]
+if len(hosts) != 1 or not re.fullmatch(r"[A-Za-z0-9._-]+", hosts[0]["path"]) \
+        or not re.fullmatch(r"[0-9a-f]{64}", hosts[0]["sha256"]):
+    sys.exit("the signed manifest names no single host tree")
+print(hosts[0]["path"], hosts[0]["sha256"])
+' "$WORK/manifest.json")" || die "the signed manifest names no host tree (a bundle from before T-631)"
+HOST_NAME="${HOST% *}"; HOST_SHA="${HOST#* }"
+tar -xf "$BUNDLE" -C "$WORK" --no-same-owner "files/$HOST_NAME" 2>/dev/null || die "the bundle carries no files/$HOST_NAME"
+[ "$(sha256sum "$WORK/files/$HOST_NAME" | cut -d' ' -f1)" = "$HOST_SHA" ] \
+  || die "files/$HOST_NAME does not have the sha256 the signed manifest names: the bundle is refused"
+
+# ---------------------------------------------------------------------------------------------- 3. /opt/trialbox
+if [ -f "$ROOT/deploy/install.sh" ]; then
+  echo "kept: $ROOT already holds a TrialBox host tree (the installer replaces it from the signed bundle)"
+elif [ -e "$ROOT" ] && [ -n "$(ls -A "$ROOT" 2>/dev/null)" ]; then
+  die "$ROOT exists and is not a TrialBox host tree: it is not replaced"
+else
+  part="$ROOT.unpacking"   # unpacked beside the folder and moved whole: an interrupted unpack never looks like a tree
+  rm -rf "$part"
+  mkdir -p "$part"
+  tar -xf "$WORK/files/$HOST_NAME" -C "$part" --no-same-owner || die "the host tree did not unpack"
+  [ -f "$part/deploy/install.sh" ] || { rm -rf "$part"; die "the host tree carries no deploy/install.sh"; }
+  [ ! -d "$ROOT" ] || rmdir "$ROOT"   # an empty folder only (checked above)
+  mv "$part" "$ROOT"
+  echo "unpacked: the release's host tree to $ROOT"
+fi
+
+# ------------------------------------------------------------------------------------------------- 4. the key
+KEY="$ROOT/deploy/keys/vendor_ed25519.pub"
+if [ -f "$KEY" ]; then
+  cmp -s "$KEY" "$PUB" || die "the vendor key already at $KEY differs from $PUB: nothing was changed"
+else
+  mkdir -p "$(dirname "$KEY")"
+  cp "$PUB" "$KEY"
+  chmod 0644 "$KEY"
+  echo "placed: the vendor key at $KEY"
+fi
+
+# -------------------------------------------------------------------------------------------- 5. the installer
+cd "$ROOT"
+echo "running: $ROOT/deploy/install.sh $BUNDLE $*"
+exec bash "$ROOT/deploy/install.sh" "$BUNDLE" "$@"
