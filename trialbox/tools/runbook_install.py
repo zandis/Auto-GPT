@@ -3,7 +3,7 @@
     python -m tools.runbook_install extract [--json]            # the runbook's commands, in order, with their place
     python -m tools.runbook_install plan                        # the install path the follower walks (D-1136)
     python -m tools.runbook_install static                      # the findings the runbook's text alone shows
-    python -m tools.runbook_install follow --bundle B --vendor-pub K --out run.json [--machine container|vm|local]
+    python -m tools.runbook_install follow --bundle B --vendor-pub K --out run.json [--machine container|vm]
     python -m tools.runbook_install compare run.json            # the run against the committed findings file
     python -m tools.runbook_install bundle                      # the vendor side only: a site bundle from a commit
     python -m tools.runbook_install run [--bundle B --vendor-pub K]   # make runbook-install: the container run
@@ -502,8 +502,10 @@ class LocalMachine:
         # text in the installer's output that means the machine's stand-ins serve no more (a machine stop, never a
         # finding): the unit test's machine has a stand-in docker and a bundle with the host tree only
         self.extra_env, self.stand_in_markers = extra_env or {}, stand_in_markers
-        if opt != Path("/opt"):  # deploy/bootstrap.sh's knobs for a stand-in machine (it names /opt/trialbox itself)
-            self.extra_env = {"TB_BOOTSTRAP_ROOT": str(opt / "trialbox"), "TB_BOOTSTRAP_NO_ROOT": "1", **self.extra_env}
+        if opt != Path("/opt") and str(opt / "trialbox") not in self.extra_env.values():
+            # deploy/bootstrap.sh names /opt/trialbox itself: a stand-in machine is refused unless the caller (the
+            # test) gives the bootstrap's own test knobs pointing at its stand-in /opt/trialbox
+            raise ValueError(f"a stand-in machine needs the bootstrap's knobs pointing at {opt / 'trialbox'}")
 
     def _map(self, p: str) -> str:
         if self.opt == Path("/opt"):  # the machine itself (a clean VM): the paths are the real ones
@@ -1109,9 +1111,7 @@ def _cmd_follow(a: argparse.Namespace) -> int:
             raise SystemExit(f"--machine vm runs as root on a machine whose {OPT} is absent or empty")
         m = LocalMachine(Path("/opt"), os.environ.get("PATH", ""), name="vm")
     else:
-        opt = work / "opt"
-        opt.mkdir(exist_ok=True)
-        m = LocalMachine(opt, os.environ.get("PATH", ""))
+        raise SystemExit(f"--machine {a.machine}: container or vm (the stand-in machine is the unit test's)")
     t0 = time.monotonic()
     bundle = Path(a.bundle).resolve()
     sidecar = Path(f"{bundle}.sha256")
@@ -1375,7 +1375,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     f.add_argument("--vendor-pub", required=True)
     f.add_argument("--out", required=True)
     f.add_argument("--work", default=WORK_DEFAULT)
-    f.add_argument("--machine", choices=["container", "vm", "local"], default="container")
+    f.add_argument("--machine", choices=["container", "vm"], default="container")
     f.add_argument("--image", default="trialbox-runbook-host:24.04")
     f.add_argument("--container", default="tb-runbook-host")
     f.add_argument("--strict", action="store_true", help="no lifts: stop at the verdict")

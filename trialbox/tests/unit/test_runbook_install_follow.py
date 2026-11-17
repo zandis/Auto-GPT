@@ -163,9 +163,13 @@ def _unit_machine(tmp: Path) -> tuple[ri.LocalMachine, Path, Path]:
     (bin_dir / "docker").chmod(0o755)
     (tmp / "opt").mkdir()
     path = f"{bin_dir}:{Path(sys.executable).parent}:/usr/bin:/bin"
+    # deploy/bootstrap.sh's test knobs (as test_runbook_install_commands gives them): its /opt/trialbox is the
+    # stand-in's, and it runs without root
+    knobs = {"TB_BOOTSTRAP_ROOT": str(tmp / "opt/trialbox"), "TB_BOOTSTRAP_NO_ROOT": "1"}
     m = ri.LocalMachine(
         tmp / "opt",
         path,
+        extra_env=knobs,
         name="unit",
         stand_in_markers=("runbook-follower stand-in", "the bundle carried no trialbox-py"),
     )
@@ -207,6 +211,11 @@ def test_strict_follow_needs_no_lift_on_the_unit_machine(tmp_path: Path) -> None
     rec = ri.Follower(m, bundle=bundle, vendor_pub=pub, work=tmp_path / "work", lifts=False).follow()
     assert rec.lifts == [] and rec.findings == [] and rec.machine_stop
     assert [s["step"] for s in rec.steps if "rc" in s] == ["one-command"]
+
+
+def test_a_stand_in_machine_without_the_bootstrap_knobs_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="bootstrap's knobs"):
+        ri.LocalMachine(tmp_path / "opt", "/usr/bin:/bin")
 
 
 def test_compare_fails_on_a_vanished_and_on_a_new_finding() -> None:
