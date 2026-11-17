@@ -1,0 +1,137 @@
+{
+ "card": "H-22",
+ "decision": "D-1136",
+ "runbook": [
+  "docs/RUNBOOK.md",
+  "docs/runbook/01-install-a-new-site.md"
+ ],
+ "note": "Written by hand from the runs; held by tests/unit/test_runbook_install_follow.py. seen_on: the machines whose follower run shows the finding (unit: the unit test's stand-in machine; container: the rehearsal's clean host; vm: a clean VM, not run).",
+ "findings": [
+  {
+   "id": "no-host-tree",
+   "place": "docs/runbook/01-install-a-new-site.md:28",
+   "says": "With the vendor's signed bundle on a USB stick:",
+   "kind": "silent",
+   "severity": "stops the install",
+   "needed": "the release's host tree (deploy/install.sh, tools/, libs/) in /opt/trialbox before the one command: the bundle carries it as files/trialbox-host.tar; only the Windows media page (docs/handover/OFFLINE-MEDIA.md:34) and the box form (§16:181) say it is unpacked to /opt/trialbox",
+   "happened": "the one command, run from /opt/trialbox as the hub says, finds no deploy/install.sh",
+   "static": true,
+   "step": "one-command",
+   "seen_on": [
+    "unit"
+   ]
+  },
+  {
+   "id": "vendor-key-after-start",
+   "place": "docs/runbook/01-install-a-new-site.md:111",
+   "says": "Install `deploy/keys/vendor_ed25519.pub`, received out of band.",
+   "kind": "wrong",
+   "severity": "stops the install",
+   "needed": "the vendor key at deploy/keys/vendor_ed25519.pub before the one command: the installer checks it in its first (host) step",
+   "happened": "the installer stops: 'vendor public key missing: copy vendor_ed25519.pub (from the vendor, out of band) to .../deploy/keys/vendor_ed25519.pub'; the one command's paragraph never names the key and the numbered list puts it at step 6, after step 5's start",
+   "static": true,
+   "step": "one-command",
+   "seen_on": [
+    "unit"
+   ]
+  },
+  {
+   "id": "stub-fragment-vs-tier",
+   "place": "docs/runbook/01-install-a-new-site.md:35",
+   "says": "`--mode stub` installs a box without a GPU.",
+   "kind": "silent",
+   "severity": "slows the reader",
+   "needed": "on a box without a GPU: the one command with --mode stub in place of --tier large",
+   "happened": "added to the one command as written, the installer refuses it ('--tier needs the GPU: drop --mode stub'); its own exit-3 message, not the runbook, says to install without a tier",
+   "static": true,
+   "step": "one-command",
+   "seen_on": [
+    "unit"
+   ]
+  },
+  {
+   "id": "unmentioned-questions",
+   "place": "docs/runbook/01-install-a-new-site.md:28",
+   "says": "sudo deploy/install.sh trialbox-<version>.tar --tier large --answers site.yaml",
+   "kind": "silent",
+   "severity": "slows the reader",
+   "needed": "to know the installer asks questions even with --answers (the one command has no --yes)",
+   "happened": "(container run) the installer asks a question §1 does not name",
+   "static": true,
+   "step": "one-command",
+   "seen_on": []
+  },
+  {
+   "id": "python-not-python3",
+   "place": "docs/runbook/01-install-a-new-site.md:101",
+   "says": "check it against an export with `python tools/mapping_check.py --mapping",
+   "kind": "wrong",
+   "severity": "slows the reader",
+   "needed": "an interpreter named python3 on Ubuntu 24.04, with the release's Python packages and libs/ on its path (step 1 names neither)",
+   "happened": "(container run) `python` is not found on the box",
+   "static": true,
+   "step": "4-mapping-check",
+   "seen_on": []
+  },
+  {
+   "id": "host-packages-unnamed",
+   "place": "docs/runbook/01-install-a-new-site.md:73",
+   "says": "Ubuntu 24.04 LTS on LUKS2 with TPM2 unlock, swap off, Docker Engine 27+, nftables",
+   "kind": "silent",
+   "severity": "slows the reader",
+   "needed": "the compose plugin and python3 with PyYAML (the installer's HOST-PYTHON check), curl (the console check) and cron (both cron files): the box rehearsal's clean host (tools/rehearse_box/host.Dockerfile) installs docker-compose-v2, python3, python3-yaml, python3-cryptography, cron, curl",
+   "happened": "not run on a host without them (the follower's machine is the rehearsal's host); the installer names the compose plugin and python3-yaml when they are missing",
+   "static": true,
+   "step": null,
+   "seen_on": []
+  },
+  {
+   "id": "compose-cwd-unstated",
+   "place": "docs/runbook/01-install-a-new-site.md:112",
+   "says": "`docker compose exec adapter python -m adapter.cli run`, or wait for 02:00.",
+   "kind": "wrong",
+   "severity": "slows the reader",
+   "needed": "the compose project folder: the installer's own closing lines say `docker compose --project-directory deploy exec adapter python -m adapter.cli run`",
+   "happened": "(container run) from /opt/trialbox compose finds no project",
+   "static": true,
+   "step": "7-first-ingest",
+   "seen_on": []
+  },
+  {
+   "id": "ingest-report-in-volume",
+   "place": "docs/runbook/01-install-a-new-site.md:114",
+   "says": "`/data/lake/ndjson/<date>/ingest_report.json`",
+   "kind": "silent",
+   "severity": "slows the reader",
+   "needed": "how to read a file that is inside the lake's volume (a compose exec, or the volume's path on the host)",
+   "happened": "(container run) the path is not on the host",
+   "static": true,
+   "step": "7-ingest-report",
+   "seen_on": []
+  },
+  {
+   "id": "site-folder-place-unstated",
+   "place": "docs/runbook/01-install-a-new-site.md:54",
+   "says": "A folder with the answers file and the site's mapping beside it:",
+   "kind": "silent",
+   "severity": "slows the reader",
+   "needed": "where the site's folder goes: the one command's --answers site.yaml is relative to /opt/trialbox, and the installer copies mapping/ from beside the answers file",
+   "happened": "the follower placed site.yaml and mapping/ in /opt/trialbox, the only place the one command's relative path names",
+   "static": true,
+   "step": null,
+   "seen_on": []
+  },
+  {
+   "id": "feed-folder-content-unstated",
+   "place": "docs/runbook/01-install-a-new-site.md:57",
+   "says": "The answers name the feed folder on the host (`data_source_host_dir`",
+   "kind": "silent",
+   "severity": "slows the reader",
+   "needed": "that the feed folder must exist (with the hospital's export) before the one command, and who puts it there",
+   "happened": "the follower copied the synthetic export to the answers' folder (deploy/site/feed-a) before the one command",
+   "static": true,
+   "step": null,
+   "seen_on": []
+  }
+ ]
+}

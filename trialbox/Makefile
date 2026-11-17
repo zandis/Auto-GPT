@@ -18,7 +18,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: differential cross-card objects-dir embed-start public-data security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
+.PHONY: differential cross-card objects-dir embed-start public-data security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box runbook-install test-console test-console-e2e site site-preview clean \
 	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle supply-chain release-version release-tag media-linux
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
@@ -485,6 +485,12 @@ poc-status:
 # install.sh --tier large in a clean Ubuntu 24.04 container, strict vLLM stand-ins for the GPU (tools/vllm_standin.py)
 rehearse-box:
 	PY=$(PY) tools/rehearse_box/rehearse.sh
+
+# H-22 (D-1136): the install runbook (RUNBOOK hub + §1) followed alone, beside the box rehearsal: the rehearsal's clean
+# Ubuntu host image, a site bundle made the vendor's way, the box images cleared; records time, commands and findings
+# and compares them with docs/plan/measurements/runbook-install-2026-11-17/findings.json. Needs make images, trivy-db
+runbook-install:
+	PYTHONPATH=libs:services:. $(PY) -m tools.runbook_install run --py $(PY) $(RUNBOOK_INSTALL_ARGS)
 
 test-console:
 	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q tests/console
