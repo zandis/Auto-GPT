@@ -44,6 +44,9 @@ CASES = [
     "oom",
     "list-differs",
     "identity-differs",
+    "gate-closed",
+    "gate-401",
+    "gate-never",
 ]
 
 pytestmark = pytest.mark.skipif(

@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "2d35403676d1afe8c82724a28b53d0502ddd7a83",
+  "head": "24d6a78f44cbf94542108343570279d3d093fce2",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "D-914: an inclusion's FALSE (or an exclusion's TRUE under none) for a patient with no coded record of the atom's kind reads unknown (no_record_of_kind), never an exclusion",
+  "reason": "lane G B1 (P1b review): public-en birth date = visit minus stated age; chart 70000014 (sigir-201414, 85-year-old) is 85 at the run date, not 86, so df261f5f meets AD-MAB-INC-01 (50-85) and is a candidate",
   "ref_date": "2026-11-01",
   "ruleset": "AD-MAB",
   "ruleset_version": "1.0.0",
@@ -23,10 +23,11 @@
     "5495673bc813284ec62b11de2f1848b2",
     "9282f5aaf4a56a6cb01c1004b674b23b",
     "c16e9aa86a14af8f903980c6720d2e3e",
-    "d51950f360a76c53dd7bd9672fcf1fdd"
+    "d51950f360a76c53dd7bd9672fcf1fdd",
+    "df261f5f5065731b2bf2a0fa5d864105"
    ],
-   "candidates": 10,
-   "outcomes_sha": "d361e29aedbe172168ac62a4aeb3312392652008a1dc6110de43d28b24a287ca",
+   "candidates": 11,
+   "outcomes_sha": "f77122da004ef045bd3a2de80c071c562a64aab684c9b56521d7af5045b88eac",
    "patients": 53,
    "structured_criteria": [
     "AD-MAB-INC-01",
@@ -52,8 +53,8 @@
      "unknown": 53
     },
     "AD-MAB-INC-01": {
-     "met": 18,
-     "not_met": 34,
+     "met": 19,
+     "not_met": 33,
      "unknown": 1
     },
     "AD-MAB-INC-02": {

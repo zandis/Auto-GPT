@@ -113,17 +113,40 @@ def answer_of(answers: dict[str, Any], ruleset: str, pid: str) -> tuple[str, dic
     return "listed", p
 
 
+def criterion_says_excluded(crits: list[dict[str, Any]]) -> set[tuple[str, str]]:
+    """(mrn, ruleset) of every pair whose own criterion labels exclude the patient: an inclusion "not included" or an
+    exclusion "excluded" (the physicians' criterion-level reading)."""
+    return {
+        (str(c["mrn"]), str(c["ruleset"]))
+        for c in crits
+        if c.get("mrn") and c.get("ruleset") and (c.get("kind"), c.get("label")) in BLOCK_RIGHT
+    }
+
+
 def score_pairs(
-    ids: dict[str, Any], pairs: list[dict[str, Any]], answers: dict[str, Any], key: bytes | None = None
+    ids: dict[str, Any],
+    pairs: list[dict[str, Any]],
+    answers: dict[str, Any],
+    key: bytes | None = None,
+    crits: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Pair-level table per (language, stratum, gold label)."""
+    """Pair-level table per (language, stratum, gold label).
+
+    S1 (P1b review): a pair whose label is ``eligible`` while its own criterion labels exclude the patient (an
+    inclusion not met, an exclusion met) is a conflict inside the gold. Those pairs are counted on their own
+    (``label_conflicts``), with what the box answered, and the box's exclusions of them are said apart from
+    ``eligible_lost`` (2 of sigir's 4 "eligible lost" in P1b agreed with the physicians' criterion labels)."""
     lang_of = ids.get("lang") or {}
     cells: dict[tuple[str, str, str], Counter[str]] = defaultdict(Counter)
+    by_crit = criterion_says_excluded(crits or [])
+    conflicts: dict[str, Counter[str]] = defaultdict(Counter)
     for g in pairs:
         if not g.get("mrn") or not g.get("ruleset"):
             continue
         got, _ = answer_of(answers, g["ruleset"], pid_of(g["mrn"], key))
         cells[(lang_of.get(g["ruleset"], "?"), g.get("stratum") or "", g["label"])][got] += 1
+        if g["label"] == "eligible" and (str(g["mrn"]), str(g["ruleset"])) in by_crit:
+            conflicts[lang_of.get(g["ruleset"], "?")][got] += 1
     rows = []
     for (lang, stratum, label), c in sorted(cells.items()):
         n = sum(c.values())
@@ -136,7 +159,20 @@ def score_pairs(
                 **{k: c[k] for k in ("excluded", "listed", "open", "unanswered")},
             }
         )
-    return {"rows": rows, "summary": summarise(rows)}
+    summary = summarise(rows)
+    for lang, c in conflicts.items():
+        if lang in summary:
+            summary[lang]["eligible_lost_where_the_criterion_labels_exclude"] = c["excluded"]
+    return {
+        "rows": rows,
+        "summary": summary,
+        "label_conflicts": {
+            "what": "pairs labelled eligible whose own criterion labels exclude the patient (inclusion not included, "
+            "or exclusion excluded): a conflict inside the gold, with the box's answer",
+            "by_lang": {lang: {"pairs": sum(c.values()), **dict(c)} for lang, c in sorted(conflicts.items())},
+            "pairs": sum(sum(c.values()) for c in conflicts.values()),
+        },
+    }
 
 
 def summarise(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -233,8 +269,17 @@ def score_criteria(
             got = "unanswered"
         else:
             v = next((x for x in p.get("verdicts") or [] if x.get("id") == c["id"]), None)
-            verdict = str((v or {}).get("verdict") or "absent")
-            got = "block" if verdict == "fail" else "open" if verdict in OPEN_VERDICTS else "no_block"
+            verdict = str((v or {}).get("verdict") or "")
+            # S2 (P1b review): a matched row with no verdict is "no verdict", never a "no block"
+            got = (
+                "no_verdict"
+                if not verdict
+                else "block"
+                if verdict == "fail"
+                else "open"
+                if verdict in OPEN_VERDICTS
+                else "no_block"
+            )
             if v is not None and sentences is not None:
                 hit = evidence_hit(v.get("quote"), sentences.get(g["patient"]) or [], g.get("evidence") or [])
                 evid["no quote or no ids" if hit is None else "in a deciding sentence" if hit else "elsewhere"] += 1
@@ -271,7 +316,57 @@ def score_criteria(
         "wrong_exclusion": rate(blocks_wrong, n_wrongable),
         "caught": rate(caught, n_catchable),
         "not_compiled": sum(r.get("not_compiled", 0) for r in rows),
+        "no_verdict": sum(int(r.get("no_verdict", 0)) for r in rows),
         "evidence": dict(evid),
+    }
+
+
+# ---------------------------------------------------------------- lines the benchmark wrote (S3, S4)
+def _fails(p: dict[str, Any], cid: Any) -> bool:
+    return any(v.get("id") == cid and v.get("verdict") == "fail" for v in p.get("verdicts") or [])
+
+
+def score_written(
+    ids: dict[str, Any], written: dict[str, list[str]], answers: dict[str, Any], crits: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """S3, S4 (P1b review): the lines the benchmark wrote into a protocol that no gold row judges (the placed age and
+    sex lines; JMED's coded "20歳以上") are invisible at criterion level, yet the box excludes patients by them. Per
+    line matched to its compiled criterion: the patients the box answered, those it blocked on that line, and of
+    those the excluded ones; a line not compiled is said. Patients are counted once per protocol and in all."""
+    lang_of = ids.get("lang") or {}
+    judged = {(str(c.get("ruleset")), " ".join(str(c.get("text") or "").split()).lower()) for c in crits}
+    rows: list[dict[str, Any]] = []
+    excluded_by_written: set[tuple[str, str]] = set()
+    for rs, lines in sorted(written.items()):
+        a = answers.get(rs) or {}
+        draft = a.get("draft") or []
+        pats = a.get("patients") or {}
+        for line in lines:
+            if (rs, " ".join(line.split()).lower()) in judged:
+                continue  # a gold row judges it: the criterion table has it
+            c = match_criterion(line, draft, "inclusion")
+            row: dict[str, Any] = {"ruleset": rs, "lang": lang_of.get(rs, "?"), "line": line}
+            if c is None:
+                rows.append({**row, "compiled": False})
+                continue
+            cid = c["id"]
+            blocked = [pid for pid, p in pats.items() if _fails(p, cid)]
+            excl = [pid for pid in blocked if (pats[pid] or {}).get("tier") == "excluded"]
+            excluded_by_written |= {(rs, pid) for pid in excl}
+            rows.append({**row, "compiled": True, "class": c.get("class"), "answered": len(pats),
+                         "blocked": len(blocked), "excluded": len(excl)})  # fmt: skip
+    by_lang: dict[str, Counter[str]] = defaultdict(Counter)
+    for r in rows:
+        by_lang[r["lang"]]["lines"] += 1
+        by_lang[r["lang"]]["blocked"] += int(r.get("blocked", 0))
+        by_lang[r["lang"]]["excluded"] += int(r.get("excluded", 0))
+        by_lang[r["lang"]]["not_compiled"] += 0 if r["compiled"] else 1
+    return {
+        "what": "patients the box excluded on a line the benchmark wrote (no gold row judges it): placed age and sex "
+        "lines, JMED's coded age line",
+        "rows": rows,
+        "summary": {lang: dict(c) for lang, c in sorted(by_lang.items())},
+        "patients_excluded": len(excluded_by_written),
     }
 
 
@@ -357,7 +452,7 @@ def score(built: Path, work: Path, key: bytes | None = None) -> dict[str, Any]:
     ids, pairs, crits, answers = load(built, work)
     out: dict[str, Any] = {"set": ids.get("set"), "what": "joined by ids after the run; the gold was not in the box"}
     if pairs:
-        out["pairs"] = score_pairs(ids, pairs, answers, key)
+        out["pairs"] = score_pairs(ids, pairs, answers, key, crits)
     if crits:
         sents = None
         if ids.get("set") == "sigir":
@@ -365,6 +460,11 @@ def score(built: Path, work: Path, key: bytes | None = None) -> dict[str, Any]:
 
             sents = json.loads((CRITERION_ML / "notes_en.json").read_text(encoding="utf-8"))
         out["criteria"] = score_criteria(ids, crits, answers, sents, key)
+    wf = built / "gold" / "written.json"
+    if wf.exists():  # S3, S4 (a set built before the file existed has no such row)
+        written = json.loads(wf.read_text(encoding="utf-8"))
+        if written:
+            out["written_lines"] = score_written(ids, written, answers, crits)
     if ids.get("pair_of"):
         out["compile_pairs"] = score_compile_pairs(ids, answers)
     if (built / "gold" / "compile_gold.json").exists() and json.loads(

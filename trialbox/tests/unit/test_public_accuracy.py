@@ -91,7 +91,7 @@ def test_criteria_lines_split_ncbi_bullets_and_numbered_zh() -> None:
 
 def test_placed_age_and_sex_lines() -> None:
     inc, notes = sets.placed_lines("18 Years", "6 Months", "FEMALE")
-    assert inc == ["Aged 18 years or older", "Age <= 0.5 years", "Female participants only"] and notes
+    assert inc == ["Aged 18 years or older", "Age <= 6 months", "Female participants only"] and notes  # B2: unit kept
     assert sets.placed_lines(None, "N/A", "ALL") == ([], [])
 
 

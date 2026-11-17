@@ -427,7 +427,20 @@ Owner's yes first for anything but `--estimate` and `--dry-run`.
   box reads its release record (no rehearsal mark, D-726; not dirty and the declared commit, D-633), then uploaded
   with its `.sha256` to `$TB_BUCKET/r2/<ID>/`. The git bundle of the release commit and the public key must be in
   the bucket first (`r2/<ID>/src.bundle`, `r2/keys/vendor_ed25519.pub`); the owner's one-time steps make the secret
-  and the account.
+  and the account. `--src-bundle FILE` proves the git bundle and uploads it. The proof clones it as the VM does
+  and checks the commit out. A build or dev launch needs it. Make one with
+  `python -m tools.box_run src-bundle --commit <full sha> --out FILE`.
+- **Preflight (free).** `deploy/gcp/box-run.sh --preflight` takes the launch's own options and makes no gcloud
+  call. It runs every free check, then stops before the first upload:
+  - the `--acc-protocols` filter against the set's ids under `--acc-rs-tag`, listed by `python -m tools.box_run
+    acc-ids`;
+  - `--acc-streams` and the set budgets;
+  - the full commit and the source bundle;
+  - the metadata;
+  - the validation-check.
+
+  A launch runs the same checks first and refuses before any upload or VM start.
+  See the GPU VM handover, section 4.0.
 - **Start (G-2).** From the uploaded bundle: its sha256 and every payload against the signed manifest (streamed),
   the host tree from the signed bundle as the installer's bootstrap, the vendor public key placed at
   `deploy/keys/vendor_ed25519.pub`, then `deploy/box-install.sh --prepare --yes`, then `--firstrun` with the
