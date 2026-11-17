@@ -37,7 +37,7 @@ NET = "https://www.googleapis.com/compute/v1/projects/p/global/networks/default"
 VM_TAGS = ["tb-gpu", "tb-gpu-door", "tb-session"]
 
 
-def _rules(**over: dict[str, Any]) -> list[dict[str, Any]]:
+def _rules(**over: dict[str, Any] | None) -> list[dict[str, Any]]:
     """The project's network as the hand-over describes it, with the session's two rules as box-run.sh makes them."""
     rules = {
         "tb-session-https": {"name": "tb-session-https", "network": NET, "direction": "INGRESS", "priority": 500,

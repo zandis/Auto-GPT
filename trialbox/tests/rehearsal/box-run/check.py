@@ -629,10 +629,15 @@ SESSION = ["50-acc-tools", "51-acc-settings", "51s-session-env", "52-acc-routes"
            "53h-session-hospital", "54-acc-ingest", "55-session-egress", "56-session-accounts", "57-session-open",
            "58-session-close"]  # fmt: skip
 if case.startswith("session"):
+    import importlib.util
     import re
 
-    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "deploy" / "gcp"))
-    import session_vm
+    _gcp = Path(__file__).resolve().parents[3] / "deploy" / "gcp"
+    sys.path.insert(0, str(_gcp))  # session_vm.py imports demo_vm.py beside it
+    _spec = importlib.util.spec_from_file_location("session_vm", _gcp / "session_vm.py")
+    assert _spec is not None and _spec.loader is not None
+    session_vm = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(session_vm)
 
     boots = sorted(S.glob("boot-*.out"))
     out = [b.read_text(errors="replace") for b in boots]
