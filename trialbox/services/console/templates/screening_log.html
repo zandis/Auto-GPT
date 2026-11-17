@@ -18,7 +18,7 @@
 <td>{% if r.mark %}{{ t('mark.' + r.mark.mark) }} · {{ r.mark.at|local(10) }}{% if r.version %} <span class="hint" data-testid="version-{{ r.no }}">{{ t('pre.under', version=r.version) }}</span>{% endif %}{% if r.mark.mark == 'approach' and r.referral and r.referral.state != 'agreed' %}<br><span class="pill warn" data-testid="paused-{{ r.no }}">{{ t('log.paused') }}</span>{% endif %}{% else %}–{% endif %}</td>
 <td>{% if r.outcome %}{{ t('outcome.' + r.outcome.outcome) }} · {{ r.outcome.at|local(10) }}{% if r.attempts > 1 %} ({{ t('log.attempts', n=r.attempts) }}){% endif %}{% else %}–{% endif %}</td>
 <td data-testid="referral-{{ r.no }}">{% if r.referral %}{{ t('team.route.' + r.referral.route) }} · {{ t('team.state.' + r.referral.state) }}{% if r.referral.reason %} ({{ t('team.decline.' + r.referral.reason) }}){% endif %}{% else %}–{% endif %}{% if r.override %}<br><span class="pill warn" data-testid="override-{{ r.no }}">{{ t('team.irb.overridden') }}</span>{% endif %}</td>
-<td data-state="{{ r.person.name }}" data-testid="status-{{ r.no }}">{{ t(r.person.key) }}{% if r.updated %} · {{ r.updated }}{% endif %}{% if r.reason_rc %} · <span class="hint">{{ t('log.from_redcap', r=r.reason_rc[0]) }}{% if r.reason_rc[1] %} ({{ r.reason_rc[1] }}){% endif %}</span>{% elif r.reason %} · <span class="hint">{{ r.reason }}</span>{% endif %}{% if r.failed %}<br><span data-testid="failed-{{ r.no }}">{{ t('pre.failed', c=r.failed) }}</span>{% endif %}</td>
+<td data-testid="status-{{ r.no }}">{{ t('registry.status.' + r.status) }}{% if r.updated %} · {{ r.updated }}{% endif %}{% if r.reason_rc %} · <span class="hint">{{ t('log.from_redcap', r=r.reason_rc[0]) }}{% if r.reason_rc[1] %} ({{ r.reason_rc[1] }}){% endif %}</span>{% elif r.reason %} · <span class="hint">{{ r.reason }}</span>{% endif %}{% if r.failed %}<br><span data-testid="failed-{{ r.no }}">{{ t('pre.failed', c=r.failed) }}</span>{% endif %}</td>
 <td class="nowrap" data-testid="consent-{{ r.no }}">{{ r.consented or '–' }}{% if r.icf_version %} <span class="hint">{{ t('pre.icf', v=r.icf_version) }}</span>{% endif %}</td>
 <td class="nowrap">{{ r.enrolled or '–' }}{% if r.randomised %}<br><span class="pill" data-testid="randomised-{{ r.no }}">{{ t('log.randomised') }}{% if r.randomised != 'yes' %} {{ r.randomised }}{% endif %}</span>{% endif %}</td>
 {% if link %}<td class="mono">{{ r.record_id or '–' }}</td><td class="mono">{{ r.subject_no or '–' }}</td>{% endif %}
@@ -38,7 +38,7 @@
 <td>{% if p.later %}{{ t('pre.later.' + p.later) }}{% else %}–{% endif %}</td>
 <td class="mono">{{ p.no or '–' }}</td>
 <td>{% if p.referral %}{{ t('team.route.' + p.referral.route) }} · {{ t('team.state.' + p.referral.state) }}{% if p.referral.reason %} ({{ t('team.decline.' + p.referral.reason) }}){% endif %}{% else %}–{% endif %}</td>
-<td data-state="{{ p.person.name }}">{{ t(p.person.key) }}{% if p.reason_rc %} · <span class="hint">{{ t('log.from_redcap', r=p.reason_rc[0]) }}{% if p.reason_rc[1] %} ({{ p.reason_rc[1] }}){% endif %}</span>{% elif p.reason %} · <span class="hint">{{ p.reason }}</span>{% endif %}</td>
+<td>{% if p.status %}{{ t('registry.status.' + p.status) }}{% if p.reason_rc %} · <span class="hint">{{ t('log.from_redcap', r=p.reason_rc[0]) }}{% if p.reason_rc[1] %} ({{ p.reason_rc[1] }}){% endif %}</span>{% elif p.reason %} · <span class="hint">{{ p.reason }}</span>{% endif %}{% else %}–{% endif %}</td>
 </tr>{% endfor %}</tbody></table></div>{% endif %}
 </section>
 {% endblock %}

@@ -63,27 +63,6 @@ def reading_for_a_person() -> bool:
     return bound is not None and bound[0] is not None
 
 
-def may_read_any() -> bool:
-    """D-1221: may the account of this request read patient rows at all (``phi.view`` in some study)? A timer, or no
-    reader bound, answers True."""
-    bound = _READER.get()
-    if bound is None or bound[0] is None:
-        return True
-    h, sess = bound
-    return bool(h.permit(sess.user, "phi.view", None).allowed)
-
-
-def may_read(rid: str) -> bool:
-    """D-1221: would :func:`read_headers` let the account of this request read patient rows of ``rid`` (``phi.view``
-    in a study it sees)? Asked before a read a page may skip, so no refused read (and no ``console.denied``) is made.
-    A timer's principal, or no reader bound, answers True: the orchestrator decides as before."""
-    bound = _READER.get()
-    if bound is None or bound[0] is None:
-        return True
-    h, sess = bound
-    return bool(sess.user.sees_study(rid) and h.permit(sess.user, "phi.view", rid).allowed)
-
-
 def read_headers(method: str, path: str, headers: dict[str, str] | None = None) -> dict[str, str]:
     """``headers`` with the signed claim of a patient read (``tb_common.patient_reads``): ``phi.view`` on the
     path's study (none for a set-up route of the whole site) by the signed-in account of this request. Refused here

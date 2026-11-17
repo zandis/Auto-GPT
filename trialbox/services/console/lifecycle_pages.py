@@ -36,7 +36,6 @@ from tb_common.csvfile import for_spreadsheet
 from tb_common.erased import is_erased
 
 from console import actor, s28
-from console import person_state as ps
 from console.api_first import before_body, page_twin
 from console.auth import Session
 from console.backend import Problem, Unavailable, service_and_status
@@ -408,18 +407,14 @@ def register(app: FastAPI, h: Helpers) -> None:
         refresh(rid, h.actor(sess), sess)
         err = None
         subs: list[dict[str, Any]] = []
+        counts: dict[str, int] = {}
         try:
             out = get(f"/studies/{rid}/subjects?today={today().isoformat()}")
-            subs = out["subjects"]
+            subs, counts = out["subjects"], out["counts"]
         except (Problem, Unavailable) as exc:
             err = err_of(exc)
-        # D-1221 (review R10): each participant's one state, from the same function as every other list
-        people = ps.read(h, rid, subjects=subs if err is None else None)
-        for s in subs:
-            s["person"] = people.of(str(s.get("pid") or "") or f"#{s.get('record')}")
-        counts = ps.counts(s["person"] for s in subs)  # one per row: a kept record of an opted-out person too
-        return h.page(request, "life_subjects.html", sess, rs=rid, subjects=subs, err=err,
-                      shown=ps.shown_counts(counts, ps.STATES), readable=people.readable or not subs)  # fmt: skip
+        return h.page(request, "life_subjects.html", sess, rs=rid, subjects=subs, counts=counts, states=STATES,
+                      err=err)  # fmt: skip
 
     def subject_page(request: Request, sess: Session, rid: str, rec: str, status: int = 200,
                      refused: str = "", done: str = "") -> Response:  # fmt: skip
@@ -432,10 +427,6 @@ def register(app: FastAPI, h: Helpers) -> None:
                 raise h.problem(404, "notfound") from exc
             err = err_of(exc)
         sf_version, sf_criteria = criteria_choices(bk, rid)  # D-387: the pick list for "not eligible"
-        sub = one.get("subject") if isinstance(one.get("subject"), dict) else None
-        person = None  # D-1221: the participant's one state, as every list names it
-        if sub is not None:
-            person = ps.read(h, rid, subjects=[sub]).of(str(sub.get("pid") or "") or f"#{sub.get('record')}")
         # J-4 (D-1224, walk F-18): the way back to the patient sheet, only for a reader the sheet admits by its own
         # rights (``h.reads``, the sheet's check) and never for an erased pseudonym (D-875: a token is never shown)
         pid = str((one.get("subject") or {}).get("pid") or "")
@@ -444,7 +435,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                       sheet_pid=sheet_pid,
                       editable=can_enter(sess.user), refused=refused, done=done, sf_reasons=SF_REASONS,
                       wd_reasons=WD_REASONS, today=today().isoformat(), sf_criteria=sf_criteria,
-                      sf_version=sf_version, person=person)  # fmt: skip
+                      sf_version=sf_version)  # fmt: skip
 
     @app.get("/studies/{rs}/subjects/{record}")
     def subject(request: Request, rs: str, record: str, done: str = "") -> Response:

@@ -63,17 +63,15 @@ screening number, never by name or chart number.
 
 **Record the trial (CRC).** Seven built-in forms: screening log, consent, enrolment, visit, adverse event, deviation,
 withdrawal. Each checks types, ranges and required fields and keeps every change (History shows old and new). The
-participant moves from on the list to contacted, consented, enrolled, on study, then completed, withdrawn or screen
-failure: every list names a person's state in these words (D-1221). A wrong state is corrected where it was recorded:
-the contact outcome (with its Undo), or the participant page (undo the last step, or record the step). Visits have windows (due, open, overdue). AEs are written as reported; nothing is graded automatically. A
+participant moves from candidate to approached, consented, enrolled, on study, then completed, withdrawn or screen
+fail. Visits have windows (due, open, overdue). AEs are written as reported; nothing is graded automatically. A
 serious AE stays on the PI's and the CRC's home pages and in the PI's mail, whatever its outcome, until the PI taps
 Acknowledge. Each serious AE shows its reporting clock (sponsor, IRB, regulator): TrialBox's defaults, which the site
 confirms against its IRB rules and the protocol (`TB_SAE_REPORT_DAYS`); an overdue report is on both home pages and in
 the CRC's mail.
 
 **Consent (D-399).** Consent is recorded one way: *Record consent* on the participant page opens the consent form
-(the registry has no status list: it adds a patient by chart number "On the list", and a state follows the steps
-that record it, D-1221). *IRB and consent form* keeps the study's approved
+(the registry's status list no longer offers "consented"). *IRB and consent form* keeps the study's approved
 consent-form versions, each with its IRB approval date and first day of use; every change stays in its history. On
 save, a version that is not on the list, not yet approved or in use on the consent date, or already replaced shows a
 warning; the form is saved as entered and the warning is logged. An enrolment or a visit dated before the consent is

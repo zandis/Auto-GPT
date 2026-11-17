@@ -18,7 +18,6 @@ adds ``console.*`` events to the shared audit chain before it acts.
 from __future__ import annotations
 
 import base64
-import contextlib
 import hashlib
 import io
 import ipaddress
@@ -54,7 +53,7 @@ from tb_common.ulid import new_ulid
 from tb_common.verdict_word import shown_of
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
-from console import acting, api_first, demo_guard, feedback, firstrun, i18n_roles, next_page, person_state, phone
+from console import acting, api_first, demo_guard, feedback, firstrun, i18n_roles, next_page, phone
 from console import actor as console_actor
 from console.account_rules import Hooks as AccountHooks
 from console.account_rules import Rules as AccountRules
@@ -87,6 +86,7 @@ from console.identity import (
 from console.identity import register as register_identity
 from console.proposals import Classifier, Proposal, ProposalError, job_create, propose
 from console.refusals import localize as localize_refusal
+from console.registry_view import RECORDED_ELSEWHERE, STATUSES, status_options
 from console.timefmt import local_time, local_today, site_zone
 
 HERE = Path(__file__).resolve().parent
@@ -595,13 +595,7 @@ def create_app(
     # ------------------------------------------------------------------ plumbing
     @app.middleware("http")
     async def headers(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
-        # D-1221: a page view reads each study's people once (a GET only: a write reads afresh)
-        token = person_state.begin_request() if request.method == "GET" else None
-        try:
-            resp = await call_next(request)
-        finally:
-            if token is not None:
-                person_state.end_request(token)
+        resp = await call_next(request)
         resp.headers.setdefault("Content-Security-Policy", CSP)  # the sandboxed preview sets its own
         resp.headers["X-Frame-Options"] = "DENY"
         resp.headers["X-Content-Type-Options"] = "nosniff"
@@ -2220,17 +2214,10 @@ def create_app(
 
     # ------------------------------------------------------------------ candidate registry (D-92)
     def _registry_page(request: Request, sess: Session, rs: str, status: int = 200, **ctx: Any) -> HTMLResponse:
-        # D-1221 (review R10): every person of the study with their one state (console.person_state), the same on
-        # every list; the screening log's own row (its reason, who, from where) beside it. No status is set here.
-        # a refusal of the study is the page's (400); read once per page view, with the people below
-        entries = {e.pid: e for e in person_state.registry_rows(helpers, rs)}
-        people = person_state.read(helpers, rs)  # D-273 (PV-4): leaves out who opted out, as the export does
-        order = {name: i for i, name in enumerate(person_state.STATES)}
-        # the table holds the people the counts count: a participant record with no pseudonym yet too ("#" and its
-        # screening number), once
-        ranked = sorted((st_.name, pid) for pid, st_ in people.states().items())
-        rows = [{"pid": pid, "state": people.of(pid), "entry": entries.get(pid)}
-                for _, pid in sorted(ranked, key=lambda x: (order.get(x[0], 99), x[1]))]  # fmt: skip
+        gone = helpers.gone()  # D-273 (PV-4): the screening log's page leaves out who opted out, as its export does
+        rows = [e for e in bk.registry_rows(rs) if e.pid not in gone]
+        from orchestrator.candidates import counts as _counts
+
         return page(
             request,
             "registry_ruleset.html",
@@ -2238,8 +2225,9 @@ def create_app(
             status,
             ruleset=rs,
             rows=rows,
-            shown=person_state.shown_counts(people.counts()),
-            readable=people.readable,
+            counts=_counts(rows),
+            statuses=STATUSES,
+            options=status_options,
             **ctx,
         )
 
@@ -2252,22 +2240,8 @@ def create_app(
         # a registry may outlive its ruleset version (e.g. after a re-approval): still list it
         rulesets += [RulesetInfo(rs_id, None, "registry", "trial") for rs_id in sorted(summaries) if rs_id not in known]
         rulesets = [r for r in rulesets if sess.user.sees_study(r.id)]
-        # D-1221: each study's people by their one state, as its home card and its own page count them; an account
-        # that may not read patient rows (D-280) gets the aggregate source as before, and no refused read is made
-        counts: dict[str, dict[str, int]] = {}
-        readable: dict[str, bool] = {}
-        for r in rulesets:
-            if person_state.may_read_rows(r.id):
-                ppl = person_state.read(helpers, r.id)
-                counts[r.id], readable[r.id] = ppl.counts(), ppl.readable
-            else:
-                agg = person_state.counts([])
-                for status, n in (summaries[r.id].counts if r.id in summaries else {}).items():
-                    agg[person_state.FROM_REGISTRY.get(status, "listed")] += int(n)
-                counts[r.id], readable[r.id] = agg, True
-        cols = [s for s in person_state.COUNTED if any(c[s] for c in counts.values())]
-        return page(request, "registry.html", sess, rulesets=rulesets, summaries=summaries, counts=counts,
-                    readable=readable, cols=cols)  # fmt: skip
+        summaries = {k: v for k, v in summaries.items() if sess.user.sees_study(k)}
+        return page(request, "registry.html", sess, rulesets=rulesets, summaries=summaries, statuses=STATUSES)
 
     @app.get("/pilot/registry/{ruleset}", response_class=HTMLResponse)
     def registry_view(request: Request, ruleset: str) -> Response:
@@ -2285,40 +2259,40 @@ def create_app(
             raise _Problem(400, "request.refused", reason=str(exc)) from exc
 
     @app.post("/pilot/registry/{ruleset}")
-    def registry_add(
-        request: Request, ruleset: str, csrf: str = Form(""), pid: str = Form(""), mrn: str = Form(""),
-        reason: str = Form(""), status: str = Form(""),
-    ) -> Response:  # fmt: skip
-        """A person no screening run found (a walk-in, a referral) put on the screening log by chart number (or a
-        pseudonym), "On the list", with the reason; or a note on a row already there. D-1221 (review B-2, R10): the
-        status drop-down is gone: a person's state follows the steps that record it (the investigator's mark, the
-        contact outcome, the consent form and the participant's steps; D-399, T-516). Every add is signed for this
-        person and this request (T-715b, D-550; T-719: a row by chart number is this person's lookup)."""
+    def registry_edit(
+        request: Request,
+        ruleset: str,
+        csrf: str = Form(""),
+        pid: str = Form(""),
+        mrn: str = Form(""),
+        status: str = Form(""),
+        reason: str = Form(""),
+    ) -> Response:
         sess = need_requester(request, csrf)
         rs = ruleset.strip().upper()
-        if not _RULESET_ID.match(rs):
-            raise _Problem(400, "request.refused", reason="choose a ruleset")
-        if status.strip():  # D-1221: a state is not chosen here; a status sent is refused, never quietly dropped
-            raise _Problem(400, "registry.add.no_status")
-        chart = "".join(mrn.split())
-        who_pid = pid.strip()
-        if chart and not who_pid and helpers.chart_to_pid is not None:
-            # the one door from a chart number to its pseudonym (D-771: capped, recorded), so an existing row is found
-            # before anything is written
-            with contextlib.suppress(Exception):
-                who_pid = helpers.chart_to_pid(sess, chart, "registry_add")[0]
-                chart = ""
-        entries = {e.pid: e for e in bk.registry_rows(rs)}
-        if who_pid and who_pid in entries:
-            # D-1221: an add never changes a row already on the log (it would reset a declined or consented person)
-            now = person_state.read(helpers, rs).of(who_pid)
-            au.append("console.refused", actor=actor(sess), ruleset=rs,
-                      detail={"action": "registry_add", "reason": "already on the log", "pid": who_pid})  # fmt: skip
-            msg = translate(sess.lang, "registry.add.exists", state=translate(sess.lang, now.key))
-            return _registry_page(request, sess, rs, 409, error=msg, exists=who_pid)
-        upd = RegistryUpdate(pid=who_pid or None, mrn=chart or None, status="candidate",
-                             reason=reason.strip()[:500] or None, by=actor(sess), source="manual")  # fmt: skip
-        au.append("console.registry", actor=actor(sess), ruleset=rs, detail={"action": "add", "by_mrn": bool(upd.mrn)})
+        if not _RULESET_ID.match(rs) or status not in STATUSES:
+            raise _Problem(400, "request.refused", reason="choose a ruleset and a status")
+        if status in RECORDED_ELSEWHERE:  # D-399 (UX-012): one way to record consent, the consent form
+            raise _Problem(
+                400, "request.refused", reason="record consent on the participant page: it opens the consent form"
+            )
+        who = actor(sess)  # T-715b (D-550): for this object only; the orchestrator takes the person from the claim
+        upd = RegistryUpdate(
+            pid=pid.strip() or None,
+            mrn=re.sub(r"\s+", "", mrn) or None,
+            status=status,  # type: ignore[arg-type]
+            reason=reason.strip()[:500] or None,
+            by=who,
+            source="manual",
+        )
+        au.append(
+            "console.registry",
+            actor=actor(sess),
+            ruleset=rs,
+            detail={"action": "update", "status": status, "by_mrn": bool(upd.mrn)},
+        )
+        # T-715b (D-550): every registry change is signed for this person and this request (T-719: a row by chart
+        # number is also this person's lookup); the box refuses a bare token
         from console import actor as acting
 
         def sign(method: str, path: str, body: Any) -> dict[str, str]:

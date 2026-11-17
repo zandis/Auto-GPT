@@ -13,7 +13,7 @@ def test_link_change_run_now_and_see_it_in_the_log(tmp_path: Path) -> None:
     res = rc_demo.run(tmp_path, "pw-" + "x" * 16, "ja")
     assert res["s36_ok"]
     assert res["screening_no"] == "GZQO-0001"
-    assert res["before"] == "連絡予定"  # D-1221: approved, not reached on the first call: to contact
+    assert res["before"] == "候補"
     assert res["after_consent"].startswith("同意取得")
     assert res["after_enrol"].startswith("登録")
     assert res["subject_shown"] and res["unmatched_shown"]

@@ -74,17 +74,12 @@ def test_the_coordinator_promotes_and_edits_through_the_console(site: dict[str, 
     c, csrf = login(site["app"], "crc", CRC_PW)
     r = c.post(f"/pilot/registry/{STUDY}/promote", data={"csrf": csrf}, follow_redirects=False)
     assert r.status_code == 303 and "added=" in r.headers["location"], r.text[-300:]
-    # the console's add (D-1221: no status is chosen; a person not yet on the log goes on it "On the list", with the
-    # reason) is a signed write end to end, recorded under the verified person
-    pid = "f" * 32
-    assert pid not in {row["pid"] for row in _rows(ob)}
-    r = c.post(f"/pilot/registry/{STUDY}", data={"csrf": csrf, "pid": pid, "reason": "phone"},
+    pid = _rows(ob)[0]["pid"]
+    r = c.post(f"/pilot/registry/{STUDY}", data={"csrf": csrf, "pid": pid, "status": "contacted", "reason": "phone"},
                follow_redirects=False)  # fmt: skip
     assert r.status_code == 303, r.text[-300:]
     rows = {row["pid"]: row for row in _rows(ob)}
-    assert rows[pid]["status"] == "candidate" and rows[pid]["reason"] == "phone"
-    assert {row["updated_by"] for row in rows.values()} == {"console:crc"}
-    assert [e["actor"] for e in ob.events("registry.update")] == ["console:crc"]
+    assert rows[pid]["status"] == "contacted" and {row["updated_by"] for row in rows.values()} == {"console:crc"}
     assert not ob.events("actor.refused") and not ob.events("actor.unsigned")
 
 
