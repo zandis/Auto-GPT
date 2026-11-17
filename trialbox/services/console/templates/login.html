@@ -21,6 +21,8 @@
   <input id="username" name="username" autocomplete="username" required maxlength="64" autocapitalize="none" spellcheck="false">
   <label for="password">{{ t('login.password') }}</label>
   <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="256">
+  {% if box_roles %}<label for="login-role">{{ t('login.role') }}</label>
+  <select id="login-role" name="role" data-testid="login-role"><option value="">{{ t('login.role.last') }}</option>{% for r in box_roles %}<option value="{{ r }}">{{ t('role.' + r) }}</option>{% endfor %}</select>{% endif %}
   <button type="submit" data-testid="login-submit">{{ t('login.submit') }}</button>
 </form>
 <p class="hint" data-testid="login-enrol"><a href="/enrol">{{ t('login.enrol') }}</a></p>
