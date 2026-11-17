@@ -329,7 +329,10 @@ def test_h1_the_driver_preflight_runs_every_free_check_and_starts_nothing(tmp_pa
     assert _driver(tmp_path, *dev, "--src-bundle", str(tmp_path / "junk.bundle")).returncode == 6
     for out in (r.stdout, r.stderr):  # nothing uploaded, nothing started: not even printed as a dry run would
         assert "storage cp" not in out and "instances start" not in out and "add-metadata" not in out
-    assert _driver(tmp_path, "--preflight", "--resume", "box-r1").returncode == 2
+    # D-1129 (card H-14): a resume has its own free look now (what it would take up); a collect still has none
+    r = _driver(tmp_path, "--preflight", "--resume", "box-r1")
+    assert r.returncode == 0 and "only in the bucket" in r.stderr and "instances start" not in r.stdout
+    assert _driver(tmp_path, "--preflight", "--collect", "box-r1").returncode == 2
     assert "--preflight" in DRIVER[: DRIVER.index("set -euo pipefail")]
 
 

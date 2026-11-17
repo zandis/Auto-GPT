@@ -11,6 +11,7 @@ installer, and every test run on that installed box (deploy/gcp/box-install-run.
     python -m tools.box_run results RESULTS.tgz|DIR [--out DIR]   # summary.json and report.md: checks per test,
                                                                  # and what every result names (provenance)
     python -m tools.box_run acc-score DIR                  # each accuracy set's answers against its gold, here
+    python -m tools.box_run resume-plan DIR [--deadline V] [--redo STEPS]   # free: what a --resume would take up
     python -m tools.box_run acc-ids [--only SETS] [--rs-tag T] [--protocols "set:RS1,RS2 ..."]   # free: the
                                                                  # ruleset ids a filter matches, refused if none
     python -m tools.box_run src-bundle --commit SHA --out FILE   # the release commit's git bundle, proved
@@ -678,6 +679,8 @@ def acc_checks(d: Path | None, parts: dict[str, Any], routes: dict[str, Any]) ->
                     "in_flight_max": det.get("in_flight_max"),
                     "refused_by_tripwire": counts.get("refused_by_tripwire"),
                     "uploaded": det.get("uploaded"),
+                    # D-1129: a set taken up again after its budget: its attempts as one record
+                    "attempts": det.get("attempts_line") or None,
                     "score": score.get("summary") if isinstance(score, dict) else None,
                 },
             }
@@ -748,17 +751,123 @@ def acc_score(d: Path) -> dict[str, Any]:
             work = sd / "work-scored"
             work.mkdir(exist_ok=True)
             (work / "answers.json").write_text(json.dumps(answers, ensure_ascii=False), encoding="utf-8")
+            if (sd / "work" / "set-clock.json").exists():  # D-1129: the set's attempts, read beside its answers
+                (work / "set-clock.json").write_bytes((sd / "work" / "set-clock.json").read_bytes())
         res = sc.score(built, work)
         res["summary"] = {
             k: (v.get("summary") if isinstance(v, dict) and "summary" in v else v)
             for k, v in res.items()
             if k in SCORE_SUMMARY_KEYS
         }
+        if "conflicted" in (res.get("pairs") or {}):  # D-1064: the pairs set aside, by id, and the findings to trace
+            res["summary"]["conflicted"] = [
+                {k: c.get(k) for k in ("patient", "trial", "excluding", "box", "blocked_on", "on_another_line")}
+                for c in res["pairs"]["conflicted"]["pairs"]
+            ]
+            res["summary"]["conflicted_excluded_on_another_line"] = [
+                f"{c['patient']} x {c['trial']}" for c in res["pairs"]["conflicted_excluded_on_another_line"]
+            ]
         (sd / "score.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
         if res.get("not_scored_because"):
             out[sd.name] = {"scored": False, "why": res["not_scored_because"], "summary": res.get("summary")}
             continue
         out[sd.name] = {"scored": True, "summary": res.get("summary") if isinstance(res, dict) else None}
+    return out
+
+
+# ------------------------------------------------------------------------------------------------ resume plan (D-1129)
+ACC_NOT_SETS = ("tools", "settings", "routes", "data", "ingest", "result")
+
+
+def _cut_of(detail: dict[str, Any]) -> int:
+    """The protocols a set's budget cut (or never started), as its part says (a part written before D-1129 has only
+    its counts)."""
+    if "budget_cut" in detail:
+        return int(detail.get("budget_cut") or 0)
+    return int((detail.get("counts") or {}).get("not_run_time_budget") or 0)
+
+
+def resume_plan(d: Path, deadline: str = "", redo: str = "") -> dict[str, Any]:
+    """Free and local (D-1129, card H-14): what ``box-run.sh --resume`` would take up of the accuracy sets, read from
+    the run's last collected results in ``d`` (``results.tgz`` of ``--collect``; its parts) and, where a set was
+    fetched, its ``acc/<set>/work/progress.json`` for the protocols' ids. A set that ended on its own budget with
+    protocols cut runs those protocols only, in a new attempt, when ``deadline`` (the resume's ``--acc-deadline``: one
+    number, or "set:seconds") gives it a budget; without one it stays done. ``redo`` names steps run again from no
+    work. ``state`` is "not here" when the run's state is only in the bucket: nothing is read from the cloud here (the
+    VM says the same first thing on its boot, ``TB-RESUME-PLAN`` lines). ``refused`` names a budget entry that is not
+    seconds or names a set the run does not have."""
+    out: dict[str, Any] = {"run_folder": str(d), "state": "not here", "sets": [], "refused": [], "lines": []}
+    tgz = d / "results.tgz"
+    if not tgz.is_file():
+        out["lines"].append(
+            f"resume-plan: the run's state is not here ({tgz} missing): it is only in the bucket; `box-run.sh "
+            "--collect <run id>` reads it (a bucket read), or the VM says what it takes up first thing on its boot "
+            "(TB-RESUME-PLAN lines in its log)"
+        )
+        return out
+    parts: dict[str, dict[str, Any]] = {}
+    with tarfile.open(tgz) as tar:
+        for m in tar.getmembers():
+            name = m.name.removeprefix("./")
+            if not (m.isfile() and name.startswith("parts/") and name.endswith(".json") and "-acc-" in name):
+                continue
+            f = tar.extractfile(m)
+            if f is None:
+                continue
+            try:
+                parts[Path(name).stem] = json.loads(f.read().decode("utf-8"))
+            except ValueError:
+                continue
+    from datetime import UTC, datetime
+
+    out["state"] = "the last collect"
+    out["as_of"] = datetime.fromtimestamp(tgz.stat().st_mtime, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    sets = {k.split("-acc-", 1)[1]: k for k in parts if k.split("-acc-", 1)[1] not in ACC_NOT_SETS}
+    budgets: dict[str, str] = {}
+    for e in deadline.split():
+        n, _, v = e.rpartition(":")
+        if not v.isdigit():
+            out["refused"].append(f'--acc-deadline {e}: seconds (one number, or "set:seconds")')
+        elif n and n not in sets:
+            out["refused"].append(f"--acc-deadline {e}: set {n} is not a set of this run ({', '.join(sorted(sets))})")
+        else:
+            budgets[n] = v
+    redone = set(redo.replace(",", " ").split())
+    for setname, step in sorted(sets.items(), key=lambda kv: kv[1]):
+        part = parts[step]
+        det = part.get("detail") or {}
+        cut = _cut_of(det)
+        prog: dict[str, Any] = _load(d, f"acc/{setname}/work/progress.json") or {}
+        ids = sorted(rs for rs, a in prog.items() if isinstance(a, dict)
+                     and (not a.get("finished") or a.get("outcome") == "not_run_time_budget"))  # fmt: skip
+        b = budgets.get(setname) or budgets.get("") or ""
+        if step in redone:
+            what = "run again from no work (--redo)"
+        elif part.get("status") == "stop":
+            what = "stopped: runs again" + (
+                f" (its {cut} cut protocols in a new attempt with {b} s)" if cut and b else ""
+            )
+        elif cut <= 0:
+            what = "nothing cut: stays done, not run again"
+        elif b:
+            what = f"runs only its {cut} cut protocols, in a new attempt with {b} s; the finished ones are kept"
+        else:
+            what = f"{cut} protocols cut by its budget: stays done unless --acc-deadline gives {setname} a budget"
+        row = {"set": setname, "step": step, "status": part.get("status"), "budget_cut": cut,
+               "cut_protocols": ids or None, "budget_s": int(b) if b else None, "what": what,
+               "attempts": det.get("attempts_line")}  # fmt: skip
+        out["sets"].append(row)
+        listed = f" [{', '.join(ids[:12])}{' ...' if len(ids) > 12 else ''}]" if ids and cut else ""
+        out["lines"].append(f"resume-plan: {step} ({part.get('status')}): {what}{listed}")
+    out["needs_deadline"] = [r["set"] for r in out["sets"] if r["budget_cut"] and r["budget_s"] is None
+                             and r["step"] not in redone]  # fmt: skip
+    if out["needs_deadline"]:
+        out["lines"].append("resume-plan: --acc-deadline is needed to take up " + ", ".join(out["needs_deadline"])
+                            + ' (the old budget is spent): e.g. --acc-deadline "'
+                            + " ".join(f"{n}:SECONDS" for n in out["needs_deadline"]) + '"')  # fmt: skip
+    if not sets:
+        out["lines"].append("resume-plan: no accuracy set in this run's results yet")
+    out["lines"] += [f"resume-plan: refused: {r}" for r in out["refused"]]
     return out
 
 
@@ -1096,6 +1205,10 @@ def main(argv: list[str] | None = None) -> int:
     at.add_argument("--out", type=Path, required=True)
     c = sub.add_parser("acc-score")
     c.add_argument("dir", type=Path)
+    rp = sub.add_parser("resume-plan", help="free: what a --resume would take up of the accuracy sets (D-1129)")
+    rp.add_argument("dir", type=Path)
+    rp.add_argument("--deadline", default="", help="the resume's --acc-deadline")
+    rp.add_argument("--redo", default="", help="the resume's --redo")
     ai = sub.add_parser("acc-ids", help="free: the ruleset ids an --acc-protocols filter matches (D1)")
     ai.add_argument("--only", default="")
     ai.add_argument("--rs-tag", default="")
@@ -1136,6 +1249,12 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "acc-score":
             print(json.dumps(acc_score(a.dir), ensure_ascii=False, indent=1))
             return 0
+        if a.cmd == "resume-plan":
+            plan = resume_plan(a.dir, a.deadline, a.redo)
+            print(json.dumps(plan, ensure_ascii=False, indent=1))
+            for line in plan["lines"]:
+                print(line, file=sys.stderr)
+            return 6 if plan["refused"] else 0
         if a.cmd == "acc-ids":
             ids = acc_ids(a.only, a.rs_tag, a.protocols)
             print(json.dumps(ids, ensure_ascii=False, indent=1))

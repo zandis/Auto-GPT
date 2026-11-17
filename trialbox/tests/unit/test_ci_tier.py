@@ -84,3 +84,11 @@ def test_the_command_line(tmp_path: Path) -> None:
                          env=env, capture_output=True, text=True, check=True)  # fmt: skip
     assert res.stdout.split() == ["full=true", "scenarios=true"]
     assert "full-tier list" in res.stderr
+    assert "guard tests" in res.stderr  # D-1119: the log names the guard step every tier runs
+
+
+def test_the_wording_names_the_guard_step_and_the_rule_is_unchanged() -> None:
+    """D-1119 changed the words, not the rule: the fast tier's `checks` ends with the guard step."""
+    assert ct.__doc__ is not None and "guard" in ct.__doc__ and "make guard" in ct.__doc__
+    assert "checks" in ct.GUARD_NOTE and "D-1119" in ct.GUARD_NOTE
+    assert ct.decide(_env(), ["trialbox/tests/unit/test_site_tz.py"])[:2] == (False, False)  # a marked file: fast

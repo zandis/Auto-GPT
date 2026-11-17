@@ -138,15 +138,33 @@ def test_level_a_scores_the_stored_verdicts_on_key_v1_and_v2(run: dict[str, Any]
     assert (by1["jmed"]["numerator"], by1["jmed"]["denominator"]) == (4, 9)
     assert (by2["jmed"]["numerator"], by2["jmed"]["denominator"]) == (2, 7)
     # sigir: the infant of NCT01260883 and the 25-year-old of NCT00606840 (an age line each) are eligible and excluded
-    assert (
-        (by1["sigir"]["numerator"], by1["sigir"]["denominator"])
-        == (2, 2)
-        == (
-            by2["sigir"]["numerator"],
-            by2["sigir"]["denominator"],
-        )
-    )
-    assert a1["level"] == "a" and a1["met"] is False
+    assert (by1["sigir"]["numerator"], by1["sigir"]["denominator"]) == (2, 2)
+    # key v2 marks the infant's pair conflicted (D-1064: its exclusion "Renal or hepatic disease" is labelled excluded):
+    # the target reads 1 of 1 without it, beside 2 of 2 with it
+    assert (by2["sigir"]["numerator"], by2["sigir"]["denominator"]) == (1, 1)
+    assert by2["sigir"]["with_conflicted"] == {"numerator": 2, "denominator": 2}
+    assert a1["level"] == "a" and a1["met"] is False and a1["within_target"] is False
+
+
+def test_key_v2_sets_the_conflicted_pair_aside_and_lists_its_age_line_exclusion(run: dict[str, Any]) -> None:
+    """D-1064 (card H-6): the infant's pair is conflicted on key v2; the box excluded it on the placed age line, which
+    its criterion labels do not exclude on, so it is a finding to trace, listed."""
+    kv = run["report"]["sets"]["sigir"]["key_v2"]
+    assert kv["conflicted"] == 1 and kv["conflicted_pairs"] == ["sigir-201418 x NCT01260883"]
+    t = run["report"]["targets"]["eligible_wrongly_excluded"]
+    a = t["a"]["v2"]
+    assert [(c["patient"], c["box"]) for c in a["conflicted"]] == [("sigir-201418", "excluded")]
+    other = a["conflicted_excluded_on_another_line"]
+    assert [(c["set"], c["patient"], c["trial"]) for c in other] == [("sigir", "sigir-201418", "NCT01260883")]
+    assert any("0.17" in x for x in other[0]["blocked_on"])
+    # level (b): "Aged 0.17 years or older" goes to a person (F2, D-946), so the box's answer is review, no finding
+    b = t["b"]["v2"]
+    assert [(c["patient"], c["box"]) for c in b["conflicted"]] == [("sigir-201418", "review")]
+    assert b["conflicted_excluded_on_another_line"] == []
+    assert t["a"]["v1"]["conflicted"] is None and t["b"]["v1"]["conflicted"] is None
+    said = replay.render({**run["report"], "targets": {**run["report"]["targets"],
+                          "eligible_wrongly_excluded": {"a": t["a"], "target": ""}}})  # fmt: skip
+    assert "Findings to trace" in said and "sigir-201418 x NCT01260883: excluded on" in said
 
 
 def test_the_p1b_record_is_checked_only_on_p1bs_own_key(run: dict[str, Any]) -> None:
@@ -194,7 +212,8 @@ def test_the_protocol_figure_keeps_failures_not_rerun_and_counts_both_shares(run
     assert a["per_set"]["sigir"]["not_run_time_budget"] == 1
     assert (a["numerator"], a["denominator"], a["failed_before_screen"]) == (4, 8, 2)
     assert (b["numerator"], b["denominator"], b["failed_before_screen"]) == (1, 8, 1)
-    assert a["met"] is False and b["met"] is False  # 1 of 8 is not fewer than one in ten
+    assert a["within_target"] is False and b["within_target"] is False  # 1 of 8 is not fewer than one in ten
+    assert a["met"] is False and b["met"] is False  # D-1064 item 4: never met by a replay
     assert b["proof"].startswith("cause-level")
 
 
@@ -209,7 +228,8 @@ def test_coded_age_lines_are_decided_again_on_each_keys_birth_dates(run: dict[st
     assert (b1["sigir"]["numerator"], b1["sigir"]["denominator"]) == (0, 2)
     # jmed: the inference guard (F6, D-985) sends two stored note exclusions to review; on key v2 none is left
     assert (b1["jmed"]["numerator"], b2["jmed"]["numerator"], b2["jmed"]["denominator"]) == (3, 0, 7)
-    assert t["v2"]["met"] is True and t["v2"]["level"] == "b"
+    assert t["v2"]["within_target"] is True and t["v2"]["level"] == "b"
+    assert t["v2"]["met"] is False and "launch" in t["v2"]["met_only_by"]  # D-1064 item 4: met only by a launch
 
 
 def test_jmed_age_evidence_is_pooled_over_the_patients_protocols(run: dict[str, Any]) -> None:

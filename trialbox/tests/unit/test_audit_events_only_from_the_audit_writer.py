@@ -28,6 +28,8 @@ from tb_common.crypto import ed25519_generate
 
 from tests.unit.test_audit_drain_malformed_row import _Con
 
+pytestmark = [pytest.mark.guard, pytest.mark.nodb]  # D-1119: the guard step of `checks`; no database
+
 AT = datetime(2026, 11, 13, 9, 0, tzinfo=UTC)
 SERVICES = [*sorted(r for r in ROLE_EVENTS if r != "tb_audit_writer"), "tb_somebody_new"]
 

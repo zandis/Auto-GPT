@@ -21,6 +21,8 @@ from matching.registry_mirror import RegistryMirror
 
 from tests.registry_match_mock import MockChat
 
+pytestmark = [pytest.mark.guard, pytest.mark.nodb]  # D-1119: the guard step of `checks`; no database
+
 ROOT = Path(__file__).resolve().parents[2]
 VENDORED = [ROOT / "services" / "matching", ROOT / "eval" / "match_registry"]
 PATIENT_PATH = [ROOT / "services" / "matching" / "registry_match", ROOT / "services" / "matching" / "registry_mirror"]

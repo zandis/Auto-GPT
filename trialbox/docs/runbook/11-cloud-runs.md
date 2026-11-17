@@ -533,3 +533,10 @@ Owner's yes first for anything but `--estimate` and `--dry-run`.
   answers (the trace store, read through its access-logged API) in its upload; they are never committed.
   `--resume <run id>` after a fix sends this tree's VM script and helper with a new `tb-retry`: the stopped step runs
   again, every finished step is kept, the stop's part stays in `logs/`.
+- **A set that ended on its own budget (D-1129).** A set whose `--acc-deadline` cut protocols ends its step `done`,
+  and its part says how many (`budget_cut`). `--resume <run id> --acc-deadline "set:SECONDS"` runs only those
+  protocols, in a new attempt on that budget (the old one is spent). A finished protocol is never screened again.
+  Without a budget for the set, it stays done; `--redo` keeps its meaning (from no work). The answers, the audit,
+  the traces and the score are one record of the attempts ("attempts: 2; protocols finished in attempt 1: a; in
+  attempt 2: b; still cut: c"). `deploy/gcp/box-run.sh --preflight --resume <run id> --acc-deadline ...` says,
+  free, what the resume would take up (from the last `--collect`). See the GPU VM handover, section 4.10.
