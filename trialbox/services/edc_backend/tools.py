@@ -8,7 +8,6 @@ The tool token is not the ``/api/`` token. The call is made only when ``GET /api
 from __future__ import annotations
 
 import os
-import uuid
 from typing import Any
 
 import httpx
@@ -104,24 +103,27 @@ class ToolClient:
 
 
 class Proposals:
-    """A write the UI is holding until the same person confirms it. Nothing is sent before that."""
+    """A write the UI is holding until the same person confirms it. Nothing is sent before that. Held in the trial
+    database (``edc_backend.store``, D-1044): any console process sees it, it is confirmed once, and it expires."""
 
-    def __init__(self) -> None:
-        self._rows: dict[str, dict[str, str]] = {}
+    def __init__(self, store: Any = None) -> None:
+        self._store = store
+
+    def _db(self) -> Any:
+        from edc_backend import store as door
+
+        return self._store if self._store is not None else door.default_store()
 
     def hold(self, actor: str, tool: str, project_id: str, record_id: str) -> str:
         if tool not in WRITE_TOOLS:
             raise ToolError("this tool does not wait for confirmation")
-        pid = uuid.uuid4().hex
-        self._rows[pid] = {"actor": actor, "tool": tool, "project_id": project_id, "record_id": record_id}
-        return pid
+        return str(self._db().hold(actor, tool, project_id, record_id))
 
     def ids(self) -> list[str]:
-        return list(self._rows)
+        return list(self._db().open_ids())
 
     def take(self, actor: str, proposal_id: str) -> dict[str, str]:
-        row = self._rows.get(proposal_id)
-        if row is None or row["actor"] != actor:
+        row = self._db().take(actor, proposal_id)
+        if row is None:
             raise ToolError("this confirmation is not open")
-        del self._rows[proposal_id]
-        return row
+        return dict(row)

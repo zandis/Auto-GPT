@@ -2,16 +2,18 @@
 
 These routes are absent from the menu. The demo's pages do not call them. Events are refused until
 ``TB_EDC_EVENT_SECRET`` is set. OIDC is refused until ``TB_EDC_OIDC`` is 1.
+
+The door's state (event ids, held writes, OIDC codes) is in the trial database (``edc_backend.store``, D-1044). With
+no database configured a route that needs it answers 503; nothing is written to the system's temp folder.
 """
 
 from __future__ import annotations
 
 import json
-import tempfile
-from pathlib import Path
 from typing import Any
 
 from edc_backend import events, linkmap, oidc, tools
+from edc_backend import store as door
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
@@ -24,9 +26,8 @@ def register(app: FastAPI, h: Helpers) -> None:
     def folder() -> str:
         return events.event_dir()
 
-    def log() -> events.EventLog:
-        path = Path(folder() or tempfile.gettempdir()) / "edc-events.json"
-        return events.EventLog(path)
+    def no_storage() -> JSONResponse:
+        return JSONResponse({"error": "the EDC door's storage is not configured"}, status_code=503)
 
     @app.get("/api/edc/health")
     def health() -> dict[str, str]:
@@ -39,35 +40,32 @@ def register(app: FastAPI, h: Helpers) -> None:
             return JSONResponse({"error": "events are not configured"}, status_code=404)
         body = await request.body()
         header = request.headers.get("x-trialbox-signature") or ""
-        book = log()
         try:
-            doc, fresh = events.check(secret, body, header, book)
+            doc = events.check(secret, body, header)
         except events.EventRejected as exc:
             return JSONResponse({"error": exc.message}, status_code=exc.status)
-        if fresh:
-            raw_data = doc.get("data")
-            data = raw_data if isinstance(raw_data, dict) else {}
-            kind = str(doc.get("type") or "")
-            study = linkmap.study_for_project(folder(), str(doc.get("project_id") or ""))
-            if study and kind in events.REREAD:
-                from console.study_setup import read_now
+        try:
+            book = door.default_store()
+        except door.NoStorage:
+            return no_storage()
+        row = events.row_of(doc)
+        study = linkmap.study_for_project(folder(), row["project_id"])
+        reread = None
+        if study and row["type"] in events.REREAD:
+            from console.study_setup import read_now
 
-                try:
-                    read_now(h, study)
-                except Exception:
-                    return JSONResponse({"error": "the read did not finish"}, status_code=503)
-            events.remember(book, doc)
-            h.au.append(
-                "edc.event",
-                actor="edc",
-                detail={
-                    "id": str(doc.get("id")),
-                    "type": kind,
-                    "project_id": str(doc.get("project_id") or ""),
-                    "record_id": str(doc.get("record_id") or ""),
-                    "instrument": str(data.get("instrument") or ""),
-                },
-            )
+            def reread() -> None:
+                read_now(h, study)
+
+        # D-1044: the id and the re-read in one transaction; 2xx only once it is committed. A read that fails rolls
+        # the id back, so the EDC's next delivery of it is taken in
+        try:
+            fresh = book.take_event(row, reread)
+        except Exception:
+            return JSONResponse({"error": "the read did not finish"}, status_code=503)
+        if fresh:
+            h.au.append("edc.event", actor="edc", detail={k: row[k] for k in
+                        ("id", "type", "project_id", "record_id", "instrument")})  # fmt: skip
         return JSONResponse({"ok": True, "fresh": fresh})
 
     def admin(request: Request) -> Any:
@@ -109,7 +107,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         project_id = str(body.get("project_id") or "")
         record_id = str(body.get("record_id") or "")
         if tool in tools.WRITE_TOOLS:
-            proposal = proposals.hold(sess.user.username, tool, project_id, record_id)
+            try:
+                proposal = proposals.hold(sess.user.username, tool, project_id, record_id)
+            except door.NoStorage:
+                return no_storage()
             return JSONResponse({"needs_confirm": True, "proposal_id": proposal, "deidentified": True})
         return JSONResponse(_run_tool(tool, project_id, record_id, confirm=False))
 
@@ -126,6 +127,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             row = proposals.take(sess.user.username, proposal_id)
         except tools.ToolError as exc:
             return JSONResponse({"error": exc.message}, status_code=404)
+        except door.NoStorage:
+            return no_storage()
         h.au.append(
             "edc.tool_confirm", actor=h.actor(sess), detail={"tool": row["tool"], "project_id": row["project_id"]}
         )
@@ -149,13 +152,11 @@ def register(app: FastAPI, h: Helpers) -> None:
     @app.get("/admin/edc")
     def page(request: Request) -> Response:
         sess = admin(request)
-        return h.page(
-            request,
-            "edc_link.html",
-            sess,
-            saved=linkmap.load(folder()),
-            pending=proposals.ids(),
-        )
+        try:
+            pending = proposals.ids()
+        except door.NoStorage:
+            return no_storage()
+        return h.page(request, "edc_link.html", sess, saved=linkmap.load(folder()), pending=pending)
 
     @app.get("/api/edc/oidc/.well-known/openid-configuration")
     def well_known() -> JSONResponse:
@@ -170,6 +171,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         sess = h.need(request)
         if request.query_params.get("client_id") != oidc.client_id():
             raise h.problem(400, "bad")
+        try:
+            door.default_store()
+        except door.NoStorage:
+            return no_storage()
         try:
             target = oidc.authorize_redirect(
                 sess.user.username,
@@ -190,7 +195,10 @@ def register(app: FastAPI, h: Helpers) -> None:
             or str(form.get("client_id") or "") != oidc.client_id()
         ):
             return JSONResponse({"error": "invalid_client"}, status_code=401)
-        username = oidc.take_code(str(form.get("code") or ""))
+        try:
+            username = oidc.take_code(str(form.get("code") or ""))
+        except door.NoStorage:
+            return no_storage()
         if username is None:
             return JSONResponse({"error": "invalid_grant"}, status_code=400)
         issued = oidc.sign_id_token(username)

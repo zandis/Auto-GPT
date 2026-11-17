@@ -574,7 +574,7 @@ DECLARED: dict[str, Declared] = {
     "TB_DRILL_DIR": Declared("path", "", "backup drill: work folder"),
     "TB_E2E_DIR": Declared("path", "", "e2e tool: work folder"),
     "TB_EDC_BACKEND": Declared("str", "", "edc backend: redcap or internal; unset leaves the box unchanged"),
-    "TB_EDC_EVENT_DIR": Declared("path", "", "EDC events: folder of the idempotency log"),
+    "TB_EDC_EVENT_DIR": Declared("path", "", "EDC door: folder of the study map (event ids: trial database, D-1044)"),
     "TB_EDC_EVENT_SECRET": Declared("str", "", "EDC events: HMAC secret for X-TrialBox-Signature (secret)"),
     "TB_EDC_OIDC": Declared("bool", "0", "EDC: TrialBox is an OIDC issuer for the EDC when 1"),
     "TB_EDC_OIDC_CLIENT_ID": Declared("str", "", "EDC OIDC: client id the EDC stores"),

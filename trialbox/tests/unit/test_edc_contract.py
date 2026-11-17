@@ -98,17 +98,19 @@ def test_an_empty_project_gains_arms_and_events() -> None:
     assert conn.arms()[0]["name"] == "Main"
 
 
-def test_events_are_signed_retried_and_idempotent(tmp_path: Path) -> None:
+def test_events_are_signed_retried_and_idempotent(db_url: str) -> None:
+    # E-EDCB-2 (D-1044): whether an id is new is the database's to say, not a file's
+    from edc_backend import store as door
+
     raw = json.dumps(BODY).encode()
     secret = "event-secret"
-    book = events.EventLog(tmp_path / "events.json")
-    doc, fresh = events.check(secret, raw, _sign(secret, raw), book)
-    assert fresh and doc["type"] == "record.saved"
-    events.remember(book, doc)
-    _again, fresh2 = events.check(secret, raw, _sign(secret, raw), book)
-    assert fresh2 is False
+    book = door.DoorStore(db_url)
+    doc = events.check(secret, raw, _sign(secret, raw))
+    assert doc["type"] == "record.saved"
+    assert book.take_event(events.row_of(doc), None) is True
+    assert book.take_event(events.row_of(events.check(secret, raw, _sign(secret, raw))), None) is False
     with pytest.raises(events.EventRejected) as err:
-        events.check(secret, raw, "sha256=00", book)
+        events.check(secret, raw, "sha256=00")
     assert err.value.status == 401
     assert events.event_secret({}) == ""
 
@@ -123,7 +125,8 @@ def test_the_map_joins_a_project_to_a_study(tmp_path: Path) -> None:
     assert saved["sites"]["linkou"] == "dag_linkou" and saved["subjects"]["GZQO"]["S-1"] == "1001"
 
 
-def test_tools_stay_off_without_the_module_and_writes_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tools_stay_off_without_the_module_and_writes_wait(monkeypatch: pytest.MonkeyPatch, db_url: str) -> None:
+    # E-EDCB-2 (D-1044): held writes are kept in the trial database
     monkeypatch.setenv("TB_EDC_TOOL_TOKEN", TOKEN_B)
     monkeypatch.setenv("TB_EDC_TOOL_URL", "https://edc.example")
     seen: list[httpx.Request] = []
@@ -165,7 +168,8 @@ def test_tools_stay_off_without_the_module_and_writes_wait(monkeypatch: pytest.M
         client.call("apply_draft", "proj-1", confirm=False)
 
 
-def test_oidc_issues_a_code_and_stays_off_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_oidc_issues_a_code_and_stays_off_by_default(monkeypatch: pytest.MonkeyPatch, db_url: str) -> None:
+    # E-EDCB-2 (D-1044): codes are kept in the trial database
     assert oidc.enabled() is False
     monkeypatch.setenv("TB_EDC_OIDC", "1")
     monkeypatch.setenv("TB_EDC_OIDC_ISSUER", "https://box.example")

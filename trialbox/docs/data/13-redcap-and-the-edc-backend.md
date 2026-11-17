@@ -183,10 +183,22 @@ An empty project can be given arms, events, the form-event map and repeating ins
 
 `POST /api/edc/events/v1` takes `record.saved`, `form.completed`, `query.opened` and `ae.reported`. The header
 `X-TrialBox-Signature` is `sha256=` and the hex HMAC-SHA256 of the raw body, keyed by `TB_EDC_EVENT_SECRET`.
-Without that secret the route answers 404. A repeated `id` is one event. The body has no field values. A
-`record.saved`, `form.completed` or `ae.reported` event whose project is in the map re-reads that study; a
-failure answers 503 so the sender's retries (1 s, 5 s, 30 s, 5 min) still apply. The log is
-`TB_EDC_EVENT_DIR`.
+Without that secret the route answers 404. This route is for the owner's EDC only; it is not a receiver for
+REDCap's Data Entry Trigger, which TrialBox does not take (D-1033). The body has no field values.
+
+A repeated `id` is one event (D-1044). The ids are kept in the trial database (schema `edcdoor`), with the EDC's
+project and record ids and the instrument. The id is recorded and the study re-read in one transaction:
+
+- a `record.saved`, `form.completed` or `ae.reported` event whose project is in the map re-reads that study;
+- the answer is 200 only after that commits; a second delivery of the id answers 200 with `"fresh": false` and
+  reads nothing, also when two deliveries of it arrive at once;
+- a read that fails answers 503 and leaves the id unrecorded, so the sender's retries (1 s, 5 s, 30 s, 5 min)
+  bring it in;
+- with no trial database configured, the route answers 503; nothing is kept in a file.
+
+The OIDC codes and the writes held for confirmation are kept in the same schema, so every console process sees
+them: a code works once and for 120 seconds; a held write is confirmed once, by the person who held it, within 15
+minutes.
 
 The map (`GET` and `PUT /api/edc/map`, an administrator) stores a study ref to an EDC project id, a site to a
 data access group, and a subject to the study record id. The subject key is the screening number, not a chart
