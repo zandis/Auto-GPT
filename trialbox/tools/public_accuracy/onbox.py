@@ -76,6 +76,9 @@ def cmd_env(_: dict[str, Any]) -> None:
             "jobs_per_sender_per_day": os.environ.get("TB_JOBS_PER_SENDER_PER_DAY", ""),
             "tripwire_settings": {k: os.environ.get(k, "") for k in DECLARED if "TRIPWIRE" in k},
             "data_class": os.environ.get("TB_DATA_CLASS", ""),
+            # the site's zone as the box's own config reads it (TB_TZ); empty when the box names none. The driver
+            # records it in each set's clock, so the replay can read the zone the run used (D-1129)
+            "tz": str(getattr(cfg.env, "tz", "") or os.environ.get("TB_TZ") or ""),
         }
     )
 
