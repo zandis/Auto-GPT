@@ -8,6 +8,7 @@ use only the in-process console with synthetic accounts.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -346,7 +347,8 @@ def test_v7_1_3_a_grant_whose_audit_event_fails_is_not_left_open(
     csrf = re.search(r'name="csrf" value="([^"]+)"', admin.get("/breakglass").text)
     assert csrf
     monkeypatch.setenv("TB_AUDIT_MIN_FREE_MB", str(10**12))  # the audit volume reads as full: append raises AuditFull
-    with pytest.raises(AuditFull):
+    # today the request ends in AuditFull; a fix may refuse it with an answer instead: either way no grant may be left
+    with contextlib.suppress(AuditFull):
         admin.post("/breakglass", data={"csrf": csrf.group(1), "reason": "support", "kind": "patient",
                                         "note": "support call about one patient", "ruleset": "GZQO", "pid": A})  # fmt: skip
     monkeypatch.delenv("TB_AUDIT_MIN_FREE_MB")
