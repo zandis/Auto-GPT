@@ -295,7 +295,8 @@ class Orchestrator:
         return self._today is not None
 
     def _now(self) -> datetime:
-        return now(self.cfg.env.tz)
+        real = now(self.cfg.env.tz)
+        return self.clock().astimezone(real.tzinfo) if self.clock is not None else real  # J-4: the box's own clock
 
     # ------------------------------------------------------------------ job lifecycle
     def create(self, req: JobCreate, notify: bool = True, role: str = "", by: str = "") -> Job:

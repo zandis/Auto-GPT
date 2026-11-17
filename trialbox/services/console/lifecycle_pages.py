@@ -426,7 +426,12 @@ def register(app: FastAPI, h: Helpers) -> None:
                 raise h.problem(404, "notfound") from exc
             err = err_of(exc)
         sf_version, sf_criteria = criteria_choices(bk, rid)  # D-387: the pick list for "not eligible"
+        # J-4 (D-1224, walk F-18): the way back to the patient sheet, only for a reader the sheet admits by its own
+        # rights (``h.reads``, the sheet's check) and never for an erased pseudonym (D-875: a token is never shown)
+        pid = str((one.get("subject") or {}).get("pid") or "")
+        sheet_pid = pid if pid and short_of({"pid": pid}) and h.reads(sess.user, rid) else ""
         return h.page(request, "life_subject.html", sess, status=status, rs=rid, record=rec, one=one, err=err,
+                      sheet_pid=sheet_pid,
                       editable=can_enter(sess.user), refused=refused, done=done, sf_reasons=SF_REASONS,
                       wd_reasons=WD_REASONS, today=today().isoformat(), sf_criteria=sf_criteria,
                       sf_version=sf_version)  # fmt: skip

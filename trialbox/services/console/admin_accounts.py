@@ -183,7 +183,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         ow = checks.get("optout_worker")  # J-4 (D-1224, walk F-21): /metrics' opt-out worker check, as a health line
         return {
             "backup": backup,
-            "optout": {"level": ow.level, "min": round(ow.value) if ow.value is not None else None} if ow else None,
+            # no check (the orchestrator down or not reporting): the line says so instead of going missing
+            "optout": {"level": ow.level, "min": round(ow.value) if ow.value is not None else None}
+            if ow
+            else {"level": "unknown", "min": None},
             "update": update,
             "acc": {"locked": locked, "unused": rep["unused"], "ending": rep["ending"], "no_end": rep["no_end"]},
         }

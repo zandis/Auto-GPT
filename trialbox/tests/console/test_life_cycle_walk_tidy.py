@@ -206,3 +206,144 @@ def test_the_orchestrators_stamps_take_the_boxs_own_clock() -> None:
     o.clock = None
     real = _now(o)  # type: ignore[arg-type]
     assert abs((real - datetime.now(UTC)).total_seconds()) < 60 and str(real.tzinfo) == "Asia/Tokyo"
+
+
+# ---------------------------------------------------------------------------------------------- the review's fixes
+def test_an_erased_participant_shows_no_token_and_no_way_to_the_patient_sheet(lb: dict[str, Any]) -> None:
+    """D-875: a participant whose pseudonym was erased (ERASE-A2: ``erased:<day>:<hex>``) shows no token and no
+    link to a patient sheet that no longer exists."""
+    from datacore.lifecycle import Lifecycle
+
+    no = lb["nos"][0]
+    c, _ = login(lb["app"], "crc", LPW)
+    c.get(f"/studies/GZQO/subjects/{no}")  # the participant is made from its screening number
+    token = "erased:2026-11-01:" + "ab" * 8
+    Lifecycle(lb["dc"]).db.execute("UPDATE subject SET pid = ? WHERE study = ? AND record = ?", (token, "GZQO", no))
+    page = c.get(f"/studies/GZQO/subjects/{no}").text
+    assert 'data-testid="to-patient"' not in page and "erased:" not in page
+
+
+def test_the_way_to_the_patient_sheet_only_for_a_reader_the_sheet_admits(lb: dict[str, Any]) -> None:
+    """A sub-investigator ticked only for data entry reads the participant's page, but the patient sheet refuses
+    them (it needs "screen"): no link and no part of the pseudonym. The PI reads the sheet: the link is there."""
+    from tests.console.test_role_pages import PW as RPW
+    from tests.console.test_team_pages import _log_pi_and_sub
+
+    no = lb["nos"][0]
+    pid = f"{1:032x}"
+    crc, _ = login(lb["app"], "crc", LPW)
+    crc.get(f"/studies/GZQO/subjects/{no}")
+    pi = _user(lb, "drsato", "investigator")
+    _user(lb, "drkato", "investigator")
+    _log_pi_and_sub(lb, pi, ("enter_data",))
+    kato, _ = login(lb["app"], "drkato", RPW)
+    page = kato.get(f"/studies/GZQO/subjects/{no}")
+    assert page.status_code == 200 and 'data-testid="to-patient"' not in page.text and pid[:8] not in page.text
+    assert kato.get(f"/studies/GZQO/patients/{pid}").status_code == 403  # the sheet's own answer
+    sheet = pi.get(f"/studies/GZQO/subjects/{no}").text
+    assert f'href="/studies/GZQO/patients/{pid}" data-testid="to-patient"' in sheet
+
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_a_step_trialbox_recorded_itself_reads_trialbox_not_a_service_name(lb: dict[str, Any], lang: str) -> None:
+    from datacore.lifecycle import Lifecycle
+
+    no = lb["nos"][0]
+    Lifecycle(lb["dc"]).ensure("GZQO", no, f"{1:032x}", "service:console-notify", "2026-11-02T07:00:00+09:00")
+    c, _ = login(lb["app"], "crc", LPW)
+    _lang(c, lang)
+    page = c.get(f"/studies/GZQO/subjects/{no}").text
+    trail = page.split('data-testid="life-trail"', 1)[1]
+    assert "service:" not in trail and f"<td>{translate(lang, 'life.who.service')}</td>" in trail
+
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_the_system_count_takes_the_opt_out_line_and_an_absent_check_reads_unknown(
+    box: dict[str, Any], lang: str
+) -> None:
+    h = box["app"].state.helpers
+    now = datetime(2026, 11, 2, 7, 0, tzinfo=UTC)
+    h.clock = lambda: now
+    c, _ = login(box["app"], "admin", ADMIN_PW)
+    _lang(c, lang)
+
+    def tile(models: dict[str, Any]) -> tuple[str, str]:
+        box["backend"].models_info = models
+        page = c.get("/admin?tab=health").text
+        count = re.search(r'data-testid="system-count" data-level="([a-z]+)">(\d+)/(\d+)', page)
+        line = re.search(r'<li data-testid="health-optout" data-level="([a-z]+)">(.*?)</li>', page, re.S)
+        assert count and line, models
+        assert int(count.group(3)) == len(box["backend"].health()) + 1  # the services and the opt-out worker
+        return count.group(1), line.group(1) + ":" + line.group(2)
+
+    ok_at = (now - timedelta(minutes=4)).isoformat()
+    assert tile({"optout_worker": {"every": 5, "started": ok_at, "ok_at": ok_at, "failed": []}})[0] == "ok"
+    assert tile({"optout_worker": {"every": 0}})[0] == "bad"  # a red line makes a red count
+    young = (now - timedelta(minutes=2)).isoformat()
+    assert tile({"optout_worker": {"every": 5, "started": young, "failed": []}})[0] == "warn"
+    level, line = tile({})  # the orchestrator gave no worker status: said, not left out
+    assert level == "warn" and line.startswith("unknown:")
+    assert _unescape(translate(lang, "adm.optout.unknown")) in _unescape(line)
+
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_the_coordinators_hint_on_the_weekly_page_says_approach(box: dict[str, Any], lang: str) -> None:
+    _done_screen(box["backend"], _ulid(1225))
+    crc = _user(box, "crc4", "coordinator")
+    _lang(crc, lang)
+    page = _unescape(crc.get(f"/studies/GZQO/week?pid={A}").text)
+    hint = translate(lang, "wb.crc_hint")
+    assert _unescape(hint) in page and translate(lang, "mark.approach") in hint
+    assert not any(w in hint for w in ("approve", "承認", "核准"))
+
+
+def test_the_screening_number_link_is_a_44px_target_on_a_phone_only() -> None:
+    from pathlib import Path
+
+    css = (Path(__file__).resolve().parents[2] / "services/console/static/console.css").read_text(encoding="utf-8")
+    rule = re.search(r"@media \(max-width: 760px\) \{ \.pill\[data-testid=screening-no\] > a \{([^}]*)\} \}", css)
+    assert rule and "min-height: 44px" in rule.group(1) and "min-width: 44px" in rule.group(1)
+    assert css.count("[data-testid=screening-no]") == 1  # nothing outside the phone rule: the desktop look is kept
+
+
+def _box_on_a_clock(tmp_path: Any, clock: Any) -> Any:
+    from tests.inproc_box import make_box
+
+    sec = tmp_path / "sec"
+    sec.mkdir()
+    box = make_box(tmp_path / "box", tmp_path / "lake", sec, date(2026, 11, 2))
+    box.orch.clock = clock
+    return box
+
+
+def test_a_job_and_a_derived_step_carry_the_boxs_day_on_its_own_clock(tmp_path: Any) -> None:
+    """``--day data``: the box's clock stands on 2026-11-02; a job the orchestrator makes and a participant's step
+    it derives itself both carry that day (``Orchestrator._now`` and ``orchestrator.app._now``)."""
+    from datacore.lifecycle import Lifecycle
+    from orchestrator import app as orch_app
+    from orchestrator.lifecycle_api import refresh
+    from tb_contracts import JobCreate
+
+    from tools.list_demo import Clock
+
+    box = _box_on_a_clock(tmp_path, Clock(date(2026, 11, 2), "Asia/Tokyo"))
+    job = box.orch.create(JobCreate(type="RETENTION", requested_by="scheduler"))
+    got = box.orch.db.get(job.job_id)
+    assert got is not None and got.received_at.date() == date(2026, 11, 2)
+    svc = orch_app.data_service_of(box.orch)
+    refresh(svc, "GZQO", {"GZQO-0901": "c" * 32}, "service:test")
+    steps = Lifecycle(svc.dc).steps("GZQO", "GZQO-0901")
+    assert steps and {s["on_day"] for s in steps} == {"2026-11-02"}
+
+
+def test_a_box_without_a_clock_keeps_the_wall_clock(tmp_path: Any) -> None:
+    """The product (and the test stack's TB_TODAY) has no box clock: the stamps are the real time, as before."""
+    from orchestrator import app as orch_app
+    from tb_contracts import JobCreate
+
+    box = _box_on_a_clock(tmp_path, None)
+    for got in (box.orch._now(), orch_app._now(box.orch)):
+        assert abs((got - datetime.now(UTC)).total_seconds()) < 120
+    job = box.orch.create(JobCreate(type="RETENTION", requested_by="scheduler"))
+    stored = box.orch.db.get(job.job_id)
+    assert stored is not None and abs((stored.received_at - datetime.now(UTC)).total_seconds()) < 120
