@@ -8,16 +8,14 @@ What it does, in-process (``tests/console/test_matrix_role_walk*.py`` and
 ``tests/unit/test_matrix_role_walk_orchestrator.py`` call the functions here and leave their results in
 ``ROLE_WALK_OUT``):
 
-1. **The inventory from the code.** Every route of the console's app object (method, path, handler). For each, the
-   matrix actions the route asks ``tb_common.authz.permit`` while it answers: the walk wraps ``permit`` and records
-   each call with its call site. Calls made while a template renders, and the calls every page makes to build the
-   session and the menu (:data:`CONTEXT_SITES`), are left out. The route's *gate* is the asked action (or two of
-   them, both or either) whose ``permit`` answers fit the walked answers best (:func:`infer`). A route that asks no
-   action is *open to every signed-in account*. The orchestrator declares its action on the route
-   (``require_actor``), so there the gate is read from the app (``orchestrator.actor.walk``).
+1. **The declared table.** Every route of the console's app object has one row in :data:`DECLARED`: the matrix
+   action(s) it must ask, or ``public`` / ``signed_in`` / ``scope``, with the decision that says so. The tests read
+   it and never infer it; a route with no row fails. (:func:`infer` and :func:`draft_table`, over a walk traced by
+   :class:`Tracer`, made the first draft once; they are not used by the tests.) The orchestrator declares its action
+   on the route (``require_actor``), read from the app (``orchestrator.actor.walk``).
 2. **The walk.** Each route is called by each column of :data:`COLUMNS` (the seven roles, signed out, and in- and
-   out-of-scope accounts) and the answer is classified by :func:`classify`, then compared with ``permit`` for the
-   column's role and its standing in the study (:func:`standing`).
+   out-of-scope accounts); :func:`decide` reads the answer (allowed only on success) and :func:`expected_of` gives
+   ``permit`` for the column's role and its standing in the study (:func:`standing`).
 3. **The report.** ``walk.json`` (every cell) and the page ``docs/plan/measurements/role-walk-<day>.md``.
 
 ``live`` mode walks a running box by base URL with the gates of the committed ``walk.json``: it signs in each column
@@ -40,7 +38,7 @@ import sys
 import tempfile
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -377,6 +375,124 @@ def final(col: Column, cell: dict[str, Any], gate: Gate) -> str:
 ALLOWED_X, REFUSED_X = "ALLOWED-BUT-MATRIX-REFUSES", "REFUSED-BUT-MATRIX-ALLOWS"
 
 
+# ---------------------------------------------------------------------------------------------- the declared table
+#: the committed table of what each console route must ask (one row per route; the walk never infers)
+DECLARED = ROOT / "tests" / "console" / "data" / "route_actions.yaml"
+KINDS = ("actions", "public", "signed_in", "scope")
+
+
+@dataclass(frozen=True)
+class Declared:
+    """One row of :data:`DECLARED`: the matrix action(s) a route must ask (``mode`` all or any; ``!row`` for a
+    restriction row such as ``report.aggregate_only``), or ``public`` (anyone), ``signed_in`` (every signed-in
+    account) or ``scope`` (every account that sees the study), with ``why``: the decision or document."""
+
+    kind: str
+    actions: tuple[str, ...] = ()
+    mode: str = "all"
+    why: str = ""
+
+    def gate(self) -> Gate:
+        return Gate(self.actions, "any" if self.mode == "any" else ("all" if len(self.actions) > 1 else "one"))
+
+    def label(self) -> str:
+        return self.gate().label() if self.kind == "actions" else f"({self.kind})"
+
+
+def load_declared(path: Path = DECLARED) -> dict[tuple[str, str], Declared]:
+    import yaml
+    from tb_common.authz import MATRIX
+
+    raw = yaml.safe_load(path.read_text("utf-8")) or {}
+    out: dict[tuple[str, str], Declared] = {}
+    for key, row in (raw.get("routes") or {}).items():
+        method, _, route = str(key).partition(" ")
+        kind = str(row.get("kind") or "actions")
+        acts = tuple(str(a) for a in row.get("actions") or ())
+        if kind not in KINDS or (kind == "actions") != bool(acts) or not str(row.get("why") or "").strip():
+            raise ValueError(f"{key}: a row names actions, or a kind ({', '.join(KINDS[1:])}), and why")
+        bad = [a for a in acts if a.lstrip("!") not in MATRIX]
+        if bad:
+            raise ValueError(f"{key}: not rows of the matrix: {bad}")
+        out[(method, route)] = Declared(kind, acts, str(row.get("mode") or "all"), str(row["why"]))
+    return out
+
+
+def table_problems(routes: list[dict[str, Any]], declared: dict[tuple[str, str], Declared]) -> list[str]:
+    """A walked route with no row, and a row with no route: the walk cannot go stale."""
+    have = {(r["method"], r["path"]) for r in routes if r["walked"]}
+    return [f"{m} {p}: a route with no row in route_actions.yaml" for m, p in sorted(have - set(declared))] + [
+        f"{m} {p}: a row of route_actions.yaml with no route" for m, p in sorted(set(declared) - have)
+    ]
+
+
+def expected_of(col: Column, method: str, path: str, d: Declared) -> bool:
+    """The declared answer for the column: :func:`expected` with the declared gate; ``public`` lets anyone in,
+    ``signed_in`` and ``scope`` every signed-in account (the scope rules still apply)."""
+    if d.kind == "public":
+        return True
+    if col.role is None:
+        return False
+    return expected(col, path, d.gate() if d.kind == "actions" else Gate(()), method)
+
+
+def decide(col: Column, path: str, status: int, location: str) -> tuple[str, str]:
+    """The walked answer: ``A`` allowed, ``R`` refused, ``?`` the check was not seen to be reached; with why.
+
+    * allowed: 2xx; a redirect to another page (not to sign-in, and not back with ``err=``: a validation answer);
+    * refused: 401, 403; a redirect to sign-in; 404 for a column that does not see GZQO on a route of GZQO's data;
+    * everything else (4xx validation, 404, 5xx, a redirect with ``err=``) is not counted either way."""
+    if status in (401, 403):
+        return "R", ""
+    if 300 <= status < 400:
+        if location.split("?", maxsplit=1)[0].endswith("/login"):
+            return "R", ""
+        return ("?", "redirect with err=") if "err=" in location else ("A", "")
+    if 200 <= status < 300:
+        return "A", ""
+    if status == 404 and (col.role is None or (STUDY_PATH.search(path) and not sees(col))):
+        return "R", ""
+    return "?", ("5xx" if status >= 500 else str(status))
+
+
+def judge_declared(raw: list[dict[str, Any]], declared: dict[tuple[str, str], Declared]) -> list[dict[str, Any]]:
+    """Every walked route with its declared row, and every cell with expected, got, verdict and why unclear."""
+    out = []
+    for r in raw:
+        d = declared.get((r["method"], r["path"]))
+        if not r["walked"] or d is None:
+            out.append({**{k: v for k, v in r.items() if k != "cells"}, "gate": None, "cells": {}})
+            continue
+        cells = {}
+        for name, c in r["cells"].items():
+            exp = expected_of(BY_NAME[name], r["method"], r["path"], d)
+            got, why = decide(BY_NAME[name], r["path"], c["status"], c.get("location", ""))
+            cells[name] = {"status": c["status"], "expected": "A" if exp else "R", "got": got,
+                           "verdict": verdict(exp, got), "unclear": why, "audited": c.get("audited", 0),
+                           "shows": c.get("shows", []), "backend": bool(c.get("backend")) if got == "R" else None,
+                           "probe": c.get("probe")}  # fmt: skip
+        out.append({**{k: v for k, v in r.items() if k != "cells"}, "gate": {"kind": d.kind, "actions": list(d.actions),
+                    "mode": d.mode}, "gate_label": d.label(), "why": d.why, "cells": cells})  # fmt: skip
+    return out
+
+
+def draft_table(raw: list[dict[str, Any]], hints: dict[tuple[str, str], str] | None = None) -> str:
+    """A first draft of :data:`DECLARED` from a traced walk (:func:`infer`): to be checked row by row against the
+    documents and the handler before it is committed. The tests never call this."""
+    lines = ["# DRAFT from infer(): check every row before committing", "routes:"]
+    for r in judge(raw, hints):
+        if not r.get("gate"):
+            continue
+        g = r["gate"]
+        key = f"{r['method']} {r['path']}"
+        if not g["actions"]:
+            lines.append(f"  '{key}': {{kind: signed_in, why: DRAFT}}")
+        else:
+            mode = "any" if g["mode"] == "any" else "all"
+            lines.append(f"  '{key}': {{actions: {json.dumps(g['actions'])}, mode: {mode}, why: DRAFT}}")
+    return "\n".join(lines) + "\n"
+
+
 def verdict(exp: bool, got: str) -> str:
     if got == "?":
         return "unclear"
@@ -410,11 +526,102 @@ def judge(raw: list[dict[str, Any]], hints: dict[tuple[str, str], str] | None = 
 
 
 # ---------------------------------------------------------------------------------------------- the in-process walk
-def console_walk(app: Any, clients: dict[str, tuple[Any, str, Any]], tracer: Tracer, audit_count: Callable[[], int],
-                 job_id: str, before: Callable[[str], None] = lambda path: None) -> list[dict[str, Any]]:  # fmt: skip
+TAG_HEADER = "x-role-walk"
+_TAG: Any = None
+
+
+def current_tag() -> str:
+    """The walk's tag of the request being served (:class:`Tagged`), "" outside one."""
+    return _TAG.get() if _TAG is not None else ""
+
+
+class Tagged:
+    """An ASGI wrapper that puts the walk's request tag (header :data:`TAG_HEADER`) in a context variable for the
+    request's whole life, so an audit record is counted for the request that wrote it (:class:`AuditTap`). A sync
+    handler runs in a thread with a copy of the context, so it sees the tag too."""
+
+    def __init__(self, app: Any) -> None:
+        global _TAG
+        import contextvars
+
+        if _TAG is None:
+            _TAG = contextvars.ContextVar("role_walk_tag", default="")
+        self.app = app
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.app, name)
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        tag = ""
+        for k, v in scope.get("headers") or ():
+            if k.decode("latin-1").lower() == TAG_HEADER:
+                tag = v.decode("latin-1")
+        token = _TAG.set(tag)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            _TAG.reset(token)
+
+
+class AuditTap:
+    """Counts the audit records written by each tagged request (wraps an ``AuditLog``'s ``append``)."""
+
+    def __init__(self, audit: Any) -> None:
+        self.by_tag: Counter[str] = Counter()
+        self.audit, self.orig = audit, audit.append
+
+        def append(*a: Any, **kw: Any) -> Any:
+            tag = current_tag()
+            if tag:
+                self.by_tag[tag] += 1
+            return self.orig(*a, **kw)
+
+        audit.append = append
+
+    def close(self) -> None:
+        self.audit.append = self.orig
+
+
+class BackendTap:
+    """Counts the calls a tagged console request makes to the in-process stand-ins of the orchestrator (any test
+    client called while the request is served). A refusal the console owes itself (D-483: it cannot sign what it
+    would not allow) comes before any such call; one that comes from the backend shows a call."""
+
+    def __init__(self) -> None:
+        from starlette.testclient import TestClient
+
+        self.by_tag: Counter[str] = Counter()
+        self.cls, self.orig = TestClient, TestClient.request
+        tap = self
+
+        def request(client: Any, *a: Any, **kw: Any) -> Any:
+            tag = current_tag()
+            if tag:
+                tap.by_tag[tag] += 1
+            return tap.orig(client, *a, **kw)
+
+        TestClient.request = request  # type: ignore[method-assign,assignment]
+
+    def close(self) -> None:
+        self.cls.request = self.orig  # type: ignore[method-assign]
+
+
+def _param(given: dict[str, Any], m: re.Match[str]) -> str:
+    return str(given.get(m.group(1), m.group(0)))
+
+
+#: ``prepare(method, path, column) ->{"params": {...}, "form": {...}, "json": {...}}`` or None: a valid body (and
+#: fresh state) for a changing route, so an allowed column gets past validation
+Prepare = Callable[[str, str, str], dict[str, Any] | None]
+
+
+def console_walk(app: Any, clients: dict[str, tuple[Any, str, Any]], tap: AuditTap, job_id: str,
+                 prepare: Prepare = lambda m, p, c: None,
+                 tracer: Tracer | None = None, backend: BackendTap | None = None) -> list[dict[str, Any]]:  # fmt: skip
     """Walk every route as every column; GET rows first, then the changing rows, each column in turn (the order of
-    ``test_role_route_matrix``, so a changing call of one column never runs before a read of another). A changing
-    call sends the column's CSRF token and no other field; ``/api/v1`` its bearer token and ``{}``."""
+    ``test_role_route_matrix``). A changing call sends the column's CSRF token and, where :data:`Prepare` gives
+    one, a valid body (``/api/v1``: its bearer token and a JSON body, ``{}`` by default). The clients are on
+    :class:`Tagged` (the tag of each request is ``<method> <path> <column>``)."""
     routes = console_routes(app)
     raw: dict[tuple[str, str], dict[str, Any]] = {(r["method"], r["path"]): {**r, "cells": {}} for r in routes}
     for changing in (False, True):
@@ -423,20 +630,38 @@ def console_walk(app: Any, clients: dict[str, tuple[Any, str, Any]], tracer: Tra
             for r in routes:
                 if not r["walked"] or (r["method"] in CHANGING) != changing:
                     continue
-                url = fill(r["path"], job_id)
-                before(r["path"])
-                n = audit_count()
-                with tracer.recording() as calls:
+                prep = (prepare(r["method"], r["path"], col.name) if changing else None) or {}
+                params = dict(prep.get("params", {}))
+                url = re.sub(r"\{(\w+)(?::\w+)?\}", functools.partial(_param, params), r["path"])
+                url = fill(url, job_id)
+                tag = f"{r['method']} {r['path']} {col.name}"
+                probe = None
+                if prep.get("probe"):  # a refused column: first with no body (the refusal must come first)
+                    ptag = {TAG_HEADER: f"{tag} probe"}
                     if r["path"].startswith("/api/v1/"):
-                        resp = api.request(r["method"], url, json={} if changing else None, follow_redirects=False)
+                        pr = api.request(r["method"], url, json={}, headers=ptag, follow_redirects=False)
                     else:
-                        data = {"csrf": csrf, **FORM_FIELDS.get(r["path"], {})} if changing and csrf else None
-                        resp = page.request(r["method"], url, data=data, follow_redirects=False)
+                        pr = page.request(r["method"], url, data={"csrf": csrf}, headers=ptag, follow_redirects=False)
+                    first, _ = decide(col, r["path"], pr.status_code, pr.headers.get("location", ""))
+                    probe = "refused" if first == "R" else pr.status_code
+                headers = {TAG_HEADER: tag}
+                recorder: Any = tracer.recording() if tracer else nullcontext([])
+                with recorder as calls:
+                    if r["path"].startswith("/api/v1/"):
+                        body = prep.get("json", {}) if changing else None
+                        resp = api.request(r["method"], url, json=body, headers=headers, follow_redirects=False)
+                    else:
+                        data = None
+                        if changing and csrf:
+                            data = {"csrf": csrf, **FORM_FIELDS.get(r["path"], {}), **prep.get("form", {})}
+                        resp = page.request(r["method"], url, data=data, headers=headers, follow_redirects=False)
                 loc = resp.headers.get("location", "")
                 raw[(r["method"], r["path"])]["cells"][col.name] = {
                     "status": resp.status_code, "location": loc,
                     "class": classify(col, r["path"], resp.status_code, loc),
-                    "asked": asked(calls), "audited": audit_count() - n, "shows": shows(resp),
+                    "asked": asked(calls), "audited": tap.by_tag.get(tag, 0), "shows": shows(resp),
+                    "backend": backend.by_tag.get(tag, 0) if backend else 0,
+                    "prepared": bool(prep), "probe": probe,
                 }  # fmt: skip
     return list(raw.values())
 
@@ -585,15 +810,17 @@ def _cell_mark(cell: dict[str, Any]) -> str:
 
 
 def render(walk: dict[str, Any], findings: list[dict[str, Any]], verdict_text: str) -> str:
-    """The page: verdict, counts, per-action table, two-person, break-glass, forged sessions, findings."""
+    """The page: verdict, counts, per-row tables, two-person, break-glass, forged sessions, findings."""
     con = walk["console"]["routes"]
     orch = walk["orchestrator"]
     walked = [r for r in con if r.get("gate")]
     cc, oc = counts(walked), counts(orch)
     names = [c["name"] for c in walk["columns"]]
     api_only = [r for r in walked if r["path"].startswith(("/api/",))]
-    open_routes = [r for r in walked if not r["gate"]["actions"]]
+    kinds = Counter(r["gate"]["kind"] for r in walked)
+    prepared = walk["console"].get("prepared") or []
     n_orch = len({(r["method"], r["path"]) for r in orch})
+    hand = sum(1 for r in walked if "not checked against a decision" not in r.get("why", ""))
     lines = [
         f"# The role walk, {DAY} (card V-2, plan 8 activity V8)",
         "",
@@ -607,60 +834,60 @@ def render(walk: dict[str, Any], findings: list[dict[str, Any]], verdict_text: s
         "## What ran and what did not",
         "",
         "- **Ran:** the console's app and the orchestrator's app in process (the test boxes of "
-        "`tests/console/test_console_app.py` and `tests/unit/test_actor_routes.py`), on synthetic data only.",
-        "- **Built on `tests/console/test_role_route_matrix.py`** (its route list, parameters and orchestrator "
-        "routers). That test compares each answer with a committed snapshot and holds 34 hand-named routes to "
-        "`permit`. This walk adds: a gate read from the running app for all 315 routes and every cell compared with "
-        "`permit` both ways; signed-out, out-of-scope, sub-investigator and monitor-grant columns; validation "
-        "answers counted only when the trace shows the check passed; the audit record of each refusal; a search of "
-        "every page for patient pseudonyms; the backend's signed-read layer put back on the stand-in (V2-04); the "
-        "orchestrator's 79 `require_actor` routes per role and standing; two-person rules, break-glass and forged "
-        "sessions.",
-        "- **Not run: the compose box.** Plan 8 asks for the walk on the compose box. It was not stood up here. "
-        "`python -m tools.role_walk live --base-url URL` walks a running box with the gates of `walk.json` and "
-        "accounts from the environment (`ROLE_WALK_<COLUMN>_USER`, `_PASSWORD` or `_TOKEN`); the nightly can run it.",
+        "`tests/console/test_console_app.py` and `tests/unit/test_actor_routes.py`), synthetic data only. The "
+        "console's box has a study store in process: the orchestrator's data core, life-cycle, sponsor, EDC, "
+        "conflict and instrument routers behind `study_api`, called with the console's own signatures.",
+        "- **Built on `tests/console/test_role_route_matrix.py`** (its route list and parameters). That test compares "
+        "each answer with a committed snapshot of the answers and holds 34 hand-named routes to `permit`. This walk "
+        "adds: a committed table of what every route must ask (`tests/console/data/route_actions.yaml`), never "
+        "inferred by the test; every cell compared with it both ways; signed-out, out-of-scope, sub-investigator and "
+        "monitor-grant columns; valid bodies and fresh state for the changing routes that matter most; the audit "
+        "record of each request; a search of every page for patient pseudonyms; the orchestrator's `require_actor` "
+        "routes per role and standing; two-person rules, break-glass, forged sessions.",
+        "- **Not run: the compose box.** `python -m tools.role_walk live --base-url URL` walks a running box with "
+        "the committed table and accounts from the environment (`ROLE_WALK_<COLUMN>_USER`, `_PASSWORD` or `_TOKEN`).",
         "- **Not walked as roles:** the sign-in machinery (`/login`, `/logout`, `/lang`, `/role`, `/enrol`, "
-        "`/api/v1/session`), `/static` and `/healthz`; the forged-session tests below take the session routes.",
+        "`/api/v1/session`), `/static`, `/healthz`; the orchestrator's v2 groups (`POST /jobs`, the EDC router's "
+        "own role check: only the cells V2-05 names were run).",
         "",
         "## Counts",
         "",
         "| | Console | Orchestrator |",
         "| --- | --- | --- |",
         f"| routes in the app | {len(con)} | {n_orch} (`require_actor` routes) |",
-        f"| routes walked | {len(walked)} (of which {len(api_only)} API routes with no page) | "
-        f"{len({(r['method'], r['path']) for r in orch})} |",
-        f"| matrix actions taken as a gate | {len({a for r in walked for a in r['gate']['actions']})} | "
-        f"{len({r['action'] for r in orch})} |",
+        f"| routes walked | {len(walked)} (of which {len(api_only)} API routes with no page) | {n_orch} |",
         f"| cells (route x column) | {cc['cells']} | {oc['cells']} |",
-        f"| allowed as the matrix says | {cc['allowed']} | {oc['allowed']} |",
-        f"| refused as the matrix says | {cc['refused']} | {oc['refused']} |",
-        f"| allowed where the matrix refuses | {cc[ALLOWED_X]} | {oc[ALLOWED_X]} |",
-        f"| refused where the matrix allows | {cc[REFUSED_X]} | {oc[REFUSED_X]} |",
-        f"| unclear (never counted as a pass) | {cc['unclear']} | {oc['unclear']} |",
-        f"| routes open to every signed-in account (no matrix action) | {len(open_routes)} | 0 |",
+        f"| decided: allowed as declared | {cc['allowed']} | {oc['allowed']} |",
+        f"| decided: refused as declared | {cc['refused']} | {oc['refused']} |",
+        f"| allowed where the declared row refuses | {cc[ALLOWED_X]} | {oc[ALLOWED_X]} |",
+        f"| refused where the declared row allows | {cc[REFUSED_X]} | {oc[REFUSED_X]} |",
+        f"| unclear: the check was not seen to be reached | {cc['unclear']} | {oc['unclear']} |",
         "",
-        f"Matrix rows no route takes as its gate: {len(walk['matrix_rows_no_gate'])}; of those, asked by no route at "
-        f"all: {len(walk['matrix_rows_never_asked'])} (`walk.json`, `matrix_rows_*`).",
+        f"The table's {len(walked)} console rows: "
+        + ", ".join(f"{v} {k}" for k, v in sorted(kinds.items()))
+        + f". {hand} rows were set from a decision or document by hand; the other {len(walked) - hand} were drafted "
+        "once from a traced walk and agree with the design table, and their `why` says they were not checked "
+        "against a decision by hand.",
         "",
         "## How a cell is decided",
         "",
-        "- **The gate of a console route** is read from the running app: the walk wraps `permit` and records every "
-        "action the route asks while it answers, outside templates and outside the calls every page makes for the "
-        "session and the menu. Among those actions, the gate is the one (or the pair, both or either) whose matrix "
-        "answers fit the walked answers best. A route that asks no action is open to every signed-in account. The "
-        "orchestrator names its action on the route (`require_actor`), so its gate is the declared one.",
-        "- **Expected** is `permit(role, gate, standing)`, with the column's standing in GZQO read from the matrix's "
-        "header (log names a PI; the PI; the sub-investigator's ticks; a monitor grant). Signed out: refused. A "
-        "route that names GZQO's data (`{rs}`, `{ruleset}`, `{pid}`, `{job_id}`, `{record}`): refused for a "
-        "column that does not see GZQO.",
-        "- **Got:** refused = 401, 403, a redirect to sign-in, or 404 for a column that does not see GZQO on such a "
-        "route; allowed = 2xx or a redirect elsewhere; a 400/409/410/422/429 is allowed only when the gate was asked "
-        "in that request and said yes (validation after the check), refused when it said no, else unclear; every "
-        "5xx and a 404 for a column that sees GZQO are unclear. On the orchestrator: refused = 403 from the "
-        "dependency with reason `right`; past it = any other answer.",
-        "- **Limit.** The console declares no action per route, so its gate is inferred. A route that asks the wrong "
-        "row consistently would look right here; the inventory below names each route's gate for a reader to check, "
-        "and the test compares it with the rows `tests/console/test_role_route_matrix.py` names by hand.",
+        "- **Expected** comes from the committed table: `permit(role, action, standing)` for each declared action "
+        "(all, or any), with the column's standing in GZQO read from the matrix's header; `public` lets anyone in; "
+        "`signed_in` and `scope` every signed-in account. A route that names GZQO's data refuses a column that does "
+        "not see GZQO (D-104, D-380). The orchestrator's routes declare their action on the route (`require_actor`).",
+        "- **Got:** allowed = 2xx, or a redirect to another page (not to sign-in and not back with `err=`); "
+        "refused = 401, 403, a redirect to sign-in, or 404 for a column that does not see GZQO on a route of "
+        "GZQO's data. Anything else (a 4xx validation answer, another 404, a 5xx, a redirect with `err=`) is "
+        "unclear, never counted. On the orchestrator: refused = 403 from the dependency with reason `right`.",
+        f"- **Valid bodies** (fresh state per call) for {len(prepared)} changing routes: "
+        + ", ".join(f"`{p}`" for p in prepared)
+        + ". Every other changing route sends its CSRF token only; where a column passes the check, it stops at "
+        "validation and the cell is unclear (pinned in `tests/console/data/role_walk_unclear.txt`).",
+        "- **The check comes first:** on those routes a refused column is first sent no body; it must be refused "
+        "then too (6 cells on the two reveal pages ask the purpose or reason before the role, and are listed in the "
+        "test). A refused cell whose request reached the orchestrator's stand-in counts as refused by the backend, "
+        "not the console (D-483: the console cannot sign what it would not allow); none was found.",
+        "- **Audit:** each request carries a tag; the audit records written while it is served are counted for it.",
         "",
         "## Columns",
         "",
@@ -668,11 +895,11 @@ def render(walk: dict[str, Any], findings: list[dict[str, Any]], verdict_text: s
         "| --- | --- |",
     ]
     lines += [f"| `{c['name']}` | {c['what']} |" for c in walk["columns"]]
-    lines += ["", "## Per action and column (console pages)", "",
-              "A allowed, R refused, `!` against the matrix, `?` unclear (`A?`: allowed where decided, some cells "
-              "unclear). One row per gate; the routes of each gate are in `walk.json`.", ""]  # fmt: skip
+    lines += ["", "## Per declared row and column (console pages)", "",
+              "A allowed, R refused, `!` against the declared row, `?` unclear (`A?`: allowed where decided, some "
+              "cells unclear). One row per declared gate; the routes of each are in `walk.json`.", ""]  # fmt: skip
     lines += _gate_table([r for r in walked if not r["path"].startswith("/api/")], names)
-    lines += ["", "## Per action and column (console API routes with no page)", "",
+    lines += ["", "## Per declared row and column (console API routes with no page)", "",
               "`/api/v1/...` (a bearer token) and `/api/edc/...`, walked as the pages are.", ""]  # fmt: skip
     lines += _gate_table(api_only, names)
     lines += ["", "## Per action and column (orchestrator, `require_actor`)", "",
@@ -687,45 +914,34 @@ def render(walk: dict[str, Any], findings: list[dict[str, Any]], verdict_text: s
             marks = {_cell_mark(r["cells"][n]) for r in ob[a]}
             row.append("".join(sorted(marks)))
         lines.append(f"| `{a}` | {len(ob[a])} | " + " | ".join(row) + " |")
-    lines += ["", "## Routes open to every signed-in account", "",
-              "These ask no matrix action; the product has no marking for \"any signed-in person\". The test pins this "
-              "list, so a new route without a gate fails it.", ""]  # fmt: skip
-    lines += [", ".join(f"`{r['method']} {r['path']}`" for r in open_routes) or "(none)", ""]
     seen = Counter(n for r in walked for n, c in r["cells"].items() if c.get("shows"))
-    lines += ["## Patient rows on the pages", "",
+    lines += ["", "## Patient rows on the pages", "",
               "Each 2xx text answer was searched for the two seeded pseudonyms. Answers that carried one, by column: "
               + (", ".join(f"`{n}` {seen[n]}" for n in names if seen[n]) or "none")
               + ". The steward's and the privacy office's are the audit pages (`audit.ids`); no other column without "
               "`phi.view` saw one (the test fails if one does).", ""]  # fmt: skip
-    unclear: dict[str, list[str]] = {}
-    why = {"U": "a 5xx (the test box has no study store; most say 503 after the gate said yes)",
-           "N": "404 for a column that sees GZQO (the walk's parameter names no such thing, or the feature is off)",
-           "V": "a validation answer where the gate was not asked in that request"}  # fmt: skip
+    unclear: dict[str, set[str]] = {}
+    n_unclear: Counter[str] = Counter()
     for r in walked:
-        for n, c in r["cells"].items():
+        for c in r["cells"].values():
             if c["verdict"] == "unclear":
-                unclear.setdefault(c["class"], []).append(f"{r['method']} {r['path']} ({n})")
-    lines += ["## Unclear cells", "", "Never counted as a pass. By kind, with the routes (every cell: `walk.json`).",
-              ""]  # fmt: skip
-    for cls, cells in sorted(unclear.items()):
-        routes = sorted({c.rsplit(" (", 1)[0] for c in cells})
-        lines += [f"- **{why.get(cls, cls)}**: {len(cells)} cells on {len(routes)} routes: "
-                  + ", ".join(f"`{x}`" for x in routes[:40]) + (" ..." if len(routes) > 40 else ""), ""]  # fmt: skip
-    lines += ["## Matrix rows", "",
+                unclear.setdefault(c["unclear"], set()).add(f"{r['method']} {r['path']}")
+                n_unclear[c["unclear"]] += 1
+    lines += ["## Unclear cells", "", "Never counted as a pass; pinned by route and column. By answer:", ""]
+    for why, routes in sorted(unclear.items()):
+        lines += [f"- **{why}**: {n_unclear[why]} cells on {len(routes)} routes."]
+    lines += ["", "## Matrix rows", "",
               f"- Named by no file under `services/` or `libs/` (a static reading, `unreferenced_rows`): "
-              f"{', '.join(walk['matrix_rows_unreferenced']) or 'none'}.",
-              f"- Taken as no route's gate in this walk: {len(walk['matrix_rows_no_gate'])} rows. Most are asked only "
-              "when a form names them (the walk sends the CSRF token and no other field: a command's type, an "
-              "account's class, an EDC step), or are restrictions and conditions rather than rights (`task.*`, "
-              "`report.aggregate_only`). Not a finding: no row is unreferenced.", ""]  # fmt: skip
+              f"{', '.join(walk['matrix_rows_unreferenced']) or 'none'}.", ""]  # fmt: skip
     lines += _section_two_person(walk.get("two_person"))
     lines += _section_breakglass(walk.get("breakglass"))
     lines += _section_forged(walk.get("forged"))
-    lines += ["## Findings", "", "| Id | Severity | Basis | Lane | Place | Expected (where written) | Happened |",
-              "| --- | --- | --- | --- | --- | --- | --- |"]  # fmt: skip
+    lines += ["## Findings", "",
+              "| Id | Severity | Basis | Lane | Ruling | Place | Expected (where written) | Happened |",
+              "| --- | --- | --- | --- | --- | --- | --- | --- |"]  # fmt: skip
     for f in findings:
-        lines.append(f"| {f['id']} | {f['severity']} | {f['basis']} | {f['lane']} | `{f['place']}` | {f['expected']} | "
-                     f"{f['happened']} |")  # fmt: skip
+        lines.append(f"| {f['id']} | {f['severity']} | {f['basis']} | {f['lane']} | {f.get('ruling') or '-'} | "
+                     f"`{f['place']}` | {f['expected']} | {f['happened']} |")  # fmt: skip
     lines.append("")
     return "\n".join(lines)
 
@@ -773,7 +989,13 @@ def _section_breakglass(rows: list[dict[str, Any]] | None) -> list[str]:
 def _section_forged(rows: list[dict[str, Any]] | None) -> list[str]:
     return ["## Forged and stale sessions", "",
             "A sample: one route of each kind. Each row: what was sent, what came back, whether it was refused and "
-            "whether the refusal is in the audit trail.", "",
+            "whether the refusal is in the audit trail. The orchestrator's rows assert the dependency's reason per "
+            "kind. Audit rules that exist: a failed sign-in (`console.login_failed`, D-279; D-320 §5 for the API's "
+            "second factor), a failed re-authentication (`console.reauth_failed`, D-391), every refused assertion "
+            "(`actor.refused`, D-483). None was found for a made-up, ended or stale session cookie or bearer token: "
+            "the console sends it to sign-in (D-777) and writes nothing. A claim the console minted before the "
+            "account changed is good for one call within two minutes (D-483, `ACTOR_TTL`): the orchestrator reads "
+            "no account, and the rows below show the one use, the replay refused, and the stale claim refused.", "",
             *_table(rows, ["service", "kind", "route", "status", "refused", "audited", "note"],
                     "Not run.")]  # fmt: skip
 
@@ -807,7 +1029,8 @@ def live(base: str, walk_json: Path, out: Path) -> int:
     import httpx
 
     walk = json.loads(walk_json.read_text("utf-8"))
-    routes = [r for r in walk["console"]["routes"] if r.get("gate")]
+    declared = load_declared()
+    routes = [r for r in walk["console"]["routes"] if (r["method"], r["path"]) in declared]
     clients: dict[str, tuple[httpx.Client, str, httpx.Client]] = {}
     for col in COLUMNS:
         key = f"ROLE_WALK_{col.name.upper()}"
@@ -841,11 +1064,10 @@ def live(base: str, walk_json: Path, out: Path) -> int:
             col = BY_NAME[name]
             url = fill(r["path"], "0" * 26)
             resp = (api if r["path"].startswith("/api/v1/") else page).get(url)
-            cls = classify(col, r["path"], resp.status_code, resp.headers.get("location", ""))
-            gate = Gate(tuple(r["gate"]["actions"]), r["gate"]["mode"])
-            got = {"A": "A", "R": "R"}.get(cls, "?")
+            got, _ = decide(col, r["path"], resp.status_code, resp.headers.get("location", ""))
+            row = declared[(r["method"], r["path"])]
             cells.append({"method": r["method"], "path": r["path"], "column": name, "status": resp.status_code,
-                          "verdict": verdict(expected(col, r["path"], gate), got)})  # fmt: skip
+                          "verdict": verdict(expected_of(col, r["method"], r["path"], row), got)})  # fmt: skip
     out.write_text(json.dumps({"base": base, "cells": cells}, indent=1) + "\n", "utf-8")
     c = Counter(x["verdict"] for x in cells)
     print(f"live walk: {len(cells)} cells, " + ", ".join(f"{k} {v}" for k, v in sorted(c.items())) + f"; {out}")

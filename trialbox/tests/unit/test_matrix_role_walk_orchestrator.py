@@ -61,10 +61,13 @@ def test_every_orchestrator_route_answers_every_role_as_the_matrix_says(orch: An
     assert unaudited == []
 
 
+class RoleWalkFinding(AssertionError):
+    """Raised only by the check a strict xfail names: a fixture error can never satisfy the mark."""
+
+
 @pytest.mark.parametrize("key", sorted(SECOND_CHECK))
-@pytest.mark.xfail(
-    strict=True, reason="V2-01: two orchestrator routes refuse a coordinator the row they declare allows"
-)
+@pytest.mark.xfail(strict=True, raises=RoleWalkFinding,
+                   reason="V2-01: ruled by D-871 and D-864; two routes refuse a coordinator the row they declare allows")  # fmt: skip
 def test_v2_01_a_route_answers_as_the_row_it_declares(orch: Any, key: tuple[str, str, str]) -> None:
     """D-871 and D-864 record why; the matrix has no row that says so (the guides are frozen)."""
     _, client, _ = orch
@@ -74,7 +77,33 @@ def test_v2_01_a_route_answers_as_the_row_it_declares(orch: Any, key: tuple[str,
     st = rw.standing(rw.BY_NAME["crc"])
     r = client.request(method, path, json=body, headers=signed(action, "", method, path, body, role="coordinator",
                                                                standing=st, sub="console:walk-crc"))  # fmt: skip
-    assert rw._reason(r) != "right", r.text[:200]
+    if rw._reason(r) == "right":
+        raise RoleWalkFinding(f"{method} {template}: the coordinator is refused ({r.status_code})")
+
+
+@pytest.mark.xfail(strict=True, raises=RoleWalkFinding,
+                   reason="V2-05: the EDC router refuses the study's PI the edc.* rows its log gives it")  # fmt: skip
+@pytest.mark.parametrize("step", ["copy", "export/odm"])
+def test_v2_05_the_studys_pi_reads_the_edc_copy_sheet_and_export(tmp_path: Path, step: str) -> None:
+    """The matrix: ``edc.copy`` and ``edc.export`` are the investigator's with ``task:enter_data``, which the log's PI
+    holds (every task). The router asks ``edc_role_may``, which reads the investigator as on no log (D-380: no task)."""
+    from fastapi import FastAPI
+    from orchestrator.edc_api import router
+    from tb_common.authz import Standing, permit
+
+    from tests import edc_kit as k
+    from tests.actor3 import SignedClient
+
+    assert permit(
+        "investigator", f"edc.{step.split('/', maxsplit=1)[0]}", Standing(True, frozenset({"enter_data"}), True)
+    )
+    svc, _, _ = k.service(tmp_path)
+    app = FastAPI()
+    app.include_router(router(lambda: svc))
+    r = SignedClient(app, role="investigator").get(f"/studies/{k.STUDY}/edc/{step}",
+                                                   headers=sa.actor_header("drpi", role="investigator"))  # fmt: skip
+    if r.status_code == 403 and "edc.role" in r.text:
+        raise RoleWalkFinding(f"GET /studies/{{rs}}/edc/{step}: the PI is refused (edc.role)")
 
 
 # ------------------------------------------------------------------------------------------- forged and stale claims
@@ -110,6 +139,9 @@ def _forged(kind: str, action: str, study: str, method: str, path: str, body: An
 
 
 KINDS = ("bad signature", "wrong key", "expired", "v2 format", "unknown role", "replayed")
+#: the dependency's reason each kind must be refused with (orchestrator.actor, tb_common.actor_v3)
+REASON = {"bad signature": "does not verify", "wrong key": "does not verify", "expired": "has expired",
+          "v2 format": "not a v3 assertion", "unknown role": "right", "replayed": "already used"}  # fmt: skip
 
 
 def test_forged_and_stale_assertions_are_refused_and_recorded(orch: Any, monkeypatch: pytest.MonkeyPatch,
@@ -135,5 +167,26 @@ def test_forged_and_stale_assertions_are_refused_and_recorded(orch: Any, monkeyp
             out.append({"service": "orchestrator", "kind": kind, "route": f"{method} {path}", "status": r.status_code,
                         "refused": "yes" if r.status_code == 403 and why else "NO", "audited": "yes" if audited else "NO",
                         "note": why})  # fmt: skip
+    wrong = [o for o in out if o["refused"] != "yes" or o["audited"] != "yes" or REASON[o["kind"]] not in o["note"]]
+    # a role changed, or an account disabled, after the console minted the claim (D-483: the orchestrator reads no
+    # account; a claim is good for one call within ACTOR_TTL): accepted once inside the two minutes, then refused as
+    # used, and refused once it is older than the two minutes
+    method, path, action, study = SAMPLE["lifecycle"]
+    body = {"x": 1}
+    st = rw.standing(rw.BY_NAME["pi"])
+    hdr = signed(action, study, method, path, body, role="coordinator", standing=st, sub="console:since-disabled")
+    first = client.request(method, path, json=body, headers=hdr)
+    again = client.request(method, path, json=body, headers=hdr)
+    old = {v3.HEADER: v3.mint(sub="console:since-disabled", role="coordinator", action=action, method=method, path=path,
+                              body=body, study=study, standing=st, now=time.time() - sa.ACTOR_TTL - 10)}  # fmt: skip
+    late = client.request(method, path, json=body, headers=old)
+    for kind, r, want in (("disabled or role changed after minting: first use inside the TTL", first, ""),
+                          ("the same claim used again", again, "already used"),
+                          ("a claim older than the TTL", late, "has expired")):  # fmt: skip
+        why = rw._reason(r)
+        out.append({"service": "orchestrator", "kind": kind, "route": f"{method} {path}", "status": r.status_code,
+                    "refused": ("yes" if want in why else "NO") if want else "no (D-483: accepted inside the TTL)",
+                    "audited": "-" if not want else "yes", "note": why or "past the dependency"})  # fmt: skip
+        assert (want in why) if want else why == "", (kind, r.status_code, r.text[:200])
     rw.save_fragment("forged_orchestrator", out)
-    assert [o for o in out if o["refused"] != "yes" or o["audited"] != "yes"] == []
+    assert wrong == []

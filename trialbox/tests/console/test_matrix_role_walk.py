@@ -1,15 +1,25 @@
 """Card V-2 (plan 8 activity V8): each role may do exactly what the matrix says, walked on the console's app.
 
 The walk (``tools/role_walk.py``) calls every console route as every column (the seven roles, signed out, in- and
-out-of-scope accounts, the PI, a sub-investigator, a monitor grant) and compares each answer with ``permit``. The
-gate of each route is read from the running app (the actions it asks ``permit``), not from the matrix file.
+out-of-scope accounts, the PI, a sub-investigator, a monitor grant). What each route must answer is the committed
+table ``tests/console/data/route_actions.yaml`` (one row per route: the matrix action(s) it must ask, or public,
+signed_in or scope, each with the document that says so); the walk never infers it from the route's behaviour.
+An answer counts as allowed only when the route answered with success (2xx, a redirect onward), as refused on 401,
+403, a redirect to sign-in, or a 404 for an account that does not see the study; anything else is "check not
+reached" and is pinned by route and column in ``tests/console/data/role_walk_unclear.txt``.
 
-This file holds the box to the walk: no answer against the matrix but the ones a finding names (each with its own
-strict xfail test below), and no route without a gate but the pinned open ones, so a new route cannot go unwalked.
-With ``ROLE_WALK_OUT`` set (``python -m tools.role_walk inproc``) the results are written for the report."""
+The tests fail on: a route with no row (or a row with no route); an answer against its row that no finding names;
+an unclear cell not pinned (or a pinned one that is now decided); a seeded pseudonym on a page of a role with no
+patient row. Each finding has its own strict xfail test. ``ROLE_WALK_OUT`` (``python -m tools.role_walk inproc``)
+writes the results for the report; ``ROLE_WALK_DRAFT=<file>`` writes a draft of the table from a traced walk."""
 
 from __future__ import annotations
 
+import os
+import re
+from collections.abc import Iterator
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -22,38 +32,41 @@ from tests.console.test_console_app import (  # noqa: F401 - the fixture is used
     _done_screen,
     _ulid,
     box,
-    login,
 )
-from tests.console.test_role_route_matrix import ROUTE_ACTIONS, _for, _orchestrator_routes
+from tests.console.test_role_route_matrix import ROUTE_ACTIONS
 from tools import role_walk as rw
 
 PW = "role-walk-password-0001"
+UNCLEAR = Path(__file__).parent / "data" / "role_walk_unclear.txt"
+A = "a" * 32
 
 
-def _audit_counter(b: dict[str, Any]) -> Any:
-    """Counts the audit events the console writes (its ``AuditLog`` object), for "is this refusal recorded"."""
-    audit = b["audit"]
-    n = {"events": 0}
-    orig = audit.append
+class RoleWalkFinding(AssertionError):
+    """Raised only by the check a strict xfail names: a fixture error can never satisfy the mark."""
 
-    def append(*a: Any, **kw: Any) -> Any:
-        n["events"] += 1
-        return orig(*a, **kw)
 
-    audit.append = append
-    return lambda: n["events"]
+def tagged_login(app: Any, user: str, pw: str) -> tuple[TestClient, str]:
+    c = TestClient(rw.Tagged(app))
+    token = re.search(r'name="login_csrf" value="([^"]+)"', c.get("/login").text)
+    assert token
+    r = c.post("/login", data={"username": user, "password": pw, "login_csrf": token.group(1)}, follow_redirects=False)
+    assert r.status_code == 303, r.text
+    csrf = re.search(r'name="csrf" value="([^"]+)"', c.get("/").text)
+    assert csrf
+    return c, csrf.group(1)
 
 
 def clients(b: dict[str, Any]) -> dict[str, tuple[TestClient, str, TestClient]]:
-    """One page client (cookie, CSRF token) and one API client (bearer token) per column; the GZQO log names ``pi``
-    as PI, ``sub`` as a sub-investigator ticked :data:`tools.role_walk.SUB_TICKS`, and ``cro_mon`` a monitor."""
+    """One page client (cookie, CSRF token) and one API client (bearer token) per column, both on
+    :class:`tools.role_walk.Tagged`; the GZQO log names ``pi`` as PI, ``sub`` a sub-investigator ticked
+    :data:`tools.role_walk.SUB_TICKS`, and ``cro_mon`` a monitor."""
     from console.teamstore import TeamStore
 
     users = b["users"]
     out: dict[str, tuple[TestClient, str, TestClient]] = {}
     for col in rw.COLUMNS:
         if col.role is None:
-            out[col.name] = (TestClient(b["app"]), "", TestClient(b["app"]))
+            out[col.name] = (TestClient(rw.Tagged(b["app"])), "", TestClient(rw.Tagged(b["app"])))
             continue
         name = {"admin": "admin", "viewer": "viewer"}.get(col.name, f"w{col.name.replace('_', '')}")
         pw = {"admin": ADMIN_PW, "viewer": VIEWER_PW}.get(col.name, PW)
@@ -61,9 +74,9 @@ def clients(b: dict[str, Any]) -> dict[str, tuple[TestClient, str, TestClient]]:
             users.create(name, col.role, pw, f"{name}@hospa.test")
         if col.affiliation != "hospital" or col.studies:
             users.set_scope(name, col.affiliation, col.studies, None)
-        page, csrf = login(b["app"], name, pw)
+        page, csrf = tagged_login(b["app"], name, pw)
         token, _ = users.new_session(users.get(name), via="api")
-        out[col.name] = (page, csrf, TestClient(b["app"], headers={"Authorization": f"Bearer {token}"}))
+        out[col.name] = (page, csrf, TestClient(rw.Tagged(b["app"]), headers={"Authorization": f"Bearer {token}"}))
     team = TeamStore()
     at = "2026-01-01T00:00:00+00:00"
     team.add_entry(rw.STUDY, username="wpi", name="Dr Walk PI", role="pi", tasks=(), start="2026-01-01", end=None,
@@ -78,9 +91,9 @@ def clients(b: dict[str, Any]) -> dict[str, tuple[TestClient, str, TestClient]]:
 
 def faithful_reads(b: dict[str, Any]) -> None:
     """The test box's stand-in backend reads the registry without the layer the real one has: ``console.backend``
-    signs every patient read (``_registry_call`` -> ``console.actor.read_headers``, D-717), which asks the matrix's
-    ``phi.view`` of the signed-in account and refuses (403, ``console.denied``) before the orchestrator is called.
-    The walk puts that layer back on the stand-in's registry reads, so the page answers as on a box."""
+    signs every patient read (``_registry_call`` -> ``console.actor.read_headers``, D-717), which asks ``phi.view``
+    of the signed-in account and refuses (403, ``console.denied``) before the orchestrator is called. The walk puts
+    that layer back on the stand-in's registry reads, so the page answers as on a box (V2-04)."""
     from console.actor import read_headers
 
     bk = b["backend"]
@@ -93,100 +106,282 @@ def faithful_reads(b: dict[str, Any]) -> None:
     bk.registry_rows = signed_rows
 
 
-def run_walk(b: dict[str, Any]) -> list[dict[str, Any]]:
-    _orchestrator_routes(b)
+def study_store(b: dict[str, Any], tmp_path: Path) -> Iterator[None]:
+    """A study store in process: the orchestrator's data core, life-cycle, sponsor, EDC, clinical-conflict and
+    instrument routers behind ``backend.study_api`` (as ``test_data_pages`` and ``test_edc_pages`` wire it), called
+    through a strict signed client: the console signs every call itself, as on a box."""
+    from types import SimpleNamespace
+
+    from console.backend import problem_of
+    from fastapi import FastAPI
+    from omop import schema
+    from orchestrator.conflicts_api import router as conflicts_router
+    from orchestrator.datacore_api import DataService
+    from orchestrator.datacore_api import router as datacore_router
+    from orchestrator.edc_api import router as edc_router
+    from orchestrator.lifecycle_api import router as lifecycle_router
+    from orchestrator.setup_api import router as setup_router
+    from orchestrator.sponsor_api import router as sponsor_router
+    from sitesetup.store import SetupStore
+    from tb_common.audit import AuditLog
+
+    from tests import edc_kit as k
+    from tests.actor3 import SignedClient
+
+    edc, _, _ = k.service(tmp_path)
+    dsvc = DataService(edc.dc, AuditLog(tmp_path / "orch-audit"), lambda: datetime(2026, 11, 8, 1, 0, tzinfo=UTC),
+                       edc.client)  # fmt: skip
+    held: dict[str, Any] = {}
+
+    def omop() -> Any:
+        if "db" not in held:
+            held["db"] = schema.connect()
+        return held["db"]
+
+    site: Any = SimpleNamespace(store=SetupStore(), stamp=lambda: "2026-11-16T09:00:00+00:00",
+                           audit=AuditLog(tmp_path / "orch-audit"))  # fmt: skip
+    api = FastAPI()
+    for r in (datacore_router(lambda: dsvc), lifecycle_router(lambda: dsvc), sponsor_router(lambda: dsvc),
+              edc_router(lambda: edc), conflicts_router(omop),
+              setup_router(lambda: site, lambda rid: {}, lambda rid: {}, lambda rid: None, lambda: False,
+                           lambda *a: None)):  # fmt: skip
+        api.include_router(r)
+    coc = SignedClient(api, strict=True, raise_server_exceptions=False)  # a route this stand-in cannot serve: 500
+
+    def study_api(method: str, path: str, body: dict[str, Any] | None = None,
+                  headers: dict[str, str] | None = None) -> Any:  # fmt: skip
+        if path == "/redcap/connections":
+            return {"connections": [{"token_ref": "edc"}]}
+        kw: dict[str, Any] = {"headers": headers} if headers else {}
+        r = coc.request(method, path, json=body, **kw) if body is not None else coc.request(method, path, **kw)
+        if r.status_code >= 400:
+            raise problem_of(r.status_code, r.text)
+        return r.json()
+
+    b["backend"].study_api = study_api
+    yield
+    edc.dc.close()
+
+
+# ---------------------------------------------------------------------------------------------- valid bodies
+def preparer(b: dict[str, Any], job_id: str) -> rw.Prepare:
+    """A valid body and fresh state per call, for the changing routes that matter most (plan 8 V8's list): an
+    allowed column gets past validation and succeeds, a refused one is refused. The rest send the CSRF token."""
+    from console.breakglass_store import BreakGlassStore
+    from datacore.dataops import DataOps
+    from tb_common.audit import AuditLog
+
+    n = {"i": 0}
+    declared = rw.load_declared()
+
+    def fresh() -> str:
+        n["i"] += 1
+        return f"{n['i']:032x}".replace("0", "c")
+
+    def night() -> int:
+        ops = DataOps()
+        try:
+            batch, _ = ops.record_night(AuditLog(Path(b["dir"]) / "audit", "UTC"), "ingest.held", source="csv",
+                                        snapshot=f"2026-10-{1 + n['i'] % 28:02d}", passed=False, held=True,
+                                        by="adapter", at="2026-11-11T02:00:00+09:00", actor="adapter",
+                                        detail={"incomplete": ["lab: missing"]})  # fmt: skip
+            n["i"] += 1
+            return int(batch.id)
+        finally:
+            ops.close()
+
+    def ended_grant() -> int:
+        store = BreakGlassStore()
+        try:
+            now = b["app"].state.helpers.clock()
+            g, _ = store.open("walk-grantee", reason="support", note="a support call for the walk", kind="patient",
+                              ruleset=rw.STUDY, pid=A, now=now)  # fmt: skip
+            store.end(g.id, "walk-grantee", now)
+            return int(g.id)
+        finally:
+            store.close()
+
+    def throwaway() -> str:
+        name = f"wthrow{n['i']}"
+        n["i"] += 1
+        b["users"].create(name, "viewer", PW, None)
+        return name
+
+    def prepare(method: str, path: str, col: str) -> dict[str, Any] | None:
+        reveal = {"reason": "contact"}
+        table: dict[tuple[str, str], Any] = {
+            ("POST", "/data-ops/batches/{bid}/decide"): lambda: {"params": {"bid": night()},
+                                                               "form": {"decision": "reject", "reason": "role walk"}},
+            ("POST", "/api/v1/data/batches/{bid}/decide"): lambda: {"params": {"bid": night()},
+                                                                  "json": {"decision": "reject", "reason": "role walk"}},
+            ("POST", "/breakglass"): lambda: {"form": {"kind": "patient", "ruleset": rw.STUDY, "pid": A,
+                                                       "reason": "support", "note": "a support call for the walk"}},
+            ("POST", "/breakglass/{gid}/review"): lambda: {"params": {"gid": ended_grant()}, "form": {"note": "ok"}},
+            ("POST", "/site/opt-outs"): lambda: {"form": {"pid": fresh(), "source": "paper"}},
+            ("POST", "/api/v1/site/opt-outs"): lambda: {"json": {"pid": fresh()}},
+            ("POST", "/studies/{rs}/patients/{pid}/reveal"): lambda: {"form": reveal},
+            ("POST", "/studies/{rs}/candidates/{pid}/reveal"): lambda: {"form": {"purpose": "eligibility", **reveal}},
+            ("POST", "/pilot/jobs/{job_id}/reveal"): lambda: {"form": {"pid": A, **reveal}},
+            ("POST", "/studies/{rs}/patients/{pid}/mark"): lambda: {"form": {"mark": "need_info"}},
+            ("POST", "/ops/users"): lambda: {"form": {"action": "disable", "username": throwaway()}},
+            ("POST", "/api/v1/studies/{rs}/patients/{pid}/reveal"): lambda: {"json": reveal},
+            ("POST", "/api/v1/studies/{rs}/patients/{pid}/mark"): lambda: {"json": {"mark": "need_info"}},
+        }  # fmt: skip
+        make = table.get((method, path))
+        if make is None:
+            return None
+        # a refused column is also probed with no body first: its refusal must come before validation
+        # (dataops_page.py: "the session and the right first; the body only then")
+        probe = not rw.expected_of(rw.BY_NAME[col], method, path, declared[(method, path)])
+        if not path.startswith("/breakglass"):
+            no_grants()  # a grant an earlier call opened would open the patient (D-430): every call starts without
+        return {**make(), "probe": probe}
+
+    def no_grants() -> None:
+        store = BreakGlassStore()
+        try:
+            store.db.execute("UPDATE grants SET ended_at = ? WHERE ended_at IS NULL",
+                             (b["app"].state.helpers.clock().isoformat(),))  # fmt: skip
+        finally:
+            store.close()
+
+    return prepare
+
+
+#: the changing routes the walk sends a valid body (``preparer``): every other changing route sends its CSRF token
+#: only, so an allowed column stops at validation and the cell is unclear (pinned)
+PREPARED = (  # a valid body to the columns its row allows; the refused columns send the CSRF token only
+    "POST /data-ops/batches/{bid}/decide", "POST /api/v1/data/batches/{bid}/decide", "POST /breakglass",
+    "POST /breakglass/{gid}/review", "POST /site/opt-outs", "POST /api/v1/site/opt-outs",
+    "POST /studies/{rs}/patients/{pid}/reveal", "POST /studies/{rs}/candidates/{pid}/reveal",
+    "POST /pilot/jobs/{job_id}/reveal", "POST /studies/{rs}/patients/{pid}/mark", "POST /ops/users",
+    "POST /api/v1/studies/{rs}/patients/{pid}/reveal", "POST /api/v1/studies/{rs}/patients/{pid}/mark",
+)  # fmt: skip
+
+
+def run_walk(b: dict[str, Any], tmp_path: Path, tracer: rw.Tracer | None = None) -> list[dict[str, Any]]:
+    from tests.console.dataops_orch import attach
+
+    attach(b["backend"], b["audit"])
     faithful_reads(b)
     _done_feas(b["backend"])
     job_id = _ulid(990)
     _done_screen(b["backend"], job_id)
-    count = _audit_counter(b)
+    tap = rw.AuditTap(b["audit"])
+    calls = rw.BackendTap()
+    store = study_store(b, tmp_path)
+    next(store)
     cl = clients(b)
-    tracer = rw.Tracer()
-    tracer.install()
+    if tracer:
+        tracer.install()
     try:
-        raw = rw.console_walk(b["app"], cl, tracer, count, job_id, before=lambda p: _for(b, p))
+        return rw.console_walk(b["app"], cl, tap, job_id, preparer(b, job_id), tracer, calls)
     finally:
-        tracer.uninstall()
-        _for(b, "")
-    return rw.judge(raw, ROUTE_ACTIONS)
+        if tracer:
+            tracer.uninstall()
+        tap.close()
+        calls.close()
+        next(store, None)
 
 
-def _mismatches(rows: list[dict[str, Any]]) -> dict[tuple[str, str, str], str]:
-    return {(r["method"], r["path"], n): c["verdict"] for r in rows for n, c in r["cells"].items()
-            if c["verdict"].startswith(("ALLOWED-", "REFUSED-"))}  # fmt: skip
+def pinned_unclear() -> set[str]:
+    return {ln.strip() for ln in UNCLEAR.read_text("utf-8").splitlines() if ln.strip() and not ln.startswith("#")}
 
 
-#: the routes that ask no row of the matrix: open to every signed-in account (and, for the PUBLIC ones of
-#: ``tools.role_walk``, to anyone). The product has no marking for "any signed-in person", so this list is the
-#: marking: a new route that asks no row fails the walk until it asks one or is added here with its reason.
-OPEN_ROUTES: dict[tuple[str, str], str] = {
-    ("GET", "/"): "the start page: sends each account to its own first page",
-    ("GET", "/home"): "the start page of the account's role",
-    ("GET", "/account"): "one's own account and password",
-    ("POST", "/account/password"): "one's own password",
-    ("GET", "/about"): "the licence notices (T-617a)",
-    ("GET", "/about/NOTICE.txt"): "the licence notices (T-617a)",
-    ("GET", "/help"): "the help pages",
-    ("GET", "/help/guide"): "one's own role guide (T-317, D-774)",
-    ("GET", "/ask"): "the help page's question box; the answer is drawn for the account's own rights",
-    ("GET", "/cmd"): "the command line of the console: each command asks its own row when run",
-    ("GET", "/reports"): "the reports list; each report asks its own row",
-    ("POST", "/feedback"): "a note to the box's keepers",
-    ("GET", "/api/v1/studies"): "the studies the account sees (scoped by D-104)",
-    ("GET", "/studies/{rs}/feasibility"): "a feasibility report: aggregate counts, small cells hidden (D-104)",
-    ("GET", "/api/edc/health"): "the EDC door's health: a version number",
-    # answered 404 for every column on the test box (the feature is off there): not decided, listed as unclear
-    ("GET", "/api/edc/oidc/.well-known/openid-configuration"): "the EDC door's sign-on: off on the test box",
-    ("GET", "/api/edc/oidc/authorize"): "the EDC door's sign-on: off on the test box",
-    ("GET", "/api/edc/oidc/userinfo"): "the EDC door's sign-on: off on the test box",
-    ("POST", "/api/edc/oidc/token"): "the EDC door's sign-on: off on the test box",
-    ("POST", "/api/edc/events/v1"): "the EDC's signed events: off on the test box (a shared secret, no person)",
-    ("GET", "/auth/oidc/start"): "directory sign-in: off on the test box",
-    ("GET", "/auth/oidc/callback"): "directory sign-in: off on the test box",
-    ("GET", "/demo/ack"): "the demo's notice: off outside the demo",
-    ("POST", "/demo/ack"): "the demo's notice: off outside the demo",
+def unclear_now(rows: list[dict[str, Any]]) -> set[str]:
+    return {f"{r['method']} {r['path']} {n}" for r in rows for n, c in r["cells"].items() if c["verdict"] == "unclear"}
+
+
+#: refused cells the console let through to the orchestrator, which refused them: "<method> <path> <column>"
+BACKEND_REFUSED: set[str] = set()
+#: prepared routes that read the body before they refuse a column: "<method> <path> <column>: <status>"
+#: (the two reveal pages ask the purpose or the reason before the one reveal path asks the role: team.py
+#: candidate_reveal, app.py job reveal; the role is still refused with a valid body)
+VALIDATES_FIRST: set[str] = {
+    "POST /pilot/jobs/{job_id}/reveal admin: 400", "POST /pilot/jobs/{job_id}/reveal inv: 400",
+    "POST /studies/{rs}/candidates/{pid}/reveal admin: 400", "POST /studies/{rs}/candidates/{pid}/reveal inv: 400",
+    "POST /studies/{rs}/candidates/{pid}/reveal privacy: 400",
+    "POST /studies/{rs}/candidates/{pid}/reveal steward: 400",
+}  # fmt: skip
+
+
+#: answers against the declared row that a finding names: (method, path, column) -> finding id
+KNOWN: dict[tuple[str, str, str], str] = {
+    ("GET", "/api/v1/studies/{rs}/edc/copy", "pi"): "V2-05",
+    ("GET", "/api/v1/studies/{rs}/edc/export/odm", "pi"): "V2-05",
+    ("POST", "/api/v1/studies/{rs}/edc/send", "pi"): "V2-05",
 }
 
 
 @pytest.fixture
-def walked(box: dict[str, Any]) -> list[dict[str, Any]]:  # noqa: F811
-    rows = run_walk(box)
-    rw.save_fragment("console", {"routes": rows})
+def walked(box: dict[str, Any], tmp_path: Path) -> list[dict[str, Any]]:  # noqa: F811
+    draft = os.environ.get("ROLE_WALK_DRAFT")
+    raw = run_walk(box, tmp_path, rw.Tracer() if draft else None)
+    if draft:
+        Path(draft).write_text(rw.draft_table(raw, ROUTE_ACTIONS), "utf-8")
+    rows = rw.judge_declared(raw, rw.load_declared())
+    rw.save_fragment("console", {"routes": rows, "prepared": list(PREPARED)})
     return rows
 
 
-def test_every_console_route_answers_every_column_as_the_matrix_says(walked: list[dict[str, Any]]) -> None:
-    """The whole walk: no answer against the matrix (both ways), every route either names a gate or is pinned
-    open, and the gate agrees with the row ``test_role_route_matrix`` names by hand where it names one."""
-    rows = walked
-    assert len(rows) > 300  # the walk reached the router table
-    bad = _mismatches(rows)
-    assert not bad, "answers against the matrix:\n" + "\n".join(f"{k}: {v}" for k, v in sorted(bad.items()))
-    open_now = {(r["method"], r["path"]) for r in rows if r["gate"] is not None and not r["gate"]["actions"]}
-    assert open_now - set(OPEN_ROUTES) == set(), "a route asks no row of the matrix: give it one, or pin it here"
-    assert set(OPEN_ROUTES) - open_now == set(), "a pinned open route now asks a row: take it off the list"
-    gates = {(r["method"], r["path"]): r["gate_label"] for r in rows if r["gate"] is not None}
-    differ = {k: (v, gates.get(k)) for k, v in ROUTE_ACTIONS.items() if gates.get(k) not in (v, None)}
-    # two of the hand-named rows coincide with the delegation log's standing on every column, so the walk cannot
-    # tell them apart (the reveal also needs the study's ``screen`` task; the mark the log's ``approach``)
-    assert set(differ) <= {
-        ("POST", "/studies/{rs}/patients/{pid}/reveal"),
-        ("POST", "/studies/{rs}/patients/{pid}/mark"),
-    }
-    walked_routes = {(r["method"], r["path"]) for r in rows if r["walked"]}
-    assert walked_routes >= set(ROUTE_ACTIONS)
-    # the data half: a column whose role reads no patient row (phi.view) sees none of the seeded pseudonyms on any
-    # page or API answer it opens, but the rows that show pseudonyms by their own right (the audit trail's ids)
+def test_every_console_route_answers_every_column_as_its_declared_row(walked: list[dict[str, Any]]) -> None:
     from tb_common.authz import permit
 
+    rows = walked
+    assert len(rows) > 300  # the walk reached the router table
+    problems = rw.table_problems(rows, rw.load_declared())
+    assert not problems, "\n".join(problems)
+    bad = {(r["method"], r["path"], n): c["verdict"] for r in rows for n, c in r["cells"].items()
+           if c["verdict"] in (rw.ALLOWED_X, rw.REFUSED_X) and (r["method"], r["path"], n) not in KNOWN}  # fmt: skip
+    assert not bad, "answers against the declared row:\n" + "\n".join(f"{k}: {v}" for k, v in sorted(bad.items()))
+    now, pinned = unclear_now(rows), pinned_unclear()
+    assert not now - pinned, "unclear cells not pinned:\n" + "\n".join(sorted(now - pinned))
+    assert not pinned - now, "pinned unclear cells now decided (take them off the list):\n" + "\n".join(
+        sorted(pinned - now)
+    )
+    # the data half: a column whose role reads no patient row (phi.view) sees none of the seeded pseudonyms, but
+    # the rows that show pseudonyms by their own right (the audit trail's ids)
     leaks = [f"{r['method']} {r['path']} as {n}: {c['shows']}" for r in rows for n, c in r["cells"].items()
              if c["shows"] and not (rw.BY_NAME[n].role and permit(str(rw.BY_NAME[n].role), "phi.view").allowed)
              and not (r["path"].startswith("/audit") and permit(str(rw.BY_NAME[n].role), "audit.ids").allowed)]  # fmt: skip
     assert not leaks, "a pseudonym on a page of a role with no patient row:\n" + "\n".join(leaks)
+    # D-483: the console refuses what the matrix refuses before it calls the orchestrator ("it cannot sign what it
+    # would not allow"); a refused cell whose request reached a stand-in was refused by the backend, not the console
+    late = {f"{r['method']} {r['path']} {n}" for r in rows for n, c in r["cells"].items()
+            if c["got"] == "R" and c["expected"] == "R" and c["backend"]}  # fmt: skip
+    assert late <= BACKEND_REFUSED, "refused only by the backend:\n" + "\n".join(sorted(late - BACKEND_REFUSED))
+    assert late >= BACKEND_REFUSED, "now refused by the console: take off the list\n" + "\n".join(
+        sorted(BACKEND_REFUSED - late)
+    )
+    # the right first, the body only then: a refused column probed with no body is refused, not told what is wrong
+    first = {f"{r['method']} {r['path']} {n}: {c['probe']}" for r in rows for n, c in r["cells"].items()
+             if c["probe"] not in (None, "refused")}  # fmt: skip
+    assert first == VALIDATES_FIRST, "a refused column got past the check to validation:\n" + "\n".join(
+        sorted(first ^ VALIDATES_FIRST)
+    )
+    # every prepared route got past validation for at least one allowed column
+    for key in PREPARED:
+        m, p = key.split(" ", 1)
+        row = next(r for r in rows if r["method"] == m and r["path"] == p)
+        assert any(c["got"] == "A" for c in row["cells"].values()), (
+            key,
+            {n: c["status"] for n, c in row["cells"].items()},
+        )
 
 
-#: V2-02: the refusals that write no ``console.denied`` record (see the page). Each route here refuses the listed
-#: columns with 403 and nothing in the audit trail, while its siblings record theirs (D-483 2.; D-451, D-443, ...).
+def test_a_new_route_with_no_row_fails_the_walk(box: dict[str, Any]) -> None:  # noqa: F811
+    """The tripwire: a route the table does not name is reported (the walk's test fails on it)."""
+
+    def extra(rs: str) -> dict[str, str]:
+        return {"rs": rs}
+
+    box["app"].add_api_route("/walk-extra/{rs}", extra, methods=["GET"])
+
+    problems = rw.table_problems(rw.console_routes(box["app"]), rw.load_declared())
+    assert problems == ["GET /walk-extra/{rs}: a route with no row in route_actions.yaml"]
+
+
+#: V2-02: refusals that write no ``console.denied`` record (see the page): route -> the columns refused silently
 UNAUDITED: dict[tuple[str, str], tuple[str, ...]] = {
     ("GET", "/studies/{rs}/patients/{pid}"): ("admin", "steward", "privacy"),
     ("GET", "/studies/{rs}/week"): ("admin", "steward", "privacy"),
@@ -195,52 +390,27 @@ UNAUDITED: dict[tuple[str, str], tuple[str, ...]] = {
     ("GET", "/ops/identity"): ("crc", "steward"),
     ("GET", "/reports/research-office"): ("pi", "steward"),
     ("GET", "/pilot/jobs/{job_id}/sponsor-pack.zip"): ("pi", "steward"),
-    ("POST", "/admin/redcap/{ref}/test"): ("crc", "steward"),
-    ("POST", "/studies/{rs}/setup/redcap/test"): ("pi",),
 }
 
 
-@pytest.mark.xfail(strict=True, reason="V2-02: refusals on nine routes write no console.denied record")
+@pytest.mark.xfail(strict=True, raises=RoleWalkFinding, reason="V2-02: refusals on these routes write no record")
 def test_v2_02_every_refusal_of_these_routes_is_in_the_audit_trail(box: dict[str, Any]) -> None:  # noqa: F811
-    _done_feas(box["backend"])
-    job_id = _ulid(990)
-    _done_screen(box["backend"], job_id)
-    count = _audit_counter(box)
-    cl = clients(box)
+    _done_screen(box["backend"], _ulid(990))
+    users = box["users"]
+    tap = rw.AuditTap(box["audit"])
     silent = []
     for (method, path), cols in UNAUDITED.items():
         for name in cols:
-            page, csrf, _ = cl[name]
-            n = count()
-            r = page.request(method, rw.fill(path, job_id), data={"csrf": csrf} if method == "POST" else None,
-                             follow_redirects=False)  # fmt: skip
+            col = rw.BY_NAME[name]
+            user = "admin" if name == "admin" else f"wu{name}"
+            if users.get(user) is None:
+                users.create(user, str(col.role), PW, f"{user}@hospa.test")
+            page, _ = tagged_login(box["app"], user, ADMIN_PW if name == "admin" else PW)
+            tag = f"{method} {path} {name}"
+            r = page.request(method, rw.fill(path, _ulid(990)), headers={rw.TAG_HEADER: tag}, follow_redirects=False)
             assert r.status_code == 403, (path, name, r.status_code)
-            if count() == n:
+            if not tap.by_tag.get(tag):
                 silent.append(f"{method} {path} as {name}")
-    assert not silent, "refused with no audit record: " + "; ".join(silent)
-
-
-def test_the_walk_tells_a_refusal_from_a_validation_answer() -> None:
-    """The rules of ``tools.role_walk`` on made-up cells (no box): a 400 counts as allowed only when the gate was
-    asked in that request and said yes; a 5xx is never a pass; a 404 refuses only a column that does not see the
-    study."""
-    crc, smo_out = rw.BY_NAME["crc"], rw.BY_NAME["smo_out"]
-    gate = rw.Gate(("study.setup",))
-    assert rw.classify(crc, "/studies/{rs}/x", 403, "") == "R"
-    assert rw.classify(crc, "/x", 303, "/login?why=idle") == "R"
-    assert rw.classify(smo_out, "/studies/{rs}/x", 404, "") == "R"
-    assert rw.classify(crc, "/studies/{rs}/x", 404, "") == "N"
-    assert rw.final(crc, {"class": "V", "asked": [("study.setup", True, "x")]}, gate) == "A"
-    assert rw.final(crc, {"class": "V", "asked": [("study.setup", False, "x")]}, gate) == "R"
-    assert rw.final(crc, {"class": "V", "asked": []}, gate) == "?"
-    assert rw.final(crc, {"class": "U", "asked": [("study.setup", True, "x")]}, gate) == "?"
-    assert (
-        rw.verdict(False, "A") == "ALLOWED-BUT-MATRIX-REFUSES" and rw.verdict(True, "R") == "REFUSED-BUT-MATRIX-ALLOWS"
-    )
-    assert rw.expected(rw.BY_NAME["anon"], "/about", rw.Gate(())) and not rw.expected(
-        rw.BY_NAME["anon"], "/x", rw.Gate(())
-    )
-    assert not rw.expected(smo_out, "/studies/{rs}/x", rw.Gate(()))  # scope before the row
-    assert rw.expected(rw.BY_NAME["pi"], "/x", rw.Gate(("study.reopen",)))  # the log's PI: the [pi] cell
-    assert not rw.expected(rw.BY_NAME["inv"], "/x", rw.Gate(("study.reopen",)))
-    assert not rw.expected(rw.BY_NAME["smo_in"], "/x", rw.Gate(("irb.edit",)))  # "hospital staff only"
+    tap.close()
+    if silent:
+        raise RoleWalkFinding("refused with no audit record: " + "; ".join(silent))
