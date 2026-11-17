@@ -462,6 +462,7 @@ def install_nhi_services(path: Path, directory: Path, version: str = "", now: da
 def _install_nhi(table: str, data: bytes, name: str, directory: Path, version: str, now: datetime | None,
                  columns: dict[str, str] | None, **more: str) -> dict[str, int]:  # fmt: skip
     """One NHI table from the file's bytes, read once: the bytes hashed are the bytes parsed (TERM-2's rule)."""
+    cols: tuple[str, ...]
     if table == NHI_DRUGS:
         rows, cols, what = nhi_drug_rows(data, name, columns), NHI_DRUG_TABLE, "NHI drug list (data.gov.tw 23715)"
     else:

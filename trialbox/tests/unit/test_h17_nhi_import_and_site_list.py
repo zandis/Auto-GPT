@@ -368,7 +368,7 @@ def test_review_6_the_build_hashes_the_bytes_it_parses(monkeypatch: pytest.Monke
 
 
 def test_review_7_nhi_check_names_the_notice_lines_a_shipped_table_needs() -> None:
-    lines = {installed.NHI_DRUGS: {}, installed.NHI_SERVICES: {}}
+    lines: dict[str, Any] = {installed.NHI_DRUGS: {}, installed.NHI_SERVICES: {}}
     got = terminology_install.notice_problems(lines, (ROOT / "NOTICE").read_text(encoding="utf-8"))
     assert got == ["NOTICE section 8 lacks the line: " + terminology_install.NOTICE_FOLDER_LINE.strip()]
     # both attributions are in NOTICE already (the samples of data sets 23715 and 174450 ship today)
