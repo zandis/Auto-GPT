@@ -40,8 +40,10 @@ fmt=""; for a in "$@"; do case "$a" in --format=*) fmt=${a#--format=} ;; esac; d
 case "$1 $2 $3" in
   "auth activate-service-account"*|"auth print-access-token"*) exit 0 ;;
   "config get-value project") echo fake-project ;;
+  "compute instances network-interfaces") cat "$S/effective.json" ;;
   "compute instances describe")
     case "$fmt" in
+      json) python3 -c 'import json,sys; t=[x for x in open(sys.argv[1]).read().split() if x]; n=json.load(open(sys.argv[2])); print(json.dumps({"tags": {"items": t}, "networkInterfaces": n}))' "$S/tags" "$S/nics.json" ;;
       *tags.items*) cat "$S/tags" ;;
       *networkInterfaces*) echo "https://x/global/networks/default" ;;
       *lastStartTimestamp*) echo 2026-11-17T06:00:00.000-08:00 ;;
@@ -86,10 +88,20 @@ PY
   "compute firewall-rules delete") for n in "${@:4}"; do case "$n" in --*) ;; *) rm -f "$S/fw/$n.json" ;; esac; done ;;
   "compute firewall-rules list") python3 -c 'import glob,json,sys; print(json.dumps([json.load(open(f)) for f in sorted(glob.glob(sys.argv[1] + "/fw/*.json"))]))' "$S" ;;
   "storage buckets get-iam-policy") cat "$S/iam.json" ;;
-  "storage ls "*) ls "$S/gcs" 2>/dev/null | sed "s|^|${3%/links-\*.txt}/|" ;;
-  "storage cat "*) cat "$S/gcs/${3##*/}" ;;
-  "storage rm "*) rm "$S/gcs/${3##*/}" ;;
-  "storage cp "*) true ;;
+  "storage buckets describe") cat "$S/bucket.json" ;;
+  # the bucket as a folder: gs://b-test/<path> is $S/gcs/<path>; ls takes its pattern, rm its --all-versions
+  "storage ls "*)
+    pat="${*: -1}"; rel="${pat#gs://b-test/}"
+    found=0; for f in $S/gcs/$rel; do [ -f "$f" ] && { echo "gs://b-test/${f#$S/gcs/}"; found=1; }; done
+    [ "$found" = 1 ] || { echo "ERROR: One or more URLs matched no objects." >&2; exit 1; } ;;
+  "storage cat "*) cat "$S/gcs/${3#gs://b-test/}" ;;
+  "storage rm "*)
+    for a in "${@:3}"; do case "$a" in --all-versions) echo all-versions >> "$S/rm-flags" ;; gs://*) rm "$S/gcs/${a#gs://b-test/}" ;; esac; done ;;
+  "storage cp "*)
+    src="${@: -2:1}"; dst="${@: -1}"
+    case "$src" in gs://*) src="$S/gcs/${src#gs://b-test/}" ;; esac
+    case "$dst" in gs://*) dst="$S/gcs/${dst#gs://b-test/}" ;; esac
+    mkdir -p "$(dirname "$dst")"; cp "$src" "$dst" ;;
   *) echo "fake gcloud: not faked: $*" >&2; exit 1 ;;
 esac
 """
@@ -104,6 +116,12 @@ def _env(tmp: Path) -> dict[str, str]:
         (b / "gcloud").chmod(stat.S_IRWXU)
         (s / "status").write_text("TERMINATED\n")
         (s / "tags").write_text("tb-gpu\ntb-gpu-door\n")
+        (s / "nics.json").write_text(json.dumps([{"network": NET, "stackType": "IPV4_ONLY",
+                                                   "accessConfigs": [{"natIP": "34.80.0.10"}]}]))  # fmt: skip
+        (s / "effective.json").write_text(json.dumps({"firewalls": [], "firewallPolicys": []}))
+        (s / "bucket.json").write_text(json.dumps({"uniform_bucket_level_access": True, "versioning_enabled": False,
+                                                   "public_access_prevention": "inherited",
+                                                   "soft_delete_policy": {"retentionDurationSeconds": "604800"}}))  # fmt: skip
         (s / "iam.json").write_text(json.dumps({"bindings": [{"role": "roles/storage.objectAdmin",
                                                                "members": ["serviceAccount:x@p.iam.gserviceaccount.com"]}]}))  # fmt: skip
         # the hand-over's network: the project's SSH rule for every instance and the old door on tb-gpu-door
@@ -153,8 +171,21 @@ def _door(tmp: Path, **change: Any) -> None:
     (tmp / "runs" / RUN / "session").write_text(OWNER + "\n")
 
 
+def _objects(tmp: Path) -> list[Path]:
+    return [f for f in (tmp / "state" / "gcs").rglob("*") if f.is_file()]
+
+
+def _closed(tmp: Path) -> None:
+    """The VM's CLOSED marker beside the links (it writes it once the session's accounts are disabled)."""
+    d = tmp / "state" / "gcs" / "session" / RUN
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "CLOSED").write_text("closed 2026-11-17T09:41:00Z by the session's stop\n")
+
+
 def _links_object(tmp: Path) -> None:
-    (tmp / "state" / "gcs" / "links-20261117T064000Z.txt").write_text(
+    d = tmp / "state" / "gcs" / "session" / RUN
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "links-20261117T064000Z.txt").write_text(
         f"TrialBox live session for the owner (run {RUN}, boot id {'a1' * 8}). NOTHING FROM THIS SESSION IS EVIDENCE:\n"
         f"Address: https://trialbox.hospa.test/ (root SHA-256 {FP}, compare it).\n"
         "The session closes at 2026-11-17T09:40:00Z (UTC); the pages then stop answering.\n\n"
@@ -175,7 +206,7 @@ def test_links_are_printed_once_then_deleted_with_the_boot_id_and_the_certificat
     assert "nothing from this session is evidence" in r.stdout
     argv = _argv(tmp_path)
     assert argv.index("firewall-rules list") < argv.index("get-iam-policy") < argv.index("storage cat")
-    assert "storage rm" in argv and not list((tmp_path / "state" / "gcs").iterdir())
+    assert "storage rm" in argv and not _objects(tmp_path)
     again = _run(tmp_path, "--links", RUN)  # read once: a second read finds nothing
     assert again.returncode == 3 and "read already" in again.stderr and CODE not in again.stdout + again.stderr
 
@@ -193,7 +224,7 @@ def test_no_link_is_given_unless_the_door_is_proved_and_the_bucket_private(tmp_p
     r = _run(tmp_path, "--links", RUN)
     assert r.returncode == 3 and "no link is given" in r.stderr
     assert CODE not in r.stdout + r.stderr and "storage cat" not in _argv(tmp_path)
-    assert list((tmp_path / "state" / "gcs").iterdir())  # left for the integrator to look at, not read
+    assert _objects(tmp_path)  # left for the integrator to look at, not read
 
 
 def _launch(tmp: Path, *extra: str) -> subprocess.CompletedProcess[str]:
@@ -281,8 +312,9 @@ def test_the_driver_refuses_a_wide_range_before_anything(tmp_path: Path, raw: st
     assert _argv(tmp_path) == ""  # not one gcloud call
 
 
-def test_stop_takes_the_door_away(tmp_path: Path) -> None:
+def test_stop_takes_the_door_away_once_the_accounts_are_closed(tmp_path: Path) -> None:
     _door(tmp_path)
+    _closed(tmp_path)
     (tmp_path / "state" / "status").write_text("RUNNING\n")
     r = _run(tmp_path, "--stop", RUN)
     assert r.returncode == 0, r.stderr
@@ -290,6 +322,24 @@ def test_stop_takes_the_door_away(tmp_path: Path) -> None:
     assert not (tmp_path / "state" / "fw" / "tb-session-deny.json").exists()
     assert "tb-session" not in (tmp_path / "state" / "tags").read_text().split()
     assert (tmp_path / "state" / "fw" / "default-allow-ssh.json").exists()  # the project's own rules stay
+
+
+def test_stop_keeps_the_deny_while_the_accounts_are_not_confirmed_closed(tmp_path: Path) -> None:
+    """The review's finding 6: a session cut before its close (a pre-emption, the cap) leaves accounts open on the
+    kept disk; the next boot serves them before its close runs. Until the VM's CLOSED marker is there, --stop takes
+    only the allow away: the deny-all and the tag stay, so nothing (not the old door, not SSH) reaches the VM."""
+    _door(tmp_path)
+    (tmp_path / "state" / "status").write_text("RUNNING\n")
+    r = _run(tmp_path, "--stop", RUN)
+    assert r.returncode == 0, r.stderr
+    assert "accounts not confirmed closed" in r.stdout
+    assert not (tmp_path / "state" / "fw" / "tb-session-https.json").exists()
+    assert (tmp_path / "state" / "fw" / "tb-session-deny.json").exists()
+    assert "tb-session" in (tmp_path / "state" / "tags").read_text().split()
+    _closed(tmp_path)  # the next boot of any run closed them: a second --stop takes the rest away
+    assert _run(tmp_path, "--stop", RUN).returncode == 0
+    assert not (tmp_path / "state" / "fw" / "tb-session-deny.json").exists()
+    assert "tb-session" not in (tmp_path / "state" / "tags").read_text().split()
 
 
 def test_status_counts_only_this_boots_ready_line(tmp_path: Path) -> None:
@@ -309,32 +359,16 @@ def test_status_counts_only_this_boots_ready_line(tmp_path: Path) -> None:
     assert _run(tmp_path, "--session-status", RUN, "--boot-id", "xyz").returncode == 2
 
 
-def test_the_vm_never_prints_a_code_and_never_keeps_one() -> None:
-    """Must never: a code on the serial port or in a log. The codes go from the console's snippet to a root-only file,
-    then into the links file, then to the private object; both files are removed on every way out. The rehearsal's
-    session cases look for each code in every log, result and the serial output."""
-    text = VM_SCRIPT.read_text()
-    acc = text[text.index("step_session_accounts() {") : text.index("d_session_requests() {")]
-    assert '> "$SES/people.tsv" 2>> "$STEP_LOG"' in acc and "umask 077" in acc
-    assert 'gcloud storage cp "$SES/links.txt" "$obj" > /dev/null 2>&1' in acc
-    assert acc.count('rm -f "$SES/links.txt"') >= 2 and acc.count('rm -f "$SES/people.tsv"') >= 2
-    code = "\n".join(x for x in text.splitlines() if not x.lstrip().startswith("#"))
-    assert 'cat "$SES/links.txt"' not in code and 'cat "$SES/people.tsv"' not in code and "set -x" not in code
-
-
-def test_the_session_never_outlives_its_stop() -> None:
-    """Must never: the session outliving its stop. The cap of a session launch is the bring-up plus its hours; the
-    VM's own window never passes the cap less its margin; the cloud's max-run-duration stops the VM at the cap."""
+def test_the_session_launchs_cap_bounds_its_hours() -> None:
+    """Must never: the session outliving its stop. The cap of a session launch is the bring-up plus its hours, and the
+    launch sets the cloud's max-run-duration to it (test_the_launch_makes_the_door_and_proves_it_before_the_vm_starts).
+    The VM's own window, closed before the cap fires, is held by the rehearsal case session-stop; that no code is
+    printed or kept, by every session case (each code looked for in every log, result and the serial output)."""
     assert box_run.launch_cap_hours(["dev", "session"], None, 3) == 4
     assert box_run.launch_cap_hours(["dev", "session"], None, 1) == 2
     est = box_run.estimate(["dev", "session"], "validation", "", 3)["launches"][0]
     assert est["cap_hours"] == 4 and est["usd_cap_spot"] == 10.96
     assert not any(r["step"].startswith("08 ") for r in est["rows"])
-    text = VM_SCRIPT.read_text()
-    acc = text[text.index("step_session_accounts() {") : text.index("d_session_requests() {")]
-    assert "cap_end=$((BOOT_T0 + CAP_LEFT))" in acc and "SES_GRACE_MIN * MIN_S" in acc
-    opened = text[text.index("step_session_open() {") : text.index("session_open_left() {")]
-    assert 'while now=$(date +%s); [ "$now" -lt "$stop" ]; do' in opened and "never opened again" in opened
 
 
 def test_a_session_launch_takes_no_other_group_and_no_accuracy_option() -> None:
@@ -346,3 +380,86 @@ def test_a_session_launch_takes_no_other_group_and_no_accuracy_option() -> None:
     assert any("no accuracy option" in x for x in box_run.session_values(["dev", "session"],
                                                                          {**vals, "tb-acc-protocols": "tcga:G1"}))  # fmt: skip
     assert any("--mode validation" in x for x in box_run.session_values(["dev", "session"], vals, "production"))
+
+
+# ---------------------------------------------------------------- the security review's findings 1, 2, 4, 7, 9
+def test_a_session_run_is_never_resumed(tmp_path: Path) -> None:
+    """Finding 2: a resume would boot the session's steps with no door, no bucket check and no session-check."""
+    _door(tmp_path)
+    md = tmp_path / "runs" / RUN / "md"
+    md.mkdir(parents=True)
+    (md / "tb-steps").write_text("dev session")
+    (tmp_path / "runs" / RUN / "session").unlink()  # even with the door's file gone (an earlier --stop took it)
+    r = _run(tmp_path, "--resume", RUN)
+    assert r.returncode == 2 and "never resumed" in r.stderr
+    assert "instances start" not in _argv(tmp_path) and "add-metadata" not in _argv(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "extra, why",
+    [(["--skip", "55-session-egress"], "--skip 55-session-egress"),
+     (["--skip", "08-qualify 58-session-close"], "--skip 08-qualify 58-session-close"),
+     (["--only", "jmed"], "--only"),
+     (["--redo", "55-session-egress"], "--redo")],
+    ids=["skip-egress", "skip-close", "only", "redo"],
+)  # fmt: skip
+def test_a_session_takes_no_skip_redo_or_only_of_its_own(tmp_path: Path, extra: list[str], why: str) -> None:
+    """Finding 1 (reproduced by the review): a skip of 55 marked the egress proof done and the run handed out links.
+    Now refused before any cloud call; the VM's preflight refuses it too (rehearsal case session-skip)."""
+    r = _launch(tmp_path, "--session-allow", OWNER, "--session-env", "validation", *extra)
+    assert r.returncode == 6 and why in r.stderr, r.stderr
+    assert "instances start" not in _argv(tmp_path) and "firewall-rules create" not in _argv(tmp_path)
+    vals = {"tb-session-env": "VALIDATION", "tb-session-people": "owner-crc:coordinator", "tb-session-minutes": "60"}
+    assert box_run.session_values(["dev", "session"], {**vals, "tb-skip": box_run.SESSION_SKIP}) == []
+    assert box_run.metadata(["dev", "session"], {**vals, "tb-src": "s", "tb-commit": "c", "tb-acc-tools": "t",
+                                                 "tb-session-handoff": "gs://b/s"}, tmp_path / "md",
+                            "validation") and (tmp_path / "md" / "tb-skip").read_text() == box_run.SESSION_SKIP  # fmt: skip
+
+
+def test_steps_in_any_order_take_the_direct_route(tmp_path: Path) -> None:
+    """Finding 9: `--steps session,dev` passed the checks but took the bundle branch on the VM."""
+    r = _launch(tmp_path, "--session-allow", OWNER, "--session-env", "validation", "--steps", "session,dev")
+    assert r.returncode == 0, r.stderr
+    md = tmp_path / "runs" / RUN / "md"
+    assert (
+        (md / "tb-direct").read_text().strip() == "1" and (md / "tb-src").exists() and not (md / "tb-bundle").exists()
+    )
+
+
+@pytest.mark.parametrize("case", ["no-uniform-access", "versioning", "policy-allow", "ipv6", "allow-source-tags"])
+def test_the_launch_refuses_a_bucket_or_a_vm_the_door_cannot_hold(tmp_path: Path, case: str) -> None:
+    """Findings 4 and 7: object ACLs or old versions of the links; a firewall policy, an IPv6 address, or an allow
+    that also lets other VMs in. Each stops the launch before the VM starts (exit 7)."""
+    _env(tmp_path)
+    s = tmp_path / "state"
+    if case == "no-uniform-access":
+        b = json.loads((s / "bucket.json").read_text())
+        (s / "bucket.json").write_text(json.dumps({**b, "uniform_bucket_level_access": False}))
+    elif case == "versioning":
+        b = json.loads((s / "bucket.json").read_text())
+        (s / "bucket.json").write_text(json.dumps({**b, "versioning_enabled": True}))
+    elif case == "policy-allow":
+        (s / "effective.json").write_text(json.dumps({"firewallPolicys": [{"name": "org", "type": "HIERARCHY",
+            "rules": [{"priority": 1, "direction": "INGRESS", "action": "allow",
+                       "match": {"srcIpRanges": ["0.0.0.0/0"]}}]}]}))  # fmt: skip
+    elif case == "ipv6":
+        (s / "nics.json").write_text(json.dumps([{"network": NET, "stackType": "IPV4_IPV6",
+                                                   "ipv6AccessConfigs": [{"externalIpv6": "2001:db8::5"}]}]))  # fmt: skip
+    if case == "allow-source-tags":  # an allow left with a source tag is deleted and made again: the launch passes
+        _door(tmp_path, **{"tb-session-https": {"sourceTags": ["tb-other"]}})
+        (tmp_path / "runs" / RUN / "session").unlink()
+        r = _launch(tmp_path, "--session-allow", OWNER, "--session-env", "validation")
+        assert r.returncode == 0, r.stdout + r.stderr
+        allow = json.loads((s / "fw" / "tb-session-https.json").read_text())
+        assert "sourceTags" not in allow and "firewall-rules delete tb-session-https" in _argv(tmp_path)
+        return
+    r = _launch(tmp_path, "--session-allow", OWNER, "--session-env", "validation")
+    assert r.returncode == 7, r.stdout + r.stderr
+    assert "instances start" not in _argv(tmp_path)
+
+
+def test_links_delete_every_version(tmp_path: Path) -> None:
+    _door(tmp_path)
+    _links_object(tmp_path)
+    assert _run(tmp_path, "--links", RUN).returncode == 0
+    assert (tmp_path / "state" / "rm-flags").read_text().split() == ["all-versions"]

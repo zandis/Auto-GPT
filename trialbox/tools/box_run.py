@@ -543,7 +543,7 @@ def metadata(
     sets = acc_sets(only or (SESSION_SETS if "session" in groups else ""))
     session_hours = SESSION_HOURS_DEFAULT
     if "session" in groups:
-        refused = session_values(groups, values, mode)
+        refused = session_values(groups, values, mode, only)
         if refused:
             raise ValueError("; ".join(refused))
         session_hours = max(1, int(values["tb-session-minutes"]) // 60)
@@ -558,7 +558,7 @@ def metadata(
         # D-1132: the public sets loaded as the acc group loads them, and the steps a session does not run
         vals["block-project-ssh-keys"] = "TRUE"
         vals["tb-acc-sets"] = " ".join(f"{n}:{z}" for n, z in sets)
-        vals.setdefault("tb-skip", SESSION_SKIP)
+        vals["tb-skip"] = SESSION_SKIP  # session_values refused any other (the review's finding 1)
     if "acc" in groups:
         if values.get("tb-acc-protocols"):  # D1: a filter that matches no protocol stops the launch here, not on the VM
             chk = acc_ids(only, values.get("tb-acc-rs-tag", ""), values["tb-acc-protocols"])
@@ -598,7 +598,7 @@ def _session_vm() -> Any:
     return _module("tb_session_vm", ROOT / "deploy" / "gcp" / "session_vm.py")
 
 
-def session_values(groups: list[str], values: dict[str, str], mode: str = "validation") -> list[str]:
+def session_values(groups: list[str], values: dict[str, str], mode: str = "validation", only: str = "") -> list[str]:
     """Free: a session launch's own options (D-1132): dev and session alone, the validation route (the box the
     first start left is VALIDATION; the session then sets its own environment), DEV or VALIDATION and never
     PRODUCTION, the people as that environment takes them, whole minutes up to the hours allowed, no accuracy filter
@@ -625,6 +625,15 @@ def session_values(groups: list[str], values: dict[str, str], mode: str = "valid
     for k in ("tb-acc-protocols", "tb-acc-streams", "tb-acc-deadline", "tb-acc-rs-tag"):
         if values.get(k):
             bad.append(f"{k}: a session runs no accuracy set, so it takes no accuracy option")
+    if only.strip():
+        bad.append("--only: a session's public sets are fixed (jmed and tcga, the integrator's answer 6)")
+    # a step left out or run again would leave out a proof (55's egress read-back) or the close (58): a session's
+    # skip is its own default, never the operator's (the security review's finding 1)
+    skip = (values.get("tb-skip") or "").split()
+    if skip and skip != SESSION_SKIP.split():
+        bad.append(f"--skip {' '.join(skip)}: a session leaves out only {SESSION_SKIP}; none of its own steps")
+    if (values.get("tb-redo") or "").strip():
+        bad.append("--redo: a session is never run again in part; more time is a new launch (D-1123 4.4)")
     return bad
 
 
@@ -1125,7 +1134,7 @@ def launch_checks(groups: list[str], values: dict[str, str], only: str = "") -> 
     compares HEAD with it exactly)."""
     bad: list[str] = []
     if "session" in groups:
-        bad += session_values(groups, values, values.get("tb-mode", "validation"))
+        bad += session_values(groups, values, values.get("tb-mode", "validation"), only)
     if any(g in groups for g in ("build", "dev")):
         c = values.get("tb-commit", "")
         if not (len(c) == 40 and all(ch in "0123456789abcdef" for ch in c)):

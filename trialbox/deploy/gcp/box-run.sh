@@ -142,6 +142,9 @@ cd "$ROOT"
 br() { env PYTHONPATH=libs:services:. "$PY" -m tools.box_run "$@"; }
 sv() { "$PY" "$ROOT/deploy/gcp/session_vm.py" "$@"; }   # the session's free checks (standard library)
 SESSION=0; case " $STEPS " in *" session "*) SESSION=1 ;; esac
+# a session's groups in the VM's own order (box-run's dev route compares the string; tools/box_run.py session_values
+# refuses any other set of groups)
+[ "$SESSION" = 0 ] || [ "$(printf '%s\n' $STEPS | sort | paste -sd' ')" != "dev session" ] || STEPS="dev session"
 SESSION_HOURS=""
 if [ -n "$BOOT_ID" ]; then
   [ -n "$SSTATUS" ] || { echo "box-run: --boot-id is for --session-status only" >&2; exit 2; }
@@ -261,14 +264,12 @@ session_door() {  # a deny-all on the session's tag, the one allow (tcp:443 from
   rule_exists "$S_DENY" || gc compute firewall-rules create "$S_DENY" --network "$net" --direction INGRESS --action DENY \
     --rules=all --source-ranges=0.0.0.0/0 --target-tags "$S_TAG" --priority "$SESSION_DENY_PRIORITY" \
     --description="TrialBox session (D-1130): nothing but its tcp:443 rule reaches the VM (not SSH, not an old door)" || return 1
-  if rule_exists "$S_ALLOW"; then
-    gc compute firewall-rules update "$S_ALLOW" --rules=tcp:443 --source-ranges="$SESSION_ALLOW" \
-      --target-tags "$S_TAG" --priority "$SESSION_ALLOW_PRIORITY" || return 1
-  else
-    gc compute firewall-rules create "$S_ALLOW" --network "$net" --direction INGRESS --action ALLOW --rules=tcp:443 \
-      --source-ranges="$SESSION_ALLOW" --target-tags "$S_TAG" --priority "$SESSION_ALLOW_PRIORITY" \
-      --description="TrialBox session (D-1130): https from the owner's own ranges only" || return 1
-  fi
+  # an allow left by an earlier session is deleted and made again: an update would keep any source tag or
+  # service account someone added to it (the review's finding 7)
+  if rule_exists "$S_ALLOW"; then gc compute firewall-rules delete "$S_ALLOW" --quiet || return 1; fi
+  gc compute firewall-rules create "$S_ALLOW" --network "$net" --direction INGRESS --action ALLOW --rules=tcp:443 \
+    --source-ranges="$SESSION_ALLOW" --target-tags "$S_TAG" --priority "$SESSION_ALLOW_PRIORITY" \
+    --description="TrialBox session (D-1130): https from the owner's own ranges only" || return 1
   gc compute instances add-tags "$VM" --zone "$ZONE" --tags "$S_TAG" || return 1
   printf '%s\n' "$SESSION_ALLOW" > "$OUT/session"   # the ranges, for --links and --session-status
 }
@@ -278,14 +279,18 @@ session_rules_check() {  # D-1130: only tcp:443 from the owner's ranges reaches 
   [ -n "$ranges" ] || { echo "box-run: no session ranges for $RUN_ID here (--session-allow RANGES gives them)" >&2; return 1; }
   if [ "$DRY" = 1 ]; then
     echo "+ gcloud compute firewall-rules list --format=json   # only tcp:443 from $ranges may reach the VM"
-    echo "+ gcloud compute instances describe $VM --zone $ZONE --format=value(tags.items)"
+    echo "+ gcloud compute instances describe $VM --zone $ZONE --format=json   # its tags, one interface, no IPv6"
+    echo "+ gcloud compute instances network-interfaces get-effective-firewalls $VM --zone $ZONE --network-interface nic0 --format=json   # firewall policies"
     return 0
   fi
-  net="$(vm_network)"; rules="$(mktemp)"
-  gc compute firewall-rules list --filter="network~/$net\$" --format=json > "$rules" || { rm -f "$rules"; return 1; }
-  tags="$(gc compute instances describe "$VM" --zone "$ZONE" --format='value(tags.items)' | tr ';,' '  ')"
-  sv rules-check "$net" "$tags" "$ranges" < "$rules" > "$OUT/session-rules.json" || rc=$?
-  rm -f "$rules"
+  local inst eff
+  net="$(vm_network)"; rules="$(mktemp)"; inst="$(mktemp)"; eff="$(mktemp)"
+  { gc compute firewall-rules list --filter="network~/$net\$" --format=json > "$rules" \
+    && gc compute instances describe "$VM" --zone "$ZONE" --format=json > "$inst" \
+    && gc compute instances network-interfaces get-effective-firewalls "$VM" --zone "$ZONE" --network-interface nic0 --format=json > "$eff"; } \
+    || { rm -f "$rules" "$inst" "$eff"; echo "box-run: the VM's rules, interfaces or firewall policies cannot be read" >&2; return 1; }
+  sv rules-check "$net" "-" "$ranges" --instance "$inst" --effective "$eff" < "$rules" > "$OUT/session-rules.json" || rc=$?
+  rm -f "$rules" "$inst" "$eff"
   "$PY" -c 'import json,sys
 d = json.load(open(sys.argv[1]))
 print("door: reaches the VM:", d["reaches_the_vm"] or "NOT PROVED")
@@ -297,22 +302,36 @@ vm_has_tag() {
   [ "$DRY" = 0 ] || return 1
   gc compute instances describe "$VM" --zone "$ZONE" --format='value(tags.items)' 2>/dev/null | tr ';,' '\n\n' | grep -qx "$S_TAG"
 }
-bucket_private() {  # D-1123 section 6: the links object's bucket is not public (no allUsers, no allAuthenticatedUsers)
+bucket_private() {  # D-1123 section 6: no allUsers/allAuthenticatedUsers, no object ACL can apply, no old versions
   local b="${BUCKET#gs://}"; b="gs://${b%%/*}"
-  if [ "$DRY" = 1 ]; then echo "+ gcloud storage buckets get-iam-policy $b --format=json   # no allUsers, no allAuthenticatedUsers"; return 0; fi
-  local pol; pol="$(gc storage buckets get-iam-policy "$b" --format=json)" || { echo "box-run: the bucket's IAM policy cannot be read" >&2; return 1; }
-  if printf '%s' "$pol" | grep -qE '"allUsers"|"allAuthenticatedUsers"'; then
-    echo "box-run: the bucket $b is public (allUsers or allAuthenticatedUsers in its IAM policy): the links object would be readable by anyone" >&2
-    return 1
+  if [ "$DRY" = 1 ]; then
+    echo "+ gcloud storage buckets describe $b --format=json   # uniform access or public access prevention, versioning off"
+    echo "+ gcloud storage buckets get-iam-policy $b --format=json   # no allUsers, no allAuthenticatedUsers"
+    return 0
   fi
-  echo "bucket: $b names no allUsers and no allAuthenticatedUsers"
+  local d p rc=0; d="$(mktemp)"; p="$(mktemp)"
+  { gc storage buckets describe "$b" --format=json > "$d" && gc storage buckets get-iam-policy "$b" --format=json > "$p"; } \
+    || { rm -f "$d" "$p"; echo "box-run: the bucket's settings or IAM policy cannot be read" >&2; return 1; }
+  sv bucket-check "$d" "$p" || rc=$?
+  rm -f "$d" "$p"
+  [ "$rc" = 0 ] || { echo "box-run: the bucket $b is not private enough for the links object (above; D-1133)" >&2; return 1; }
+  echo "bucket: $b names no allUsers and no allAuthenticatedUsers, takes no object ACL, keeps no old version"
 }
-session_door_down() {  # --stop and the end of a collect: the tag off the VM, the two rules deleted (each if there)
-  [ "$SESSION" = 1 ] || [ -f "$OUT/session" ] || vm_has_tag || return 0
+session_closed() {  # the VM writes CLOSED beside the links once a session's accounts are disabled (D-1132)
+  [ "$DRY" = 0 ] || return 1
+  gc storage ls "$HANDOFF/CLOSED" >/dev/null 2>&1
+}
+session_run() { [ "$SESSION" = 1 ] || [ -f "$OUT/session" ] || grep -qw session "$OUT/md/tb-steps" 2>/dev/null; }
+session_door_down() {  # --stop and the end of a collect: the allow goes; the deny and the tag go once the accounts did
+  session_run || vm_has_tag || return 0
+  if [ "$DRY" = 1 ] || rule_exists "$S_ALLOW"; then gc compute firewall-rules delete "$S_ALLOW" --quiet || true; fi
+  if session_run && ! session_closed; then   # the review's finding 6: nothing reaches the VM until they are disabled
+    echo "session: accounts not confirmed closed (no $HANDOFF/CLOSED): the deny-all and the tag $S_TAG stay on the VM;"
+    echo "  the next boot of any run on this disk disables them and writes CLOSED; then: $0 --stop $RUN_ID again"
+    return 0
+  fi
   gc compute instances remove-tags "$VM" --zone "$ZONE" --tags "$S_TAG" >/dev/null 2>&1 || true
-  local r; for r in "$S_ALLOW" "$S_DENY"; do
-    if [ "$DRY" = 1 ] || rule_exists "$r"; then gc compute firewall-rules delete "$r" --quiet || true; fi
-  done
+  if [ "$DRY" = 1 ] || rule_exists "$S_DENY"; then gc compute firewall-rules delete "$S_DENY" --quiet || true; fi
   rm -f "$OUT/session"
 }
 stop_vm() { gc compute instances stop "$VM" --zone "$ZONE" || true; [ "$DRY" = 1 ] || wait_terminated; reset_vm; }
@@ -359,6 +378,7 @@ power_cycle() {  # G-9: stop (checked), the request removed, start; the VM's nex
 one_look() {  # one look: results, a power cycle asked for, the state; 0 = the run is over and the VM is off
   local s
   fetch || true
+  if session_run && ! session_closed; then echo "session: accounts not confirmed closed (no CLOSED marker yet)"; fi
   if power_cycle_asked; then power_cycle; return 1; fi
   s="$(status)"
   if [ "$s" = TERMINATED ]; then
@@ -374,6 +394,7 @@ if [ "$STOP" = 1 ]; then stop_vm; [ -z "$COLLECT" ] || fetch || true; exit 0; fi
 if [ -n "$SSTATUS" ]; then   # D-1132: the VM, the door, and the session's ready line of this boot only (D-1120)
   s="$(status)"; echo "VM $VM ($ZONE): $s"
   session_rules_check || echo "door: NOT proved (above): give no link" >&2
+  if session_closed; then echo "session: accounts closed (CLOSED marker)"; else echo "session: accounts not confirmed closed"; fi
   if [ "$s" = RUNNING ]; then
     if [ "$DRY" = 1 ]; then
       echo "+ gcloud compute instances describe $VM --zone $ZONE --format=value(lastStartTimestamp)"
@@ -413,7 +434,7 @@ if [ -n "$LINKS" ]; then   # D-1133: the door proved, then the links object prin
   text="$(gc storage cat "$newest")"
   printf '%s\n' "$text"
   printf '%s\n' "$text" | sv links-meta | sed 's/^boot_id=/== boot id: /; s/^certificate_sha256=/== the box'"'"'s root certificate SHA-256 (compare it in the browser): /; s/^stop=/== the session closes at (UTC): /'
-  for o in $objs; do gc storage rm "$o" >/dev/null 2>&1 || echo "box-run: could not delete $o: delete it by hand" >&2; done
+  for o in $objs; do gc storage rm --all-versions "$o" >/dev/null 2>&1 || echo "box-run: could not delete $o: delete it by hand" >&2; done
   echo "== deleted from the bucket. Give the owner his line in the integrator's own session; never on a PR, in a comment or a file."
   echo "== nothing from this session is evidence."
   exit 0
@@ -423,6 +444,12 @@ if [ -n "$COLLECT" ]; then
   exit 0
 fi
 if [ -n "$RESUME" ]; then
+  # a session is never resumed (D-1123 4.4, D-1132): a resume would boot the session's steps without the door, the
+  # bucket check or the session-check of a launch (the review's finding 2). More time is a new launch.
+  if session_run; then
+    echo "box-run: refused: run $RUN_ID is a session; a session is never resumed: more time is a new launch (D-1123 4.4)" >&2
+    exit 2
+  fi
   [ "$(status)" = TERMINATED ] || { echo "VM $VM is not TERMINATED" >&2; exit 2; }
   cap="$(cat "$OUT/cap-hours" 2>/dev/null || echo 4)"
   # this tree's startup script and helper, and a new tb-retry: a step that stopped runs again with the fix
