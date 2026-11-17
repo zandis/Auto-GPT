@@ -218,6 +218,9 @@ from pathlib import Path
 
 for p in (Path.cwd(), Path.cwd() / "libs", Path.cwd() / "services"):
     sys.path.insert(0, str(p))
+# the demo's own environment (tools/demo.py sets the same default in the serving process; `docker exec` does not
+# inherit it). A container started with another TB_ENV keeps it, and steps_roles then refuses.
+os.environ.setdefault("TB_ENV", "DEV")
 from console import steps_roles  # noqa: E402
 from console.auth import UserStore  # noqa: E402
 from console.teamstore import TeamStore  # noqa: E402
