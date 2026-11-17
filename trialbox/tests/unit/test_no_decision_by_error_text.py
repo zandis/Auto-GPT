@@ -19,6 +19,10 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
+pytestmark = [pytest.mark.guard, pytest.mark.nodb]  # D-1119: the guard step of `checks`; no database
+
 ROOT = Path(__file__).resolve().parents[2]
 #: the places found, each read (2026-11-13), with whose it is and what it does: a type, a status or a typed field
 #: read inside a helper; a sentence of the service's own error class; or the words of another service's refusal
