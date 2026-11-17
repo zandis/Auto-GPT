@@ -225,9 +225,14 @@ if [ "$MODE" = gpu ]; then
   fi
 fi
 [ -f "$PUBKEY" ] || die "vendor public key missing: copy vendor_ed25519.pub (from the vendor, out of band) to $PUBKEY"
+# ---- SIDECAR (H-22, D-996): make_bundle.sh names each file bare (the bundle, the bootstrap and its .sig), so the
+# check works wherever the stick is mounted; only the bundle's own line is checked here
 if [ -f "$BUNDLE.sha256" ]; then
-  (cd "$(dirname "$BUNDLE")" && sha256sum -c "$(basename "$BUNDLE").sha256" >/dev/null) || die "bundle checksum mismatch"
+  SUM_LINE="$(awk -v n="$(basename "$BUNDLE")" '$2 == n || $2 == "*" n' "$BUNDLE.sha256")"
+  [ -n "$SUM_LINE" ] || die "$(basename "$BUNDLE").sha256 does not name $(basename "$BUNDLE") (a sidecar from before D-996 names the vendor's own path): compare its sum with: sha256sum $BUNDLE"
+  (cd "$(dirname "$BUNDLE")" && printf '%s\n' "$SUM_LINE" | sha256sum -c - >/dev/null) || die "bundle checksum mismatch: $(basename "$BUNDLE") is not the file the vendor handed over"
 fi
+# ---- end of SIDECAR
 echo "    docker $(docker version --format '{{.Server.Version}}' 2>/dev/null), model profile: $MODE, gpu: $GPU, vendor key: $PUBKEY"
 
 # REHEARSAL (D-726): before anything loads

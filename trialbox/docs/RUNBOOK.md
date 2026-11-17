@@ -6,7 +6,8 @@ Each page names its reader on its **Reader:** line (T-735a, D-729): the box owne
 steward, the trial team, Aimedics, or the people who build TrialBox. The box owner's own pages for a box set up by
 the owner are in [`docs/handover/`](handover/) (`windows-owner.*.md`); IT's one page is
 [`docs/handover/it-one-page.en.md`](handover/it-one-page.en.md). Commands run on the box from `/opt/trialbox` as
-root unless noted. D-numbers are in
+root unless noted; a new install's first command runs from the USB stick and puts the release in `/opt/trialbox`
+(§1, D-996). D-numbers are in
 [DECISIONS](DECISIONS.md). Host hardening is in [Security](SECURITY.md); data sources in [Data](DATA.md).
 Sections whose audience is `team` (the table at the end) are for the people who build TrialBox; their way in is
 [Developing](DEVELOPING.md) (T-635, D-390). Support, recovery, keys, patches and leavers are §21 to §25.
