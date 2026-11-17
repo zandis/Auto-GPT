@@ -344,8 +344,7 @@ bucket_private() {  # D-1123 section 6: no allUsers/allAuthenticatedUsers, no ob
   echo "bucket: $b names no allUsers and no allAuthenticatedUsers, takes no object ACL, keeps no old version"
 }
 session_closed() {  # the VM writes CLOSED beside the links once a session's accounts are disabled (D-1132)
-  [ "$DRY" = 0 ] || return 1
-  gc storage ls "$HANDOFF/CLOSED" >/dev/null 2>&1
+  run_closed "$RUN_ID"
 }
 session_run() { [ "$SESSION" = 1 ] || [ -f "$OUT/session" ] || grep -qw session "$OUT/md/tb-steps" 2>/dev/null; }
 deny_run() {  # the run the session's deny was made for (its description: run=<id>); nothing when there is no deny
@@ -353,7 +352,9 @@ deny_run() {  # the run the session's deny was made for (its description: run=<i
   gc compute firewall-rules describe "$S_DENY" --format='value(description)' 2>/dev/null \
     | sed -n 's/.*run=\([A-Za-z0-9][A-Za-z0-9._-]*\).*/\1/p' | head -n 1
 }
-run_closed() { [ "$DRY" = 0 ] && gc storage ls "$BUCKET/session/$1/CLOSED" >/dev/null 2>&1; }
+run_closed() {  # the run's marker says "closed" (step 56 sets it to "open" before it opens any account)
+  [ "$DRY" = 0 ] && gc storage cat "$BUCKET/session/$1/CLOSED" 2>/dev/null | head -n 1 | grep -q '^closed '
+}
 door_away() {  # $1 the run whose door it was: tag, deny, and any links object of that run nobody read (dead codes)
   gc compute instances remove-tags "$VM" --zone "$ZONE" --tags "$S_TAG" >/dev/null 2>&1 || true
   if [ "$DRY" = 1 ] || rule_exists "$S_DENY"; then gc compute firewall-rules delete "$S_DENY" --quiet || true; fi

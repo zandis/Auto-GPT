@@ -623,3 +623,18 @@ def test_links_take_the_ranges_given_on_the_command_line(tmp_path: Path) -> None
     r = _run(tmp_path, "--links", RUN, "--session-allow", OWNER)
     assert r.returncode == 0, r.stderr
     assert r.stdout.count(f"&c={CODE}") == 1
+
+
+def test_a_marker_that_says_open_is_not_closed(tmp_path: Path) -> None:
+    """Step 56 sets its run's marker to "open" before it opens any account (the VM's gcloud only copies); only a
+    marker that says "closed" takes the deny-all and the tag away."""
+    _door(tmp_path)
+    d = tmp_path / "state" / "gcs" / "session" / RUN
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "CLOSED").write_text(f"open 2026-11-17T06:40:00Z by run {RUN}: its accounts are being opened\n")
+    (tmp_path / "state" / "status").write_text("RUNNING\n")
+    r = _run(tmp_path, "--stop", RUN)
+    assert r.returncode == 0, r.stderr
+    assert "accounts not confirmed closed" in r.stdout and "tb-session-deny" in _fw(tmp_path)
+    _closed(tmp_path)
+    assert _run(tmp_path, "--stop", RUN).returncode == 0 and "tb-session-deny" not in _fw(tmp_path)

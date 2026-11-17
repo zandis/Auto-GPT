@@ -2514,12 +2514,14 @@ step_session_accounts() {
   if ! d_restart_policy no >> "$STEP_LOG" 2>&1; then
     STOP="the console's and Caddy's restart policy could not be set to no (docker update): no session is opened"; return 1
   fi
-  # a CLOSED marker of this run from before (a boot closed nothing yet) goes before any account is opened: the driver
-  # takes the door's deny away only while it is there
-  gcloud storage rm "$SES_HANDOFF/CLOSED" > /dev/null 2>&1 || true
-  if gcloud storage ls "$SES_HANDOFF/CLOSED" > /dev/null 2>&1; then
-    STOP="the run's CLOSED marker cannot be removed from $SES_HANDOFF: no account is opened while it says closed"; return 1
+  # a CLOSED marker of this run from before (a boot closed nothing yet) says "open" before any account is opened: the
+  # driver takes the door's deny away only while it says "closed" (box-run.sh run_closed). Copied, as every object
+  # the VM writes (the VM's gcloud reads secrets and copies, nothing else)
+  printf 'open %s by run %s: its accounts are being opened\n' "$(date -u +%FT%TZ)" "$RUN_ID" > "$SES/open.txt"
+  if ! gcloud storage cp "$SES/open.txt" "$SES_HANDOFF/CLOSED" > /dev/null 2>&1; then
+    rm -f "$SES/open.txt"; STOP="the run's marker at $SES_HANDOFF cannot be set to open: no account is opened"; return 1
   fi
+  rm -f "$SES/open.txt"
   # the names first, before any code exists: a session account still open is closed at the next boot
   printf '%s' "$people" | tr ',' '\n' | cut -d: -f1 > "$SES/accounts"
   session_unclosed_add

@@ -90,8 +90,8 @@
 
    Every session run that booted on the disk is listed there too. Once no session account is open on the disk, each
    listed run gets its `CLOSED` marker, even one that never opened an account (a refusal, a stop before 56, a cut):
-   the driver keeps the door's deny until it (the re-review's C). Step 56 removes its own run's marker before it
-   opens any account.
+   the driver keeps the door's deny until it says "closed" (the re-review's C). Step 56 sets its own run's marker to
+   "open" before it opens any account (copied over it: the VM's gcloud reads secrets and copies, nothing else).
 8. **The estimate** (`--estimate --steps dev,session [--session-hours N]`): the bring-up rows with their sources
    (D-1123 section 5), the owner's hours at the driver's constant, the cap, the worst case, spot and on demand. The
    running total is the integrator's figure, posted beside it (D-505).

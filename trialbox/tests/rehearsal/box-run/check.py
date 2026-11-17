@@ -71,19 +71,8 @@ G10 = ["41-g10-image", "42-g10-canary", "43-g10-qualify"]
 
 # ---------------------------------------------------------------- every case: the cloud calls, the secrets, the power
 ok(
-    all(
-        line in ("", "storage cp")
-        or line.startswith("secrets versions access ")
-        # a session run's own CLOSED marker, removed before its accounts open (the re-review's C), and looked for
-        or line
-        in (
-            f"storage rm gs://tb-runs/session/rehearsal-{case}/CLOSED",
-            f"storage ls gs://tb-runs/session/rehearsal-{case}/CLOSED",
-        )
-        for line in gcloud
-    ),
-    "the VM's only cloud calls read secrets by name and copy to or from the bucket, and remove the session run's own"
-    " CLOSED marker (no VM is started or stopped)",
+    all(line in ("", "storage cp") or line.startswith("secrets versions access ") for line in gcloud),
+    "the VM's only cloud calls read secrets by name and copy to or from the bucket (no VM is started or stopped)",
 )
 secrets = [S / "secrets" / "answers" / "1", S / "secrets" / "vendor-key" / "1", S / "driver" / "hdr"]
 needles = []
@@ -764,7 +753,7 @@ if case.startswith("session"):
     seq = (S / "calls.log").read_text().splitlines()
     closed_marker = BKT / "session" / f"rehearsal-{case}" / "CLOSED"
     if case != "session-close-fails":  # the re-review's C: every session run ends with its marker, accounts or none
-        ok(closed_marker.exists() and "closed " in closed_marker.read_text(),
+        ok(closed_marker.exists() and closed_marker.read_text().startswith("closed "),
            "the run's CLOSED marker is written once no session account is open (an account opened or not)")  # fmt: skip
 if case in ("session", "session-stop", "session-cut"):
     first_people = next((i for i, c in enumerate(seq) if c.startswith("session-people")), -1)
@@ -835,7 +824,8 @@ if case in ("session-cut", "session-close-fails"):  # the re-review's A: nothing
         ok("session-disable-failed" in after_boot2 and caddy_up_at == len(after_boot2),
            "the close could not be made: the box's Caddy never came up on that boot")  # fmt: skip
         ok("TB-SESSION-ACCOUNTS-OPEN" in ended and "TB-STEP" not in out[-1], "the run stopped before any step")
-        ok(not closed_marker.exists(), "no CLOSED marker: the driver keeps the door's deny-all and the tag")
+        ok(not closed_marker.exists() or not closed_marker.read_text().startswith("closed "),
+           "the run's marker does not say closed (it says open): the driver keeps the door's deny-all and the tag")  # fmt: skip
 if case == "session-update-fails":  # the re-review's E: no restart policy, no session
     ok(parts["56-session-accounts"]["status"] == "stop" and "restart policy" in parts["56-session-accounts"]["stop"]["reason"],
        "the step stops when the restart policy cannot be set to no")  # fmt: skip

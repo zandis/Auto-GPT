@@ -2,7 +2,6 @@
 # Box-run rehearsal shim for gcloud on the "VM": only what the VM's own service account does in box-install-run.sh.
 #   gcloud secrets versions access VERSION --secret=NAME [--out-file=F]   from $BR_S/secrets/NAME/VERSION
 #   gcloud storage cp SRC DST                              gs://<bucket>/<path> is $BR_S/bucket/<bucket>/<path>
-#   gcloud storage rm OBJ / storage ls OBJ                 one object by its exact path
 # Anything else fails and is logged (NOT-REHEARSED), so a new cloud call (above all one that starts or stops a VM) is
 # noticed here. The log has the command and the secret's NAME, never a value.
 gs() { case "$1" in gs://*) echo "$BR_S/bucket/${1#gs://}" ;; *) echo "$1" ;; esac; }
@@ -20,13 +19,6 @@ case "$1 $2 $3" in
     # by rename, as an object appears whole in the bucket: a reader never sees half of it (a collect raced the VM's
     # last upload of results.tgz, the case session-then-acc of 2026-11-17)
     mkdir -p "$(dirname "$dst")"; cp "$src" "$dst.part.$$" && mv -f "$dst.part.$$" "$dst" ;;
-  "storage rm "*)   # the session's step 56 removes its run's CLOSED marker before any account is opened
-    echo "storage rm ${!#}" >> "$BR_S/vm-gcloud.log"
-    for a in "${@:3}"; do case "$a" in gs://*)
-      [ -f "$(gs "$a")" ] || { echo "ERROR: $a matched no objects" >&2; exit 1; }; rm -f "$(gs "$a")" ;; esac; done ;;
-  "storage ls "*)
-    echo "storage ls ${!#}" >> "$BR_S/vm-gcloud.log"
-    [ -f "$(gs "${!#}")" ] || { echo "ERROR: One or more URLs matched no objects." >&2; exit 1; }; echo "${!#}" ;;
   *) echo "NOT-REHEARSED $1 $2 $3" >> "$BR_S/vm-gcloud.log"
      echo "box-run rehearsal gcloud: not rehearsed: $1 $2 $3" >&2; exit 1 ;;
 esac
