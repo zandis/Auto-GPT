@@ -62,3 +62,23 @@ One condition, part of the decision:
 **Build order:**
 1. The gap-closing: `prompt_sha` in the cascade's evidence, the real `build_sha` on SCREEN, `build_sha` on `llm.call`, the extraction's and the pre-fill's pointers.
 2. Then the index (`audit.model_calls`, `audit.model_uses`, rebuild and check) and the search.
+
+## Step 1 as built (2026-11-16)
+
+- **Every answer names its call.** `LlmResult` gains `call_id`, and the `llm.call` event records it beside the new
+  `build_sha`. Through the gateway the id is the gateway's own (`tb.call_id`, the id of its `llm.gateway.call`). A
+  direct call (DEV only: PRODUCTION refuses a model client without the gateway) has no gateway record, so its id is
+  `direct-<first 16 hex of the output sha>`. It is derived from the answer, so a re-run's records stay the same.
+- **Judge and verifier:** the cascade's evidence keeps `prompt_sha`. SCREEN's reply carries the real `build_sha`
+  (it was the model's name) and the real call id (it was a prefix of the answer's hash). A judged-pair row written
+  before this card has no call id; its reuse keeps the hash prefix, as before, which no `llm.call` names.
+- **Extraction:** IR 1.3.0 adds `provenance: {calls: [...]}` (`CriterionProvenance`). Each extracted criterion
+  names its part's call, the retry's call for a line asked again, or its half's call for a part asked in halves
+  (D-981). A line left to a person has no field: no model wrote it. An approved criterion reused by an incremental
+  compile keeps its own field. The v3 IR carries the same list (`Provenance.calls`), and the v1 to v3 round trip
+  stays lossless.
+- **Not in this step:**
+  - **The pre-fill pointer** is in `services/edc` (lane E). It is handed over through the integrator: each model
+    draft field takes `prov: [result.call_id]`.
+  - **The concept-map calls** (`concept_map`), which choose a criterion's codes, are not yet in the criterion's
+    `calls`. They come with the index, where `ai.used` names them per value set.

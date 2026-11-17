@@ -122,9 +122,10 @@ def test_unknown_amyloid_never_excludes_on_the_gold() -> None:
 
 # ------------------------------------------------------------------------------------------------ the rulesets
 def _strip(obj: Any) -> Any:
-    """A committed file without the approval stamps (who and when), which a rebuild changes."""
+    """A committed file without the approval stamps (who and when) and the model call ids (D-989), which a rebuild
+    changes."""
     if isinstance(obj, dict):
-        return {k: _strip(v) for k, v in obj.items() if k not in ("review", "at", "evaluated_at")}
+        return {k: _strip(v) for k, v in obj.items() if k not in ("review", "at", "evaluated_at", "provenance")}
     return obj
 
 
@@ -188,6 +189,7 @@ def test_committed_ruleset_is_the_current_compilers_output(tmp_path: Path, rid: 
     ir = sorted(p for p in built if "/ir/" in p)
     assert [Path(p).name for p in ir] == sorted(p.name for p in (have / "ir").glob("*.json"))
     for p in ir:
+        assert json.loads(built[p])["provenance"]["calls"], p  # D-989: each line names the call that extracted it
         assert _strip(json.loads(built[p])) == _strip(json.loads((have / "ir" / Path(p).name).read_bytes())), p
     for p in (x for x in built if "/valuesets/" in x):
         vs = {k: v for k, v in json.loads(built[p]).items() if k != "status"}  # draft until approval
