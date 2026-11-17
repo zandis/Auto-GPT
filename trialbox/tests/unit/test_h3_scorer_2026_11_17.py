@@ -68,6 +68,8 @@ def test_tcga_scores_the_pathology_figure_as_three_named_numbers(tmp_path: Path)
     })  # fmt: skip
     out = score.score(built, work)
     assert out["schema_version"] == score.SCHEMA_VERSION and "not_scored_because" not in out
+    # D-1104: a score names the answer key it was scored on (this set was built now, so the corrected key, stamped)
+    assert out["answer_key"]["key"] == "v2" and out["answer_key"]["stamped"] is True
     p = out["pathology"]
     assert p["scored"] is True and p["protocols_screened"] == ["Gm2TCGA-BRCA"] and p["reports"] == 4
     assert (p["ineligible_excluded"]["k"], p["ineligible_excluded"]["n"]) == (1, 2)
