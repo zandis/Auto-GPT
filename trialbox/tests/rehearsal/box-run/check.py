@@ -676,6 +676,9 @@ if case == "acc-cut-resume":  # D-1129 (card H-14)
     ok(clk.get("attempt") == 2 and clk.get("attempt_tag") == "retry-1" and clk.get("deadline_s") == 60
        and [x["attempt"] for x in clk.get("attempts") or []] == [1] and clk["attempts"][0]["deadline_s"] == 3,
        "set-clock.json: attempt 2 on its own 60 s budget, attempt 1's seconds and 3 s budget kept")  # fmt: skip
+    env_tz = json.loads((R / "logs" / "acc-env-jmed.json").read_text()).get("tz")
+    ok(bool(env_tz) and clk.get("tz") == env_tz and parts["60-acc-jmed"]["detail"].get("site_tz") == env_tz,
+       f"set-clock.json records the site's zone the box reported ({env_tz}), for the replay")  # fmt: skip
     jobs = sum(jm.values())
     au = json.loads((W / "gateway-audit.json").read_text())
     tr = json.loads((W / "raw-traces.json").read_text())

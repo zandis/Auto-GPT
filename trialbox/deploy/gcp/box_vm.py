@@ -918,6 +918,7 @@ def acc_set(
     streams: int = 1,
     min_start_s: float = 600.0,
     new_attempt: str = "",
+    site_tz: str = "",
 ) -> dict[str, Any]:
     """One accuracy set on the installed box (see the module docstring). Resumable from ``work/progress.json``.
 
@@ -947,7 +948,10 @@ def acc_set(
     within the attempt keeps counting its boots, as before). Only the protocols the budget cut, or never started,
     run: a protocol finished in an earlier attempt is never sent to FEAS, APPROVE or SCREEN again, and its answers,
     job ids and screen JSON stay as they are. Each finished protocol says which attempt answered it (``attempt``);
-    the result says ``attempts`` (how many, finished in each, still cut) and ``budget_cut``."""
+    the result says ``attempts`` (how many, finished in each, still cut) and ``budget_cut``.
+
+    ``site_tz``: the site's zone as the box reports it (onbox ``env``), kept in ``set-clock.json`` as ``tz`` so the
+    replay reads the zone the run used; none given keeps what the clock holds."""
     ids = json.loads((built / "gold" / "ids.json").read_text(encoding="utf-8"))
     protos = sorted((built / "site" / "protocols").glob("*.txt"))
     if protocols:  # D1 (P1b): a filter naming an id the set lacks stops the set, it is never a pass over nothing
@@ -975,6 +979,8 @@ def acc_set(
         _new_attempt(work, clock, new_attempt)  # D-1129: once per tag; a reboot within the attempt keeps its clock
         clock = json.loads(clock_p.read_text(encoding="utf-8"))
     attempt = int(clock.get("attempt") or 1)
+    if site_tz:  # the box's own zone (never a zone of this code's choosing), for the replay
+        clock["tz"] = site_tz
     used0 = float(clock.get("used_s") or 0.0)
     t_start = time.monotonic()
 
@@ -1497,6 +1503,7 @@ def main(argv: list[str] | None = None) -> int:
         help="D4: no protocol is started with less of the set's budget left (or its measured mean, if longer)",
     )
     ac.add_argument("--new-attempt", default="", help="D-1129: a resume's tag: the set's next attempt, once per tag")
+    ac.add_argument("--site-tz", default="", help="the site's zone as the box reports it (onbox env), for the replay")
     ac.add_argument("--notes")
     ac.add_argument("--beat", type=Path)
     at_ = sub.add_parser("acc-attempt")
@@ -1598,7 +1605,7 @@ def main(argv: list[str] | None = None) -> int:
                           deadline_s=a.deadline_s,
                           protocols=[x for x in a.protocols.split(",") if x] or None,
                           earlier=a.earlier, streams=a.streams, min_start_s=a.min_start_s,
-                          new_attempt=a.new_attempt)  # fmt: skip
+                          new_attempt=a.new_attempt, site_tz=a.site_tz)  # fmt: skip
         except (RuntimeError, OSError, ValueError) as exc:
             print(f"acc-set {a.set}: {exc}", file=sys.stderr)
             return 1

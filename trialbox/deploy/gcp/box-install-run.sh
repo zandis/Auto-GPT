@@ -2115,6 +2115,8 @@ step_acc_set() {
     st set "$STEP" acc_reviewer "$(first_of "$RUN/logs/acc-env-$name.json" reviewers)"
   fi
   note sender "\"$(st kv _ acc_sender)\""; note reviewer "\"$(st kv _ acc_reviewer)\""
+  local tz   # the site's zone as the box reports it (onbox env): kept in the set's clock for the replay
+  tz=$(jget "$RUN/logs/acc-env-$name.json" tz); [ -z "$tz" ] || only+=(--site-tz "$tz"); note site_tz "\"$tz\""
   ACC_CUR=$name
   # B4 (owner's plan 2026-11-16): the embed service's memory sampled every second while the set runs
   local ms_pid=""

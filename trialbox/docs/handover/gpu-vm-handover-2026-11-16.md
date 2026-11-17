@@ -323,7 +323,8 @@ A set writes, the moment it ends, `gs://.../boxruns/<run>/acc/<set>.tgz`. At eve
 `work/` holds `answers.json`, the per-protocol progress, `set-clock.json`, `pidmap.json`, `gateway-audit.json`,
 `raw-traces.json`, `services.log`, `embed-mem.tsv` (each second) and each protocol's screen JSON (F32). A set taken
 up again after its budget (4.10) adds `services.earlier.log` (the attempts before), and `gateway-audit.json` and
-`raw-traces.json` keep each attempt's own read under `attempts`.
+`raw-traces.json` keep each attempt's own read under `attempts`. `set-clock.json` records `tz`, the site's zone as
+the box reports it (onbox `env`), so the replay reads the zone the run used.
 
 The gold stays in `built/gold`. It never goes into the box.
 

@@ -536,7 +536,7 @@ def onbox(svc: str, text: str, args: list[str]) -> int:
                           "mail_per_recipient_per_day": _env_val("TB_MAIL_PER_RECIPIENT_PER_DAY"),
                           "jobs_per_sender_per_day": _env_val("TB_JOBS_PER_SENDER_PER_DAY"),
                           "tripwire_settings": {"TB_GATEWAY_PHI_TRIPWIRE": _env_val("TB_GATEWAY_PHI_TRIPWIRE")},
-                          "data_class": ""}))  # fmt: skip
+                          "data_class": "", "tz": _env_val("TB_TZ")}))  # fmt: skip
         return 0
     if cmd == "routes":
         env = _env_of_box()

@@ -305,3 +305,22 @@ def test_the_driver_says_how_a_budget_resume_is_asked_for() -> None:
     assert '--resume <run id> --acc-deadline "set:SECONDS ..."' in head and "--preflight --resume <run id>" in head
     body = DRIVER[DRIVER.index('if [ -n "$RESUME" ]; then') :]
     assert body.index("br resume-plan") < body.index('[ "$(status)" = TERMINATED ]')
+
+
+# ---------------------------------------------------------------- the site's zone in the set's record (lead, H-14)
+def test_the_set_records_the_zone_the_box_reports_and_the_replay_reads_it(tmp_path: Path, clock: Clock) -> None:
+    from tools.public_accuracy import onbox, replay
+
+    zone = "Pacific/Auckland"  # any zone the box could report: the code holds none of its own
+    built, d = _built(tmp_path, trials=1), tmp_path / "set"
+    box_vm.acc_set("sigir", built, d / "work", TimedBox(clock), site_tz=zone, **KW)
+    assert json.loads((d / "work" / "set-clock.json").read_text())["tz"] == zone
+    box_vm.acc_set("sigir", built, d / "work", TimedBox(clock), **KW)  # a boot that could not read it keeps it
+    assert replay.zone_of_record(d)["tz"] == zone
+    assert replay.zone_of_record(d)["from"] == "work/set-clock.json: tz"
+    import inspect
+
+    src = inspect.getsource(onbox.cmd_env)  # the env answer names the box's own zone, as its config reads it
+    assert '"tz": str(getattr(cfg.env, "tz", "") or os.environ.get("TB_TZ") or "")' in src
+    step = VM_SCRIPT[VM_SCRIPT.index("step_acc_set() {") : VM_SCRIPT.index("step_acc_result() {")]
+    assert 'tz=$(jget "$RUN/logs/acc-env-$name.json" tz)' in step and 'only+=(--site-tz "$tz")' in step
