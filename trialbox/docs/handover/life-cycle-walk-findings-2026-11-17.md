@@ -11,7 +11,8 @@ local steps-mode box (D-1062): `tools/demo.py` with demo mode off, the stub mode
 1. Steps 1 to 11 are H-10's, unchanged: protocol in, the PI named, approval, FEAS, who to screen, SCREEN and the
    candidates.
 2. Step 12: the coordinator opens the weekly page.
-3. Step 13: the PI marks Approach on the first patient.
+3. Step 13: the PI marks Approach on the first patient: the first row of the list the weekly page opens on, in the
+   page's own order (the walk's rule for "a patient", F-03); the later steps follow that patient by its pseudonym.
 4. Step 14: the coordinator records "reached, visit booked", and the patient gets a screening number.
 5. Step 15: the coordinator records consent and enrolment.
 6. Step 16: the coordinator records the withdrawal.
@@ -19,16 +20,27 @@ local steps-mode box (D-1062): `tools/demo.py` with demo mode off, the stub mode
 8. Step 18: the coordinator shows the chart number for the opt-out.
 9. Step 19: the steward records the opt-out.
 10. Step 20: the coordinator looks for the patient on the lists.
-11. Step 21: the administrator reads whether the erase ran.
+11. Step 21: the steward reads, in the audit trail, the opt-out worker's run after the opt-out (H-25, D-1124).
+12. Step 22: the administrator reads the worker's health check.
 
 Every new role boundary is checked by a refusal: a real request carrying the page's own form token, answered 403.
 
 This page reports and does not fix: no product file was changed. Where the product does not do what its documents
 say, the walk stops that branch with the product's own words. It never asserts the fault as correct.
 
-Run time: three runs in a row on a 4-core container (2026-11-17), each a fresh box: 842, 808 and 795 seconds
+Run time, H-20: three runs in a row on a 4-core container (2026-11-17), each a fresh box: 842, 808 and 795 seconds
 (the seed about 7 minutes, then about 2 minutes per language); all three passed in three languages, each with step
 21 stopped as F-20. H-10's `make walk-new-study` passed after them (698 seconds).
+
+H-25 (D-1124) settled F-20. A steps-mode box now starts the orchestrator's opt-out worker after its seed, and nothing
+else of the start-up (`tools/demo.py`, `START_UP`).
+
+- Step 21: the steward sees, in the audit trail, the worker's next run after the opt-out. The run's own record in
+  the box's audit log names every clear of the erasure registry's §1, with none failed and nothing left; the test
+  reads that log, because no page shows it (F-22).
+- Step 22: the health check is green.
+
+The run times of H-25's three runs are in its pull request.
 
 How it is run: `make walk-life-cycle` (or `tests/e2e/test_life_cycle_walk.py -m e2e`). Each run writes a JSON log per
 language outside the repository: per step the page and heading reached, the clicks and their texts, the time, the
@@ -46,16 +58,17 @@ only. "Guess" is anything the walk could not find by a documented label and had 
 
 | Step | Role | Page reached (en) | Clicks | The clicks (en) | Median s | Refused (403) | Guesses |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 12 | coordinator | `/studies/{rs}/week` · This week's patients · {rs} | 2 | This week's patients → {rs} | 2.5 | steward: `GET /studies/{rs}/week` | – |
-| 13 | investigator | `/studies/{rs}/week` · This week's patients · {rs} | 4 | This week's patients → {rs} → patient {short} → Approach | 6.4 | coordinator: `POST /studies/{rs}/patients/{pid}/mark` | F-03 |
-| 14 | coordinator | `/studies/{rs}/week` · This week's patients · {rs} | 5 | This week's patients → {rs} → Approved and contacted → patient {short} → Reached, visit booked | 8.3 | investigator: `POST /studies/{rs}/patients/{pid}/outcome` | F-05 |
-| 15 | coordinator | `/studies/{rs}/subjects/{rs}-0001` · {rs}-0001 · Participants | 5 | My studies → Participants → {rs}-0001 → Consent given → Enrolled | 4.6 | investigator: `POST /studies/{rs}/subjects/{record}/step` | F-07 |
-| 16 | coordinator | `/studies/{rs}/subjects/{rs}-0001` · {rs}-0001 · Participants | 2 | Withdraw → Withdraw | 1.1 | investigator: `POST /studies/{rs}/subjects/{record}/undo` | – |
+| 12 | coordinator | `/studies/{rs}/week` · This week's patients · {rs} | 2 | This week's patients → {rs} | 2.6 | steward: `GET /studies/{rs}/week` | – |
+| 13 | investigator | `/studies/{rs}/week` · This week's patients · {rs} | 4 | This week's patients → {rs} → patient {short} → Approach | 6.8 | coordinator: `POST /studies/{rs}/patients/{pid}/mark` | F-03 |
+| 14 | coordinator | `/studies/{rs}/week` · This week's patients · {rs} | 5 | This week's patients → {rs} → Approved and contacted → patient {short} → Reached, visit booked | 8.6 | investigator: `POST /studies/{rs}/patients/{pid}/outcome` | F-05 |
+| 15 | coordinator | `/studies/{rs}/subjects/{rs}-0001` · {rs}-0001 · Participants | 5 | My studies → Participants → {rs}-0001 → Consent given → Enrolled | 4.8 | investigator: `POST /studies/{rs}/subjects/{record}/step` | F-07 |
+| 16 | coordinator | `/studies/{rs}/subjects/{rs}-0001` · {rs}-0001 · Participants | 2 | Withdraw → Withdraw | 1.2 | investigator: `POST /studies/{rs}/subjects/{record}/undo` | – |
 | 17 | coordinator | `/studies/{rs}/state` · {rs} · Study state and identifiers | 4 | More → {rs} · Study set-up → Study state and identifiers → Change state | 1.2 | steward: `POST /studies/{rs}/state`; operator: `POST /studies/{rs}/state` | – |
-| 18 | coordinator | `/studies/{rs}/patients/{pid}/reveal` · {rs} · patient {short} | 5 | This week's patients → {rs} → (typed) /studies/{rs}/week?list=all&pid={pid} → Open full chart view → Show chart number (recorded with your name) | 6.0 | – | F-17, F-18 |
+| 18 | coordinator | `/studies/{rs}/patients/{pid}/reveal` · {rs} · patient {short} | 5 | This week's patients → {rs} → (typed) /studies/{rs}/week?list=all&pid={pid} → Open full chart view → Show chart number (recorded with your name) | 5.9 | – | F-17, F-18 |
 | 19 | steward | `/site/opt-outs` · Opt-out register | 2 | Opt-out register → Record the opt-out | 0.3 | coordinator: `POST /site/opt-outs`; operator: `GET /site/opt-outs` | – |
-| 20 | coordinator | `/studies/{rs}/candidates` · {rs} · Candidates | 4 | This week's patients → {rs} → (typed) /studies/{rs}/week?list=all&pid={pid} → Candidates | 5.5 | – | F-18 |
-| 21 | operator | `/metrics` ·  | 1 | (typed) /metrics | 0.1 | coordinator: `GET /metrics` | F-21 |
+| 20 | coordinator | `/studies/{rs}/candidates` · {rs} · Candidates | 4 | This week's patients → {rs} → (typed) /studies/{rs}/week?list=all&pid={pid} → Candidates | 5.6 | – | F-18 |
+| 21 | steward | `/audit` · Audit trail | 2 | Audit trail → Show | 12.6 | coordinator: `GET /audit` | F-22 |
+| 22 | operator | `/metrics` ·  | 1 | (typed) /metrics | 0.1 | coordinator: `GET /metrics` | F-21 |
 
 ### The findings by step
 
@@ -80,8 +93,8 @@ only. "Guess" is anything the walk could not find by a documented label and had 
 | F-17 | 18 | steward | `/site/opt-outs` | 5 | the opt-out form asks for the chart number ("Type the chart number"); no page of the steward shows one, so on a box the tester must get it elsewhere; the walk has the coordinator show it on the patient sheet (recorded) and carries it over | the testers' page says where the chart number comes from on a box (`team.optout.help`, `help.page.optouts`; D-1062) | slows the tester | C2 |
 | F-18 | 18 | coordinator | `/studies/{rs}/week` | 5 | after the withdrawal the patient is on none of the weekly page's lists but "All on the list" (4,000 rows, paged), and the participant's page has no link to the patient sheet; the walk types `?list=all&pid=...` here and in step 20 | a search by pseudonym or screening number, or a link from the participant to the patient sheet (D-133 (the weekly page)) | cosmetic | C2 |
 | F-19 | 19 | steward | `/site/opt-outs` | 2 | the opt-out form's note is labelled "Note for the coordinator" (the PI's mark note) on the steward's register | a label of the register's own (`mark.note`, `team.optout.help`) | cosmetic | C2 |
-| F-20 | 21 | operator | `/metrics` | 1 | `tb_health_check_level{check="optout_worker"} 2`: the opt-out worker never ran on this box (no `optout.worker` audit event); the register and the lists withhold the patient, but none of the erasure registry's clears runs | the worker's first tick at start, then every interval (D-441); the clears of `docs/validation/erasure-registry.md` §1 (D-441, D-465; `tools/feas_demo.py` (the in-process orchestrator is a test client: its start-up, which starts the worker, never runs)) | blocks the step | integrator |
-| F-21 | 21 | operator | `/admin?tab=health` | 1 | the red opt-out worker check is on `/metrics` only (typed in); the administrator's Health tab shows no line for it | the health line turns red on a stale or failed tick, where a person reads it (D-441, T-209a) | slows the tester | C2 |
+| F-22 | 21 | steward | `/audit` | 2 | the audit trail shows each run of the opt-out worker ("Opt-out worker run") with an empty detail: what it cleared, whether a clear failed and whether a store still holds the patient are recorded in the audit log but on no page; a steward cannot see that an erase completed | the run's counts on the page: the stores cleared, failed, left (they are counts, never a pseudonym) (D-441 (one `optout.worker` event per run); `services/console/audit_page.py` `SHOWN` (the keys the browser shows); D-451) | slows the tester | C2 |
+| F-21 | 22 | operator | `/admin?tab=health` | 1 | the red opt-out worker check is on `/metrics` only (typed in); the administrator's Health tab shows no line for it | the health line turns red on a stale or failed tick, where a person reads it (D-441, T-209a) | slows the tester | C2 |
 
 <!-- life-cycle-walk: end of findings -->
 
@@ -89,21 +102,25 @@ only. "Guess" is anything the walk could not find by a documented label and had 
 
 | Step | What | What the product needs that the box does not have |
 | --- | --- | --- |
-| 21 | the erase: the opt-out worker's clears (D-441, D-465) | an orchestrator started with its own start-up (the opt-out worker's scheduler): `tools/demo.py` builds the orchestrator in process as a test client, which never runs it; F-20 |
 | 15 | consent recorded on TrialBox's consent form (D-399) | a study set up to record consent in TrialBox (set-up, Consent); the walk's new study keeps the default, "Not recorded", so "Consent given" is one button and the consent form, its version check and the re-consent list are not walked |
 | 15 | on study, visits, completion (D-134) | a visit schedule ("This study has no visit schedule yet"): the walk goes from enrolled to withdrawn |
 | 17 | the morning mails of a closed study (D-763) | outside mail: the box's mail gateway is in process with no outside mail |
 
-The opt-out itself (step 19) and what the lists withhold (step 20) do work on the box: the register takes the chart
-number, and the patient leaves the weekly list and the candidate list at once. Only the clears that the worker runs
-on its tick (`docs/validation/erasure-registry.md` §1) are missing.
+The opt-out works on the box from end to end:
+
+- step 19: the register takes the chart number;
+- step 20: the patient leaves the weekly list and the candidate list at once;
+- step 21: within a minute the worker runs every clear of `docs/validation/erasure-registry.md` §1, as its audit
+  record says; the page shows only that it ran (F-22).
+
+`omop` and `vec` report "skipped": this box has no OMOP store and no vector store.
 
 ## Counts
 
 | Severity | Findings |
 | --- | --- |
-| blocks the step | 1 |
-| slows the tester | 10 |
+| blocks the step | 0 |
+| slows the tester | 11 |
 | cosmetic | 10 |
 
 ## The testers' pages

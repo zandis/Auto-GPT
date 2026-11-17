@@ -28,6 +28,10 @@ folder and calls one subcommand at a time:
   identity --box F --lock F --template-sha S --images F --weights-exit N
       what the box serves against what the release pins: chat template, image digests, weights, prompt versions
 
+  installed-commit INSTALLED_JSON   (H-19, D-1105) the commit the installed box runs, from the installer's
+      ``deploy/updates/installed.json`` (D-994): 40 lowercase hex with ``dirty: false``, printed alone; refused by
+      name (exit 1, the reason on stderr) when the file is missing or unreadable, ``dirty`` is not false, or
+      ``commit`` is missing, null or malformed. Qualify names the record's code by it (TB_CODE_COMMIT)
   redact                 stdin to stdout with the lines that carry a password or an enrolment code masked (the
       installer prints the first administrator's once: a VALIDATION install's log goes to the bucket)
   acc-merge-feed --into DIR SITE_HOSPITAL_DIR ...   the hospital CSV feeds of several built public sets as one feed
@@ -47,7 +51,21 @@ folder and calls one subcommand at a time:
   acc-merge-attempt --kind audit|traces --into F --new F --attempt N   one attempt's gateway audit or raw traces
       added to the set's file (each attempt read with its own since, so nothing is counted twice)
 
-Every subcommand prints one JSON object on stdout (and ``--notes`` lines ``key<TAB>json`` where it takes them).
+The owner's live session (D-1123; D-1131, D-1132):
+
+  session-egress --table F --state F [--notes F]   D-1131: the box's egress table as the kernel holds it (the
+      product's own `deploy/network.sh status`, read back after `apply`) against the box's networks (the state file
+      `apply` wrote): the table is live, every network of the box sits under its default deny, and no rule lets a
+      box container open a connection out (no `tcp dport ... accept` to an outside address). What the table allows
+      and denies is the JSON; exit 3 when the pasted text could leave the box
+  session-requests       stdin: the box's Caddy access log lines (JSON, `docker compose logs caddy`); stdout: how many
+      requests came from an outside address (the owner's browser through the published port; the VM's own probes
+      and the box's own networks are not counted). The session's heartbeat (D-1132)
+  session-record --file F [--set key=value ...]   D-1132: the session's record (records/session.json) written or
+      updated; it always says "nothing from this session is evidence" and never holds a code or pasted text
+
+Every subcommand prints one JSON object on stdout (installed-commit: the commit alone), and ``--notes`` lines
+``key<TAB>json`` where it takes them.
 Nothing here prints a secret: the answers file's values are sent, never echoed.
 """
 
@@ -710,6 +728,39 @@ def qualify_verdict(rec: dict[str, Any]) -> dict[str, Any]:
         "git_head": rec.get("git_head"),
         "steps": per_step,
     }
+
+
+COMMIT_HEX = re.compile(r"[0-9a-f]{40}")
+
+
+def installed_commit(path: Path) -> tuple[str, str]:
+    """H-19 (D-1105): ``(commit, "")`` from the installed box's ``installed.json``, or ``("", why)``.
+
+    The evidence gates name the code by a git commit (the integrator's ruling on H-15 F1); a box installed from a
+    bundle has no git, so its installer records the release's commit (D-994). Taken only as 40 lowercase hex with
+    ``dirty`` exactly false; ``dirty: true`` (a rehearsal bundle), a ``commit`` that is null (the release named
+    none) or missing (a box installed before D-994) and anything malformed are refused, each by name. Never an
+    image id."""
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return "", f"{path}: missing (no installed release on this box)"
+    except (OSError, ValueError) as exc:
+        return "", f"{path}: unreadable ({type(exc).__name__})"
+    if not isinstance(doc, dict):
+        return "", f"{path}: not a JSON object"
+    if doc.get("dirty") is True:
+        return "", f"{path}: dirty: true (the release was built from a working tree with changes)"
+    if "commit" not in doc:
+        return "", f"{path}: commit: missing (installed before the installer recorded it, D-994: update the box)"
+    commit = doc["commit"]
+    if commit is None:
+        return "", f"{path}: commit: null (the release names no commit)"
+    if not isinstance(commit, str) or not COMMIT_HEX.fullmatch(commit):
+        return "", f"{path}: commit: malformed ({type(commit).__name__}, not 40 lowercase hex)"
+    if doc.get("dirty") is not False:
+        return "", f"{path}: dirty: {json.dumps(doc.get('dirty'))} (only dirty: false names a commit)"
+    return commit, ""
 
 
 # ------------------------------------------------------------------------------------------------ the command
@@ -1401,6 +1452,169 @@ def routes_verdict(gw: dict[str, Any], emb: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# ------------------------------------------------------------------------------------------------ the owner's session
+SESSION_EVIDENCE = "nothing from this session is evidence"
+
+
+_SET = r"(\{[^}]*\}|\S+)"
+_FAM = r"(ip6?)"
+_SHAPES = {
+    # the product's own rules (deploy/egress.py render), in `nft list` form or the script's; nothing else accepts
+    "intra-box": re.compile(rf"^{_FAM} saddr {_SET} \1 daddr {_SET} accept comment \"intra-box\"$"),
+    "published ports": re.compile(rf"^{_FAM} daddr {_SET} ct status dnat accept comment \"published ports\"$"),
+    "drop": re.compile(rf"^{_FAM} (saddr|daddr) {_SET} counter(?: packets \d+ bytes \d+)? drop comment \"([^\"]*)\"$"),
+}
+
+
+def _nets(field: str) -> list[Any] | None:
+    """The networks of one nft field: `{ a, b-c }` or one element; a prefix, an address or a range. None when an
+    element is not an address (a negation, a named set, a variable)."""
+    import ipaddress
+
+    out: list[Any] = []
+    for item in [x.strip() for x in field.strip().strip("{}").split(",") if x.strip()]:
+        try:
+            if "-" in item and "/" not in item:
+                lo, hi = (ipaddress.ip_address(x) for x in item.split("-", 1))
+                out += list(ipaddress.summarize_address_range(lo, hi))  # type: ignore[arg-type]
+            else:
+                out.append(ipaddress.ip_network(item, strict=False))
+        except ValueError:
+            return None
+    return out
+
+
+def _inside(nets: list[Any] | None, box: list[Any]) -> bool:
+    """Every network of the field inside the box's own (merged as nft merges them: adjacent networks as one)."""
+    import ipaddress
+
+    merged = [*ipaddress.collapse_addresses(b for b in box if b.version == 4),
+              *ipaddress.collapse_addresses(b for b in box if b.version == 6)]  # fmt: skip
+    return bool(nets) and all(any(n.version == b.version and n.subnet_of(b) for b in merged) for n in nets or [])
+
+
+def session_egress(table: str, subnets: list[str]) -> dict[str, Any]:
+    """D-1131: the live egress table (`nft list table inet trialbox_egress`, as `deploy/network.sh status` prints it)
+    read back, rule by rule, against the box's own networks (the state file `apply` wrote). Only the product's own
+    shapes pass: `ct state established,related accept`; intra-box with source AND destination inside the box's
+    networks; published ports with the destination inside them and `ct status dnat`; drops with no negation. Any other
+    accept, a jump, a goto, a `!=`, a chain the product does not make, fails. The forward chain must end with the
+    default deny, and that deny must name every network of the box. nft prints adjacent networks merged (a /15, or a
+    range a-b): both are read."""
+    import ipaddress
+
+    problems: list[str] = []
+    rules: list[dict[str, str]] = []
+    denied: list[Any] = []
+    box = [ipaddress.ip_network(s, strict=False) for s in subnets]
+    live = "table inet trialbox_egress" in table
+    if not live:
+        problems.append("the table inet trialbox_egress is not loaded (deploy/network.sh apply did not take)")
+    chain, last_forward = "", ""
+
+    def bad(why: str, line: str) -> None:
+        rules.append({"rule": line, "does": f"REFUSED: {why}"})
+        if f"{why}: {line}" not in problems:
+            problems.append(f"{why}: {line}")
+
+    for raw in table.splitlines():
+        line = " ".join(raw.split())
+        if not line or line in ("}",) or line.startswith(("table ", "delete table")):
+            continue
+        m = re.match(r"^chain (\S+) \{$", line)
+        if m:
+            chain = m.group(1)
+            if chain not in ("forward", "input"):
+                bad("a chain the product does not make", line)
+            continue
+        if line.startswith("type filter hook "):
+            if not line.endswith("policy accept;") or f"hook {chain} " not in line:
+                bad("a chain header the product does not write", line)
+            continue
+        if chain == "forward":
+            last_forward = line
+        if "!=" in line or re.search(r"\b(jump|goto|queue|redirect|dnat to|snat to)\b", line):
+            bad("a negation, a jump or a rewrite", line)
+            continue
+        if line == "ct state established,related accept":
+            rules.append({"rule": line, "does": "lets in: replies to the box's own connections"})
+            continue
+        mi = _SHAPES["intra-box"].match(line)
+        if mi:
+            if _inside(_nets(mi.group(2)), box) and _inside(_nets(mi.group(3)), box):
+                rules.append({"rule": "intra-box", "does": "lets in: the box's networks to each other"})
+            else:
+                bad("an intra-box rule whose source or destination is not the box's own networks", line)
+            continue
+        mp = _SHAPES["published ports"].match(line)
+        if mp:
+            if _inside(_nets(mp.group(2)), box):
+                rules.append({"rule": "published ports", "does": "lets in: the box's published ports"})
+            else:
+                bad("a published-ports rule whose destination is not the box's own networks", line)
+            continue
+        md = _SHAPES["drop"].match(line)
+        if md:
+            nets = _nets(md.group(3))
+            rules.append({"rule": md.group(4) or line, "does": "drops"})
+            if nets is None:
+                bad("a drop on something that is not a network", line)
+            elif md.group(4) == "trialbox default deny" and md.group(2) == "saddr" and chain == "forward":
+                denied += nets
+            continue
+        bad("a rule the product does not write (it could let a box container out)", line)
+    covered = [str(b) for b in box if any(b.version == d.version and b.subnet_of(d) for d in denied)]
+    missing = sorted(str(b) for b in box if str(b) not in covered)
+    if not subnets:
+        problems.append("the state file names no network of the box (is the stack up?): nothing is filtered")
+    if missing:
+        problems.append(f"networks of the box with no default deny: {missing}")
+    if live and 'drop comment "trialbox default deny"' not in last_forward:
+        problems.append("the forward chain does not end with the default deny")
+    return {"live": live, "box_networks": sorted(subnets), "under_default_deny": sorted(covered),
+            "rules": rules, "text_can_leave": bool(problems), "problems": problems}  # fmt: skip
+
+
+def session_requests(lines: list[str]) -> int:
+    """Requests in Caddy's JSON access log from an outside (global) address: the owner's browser. The VM's own
+    probes (loopback) and the box's networks (private) do not keep a session alive."""
+    import ipaddress
+
+    n = 0
+    for line in lines:
+        try:
+            d = json.loads(line[line.index("{") :])
+        except ValueError:
+            continue
+        req = d.get("request") if isinstance(d, dict) else None
+        if not isinstance(req, dict):
+            continue
+        ip = str(req.get("client_ip") or req.get("remote_ip") or "").split("%")[0]
+        try:
+            if ipaddress.ip_address(ip).is_global:
+                n += 1
+        except ValueError:
+            continue
+    return n
+
+
+def session_record(path: Path, sets: list[str]) -> dict[str, Any]:
+    """The session's record: merged key by key, written by rename; the evidence line always there."""
+    try:
+        rec = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        rec = {}
+    for item in sets:
+        k, _, v = item.partition("=")
+        rec[k] = v
+    rec["evidence"] = SESSION_EVIDENCE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(rec, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+    return rec
+
+
 def _notes(path: str | None, facts: dict[str, Any]) -> None:
     if path:
         with open(path, "a", encoding="utf-8") as fh:
@@ -1470,11 +1684,21 @@ def main(argv: list[str] | None = None) -> int:
     ap_ = sub.add_parser("acc-progress")
     ap_.add_argument("--work", type=Path, required=True)
     ap_.add_argument("--built", type=Path, required=True)
+    ic = sub.add_parser("installed-commit")
+    ic.add_argument("installed", type=Path)
     qv = sub.add_parser("qualify-verdict")
     qv.add_argument("record", type=Path)
     t = sub.add_parser("top-costs")
     t.add_argument("parts", type=Path)
     sub.add_parser("redact")
+    se = sub.add_parser("session-egress")
+    se.add_argument("--table", type=Path, required=True)
+    se.add_argument("--state", type=Path, required=True)
+    se.add_argument("--notes")
+    sub.add_parser("session-requests")
+    sr = sub.add_parser("session-record")
+    sr.add_argument("--file", type=Path, required=True)
+    sr.add_argument("--set", action="append", default=[])
     mf = sub.add_parser("acc-merge-feed")
     mf.add_argument("--into", type=Path, required=True)
     mf.add_argument("sites", type=Path, nargs="+")
@@ -1569,6 +1793,13 @@ def main(argv: list[str] | None = None) -> int:
         _notes(a.notes, {"models": res})
         print(json.dumps(res))
         return 0 if res["ok"] else 1
+    if a.cmd == "installed-commit":
+        commit, why = installed_commit(a.installed)
+        if not commit:
+            print(f"installed-commit refused: {why}", file=sys.stderr)
+            return 1
+        print(commit)
+        return 0
     if a.cmd in ("g1-tokens", "qualify-verdict"):
 
         def jl2(p: Path) -> dict[str, Any]:
@@ -1588,6 +1819,21 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if a.cmd == "redact":
         sys.stdout.writelines(redact(sys.stdin))
+        return 0
+    if a.cmd == "session-egress":
+        try:
+            subnets = [str(s) for s in json.loads(a.state.read_text(encoding="utf-8")).get("subnets") or []]
+        except (OSError, ValueError):
+            subnets = []
+        res = session_egress(a.table.read_text(encoding="utf-8", errors="replace"), subnets)
+        _notes(a.notes, {"egress": {k: res[k] for k in ("live", "box_networks", "text_can_leave", "problems")}})
+        print(json.dumps(res))
+        return 3 if res["text_can_leave"] else 0
+    if a.cmd == "session-requests":
+        print(session_requests(sys.stdin.read().splitlines()))
+        return 0
+    if a.cmd == "session-record":
+        print(json.dumps(session_record(a.file, a.set)))
         return 0
     if a.cmd == "acc-merge-feed":
         try:

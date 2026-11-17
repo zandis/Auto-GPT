@@ -427,6 +427,7 @@ def _reopen(work: Path) -> tuple[Any, Any, Callable[[], datetime]]:
     box.today[0] = date.fromisoformat(st["box_today"])
     clock = ld.Clock(box.today[0], ld.site_tz_of(box))
     clock.now = datetime.fromisoformat(st["clock"])
+    box.orch.clock = clock  # J-4 (D-1224): the orchestrator's stamps take the console's clock, as at the seed
     if st.get("live"):  # T-513: a demo seeded on the real day goes on with the real day after a restart
         ld.go_live(box, clock)
     sim = sim_app()  # the REDCap simulator of the seed, with the projects it held at the last clean stop
@@ -561,6 +562,40 @@ def start(a: argparse.Namespace, environ: Mapping[str, str] | None = None) -> di
     return out
 
 
+#: H-25 (D-1124): the parts of the orchestrator's start-up (``services/orchestrator/app.py``, ``lifespan``) and what a
+#: demo or steps-mode box does with each. Only the opt-out worker runs here: a tester sees an erase complete, and the
+#: health check ``optout_worker`` is green. The others stay off by name: the job workers (the box runs its jobs in
+#: process), the model pair canary (off on a demo box), the night's clocks and the site-publish batch tick (they would
+#: ingest again and move the synthetic data at night). A test holds this table against the lifespan's own code.
+START_UP = {
+    "workers": "off",
+    "canary": "off",
+    "scheduler": "off",
+    "site_publish_batch": "off",
+    "optout_worker": "on",
+}
+#: the worker's interval on a demo box unless one is set: a minute, so an opt-out is erased while the tester waits
+OPTOUT_MINUTES = "1"
+
+
+def start_up(orch: Any, environ: Any = None) -> Callable[[], None]:
+    """H-25 (D-1124): run the parts of the orchestrator's start-up that :data:`START_UP` turns on, for the box the
+    console serves; returns the stop. The worker is the orchestrator's own (``datacore.optout_worker.start``, D-441):
+    its first tick at once, then every ``TB_OPTOUT_WORKER_MINUTES`` (here a minute unless set)."""
+    from datacore import optout_worker
+
+    env = os.environ if environ is None else environ
+    env.setdefault(optout_worker.MINUTES_ENV, OPTOUT_MINUTES)
+    sched = optout_worker.start(orch, production=False) if START_UP["optout_worker"] == "on" else None
+
+    def stop() -> None:
+        if sched is not None:
+            sched.shutdown(wait=False)
+
+    atexit.register(stop)
+    return stop
+
+
 def main(argv: list[str] | None = None) -> int:
     from tb_common.config import adopt_site_tz
 
@@ -606,6 +641,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if out["ok"] else 1
     import uvicorn
 
+    start_up(out["box"].orch)  # H-25 (D-1124): after the seed and its checks, before the console serves
     logging.disable(logging.NOTSET)
     print(f"\nconsole on http://{a.host}:{a.port}/home  accounts: {', '.join(out['names'])}")
     if not out["accounts"] and not os.environ.get("TB_DEMO_PASSWORD"):

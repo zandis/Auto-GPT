@@ -19,6 +19,9 @@ installer, and every test run on that installed box (deploy/gcp/box-install-run.
     python -m tools.box_run preflight --steps S [--mode M] [--only SETS] [--src-bundle FILE] [--set k=v ...]
                                                                  # free: every check of a launch (box-run.sh
                                                                  # --preflight runs it with the launch's options)
+    python -m tools.box_run session-check --env DEV|VALIDATION  # free (D-1132): would a box in that environment
+                                                                 # route the session's calls to its own served pair
+                                                                 # and nothing else, and let no text out (D-1131)?
 
 Modes (``--mode``): ``production`` (the default) builds with the vendor key from Secret Manager and starts the box
 the box's way (box-install.sh and the first-run wizard: a PRODUCTION box). ``validation`` (the owner's ruling of
@@ -35,6 +38,12 @@ The ``acc`` group (the public accuracy run on the installed box, Run A of public
 The estimate says where each figure comes from: ``measured`` (a run named), ``constant`` (a driver constant with its
 reason), ``plan`` (a plan's own estimate) or ``unknown`` (nothing measured: the cap bounds it). It never invents a
 figure: a step with no source is ``unknown`` and the US$ is given at the cap.
+
+The ``session`` group (D-1123, the owner's live session; D-1130 to D-1133) composes with ``dev`` only: the commit's
+images and the direct route, the public sets tcga and jmed and the synthetic hospital loaded as the acc group loads
+them, the session's environment, the box's own egress rules, the owner's accounts, then the session itself. Its cap
+is the bring-up's high bound plus the session's hours, rounded up (4 h for three hours), the whole launch's cap.
+Nothing from a session is evidence: no score is run, its results go in no evidence page (D-515).
 
 Settings (tb_common.config.DECLARED): ``TB_VENDOR_KEY_SM_NAME`` the Secret Manager secret that holds the vendor
 signing key, by name (the value is never read here; the VM reads it with its own service account),
@@ -73,8 +82,19 @@ GROUP_CAP_HOURS = {
     "g10": 2,  # an update and a canary and a qualification: none measured
     "dev": 3,  # the commit's images built (b01-b03 measured: 0.11 h) + the stack, G-1, canary, qualify (unmeasured)
     "probe": 1,  # the VM's facts only (00-facts): a boot and a few reads; the hour is the cloud's smallest sure cap
+    # D-1123 section 4: the bring-up plus the owner's three hours, rounded up; a session launch's cap is this alone
+    # (launch_cap_hours: dev's own cap is not added, its bring-up is the session's)
+    "session": 4,
 }
-GROUPS = ("build", "start", "g6", "g9", "g10", "acc", "probe", "dev")
+GROUPS = ("build", "start", "g6", "g9", "g10", "acc", "probe", "dev", "session")
+# The session (D-1123, D-1132): the public sets the integrator named (answer 6: both tcga and jmed, and the synthetic
+# hospital), at Run A's sizes; the steps a session leaves out (it walks, it measures nothing: qualify and what follows
+# from it are not run, each said in its part as tb-skip does); the bring-up's high bound (D-1123 section 5, "Bring-up
+# before the owner can click": 0.61 to 0.98 h from the hand-over's measured rows)
+SESSION_SETS = "jmed,tcga"
+SESSION_SKIP = "08-qualify 09-promote-judge 10-promote-verifier 11-resolve 12-doctor"
+SESSION_BRINGUP_HOURS = (0.61, 0.98)
+SESSION_HOURS_DEFAULT = 3
 MODES = ("production", "validation")
 # The acc group's cap: the plan's high bound of the sets chosen x 1.3 (the complete run's cap rule), whole hours
 ACC_CAP_FACTOR = 1.3
@@ -151,6 +171,18 @@ def group_cap(group: str, sets: list[tuple[str, int]] | None = None) -> int:
     return acc_cap_hours(sets if sets is not None else acc_sets()) if group == "acc" else GROUP_CAP_HOURS[group]
 
 
+def launch_cap_hours(
+    groups: list[str], sets: list[tuple[str, int]] | None = None, session_hours: int = SESSION_HOURS_DEFAULT
+) -> int:
+    """The cloud's cap of one launch: the sum of its groups' caps; a session launch's is the bring-up's high bound
+    plus the session's hours, rounded up (D-1123 section 4: 4 h for the owner's three), dev's cap not added."""
+    import math
+
+    if "session" in groups:
+        return math.ceil(SESSION_BRINGUP_HOURS[1] + session_hours)
+    return sum(group_cap(g, sets) for g in groups)
+
+
 def row(
     group: str, what: str, seconds: float | None, kind: str, source: str, high: float | None = None
 ) -> dict[str, Any]:
@@ -195,8 +227,43 @@ def acc_rows(sets: list[tuple[str, int]]) -> list[dict[str, Any]]:
     return out
 
 
+def session_rows(hours: int = SESSION_HOURS_DEFAULT) -> list[dict[str, Any]]:
+    """The session's own rows (D-1123 section 5), after dev's bring-up rows: each from the hand-over's measurements,
+    and the owner's hours at the driver's constant."""
+    g, ho = "session", "docs/handover/gpu-vm-handover-2026-11-16.md"
+    return [
+        row(g, "07g the canary through the box's own gate", 0.07 * 3600, "measured", f"{ho} 4.6: 3 to 4 min"),
+        row(
+            g,
+            "53-54 tcga and jmed built and ingested",
+            0.03 * 3600,
+            "measured",
+            f"{ho} 4.8: 0.03 h for jmed; 0.40 h for every set (the high bound)",
+            0.40 * 3600,
+        ),
+        row(
+            g,
+            "the synthetic hospital, the environment, the egress rules, the accounts",
+            None,
+            "unknown",
+            "not measured: bounded by the cap",
+        ),
+        row(
+            g,
+            f"the owner's session ({hours} h)",
+            hours * 3600.0,
+            "constant",
+            "D-1123 section 1: at most three hours of the owner's time (--session-hours)",
+        ),
+    ]
+
+
 def rows_for(
-    group: str, with_g6: bool, mode: str = "production", sets: list[tuple[str, int]] | None = None
+    group: str,
+    with_g6: bool,
+    mode: str = "production",
+    sets: list[tuple[str, int]] | None = None,
+    session_hours: int = SESSION_HOURS_DEFAULT,
 ) -> list[dict[str, Any]]:
     """The estimate's rows of one group of steps, each with its source."""
     boot = row(
@@ -244,6 +311,8 @@ def rows_for(
             row(group, "03-07 env, pins, serving record, G-1, canary", 260.0, "measured", "the same run, parts 03-07"),
             row(group, "08 trialbox eval qualify --box (full)", None, "unknown", "never finished on real weights"),
         ]
+    if group == "session":
+        return session_rows(session_hours)
     if group == "probe":
         return [boot, row(group, "00-facts: disk, image store, python3, TPM, GPU, model folders, a read rate", None,
                           "unknown", "-")]  # fmt: skip
@@ -320,7 +389,9 @@ def rows_for(
     ]
 
 
-def estimate(groups: list[str], mode: str = "production", only: str = "") -> dict[str, Any]:
+def estimate(
+    groups: list[str], mode: str = "production", only: str = "", session_hours: int = SESSION_HOURS_DEFAULT
+) -> dict[str, Any]:
     """Per launch: the known seconds (with sources; low and high where a row has both), the cap, US$ spot and on
     demand at the known part and at the cap. ``build`` is its own launch (another service account, or the throwaway
     key in validation mode); start, g6, g9, g10 and acc are one launch."""
@@ -329,19 +400,21 @@ def estimate(groups: list[str], mode: str = "production", only: str = "") -> dic
         raise ValueError(f"unknown step groups {bad}: one or more of {', '.join(GROUPS)}")
     if mode not in MODES:
         raise ValueError(f"unknown mode {mode!r}: one of {', '.join(MODES)}")
-    sets = acc_sets(only)
+    sets = acc_sets(only or (SESSION_SETS if "session" in groups else ""))
     launches = [["build"]] if "build" in groups else []
     box = [g for g in GROUPS[1:] if g in groups]
     if box:
         launches.append(box)
     out: list[dict[str, Any]] = []
     for gs in launches:
-        rows = [r for g in gs for r in rows_for(g, "g6" in gs, mode, sets)]
+        rows = [r for g in gs for r in rows_for(g, "g6" in gs, mode, sets, session_hours)]
         if gs != ["build"]:  # one VM start for the launch
             rows = [r for i, r in enumerate(rows) if r["step"] != "VM start" or i == 0]
+        if "session" in gs:  # a session runs no qualification (SESSION_SKIP)
+            rows = [r for r in rows if not r["step"].startswith("08 ")]
         known = sum(r["seconds"] or 0 for r in rows) / 3600
         known_high = sum(r["seconds_high"] or 0 for r in rows) / 3600
-        cap = sum(group_cap(g, sets) for g in gs)
+        cap = launch_cap_hours(gs, sets, session_hours)
         out.append(
             {
                 "groups": gs,
@@ -363,7 +436,7 @@ def estimate(groups: list[str], mode: str = "production", only: str = "") -> dic
     }
     return {
         "mode": mode,
-        "acc_sets": [{"set": n, "size": z} for n, z in sets] if "acc" in groups else [],
+        "acc_sets": [{"set": n, "size": z} for n, z in sets] if ("acc" in groups or "session" in groups) else [],
         "price_per_hour_spot": PRICE_PER_HOUR,
         "price_per_hour_on_demand": ON_DEMAND_PRICE_PER_HOUR,
         "launches": out,
@@ -401,6 +474,16 @@ def render_estimate(e: dict[str, Any]) -> str:
             f"unmeasured, bounded by the cap: {x['cap_hours']} h = US${x['usd_cap_spot']} spot / "
             f"US${x['usd_cap_on_demand']} on demand"
         )
+    for x in e["launches"]:
+        if "session" in x["groups"]:
+            lo, hi = SESSION_BRINGUP_HOURS
+            lines += [
+                "",
+                f"Session (D-1123 section 5): bring-up {lo} to {hi} h before the owner can click, then the session; "
+                f"worst case the cap {x['cap_hours']} h = US${x['usd_cap_spot']} spot (on demand "
+                f"US${x['usd_cap_on_demand']}); spot can be pre-empted (GPU hand-over T13). Nothing from it is "
+                "evidence.",
+            ]
     t = e["total"]
     lines += [
         "",
@@ -446,6 +529,7 @@ def metadata(
         "acc": ("tb-acc-tools",),
         "probe": (),
         "dev": ("tb-src", "tb-commit"),
+        "session": ("tb-acc-tools", "tb-session-handoff", "tb-session-env", "tb-session-people", "tb-session-minutes"),
     }
     if mode == "validation":  # no vendor key; the synthetic site's answers ride as tb-site-answers (box-run.sh)
         must["build"] = ("tb-src", "tb-commit", "tb-release-id", "tb-release-seq", "tb-out")
@@ -457,13 +541,26 @@ def metadata(
         if "PRIVATE KEY" in v or "BEGIN " in v:
             raise ValueError(f"{k}: a key in the metadata is refused (Secret Manager, by name)")
     out.mkdir(parents=True, exist_ok=True)
-    sets = acc_sets(only)
+    sets = acc_sets(only or (SESSION_SETS if "session" in groups else ""))
+    session_hours = SESSION_HOURS_DEFAULT
+    if "session" in groups:
+        refused = session_values(groups, values, mode, only)
+        if refused:
+            raise ValueError("; ".join(refused))
+        session_hours = max(1, int(values["tb-session-minutes"]) // 60)
     vals = {
         **values,
         "tb-mode": mode,
         "tb-steps": " ".join(g for g in GROUPS if g in groups),
-        "tb-max-minutes": str(sum(group_cap(g, sets) for g in groups) * 60 - 5),
+        "tb-max-minutes": str(launch_cap_hours(groups, sets, session_hours) * 60 - 5),
     }
+    if "session" in groups:
+        # D-1130: the project's SSH keys kept off the VM for the session (sshd is also stopped at its boots);
+        # D-1132: the public sets loaded as the acc group loads them, and the steps a session does not run
+        vals["block-project-ssh-keys"] = "TRUE"
+        vals["serial-port-enable"] = "FALSE"  # no interactive serial console either (its output is still read)
+        vals["tb-acc-sets"] = " ".join(f"{n}:{z}" for n, z in sets)
+        vals["tb-skip"] = SESSION_SKIP  # session_values refused any other (the review's finding 1)
     if "acc" in groups:
         if values.get("tb-acc-protocols"):  # D1: a filter that matches no protocol stops the launch here, not on the VM
             chk = acc_ids(only, values.get("tb-acc-rs-tag", ""), values["tb-acc-protocols"])
@@ -482,6 +579,123 @@ def metadata(
         (out / k).write_text(v, encoding="utf-8")
         names.append(k)
     return names
+
+
+def _module(name: str, path: Path) -> Any:
+    """A module of the tree that is no package's (deploy/egress.py, deploy/gcp/session_vm.py), loaded by its path."""
+    import importlib.util
+
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod  # a dataclass in it looks its module up while it is made
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _session_vm() -> Any:
+    """deploy/gcp/session_vm.py (standard library; the driver's own checks of the session's options)."""
+    return _module("tb_session_vm", ROOT / "deploy" / "gcp" / "session_vm.py")
+
+
+def session_values(groups: list[str], values: dict[str, str], mode: str = "validation", only: str = "") -> list[str]:
+    """Free: a session launch's own options (D-1132): dev and session alone, the validation route (the box the
+    first start left is VALIDATION; the session then sets its own environment), DEV or VALIDATION and never
+    PRODUCTION, the people as that environment takes them, whole minutes up to the hours allowed, no accuracy filter
+    (a session runs no accuracy set)."""
+    sv = _session_vm()
+    bad: list[str] = []
+    if sorted(groups) != ["dev", "session"]:
+        bad.append(f"a session launch is --steps dev,session (got {','.join(groups)}): the commit's images, the "
+                   "direct route, then the session; nothing else in the same launch")  # fmt: skip
+    if mode != "validation":
+        bad.append("a session launch is --mode validation (the direct route on the box the first start left)")
+    env = values.get("tb-session-env", "")
+    if env not in sv.ENVS.values():
+        bad.append(f"tb-session-env {env!r}: DEV or VALIDATION (never PRODUCTION, D-1132)")
+    else:
+        try:
+            if sv.parse_people(values.get("tb-session-people", ""), env) != values.get("tb-session-people"):
+                bad.append("tb-session-people: not in the checked form (session_vm.py shell writes it)")
+        except sv.Refused as exc:
+            bad.append(str(exc))
+    m = values.get("tb-session-minutes", "")
+    if not m.isdigit() or not 1 <= int(m) <= sv.MAX_HOURS * 60:
+        bad.append(f"tb-session-minutes {m!r}: whole minutes from 1 to {sv.MAX_HOURS * 60}")
+    for k in ("tb-acc-protocols", "tb-acc-streams", "tb-acc-deadline", "tb-acc-rs-tag"):
+        if values.get(k):
+            bad.append(f"{k}: a session runs no accuracy set, so it takes no accuracy option")
+    if only.strip():
+        bad.append("--only: a session's public sets are fixed (jmed and tcga, the integrator's answer 6)")
+    # a step left out or run again would leave out a proof (55's egress read-back) or the close (58): a session's
+    # skip is its own default, never the operator's (the security review's finding 1)
+    skip = (values.get("tb-skip") or "").split()
+    if skip and skip != SESSION_SKIP.split():
+        bad.append(f"--skip {' '.join(skip)}: a session leaves out only {SESSION_SKIP}; none of its own steps")
+    if (values.get("tb-redo") or "").strip():
+        bad.append("--redo: a session is never run again in part; more time is a new launch (D-1123 4.4)")
+    return bad
+
+
+# The session's calls, as the product labels them (tb_llm v1_labels: a phi prompt is D3, the others D1; the
+# embedder's query of a note is D3): each must route to the box's own served builds and nowhere else
+SESSION_CALLS = (
+    ("compile ir_extract", "extract_criteria", "D1"),
+    ("compile concept_map", "concept_select", "D1"),
+    ("screen judge", "judge", "D3"),
+    ("screen embedder", "embed", "D3"),
+)
+SERVED = {"j-workhorse", "v-verifier", "e-embed", "f-frontdesk", "g-guard"}  # the box's own builds (no stub)
+
+
+def session_check(env: str, root: Path = ROOT, answers: Path | None = None) -> dict[str, Any]:
+    """Free and local (D-1132, D-1131): would a box in ``env`` (DEV or VALIDATION) route each of the session's calls
+    to its own served pair (the gateway's own routing policy and this tree's routing table: perimeter endpoints only,
+    no stub), and would the product's egress table (deploy/egress.py, the box's own rules) open any destination
+    outside the box, given the synthetic site's answers? Each blocker names the file and the rule; ``can_run`` only
+    when none."""
+    import yaml
+
+    for sub in ("libs", "services"):
+        if str(root / sub) not in sys.path:
+            sys.path.insert(0, str(root / sub))
+    from gateway.policy import RoutingPolicy, parse_label
+    from tb_common.policy.classes import Environment, Topology
+
+    e = Environment(env)
+    pol = RoutingPolicy.load(root / "models" / "routing.yaml")
+    calls: dict[str, Any] = {}
+    blockers: list[str] = []
+    asks = list(SESSION_CALLS)
+    if e == Environment.DEV:  # DEV's ceiling is D0: what a call relabelled D0 (TB_DATA_CLASS=D0) would be routed to
+        asks += [(f"{what} relabelled D0", role, "D0") for what, role, _dc in SESSION_CALLS]
+    for what, role, dc in asks:
+        try:
+            r, cands = pol.candidates(role, parse_label(dc), Topology.A, e, "P-PRO6000")
+            got = [{"alias": c.alias, "zone": c.endpoint.zone} for c in cands]
+            calls[what] = {"role": role, "class": dc, "route": r.id, "candidates": got}
+            off = [c for c in got if c["zone"] != "perimeter" or c["alias"] not in SERVED]
+            if off:
+                blockers.append(f"{what} ({role}, {dc}) in {env} goes to route {r.id} with {off}: not the box's own "
+                                "served build alone (models/routing.yaml)")  # fmt: skip
+        except Exception as exc:  # the policy's refusal, as the gateway would give it
+            calls[what] = {"role": role, "class": dc, "refused": str(exc)}
+            blockers.append(f"{what} ({role}, {dc}) is refused in {env}: {exc} (models/routing.yaml, "
+                            "services/gateway/policy.py RoutingPolicy.candidates)")  # fmt: skip
+    # D-1131: the product's own egress table for this environment and the synthetic site (no mail relay)
+    egress = _module("tb_egress", root / "deploy" / "egress.py")
+    site = yaml.safe_load((answers or root / "deploy" / "gcp" / "validation-site-answers.yaml").read_text()) or {}
+    site_env = {"TB_ENV": env, "SMTP_HOST": str(site.get("smtp_host") or ""), "IMAP_HOST": str(site.get("imap_host")
+                or ""), "TB_CTGOV_MODE": str(site.get("ctgov_mode") or "offline")}  # fmt: skip
+    allows = [{"service": a.service, "host": a.host, "port": a.port, "why": a.why}
+              for a in egress.allowlist(site_env, root / "models" / "routing.yaml")]  # fmt: skip
+    if allows:
+        blockers.append(f"the box's egress table in {env} opens {allows} (deploy/egress.py allowlist): a way out of "
+                        "the box for the pasted text (D-1131)")  # fmt: skip
+    return {"environment": env, "calls": calls, "egress_allows": allows, "can_run": not blockers,
+            "blockers": blockers}  # fmt: skip
 
 
 # ------------------------------------------------------------------------------------------------ the results reader
@@ -1021,6 +1235,8 @@ def launch_checks(groups: list[str], values: dict[str, str], only: str = "") -> 
     set it); ``--acc-deadline`` and ``--acc-min-start`` are seconds. A build or dev launch (D8): a full commit (the VM
     compares HEAD with it exactly)."""
     bad: list[str] = []
+    if "session" in groups:
+        bad += session_values(groups, values, values.get("tb-mode", "validation"), only)
     if any(g in groups for g in ("build", "dev")):
         c = values.get("tb-commit", "")
         if not (len(c) == 40 and all(ch in "0123456789abcdef" for ch in c)):
@@ -1100,12 +1316,16 @@ def preflight(
     try:
         with tempfile.TemporaryDirectory() as t:
             vals = dict(values)
-            if "acc" in groups:
+            if "acc" in groups or "session" in groups:
                 vals.setdefault("tb-acc-tools", "<uploaded by the launch>")
             keys = metadata(groups, vals, Path(t), mode, only)
         add("the metadata builds (every key the steps need, no key-like value)", True, len(keys))
     except ValueError as exc:
         add("the metadata builds (every key the steps need, no key-like value)", False, str(exc))
+    if "session" in groups and values.get("tb-session-env") in ("DEV", "VALIDATION"):
+        sc = session_check(values["tb-session-env"], root)
+        add(f"the box in {sc['environment']} routes the session's calls to its own served pair only and lets no "
+            "text out (session-check, D-1131, D-1132)", sc["can_run"], sc["blockers"] or None)  # fmt: skip
     return {"ok": all(c["pass"] for c in checks), "checks": checks}
 
 
@@ -1193,6 +1413,7 @@ def main(argv: list[str] | None = None) -> int:
     e = sub.add_parser("estimate")
     e.add_argument("--steps", required=True)
     e.add_argument("--json", action="store_true")
+    e.add_argument("--session-hours", type=int, default=SESSION_HOURS_DEFAULT, choices=(1, 2, 3))
     sub.add_parser("settings")
     m = sub.add_parser("metadata")
     m.add_argument("--steps", required=True)
@@ -1225,13 +1446,15 @@ def main(argv: list[str] | None = None) -> int:
     pf.add_argument("--src-bundle", type=Path)
     pf.add_argument("--set", action="append", default=[], help="key=value")
     sub.add_parser("validation-check", help="can a VALIDATION box with the real pair run the accuracy set here?")
+    sc = sub.add_parser("session-check", help="free (D-1132): would a box in ENV route the session's calls here?")
+    sc.add_argument("--env", required=True, choices=("DEV", "VALIDATION"))
     r = sub.add_parser("results")
     r.add_argument("results", type=Path)
     r.add_argument("--out", type=Path)
     a = ap.parse_args(argv)
     try:
         if a.cmd == "estimate":
-            est = estimate([g for g in a.steps.replace(",", " ").split() if g], a.mode, a.only)
+            est = estimate([g for g in a.steps.replace(",", " ").split() if g], a.mode, a.only, a.session_hours)
             sys.stdout.write(json.dumps(est, indent=1) + "\n" if a.json else render_estimate(est))
             return 0
         if a.cmd == "settings":
@@ -1276,6 +1499,12 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"preflight: {'ok    ' if c['pass'] else 'FAILED'} {c['check']}"
                       + (f": {c['detail']}" if said else ""), file=sys.stderr)  # fmt: skip
             return 0 if pfr["ok"] else 6
+        if a.cmd == "session-check":
+            scr = session_check(a.env)
+            print(json.dumps(scr, ensure_ascii=False, indent=1))
+            for b in scr["blockers"]:
+                print(f"session-check: refused: {b}", file=sys.stderr)
+            return 0 if scr["can_run"] else 3
         if a.cmd == "validation-check":
             vc = validation_check()
             print(json.dumps(vc, ensure_ascii=False, indent=1))

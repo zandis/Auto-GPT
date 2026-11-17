@@ -2,14 +2,94 @@
 
 **Reader:** the integrator, and lane D, who own the installer, the bundle and the install runbook
 
-**Verdict.** The runbook alone does not install the box. A reader stops at the one command (§1 line 28) because
-`deploy/install.sh` is not on the machine: neither the hub nor §1 says how `/opt/trialbox` gets the release's host
-tree. After that stop the follower went on only by named lifts (D-1136, 6). It then met five more stops: two in the
-runbook, one in the bundle, one in the installer, and one from the machine (no TPM). The last was on a PRODUCTION box
-without a GPU (`--mode stub`, the runbook's own words for such a machine): every service became healthy except
-`embed-service`, which refuses to start with no pinned embedder, and the installer pins models only in GPU mode.
+**Verdict after D-996 (H-24, the follower on lane D's branch `agent/H22-INSTALL-the-runbook-installs-from-the-stick`
+at `d9f338ee`).** The runbook alone now takes a reader from the stick to a started stack. The reader runs the one
+command from the stick: `openssl` checks the bootstrap's signature, the bootstrap checks the bundle, unpacks the host
+tree to `/opt/trialbox` and places the key, and the installer then verifies and loads the bundle, writes the
+settings, seals the site keys and starts the stack. No lift was needed for any of that. Eleven of H-22's twelve
+findings are closed, and the follow found no new one. The one that remains is finding 5. On a PRODUCTION box without
+a GPU (`--mode stub`), `embed-service` refuses to start with no pinned embedder, so the stack is not healthy. The
+owner made that box a product form today (D-1066). Lane D closes it with its second card; it is not this card's.
 
-## What was followed
+**Verdict before D-996 (H-22).** The runbook alone did not install the box. A reader stopped at the one command (§1
+line 28) because `deploy/install.sh` was not on the machine. After named lifts the follower met four more runbook,
+bundle and installer stops, and one machine stop (no TPM). The H-22 table below keeps those findings as they were;
+its last column says what D-996 did to each.
+
+## After D-996 (H-24)
+
+- **Followed:** the hub's opening and §1 at lane D's head `d9f338ee`, which holds master `d7c91fc3`. H-24's follower
+  is at `724bf7fa`. The new one command is the bootstrap line of §1 line 32. The follower gives the key at
+  `/root/vendor_ed25519.pub` and the site's folder at `/root/site`, as that paragraph says. The feed folder is at §1's
+  own example, `/srv/his-export`, holding the synthetic export before the one command, as "What the site brings" now
+  says. On this machine, without a GPU, `--mode stub` replaces `--tier large`, as §1 line 44 says. The rule is
+  D-1139.
+- **The stick:** the bundle was built by lane D's `make_bundle.sh` from commit `a7a5698f`. The four files were moved
+  out of the vendor's folder onto the stick, and the vendor's folder was removed, as the rehearsal now does. The
+  `.sha256` names each file bare. The images are H-22's (built at master `57263236`) and were not rebuilt: lane D
+  changed no image's code that the install path runs. The gate record is H-22's, under 7 days old.
+- **The container run** (`run-container.json`), the same machine as H-22's with `openssl` added by lane D's
+  `host.Dockerfile`:
+  - 2 commands, 194.6 s wall.
+  - The first attempt took 80.3 s. Signature checked, bundle checked, tree unpacked, key placed, bundle loaded,
+    settings written; then it stopped at the TPM, a machine stop.
+  - The second attempt took 112.2 s, with the machine lift `no-tpm`. The site keys were sealed and the stack
+    started; every service but `embed-service` became healthy (finding 5).
+  - The sidecar checked on the stick. No question was asked: the follower has no terminal, and §1 now names the
+    questions.
+- **The unit run** goes to its stand-in Docker's limit with no lift and no finding. The strict run, with no lifts
+  allowed, reaches the same place.
+- **Not reached:** steps 4, 6 and 7 in their new forms (the mapping check in the image, the key's check, the first
+  ingest and its report through `--project-directory deploy exec`). The install stops at finding 5 first. Their text
+  is fixed; whether the commands work as written is not measured here.
+- **Counts:** §1 now has 28 commands; the path runs 4 (the one command, the mapping check, the first ingest, its
+  report), and 24 are not needed, each with the runbook's reason.
+
+| H-22 finding | Closed by | How the follower sees it now |
+| --- | --- | --- |
+| 1 no host tree | the bootstrap unpacks it (§1:32–36) | text check false; the unit and container runs unpack it |
+| 2 vendor key after the start | the bootstrap places it (§1:35, step 6) | text check false; both runs find it in place |
+| 3 `--mode stub` beside `--tier` | §1:44 "takes the place of `--tier`" | text check false; both runs use it in place of `--tier` |
+| 4 the `.sha256` names the vendor's path | `make_bundle.sh` names each file bare; the installer checks the bundle's own line | the container run's stick, moved away from the vendor's folder, checks |
+| 5 no pinned embedder in stub mode | **open** (D-1066: lane D's second card) | the container run: `EmbedderRefused: no pin for e-embed-1` |
+| 6 questions not named | "The questions it asks" (§1:47) | text check false |
+| 7 host packages | step 1 names them (§1:90) | text check false; the machine check lists each |
+| 8 where the site's folder goes | "for example `/root/site`, and give the answers by their full path" | text check false |
+| 9 the feed folder's export | "must exist and hold the hospital's first export before the one command" | text check false |
+| 10 `python` on the host | step 4 runs the check in the release's image | text check false; not reached by a run |
+| 11 compose's project folder | step 7 says `--project-directory deploy` | text check false; not reached by a run |
+| 12 the report in the volume | step 7 reads it with `exec adapter cat` | text check false; not reached by a run |
+
+A note for the rehearsal, not a runbook finding: its answers (`tools/rehearse_box/site_answers.yaml`) put the feed
+folder under `/opt/trialbox` (`./site/feed-a`). §1's order now needs that folder empty before the one command, so a
+reader cannot use those values as they are. The follower used §1's own example instead, and records that it did.
+
+## With D-998 (H-24b): finding 5 stays open, unmeasured
+
+Lane D's #1004 (D-998, `agent/H22-STUB-a-no-gpu-production-box-embeds` at `14febc39`, on card 1) is meant to close
+finding 5. In stub mode the installer now pins `e-embed-1` from the bundle's weights, `release check` refuses a site
+bundle without them, and §1:44 says so. H-24b stacks H-24 on it (branch `claude/lane-h-24b-finding-5-closed`).
+
+**Finding 5 is not moved to `closed`**, because the follower has not seen it gone:
+
+- **The text:** §1 now says what a box without a GPU needs. Finding 5 was never a text check, so no check changes.
+- **The unit run:** it stops at its stand-in Docker before the pin step, as before.
+- **The container follow:** not re-run on this tree. A bundle that carries the embedder could not be built here.
+  This container's disk allowance (20.1 GB free) is below `make_bundle.sh`'s own space estimate for the seven images
+  alone (20.8 GB). With the embedder (2.3 GB, 18 files) the estimate is about 26 GB, before the 2.3 GB download.
+  Lane D's space check was not bypassed, and the weights were not downloaded.
+- **The committed container record** (`run-container.json`) is H-24's, at `7731d855`, before D-998. It is the
+  evidence that finding 5 was seen. It says nothing about this tree, and it is not claimed as a run of this tree.
+
+The follower's bundle step now asks for the embedder: `python -m tools.runbook_install bundle|run --models <dir>`, a
+folder holding `embedder/`. It refuses before anything slow without one, and never fetches the weights. The run that
+closes finding 5 is that command with the weights on a machine with about 30 GB free: this container with a larger
+disk allowance, or the clean VM below. Expect every service healthy, `embed-service` included; then
+`stub-production-embedder` leaves `findings` for `closed`, and the test holds it there.
+
+## H-22 (before D-996)
+
+### What was followed
 
 - The RUNBOOK hub's opening (`docs/RUNBOOK.md`: "Commands run on the box from `/opt/trialbox` as root unless noted")
   and §1 (`docs/runbook/01-install-a-new-site.md`) at commit `c1cb24aa` (master `57263236` plus this card's
@@ -23,7 +103,7 @@ without a GPU (`--mode stub`, the runbook's own words for such a machine): every
   by the path, each for the runbook's own reason (`run-container.json`, `not_needed`). For example, steps 2, 3, 5 and
   8 are done by the installer, per the one command's paragraph.
 
-## Where it ran, and what did not run
+### Where it ran, and what did not run
 
 | Machine | What it is | Ran |
 | --- | --- | --- |
@@ -43,7 +123,7 @@ exit 3, as §1 says it should); a TPM and LUKS (step 1 names both: the machine s
 table (no `NET_ADMIN`). Not reached, because the install stopped first: steps 4, 6 and 7 (the mapping check, the
 vendor key's place and the first ingest). Their findings below are read from the text only.
 
-## Time and commands
+### Time and commands
 
 | | Value |
 | --- | --- |
@@ -59,7 +139,7 @@ The record is `runbook-install-2026-11-17/run-container.json` (each attempt's co
 folder, the names of the variables a lift set, its exit, its time, its output with secrets removed). The findings
 file is `runbook-install-2026-11-17/findings.json`.
 
-## Findings
+### Findings (H-22; D-996 closed every one but 5: the table above)
 
 Severity: **stops** the install, **slows** the reader, **cosmetic**. "Seen on" names the runs that showed the
 finding; "text" means the runbook's text shows it (a check in the tool) and no run reached it.
@@ -88,7 +168,7 @@ What the runbook said and was right about: exit 3 on a machine without the tier'
 for the TPM, the vendor key and `--tier` with `--mode`, the bundle verified and loaded with nothing pulled, the
 settings from the answers, and the site keys sealed (under the passphrase back end once the machine had no TPM).
 
-## How the test can fail
+## How the test can fail (H-22 and H-24)
 
 `tests/unit/test_runbook_install_follow.py` holds the following:
 
@@ -100,7 +180,8 @@ settings from the answers, and the site keys sealed (under the passphrase back e
 - The unit machine's run shows exactly the committed findings of `unit` for the steps it reached.
 - The committed container record matches the file, and holds nothing `redact` would change.
 
-So a fix to §1, `install.sh` or `make_bundle.sh` that removes a finding fails the test until the file says so. A new
+So a fix to §1, `install.sh` or `make_bundle.sh` that removes a finding fails the test until the file says so: that
+is how H-24 moved eleven findings to `closed` in `findings.json`. A closed finding that shows again is a new one. A new
 silence on a step a run reaches also fails it until the file holds it. `make runbook-install` makes the same comparison
 for the container run and exits 1 on a difference.
 
@@ -116,7 +197,7 @@ honest measurement of the runbook's own command.
 | Why this size | §1 names no CPU, memory or disk; this is the smallest shape the repository prices (`deploy/gcp/demo_vm.py`) and it holds the 2.5 GB bundle, the loaded images and the stack | the large tier's card (§1's table) |
 | Hours (cap) | 2 | 2 (`tools/complete_run.py`: `BOOT_HOURS` 0.25 to boot, the install about 5 min on that VM per `docs/handover/gpu-vm-handover-2026-11-16.md`, the bundle load 10 to 20 min per the installer) |
 | Estimate | US$0.1528 an hour on demand (`deploy/gcp/demo_vm.py`, "from memory; not checked against the pricing page", 2026-11-13): US$0.31, plus disk about US$0.02 and an IPv4 address US$0.01: **about US$0.34** | US$2.74 an hour spot (`tools/complete_run.py` `PRICE_PER_HOUR`): **US$5.48**; on demand US$8.22 an hour: US$16.44 |
-| Expected outcome today | stops at finding 5 unless lane D has pinned the embedder in stub mode (it needs the embedder's weights in the bundle) | needs a site bundle with the vLLM image, the pair's weights and the embedder (lane G's R2 bundle), not the one built here |
+| Expected outcome today | stops at finding 5 until lane D's second card (D-1066) pins the embedder in stub mode (it needs the embedder's weights in the bundle) | needs a site bundle with the vLLM image, the pair's weights and the embedder (lane G's R2 bundle), not the one built here |
 
 The commands the integrator would run (A; for B the same with the GPU bundle):
 
@@ -124,8 +205,9 @@ The commands the integrator would run (A; for B the same with the GPU bundle):
 # on a build machine (no cloud): a site bundle made the vendor's way from a clean commit, with a throwaway key
 make images && make trivy-db
 PYTHONPATH=libs:services:. .venv/bin/python -m tools.runbook_install bundle --py .venv/bin/python
-# copy to the VM: the bundle, its .sha256 (as the vendor hands it over), the key, and a checkout of the commit
-# on the VM, as root, with /opt/trialbox absent:
+# put the four files on a stick for the VM (bundle, .sha256, trialbox-bootstrap.sh, .sig), mount it at /media/usb;
+# give the key and a checkout of the commit apart (the follower places the key at /root/vendor_ed25519.pub itself)
+# on the VM, as root, with /opt/trialbox, /root/site and /srv/his-export absent:
 sudo apt-get install -y python3-yaml          # the follower's own needs; the runbook's are not pre-installed
 cd <checkout>/trialbox && sudo python3 -m tools.runbook_install follow --machine vm \
     --bundle /media/usb/trialbox-<version>.tar --vendor-pub <key> --out /tmp/run-vm.json

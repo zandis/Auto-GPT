@@ -52,6 +52,14 @@ Every request to a treating doctor for this study, and the doctor's answer. Appr
 
 Values TrialBox drafted for REDCap from the hospital record. Check each one against its source, sign, then send.
 
+### Participants (where your account and the study's delegation log allow)
+
+Every participant of this study by screening number, and the step each one has reached. A participant's page shows every step so far with its day and who recorded it, the visits and the adverse events. The study coordinator records the next step there (consent given, enrolled, a visit, withdrawn) and can undo the last one.
+
+### Study state and identifiers
+
+The study's state (start-up, open to recruitment, paused, closed) and its identifiers (sponsor, protocol number, registry ids). The state decides whether lists are made and the morning mails go out. The coordinator or the study's PI changes it with a reason; after a close the study's files are kept for the years given.
+
 ### Reports
 
 Finalised feasibility reports of your studies.

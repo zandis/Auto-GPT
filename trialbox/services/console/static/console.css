@@ -559,3 +559,7 @@ details.tech > summary { cursor: pointer; }
 
 /* T-302c (D-434): copy-assist, the value to type into the sponsor's EDC in large type */
 .bigvalue { font-size: 1.5em; font-weight: 600; font-family: ui-monospace, monospace; }
+
+/* J-4 (D-1224): the screening number in the outcome box is a link to the participant; on a phone it is a 44 px
+   target (D-133 step 4b), the desktop look unchanged */
+@media (max-width: 760px) { .pill[data-testid=screening-no] > a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; } }
