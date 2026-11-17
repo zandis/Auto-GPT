@@ -34,12 +34,8 @@ from tb_common.service_auth import bind_session
 from tb_contracts import Job
 
 from console import actor as console_actor
-<<<<<<< HEAD
-from console import coded_view, s28, terminology_refused
-from console import person_state as ps
-=======
 from console import ai_confirm, coded_view, s28, terminology_refused
->>>>>>> ee1961e5d9f4e70577355cb1827f918a1e23ff7a
+from console import person_state as ps
 from console import studies as st
 from console.api_first import before_body, page_twin
 from console.auth import Session, source_of
