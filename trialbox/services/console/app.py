@@ -21,6 +21,7 @@ import base64
 import hashlib
 import io
 import ipaddress
+import logging
 import os
 import re
 import secrets
@@ -951,7 +952,13 @@ def create_app(
             au.append("console.refused", job_id=job_id, actor=actor(sess), detail={"reason": str(exc)[:200]})
             raise refusal_problem(str(exc), cmd, mailbox) from exc
         if new:
-            new_study(sess, str(req.ruleset))
+            try:
+                new_study(sess, str(req.ruleset))
+            except Exception:  # the re-review of D-1153: the job was accepted; the page says so, and the log says
+                # the state was not written (the coordinator puts the study in start-up on its state page)
+                logging.getLogger(__name__).exception(
+                    "WALK-1: study %s not put in start-up; its job %s was accepted", req.ruleset, job_id
+                )
         return made
 
     def known_ruleset(ruleset: str) -> bool:

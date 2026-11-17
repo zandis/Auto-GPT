@@ -87,6 +87,21 @@ def test_a_withdrawal_names_what_becomes_final_before_it_is_recorded(lb: dict[st
     assert 'data-testid="life-saved"' in r.text
 
 
+def test_a_step_that_would_be_refused_shows_no_sheet(lb: dict[str, Any]) -> None:  # noqa: F811
+    """The review of D-1153: every check of the step runs before its sheet (who, the record, the day, the criterion); a
+    step that would be refused is refused at once, never after a Yes."""
+    _no, other = lb["nos"]
+    c, csrf = login(lb["app"], "crc", LB_PW)
+    c.post("/studies/GZQO/forms/builtin", data={"csrf": csrf})
+    c.get("/studies/GZQO/subjects")  # the list makes the participants
+    r = c.post(f"/studies/GZQO/subjects/{other}/step",
+               data={"csrf": csrf, "to": "screen_fail", "reason": "not_eligible", "criterion": "GZQO-EXC-99"})  # fmt: skip
+    assert r.status_code == 409 and 'data-testid="confirm"' not in r.text and 'data-testid="life-refused"' in r.text
+    pi, pcsrf = login(lb["app"], "pi", LB_PW)
+    r = pi.post(f"/studies/GZQO/subjects/{other}/step", data={"csrf": pcsrf, "to": "screen_fail", "reason": "declined"})
+    assert r.status_code == 403 and 'data-testid="confirm"' not in r.text
+
+
 # ---------------------------------------------------------------- F-15: the close is named before it is made
 def test_a_close_names_what_becomes_final_before_it_is_made(sb: dict[str, Any], clock: Any) -> None:  # noqa: F811
     """F-15 (D-763, D-178): Closed is final (only the PI may take it back the same day); the page says so, with the
