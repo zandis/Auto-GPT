@@ -131,6 +131,24 @@ def standin_ids(msgs: list[dict[str, str]]) -> list[int]:
     return [ord(c) for c in json.dumps(msgs, ensure_ascii=False)][:64]
 
 
+def may_call(svc: str, key: str) -> bool:
+    """Whether the orchestrator's own table (services/orchestrator/route_callers.yaml, T-713) lets the service whose
+    container a snippet runs in reach the route ``key``. D-1125: the stand-in took any service's token for
+    ``GET /models``, and launch P2 stopped on the real box's 403 to the mail gateway."""
+    import yaml
+
+    doc = yaml.safe_load((IMAGE_ROOT / "services" / "orchestrator" / "route_callers.yaml").read_text(encoding="utf-8"))
+    row = (doc.get("services") or {}).get(svc) or {}
+    return any(key in (doc["groups"].get(g) or []) for g in row.get("groups") or [])
+
+
+def refused(svc: str, key: str) -> bool:
+    if may_call(svc, key):
+        return False
+    called(f"refused {svc} {key}")
+    return True
+
+
 def snippet(svc: str, text: str) -> int:
     """`docker compose exec -T <svc> python -` with a snippet of the VM script: its first line names it."""
     head = text.lstrip().splitlines()[0] if text.strip() else ""
@@ -143,6 +161,9 @@ def snippet(svc: str, text: str) -> int:
         called(f"canary-gate {mode}")
         if "auth_headers()" not in text:
             print(json.dumps({"gate": {"error": "HTTP 401", "status": 401}}))  # the orchestrator's reads need the token
+            return 3
+        if refused(svc, "GET /models"):  # the orchestrator's 403 to a service outside the route's row
+            print(json.dumps({"gate": {"error": "HTTP 403", "status": 403}}))
             return 3
         if flag("gate-401"):  # knob gate-401: the box refuses the token: a failure at once, never waited on
             print(json.dumps({"gate": {"error": "HTTP 401", "status": 401}}))
@@ -160,6 +181,9 @@ def snippet(svc: str, text: str) -> int:
         return 0
     if what == "study-ready":
         called("study-ready")
+        if refused(svc, "GET /rulesets/{ruleset}"):
+            print(403)
+            return 1
         ok = not flag("no-study")
         print(200 if ok else 404)
         return 0 if ok else 1
@@ -192,6 +216,8 @@ def snippet(svc: str, text: str) -> int:
                           "keyed": True}))  # fmt: skip
         return 0
     if what == "screen-start":
+        if refused(svc, "POST /jobs"):
+            return 1
         n = len(list((BOX / "jobs").glob("*.json"))) + 1 if (BOX / "jobs").exists() else 1
         tag = "g9" if "g9" in text.split("comment", 1)[1].split("\n", maxsplit=1)[0] else "screen"
         job = {
@@ -208,6 +234,8 @@ def snippet(svc: str, text: str) -> int:
         print(job["id"])
         return 0
     if what == "screen-status":
+        if refused(svc, "GET /jobs/{job_id}"):
+            return 1
         job = jload(BOX / "jobs" / f"{rest[0]}.json", None)
         if job is None:
             return 1
