@@ -383,8 +383,9 @@ def route_problems(app: Any, group_of: Callable[[str], str | None], table: dict[
         if stage == "refuse":
             if want != "refuse":
                 bad.append(f"{key}: has require_actor but its group ({group}) is not in stage refuse")
-            if action not in MATRIX:
-                bad.append(f"{key}: require_actor names {action!r}, which is not a row of the matrix")
+            for one in (action,) if isinstance(action, str) else action:  # a route of several rows (D-1150)
+                if one not in MATRIX:
+                    bad.append(f"{key}: require_actor names {one!r}, which is not a row of the matrix")
             if person:
                 bad.append(f"{key}: the request still names a person ({', '.join(person)})")
             # the dependency reads the study from `{rs}` (or `{ruleset}`, the registry's): a study under another

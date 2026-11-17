@@ -28,12 +28,12 @@ refuse:
   - omop_conflicts        # NEW-ARCH-3 slice 2 (D-865): the steward settles a clinical conflict (conflicts.resolve)
   - job_cancel            # T-715 refuse mode (D-871): the administrator's cancel
   - job_retry_scheduled   # T-715 refuse mode (D-871): the administrator's retry of a failed scheduler job
+  - notices               # T-715 refuse mode: the box's own mail, by four service principals (each its own kinds)
 
 report: []
 
 v2:
   - jobs_start            # the signed role authorises a console job; a mailed job has no person (D-146, D-464)
-  - notices
   - edc
 
 no_person:
@@ -43,13 +43,23 @@ no_person:
 
 # service principals: a console timer has no session. Each may take only the actions listed, on routes that say so.
 principals:
-  service:console-notify:   # the morning notices bring the participants up to date before they count them
+  service:console-notify:   # the morning notices bring the participants up to date before they count them; it sends
+    # them (N1, N2) and the daily health mail (HEALTH) as phi.view
     - study.setup
     - phi.view    # NEW-SEC-1 (D-717): the morning mail reads the day's visits, subjects and serious AEs (D-134, D-277)
   service:console-optout-check:   # T-719: is a running case's subject on the opt-out register? (POST /setup/pseudonym)
     - optout.keep
   service:console-nightly:  # the nightly REDCap read: the steps it derives name the timer, not a typed name
     - request.prepare
+  # T-715 refuse mode (the notices): each sender of the box's own mail under a row it already holds; POST /notices
+  # takes from each only its own kinds (orchestrator.app.NOTICE_KINDS). A `notice.send` row is the cleaner form
+  # when the role guides next open
+  service:console-sae-sync:   # a serious AE's copy to the office at once (N2)
+    - sae.view
+  service:console-accounts:   # D-719's account notice (ACCOUNT), inside an administrator's reset
+    - account.reset
+  service:console-breakglass:   # a break-glass grant's notice (BG)
+    - breakglass.open
 
 # NEW-SEC-1 (D-717): every GET route of the app that returns no patient's row, with why. The routes that return one
 # are in libs/tb_common/patient_reads.py and take a verified claim for phi.view on their study. A GET route in

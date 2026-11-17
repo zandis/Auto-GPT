@@ -68,8 +68,10 @@ def test_the_real_app_is_staged_as_the_table_says() -> None:
             "omop_conflicts",
             "job_cancel",
             "job_retry_scheduled",
+            "notices",
         }
-    )  # T-715f (D-799); NEW-ARCH-3 slice 2 (D-865): the steward's clinical conflicts; T-715 refuse mode (D-871)
+    )  # T-715f (D-799); NEW-ARCH-3 slice 2 (D-865): the steward's clinical conflicts; T-715 refuse mode (D-871,
+    # D-1150: the notices, by four service principals)
     changing = [r for r in rows if r[0] not in sa.SAFE_METHODS]
     assert all(r[2] or CALLER_GATE.table.group_of(f"{r[0]} {r[1]}") in (*ra.TABLE["v2"], *ra.TABLE["no_person"])
                for r in changing)  # fmt: skip
@@ -235,6 +237,10 @@ def test_the_table_is_read_strictly(tmp_path: Path) -> None:
         "service:console-notify",
         "service:console-nightly",
         "service:console-optout-check",
+        # T-715 refuse mode (D-1150): the senders of the box's own notices
+        "service:console-sae-sync",
+        "service:console-accounts",
+        "service:console-breakglass",
     }
 
 

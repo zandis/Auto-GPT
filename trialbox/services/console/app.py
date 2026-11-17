@@ -546,7 +546,7 @@ def create_app(
         sent, errors = 0, []
         for addr in sorted(to):
             try:
-                bk.send_notice("ACCOUNT", [addr], subject, body, f"console:{by}")
+                bk.send_notice("ACCOUNT", [addr], subject, body, console_actor.ACCOUNTS)
                 sent += 1
             except Exception as exc:
                 errors.append(type(exc).__name__)
