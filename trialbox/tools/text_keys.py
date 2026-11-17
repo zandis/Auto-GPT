@@ -502,6 +502,7 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "guide.page.": _guide_pages,
     "life.gloss.": _values("console.guides", "GLOSSARY"),
     "log.xlsx.col.": lambda: [c for c in _values("datacore.sponsor", "LOG_COLUMNS")() if c != "screening_no"],
+    "nav.grp.": _values("console.phone", "MENU_GROUPS"),  # J-3 (D-1222): the groups of "More" behind the flag
 }
 
 _RUN = "a value of stored data or of a service's answer (a state, a kind, a source): no one list in the code holds it"
