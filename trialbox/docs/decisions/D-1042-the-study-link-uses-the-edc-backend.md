@@ -8,7 +8,8 @@
 ## Decision
 
 1. When `TB_EDC_BACKEND` is set, the study-link page and the 03:00 read open their client through `edc_backend`
-   and accept REDCap majors 13 through 17. When it is unset, S36 and `check_version` (14 through 17) are unchanged.
+   and accept REDCap majors 13 through 17. When it is unset, S36 and `check_version` (13 through
+   17 since D-852) are unchanged.
 2. Arms, events, the form-event map and repeating instruments can be created on an empty project.
 3. `POST /api/edc/events/v1` checks an HMAC, treats a repeated id as one event, and re-reads the mapped study
    for a record save, a completed form or a reported adverse event. `content=user` is not called.

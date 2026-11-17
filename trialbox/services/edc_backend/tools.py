@@ -1,4 +1,5 @@
-"""Client for ``POST /api/v1/tools``. De-identified by default. Writes wait for a person to confirm.
+"""Client for ``POST /api/v1/tools``. De-identified only (D-1043): an answer that does not say ``deidentified:
+``true`` is refused. Writes wait for a person to confirm.
 
 The tool token is not the ``/api/`` token. The call is made only when ``GET /api/v1/capabilities`` lists the
 ``trialbox`` module. With the module off the EDC answers 404, and this client does not send the tool call.
@@ -95,6 +96,10 @@ class ToolClient:
             raise ToolError("the tool answer is not JSON") from exc
         if not isinstance(out, dict):
             raise ToolError("the tool answer is not an object")
+        # D-1043 (D-1060): only an answer that says it is de-identified is taken: ``deidentified`` exactly ``true``.
+        # No opt-in; nothing of a refused answer is passed on or said
+        if out.get("deidentified") is not True:
+            raise ToolError("the tool answer does not say it is de-identified; it is not used")
         return out
 
 

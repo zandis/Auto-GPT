@@ -25,9 +25,9 @@ from rc_bridge.client import (
 from edc_backend.config import EdcConfigError, load_config
 from edc_backend.mapping import blank_identifiers, map_project
 
-# The study-link page still uses SUPPORTED_MAJORS (14-17). This backend also accepts 13: the methods it calls are
-# the same documented /api/ surface on 13.7. 12 and 18 stay refused.
-ACCEPTED_MAJORS = (13, *SUPPORTED_MAJORS)
+# The study link and this backend accept the same majors, 13 to 17 (RC13-F, D-852; #813 added 13 here when the study
+# link still stopped at 14). 12 and 18 stay refused.
+ACCEPTED_MAJORS = SUPPORTED_MAJORS
 
 
 class Pace:

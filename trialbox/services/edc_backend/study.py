@@ -31,7 +31,7 @@ def backend_on() -> bool:
 
 
 def accept_version(rc: RedcapClient) -> str:
-    """13 through 17 when the backend is on; the study link's own list (14 through 17) when it is not."""
+    """13 through 17 when the backend is on; the study link's own list (13 through 17 since D-852) when it is not."""
     if not backend_on():
         return rc.check_version()
     version = rc.version()

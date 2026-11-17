@@ -97,15 +97,23 @@ def test_project_tokens_and_the_short_names() -> None:
         connect({"TB_EDC_BACKEND": "redcap", "TB_REDCAP_API_URL": "https://redcap.example/"})
 
 
-def test_version_13_is_accepted_by_the_backend_and_still_refused_by_the_study_link() -> None:
+def test_version_13_is_accepted_by_the_backend_and_by_the_study_link() -> None:
+    # E-EDCB-1: the study link accepts 13 too since RC13-F (D-852, the owner's D-1024); both refuse 12
     app = create_app(version="13.7.23")
     http = TestClient(app, base_url="http://rc")
     conn = _open(_env(), http, at_root=True)
     assert conn.ensure_version() == "13.7.23"
     link = RedcapClient("https://rc.example/", TOKEN_A, http=TestClient(app, base_url="http://rc"))
     link.url = "/api/"
+    assert link.check_version() == "13.7.23"
+    old = create_app(version="12.5.0")
     with pytest.raises(RcError) as err:
-        link.check_version()
+        _open(_env(), TestClient(old, base_url="http://rc"), at_root=True).ensure_version()
+    assert err.value.code == "RC-VERSION"
+    link12 = RedcapClient("https://rc.example/", TOKEN_A, http=TestClient(old, base_url="http://rc"))
+    link12.url = "/api/"
+    with pytest.raises(RcError) as err:
+        link12.check_version()
     assert err.value.code == "RC-VERSION"
 
 

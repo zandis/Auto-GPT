@@ -45,9 +45,10 @@ class _Store:
         return TOKEN_A if ref == "main" else None
 
 
-def test_unset_backend_still_rejects_redcap_13(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_unset_backend_still_rejects_an_unsupported_redcap(monkeypatch: pytest.MonkeyPatch) -> None:
+    # E-EDCB-1: master's study link accepts 13 since RC13-F (D-852, the owner's D-1024); 12 is still refused
     monkeypatch.delenv("TB_EDC_BACKEND", raising=False)
-    app = create_app(version="13.7.23")
+    app = create_app(version="12.5.0")
     http = TestClient(app, base_url="http://rc")
     rc = RedcapClient("https://rc.example/", TOKEN_A, http=http)
     rc.url = "/api/"
