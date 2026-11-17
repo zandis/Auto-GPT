@@ -1006,21 +1006,13 @@ def create_app(
         return resp
 
     @app.get("/login", response_class=HTMLResponse)
-    def login_form(request: Request, lang: str = "", why: str = "", hop: str = "") -> Response:
+    def login_form(request: Request, lang: str = "", why: str = "") -> Response:
         if settings.sso and (session_of(request) is not None or sso_user(request) is not None):
             return RedirectResponse("/", status_code=303)
-        # D-1222 (E-M2): a link from another site (a mail) comes without the SameSite=Strict session cookie; the page
-        # reloads itself once from this site (?hop=1), which sends it: a live session goes on to the kept page
-        if hop == "1" and session_of(request) is not None:
-            done = RedirectResponse("/home" if settings.pilot else "/", status_code=303)
-            next_page.take(request, done)  # a same-origin path only (next_page.safe_next)
-            return done
-        cross = hop != "1" and request.headers.get("sec-fetch-site") == "cross-site"
         if lang in LANGS:
             request.state.lang = lang
         idle = int(us.idle.total_seconds() // 60) if why == "idle" else 0  # D-777: why the session ended
-        return login_page(request, uninitialised=us.count("admin") == 0, idle_minutes=idle,
-                          hop="/login?hop=1" + (f"&lang={lang}" if lang in LANGS else "") if cross else "")  # fmt: skip
+        return login_page(request, uninitialised=us.count("admin") == 0, idle_minutes=idle)
 
     @app.post("/login")
     def login(

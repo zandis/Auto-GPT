@@ -7,18 +7,18 @@
 {% block content %}
 {% from "_life.html" import sae_banner, report_banner with context %}{% set pf = request is defined and request.state is defined and request.state.phone_first %}{% if pf %}<div class="pfweek" data-testid="phone-first">{% endif %}
 <div class="headrow"><h1>{{ t('wb.title') }} · {{ rs }}</h1>
-{% if wk %}<span class="hint" data-testid="week-counts">{{ t('week.counts', n=wk.counts.total, new=wk.counts.new, pending=wk.counts.pending, marked=wk.counts.marked) }} · <a href="/studies/{{ rs }}/not-matched" data-testid="to-excluded">{{ t('ex.link') }}</a> · <a href="/studies/{{ rs }}/rescreen" data-testid="to-rescreen">{{ t('rescreen.link') }}</a></span>{% endif %}</div>{% if pf %}<input type="checkbox" id="study-fold" class="fold-toggle"><label for="study-fold" class="fold-button" data-testid="study-fold">{{ t('pf.study') }}</label>{% endif %}
+{% if wk %}<span class="hint" data-testid="week-counts">{{ t('week.counts', n=wk.counts.total, new=wk.counts.new, pending=wk.counts.pending, marked=wk.counts.marked) }} · <a href="/studies/{{ rs }}/not-matched" data-testid="to-excluded">{{ t('ex.link') }}</a> · <a href="/studies/{{ rs }}/rescreen" data-testid="to-rescreen">{{ t('rescreen.link') }}</a></span>{% endif %}</div>
 {# T-684 (UX-037): once the study is set up the procedure folds to one line and the SAE banners to one line each,
    so the first patient row is on the first screen. D-1222 (E-1, flag layout.phone_first): on a phone the list comes
-   right under the title; the SAE banners stay above it, the rest (class pf-fold) folds into one "Study" fold below #}
-{% if step < 2 %}{% if pf %}<div class="pf-fold">{% endif %}{{ steps_bar(steps, step) }}{% if pf %}</div>{% endif %}{% endif %}
+   right under the title; the SAE banners stay above it; the rest is written after the list, in one "Study" fold #}
+{% set f_steps %}{% if step < 2 %}{{ steps_bar(steps, step) }}{% endif %}{% endset %}{% if not pf %}{{ f_steps }}{% endif %}
 <div class="firstrow" data-testid="first-row">
-{% if step >= 2 %}<details class="stepsfold{{ ' pf-fold' if pf else '' }}" data-testid="steps-fold"><summary>{{ t('steps.fold', n=step + 1, of=steps|length, name=t('steps.' + steps[step])) }}</summary>{{ steps_bar(steps, step) }}</details>{% endif %}
+{% set f_fold %}{% if step >= 2 %}<details class="stepsfold" data-testid="steps-fold"><summary>{{ t('steps.fold', n=step + 1, of=steps|length, name=t('steps.' + steps[step])) }}</summary>{{ steps_bar(steps, step) }}</details>{% endif %}{% endset %}{% if not pf %}{{ f_fold }}{% endif %}
 {{ sae_banner(sae, 'week', compact=true) }}{{ report_banner(sae_reports, compact=true) }}
-{% if team_due %}<p class="warn{{ ' pf-fold' if pf else '' }}" data-testid="team-due"><a href="/studies/{{ rs }}/team#check">{{ t('team.log.check_due') }}</a></p>{% endif %}
+{% set f_due %}{% if team_due %}<p class="warn" data-testid="team-due"><a href="/studies/{{ rs }}/team#check">{{ t('team.log.check_due') }}</a></p>{% endif %}{% endset %}{% if not pf %}{{ f_due }}{% endif %}
 </div>
-{% if pf %}<div class="pf-fold">{% endif %}{% include "_team_nav.html" %}
-{% for j in approvals or [] %}<p class="warn" data-testid="approval-waiting"><a href="/pilot/jobs/{{ j.job_id }}/approval">{{ t('s20.waiting', rs=j.ruleset, v=j.ruleset_version) }}</a></p>{% endfor %}{% if pf %}</div>{% endif %}
+{% set f_team %}{% include "_team_nav.html" %}
+{% for j in approvals or [] %}<p class="warn" data-testid="approval-waiting"><a href="/pilot/jobs/{{ j.job_id }}/approval">{{ t('s20.waiting', rs=j.ruleset, v=j.ruleset_version) }}</a></p>{% endfor %}{% endset %}{% if not pf %}{{ f_team }}{% endif %}
 {% if not wk %}
 <section class="card"><p>{{ t('week.none') }}</p>{% if user.can_request %}<a class="button" href="/pilot/request?ruleset={{ rs }}">{{ t('next.screen') }}</a>{% endif %}</section>
 {% else %}
@@ -83,5 +83,5 @@
   {% endif %}
 </div>
 <p class="hint">{{ t('week.footer') }}</p>
-{% endif %}{% if pf %}</div>{% endif %}
+{% endif %}{% if pf %}{% set attn = (approvals or [])|length + (1 if team_due else 0) %}<input type="checkbox" id="study-fold" class="fold-toggle"><label for="study-fold" class="fold-button{{ ' attn' if attn else '' }}" data-testid="study-fold">{% if attn %}<span aria-hidden="true">⚠ </span>{{ t('pf.study.attn', n=attn) }}{% else %}{{ t('pf.study') }}{% endif %}</label><div class="pf-fold" data-testid="study-bits">{{ f_steps }}{{ f_fold }}{{ f_due }}{{ f_team }}</div></div>{% endif %}
 {% endblock %}

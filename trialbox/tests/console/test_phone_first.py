@@ -6,10 +6,11 @@
   page and the menu are as before (no class, no fold, no group, the mark box before the evidence); with it on the
   week page puts the list first and folds the rest, the rows carry their labels, the sheet shows the evidence before
   the mark fields, and "More" folds in groups that hold exactly the links it held before;
-* the sign-in page's same-site hop for a link from another site: one hop (no loop), a live session goes on to the
-  kept page, and only to a same-origin path;
-* the entry form (an AE's or a visit's) is guarded and kept in the tab, and the script restores and drops it (run
-  in Node).
+* a link from another site gets the console's own page (``/link``), whose Continue goes only to an HTML page of this
+  console: never a file, an export, a print, ``/cmd`` or ``/api/``; the sign-in and its steps arrive as before;
+* the flag is read for pages only, off the event loop, and a store that is down costs one attempt per 5 seconds;
+* the entry form (an AE's or a visit's) is guarded and kept in the tab; the script puts it back once, with a notice,
+  after a save met an ended session, and drops it otherwise (run in Chromium on pages of a small local server).
 
 Synthetic data only. The browser walk of the phone tasks is ``tests/e2e/test_phone_walk.py`` (marked e2e)."""
 
@@ -31,7 +32,6 @@ from PIL import Image
 from tb_common import flags as fl
 
 from tests.console.test_console_app import _done_screen, _ulid, box, login, login_crc, name_pi  # noqa: F401
-from tests.console.test_mark_bar_in_view_and_expiry_keeps_the_note import NEXT
 
 ROOT = Path(__file__).resolve().parents[2]
 ICONS = ROOT / "services" / "console" / "static" / "icons"
@@ -44,14 +44,17 @@ LANGS = ("en", "ja", "zh-TW")
 @pytest.fixture(autouse=True)
 def _fresh_cache() -> Any:
     fl.clear_cache()
+    phone.clear_cache()
     yield
     fl.clear_cache()
+    phone.clear_cache()
 
 
 def _flag(b: dict[str, Any], value: str) -> None:
     """The administrator's change on /ops/flags: audited, with a reason."""
     fl.Flags(audit=b["audit"]).set(phone.FLAG, value, actor="console:admin", reason="J-3 test (D-1222)")
     fl.clear_cache()
+    phone.clear_cache()
 
 
 def _pi(b: dict[str, Any]) -> TestClient:
@@ -139,14 +142,13 @@ def test_with_the_flag_on_the_phone_sees_the_list_first_and_the_same_links(box: 
         _lang(pi, lang)
         page = pi.get(f"/studies/GZQO/week?pid={A}").text
         assert '<body class="phone-first">' in page
-        assert html.escape(CATALOGUES[lang]["pf.study"]) in page.split('data-testid="study-fold"')[1][:200]
         week = page.split('data-testid="phone-first"')[1]
         assert (
             week.index('class="headrow"')
-            < week.index('data-testid="study-fold"')
             < week.index('data-testid="workbench"')
+            < week.index('data-testid="study-fold"')
         )
-        assert re.search(r'class="pf-fold">\s*<p class="hint" data-testid="team-nav">', week)  # the links fold
+        assert re.search(r'data-testid="study-bits">.*?<p class="hint" data-testid="team-nav">', week, re.S)  # folded
         assert f'data-label="{html.escape(CATALOGUES[lang]["wb.c.visit"])}"' in week
         chart = page.split('data-testid="chart"')[1]
         assert (
@@ -185,31 +187,137 @@ def test_with_the_flag_on_the_participants_tables_are_cards() -> None:
     assert "body.phone-first table.pf-cards thead { display: none; }" in css
 
 
-# ------------------------------------------------------------------------------------------- E-M2 the hop
-def test_a_link_from_another_site_hops_once_on_the_same_site(box: dict[str, Any]) -> None:
-    c = TestClient(box["app"])
-    cross = {"sec-fetch-site": "cross-site"}
-    page = c.get("/login", headers=cross).text
-    assert '<meta http-equiv="refresh" content="0;url=/login?hop=1">' in page
-    assert "http-equiv" not in c.get("/login").text  # typed or same-site: no hop
-    assert "http-equiv" not in c.get("/login?hop=1", headers=cross).text  # one hop only: never a loop
-    assert (
-        'http-equiv="refresh" content="0;url=/login?hop=1&amp;lang=ja"' in c.get("/login?lang=ja", headers=cross).text
+def test_with_the_flag_on_the_study_fold_comes_after_the_list_and_counts_what_needs_the_person(
+    box: dict[str, Any],
+) -> None:
+    """The order of the page is the order of the screen: the fold's toggle, label and content are written after the
+    workbench; the label says how many of its lines need the person (a waiting approval, the delegation-log check)."""
+    pi = _pi(box)
+    _flag(box, "on")
+    for lang in LANGS:
+        _lang(pi, lang)
+        week = pi.get(f"/studies/GZQO/week?pid={A}").text.split('data-testid="phone-first"')[1]
+        bench, label = week.index('data-testid="workbench"'), week.index('data-testid="study-fold"')
+        assert week.index('class="headrow"') < bench < week.index('id="study-fold"') < label
+        bits = week[week.index('data-testid="study-bits"') :]
+        assert 'data-testid="team-nav"' in bits and label < week.index('data-testid="study-bits"')
+        n = bits.count('data-testid="approval-waiting"') + bits.count('data-testid="team-due"')
+        text = week[label:].split(">", 1)[1].split("</label>", 1)[0]
+        if n:
+            assert (
+                'class="fold-button attn"' in week
+                and html.escape(CATALOGUES[lang]["pf.study.attn"].format(n=n)) in text
+            )
+        else:
+            assert text == html.escape(CATALOGUES[lang]["pf.study"])
+    tpl = (TEMPLATES / "week.html").read_text(encoding="utf-8")
+    assert "{% set attn = (approvals or [])|length + (1 if team_due else 0) %}" in tpl
+    for lang in LANGS:  # a whole sentence with its number, in each language
+        assert "{n}" in CATALOGUES[lang]["pf.study.attn"]
+
+
+def test_the_menu_groups_open_in_every_browser() -> None:
+    """E-M4: no summary is made unclickable; showing the groups open on a desktop is only where the browser knows
+    ::details-content (an enhancement inside @supports)."""
+    css = re.sub(
+        r"/\*.*?\*/", "", (ROOT / "services" / "console" / "static" / "console.css").read_text("utf-8"), flags=re.S
     )
-    r = c.get("/login?hop=1", follow_redirects=False)
-    assert r.status_code == 200 and 'action="/login"' in r.text  # no session: the sign-in form
+    assert "pointer-events: none" not in css.split("J-3 (D-1222)")[-1] and "pointer-events:none" not in css
+    before, _, inside = css.partition("@supports selector(::details-content)")
+    assert inside and "::details-content" not in before  # the open look only where the browser knows it
 
 
-@pytest.mark.parametrize(("kept", "lands"), [("/studies/GZQO/week?list=all", "/studies/GZQO/week?list=all"),
-                                             ("//evil.example/x", "/home"), ("http://evil.example/x", "/home"),
-                                             ("/login", "/home")])  # fmt: skip
-def test_a_live_session_goes_on_to_the_kept_page_and_only_to_this_console(box: dict[str, Any], kept: str,
-                                                                          lands: str) -> None:  # fmt: skip
-    c, _ = login(box["app"])
-    c.cookies.set(NEXT, kept, domain="testserver.local")
-    r = c.get("/login?hop=1", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == lands
-    assert not (c.cookies.get(NEXT) or "").strip('"')  # used once
+# ------------------------------------------------------------------------------------------- E-M2 a link from elsewhere
+CROSS = {"sec-fetch-site": "cross-site", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document"}
+
+
+@pytest.mark.parametrize(
+    ("asked", "goes"),
+    [
+        ("/studies/GZQO/week?list=all", "/studies/GZQO/week?list=all"),
+        ("/studies/GZQO/subjects/GZQO-0001", "/studies/GZQO/subjects/GZQO-0001"),
+        ("/studies/GZQO/screening-log.xlsx", "/home"),
+        ("/pilot/registry/GZQO/export.xlsx", "/home"),
+        ("/audit/patients/" + A + "/report.csv", "/home"),
+        ("/studies/GZQO/export.csv", "/home"),
+        ("/pilot/jobs/01J0/files/list.json", "/home"),
+        ("/pilot/jobs/01J0/sponsor-pack.zip", "/home"),
+        ("/studies/GZQO/referrals/1/print", "/home"),
+        ("/cmd?q=GZQO-0001", "/home"),
+        ("/api/v1/studies", "/home"),
+        ("//evil.example/x", "/home"),
+        ("http://evil.example/x", "/home"),
+        ("/login", "/home"),
+    ],
+)
+def test_continue_goes_only_to_a_page_of_this_console(asked: str, goes: str) -> None:
+    assert phone.continue_to(asked) == goes
+
+
+def test_a_link_from_another_site_gets_the_consoles_own_page_and_never_a_file(box: dict[str, Any]) -> None:
+    c, _ = login(box["app"])  # a live session: its cookie is in the jar, as a browser would hold it
+    for asked, goes in (("/studies/GZQO/week", "/studies/GZQO/week"), ("/studies/GZQO/screening-log.xlsx", "/home"),
+                        ("/feedback/export.csv", "/home"), ("/cmd?q=x", "/home")):  # fmt: skip
+        r = c.get(asked, headers=CROSS, follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"].startswith("/link?to="), (
+            asked
+        )  # nothing read, nothing sent
+        page = c.get(r.headers["location"], headers=CROSS)
+        assert page.status_code == 200 and 'data-testid="link-page"' in page.text
+        assert f'href="{html.escape(goes)}" data-testid="link-continue"' in page.text, (asked, page.text[-800:])
+        assert ('data-testid="link-file"' in page.text) == (goes == "/home")
+    assert (
+        c.get(
+            "/studies/GZQO/week", headers={**CROSS, "sec-fetch-site": "same-origin"}, follow_redirects=False
+        ).status_code
+        != 303
+    )
+    for arrival in (
+        "/login",
+        "/enrol",
+        "/auth/oidc/callback",
+        "/static/console.css",
+        "/manifest.webmanifest",
+        "/healthz",
+    ):
+        r = c.get(arrival, headers=CROSS, follow_redirects=False)
+        assert not r.headers.get("location", "").startswith("/link"), arrival  # the sign-in and its steps as before
+    r = c.post("/lang", data={"csrf": "x"}, headers=CROSS, follow_redirects=False)
+    assert not r.headers.get("location", "").startswith("/link")  # a form post is not a link
+
+
+def test_the_link_page_in_three_languages(box: dict[str, Any]) -> None:
+    c = TestClient(box["app"])
+    for lang, accept in (("en", "en"), ("ja", "ja"), ("zh-TW", "zh-TW,zh;q=0.9")):
+        page = c.get("/link?to=%2Fstudies%2FGZQO%2Fweek", headers={"accept-language": accept}).text
+        assert f'<html lang="{lang}">' in page
+        for key in ("link.title", "link.why", "link.continue"):
+            assert html.escape(CATALOGUES[lang][key]) in page, (lang, key)
+        assert html.escape(CATALOGUES[lang]["link.lead"].format(page="/studies/GZQO/week")) in page
+
+
+# ------------------------------------------------------------------------------------------- the flag's read
+def test_a_flag_store_that_is_down_costs_one_attempt_per_five_seconds(box: dict[str, Any], monkeypatch: Any) -> None:
+    tries: list[float] = []
+    now = [1000.0]
+
+    def down() -> bool:
+        tries.append(now[0])
+        raise ConnectionError("the flag store is down")
+
+    monkeypatch.setattr(phone, "_read", down)
+    monkeypatch.setattr(phone, "_clock", lambda: now[0])
+    phone.clear_cache()
+    pi = _pi(box)
+    for _ in range(3):
+        r = pi.get("/home")
+        assert r.status_code == 200 and "<body>" in r.text  # pages render, the flag reads off
+    for path in ("/static/console.css", "/manifest.webmanifest", "/favicon.ico", "/healthz", "/link"):
+        pi.get(path)
+    assert len(tries) == 1, tries  # pages only, once
+    now[0] += phone.FLAG_SECONDS + 0.1
+    pi.get("/home")
+    assert len(tries) == 2
 
 
 # ------------------------------------------------------------------------------------------- E-M3 long forms
@@ -218,65 +326,37 @@ def test_the_entry_form_is_guarded_and_kept_per_account_and_record() -> None:
     form = tpl.split('<form method="post" action="/studies/{{ rs }}/entry" id="entry"')[1].split(">")[0]
     assert "data-guard" in form
     assert 'data-keep="{{ user.username }}|{{ rs }}|{{ record }}|{{ event }}|{{ form.name }}"' in form
+    assert "data-keep-msg=\"{{ t('form.restored', n='{n}') }}\"" in form
+    base = (TEMPLATES / "base.html").read_text(encoding="utf-8")
+    assert '{% if user %}<meta name="tb-user" content="{{ user.username }}">{% endif %}' in base
 
 
-RUN_JS = """
-const [src, stored, signIn, typed, noForm, path] = process.argv.slice(1);
-const store = JSON.parse(stored);
-global.sessionStorage = {getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); },
-  removeItem: (k) => { delete store[k]; }, get length() { return Object.keys(store).length; },
-  key: (i) => Object.keys(store)[i]};
-const on = {};
-let replaced = null;
-const el = (name, type, value, checked) => ({name, type, value, checked, disabled: false});
-const fields = [el("f_ae_term", "text", "", false), el("f_ae_serious", "radio", "1", false),
-                el("f_ae_serious", "radio", "0", false), el("csrf", "hidden", "x", false)];
-const form = {elements: fields, getAttribute: (a) => (a === "data-keep" ? "crc|GZQO|S-1|ae_1|tb_adverse_event" : null),
-  hasAttribute: (a) => a === "data-guard", addEventListener: (ev, fn) => { (on[ev] = on[ev] || []).push(fn); }};
-const pages = noForm === "1" ? {} : {"form[data-keep]": [form], "form[data-guard]": [form]};
-global.navigator = {};
-global.window = {location: {hash: "", pathname: path, search: noForm === "1" ? "" : "?record=S-1",
-  replace: (u) => { replaced = u; }}, history: {length: 1}, addEventListener: () => {}};
-global.document = {getElementById: () => null,
-  querySelector: (q) => (q === "form[action^='/login']" && signIn === "1" ? {} : null),
-  querySelectorAll: (q) => pages[q] || []};
-eval(src);
-if (typed) { fields[0].value = typed; fields[1].checked = true; (on.input || []).forEach((f) => f()); }
-if (typed === "send") (on.submit || []).forEach((f) => f());
-console.log(JSON.stringify({term: fields[0].value, serious: fields[1].checked, store, replaced}));
-"""
-FORM_AT = "/studies/GZQO/entry"
-
-
-def _run(store: dict[str, str], sign_in: bool = False, typed: str = "", path: str = FORM_AT) -> dict[str, Any]:
-    from console.app import CONSOLE_JS
-
+def _node_playwright() -> bool:
     node = shutil.which("node")
-    assert node, "node runs the console's script in the tests"
-    no_form = "0" if path == FORM_AT else "1"
-    out = subprocess.run([node, "-e", RUN_JS, CONSOLE_JS, json.dumps(store), "1" if sign_in else "0", typed, no_form,
-                          path], capture_output=True, text=True, timeout=30, check=True)  # fmt: skip
-    got: dict[str, Any] = json.loads(out.stdout.strip().splitlines()[-1])
-    return got
+    if not node:
+        return False
+    r = subprocess.run([node, "-e", "require('playwright')"], cwd=ROOT, capture_output=True, timeout=60, check=False)
+    return r.returncode == 0
 
 
-def test_the_script_keeps_restores_and_drops_a_long_form() -> None:
-    key = "tb-form:crc|GZQO|S-1|ae_1|tb_adverse_event"
-    kept = json.dumps({"f_ae_term": "gout flare, knee", "f_ae_serious": ["1"]})
-    got = _run({}, typed="gout flare")
-    assert json.loads(got["store"][key]) == {"f_ae_term": "gout flare", "f_ae_serious": ["1"]}  # kept while typed
-    assert "csrf" not in got["store"][key]  # never the hidden fields
-    got = _run({key: kept})
-    assert got["term"] == "gout flare, knee" and got["serious"] is True  # back on the form after sign-in
-    sent = _run({}, typed="send")["store"]  # Save tapped: the form's own address goes with it
-    assert sent["tb-form-sent"] == key.removeprefix("tb-form:") and sent["tb-form-sent-at"] == FORM_AT + "?record=S-1"
-    # the session had ended: the save met the sign-in page; after sign-in the home page sends the tab back to the form
-    met = _run(dict(sent), sign_in=True, path="/login")["store"]
-    assert met[key] and met["tb-form-via-sign-in"] == "1"
-    got = _run(dict(met), path="/home")
-    assert got["replaced"] == FORM_AT + "?record=S-1" and set(got["store"]) == {key}
-    assert _run(dict(met), path="/studies/GZQO/week")["replaced"] is None  # a kept page wins; the form stays kept
-    # the session was live: the save went through, the next page is another one: dropped, nowhere to go back to
-    got = _run(dict(sent), path="/studies/GZQO/history")
-    assert got["store"] == {} and got["replaced"] is None
-    assert set(_run(dict(sent))["store"]) == {key}  # the same form again (a refusal): kept, no longer "sent"
+@pytest.mark.skipif(not _node_playwright(), reason="Node Playwright is not installed")
+def test_a_kept_form_comes_back_once_with_a_notice_and_is_dropped_otherwise() -> None:
+    """The console's script in Chromium, on pages a small local server makes (tests/console/form_keep.js)."""
+    out = subprocess.run([shutil.which("node") or "node", str(Path(__file__).with_name("form_keep.js"))], cwd=ROOT,
+                         capture_output=True, text=True, timeout=300, check=True)  # fmt: skip
+    got = json.loads(out.stdout.strip().splitlines()[-1])
+    assert not [k for k, v in got.items() if "error" in v], got
+    once = got["restored_once_with_a_notice"]  # Save met the ended session: after sign-in, back on the form
+    assert once["url"].startswith("/studies/GZQO/entry?record=S-1&event=ae1&form=tb_adverse_event")
+    assert once["term"] == "gout flare, knee" and once["serious"] is True and once["marked"] == 2
+    assert once["notice"].strip() == "Fields restored: 2."
+    assert once["later"] == "" and once["laterNotice"] == 0  # never again on a later visit
+    assert got["discard"] == {"term": "", "notice": 0, "keys": []}
+    assert got["another_account_signs_in"] == {"url": "/home", "keys": []}  # never to account A's form, A's dropped
+    assert got["saved_with_a_live_session"]["keys"] == []
+    assert got["saved_and_shown_again"] == {"keys": [], "term": "as saved", "notice": 0}
+    assert got["left_on_purpose"]["typed"] and got["left_on_purpose"]["after"] == []
+    assert got["older_than_12_hours"]["keys"] == []
+    assert got["the_address_carries_the_form"]["sent"].startswith(
+        "/studies/GZQO/entry?record=S-1&event=ae1&form=tb_adverse_event"
+    )

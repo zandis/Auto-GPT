@@ -564,25 +564,19 @@ details.tech > summary { cursor: pointer; }
    Behind the audited flag layout.phone_first (off by default): every rule below is scoped under body.phone-first,
    which base.html sets only while the flag is on. Off, the pages are as before. */
 .fold-toggle, .fold-button { display: none; }
-/* E-1: the week page. On a phone the patient list comes right under the title; the SAE banners stay above it; the
-   study's steps, warnings and links (class pf-fold) fold into one "Study" fold below the list (a checkbox and its
-   label, no script). On a wider screen the page is as before. */
-@media (max-width: 760px) {
-  body.phone-first .pfweek { display: flex; flex-direction: column; gap: 8px; }
-  body.phone-first .pfweek > *, body.phone-first .pfweek > .firstrow > * { order: 1; flex: none; margin-top: 0; margin-bottom: 0; }
-  body.phone-first .pfweek > .headrow { order: 0; }
-  body.phone-first .pfweek > .firstrow { display: contents; }
-  body.phone-first .pfweek .pf-fold { order: 3; }
-  body.phone-first .pfweek:not(:has(> .fold-toggle:checked)) .pf-fold { display: none; }
-  body.phone-first .pfweek > .fold-toggle { display: block; position: absolute; width: 1px; height: 1px; min-height: 0; padding: 0;
-    border: 0; opacity: 0; }
-  body.phone-first .pfweek > .fold-button { order: 2; display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    min-height: 44px; margin: 8px 0 0; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--card);
-    color: var(--ink); font-weight: 600; cursor: pointer; }
-  body.phone-first .pfweek > .fold-button::after { content: "▸"; color: var(--accent); }
-  body.phone-first .pfweek > .fold-toggle:checked + .fold-button::after { content: "▾"; }
-  body.phone-first .pfweek > .fold-toggle:focus-visible + .fold-button { outline: 3px solid var(--accent); outline-offset: 2px; }
-}
+/* E-1: the week page. The patient list comes right under the title; the SAE banners stay above it; the study's
+   steps, warnings and links are written after the list, in one "Study" fold (a checkbox and its label, no script):
+   the order of the page is the order of the screen. The fold's label says how many of them need the person. */
+body.phone-first .pfweek > .fold-toggle { display: block; position: absolute; width: 1px; height: 1px; min-height: 0; padding: 0;
+  border: 0; opacity: 0; }
+body.phone-first .pfweek > .fold-button { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-height: 44px; margin: 12px 0 8px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--card);
+  color: var(--ink); font-weight: 600; cursor: pointer; }
+body.phone-first .pfweek > .fold-button.attn { border-color: var(--warn); background: var(--warn-bg); color: var(--warn); }
+body.phone-first .pfweek > .fold-button::after { content: "▸"; color: var(--accent); }
+body.phone-first .pfweek > .fold-toggle:checked + .fold-button::after { content: "▾"; }
+body.phone-first .pfweek > .fold-toggle:focus-visible + .fold-button { outline: 3px solid var(--accent); outline-offset: 2px; }
+body.phone-first .pfweek > .fold-toggle:not(:checked) ~ .pf-fold { display: none; }
 /* E-4: the worklist's rows as cards under 640 px: the patient and the criteria met on the first line, then the
    visit, the status and what is still needed (no column off-screen); the whole card opens the patient */
 @media (max-width: 640px) {
@@ -620,12 +614,17 @@ details.tech > summary { cursor: pointer; }
    flow (no longer over the language and Sign out); an opened group takes the whole line. On a desktop each group
    shows its links under its name, as one list. */
 details.moregrp > summary { margin: 0; }
+/* every group opens by click, tap or keyboard in every browser (a details element); where the browser can show a
+   closed group's content (::details-content), a desktop shows them all open as one list, the summary a heading */
 @media (min-width: 761px) {
-  body.phone-first details.moregrp > summary { min-height: 32px; padding: 6px 10px 0; color: var(--muted); font-size: 15px; font-weight: 600;
-    pointer-events: none; list-style: none; }
-  body.phone-first details.moregrp > summary::-webkit-details-marker { display: none; }
-  body.phone-first details.moregrp::details-content { content-visibility: visible; }
-  body.phone-first .moregrp-items { display: flex; flex-direction: column; }
+  body.phone-first details.moregrp > summary { min-height: 44px; padding: 0 10px; color: var(--accent); font-weight: 600; }
+  body.phone-first .moregrp-items { display: flex; flex-direction: column; padding-left: 8px; }
+}
+@supports selector(::details-content) {
+  @media (min-width: 761px) {
+    body.phone-first details.moregrp > summary { color: var(--muted); font-size: 15px; }
+    body.phone-first details.moregrp::details-content { content-visibility: visible; }
+  }
 }
 @media (max-width: 760px) {
   body.phone-first details.more .more-items { position: static; flex-flow: row wrap; gap: 8px; min-width: 0; padding: 6px 0;
@@ -639,3 +638,5 @@ details.moregrp > summary { margin: 0; }
   body.phone-first details.moregrp[open] > summary { background: var(--bg); }
   body.phone-first .moregrp-items { display: flex; flex-direction: column; padding: 4px 0 4px 12px; }
 }
+/* E-M3 (D-1222, no flag): a field put back after a session ended stays marked until it is saved or thrown away */
+form.entry .restored { outline: 2px solid var(--warn); outline-offset: 1px; background: var(--warn-bg); }

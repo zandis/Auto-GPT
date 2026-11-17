@@ -55,8 +55,16 @@ async function session(browser, user) {
 }
 
 async function fits(page, what) {
-  const sw = await page.evaluate(() => document.documentElement.scrollWidth);
-  return check(sw <= 390, `${args.lang} ${what}: nothing scrolls sideways (${sw} px)`);
+  // the page, and on the pages this card turns into cards (the week list, the participant's tables) no table region
+  // that scrolls sideways either
+  const m = await page.evaluate(() => ({
+    sw: document.documentElement.scrollWidth,
+    regions: Array.from(document.querySelectorAll("body.phone-first .scroll"))
+      .filter((r) => r.offsetParent && r.querySelector("table.worklist, table.pf-cards"))
+      .map((r) => r.scrollWidth - r.clientWidth),
+  }));
+  check(m.regions.every((d) => d <= 1), `${args.lang} ${what}: no card list scrolls sideways (${m.regions.join(",")})`);
+  return check(m.sw <= 390, `${args.lang} ${what}: nothing scrolls sideways (${m.sw} px)`);
 }
 
 async function shot(page, task) {
@@ -105,36 +113,56 @@ async function toastAndUndo(page, what) {
 }
 
 const TASKS = {
-  // PI: the morning mail's link, tapped with a live session: the week list, a patient on the first screen
+  // PI: the morning mail's link, tapped with a live session: the console's own page, Continue (a tap on this site,
+  // so the session cookie goes with it), the week list with a patient on the first screen. A link to a file from the
+  // same mail downloads nothing: its Continue opens the home page.
   async mail_list(browser) {
     const { ctx, page } = await session(browser, "pi");
-    ctx._mail = `<!doctype html><title>mail</title><a id="go" href="${BASE}/studies/${RS}/week">week</a>`;
+    ctx._mail = `<!doctype html><title>mail</title><a id="go" href="${BASE}/studies/${RS}/week">week</a>
+      <a id="file" href="${BASE}/studies/${RS}/screening-log.xlsx">log</a>`;
     await page.goto(MAIL + "/inbox");
-    await Promise.all([page.waitForURL((u) => u.href.startsWith(BASE + "/studies/"), { timeout: 20000 }), page.click("#go")]);
-    await page.waitForLoadState("load");
+    await Promise.all([page.waitForURL((u) => u.href.startsWith(BASE + "/link"), { timeout: 20000 }), page.click("#go")]);
+    check(await page.locator("[data-testid=link-page]").isVisible(), `${args.lang} a link from another site: the console's own page`);
+    check(!(await page.locator("table.worklist").count()), `${args.lang} the page shows nothing of the study before the tap`);
+    await fits(page, "link page");
+    await shot(page, "mail_link");
+    await load(page, () => page.click("[data-testid=link-continue]"));
     const signin = await page.locator("form[action='/login']").count();
-    check(signin === 0, `${args.lang} mail link with a live session: the week page, not the sign-in form`);
+    check(new URL(page.url()).pathname === `/studies/${RS}/week` && signin === 0,
+      `${args.lang} Continue with a live session: the week page, not the sign-in form`);
     const top = await page.evaluate(() => Math.round(document.querySelector("table.worklist tbody tr").getBoundingClientRect().top));
     check(top < 844, `${args.lang} the first patient row is on the first screen (top ${top} px)`);
-    check(await page.locator("body.phone-first [data-testid=study-fold]").isVisible(), `${args.lang} the Study fold shows below the list`);
+    check((await page.locator("body.phone-first [data-testid=study-fold]").count()) === 1, `${args.lang} the Study fold is below the list`);
     await fits(page, "week page");
     const file = await shot(page, "mail_list");
-    // the Study fold opens and holds the study's links
+    // the Study fold, after the list in the page, opens and holds the study's links
+    await page.locator("[data-testid=study-fold]").scrollIntoViewIfNeeded();
     await page.click("[data-testid=study-fold]");
     check(await page.locator("[data-testid=team-nav]").isVisible(), `${args.lang} the Study fold opens on the team's links`);
     await fits(page, "week page, Study fold open");
+    await shot(page, "study_fold");
+    // a link to a file: no download, and Continue opens the home page
+    let downloaded = false;
+    page.on("download", () => { downloaded = true; });
+    await page.goto(MAIL + "/inbox");
+    await Promise.all([page.waitForURL((u) => u.href.startsWith(BASE + "/link"), { timeout: 20000 }), page.click("#file")]);
+    const to = await page.locator("[data-testid=link-continue]").getAttribute("href");
+    await page.waitForTimeout(500);
+    check(!downloaded && to === "/home", `${args.lang} a link from another site to a file downloads nothing (Continue: ${to})`);
+    await shot(page, "mail_file");
     await ctx.close();
-    // no session: sign-in, then back on the asked page
+    // no session: Continue, sign-in, then back on the asked page
     const c2 = await phone(browser);
     c2._mail = `<!doctype html><title>mail</title><a id="go" href="${BASE}/studies/${RS}/week">week</a>`;
     const p2 = await c2.newPage();
     await p2.goto(MAIL + "/inbox");
-    await Promise.all([p2.waitForURL((u) => u.href.startsWith(BASE + "/login"), { timeout: 20000 }), p2.click("#go")]);
+    await Promise.all([p2.waitForURL((u) => u.href.startsWith(BASE + "/link"), { timeout: 20000 }), p2.click("#go")]);
+    await load(p2, () => p2.click("[data-testid=link-continue]"));
     await p2.waitForSelector("form[action='/login']");
     await signIn(p2, "pi");
     check(new URL(p2.url()).pathname === `/studies/${RS}/week`, `${args.lang} mail link without a session: sign-in leads back to the week page`);
     await c2.close();
-    record("mail_list", 1, top < 844 && signin === 0, file, `first row top ${top} px`);
+    record("mail_list", 2, top < 844 && signin === 0, file, `the link, then Continue; first row top ${top} px`);
   },
 
   // PI: tap a row; the sheet shows the evidence before the note and the reason
@@ -247,10 +275,13 @@ const TASKS = {
     check(new URL(page.url()).pathname === "/login", `${args.lang} Save after the session ended meets the sign-in page`);
     await signIn(page, "crc");
     await page.waitForURL((u) => u.href.includes("form=tb_adverse_event"), { timeout: 15000 }).catch(() => {});
-    const back = page.url() === form;
+    const same = (a, b) => ["record", "event", "form"].every((k) => new URL(a).searchParams.get(k) === new URL(b).searchParams.get(k));
+    const back = new URL(page.url()).pathname === new URL(form).pathname && same(page.url(), form);
     const value = back ? await field.inputValue() : "";
     check(back, `${args.lang} after sign-in the tab is back on the AE form`);
     check(value === typed, `${args.lang} the typed text is restored (${JSON.stringify(value)})`);
+    check(back && (await page.locator("[data-testid=form-restored]").isVisible()), `${args.lang} a notice says the fields came back`);
+    check(back && (await page.locator("form#entry .restored").count()) > 0, `${args.lang} the restored fields are marked`);
     if (back) await field.scrollIntoViewIfNeeded();
     const file = await shot(page, "sae_form");
     record("sae_form", 3, back && value === typed, file, "plus the fields; 0 taps to get the text back after sign-in");

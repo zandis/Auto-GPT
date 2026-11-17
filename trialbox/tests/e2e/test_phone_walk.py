@@ -3,7 +3,7 @@
 
 The walk (``test_the_phone_tasks_on_a_phone``, marked e2e) starts the steps-mode box as H-10's walk does (its ``box``
 fixture: ``tools.demo``, demo mode off, the stub model, the synthetic hospital), switches the flag on as the
-administrator does on ``/ops/flags``, and runs ``tests/e2e/phone_walk.js`` once per language: the morning mail's link
+administrator does on ``/ops/flags``, and runs ``tests/e2e/phone_walk.js`` once per language: the morning mail's link (the console's own page, then Continue; a link to a file downloads nothing)
 with a live session (a link on another site's page) and without one, a candidate's evidence, Need info and Not suitable
 (undone), the contact outcome after an Approach (undone), the coordinator's task list, a participant looked up, and an
 SAE form half filled when the session ends, back after sign-in. It writes a JSON log per language (outside the

@@ -39,7 +39,7 @@
 {% if n_problems %}<p class="error" role="alert" data-testid="entry-refused">{{ t('dc.entry.refused', n=n_problems) }}</p>{% endif %}
 {# D-1222 (E-M3): warn before leaving with edits not saved, and keep what is typed in this tab while the session lasts or
    ends (console.js 3 and 6); keyed by the account, the study, the record, the event and the form #}
-<form method="post" action="/studies/{{ rs }}/entry" id="entry" class="entry"{% if editable %} data-guard data-keep="{{ user.username }}|{{ rs }}|{{ record }}|{{ event }}|{{ form.name }}"{% endif %}>
+<form method="post" action="/studies/{{ rs }}/entry" id="entry" class="entry"{% if editable %} data-guard data-keep="{{ user.username }}|{{ rs }}|{{ record }}|{{ event }}|{{ form.name }}" data-keep-msg="{{ t('form.restored', n='{n}') }}" data-keep-discard="{{ t('form.discard') }}"{% endif %}>
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <input type="hidden" name="record" value="{{ record }}">
   <input type="hidden" name="event" value="{{ event }}">
