@@ -23,6 +23,17 @@ Compile level: the same trial in two languages (TFDA zh-Hant and its NCT record;
 criteria count, class split and the age limit, per pair and in all; Chia: per line, whether the compiler's class and
 domain agree with the entity kinds the annotators marked.
 
+Protocol level (D-1107, card H-3): per set, the protocols of the set, those screened, those cut by the time budget
+(not a failure, and not attempted), and those that failed before SCREEN (FEAS, APPROVE) or in it, each by a stable
+class read from the stored state and error (``feas_equivalence``, ``approve_failed``, ``screen_reporting`` ...). A
+failed protocol stays in the denominator of the failure share; the target "fewer than one protocol in ten" is a named
+boolean. Pair and criterion rows on a protocol that never screened are counted by that protocol's status, never
+dropped from sight.
+
+Pathology (TCGA, the PoC-1 figure): over the protocols screened, ineligible reports excluded (n of N), wrong
+exclusions (of the box's exclusions), eligible reports lost (n of N). A set with nothing screened or no verdict is
+"not scored", by name (D-1108).
+
 Every rate carries an exact (Clopper-Pearson) 95 % interval. Nothing here reads a model.
 """
 
@@ -31,9 +42,16 @@ from __future__ import annotations
 import difflib
 import json
 import math
+import re
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
+
+from tools.public_accuracy import key as answer_keys
+
+#: the report's layout: 2 adds ``protocols``, ``pathology``, ``unjudged_exclusions`` and the denominators (card H-3);
+#: a report with no such field is layout 1. Keys are only ever added.
+SCHEMA_VERSION = 2
 
 OPEN_VERDICTS = ("pending_human", "unknown", "not_evaluated", "not evaluated", "data_gap", "uncertain")
 
@@ -113,6 +131,143 @@ def answer_of(answers: dict[str, Any], ruleset: str, pid: str) -> tuple[str, dic
     return "listed", p
 
 
+# ---------------------------------------------------------------- protocol level (D-1107)
+#: protocol status -> what it means in a denominator
+STATUS_WHAT = {
+    "screened": "screened",
+    "compiled": "compiled (a compile-only set)",
+    "failed_before_screen": "failed before SCREEN (FEAS or APPROVE)",
+    "failed_in_screen": "failed in SCREEN",
+    "not_run_time_budget": "not run: cut by the set's time budget (not a failure)",
+    "unfinished": "in answers.json with no end the scorer knows",
+    "not_in_answers": "not in answers.json (not run: filtered out, or the set stopped first)",
+}
+
+
+def _slug(x: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(x or "").lower()).strip("_")
+
+
+def _step(err: Any) -> str:
+    """The step a job failed at, from its stored error (``{"step": ...}``, or text ``"<step>: ..."``)."""
+    s: Any = None
+    if isinstance(err, dict):
+        s = err.get("step")
+    elif isinstance(err, str):
+        m = re.match(r"\s*([A-Za-z_]+)\s*:", err)
+        s = m.group(1) if m else None
+    return _slug(s) or "no_step"
+
+
+def _message(err: Any) -> str:
+    if isinstance(err, dict):
+        err = err.get("message") or err.get("detail") or ""
+    return " ".join(str(err or "").split())[:200]
+
+
+def protocol_status(a: dict[str, Any] | None) -> tuple[str, str]:
+    """(status, class) of one protocol's stored answer: the status is a key of :data:`STATUS_WHAT`; the class names
+    where and why a failed protocol stopped (``<stage>_<step>`` from the job's error, or the driver's outcome:
+    ``feas_timeout``, ``approve_failed``, ``feas_refused_by_tripwire`` ...). Read from the fields the driver stores
+    (``outcome``, ``feas``/``feas_error``, ``approve``/``approve_error``, ``screen``/``screen_error``); an answer of
+    the in-process dry run (no ``outcome``) is read from the same fields."""
+    if a is None:
+        return "not_in_answers", "not_in_answers"
+    o = str(a.get("outcome") or "")
+    if o == "not_run_time_budget":
+        return "not_run_time_budget", o
+    if a.get("screen") == "done" or o == "screened":
+        return "screened", "screened"
+    if o == "compiled":
+        return "compiled", "compiled"
+    refused = o if o in ("refused_by_tripwire", "refused_by_gateway") else ""
+    if a.get("screen") is not None or o.startswith("screen_"):
+        if o == "screen_refused_at_intake":
+            return "failed_in_screen", o
+        if refused:
+            return "failed_in_screen", f"screen_{refused}"
+        if a.get("screen") not in (None, "failed") and not a.get("screen_error"):
+            return "failed_in_screen", f"screen_ended_{_slug(a.get('screen'))}"
+        return "failed_in_screen", f"screen_{_step(a.get('screen_error'))}"
+    if (a.get("approve") not in (None, "done")) or o.startswith("approve_"):
+        if o == "approve_refused_at_intake":
+            return "failed_before_screen", o
+        return "failed_before_screen", f"approve_{_slug(a.get('approve')) or 'failed'}"
+    if a.get("approve") == "done":
+        return "unfinished", "approved_not_screened"
+    if o == "timeout_feas":
+        return "failed_before_screen", "feas_timeout"
+    if o == "refused_at_intake":
+        return "failed_before_screen", "feas_refused_at_intake"
+    if refused:
+        return "failed_before_screen", f"feas_{refused}"
+    feas = a.get("feas")
+    if feas == "failed":
+        return "failed_before_screen", f"feas_{_step(a.get('feas_error'))}"
+    if feas not in (None, "awaiting_approval") and o:
+        return "failed_before_screen", f"feas_ended_{_slug(feas)}"  # e.g. FEAS "done" with no review workbook
+    return "unfinished", _slug(o) or (f"feas_{_slug(feas)}" if feas else "no_outcome")
+
+
+def _decided(p: dict[str, Any]) -> bool:
+    """A patient the SCREEN said something of: a verdict on a criterion, or the tier ``excluded``."""
+    return bool(p.get("verdicts")) or p.get("tier") == "excluded"
+
+
+def _error_of(a: dict[str, Any], cls: str) -> Any:
+    stage = cls.split("_", 1)[0]
+    return a.get(f"{stage}_error") if stage in ("feas", "approve", "screen") else None
+
+
+def statuses(ids: dict[str, Any], answers: dict[str, Any]) -> dict[str, tuple[str, str]]:
+    """ruleset -> (status, class), for every protocol of the set and every ruleset in the answers."""
+    rss = set((ids.get("rulesets") or {}).values()) | set(answers)
+    return {rs: protocol_status(answers.get(rs)) for rs in sorted(rss)}
+
+
+def score_protocols(ids: dict[str, Any], answers: dict[str, Any]) -> dict[str, Any]:
+    """D-1107 (card H-3): what became of each protocol of the set. A protocol that failed before or in SCREEN is its
+    own line, by class, and stays in the denominator of the failure share; a budget cut is said apart and is not
+    attempted. The target is "fewer than one protocol in ten of those attempted fails" (before or in SCREEN)."""
+    in_set = sorted(set((ids.get("rulesets") or {}).values()))
+    st = statuses(ids, answers)
+    by: Counter[str] = Counter(s for s, _ in st.values())
+    classes: dict[str, dict[str, Any]] = {}
+    for rs, (s, cls) in st.items():
+        if s not in ("failed_before_screen", "failed_in_screen", "unfinished"):
+            continue
+        row = classes.setdefault(cls, {"status": s, "protocols": 0, "rulesets": [], "example": ""})
+        row["protocols"] += 1
+        row["rulesets"].append(rs)
+        row["example"] = row["example"] or _message(_error_of(answers.get(rs) or {}, cls))
+    failed = by["failed_before_screen"] + by["failed_in_screen"]
+    attempted = by["screened"] + by["compiled"] + failed + by["unfinished"]
+    share = rate(failed, attempted)
+    return {
+        "what": "each protocol of the set by what became of it; a failure is counted by class and stays in the "
+        "denominator; a budget cut is not a failure and not attempted",
+        "in_set": len(in_set),
+        "in_answers": sum(1 for rs in in_set if rs in answers),
+        "answers_not_in_the_set": sorted(rs for rs in answers if in_set and rs not in in_set),
+        **{s: by[s] for s in STATUS_WHAT},
+        "attempted": attempted,
+        "failed": failed,
+        "patients_answered": sum(len(a.get("patients") or {}) for a in answers.values()),
+        "verdicts": sum(
+            len(p.get("verdicts") or []) for a in answers.values() for p in (a.get("patients") or {}).values()
+        ),
+        "patients_decided": sum(_decided(p) for a in answers.values() for p in (a.get("patients") or {}).values()),
+        "failed_by_class": {cls: r["protocols"] for cls, r in sorted(classes.items()) if r["status"] != "unfinished"},
+        "classes": dict(sorted(classes.items(), key=lambda kv: (kv[1]["status"], -kv[1]["protocols"], kv[0]))),
+        "failed_share": share,
+        "failed_before_screen_share": rate(by["failed_before_screen"], attempted),
+        "fewer_than_one_in_ten_failed": None if not attempted else failed * 10 < attempted,
+        "target": "fewer than one protocol in ten of those attempted fails (before or in SCREEN); attempted = "
+        "screened + compiled + failed + unfinished (budget cuts and protocols not in answers.json are not)",
+        "statuses": STATUS_WHAT,
+    }
+
+
 def criterion_says_excluded(crits: list[dict[str, Any]]) -> set[tuple[str, str]]:
     """(mrn, ruleset) of every pair whose own criterion labels exclude the patient: an inclusion "not included" or an
     exclusion "excluded" (the physicians' criterion-level reading)."""
@@ -140,13 +295,28 @@ def score_pairs(
     cells: dict[tuple[str, str, str], Counter[str]] = defaultdict(Counter)
     by_crit = criterion_says_excluded(crits or [])
     conflicts: dict[str, Counter[str]] = defaultdict(Counter)
+    on_the_line: Counter[str] = Counter()
+    conflict_exclusions: list[dict[str, Any]] = []
+    st = statuses(ids, answers)
+    not_answered: dict[str, Counter[str]] = defaultdict(Counter)
+    in_gold: Counter[str] = Counter()
     for g in pairs:
         if not g.get("mrn") or not g.get("ruleset"):
             continue
-        got, _ = answer_of(answers, g["ruleset"], pid_of(g["mrn"], key))
-        cells[(lang_of.get(g["ruleset"], "?"), g.get("stratum") or "", g["label"])][got] += 1
+        lang = lang_of.get(g["ruleset"], "?")
+        got, p = answer_of(answers, g["ruleset"], pid_of(g["mrn"], key))
+        cells[(lang, g.get("stratum") or "", g["label"])][got] += 1
+        if g["label"] in ("eligible", "excluded"):
+            in_gold[lang] += 1
+            if got == "unanswered":
+                s = st.get(g["ruleset"], ("not_in_answers", ""))[0]
+                not_answered[lang]["screened, the patient not in its SCREEN" if s == "screened" else s] += 1
         if g["label"] == "eligible" and (str(g["mrn"]), str(g["ruleset"])) in by_crit:
-            conflicts[lang_of.get(g["ruleset"], "?")][got] += 1
+            conflicts[lang][got] += 1
+            if got == "excluded" and p is not None:
+                why = _blocked_on(g, p, (answers.get(g["ruleset"]) or {}).get("draft") or [], crits or [])
+                on_the_line[lang] += int(why["agrees_on_the_line"])
+                conflict_exclusions.append({"ruleset": g["ruleset"], "patient": g.get("patient"), "lang": lang, **why})
     rows = []
     for (lang, stratum, label), c in sorted(cells.items()):
         n = sum(c.values())
@@ -163,6 +333,15 @@ def score_pairs(
     for lang, c in conflicts.items():
         if lang in summary:
             summary[lang]["eligible_lost_where_the_criterion_labels_exclude"] = c["excluded"]
+            # S1, the finer reading: the box blocked on the very line the physicians label as excluding (same text,
+            # or an age line where that label is on an age statement)
+            summary[lang]["eligible_lost_on_the_line_the_criterion_labels_exclude"] = on_the_line[lang]
+    for lang, s in summary.items():
+        # D-1107: the rates count only pairs the box answered; every pair of the gold is accounted for here, by the
+        # status of its protocol, so pairs on a protocol that never screened are not silently dropped
+        s["pairs_in_gold"] = in_gold[lang]
+        s["unanswered_by_protocol"] = dict(sorted(not_answered[lang].items()))
+        s["denominators"] = PAIR_DENOMINATORS
     return {
         "rows": rows,
         "summary": summary,
@@ -171,8 +350,58 @@ def score_pairs(
             "or exclusion excluded): a conflict inside the gold, with the box's answer",
             "by_lang": {lang: {"pairs": sum(c.values()), **dict(c)} for lang, c in sorted(conflicts.items())},
             "pairs": sum(sum(c.values()) for c in conflicts.values()),
+            "excluded": conflict_exclusions,
         },
     }
+
+
+PAIR_DENOMINATORS = {
+    "eligible_lost": "gold-eligible pairs the box answered (protocol screened and the patient in its SCREEN)",
+    "excluded_caught": "gold-excluded pairs the box answered",
+    "wrong_exclusions": "the box's exclusions of gold-eligible or gold-excluded pairs",
+    "unanswered": "every gold-eligible and gold-excluded pair (pairs_in_gold); unanswered_by_protocol splits it by "
+    "the status of the pair's protocol",
+    "left_open": "every gold-eligible and gold-excluded pair (pairs_in_gold)",
+}
+CRITERION_DENOMINATORS = {
+    "wrong_exclusion": "gold rows met or not applicable whose criterion compiled and whose patient the box answered "
+    "with a verdict (block, open or no block)",
+    "caught": "gold rows not met whose criterion compiled and whose patient the box answered with a verdict",
+    "not_answered_by_protocol": "every other gold row, by the status of its protocol (and on a screened protocol, "
+    "why: criterion not compiled, patient not in the SCREEN, no verdict)",
+}
+
+AGE_TEXT = re.compile(r"\bage[ds]?\b|\byears?[ -]old\b|\bmonths?[ -]old\b|歳|年齡|年龄", re.IGNORECASE)
+
+
+def _is_age_line(c: dict[str, Any]) -> bool:
+    lg = c.get("logic") or {}
+    return bool(lg.get("age")) or bool(AGE_TEXT.search(str(c.get("text") or "")))
+
+
+def _blocked_on(
+    g: dict[str, Any], p: dict[str, Any], draft: list[dict[str, Any]], crits: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """S1: the lines the box excluded a pair on, and whether one of them is a line the pair's own criterion labels
+    exclude on (the gold row's text matches it, or both are about age)."""
+    by_id = {c.get("id"): c for c in draft}
+    fails = [
+        by_id.get(v.get("id")) or {"id": v.get("id")} for v in p.get("verdicts") or [] if v.get("verdict") == "fail"
+    ]
+    rows = [
+        c
+        for c in crits
+        if str(c.get("mrn")) == str(g["mrn"])
+        and str(c.get("ruleset")) == str(g["ruleset"])
+        and (c.get("kind"), c.get("label")) in BLOCK_RIGHT
+    ]
+    agree = any(
+        match_criterion(r.get("text") or "", [f], r.get("kind") or "") is not None
+        or (_is_age_line(f) and AGE_TEXT.search(str(r.get("text") or "")))
+        for f in fails
+        for r in rows
+    )
+    return {"blocked_on": [str(f.get("text") or f.get("id")) for f in fails], "agrees_on_the_line": bool(agree)}
 
 
 def summarise(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -255,6 +484,8 @@ def score_criteria(
     lang_of = ids.get("lang") or {}
     cells: dict[tuple[str, str, str, str], Counter[str]] = defaultdict(Counter)
     evid: Counter[str] = Counter()
+    st = statuses(ids, answers)
+    not_answered: Counter[str] = Counter()
     for g in crits:
         rs, mrn = g.get("ruleset"), g.get("mrn")
         if not rs or not mrn:
@@ -283,6 +514,9 @@ def score_criteria(
             if v is not None and sentences is not None:
                 hit = evidence_hit(v.get("quote"), sentences.get(g["patient"]) or [], g.get("evidence") or [])
                 evid["no quote or no ids" if hit is None else "in a deciding sentence" if hit else "elsewhere"] += 1
+        if got in ("not_compiled", "unanswered", "no_verdict"):
+            s = st.get(rs, ("not_in_answers", ""))[0]
+            not_answered[f"screened: {got}" if s == "screened" else s] += 1
         cells[(lang_of.get(rs, "?"), g.get("stratum") or "", g["kind"], g["label"])][got] += 1
     rows = []
     for (lang, stratum, kind, label), c in sorted(cells.items()):
@@ -318,6 +552,10 @@ def score_criteria(
         "not_compiled": sum(r.get("not_compiled", 0) for r in rows),
         "no_verdict": sum(int(r.get("no_verdict", 0)) for r in rows),
         "evidence": dict(evid),
+        # D-1107: every gold row not in a rate's denominator, by the status of its protocol
+        "rows_in_gold": sum(r["n"] for r in rows),
+        "not_answered_by_protocol": dict(sorted(not_answered.items())),
+        "denominators": CRITERION_DENOMINATORS,
     }
 
 
@@ -367,6 +605,135 @@ def score_written(
         "rows": rows,
         "summary": {lang: dict(c) for lang, c in sorted(by_lang.items())},
         "patients_excluded": len(excluded_by_written),
+    }
+
+
+def score_unjudged(
+    ids: dict[str, Any],
+    pairs: list[dict[str, Any]],
+    crits: list[dict[str, Any]],
+    answers: dict[str, Any],
+    written: dict[str, list[str]] | None = None,
+    key: bytes | None = None,
+) -> dict[str, Any]:
+    """S3, S4 read from the answers alone (so also for a set built before ``written.json``, as launch P1b's): on a
+    protocol with pair or criterion gold, a gold patient the box excluded only on compiled criteria that no gold row of
+    that protocol matches (a placed age line, JMED's coded "20歳以上", a protocol line the gold does not judge): such
+    an exclusion is invisible at criterion level. Per line: the patients so excluded, and their pair label (else their
+    criterion labels on that protocol). A patient is counted once in the summary."""
+    lang_of = ids.get("lang") or {}
+    by_rs: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for c in crits:
+        if c.get("ruleset") and c.get("mrn"):
+            by_rs[str(c["ruleset"])].append(c)
+    label = {(str(g["ruleset"]), str(g["mrn"])): g["label"] for g in pairs if g.get("ruleset") and g.get("mrn")}
+    for rs_, _m in label:
+        by_rs.setdefault(rs_, [])  # a protocol with pair gold only: none of its lines has a gold row
+    crit_label: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for c in crits:
+        crit_label[(str(c.get("ruleset")), str(c.get("mrn")))].append(f"{c.get('kind')} {c.get('label')}")
+    benchmark = {(rs, " ".join(x.split()).lower()) for rs, xs in (written or {}).items() for x in xs}
+    lines: dict[tuple[str, str], dict[str, Any]] = {}
+    per_lang: dict[str, Counter[str]] = defaultdict(Counter)
+    for rs, rows in sorted(by_rs.items()):
+        a = answers.get(rs) or {}
+        draft, pats = a.get("draft") or [], a.get("patients") or {}
+        if not pats:
+            continue
+        judged = {
+            hit["id"]
+            for t, k in {(str(r.get("text") or ""), str(r.get("kind") or "")) for r in rows}
+            if (hit := match_criterion(t, draft, k)) is not None
+        }
+        by_id = {c.get("id"): c for c in draft}
+        lang = lang_of.get(rs, "?")
+        for mrn in sorted({str(r["mrn"]) for r in rows} | {m for (r_, m) in label if r_ == rs}):
+            p = pats.get(pid_of(mrn, key))
+            if not p or p.get("tier") != "excluded":
+                continue
+            fails = [v.get("id") for v in p.get("verdicts") or [] if v.get("verdict") == "fail"]
+            if not fails or set(fails) & judged:
+                continue
+            gl = label.get((rs, mrn)) or "criterion " + "; ".join(sorted(crit_label.get((rs, mrn)) or ["none"]))
+            per_lang[lang]["patients_excluded"] += 1
+            per_lang[lang][f"gold {gl}"] += 1
+            per_lang[lang]["on an age line"] += int(any(_is_age_line(by_id.get(cid) or {}) for cid in fails))
+            for cid in fails:
+                c = by_id.get(cid) or {"id": cid}
+                text = str(c.get("text") or cid)
+                row = lines.setdefault((rs, str(cid)), {
+                    "ruleset": rs, "lang": lang, "id": cid, "kind": c.get("kind"), "class": c.get("class"),
+                    "line": text, "age_line": _is_age_line(c),
+                    "written_by_the_benchmark": (rs, " ".join(text.split()).lower()) in benchmark if written else None,
+                    "excluded": 0, "by_gold": Counter()})  # fmt: skip
+                row["excluded"] += 1
+                row["by_gold"][gl] += 1
+    out_rows = [{**r, "by_gold": dict(r["by_gold"])} for _, r in sorted(lines.items())]
+    return {
+        "what": "gold patients the box excluded only on lines no gold row judges (placed age and sex lines, JMED's "
+        "coded age line, protocol lines without a gold row), read from the answers",
+        "rows": out_rows,
+        "summary": {lang: dict(c) for lang, c in sorted(per_lang.items())},
+        "patients_excluded": sum(c["patients_excluded"] for c in per_lang.values()),
+    }
+
+
+# ---------------------------------------------------------------- the pathology figure (TCGA)
+def score_pathology(
+    ids: dict[str, Any], pairs: list[dict[str, Any]], answers: dict[str, Any] | None, key: bytes | None = None
+) -> dict[str, Any]:
+    """The PoC-1 pathology figure (b266f9b7: "on 500 public pathology reports the pair excluded 384 of 450, with 0
+    wrong exclusions, and lost 0 of 50 eligible patients"), over the protocols screened: reports answered, ineligible
+    pairs excluded n of N, wrong exclusions k of the box's exclusions, eligible pairs lost n of N. D-1108: nothing
+    screened, no pair answered or no verdict is "not scored", with the reason."""
+    rss = sorted(set((ids.get("rulesets") or {}).values()))
+    head: dict[str, Any] = {"protocols_in_set": len(rss)}
+    if answers is None:
+        return {**head, "scored": False, "not_scored_because": "no answers.json: the set did not run"}
+    st = statuses(ids, answers)
+    screened = [rs for rs in rss if st[rs][0] == "screened"]
+    head["protocols_screened"] = screened
+    if not screened:
+        by = Counter(st[rs][0] for rs in rss)
+        stray = sorted(rs for rs in answers if rs not in rss)
+        why = f"0 of {len(rss)} protocols screened (" + ", ".join(f"{k}: {n}" for k, n in sorted(by.items())) + ")"
+        if stray:
+            why += f"; answers for rulesets not in the set: {', '.join(stray[:5])} (a wrong ruleset prefix or tag?)"
+        return {**head, "scored": False, "not_scored_because": why}
+    c: Counter[str] = Counter()
+    reports: set[str] = set()
+    decided = 0
+    for g in pairs:
+        if g.get("ruleset") not in screened or g.get("label") not in ("eligible", "excluded") or not g.get("mrn"):
+            continue
+        got, p = answer_of(answers, g["ruleset"], pid_of(g["mrn"], key))
+        c[f"{g['label']}:{got}"] += 1
+        if p is not None:
+            reports.add(str(g["mrn"]))
+            decided += _decided(p)
+    n_el = sum(c[f"eligible:{x}"] for x in ("excluded", "listed", "open"))
+    n_ex = sum(c[f"excluded:{x}"] for x in ("excluded", "listed", "open"))
+    lost, caught = c["eligible:excluded"], c["excluded:excluded"]
+    head |= {"reports": len(reports), "pairs_answered": n_el + n_ex,
+             "pairs_unanswered": c["eligible:unanswered"] + c["excluded:unanswered"]}  # fmt: skip
+    if n_el + n_ex == 0:
+        return {**head, "scored": False, "not_scored_because": "the screened protocols answered none of the gold pairs"}
+    if decided == 0:
+        return {**head, "scored": False,
+                "not_scored_because": "SCREEN gave no verdict for any answered pair and excluded none"}  # fmt: skip
+    fig = {
+        "ineligible_excluded": rate(caught, n_ex),
+        "wrong_exclusions": rate(lost, lost + caught),
+        "eligible_lost": rate(lost, n_el),
+        "left_open": rate(c["eligible:open"] + c["excluded:open"], n_el + n_ex),
+    }
+    return {
+        **head,
+        "scored": True,
+        **fig,
+        "figure": f"on {len(reports)} public pathology reports ({len(screened)} of {len(rss)} protocols screened) "
+        f"the pair excluded {caught} of {n_ex}, with {lost} wrong exclusions, and lost {lost} of {n_el} eligible "
+        "patients",
     }
 
 
@@ -449,8 +816,25 @@ def score_chia(built: Path, answers: dict[str, Any]) -> dict[str, Any]:
 
 
 def score(built: Path, work: Path, key: bytes | None = None) -> dict[str, Any]:
+    if not (work / "answers.json").exists():  # D-1108: a set that did not run is "not scored", by name
+        ids = json.loads((built / "gold" / "ids.json").read_text(encoding="utf-8"))
+        miss: dict[str, Any] = {"schema_version": SCHEMA_VERSION, "set": ids.get("set"),
+                                "not_scored_because": "no answers.json: the set did not run",
+                                "protocols": score_protocols(ids, {})}  # fmt: skip
+        miss["answer_key"] = answer_keys.describe(built)
+        if ids.get("set") == "tcga":
+            miss["pathology"] = score_pathology(ids, [], None, key)
+        return miss
     ids, pairs, crits, answers = load(built, work)
-    out: dict[str, Any] = {"set": ids.get("set"), "what": "joined by ids after the run; the gold was not in the box"}
+    out: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "set": ids.get("set"),
+        "what": "joined by ids after the run; the gold was not in the box",
+        "answer_key": answer_keys.describe(built),  # D-1104: every score names the key it was scored on
+    }
+    out["protocols"] = score_protocols(ids, answers)
+    if ids.get("set") == "tcga":
+        out["pathology"] = score_pathology(ids, pairs, answers, key)
     if pairs:
         out["pairs"] = score_pairs(ids, pairs, answers, key, crits)
     if crits:
@@ -465,6 +849,10 @@ def score(built: Path, work: Path, key: bytes | None = None) -> dict[str, Any]:
         written = json.loads(wf.read_text(encoding="utf-8"))
         if written:
             out["written_lines"] = score_written(ids, written, answers, crits)
+    if crits:
+        out["unjudged_exclusions"] = score_unjudged(
+            ids, pairs, crits, answers, json.loads(wf.read_text(encoding="utf-8")) if wf.exists() else None, key
+        )
     if ids.get("pair_of"):
         out["compile_pairs"] = score_compile_pairs(ids, answers)
     if (built / "gold" / "compile_gold.json").exists() and json.loads(
@@ -486,9 +874,22 @@ def score(built: Path, work: Path, key: bytes | None = None) -> dict[str, Any]:
 
 
 def not_scored_because(out: dict[str, Any]) -> str | None:
-    """Why a scored folder has no figure, or None. Pair and criterion sets need answered rows; compile sets need
-    compiled criteria."""
+    """Why a scored folder has no figure, or None. Pair and criterion sets need a protocol screened (D-1108) and
+    answered rows; compile sets need compiled criteria; the pathology set needs its figure."""
     if "pairs" in out or "criteria" in out:
+        pr = out.get("protocols") or {}
+        if pr and not pr.get("screened"):
+            return (
+                f"0 of {pr.get('in_set')} protocols screened (failed before SCREEN {pr.get('failed_before_screen')}, "
+                f"in SCREEN {pr.get('failed_in_screen')}, time budget {pr.get('not_run_time_budget')}, not in "
+                f"answers.json {pr.get('not_in_answers')})"
+            )
+        if pr and pr.get("patients_answered") and not pr.get("patients_decided"):
+            return (
+                f"{pr.get('screened')} protocols screened, but SCREEN gave no verdict for any patient and excluded none"
+            )
+        if (out.get("pathology") or {}).get("scored") is False:
+            return str(out["pathology"]["not_scored_because"])
         n = int((out.get("criteria") or {}).get("answered") or 0)
         n += sum(int(v.get("answered") or 0) for v in ((out.get("pairs") or {}).get("summary") or {}).values())
         if n == 0:
