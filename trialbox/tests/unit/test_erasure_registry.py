@@ -18,6 +18,8 @@ from tb_common import erasure
 
 from tests.unit.test_migrations import store_migrations
 
+pytestmark = [pytest.mark.guard, pytest.mark.nodb]  # D-1119: the guard step of `checks`; no database
+
 ROOT = Path(__file__).resolve().parents[2]
 
 _CREATE = re.compile(r"\bCREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\"?[A-Za-z_][\w.\"]*)", re.I)

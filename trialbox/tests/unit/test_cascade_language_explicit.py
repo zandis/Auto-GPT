@@ -12,6 +12,8 @@ from pathlib import Path
 import pytest
 from matching.notelang import LANGS, cascade_languages
 
+pytestmark = [pytest.mark.guard, pytest.mark.nodb]  # D-1119: the guard step of `checks`; no database
+
 ROOT = Path(__file__).resolve().parents[2]
 SCANNED = ("services", "libs", "tools", "eval")
 

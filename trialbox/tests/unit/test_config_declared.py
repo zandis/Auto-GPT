@@ -10,7 +10,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
 from tb_common.config import _ENV_MAP, DECLARED, DECLARED_FAMILIES, Declared
+
+pytestmark = [pytest.mark.guard, pytest.mark.nodb]  # D-1119: the guard step of `checks`; no database
 
 ROOT = Path(__file__).resolve().parents[2]
 SCANNED = ("libs", "services", "tools", "deploy")
