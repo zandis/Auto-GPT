@@ -1,31 +1,29 @@
 {
  "commit": "ceae54678f5a06afba4e1526e7ff1d62752192e3",
  "counts": {
-  "collected_files": 991,
-  "collected_items": 15266,
-  "collected_test_names": 8813,
-  "csv_links": 269,
-  "csv_links_to_a_tst_naming_no_test": 265,
-  "dead_reference_names": 0,
+  "csv_rows": 273,
+  "csv_rows_to_a_tst_id": 269,
+  "csv_rows_to_a_tst_naming_no_test": 265,
+  "csv_rows_with_no_test": 4,
   "dead_references": 0,
   "decisions_cited_by_tests": 742,
   "decisions_merged_with_text": 888,
   "decisions_not_cited": 146,
   "decisions_rule_words_not_cited": 89,
-  "ids_cited_in_tests_not_defined": 8,
-  "requirements": 656,
-  "requirements_srs": 564,
+  "ds_ids_reached": 50,
+  "ds_ids_reached_among_requirements": 45,
+  "files_with_markers": 36,
+  "requirements": 711,
+  "requirements_cited_in_text": 23,
+  "requirements_marked": 45,
+  "requirements_marked_or_cited": 62,
+  "requirements_neither": 649,
+  "requirements_srs": 619,
   "requirements_urs": 92,
-  "requirements_with_tests": 18,
-  "requirements_without_tests": 638,
-  "results_outcomes": {
-   "passed": 775,
-   "skipped": 13,
-   "xfailed": 2
-  },
-  "results_read": 790,
+  "results_read": 794,
   "safety_core_test_files": 160,
-  "safety_core_tests_untied": 24,
+  "safety_core_tests_untied": 19,
+  "spec_ids_in_markers": 85,
   "tst_ids": 63,
   "tst_ids_naming_a_collected_test": 1
  },
@@ -33,6 +31,9 @@
   {
    "activities": "V2, V3, V4",
    "criterion": 1,
+   "kind": "tests",
+   "measure": null,
+   "note": "",
    "rest_shown_only_by": "the confirming launch on the GPU VM (V2) and the owner's carve on his PC (V3)",
    "results": {
     "files": 26,
@@ -87,6 +88,9 @@
   {
    "activities": "V1",
    "criterion": 2,
+   "kind": "tests",
+   "measure": null,
+   "note": "",
    "rest_shown_only_by": "a box installed from the signed bundle, GPU VM then reference workstation (V1)",
    "results": {
     "files": 10,
@@ -113,6 +117,9 @@
   {
    "activities": "V12, V19",
    "criterion": 3,
+   "kind": "tests",
+   "measure": null,
+   "note": "",
    "rest_shown_only_by": "three nightly runs in CI, under compose (V12, V19)",
    "results": {
     "files": 6,
@@ -135,6 +142,9 @@
   {
    "activities": "V10, V17",
    "criterion": 4,
+   "kind": "tests",
+   "measure": null,
+   "note": "",
    "rest_shown_only_by": "the reference workstation (V10, V17)",
    "results": {
     "files": 17,
@@ -170,6 +180,9 @@
   {
    "activities": "V10",
    "criterion": 5,
+   "kind": "tests",
+   "measure": null,
+   "note": "",
    "rest_shown_only_by": "the owner's Windows PC (V10)",
    "results": {
     "files": 8,
@@ -194,14 +207,24 @@
   {
    "activities": "V14, V15",
    "criterion": 6,
+   "kind": "tests",
+   "measure": null,
+   "note": "the withdrawal rule fails: test_v15_withdrawal_data_use.py, strict xfail, V15-06",
    "rest_shown_only_by": "lane E's REDCap container, the owner's EDC, CGRD on the owner's PC (V14, V15)",
    "results": {
-    "files": 48,
-    "files_run": 0,
-    "not_passed": [],
-    "outcomes": {}
+    "files": 49,
+    "files_run": 1,
+    "not_passed": [
+     "tests/unit/test_v15_withdrawal_data_use.py::test_decide_is_refused_after_a_withdrawal_without_data_use [xfailed]",
+     "tests/unit/test_v15_withdrawal_data_use.py::test_export_is_refused_after_a_withdrawal_without_data_use [xfailed]",
+     "tests/unit/test_v15_withdrawal_data_use.py::test_send_is_refused_after_a_withdrawal_without_data_use [xfailed]",
+     "tests/unit/test_v15_withdrawal_data_use.py::test_sign_is_refused_after_a_withdrawal_without_data_use [xfailed]"
+    ],
+    "outcomes": {
+     "xfailed": 4
+    }
    },
-   "status": "has tests; collected, result not run here",
+   "status": "has tests, some xfail/skip/fail or not run",
    "test_files": [
     "tests/console/test_edc_admin_status.py",
     "tests/console/test_edc_door_events_route.py",
@@ -250,7 +273,8 @@
     "tests/unit/test_redcap_chinese_refusals.py",
     "tests/unit/test_redcap_instance.py",
     "tests/unit/test_redcap_instance_on_13_7.py",
-    "tests/unit/test_redcap_longitudinal.py"
+    "tests/unit/test_redcap_longitudinal.py",
+    "tests/unit/test_v15_withdrawal_data_use.py"
    ],
    "tests_bear_on": "drafting, signing and sending against stubs; not the round trip",
    "title": "Real data in, and the EDC round trip"
@@ -258,6 +282,9 @@
   {
    "activities": "V13",
    "criterion": 7,
+   "kind": "untestable",
+   "measure": null,
+   "note": "",
    "rest_shown_only_by": "people who have not used TrialBox (V13)",
    "results": {
     "files": 4,
@@ -278,6 +305,14 @@
   {
    "activities": "V7",
    "criterion": 8,
+   "kind": "tests",
+   "measure": {
+    "answer": "27 entries owed",
+    "command": "tb_common.erasure.owed()",
+    "exit": 0,
+    "verdict": "fails"
+   },
+   "note": "",
    "rest_shown_only_by": "the compose box, every store (V7)",
    "results": {
     "files": 13,
@@ -290,7 +325,7 @@
      "skipped": 1
     }
    },
-   "status": "has tests, some xfail/skip/fail or not run",
+   "status": "fails today by its own command",
    "test_files": [
     "tests/console/test_din3_optout_known.py",
     "tests/console/test_opt_out_keeps_the_numbered_log_row.py",
@@ -312,6 +347,9 @@
   {
    "activities": "V18, V9",
    "criterion": 9,
+   "kind": "tests",
+   "measure": null,
+   "note": "",
    "rest_shown_only_by": "the release candidate (V18, V9)",
    "results": {
     "files": 10,
@@ -338,6 +376,9 @@
   {
    "activities": "V16, V8",
    "criterion": 10,
+   "kind": "tests",
+   "measure": null,
+   "note": "no walk ran here: the skips are the e2e walks; the passes are matrix and in-process tests",
    "rest_shown_only_by": "the compose box, three languages, phone width (V16, V8)",
    "results": {
     "files": 10,
@@ -369,12 +410,20 @@
     "tests/unit/test_role_paths.py",
     "tests/unit/test_demo_walks.py"
    ],
-   "tests_bear_on": "the matrix test and the walks that run in process",
+   "tests_bear_on": "the matrix tests; the walks the criterion asks for need compose",
    "title": "New. Every module of the life cycle has a passing end-to-end walk"
   },
   {
    "activities": "V20",
    "criterion": 11,
+   "kind": "tests",
+   "measure": {
+    "answer": "open High 5, open Medium 36, open Low 4, total 48 (open 45, card issued 0, fixed 3 of which not seen closed 3, not a defect 0)",
+    "command": "python -m tools.findings_register --counts; --check --release",
+    "exit": 1,
+    "verdict": "fails"
+   },
+   "note": "",
    "rest_shown_only_by": "the register itself, read at release (V20)",
    "results": {
     "files": 1,
@@ -384,16 +433,19 @@
      "passed": 120
     }
    },
-   "status": "has passing tests that show part of it",
+   "status": "fails today by its own command",
    "test_files": [
     "tests/unit/test_findings_register.py"
    ],
-   "tests_bear_on": "the register tool; the register is not on master",
+   "tests_bear_on": "the register tool; the register itself is read by its own command",
    "title": "New. No High finding is open"
   },
   {
    "activities": "V20",
    "criterion": 12,
+   "kind": "untestable",
+   "measure": null,
+   "note": "",
    "rest_shown_only_by": "a stranger with the kit, real hardware, the synthetic hospital (V20)",
    "results": {
     "files": 0,
@@ -813,16 +865,16 @@
   },
   "score": "3 per group in the title + 1 per group in the text"
  },
- "ids_cited_in_tests_not_defined": [
-  "FR-CONV-1",
-  "FR-CONV-8",
-  "FR-SIG-14",
-  "FR-UX-10",
-  "FR-UX-12",
-  "FR-UX-21",
-  "FR-UX-32",
-  "FR-UX-9"
- ],
+ "markers": {
+  "ds_ids_reached": 50,
+  "ds_ids_reached_among_requirements": 45,
+  "files_with_markers": 36,
+  "spec_ids_in_markers": 85,
+  "spec_ids_not_in_appendix": [
+   "LLM-20",
+   "MOD-5"
+  ]
+ },
  "pack_cannot_yet": [
   {
    "command": "trialbox doctor (its output is not turned into a record)",
@@ -834,7 +886,7 @@
   {
    "command": "tools/acceptance.py; CI",
    "exists": true,
-   "missing": "no OQ protocol; CI writes no junit for the unit suite, so no result is kept for a release",
+   "missing": "no OQ protocol; CI keeps per-test results of marked tests only as an artifact, tied to no release",
    "part": "OQ protocol and record",
    "path": "tools/acceptance.py"
   },
@@ -890,3335 +942,4522 @@
  ],
  "requirements": [
   {
+   "by_mark": [
+    "tests/unit/test_registry_match_core.py",
+    "tests/unit/test_registry_match_egress.py",
+    "tests/unit/test_registry_match_harness.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUD-01a",
-   "tests": [
+   "id": "CON-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-03"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_traceability.py"
+   ],
+   "by_text": [
+    "tests/unit/test_traceability.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-06"
+  },
+  {
+   "by_mark": [
+    "tests/console/test_console_app.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-07"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_bakeoff.py",
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_channels.py",
+    "tests/unit/test_egress_rules.py",
+    "tests/unit/test_gateway.py",
+    "tests/unit/test_gateway_box_phi.py",
+    "tests/unit/test_model_swap.py",
+    "tests/unit/test_no_direct_model_calls.py",
+    "tests/unit/test_perimeter.py",
+    "tests/unit/test_pin_model.py",
+    "tests/unit/test_prompt_registry.py",
+    "tests/unit/test_provider_pin.py",
+    "tests/unit/test_routing_policy.py",
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-11"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-12"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-13"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_bakeoff.py",
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_channels.py",
+    "tests/unit/test_dataclass.py",
+    "tests/unit/test_egress_rules.py",
+    "tests/unit/test_gateway.py",
+    "tests/unit/test_gateway_box_phi.py",
+    "tests/unit/test_no_direct_model_calls.py",
+    "tests/unit/test_pin_model.py",
+    "tests/unit/test_prompt_registry.py",
+    "tests/unit/test_provider_pin.py",
+    "tests/unit/test_routing_policy.py",
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-14"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-15"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-16"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-17"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-18"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
+    "tests/console/test_site_realities_t629.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-03a"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_criterion_ir_v3.py"
+   ],
+   "by_text": [
+    "tests/unit/test_code_coverage.py",
+    "tests/unit/test_mixed_and_polarity.py",
+    "tests/unit/test_mutation_tool.py",
+    "tests/unit/test_one_rule.py",
+    "tests/unit/test_safety_properties.py",
+    "tests/unit/test_verdict_table.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-04a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-04b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
+    "tests/unit/test_feed_completeness.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-08a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-08b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-08c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
+    "tests/unit/test_operations_docs.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-10"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_gateway.py",
+    "tests/unit/test_model_swap.py",
+    "tests/unit/test_prompt_registry.py",
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [
     "tests/integration/test_e2e_simple.py"
-   ]
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUD-01a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUD-01b",
-   "tests": []
+   "id": "FR-AUD-01b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUD-01c",
-   "tests": []
+   "id": "FR-AUD-01c"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUD-01d",
-   "tests": []
+   "id": "FR-AUD-01d"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUD-01e",
-   "tests": []
+   "id": "FR-AUD-01e"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUD-01f",
-   "tests": []
+   "id": "FR-AUD-01f"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUD-01g",
-   "tests": []
+   "id": "FR-AUD-01g"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUD-01h",
-   "tests": []
+   "id": "FR-AUD-01h"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUD-01i",
-   "tests": []
+   "id": "FR-AUD-01i"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUD-01j",
-   "tests": []
+   "id": "FR-AUD-01j"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUD-01k",
-   "tests": []
+   "id": "FR-AUD-01k"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUD-02",
-   "tests": []
+   "id": "FR-AUD-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUD-03",
-   "tests": []
+   "id": "FR-AUD-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUD-03a",
-   "tests": []
+   "id": "FR-AUD-03a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUD-04",
-   "tests": []
+   "id": "FR-AUD-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUD-05",
-   "tests": []
+   "id": "FR-AUD-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUD-06",
-   "tests": []
+   "id": "FR-AUD-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUD-07",
-   "tests": []
+   "id": "FR-AUD-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-01a",
-   "tests": []
+   "id": "FR-AUTH-01a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-01b",
-   "tests": []
+   "id": "FR-AUTH-01b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-01c",
-   "tests": []
+   "id": "FR-AUTH-01c"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-02",
-   "tests": []
+   "id": "FR-AUTH-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-02a",
-   "tests": []
+   "id": "FR-AUTH-02a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-03",
-   "tests": []
+   "id": "FR-AUTH-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-04",
-   "tests": []
+   "id": "FR-AUTH-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-04a",
-   "tests": []
+   "id": "FR-AUTH-04a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-05a",
-   "tests": []
+   "id": "FR-AUTH-05a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-05b",
-   "tests": []
+   "id": "FR-AUTH-05b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-05c",
-   "tests": []
+   "id": "FR-AUTH-05c"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-05d",
-   "tests": []
+   "id": "FR-AUTH-05d"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-06",
-   "tests": []
+   "id": "FR-AUTH-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-06a",
-   "tests": []
+   "id": "FR-AUTH-06a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-07",
-   "tests": []
+   "id": "FR-AUTH-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-08",
-   "tests": []
+   "id": "FR-AUTH-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-09",
-   "tests": []
+   "id": "FR-AUTH-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-10",
-   "tests": []
+   "id": "FR-AUTH-10"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-10a",
-   "tests": []
+   "id": "FR-AUTH-10a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-11",
-   "tests": []
+   "id": "FR-AUTH-11"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-11a",
-   "tests": []
+   "id": "FR-AUTH-11a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-11b",
-   "tests": []
+   "id": "FR-AUTH-11b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-12",
-   "tests": []
+   "id": "FR-AUTH-12"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-12a",
-   "tests": []
+   "id": "FR-AUTH-12a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-12b",
-   "tests": []
+   "id": "FR-AUTH-12b"
   },
   {
-   "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-13",
-   "tests": [
+   "by_mark": [],
+   "by_text": [
     "tests/console/test_console_app.py",
     "tests/unit/test_journey_rules.py"
-   ]
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-13"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-13a",
-   "tests": []
+   "id": "FR-AUTH-13a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-AUTH-13b",
-   "tests": []
+   "id": "FR-AUTH-13b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CASE-01a",
-   "tests": []
+   "id": "FR-CASE-01a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CASE-01b",
-   "tests": []
+   "id": "FR-CASE-01b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CASE-02",
-   "tests": []
+   "id": "FR-CASE-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CASE-03",
-   "tests": []
+   "id": "FR-CASE-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CASE-04",
-   "tests": []
+   "id": "FR-CASE-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CASE-05",
-   "tests": []
+   "id": "FR-CASE-05"
   },
   {
+   "by_mark": [
+    "tests/console/test_console_app.py",
+    "tests/unit/test_channels.py",
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CHAT-01",
-   "tests": []
+   "id": "FR-CHAT-01"
   },
   {
+   "by_mark": [
+    "tests/console/test_console_app.py",
+    "tests/unit/test_channels.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CHAT-02",
-   "tests": []
+   "id": "FR-CHAT-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CHAT-03",
-   "tests": []
+   "id": "FR-CHAT-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CHAT-03a",
-   "tests": []
+   "id": "FR-CHAT-03a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CHAT-04",
-   "tests": []
+   "id": "FR-CHAT-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CHAT-04a",
-   "tests": []
+   "id": "FR-CHAT-04a"
   },
   {
+   "by_mark": [
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CHAT-05",
-   "tests": []
+   "id": "FR-CHAT-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CHAT-06",
-   "tests": []
+   "id": "FR-CHAT-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CHAT-07",
-   "tests": []
+   "id": "FR-CHAT-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CON-01",
-   "tests": []
+   "id": "FR-CON-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CON-02",
-   "tests": []
+   "id": "FR-CON-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CON-03",
-   "tests": []
+   "id": "FR-CON-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CON-04",
-   "tests": []
+   "id": "FR-CON-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CON-04a",
-   "tests": []
+   "id": "FR-CON-04a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CON-04b",
-   "tests": []
+   "id": "FR-CON-04b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CON-05",
-   "tests": []
+   "id": "FR-CON-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CON-05a",
-   "tests": []
+   "id": "FR-CON-05a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CON-06",
-   "tests": []
+   "id": "FR-CON-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CON-07",
-   "tests": []
+   "id": "FR-CON-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CON-07a",
-   "tests": []
+   "id": "FR-CON-07a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CON-08",
-   "tests": []
+   "id": "FR-CON-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CON-08a",
-   "tests": []
+   "id": "FR-CON-08a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CON-09",
-   "tests": []
+   "id": "FR-CON-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CON-09a",
-   "tests": []
+   "id": "FR-CON-09a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-CON-10",
-   "tests": []
+   "id": "FR-CON-10"
   },
   {
-   "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-01",
-   "tests": [
+   "by_mark": [
+    "tests/unit/test_eval_public_suites.py"
+   ],
+   "by_text": [
     "tests/unit/test_phi_note_mask.py"
-   ]
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-01"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_eval_public_suites.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-03a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-02",
-   "tests": []
+   "id": "FR-DEID-05a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-03",
-   "tests": []
+   "id": "FR-DEID-05b"
   },
   {
+   "by_mark": [
+    "tests/unit/test_gateway.py",
+    "tests/unit/test_phi_recognisers.py",
+    "tests/unit/test_tracestore.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-03a",
-   "tests": []
+   "id": "FR-DEID-05c"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-04",
-   "tests": []
+   "id": "FR-DEID-05d"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-05a",
-   "tests": []
+   "id": "FR-DEID-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-05b",
-   "tests": []
+   "id": "FR-DEID-06a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-05c",
-   "tests": []
+   "id": "FR-DEID-06b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-05d",
-   "tests": []
+   "id": "FR-DEID-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-06",
-   "tests": []
+   "id": "FR-DEID-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-06a",
-   "tests": []
+   "id": "FR-DEID-08a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-06b",
-   "tests": []
+   "id": "FR-DEID-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-07",
-   "tests": []
+   "id": "FR-DEID-10"
   },
   {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_disclosure_linked.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-08",
-   "tests": []
+   "id": "FR-DEID-11a"
   },
   {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_disclosure_linked.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-08a",
-   "tests": []
+   "id": "FR-DEID-11b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-09",
-   "tests": []
+   "id": "FR-DEID-12"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-10",
-   "tests": []
+   "id": "FR-DEID-13"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-11a",
-   "tests": []
+   "id": "FR-DEID-13a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-11b",
-   "tests": []
+   "id": "FR-DEID-14"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-12",
-   "tests": []
+   "id": "FR-DEID-14a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-13",
-   "tests": []
+   "id": "FR-DEID-15"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-13a",
-   "tests": []
+   "id": "FR-EDC-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-14",
-   "tests": []
+   "id": "FR-EDC-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-14a",
-   "tests": []
+   "id": "FR-EDC-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-DEID-15",
-   "tests": []
+   "id": "FR-EDC-03a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDC-01",
-   "tests": []
+   "id": "FR-EDC-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDC-02",
-   "tests": []
+   "id": "FR-EDC-04a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDC-03",
-   "tests": []
+   "id": "FR-EDC-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDC-03a",
-   "tests": []
+   "id": "FR-EDC-05a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDC-04",
-   "tests": []
+   "id": "FR-EDC-05b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDC-04a",
-   "tests": []
+   "id": "FR-EDC-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDC-05",
-   "tests": []
+   "id": "FR-EDC-06a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDC-05a",
-   "tests": []
+   "id": "FR-EDC-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDC-05b",
-   "tests": []
+   "id": "FR-EDC-07a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDC-06",
-   "tests": []
+   "id": "FR-EDC-07b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDC-06a",
-   "tests": []
+   "id": "FR-EDC-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDC-07",
-   "tests": []
+   "id": "FR-EDC-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDC-07a",
-   "tests": []
+   "id": "FR-EDC-09a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDC-07b",
-   "tests": []
+   "id": "FR-EDC-10"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDC-08",
-   "tests": []
+   "id": "FR-EDCL-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDC-09",
-   "tests": []
+   "id": "FR-EDCL-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDC-09a",
-   "tests": []
+   "id": "FR-EDCL-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDC-10",
-   "tests": []
+   "id": "FR-EDCL-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDCL-01",
-   "tests": []
+   "id": "FR-EDCL-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDCL-02",
-   "tests": []
+   "id": "FR-EDCL-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDCL-03",
-   "tests": []
+   "id": "FR-ERR-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDCL-04",
-   "tests": []
+   "id": "FR-ERR-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDCL-05",
-   "tests": []
+   "id": "FR-ERR-02a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-EDCL-06",
-   "tests": []
+   "id": "FR-ERR-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ERR-01",
-   "tests": []
+   "id": "FR-ERR-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ERR-02",
-   "tests": []
+   "id": "FR-ERR-04a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ERR-02a",
-   "tests": []
+   "id": "FR-ERR-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ERR-03",
-   "tests": []
+   "id": "FR-ERR-05a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ERR-04",
-   "tests": []
+   "id": "FR-ERR-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ERR-04a",
-   "tests": []
+   "id": "FR-ERR-06a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ERR-05",
-   "tests": []
+   "id": "FR-ERR-06b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ERR-05a",
-   "tests": []
+   "id": "FR-ERR-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ERR-06",
-   "tests": []
+   "id": "FR-ERR-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ERR-06a",
-   "tests": []
+   "id": "FR-FEAS-01a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ERR-06b",
-   "tests": []
+   "id": "FR-FEAS-01b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ERR-07",
-   "tests": []
+   "id": "FR-FEAS-01c"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ERR-08",
-   "tests": []
+   "id": "FR-FEAS-02"
   },
   {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_cascade_units.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-01a",
-   "tests": []
+   "id": "FR-FEAS-03"
   },
   {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-01b",
-   "tests": []
+   "id": "FR-FEAS-04a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-01c",
-   "tests": []
+   "id": "FR-FEAS-04b"
   },
   {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_cascade_units.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-02",
-   "tests": []
+   "id": "FR-FEAS-04c"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-03",
-   "tests": []
+   "id": "FR-FEAS-04d"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-04a",
-   "tests": []
+   "id": "FR-FEAS-04e"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-04b",
-   "tests": []
+   "id": "FR-FEAS-04f"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-04c",
-   "tests": []
+   "id": "FR-FEAS-04g"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-04d",
-   "tests": []
+   "id": "FR-FEAS-04h"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-04e",
-   "tests": []
+   "id": "FR-FEAS-04i"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-04f",
-   "tests": []
+   "id": "FR-FEAS-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-04g",
-   "tests": []
+   "id": "FR-FEAS-05a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-04h",
-   "tests": []
+   "id": "FR-FEAS-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-04i",
-   "tests": []
+   "id": "FR-FEAS-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-05",
-   "tests": []
+   "id": "FR-FEAS-07a"
   },
   {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-05a",
-   "tests": []
+   "id": "FR-FEAS-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-06",
-   "tests": []
+   "id": "FR-FEAS-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-07",
-   "tests": []
+   "id": "FR-FEAS-10"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-07a",
-   "tests": []
+   "id": "FR-FEAS-11"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-08",
-   "tests": []
+   "id": "FR-FEAS-11a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-09",
-   "tests": []
+   "id": "FR-FEAS-12"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-10",
-   "tests": []
+   "id": "FR-FEAS-12a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-11",
-   "tests": []
+   "id": "FR-FEAS-12b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-11a",
-   "tests": []
+   "id": "FR-FEAS-12c"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-12",
-   "tests": []
+   "id": "FR-FEAS-12d"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-12a",
-   "tests": []
+   "id": "FR-FEAS-12e"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-12b",
-   "tests": []
+   "id": "FR-FEAS-12f"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-12c",
-   "tests": []
+   "id": "FR-FEAS-13"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-12d",
-   "tests": []
+   "id": "FR-FED-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-12e",
-   "tests": []
+   "id": "FR-FED-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-12f",
-   "tests": []
+   "id": "FR-FED-02a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FEAS-13",
-   "tests": []
+   "id": "FR-FED-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FED-01",
-   "tests": []
+   "id": "FR-FED-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FED-02",
-   "tests": []
+   "id": "FR-FED-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FED-02a",
-   "tests": []
+   "id": "FR-FED-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FED-03",
-   "tests": []
+   "id": "FR-FED-06a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FED-04",
-   "tests": []
+   "id": "FR-FED-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FED-05",
-   "tests": []
+   "id": "FR-FED-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FED-06",
-   "tests": []
+   "id": "FR-FED-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FED-06a",
-   "tests": []
+   "id": "FR-FED-09a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FED-07",
-   "tests": []
+   "id": "FR-FED-10"
   },
   {
+   "by_mark": [
+    "tests/console/test_console_app.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FED-08",
-   "tests": []
+   "id": "FR-I18N-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FED-09",
-   "tests": []
+   "id": "FR-I18N-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FED-09a",
-   "tests": []
+   "id": "FR-I18N-02a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-FED-10",
-   "tests": []
+   "id": "FR-I18N-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-01",
-   "tests": []
+   "id": "FR-I18N-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-02",
-   "tests": []
+   "id": "FR-I18N-04a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-03",
-   "tests": []
+   "id": "FR-ING-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-03a",
-   "tests": []
+   "id": "FR-ING-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-03b",
-   "tests": []
+   "id": "FR-ING-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-04a",
-   "tests": []
+   "id": "FR-ING-03a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-04b",
-   "tests": []
+   "id": "FR-ING-03b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-04c",
-   "tests": []
+   "id": "FR-ING-04a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-05",
-   "tests": []
+   "id": "FR-ING-04b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-06",
-   "tests": []
+   "id": "FR-ING-04c"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-07a",
-   "tests": []
+   "id": "FR-ING-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-07b",
-   "tests": []
+   "id": "FR-ING-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-08a",
-   "tests": []
+   "id": "FR-ING-07a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-08b",
-   "tests": []
+   "id": "FR-ING-07b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-09",
-   "tests": []
+   "id": "FR-ING-08a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-10",
-   "tests": []
+   "id": "FR-ING-08b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-11",
-   "tests": []
+   "id": "FR-ING-09"
   },
   {
+   "by_mark": [
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-12",
-   "tests": []
+   "id": "FR-ING-10"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-12a",
-   "tests": []
+   "id": "FR-ING-11"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-13",
-   "tests": []
+   "id": "FR-ING-12"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-14",
-   "tests": []
+   "id": "FR-ING-12a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-15a",
-   "tests": []
+   "id": "FR-ING-13"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-15b",
-   "tests": []
+   "id": "FR-ING-14"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-16",
-   "tests": []
+   "id": "FR-ING-15a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-17",
-   "tests": []
+   "id": "FR-ING-15b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-18",
-   "tests": []
+   "id": "FR-ING-16"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-19",
-   "tests": []
+   "id": "FR-ING-17"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-19a",
-   "tests": []
+   "id": "FR-ING-18"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-19b",
-   "tests": []
+   "id": "FR-ING-19"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-19c",
-   "tests": []
+   "id": "FR-ING-19a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-19d",
-   "tests": []
+   "id": "FR-ING-19b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-19e",
-   "tests": []
+   "id": "FR-ING-19c"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-20",
-   "tests": []
+   "id": "FR-ING-19d"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-21",
-   "tests": []
+   "id": "FR-ING-19e"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-21a",
-   "tests": []
+   "id": "FR-ING-20"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-21b",
-   "tests": []
+   "id": "FR-ING-21"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-ING-22",
-   "tests": []
+   "id": "FR-ING-21a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-JP-01",
-   "tests": []
+   "id": "FR-ING-21b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-JP-02",
-   "tests": []
+   "id": "FR-ING-22"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-JP-03",
-   "tests": []
+   "id": "FR-JP-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-JP-03a",
-   "tests": []
+   "id": "FR-JP-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-JP-04",
-   "tests": []
+   "id": "FR-JP-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-JP-05",
-   "tests": []
+   "id": "FR-JP-03a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-JP-06",
-   "tests": []
+   "id": "FR-JP-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-JP-07",
-   "tests": []
+   "id": "FR-JP-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-JP-08",
-   "tests": []
+   "id": "FR-JP-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-JP-09",
-   "tests": []
+   "id": "FR-JP-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-LOG-01",
-   "tests": []
+   "id": "FR-JP-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-LOG-01a",
-   "tests": []
+   "id": "FR-JP-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-LOG-01b",
-   "tests": []
+   "id": "FR-LOG-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-LOG-01c",
-   "tests": []
+   "id": "FR-LOG-01a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-LOG-02",
-   "tests": []
+   "id": "FR-LOG-01b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-LOG-02a",
-   "tests": []
+   "id": "FR-LOG-01c"
   },
   {
+   "by_mark": [
+    "tests/unit/test_gateway.py",
+    "tests/unit/test_phi_recognisers.py",
+    "tests/unit/test_tracestore.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-LOG-03",
-   "tests": []
+   "id": "FR-LOG-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-LOG-03a",
-   "tests": []
+   "id": "FR-LOG-02a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-LOG-03b",
-   "tests": []
+   "id": "FR-LOG-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-LOG-04",
-   "tests": []
+   "id": "FR-LOG-03a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MAIL-01",
-   "tests": []
+   "id": "FR-LOG-03b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MAIL-02",
-   "tests": []
+   "id": "FR-LOG-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MAIL-03",
-   "tests": []
+   "id": "FR-MAIL-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MAIL-03a",
-   "tests": []
+   "id": "FR-MAIL-02"
   },
   {
+   "by_mark": [
+    "tests/console/test_console_app.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MAIL-04",
-   "tests": []
+   "id": "FR-MAIL-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MAIL-05",
-   "tests": []
+   "id": "FR-MAIL-03a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MAIL-06",
-   "tests": []
+   "id": "FR-MAIL-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MAIL-06a",
-   "tests": []
+   "id": "FR-MAIL-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MOD-01",
-   "tests": []
+   "id": "FR-MAIL-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MOD-02",
-   "tests": []
+   "id": "FR-MAIL-06a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MOD-03",
-   "tests": []
+   "id": "FR-MOD-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MOD-04",
-   "tests": []
+   "id": "FR-MOD-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MOD-04a",
-   "tests": []
+   "id": "FR-MOD-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MOD-04b",
-   "tests": []
+   "id": "FR-MOD-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MOD-05",
-   "tests": []
+   "id": "FR-MOD-04a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MOD-06",
-   "tests": []
+   "id": "FR-MOD-04b"
   },
   {
+   "by_mark": [
+    "tests/unit/test_champion_qualify.py",
+    "tests/unit/test_contracts.py",
+    "tests/unit/test_gateway.py",
+    "tests/unit/test_model_registry.py",
+    "tests/unit/test_model_swap.py",
+    "tests/unit/test_no_direct_model_calls.py",
+    "tests/unit/test_pin_model.py",
+    "tests/unit/test_prompt_registry.py",
+    "tests/unit/test_provider_pin.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MOD-06a",
-   "tests": []
+   "id": "FR-MOD-05"
   },
   {
+   "by_mark": [
+    "tests/unit/test_agreement_judge.py",
+    "tests/unit/test_bakeoff.py",
+    "tests/unit/test_eval_public_suites.py",
+    "tests/unit/test_licence_register.py",
+    "tests/unit/test_model_registry.py",
+    "tests/unit/test_provider_pin.py",
+    "tests/unit/test_qualify.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MOD-07",
-   "tests": []
+   "id": "FR-MOD-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MOD-07a",
-   "tests": []
+   "id": "FR-MOD-06a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MOD-08",
-   "tests": []
+   "id": "FR-MOD-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MOD-09",
-   "tests": []
+   "id": "FR-MOD-07a"
   },
   {
+   "by_mark": [
+    "tests/unit/test_champion_qualify.py",
+    "tests/unit/test_gateway.py",
+    "tests/unit/test_model_registry.py",
+    "tests/unit/test_model_swap.py",
+    "tests/unit/test_pin_model.py",
+    "tests/unit/test_provider_pin.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MOD-09a",
-   "tests": []
+   "id": "FR-MOD-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-MOD-10",
-   "tests": [
+   "id": "FR-MOD-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MOD-09a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
     "tests/unit/test_serving_config.py"
-   ]
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MOD-10"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-NOTIF-01",
-   "tests": []
+   "id": "FR-NOTIF-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-NOTIF-02",
-   "tests": []
+   "id": "FR-NOTIF-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-NOTIF-03",
-   "tests": []
+   "id": "FR-NOTIF-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-NOTIF-04",
-   "tests": []
+   "id": "FR-NOTIF-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-NOTIF-04a",
-   "tests": []
+   "id": "FR-NOTIF-04a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-NOTIF-04b",
-   "tests": []
+   "id": "FR-NOTIF-04b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-NOTIF-05",
-   "tests": []
+   "id": "FR-NOTIF-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-NOTIF-06",
-   "tests": []
+   "id": "FR-NOTIF-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-NOTIF-06a",
-   "tests": []
+   "id": "FR-NOTIF-06a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-NOTIF-06b",
-   "tests": []
+   "id": "FR-NOTIF-06b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-NOTIF-06c",
-   "tests": []
+   "id": "FR-NOTIF-06c"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-NOTIF-07",
-   "tests": []
+   "id": "FR-NOTIF-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-NOTIF-08",
-   "tests": []
+   "id": "FR-NOTIF-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-NOTIF-09",
-   "tests": []
+   "id": "FR-NOTIF-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-OMOP-01",
-   "tests": []
+   "id": "FR-OMOP-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-OMOP-02",
-   "tests": []
+   "id": "FR-OMOP-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-OMOP-03",
-   "tests": []
+   "id": "FR-OMOP-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-OMOP-04",
-   "tests": []
+   "id": "FR-OMOP-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-OPS-01",
-   "tests": []
+   "id": "FR-OPS-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-OPS-02",
-   "tests": []
+   "id": "FR-OPS-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-OPS-03",
-   "tests": []
+   "id": "FR-OPS-03"
   },
   {
+   "by_mark": [
+    "tests/unit/test_pin_model.py",
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-OPS-04",
-   "tests": []
+   "id": "FR-OPS-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-OPS-05",
-   "tests": []
+   "id": "FR-OPS-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-OPS-06",
-   "tests": []
+   "id": "FR-OPS-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-OPS-06a",
-   "tests": []
+   "id": "FR-OPS-06a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-OPS-07",
-   "tests": []
+   "id": "FR-OPS-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-OPS-08",
-   "tests": []
+   "id": "FR-OPS-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-OPS-09",
-   "tests": []
+   "id": "FR-OPS-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-OPS-10",
-   "tests": []
+   "id": "FR-OPS-10"
   },
   {
-   "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-OPS-11",
-   "tests": [
+   "by_mark": [],
+   "by_text": [
     "tests/integration/test_e2e_simple.py"
-   ]
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-OPS-11"
   },
   {
-   "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-OPS-12",
-   "tests": [
+   "by_mark": [],
+   "by_text": [
     "tests/unit/test_env_settings_gate.py"
-   ]
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-OPS-12"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-01",
-   "tests": []
+   "id": "FR-PLAT-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-02",
-   "tests": []
+   "id": "FR-PLAT-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-02a",
-   "tests": []
+   "id": "FR-PLAT-02a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-03",
-   "tests": []
+   "id": "FR-PLAT-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-03a",
-   "tests": []
+   "id": "FR-PLAT-03a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-03b",
-   "tests": []
+   "id": "FR-PLAT-03b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-03c",
-   "tests": []
+   "id": "FR-PLAT-03c"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-04",
-   "tests": []
+   "id": "FR-PLAT-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-05",
-   "tests": []
+   "id": "FR-PLAT-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-06",
-   "tests": []
+   "id": "FR-PLAT-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-07",
-   "tests": []
+   "id": "FR-PLAT-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-07a",
-   "tests": []
+   "id": "FR-PLAT-07a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-07b",
-   "tests": []
+   "id": "FR-PLAT-07b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-08",
-   "tests": []
+   "id": "FR-PLAT-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-09",
-   "tests": []
+   "id": "FR-PLAT-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-09a",
-   "tests": []
+   "id": "FR-PLAT-09a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-10",
-   "tests": []
+   "id": "FR-PLAT-10"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-11",
-   "tests": []
+   "id": "FR-PLAT-11"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-11a",
-   "tests": []
+   "id": "FR-PLAT-11a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-12",
-   "tests": []
+   "id": "FR-PLAT-12"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-12a",
-   "tests": []
+   "id": "FR-PLAT-12a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-12b",
-   "tests": []
+   "id": "FR-PLAT-12b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-13",
-   "tests": []
+   "id": "FR-PLAT-13"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-14",
-   "tests": []
+   "id": "FR-PLAT-14"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-14a",
-   "tests": []
+   "id": "FR-PLAT-14a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-15",
-   "tests": []
+   "id": "FR-PLAT-15"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-16",
-   "tests": []
+   "id": "FR-PLAT-16"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-17",
-   "tests": []
+   "id": "FR-PLAT-17"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-18",
-   "tests": []
+   "id": "FR-PLAT-18"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-19",
-   "tests": []
+   "id": "FR-PLAT-19"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-20",
-   "tests": []
+   "id": "FR-PLAT-20"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-21",
-   "tests": []
+   "id": "FR-PLAT-21"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-22",
-   "tests": []
+   "id": "FR-PLAT-22"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-23",
-   "tests": []
+   "id": "FR-PLAT-23"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-23a",
-   "tests": []
+   "id": "FR-PLAT-23a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-23b",
-   "tests": []
+   "id": "FR-PLAT-23b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-24",
-   "tests": []
+   "id": "FR-PLAT-24"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-25",
-   "tests": []
+   "id": "FR-PLAT-25"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-26",
-   "tests": []
+   "id": "FR-PLAT-26"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-26a",
-   "tests": []
+   "id": "FR-PLAT-26a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-26b",
-   "tests": []
+   "id": "FR-PLAT-26b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-27",
-   "tests": []
+   "id": "FR-PLAT-27"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-27a",
-   "tests": []
+   "id": "FR-PLAT-27a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-28",
-   "tests": []
+   "id": "FR-PLAT-28"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-29",
-   "tests": []
+   "id": "FR-PLAT-29"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-PLAT-30",
-   "tests": []
+   "id": "FR-PLAT-30"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-01",
-   "tests": []
+   "id": "FR-RC-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-02",
-   "tests": []
+   "id": "FR-RC-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-03a",
-   "tests": []
+   "id": "FR-RC-03a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-03b",
-   "tests": []
+   "id": "FR-RC-03b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-04",
-   "tests": []
+   "id": "FR-RC-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-05",
-   "tests": []
+   "id": "FR-RC-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-05a",
-   "tests": []
+   "id": "FR-RC-05a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-06a",
-   "tests": []
+   "id": "FR-RC-06a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-06b",
-   "tests": []
+   "id": "FR-RC-06b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-06c",
-   "tests": []
+   "id": "FR-RC-06c"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-07",
-   "tests": []
+   "id": "FR-RC-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-07a",
-   "tests": []
+   "id": "FR-RC-07a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-08",
-   "tests": []
+   "id": "FR-RC-08"
   },
   {
-   "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-09",
-   "tests": [
+   "by_mark": [],
+   "by_text": [
     "tests/unit/test_rc_sim.py"
-   ]
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-09"
   },
   {
-   "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-10",
-   "tests": [
+   "by_mark": [],
+   "by_text": [
     "tests/unit/test_rc_conformance.py"
-   ]
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-10"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-10a",
-   "tests": []
+   "id": "FR-RC-10a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-11",
-   "tests": []
+   "id": "FR-RC-11"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-12",
-   "tests": []
+   "id": "FR-RC-12"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-13",
-   "tests": []
+   "id": "FR-RC-13"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-14",
-   "tests": []
+   "id": "FR-RC-14"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-14a",
-   "tests": []
+   "id": "FR-RC-14a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-15",
-   "tests": []
+   "id": "FR-RC-15"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-16",
-   "tests": []
+   "id": "FR-RC-16"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-17",
-   "tests": []
+   "id": "FR-RC-17"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-RC-17a",
-   "tests": []
+   "id": "FR-RC-17a"
   },
   {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_champion_qualify.py",
+    "tests/unit/test_gateway.py",
+    "tests/unit/test_model_registry.py",
+    "tests/unit/test_pin_model.py",
+    "tests/unit/test_provider_pin.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-REP-01",
-   "tests": []
+   "id": "FR-REP-01"
   },
   {
-   "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-REP-02",
-   "tests": [
+   "by_mark": [],
+   "by_text": [
     "tests/integration/test_e2e_simple.py",
     "tests/unit/test_snapshot_holds.py"
-   ]
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-REP-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-REP-03",
-   "tests": []
+   "id": "FR-REP-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-REP-04a",
-   "tests": []
+   "id": "FR-REP-04a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-REP-04b",
-   "tests": []
+   "id": "FR-REP-04b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-REP-04c",
-   "tests": []
+   "id": "FR-REP-04c"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-REP-04d",
-   "tests": []
+   "id": "FR-REP-04d"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-REP-05",
-   "tests": []
+   "id": "FR-REP-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-REP-06",
-   "tests": []
+   "id": "FR-REP-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-REP-07",
-   "tests": []
+   "id": "FR-REP-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-REP-08",
-   "tests": []
+   "id": "FR-REP-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-REP-08a",
-   "tests": []
+   "id": "FR-REP-08a"
   },
   {
-   "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-REP-09",
-   "tests": [
+   "by_mark": [],
+   "by_text": [
     "tests/integration/test_list_demo.py"
-   ]
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-REP-09"
   },
   {
-   "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-01",
-   "tests": [
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_cascade_units.py",
+    "tests/unit/test_screen_cascade.py",
     "tests/unit/test_traceability.py"
-   ]
-  },
-  {
-   "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-02a",
-   "tests": []
-  },
-  {
-   "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-02b",
-   "tests": []
-  },
-  {
-   "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-03",
-   "tests": []
-  },
-  {
-   "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-04a",
-   "tests": []
-  },
-  {
-   "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-04b",
-   "tests": []
-  },
-  {
-   "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-04c",
-   "tests": []
-  },
-  {
-   "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-05",
-   "tests": [
+   ],
+   "by_text": [
     "tests/unit/test_traceability.py"
-   ]
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-05a",
-   "tests": []
+   "id": "FR-SCR-02a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-05b",
-   "tests": []
+   "id": "FR-SCR-02b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-06",
-   "tests": []
+   "id": "FR-SCR-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-06a",
-   "tests": []
+   "id": "FR-SCR-04a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-07",
-   "tests": []
+   "id": "FR-SCR-04b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-07a",
-   "tests": []
+   "id": "FR-SCR-04c"
   },
   {
+   "by_mark": [
+    "tests/unit/test_agreement_judge.py",
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_cascade_units.py",
+    "tests/unit/test_traceability.py"
+   ],
+   "by_text": [
+    "tests/unit/test_traceability.py"
+   ],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-07b",
-   "tests": []
+   "id": "FR-SCR-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-07c",
-   "tests": []
+   "id": "FR-SCR-05a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-07d",
-   "tests": []
+   "id": "FR-SCR-05b"
   },
   {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_cascade_units.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-07e",
-   "tests": []
+   "id": "FR-SCR-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-07f",
-   "tests": [
+   "id": "FR-SCR-06a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-07a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-07b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-07c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-07d"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-07e"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
     "tests/console/test_step2.py"
-   ]
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-07f"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-07g",
-   "tests": []
+   "id": "FR-SCR-07g"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-07h",
-   "tests": []
+   "id": "FR-SCR-07h"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-07i",
-   "tests": []
+   "id": "FR-SCR-07i"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-07j",
-   "tests": []
+   "id": "FR-SCR-07j"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-07k",
-   "tests": []
+   "id": "FR-SCR-07k"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-08",
-   "tests": []
+   "id": "FR-SCR-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-09",
-   "tests": []
+   "id": "FR-SCR-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-10a",
-   "tests": []
+   "id": "FR-SCR-10a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-10b",
-   "tests": []
+   "id": "FR-SCR-10b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-10c",
-   "tests": []
+   "id": "FR-SCR-10c"
   },
   {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-11",
-   "tests": []
+   "id": "FR-SCR-11"
   },
   {
+   "by_mark": [
+    "tests/unit/test_agreement_judge.py",
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_cascade_units.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-12",
-   "tests": []
+   "id": "FR-SCR-12"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-12a",
-   "tests": []
+   "id": "FR-SCR-12a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-12b",
-   "tests": []
+   "id": "FR-SCR-12b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-12c",
-   "tests": []
+   "id": "FR-SCR-12c"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SCR-13",
-   "tests": []
+   "id": "FR-SCR-13"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-01",
-   "tests": []
+   "id": "FR-SEC-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-01a",
-   "tests": []
+   "id": "FR-SEC-01a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-01b",
-   "tests": []
+   "id": "FR-SEC-01b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-01c",
-   "tests": []
+   "id": "FR-SEC-01c"
   },
   {
+   "by_mark": [
+    "tests/unit/test_eval_public_suites.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-02",
-   "tests": []
+   "id": "FR-SEC-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-03",
-   "tests": []
+   "id": "FR-SEC-03"
   },
   {
+   "by_mark": [
+    "tests/unit/test_champion_qualify.py",
+    "tests/unit/test_model_swap.py",
+    "tests/unit/test_pin_model.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-04",
-   "tests": []
+   "id": "FR-SEC-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-04a",
-   "tests": []
+   "id": "FR-SEC-04a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-05",
-   "tests": []
+   "id": "FR-SEC-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-05a",
-   "tests": []
+   "id": "FR-SEC-05a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-06",
-   "tests": []
+   "id": "FR-SEC-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-06a",
-   "tests": []
+   "id": "FR-SEC-06a"
   },
   {
+   "by_mark": [
+    "tests/unit/test_gateway.py",
+    "tests/unit/test_phi_recognisers.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-07",
-   "tests": []
+   "id": "FR-SEC-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-08",
-   "tests": []
+   "id": "FR-SEC-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-08a",
-   "tests": []
+   "id": "FR-SEC-08a"
   },
   {
+   "by_mark": [
+    "tests/unit/test_egress_rules.py",
+    "tests/unit/test_gateway.py",
+    "tests/unit/test_gateway_box_phi.py",
+    "tests/unit/test_model_swap.py",
+    "tests/unit/test_no_direct_model_calls.py",
+    "tests/unit/test_perimeter.py",
+    "tests/unit/test_pin_model.py",
+    "tests/unit/test_routing_policy.py",
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-09",
-   "tests": []
+   "id": "FR-SEC-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-10",
-   "tests": []
+   "id": "FR-SEC-10"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-10a",
-   "tests": []
+   "id": "FR-SEC-10a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-11",
-   "tests": []
+   "id": "FR-SEC-11"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-12",
-   "tests": []
+   "id": "FR-SEC-12"
   },
   {
+   "by_mark": [
+    "tests/unit/test_egress_rules.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-13",
-   "tests": []
+   "id": "FR-SEC-13"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SEC-13a",
-   "tests": []
+   "id": "FR-SEC-13a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-STUDY-01",
-   "tests": []
+   "id": "FR-STUDY-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-STUDY-01a",
-   "tests": []
+   "id": "FR-STUDY-01a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-STUDY-01b",
-   "tests": []
+   "id": "FR-STUDY-01b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-STUDY-02",
-   "tests": []
+   "id": "FR-STUDY-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-STUDY-03",
-   "tests": []
+   "id": "FR-STUDY-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-STUDY-03a",
-   "tests": []
+   "id": "FR-STUDY-03a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-STUDY-04",
-   "tests": []
+   "id": "FR-STUDY-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-STUDY-05",
-   "tests": []
+   "id": "FR-STUDY-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-STUDY-05a",
-   "tests": []
+   "id": "FR-STUDY-05a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-STUDY-05b",
-   "tests": []
+   "id": "FR-STUDY-05b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-STUDY-06",
-   "tests": []
+   "id": "FR-STUDY-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-STUDY-07",
-   "tests": []
+   "id": "FR-STUDY-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-STUDY-07a",
-   "tests": []
+   "id": "FR-STUDY-07a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-STUDY-07b",
-   "tests": []
+   "id": "FR-STUDY-07b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-STUDY-07c",
-   "tests": []
+   "id": "FR-STUDY-07c"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-STUDY-08",
-   "tests": []
+   "id": "FR-STUDY-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-STUDY-09",
-   "tests": []
+   "id": "FR-STUDY-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-STUDY-10",
-   "tests": []
+   "id": "FR-STUDY-10"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-STUDY-10a",
-   "tests": []
+   "id": "FR-STUDY-10a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SYN-01",
-   "tests": []
+   "id": "FR-SYN-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SYN-02",
-   "tests": []
+   "id": "FR-SYN-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SYN-03",
-   "tests": []
+   "id": "FR-SYN-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SYN-04",
-   "tests": []
+   "id": "FR-SYN-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-SYN-04a",
-   "tests": []
+   "id": "FR-SYN-04a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-TC-01",
-   "tests": []
+   "id": "FR-TC-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-TC-02",
-   "tests": []
+   "id": "FR-TC-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-TC-03",
-   "tests": []
+   "id": "FR-TC-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-TC-03a",
-   "tests": []
+   "id": "FR-TC-03a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-TC-03b",
-   "tests": []
+   "id": "FR-TC-03b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-TC-04",
-   "tests": []
+   "id": "FR-TC-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-TC-04a",
-   "tests": []
+   "id": "FR-TC-04a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-TC-04b",
-   "tests": []
+   "id": "FR-TC-04b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-TC-05",
-   "tests": []
+   "id": "FR-TC-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-TC-06",
-   "tests": []
+   "id": "FR-TC-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-TC-07",
-   "tests": []
+   "id": "FR-TC-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-01",
-   "tests": []
+   "id": "FR-UI-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-01a",
-   "tests": []
+   "id": "FR-UI-01a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-02",
-   "tests": []
+   "id": "FR-UI-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-03",
-   "tests": []
+   "id": "FR-UI-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-04a",
-   "tests": []
+   "id": "FR-UI-04a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-04b",
-   "tests": []
+   "id": "FR-UI-04b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-05",
-   "tests": []
+   "id": "FR-UI-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-06",
-   "tests": []
+   "id": "FR-UI-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-07",
-   "tests": []
+   "id": "FR-UI-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-08a",
-   "tests": []
+   "id": "FR-UI-08a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-08b",
-   "tests": []
+   "id": "FR-UI-08b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-09",
-   "tests": []
+   "id": "FR-UI-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-10",
-   "tests": []
+   "id": "FR-UI-10"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-11a",
-   "tests": []
+   "id": "FR-UI-11a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-11b",
-   "tests": []
+   "id": "FR-UI-11b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-11c",
-   "tests": []
+   "id": "FR-UI-11c"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-11d",
-   "tests": []
+   "id": "FR-UI-11d"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-11e",
-   "tests": []
+   "id": "FR-UI-11e"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-11f",
-   "tests": []
+   "id": "FR-UI-11f"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-12",
-   "tests": []
+   "id": "FR-UI-12"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-13",
-   "tests": []
+   "id": "FR-UI-13"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-13a",
-   "tests": []
+   "id": "FR-UI-13a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-13b",
-   "tests": []
+   "id": "FR-UI-13b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-14",
-   "tests": []
+   "id": "FR-UI-14"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-14a",
-   "tests": []
+   "id": "FR-UI-14a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-15",
-   "tests": []
+   "id": "FR-UI-15"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-16",
-   "tests": []
+   "id": "FR-UI-16"
   },
   {
-   "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-17",
-   "tests": [
+   "by_mark": [],
+   "by_text": [
     "tests/console/test_console_app.py",
     "tests/integration/test_list_demo.py"
-   ]
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-17"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-17a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-18"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-19"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-03a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-03b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-11"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-17a",
-   "tests": []
+   "id": "IR-11a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-18",
-   "tests": []
+   "id": "IR-11b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "FR-UI-19",
-   "tests": []
+   "id": "IR-12"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-AVAIL-01",
-   "tests": []
+   "id": "NFR-AVAIL-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-AVAIL-02",
-   "tests": []
+   "id": "NFR-AVAIL-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-AVAIL-03",
-   "tests": []
+   "id": "NFR-AVAIL-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-AVAIL-04",
-   "tests": []
+   "id": "NFR-AVAIL-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-CAP-01",
-   "tests": []
+   "id": "NFR-CAP-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-CAP-02",
-   "tests": []
+   "id": "NFR-CAP-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-CAP-03",
-   "tests": []
+   "id": "NFR-CAP-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-CAP-04",
-   "tests": []
+   "id": "NFR-CAP-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-CAP-05",
-   "tests": []
+   "id": "NFR-CAP-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-CAP-05a",
-   "tests": []
+   "id": "NFR-CAP-05a"
   },
   {
+   "by_mark": [
+    "tests/console/test_console_app.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-COMP-01",
-   "tests": []
+   "id": "NFR-COMP-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-COMP-02",
-   "tests": []
+   "id": "NFR-COMP-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-COMP-03a",
-   "tests": []
+   "id": "NFR-COMP-03a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-COMP-03b",
-   "tests": []
+   "id": "NFR-COMP-03b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-COMP-03c",
-   "tests": []
+   "id": "NFR-COMP-03c"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-COMP-04",
-   "tests": []
+   "id": "NFR-COMP-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-COMP-05",
-   "tests": []
+   "id": "NFR-COMP-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-COMP-06",
-   "tests": []
+   "id": "NFR-COMP-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-COMP-06a",
-   "tests": []
+   "id": "NFR-COMP-06a"
   },
   {
+   "by_mark": [
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-COMP-07",
-   "tests": []
+   "id": "NFR-COMP-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-COMP-08",
-   "tests": []
+   "id": "NFR-COMP-08"
   },
   {
+   "by_mark": [
+    "tests/testbench/test_testbench_app.py",
+    "tests/unit/test_dataclass.py",
+    "tests/unit/test_eval_public_suites.py",
+    "tests/unit/test_pin_model.py",
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-MAINT-01a",
-   "tests": []
+   "id": "NFR-MAINT-01a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-MAINT-01b",
-   "tests": []
+   "id": "NFR-MAINT-01b"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-MAINT-02",
-   "tests": []
+   "id": "NFR-MAINT-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-MAINT-03",
-   "tests": []
+   "id": "NFR-MAINT-03"
   },
   {
+   "by_mark": [
+    "tests/testbench/test_testbench_app.py",
+    "tests/unit/test_dataclass.py",
+    "tests/unit/test_eval_public_suites.py",
+    "tests/unit/test_pin_model.py",
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-MAINT-04",
-   "tests": []
+   "id": "NFR-MAINT-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-MAINT-04a",
-   "tests": []
+   "id": "NFR-MAINT-04a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-MAINT-05",
-   "tests": []
+   "id": "NFR-MAINT-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PERF-01",
-   "tests": []
+   "id": "NFR-PERF-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PERF-02",
-   "tests": []
+   "id": "NFR-PERF-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PERF-03",
-   "tests": []
+   "id": "NFR-PERF-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PERF-04",
-   "tests": []
+   "id": "NFR-PERF-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PERF-05",
-   "tests": []
+   "id": "NFR-PERF-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PERF-06",
-   "tests": []
+   "id": "NFR-PERF-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PERF-07a",
-   "tests": []
+   "id": "NFR-PERF-07a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PERF-07b",
-   "tests": []
+   "id": "NFR-PERF-07b"
   },
   {
+   "by_mark": [
+    "tests/unit/test_registry_match_core.py",
+    "tests/unit/test_registry_match_harness.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PERF-08",
-   "tests": []
+   "id": "NFR-PERF-08"
   },
   {
+   "by_mark": [
+    "tests/unit/test_registry_match_core.py",
+    "tests/unit/test_registry_match_harness.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PERF-09",
-   "tests": []
+   "id": "NFR-PERF-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PERF-10",
-   "tests": []
+   "id": "NFR-PERF-10"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PERF-11",
-   "tests": []
+   "id": "NFR-PERF-11"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PERF-11a",
-   "tests": []
+   "id": "NFR-PERF-11a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PERF-12",
-   "tests": []
+   "id": "NFR-PERF-12"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PERF-13",
-   "tests": []
+   "id": "NFR-PERF-13"
   },
   {
+   "by_mark": [
+    "tests/unit/test_tracestore.py"
+   ],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PERF-14",
-   "tests": []
+   "id": "NFR-PERF-14"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PERF-14a",
-   "tests": []
+   "id": "NFR-PERF-14a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PERF-15",
-   "tests": []
+   "id": "NFR-PERF-15"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PORT-01",
-   "tests": []
+   "id": "NFR-PORT-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PORT-02",
-   "tests": []
+   "id": "NFR-PORT-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-PORT-03",
-   "tests": []
+   "id": "NFR-PORT-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-USAB-01",
-   "tests": []
+   "id": "NFR-USAB-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-USAB-02",
-   "tests": []
+   "id": "NFR-USAB-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-USAB-03",
-   "tests": []
+   "id": "NFR-USAB-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-USAB-04",
-   "tests": []
+   "id": "NFR-USAB-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-USAB-05",
-   "tests": []
+   "id": "NFR-USAB-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-USAB-06",
-   "tests": []
+   "id": "NFR-USAB-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-USAB-06a",
-   "tests": []
+   "id": "NFR-USAB-06a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-USAB-07",
-   "tests": []
+   "id": "NFR-USAB-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-USAB-07a",
-   "tests": []
+   "id": "NFR-USAB-07a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-USAB-08",
-   "tests": []
+   "id": "NFR-USAB-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-USAB-08a",
-   "tests": []
+   "id": "NFR-USAB-08a"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-USAB-09",
-   "tests": []
+   "id": "NFR-USAB-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/design/01-SRS.md",
-   "id": "NFR-USAB-10",
-   "tests": []
+   "id": "NFR-USAB-10"
   },
   {
-   "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-01",
-   "tests": [
+   "by_mark": [],
+   "by_text": [
     "tests/unit/test_gen_traceability.py"
-   ]
+   ],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-02",
-   "tests": []
+   "id": "URS-ADM-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-03",
-   "tests": []
+   "id": "URS-ADM-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-04",
-   "tests": []
+   "id": "URS-ADM-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-05",
-   "tests": []
+   "id": "URS-ADM-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-06",
-   "tests": []
+   "id": "URS-ADM-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-07",
-   "tests": []
+   "id": "URS-ADM-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-08",
-   "tests": []
+   "id": "URS-ADM-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-09",
-   "tests": []
+   "id": "URS-ADM-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-10",
-   "tests": []
+   "id": "URS-ADM-10"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-11",
-   "tests": []
+   "id": "URS-ADM-11"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-12",
-   "tests": []
+   "id": "URS-ADM-12"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-13",
-   "tests": []
+   "id": "URS-ADM-13"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-14",
-   "tests": []
+   "id": "URS-ADM-14"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-15",
-   "tests": []
+   "id": "URS-ADM-15"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-16",
-   "tests": []
+   "id": "URS-ADM-16"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-17",
-   "tests": []
+   "id": "URS-ADM-17"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-18",
-   "tests": []
+   "id": "URS-ADM-18"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-19",
-   "tests": []
+   "id": "URS-ADM-19"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-20",
-   "tests": []
+   "id": "URS-ADM-20"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-21",
-   "tests": []
+   "id": "URS-ADM-21"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-ADM-22",
-   "tests": []
+   "id": "URS-ADM-22"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-CLN-01",
-   "tests": []
+   "id": "URS-CLN-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-CLN-02",
-   "tests": []
+   "id": "URS-CLN-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-CLN-03",
-   "tests": []
+   "id": "URS-CLN-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-CRA-01",
-   "tests": []
+   "id": "URS-CRA-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-CRA-02",
-   "tests": []
+   "id": "URS-CRA-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-CRA-03",
-   "tests": []
+   "id": "URS-CRA-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-CRC-01",
-   "tests": []
+   "id": "URS-CRC-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-CRC-02",
-   "tests": []
+   "id": "URS-CRC-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-CRC-03",
-   "tests": []
+   "id": "URS-CRC-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-CRC-04",
-   "tests": []
+   "id": "URS-CRC-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-CRC-05",
-   "tests": []
+   "id": "URS-CRC-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-CRC-06",
-   "tests": []
+   "id": "URS-CRC-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-CRC-07",
-   "tests": []
+   "id": "URS-CRC-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-CRC-08",
-   "tests": []
+   "id": "URS-CRC-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-CRC-09",
-   "tests": []
+   "id": "URS-CRC-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-CRC-10",
-   "tests": []
+   "id": "URS-CRC-10"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-CRC-11",
-   "tests": []
+   "id": "URS-CRC-11"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-CRC-12",
-   "tests": []
+   "id": "URS-CRC-12"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-CRC-13",
-   "tests": []
+   "id": "URS-CRC-13"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-CRC-14",
-   "tests": []
+   "id": "URS-CRC-14"
   },
   {
-   "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-01",
-   "tests": [
+   "by_mark": [],
+   "by_text": [
     "tests/unit/test_gen_traceability.py"
-   ]
+   ],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-02",
-   "tests": []
+   "id": "URS-PI-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-03",
-   "tests": []
+   "id": "URS-PI-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-04",
-   "tests": []
+   "id": "URS-PI-04"
   },
   {
-   "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-05",
-   "tests": [
+   "by_mark": [],
+   "by_text": [
     "tests/console/test_not_matched_sample.py"
-   ]
+   ],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-05"
   },
   {
-   "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-06",
-   "tests": [
+   "by_mark": [],
+   "by_text": [
     "tests/unit/test_ruleset_pins.py"
-   ]
+   ],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-07",
-   "tests": []
+   "id": "URS-PI-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-08",
-   "tests": []
+   "id": "URS-PI-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-09",
-   "tests": []
+   "id": "URS-PI-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-10",
-   "tests": []
+   "id": "URS-PI-10"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-11",
-   "tests": []
+   "id": "URS-PI-11"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-12",
-   "tests": []
+   "id": "URS-PI-12"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-13",
-   "tests": []
+   "id": "URS-PI-13"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-14",
-   "tests": []
+   "id": "URS-PI-14"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-15",
-   "tests": []
+   "id": "URS-PI-15"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-16",
-   "tests": []
+   "id": "URS-PI-16"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-17",
-   "tests": []
+   "id": "URS-PI-17"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-18",
-   "tests": []
+   "id": "URS-PI-18"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-19",
-   "tests": []
+   "id": "URS-PI-19"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-20",
-   "tests": []
+   "id": "URS-PI-20"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PI-21",
-   "tests": []
+   "id": "URS-PI-21"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PRV-01",
-   "tests": []
+   "id": "URS-PRV-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PRV-02",
-   "tests": []
+   "id": "URS-PRV-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PRV-03",
-   "tests": []
+   "id": "URS-PRV-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PRV-04",
-   "tests": []
+   "id": "URS-PRV-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PRV-05",
-   "tests": []
+   "id": "URS-PRV-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PRV-06",
-   "tests": []
+   "id": "URS-PRV-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PRV-07",
-   "tests": []
+   "id": "URS-PRV-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PRV-08",
-   "tests": []
+   "id": "URS-PRV-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PRV-09",
-   "tests": []
+   "id": "URS-PRV-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-PRV-10",
-   "tests": []
+   "id": "URS-PRV-10"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-STW-01",
-   "tests": []
+   "id": "URS-STW-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-STW-02",
-   "tests": []
+   "id": "URS-STW-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-STW-03",
-   "tests": []
+   "id": "URS-STW-03"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-STW-04",
-   "tests": []
+   "id": "URS-STW-04"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-STW-05",
-   "tests": []
+   "id": "URS-STW-05"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-STW-06",
-   "tests": []
+   "id": "URS-STW-06"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-STW-07",
-   "tests": []
+   "id": "URS-STW-07"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-STW-08",
-   "tests": []
+   "id": "URS-STW-08"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-STW-09",
-   "tests": []
+   "id": "URS-STW-09"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-STW-10",
-   "tests": []
+   "id": "URS-STW-10"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-STW-11",
-   "tests": []
+   "id": "URS-STW-11"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-STW-12",
-   "tests": []
+   "id": "URS-STW-12"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-STW-13",
-   "tests": []
+   "id": "URS-STW-13"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-STW-14",
-   "tests": []
+   "id": "URS-STW-14"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-STW-15",
-   "tests": []
+   "id": "URS-STW-15"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-STW-16",
-   "tests": []
+   "id": "URS-STW-16"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-SUB-01",
-   "tests": []
+   "id": "URS-SUB-01"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-SUB-02",
-   "tests": []
+   "id": "URS-SUB-02"
   },
   {
+   "by_mark": [],
+   "by_text": [],
    "home": "docs/plan/25-master-plan.md",
-   "id": "URS-SUB-03",
-   "tests": []
+   "id": "URS-SUB-03"
   }
  ],
  "results_from": [
-  "results.xml"
+  "results-run.xml",
+  "results-withdrawal.xml"
  ],
  "safety_core_untied": [
   "tests/llm/test_llm_layer.py",
   "tests/unit/test_budget_of_context_unknown.py",
-  "tests/unit/test_cascade_units.py",
   "tests/unit/test_consent_unit.py",
   "tests/unit/test_cql_sql_generators.py",
-  "tests/unit/test_criterion_ir_v3.py",
   "tests/unit/test_demo_image.py",
   "tests/unit/test_derived_phi.py",
   "tests/unit/test_equivalence_gate.py",
@@ -4229,14 +5468,31 @@
   "tests/unit/test_llm_client.py",
   "tests/unit/test_malignancy_c44_c4a.py",
   "tests/unit/test_model_hold.py",
-  "tests/unit/test_phi_recognisers.py",
   "tests/unit/test_proposed_and_coded_filters.py",
-  "tests/unit/test_provider_pin.py",
   "tests/unit/test_quotes.py",
-  "tests/unit/test_routing_policy.py",
   "tests/unit/test_s2b_skipped_when_the_window_fits.py",
   "tests/unit/test_screen_survives_an_embed_outage.py",
   "tests/unit/test_screen_v1_judging.py"
+ ],
+ "tools": [
+  {
+   "reads": "TB-PLAN-05 (superseded): URS, RSK, TST ids",
+   "runs": "CI job checks (warns only)",
+   "tool": "tools/gen_traceability.py",
+   "writes": "docs/plan/25-traceability.csv, status 'planned' on every row"
+  },
+  {
+   "reads": "@pytest.mark.req ids of a run's trace.jsonl, TB-DS-01 Appendix D",
+   "runs": "CI unit job, every PR; kept as the artifact 'traceability', never in the repository",
+   "tool": "tools/traceability.py (NEW-STD-3)",
+   "writes": "traceability.csv/.md, summary.md: requirement, test, result of that run"
+  },
+  {
+   "reads": "plan 8 criteria, both requirement homes, mark.req via Appendix D, ids in test text, decisions, junit results, the criteria's own commands",
+   "runs": "by hand",
+   "tool": "tools/trace_dry.py (V-15)",
+   "writes": "this measurement"
+  }
  ],
  "tst_rows": [
   {

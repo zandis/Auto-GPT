@@ -1,21 +1,20 @@
 """trace_dry: a first, dry traceability table for plan 8's validation pack (card V-15).
 
-    python -m tools.trace_dry --write                      # collect the test ids, read the results, write the table
-    python -m tools.trace_dry --write --collection F       # use a saved `pytest --collect-only -q` output instead
-    python -m tools.trace_dry --write --results a.xml ...  # junit xml files with real outcomes (pytest --junitxml)
-    python -m tools.trace_dry --check                      # the page's generated blocks equal trace.json, and every
-                                                           # test named in trace.json is in the committed collection
+    python -m tools.trace_dry --write --out DIR --results r.xml [--collection C]  # write the measurement into DIR
+    python -m tools.trace_dry --write --out DIR --results DIR/results-summary.json  # re-write from the kept outcomes
+    python -m tools.trace_dry --write --out DIR --no-results                      # on purpose: no outcome at all
+    python -m tools.trace_dry --check [--out DIR]          # internal consistency of the record (the unit test's check)
+    python -m tools.trace_dry --check --live [--out DIR]   # also: today's tree still has every test the record names
 
-How it relates to ``tools/gen_traceability.py``: that tool reads the superseded plan TB-PLAN-05 and writes
-``docs/plan/25-traceability.csv`` with the status "planned" on every row. It is not changed here. This tool reads the
-same requirement ids, the second home of requirements (the SRS, TB-DS-01), the decisions, the collected test ids and
-real junit results, and writes a measurement under ``docs/plan/measurements/traceability-dry-2026-11-17/``. When the
-validation pack is built, the owner of the pack can fold the reading of results into one generator.
+``--write`` refuses to replace kept outcomes with nothing unless ``--no-results`` is given. ``--collection`` takes a
+saved ``pytest --collect-only -q`` output; without it the tool collects. Only the files and test names the table names
+are kept (``collection.json``). A criterion with its own measuring command (8: the erasure registry's owed list;
+11: the findings register) is read from that command.
 
-Rows: plan 8's twelve release criteria (a mapping to test files written by hand below, CRITERIA); the requirements
-(URS of TB-PLAN-05, FR and NFR of TB-DS-01) with the tests that cite each id; the decisions with the tests that cite
-each number; the safety-core tests that cite no requirement and no decision; the parts of the pack the generator
-cannot yet produce (PACK). Outcomes come only from junit files: a test with no outcome there is "not run here".
+Three tools touch traceability (finding V15-10): ``tools/gen_traceability.py`` (the superseded plan's CSV, status
+"planned"), ``tools/traceability.py`` (NEW-STD-3: ``@pytest.mark.req`` ids through TB-DS-01 Appendix D, with the
+result of a CI run; an artifact, never in the repository) and this one, which reuses the second's Appendix D reader
+and adds the criteria, the decisions, the ids in test text and kept results.
 """
 
 from __future__ import annotations
@@ -24,6 +23,7 @@ import argparse
 import csv
 import html
 import json
+import os
 import re
 import subprocess
 import sys
@@ -31,6 +31,8 @@ import tomllib
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
+
+from tools.traceability import _DS_ID, appendix
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "docs" / "plan" / "measurements" / "traceability-dry-2026-11-17"
@@ -54,7 +56,8 @@ TRACE_DOCS = (
 )
 
 URS = re.compile(r"\bURS-[A-Z]+-\d+\b")
-FRS = re.compile(r"\bN?FR-[A-Z]+-\d+[a-z]?\b")
+DS_ID = _DS_ID  # a TB-DS-01 requirement id, as tools/traceability.py reads it
+MARK_REQ = re.compile(r"mark\.req\(([^)]*)\)", re.S)
 DEC = re.compile(r"\bD-0*(\d{1,4})\b")
 TEST_FILE = re.compile(r"\b(test_\w+)\.py\b")
 TEST_FUNC = re.compile(r"(?<![\w/.])(test_\w+)\b(?!\.py)")
@@ -104,6 +107,7 @@ CRITERIA: dict[int, dict[str, Any]] = {
         "files": r"edc|redcap|withdraw|signing",
         "rest": "lane E's REDCap container, the owner's EDC, CGRD on the owner's PC (V14, V15)",
         "bears": "drafting, signing and sending against stubs; not the round trip",
+        "note": "the withdrawal rule fails: test_v15_withdrawal_data_use.py, strict xfail, V15-06",
     },
     7: {
         "files": r"help|role_guide|journey",
@@ -115,6 +119,7 @@ CRITERIA: dict[int, dict[str, Any]] = {
         "files": r"erasure|optout|opt_out|opted",
         "rest": "the compose box, every store (V7)",
         "bears": "opt-out and erasure in each store the tests build",
+        "measure": "erasure_owed",
     },
     9: {
         "files": r"release|sbom|traceab|vuln|waiver",
@@ -135,12 +140,14 @@ CRITERIA: dict[int, dict[str, Any]] = {
             "tests/unit/test_demo_walks.py",
         ],
         "rest": "the compose box, three languages, phone width (V16, V8)",
-        "bears": "the matrix test and the walks that run in process",
+        "bears": "the matrix tests; the walks the criterion asks for need compose",
+        "note": "no walk ran here: the skips are the e2e walks; the passes are matrix and in-process tests",
     },
     11: {
         "files": ["tests/unit/test_findings_register.py"],
         "rest": "the register itself, read at release (V20)",
-        "bears": "the register tool; the register is not on master",
+        "bears": "the register tool; the register itself is read by its own command",
+        "measure": "findings_register",
     },
     12: {
         "files": [],
@@ -149,6 +156,29 @@ CRITERIA: dict[int, dict[str, Any]] = {
         "bears": "nothing in the repository",
     },
 }
+
+# The three tools on one subject (finding V15-10).
+TOOLS: list[dict[str, str]] = [
+    {
+        "tool": "tools/gen_traceability.py",
+        "reads": "TB-PLAN-05 (superseded): URS, RSK, TST ids",
+        "writes": "docs/plan/25-traceability.csv, status 'planned' on every row",
+        "runs": "CI job checks (warns only)",
+    },
+    {
+        "tool": "tools/traceability.py (NEW-STD-3)",
+        "reads": "@pytest.mark.req ids of a run's trace.jsonl, TB-DS-01 Appendix D",
+        "writes": "traceability.csv/.md, summary.md: requirement, test, result of that run",
+        "runs": "CI unit job, every PR; kept as the artifact 'traceability', never in the repository",
+    },
+    {
+        "tool": "tools/trace_dry.py (V-15)",
+        "reads": "plan 8 criteria, both requirement homes, mark.req via Appendix D, "
+        "ids in test text, decisions, junit results, the criteria's own commands",
+        "writes": "this measurement",
+        "runs": "by hand",
+    },
+]
 
 # The parts of the pack the generator cannot yet produce. `path` is checked for existence at --write.
 PACK: list[dict[str, Any]] = [
@@ -162,7 +192,7 @@ PACK: list[dict[str, Any]] = [
         "part": "OQ protocol and record",
         "path": "tools/acceptance.py",
         "command": "tools/acceptance.py; CI",
-        "missing": "no OQ protocol; CI writes no junit for the unit suite, so no result is kept for a release",
+        "missing": "no OQ protocol; CI keeps per-test results of marked tests only as an artifact, tied to no release",
     },
     {
         "part": "Risk file linked to tests",
@@ -245,8 +275,6 @@ def run_collection() -> str:
         "no:randomly",
     ]
     env = {"PYTHONPATH": "libs:services:."}
-    import os
-
     done = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, env={**os.environ, **env}, check=False)
     if done.returncode != 0:
         raise SystemExit(f"trace_dry: the collection failed ({done.returncode}); nothing written")
@@ -312,8 +340,8 @@ def requirements() -> dict[str, str]:
         if m:
             out.setdefault(m.group(1), rel(URS_HOME))
     for line in SRS_HOME.read_text().splitlines():
-        m = re.match(r"^\| (N?FR-[A-Z]+-\d+[a-z]?) \|", line)
-        if m:
+        m = re.match(r"^\| ([A-Z][A-Za-z0-9-]+) \|", line)
+        if m and DS_ID.fullmatch(m.group(1)):
             out.setdefault(m.group(1), rel(SRS_HOME))
     return out
 
@@ -395,7 +423,9 @@ def outcomes_for(files: list[str], results: dict[str, str]) -> dict[str, Any]:
     return {"files": len(files), "files_run": run_files, "outcomes": dict(sorted(count.items())), "not_passed": bad}
 
 
-def criterion_status(kind: str, files: list[str], o: dict[str, Any]) -> str:
+def criterion_status(kind: str, files: list[str], o: dict[str, Any], measure: dict[str, Any] | None = None) -> str:
+    if measure and measure["verdict"] == "fails":
+        return "fails today by its own command"
     if kind == "untestable" and not files:
         return "not testable in the repository"
     if not files:
@@ -405,6 +435,46 @@ def criterion_status(kind: str, files: list[str], o: dict[str, Any]) -> str:
     if any(k != "passed" for k in o["outcomes"]) or o["files_run"] < o["files"]:
         return "has tests, some xfail/skip/fail or not run"
     return "has passing tests that show part of it"
+
+
+def measure(name: str) -> dict[str, Any]:
+    """A criterion's own measuring command, run now; its printed answer is kept (equal on the same tree)."""
+    if name == "erasure_owed":
+        sys.path[:0] = [str(ROOT / "libs"), str(ROOT / "services")]
+        from tb_common import erasure
+
+        n = len(erasure.owed())
+        return {
+            "command": "tb_common.erasure.owed()",
+            "answer": f"{n} entries owed",
+            "exit": 0,
+            "verdict": "fails" if n else "passes",
+        }
+    if name == "findings_register":
+        env = {**os.environ, "PYTHONPATH": "libs:services:."}
+        counts = subprocess.run(
+            [sys.executable, "-m", "tools.findings_register", "--counts"],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        release = subprocess.run(
+            [sys.executable, "-m", "tools.findings_register", "--check", "--release"],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return {
+            "command": "python -m tools.findings_register --counts; --check --release",
+            "answer": counts.stdout.strip().splitlines()[0] if counts.stdout.strip() else counts.stderr.strip(),
+            "exit": release.returncode,
+            "verdict": "fails" if release.returncode else "passes",
+        }
+    raise ValueError(name)
 
 
 def dead_references(collection: dict[str, list[str]]) -> list[dict[str, Any]]:
@@ -417,14 +487,8 @@ def dead_references(collection: dict[str, list[str]]) -> list[dict[str, Any]]:
         for i, line in enumerate(text.splitlines(), 1):
             for m in TEST_FILE.finditer(line):
                 if m.group(1) not in files:
-                    out.append(
-                        {
-                            "doc": doc,
-                            "line": i,
-                            "name": m.group(1) + ".py",
-                            "why": "file on disk, no test collected" if m.group(1) in on_disk else "no such test file",
-                        }
-                    )
+                    why = "file on disk, no test collected" if m.group(1) in on_disk else "no such test file"
+                    out.append({"doc": doc, "line": i, "name": m.group(1) + ".py", "why": why})
             for m in TEST_FUNC.finditer(line):
                 n = m.group(1)
                 if n not in names and n not in files and n not in on_disk:
@@ -432,7 +496,7 @@ def dead_references(collection: dict[str, list[str]]) -> list[dict[str, Any]]:
     return out
 
 
-def tst_resolution(collection: dict[str, list[str]]) -> list[dict[str, Any]]:
+def tst_resolution(collection: dict[str, list[str]]) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """Each TST id of TB-PLAN-05's test table: the test files its row names, and its links in the CSV."""
     stems = {f.rsplit("/", 1)[-1].removesuffix(".py"): f for f in collection}
     links = list(csv.DictReader((ROOT / "docs" / "plan" / "25-traceability.csv").read_text().splitlines()))
@@ -449,10 +513,31 @@ def tst_resolution(collection: dict[str, list[str]]) -> list[dict[str, Any]]:
                     "csv_links": sum(row["test"] == m.group(1) for row in links),
                 }
             )
+    ids = {r["id"] for r in out}
+    base = {
+        "csv_rows": len(links),
+        "csv_rows_with_no_test": sum(row["test"] in ("", "-") for row in links),
+        "csv_rows_to_a_tst_id": sum(row["test"] in ids for row in links),
+        "csv_rows_to_a_tst_naming_no_test": sum(row["test"] in ids for row in links if not stems_for(row, out)),
+    }
+    return out, base
+
+
+def stems_for(row: dict[str, str], tst: list[dict[str, Any]]) -> list[str]:
+    return next((r["collected"] for r in tst if r["id"] == row["test"]), [])
+
+
+def marker_ids(text: str) -> set[str]:
+    """The spec v4 ids of every ``mark.req(...)`` in a test file's text (read, not imported)."""
+    out: set[str] = set()
+    for m in MARK_REQ.finditer(text):
+        out.update(re.findall(r"[\"']([^\"']+)[\"']", m.group(1)))
     return out
 
 
-def build(collection: dict[str, list[str]], results: dict[str, str], results_from: list[str]) -> dict[str, Any]:
+def build(
+    collection: dict[str, list[str]], results: dict[str, str], results_from: list[str], commit: str
+) -> dict[str, Any]:
     tests = test_texts()
     safety, core = safety_tests()
     plan = criteria_from_plan()
@@ -461,28 +546,51 @@ def build(collection: dict[str, list[str]], results: dict[str, str], results_fro
         c = CRITERIA[n]
         files = files_for(c["files"], collection, safety)
         o = outcomes_for(files, results)
+        m = measure(c["measure"]) if c.get("measure") else None
         crit_rows.append(
             {
                 "criterion": n,
                 "title": plan[n]["title"],
                 "activities": plan[n]["activities"],
+                "kind": c.get("kind", "tests"),
                 "test_files": files,
                 "tests_bear_on": c["bears"],
+                "note": c.get("note", ""),
                 "rest_shown_only_by": c["rest"],
+                "measure": m,
                 "results": o,
-                "status": criterion_status(c.get("kind", "tests"), files, o),
+                "status": criterion_status(c.get("kind", "tests"), files, o, m),
             }
         )
 
     reqs = requirements()
-    cites: dict[str, list[str]] = defaultdict(list)
+    spec_map = appendix(SRS_HOME)
+    by_text: dict[str, set[str]] = defaultdict(set)
+    by_mark: dict[str, set[str]] = defaultdict(set)
+    marks_seen: set[str] = set()
+    marked_files: set[str] = set()
     for path, text in tests.items():
-        for rid in set(URS.findall(text)) | set(FRS.findall(text)):
-            cites[rid].append(path)
+        for rid in set(URS.findall(text)) | set(DS_ID.findall(text)):
+            by_text[rid].add(path)
+        specs = marker_ids(text)
+        if specs:
+            marked_files.add(path)
+        marks_seen |= specs
+        for spec in specs:
+            for ds in spec_map.get(spec, []):
+                by_mark[ds].add(path)
     req_rows: list[dict[str, Any]] = [
-        {"id": r, "home": h, "tests": sorted(cites.get(r, []))} for r, h in sorted(reqs.items())
+        {"id": r, "home": h, "by_mark": sorted(by_mark.get(r, [])), "by_text": sorted(by_text.get(r, []))}
+        for r, h in sorted(reqs.items())
     ]
-    unknown_cited = sorted(set(cites) - set(reqs))
+    mapped = {ds for s in marks_seen for ds in spec_map.get(s, []) if ds not in ("Design", "Retired")}
+    markers = {
+        "spec_ids_in_markers": len(marks_seen),
+        "spec_ids_not_in_appendix": sorted(s for s in marks_seen if s not in spec_map),
+        "ds_ids_reached": len(mapped),
+        "ds_ids_reached_among_requirements": len(mapped & set(reqs)),
+        "files_with_markers": len(marked_files),
+    }
 
     dec_tests: dict[int, list[str]] = defaultdict(list)
     test_decs: dict[str, list[int]] = {}
@@ -515,25 +623,21 @@ def build(collection: dict[str, list[str]], results: dict[str, str], results_fro
     untied = []
     for f in sorted(core_files):
         text = tests.get(f, "")
-        if not (URS.search(text) or FRS.search(text) or test_decs.get(f)):
+        if not (URS.search(text) or DS_ID.search(text) or test_decs.get(f) or f in marked_files):
             untied.append(f)
 
-    for p in PACK:
-        p["exists"] = (ROOT / p["path"]).exists()
-
+    pack = [{**p, "exists": (ROOT / p["path"]).exists()} for p in PACK]
     dead = dead_references(collection)
-    tst_rows = tst_resolution(collection)
+    tst_rows, csv_base = tst_resolution(collection)
     counts = {
-        "collected_test_names": sum(len(v) for v in collection.values()),
-        "collected_files": len(collection),
         "results_read": len(results),
-        "results_outcomes": dict(sorted(Counter(results.values()).items())),
         "requirements": len(req_rows),
         "requirements_urs": sum(r["id"].startswith("URS") for r in req_rows),
         "requirements_srs": sum(not r["id"].startswith("URS") for r in req_rows),
-        "requirements_with_tests": sum(bool(r["tests"]) for r in req_rows),
-        "requirements_without_tests": sum(not r["tests"] for r in req_rows),
-        "ids_cited_in_tests_not_defined": len(unknown_cited),
+        "requirements_marked": sum(bool(r["by_mark"]) for r in req_rows),
+        "requirements_cited_in_text": sum(bool(r["by_text"]) for r in req_rows),
+        "requirements_marked_or_cited": sum(bool(r["by_mark"] or r["by_text"]) for r in req_rows),
+        "requirements_neither": sum(not (r["by_mark"] or r["by_text"]) for r in req_rows),
         "decisions_merged_with_text": len(merged & set(texts)),
         "decisions_cited_by_tests": len(set(dec_tests) & merged & set(texts)),
         "decisions_not_cited": len((merged & set(texts)) - set(dec_tests)),
@@ -541,30 +645,54 @@ def build(collection: dict[str, list[str]], results: dict[str, str], results_fro
         "safety_core_test_files": len(core_files),
         "safety_core_tests_untied": len(untied),
         "dead_references": len(dead),
-        "dead_reference_names": len({d["name"] for d in dead}),
         "tst_ids": len(tst_rows),
         "tst_ids_naming_a_collected_test": sum(bool(r["collected"]) for r in tst_rows),
-        "csv_links": sum(r["csv_links"] for r in tst_rows),
-        "csv_links_to_a_tst_naming_no_test": sum(r["csv_links"] for r in tst_rows if not r["collected"]),
+        **csv_base,
+        **{k: v for k, v in markers.items() if isinstance(v, int)},
     }
     return {
         "date": "2026-11-17",
-        "commit": git_head(),
+        "commit": commit,
         "results_from": results_from,
         "counts": counts,
         "criteria": crit_rows,
         "requirements": req_rows,
-        "ids_cited_in_tests_not_defined": unknown_cited,
+        "markers": markers,
         "decisions_uncited_top40": uncited[:40],
         "safety_core_untied": untied,
         "dead_references": dead,
         "tst_rows": tst_rows,
-        "pack_cannot_yet": PACK,
+        "pack_cannot_yet": pack,
+        "tools": TOOLS,
         "heuristic": {
             "rule_words": RULE_WORDS.pattern,
             "safety_groups": SAFETY_GROUPS,
             "score": "3 per group in the title + 1 per group in the text",
         },
+    }
+
+
+def cut_collection(
+    parsed: dict[str, Any], trace: dict[str, Any], results: dict[str, str], sample: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """The collection kept with the measurement: only the files and test names the table names."""
+    files: set[str] = set(trace["safety_core_untied"])
+    for r in trace["criteria"]:
+        files |= set(r["test_files"])
+    for r in trace["requirements"]:
+        files |= set(r["by_mark"]) | set(r["by_text"])
+    for r in trace["tst_rows"]:
+        files |= set(r["collected"])
+    files |= {s["evidence"].split(" ", 1)[0] for s in sample if s["evidence"].startswith("tests/")}
+    names: dict[str, set[str]] = {f: set() for f in files if f in parsed["files"]}
+    for node in results:
+        f, _, name = node.partition("::")
+        if f in names:
+            names[f].add(name.split("[", 1)[0])
+    return {
+        "items": parsed["items"],
+        "files_total": len(parsed["files"]),
+        "files": {f: sorted(v) for f, v in sorted(names.items())},
     }
 
 
@@ -585,19 +713,23 @@ def table(head: list[str], rows: list[list[Any]]) -> str:
     return "\n".join(lines)
 
 
-def blocks(trace: dict[str, Any], findings: list[dict[str, Any]], sample: list[dict[str, Any]]) -> dict[str, str]:
+def blocks(
+    trace: dict[str, Any],
+    summary: dict[str, Any],
+    collection: dict[str, Any],
+    findings: list[dict[str, Any]],
+    sample: list[dict[str, Any]],
+) -> dict[str, str]:
     c = trace["counts"]
     out: dict[str, str] = {}
-    truly = sum(s["verdict"] == "no_test_found" for s in sample)
-    out["sample"] = table(
-        ["Decision", "Checked by hand", "Evidence"],
-        [[s["decision"], s["verdict"].replace("_", " "), s["evidence"]] for s in sample],
-    ) + (
-        f"\n\nSampled: {len(sample)}. Truly without a test: {truly}. Precision of the heuristic "
-        f'"no test cites it" as "no test": {truly}/{len(sample)}.'
-    )
+
+    def shown(r: dict[str, Any]) -> str:
+        m = r["measure"]
+        text = f"`{m['command']}`: {m['answer']}; exit {m['exit']}" if m else ""
+        return "; ".join(x for x in (text, r["note"]) if x)
+
     out["verdict"] = table(
-        ["#", "Criterion", "Status", "Test files (run here)", "Outcomes", "Shown only by"],
+        ["#", "Criterion", "Status", "Test files (run here)", "Outcomes", "Own command; note", "Shown only by"],
         [
             [
                 r["criterion"],
@@ -605,46 +737,59 @@ def blocks(trace: dict[str, Any], findings: list[dict[str, Any]], sample: list[d
                 r["status"],
                 f"{r['results']['files']} ({r['results']['files_run']})",
                 ", ".join(f"{k} {v}" for k, v in r["results"]["outcomes"].items()) or NOT_RUN,
+                shown(r),
                 r["rest_shown_only_by"],
             ]
             for r in trace["criteria"]
         ],
     )
     out["provenance"] = (
-        f"- Commit read: `{trace['commit']}`\n- Results read from: "
+        f"- Commit of the measurement: `{trace['commit']}`\n- Results read from: "
         + (", ".join(f"`{r}`" for r in trace["results_from"]) or "none")
-        + "\n"
-        + f"- Collected test items: {c.get('collected_items')}; test files: {c['collected_files']}; "
-        + f"junit results read: {c['results_read']}"
+        + f"\n- Collected test items: {collection['items']}; test files: {collection['files_total']}; "
+        + f"per-test results kept: {len(summary['outcomes'])} ("
+        + ", ".join(f"{k} {v}" for k, v in sorted(Counter(summary["outcomes"].values()).items()))
+        + ")"
     )
-    out["counts"] = table(
-        ["Count", "Value"],
-        [
-            [k.replace("_", " "), ", ".join(f"{a} {b}" for a, b in v.items()) if isinstance(v, dict) else v]
-            for k, v in sorted(c.items())
-        ],
-    )
+    out["counts"] = table(["Count", "Value"], [[k.replace("_", " "), v] for k, v in sorted(c.items())])
     out["not_passed"] = (
         "\n".join(f"- criterion {r['criterion']}: `{t}`" for r in trace["criteria"] for t in r["results"]["not_passed"])
         or "- none"
     )
+    homes = sorted({r["home"] for r in trace["requirements"]})
+    rq = trace["requirements"]
     out["requirements"] = table(
-        ["Home", "Requirements", "With a test that cites the id", "Without"],
+        ["Home", "Requirements", "Marked (mark.req via Appendix D)", "Id in a test's text", "Either", "Neither"],
         [
             [
                 h,
-                sum(r["home"] == h for r in trace["requirements"]),
-                sum(r["home"] == h and bool(r["tests"]) for r in trace["requirements"]),
-                sum(r["home"] == h and not r["tests"] for r in trace["requirements"]),
+                sum(r["home"] == h for r in rq),
+                sum(r["home"] == h and bool(r["by_mark"]) for r in rq),
+                sum(r["home"] == h and bool(r["by_text"]) for r in rq),
+                sum(r["home"] == h and bool(r["by_mark"] or r["by_text"]) for r in rq),
+                sum(r["home"] == h and not (r["by_mark"] or r["by_text"]) for r in rq),
             ]
-            for h in sorted({r["home"] for r in trace["requirements"]})
+            for h in homes
         ],
     )
-    out["requirements_cited"] = (
-        "\n".join(
-            f"- {r['id']}: " + ", ".join(f"`{t}`" for t in r["tests"]) for r in trace["requirements"] if r["tests"]
-        )
-        or "- none"
+    out["requirements_cited"] = table(
+        ["Requirement", "Marked by", "Cited in the text of"],
+        [
+            [
+                r["id"],
+                ", ".join(f"`{t}`" for t in r["by_mark"]) or "-",
+                ", ".join(f"`{t}`" for t in r["by_text"]) or "-",
+            ]
+            for r in rq
+            if r["by_mark"] or r["by_text"]
+        ],
+    )
+    mk = trace["markers"]
+    out["markers"] = (
+        f"- Spec v4 ids in `mark.req` markers: {mk['spec_ids_in_markers']}, in {mk['files_with_markers']} test files\n"
+        f"- TB-DS-01 ids they reach through Appendix D: {mk['ds_ids_reached']}; among this page's requirements: "
+        f"{mk['ds_ids_reached_among_requirements']}\n- Marker ids Appendix D does not map: "
+        + (", ".join(f"`{s}`" for s in mk["spec_ids_not_in_appendix"]) or "none")
     )
     out["decisions"] = table(
         ["#", "Decision", "Score", "Groups", "Title"],
@@ -653,15 +798,25 @@ def blocks(trace: dict[str, Any], findings: list[dict[str, Any]], sample: list[d
             for i, d in enumerate(trace["decisions_uncited_top40"], 1)
         ],
     )
+    truly = sum(s["verdict"] == "no_test_found" for s in sample)
+    out["sample"] = table(
+        ["Decision", "Checked by hand", "Evidence"],
+        [[s["decision"], s["verdict"].replace("_", " "), s["evidence"]] for s in sample],
+    ) + (
+        f"\n\nSampled: {len(sample)}. Truly without a test: {truly}. Precision of the heuristic "
+        f'"no test cites it" as "no test": {truly}/{len(sample)}.'
+    )
     out["untied"] = "\n".join(f"- `{f}`" for f in trace["safety_core_untied"]) or "- none"
     by_name: dict[tuple[str, str], list[str]] = defaultdict(list)
     for d in trace["dead_references"]:
         by_name[(d["name"], d["why"])].append(f"{d['doc']}:{d['line']}")
-    out["dead"] = table(
-        ["Name", "Why", "Where"], [[f"`{n}`", w, ", ".join(p)] for (n, w), p in sorted(by_name.items())]
+    out["dead"] = (
+        table(["Name", "Why", "Where"], [[f"`{n}`", w, ", ".join(p)] for (n, w), p in sorted(by_name.items())])
+        if by_name
+        else "None found."
     )
     out["tst"] = table(
-        ["TST id", "Test files its row names", "Collected", "Links in the CSV"],
+        ["TST id", "Test files its row names", "Collected", "Rows in the CSV"],
         [
             [r["id"], ", ".join(f"`{n}`" for n in r["named"]) or "none", len(r["collected"]), r["csv_links"]]
             for r in trace["tst_rows"]
@@ -674,6 +829,10 @@ def blocks(trace: dict[str, Any], findings: list[dict[str, Any]], sample: list[d
             [p["part"], f"`{p['path']}`", "yes" if p["exists"] else "no", p["command"], p["missing"]]
             for p in trace["pack_cannot_yet"]
         ],
+    )
+    out["tools"] = table(
+        ["Tool", "Reads", "Writes", "Runs in"],
+        [[t["tool"], t["reads"], t["writes"], t["runs"]] for t in trace["tools"]],
     )
     out["findings"] = table(
         ["Id", "Severity", "Basis", "Lane", "Claim", "Place"],
@@ -701,13 +860,66 @@ def render(page: str, new: dict[str, str]) -> str:
 FINDING_KEYS = {"id", "date", "source", "severity", "claim", "lane", "basis", "place", "expected", "happened", "ruling"}
 
 
-def check(out: Path = OUT, page: Path = PAGE) -> list[str]:
+def page_of(out: Path) -> Path:
+    return out.parent / f"{out.name}.md"
+
+
+def check(out: Path = OUT, page: Path | None = None, live: bool = False) -> list[str]:
+    """Internal consistency only, unless ``live``: the measurement is a record of one commit, not of today's tree."""
+    page = page or page_of(out)
     errors: list[str] = []
     trace = json.loads((out / "trace.json").read_text())
-    parsed = json.loads((out / "collection.json").read_text())
-    collection = parsed["files"]
+    coll = json.loads((out / "collection.json").read_text())
+    collection = coll["files"]
+    summary = json.loads((out / "results-summary.json").read_text())
+    results: dict[str, str] = summary["outcomes"]
     findings = json.loads((out / "findings.json").read_text())
     sample = json.loads((out / "sample-check.json").read_text())
+    # 1. each criterion's outcomes and status, recomputed from the kept per-test results
+    for r in trace["criteria"]:
+        o = outcomes_for(r["test_files"], results)
+        if o != r["results"]:
+            errors.append(f"criterion {r['criterion']}: its outcomes differ from results-summary.json")
+        st = criterion_status(r["kind"], r["test_files"], o, r["measure"])
+        if st != r["status"]:
+            errors.append(f"criterion {r['criterion']}: status {r['status']!r}, the results give {st!r}")
+    if trace["counts"]["results_read"] != len(results):
+        errors.append("count results_read: differs from results-summary.json")
+    # 2. the page's blocks equal what the json files give
+    want = blocks(trace, summary, coll, findings, sample)
+    have = {m[0]: m[1].rstrip("\n") for m in BLOCK.findall(page.read_text())}
+    for name, body in want.items():
+        if have.get(name) != body:
+            errors.append(f"block {name}: the page differs from the json")
+    # 3. the counts equal the rows
+    c = trace["counts"]
+    rq = trace["requirements"]
+    pairs = {
+        "requirements": len(rq),
+        "requirements_marked": sum(bool(r["by_mark"]) for r in rq),
+        "requirements_cited_in_text": sum(bool(r["by_text"]) for r in rq),
+        "requirements_marked_or_cited": sum(bool(r["by_mark"] or r["by_text"]) for r in rq),
+        "requirements_neither": sum(not (r["by_mark"] or r["by_text"]) for r in rq),
+        "safety_core_tests_untied": len(trace["safety_core_untied"]),
+        "dead_references": len(trace["dead_references"]),
+        "tst_ids": len(trace["tst_rows"]),
+        "tst_ids_naming_a_collected_test": sum(bool(r["collected"]) for r in trace["tst_rows"]),
+    }
+    for k, v in pairs.items():
+        if c.get(k) != v:
+            errors.append(f"count {k}: {c.get(k)} in trace.json, {v} from its rows")
+    # 4. every test named is in the committed collection
+    named: set[str] = set(trace["safety_core_untied"])
+    for r in trace["criteria"]:
+        named |= set(r["test_files"])
+    for r in rq:
+        named |= set(r["by_mark"]) | set(r["by_text"])
+    for f in sorted(named - set(collection)):
+        errors.append(f"{f} is not in the collection")
+    for node in sorted(results):
+        f, _, name = node.partition("::")
+        if name.split("[", 1)[0] not in collection.get(f, []):
+            errors.append(f"{node.split('[', 1)[0]} is not in the collection")
     top = {d["decision"] for d in trace["decisions_uncited_top40"]}
     for s in sample:
         if s["decision"] not in top:
@@ -715,50 +927,9 @@ def check(out: Path = OUT, page: Path = PAGE) -> list[str]:
         if s["verdict"] not in {"has_test", "no_test_found"}:
             errors.append(f"sample {s['decision']}: verdict {s['verdict']}")
         path = s["evidence"].split(" ", 1)[0]
-        if s["verdict"] == "has_test" and not (ROOT / path).exists():
-            errors.append(f"sample {s['decision']}: {path} is not on disk")
-    # 1. the page's blocks equal what trace.json and findings.json give
-    text = page.read_text()
-    want = blocks(trace, findings, sample)
-    have = {m[0]: m[1].rstrip("\n") for m in BLOCK.findall(text)}
-    for name, body in want.items():
-        if have.get(name) != body:
-            errors.append(f"block {name}: the page differs from the json")
-    # 2. the counts equal the rows
-    c = trace["counts"]
-    reqs = trace["requirements"]
-    pairs = {
-        "requirements": len(reqs),
-        "requirements_with_tests": sum(bool(r["tests"]) for r in reqs),
-        "requirements_without_tests": sum(not r["tests"] for r in reqs),
-        "safety_core_tests_untied": len(trace["safety_core_untied"]),
-        "dead_references": len(trace["dead_references"]),
-        "collected_test_names": sum(len(v) for v in collection.values()),
-        "collected_files": len(collection),
-    }
-    for k, v in pairs.items():
-        if c.get(k) != v:
-            errors.append(f"count {k}: {c.get(k)} in trace.json, {v} from its rows")
-    # 3. every test named in trace.json is in the committed collection, and its file is on disk
-    names = {f"{f}::{n}" for f, v in collection.items() for n in v}
-    for r in trace["criteria"]:
-        for f in r["test_files"]:
-            if f not in collection:
-                errors.append(f"criterion {r['criterion']}: {f} is not in the collection")
-            elif not (ROOT / f).exists():
-                errors.append(f"criterion {r['criterion']}: {f} is not on disk")
-        for t in r["results"]["not_passed"]:
-            node = t.rsplit(" [", 1)[0].split("[", 1)[0]
-            if node not in names:
-                errors.append(f"criterion {r['criterion']}: {node} is not in the collection")
-    for r in reqs:
-        for f in r["tests"]:
-            if not (ROOT / f).exists():
-                errors.append(f"requirement {r['id']}: {f} is not on disk")
-    for f in trace["safety_core_untied"]:
-        if not (ROOT / f).exists():
-            errors.append(f"untied: {f} is not on disk")
-    # 4. findings are complete
+        if s["verdict"] == "has_test" and path not in collection:
+            errors.append(f"sample {s['decision']}: {path} is not in the collection")
+    # 5. findings are complete
     for f in findings:
         if set(f) != FINDING_KEYS:
             errors.append(f"finding {f.get('id')}: fields {sorted(set(f) ^ FINDING_KEYS)}")
@@ -768,39 +939,64 @@ def check(out: Path = OUT, page: Path = PAGE) -> list[str]:
             errors.append(f"finding {f.get('id')}: basis {f.get('basis')}")
         if f.get("severity") not in {"High", "Medium", "Low"}:
             errors.append(f"finding {f.get('id')}: severity {f.get('severity')}")
+    # 6. --live only: today's tree still has what the record names
+    if live:
+        for f in sorted(named | set(collection)):
+            if not (ROOT / f).exists():
+                errors.append(f"live: {f} is not on disk")
     return errors
+
+
+def read_results(paths: list[Path]) -> tuple[dict[str, str], list[str]]:
+    """(outcome per test, the junit files they came from); a kept summary names its own sources."""
+    out: dict[str, str] = {}
+    sources: set[str] = set()
+    for p in paths:
+        if p.suffix == ".json":
+            kept = json.loads(p.read_text())
+            out.update(kept["outcomes"])
+            sources |= set(kept["from"])
+        else:
+            out.update(read_junit([p]))
+            sources.add(p.name)
+    return out, sorted(sources)
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="trace_dry")
     ap.add_argument("--write", action="store_true")
     ap.add_argument("--check", action="store_true")
+    ap.add_argument("--live", action="store_true", help="with --check: also compare with today's tree")
+    ap.add_argument("--out", type=Path, default=OUT)
     ap.add_argument("--collection", type=Path, help="a saved `pytest --collect-only -q` output")
-    ap.add_argument("--results", type=Path, nargs="*", default=[], help="junit xml files")
+    ap.add_argument("--results", type=Path, nargs="*", default=[], help="junit xml files, or a results-summary.json")
+    ap.add_argument("--no-results", action="store_true", help="write with no outcome at all, on purpose")
+    ap.add_argument("--commit", default="", help="the commit the measurement is of (default: HEAD)")
     a = ap.parse_args(argv)
+    out: Path = a.out
     if a.write:
+        old = out / "results-summary.json"
+        if not a.results and not a.no_results and old.exists() and json.loads(old.read_text())["outcomes"]:
+            print(f"trace_dry: {old} holds outcomes; give --results (it may be that file) or --no-results")
+            return 2
+        results, sources = read_results(a.results)
         text = a.collection.read_text() if a.collection else run_collection()
         parsed = parse_collection(text)
-        collection = parsed["files"]
-        results = read_junit(a.results)
-        trace = build(collection, results, [p.name for p in a.results])
-        trace["counts"]["collected_items"] = parsed["items"]
-        OUT.mkdir(parents=True, exist_ok=True)
-        (OUT / "collection.json").write_text(json.dumps(parsed, indent=0, sort_keys=True) + "\n")
-        (OUT / "trace.json").write_text(json.dumps(trace, indent=1, sort_keys=True) + "\n")
-        summary = {
-            "from": [p.name for p in a.results],
-            "outcomes": trace["counts"]["results_outcomes"],
-            "not_passed": sorted(k + " " + v for k, v in results.items() if v != "passed"),
-        }
-        (OUT / "results-summary.json").write_text(json.dumps(summary, indent=1) + "\n")
-        findings = json.loads((OUT / "findings.json").read_text()) if (OUT / "findings.json").exists() else []
-        sample = json.loads((OUT / "sample-check.json").read_text()) if (OUT / "sample-check.json").exists() else []
-        if PAGE.exists():
-            PAGE.write_text(render(PAGE.read_text(), blocks(trace, findings, sample)))
-        print(f"trace_dry: wrote {rel(OUT)}; {json.dumps(trace['counts'])}")
+        trace = build(parsed["files"], results, sources, a.commit or git_head())
+        sample = json.loads((OUT / "sample-check.json").read_text())
+        out.mkdir(parents=True, exist_ok=True)
+        coll = cut_collection(parsed, trace, results, sample)
+        summary = {"from": trace["results_from"], "outcomes": dict(sorted(results.items()))}
+        (out / "collection.json").write_text(json.dumps(coll, indent=0, sort_keys=True) + "\n")
+        (out / "trace.json").write_text(json.dumps(trace, indent=1, sort_keys=True) + "\n")
+        (out / "results-summary.json").write_text(json.dumps(summary, indent=0, sort_keys=True) + "\n")
+        page = page_of(out)
+        if page.exists():
+            findings = json.loads((out / "findings.json").read_text())
+            page.write_text(render(page.read_text(), blocks(trace, summary, coll, findings, sample)))
+        print(f"trace_dry: wrote {out}")
         return 0
-    errors = check()
+    errors = check(out, live=a.live)
     for e in errors:
         print(f"trace_dry: {e}")
     print("trace_dry: " + ("clean" if not errors else f"{len(errors)} problem(s)"))
