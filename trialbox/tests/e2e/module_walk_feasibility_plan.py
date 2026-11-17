@@ -17,6 +17,8 @@ criteria and no feasibility report (``AD-MAB``), and it stops where the box woul
 
 from __future__ import annotations
 
+from typing import Any
+
 from tests.e2e.module_walk_common import Act, Finding, Module, See, Step, Stop, T, refuse
 from tests.e2e.new_study_walk_plan import Do
 
@@ -179,6 +181,85 @@ NOT_COMPLETED: tuple[tuple[int, str, str], ...] = (
     ),
 )
 
+#: the committed summary of the walks of 2026-11-17 (three runs x three languages, ``make walk-modules`` on a
+#: 4-core container), written by ``--summary`` from the logs (per step: the page and the clicks in en, the median
+#: seconds); the clicks count every click of the step's log, the refusals' sign-ins included
+SUMMARY: dict[int, dict[str, Any]] = {
+    1: {
+        "path": "/home",
+        "heading": "My work",
+        "clicks": 3,
+        "click_texts": ["Sign in", "Change", "Change"],
+        "seconds": 3.3,
+        "guesses": [],
+        "stopped": [],
+    },
+    2: {
+        "path": "/pilot/jobs/{job}",
+        "heading": "FEAS AD-MAB v1.0.0 done",
+        "clicks": 9,
+        "click_texts": [
+            "More",
+            "New request",
+            "Count eligible patients",
+            "Sign in",
+            "Change",
+            "Sign in",
+            "Change",
+            "Sign in",
+            "Change",
+        ],
+        "seconds": 6.3,
+        "guesses": [],
+        "stopped": [],
+    },
+    3: {
+        "path": "/studies/AD-MAB/feasibility",
+        "heading": "AD-MAB · Feasibility report",
+        "clicks": 2,
+        "click_texts": ["Reports", "Open report"],
+        "seconds": 0.5,
+        "guesses": [],
+        "stopped": [],
+    },
+    4: {
+        "path": "/studies/AD-MAB/feasibility",
+        "heading": "AD-MAB · Feasibility report",
+        "clicks": 5,
+        "click_texts": ["Sign in", "Change", "Change", "Reports", "Open report"],
+        "seconds": 3.6,
+        "guesses": [],
+        "stopped": [],
+    },
+    5: {
+        "path": "/studies/AD-MAB/feasibility",
+        "heading": "AD-MAB · Feasibility report",
+        "clicks": 3,
+        "click_texts": ["Change", "Reports", "Open report"],
+        "seconds": 0.6,
+        "guesses": [],
+        "stopped": [],
+    },
+    6: {
+        "path": "/studies/GZQO/feasibility",
+        "heading": "GZQO · Feasibility report",
+        "clicks": 3,
+        "click_texts": ["Change", "Reports", "Open report"],
+        "seconds": 0.9,
+        "guesses": [],
+        "stopped": [],
+    },
+    7: {
+        "path": "/pilot/request",
+        "heading": "New request",
+        "clicks": 2,
+        "click_texts": ["More", "New request"],
+        "seconds": 0.2,
+        "guesses": [],
+        "stopped": ["FEA-01"],
+    },
+}
+
 MODULE = Module(
     key="feasibility",
     title="Feasibility alone (a box without a GPU, D-1066)",
@@ -187,5 +268,6 @@ MODULE = Module(
     findings=FINDINGS,
     not_completed=NOT_COMPLETED,
     study=STUDY,
+    summary=SUMMARY,
     sources="D-104 §2, D-280, D-1066",
 )

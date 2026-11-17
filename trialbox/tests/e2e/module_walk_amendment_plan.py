@@ -16,6 +16,8 @@ version 1.0.0 and screened, its first patient approached and enrolled. Then:
 
 from __future__ import annotations
 
+from typing import Any
+
 from tests.e2e.module_walk_common import Act, Finding, Module, See, Step, T, refuse
 from tests.e2e.new_study_walk_plan import Do
 
@@ -273,6 +275,82 @@ NOT_COMPLETED: tuple[tuple[int, str, str], ...] = (
     ),
 )
 
+#: the committed summary of the walks of 2026-11-17 (three runs x three languages, ``make walk-modules`` on a
+#: 4-core container), written by ``--summary`` from the logs (per step: the page and the clicks in en, the median
+#: seconds); the clicks count every click of the step's log, the refusals' sign-ins included
+SUMMARY: dict[int, dict[str, Any]] = {
+    16: {
+        "path": "/studies/{rs}/week",
+        "heading": "This week's patients · {rs}",
+        "clicks": 4,
+        "click_texts": ["This week's patients", "{rs}", "patient {short}", "Approach"],
+        "seconds": 7.0,
+        "guesses": ["AMD-01"],
+        "stopped": [],
+    },
+    17: {
+        "path": "/pilot/jobs/{job}",
+        "heading": "FEAS {rs} v1.1.0 waiting for approval",
+        "clicks": 6,
+        "click_texts": ["This week's patients", "{rs}", "Candidates", "More", "Protocol", "Compile"],
+        "seconds": 3.9,
+        "guesses": [],
+        "stopped": [],
+    },
+    18: {
+        "path": "/pilot/jobs/{job}",
+        "heading": "APPROVE {rs} v1.1.0 done",
+        "clicks": 8,
+        "click_texts": [
+            "This week's patients",
+            "Criteria waiting for your approval: {rs} v1.1.0",
+            "Open",
+            "Open",
+            "Open",
+            "Open",
+            "Approve all",
+            "Yes, do it",
+        ],
+        "seconds": 7.4,
+        "guesses": [],
+        "stopped": [],
+    },
+    19: {
+        "path": "/pilot/jobs/{job}",
+        "heading": "SCREEN {rs} v1.1.0 done",
+        "clicks": 5,
+        "click_texts": ["This week's patients", "{rs}", "More", "New request", "Find candidates for the next visits"],
+        "seconds": 41.8,
+        "guesses": [],
+        "stopped": [],
+    },
+    20: {
+        "path": "/studies/{rs}/rescreen",
+        "heading": "{rs} · Re-screen after amendment",
+        "clicks": 6,
+        "click_texts": [
+            "This week's patients",
+            "{rs}",
+            "Candidates",
+            "This week's patients",
+            "{rs}",
+            "Re-screen after amendment",
+        ],
+        "seconds": 7.9,
+        "guesses": [],
+        "stopped": [],
+    },
+    21: {
+        "path": "/studies/{rs}/week",
+        "heading": "This week's patients · {rs}",
+        "clicks": 3,
+        "click_texts": ["This week's patients", "{rs}", "Approved and contacted"],
+        "seconds": 4.1,
+        "guesses": ["AMD-05"],
+        "stopped": [],
+    },
+}
+
 MODULE = Module(
     key="amendment",
     title="Amendment: a protocol change after approval",
@@ -282,5 +360,6 @@ MODULE = Module(
     not_completed=NOT_COMPLETED,
     rulesets={"en": "AMENDWALK", "zh-TW": "AMENDWALKZH", "ja": "AMENDWALKJA"},
     prefix=True,
+    summary=SUMMARY,
     sources="D-108, D-364",
 )

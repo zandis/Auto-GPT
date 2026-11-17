@@ -294,7 +294,7 @@ def render_module(mod: Module) -> list[str]:
         else ("a new study per language (" + ", ".join(mod.rulesets.values()) + "), from H-20's steps 1 to 15")
     )
     out += [f"Roles: {', '.join(mod.roles)}. Study: {study}. Sources: {mod.sources}.", ""]
-    out += ["#### The walk by step", ""]
+    out += [f"#### {mod.key.capitalize()}: the walk by step", ""]
     out += ["| Step | Role | Matrix row | What the step does | Page reached (en) | Clicks | The clicks (en) | Median s | "
             "Refused (403) | Guesses |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]  # fmt: skip
     if mod.prefix:
@@ -310,14 +310,14 @@ def render_module(mod: Module) -> list[str]:
             f"{_cell(sm.get('heading', ''))}{stop} | {sm.get('clicks', '')} | {_cell(' → '.join(sm.get('click_texts', [])))}"
             f" | {sm.get('seconds', '')} | {_cell(refused)} | {', '.join(sm.get('guesses', [])) or '–'} |"
         )
-    out += ["", "#### The findings by step", ""]
+    out += ["", f"#### {mod.key.capitalize()}: the findings by step", ""]
     out += ["| Id | Step | Role | Page | Clicks | What a tester would have had to guess | Expected (from) | "
             "Severity | Lane |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]  # fmt: skip
     for f in sorted(mod.findings, key=lambda f: (f.step, f.id)):
         clicks = mod.summary.get(f.step, {}).get("clicks", "")
         out.append(f"| {f.id} | {f.step} | {f.role} | `{f.path}` | {clicks} | {_cell(f.showed)} | "
                    f"{_cell(f.expected)} ({_cell(f.source)}) | {f.severity} | {f.lane} |")  # fmt: skip
-    out += ["", "#### Cannot complete on a steps-mode box", ""]
+    out += ["", f"#### {mod.key.capitalize()}: cannot complete on a steps-mode box", ""]
     if mod.not_completed:
         out += ["| Step | What | What the product needs that the box does not have |", "| --- | --- | --- |"]
         out += [f"| {n} | {_cell(what)} | {_cell(why)} |" for n, what, why in mod.not_completed]

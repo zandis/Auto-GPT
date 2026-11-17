@@ -19,6 +19,8 @@ The box's mail is in process (no outside mail): the walk asserts the notice the 
 
 from __future__ import annotations
 
+from typing import Any
+
 from tests.e2e.module_walk_common import Act, F, Finding, K, M, Module, See, Step, Stop, T, refuse
 from tests.e2e.new_study_walk_plan import Do
 
@@ -360,6 +362,115 @@ NOT_COMPLETED: tuple[tuple[int, str, str], ...] = (
     ),
 )
 
+#: the committed summary of the walks of 2026-11-17 (three runs x three languages, ``make walk-modules`` on a
+#: 4-core container), written by ``--summary`` from the logs (per step: the page and the clicks in en, the median
+#: seconds); the clicks count every click of the step's log, the refusals' sign-ins included
+SUMMARY: dict[int, dict[str, Any]] = {
+    16: {
+        "path": "/studies/{rs}/entry",
+        "heading": "{rs} · Data entry",
+        "clicks": 1,
+        "click_texts": ["Add an adverse event"],
+        "seconds": 0.2,
+        "guesses": [],
+        "stopped": ["SAF-01"],
+    },
+    17: {
+        "path": "/studies/{rs}/subjects/{rs}-0001",
+        "heading": "{rs}-0001 · Participants",
+        "clicks": 15,
+        "click_texts": [
+            "Forms",
+            "Add the built-in forms",
+            "My studies",
+            "Participants",
+            "{rs}-0001",
+            "Add an adverse event",
+            "Serious: Yes",
+            "Why serious: Hospital stay or a longer stay",
+            "Severity: Moderate",
+            "Outcome: Recovering",
+            "Related to the study treatment or procedure: Unknown",
+            "Related in the sponsor's assessment: Not yet assessed",
+            "Expected per the reference safety information: Not yet assessed",
+            "Treatment unblinded for this event: Open-label study",
+            "Save",
+        ],
+        "seconds": 4.7,
+        "guesses": ["SAF-03"],
+        "stopped": [],
+    },
+    18: {
+        "path": "/studies/{rs}/sae/{rs}-0001/ae1",
+        "heading": "Serious adverse event {rs}-0001 · ae1",
+        "clicks": 3,
+        "click_texts": ["More", "SAE register", "Open"],
+        "seconds": 0.9,
+        "guesses": [],
+        "stopped": ["SAF-02"],
+    },
+    19: {
+        "path": "/studies/{rs}/state",
+        "heading": "{rs} · Study state and identifiers",
+        "clicks": 5,
+        "click_texts": ["More", "{rs} · Study set-up", "Study state and identifiers", "Change state", "Change state"],
+        "seconds": 1.2,
+        "guesses": [],
+        "stopped": [],
+    },
+    20: {
+        "path": "/studies/{rs}/state",
+        "heading": "{rs} · Study state and identifiers",
+        "clicks": 5,
+        "click_texts": [
+            "More",
+            "{rs} · Study set-up",
+            "Save and confirm",
+            "Study state and identifiers",
+            "Change state",
+        ],
+        "seconds": 1.4,
+        "guesses": [],
+        "stopped": [],
+    },
+    21: {
+        "path": "/studies/{rs}/sae/{rs}-0001/ae1",
+        "heading": "Serious adverse event {rs}-0001 · ae1",
+        "clicks": 4,
+        "click_texts": ["More", "SAE register", "Open", "Acknowledge"],
+        "seconds": 1.3,
+        "guesses": [],
+        "stopped": [],
+    },
+    22: {
+        "path": "/studies/{rs}/sae/{rs}-0001/ae1",
+        "heading": "Serious adverse event {rs}-0001 · ae1",
+        "clicks": 4,
+        "click_texts": ["More", "SAE register", "Open", "Record the report sent"],
+        "seconds": 1.4,
+        "guesses": [],
+        "stopped": [],
+    },
+    23: {
+        "path": "/audit",
+        "heading": "Audit trail",
+        "clicks": 2,
+        "click_texts": ["Audit trail", "Show"],
+        "seconds": 0.3,
+        "guesses": [],
+        "stopped": [],
+    },
+    24: {
+        "path": "/notices/received",
+        "heading": "Notices received",
+        "clicks": 2,
+        "click_texts": ["More", "Notices received"],
+        "seconds": 0.1,
+        "guesses": [],
+        "stopped": ["SAF-07"],
+    },
+}
+
 MODULE = Module(
     key="safety",
     title="Safety: a serious adverse event from the report to the notice",
@@ -369,5 +480,6 @@ MODULE = Module(
     not_completed=NOT_COMPLETED,
     rulesets={"en": "SAFEWALK", "zh-TW": "SAFEWALKZH", "ja": "SAFEWALKJA"},
     prefix=True,
+    summary=SUMMARY,
     sources="D-191, D-277, D-415, D-764, FIT-025, UX-028",
 )

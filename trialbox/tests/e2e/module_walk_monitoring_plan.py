@@ -16,6 +16,8 @@ D-380: a CRO account names its studies). Each language grants the account its ow
 
 from __future__ import annotations
 
+from typing import Any
+
 from tests.e2e.module_walk_common import Act, Finding, M, Module, S, See, Step, Stop, T, refuse
 from tests.e2e.new_study_walk_plan import Do
 
@@ -245,6 +247,75 @@ FINDINGS: tuple[Finding, ...] = (
 
 NOT_COMPLETED: tuple[tuple[int, str, str], ...] = ()
 
+#: the committed summary of the walks of 2026-11-17 (three runs x three languages, ``make walk-modules`` on a
+#: 4-core container), written by ``--summary`` from the logs (per step: the page and the clicks in en, the median
+#: seconds); the clicks count every click of the step's log, the refusals' sign-ins included
+SUMMARY: dict[int, dict[str, Any]] = {
+    1: {
+        "path": "/studies/GOUT-COH/monitor",
+        "heading": "This page needs another role",
+        "clicks": 4,
+        "click_texts": ["Sign in", "Change", "Change", "(typed) /studies/GOUT-COH/monitor"],
+        "seconds": 1.3,
+        "guesses": [],
+        "stopped": ["MON-01"],
+    },
+    2: {
+        "path": "/ops/users",
+        "heading": "Users",
+        "clicks": 6,
+        "click_texts": ["Sign in", "Change", "Change", "Users", "Sign in", "Change"],
+        "seconds": 1.5,
+        "guesses": [],
+        "stopped": [],
+    },
+    3: {
+        "path": "/studies/GZQO/team",
+        "heading": "GZQO · Delegation log",
+        "clicks": 5,
+        "click_texts": ["Change", "(typed) /studies/GZQO/team", "Add and sign", "Sign in", "Change"],
+        "seconds": 7.7,
+        "guesses": ["MON-02"],
+        "stopped": [],
+    },
+    4: {
+        "path": "/studies/GZQO/monitor",
+        "heading": "GZQO · Monitoring",
+        "clicks": 2,
+        "click_texts": ["Reports", "Monitoring · GZQO"],
+        "seconds": 1.1,
+        "guesses": [],
+        "stopped": [],
+    },
+    5: {
+        "path": "/studies/GZQO/monitor/GZQO-0001",
+        "heading": "GZQO · Source references · GZQO-0001",
+        "clicks": 1,
+        "click_texts": ["GZQO-0001"],
+        "seconds": 0.3,
+        "guesses": [],
+        "stopped": [],
+    },
+    6: {
+        "path": "/studies/GZQO/monitor",
+        "heading": "GZQO · Monitoring",
+        "clicks": 3,
+        "click_texts": ["Monitoring · GZQO", "GZQO-0001", "Save the visit record"],
+        "seconds": 0.8,
+        "guesses": [],
+        "stopped": [],
+    },
+    7: {
+        "path": "/studies/GZQO/monitor",
+        "heading": "GZQO · Monitoring",
+        "clicks": 4,
+        "click_texts": ["Sign in", "Change", "Change", "(typed) /studies/GZQO/monitor"],
+        "seconds": 2.4,
+        "guesses": ["MON-03"],
+        "stopped": [],
+    },
+}
+
 MODULE = Module(
     key="monitoring",
     title="Monitoring: the monitor's role",
@@ -253,5 +324,6 @@ MODULE = Module(
     findings=FINDINGS,
     not_completed=NOT_COMPLETED,
     study=STUDY,
+    summary=SUMMARY,
     sources="D-380, D-436, D-772, FIT-002",
 )

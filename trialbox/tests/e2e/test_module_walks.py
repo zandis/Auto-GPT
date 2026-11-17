@@ -266,7 +266,7 @@ def test_the_page_holds_the_findings_the_plans_have() -> None:
         "D-1062",
         "D-1066",
         "make walk-modules",
-        "Cannot complete on a steps-mode box",
+        ": cannot complete on a steps-mode box",
     ):
         assert must in page, must
     for key in mw.MODULES:
