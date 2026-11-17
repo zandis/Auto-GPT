@@ -170,4 +170,4 @@ def test_the_box_plan_and_the_installer_agree_on_a_box_without_a_gpu() -> None:
     mode = re.search(r'stub\) echo "    no GPU: ([^"]*)"', INSTALL)
     assert mode and "structured criteria" in mode.group(1)
     block = _branch(INSTALL, "# ---- PINS", "# ---- end of PINS")
-    assert block.startswith('# ---- PINS') and 'if [ "$MODE" = gpu ]; then' in block and "--install-embedder" in block
+    assert block.startswith("# ---- PINS") and 'if [ "$MODE" = gpu ]; then' in block and "--install-embedder" in block
