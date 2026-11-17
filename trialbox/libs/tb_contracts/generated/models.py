@@ -2398,6 +2398,10 @@ class CriterionVerdict(BaseModel):
     """
     T-707 (D-476): on a note answer that says not met. false: given while a note answer was not allowed to exclude (one model, no second model that agreed, a shut canary gate); it never excludes the patient, on this run or at a later re-tier. true: it was allowed to exclude. Absent on every other verdict; a stored note fail without it is from before the field and never excludes.
     """
+    prov: list[str] | None = None
+    """
+    D-989: the model calls the answer rests on, by call id (each resolves to its llm.call in the audit chain): the judge's and, where it ran, the verifier's, or the call a reused judged pair first came from. Empty: no model answered (the coded records, a person, not evaluated), so 'no model' is stated, not inferred. Absent on rows stored before the field.
+    """
 
 
 class CtgovSearchResult(BaseModel):
@@ -3094,7 +3098,7 @@ class RulesetManifest(BaseModel):
 
 class CandidateList(BaseModel):
     """
-    SPEC 3.6 candidate_list (tag phi). Schema version 1.4.0 (1.1.0: optional evidence.opinions, D-120; 1.2.0: optional evidence.coded, D-362; 1.3.0: optional criterion_verdict.final, D-476; 1.4.0: optional criterion_verdict.basis, D-478).
+    SPEC 3.6 candidate_list (tag phi). Schema version 1.5.0 (1.1.0: optional evidence.opinions, D-120; 1.2.0: optional evidence.coded, D-362; 1.3.0: optional criterion_verdict.final, D-476; 1.4.0: optional criterion_verdict.basis, D-478; 1.5.0: optional criterion_verdict.prov, D-989).
     """
 
     model_config = ConfigDict(

@@ -145,6 +145,15 @@ DECLARED: dict[str, Declared] = {
         "unavailable, not indexed from the run's pinned snapshot or of another model falls back to the on-the-fly "
         "path for that pair, and the patient's trace records it; S2b never excludes in screening either way.",
     ),
+    "steps.acting_role": Declared(
+        values=("off", "on"),
+        default="off",
+        seed_env=None,  # switched on with a reason on a test box only (STEPS-ROLE, D-877); never by a file
+        help="A test box (TB_ENV DEV or TEST) only: an account granted extra roles at boot (console.steps_roles) may "
+        "switch the role it acts in from the top bar, each switch audited (role.acting). Every permission check reads "
+        "the acting role; the person stays named in the audit trail and the delegation log. Refused, and the console "
+        "refuses to start with it on, when TB_ENV is VALIDATION or PRODUCTION (D-1063).",
+    ),
     "omop.dual_write": Declared(
         values=("off", "on"),
         default="off",
@@ -153,6 +162,18 @@ DECLARED: dict[str, Declared] = {
         "is written, before and apart from the lake rebuild; a failed load never holds the night (T-106, D-339).",
     ),
 }
+
+
+#: flags that may leave their default only on a test box (STEPS-ROLE, D-877): refused when TB_ENV is VALIDATION or
+#: PRODUCTION (unset is PRODUCTION)
+TEST_BOX_ONLY = frozenset({"steps.acting_role"})
+
+
+def test_box(env: dict[str, str] | None = None) -> bool:
+    """Whether this box is a test box (TB_ENV DEV or TEST; D-127's rule: unset is PRODUCTION)."""
+    from tb_common.config import environment_name
+
+    return environment_name(env if env is not None else dict(os.environ)) in ("DEV", "TEST")
 
 
 def declared(name: str) -> Declared:
@@ -365,6 +386,8 @@ class Flags:
         back. The other way round, a commit that fails after the audit event was written leaves an event for a change
         that did not happen: a ``flag.set.failed`` event naming it is appended, and the error is raised."""
         v = check_value(name, value)
+        if name in TEST_BOX_ONLY and v != DECLARED[name].default and not test_box():
+            raise ValueError(f"{name} is for a test box only (TB_ENV DEV or TEST)")
         why = " ".join((reason or "").split())[:MAX_REASON]
         if not why:
             raise ValueError("a flag change needs a reason")

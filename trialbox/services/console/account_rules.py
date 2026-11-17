@@ -58,6 +58,13 @@ def protected(role: str) -> bool:
     return account_class(role) != "aggregate"
 
 
+def protected_account(users: Any, name: str) -> bool:
+    """D-719 for an account: protected when its own role is, or any role it may act in (STEPS-ROLE, D-877: an account
+    that may act as an investigator is held as an investigator's, whatever its own role; the review of D-877)."""
+    role = users.role_of(name)
+    return bool(role) and (protected(role) or any(protected(r) for r in users.extra_roles(name)))
+
+
 @dataclass
 class Rules:
     """The account rules over one user store; ``tell`` mails the steward and the account's PIs (subject, body)."""
@@ -173,6 +180,9 @@ class Rules:
     def request(self, kind: str, name: str, payload: dict[str, str], by: str, role: str) -> str:
         rid = self.users.add_request(kind, name, payload, by)
         detail = {"request": rid, "kind": kind, "user": name, "class": account_class(role)}
+        extra = self.users.extra_roles(name)  # D-877: the roles a test box's account may act in, said with it
+        if extra:
+            detail["acting_roles"] = ",".join(extra)
         self.audit.append("console.account_request", actor=f"console:{by}", detail=detail)
         return rid
 

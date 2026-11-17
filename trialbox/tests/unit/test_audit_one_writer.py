@@ -29,6 +29,7 @@ WRITERS = {
     "services/adapter/pipeline.py",
     "services/console/app.py",
     "services/console/cli.py",
+    "services/console/steps_roles.py",  # STEPS-ROLE (D-877): the boot tool's flag change on a test box
     "services/criteria_compiler/app.py",
     "services/gateway/app.py",
     "services/lake/source.py",

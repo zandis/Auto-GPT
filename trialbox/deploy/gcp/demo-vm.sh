@@ -73,7 +73,7 @@ esac
 FOR=$CMD; [ "$CMD" = up ] && [ "$DRY" = 1 ] && FOR=dry
 SETTINGS="$("$PY" "$HERE/demo_vm.py" shell "$FOR")" || exit 2
 N=""; NETWORK=""; ALLOW_PRIORITY=""; DENY_PRIORITY=""; ZONE=""; REGION=""; MACHINE=""; DISK_GB=""; HOURS=""; ALLOW=""; IMAGE=""; IMAGE_SHA256=""; PEOPLE=""; ENROL_HOURS=""; HANDOFF=""
-DEMO_LANG=""; SITE_LANG=""; STOP_WAIT_S=""; OPEN_ANY=0; GATE=""; MODE=""; MODE_TEXT=""
+DEMO_LANG=""; SITE_LANG=""; STOP_WAIT_S=""; OPEN_ANY=0; GATE=""; MODE=""; MODE_TEXT=""; SHARED_PASSWORD=0
 eval "$SETTINGS"   # shlex-quoted assignments of the names above, from demo_vm.py only
 [ -n "$IMAGE" ] || IMAGE="<TB_DEMO_VM_IMAGE>"
 [ -n "$ALLOW" ] || ALLOW="<TB_DEMO_ALLOW>"
@@ -138,6 +138,7 @@ METADATA="$METADATA,tb-demo-people=${PEOPLE//,/;},tb-demo-enrol-hours=$ENROL_HOU
 [ -z "$IMAGE_SHA256" ] || METADATA="$METADATA,tb-demo-image-sha256=$IMAGE_SHA256"
 [ -z "$SITE_LANG" ] || METADATA="$METADATA,tb-demo-site-lang=$SITE_LANG"
 [ "$MODE" != steps ] || METADATA="$METADATA,tb-demo-mode=steps"
+[ "$SHARED_PASSWORD" != 1 ] || METADATA="$METADATA,tb-demo-shared-login=1"
 
 rules_check() {  # nothing but the VM's own rules reaches it (no SSH or port 80 added by hand, no default rule first)
   local bad

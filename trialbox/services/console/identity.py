@@ -48,7 +48,7 @@ from fastapi.responses import RedirectResponse
 from tb_common.audit import AuditLog
 
 from console import next_page, totp
-from console.account_rules import protected
+from console.account_rules import protected_account
 from console.auth import MAX_FAILURES, AuthError, Session, User, UserStore, source_of
 from console.i18n import EN, JA, ZH
 from console.oidc import Identity as Found
@@ -683,7 +683,7 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
         if us.is_sso(name):
             raise h.problem(400, "request.refused", reason="this account signs in through the identity provider")
         role_now = us.role_of(name)  # whatever the account's state (the review of D-719)
-        if h.rules is not None and role_now and protected(role_now):  # D-719: nobody holds both
+        if h.rules is not None and role_now and protected_account(us, name):  # D-719: nobody holds both
             if action == "reset_totp" and confirm != "yes":
                 text = h.translate(h.lang_of(request, sess), "identity.confirm.reset", user=name)
                 return h.confirm(request, sess, text, "/ops/identity", {"action": "reset_totp", "username": name},

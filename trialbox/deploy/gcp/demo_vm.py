@@ -48,6 +48,9 @@ Every limit is a declared TB_* setting with its reason (OD-10; tb_common.config.
     TB_DEMO_VM_MODE       demo            demo: demo mode on before the door opens. steps (D-1062): demo mode stays
                                           off and a person may be admin or steward too, to walk a study from its
                                           first step
+    TB_DEMO_VM_SHARED_LOGIN 0          steps mode only (D-1065, the owner's ruling): 1 = the boot makes one password,
+                                          sets it on every person's account and writes it to the private object;
+                                          the people sign in at the one address with their name and that password
     TB_DEMO_VM_PEOPLE     owner:investigator,guest:coordinator
                                           one account per person, name:role. Each is opened at boot with the
                                           product's one-time enrolment code (D-719): the person chooses the password
@@ -110,6 +113,7 @@ PERSON_ROLES = ("investigator", "coordinator", "viewer")  # admin: no patient-le
 # (a protocol can be pasted) and a person may also hold the administrator's or the steward's account
 MODES = ("demo", "steps")
 STEPS_ROLES = (*PERSON_ROLES, "admin", "steward")
+# in steps mode a person may hold several roles, written name:role+role (D-1063: one sign-in, an acting role)
 STEPS_TEXT = "steps mode: demo mode stays off, uploads and pasted text are accepted (synthetic or public text only)"
 PERSON_RE = re.compile(r"[a-z][a-z0-9._-]{1,31}")
 SEEDED = ("admin", "crc", "pi", "subpi", "cra", "viewer", "stw")  # tools/demo.py SEEDED: the seed's own accounts
@@ -140,6 +144,7 @@ class Settings:
     image_sha256: str
     people: str
     mode: str
+    shared_password: bool
     enrol_hours: int
     handoff: str
     lang: str
@@ -170,7 +175,7 @@ def _price(env: Mapping[str, str], key: str, default: str) -> float:
     return v
 
 
-def parse_people(raw: str, roles: tuple[str, ...] = PERSON_ROLES) -> str:
+def parse_people(raw: str, roles: tuple[str, ...] = PERSON_ROLES, plus: bool = False) -> str:
     """name:role pairs, comma separated: names as the console takes them, not a seeded account, each once."""
     out: list[str] = []
     for item in [x.strip() for x in raw.split(",") if x.strip()]:
@@ -180,7 +185,8 @@ def parse_people(raw: str, roles: tuple[str, ...] = PERSON_ROLES) -> str:
             raise Refused(f"TB_DEMO_VM_PEOPLE: '{name}' is not a user name (a-z 0-9 . _ -, 2 to 32, a letter first)")
         if name in SEEDED:
             raise Refused(f"TB_DEMO_VM_PEOPLE: '{name}' is one of the seed's own accounts; choose another name")
-        if role not in roles:
+        held = role.split("+") if plus else [role]  # D-1063: in steps mode an account may act in several roles
+        if not all(r in roles for r in held) or len(set(held)) != len(held):
             raise Refused(f"TB_DEMO_VM_PEOPLE: {name}'s role must be one of {', '.join(roles)}")
         if any(x.split(":")[0] == name for x in out):
             raise Refused(f"TB_DEMO_VM_PEOPLE: '{name}' is listed twice")
@@ -291,7 +297,12 @@ def load(env: Mapping[str, str], cmd: str) -> Settings:
     if mode not in MODES:
         raise Refused(f"TB_DEMO_VM_MODE must be one of {', '.join(MODES)} (got '{mode}')")
     roles = STEPS_ROLES if mode == "steps" else PERSON_ROLES
-    people = parse_people(env.get("TB_DEMO_VM_PEOPLE") or DEFAULT_PEOPLE, roles)
+    people = parse_people(env.get("TB_DEMO_VM_PEOPLE") or DEFAULT_PEOPLE, roles, plus=mode == "steps")
+    shared = (env.get("TB_DEMO_VM_SHARED_LOGIN") or "0").strip()
+    if shared not in ("0", "1"):
+        raise Refused(f"TB_DEMO_VM_SHARED_LOGIN must be 0 or 1 (got '{shared}')")
+    if shared == "1" and mode != "steps":
+        raise Refused("TB_DEMO_VM_SHARED_LOGIN=1 is for TB_DEMO_VM_MODE=steps only (D-1065)")
     enrol_hours = _int(env, "TB_DEMO_VM_ENROL_HOURS", "24", 1)
     if enrol_hours > 72:
         raise Refused("TB_DEMO_VM_ENROL_HOURS must be from 1 to 72 (the product's range, TB_CONSOLE_ENROL_CODE_HOURS)")
@@ -326,6 +337,7 @@ def load(env: Mapping[str, str], cmd: str) -> Settings:
         image_sha256=sha,
         people=people,
         mode=mode,
+        shared_password=shared == "1",
         enrol_hours=enrol_hours,
         handoff=handoff,
         lang=lang,
@@ -410,6 +422,7 @@ def shell_lines(s: Settings) -> str:
         "IMAGE_SHA256": s.image_sha256,
         "PEOPLE": s.people,
         "MODE": s.mode,
+        "SHARED_PASSWORD": "1" if s.shared_password else "0",
         "MODE_TEXT": STEPS_TEXT if s.mode == "steps" else "",
         "ENROL_HOURS": str(s.enrol_hours),
         "HANDOFF": s.handoff,

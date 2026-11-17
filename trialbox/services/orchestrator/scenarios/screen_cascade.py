@@ -117,6 +117,7 @@ class OrchestratorJudge(NoteJudge):
             tokens_in=r.tokens_in,
             tokens_out=r.tokens_out,
             opinions=list(r.opinions),
+            calls=tuple(r.calls),  # D-989: the judge's and the verifier's calls
         )
 
 
@@ -379,7 +380,9 @@ def verdict_of(o: Outcome, pair: bool = False) -> CriterionVerdict:
     quote_date: str | None = None
     confidence: float | None = None
     opinions: list[Opinion] = []
+    prov: list[str] = []  # D-989: the model calls behind the answer; none on S1's coded answer (stated, not absent)
     for e in o.evidence:
+        prov.extend(str(x) for x in (e.get("calls") or ([e["call_id"]] if e.get("call_id") else [])))
         if e.get("opinions"):
             opinions = [Opinion(**x) for x in e["opinions"]]
         if e.get("did"):
@@ -406,6 +409,7 @@ def verdict_of(o: Outcome, pair: bool = False) -> CriterionVerdict:
         ),
         final=_final(o, status),
         basis=basis_of(o, status, pair),
+        prov=list(dict.fromkeys(prov)),
     )
 
 
@@ -433,7 +437,10 @@ def verdicts_of(
         if o is None:
             vs.append(
                 CriterionVerdict(
-                    id=c.id, verdict="unknown", evidence=Evidence(resource_refs=[], reason=Reason.NOT_EVALUATED.value)
+                    id=c.id,
+                    verdict="unknown",
+                    evidence=Evidence(resource_refs=[], reason=Reason.NOT_EVALUATED.value),
+                    prov=[],
                 )
             )
             continue
