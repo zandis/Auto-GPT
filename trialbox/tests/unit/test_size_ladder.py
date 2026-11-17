@@ -203,3 +203,12 @@ def test_a_job_cut_at_the_cap_is_a_failed_row() -> None:
     assert cut["cut"] == "GZQO: killed at the cap" and cut["units"] == 50000
     assert "SCREEN x1 **FAILED**" in sl.markdown_table(sl.summarise([run]))
     assert sl.cut_job({"orchestrator_rc": 0, "lines": []}) is None
+
+
+def test_a_stage_killed_at_its_cap_is_not_judged_slow() -> None:
+    fast = _run(5000, 100.0, [8.0], [20.0])
+    killed = _run(50000, 1000.0, [80.0], [200.0])
+    killed["gate"]["runs"][3].update(rc=-9, oom=True, seconds=3000.0)  # the cascade: 60 ms a patient, against 6
+    s = sl.summarise([fast, killed])
+    assert not next(t for t in s["table"] if t["stage"] == "cascade (gate, GZQO)" and t["patients"] == 50000)["ok"]
+    assert s["first_slow"]["cascade (gate, GZQO)"] is None

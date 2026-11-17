@@ -305,7 +305,10 @@ def summarise(runs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         )
     slows = {}
     for stage in sorted({t["stage"] for t in table}, key=_stage_order):
-        pts = {t["patients"]: (t["seconds"]["median"], t["ms_per_unit"]) for t in table if t["stage"] == stage}
+        # a stage killed at its cap did not finish: its time is not a rate, and its row says FAILED instead
+        pts = {
+            t["patients"]: (t["seconds"]["median"], t["ms_per_unit"]) for t in table if t["stage"] == stage and t["ok"]
+        }
         slows[stage] = first_slow(pts)
     return {"table": table, "first_slow": slows, "slow_factor": SLOW_FACTOR, "slow_floor_s": SLOW_FLOOR_S}
 
