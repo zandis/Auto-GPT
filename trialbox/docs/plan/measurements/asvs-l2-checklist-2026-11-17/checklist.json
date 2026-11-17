@@ -1,7 +1,7 @@
 {
  "card": "V-3",
  "standard": "OWASP ASVS 4.0.3, Level 2",
- "commit": "3f6a02ecc703582667ad2027233043f870ca8790",
+ "commit": "15108f46b8ea59e6676bc003000d5dcaa24c97a1",
  "note": "Line numbers are for the named commit. Paraphrases are this card's own words.",
  "requirements": [
   {
@@ -39,7 +39,7 @@
    ],
    "test": [
     "tests/console/test_asvs_evidence.py::test_v2_1_2_a_password_of_200_characters_signs_in",
-    "tests/console/test_asvs_evidence.py::test_v2_1_2_a_long_password_that_is_accepted_also_signs_in"
+    "tests/console/test_asvs_evidence.py::test_v2_1_2_a_long_password_is_refused_when_chosen_or_signs_in"
    ],
    "note": "Up to 256 characters work. Nothing refuses more than 128: the change page takes any length, but the sign-in reads only 256, so a longer password never signs in.",
    "finding": "V3-05",
@@ -59,7 +59,7 @@
     "services/console/auth.py:618"
    ],
    "test": [
-    "tests/console/test_asvs_evidence.py::test_v2_1_2_a_long_password_that_is_accepted_also_signs_in"
+    "tests/console/test_asvs_evidence.py::test_v2_1_2_a_long_password_is_refused_when_chosen_or_signs_in"
    ],
    "note": "The sign-in cuts at 256 characters; the stored hash is of the whole password, so a cut password is refused, never accepted (V3-05).",
    "finding": "V3-05",
@@ -242,7 +242,7 @@
     "deploy/docker-compose.identity.yml:93"
    ],
    "test": [
-    "tests/console/test_asvs_evidence.py::test_v2_2_1_the_console_behind_caddy_trusts_the_proxy_address",
+    "tests/console/test_asvs_evidence.py::test_v2_2_1_behind_caddy_two_browsers_are_two_addresses",
     "tests/console/test_asvs_evidence.py::test_v2_2_1_five_wrong_passwords_lock_the_name_from_that_address",
     "tests/console/test_identity.py::test_password_lockout_and_the_audited_unlock"
    ],
@@ -1204,7 +1204,7 @@
    "line": 784,
    "also": [],
    "test": [
-    "tests/console/test_asvs_evidence.py::test_v4_the_api_refuses_a_page_cookie_as_a_bearer_and_a_bearer_as_a_cookie"
+    "tests/console/test_asvs_evidence.py::test_v4_the_api_refuses_a_page_cookie_and_takes_only_its_own_bearer_token"
    ],
    "note": "/api/v1 opens a session with a sign-in (POST /api/v1/session) and refuses a page cookie.",
    "finding": "",
@@ -1312,16 +1312,18 @@
    "chapter": "V4",
    "level": "L1",
    "requirement": "Access control fails closed, also on an error.",
-   "verdict": "meets",
-   "basis": "shown",
+   "verdict": "partly",
+   "basis": "hypothesis",
    "file": "libs/tb_common/authz.py",
    "line": 160,
-   "also": [],
+   "also": [
+    "libs/tb_common/service_auth.py:201"
+   ],
    "test": [
     "tests/unit/test_authz_matrix.py::test_a_role_or_an_action_not_in_the_matrix_is_refused"
    ],
-   "note": "Unknown role or action: refused. Between services an unlisted callee accepts any token (V3-15, under 1.2.2): no deployed callee is unlisted today.",
-   "finding": "",
+   "note": "The matrix fails closed (shown: an unknown role or action is refused). Between services it fails open: a callee not listed in CALLERS accepts any service's token (read, not run). No deployed callee is unlisted today.",
+   "finding": "V3-15",
    "id_check": false,
    "delegate": ""
   },
@@ -1353,18 +1355,19 @@
    "level": "L1",
    "requirement": "A strong anti-CSRF control protects every changing request.",
    "verdict": "meets",
-   "basis": "shown",
+   "basis": "hypothesis",
    "file": "services/console/auth.py",
    "line": 1223,
    "also": [
     "services/console/app.py:732",
-    "services/console/app.py:1026"
+    "services/console/app.py:1026",
+    "services/console/edc_pages.py:512"
    ],
    "test": [
     "tests/console/test_asvs_evidence.py::test_v4_2_2_every_changing_page_route_refuses_a_post_without_the_csrf_token",
-    "tests/console/test_asvs_evidence.py::test_v4_the_api_refuses_a_page_cookie_as_a_bearer_and_a_bearer_as_a_cookie"
+    "tests/console/test_asvs_evidence.py::test_v4_the_api_refuses_a_page_cookie_and_takes_only_its_own_bearer_token"
    ],
-   "note": "A per-session token on every changing page route (walked as three roles) and SameSite=Strict; /api/v1 takes a bearer token only.",
+   "note": "A per-session token and SameSite=Strict. The walk shows the CSRF refusal itself for 84 of the 109 changing page routes, each sent by a role the route lets in with its token; the other 25 are read from code, not shown (listed on the page). /api/v1 takes a bearer token only (shown through a route).",
    "finding": "",
    "id_check": false,
    "delegate": ""
@@ -1416,18 +1419,20 @@
    "chapter": "V4",
    "level": "L2",
    "requirement": "Step-up checks or separation of duties guard high-value actions.",
-   "verdict": "meets",
+   "verdict": "partly",
    "basis": "shown",
    "file": "services/console/identity.py",
    "line": 307,
    "also": [
-    "services/console/account_rules.py:112"
+    "services/console/account_rules.py:112",
+    "services/console/breakglass.py:189"
    ],
    "test": [
-    "tests/console/test_no_one_holds_both_factors.py::test_the_administrator_never_holds_both_factors_within_30_days"
+    "tests/console/test_no_one_holds_both_factors.py::test_the_administrator_never_holds_both_factors_within_30_days",
+    "tests/console/test_asvs_evidence.py::test_v3_7_1_break_glass_asks_for_a_fresh_credential"
    ],
-   "note": "Signatures ask for a fresh code; protected accounts need a second person (D-719). Break-glass asks for neither (3.7.1, V3-04) but is told to the steward at once and reviewed.",
-   "finding": "",
+   "note": "Signatures ask for a fresh code; protected accounts need a second person (D-719). Break-glass, which opens a patient's data to an account outside its rights, asks for no step-up (shown); it is told to the steward and reviewed afterwards.",
+   "finding": "V3-04",
    "id_check": false,
    "delegate": ""
   },
@@ -1769,15 +1774,18 @@
    "requirement": "Logs hold no other sensitive data under privacy law.",
    "verdict": "partly",
    "basis": "shown",
-   "file": "libs/tb_common/audit.py",
-   "line": 106,
+   "file": "services/console/breakglass.py",
+   "line": 212,
    "also": [
-    "services/console/app.py:942"
+    "services/console/app.py:942",
+    "libs/tb_common/audit.py:378",
+    "services/console/notmatched_pages.py:201",
+    "services/console/study_setup.py:750"
    ],
    "test": [
-    "tests/console/test_asvs_evidence.py::test_v7_1_2_a_chart_number_in_a_free_text_note_is_masked"
+    "tests/console/test_asvs_evidence.py::test_v7_1_2_a_chart_number_in_a_break_glass_note_does_not_reach_the_audit"
    ],
-   "note": "Masked by key name and 'key=value'; a chart number in free text (a note) is kept.",
+   "note": "The request line is masked (mask_ids); AuditLog.append masks nothing. A chart number typed in a break-glass note reaches the audit in clear (shown); the not-matched check's record and note and the IRB text's note go the same way (read).",
    "finding": "V3-14",
    "id_check": false,
    "delegate": ""
@@ -1788,16 +1796,23 @@
    "level": "L2",
    "requirement": "Security events are logged (sign-in, failure, denial, lock).",
    "verdict": "partly",
-   "basis": "hypothesis",
+   "basis": "shown",
    "file": "services/console/app.py",
    "line": 1041,
    "also": [
     "services/console/app.py:1053",
     "services/console/identity.py:301",
     "services/console/app.py:735",
-    "services/console/breakglass.py:211"
+    "services/console/breakglass.py:211",
+    "services/console/identity.py:683",
+    "services/console/identity.py:715",
+    "services/console/identity.py:723",
+    "services/console/step4.py:244",
+    "services/console/breakglass.py:228"
    ],
-   "test": [],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v7_1_3_a_grant_whose_audit_event_fails_is_not_left_open"
+   ],
    "note": "Break-glass writes its audit event after the grant is stored (V3-18). Sign-in, failure, denial and lock are logged.",
    "finding": "V3-18",
    "id_check": false,
@@ -1932,6 +1947,22 @@
    "id": "8.2.2",
    "chapter": "V8",
    "level": "L1",
+   "requirement": "Browser storage holds no sensitive data.",
+   "verdict": "partly",
+   "basis": "hypothesis",
+   "file": "services/console/static/console.js",
+   "line": 56,
+   "also": [],
+   "test": [],
+   "note": "A mark note about a patient is kept in session storage (D-777).",
+   "finding": "V3-19",
+   "id_check": true,
+   "delegate": ""
+  },
+  {
+   "id": "8.2.3",
+   "chapter": "V8",
+   "level": "L1",
    "requirement": "Data in browser storage is cleared when the session ends.",
    "verdict": "partly",
    "basis": "hypothesis",
@@ -1943,7 +1974,7 @@
    "test": [],
    "note": "A typed mark note stays in the tab's session storage after the session ends, on purpose (D-777), and is put back for whoever signs in next in that tab and opens that patient.",
    "finding": "V3-19",
-   "id_check": false,
+   "id_check": true,
    "delegate": ""
   },
   {
@@ -2161,7 +2192,7 @@
    "line": 799,
    "also": [],
    "test": [
-    "tests/console/test_asvs_evidence.py::test_v4_the_api_refuses_a_page_cookie_as_a_bearer_and_a_bearer_as_a_cookie"
+    "tests/console/test_asvs_evidence.py::test_v4_the_api_refuses_a_page_cookie_and_takes_only_its_own_bearer_token"
    ],
    "note": "The API never accepts the browser's cookie.",
    "finding": "",
