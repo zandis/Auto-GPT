@@ -374,3 +374,90 @@ def test_the_registrys_export_leaves_the_token_rows_out(box: Any, tmp_path: Any)
     wb = load_workbook(io.BytesIO(reg.export_xlsx(RS, "DEMO-A", exclude=frozenset())))
     cells = {str(c.value) for ws in wb.worksheets for row in ws.iter_rows() for c in row if c.value is not None}
     assert C in cells and not any(v.startswith("erased:") for v in cells)
+
+
+def test_redcaps_read_back_takes_the_same_token(box: Any) -> None:
+    """ERASE-A3 (D-878): a never-consented patient's REDCap row (a screen failure the link reads with a consent field,
+    no consent date) keeps its record, status and number, and its pseudonym takes the screening log's token."""
+    from datacore.optout_worker import clear_screening_log
+
+    url, env = box
+    _link(url, 1, "ic_date")
+    with Database.connect(url, "study") as db:
+        db.execute("INSERT INTO rc_record (ruleset, record_id, link_value, pid, status, subject_no, read_at) VALUES "
+                   "(?,?,?,?,?,?,?)", (RS, "7", "S-001", A, "screen_fail", "SUBJ-7", "t"))  # fmt: skip
+    assert clear_screening_log(frozenset({A}), env)["tokened"] == 8
+    (token,) = _tokens(url, RS)
+    with Database.connect(url, "study") as db:
+        assert db.fetchall("SELECT record_id, link_value, status, subject_no FROM rc_record WHERE pid = ?",
+                           (token,)) == [("7", "S-001", "screen_fail", "SUBJ-7")]  # fmt: skip
+        assert db.fetchval("SELECT count(*) FROM rc_record WHERE pid = ?", (A,)) == 0
+
+
+def test_a_read_back_of_an_erased_number_is_kept_and_not_put_on_the_registry(tmp_path: Any) -> None:
+    """ERASE-A3 (D-878): the next read joins the number to its owner in the screening log, the token: the row is
+    stored, and its status is never written to the registry under the token."""
+    from fastapi import FastAPI
+    from orchestrator.study_api import router
+
+    from tests.actor3 import SignedClient
+    from tests.rc_kit import LINK_A, study_service
+
+    token = "erased:2026-11-12:" + "0" * 32
+    with study_service(tmp_path) as (svc, _sim, _clock):
+        app = FastAPI()
+        app.include_router(router(lambda: svc))
+        c = SignedClient(app)
+        assert c.put("/studies/GZQO/redcap-link", json={"link": LINK_A, "by": "crc"}).status_code == 200
+        r = c.post("/studies/GZQO/redcap-read", json={"screening": {"GZQO-0901": token}, "by": "crc"})
+        assert r.status_code == 200 and r.json()["changes"] == []
+        assert token not in json.dumps(r.json()["conflicts"])  # never a conflict that names the token
+        assert [x["pid"] for x in c.get("/studies/GZQO/redcap-records").json()] == [token]
+        assert svc.registry.rows("GZQO") == []
+
+
+def test_a_reads_stored_result_takes_the_token(box: Any) -> None:
+    """The review of D-878: a read's stored result named the number with the pseudonym (shown on the link page)."""
+    from datacore.optout_worker import clear_screening_log
+
+    url, env = box
+    logged = json.dumps({"changes": [{"link_value": "S-001", "pid": A, "to": "screen_fail"},
+                                     {"link_value": "S-002", "pid": C, "to": "screen_fail"}]})  # fmt: skip
+    with Database.connect(url, "study") as db:
+        db.execute("INSERT INTO rc_read_log (ruleset, at, by, ok, result) VALUES (?,?,?,?,?)",
+                   (RS, "t", "crc", 1, logged))  # fmt: skip
+    assert clear_screening_log(frozenset({A}), env)["tokened"] == 8
+    (token,) = _tokens(url, RS)
+    with Database.connect(url, "study") as db:
+        result = str(db.fetchval("SELECT result FROM rc_read_log"))
+    assert A not in result and token in result and C in result  # another patient's line stays
+
+
+def test_a_link_switched_off_by_a_failure_counts_as_unknown(box: Any) -> None:
+    from datacore.optout_worker import clear_screening_log
+
+    url, env = box
+    _link(url, 0, "ic_date")
+    with Database.connect(url, "study") as db:
+        db.execute("UPDATE rc_project_link SET problem = 'RC-LINK-ERROR' WHERE ruleset = ?", (RS,))
+    assert clear_screening_log(frozenset({A}), env) == {"tokened": 0, "kept_trial_subject": 1}
+
+
+def test_redcap_consent_for_an_erased_number_is_flagged_without_the_token(tmp_path: Any) -> None:
+    """The review of D-878: a consent REDCap shows for a number erased as never consented is said, never dropped."""
+    from fastapi import FastAPI
+    from orchestrator.study_api import router
+
+    from tests.actor3 import SignedClient
+    from tests.rc_kit import LINK_A, study_service
+
+    token = "erased:2026-11-12:" + "0" * 32
+    with study_service(tmp_path) as (svc, _sim, _clock):
+        app = FastAPI()
+        app.include_router(router(lambda: svc))
+        c = SignedClient(app)
+        c.put("/studies/GZQO/redcap-link", json={"link": LINK_A, "by": "crc"})
+        r = c.post("/studies/GZQO/redcap-read", json={"screening": {"GZQO-0901": token}, "by": "crc"})
+        flags = [x for x in r.json()["conflicts"] if x.get("code") == "RC-ERASED-CONSENT"]
+        assert flags == [{"link_value": "GZQO-0901", "record_id": flags[0]["record_id"], "code": "RC-ERASED-CONSENT"}]
+        assert token not in json.dumps(r.json()["conflicts"])
