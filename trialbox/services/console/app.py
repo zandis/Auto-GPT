@@ -18,6 +18,7 @@ adds ``console.*`` events to the shared audit chain before it acts.
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import io
 import ipaddress
@@ -2260,7 +2261,7 @@ def create_app(
     @app.post("/pilot/registry/{ruleset}")
     def registry_add(
         request: Request, ruleset: str, csrf: str = Form(""), pid: str = Form(""), mrn: str = Form(""),
-        reason: str = Form(""),
+        reason: str = Form(""), status: str = Form(""),
     ) -> Response:  # fmt: skip
         """A person no screening run found (a walk-in, a referral) put on the screening log by chart number (or a
         pseudonym), "On the list", with the reason; or a note on a row already there. D-1221 (review B-2, R10): the
@@ -2271,7 +2272,25 @@ def create_app(
         rs = ruleset.strip().upper()
         if not _RULESET_ID.match(rs):
             raise _Problem(400, "request.refused", reason="choose a ruleset")
-        upd = RegistryUpdate(pid=pid.strip() or None, mrn="".join(mrn.split()) or None, status="candidate",
+        if status.strip():  # D-1221: a state is not chosen here; a status sent is refused, never quietly dropped
+            raise _Problem(400, "registry.add.no_status")
+        chart = "".join(mrn.split())
+        who_pid = pid.strip()
+        if chart and not who_pid and helpers.chart_to_pid is not None:
+            # the one door from a chart number to its pseudonym (D-771: capped, recorded), so an existing row is found
+            # before anything is written
+            with contextlib.suppress(Exception):
+                who_pid = helpers.chart_to_pid(sess, chart, "registry_add")[0]
+                chart = ""
+        entries = {e.pid: e for e in bk.registry_rows(rs)}
+        if who_pid and who_pid in entries:
+            # D-1221: an add never changes a row already on the log (it would reset a declined or consented person)
+            now = person_state.read(helpers, rs).of(who_pid)
+            au.append("console.refused", actor=actor(sess), ruleset=rs,
+                      detail={"action": "registry_add", "reason": "already on the log", "pid": who_pid})  # fmt: skip
+            msg = translate(sess.lang, "registry.add.exists", state=translate(sess.lang, now.key))
+            return _registry_page(request, sess, rs, 409, error=msg, exists=who_pid)
+        upd = RegistryUpdate(pid=who_pid or None, mrn=chart or None, status="candidate",
                              reason=reason.strip()[:500] or None, by=actor(sess), source="manual")  # fmt: skip
         au.append("console.registry", actor=actor(sess), ruleset=rs, detail={"action": "add", "by_mrn": bool(upd.mrn)})
         from console import actor as acting

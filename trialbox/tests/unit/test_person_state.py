@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import date
 from types import SimpleNamespace as Row
+from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from console import person_state as ps
@@ -17,7 +19,7 @@ TODAY = date(2026, 11, 17)
 T1, T2, T3, T4 = "2026-11-01T09:00:00", "2026-11-02T09:00:00", "2026-11-03T09:00:00", "2026-11-04T09:00:00"
 
 # (facts, the state, where it came from)
-CASES: list[tuple[dict[str, str], str, str]] = [
+CASES: list[tuple[dict[str, Any], str, str]] = [
     ({}, "listed", "list"),
     ({"registry": "candidate"}, "listed", "registry"),
     ({"life": "candidate"}, "listed", "participant"),
@@ -130,7 +132,7 @@ CASES: list[tuple[dict[str, str], str, str]] = [
 
 
 @pytest.mark.parametrize(("facts", "want", "source"), CASES)
-def test_one_state_by_the_written_rule(facts: dict[str, str], want: str, source: str) -> None:
+def test_one_state_by_the_written_rule(facts: dict[str, Any], want: str, source: str) -> None:
     got = ps.state_of(ps.Facts(**facts), TODAY)
     assert (got.name, got.source) == (want, source)
     assert got.key == f"person.state.{want}"
@@ -170,13 +172,13 @@ def test_phase_and_contact_step() -> None:
 
 
 def test_the_latest_record_of_a_pseudonym_is_kept_and_the_funnel_reconciles() -> None:
-    subs = [{"pid": "a", "record": "X-0002", "state": "withdrawn", "changed_at": T3},
+    subs: list[dict[str, Any]] = [{"pid": "a", "record": "X-0002", "state": "withdrawn", "changed_at": T3, "ever": ["consented", "withdrawn"]},
             {"pid": "a", "record": "X-0001", "state": "consented", "changed_at": T1}]  # fmt: skip
     people = ps.gather(subjects=subs, registry=[Row(pid="b", status="enrolled", updated_at=T2, updated_by="")])
     assert people.of("a").name == "withdrawn" and people.of("a").record == "X-0002"
     c = people.counts()
     f = ps.funnel(people, ["a", "b", "c"])
-    # the written definition (D-1221): consented-or-further on the home card = the participant states on the registry
+    # the written definition (D-1221): consented on the home card = everyone who ever consented (the withdrawn "a" too)
     assert f["consented"] == sum(c[s] for s in ps.PARTICIPANT) == 2
     assert f["enrolled"] == c["enrolled"] + c["on_study"] + c["completed"] == 1
     assert f["found"] == 3 and f["contacted"] == 2
@@ -209,3 +211,164 @@ def test_a_study_gathered_from_its_four_sources_and_counted_once() -> None:
     # the research office's year: the state began in the year (c was enrolled in 2025)
     assert people.in_year(2026)["enrolled"] == 0 and people.in_year(2025)["enrolled"] == 1
     assert states["b"].source == "participant" and states["b"].since == "2026-11-14"
+
+
+# ---------------------------------------------------------------------------------------------- review of J-2, round 2
+TOKYO, NEW_YORK = ZoneInfo("Asia/Tokyo"), ZoneInfo("America/New_York")
+# (site zone, facts, the state): the console stamps marks and outcomes in UTC, the orchestrator the log and the record in
+# the site's zone; a comparison of text would make every log row 9 h newer in Tokyo
+ZONED: list[tuple[ZoneInfo, dict[str, Any], str]] = [
+    # 1. declined at 10:00Z (the log 19:00+09:00); the PI marks Approach again at 11:00Z: to contact
+    (
+        TOKYO,
+        {
+            "outcome": "reached_declined",
+            "outcome_at": "2026-11-17T10:00:00+00:00",
+            "registry": "declined",
+            "registry_at": "2026-11-17T19:00:00+09:00",
+            "mark": "approach",
+            "mark_at": "2026-11-17T11:00:00.123456+00:00",
+        },
+        "to_contact",
+    ),
+    # 4. a site at -05:00: the outcome undone two hours later (the log back to "on the list" at 12:00-05:00)
+    (
+        NEW_YORK,
+        {
+            "outcome": "reached_declined",
+            "outcome_at": "2026-11-17T15:00:00+00:00",
+            "registry": "candidate",
+            "registry_at": "2026-11-17T12:00:00-05:00",
+            "mark": "approach",
+            "mark_at": "2026-11-17T14:00:00+00:00",
+        },
+        "to_contact",
+    ),
+    # 5. set aside after a booked contact (Tokyo)
+    (
+        TOKYO,
+        {
+            "outcome": "reached_booked",
+            "outcome_at": "2026-11-17T10:00:00+00:00",
+            "registry": "contacted",
+            "registry_at": "2026-11-17T19:00:00+09:00",
+            "mark": "not_suitable",
+            "mark_at": "2026-11-17T12:00:00+00:00",
+        },
+        "set_aside",
+    ),
+    # a time without an offset is read in its source's zone: the log's naive 19:30 is Tokyo time (10:30Z)
+    (
+        TOKYO,
+        {
+            "registry": "contacted",
+            "registry_at": "2026-11-17T19:30:00",
+            "mark": "not_suitable",
+            "mark_at": "2026-11-17T10:45:00",
+        },
+        "set_aside",
+    ),
+    # 6. consent undone to a candidate on the record, the log not mirrored: the record's undo is the newer fact
+    (
+        TOKYO,
+        {
+            "life": "candidate",
+            "life_at": "2026-11-18T10:00:00+09:00",
+            "registry": "consented",
+            "registry_at": "2026-11-17T10:00:00+09:00",
+        },
+        "listed",
+    ),
+    # 7. a plain day is coarse: a timed fact of that day is later
+    (
+        TOKYO,
+        {"life": "approached", "life_at": "2026-11-17", "mark": "not_suitable", "mark_at": "2026-11-17T01:00:00+00:00"},
+        "set_aside",
+    ),
+    # 8. "Z" is UTC
+    (
+        TOKYO,
+        {
+            "outcome": "reached_declined",
+            "outcome_at": "2026-11-17T10:00:01Z",
+            "mark": "approach",
+            "mark_at": "2026-11-17T10:00:00+00:00",
+        },
+        "declined",
+    ),
+    # frozen clock (every fact at one instant): the order of the work decides.
+    # not reached, then Not suitable: a mark other than Approach came after the outcome
+    (
+        TOKYO,
+        {"mark": "not_suitable", "mark_at": T1, "outcome": "not_reached", "outcome_at": T1, "marks": 2},
+        "set_aside",
+    ),
+    # not approached, then Not now, then Approach again (the third mark event): to contact
+    (
+        TOKYO,
+        {"mark": "approach", "mark_at": T1, "outcome": "not_approached", "outcome_at": T1, "marks": 3},
+        "to_contact",
+    ),
+    # the first Approach came before its outcome
+    (
+        TOKYO,
+        {
+            "mark": "approach",
+            "mark_at": T1,
+            "outcome": "reached_declined",
+            "outcome_at": T1,
+            "registry": "declined",
+            "registry_at": T1,
+            "marks": 1,
+        },
+        "declined",
+    ),
+    # 3. an undo in the same second as its outcome (the log keeps seconds): the undo follows its original
+    (
+        TOKYO,
+        {
+            "outcome": "reached_declined",
+            "outcome_at": "2026-11-17T10:00:00.5+00:00",
+            "registry": "candidate",
+            "registry_at": "2026-11-17T10:00:00+00:00",
+            "mark": "approach",
+            "mark_at": "2026-11-17T09:00:00+00:00",
+        },
+        "to_contact",
+    ),
+]
+
+
+@pytest.mark.parametrize(("tz", "facts", "want"), ZONED)
+def test_times_are_instants_and_ties_follow_the_work(tz: ZoneInfo, facts: dict[str, Any], want: str) -> None:
+    assert ps.state_of(ps.Facts(**facts), TODAY, tz).name == want
+
+
+def test_an_erased_token_or_an_opted_out_person_is_in_no_count() -> None:
+    from tb_common.erased import Gone
+
+    reg = [
+        Row(pid="erased:2026-11-01:abcd", status="consented", updated_at=T1, updated_by=""),
+        Row(pid="o", status="enrolled", updated_at=T1, updated_by=""),
+        Row(pid="a", status="contacted", updated_at=T1, updated_by=""),
+    ]
+    people = ps.gather(registry=reg, gone=Gone({"o"}))
+    assert set(people.states()) == {"a"}
+    assert sum(people.counts().values()) == 1
+    assert ps.funnel(people, ["o", "erased:2026-11-01:abcd"])["found"] == 1
+
+
+def test_enrolled_ever_reached_stays_counted_after_a_withdrawal() -> None:
+    subs = [
+        {
+            "pid": "a",
+            "record": "X-1",
+            "state": "withdrawn",
+            "changed_at": T2,
+            "ever": ["candidate", "approached", "consented", "enrolled", "withdrawn"],
+        }
+    ]
+    people = ps.gather(subjects=subs)
+    assert people.of("a").name == "withdrawn"
+    f = ps.funnel(people)
+    assert f["contacted"] == f["consented"] == f["enrolled"] == 1

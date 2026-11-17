@@ -115,6 +115,20 @@ def prescreen_rows(marks: list[Any], numbers: dict[str, str], seen: dict[str, tu
     return rows
 
 
+def aggregate_counts(by_status: dict[str, int]) -> dict[str, int]:
+    """Master's research-office formula over the screening log's counts by status (FR-REP-09): contacted = contacted,
+    consented, enrolled or screen failure; consented = consented or enrolled; then enrolled, screen failure, declined.
+    For an account that may not read patient rows (D-1221): the whole study, not one year."""
+    rank = {"contacted": 1, "consented": 2, "enrolled": 3}
+    return {
+        "contacted": sum(n for st, n in by_status.items() if rank.get(st, 0) >= 1 or st == "screen_fail"),
+        "consented": sum(n for st, n in by_status.items() if rank.get(st, 0) >= 2),
+        "enrolled": by_status.get("enrolled", 0),
+        "screen_fail": by_status.get("screen_fail", 0),
+        "declined": by_status.get("declined", 0),
+    }
+
+
 def suppress(n: int, k: int) -> int | str:
     return f"<{k}" if 0 < n < k else n
 
@@ -524,21 +538,24 @@ def register(app: FastAPI, h: Helpers) -> None:
         )
 
     # ------------------------------------------------------------------ FR-REP-09
-    def office_states(rid: str, year: int) -> dict[str, int]:
-        """The people of ``rid`` whose state began in ``year``, by state. An account that may not read patient rows
-        (the administrator, a viewer) gets the aggregate source, as before (the screening log's own counts by status,
-        D-146, D-280): no patient-level read is attempted for it (D-1221)."""
+    def office_states(rid: str, year: int) -> tuple[str, dict[str, int]]:
+        """How far people came in study ``rid``: ``("rows", counts)`` from the one state of each person whose state
+        began in ``year`` (cumulative: ever reached, D-1221); ``("unread", {})`` when this reader may read the rows but
+        the read failed (unknown, never the aggregate, CR-010); ``("aggregate", counts)`` for an account that may not
+        read patient rows: the screening log's own counts by status for the whole study, by master's formula, with no
+        patient-level read attempted (D-146, D-280)."""
         if ps.may_read_rows(rid):
             people = ps.read(h, rid)
-            if people.readable:
-                return people.in_year(year)
-        out: dict[str, int] = {}
+            if not people.readable:
+                return "unread", {}
+            yr = people.in_year(year)
+            return "rows", {**{x: people.reached(x, year) for x in ("contacted", "consented", "enrolled")},
+                            "screen_fail": yr["screen_fail"], "declined": yr["declined"]}  # fmt: skip
+        by: dict[str, int] = {}
         for sm in bk.registry_summaries():
-            if sm.ruleset == rid and (sm.updated_at is None or sm.updated_at.year == year):
-                for status, n in sm.counts.items():
-                    name = ps.FROM_REGISTRY.get(status, "")
-                    out[name] = out.get(name, 0) + int(n)
-        return out
+            if sm.ruleset == rid:
+                by = {str(k): int(v) for k, v in sm.counts.items()}
+        return "aggregate", aggregate_counts(by)
 
     def office_counts(year: int, k: int) -> list[dict[str, Any]]:
         out = []
@@ -550,19 +567,18 @@ def register(app: FastAPI, h: Helpers) -> None:
             seen = store.first_seen(rid)
             marks = store.all_marks(rid)
             nos = store.screening_rows(rid)
-            counts = {
+            counts: dict[str, Any] = {
                 "listed": sum(1 for _j, a in seen.values() if a.startswith(y)),
                 "reviewed": len({m.pid for m in marks if m.at.startswith(y) and m.mark != "withdrawn"}),
                 "approached": sum(1 for _p, _n, a in nos if a.startswith(y)),
             }
-            # D-1221 (review B-2): how far people came, by the one state of each (whose state began in the year),
-            # cumulative as before: contacted = contacted or further, consented = consented or further (REACHED)
-            yr = office_states(rid, year)
-            counts.update({s: ps.reached(yr, s) for s in ("contacted", "consented", "enrolled")},
-                          screen_fail=yr.get("screen_fail", 0), declined=yr.get("declined", 0))  # fmt: skip
-            if not any(counts.values()):
+            how, steps = office_states(rid, year)
+            if not any(counts.values()) and not any(steps.values()) and how != "unread":
                 continue
-            out.append({"study": rid, "kind": info.kind or "trial", **{c: suppress(counts[c], k) for c in COUNT_KEYS}})
+            row = {c: suppress(int(counts[c]), k) for c in ("listed", "reviewed", "approached")}
+            for c in ("contacted", "consented", "enrolled", "screen_fail", "declined"):
+                row[c] = "–" if how == "unread" else suppress(int(steps.get(c, 0)), k)
+            out.append({"study": rid, "kind": info.kind or "trial", "how": how, **row})
         return out
 
     def office_allowed(sess: Session) -> bool:

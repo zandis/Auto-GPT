@@ -3,7 +3,7 @@
 {% block title %}{{ t('registry.title') }} {{ ruleset }}{% endblock %}
 {% block content %}
 <h1>{{ t('registry.title') }} · {{ ruleset }}</h1>
-{% if error %}<p class="error" role="alert" data-testid="registry-error">{{ error }}</p>{% endif %}
+{% if error %}<p class="error" role="alert" data-testid="registry-error">{{ error }}{% if exists %} <a href="#p-{{ exists }}" data-testid="registry-exists">{{ t('registry.rows') }}</a>{% endif %}</p>{% endif %}
 {% if request.query_params.get('added') %}<p class="hint" role="status" data-testid="registry-added">{{ t('registry.promoted', n=request.query_params.get('added')) }}</p>{% endif %}
 <p class="warn" role="note">{{ t('registry.notice') }}</p>
 {# D-1221 (review R10): the people of the study by their one state, as the home card and the research office count them #}

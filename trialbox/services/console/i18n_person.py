@@ -28,6 +28,12 @@ EN: dict[str, str] = {
     "person.col.state": "State",
     "person.col.since": "Since",
     "person.state.unknown": "State unknown",
+    "outcome.closed": "Not recorded: the study is closed. No contact step is taken in a closed study.",
+    "registry.add.exists": "Nothing changed: this person is already on the screening log, in the state “{state}”. "
+    "Their state follows the steps that record it; open their row below.",
+    "registry.add.no_status": "Not recorded: a state is not chosen here. Add the person without one; their state "
+    "then follows the steps that record it.",
+    "registry.office.aggregate": "Totals for the whole study; yearly figures need a role that reads the study's list.",
     "outcome.participant": "Not recorded: this person has consented and is a participant. Contact outcomes are for "
     "candidates; record the participant's steps on the participant's page.",
     "outcome.state_unknown": "Not recorded: this person's state could not be read just now, so no contact step is "
@@ -55,6 +61,12 @@ JA: dict[str, str] = {
     "person.col.state": "状態",
     "person.col.since": "この状態になった日",
     "person.state.unknown": "状態不明",
+    "outcome.closed": "記録していません：この試験は終了しています。終了した試験では連絡の記録はしません。",
+    "registry.add.exists": "変更していません：この人はすでにスクリーニングログにあり、状態は「{state}」です。"
+    "状態はそれを記録する手順に従います。下の行を開いてください。",
+    "registry.add.no_status": "記録していません：ここでは状態を選びません。状態なしで追加してください。"
+    "状態はそれを記録する手順に従います。",
+    "registry.office.aggregate": "試験全体の合計です。年ごとの件数は、試験の一覧を読める役割で見てください。",
     "outcome.participant": "記録していません：この人は同意済みの参加者です。連絡結果は候補者のためのものです。"
     "参加者の手順は参加者のページで記録してください。",
     "outcome.state_unknown": "記録していません：いまこの人の状態を読めなかったため、連絡の記録はしません。"
@@ -82,6 +94,11 @@ ZH: dict[str, str] = {
     "person.col.state": "狀態",
     "person.col.since": "起始日",
     "person.state.unknown": "狀態不明",
+    "outcome.closed": "未記錄：此試驗已結束。已結束的試驗不記錄聯絡。",
+    "registry.add.exists": "未變更：此人已在篩選紀錄上，狀態為「{state}」。"
+    "狀態依記錄它的步驟而定；請開啟下方此人的列。",
+    "registry.add.no_status": "未記錄：此處不選擇狀態。請不帶狀態加入；狀態之後依記錄它的步驟而定。",
+    "registry.office.aggregate": "整個試驗的總數；年度數字需要能讀取試驗清單的角色。",
     "outcome.participant": "未記錄：此人已同意，是受試者。聯絡結果只用於候選者；受試者的步驟請在受試者頁面記錄。",
     "outcome.state_unknown": "未記錄：目前無法讀取此人的狀態，因此不記錄聯絡。請稍後再試。",
     "person.no_contact": "不需聯絡步驟：此人目前為「{state}」。",

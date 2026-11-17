@@ -797,7 +797,10 @@ def register(app: FastAPI, h: Helpers) -> None:
             page_no=page_no,
             pages=pages,
             # D-120: the coordinator records a call from the list in two taps (open, then the outcome)
-            quick_outcomes=tuple(OUTCOMES) if sess.user.can_request and not sess.user.can_mark else (),
+            # D-1221: no quick outcome in a closed study (the outcome route refuses it)
+            quick_outcomes=tuple(OUTCOMES)
+            if sess.user.can_request and not sess.user.can_mark and store.study_state(rid).state != "closed"
+            else (),
             sel=sel,
             opened=opened and sel is not None,
             marks=MARKS,
@@ -1344,11 +1347,24 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(404, "notfound")
         if outcome == "undo":
             return undo_outcome(sess, rid, pid, wk["job"].job_id)
-        who = wk["people"].of(pid)  # D-1221 (walk finding F-13): no contact step for a participant, as on the page
-        if not who.contactable:
+        # D-1221 (walk finding F-13): no contact step in a closed study, nor for a participant, as on the page
+        if store.study_state(rid).state == "closed":
+            au.append("console.refused", ruleset=rid, actor=h.actor(sess),
+                      detail={"pid": pid, "action": outcome, "reason": "study closed"})  # fmt: skip
+            raise h.problem(409, "outcome.closed")
+        who: ps.PersonState | None = wk["people"].of(pid)
+        if who is not None and who.name == ps.UNKNOWN:
+            # the participant records could not be read: before consent the screening log decides, as on master;
+            # with the log unread too, nothing is recorded (503: try again)
+            who = wk["people"].log_state(pid)
+        if who is None:
+            au.append("console.refused", ruleset=rid, actor=h.actor(sess),
+                      detail={"pid": pid, "action": outcome, "reason": "state unavailable"})  # fmt: skip
+            raise h.problem(503, "outcome.state_unknown")
+        if who.phase == "participant":
             au.append("console.refused", ruleset=rid, actor=h.actor(sess),
                       detail={"pid": pid, "action": outcome, "reason": f"state {who.name}"})  # fmt: skip
-            raise h.problem(409, "outcome.participant" if who.phase == "participant" else "outcome.state_unknown")
+            raise h.problem(409, "outcome.participant")
         mk = store.latest_marks(rid).get(pid)
         if mk is None or mk.mark != "approach":
             # D-133 (review F-36): the coordinator calls a patient only after the investigator's "OK to contact";

@@ -350,7 +350,7 @@ EN: dict[str, str] = {
     "consent form and the participant's steps.",
     "registry.updated": "Last change",
     "registry.add": "Add a patient",
-    "registry.add.help": "A patient no screening run found (a walk-in, a referral): type the chart number. The box "
+    "registry.add.help": "A patient no screening run found (a walk-in, a referral): type the chart number. TrialBox "
     "turns it into the pseudonym and does not store the number. The patient is added On the list.",
     "registry.add.submit": "Add to the registry",
     "registry.status": "Status",
