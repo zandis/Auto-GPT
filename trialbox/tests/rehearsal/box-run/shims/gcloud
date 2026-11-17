@@ -16,7 +16,9 @@ case "$1 $2 $3" in
     echo "storage cp" >> "$BR_S/vm-gcloud.log"
     src=$(gs "$3"); dst=$(gs "${!#}")
     [ -f "$src" ] || { echo "ERROR: $3 not found" >&2; exit 1; }
-    mkdir -p "$(dirname "$dst")"; cp "$src" "$dst" ;;
+    # by rename, as an object appears whole in the bucket: a reader never sees half of it (a collect raced the VM's
+    # last upload of results.tgz, the case session-then-acc of 2026-11-17)
+    mkdir -p "$(dirname "$dst")"; cp "$src" "$dst.part.$$" && mv -f "$dst.part.$$" "$dst" ;;
   *) echo "NOT-REHEARSED $1 $2 $3" >> "$BR_S/vm-gcloud.log"
      echo "box-run rehearsal gcloud: not rehearsed: $1 $2 $3" >&2; exit 1 ;;
 esac
