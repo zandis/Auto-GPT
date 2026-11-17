@@ -351,6 +351,8 @@ def score_all(sets: dict[str, tuple[Path, Any, Path]], where: Path) -> dict[str,
             (d / "work" / "answers.json").write_text(json.dumps(answers, ensure_ascii=False), encoding="utf-8")
         if (work / "pidmap.json").exists():
             shutil.copy(work / "pidmap.json", d / "work" / "pidmap.json")
+        if (work / "set-clock.json").exists():  # D-1129: a set taken up again after its budget: its attempts
+            shutil.copy(work / "set-clock.json", d / "work" / "set-clock.json")
     box_run.acc_score(where)
     return {name: json.loads((where / "acc" / name / "score.json").read_text(encoding="utf-8")) for name in sets}
 
@@ -419,6 +421,8 @@ def protocols_figure(level: str, scores: dict[str, Any], rerun: dict[str, Any] |
         pr = sc.get("protocols") or {}
         per_set[name] = {k: pr.get(k) for k in ("in_set", "screened", "not_run_time_budget", "attempted", "failed",
                                                 "failed_before_screen", "failed_in_screen")}  # fmt: skip
+        if pr.get("attempts"):  # D-1129: a set run in more than one attempt is still one record
+            per_set[name]["attempts"] = pr["attempts"]["line"]
         att += int(pr.get("attempted") or 0)
         failed += int(pr.get("failed") or 0)
         before += int(pr.get("failed_before_screen") or 0)

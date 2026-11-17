@@ -159,6 +159,12 @@ echo "== boot $(date -u +%FT%TZ) run $RUN_ID boot ${BOOT_ID:0:8}" >> "$LOG"
 # STOPPED are cleared, so that step runs again with the fixed script; every finished step is kept. The stopped
 # step's part is kept beside the logs (logs/<step>.stop-<retry>.json): the first-contact failure stays on record.
 # The cost cap starts again (the driver set the cloud's own cap for this launch).
+# D-1129 (card H-14): an accuracy set that ended on its own budget (its part's budget_cut: protocols cut, or never
+# started) is taken up again when this resume gives it a new budget (tb-acc-deadline, one number or "set:seconds"):
+# its step is opened again (its part kept as logs/<step>.budget-<retry>.json, and 79-acc-result's), and the set runs
+# a new attempt that runs only the cut protocols (box_vm.py acc-set --new-attempt). Without a budget for it, it stays
+# done, said. A set with nothing cut stays done. A redo (tb-redo) keeps its meaning: the set again from no work.
+# What the resume takes up is said first thing (TB-RESUME-PLAN lines, in the log and on the console).
 RETRY=$(md tb-retry || true)
 if [ -n "$RETRY" ] && [ "$RETRY" != "$(cat "$RUN/retry-seen" 2>/dev/null)" ]; then
   TB_REDO=$(md tb-redo || true)
@@ -169,13 +175,55 @@ if [ -n "$RETRY" ] && [ "$RETRY" != "$(cat "$RUN/retry-seen" 2>/dev/null)" ]; th
       done ;;
     esac
   done
-  TB_REDO="$TB_REDO" "$PY" - "$RUN" "$RETRY" <<'PY'
+  TB_REDO="$TB_REDO" TB_ACC_DEADLINE="$(md tb-acc-deadline || true)" "$PY" - "$RUN" "$RETRY" <<'PY' | tee -a "$LOG"
 import json, os, sys
 run, retry = sys.argv[1], sys.argv[2]
 p = os.path.join(run, "state.json")
+NOT_SETS = ("tools", "settings", "routes", "data", "ingest", "result")
+def budget_of(setname):  # the resume's budget for the set: "set:seconds" for it, or one number for every set
+    for e in os.environ.get("TB_ACC_DEADLINE", "").split():
+        n, _, v = e.rpartition(":")
+        if (not n or n == setname) and v.isdigit():
+            return v
+    return ""
+def cut_of(name):  # D-1129: the protocols the set's budget cut (or never started), as its part says
+    try:
+        d = json.load(open(os.path.join(run, "parts", name + ".json"))).get("detail") or {}
+    except (OSError, ValueError):
+        return 0
+    return int(d.get("budget_cut") if "budget_cut" in d else (d.get("counts") or {}).get("not_run_time_budget") or 0)
 if os.path.exists(p):
     st = json.load(open(p))
     st.pop("ended", None)
+    kv, redo, reopened, plan = st.setdefault("kv", {}), os.environ.get("TB_REDO", "").split(), False, 0
+    for name, s in list(st.get("steps", {}).items()):  # D-1129, before the stopped steps are cleared below
+        if "-acc-" not in name or name.split("-acc-", 1)[1] in NOT_SETS or name in redo:
+            continue
+        n, setname = cut_of(name), name.split("-acc-", 1)[1]
+        if n <= 0:
+            continue
+        plan += 1
+        b = budget_of(setname)
+        if not b:
+            print(f"TB-RESUME-PLAN {retry}: {name} ended on its budget with {n} protocols cut: kept as it is (no "
+                  f"--acc-deadline for set {setname}; a resume with one runs those {n} only)")
+            continue
+        print(f"TB-RESUME-PLAN {retry}: {name}: the {n} protocols its budget cut run again in a new attempt with "
+              f"{b} s; every finished protocol is kept and never sent to FEAS, APPROVE or SCREEN again (D-1129)")
+        kv[f"acc_reopen_{setname}"] = retry
+        if s.get("status") == "done":  # a stopped one is cleared below (its part kept as .stop-)
+            part = os.path.join(run, "parts", name + ".json")
+            if os.path.exists(part):
+                os.replace(part, os.path.join(run, "logs", f"{name}.budget-{retry}.json"))
+            del st["steps"][name]
+            reopened = True
+    if reopened and "79-acc-result" in st["steps"]:  # the group's result is read again over the sets
+        part = os.path.join(run, "parts", "79-acc-result.json")
+        if os.path.exists(part):
+            os.replace(part, os.path.join(run, "logs", f"79-acc-result.budget-{retry}.json"))
+        del st["steps"]["79-acc-result"]
+    if not plan and any("-acc-" in x for x in st.get("steps", {})):
+        print(f"TB-RESUME-PLAN {retry}: no accuracy set ended on its budget with protocols cut: none is run again")
     for name, s in list(st.get("steps", {}).items()):
         if s.get("status") == "stop":
             part = os.path.join(run, "parts", name + ".json")
@@ -196,6 +244,7 @@ if os.path.exists(p):
             # F28: the box's intake keeps one job per mail id: a set run again mails under new ids, or it gets back
             # the jobs (and the failures) of the attempt before
             kv[f"acc_attempt_{setname}"] = retry
+            kv.pop(f"acc_reopen_{setname}", None)  # D-1129: a redo starts from no work, attempt 1
             if kv.get("acc_rate_set") in (setname, None):
                 kv.pop("acc_rate", None); kv.pop("acc_rate_set", None)
     if "50-acc-tools" in st.get("steps", {}):  # lane G's tools are fetched again: a fix may be in them
@@ -1956,7 +2005,7 @@ prog_acc() {
   acc_services "$ACC_CUR"
   acc_pack "$ACC_CUR" partial
   "$PY" -c 'import json,sys; d=json.loads(sys.argv[1]); print("set %s: protocols %s/%s, patients answered %s, set clock %s of %s s; " % (sys.argv[2], d["protocols_done"], d["protocols"], d["patients_answered"], d["used_s"], d["deadline_s"]), end="")' "$p" "$ACC_CUR"
-  prog_box "$(st kv _ "acc_t0_$ACC_CUR")"   # on the same line (F26: a second line never reached the console)
+  prog_box "$(acc_since "$ACC_CUR")"   # on the same line (F26: a second line never reached the console)
 }
 # F23 (2026-11-15): what SCREEN does between model calls. Its note stage embeds every window sentence through the
 # embed service (on the CPU, by the product's design; vec.s2b off) before the judge is asked, and those requests are
@@ -1984,8 +2033,9 @@ embed_state() {
 # embedder it took), cut to 300 characters a line: in the set's work (bucket and run folder only, never committed)
 acc_services() {
   local name=$1 since
-  since=$(st kv _ "acc_t0_$name"); [ -n "$since" ] || return 0
-  { embed_state; echo
+  since=$(acc_since "$name"); [ -n "$since" ] || return 0
+  { cat "$ACC/$name/work/services.earlier.log" 2>/dev/null   # D-1129: the attempts before, as each was read
+    embed_state; echo
     dc logs --no-log-prefix --since "${since}Z" orchestrator embed-service criteria-compiler gateway 2>/dev/null \
       | grep -iE "warn|error|exception|traceback|screen|cascade|embed|stage|hash|stub|budget|timeout|killed|uvicorn|loading" \
       | grep -vE 'POST /embed|"path": "/embed", "status": 200' | cut -c1-20000 | tail -n 2000
@@ -2018,6 +2068,26 @@ acc_deadline() {
   "$PY" -c 'import sys; h, r, m = float(sys.argv[1] or 0), float(sys.argv[2]), float(sys.argv[3]); print(int(max(m, 1.5 * h * r)) if h else 0)' "${high:-0}" "$r" "$ACC_MIN_DL"
 }
 acc_attempt() { local a; a=$(st kv _ "acc_attempt_$1"); [ -z "$a" ] || printf -- '-r%s' "$a"; }   # F28: a redo's mail ids
+# D-1129: the set's attempt (a resume that took up what its budget cut is attempt 2, 3 ...) and its start in UTC;
+# the services' lines, the gateway's audit and the raw traces of an attempt after the first are read since its own
+# start and added to the set's files (the attempt before was read at its end: nothing is counted twice)
+acc_attempt_no() { local n; n=$(vm acc-attempt --work "$ACC/$1/work" 2>/dev/null | cut -f1); echo "${n:-1}"; }
+acc_since() {
+  local s; s=$(vm acc-attempt --work "$ACC/$1/work" 2>/dev/null | cut -f2)
+  [ -n "$s" ] || s=$(st kv _ "acc_t0_$1")
+  printf '%s' "$s"
+}
+acc_box_read() {  # acc_box_read <set> <audit|traces> <file name>: the gateway's read since the set's (attempt's) start
+  local name=$1 kind=$2 f="$ACC/$1/work/$3" n since
+  n=$(acc_attempt_no "$name"); since=$(acc_since "$name")
+  if [ "$n" -le 1 ]; then
+    acc_call gateway "$kind" "{\"since\": \"$since\"}" > "$f" 2>> "$STEP_LOG" || { rm -f "$f"; return 1; }
+    return 0
+  fi
+  acc_call gateway "$kind" "{\"since\": \"$since\"}" > "$f.attempt-$n" 2>> "$STEP_LOG" || { rm -f "$f.attempt-$n"; return 1; }
+  vm acc-merge-attempt --kind "$kind" --into "$f" --new "$f.attempt-$n" --attempt "$n" >> "$STEP_LOG" 2>&1 \
+    && rm -f "$f.attempt-$n"
+}
 step_acc_set() {
   local name=$1 co=() up=false t0 dl high sec r
   if [ ! -f "$ACC/$name/built/gold/ids.json" ]; then   # left out at 53 (its source could not be fetched or built)
@@ -2034,6 +2104,9 @@ step_acc_set() {
   only+=(--streams "$ns"); note streams "$ns"
   local e   # F29: every earlier attempt's work of this set, newest first
   while IFS= read -r e; do only+=(--earlier "$e"); done < <(ls -1dt "$RUN"/logs/*-acc-"$name".work-* 2>/dev/null)
+  local ro   # D-1129: a resume opened this set again for what its budget cut: a new attempt (once per resume)
+  ro=$(st kv _ "acc_reopen_$name")
+  if [ -n "$ro" ]; then only+=(--new-attempt "$ro"); note resumed_for_budget_cut "\"$ro\""; fi
   dl=$(acc_deadline "$name"); note deadline_s "${dl:-0}"; note rate_used "\"$(st kv _ acc_rate | grep . || echo 'not measured yet: 4')\""
   # the sender and the reviewer as the box's settings name them NOW (a 51 kept from an earlier boot may have read
   # other settings: F16 left the example's in place then, F18)
@@ -2077,17 +2150,20 @@ step_acc_set() {
   fi
   # the box's measured slowdown, from the first set that finished WHOLE (answered, nothing cut by its time budget):
   # its seconds over its plan high bound (F22: a set cut short or answering nothing measures nothing)
-  if [ -n "$ok" ] && [ -z "$(st kv _ acc_rate)" ] && [ "$(printf '%s' "$p" | "$PY" -c 'import json,sys; print(json.load(sys.stdin).get("cut_by_time") or 0)' 2>/dev/null)" = 0 ]; then
+  # (D-1129: and in one attempt: a set taken up again after its budget measures no slowdown either)
+  note budget_cut "$(printf '%s' "$p" | "$PY" -c 'import json,sys; print(int(json.load(sys.stdin).get("cut_by_time") or 0))' 2>/dev/null || echo 0)"
+  note attempts_line "\"$(printf '%s' "$p" | "$PY" -c 'import json,sys; print(json.load(sys.stdin).get("attempts_line") or "")' 2>/dev/null)\""
+  if [ -n "$ok" ] && [ -z "$(st kv _ acc_rate)" ] && [ "$(printf '%s' "$p" | "$PY" -c 'import json,sys; d = json.load(sys.stdin); print(d.get("cut_by_time") or 0 if (d.get("attempt") or 1) == 1 else "more than one attempt")' 2>/dev/null)" = 0 ]; then
     high=$(printf '%s\n' $ACC_PLAN | sed -n "s/^$name:[0-9]*://p" | head -n 1)
     sec=$("$PY" -c 'import json,sys; print(json.load(open(sys.argv[1])).get("used_s") or 0)' "$ACC/$name/work/set-clock.json" 2>/dev/null)
     r=$("$PY" -c 'import sys; s, h = float(sys.argv[1] or 0), float(sys.argv[2] or 0); print(round(max(0.05, s / h), 3) if h > 0 and s > 0 else "")' "${sec:-0}" "${high:-0}")
     if [ -n "$r" ]; then st set "$STEP" acc_rate "$r"; st set "$STEP" acc_rate_set "$name"; note rate_measured "$r"; fi
   fi
-  acc_call gateway audit "{\"since\": \"$t0\"}" > "$ACC/$name/work/gateway-audit.json" 2>> "$STEP_LOG" || rm -f "$ACC/$name/work/gateway-audit.json"
+  acc_box_read "$name" audit gateway-audit.json || true
   # the raw answers (both models' outputs per call, as the box's trace store keeps them): with the set's results in
-  # the bucket and the operator's run folder, never committed
-  acc_call gateway traces "{\"since\": \"$t0\"}" > "$ACC/$name/work/raw-traces.json" 2>> "$STEP_LOG" \
-    && note raw_traces "$(jget "$ACC/$name/work/raw-traces.json" calls)" || { rm -f "$ACC/$name/work/raw-traces.json"; note raw_traces '"not read"'; }
+  # the bucket and the operator's run folder, never committed. D-1129: an attempt after the first adds its own
+  acc_box_read "$name" traces raw-traces.json \
+    && note raw_traces "$(jget "$ACC/$name/work/raw-traces.json" calls)" || note raw_traces '"not read"'
   acc_pack "$name" || { STOP="the set $name could not be packed"; return 1; }
   up=$ACC_UP
   mkdir -p "$RUN/acc/$name"; cp "$ACC/$name/work/answers.json" "$RUN/acc/$name/" 2>/dev/null

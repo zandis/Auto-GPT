@@ -494,6 +494,15 @@ def _acc_outputs(job: dict[str, Any]) -> dict[str, bytes]:
     return {}
 
 
+def _jobs_since(since: str) -> list[str]:
+    """The stand-in box's jobs (one per mailed request) started at or after ``since`` (UTC, the VM's form), by id."""
+    from datetime import UTC, datetime
+
+    t0 = datetime.fromisoformat(since).replace(tzinfo=UTC).timestamp() if since else 0.0
+    jobs = [jload(f, {}) for f in sorted((BOX / "acc-jobs").glob("*.json"))]
+    return sorted(str(j["id"]) for j in jobs if j and float(j.get("start") or 0) >= t0)
+
+
 def _pid(mrn: str) -> str:
     import hashlib
 
@@ -591,15 +600,14 @@ def onbox(svc: str, text: str, args: list[str]) -> int:
     if cmd == "pidmap":
         print(json.dumps({m: _pid(m) for m in a["mrns"]}))
         return 0
-    if cmd == "audit":
-        n = len(jload(BOX / "acc-mids.json", {}))
+    if cmd == "audit":  # the gateway's audit since a time (D-1129: honoured, so an attempt's read is its own)
+        n = len(_jobs_since(str(a.get("since") or "")))
         print(json.dumps({"since": a.get("since"), "calls_by_prompt": {"ir_extract@3": n, "judge@5": 2 * n},
                           "refusals": {"phi_tripwire": 1} if flag("acc-tripwire") else {}, "refusals_by_job": {}}))  # fmt: skip
         return 0
     if cmd == "traces":  # the trace store's raw answers since a time: one synthetic row per mailed request
-        mids = jload(BOX / "acc-mids.json", {})
-        rows = [{"call_id": f"standin-call-{i}", "prompt": "[synthetic]", "output": '{"verdict": "met"}'}
-                for i, _ in enumerate(mids)]  # fmt: skip
+        rows = [{"call_id": f"standin-call-{j}", "prompt": "[synthetic]", "output": '{"verdict": "met"}'}
+                for j in _jobs_since(str(a.get("since") or ""))]  # fmt: skip
         print(json.dumps({"since": a.get("since"), "calls": len(rows), "traces": rows}))
         return 0
     print(f"box stand-in: onbox {cmd} is not rehearsed", file=sys.stderr)

@@ -74,6 +74,10 @@
 #                      stops the run with the reason and its work in the bucket, never "done" (F22)
 #   acc-redo           acc-gate's stop, then --resume --redo of the gate set: its work moved aside, its jobs mailed
 #                      again under new ids (the box keeps one job per mail id, F28), and it scores
+#   acc-cut-resume     acc-cut's run (the first set ends on its own budget with protocols cut), then the driver's
+#                      --resume with a new budget for that set only (D-1129): the set runs its cut protocols in a
+#                      second attempt, never mails a finished one again, and its answers, audit, traces and score are
+#                      one record of the two attempts; the other cut sets, given no budget, stay done, said
 #   qualify-timebox    validation: qualify runs longer than its time box (the owner's probe): it is ended, a checkpoint
 #                      a "second" while it ran (the gate it was in, the audit's calls), the run goes on
 #   probe              a facts-only launch (tb-steps probe): the VM's facts written (names and sizes), the run ends
@@ -90,7 +94,8 @@ VPY="${TB_BOXRUN_VENV_PY:-$ROOT/.venv/bin/python}"
 REH="${TB_BOXRUN_REHEARSAL_DIR:-/tmp/tb-boxrun-rehearsal}"
 ALL=(build build-gate-fails build-refused build-preempt happy step-fails reboot cap bad-hash bad-tar-hash
      refused-rehearsal wizard-refused oom list-differs identity-differs build-validation acc acc-preempt acc-blocked
-     resume-after-stop acc-qualify-fails probe direct dev acc-cut qualify-timebox acc-gate acc-redo gate-closed gate-401 gate-never)
+     resume-after-stop acc-qualify-fails probe direct dev acc-cut qualify-timebox acc-gate acc-redo gate-closed gate-401 gate-never
+     acc-cut-resume)
 # shellcheck disable=SC2206  # CASES=happy,cap: split on commas and spaces
 CASES=(${*//,/ }); [ "${#CASES[@]}" -gt 0 ] || CASES=("${ALL[@]}")
 # the harness's own ceiling for one wait (a declared setting): a case takes 5 to 40 seconds on the short clock, so
@@ -340,6 +345,18 @@ for CASE in "${CASES[@]}"; do
       m tb-acc-plan "jmed:3:0.5 sigir:3:1 tfda:2:1"; m tb-acc-min-deadline 2; m tb-acc-min-start 0.5; m tb-progress-seconds 1
       m tb-acc-protocols "sigir:SNCT90000002"; m tb-acc-streams "tfda:2"
       boot; to_the_end; acc_collect ;;
+    acc-cut-resume)   # acc-cut's run, then --resume --acc-deadline "jmed:60": jmed's cut protocols in attempt 2 only
+      setup "$CASE" "start acc"; echo 1.2 > "$S/knobs/acc-job-seconds"; start_setup; acc_setup
+      m tb-acc-plan "jmed:3:0.5 sigir:3:0.5 tfda:2:1"; m tb-acc-min-deadline 2; m tb-acc-min-start 0.5; m tb-progress-seconds 1; m tb-acc-streams "sigir:1"
+      boot; wait_for "the done marker" is_done; wait_for "the power-off" is_off
+      collect; mv "$S/evidence/results" "$S/evidence/results-attempt-1"; cp "$(RES)" "$S/evidence/results-attempt-1.tgz"
+      cp "$BKT/boxruns/rehearsal-$CASE/acc/jmed.tgz" "$S/evidence/jmed-attempt-1.tgz"
+      cp "$S/calls.log" "$S/evidence/calls-attempt-1.log"
+      # the driver's free look first (tools/box_run.py resume-plan over the last collect), then the resume itself
+      mkdir -p "$S/evidence/run-folder"; cp "$(RES)" "$S/evidence/run-folder/results.tgz"
+      (cd "$ROOT" && env PYTHONPATH=libs:services:. "$VPY" -m tools.box_run resume-plan "$S/evidence/run-folder" \
+         --deadline "jmed:60") > "$S/evidence/resume-plan.json" 2> "$S/evidence/resume-plan.err"
+      m tb-retry "retry-1"; m tb-acc-deadline "jmed:60"; boot; to_the_end; acc_collect ;;
     dev)   # the site files the first start left (the wizard's .env), then the dev launch
       setup "$CASE" dev; start_setup; build_setup; m tb-mode validation; val_models; m tb-direct 1
       mkdir -p "$S/box-root/deploy"; printf 'TB_ENV=VALIDATION\nTB_TZ=Asia/Taipei\n' > "$S/box-root/deploy/.env"
