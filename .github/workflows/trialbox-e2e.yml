@@ -228,7 +228,7 @@ jobs:
   # built here (as trialbox-images.yml builds them), the stack started with the stub model, and nothing may skip.
   compose:
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    timeout-minutes: 90  # D-995 = D-537's ceiling; measured 37.5 min, about 48 with the new-study walk
     env:
       PLAYWRIGHT_VERSION: "1.63.0"  # = trialbox/tools/package.json and deploy/gcp/complete-run-vm.sh (test_browser_lock)
     steps:
