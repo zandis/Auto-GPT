@@ -29,12 +29,9 @@ ARG PG_MAJOR_EXPECTED=16
 ARG GROONGA_KEY_FINGERPRINT=2701F317CFCCCB975CADE9C2624CF77434839225
 COPY db.groonga-archive-keyring.asc /usr/share/keyrings/groonga-archive-keyring.asc
 COPY --chmod=0755 db.healthcheck.sh /usr/local/bin/tb-db-check
-# SC-1b (D-993): the upstream gosu (a Go binary, the source of most of the image's findings) is replaced by a shell shim
-# on setpriv at the same path, so the upstream entrypoint's `gosu postgres ...` drops root the same way
-COPY --chmod=0755 db.gosu-setpriv.sh /usr/local/bin/gosu
 RUN --mount=type=secret,id=extra_ca,required=false,mode=0444 \
     set -eux; \
-    test "$(head -c 2 /usr/local/bin/gosu)" = "#!"; command -v setpriv; \
+    rm /usr/local/bin/gosu; command -v setpriv; \
     test "${PG_MAJOR}" = "${PG_MAJOR_EXPECTED}"; \
     pg_config --version | grep -q "^PostgreSQL ${PG_MAJOR_EXPECTED}\."; \
     KEYS="$(gpg --show-keys --with-colons /usr/share/keyrings/groonga-archive-keyring.asc)"; \
@@ -77,5 +74,12 @@ RUN --mount=type=secret,id=extra_ca,required=false,mode=0444 \
       sed -i 's|https://|http://|g' /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list.d/pgdg.list; \
     fi; \
     rm -rf /var/lib/apt/lists/*
+# SC-1b (D-993): the upstream gosu (a Go binary, the source of most of the image's findings) is replaced by a shell shim
+# on setpriv at the same path, so the upstream entrypoint's `gosu postgres ...` drops root the same way. The binary is
+# deleted in the layer above and the shim copied in its own: a scanner that reads the image layer by layer (Trivy) keeps
+# a file a later layer only overwrites, so an overwrite alone left Go 1.24.6 in the gate (train 70); the deletion is a
+# whiteout it applies.
+COPY --chmod=0755 db.gosu-setpriv.sh /usr/local/bin/gosu
+RUN test "$(head -c 2 /usr/local/bin/gosu)" = "#!"
 LABEL org.opencontainers.image.title="trialbox-postgres" \
       org.opencontainers.image.description="PostgreSQL 16 with pgvector, PGroonga and pgBackRest for TrialBox (D-204, D-371)"
