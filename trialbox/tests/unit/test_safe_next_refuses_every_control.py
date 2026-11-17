@@ -47,3 +47,31 @@ def test_the_role_switchs_path_back_follows_the_same_rule(raw: str) -> None:
 
     assert local_path(raw, "/") == "/", repr(raw)
     assert local_path("/studies/GZQO/week?list=all", "/") == "/studies/GZQO/week?list=all"
+
+
+def _taken(cookie_value: str) -> tuple[str | None, str]:
+    """``take`` on a sign-in's redirect, with the kept page's cookie: (the Location sent, the Set-Cookie header)."""
+    from console.next_page import NEXT_COOKIE, take
+    from starlette.requests import Request
+    from starlette.responses import RedirectResponse
+
+    scope = {"type": "http", "method": "POST", "path": "/login", "headers": [
+        (b"cookie", f"{NEXT_COOKIE}={cookie_value}".encode("ascii"))]}  # fmt: skip
+    resp = RedirectResponse("/", status_code=303)
+    take(Request(scope), resp)
+    return resp.headers.get("location"), resp.headers.get("set-cookie", "")
+
+
+def test_a_kept_page_with_non_ascii_returns_without_a_server_error() -> None:
+    """The review of D-1156: a page with a non-ASCII study name or path is sent back percent-encoded (a Location
+    header is bytes); before, the sign-in answered 500 and the cookie stayed, so a link could keep sign-in failing."""
+    from urllib.parse import quote, unquote
+
+    loc, cookie = _taken(quote("/studies/GZQO/患者?q=x", safe=""))
+    assert loc is not None and loc.isascii() and unquote(loc) == "/studies/GZQO/患者?q=x"
+    assert "Max-Age=0" in cookie or "expires=" in cookie.lower()  # forgotten
+
+
+def test_a_cookie_that_decodes_to_a_hidden_double_slash_is_not_followed() -> None:
+    loc, _ = _taken("%2F%09%2Fevil.example")
+    assert loc == "/"

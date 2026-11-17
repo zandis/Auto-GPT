@@ -51,6 +51,6 @@ def remember(resp: Response, page: str, secure: bool) -> None:
 def take(request: Request, resp: Response) -> None:
     """Send ``resp`` (a redirect after sign-in) to the kept page, if any, and forget it."""
     page = safe_next(unquote(request.cookies.get(NEXT_COOKIE) or ""))
-    if page:
-        resp.headers["location"] = page
+    if page:  # the review of D-1156: percent-encoded, so a non-ASCII page is a Location, never a 500
+        resp.headers["location"] = quote(page, safe="/?&=%#:@;+,!$'()*~-._")
     resp.delete_cookie(NEXT_COOKIE)
