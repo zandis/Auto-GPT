@@ -18,7 +18,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: differential cross-card embed-start public-data security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
+.PHONY: differential cross-card objects-dir embed-start public-data security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box test-console test-console-e2e site site-preview clean \
 	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle supply-chain release-version release-tag media-linux
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
@@ -381,8 +381,19 @@ $(TEST_SETTINGS): deploy/settings.example.yaml
 	install -d .cache
 	sed 's/^rate_limit_per_sender_per_day: .*/rate_limit_per_sender_per_day: 1000/' $< > $@
 
+# D-972: the test stack's object folder (bind-mounted, D-121) and its buckets (tb_common.objstore.BUCKETS), open to
+# the services (uid 10001) and to the host's integration tests (the runner's user): a bucket the services made first
+# (mode 755) refused the host test its job folder. Synthetic test objects only; no box uses this folder.
+OBJECTS_DIR ?= deploy/.objects
+OBJECTS_BUCKETS := attachments outputs rulesets lake twpas
+objects-dir:
+	@mkdir -p $(addprefix $(OBJECTS_DIR)/,$(OBJECTS_BUCKETS))
+	@chmod 0777 $(OBJECTS_DIR) $(addprefix $(OBJECTS_DIR)/,$(OBJECTS_BUCKETS)) || { \
+	  echo "objects-dir: cannot open $(OBJECTS_DIR) to the services and the tests (an earlier stack made it as" \
+	       "another user): remove it (sudo rm -rf $(OBJECTS_DIR)) and run again" >&2; exit 1; }
+
 up-test: deploy/.env .cache/test-secrets/site_hmac.key $(TEST_SETTINGS)
-	mkdir -p deploy/.objects && $(COMPOSE_TEST) up -d --wait
+	$(MAKE) --no-print-directory objects-dir OBJECTS_DIR=$(CURDIR)/deploy/.objects && $(COMPOSE_TEST) up -d --wait
 
 # load synthetic site A into the running test stack (adapter -> lake + FHIR store)
 ingest-test:

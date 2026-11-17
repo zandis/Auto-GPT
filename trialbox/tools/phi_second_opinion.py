@@ -1,7 +1,8 @@
 # ruff: noqa: E501
 # mypy: ignore-errors
 # (a measurement tool, D-1037: never imported by the product; Presidio is not a dependency of the box)
-"""A second opinion on the note masker (D-1037): Presidio (MIT) against ``tb_common.phi_guard`` (note masking v5).
+"""A second opinion on the note masker (D-1037): Presidio (MIT) against ``tb_common.phi_guard``
+(each result names the note masking version it measured).
 
     uv venv .pv && uv pip install --python .pv/bin/python presidio-analyzer pyyaml \\
         en_core_web_lg@https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl \\
@@ -158,7 +159,6 @@ GUARD_KIND = {"name": "name", "phone": "phone", "mrn": "mrn", "id": "id", "dob":
 def phi_guard_spans(text: str) -> list[tuple[str, int, int]]:
     from tb_common import phi_guard
 
-    assert phi_guard.NOTE_MASK_VERSION == "5", phi_guard.NOTE_MASK_VERSION
     return [(GUARD_KIND[k], s, e) for k, s, e in phi_guard.note_spans(text)]
 
 
@@ -291,8 +291,11 @@ def score(name: str, notes: list[dict], engine) -> dict:
             for kind, s, e in mine:
                 if not any(inside[s:e]) and not any(other[s:e]):
                     extra[who].append({"note": n["i"], "kind": kind, "shape": shape(t[s:e])})
+    from tb_common.phi_guard import NOTE_MASK_VERSION
+
     return {
         "set": name,
+        "note_mask_version": NOTE_MASK_VERSION,
         "notes": len(notes),
         "planted": {k: dict(sorted(v.items())) for k, v in sorted(planted.items())},
         "planted_differences": only,
