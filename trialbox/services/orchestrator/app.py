@@ -709,7 +709,9 @@ def registry_of(o: Orchestrator) -> CandidateRegistry:
 
 def _now(o: Orchestrator) -> datetime:
     zone = ZoneInfo(o.cfg.settings.site.tz)
-    return o.box_now(zone) if o.clock is not None else datetime.now(zone)  # J-4: the box's own clock, increasing
+    # J-4 (D-1224): the box's own clock, increasing; an orchestrator that has none (the product, a test's stand-in)
+    # keeps the wall clock
+    return o.box_now(zone) if getattr(o, "clock", None) is not None else datetime.now(zone)
 
 
 # ---------------------------------------------------------------------------- S-28 study store, REDCap (D-109)
