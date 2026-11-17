@@ -17,6 +17,15 @@ TERM-2 (D-1113 to D-1116), in the order of the install step (``docs/handover/OFF
     python -m tools.terminology_install icd10who <ClaML xml or code table> --accepted-by "NAME" [--version V]
     python -m tools.terminology_install atc <ATC index csv or tsv> --accepted-by "NAME" --version YEAR
 
+H-17 (D-1127): the NHI open data as it ships in the image (D-1028 point 3), built by the integrator from the files
+it fetched (``docs/licences/nhi-open-data-fetch.md``), and checked:
+
+    python -m tools.terminology_install nhi-build drugs|services <csv> --version V --fetched-on D --sha256 S
+    python -m tools.terminology_install nhi-check [--dir DIR]
+
+``nhi-drugs``, ``nhi-services`` and ``nhi-build`` take ``--column OURS=THEIRS`` (repeatable) when the publisher
+renamed a column the loader reads.
+
 ``icd10cm``: CMS's ``<year>-code-tables-tabular-and-index.zip`` (US public domain; cms.gov, "ICD-10-CM" files),
 read without unpacking: its tabular list's blocks and its Alphabetic Index. The FY2026 tables ship in the image
 (D-1029); this loads a later release in their place.
@@ -46,7 +55,10 @@ def main(argv: list[str] | None = None) -> int:
     st = sub.add_parser("status", help="what is loaded, and what is refused")
     st.add_argument("--dir", type=Path, default=None)
     _term2(sub)
+    _h17(sub)
     args = ap.parse_args(argv)
+    if args.cmd in ("nhi-build", "nhi-check"):
+        return _shipped(args)
     where = args.dir or installed.installed_dir()
     if args.cmd == "icd10cm":
         for name, n in installed.install_icd10cm(args.zip, where, args.year).items():
@@ -84,6 +96,7 @@ def _term2(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
         p.add_argument("file", type=Path)
         p.add_argument("--version", default="")
         p.add_argument("--dir", type=Path, default=None)
+        _column_option(p)
     pcs = sub.add_parser("icd10pcs", help="ICD-10-PCS from CMS's code-files zip, or its order or codes text file")
     pcs.add_argument("file", type=Path)
     pcs.add_argument("--year", default="2026")
@@ -105,13 +118,89 @@ def _load(args: argparse.Namespace, where: Path) -> dict[str, int]:
     if args.cmd == "site-list":
         return installed.install_site_list(args.file, where, args.name, args.system, args.version)
     if args.cmd == "nhi-drugs":
-        return installed.install_nhi_drugs(args.file, where, args.version)
+        return installed.install_nhi_drugs(args.file, where, args.version, columns=_columns(args.column))
     if args.cmd == "nhi-services":
-        return installed.install_nhi_services(args.file, where, args.version)
+        return installed.install_nhi_services(args.file, where, args.version, columns=_columns(args.column))
     if args.cmd == "icd10pcs":
         return installed.install_icd10pcs(args.file, where, args.year)
     loader = {"loinc": installed.install_loinc, "icd10who": installed.install_icd10_who, "atc": installed.install_atc}
     return loader[args.cmd](args.file, where, args.accepted_by, args.accepted_on, args.version)
+
+
+# ------------------------------------------------------------------------ H-17 (D-1127): the NHI open data shipped
+def _column_option(p: argparse.ArgumentParser) -> None:
+    what = "the header the publisher now uses for a column the loader reads, e.g. ATC代碼=ATC CODE"
+    p.add_argument("--column", action="append", default=[], metavar="OURS=THEIRS", help=what)
+
+
+def _columns(pairs: list[str]) -> dict[str, str]:
+    out = {}
+    for pair in pairs:
+        ours, sep, theirs = pair.partition("=")
+        if not sep or not ours.strip() or not theirs.strip():
+            raise ValueError(f"--column {pair!r}: write it OURS=THEIRS, e.g. ATC代碼=ATC CODE")
+        out[ours.strip()] = theirs.strip()
+    return out
+
+
+def _h17(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
+    b = sub.add_parser("nhi-build", help="build the shipped NHI table from the publisher's file the integrator fetched")
+    b.add_argument("kind", choices=("drugs", "services"))
+    b.add_argument("file", type=Path)
+    b.add_argument("--version", required=True, help="the publisher's version: the data set's file update time")
+    b.add_argument("--fetched-on", required=True, help="the day the file was fetched, YYYY-MM-DD")
+    b.add_argument("--sha256", required=True, help="the file's sha256 as recorded at the fetch")
+    b.add_argument("--out", type=Path, default=None, help="default: the shipped folder beside the mapper")
+    _column_option(b)
+    c = sub.add_parser("nhi-check", help="check the shipped NHI tables: manifest, attribution, licence-register row")
+    c.add_argument("--dir", type=Path, default=None)
+
+
+def _shipped(args: argparse.Namespace) -> int:
+    from tools import licence_register
+
+    where = args.out if args.cmd == "nhi-build" else args.dir
+    where = where or installed.SHIPPED_DIR
+    if args.cmd == "nhi-build":
+        table = installed.NHI_DRUGS if args.kind == "drugs" else installed.NHI_SERVICES
+        try:
+            got = installed.build_shipped(table, args.file, args.version, args.fetched_on, args.sha256, where,
+                                          _columns(args.column))  # fmt: skip
+        except (ValueError, OSError, installed.TerminologyRefused) as exc:
+            print(f"terminology_install nhi-build: refused: {exc}", file=sys.stderr)
+            return 2
+        line = installed.manifest(where)["tables"][table]
+        print(f"{table}: {got[table]} rows built into {where}, sha256 {line['sha256']}")
+        print(f"attribution: {line['ogdl_statement']}")
+        return 0
+    problems = installed.shipped_problems(where)
+    lines = installed.manifest(where)["tables"] if where.is_dir() and not problems else {}
+    problems += register_problems(where, lines, licence_register.load())
+    for name, line in sorted(lines.items()):
+        print(f"{name}: {line.get('rows')} rows, {line.get('version')}, sha256 {str(line.get('sha256'))[:16]}, "
+              f"from {str(line.get('source_sha256'))[:16]} fetched {line.get('fetched_on')}")  # fmt: skip
+    for p in problems:
+        print(f"PROBLEM: {p}")
+    if not lines and not problems:
+        print(f"no NHI table ships ({where} holds none): the box loads them at install (D-1115)")
+    return 1 if problems else 0
+
+
+def register_problems(where: Path, lines: dict[str, object], rows: list) -> list[str]:  # type: ignore[type-arg]
+    """Each shipped table and the shipped manifest need a ``cleared`` licence-register row naming them (D-1028
+    point 3, D-1127)."""
+    from tools import licence_register
+
+    try:
+        rel = where.resolve().relative_to(ROOT).as_posix()
+    except ValueError:
+        return []  # a folder outside the tree (a test's) is not shipped
+    out = []
+    for f in [f"{rel}/{n}.parquet" for n in sorted(lines)] + ([f"{rel}/manifest.json"] if lines else []):
+        hit = [r for r in rows if any(licence_register._matches(p, f) for p in r.paths)]
+        if not any(r.status == "cleared" and r.spdx == "LicenseRef-OGDL-Taiwan-1.0" for r in hit):
+            out.append(f"{f}: no cleared OGDL row in docs/licences/register.csv names it (row nhi-open-data-full)")
+    return out
 
 
 if __name__ == "__main__":

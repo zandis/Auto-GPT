@@ -361,8 +361,10 @@ def _answer(t: Terminology, domain: str, name: str) -> tuple[object, ...]:
     return r.method, r.needs_review, [(c.system, c.code) for c in r.concepts], r.families, r.notes
 
 
-def test_with_nothing_loaded_nothing_changes(tmp_path: Path) -> None:
-    """D-1116: with no folder and with an empty folder the mapper gives the same answers, and none is TERM-2's."""
+def test_with_nothing_loaded_nothing_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-1116: with no folder and with an empty folder the mapper gives the same answers, and none is TERM-2's. H-17
+    (D-1127): nothing shipped either (the NHI tables the image may ship are tested in test_h17_*)."""
+    monkeypatch.setattr(installed, "SHIPPED_DIR", tmp_path / "shipped-none")
     (tmp_path / "empty").mkdir()
     none, empty = Terminology(installed=tmp_path / "nothing"), Terminology(installed=tmp_path / "empty")
     for t in (none, empty):
@@ -420,8 +422,10 @@ def test_a_who_category_in_a_site_list_stands_for_its_family(loaded: Path, tmp_p
     assert (ICD10_WHO, "U98") in r.families
 
 
-def test_doctor_names_each_system_and_who_accepted(loaded: Path, tmp_path: Path) -> None:
+def test_doctor_names_each_system_and_who_accepted(loaded: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
     from tools.trialbox import doctor
+
+    monkeypatch.setattr(installed, "SHIPPED_DIR", tmp_path / "shipped-none")  # H-17: nothing shipped here either
 
     ok = doctor.check_terminology(doctor.DoctorInputs(env={"TB_TERMINOLOGY_DIR": str(loaded)}))
     assert ok.status == "PASS" and "not loaded" not in ok.detail

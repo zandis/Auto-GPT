@@ -329,6 +329,8 @@ def read_loaded(directory: Path, name: str) -> list[dict[str, Any]] | None:
 def not_loaded(directory: Path) -> list[str]:
     """The install-time systems (``AT_INSTALL``) with no table in the directory, in the order of the install step."""
     have = {p.stem for p in directory.glob("*.parquet")} if directory.is_dir() else set()
+    # H-17 (D-1127): an NHI table that ships in the image counts as there
+    have |= {p.stem for p in SHIPPED_DIR.glob("*.parquet") if p.stem in SHIPPABLE} if SHIPPED_DIR.is_dir() else set()
     return [label for label, t in AT_INSTALL if not any(h == t or (t == SITE_PREFIX and h.startswith(t)) for h in have)]
 
 
@@ -440,37 +442,253 @@ def install_site_list(path: Path, directory: Path, name: str, system: str = "", 
 
 
 # ------------------------------------------------------------------------------------------------- NHI open data
-def install_nhi_drugs(path: Path, directory: Path, version: str = "", now: datetime | None = None) -> dict[str, int]:
+def install_nhi_drugs(path: Path, directory: Path, version: str = "", now: datetime | None = None,
+                      columns: dict[str, str] | None = None) -> dict[str, int]:  # fmt: skip
     """The NHI drug list 健保用藥品項查詢項目檔 (data.gov.tw 23715, the CSV NHIA publishes; its columns as
     ``tb_common.refdata_tw`` reads them): one row per 藥品代號, the newest validity period, with its ATC代碼 (kept
-    only when ATC-shaped) and its 成分 (ingredient)."""
-    from tb_common.refdata_tw import latest_nhi_rows
-
-    rows = []
-    for code, r in sorted(latest_nhi_rows(path).items()):
-        atc = r.get("ATC代碼", "").strip().upper()
-        rows.append({"nhi_code": code, "name": r.get("藥品英文名稱", ""), "name_zh": r.get("藥品中文名稱", ""),
-                     "ingredient": r.get("成分", ""), "atc": atc if _ATC.match(atc) else "",
-                     "valid_to": r.get("有效迄日", "")})  # fmt: skip
+    only when ATC-shaped) and its 成分 (ingredient). H-17 (D-1127): read by :func:`nhi_drug_rows` (UTF-8 or Big5, the
+    header as published or renamed with ``columns``, a malformed row refused with its number)."""
+    rows = nhi_drug_rows(path.read_bytes(), path.name, columns)
     directory.mkdir(parents=True, exist_ok=True)
     line = _line("NHI drug list (data.gov.tw 23715)", path, version or f"{path.name} as loaded", OGDL, now,
                  attribution=NHI_DRUG_ATTRIBUTION)  # fmt: skip
-    _write(directory, NHI_DRUGS, rows, ("nhi_code", "name", "name_zh", "ingredient", "atc", "valid_to"), line)
+    _write(directory, NHI_DRUGS, rows, NHI_DRUG_TABLE, line)
     return {NHI_DRUGS: len(rows)}
 
 
-def install_nhi_services(path: Path, directory: Path, version: str = "", now: datetime | None = None) -> dict[str, int]:
+def install_nhi_services(path: Path, directory: Path, version: str = "", now: datetime | None = None,
+                         columns: dict[str, str] | None = None) -> dict[str, int]:  # fmt: skip
     """The NHI medical service and order codes 醫療服務給付項目及支付標準 (data.gov.tw 174450, its CSV as
-    ``tb_common.refdata_tw`` reads it): one row per 診療項目代碼, the newest period, Chinese and English names."""
-    from tb_common.refdata_tw import parse_nhi_services
-
-    rows = [{"code": t["code"], "display": t["display"], "display_en": t["extra"]["en"],
-             "valid_to": t["extra"]["valid_to"]} for t in parse_nhi_services(path)]  # fmt: skip
+    ``tb_common.refdata_tw`` reads it): one row per 診療項目代碼, the newest period, Chinese and English names.
+    H-17 (D-1127): read by :func:`nhi_service_rows`, as the drug list is."""
+    rows = nhi_service_rows(path.read_bytes(), path.name, columns)
     directory.mkdir(parents=True, exist_ok=True)
     line = _line("NHI medical service items (data.gov.tw 174450)", path, version or f"{path.name} as loaded", OGDL,
                  now, attribution=NHI_SERVICE_ATTRIBUTION)  # fmt: skip
-    _write(directory, NHI_SERVICES, rows, ("code", "display", "display_en", "valid_to"), line)
+    _write(directory, NHI_SERVICES, rows, NHI_SERVICE_TABLE, line)
     return {NHI_SERVICES: len(rows)}
+
+
+# ------------------------------------------------------------- H-17 (D-1127): the NHI files as NHIA publishes them
+# The columns NHIA's CSVs carry (data.gov.tw 23715 and 174450, "主要欄位說明", read 2026-11-17), those the loader needs
+# (as ``tb_common.refdata_tw`` requires them) and the table each loader writes (unchanged since TERM-2).
+NHI_DRUG_REQUIRED = ("藥品代號", "藥品中文名稱", "有效起日", "有效迄日", "ATC代碼")
+NHI_DRUG_OPTIONAL = ("藥品英文名稱", "成分")
+NHI_DRUG_TABLE = ("nhi_code", "name", "name_zh", "ingredient", "atc", "valid_to")
+NHI_SERVICE_REQUIRED = ("診療項目代碼", "健保支付點數", "生效起日", "生效迄日", "中文項目名稱")
+NHI_SERVICE_OPTIONAL = ("英文項目名稱",)
+NHI_SERVICE_TABLE = ("code", "display", "display_en", "valid_to")
+# NHI open data that may ship in the image (D-1028 point 3), built by ``tools.terminology_install nhi-build`` into
+# ``SHIPPED_DIR`` with its own manifest. A table loaded at install is read in its place (as ICD-10-CM's blocks are).
+SHIPPED_DIR = Path(__file__).resolve().parent / "shipped"
+SHIPPABLE: dict[str, str] = {NHI_DRUGS: NHI_DRUG_ATTRIBUTION, NHI_SERVICES: NHI_SERVICE_ATTRIBUTION}
+NHI_PUBLISHER = "衛生福利部中央健康保險署"
+NHI_TITLES = {NHI_DRUGS: "健保用藥品項查詢項目檔", NHI_SERVICES: "醫療服務給付項目及支付標準"}
+
+
+def header_key(text: str) -> str:
+    """A column header as compared: NFKC (full-width ``ＡＴＣ代碼`` is ``ATC代碼``), no BOM, quotes or white space,
+    Latin letters in upper case (``ATC 代碼``, `` atc代碼`` are ``ATC代碼``)."""
+    import unicodedata
+
+    t = unicodedata.normalize("NFKC", text or "").replace("\ufeff", "")
+    return re.sub(r"[\s\"']+", "", t).upper()
+
+
+def nhi_csv(data: bytes, what: str, required: tuple[str, ...], optional: tuple[str, ...],
+            columns: dict[str, str] | None = None) -> list[tuple[int, int, dict[str, str]]]:  # fmt: skip
+    """NHIA's CSV as ``(row number, line number, {column: value})``: UTF-8 (BOM or not) or Big5, its header compared
+    by :func:`header_key`; ``columns`` names the header the publisher now uses for one of ours (``{"ATC代碼": "ATC
+    CODE"}``). A missing column, a header twice, or a row whose field count differs from the header's refuses the
+    whole file, naming the row (never half-read)."""
+    import csv
+    import io
+
+    text = _text(data, what).lstrip("\ufeff")
+    reader = csv.reader(io.StringIO(text, newline=""))
+    header: list[str] = []
+    for rec in reader:
+        if any(f.strip() for f in rec):
+            header = rec
+            break
+    if not header:
+        raise ValueError(f"{what}: empty, no header")
+    keys = [header_key(h) for h in header]
+    where: dict[str, int] = {}
+    for col in (*required, *optional):
+        wanted = header_key((columns or {}).get(col) or col)
+        hits = [i for i, k in enumerate(keys) if k == wanted]
+        if len(hits) > 1:
+            raise ValueError(f"{what}: the header has column {col} {len(hits)} times")
+        if hits:
+            where[col] = hits[0]
+        elif col in required:
+            raise ValueError(f"{what}: no column {col} (the header has: {', '.join(h.strip() for h in header)}); if "
+                             f"the publisher renamed it, give --column {col}=<its header>")  # fmt: skip
+    for col in columns or {}:
+        if col not in (*required, *optional):
+            raise ValueError(f"{what}: --column {col}: not a column this loader reads ({', '.join(required)})")
+    out = []
+    n = 1
+    for rec in reader:
+        n += 1
+        if not any(f.strip() for f in rec):
+            continue
+        if len(rec) != len(header):
+            raise ValueError(f"{what}, row {n} (line {reader.line_num}): {len(rec)} fields, the header has "
+                             f"{len(header)}")  # fmt: skip
+        out.append((n, reader.line_num, {c: rec[i].strip() for c, i in where.items()}))
+    if not out:
+        raise ValueError(f"{what}: no rows under the header")
+    return out
+
+
+def _nhi_date(value: str, what: str, n: int, line: int, col: str) -> str:
+    """An NHIA date as ISO: 民國 ``YYYMMDD`` (`` 960901``, ``1030630``) or ``YYY.MM.DD`` as
+    ``tb_common.refdata_tw.roc`` reads it, ``YYYYMMDD``, or ISO; empty stays empty. Anything else refuses the file."""
+    from tb_common.refdata_tw import roc
+
+    v = (value or "").strip()
+    if not v:
+        return ""
+    iso = f"{v[:4]}-{v[4:6]}-{v[6:]}" if re.fullmatch(r"\d{8}", v) else roc(v)
+    try:
+        datetime.strptime(iso, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError(f"{what}, row {n} (line {line}): {col} {value!r} is not a date") from None
+    return iso
+
+
+def _newest(rows: list[tuple[str, str, dict[str, str]]]) -> list[dict[str, str]]:
+    """One row per code: the one with the latest start (a later row wins a tie), as ``tb_common.refdata_tw`` keeps."""
+    best: dict[str, tuple[str, dict[str, str]]] = {}
+    for code, start, r in rows:
+        if code not in best or start >= best[code][0]:
+            best[code] = (start, r)
+    return [best[c][1] for c in sorted(best)]
+
+
+def nhi_drug_rows(data: bytes, what: str = "the NHI drug list", columns: dict[str, str] | None = None
+                  ) -> list[dict[str, str]]:  # fmt: skip
+    """The NHI drug list's rows as ``nhi_drug_list`` holds them. A 藥品代號 that is not a 10-character NHI drug code,
+    or a date that is not one, refuses the file with its row number."""
+    import unicodedata
+
+    shape = SITE_CODE_SHAPES["nhi_drug"]
+    got = []
+    for n, line, r in nhi_csv(data, what, NHI_DRUG_REQUIRED, NHI_DRUG_OPTIONAL, columns):
+        code = unicodedata.normalize("NFKC", r["藥品代號"]).strip().upper()
+        if not shape.match(code):
+            raise ValueError(f"{what}, row {n} (line {line}): 藥品代號 {r['藥品代號']!r} is not a 10-character NHI "
+                             "drug code")  # fmt: skip
+        start = _nhi_date(r["有效起日"], what, n, line, "有效起日")
+        end = _nhi_date(r["有效迄日"], what, n, line, "有效迄日")
+        atc = r["ATC代碼"].strip().upper()
+        got.append((code, start, {"nhi_code": code, "name": r.get("藥品英文名稱", ""), "name_zh": r["藥品中文名稱"],
+                                  "ingredient": r.get("成分", ""), "atc": atc if _ATC.match(atc) else "",
+                                  "valid_to": end}))  # fmt: skip
+    return _newest(got)
+
+
+def nhi_service_rows(data: bytes, what: str = "the NHI service list", columns: dict[str, str] | None = None
+                     ) -> list[dict[str, str]]:  # fmt: skip
+    """The NHI service and order codes as ``nhi_service_list`` holds them. A 診療項目代碼 not shaped as an NHI order
+    code, or a date that is not one, refuses the file with its row number."""
+    import unicodedata
+
+    shape = SITE_CODE_SHAPES["nhi_order"]
+    got = []
+    for n, line, r in nhi_csv(data, what, NHI_SERVICE_REQUIRED, NHI_SERVICE_OPTIONAL, columns):
+        code = unicodedata.normalize("NFKC", r["診療項目代碼"]).strip().upper()
+        if not shape.match(code):
+            raise ValueError(f"{what}, row {n} (line {line}): 診療項目代碼 {r['診療項目代碼']!r} is not an NHI "
+                             "service or order code")  # fmt: skip
+        start = _nhi_date(r["生效起日"], what, n, line, "生效起日")
+        end = _nhi_date(r["生效迄日"], what, n, line, "生效迄日")
+        got.append((code, start, {"code": code, "display": r["中文項目名稱"], "display_en": r.get("英文項目名稱", ""),
+                                  "valid_to": end}))  # fmt: skip
+    return _newest(got)
+
+
+def ogdl_statement(table: str, version: str) -> str:
+    """The OGDL 1.0 attribution (its annex 顯名聲明): the provider, the data set and its version, the release under the
+    licence, and the link to the licence's full text."""
+    return (f"{NHI_PUBLISHER} {NHI_TITLES[table]} {version}。此開放資料依政府資料開放授權條款 (Open Government Data "
+            "License) 進行公眾釋出，使用者於遵守本條款各項規定之前提下，得利用之。政府資料開放授權條款："
+            "https://data.gov.tw/license")  # fmt: skip
+
+
+def build_shipped(table: str, path: Path, version: str, fetched_on: str, sha256: str, directory: Path | None = None,
+                  columns: dict[str, str] | None = None) -> dict[str, int]:  # fmt: skip
+    """H-17 (D-1127): the NHI open data as it ships (D-1028 point 3). The publisher's file, fetched by the integrator,
+    whose sha256 must be ``sha256`` (the one recorded at the fetch), is read as at install and written into the
+    shipped folder with its manifest line: the source and its whole sha256, the version, the day it was fetched (no
+    clock: a rebuild of the same file writes the same bytes), the licence and both attribution texts."""
+    if table not in SHIPPABLE:
+        raise ValueError(f"{table}: only {', '.join(SHIPPABLE)} ship (D-1028 point 3)")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", fetched_on or ""):
+        raise ValueError(f"--fetched-on is the day the file was fetched, YYYY-MM-DD, not {fetched_on!r}")
+    if not version.strip():
+        raise ValueError("--version is the publisher's version of the file (the data set's update time)")
+    got = _sha(path)
+    if not re.fullmatch(r"[0-9a-f]{64}", (sha256 or "").lower()) or got != sha256.lower():
+        raise ValueError(f"{path.name}: its sha256 is {got}, not the {sha256!r} recorded at the fetch")
+    where = directory or SHIPPED_DIR
+    when = datetime.fromisoformat(f"{fetched_on}T00:00:00+00:00")
+    loader = install_nhi_drugs if table == NHI_DRUGS else install_nhi_services
+    out = loader(path, where, version, when, columns)
+    _add_to_line(where, table, {"source_sha256": got, "fetched_on": fetched_on, "shipped": "D-1028 point 3",
+                                "ogdl_statement": ogdl_statement(table, version)})  # fmt: skip
+    (where / ".manifest.lock").unlink(missing_ok=True)  # the folder is committed: nothing but tables and manifest
+    return out
+
+
+def _add_to_line(directory: Path, name: str, more: dict[str, str]) -> None:
+    """Fields added to a table's manifest line, under the loader's lock, the manifest written whole (as ``_write``)."""
+    import fcntl
+
+    with (directory / ".manifest.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        data = manifest(directory)
+        data["tables"][name].update(more)
+        mtmp = directory / f".{MANIFEST}.tmp"
+        with mtmp.open("w", encoding="utf-8") as f:
+            f.write(json.dumps(data, indent=1, sort_keys=True) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(mtmp, directory / MANIFEST)
+
+
+def shipped_problems(directory: Path | None = None) -> list[str]:
+    """What is wrong with the shipped NHI tables (none shipped: nothing): a table with no manifest line or other
+    bytes, a line without its licence, attribution or source sha256, or a table that is not NHI open data."""
+    where = directory or SHIPPED_DIR
+    if not where.is_dir():
+        return []
+    out = []
+    try:
+        lines = manifest(where)["tables"]
+    except TerminologyRefused as exc:
+        return [str(exc)]
+    for name in sorted({p.stem for p in where.glob("*.parquet")} | set(lines)):
+        if name not in SHIPPABLE:
+            out.append(f"{name}: not NHI open data; only {', '.join(SHIPPABLE)} ship (D-1028 point 3)")
+            continue
+        try:
+            rows = read_table(where, name)
+        except TerminologyRefused as exc:
+            out.append(str(exc))
+            continue
+        line = lines.get(name) or {}
+        if rows is None:
+            out.append(f"{name}: in the shipped manifest but its file is missing")
+        if line.get("licence") != OGDL or line.get("attribution") != SHIPPABLE[name]:
+            out.append(f"{name}: its manifest line lacks the OGDL licence or the provider's attribution")
+        if line.get("ogdl_statement") != ogdl_statement(name, str(line.get("version") or "")):
+            out.append(f"{name}: its manifest line lacks the OGDL statement for version {line.get('version')!r}")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(line.get("source_sha256") or "")):
+            out.append(f"{name}: its manifest line records no sha256 of the publisher's file")
+    return out
 
 
 # ----------------------------------------------------------------------------------------------- ICD-10-PCS (CMS)

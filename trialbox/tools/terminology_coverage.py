@@ -1,6 +1,8 @@
 """How many drafted concepts the terminology resolves without the model (TERM-2, D-1113; lane E's TERM-1 measure).
 
     python -m tools.terminology_coverage <raw-traces.json> [--installed DIR] [--synonyms] [--json]
+    python -m tools.terminology_coverage --concepts <concepts.csv> [--installed DIR] [--json]
+    python -m tools.terminology_coverage <raw-traces.json> --write-concepts <concepts.csv>
 
 Reads every ``concept_candidates`` entry of the ``extract_criteria`` calls in a launch's ``raw-traces.json`` (launch
 P1b's ``sigir.tgz``: public ClinicalTrials.gov protocols), leaves out the ``demographic`` ones, and maps each with
@@ -8,11 +10,18 @@ P1b's ``sigir.tgz``: public ClinicalTrials.gov protocols), leaves out the ``demo
 systems loaded into that folder by ``tools.terminology_install``. ``--synonyms`` also passes the model's synonyms of
 each candidate (off by default, as lane E measured). The file is data only: it is parsed as JSON and never run.
 Prints the concepts and how many resolved, by domain, and the total.
+
+H-17 (D-1128): the traces cannot be committed, so ``--write-concepts`` derives their concepts in a small committable
+form (``domain``, ``name`` as drafted, ``count``; the demographic ones left out; no model synonyms) and
+``--concepts`` measures from it, the same figures without the archive (CI). The JSON output also counts, by domain,
+the resolved concepts whose answer is for review (``for_review``).
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import sys
 from collections import Counter
@@ -51,26 +60,66 @@ def measure(traces: dict[str, Any], term: Terminology, synonyms: bool = False) -
     calls = sum(
         1 for c in traces.get("traces") or [] if (c.get("attributes") or {}).get("tb.role") == "extract_criteria"
     )
-    total = 0
+    cands = list(candidates(traces))
+    result = _count(((c, 1) for c in cands), term, synonyms)
+    return {"calls": calls, "candidates": len(cands), **result}
+
+
+def _count(weighted: Iterator[tuple[dict[str, Any], int]], term: Terminology, synonyms: bool) -> dict[str, Any]:
+    """The counts of :func:`measure` over candidates each counted ``n`` times (one map call per distinct one)."""
     by: dict[str, list[int]] = {}
     methods: Counter[str] = Counter()
+    review: Counter[str] = Counter()
     unmapped: dict[str, Counter[str]] = {}
-    for cand in candidates(traces):
-        total += 1
+    for cand, n in weighted:
         domain = str(cand.get("domain") or "")
         if domain == "demographic":
             continue
         syn = [str(s) for s in cand.get("synonyms") or []] if synonyms else None
         r = term.map(domain, str(cand["name"]), syn)
         row = by.setdefault(domain, [0, 0])
-        row[0] += 1
+        row[0] += n
         if r.concepts:
-            row[1] += 1
-            methods[r.method] += 1
+            row[1] += n
+            methods[r.method] += n
+            review[domain] += n if r.needs_review else 0
         else:
-            unmapped.setdefault(domain, Counter())[str(cand["name"]).strip().lower()] += 1
-    return {"calls": calls, "candidates": total, "by_domain": by, "methods": dict(methods),
+            unmapped.setdefault(domain, Counter())[str(cand["name"]).strip().lower()] += n
+    return {"by_domain": by, "methods": dict(methods), "for_review": dict(review),
             "unmapped": {d: dict(c.most_common()) for d, c in unmapped.items()}}  # fmt: skip
+
+
+CONCEPT_COLUMNS = ("domain", "name", "count")
+
+
+def concept_rows(traces: dict[str, Any]) -> list[dict[str, str]]:
+    """The launch's drafted concepts, distinct by domain and name as drafted, with how often each was drafted
+    (demographic ones left out), sorted: the committable form ``--concepts`` reads (H-17, D-1128)."""
+    counts: Counter[tuple[str, str]] = Counter()
+    for cand in candidates(traces):
+        domain = str(cand.get("domain") or "")
+        if domain != "demographic":
+            counts[(domain, str(cand["name"]))] += 1
+    return [{"domain": d, "name": n, "count": str(k)} for (d, n), k in sorted(counts.items())]
+
+
+def write_concepts(rows: list[dict[str, str]]) -> str:
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=CONCEPT_COLUMNS, lineterminator="\n")
+    w.writeheader()
+    w.writerows(rows)
+    return buf.getvalue()
+
+
+def measure_concepts(text: str, term: Terminology) -> dict[str, Any]:
+    """:func:`measure`'s counts from the committable concept list (``domain,name,count``): the same figures as from
+    the traces, without the model synonyms."""
+    rows = list(csv.DictReader(io.StringIO(text)))
+    if not rows or set(CONCEPT_COLUMNS) - set(rows[0]):
+        raise ValueError(f"a concept list has the columns {', '.join(CONCEPT_COLUMNS)}")
+    weighted = (({"domain": r["domain"], "name": r["name"]}, int(r["count"])) for r in rows)
+    result = _count(weighted, term, False)
+    return {"calls": None, "candidates": sum(v[0] for v in result["by_domain"].values()), **result}
 
 
 def table(result: dict[str, Any]) -> str:
@@ -86,21 +135,39 @@ def table(result: dict[str, Any]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
-    ap.add_argument("traces", type=Path)
+    ap.add_argument("traces", type=Path, nargs="?", default=None)
+    ap.add_argument("--concepts", type=Path, default=None, help="a concept list (domain,name,count) instead")
+    ap.add_argument("--write-concepts", type=Path, default=None, help="write the traces' concept list here")
     ap.add_argument("--installed", type=Path, default=None, help="a TB_TERMINOLOGY_DIR (default: an empty one)")
     ap.add_argument("--synonyms", action="store_true", help="also pass each candidate's model synonyms")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
-    traces = json.loads(args.traces.read_text(encoding="utf-8"))
+    if (args.traces is None) == (args.concepts is None):
+        ap.error("give either a raw-traces.json or --concepts")
+    traces = json.loads(args.traces.read_text(encoding="utf-8")) if args.traces else {}
+    if args.write_concepts:
+        if not args.traces:
+            ap.error("--write-concepts derives the list from a raw-traces.json")
+        rows = concept_rows(traces)
+        args.write_concepts.write_text(write_concepts(rows), encoding="utf-8")
+        print(f"{len(rows)} distinct concepts, {sum(int(r['count']) for r in rows):,} drafted, "
+              f"written to {args.write_concepts}")  # fmt: skip
+        return 0
     where = args.installed or Path("/nonexistent/terminology-none")
     term = Terminology(installed=where)
     if term.installed_problems:
         print("refused: " + "; ".join(term.installed_problems), file=sys.stderr)
-    result = measure(traces, term, args.synonyms)
+    if args.concepts:
+        result = measure_concepts(args.concepts.read_text(encoding="utf-8"), term)
+    else:
+        result = measure(traces, term, args.synonyms)
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=1, sort_keys=True))
         return 0
-    print(f"{result['calls']} extract_criteria calls, {result['candidates']:,} candidates")
+    if result["calls"] is not None:
+        print(f"{result['calls']} extract_criteria calls, {result['candidates']:,} candidates")
+    else:
+        print(f"{result['candidates']:,} concepts from {args.concepts.name}")
     print(table(result))
     print("methods: " + ", ".join(f"{m} {n}" for m, n in sorted(result["methods"].items())))
     return 0

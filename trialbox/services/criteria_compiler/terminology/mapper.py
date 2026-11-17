@@ -528,20 +528,23 @@ class Terminology:
         self.loaded_codes: set[tuple[str, str]] = set()  # every code of a loaded table (a site code is checked here)
         self.who_categories: dict[str, list[Concept]] = {}  # a WHO ICD-10 category -> its codes, when loaded
         have = sorted(p.stem for p in where.glob("*.parquet")) if where.is_dir() else []
+        # H-17 (D-1127): the NHI open data shipped in the image answers when the box loaded none of its own
+        shipped = {n for n in inst.SHIPPABLE if n not in have and (inst.SHIPPED_DIR / f"{n}.parquet").is_file()}
         order = [n for n in have if n.startswith(inst.SITE_PREFIX)] + [
             n for n in (inst.ATC_INDEX, inst.NHI_DRUGS, inst.NHI_SERVICES, inst.ICD_PCS, inst.LOINC_TABLE,
-                        inst.ICD10_WHO) if n in have]  # fmt: skip
+                        inst.ICD10_WHO) if n in have or n in shipped]  # fmt: skip
         exact: list[_Entry] = []
         loose: list[_Entry] = []
         for table in order:
+            src = inst.SHIPPED_DIR if table in shipped else where
             try:
-                rows = inst.read_loaded(where, table)
+                rows = inst.read_loaded(src, table)
             except inst.TerminologyRefused as exc:
                 self.installed_problems.append(str(exc))
                 continue
             if rows is None:
                 continue
-            self.loaded_sources[table] = str(inst.manifest(where)["tables"][table].get("version") or "installed")
+            self.loaded_sources[table] = str(inst.manifest(src)["tables"][table].get("version") or "installed")
             if table.startswith(inst.SITE_PREFIX):
                 self._index_site(table, rows)
             else:
