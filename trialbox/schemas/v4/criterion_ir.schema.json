@@ -1646,6 +1646,21 @@
      ],
      "default": null,
      "title": "Agreement"
+    },
+    "calls": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Calls"
     }
    },
    "title": "Provenance",

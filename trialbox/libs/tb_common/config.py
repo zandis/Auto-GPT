@@ -414,6 +414,8 @@ DECLARED: dict[str, Declared] = {
         "float", "60", "limit of the backup's small queries (sizes, job count); not work sized by data (D-455)"
     ),
     "TB_BACKUP_QUIESCE": Declared("str", "off", "off: the snapshot alone; pause: hold services still (D-455)"),
+    "TB_BACKUP_RESTIC": Declared("str", "auto", "auto: the lake to restic when shares cover the KEK; off (D-977)"),
+    "TB_BACKUP_IMAGE": Declared("str", "trialbox-backup:1.0.0", "the backup job's image, restic inside (D-968, D-977)"),
     "TB_BACKUP_SPEED_TEST_MIB": Declared(
         "int", "1024", "Windows box: least MiB a backup path's speed test writes to count; past the write cache (D-608)"
     ),

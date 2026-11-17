@@ -132,6 +132,7 @@ _D1 = {
     "Duration",
     "Window",
     "CriterionIR",
+    "CriterionProvenance",  # the model calls a criterion was extracted by (ids, no content; D-989)
     "CompileRequest",
     "CompileResult",
     "ConceptCandidate",

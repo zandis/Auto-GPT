@@ -111,8 +111,9 @@ class OrchestratorJudge(NoteJudge):
             quote_date=r.quote_date,
             reason=r.reason or "",
             call_id=r.call_id,
-            build_sha=r.model,
+            build_sha=r.build_sha,  # D-989: the build that answered ("" on a direct call), never the model's name
             prompt=r.prompt,
+            prompt_sha=r.prompt_sha,
             tokens_in=r.tokens_in,
             tokens_out=r.tokens_out,
             opinions=list(r.opinions),
