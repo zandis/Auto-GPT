@@ -6,6 +6,13 @@
 {% if notice %}<p class="ok" role="status" data-testid="admin-notice">{{ t('admin.notice.' + notice) }}</p>{% endif %}
 
 {% if tab == 'health' %}
+{% if term_refused %}
+<section class="card attention" data-testid="term-refused">
+<h2>{{ t('term.refused.title') }}</h2>
+<ul>{% for r in term_refused %}<li data-testid="term-refused-{{ r.table }}">{{ t('term.refused.site', table=r.table, reason=r.reason) }}</li>{% endfor %}</ul>
+<p class="warn" data-testid="term-refused-admin">{{ t('term.refused.admin') }}</p>
+</section>
+{% endif %}
 <div class="tiles" data-testid="admin-health">
   <section class="card tile" data-testid="tile-system">
     <h2>{{ t('admin.system') }}</h2>

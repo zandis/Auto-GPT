@@ -34,7 +34,7 @@ from tb_common.service_auth import bind_session
 from tb_contracts import Job
 
 from console import actor as console_actor
-from console import coded_view, s28
+from console import coded_view, s28, terminology_refused
 from console import studies as st
 from console.api_first import before_body, page_twin
 from console.auth import Session, source_of
@@ -598,6 +598,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             counts=counts,
             health=bk.health(),
             models=bk.models(),
+            term_refused=terminology_refused.on_box(),  # E-TERM-3 (D-1048): a site list the box does not read
         )
 
     @app.get("/reports")

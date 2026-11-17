@@ -47,6 +47,7 @@ CASES = [
     "gate-closed",
     "gate-401",
     "gate-never",
+    "acc-cut-resume",  # D-1129 (card H-14): a set that ended on its own budget, taken up by a resume with a new one
 ]
 
 pytestmark = pytest.mark.skipif(
