@@ -40,6 +40,7 @@ def test_default_install_passes() -> None:
     assert {c.name for c in checks} == {
         "topology",
         "terminology",  # D-858 (lane E's hunk): the code systems loaded on the box
+        "provenance_index",  # D-989 step 2c: the index against the audit chain (NOT CHECKED with no database)
         "env_class_ceiling",
         "routing_perimeter",
         "gateway_only_model_reach",
