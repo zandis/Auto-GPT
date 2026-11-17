@@ -565,6 +565,13 @@ OUTSIDE: dict[str, Entry] = {
         "the space drops it whole (D-714)",
         "the opt-out's clear in a practice space's store",
     ),
+    "outside:provenance_index": _owed(
+        "D-989 point 5: the provenance index (schema provenance: model_calls, model_uses), derived from the audit "
+        "chain and rebuilt from it; a use row names a patient by pseudonym and goes at the opt-out "
+        "(tb_common.provenance_index.erase; a rebuild leaves an opted-out patient out); the call rows name no patient",
+        "the opt-out worker's clear of the use rows, once the role script grants its role DELETE (lane D)",
+        card="D-989",
+    ),
     "outside:audit": _keep(
         "D-394",
         "the audit chain and its journal: append-only, hash-chained; the opt-out's own "
