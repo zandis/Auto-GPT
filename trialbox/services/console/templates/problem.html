@@ -8,6 +8,11 @@
 <h1>{{ heading }}</h1>
 <p class="error" role="alert" data-testid="problem">{{ t(key, **values) }}</p>
 {% set wk = 'problem.why.' + key %}{% if t(wk) != wk %}<p>{{ t(wk) }}</p>{% endif %}
+{# D-1151: a page the acting role may not open offers the person's other roles (the switch returns to this page) #}
+{% set my_roles = acting_roles() if user else [] %}{% if key == 'forbidden' and my_roles|length > 1 %}
+<form method="post" action="/role" data-testid="problem-role-switch"><input type="hidden" name="csrf" value="{{ csrf }}">{% if request.method == 'GET' %}<input type="hidden" name="back" value="{{ path }}">{% endif %}
+<p>{{ t('acting.wrong', role=t('role.' + user.role)) }}</p>
+<p class="actions">{% for r in my_roles if r != user.role %}<button type="submit" name="role" value="{{ r }}" class="secondary">{{ t('role.' + r) }}</button>{% endfor %}</p></form>{% endif %}
 <p class="actions">
 <a class="button" href="{{ '/home' if user else '/login' }}" data-testid="problem-home">{{ t('problem.home') }}</a>
 <a class="button secondary" href="{{ '/home' if user else '/login' }}" data-back data-testid="problem-back">{{ t('problem.back') }}</a>

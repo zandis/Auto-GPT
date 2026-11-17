@@ -23,6 +23,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, Protocol
 
+from tb_common.llm import no_sentinel_date
 from tb_common.pair import Vote, combine, needs_verifier, served_keys
 from tb_common.quotes import quote_in, quote_key
 from tb_llm import budget
@@ -238,19 +239,6 @@ class GatewayJudge:
             tokens_in=res.tokens_in,
             tokens_out=res.tokens_out,
         )
-
-
-def no_sentinel_date(data: dict[str, Any]) -> dict[str, Any]:
-    """G8 of the P1b review (D-958): a quote date that is no real date ("0000-01-01", the model's way of saying it has
-    none) is no date: null, so an "unknown" with it is an answer, not a reply outside the schema."""
-    qd = data.get("quote_date")
-    if qd is None:
-        return data
-    try:
-        ok = date.fromisoformat(str(qd)[:10]).year >= 1900
-    except ValueError:
-        ok = False
-    return data if ok else {**data, "quote_date": None}
 
 
 @dataclass
