@@ -81,12 +81,13 @@ STEPS: tuple[Step, ...] = (
         (
             Do("signin"),
             Do("language", T("lang.apply"), T("lang.label")),
-            Do("goto", value="/studies/{rs}/feasibility"),
+            Do("nav", T("nav.reports")),
+            Do("row_link", T("home.open_report"), within="{rs} v{v}"),
             See("h1", T("feas.title", prefix="{rs} · ")),
             See("gone", value="feas-none"),
         ),
         (),
-        "As the investigator (the study's PI): open the study's feasibility report.",
+        "As the investigator (the study's PI): open Reports and the study's feasibility report.",
         "The same report.",
     ),
     Step(

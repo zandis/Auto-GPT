@@ -4,7 +4,7 @@ roles that use it, in en, zh-TW and ja, with the findings by step it reports. It
 The walks (``test_a_module_walk``, marked e2e) start one steps-mode box as H-10's walk does (its ``box`` fixture:
 ``tools.demo``, demo mode off, the stub model, the synthetic hospital, ``--day data``) and walk the four plans
 (``tests/e2e/module_walk_<module>_plan.py``: feasibility, safety, monitoring, amendment) in Chromium with H-20's
-driver (``tests/e2e/module_walk.js`` loads ``life_cycle_walk.js``), once per module and page language. Safety and
+driver (``tests/e2e/module_walk.js`` requires ``life_cycle_walk.js`` and adds its acts through its ``extend``), once per module and page language. Safety and
 amendment each begin a new study per language (``SAFEWALK``, ``AMENDWALK``; ``ZH`` and ``JA`` added) from H-20's
 steps 1 to 15; feasibility and monitoring walk studies the box seeds (``AD-MAB``, ``GZQO``). Each writes a JSON log per
 module and language (outside the repository: ``TB_WALK_LOG_DIR``, else the box's scratch folder) with, per step, the
@@ -22,7 +22,7 @@ another base id for the two walks that begin a new study.
 
 The other tests need no box: each module's steps are done by the role that owns them in the permission matrix and
 refused to the roles that do not, every text is the product's in three languages, the plans begin with H-20's steps
-unchanged, the driver still loads H-20's, and the findings page holds exactly the plans' findings.
+unchanged, the driver is H-20's, required and extended, not copied, and the findings page holds exactly the plans' findings.
 """
 
 from __future__ import annotations
@@ -121,22 +121,28 @@ def _steps() -> list[tuple[str, mw.Step]]:
     return [(m, st) for m in mw.MODULES for st in mw.modules()[m].steps]
 
 
-def test_the_driver_is_h20s_loaded_not_copied() -> None:
-    """module_walk.js widens two lines of H-20's driver when it loads it; each is there exactly once, and the module
-    walk's file holds no copy of the driver's own functions."""
+def test_the_driver_is_h20s_required_not_copied() -> None:
+    """module_walk.js requires H-20's driver and adds its kinds through the driver's ``extend``; it holds no copy of
+    the driver's own functions, and the driver still runs as a script for H-20's walk."""
     driver = DRIVER.read_text(encoding="utf-8")
     mine = SCRIPT.read_text(encoding="utf-8")
-    seams = re.findall(r"\['(default:\\n {6}throw new Error\(\"unknown (?:action|expectation) \" \+ a\.\w+\);)'", mine)
-    assert len(seams) == 2, seams
-    for seam in seams:
-        assert driver.count(seam.replace("\\n", "\n")) == 1, seam
-    for fn in ("signIn", "actAs", "refuse", "stopIf", "chooseLanguage"):
+    assert 'require("./life_cycle_walk.js")' in mine and "driver.extend(" in mine and "driver.main()" in mine
+    assert "module.exports = { extend:" in driver and "if (require.main === module) main();" in driver
+    assert "if (extra.acts[a.do]) return extra.acts[a.do](p, a, tag, helpers);" in driver
+    assert "if (extra.holds[a.kind]) return extra.holds[a.kind](p, a, helpers);" in driver
+    for fn in ("signIn", "actAs", "refuse", "stopIf", "chooseLanguage", "holds"):
         assert f"function {fn}(" in driver and f"function {fn}(" not in mine, fn
 
 
+def _kinds() -> set[str]:
+    driver = set(re.findall(r'case "([a-z0-9_]+)"', DRIVER.read_text(encoding="utf-8")))
+    mine = set(re.findall(r"async ([a-z0-9_]+)\(p, a", SCRIPT.read_text(encoding="utf-8")))
+    return driver | mine
+
+
 def test_the_driver_knows_every_act_of_the_plans() -> None:
-    code = DRIVER.read_text(encoding="utf-8") + SCRIPT.read_text(encoding="utf-8")
-    cases = set(re.findall(r'case "([a-z0-9_]+)"', code))
+    cases = _kinds()
+    assert {"field", "pick", "choose", "check", "absent"} <= cases, cases
     acc = {"mode": "four", **mw.SEEDED_ACCOUNTS, "password": "-"}
     for m in mw.MODULES:
         mod = mw.modules()[m]

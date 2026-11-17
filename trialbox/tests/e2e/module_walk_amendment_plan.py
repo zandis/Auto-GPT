@@ -16,7 +16,7 @@ version 1.0.0 and screened, its first patient approached and enrolled. Then:
 
 from __future__ import annotations
 
-from tests.e2e.module_walk_common import Act, Finding, Module, See, Step, Stop, T, refuse
+from tests.e2e.module_walk_common import Act, Finding, Module, See, Step, T, refuse
 from tests.e2e.new_study_walk_plan import Do
 
 #: the amendment's version: the compiler's next minor version of the study's id (criteria_compiler._next_version)
@@ -141,7 +141,6 @@ STEPS: tuple[Step, ...] = (
             Do("link", T(None, prefix="{rs}")),
             Do("link", T("rescreen.link")),
             See("h1", T("rescreen.title", prefix="{rs} · ")),
-            Stop("shown", "AMD-04", value="rescreen-none"),
             See("shown", value="rescreen-versions"),
             Act("read", label="re-screen", within="main h2, main [data-testid=rescreen-versions]"),
         ),
