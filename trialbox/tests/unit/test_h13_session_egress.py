@@ -159,8 +159,14 @@ def test_the_kernels_own_listing_of_the_closed_table_is_read_with_its_merged_net
     assert opened["under_default_deny"] == sorted(REAL_OPEN_NETS)
 
 
-def _with(line: str, after: str = "\t\tct state established,related accept\n") -> str:
-    return REAL.replace(after, after + f"\t\t{line}\n", 1)
+def _with(line: str, form: str) -> str:
+    """``line`` put after the first rule of the forward chain, in the kernel's listing or in the product's script."""
+    if form == "nft-list":
+        return REAL.replace("\t\tct state established,related accept\n",
+                            f"\t\tct state established,related accept\n\t\t{line}\n", 1)  # fmt: skip
+    script, _ = egress.render(egress.Box(subnets=REAL_NETS, addresses={}), [], resolver=lambda h: [h])
+    return script.replace("    ct state established,related accept\n",
+                          f"    ct state established,related accept\n    {line}\n", 1)  # fmt: skip
 
 
 @pytest.mark.parametrize(
@@ -176,10 +182,14 @@ def _with(line: str, after: str = "\t\tct state established,related accept\n") -
      "ip saddr { 172.18.0.0/15 } accept",
      'ip saddr != { 172.18.0.0/15 } counter packets 0 bytes 0 drop comment "trialbox default deny"'],
 )  # fmt: skip
-def test_any_rule_shape_the_product_does_not_write_is_refused(line: str) -> None:
+@pytest.mark.parametrize("form", ["nft-list", "script"])
+def test_any_rule_shape_the_product_does_not_write_is_refused(line: str, form: str) -> None:
     """Each line, inserted into the kernel's own listing of the product's closed table, is a way out (or a deny that
     is not one): the read-back says the text could leave."""
-    res = vm.session_egress(_with(line), REAL_NETS)
+    assert not vm.session_egress(_with("", form).replace("\n\t\t\n", "\n").replace("\n    \n", "\n"), REAL_NETS)[
+        "text_can_leave"
+    ]  # the closed table alone passes, in either form
+    res = vm.session_egress(_with(line, form), REAL_NETS)
     assert res["text_can_leave"], (line, res["problems"])
 
 
