@@ -32,9 +32,15 @@ digest. No base digest clears these findings until upstream rebuilds gosu.
    trixie-security publishes `1:1.3.dfsg+really1.3.1-1+deb13u1` for amd64 and arm64 (checked on 2026-11-17). The image
    installs it and holds it like its other pinned packages: an `ARG` default, `apt-mark hold`, a `dpkg-query` check and
    the `images.lock` entry that `test_db_image` keeps equal.
-5. **The allow-list.** The 28 gosu entries and the zlib1g one match nothing once the image is built this way. Their removal is an allow-list
+5. **The binary is deleted in its own layer, then the shim is copied (train 70).** With the shim only copied over the
+   binary, train 70's image gate (the entries removed) still found Go 1.24.6: 15 `stdlib` ids. Trivy reads the image
+   layer by layer and keeps a file that a later layer only overwrites. A deletion is a whiteout it applies. The base's
+   only Go binary is `/usr/local/bin/gosu`, in layer 3 of the amd64 image: every layer was read on 2026-11-17 and no
+   other file has Go build info. The apt step therefore starts with `rm /usr/local/bin/gosu`, the shim is copied
+   after it, and a last step checks the path is the script. A unit test pins that order.
+6. **The allow-list.** The 28 gosu entries and the zlib1g one match nothing once the image is built this way. Their removal is an allow-list
    change: it goes with the train-ready line as an exact diff, and the integrator applies it on the train.
 
 ## Test
 
-`tests/unit/test_db_no_gosu.py` (7 tests, the zlib1g pin included), the new `test_db_image` check, and the box rehearsal's `install` step.
+`tests/unit/test_db_no_gosu.py` (8 tests: the zlib1g pin and the layer order included), the new `test_db_image` check, and the box rehearsal's `install` step.
