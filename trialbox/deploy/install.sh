@@ -510,6 +510,7 @@ chown "$(id -u):10001" deploy/settings.yaml && chmod 640 deploy/settings.yaml
 export TB_SETTINGS_FILE="./settings.yaml"
 # D-888: in deploy/.env too, so every start mounts it (the systemd unit, an update, an operator's docker compose up)
 envset TB_SETTINGS_FILE "./settings.yaml"
+# ---- PINS: the models this box serves, pinned to the release's weights before anything starts on them
 if [ "$MODE" = gpu ]; then
   # D-142 (review R-01): pin the profile's deployed pair from the site's own weights, which must be the release
   # models/registry.yaml expects (D-358), as candidate; PRODUCTION routes it once `trialbox eval qualify` passes and
@@ -530,19 +531,41 @@ if [ "$MODE" = gpu ]; then
     python -m tools.pin_model --install "$GPU" --models-root /d/models --out /d/site/registry.site.yaml \
     || die "a model of the $GPU pair is not pinned (see above): put its weights in deploy/models (RUNBOOK §8), then run install again"
   alive_stop
-  if ls deploy/site/registry.site.yaml >/dev/null 2>&1; then
-    # SEC-64: every pinned build's weights must still hash to its pin, or the box does not start on them
-    say "checking the pinned model weights (tools/pin_model.py --verify-all)"
-    alive_start "checking the model weights"
-    tree_args
-    docker run --rm -v "$ROOT/deploy:/d:ro" ${TREE_D[@]+"${TREE_D[@]}"} "$IMAGE_PY" \
-      python -m tools.pin_model --verify-all /d/models --out /d/site/registry.site.yaml \
-      || die "model weights do not match their pins (see above): restore the pinned files or re-pin with tools/pin_model.py (RUNBOOK §8)"
+else
+  # D-1066 (D-998, the owner's ruling): a box without a GPU is a product form (a feasibility-only site that may add a
+  # GPU later). Its embed service runs the embedder on the CPU and refuses to start in PRODUCTION without a pin, so
+  # the embedder alone is pinned from the bundle's weights (every site bundle carries them, tools/release.py)
+  mkdir -p deploy/site
+  for v in EMBED_MODEL_DIR EMBED_MODEL; do  # as compose reads them from deploy/.env
+    val="$(sed -n "s/^$v=//p" deploy/.env | tail -1)"; [ -z "$val" ] || export "$v=$val"
+  done
+  say "pinning the embedder from deploy/models (tools/pin_model.py --install-embedder)"
+  alive_start "hashing the embedder's weights"
+  tree_args
+  if ! docker run --rm --user "$(id -u):$(id -g)" -v "$ROOT/deploy:/d" ${TREE_D[@]+"${TREE_D[@]}"} -e EMBED_MODEL_DIR -e EMBED_MODEL \
+      -e TB_ENV="$TB_ENV_SITE" "$IMAGE_PY" \
+      python -m tools.pin_model --install-embedder --models-root /d/models --out /d/site/registry.site.yaml; then
     alive_stop
-  else
-    echo "install: note: no model pinned yet (deploy/site/registry.site.yaml): the gateway routes nothing to a local model until you run tools/pin_model.py or make spark-e2e (RUNBOOK §8)" >&2
+    if [ "$TB_ENV_SITE" = PRODUCTION ]; then
+      die "the embedder is not pinned (see above): a PRODUCTION box without a GPU needs it (D-1066); install from a bundle that carries embedder/, then run install again"
+    fi
+    echo "install: warning: the embedder is not pinned; on a $TB_ENV_SITE box the embed service runs its hash stub" >&2
   fi
+  alive_stop
 fi
+if ls deploy/site/registry.site.yaml >/dev/null 2>&1; then
+  # SEC-64: every pinned build's weights must still hash to its pin, or the box does not start on them
+  say "checking the pinned model weights (tools/pin_model.py --verify-all)"
+  alive_start "checking the model weights"
+  tree_args
+  docker run --rm -v "$ROOT/deploy:/d:ro" ${TREE_D[@]+"${TREE_D[@]}"} "$IMAGE_PY" \
+    python -m tools.pin_model --verify-all /d/models --out /d/site/registry.site.yaml \
+    || die "model weights do not match their pins (see above): restore the pinned files or re-pin with tools/pin_model.py (RUNBOOK §8)"
+  alive_stop
+else
+  echo "install: note: no model pinned yet (deploy/site/registry.site.yaml): the gateway routes nothing to a local model until you run tools/pin_model.py or make spark-e2e (RUNBOOK §8)" >&2
+fi
+# ---- end of PINS
 
 case "$MODE:$GPU" in gpu:rtxpro6000|gpu:gb10|gpu:rtx5090)
   # D-112, D-124: a pair profile starts only on a serving-config record of that profile on that card, uncapped

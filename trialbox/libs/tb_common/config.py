@@ -914,6 +914,9 @@ DECLARED: dict[str, Declared] = {
     "TB_REGISTRY_PATH": Declared("path", "", "model registry file"),
     "TB_REHEARSAL_DIR": Declared("path", "", "rehearsal work folder (tools)"),
     "TB_RELEASE_FILE": Declared("path", "", "release.json path"),
+    "TB_RELEASE_REGISTRY": Declared(
+        "path", "", "release check: a synthetic model registry for the tests only, empty in a release (D-998)"
+    ),
     "TB_RELEASE_TREE": Declared("path", "", "qualify in the image: the signed release tree mounted read-only (D-881)"),
     "TB_RESTORE_ACTOR": Declared("str", "trialbox restore", "restore: actor in the audit"),
     "TB_RESTORE_FILE": Declared("str", "newest", "platform restore job: the backup on the share to restore (T-633)"),

@@ -690,6 +690,40 @@ def install_pins(
     return ok, lines
 
 
+def install_embedder(
+    models_root: Path,
+    out: Path = DEFAULT_OVERRIDE,
+    env: dict[str, str] | None = None,
+    registry_path: Path | None = None,
+) -> tuple[bool, list[str]]:
+    """Pin ``e-embed-1`` alone, for a box without a GPU (D-1066, D-998): a feasibility-only PRODUCTION box runs the
+    embed service on the CPU, which refuses to start there without a pin (``EmbedderRefused``). Strict where
+    ``install_pins`` tolerates the embedder: no weights, other weights, or a pin that is not the release's expected
+    manifest each fail (the bundle carries the folder: ``tools/release.py`` refuses a site bundle without it)."""
+    e = env or {}
+    build, endpoint, dir_var, dir_default, name_var, name_default = EMBED_PIN
+    d = models_root / (e.get(dir_var) or dir_default)
+    name = e.get(name_var) or name_default
+    have = (load_override(out).get("builds") or {}) if out.exists() else {}
+    want = expected_of(_committed(registry_path)[1].get(build) or {})[0]
+    pinned = (have.get(build) or {}).get("sha256")
+    if pinned:
+        if want and pinned != want:
+            return False, [f"{build}: pinned {pinned[:12]} is not the expected manifest {want[:12]}: the embed service "
+                           "refuses it; put the release's embedder in place and pin it again"]  # fmt: skip
+        return True, [f"{build}: already pinned"]
+    if not d.is_dir():
+        return False, [f"{build}: no weights in {d}: every site bundle carries the embedder (D-1066), and a box "
+                       "without a GPU pins it there; install from a bundle that carries it"]  # fmt: skip
+    try:
+        m, _ = pin(build, d, served_name=name, endpoint=endpoint, out=out, status="candidate",
+                   registry_path=registry_path)  # fmt: skip
+    except PinError as exc:
+        return False, [f"{build}: {exc}"]
+    return True, [f"{build}: pinned {m.sha256[:12]} ({m.files} files) as candidate on {endpoint}; the embed service "
+                  "loads these weights and no others (D-429), on the CPU of a box without a GPU (D-1066)"]  # fmt: skip
+
+
 def judge_line(gpu: str, out: Path = DEFAULT_OVERRIDE, registry: Path | None = None) -> str:
     """The judge of a GPU profile in one line, from the configuration only: the role's alias, the build the profile
     serves, the registry's ``model_name`` for it and the site's pin (T-632, D-382)."""
@@ -1127,6 +1161,12 @@ def main(argv: list[str] | None = None) -> int:
         metavar="GPU",
         help="pin GPU profile's deployed pair from --models-root (install.sh); exit 1 when weights are missing",
     )
+    ap.add_argument(
+        "--install-embedder",
+        action="store_true",
+        help="pin e-embed-1 alone from --models-root (install.sh, a box without a GPU, D-1066); exit 1 when it is not",
+    )
+    ap.add_argument("--registry", type=Path, default=None, help="the release registry (default models/registry.yaml)")
     ap.add_argument("--models-root", type=Path, default=ROOT / "deploy" / "models")
     ap.add_argument(
         "--name-judge", metavar="GPU", help="print the judge GPU profile serves (install.sh); write nothing"
@@ -1182,6 +1222,16 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(f"promoted {args.promote} to champion on record {rid}")
         return 0
+    if args.install_embedder:
+        import os
+
+        try:
+            good, lines = install_embedder(args.models_root, args.out, dict(os.environ), args.registry)
+        except PinError as exc:
+            print(f"pin_model: {exc}", file=sys.stderr)
+            return 2
+        print("\n".join(lines))
+        return 0 if good else 1
     if args.install:
         import os
 
