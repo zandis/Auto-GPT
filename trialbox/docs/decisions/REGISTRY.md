@@ -27,8 +27,9 @@ isolation (PR #75 takes D-300); D-205 stays committed goldens (PR #82 takes D-30
 the PR #83 version; PR #82 drops its copy). Reservations D-190 to D-207 of TB-ASSESS-01 are void (the numbers on
 master stay); reservations D-208 to D-262 stay valid.
 
-The owner's rulings are numbered by the integrator: D-502 to D-519, D-526 and D-1020 to D-1039 (rows at the end of
-the last table); the next is D-1060 (lane E holds D-1040 to D-1059). The rulings of 2026-11-16 were relayed to the lanes as D-520 to D-537. Those
+The owner's rulings are numbered by the integrator: D-502 to D-519, D-526, D-1020 to D-1039 and D-1060 to
+D-1062 (rows at the end of
+the last table); the next is D-1063 (lane E holds D-1040 to D-1059; lane H holds D-1100 to D-1119). The rulings of 2026-11-16 were relayed to the lanes as D-520 to D-537. Those
 numbers, except D-526, were already held by decisions on master, so the rulings were renumbered D-1020 to D-1037
 (the same last two digits). The rows D-520 to D-537 stay with their holders. The mapping, and the citations on
 master that still use the relayed numbers, are in `docs/decisions/OWNER-RULINGS-2026-11-16.md`.
@@ -780,6 +781,9 @@ master that still use the relayed numbers, are in `docs/decisions/OWNER-RULINGS-
 | D-1037 | merged | owner ruling (the integrator) | `docs/decisions/D-1037-the-outside-review-of-master-828cb3d3.md`: the owner's ruling of 2026-11-16, relayed by the integrator under the number D-537: an outside review of master `828cb3d3` was judged by the integrator. Its three lists are below. PR #813 stays parked. |
 | D-1038 | merged | owner ruling (the integrator) | `docs/decisions/D-1038-one-licence-budget-line-for-restic.md`: the owner's ruling of 2026-11-16: one licence budget line for restic in the backup image, at most 86, no vulnerability waiver |
 | D-1039 | merged | the integrator | `docs/decisions/D-1039-a-security-fix-may-take-a-restic-module-past-upstream.md`: a security fix may take a restic module one version past restic's main branch, on conditions |
+| D-1060 | merged | owner ruling (the integrator) | `docs/decisions/D-1060-lane-e-builds-the-connector-to-the-owners-edc-under-a-firewall.md`: the owner's ruling of 2026-11-17: lane E builds the connector to the owner's EDC, under a firewall |
+| D-1061 | merged | owner ruling (the integrator) | `docs/decisions/D-1061-the-edc-connector-merges-by-train-and-pr-813-is-closed.md`: the owner's ruling of 2026-11-17: the EDC connector merges by train on green; PR #813 is closed when replaced |
+| D-1062 | merged | owner ruling (the integrator) | `docs/decisions/D-1062-a-preview-vm-in-steps-mode.md`: the owner's ruling of 2026-11-17: a preview VM in steps mode, demo mode off, admin and steward offered |
 | D-1026 | unused | — | not used: the owner's ruling relayed as D-526 kept its number, which was free (`docs/decisions/D-526-superseded-the-same-day.md`) |
 | D-921 | merged | T-695 (rest) | `docs/decisions/D-921-each-services-migrations-as-their-own-step.md`: `db-up` runs each service's start-time migrations in a one-off container of the service, under a restore's sized limit, before the services start; a long migration never meets the health wait |
 | D-873 | merged | ERASE-D (part 1) | `docs/decisions/D-873-a-case-chart-is-checked-before-it-is-read.md`: a CASE job resolves its subject and refuses an opted-out one before the attached chart is read or parsed |

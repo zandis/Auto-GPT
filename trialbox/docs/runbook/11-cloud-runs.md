@@ -354,6 +354,13 @@ referral. The seed's `pi` stays the PI, so the PI-only steps (approving criteria
 `coordinator` account is CRC on the same studies with the same tasks: the coordinator's view of the same synthetic
 hospital. `viewer` (aggregates only) is the other choice for a guest.
 
+**Steps mode (D-1062).** `TB_DEMO_VM_MODE=steps` is for the owner and his testers walking a study from its first
+step on current master. The boot leaves the flag `demo.mode` off, so a protocol can be pasted and uploaded, and
+`TB_DEMO_VM_PEOPLE` may also name `admin` and `steward`. Each account has one role, so a person who needs several
+gets one account for each (`wenn.admin:admin,wenn:investigator`). The model is still the stub, the hospital is
+still synthetic, and nothing else about the VM changes. Synthetic or public text only: tell the people so with
+their links. The default mode is `demo`.
+
 **Demo mode (D-328).** The banner, the refusal of every upload and pasted text, and the acknowledgement at each
 account's first sign-in. The boot script switches the audited flag `demo.mode` on **after** the seed and **before**
 Caddy opens tcp:443: it signs in as `admin` inside the container and sets it on `/ops/flags` with a reason (one

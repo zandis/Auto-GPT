@@ -544,6 +544,9 @@ DECLARED: dict[str, Declared] = {
     "TB_DEMO_VM_NETWORK": Declared(
         "str", "default", "demo VM: default (the project's network; no networkAdmin, a deny-all on its tag) or own"
     ),
+    "TB_DEMO_VM_MODE": Declared(
+        "str", "demo", "demo VM: demo (demo mode on), or steps (D-1062): demo mode off, admin and steward offered"
+    ),
     "TB_DEMO_VM_PEOPLE": Declared(
         "str",
         "owner:investigator,guest:coordinator",
