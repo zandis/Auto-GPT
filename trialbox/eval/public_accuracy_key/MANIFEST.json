@@ -1,0 +1,129 @@
+{
+ "what": "the answer key of the public accuracy sets, by version (D-1104): built at run time by tools/public_accuracy from the pinned sources, never committed; this file pins what is known of each version",
+ "current": "v2",
+ "versions": {
+  "v1": {
+   "what": "as launch P1b used it (builder of master fa639b61): birth date 1 July of the visit's year minus the age; placed age lines in years, written even when the protocol states the bound; JMED truth from the structured 主病名/既往歴/現病歴",
+   "build": "python -m tools.public_accuracy build --set SET --out DIR --for-box --ref DAY --key v1",
+   "launch_p1b": {
+    "run": "box-20261116T074927Z-3b2f5e38",
+    "build_day": "2026-11-16",
+    "rs_tag": "m2",
+    "what": "sha256 of each file of built/gold as the run stored it (written.json and key.json did not exist then)",
+    "sha256": {
+     "sigir": {
+      "bundle.json": "1f35fd2861256fdc73c4a96241883b684f831d3f14ba820ea2a5676f398b1c13",
+      "compile_gold.json": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "criteria.jsonl": "3adeb9a69597f1b0c5c4a8bc7b997453af34e726947cdf06b4943d0a061e7381",
+      "ids.json": "d6b843ea7b13501c0d1a2a6fb56ddf76e4d02c54d613e112a0a6cf109353ce44",
+      "pairs.jsonl": "3cec16529abe3eea714057a497a6426b238c5bca357cd777346ecae7fa554bf1"
+     },
+     "jmed": {
+      "bundle.json": "804062da1eea846c460ada97dc041b56147751242dcd386588ebd82eb27e154a",
+      "compile_gold.json": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "criteria.jsonl": "aea215ce5a7b3b2fac67b4d3f0b679dda89286afd70913824d30bd7bec1d326e",
+      "ids.json": "ab3a8888ffcc48adc039f50af47ca3710c53e7e7024b49daeed98e261d72ec4b",
+      "pairs.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     }
+    }
+   }
+  },
+  "v2": {
+   "what": "B1-B3 of the P1b review: B1 birth date the visit minus the stated age in its unit; B2 placed age lines keep their unit and a bound the protocol states is not written again; B3 JMED truth from the note the box reads, over the same patients as v1",
+   "build": "python -m tools.public_accuracy build --set SET --out DIR --for-box --ref DAY (--key v2 is the default)",
+   "sha256": null,
+   "why_no_sha256": "not built here: the sources (the SIGIR files, ClinicalTrials.gov's fields, the JMED-Personas parquet) are fetched at build time and are not in the repository; H-2 made no network call. The first v2 build adds its sha256 here as a new entry",
+   "launch_p1b_rows_that_change": {
+    "jmed": {
+     "labels": [
+      {
+       "patient": "f1f374875280433d8fdec6ff9ced4c28",
+       "trial": "JMED-HT",
+       "v1": "not excluded",
+       "v2": "excluded",
+       "p1b_box": "excluded (one of the 7 wrong exclusions: a key fault)"
+      },
+      {
+       "patient": "9f56d1cf27804387be624da5005a7f03",
+       "trial": "JMED-HT",
+       "v1": "not excluded",
+       "v2": "excluded",
+       "p1b_box": "excluded (one of the 7 wrong exclusions: a key fault)"
+      },
+      {
+       "patient": "f5da14174f2f4fba864c0e161bb49c21",
+       "trial": "JMED-HT",
+       "v1": "not excluded",
+       "v2": "excluded",
+       "p1b_box": "excluded (one of the 7 wrong exclusions: a key fault)"
+      },
+      {
+       "patient": "5c64094724ac466b9b6264ce7a35184f",
+       "trial": "JMED-HT",
+       "v1": "excluded",
+       "v2": "not excluded",
+       "p1b_box": "excluded"
+      },
+      {
+       "patient": "a58166327f0e46bf99ea8c8af9362a38",
+       "trial": "JMED-HT",
+       "v1": "excluded",
+       "v2": "not excluded",
+       "p1b_box": "not excluded"
+      },
+      {
+       "patient": "ec1cfd65bf96427eb169a3f93eeefc11",
+       "trial": "JMED-HT",
+       "v1": "excluded",
+       "v2": "not excluded",
+       "p1b_box": "not excluded"
+      },
+      {
+       "patient": "13b716f885f14997a13bd336f3576110",
+       "trial": "JMED-HT",
+       "v1": "excluded",
+       "v2": "not excluded",
+       "p1b_box": "not excluded"
+      },
+      {
+       "patient": "7a001f60fe1a4337aee01893e292f5f5",
+       "trial": "JMED-DM",
+       "v1": "excluded",
+       "v2": "not excluded",
+       "p1b_box": "not excluded"
+      },
+      {
+       "patient": "a4b4ea5704154645acaca571456edd94",
+       "trial": "JMED-DM",
+       "v1": "excluded",
+       "v2": "not excluded",
+       "p1b_box": "not excluded"
+      },
+      {
+       "patient": "f18b4d8e062c4681adf6d771df76e046",
+       "trial": "JMED-DM",
+       "v1": "excluded",
+       "v2": "not excluded",
+       "p1b_box": "not excluded"
+      },
+      {
+       "patient": "7a329699d6e844108df064087ebc9c60",
+       "trial": "JMED-DM",
+       "v1": "excluded",
+       "v2": "not excluded",
+       "p1b_box": "not excluded"
+      }
+     ],
+     "how": "key v2's truth (sets.jmed_stratum) on each note the run's judge read in full (319 of the 594 rows the box answered); the other 275 rows' notes are not in the stored run and need the source to list",
+     "birth_dates": "B1 changes every JMED patient's birth date (the visit minus the age, not 1 July)"
+    },
+    "sigir": {
+     "labels": [],
+     "why": "B1 and B2 change the site (birth dates, placed lines), not the physicians' labels; the 2 pairs whose label conflicts with the physicians' own criterion labels are the scorer's to report (S1): sigir-201413 x NCT00163709 and sigir-20142 x NCT00711399",
+     "birth_dates": "43 of 46 patients' birth dates change (the other 3 have no note in eval/criterion_ml to check here); under v1, 24 of the 43 were a year too old on the run day; sigir-201418, a 6-month-old, was born 2026-07-01 under v1 (2 months old at the visit) and is born 2026-02-28 under v2",
+     "protocol_lines": "B2 changes the placed age lines (sigir-201418 x NCT01260883: 'Aged 0.17 years or older' becomes 'Aged 2 months or older'); the full list needs ClinicalTrials.gov's fields"
+    }
+   }
+  }
+ }
+}

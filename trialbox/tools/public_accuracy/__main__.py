@@ -30,6 +30,13 @@ def main(argv: list[str] | None = None) -> int:
             "--size", type=int, default=20, help="pairs (TREC, SIGIR), trials (TFDA, jRCT, Chia), else items"
         )
         p.add_argument("--out", type=Path, required=True)
+    for p in (b, d):
+        p.add_argument(
+            "--key",
+            default="",
+            help="the answer key's version (tools.public_accuracy.key): v1 as launch P1b, v2 with B1-B3 (default: "
+            "the current one)",
+        )
     b.add_argument("--ref", default="", help="the site's day YYYY-MM-DD (default: the builder's fixed day)")
     b.add_argument(
         "--rs-tag",
@@ -44,17 +51,26 @@ def main(argv: list[str] | None = None) -> int:
     )
     s = sub.add_parser("score", help="score a run folder against its gold")
     s.add_argument("--out", type=Path, required=True)
+    k = sub.add_parser("key-diff", help="what differs between the answer keys of two built folders, and why")
+    k.add_argument("old", type=Path, help="a built folder (or its gold folder) of the old key")
+    k.add_argument("new", type=Path, help="a built folder (or its gold folder) of the new key")
     e = sub.add_parser("estimate", help="the first real-model run's sample, calls, hours and US$")
     e.add_argument("--box-s-per-protocol", type=float, default=None)
     a = ap.parse_args(argv)
     if a.cmd == "fetch":
         print(json.dumps(sources.fetch([x for x in a.only.split(",") if x] or None), indent=1))
         return 0
-    if a.cmd in ("build", "dryrun"):
-        from tools.public_accuracy import sets, site
+    if a.cmd == "key-diff":
+        from tools.public_accuracy import key
 
-        bundle = sets.read(a.set, size=a.size)
-        kw: dict[str, Any] = {}
+        print(json.dumps(key.diff(a.old, a.new), ensure_ascii=False, indent=1))
+        return 0
+    if a.cmd in ("build", "dryrun"):
+        from tools.public_accuracy import key, sets, site
+
+        version = key.check(a.key or key.CURRENT)
+        bundle = sets.read(a.set, size=a.size, key=version)
+        kw: dict[str, Any] = {"key": version}
         if getattr(a, "ref", ""):
             kw["ref"] = date.fromisoformat(a.ref)
         if getattr(a, "for_box", False):
@@ -71,9 +87,10 @@ def main(argv: list[str] | None = None) -> int:
         r = box.run(a.out / "built", a.out / "work", screen=not compile_only, approve=not compile_only)
         print(json.dumps({k: v for k, v in r.items() if k != "answers"}, ensure_ascii=False, indent=1, default=str))
     if a.cmd in ("dryrun", "score"):
-        from tools.public_accuracy import score
+        from tools.public_accuracy import key, score
 
         res = score.score(a.out / "built", a.out / "work")
+        res["key"] = key.describe(a.out / "built")  # the answer key's version the figures were scored on (D-1104)
         (a.out / "score.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
         print(json.dumps(res, ensure_ascii=False, indent=1)[:4000])
         return 0
