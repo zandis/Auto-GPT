@@ -79,6 +79,21 @@
 #   probe              a facts-only launch (tb-steps probe): the VM's facts written (names and sizes), the run ends
 #   acc-qualify-fails  validation mode: the qualification fails a gate; that is a result (the record's failed step and
 #                      its figure), the pair is not promoted, resolve says what PRODUCTION routes, the run goes on
+#   session            the owner's live session (D-1132), DEV with the acting role (knob dev-routes: the DEV routing
+#                      change D-1123 section 3 asks for): dev's bring-up, the public set and the synthetic hospital
+#                      ingested, the box in DEV, its own egress rules applied and read back, one account by the
+#                      console's code, the links to one private object, the ready line with this boot's id, the
+#                      heartbeat from the owner's requests, the stop, the accounts disabled and the box back in
+#                      VALIDATION; no code in any log, result or the serial port; the record says it is no evidence
+#   session-stop       the hard stop (VALIDATION, one account per role): the session asked for longer than the cost
+#                      cap allows ends at the cap less its margin, its accounts disabled before the cap fires
+#   session-cut        a power cut while the session is open: the next boot disables its accounts before any step,
+#                      puts the box back in VALIDATION, and never opens the session again
+#   session-wide       the driver refuses a range too wide (0.0.0.0/0, any, a /8) before anything: no VM booted
+#   session-egress     the box's egress table lets a container out (as a DEV box's opens a model host): the session
+#                      stops at 55-session-egress and no account or link is made
+#   session-dev-refused  DEV on this tree (no routing change): the box itself refuses the session's calls at
+#                      52-acc-routes, before any data, account or link
 # Needs: bash, python3 (with PyYAML), the repo's venv (.venv: cryptography, the console), curl, openssl, git, make,
 # tar, setsid. Evidence stays in $TB_BOXRUN_REHEARSAL_DIR/<case>/ (default /tmp/tb-boxrun-rehearsal).
 # Ports: one free local port per case for the door and one for the console (asked of the kernel), never a fixed
@@ -90,7 +105,8 @@ VPY="${TB_BOXRUN_VENV_PY:-$ROOT/.venv/bin/python}"
 REH="${TB_BOXRUN_REHEARSAL_DIR:-/tmp/tb-boxrun-rehearsal}"
 ALL=(build build-gate-fails build-refused build-preempt happy step-fails reboot cap bad-hash bad-tar-hash
      refused-rehearsal wizard-refused oom list-differs identity-differs build-validation acc acc-preempt acc-blocked
-     resume-after-stop acc-qualify-fails probe direct dev acc-cut qualify-timebox acc-gate acc-redo gate-closed gate-401 gate-never)
+     resume-after-stop acc-qualify-fails probe direct dev acc-cut qualify-timebox acc-gate acc-redo gate-closed gate-401 gate-never
+     session session-stop session-cut session-wide session-egress session-dev-refused)
 # shellcheck disable=SC2206  # CASES=happy,cap: split on commas and spaces
 CASES=(${*//,/ }); [ "${#CASES[@]}" -gt 0 ] || CASES=("${ALL[@]}")
 # the harness's own ceiling for one wait (a declared setting): a case takes 5 to 40 seconds on the short clock, so
@@ -257,6 +273,36 @@ acc_collect() {  # as the driver's --collect: each set's upload fetched, unpacke
   (cd "$ROOT" && env PYTHONPATH=libs:services:. TB_ENV=DEV "$VPY" -m tools.box_run acc-score "$S/evidence/collected") \
     > "$S/evidence/acc-score.json"
 }
+session_setup() {  # session_setup DEV|VALIDATION: the site files the first start left, then the driver's session keys
+  start_setup; build_setup; m tb-mode validation; val_models; m tb-direct 1
+  mkdir -p "$S/box-root/deploy" "$S/feed"
+  printf 'TB_ENV=VALIDATION\nTB_TZ=Asia/Taipei\nTB_TLS_HOSTNAME=trialbox.hospa.test\nTB_SOURCE_DIR=%s\nTB_SOURCE_MOUNT=/data/source/site-a\n' \
+    "$S/feed" > "$S/box-root/deploy/.env"
+  printf 'site: {id: ACC-VALIDATION}\nrate_limit_per_sender_per_day: 20\n' > "$S/box-root/deploy/settings.yaml"
+  cp "$HERE/standins/network.sh" "$S/box-root/deploy/network.sh"   # the box's own egress script (stand-in)
+  echo 34.80.0.10 > "$S/external-ip"
+  BR_S="$S" python3 "$HERE/standins/box.py" wizard-done
+  mkdir -p "$BKT/boxruns/rehearsal-$CASE"
+  (cd "$ROOT" && tar -czf "$BKT/boxruns/rehearsal-$CASE/acc-tools.tgz" tools/__init__.py tools/public_accuracy \
+     tools/public_site.py tools/fetch_pinned.py eval/criterion_ml)
+  m tb-acc-tools "gs://tb-runs/boxruns/rehearsal-$CASE/acc-tools.tgz"; m tb-acc-sets "jmed:3"; m tb-acc-job-minutes 2
+  m tb-session-env "$1"; m tb-session-minutes 6; m tb-session-synth 20; m tb-session-idle-minutes 30
+  m tb-session-handoff "gs://tb-runs/session/rehearsal-$CASE"; m block-project-ssh-keys TRUE
+  m tb-skip "08-qualify 09-promote-judge 10-promote-verifier 11-resolve 12-doctor"
+  if [ "$1" = DEV ]; then m tb-session-people "owner:coordinator+investigator+steward+admin"
+  else m tb-session-people "owner-crc:coordinator,owner-inv:investigator,owner-stw:steward,owner-adm:admin"; fi
+}
+session_wide() {  # the driver, free: each too-wide range refused before anything (no gcloud on the PATH, no VM)
+  local r rc
+  mkdir -p "$S/evidence"
+  for r in 0.0.0.0/0 any 8.0.0.0/8 1.2.0.0/16 "1.2.3.4,0.0.0.0/1"; do
+    rc=0
+    env -i PATH=/usr/bin:/bin HOME="$S" PY="$VPY" TMPDIR="$S" "$ROOT/deploy/gcp/box-run.sh" --preflight --mode validation \
+      --steps dev,session --release-id dev-x --commit "$(printf '%040d' 0)" --session-allow "$r" \
+      > "$S/evidence/wide.out" 2>> "$S/evidence/wide.err" || rc=$?
+    printf '%s\t%s\n' "$r" "$rc" >> "$S/evidence/wide.rc"
+  done
+}
 boot() { "$HERE/standins/boot.sh" "$S"; }
 RES() { echo "$BKT/boxruns/rehearsal-$CASE/results.tgz"; }
 is_done() { grep -q '^BOX-RUN-DONE$' "$S/boot-$(cat "$S/boots").out"; }
@@ -371,6 +417,17 @@ for CASE in "${CASES[@]}"; do
       "$HERE/standins/reboot.sh" "$S"            # a pre-emption in the middle of the set
       to_the_end; acc_collect ;;
     acc-blocked) setup "$CASE" "start acc" acc-blocked; start_setup; acc_setup; boot; to_the_end ;;
+    session) setup "$CASE" "dev session" dev-routes; session_setup DEV; boot; to_the_end ;;
+    session-stop)   # the session asks for more than the cap leaves: it ends at the cap less its margin, closed first
+      setup "$CASE" "dev session"; session_setup VALIDATION; m tb-session-minutes 600; m tb-max-minutes 60; boot; to_the_end ;;
+    session-cut)
+      setup "$CASE" "dev session" dev-routes; session_setup DEV; m tb-session-minutes 600; m tb-max-minutes 900; boot
+      wait_for "the session to open" grep -aq 'TB-SESSION-READY' "$S/boot-1.out"
+      "$HERE/standins/reboot.sh" "$S"            # a power cut while the owner reads a page
+      to_the_end ;;
+    session-wide) S="$REH/$CASE"; rm -rf "$S"; mkdir -p "$S"; session_wide ;;
+    session-egress) setup "$CASE" "dev session" dev-routes egress-open; session_setup DEV; boot; to_the_end ;;
+    session-dev-refused) setup "$CASE" "dev session"; session_setup DEV; boot; to_the_end ;;
     *) die "no such case: $CASE" ;;
   esac
   python3 "$HERE/check.py" "$CASE" "$S" || die "case $CASE: the checks above"

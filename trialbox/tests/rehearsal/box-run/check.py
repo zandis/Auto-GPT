@@ -23,6 +23,16 @@ def ok(cond: bool, what: str) -> None:
         fails.append(what)
 
 
+if case == "session-wide":  # the driver only (D-1130): no VM was booted, so no state to read
+    rcs = dict(line.split("\t") for line in (S / "evidence" / "wide.rc").read_text().splitlines())
+    err = (S / "evidence" / "wide.err").read_text()
+    ok(len(rcs) == 5 and set(rcs.values()) == {"2"}, f"every too-wide range is refused before anything (exit 2): {rcs}")
+    ok("whole internet" in err and "'any' opens tcp:443 to every address" in err and "broader than /24" in err,
+       "each refusal says why")  # fmt: skip
+    ok("instances start" not in err and not (S / "vm").exists(), "nothing was started")
+    print(f"check {case}: {'FAILED ' + str(len(fails)) if fails else 'passed'}")
+    sys.exit(1 if fails else 0)
+
 state = json.loads((R / "state.json").read_text())
 parts = {p.stem: json.loads(p.read_text()) for p in sorted((R / "parts").glob("*.json"))}
 calls = Counter((S / "calls.log").read_text().split("\n"))
@@ -74,6 +84,10 @@ for f in secrets:
             needles.append("".join(text.strip().splitlines()[1:-1]))  # the key's base64 body
         elif text.lstrip().startswith("{"):
             needles.append(json.loads(text)["password"])
+# the session's one-time codes (D-1133): the private links object only, never a log, a result or the serial port
+codes_file = S / "evidence" / "session-codes.txt"
+session_codes = codes_file.read_text().split() if codes_file.exists() else []
+needles += session_codes
 # validation mode: the first administrator's password and enrolment code the installer prints once (stand-in values)
 if (S / "metadata" / "tb-mode").exists() and (S / "metadata" / "tb-mode").read_text() == "validation":
     needles += ["standin-admin-pw-0001", "ENROL-424242-STANDIN"]
@@ -609,6 +623,95 @@ if case == "acc-blocked":
     ok("TB-ACC-BLOCKED" in parts["52-acc-routes"]["stop"]["reason"] and "ceiling D2" in parts["52-acc-routes"]["stop"]["reason"],
        "the stop names the gateway's reason (a product defect, not worked around)")  # fmt: skip
     ok(not any(c.startswith("acc-data") for c in calls), "no data fetched or built")
+
+# ---------------------------------------------------------------- the owner's live session (D-1130 to D-1133)
+SESSION = ["50-acc-tools", "51-acc-settings", "51s-session-env", "52-acc-routes", "53-acc-data",
+           "53h-session-hospital", "54-acc-ingest", "55-session-egress", "56-session-accounts", "57-session-open",
+           "58-session-close"]  # fmt: skip
+if case.startswith("session"):
+    import re
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "deploy" / "gcp"))
+    import session_vm
+
+    boots = sorted(S.glob("boot-*.out"))
+    out = [b.read_text(errors="replace") for b in boots]
+    links = sorted((BKT / "session" / f"rehearsal-{case}").glob("links-*.txt"))
+    env_now = (S / "box-root" / "deploy" / ".env").read_text()
+    accounts = json.loads((S / "box" / "accounts.json").read_text()) if (S / "box" / "accounts.json").exists() else {}
+    rec = json.loads((R / "records" / "session.json").read_text()) if (R / "records" / "session.json").exists() else {}
+    units = (S / "units.log").read_text() if (S / "units.log").exists() else ""
+    ok("systemctl disable --now ssh.service" in units, "sshd stopped and disabled at the session's boot (D-1130)")
+    ok(all(re.search(r"TB-SESSION-BOOT boot=[0-9a-f]{16} started=", o) for o in out), "every boot prints its own id")
+    ok(re.search(r"^TB_ENV=VALIDATION$", env_now, re.M) is not None and env_now.count("TB_ENV=") == 1,
+       "the box is back in VALIDATION on the kept disk")  # fmt: skip
+    ok(not list((S / "vm" / "tb" / "session").glob("*.t*")), "no codes' file left on the VM's disk")
+    ok(rec == {} or rec.get("evidence") == "nothing from this session is evidence", "the record says it is no evidence")
+    ok(not any(c in json.dumps(rec) for c in session_codes), "the record holds no code")
+    md = "".join(f.read_text() for f in (S / "metadata").iterdir() if f.is_file() and f.name != "tb-helper")
+    ok(not re.search(r"STANDIN-[0-9A-F]{12}|enrol#", md), "the metadata holds no code and no link")
+    opened = [a for a in accounts if not a.startswith("_")]
+    ok(all(accounts[a]["disabled"] and not accounts[a]["extra"] for a in opened) and not accounts.get("_flag_acting"),
+       "every session account is disabled, its extra roles taken back, the acting flag off")  # fmt: skip
+if case in ("session", "session-stop", "session-cut"):
+    ok(len(links) == 1 and len(session_codes) == len(opened) >= 1, "one links object, one code per account")
+    text = links[0].read_text() if links else ""
+    ok("NOTHING FROM THIS SESSION IS EVIDENCE" in text and "Public or synthetic text only" in text,
+       "the links object says the session is no evidence and takes public text only")  # fmt: skip
+    meta = session_vm.links_meta(text)
+    ok(re.fullmatch(r"[0-9a-f]{16}", meta["boot_id"]) is not None and meta["certificate_sha256"] != "none"
+       and meta["stop"] != "none", "the links object names the boot id, the certificate's SHA-256 and the stop")  # fmt: skip
+    ok(all(f"&c={c}" in text for c in session_codes), "each code is in the links object, as a one-time link")
+    ok(f"boot={meta['boot_id']}" in out[0] and session_vm.boot_state(out[0], None, meta["boot_id"])[0]
+       == ("ready" if case == "session-cut" else "ended"),
+       "the ready line and the end carry the links' boot id (D-1120's rule reads it)")  # fmt: skip
+    ok('add the line "34.80.0.10 trialbox.hospa.test"' in text, "the hosts line for the box's own name is given")
+    ok(parts["55-session-egress"]["status"] == "done" and calls["network.sh apply"] == 1, "the egress rules applied")
+    eg = json.loads((R / "records" / "session-egress.json").read_text())
+    ok(eg["live"] and not eg["text_can_leave"] and eg["box_networks"] == eg["under_default_deny"],
+       "read back: the table is live, every network of the box under its default deny, nothing lets text out")  # fmt: skip
+if case == "session":
+    ok(state["order"] == [*BUILD[:3], "d04-tree", *START[1:], *SESSION], "dev's bring-up, then the session's steps")
+    ok(ended.startswith("TB-BOX-RUN-COMPLETE"), "the run completed")
+    ok(all(parts[s].get("detail", {}).get("skipped") for s in START[8:]), "qualify and what follows it left out, said")
+    ok(parts["51s-session-env"]["detail"]["environment"] == "DEV" and calls["session-people DEV owner-s1117" + "0000"]
+       == 0, "the session ran in DEV")  # fmt: skip
+    ok(any(c.startswith("session-people DEV owner-s") for c in calls) and len(opened) == 1,
+       "one sign-in for the owner (the acting role, D-1063)")  # fmt: skip
+    ok(parts["57-session-open"]["detail"]["ended_by"] == "the session's stop" and calls["compose-logs caddy"] >= 2,
+       "the heartbeat read the owner's requests until the stop")  # fmt: skip
+    ok(rec["closed_by"] == "the session's stop" and rec["environment"] == "DEV" and rec["planned_stop"],
+       "the record: opened, stopped, closed, in DEV")  # fmt: skip
+    ok(any(c.startswith("feed 20") for c in calls) and calls["ingest"] == 1, "the synthetic hospital fed and ingested")
+if case == "session-stop":
+    opened_at = session_vm.demo_vm.instant(rec["opened_at"])
+    stop_at = session_vm.demo_vm.instant(rec["planned_stop"])
+    ok(opened_at is not None and stop_at is not None and (stop_at - opened_at).total_seconds() < 60,
+       "asked 600 minutes, the session stopped within the cost cap less its margin")  # fmt: skip
+    ok(rec["closed_by"] == "the session's stop" and "done, results in the bucket" in poweroff,
+       "its accounts disabled before the cap: the VM went off on its own, not by the cap")  # fmt: skip
+    ok(len(opened) == 4 and all("+" not in accounts[a]["roles"] for a in opened), "VALIDATION: one account per role")
+if case == "session-cut":
+    b2 = out[1] if len(out) > 1 else ""
+    ok(len(out) == 2 and "TB-SESSION-READY" in out[0] and "TB-SESSION-READY" not in b2, "the session opened once")
+    first = b2.find("TB-SESSION-END")
+    ok(0 <= first < b2.find("TB-STEP 57-session-open start") if first >= 0 else False,
+       "the next boot disabled the accounts before any session step")  # fmt: skip
+    ok(parts["57-session-open"]["status"] == "stop" and "never opened again" in parts["57-session-open"]["stop"]["reason"],
+       "the session is never opened again after a cut (D-1123 4.4)")  # fmt: skip
+    ok(rec["closed_by"].startswith("the next boot"), "the record says the next boot closed it")
+    ok("TB-SESSION-NOT-READY" in b2, "the second boot says it opened no session")
+if case in ("session-egress", "session-dev-refused"):
+    at = "55-session-egress" if case == "session-egress" else "52-acc-routes"
+    ok(state["order"][-1] == at and parts[at]["status"] == "stop", f"stopped at {at}")
+    why = parts[at]["stop"]["reason"]
+    ok(("TB-SESSION-EGRESS" in why and "lets a box container out" in why) if case == "session-egress"
+       else ("TB-ACC-BLOCKED" in why and "ceiling D0" in why), "the stop names the box's own reason")  # fmt: skip
+    ok(not links and not opened and not any(c.startswith("session-people") for c in calls),
+       "no account and no link was made")  # fmt: skip
+    ok("TB-SESSION-NOT-READY" in out[-1] and "TB-SESSION-READY" not in out[-1], "the boot says it opened no session")
+    if case == "session-dev-refused":
+        ok(not any(c.startswith("acc-data") for c in calls), "no data fetched or built")
 
 print(f"check {case}: {'FAILED ' + str(len(fails)) if fails else 'passed'}")
 sys.exit(1 if fails else 0)

@@ -47,6 +47,13 @@ CASES = [
     "gate-closed",
     "gate-401",
     "gate-never",
+    # the owner's live session (D-1130 to D-1133)
+    "session",
+    "session-stop",
+    "session-cut",
+    "session-wide",
+    "session-egress",
+    "session-dev-refused",
 ]
 
 pytestmark = pytest.mark.skipif(

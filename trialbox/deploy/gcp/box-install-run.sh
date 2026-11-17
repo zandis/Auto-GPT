@@ -71,6 +71,18 @@
 #                      tb-bucket boxruns/<run>/acc/<set>.tgz at once: a pre-emption loses at most the set in hand,
 #                      and that set resumes protocol by protocol. Scored outside the box (box-run.sh --collect)
 #     79-acc-result    the sets' counts; protocols refused by the PHI tripwire are a product defect count
+#   session  the owner's live session (D-1123; D-1130 to D-1133), with dev only: the public sets tcga and jmed and the
+#            synthetic hospital loaded as acc loads them (50 to 54 and 53h-session-hospital), the session's
+#            environment (51s-session-env: DEV with the acting role, or VALIDATION), the box's own egress rules
+#            applied by the product's script and read back (55-session-egress), the accounts by the console's own
+#            enrolment code with the links to one private object (56-session-accounts), the session itself with its
+#            ready line, its heartbeat and its stop (57-session-open), the accounts disabled (58-session-close; also at
+#            the next boot of any run when a session did not close). sshd is stopped at every boot of a session run.
+#            Nothing from a session is evidence: records/session.json says so, and holds no code and no pasted text
+#   session metadata: tb-session-env (DEV|VALIDATION), tb-session-minutes, tb-session-people (name:role[+role],...),
+#            tb-session-handoff (gs:// of the links object), tb-session-synth (patients), tb-session-idle-minutes
+#            (setting, 60: a session with no request through the box's Caddy for this long ends early),
+#            tb-session-code-hours (setting, 24: an unused code expires, D-776)
 # Modes (tb-mode): production (the default: the vendor key, box-install.sh and the first-run wizard, PRODUCTION) or
 # validation (the owner's ruling of 2026-11-15, a proof of concept): b05 signs with a THROWAWAY Ed25519 key made in
 # tmpfs on this VM by tools/sign_bundle.py keygen (never the vendor key; its public half goes beside the bundle; the
@@ -329,6 +341,14 @@ PY
 st() { local c=$1 s=$2; shift 2; "$PY" "$SBIN/tb-boxrun-state.py" "$RUN" "$c" "$s" "$@"; }
 finish() {  # $1 marker line, $2 phase: say why, keep it in the state, pack, DONE; the watchdog does the rest
   echo "$1" | tee -a "$LOG"; phase "$2"
+  # the session (D-1132): a run that ends before the session opened says so on its own boot's line, and a session
+  # whose accounts are still open is closed now (else at the next boot)
+  if [ -n "${SBOOT:-}" ] && has session && [ ! -f "$SES/ready-$SBOOT" ]; then
+    echo "TB-SESSION-NOT-READY boot=$SBOOT at=$(date -u +%FT%TZ) why=$(printf '%s' "$1" | tr -d '\n' | cut -c1-200)"
+  fi
+  if declare -F session_close >/dev/null && session_open_left; then
+    session_close "the run's end ($2)" || true
+  fi
   # the box's facts on any way out of a start once an install was tried (a stop is when they matter most)
   if has start && [ -d "${BOXROOT:-/nonexistent}/deploy" ] && [ ! -s "$REC/facts-box.txt" ]; then
     NOTES=/dev/null; step_facts_box >/dev/null 2>&1 || true
@@ -506,6 +526,15 @@ ACC_MIN_START=$(md tb-acc-min-start || echo 600)   # D4: no protocol started wit
 ACC_DEADLINE=$(md tb-acc-deadline || true)         # the owner's probe: each set's time budget, seconds (else the plan's)   # "set:size:high_seconds ..." from the plan (tools/box_run.py metadata)
 PROBE=$(md tb-probe || true)
 DIRECT=$(md tb-direct || true)   # 1: 02 brings the installed tree's stack up with the product's own tools, no install.sh   # 1: read the VM's and the box's facts (00-facts; after the install 04p-facts) and stop
+# the owner's live session (D-1123, D-1132)
+SES_ENV=$(md tb-session-env || true)
+SES_MIN=$(md tb-session-minutes || true)
+SES_PEOPLE=$(md tb-session-people || true)
+SES_HANDOFF=$(md tb-session-handoff || true)
+SES_SYNTH=$(md tb-session-synth || echo 200)
+SES_IDLE=$(md tb-session-idle-minutes || echo 60)          # (setting) the session ends early after this long unread
+SES_CODE_HOURS=$(md tb-session-code-hours || echo 24)      # (setting) an unused one-time code expires (D-776)
+SES="$TB/session"   # on the kept disk, across runs: the names of a session's accounts until they are disabled
 ISSUE="${TB_ISSUE_DIR:-/etc/issue.d}/trialbox-firstrun.issue"
 BUNDLE="$TB/bundle/$RUN_ID.tar"
 ANSWERS="$TB/wizard-answers"
@@ -520,7 +549,7 @@ fi
 
 has() { case "$STEPS" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 pf=""
-for s in $STEPS; do case "$s" in build|start|g6|g9|g10|acc|probe|dev) ;; *) pf="$pf; unknown group '$s' in tb-steps" ;; esac; done
+for s in $STEPS; do case "$s" in build|start|g6|g9|g10|acc|probe|dev|session) ;; *) pf="$pf; unknown group '$s' in tb-steps" ;; esac; done
 [ -s "$HELPER" ] || pf="$pf; no tb-helper (deploy/gcp/box_vm.py)"
 for c in "$PY" curl tar sha256sum; do command -v "$c" >/dev/null || pf="$pf; no $c"; done
 if has build || has dev; then
@@ -550,8 +579,34 @@ fi
 has g10 && [ -z "$G10_IMAGE" ] && pf="$pf; no tb-g10-vllm-image (G-10 names its image)"
 has acc && [ -z "$ACC_TOOLS" ] && pf="$pf; no tb-acc-tools (lane G's accuracy tools, a tarball in the bucket)"
 has acc && [ -z "$ACC_SETS" ] && pf="$pf; no tb-acc-sets"
+if has session; then   # D-1132: with dev only, on the direct route; the session's own keys of the checked form
+  { has dev && [ -n "$DIRECT" ]; } || pf="$pf; a session runs with dev on the direct route only"
+  if has acc || has start || has g6 || has g9 || has g10 || has build; then pf="$pf; a session runs with dev only"; fi
+  { [ -n "$ACC_TOOLS" ] && [ -n "$ACC_SETS" ]; } || pf="$pf; no tb-acc-tools / tb-acc-sets (the session's public sets)"
+  case "$SES_ENV" in DEV|VALIDATION) ;; *) pf="$pf; tb-session-env must be DEV or VALIDATION (got '$SES_ENV')" ;; esac
+  [[ "$SES_MIN" =~ ^[1-9][0-9]{0,2}$ ]] || pf="$pf; tb-session-minutes must be whole minutes (got '$SES_MIN')"
+  [[ "$SES_PEOPLE" =~ ^[a-z][a-z0-9._-]{1,21}:[a-z+]+(,[a-z][a-z0-9._-]{1,21}:[a-z+]+)*$ ]] \
+    || pf="$pf; tb-session-people must be name:role[+role] pairs"
+  [[ "$SES_HANDOFF" =~ ^gs://[a-z0-9._-]{3,63}(/[A-Za-z0-9._-]+)*$ ]] || pf="$pf; tb-session-handoff must be gs://BUCKET/PATH"
+  [[ "$SES_SYNTH" =~ ^[0-9]{1,4}$ ]] || pf="$pf; tb-session-synth must be a number of patients"
+fi
 [ -z "$pf" ] || finish "TB-PREFLIGHT-FAILED${pf}" preflight-failed
 echo "TB-PREFLIGHT ok: groups$STEPS"
+# D-1120 for the session: this boot's own id (8 random bytes, hex; derived from nothing, not a secret), on its first
+# line, its ready line and its end; box-run.sh --session-status counts a ready line only when it is this boot's
+SBOOT=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+if has session; then
+  echo "TB-SESSION-BOOT boot=$SBOOT started=$(date -u +%FT%TZ)"
+  # D-1130: no SSH for anyone during a session (the firewall's deny on the session tag is the first lock; the
+  # metadata block-project-ssh-keys=TRUE keeps the project's keys off); a later run's boot turns it back on
+  systemctl disable --now ssh.service >/dev/null 2>&1 || true
+  touch "$TB/session-sshd-off"
+  echo "TB-SESSION no SSH: sshd stopped and disabled for this boot (block-project-ssh-keys in the metadata)"
+elif [ -f "$TB/session-sshd-off" ]; then
+  systemctl enable --now ssh.service >/dev/null 2>&1 || true
+  rm -f "$TB/session-sshd-off"
+  echo "TB-SESSION sshd enabled again (this run is no session)"
+fi
 
 # ------------------------------------------------------------------ the step runner
 STEP=""; STEP_LOG=/dev/null; NOTES=/dev/null; STOP=""
@@ -1931,6 +1986,8 @@ step_acc_ingest() {
   for item in $ACC_SETS; do   # the sets 53 built (a set left out there has no site)
     [ -d "$ACC/${item%%:*}/built/site/hospital" ] && sites+=("$ACC/${item%%:*}/built/site/hospital")
   done
+  # the session's synthetic hospital (53h-session-hospital), beside the public sets (the integrator's answer 6)
+  if has session && [ -d "$ACC/synth/built/site" ]; then sites+=("$ACC/synth/built/site"); fi
   [ ${#sites[@]} -gt 0 ] || { STOP="no accuracy set was built (53)"; return 1; }
   need "the sets' hospital feeds as one feed in the box's feed folder (acc/)" vm acc-merge-feed --into "$feed/acc" "${sites[@]}" || return 1
   need "the site's optional tables for a public-data feed (settings.yaml feed_completeness)" d_optional_tables "$feed/acc" || return 1
@@ -2166,6 +2223,239 @@ step_facts_box() {
   } > "$f"
   note facts_box "\"records/facts-box.txt\""
 }
+# ================================================================== the owner's live session (D-1123; D-1130 to D-1133)
+# Nothing from a session is evidence. The steps reuse the acc group's 50 to 54 for the public sets, then:
+# 51s the session's environment, 53h the synthetic hospital, 55 the box's own egress rules (the product's script,
+# read back), 56 the accounts and the links object, 57 the session itself, 58 the accounts disabled.
+SES_GRACE_MIN=10   # (setting) the session closes this long before the cost cap, so 58 runs before the cap fires
+md_ip() { curl -sf -H Metadata-Flavor:Google "http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip"; }
+session_host() {  # the name the box's Caddy serves (deploy/.env TB_TLS_HOSTNAME, the site's own), else the address
+  local h; h=$(envget TB_TLS_HOSTNAME | tr -d "\"' \r")
+  if [ -n "$h" ]; then printf '%s' "$h"; else md_ip; fi
+}
+session_rec() { local a=() kv; for kv in "$@"; do a+=(--set "$kv"); done; vm session-record --file "$REC/session.json" "${a[@]}" > /dev/null; }
+svc_recreate() {  # every service that reads deploy/.env, not the two model servers (51-acc-settings' rule)
+  local svcs=(); mapfile -t svcs < <(dc config --services | grep -v '^llm-')
+  d_recreate "${svcs[@]}"
+}
+step_session_env() {
+  local before host
+  mkdir -p "$SES"; chmod 700 "$SES"
+  before=$(envget TB_ENV | tr -d "\"' \r" | tr '[:lower:]' '[:upper:]')
+  note environment_before "\"${before:-PRODUCTION (unset)}\""
+  [ "$before" = VALIDATION ] || [ "$before" = "$SES_ENV" ] \
+    || { STOP="the box is ${before:-PRODUCTION (TB_ENV unset)} before the session, not VALIDATION: a session never runs on another box"; return 1; }
+  [ -s "$SES/env-before" ] || printf '%s\n' "$before" > "$SES/env-before"   # 58 puts it back
+  # the box's own declared settings, as an operator sets them (D-127): its environment (DEV: the acting role of
+  # D-1063 is allowed there; VALIDATION: unchanged) and the public address its one-time links name (D-776)
+  [ "$before" = "$SES_ENV" ] || envset_box TB_ENV "$SES_ENV"
+  host=$(session_host)
+  [ -n "$host" ] || { STOP="no name or address for the box (TB_TLS_HOSTNAME in deploy/.env, or the VM's external address)"; return 1; }
+  envset_box TB_CONSOLE_PUBLIC_URL "https://$host"
+  note environment "\"$SES_ENV\""; note public_url "\"https://$host\""
+  need "the stack recreated in the session's environment (not the model servers)" svc_recreate || return 1
+  session_rec "run=$RUN_ID" "commit=$COMMIT" "environment=$SES_ENV" "environment_before=$before" \
+    "what=the owner's live session on the GPU VM (D-1123): the owner looking, not a validation record"
+}
+# the synthetic hospital: the scale gate's generator (tools.synth, the g6 night's, thin), a few hundred patients
+d_session_feed() { docker run --rm --network none -v "$1:/out" "$(img_py)" python -c "$GEN_FEED" "$2" /out/site "$3" thin; }
+step_session_hospital() {
+  [ "$SES_SYNTH" -gt 0 ] || { note patients 0; note skipped '"no synthetic hospital asked (tb-session-synth 0)"'; return 0; }
+  [ -d "$ACC/synth/built/site" ] && { note kept '"built before"'; return 0; }
+  mkdir -p "$ACC/synth/built"
+  note patients "$SES_SYNTH"
+  need "the synthetic hospital (tools.synth, in the box's image)" d_session_feed "$ACC/synth/built" "$SES_SYNTH" "$(acc_today)"
+}
+# D-1131: the box's own egress rules, by the product's own script as install.sh runs it (its line `deploy/network.sh
+# apply`), then read back from the kernel (`status`) against the networks `apply` saw: the pasted text cannot leave
+EGRESS_STATE=/var/lib/trialbox/egress-state.json
+[ -z "${TB_BOXRUN_ROOT:-}" ] || EGRESS_STATE="$TB/egress-state.json"
+d_egress() { (cd "$BOXROOT" && deploy/network.sh "$1" --env deploy/.env --state "$EGRESS_STATE"); }
+step_session_egress() {
+  [ -x "$BOXROOT/deploy/network.sh" ] || { STOP="no deploy/network.sh in the box's tree: the product's egress rules cannot be applied"; return 1; }
+  need "the box's own egress rules (deploy/network.sh apply, as install.sh applies them)" d_egress apply || return 1
+  d_egress status > "$REC/session-egress-table.txt" 2>> "$STEP_LOG" \
+    || { STOP="the egress table cannot be read back (deploy/network.sh status)"; return 1; }
+  vm session-egress --table "$REC/session-egress-table.txt" --state "$EGRESS_STATE" --notes "$NOTES" > "$REC/session-egress.json" \
+    || { STOP="TB-SESSION-EGRESS: text could leave the box: $(jget "$REC/session-egress.json" problems) (no link is given)"; return 1; }
+}
+# the accounts, by the console's own code in its own container (D-776, D-719): DEV, one account per person with the
+# roles it may act in (D-877's boot tool, console.steps_roles: a one-time code each, the flag steps.acting_role on,
+# audited); VALIDATION, one account per role (UserStore.open_by_code). One line a person on stdout: name, roles,
+# code, expiry. The caller keeps them in a root-only file; they never reach a log, the metadata or the serial port.
+d_session_people() { in_svc console <<EOF
+# tb-boxrun: session-people
+import os, sys
+from datetime import timedelta
+from pathlib import Path
+for p in (Path.cwd(), Path.cwd() / "libs", Path.cwd() / "services"):
+    sys.path.insert(0, str(p))
+from console.auth import UserStore
+people = [(x.split(":", 1)[0], tuple(x.split(":", 1)[1].split("+"))) for x in "$1".split(",")]
+hours, env = int("$2"), "$3"
+users = UserStore()
+if env == "DEV":
+    from console import steps_roles
+    rows = steps_roles.open_people(users, None, people, [], hours)
+    steps_roles.flag_on(Path(os.environ.get("TB_AUDIT_DIR") or "/data/audit"),
+                        "the owner's live session (D-1123, D-1132): one sign-in per person, the acting role (D-1063)")
+else:
+    users.enrol_ttl = timedelta(hours=hours)
+    rows = []
+    for name, roles in people:
+        if len(roles) != 1:
+            sys.exit(f"session: {name}: one role per account on a VALIDATION box (D-1063 item 3)")
+        if users.role_of(name):
+            sys.exit(f"session: an account {name} exists already")
+        rows.append((name, roles, users.open_by_code(name, roles[0], f"{name}@hospa.test", "box-session"), ""))
+for name, roles, code, expires in rows:
+    print(f"{name}\t{'+'.join(roles)}\t{code}\t{expires}")
+EOF
+}
+# the session's accounts disabled (UserStore.disable: the account off, its sessions ended), their extra roles taken
+# back and the acting flag off while the box is still a test box (a VALIDATION console refuses to start with either
+# on record, D-877); prints one line a name
+d_session_disable() { in_svc console <<EOF
+# tb-boxrun: session-disable
+import os, sys
+from pathlib import Path
+for p in (Path.cwd(), Path.cwd() / "libs", Path.cwd() / "services"):
+    sys.path.insert(0, str(p))
+from console.auth import UserStore
+from tb_common.flags import test_box
+users = UserStore()
+for name in "$1".split():
+    if test_box() and users.role_of(name) and users.extra_roles(name):
+        users.grant_roles(name, [], allowed=True)
+    users.disable(name)
+    print(f"disabled {name}")
+if test_box():
+    from tb_common.audit_writer import open_audit
+    from tb_common.config import site_tz
+    from tb_common.flags import Flags
+    flags = Flags(audit=open_audit(Path(os.environ.get("TB_AUDIT_DIR") or "/data/audit"), site_tz()))
+    if flags.get("steps.acting_role", "off") != "off":
+        flags.set("steps.acting_role", "off", "box-session", "the owner's live session closed (D-1132)")
+        print("steps.acting_role off")
+EOF
+}
+session_suffix() {  # a session's account names carry its run's stamp: the kept disk keeps every earlier session's
+  local s; s=$(st kv _ session_suffix)
+  if [ -z "$s" ]; then
+    s=$(printf '%s' "$RUN_ID" | sed -n 's/^box-[0-9]\{4\}\([0-9]\{4\}\)T\([0-9]\{4\}\).*/s\1\2/p')
+    [ -n "$s" ] || s="s$(date -u +%m%d%H%M)"
+    st set _ session_suffix "$s"
+  fi
+  printf '%s' "$s"
+}
+step_session_accounts() {
+  local people suffix host ip fp stop now cap_end stamp obj item name roles code expires
+  mkdir -p "$SES"; chmod 700 "$SES"
+  suffix=$(session_suffix)
+  people=$(printf '%s' "$SES_PEOPLE" | tr ',' '\n' | sed "s/^\([^:]*\):/\1-$suffix:/" | paste -sd, -)
+  # the names first, before any code exists: a session account still open is closed at the next boot
+  printf '%s' "$people" | tr ',' '\n' | cut -d: -f1 > "$SES/accounts"
+  # the window: the asked minutes, never past the cost cap less a margin (58 must run before the cap fires)
+  now=$(date +%s); cap_end=$((BOOT_T0 + CAP_LEFT))
+  stop=$((now + SES_MIN * MIN_S)); [ "$stop" -le $((cap_end - SES_GRACE_MIN * MIN_S)) ] || stop=$((cap_end - SES_GRACE_MIN * MIN_S))
+  [ "$stop" -gt "$now" ] || { STOP="no time is left before the cost cap for a session"; return 1; }
+  printf '%s\n' "$stop" > "$SES/stop-epoch"
+  host=$(session_host); ip=$(md_ip || true)
+  fp=$(openssl x509 -noout -fingerprint -sha256 -in "$CACERT" 2>/dev/null | sed 's/^.*=//')
+  rm -f "$SES/people.tsv" "$SES/links.txt"
+  if ! (umask 077; d_session_people "$people" "$SES_CODE_HOURS" "$SES_ENV" > "$SES/people.tsv" 2>> "$STEP_LOG"); then
+    rm -f "$SES/people.tsv"; STOP="the session's accounts could not be opened (the console's own enrolment code; its log)"; return 1
+  fi
+  if ! (
+    umask 077
+    {
+      echo "TrialBox live session for the owner (run $RUN_ID, boot id $SBOOT). NOTHING FROM THIS SESSION IS EVIDENCE:"
+      echo "the owner looking at the product with the served models, not a validation record (D-1123)."
+      echo "Public or synthetic text only: paste the text of a public ClinicalTrials.gov record, never a patient's."
+      if [ "$SES_ENV" = DEV ]; then echo "Environment: DEV (one sign-in; choose the acting role in the top bar)."
+      else echo "Environment: VALIDATION (one account per role)."; fi
+      echo "Address: https://$host/ (the box's own certificate: the browser warns once; root SHA-256 ${fp:-unknown}, compare it)."
+      if [ -n "$ip" ] && [ "$host" != "$ip" ]; then
+        echo "The box answers at $ip under the name $host: add the line \"$ip $host\" to the computer's hosts file first."
+      fi
+      echo "The session closes at $(date -u -d "@$stop" +%FT%TZ) (UTC); the pages then stop answering. More time is a new launch."
+      echo "Give each line to its person privately, in the integrator's own session; never on a PR, in a comment or a file."
+      echo
+      while IFS=$'\t' read -r name roles code expires; do
+        [[ "$code" =~ ^[A-Za-z0-9-]+$ ]] || exit 4   # D-776: the product's form; anything else is not handed out
+        printf '%s (%s): https://%s/enrol#u=%s&c=%s  user name: %s  code: %s  (one-time link; unused, it expires %s)\n' \
+          "$name" "$roles" "$host" "$name" "$code" "$name" "$code" "${expires:-in $SES_CODE_HOURS h}"
+      done < "$SES/people.tsv"
+    } > "$SES/links.txt"
+  ); then
+    rm -f "$SES/people.tsv" "$SES/links.txt"; STOP="a one-time code is not of the product's form: no link is written"; return 1
+  fi
+  rm -f "$SES/people.tsv"
+  stamp=$(date -u +%Y%m%dT%H%M%SZ); obj="$SES_HANDOFF/links-$stamp.txt"
+  if ! gcloud storage cp "$SES/links.txt" "$obj" > /dev/null 2>&1; then
+    rm -f "$SES/links.txt"; STOP="the links could not be written to $obj (the VM's service account needs objectAdmin there)"; return 1
+  fi
+  rm -f "$SES/links.txt"
+  for item in ${people//,/ }; do note "person_${item%%:*}" "\"${item#*:}\""; done
+  note links_object "\"$obj\""; note closes_at "\"$(date -u -d "@$stop" +%FT%TZ)\""
+  session_rec "people=$people" "address=https://$host/" "links_object=$obj (read once and deleted by box-run.sh --links)" \
+    "certificate_root_sha256=${fp:-unknown}"
+}
+# the box's Caddy access log since a time (the heartbeat's input: requests from the owner's browser)
+d_session_requests() { dc logs --no-log-prefix --since "$1" caddy; }
+step_session_open() {
+  local stop now last since n
+  # D-1123 4.4: no extension inside a session, and never a second opening: a session cut (a pre-emption, a power cut)
+  # is over; more time is a new launch with new accounts and new links
+  [ -z "$(st kv _ session_opened)" ] \
+    || { STOP="the session was opened before ($(st kv _ session_opened)): a session is never opened again (D-1123 4.4)"; return 1; }
+  stop=$(cat "$SES/stop-epoch" 2>/dev/null); [ -n "$stop" ] || { STOP="no session window (56-session-accounts)"; return 1; }
+  st set "$STEP" session_opened "$(date -u +%FT%TZ) boot $SBOOT"
+  session_rec "opened_at=$(date -u +%FT%TZ)" "planned_stop=$(date -u -d "@$stop" +%FT%TZ)" "boot=$SBOOT"
+  touch "$SES/ready-$SBOOT"
+  echo "TB-SESSION-READY boot=$SBOOT at=$(date -u +%FT%TZ) stop=$(date -u -d "@$stop" +%FT%TZ)"
+  last=$(date +%s); since=$(date -u +%FT%TZ)
+  # the session's own heartbeat (D-1132): the watchdog's 20 minutes would cut a person reading a page, so while the
+  # owner's browser made a request through the box's Caddy within tb-session-idle-minutes, the heartbeat is kept;
+  # never past the session's stop, which never passes the cost cap (and the cloud's max-run-duration behind it)
+  while now=$(date +%s); [ "$now" -lt "$stop" ]; do
+    n=$(d_session_requests "$since" 2>/dev/null | vm session-requests 2>/dev/null || echo 0)
+    since=$(date -u +%FT%TZ)
+    [ "${n:-0}" -gt 0 ] && last=$now
+    if [ $((now - last)) -ge $((SES_IDLE * MIN_S)) ]; then
+      note ended_by "\"no request from outside for $SES_IDLE minutes: ended early\""; break
+    fi
+    touch "$HB"
+    sleep "$MIN_S"
+  done
+  [ "$(date +%s)" -lt "$stop" ] || note ended_by '"the session'"'"'s stop"'
+  session_rec "ended_at=$(date -u +%FT%TZ)"
+}
+session_open_left() { [ -s "${SES:-/nonexistent}/accounts" ] || [ -s "${SES:-/nonexistent}/env-before" ]; }
+session_close() {  # $1 why: the accounts disabled, the box's environment as it was; 1 when the console cannot be asked
+  local names="" before
+  session_open_left || return 0
+  if [ -s "$SES/accounts" ]; then
+    names=$(paste -sd' ' "$SES/accounts")
+    if ! d_session_disable "$names" >> "$LOG" 2>&1; then
+      echo "TB-SESSION-ACCOUNTS-OPEN: the session's accounts ($names) could not be disabled ($1): the next boot tries again" | tee -a "$LOG"
+      return 1
+    fi
+  fi
+  before=$(cat "$SES/env-before" 2>/dev/null)
+  if [ -n "$before" ] && [ "$(envget TB_ENV | tr -d "\"' \r")" != "$before" ]; then
+    envset_box TB_ENV "$before"
+    svc_recreate >> "$LOG" 2>&1 || echo "TB-SESSION the stack could not be recreated in $before (the next step's own wait)" | tee -a "$LOG"
+  fi
+  rm -f "$SES/accounts" "$SES/env-before" "$SES/stop-epoch"
+  [ ! -d "$REC" ] || session_rec "closed_at=$(date -u +%FT%TZ)" "closed_by=$1" "accounts_disabled=$names"
+  echo "TB-SESSION-END boot=$SBOOT at=$(date -u +%FT%TZ) why=$1 (accounts disabled: ${names:-none}; the box in ${before:-its environment})"
+}
+step_session_close() {
+  session_close "the session's stop" || { STOP="the session's accounts could not be disabled (the next boot tries again)"; return 1; }
+  note closed true
+}
+
 # ------------------------------------------------------------------ the run
 # a later boot of a direct-route box (a resume, or an acc launch): the stack as this tree starts it (the weights' bind,
 # the site's settings.yaml, every service healthy) before any step, since no systemd unit does it on this route (F15,
@@ -2176,6 +2466,8 @@ if [ -n "$DIRECT" ] && [ -s "$BOXROOT/deploy/.env" ] \
   echo "TB-STACK $(date -u +%T): bringing the box's stack up on this boot (compose up --wait)" | tee -a "$LOG"
   d_direct_up >> "$LOG" 2>&1 && echo "TB-STACK up" | tee -a "$LOG" || echo "TB-STACK not healthy (see the log)" | tee -a "$LOG"
 fi
+# a session that did not close itself (a cut, the cap, a stop): its accounts are disabled before any step (D-1132)
+! session_open_left || session_close "the next boot (the session did not close itself)" || true
 [ -z "$PROBE" ] || run_step 00-facts step_facts
 if has probe; then   # a facts-only launch: the VM's facts, then the run ends (no build, no install)
   run_step 00-facts step_facts
@@ -2200,6 +2492,7 @@ fi
 if has start || has dev; then
   has dev || run_step 01-bundle step_bundle
   if [ -n "$DIRECT" ]; then run_step 02-install step_direct_up; else run_step 02-install step_install; fi
+  ! session_open_left || session_close "the next boot, once the stack is up" || true
   if [ "$MODE" = validation ]; then run_step 03-wizard step_venv_env; else run_step 03-wizard step_wizard; fi
   if [ -n "$PROBE" ]; then
     run_step 04p-facts step_facts_box
@@ -2239,6 +2532,19 @@ if has g10; then
   run_step 41-g10-image step_g10_image
   run_step 42-g10-canary step_g10_canary
   run_step 43-g10-qualify step_g10_qualify
+fi
+if has session; then   # D-1132: the acc group's data steps, then the session's own
+  run_step 50-acc-tools step_acc_tools
+  run_step 51-acc-settings step_acc_settings
+  run_step 51s-session-env step_session_env
+  run_step 52-acc-routes step_acc_routes
+  run_step 53-acc-data step_acc_data
+  run_step 53h-session-hospital step_session_hospital
+  run_step 54-acc-ingest step_acc_ingest
+  run_step 55-session-egress step_session_egress
+  run_step 56-session-accounts step_session_accounts
+  run_step 57-session-open step_session_open
+  run_step 58-session-close step_session_close
 fi
 if has acc; then
   run_step 50-acc-tools step_acc_tools

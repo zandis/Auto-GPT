@@ -13,7 +13,11 @@ Knobs ($BR_S/knobs): fail-qualify, qualify-seconds, oom-ingest, list-differs, do
 accuracy group's: acc-job-seconds (how long a FEAS, APPROVE or SCREEN job runs), acc-tripwire (the first protocol of
 each screened set is refused by the PHI tripwire, as the gateway refused public protocols in the dry run),
 acc-blocked (the gateway's routes refuse the screen's judge call: the VALIDATION ceiling of today's tree),
-tripwire-setting (the tree declares a tripwire setting).
+tripwire-setting (the tree declares a tripwire setting). The session's (D-1132): dev-routes (a DEV box routes the
+session's D1 and D3 calls: the routing change D-1123 section 3 asks for; without it a DEV box refuses them, as this
+tree's routing policy does), session-idle (no request through the box's Caddy: the session ends early). The console's
+accounts (session-people, session-disable) are kept in box/accounts.json; each one-time code is also written to
+evidence/session-codes.txt, so the checks can look for it in every log.
 """
 
 import json
@@ -248,13 +252,71 @@ def snippet(svc: str, text: str) -> int:
             rows = rows[1:]  # the disturbed run lost a patient
         print(json.dumps({"job": rest[0], "rows": rows}))
         return 0
+    if what in ("session-people", "session-disable"):
+        return session_snippet(what, svc, text)
     print(f"box stand-in: no snippet {what}", file=sys.stderr)
     return 2
+
+
+def session_snippet(what: str, svc: str, text: str) -> int:
+    """The session's accounts in the console's container (D-1132, D-1133): opened with a one-time code each (DEV: one
+    account, its extra roles and the acting flag; VALIDATION: one role each), or disabled. No real console here."""
+    import re
+    import secrets
+
+    accounts = jload(BOX / "accounts.json", {})
+    if svc != "console":
+        print(f"box stand-in: {what} runs in the console's container, not {svc}", file=sys.stderr)
+        return 2
+    if what == "session-people":
+        people = re.search(r'for x in "([^"]+)"\.split\(","\)', text)
+        env = re.search(r'hours, env = int\("([0-9]+)"\), "([A-Z]+)"', text)
+        if not people or not env:
+            print("box stand-in: session-people without its people or environment", file=sys.stderr)
+            return 2
+        rows = [x.split(":", 1) for x in people.group(1).split(",")]
+        if env.group(2) == "DEV" and _env_of_box() != "DEV":
+            print("steps_roles: extra roles are for a test box only (TB_ENV DEV or TEST)", file=sys.stderr)
+            return 1
+        for name, roles in rows:
+            if name in accounts:
+                print(f"steps_roles: an account {name} exists already", file=sys.stderr)
+                return 1
+            if env.group(2) != "DEV" and "+" in roles:
+                print(f"session: {name}: one role per account on a VALIDATION box (D-1063 item 3)", file=sys.stderr)
+                return 1
+        S.joinpath("evidence").mkdir(exist_ok=True)
+        for name, roles in rows:
+            code = f"STANDIN-{secrets.token_hex(6).upper()}"  # the product's form: letters, digits, hyphens
+            accounts[name] = {"roles": roles, "disabled": False, "extra": "+" in roles}
+            with (S / "evidence" / "session-codes.txt").open("a") as fh:
+                fh.write(code + "\n")
+            print(f"{name}\t{roles}\t{code}\t2026-11-21 10:00 UTC")
+        if env.group(2) == "DEV":
+            accounts["_flag_acting"] = True
+        jsave(BOX / "accounts.json", accounts)
+        called(f"session-people {env.group(2)} {' '.join(n for n, _ in rows)}")
+        return 0
+    names = re.search(r'for name in "([^"]*)"\.split\(\)', text)
+    for name in names.group(1).split() if names else []:
+        if name in accounts:
+            accounts[name].update(disabled=True, extra=False)
+        print(f"disabled {name}")
+    accounts["_flag_acting"] = False
+    jsave(BOX / "accounts.json", accounts)
+    called(f"session-disable {names.group(1).strip() if names else ''}")
+    return 0
 
 
 def compose(argv: list[str]) -> int:
     i = next(k for k, a in enumerate(argv) if a in ("ps", "exec", "restart", "stop", "start", "up", "run", "logs"))
     cmd, rest = argv[i], argv[i + 1 :]
+    if cmd == "logs" and "caddy" in rest:  # the box's Caddy access log (the session's heartbeat, D-1132)
+        called("compose-logs caddy")
+        print('{"level":"info","logger":"http.log.access","request":{"client_ip":"127.0.0.1","uri":"/healthz"}}')
+        if not flag("session-idle"):  # the owner's browser, from his own address (a documentation-style address)
+            print('caddy  | {"level":"info","logger":"http.log.access","request":{"client_ip":"1.2.3.4","uri":"/"}}')
+        return 0
     if cmd == "logs":  # the set's progress line and its services' lines (F23): an embed request and a screen stage
         called("compose-logs " + " ".join(a for a in rest if not a.startswith("-")))
         print('INFO: 172.18.0.9:0 - "POST /embed HTTP/1.1" 200 OK')
@@ -379,7 +441,12 @@ def feed(argv: list[str]) -> int:
     n = int(argv[argv.index("-c") + 2])
     site = Path(host) / "site"
     site.mkdir(parents=True, exist_ok=True)
-    (site / "patient.csv").write_text("mrn,birth_date\n" + "".join(f"S{i:05d},1960-01-01\n" for i in range(min(n, 50))))
+    # the generator's own header (tools/make_fixtures.py write_site), as the public sets' builder writes it: the
+    # session's synthetic hospital is merged with them (54-acc-ingest); chart numbers in its own 10000001 range
+    (site / "patient.csv").write_text(
+        "mrn,name,id_no,birth_date,sex,death_date,phone\n"
+        + "".join(f"{10000001 + i},,,1960-01-01,F,,\n" for i in range(min(n, 50)))
+    )
     called(f"feed {n}")
     print(json.dumps({"patients": n, "records_per_patient": 500, "notes_per_patient": 40}))
     return 0
@@ -536,6 +603,9 @@ def onbox(svc: str, text: str, args: list[str]) -> int:
             if role == "judge" and flag("acc-blocked"):
                 rows.append({"role": role, "class": dc, "routes": False,
                              "why": f"{dc} data is not allowed in the {env} environment (ceiling D2)"})  # fmt: skip
+            elif env == "DEV" and dc != "D0" and not flag("dev-routes"):  # this tree's policy: DEV's ceiling is D0
+                rows.append({"role": role, "class": dc, "routes": False,
+                             "why": f"{dc} data is not allowed in the DEV environment (ceiling D0)"})  # fmt: skip
             else:
                 b = [{"alias": "j-workhorse", "build": "standin-judge-1", "routes": True}]
                 if role == "judge":

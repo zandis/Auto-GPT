@@ -39,6 +39,21 @@
 #       temporary folder as the VM clones it and the commit checked out: tools/box_run.py src-bundle --check) and only
 #       then uploaded to r2/<ID>/src.bundle (D8); the bucket's own is never taken unproved. Make one with:
 #       tools/box_run.py src-bundle --commit <full sha> --out FILE (refused in a shallow checkout).
+#   The owner's live session (D-1123; D-1130 the door, D-1131 the egress, D-1132 the step, D-1133 the links). Nothing
+#   from a session is evidence. Free first: --estimate, then --preflight (prints the rules it would make), then:
+#   deploy/gcp/box-run.sh --mode validation --steps dev,session --release-id dev-<commit12> --commit <sha> \
+#       --src-bundle FILE --session-allow <the owner's range, /24 or narrower> [--session-env dev|validation] \
+#       [--session-hours 1-3] [--session-people "name:role+role,..."] [--session-synth N] --no-wait
+#     --session-allow   required: tcp:443 from these ranges only (never `any`, 0.0.0.0/0 or broader than /24)
+#     --session-env     dev (the integrator's ruling, the default) or validation; the launch is refused while this
+#                       tree's routing policy would not route the session's calls to the box's own pair in it, or its
+#                       egress table would open a way out (tools/box_run.py session-check, free)
+#   deploy/gcp/box-run.sh --session-status <run id> [--boot-id ID]   # the VM, the door's rules checked, and the
+#                                                         # session's ready line of THIS boot only (D-1120's rules)
+#   deploy/gcp/box-run.sh --links <run id>                # ONCE, after TB-SESSION-READY: the door checked again, then
+#                                                         # the one-time links printed once and the object deleted,
+#                                                         # with the boot id, the certificate's SHA-256, the stop time
+#   --stop and the end of a collect also remove the session's tag from the VM and its two firewall rules.
 #   --preflight (free; no gcloud call, no TB_BUCKET needed): the launch as given, up to the point where it would
 #       upload or start anything, with every free check (tools/box_run.py preflight: the filter, the tag, the streams,
 #       the budgets, the full commit, the source bundle proved, the metadata; and the validation-check). Exit 0: the
@@ -62,6 +77,8 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PY="${PY:-$ROOT/.venv/bin/python}"
 DRY=0; WAIT=1; FOLLOW=0; ESTIMATE=0; STOP=0; PREFLIGHT=0; COLLECT=""; RESUME=""; STEPS=""; MODE=production; ONLY=""; ANYWAY=0
 SRC_BUNDLE=""
+SESSION_ALLOW_RAW=""; SESSION_ENV_RAW=dev; SESSION_HOURS_RAW=3; SESSION_PEOPLE_RAW=""; SESSION_SYNTH_RAW=""
+LINKS=""; SSTATUS=""; BOOT_ID=""
 declare -A V=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -105,6 +122,14 @@ while [ $# -gt 0 ]; do
     --serving) V[tb-serving]="$2"; shift 2 ;;               # shipped | tuned (the owner's exception, this box only)       # "set:n ...": protocols in flight at once per set              # steps left out of the launch, each said (never a pass)         # a second run on one box: new ruleset ids (F29)             # "TB_MEM_EMBED=16g ...": the site's deploy/.env limits
     --redo) V[tb-redo]="${2//,/ }"; shift 2 ;;   # with --resume: these steps run again (an acc set from no work)   # qualify's own size options, e.g. "--items 60 --repeat-items 40"   # 02: the installed tree brought up with the product's tools, no install.sh   # read the VM's (and after the install the box's) facts, then stop
     --src-bundle) SRC_BUNDLE="$2"; shift 2 ;;
+    --session-allow) SESSION_ALLOW_RAW="$2"; shift 2 ;;     # D-1130: tcp:443 from these ranges only
+    --session-env) SESSION_ENV_RAW="$2"; shift 2 ;;         # D-1132: dev (the ruling) | validation
+    --session-hours) SESSION_HOURS_RAW="$2"; shift 2 ;;     # 1 to 3: the owner's sitting
+    --session-people) SESSION_PEOPLE_RAW="$2"; shift 2 ;;   # name:role+role,... (DEV) or name:role,... (VALIDATION)
+    --session-synth) SESSION_SYNTH_RAW="$2"; shift 2 ;;     # the synthetic hospital's patients
+    --links) LINKS="$2"; shift 2 ;;                         # D-1133: the session's one-time links, once
+    --session-status) SSTATUS="$2"; shift 2 ;;              # D-1132: this boot's ready line
+    --boot-id) BOOT_ID="$2"; shift 2 ;;                     # with --session-status: that boot's lines only
     --bundle) V[tb-bundle]="$2"; shift 2 ;;
     --bundle-sha256) V[tb-bundle-sha256]="$2"; shift 2 ;;
     -h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d'; exit 0 ;;
@@ -115,8 +140,41 @@ done
 VM="${1:-tb-gpu-sim}"; ZONE="${2:-asia-east1-a}"
 cd "$ROOT"
 br() { env PYTHONPATH=libs:services:. "$PY" -m tools.box_run "$@"; }
+sv() { "$PY" "$ROOT/deploy/gcp/session_vm.py" "$@"; }   # the session's free checks (standard library)
+SESSION=0; case " $STEPS " in *" session "*) SESSION=1 ;; esac
+SESSION_HOURS=""
+if [ -n "$BOOT_ID" ]; then
+  [ -n "$SSTATUS" ] || { echo "box-run: --boot-id is for --session-status only" >&2; exit 2; }
+  [[ "$BOOT_ID" =~ ^[0-9a-f]{16}$ ]] || { echo "box-run: --boot-id takes the 16 hex digits --links printed" >&2; exit 2; }
+fi
+if [ "$SESSION" = 1 ]; then
+  if [ "$ESTIMATE" -eq 1 ]; then   # free: the hours alone (the ranges are the launch's)
+    SESSION_HOURS="$SESSION_HOURS_RAW"
+  else
+    SVS="$(sv shell --allow "$SESSION_ALLOW_RAW" --env "$SESSION_ENV_RAW" --hours "$SESSION_HOURS_RAW" \
+      --people "$SESSION_PEOPLE_RAW" --synth "$SESSION_SYNTH_RAW")" \
+      || { echo "box-run: refused (no VM started): the session's options (above)" >&2; exit 2; }
+    SESSION_ALLOW=""; SESSION_ENV=""; SESSION_PEOPLE=""; SESSION_SYNTH=""; SESSION_TAG=""; SESSION_ALLOW_RULE=""
+    SESSION_DENY_RULE=""; SESSION_ALLOW_PRIORITY=""; SESSION_DENY_PRIORITY=""
+    eval "$SVS"   # shlex-quoted assignments of the names above, from session_vm.py only
+    V[tb-session-env]="$SESSION_ENV"; V[tb-session-minutes]=$((SESSION_HOURS * 60)); V[tb-session-people]="$SESSION_PEOPLE"
+    V[tb-session-synth]="$SESSION_SYNTH"
+  fi
+fi
+ses_hours() { [ -z "$SESSION_HOURS" ] || printf -- '--session-hours\n%s\n' "$SESSION_HOURS"; }
+scheck() {  # D-1131, D-1132: would a box in the session's environment route its calls to its own pair only, and
+  # let no text out? (free, local: this tree's routing policy and egress table)
+  [ "$SESSION" = 1 ] || return 0
+  local env="${SESSION_ENV:-$(printf '%s' "$SESSION_ENV_RAW" | tr '[:lower:]' '[:upper:]')}"
+  if br session-check --env "$env" > "${1:-/dev/null}"; then
+    echo "session-check: a box in $env routes the session's calls to its own served pair only and lets no text out"; return 0
+  fi
+  echo "session-check: a box in $env on this tree would not serve the session as ruled (tools/box_run.py session-check;" \
+    "the lines above): a product change, not built around here (D-1123 section 3 item 4)" >&2
+  return 1
+}
 case "$MODE" in production|validation) ;; *) echo "box-run: --mode production | validation" >&2; exit 2 ;; esac
-if [ "$PREFLIGHT" = 1 ] && { [ -n "$RESUME$COLLECT" ] || [ "$STOP" = 1 ]; }; then
+if [ "$PREFLIGHT" = 1 ] && { [ -n "$RESUME$COLLECT$LINKS$SSTATUS" ] || [ "$STOP" = 1 ]; }; then
   echo "box-run: --preflight checks a launch (--steps ...), not a resume, a collect or a stop" >&2; exit 2
 fi
 vcheck() {  # validation mode with acc: can a VALIDATION box route the run's calls on this tree? (free, local)
@@ -137,8 +195,10 @@ if [ -n "${V[tb-acc-protocols]:-}" ]; then
     || { echo "box-run: refused (no VM started): --acc-protocols matches no protocol of its set (see above; tools/box_run.py acc-ids lists the ids)" >&2; exit 2; }
 fi
 if [ "$ESTIMATE" = 1 ]; then
-  br estimate --steps "${STEPS:-build start g6 g9 g10}" --mode "$MODE" --only "$ONLY"
+  mapfile -t sh_ < <(ses_hours)
+  br estimate --steps "${STEPS:-build start g6 g9 g10}" --mode "$MODE" --only "$ONLY" ${sh_[@]+"${sh_[@]}"}
   vcheck "$(mktemp)" || true
+  scheck || true
   exit 0
 fi
 
@@ -154,11 +214,12 @@ if [ "$DRY" = 0 ]; then
   case "$CLOUDSDK_CONFIG" in "$HOME/.config/gcloud"*) echo "CLOUDSDK_CONFIG must be private" >&2; exit 2 ;; esac
 fi
 gc_start || exit 5
-RUN_ID="${COLLECT:-${RESUME:-${TB_RUN_ID:-box-$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD)}}}"
+RUN_ID="${COLLECT:-${RESUME:-${LINKS:-${SSTATUS:-${TB_RUN_ID:-box-$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD)}}}}}"
 OUT="${TB_BOXRUN_DIR:-$ROOT/.cache/box-run/$RUN_ID}"
 [ "$PREFLIGHT" = 0 ] || [ -n "${TB_BOXRUN_DIR:-}" ] || OUT="$(mktemp -d)"   # a preflight leaves no run folder
 mkdir -p "$OUT"; umask 077
 OBJ="$BUCKET/boxruns/$RUN_ID"
+HANDOFF="$BUCKET/session/$RUN_ID"   # D-1133: the one private object of the links (the VM writes, --links reads once)
 
 status() { if [ "$DRY" = 1 ]; then echo TERMINATED; else gc compute instances describe "$VM" --zone "$ZONE" --format='value(status)' || echo unknown; fi; }
 project() { if [ "$DRY" = 1 ]; then echo "<project>"; else gcloud config get-value project 2>/dev/null; fi; }
@@ -175,13 +236,84 @@ reset_vm() {  # the VM as it is kept: spot, the usual startup script, the defaul
   gc compute instances set-scheduling "$VM" --zone "$ZONE" --provisioning-model=SPOT --instance-termination-action=STOP \
     --clear-max-run-duration || true
   gc compute instances add-metadata "$VM" --zone "$ZONE" --metadata-from-file startup-script="$ROOT/deploy/gcp/gpu-sim-startup.sh" || true
-  keys="$(cat "$OUT/metadata-keys" 2>/dev/null | tr ' ' ,)"
+  keys="$(cat "$OUT/metadata-keys" 2>/dev/null | tr ' ' , || true)"   # none: a --stop with no run folder here
   [ -z "$keys" ] || gc compute instances remove-metadata "$VM" --zone "$ZONE" --keys "${keys/startup-script,/}" || true
   if [ -f "$OUT/signer" ]; then   # the build ran as the signer: back to the default compute account
     gc compute instances set-service-account "$VM" --zone "$ZONE" --service-account "$(cat "$OUT/default-sa")" --scopes cloud-platform || true
     rm -f "$OUT/signer"
   fi
+  session_door_down
   [ "$DRY" = 1 ] || gc compute instances describe "$VM" --zone "$ZONE" --format='value(status,serviceAccounts[0].email)' || true
+}
+# ---------------------------------------------------------------- the session's door (D-1130), as demo-vm.sh `up`
+S_TAG=tb-session; S_ALLOW=tb-session-https; S_DENY=tb-session-deny   # session_vm.py TAG, ALLOW_RULE, DENY_RULE
+rule_exists() {  # in a dry run nothing exists yet (the whole plan is printed)
+  if [ "$DRY" = 1 ]; then echo "+ gcloud compute firewall-rules describe $1 --format=value(name)   # exists?"; return 1; fi
+  gc compute firewall-rules describe "$1" --format='value(name)' >/dev/null 2>&1
+}
+vm_network() {
+  if [ "$DRY" = 1 ]; then echo default; return 0; fi
+  basename "$(gc compute instances describe "$VM" --zone "$ZONE" --format='value(networkInterfaces[0].network)')"
+}
+session_door() {  # a deny-all on the session's tag, the one allow (tcp:443 from the owner's ranges), the tag on the VM
+  local net; net="$(vm_network)" || return 1
+  [ -n "$net" ] || { echo "box-run: the VM's network cannot be read" >&2; return 1; }
+  rule_exists "$S_DENY" || gc compute firewall-rules create "$S_DENY" --network "$net" --direction INGRESS --action DENY \
+    --rules=all --source-ranges=0.0.0.0/0 --target-tags "$S_TAG" --priority "$SESSION_DENY_PRIORITY" \
+    --description="TrialBox session (D-1130): nothing but its tcp:443 rule reaches the VM (not SSH, not an old door)" || return 1
+  if rule_exists "$S_ALLOW"; then
+    gc compute firewall-rules update "$S_ALLOW" --rules=tcp:443 --source-ranges="$SESSION_ALLOW" \
+      --target-tags "$S_TAG" --priority "$SESSION_ALLOW_PRIORITY" || return 1
+  else
+    gc compute firewall-rules create "$S_ALLOW" --network "$net" --direction INGRESS --action ALLOW --rules=tcp:443 \
+      --source-ranges="$SESSION_ALLOW" --target-tags "$S_TAG" --priority "$SESSION_ALLOW_PRIORITY" \
+      --description="TrialBox session (D-1130): https from the owner's own ranges only" || return 1
+  fi
+  gc compute instances add-tags "$VM" --zone "$ZONE" --tags "$S_TAG" || return 1
+  printf '%s\n' "$SESSION_ALLOW" > "$OUT/session"   # the ranges, for --links and --session-status
+}
+session_rules_check() {  # D-1130: only tcp:443 from the owner's ranges reaches the VM (every rule, every tag of the VM)
+  local rules tags net rc=0 ranges
+  ranges="${SESSION_ALLOW:-$(cat "$OUT/session" 2>/dev/null)}"
+  [ -n "$ranges" ] || { echo "box-run: no session ranges for $RUN_ID here (--session-allow RANGES gives them)" >&2; return 1; }
+  if [ "$DRY" = 1 ]; then
+    echo "+ gcloud compute firewall-rules list --format=json   # only tcp:443 from $ranges may reach the VM"
+    echo "+ gcloud compute instances describe $VM --zone $ZONE --format=value(tags.items)"
+    return 0
+  fi
+  net="$(vm_network)"; rules="$(mktemp)"
+  gc compute firewall-rules list --filter="network~/$net\$" --format=json > "$rules" || { rm -f "$rules"; return 1; }
+  tags="$(gc compute instances describe "$VM" --zone "$ZONE" --format='value(tags.items)' | tr ';,' '  ')"
+  sv rules-check "$net" "$tags" "$ranges" < "$rules" > "$OUT/session-rules.json" || rc=$?
+  rm -f "$rules"
+  "$PY" -c 'import json,sys
+d = json.load(open(sys.argv[1]))
+print("door: reaches the VM:", d["reaches_the_vm"] or "NOT PROVED")
+for r in d["other_rules_that_apply_to_the_vm"]: print("  %s: %s" % (r["rule"], r["verdict"]))
+for p in d["problems"]: print("  PROBLEM:", p)' "$OUT/session-rules.json" 2>/dev/null || true
+  return "$rc"
+}
+vm_has_tag() {
+  [ "$DRY" = 0 ] || return 1
+  gc compute instances describe "$VM" --zone "$ZONE" --format='value(tags.items)' 2>/dev/null | tr ';,' '\n\n' | grep -qx "$S_TAG"
+}
+bucket_private() {  # D-1123 section 6: the links object's bucket is not public (no allUsers, no allAuthenticatedUsers)
+  local b="${BUCKET#gs://}"; b="gs://${b%%/*}"
+  if [ "$DRY" = 1 ]; then echo "+ gcloud storage buckets get-iam-policy $b --format=json   # no allUsers, no allAuthenticatedUsers"; return 0; fi
+  local pol; pol="$(gc storage buckets get-iam-policy "$b" --format=json)" || { echo "box-run: the bucket's IAM policy cannot be read" >&2; return 1; }
+  if printf '%s' "$pol" | grep -qE '"allUsers"|"allAuthenticatedUsers"'; then
+    echo "box-run: the bucket $b is public (allUsers or allAuthenticatedUsers in its IAM policy): the links object would be readable by anyone" >&2
+    return 1
+  fi
+  echo "bucket: $b names no allUsers and no allAuthenticatedUsers"
+}
+session_door_down() {  # --stop and the end of a collect: the tag off the VM, the two rules deleted (each if there)
+  [ "$SESSION" = 1 ] || [ -f "$OUT/session" ] || vm_has_tag || return 0
+  gc compute instances remove-tags "$VM" --zone "$ZONE" --tags "$S_TAG" >/dev/null 2>&1 || true
+  local r; for r in "$S_ALLOW" "$S_DENY"; do
+    if [ "$DRY" = 1 ] || rule_exists "$r"; then gc compute firewall-rules delete "$r" --quiet || true; fi
+  done
+  rm -f "$OUT/session"
 }
 stop_vm() { gc compute instances stop "$VM" --zone "$ZONE" || true; [ "$DRY" = 1 ] || wait_terminated; reset_vm; }
 fetch() {  # results.tgz from the bucket into $OUT, the report; returns 1 when there is none yet
@@ -239,6 +371,53 @@ one_look() {  # one look: results, a power cycle asked for, the state; 0 = the r
 }
 
 if [ "$STOP" = 1 ]; then stop_vm; [ -z "$COLLECT" ] || fetch || true; exit 0; fi
+if [ -n "$SSTATUS" ]; then   # D-1132: the VM, the door, and the session's ready line of this boot only (D-1120)
+  s="$(status)"; echo "VM $VM ($ZONE): $s"
+  session_rules_check || echo "door: NOT proved (above): give no link" >&2
+  if [ "$s" = RUNNING ]; then
+    if [ "$DRY" = 1 ]; then
+      echo "+ gcloud compute instances describe $VM --zone $ZONE --format=value(lastStartTimestamp)"
+      echo "+ gcloud compute instances get-serial-port-output $VM --zone $ZONE --port 1 --start 0 --format=json   # then from each page's next"
+      exit 0
+    fi
+    last_start="$(gc compute instances describe "$VM" --zone "$ZONE" --format='value(lastStartTimestamp)' 2>/dev/null || true)"
+    pages="$(mktemp -d)"; pos=0
+    for i in $(seq 1 64); do   # the whole buffer, page by page (demo-vm.sh serial_pages)
+      f="$pages/page-$(printf '%03d' "$i")"
+      gc compute instances get-serial-port-output "$VM" --zone "$ZONE" --port 1 --start "$pos" --format=json > "$f" 2>/dev/null || { rm -f "$f"; break; }
+      nxt="$("$PY" "$ROOT/deploy/gcp/demo_vm.py" serial-next < "$f")" || break
+      [ "$nxt" -gt "$pos" ] || break
+      pos=$nxt
+    done
+    args=(); [ -z "$last_start" ] || args+=(--last-start "$last_start"); [ -z "$BOOT_ID" ] || args+=(--boot-id "$BOOT_ID")
+    files=("$pages"/page-*); [ -e "${files[0]}" ] || files=()
+    sv boot-state ${args[@]+"${args[@]}"} ${files[@]+"${files[@]}"}
+    rm -rf "$pages"
+  else
+    echo "session: the VM is $s: no ready line is read (a line in the serial buffer is an earlier boot's)"
+  fi
+  exit 0
+fi
+if [ -n "$LINKS" ]; then   # D-1133: the door proved, then the links object printed once and deleted
+  session_rules_check || { echo "box-run: no link is given: the door is not proved (above; D-1130)" >&2; exit 3; }
+  bucket_private || { echo "box-run: no link is given: the bucket is not private (above)" >&2; exit 3; }
+  if [ "$DRY" = 1 ]; then
+    echo "+ gcloud storage ls $HANDOFF/links-*.txt"
+    echo "+ gcloud storage cat <the newest>   # the one-time links, printed once"
+    echo "+ gcloud storage rm <each links-*.txt there>"
+    exit 0
+  fi
+  objs="$(gc storage ls "$HANDOFF/links-*.txt" 2>/dev/null | sort || true)"
+  [ -n "$objs" ] || { echo "box-run: no links under $HANDOFF: the VM writes them before TB-SESSION-READY, or they were read already (new links need a new launch)" >&2; exit 3; }
+  newest="$(printf '%s\n' "$objs" | tail -n 1)"
+  text="$(gc storage cat "$newest")"
+  printf '%s\n' "$text"
+  printf '%s\n' "$text" | sv links-meta | sed 's/^boot_id=/== boot id: /; s/^certificate_sha256=/== the box'"'"'s root certificate SHA-256 (compare it in the browser): /; s/^stop=/== the session closes at (UTC): /'
+  for o in $objs; do gc storage rm "$o" >/dev/null 2>&1 || echo "box-run: could not delete $o: delete it by hand" >&2; done
+  echo "== deleted from the bucket. Give the owner his line in the integrator's own session; never on a PR, in a comment or a file."
+  echo "== nothing from this session is evidence."
+  exit 0
+fi
 if [ -n "$COLLECT" ]; then
   if [ "$FOLLOW" = 1 ]; then until one_look; do sleep 60; done; else one_look || true; fi
   exit 0
@@ -308,6 +487,10 @@ fi
 [ -n "$STEPS" ] || { echo "box-run: --steps build | start,g6,g9,g10 (see --help)" >&2; exit 2; }
 case " $STEPS " in *" build "*) [ "$STEPS" = build ] || { echo "box-run: build is its own launch (another service account)" >&2; exit 2; } ;; esac
 [ "$(status)" = TERMINATED ] || { echo "VM $VM is $(status), not TERMINATED: one run at a time" >&2; exit 2; }
+[ "$SESSION" = 0 ] || sv plan "$SESSION_ALLOW"   # D-1130: the rules it would make, before anything
+if ! scheck "$OUT/session-check.json"; then   # never launched blocked: a session is not a probe of the product
+  echo "box-run: refused (no VM started): the session would not be served as ruled (D-1132)" >&2; exit 9
+fi
 if ! vcheck "$OUT/validation-check.json"; then
   [ "$ANYWAY" = 1 ] || { echo "box-run: refused (no VM started): --even-if-blocked launches anyway" >&2; exit 9; }
   echo "box-run: --even-if-blocked: launching all the same; the box will stop at 52-acc-routes" >&2
@@ -319,7 +502,8 @@ if [ "$MODE" = validation ]; then  # the throwaway key's public half, written be
 else
   V[tb-vendor-pub]="${V[tb-vendor-pub]:-$BUCKET/r2/keys/vendor_ed25519.pub}"
 fi
-if [ "$STEPS" = dev ] || [ "$STEPS" = "dev acc" ]; then   # the commit's images and tree on the VM: no bundle, no signature
+[ "$SESSION" = 0 ] || V[tb-session-handoff]="$HANDOFF"
+if [ "$STEPS" = dev ] || [ "$STEPS" = "dev acc" ] || [ "$STEPS" = "dev session" ]; then   # the commit's images and tree on the VM: no bundle, no signature
   V[tb-src]="${V[tb-src]:-$BUCKET/r2/$RID/src.bundle}"; V[tb-direct]=1
 elif [ "$STEPS" = build ]; then
   V[tb-src]="${V[tb-src]:-$BUCKET/r2/$RID/src.bundle}"; V[tb-out]="${V[tb-out]:-$BUCKET/r2/$RID}"
@@ -350,7 +534,8 @@ pfa=(); for k in "${!V[@]}"; do pfa+=(--set "$k=${V[$k]}"); done
 br preflight --steps "$STEPS" --mode "$MODE" --only "$ONLY" ${SRC_BUNDLE:+--src-bundle "$SRC_BUNDLE"} "${pfa[@]}" > "$OUT/preflight.json" \
   || { echo "box-run: refused (no VM started): the preflight failed (the lines above; $OUT/preflight.json)" >&2; exit 6; }
 if [ "$PREFLIGHT" = 1 ]; then
-  br estimate --steps "$STEPS" --mode "$MODE" --only "$ONLY"
+  mapfile -t sh_ < <(ses_hours)
+  br estimate --steps "$STEPS" --mode "$MODE" --only "$ONLY" ${sh_[@]+"${sh_[@]}"}
   echo "preflight: every free check passed (nothing was uploaded or started; $OUT/preflight.json)"
   exit 0
 fi
@@ -358,7 +543,7 @@ if [ -n "$SRC_BUNDLE" ]; then  # D8: proved by the preflight above (cloned as th
   gc storage cp "$SRC_BUNDLE" "${V[tb-src]}" >/dev/null
   echo "source bundle proved (commit ${V[tb-commit]} checks out from it) and uploaded to ${V[tb-src]}"
 fi
-case " $STEPS " in *" acc "*)  # lane G's accuracy tools at this commit (git archive), for the VM to fetch and build with
+case " $STEPS " in *" acc "*|*" session "*)  # lane G's accuracy tools at this commit (git archive), for the VM to fetch and build with
   br acc-tools --out "$OUT/acc-tools.tgz" > "$OUT/acc-tools.json" || exit 2
   V[tb-acc-tools]="$OBJ/acc-tools.tgz"
   gc storage cp "$OUT/acc-tools.tgz" "$OBJ/acc-tools.tgz" >/dev/null ;;
@@ -366,9 +551,10 @@ esac
 sets=(); for k in "${!V[@]}"; do sets+=(--set "$k=${V[$k]}"); done
 rm -rf "$OUT/md"
 br metadata --steps "$STEPS" --mode "$MODE" --only "$ONLY" --out "$OUT/md" "${sets[@]}" > "$OUT/metadata-keys" || exit 2
-CAP=$(br estimate --steps "$STEPS" --mode "$MODE" --only "$ONLY" --json | "$PY" -c 'import json,sys; print(sum(l["cap_hours"] for l in json.load(sys.stdin)["launches"]))')
+mapfile -t sh_ < <(ses_hours)
+CAP=$(br estimate --steps "$STEPS" --mode "$MODE" --only "$ONLY" ${sh_[@]+"${sh_[@]}"} --json | "$PY" -c 'import json,sys; print(sum(l["cap_hours"] for l in json.load(sys.stdin)["launches"]))')
 echo "$CAP" > "$OUT/cap-hours"
-br estimate --steps "$STEPS" --mode "$MODE" --only "$ONLY"
+br estimate --steps "$STEPS" --mode "$MODE" --only "$ONLY" ${sh_[@]+"${sh_[@]}"}
 FILES="startup-script=$ROOT/deploy/gcp/box-install-run.sh,tb-helper=$ROOT/deploy/gcp/box_vm.py"
 case " $STEPS " in *" start "*) [ "$MODE" = validation ] && [ -z "${V[tb-answers-version]:-}" ] \
   && FILES="$FILES,tb-site-answers=$ROOT/deploy/gcp/validation-site-answers.yaml" ;; esac
@@ -382,6 +568,11 @@ if [ "$STEPS" = build ] && [ "$MODE" = production ]; then  # validation: the VM'
     --service-account "$SIGNER_SA@$(project).iam.gserviceaccount.com" --scopes cloud-platform
   touch "$OUT/signer"
 fi
+if [ "$SESSION" = 1 ]; then   # D-1130: the door before the start, proved; nothing starts while it is not
+  session_door || { echo "box-run: refused (no VM started): the session's firewall rules could not be made" >&2; exit 7; }
+  session_rules_check || { echo "box-run: refused (no VM started): the door is not proved (above; D-1130)" >&2; exit 7; }
+  bucket_private || { echo "box-run: refused (no VM started): the links' bucket is not private (above)" >&2; exit 7; }
+fi
 trap 'echo "box-run: the launch did not finish: stopping the VM"; stop_vm' ERR
 gc compute instances set-scheduling "$VM" --zone "$ZONE" --provisioning-model="$PROVISIONING" \
   --max-run-duration="${CAP}h" --instance-termination-action=STOP
@@ -391,5 +582,6 @@ trap - ERR
 [ "$DRY" = 0 ] || echo "(dry run: the commands above were printed, nothing was changed or started)"
 echo "run $RUN_ID started on $VM ($ZONE), $PROVISIONING, cloud cap ${CAP} h; results: $OBJ/results.tgz"
 echo "later: $0 --collect $RUN_ID [--follow]; $0 --stop $RUN_ID"
+[ "$SESSION" = 0 ] || echo "session: $0 --session-status $RUN_ID until TB-SESSION-READY, then ONCE $0 --links $RUN_ID (nothing from it is evidence)"
 [ "$WAIT" = 0 ] || [ "$DRY" = 1 ] && exit 0
 until one_look; do sleep 60; done
