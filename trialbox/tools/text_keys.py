@@ -495,6 +495,9 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "role.": _values("console.auth", "ROLES"),
     "lang.name.": _values("console.i18n", "LANGS"),
     "help.role.": _values("console.guides", "ROLES"),
+    # the provenance search page (D-1155): its five search fields and the two kinds of event the index holds
+    "prov.f.": lambda: ("model", "build_sha", "prompt_sha", "prompt_id", "prompt_version"),
+    "prov.event.": lambda: ("used", "confirmed"),
     "help.page.": _union(_values("console.step4", "HELP_SLUGS"), _guide_pages),
     "guide.page.": _guide_pages,
     "life.gloss.": _values("console.guides", "GLOSSARY"),
