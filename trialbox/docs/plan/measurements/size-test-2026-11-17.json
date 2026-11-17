@@ -1,0 +1,796 @@
+{
+ "commit": "57263236",
+ "decision": "D-1137",
+ "first_slow": {
+  "FEAS x1": {
+   "lowest_smaller": 3.664,
+   "ms_per_unit": 6.246,
+   "patients": 50000,
+   "ratio": 1.7
+  },
+  "FEAS x20": null,
+  "FEAS x5": null,
+  "SCREEN x1": null,
+  "SCREEN x20": null,
+  "SCREEN x5": null,
+  "cascade (gate, GZQO)": null,
+  "generate": null,
+  "ingest": null,
+  "rebuild+publish": null
+ },
+ "gate_checks": {
+  "100000r1": {
+   "backup.ends": "pass",
+   "backup.no_pause": "pass",
+   "ingest.night_under_cap": "pass",
+   "publish.recorded_once": "pass",
+   "rebuild.under_cap": "pass",
+   "screen.ends_under_cap": "FAIL",
+   "screen.model_faults_seen": "blocked",
+   "screen.outage_no_unknown": "blocked"
+  },
+  "200000r1": {
+   "backup.ends": "pass",
+   "backup.no_pause": "pass",
+   "ingest.night_under_cap": "pass",
+   "publish.recorded_once": "pass",
+   "rebuild.under_cap": "pass",
+   "screen.ends_under_cap": "FAIL",
+   "screen.model_faults_seen": "blocked",
+   "screen.outage_no_unknown": "blocked"
+  },
+  "20000r1": {
+   "backup.ends": "pass",
+   "backup.no_pause": "pass",
+   "ingest.night_under_cap": "pass",
+   "publish.recorded_once": "pass",
+   "rebuild.under_cap": "pass",
+   "screen.ends_under_cap": "pass",
+   "screen.model_faults_seen": "pass",
+   "screen.outage_no_unknown": "blocked"
+  },
+  "50000r1": {
+   "backup.ends": "pass",
+   "backup.no_pause": "pass",
+   "ingest.night_under_cap": "pass",
+   "publish.recorded_once": "pass",
+   "rebuild.under_cap": "pass",
+   "screen.ends_under_cap": "pass",
+   "screen.model_faults_seen": "pass",
+   "screen.outage_no_unknown": "blocked"
+  },
+  "5000r1": {
+   "backup.ends": "pass",
+   "backup.no_pause": "pass",
+   "ingest.night_under_cap": "pass",
+   "publish.recorded_once": "pass",
+   "rebuild.under_cap": "pass",
+   "screen.ends_under_cap": "pass",
+   "screen.model_faults_seen": "pass",
+   "screen.outage_no_unknown": "blocked"
+  },
+  "5000r2": {
+   "backup.ends": "pass",
+   "backup.no_pause": "pass",
+   "ingest.night_under_cap": "pass",
+   "publish.recorded_once": "pass",
+   "rebuild.under_cap": "pass",
+   "screen.ends_under_cap": "pass",
+   "screen.model_faults_seen": "pass",
+   "screen.outage_no_unknown": "blocked"
+  }
+ },
+ "machine": {
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+  "cpus": 4,
+  "machine": "x86_64",
+  "mem_bytes": 16869134336,
+  "python": "3.12.3"
+ },
+ "schema": "size-ladder/1",
+ "slow_factor": 1.5,
+ "slow_floor_s": 5.0,
+ "started": "2026-11-17T09:16:29+00:00",
+ "studies": [
+  "GZQO",
+  "RA-BIO",
+  "AD-MAB",
+  "GOUT-COH",
+  "NEUR-COH",
+  "ONC-OSI",
+  "RA-COH",
+  "RA-JAK"
+ ],
+ "table": [
+  {
+   "cap": 0,
+   "ms_per_unit": 0.54,
+   "ok": true,
+   "patients": 5000,
+   "peak": 125759488,
+   "seconds": {
+    "max": 2.7,
+    "median": 2.7,
+    "min": 2.7,
+    "n": 2,
+    "spread_pct": 0.0
+   },
+   "service": "-",
+   "stage": "generate",
+   "unit": "patient"
+  },
+  {
+   "cap": 6442450944,
+   "ms_per_unit": 19.7,
+   "ok": true,
+   "patients": 5000,
+   "peak": 1959784448,
+   "records": 155713,
+   "seconds": {
+    "max": 100.6,
+    "median": 98.5,
+    "min": 96.4,
+    "n": 2,
+    "spread_pct": 4.3
+   },
+   "service": "adapter",
+   "stage": "ingest",
+   "unit": "patient"
+  },
+  {
+   "cap": 8589934592,
+   "ms_per_unit": 5.03,
+   "ok": true,
+   "patients": 5000,
+   "peak": 977596416,
+   "seconds": {
+    "max": 25.2,
+    "median": 25.15,
+    "min": 25.1,
+    "n": 2,
+    "spread_pct": 0.4
+   },
+   "service": "lake",
+   "stage": "rebuild+publish",
+   "unit": "patient"
+  },
+  {
+   "cap": 4294967296,
+   "model_calls": 153,
+   "ms_per_unit": 6.13,
+   "ok": true,
+   "patients": 5000,
+   "peak": 491413504,
+   "seconds": {
+    "max": 31.7,
+    "median": 30.65,
+    "min": 29.6,
+    "n": 2,
+    "spread_pct": 6.9
+   },
+   "service": "orchestrator",
+   "stage": "cascade (gate, GZQO)",
+   "unit": "patient"
+  },
+  {
+   "cap": 4294967296,
+   "model_calls": 0,
+   "ms_per_unit": 3.664,
+   "ok": true,
+   "patients": 5000,
+   "peak": 534724608,
+   "scoped": 5000,
+   "seconds": {
+    "max": 18.4,
+    "median": 18.32,
+    "min": 18.25,
+    "n": 2,
+    "spread_pct": 0.8
+   },
+   "service": "orchestrator",
+   "stage": "FEAS x1",
+   "unit": "patient-study"
+  },
+  {
+   "cap": 4294967296,
+   "model_calls": 0,
+   "ms_per_unit": 1.979,
+   "ok": true,
+   "patients": 5000,
+   "peak": 936288256,
+   "scoped": 5000,
+   "seconds": {
+    "max": 51.0,
+    "median": 49.47,
+    "min": 47.93,
+    "n": 2,
+    "spread_pct": 6.2
+   },
+   "service": "orchestrator",
+   "stage": "FEAS x5",
+   "unit": "patient-study"
+  },
+  {
+   "cap": 4294967296,
+   "model_calls": 0,
+   "ms_per_unit": 1.854,
+   "ok": true,
+   "patients": 5000,
+   "peak": 971014144,
+   "scoped": 5000,
+   "seconds": {
+    "max": 188.45,
+    "median": 185.36,
+    "min": 182.27,
+    "n": 2,
+    "spread_pct": 3.3
+   },
+   "service": "orchestrator",
+   "stage": "FEAS x20",
+   "unit": "patient-study"
+  },
+  {
+   "cap": 4294967296,
+   "model_calls": 223,
+   "ms_per_unit": 5.446,
+   "ok": true,
+   "patients": 5000,
+   "peak": 936288256,
+   "scoped": 4829,
+   "seconds": {
+    "max": 27.4,
+    "median": 27.23,
+    "min": 27.05,
+    "n": 2,
+    "spread_pct": 1.3
+   },
+   "service": "orchestrator",
+   "stage": "SCREEN x1",
+   "unit": "patient-study"
+  },
+  {
+   "cap": 4294967296,
+   "model_calls": 223,
+   "ms_per_unit": 3.274,
+   "ok": true,
+   "patients": 5000,
+   "peak": 936288256,
+   "scoped": 4829,
+   "seconds": {
+    "max": 83.58,
+    "median": 81.85,
+    "min": 80.12,
+    "n": 2,
+    "spread_pct": 4.2
+   },
+   "service": "orchestrator",
+   "stage": "SCREEN x5",
+   "unit": "patient-study"
+  },
+  {
+   "cap": 4294967296,
+   "model_calls": 1433,
+   "ms_per_unit": 3.274,
+   "ok": true,
+   "patients": 5000,
+   "peak": 971014144,
+   "scoped": 4829,
+   "seconds": {
+    "max": 332.64,
+    "median": 327.37,
+    "min": 322.1,
+    "n": 2,
+    "spread_pct": 3.2
+   },
+   "service": "orchestrator",
+   "stage": "SCREEN x20",
+   "unit": "patient-study"
+  },
+  {
+   "cap": 0,
+   "ms_per_unit": 0.475,
+   "ok": true,
+   "patients": 20000,
+   "peak": 445038592,
+   "seconds": {
+    "max": 9.5,
+    "median": 9.5,
+    "min": 9.5,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "-",
+   "stage": "generate",
+   "unit": "patient"
+  },
+  {
+   "cap": 6442450944,
+   "ms_per_unit": 16.42,
+   "ok": true,
+   "patients": 20000,
+   "peak": 2140463104,
+   "records": 621269,
+   "seconds": {
+    "max": 328.4,
+    "median": 328.4,
+    "min": 328.4,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "adapter",
+   "stage": "ingest",
+   "unit": "patient"
+  },
+  {
+   "cap": 8589934592,
+   "ms_per_unit": 5.02,
+   "ok": true,
+   "patients": 20000,
+   "peak": 1256267776,
+   "seconds": {
+    "max": 100.4,
+    "median": 100.4,
+    "min": 100.4,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "lake",
+   "stage": "rebuild+publish",
+   "unit": "patient"
+  },
+  {
+   "cap": 4294967296,
+   "model_calls": 750,
+   "ms_per_unit": 6.805,
+   "ok": true,
+   "patients": 20000,
+   "peak": 1310109696,
+   "seconds": {
+    "max": 136.1,
+    "median": 136.1,
+    "min": 136.1,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "orchestrator",
+   "stage": "cascade (gate, GZQO)",
+   "unit": "patient"
+  },
+  {
+   "cap": 4294967296,
+   "model_calls": 0,
+   "ms_per_unit": 4.331,
+   "ok": true,
+   "patients": 20000,
+   "peak": 530718720,
+   "scoped": 20000,
+   "seconds": {
+    "max": 86.62,
+    "median": 86.62,
+    "min": 86.62,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "orchestrator",
+   "stage": "FEAS x1",
+   "unit": "patient-study"
+  },
+  {
+   "cap": 4294967296,
+   "model_calls": 0,
+   "ms_per_unit": 2.643,
+   "ok": true,
+   "patients": 20000,
+   "peak": 2172571648,
+   "scoped": 20000,
+   "seconds": {
+    "max": 264.29,
+    "median": 264.29,
+    "min": 264.29,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "orchestrator",
+   "stage": "FEAS x5",
+   "unit": "patient-study"
+  },
+  {
+   "cap": 4294967296,
+   "model_calls": 0,
+   "ms_per_unit": 2.53,
+   "ok": true,
+   "patients": 20000,
+   "peak": 2237583360,
+   "scoped": 20000,
+   "seconds": {
+    "max": 1012.16,
+    "median": 1012.16,
+    "min": 1012.16,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "orchestrator",
+   "stage": "FEAS x20",
+   "unit": "patient-study"
+  },
+  {
+   "cap": 4294967296,
+   "model_calls": 992,
+   "ms_per_unit": 5.117,
+   "ok": true,
+   "patients": 20000,
+   "peak": 2172571648,
+   "scoped": 19370,
+   "seconds": {
+    "max": 102.34,
+    "median": 102.34,
+    "min": 102.34,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "orchestrator",
+   "stage": "SCREEN x1",
+   "unit": "patient-study"
+  },
+  {
+   "cap": 4294967296,
+   "model_calls": 992,
+   "ms_per_unit": 2.98,
+   "ok": true,
+   "patients": 20000,
+   "peak": 2172571648,
+   "scoped": 19370,
+   "seconds": {
+    "max": 298.0,
+    "median": 298.0,
+    "min": 298.0,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "orchestrator",
+   "stage": "SCREEN x5",
+   "unit": "patient-study"
+  },
+  {
+   "cap": 4294967296,
+   "model_calls": 6168,
+   "ms_per_unit": 2.955,
+   "ok": true,
+   "patients": 20000,
+   "peak": 2237583360,
+   "scoped": 19370,
+   "seconds": {
+    "max": 1182.04,
+    "median": 1182.04,
+    "min": 1182.04,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "orchestrator",
+   "stage": "SCREEN x20",
+   "unit": "patient-study"
+  },
+  {
+   "cap": 0,
+   "ms_per_unit": 0.492,
+   "ok": true,
+   "patients": 50000,
+   "peak": 1091764224,
+   "seconds": {
+    "max": 24.6,
+    "median": 24.6,
+    "min": 24.6,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "-",
+   "stage": "generate",
+   "unit": "patient"
+  },
+  {
+   "cap": 6442450944,
+   "ms_per_unit": 16.376,
+   "ok": true,
+   "patients": 50000,
+   "peak": 2554769408,
+   "records": 1553259,
+   "seconds": {
+    "max": 818.8,
+    "median": 818.8,
+    "min": 818.8,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "adapter",
+   "stage": "ingest",
+   "unit": "patient"
+  },
+  {
+   "cap": 8589934592,
+   "ms_per_unit": 5.916,
+   "ok": true,
+   "patients": 50000,
+   "peak": 2387415040,
+   "seconds": {
+    "max": 295.8,
+    "median": 295.8,
+    "min": 295.8,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "lake",
+   "stage": "rebuild+publish",
+   "unit": "patient"
+  },
+  {
+   "cap": 4294967296,
+   "model_calls": 1542,
+   "ms_per_unit": 8.35,
+   "ok": true,
+   "patients": 50000,
+   "peak": 2965999616,
+   "seconds": {
+    "max": 417.5,
+    "median": 417.5,
+    "min": 417.5,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "orchestrator",
+   "stage": "cascade (gate, GZQO)",
+   "unit": "patient"
+  },
+  {
+   "cap": 4294967296,
+   "model_calls": 0,
+   "ms_per_unit": 6.246,
+   "ok": true,
+   "patients": 50000,
+   "peak": 546201600,
+   "scoped": 50000,
+   "seconds": {
+    "max": 312.29,
+    "median": 312.29,
+    "min": 312.29,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "orchestrator",
+   "stage": "FEAS x1",
+   "unit": "patient-study"
+  },
+  {
+   "cap": 4294967296,
+   "cut": "GZQO: killed at the cap",
+   "ms_per_unit": 4.646,
+   "ok": false,
+   "patients": 50000,
+   "peak": 4300480512,
+   "seconds": {
+    "max": 232.31,
+    "median": 232.31,
+    "min": 232.31,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "orchestrator",
+   "stage": "SCREEN x1",
+   "unit": "patient-study"
+  },
+  {
+   "cap": 0,
+   "ms_per_unit": 0.507,
+   "ok": true,
+   "patients": 100000,
+   "peak": 2250420224,
+   "seconds": {
+    "max": 50.7,
+    "median": 50.7,
+    "min": 50.7,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "-",
+   "stage": "generate",
+   "unit": "patient"
+  },
+  {
+   "cap": 6442450944,
+   "ms_per_unit": 14.469,
+   "ok": true,
+   "patients": 100000,
+   "peak": 2949496832,
+   "records": 3111538,
+   "seconds": {
+    "max": 1446.9,
+    "median": 1446.9,
+    "min": 1446.9,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "adapter",
+   "stage": "ingest",
+   "unit": "patient"
+  },
+  {
+   "cap": 8589934592,
+   "ms_per_unit": 6.32,
+   "ok": true,
+   "patients": 100000,
+   "peak": 3619725312,
+   "seconds": {
+    "max": 632.0,
+    "median": 632.0,
+    "min": 632.0,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "lake",
+   "stage": "rebuild+publish",
+   "unit": "patient"
+  },
+  {
+   "cap": 4294967296,
+   "model_calls": 0,
+   "ms_per_unit": 11.772,
+   "ok": false,
+   "patients": 100000,
+   "peak": 4296630272,
+   "seconds": {
+    "max": 1177.2,
+    "median": 1177.2,
+    "min": 1177.2,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "orchestrator",
+   "stage": "cascade (gate, GZQO)",
+   "unit": "patient"
+  },
+  {
+   "cap": 4294967296,
+   "model_calls": 0,
+   "ms_per_unit": 12.843,
+   "ok": true,
+   "patients": 100000,
+   "peak": 566632448,
+   "scoped": 100000,
+   "seconds": {
+    "max": 1284.29,
+    "median": 1284.29,
+    "min": 1284.29,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "orchestrator",
+   "stage": "FEAS x1",
+   "unit": "patient-study"
+  },
+  {
+   "cap": 4294967296,
+   "cut": "GZQO: killed at the cap",
+   "ms_per_unit": 2.99,
+   "ok": false,
+   "patients": 100000,
+   "peak": 4303708160,
+   "seconds": {
+    "max": 299.01,
+    "median": 299.01,
+    "min": 299.01,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "orchestrator",
+   "stage": "SCREEN x1",
+   "unit": "patient-study"
+  },
+  {
+   "cap": 0,
+   "ms_per_unit": 0.519,
+   "ok": true,
+   "patients": 200000,
+   "peak": 4504371200,
+   "seconds": {
+    "max": 103.9,
+    "median": 103.9,
+    "min": 103.9,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "-",
+   "stage": "generate",
+   "unit": "patient"
+  },
+  {
+   "cap": 6442450944,
+   "ms_per_unit": 13.021,
+   "ok": true,
+   "patients": 200000,
+   "peak": 3544215552,
+   "records": 6226623,
+   "seconds": {
+    "max": 2604.3,
+    "median": 2604.3,
+    "min": 2604.3,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "adapter",
+   "stage": "ingest",
+   "unit": "patient"
+  },
+  {
+   "cap": 8589934592,
+   "ms_per_unit": 7.05,
+   "ok": true,
+   "patients": 200000,
+   "peak": 4262293504,
+   "seconds": {
+    "max": 1410.0,
+    "median": 1410.0,
+    "min": 1410.0,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "lake",
+   "stage": "rebuild+publish",
+   "unit": "patient"
+  },
+  {
+   "cap": 4294967296,
+   "model_calls": 0,
+   "ms_per_unit": 9.8,
+   "ok": false,
+   "patients": 200000,
+   "peak": 4296380416,
+   "seconds": {
+    "max": 1960.0,
+    "median": 1960.0,
+    "min": 1960.0,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "orchestrator",
+   "stage": "cascade (gate, GZQO)",
+   "unit": "patient"
+  },
+  {
+   "cap": 4294967296,
+   "model_calls": 0,
+   "ms_per_unit": 22.566,
+   "ok": true,
+   "patients": 200000,
+   "peak": 620462080,
+   "scoped": 200000,
+   "seconds": {
+    "max": 4513.27,
+    "median": 4513.27,
+    "min": 4513.27,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "orchestrator",
+   "stage": "FEAS x1",
+   "unit": "patient-study"
+  },
+  {
+   "cap": 4294967296,
+   "cut": "GZQO: killed at the cap",
+   "ms_per_unit": 2.904,
+   "ok": false,
+   "patients": 200000,
+   "peak": 4323762176,
+   "seconds": {
+    "max": 580.73,
+    "median": 580.73,
+    "min": 580.73,
+    "n": 1,
+    "spread_pct": 0.0
+   },
+   "service": "orchestrator",
+   "stage": "SCREEN x1",
+   "unit": "patient-study"
+  }
+ ],
+ "written": "2026-11-17T15:28:51+00:00"
+}

@@ -45,5 +45,5 @@ are superseded (validation reset of 2026-11-14) or measure one stage only (the b
 
 `tests/unit/test_size_ladder.py`: the plan parser and its refusals; the shipped studies, cycled; the spread, the
 per-unit rates and the 1-, 5- and k-study marks; the first-slow rule (the factor, the 5-second floor, a single size);
-the stage rows and the summary on made-up runs; a failed job shown as FAILED; the results file's keys and compaction;
+the stage rows and the summary on made-up runs; a failed job, and a job cut at its cap, shown as FAILED; a stage killed at its cap not judged for slowing; the results file's keys and compaction;
 the job child compiles; no run without `TB_TZ`. It needs no data and no processes, and runs in seconds.
