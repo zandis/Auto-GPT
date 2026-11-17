@@ -52,7 +52,6 @@ case "$1 $2 $3" in
       *) cat "$S/status" ;;
     esac ;;
   "compute instances add-tags") echo "tb-session" >> "$S/tags" ;;
-  "compute instances remove-tags") sed -i '/^tb-session$/d' "$S/tags" ;;
   "compute instances start") echo RUNNING > "$S/status" ;;
   "compute instances stop") echo TERMINATED > "$S/status" ;;
   "compute instances set-scheduling"|"compute instances add-metadata"|"compute instances remove-metadata") true ;;
@@ -60,7 +59,9 @@ case "$1 $2 $3" in
     start=0; prev=""; for a in "$@"; do [ "$prev" = --start ] && start=$a; prev=$a; done
     python3 -c 'import json,sys; d=open(sys.argv[1]).read(); s=int(sys.argv[2]); c=d[s:]; print(json.dumps({"contents": c, "start": str(s), "next": str(s+len(c))}))' "$S/serial" "$start" ;;
   "compute firewall-rules describe")
-    [ -f "$S/fw/$4.json" ] || exit 1
+    # round 3's finding 2: an error that is not "not found" (a knob per rule), as gcloud says each
+    if [ -f "$S/fw-error/$4" ]; then echo "ERROR: (gcloud.compute.firewall-rules.describe) Could not fetch resource: - Required 'compute.firewalls.get' permission" >&2; exit 1; fi
+    [ -f "$S/fw/$4.json" ] || { echo "ERROR: (gcloud.compute.firewall-rules.describe) Could not fetch resource: - The resource 'projects/p/global/firewalls/$4' was not found" >&2; exit 1; }
     case "$fmt" in *description*) python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("description", ""))' "$S/fw/$4.json" ;;
       *) echo "$4" ;; esac ;;
   "compute firewall-rules create"|"compute firewall-rules update")
@@ -90,7 +91,13 @@ r[kind] = r.pop("_rules", r.get(kind)); r.pop("_action", None)
 json.dump(r, open(p, "w"))
 PY
     ;;
-  "compute firewall-rules delete") for n in "${@:4}"; do case "$n" in --*) ;; *) rm -f "$S/fw/$n.json" ;; esac; done ;;
+  "compute firewall-rules delete")
+    for n in "${@:4}"; do case "$n" in --*) ;; *)
+      [ ! -f "$S/fw-keep/$n" ] || { echo "ERROR: (gcloud.compute.firewall-rules.delete) Could not delete: backendError" >&2; exit 1; }
+      rm -f "$S/fw/$n.json" ;; esac; done ;;
+  "compute instances remove-tags")
+    [ ! -f "$S/tag-keep" ] || { echo "ERROR: (gcloud.compute.instances.remove-tags) backendError" >&2; exit 1; }
+    sed -i '/^tb-session$/d' "$S/tags" ;;
   "compute firewall-rules list") python3 -c 'import glob,json,sys; print(json.dumps([json.load(open(f)) for f in sorted(glob.glob(sys.argv[1] + "/fw/*.json"))]))' "$S" ;;
   "storage buckets get-iam-policy") cat "$S/iam.json" ;;
   "storage buckets describe") cat "$S/bucket.json" ;;
@@ -638,3 +645,90 @@ def test_a_marker_that_says_open_is_not_closed(tmp_path: Path) -> None:
     assert "accounts not confirmed closed" in r.stdout and "tb-session-deny" in _fw(tmp_path)
     _closed(tmp_path)
     assert _run(tmp_path, "--stop", RUN).returncode == 0 and "tb-session-deny" not in _fw(tmp_path)
+
+
+# ---------------------------------------------------------------- the re-review's round 3: findings 2, 3 and 5
+def _knob(tmp: Path, kind: str, name: str = "") -> None:
+    """A gcloud fault of the fake: fw-error/<rule> (describe fails, not "not found"), fw-keep/<rule> (delete
+    fails), tag-keep (remove-tags fails)."""
+    p = tmp / "state" / kind / name if name else tmp / "state" / kind
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("")
+
+
+def test_an_allow_that_cannot_be_read_stops_a_launch(tmp_path: Path) -> None:
+    """Round 3's finding 2: any describe error was "the rule does not exist", so an earlier session's allow was kept
+    into a launch that is no session."""
+    _old_door(tmp_path, closed=False)
+    _knob(tmp_path, "fw-error", "tb-session-https")
+    r = _launch(tmp_path, steps="dev")
+    assert r.returncode == 7, r.stdout + r.stderr
+    assert "tb-session-https cannot be read" in r.stderr and "instances start" not in _argv(tmp_path)
+
+
+def test_a_deny_that_cannot_be_read_stops_a_launch(tmp_path: Path) -> None:
+    _old_door(tmp_path, closed=True)
+    _knob(tmp_path, "fw-error", "tb-session-deny")
+    r = _launch(tmp_path, steps="dev")
+    assert r.returncode == 7 and "instances start" not in _argv(tmp_path), r.stdout + r.stderr
+    assert "tb-session-deny" in _fw(tmp_path) and "tb-session" in (tmp_path / "state" / "tags").read_text().split()
+
+
+def test_a_stop_keeps_the_tag_while_the_deny_cannot_be_read(tmp_path: Path) -> None:
+    """Round 3's finding 2: --stop of a run that is no session read no deny (an error) and took the tag away, so the
+    deny of a session with open accounts stopped applying."""
+    _old_door(tmp_path, closed=False)
+    _knob(tmp_path, "fw-error", "tb-session-deny")
+    (tmp_path / "state" / "status").write_text("RUNNING\n")
+    r = _run(tmp_path, "--stop", RUN)
+    assert r.returncode == 0, r.stderr
+    assert "tb-session-https" not in _fw(tmp_path) and "tb-session-deny" in _fw(tmp_path)
+    assert "tb-session" in (tmp_path / "state" / "tags").read_text().split()
+    assert "remove-tags" not in _argv(tmp_path)
+
+
+def test_a_power_cycle_takes_an_earlier_sessions_allow_away_before_the_start(tmp_path: Path) -> None:
+    """Round 3's finding 3: the collect's power cycle (G-9) started the VM without looking at an earlier session's
+    door."""
+    _old_door(tmp_path, closed=False)
+    (tmp_path / "state" / "status").write_text("RUNNING\n")
+    req = tmp_path / "state" / "gcs" / "boxruns" / RUN / "POWER-CYCLE-REQUEST"
+    req.parent.mkdir(parents=True)
+    req.write_text("")
+    r = _run(tmp_path, "--collect", RUN)
+    assert r.returncode == 0, r.stderr
+    argv = _argv(tmp_path)
+    assert "instances start" in argv, r.stdout + r.stderr
+    assert argv.index("firewall-rules delete tb-session-https") < argv.index("instances start")
+    assert "tb-session-https" not in _fw(tmp_path) and "tb-session-deny" in _fw(tmp_path)
+
+
+def test_a_power_cycle_is_refused_while_an_earlier_allow_cannot_be_read(tmp_path: Path) -> None:
+    _old_door(tmp_path, closed=False)
+    _knob(tmp_path, "fw-error", "tb-session-https")
+    (tmp_path / "state" / "status").write_text("RUNNING\n")
+    req = tmp_path / "state" / "gcs" / "boxruns" / RUN / "POWER-CYCLE-REQUEST"
+    req.parent.mkdir(parents=True)
+    req.write_text("")
+    r = _run(tmp_path, "--collect", RUN)
+    assert "instances start" not in _argv(tmp_path) and "is not started again" in r.stderr, r.stdout + r.stderr
+    assert (tmp_path / "state" / "status").read_text().strip() == "TERMINATED"
+
+
+def test_the_deny_stays_while_the_allow_cannot_be_deleted(tmp_path: Path) -> None:
+    """Round 3's finding 5: the allow's delete and the tag's removal were each `|| true`; when both failed and the deny's
+    delete held, the VM kept the allow and lost the deny."""
+    _door(tmp_path)
+    _closed(tmp_path)
+    _knob(tmp_path, "fw-keep", "tb-session-https")
+    _knob(tmp_path, "tag-keep")
+    (tmp_path / "state" / "status").write_text("RUNNING\n")
+    r = _run(tmp_path, "--stop", RUN)
+    assert r.returncode == 0, r.stderr
+    assert _fw(tmp_path) >= {"tb-session-https", "tb-session-deny"}, _fw(tmp_path)
+    assert "cannot be confirmed gone" in r.stderr
+    (tmp_path / "state" / "fw-keep" / "tb-session-https").unlink()  # the delete holds again: everything goes
+    (tmp_path / "state" / "tag-keep").unlink()
+    assert _run(tmp_path, "--stop", RUN).returncode == 0
+    assert not _fw(tmp_path) & {"tb-session-https", "tb-session-deny"}
+    assert "tb-session" not in (tmp_path / "state" / "tags").read_text().split()
