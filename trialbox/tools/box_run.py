@@ -768,7 +768,8 @@ def acc_ids(only: str = "", rs_tag: str = "", protocols: str = "", cache: Path |
     ``--acc-rs-tag``: tag ``m2`` makes TCGA-BRCA ``Gm2TCGA-BRCA``), the ids where they can be known here (a set of
     fixed protocols: tcga, jmed; else a sampled set whose source files are in the local cache), and what a
     ``--acc-protocols`` filter ("set:RS1,RS2 set2:RS3") matches. ``refused`` names every entry that cannot match: a
-    set not in the launch, an id without the set's prefix, an id the set does not have, a set left with none."""
+    set not in the launch, an id without the set's prefix, an id the set does not have, a set left with none, and a
+    filter on a set whose ids are not known here (D-1125: it cannot be checked, so it is not accepted)."""
     from tools.public_accuracy import sets as st
     from tools.public_accuracy import site
     from tools.public_accuracy import sources as src
@@ -800,6 +801,15 @@ def acc_ids(only: str = "", rs_tag: str = "", protocols: str = "", cache: Path |
             out["refused"].append(f"{entry}: set {name} is not in this launch ({', '.join(out['sets']) or 'none'})")
             continue
         info = out["sets"][name]
+        if info["ids"] is None:
+            # D-1125: a filter that cannot be checked for free is not accepted for free. An id with the right prefix
+            # passed here before, and the VM stopped on it after the install was paid for.
+            info["filter"], info["matches"] = want, []
+            out["refused"].append(
+                f"{name}: a filter on this set cannot be checked here ({info['how']}): leave {name} out of "
+                "--acc-protocols, or put the set's source files in the local cache first"
+            )
+            continue
         bad = [x for x in want if not x.startswith(info["prefix"])]
         bad += [x for x in want if x not in bad and info["ids"] is not None and x not in info["ids"]]
         info["filter"] = want
