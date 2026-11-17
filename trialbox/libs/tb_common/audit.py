@@ -166,6 +166,42 @@ def _last_line(path: Path) -> str | None:
         return stripped.decode("utf-8") if stripped else None
 
 
+_TAIL_STEP = 1 << 16  # T-697: the tail is read back in steps of 64 KiB, never the whole day file
+
+
+def _line_start(fh: Any, end: int) -> int:
+    """The offset just after the last ``\\n`` before ``end`` (0 when there is none), read backwards from ``end``."""
+    pos = end
+    while pos > 0:
+        step = min(_TAIL_STEP, pos)
+        pos -= step
+        fh.seek(pos)
+        i: int = fh.read(step).rfind(b"\n")
+        if i >= 0:
+            return int(pos + i + 1)
+    return 0
+
+
+def lines_backward(path: Path) -> Iterator[bytes]:
+    """T-697: the file's lines from the last to the first (without their ``\\n``), read back from its end in steps:
+    a reader that wants the newest lines never reads the whole day file."""
+    with path.open("rb") as fh:
+        fh.seek(0, os.SEEK_END)
+        end = fh.tell()
+        if not end:
+            return
+        fh.seek(end - 1)
+        if fh.read(1) == b"\n":
+            end -= 1
+        while True:
+            start = _line_start(fh, end)
+            fh.seek(start)
+            yield fh.read(end - start)
+            if start == 0:
+                return
+            end = start - 1
+
+
 def read_head(directory: Path) -> dict[str, Any] | None:
     """The head anchor of ``directory``, or None when there is none. An unreadable anchor raises ``ValueError``."""
     path = directory / HEAD
@@ -246,32 +282,42 @@ class AuditLog:
         if not files:
             return None
         path = files[-1]
-        data = path.read_bytes()
-        if not data:
-            return None
-        cut = len(data)
-        if not data.endswith(b"\n"):
-            cut = data.rfind(b"\n") + 1  # keep every complete line
-        else:
-            last_start = data.rfind(b"\n", 0, len(data) - 1) + 1
-            try:
-                rec = json.loads(data[last_start:-1].decode("utf-8"))
-                if not isinstance(rec, dict) or "hash" not in rec:
-                    raise ValueError("no hash")
-            except (ValueError, UnicodeDecodeError):
-                cut = last_start  # a complete but unreadable last line: the same damage
-        if cut == len(data):
-            return None
-        torn = data[cut:]
-        n = 1
-        while (dest := path.with_name(f"{path.name}.torn-{n}")).exists():
-            n += 1
-        dest.write_bytes(torn)
+        # T-697 (F-12): only the file's tail is read (each append did read the whole day file: quadratic over a day
+        # of a million events, and a day file larger than the writer's memory cap would have killed it)
+        with path.open("rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            if not size:
+                return None
+            fh.seek(size - 1)
+            if fh.read(1) != b"\n":
+                cut = _line_start(fh, size)  # keep every complete line
+            else:
+                cut = size
+                last_start = _line_start(fh, size - 1)
+                fh.seek(last_start)
+                try:
+                    rec = json.loads(fh.read(size - 1 - last_start).decode("utf-8"))
+                    if not isinstance(rec, dict) or "hash" not in rec:
+                        raise ValueError("no hash")
+                except (ValueError, UnicodeDecodeError):
+                    cut = last_start  # a complete but unreadable last line: the same damage
+            if cut == size:
+                return None
+            n = 1
+            while (dest := path.with_name(f"{path.name}.torn-{n}")).exists():
+                n += 1
+            digest = hashlib.sha256()
+            fh.seek(cut)
+            with dest.open("wb") as out:  # the torn bytes kept as evidence, copied in steps
+                while block := fh.read(_TAIL_STEP):
+                    digest.update(block)
+                    out.write(block)
         with path.open("r+b") as fh:
             fh.truncate(cut)
             fh.flush()
             os.fsync(fh.fileno())
-        return {"file": path.name, "bytes": len(torn), "sha256": hashlib.sha256(torn).hexdigest(), "kept_as": dest.name}
+        return {"file": path.name, "bytes": size - cut, "sha256": digest.hexdigest(), "kept_as": dest.name}
 
     def _write(self, files: list[Path], now: datetime, body: dict[str, Any], lines: int) -> list[Path]:
         """Chain ``body`` to the end of the chain, append it, then move the head anchor to it. Returns the files."""
