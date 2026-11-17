@@ -427,10 +427,12 @@ class Drain:
         self.con: Any = None
         self.cursor: Cursor | None = None
         self._after: str | None = None  # after a resync: the next batch is the rows inserted after this time
+        self.index = False  # D-989 step 2c: write the provenance index as the chain is written (when installed)
 
     def open(self) -> None:
         self.con = self._connect()
         self.con.execute(f"LISTEN {NOTIFY}")
+        self.index = self._index_installed()
         self.cursor = last_drained(self.directory)
         if self.cursor is None:
             return
@@ -448,6 +450,30 @@ class Drain:
                           detail={"chain_seq": self.cursor.seq, "chain_at": self.cursor.at, "journal_last": int(top),
                                   "problem": problem})  # fmt: skip
         self._after = self.cursor.at
+
+    def _index_installed(self) -> bool:
+        """Whether the provenance index's tables are there (the role script creates them, D-989 step 2c). Without
+        them the drain writes the chain alone, and ``trialbox doctor`` says the index is not installed."""
+        from tb_common import provenance_index
+
+        try:
+            ok = provenance_index.installed(self.con)
+        except Exception:  # an index that cannot be read never stops the drain
+            ok = False
+        if not ok:
+            log.info("provenance index not installed: the chain is written without it")
+        return ok
+
+    def _index(self, rec: dict[str, Any]) -> None:
+        """The record's rows in the provenance index, after its line is in the chain. A write that fails is logged,
+        never raised: the chain is the record, the index is rebuilt from it, and the doctor's check names the gap."""
+        from tb_common import provenance_index
+
+        try:
+            provenance_index.add(self.con, rec)
+        except Exception as exc:
+            log.error("provenance index: a row was not written (%s); run trialbox provenance --rebuild",
+                      type(exc).__name__)  # fmt: skip
 
     def _rows(self) -> list[tuple[Any, ...]]:
         cols = "SELECT seq, at, db_role, event, ts, fields FROM audit.journal"
@@ -485,7 +511,9 @@ class Drain:
                 journal["flag"] = marks
                 # the event's name is the sender's own text: it stays in the record, not in the log line
                 log.warning("audit journal row %s from %s marked %s", seq, role, ", ".join(marks))
-            self.chain.append(event, ts=stamp, journal=journal, **f)
+            rec = self.chain.append(event, ts=stamp, journal=journal, **f)
+            if self.index:
+                self._index(rec)
             self.cursor = Cursor(int(seq), _iso(at))
             self._after = None
             if alive is not None:

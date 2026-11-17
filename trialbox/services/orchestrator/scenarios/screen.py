@@ -913,6 +913,13 @@ def deliver_lists(
     return out, {"listed": len(listed), "referrals": referrals}
 
 
+def record_model_uses(ctx: Ctx, rs: Ruleset, srun: ScreenRun) -> int:
+    """D-989: ``ai.used`` for each verdict a model answered on this run, every row the run read (after the opt-outs)
+    and not only the list: an excluded patient's too, an exclusion being the model use with the most at stake (lane
+    C2's finding). The patient by pseudonym only. The number of verdicts recorded."""
+    return ai_provenance.verdicts_used(ctx.orch.audit, rs.id, rs.version, ctx.job.job_id, srun.rows)
+
+
 def run(ctx: Ctx) -> Outcome:
     job = ctx.job
     require_open(job.ruleset)  # D-386 (LIFE-008): no list for a study that is not open
@@ -931,8 +938,7 @@ def run(ctx: Ctx) -> Outcome:
         srun.rows = [r for r in srun.rows if r.pid not in gone]
         srun.results = {p: v for p, v in srun.results.items() if p not in gone}
     cl = candidate_list(srun)
-    # D-989: each verdict a model answered is now part of this run's list (the patient by pseudonym only)
-    ai_provenance.verdicts_used(ctx.orch.audit, rs.id, rs.version, ctx.job.job_id, cl.rows)
+    record_model_uses(ctx, rs, srun)
     meta = report_meta(ctx, rs, snapshot, run_date, srun.judging)
     unverified = scores_unverified(ctx, rs, snapshot)  # D-442: the list says so in its own header
     if unverified:
