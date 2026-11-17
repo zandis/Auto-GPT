@@ -1,0 +1,132 @@
+{
+ "source": "launch P1b (run box-20261116T074927Z-3b2f5e38), jmed: built/gold/criteria.jsonl (key v1) and the judge's excerpts in work/raw-traces.json (the note); JMED-Personas by Sociocom (NAIST), CC BY 4.0",
+ "rows": [
+  {
+   "patient": "780cf64401c8429fa12aa8c805236fb8",
+   "trial": "JMED-DM",
+   "key_v1": "not excluded",
+   "key_v2": "not excluded",
+   "box_excluded_on_this_line_in_p1b": true,
+   "note_sentences": [
+    "併存疾患として高血圧と脂質異常症があり、血圧150/90 mmHg、LDL150 mg/dL、HbA1c6.8%と中等度のリスクがあります。"
+   ]
+  },
+  {
+   "patient": "7a329699d6e844108df064087ebc9c60",
+   "trial": "JMED-DM",
+   "key_v1": "excluded",
+   "key_v2": "not excluded",
+   "box_excluded_on_this_line_in_p1b": false,
+   "note_sentences": [
+    "名島 美咲は糖尿病予備群と診断され、血糖値112 mg/dL、HbA1c6.5%という数値が示すように軽度のリスク状態です。",
+    "家族歴に父親の糖尿病があり、血圧は130/80 mmHgとやや高めですが、他の臓器機能は概ね正常です。"
+   ]
+  },
+  {
+   "patient": "8776d26af70147ceb2e14a5753791e7a",
+   "trial": "JMED-DM",
+   "key_v1": "not excluded",
+   "key_v2": "not excluded",
+   "box_excluded_on_this_line_in_p1b": false,
+   "note_sentences": [
+    "血液検査では空腹時血糖112 mg/dL、HbA1c5.8%と境界型糖尿病の所見があり、腹部エコーで軽度の脂肪肝が認められました。"
+   ]
+  },
+  {
+   "patient": "9f56d1cf27804387be624da5005a7f03",
+   "trial": "JMED-DM",
+   "key_v1": "not excluded",
+   "key_v2": "not excluded",
+   "box_excluded_on_this_line_in_p1b": true,
+   "note_sentences": [
+    "併存疾患として高血圧があり、血圧は150/92 mmHgとやや高めです。"
+   ]
+  },
+  {
+   "patient": "c8fcd8aa7c2549bb9bc89a541ffa73f4",
+   "trial": "JMED-DM",
+   "key_v1": "not excluded",
+   "key_v2": "not excluded",
+   "box_excluded_on_this_line_in_p1b": false,
+   "note_sentences": [
+    "二瀬 健一は健康診査（一般健康診断）を主な受診目的としており、軽度の高血圧と胃酸逆流症の既往があります。",
+    "血液検査ではHbA1cが5.8%で、糖尿病のリスクは低いものの、LDLコレステロールがやや高めです。"
+   ]
+  },
+  {
+   "patient": "5c64094724ac466b9b6264ce7a35184f",
+   "trial": "JMED-HT",
+   "key_v1": "excluded",
+   "key_v2": "not excluded",
+   "box_excluded_on_this_line_in_p1b": false,
+   "note_sentences": []
+  },
+  {
+   "patient": "928744f7bc2047efa9f7885b53626e97",
+   "trial": "JMED-HT",
+   "key_v1": "not excluded",
+   "key_v2": "not excluded",
+   "box_excluded_on_this_line_in_p1b": true,
+   "note_sentences": [
+    "弘瀬 真理は過体重（BMI 26.4）で、軽度の高血圧リスクがあり、内科での定期的な健康チェックを受けている。"
+   ]
+  },
+  {
+   "patient": "9f56d1cf27804387be624da5005a7f03",
+   "trial": "JMED-HT",
+   "key_v1": "not excluded",
+   "key_v2": "excluded",
+   "box_excluded_on_this_line_in_p1b": true,
+   "note_sentences": [
+    "併存疾患として高血圧があり、血圧は150/92 mmHgとやや高めです。"
+   ]
+  },
+  {
+   "patient": "a58166327f0e46bf99ea8c8af9362a38",
+   "trial": "JMED-HT",
+   "key_v1": "excluded",
+   "key_v2": "not excluded",
+   "box_excluded_on_this_line_in_p1b": false,
+   "note_sentences": []
+  },
+  {
+   "patient": "ec71ddce4dc6471ab167c65832064fba",
+   "trial": "JMED-HT",
+   "key_v1": "not excluded",
+   "key_v2": "not excluded",
+   "box_excluded_on_this_line_in_p1b": true,
+   "note_sentences": []
+  },
+  {
+   "patient": "f1f374875280433d8fdec6ff9ced4c28",
+   "trial": "JMED-HT",
+   "key_v1": "not excluded",
+   "key_v2": "excluded",
+   "box_excluded_on_this_line_in_p1b": true,
+   "note_sentences": [
+    "併存疾患として軽度の高血圧があり、血圧は145/92 mmHgとやや上昇しています。"
+   ]
+  },
+  {
+   "patient": "f5da14174f2f4fba864c0e161bb49c21",
+   "trial": "JMED-HT",
+   "key_v1": "not excluded",
+   "key_v2": "excluded",
+   "box_excluded_on_this_line_in_p1b": true,
+   "note_sentences": [
+    "光吉 瑛斗はBMI28.3の肥満と軽度の高血圧があり、内科で生活習慣指導を受けています。",
+    "既往に喫煙歴があり、家族歴に高血圧と糖尿病があります。"
+   ]
+  },
+  {
+   "patient": "fa7a988d66ca409c8ec481760e48fcf5",
+   "trial": "JMED-HT",
+   "key_v1": "not excluded",
+   "key_v2": "not excluded",
+   "box_excluded_on_this_line_in_p1b": false,
+   "note_sentences": [
+    "明賀 莉央は、診察ではBMI 26.9、腹部肥満が認められ、血圧は138/86 mmHgと軽度の高血圧傾向があった。"
+   ]
+  }
+ ]
+}

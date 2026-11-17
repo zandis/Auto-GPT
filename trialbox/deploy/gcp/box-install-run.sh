@@ -502,6 +502,7 @@ SITE_ENV=$(md tb-site-env || true)
 ACC_RS_TAG=$(md tb-acc-rs-tag || true)
 SKIP_STEPS=$(md tb-skip || true)
 ACC_STREAMS=$(md tb-acc-streams || true)         # "set:n ...": protocols of a set in flight at once (owner, 2026-11-16)                 # steps left out of this launch (e.g. 08-qualify), each said           # a second run on one box: its rulesets' ids carry this tag (F29)               # "TB_MEM_EMBED=16g ...": the site's own limits in deploy/.env (D-360)
+ACC_MIN_START=$(md tb-acc-min-start || echo 600)   # D4: no protocol started with less of its set's budget left (s)
 ACC_DEADLINE=$(md tb-acc-deadline || true)         # the owner's probe: each set's time budget, seconds (else the plan's)   # "set:size:high_seconds ..." from the plan (tools/box_run.py metadata)
 PROBE=$(md tb-probe || true)
 DIRECT=$(md tb-direct || true)   # 1: 02 brings the installed tree's stack up with the product's own tools, no install.sh   # 1: read the VM's and the box's facts (00-facts; after the install 04p-facts) and stop
@@ -1393,52 +1394,64 @@ step_canary() { watched d_canary; local rc=$?; note canary_exit "$rc"; [ "$rc" =
 # exclude (D-117: a passing pair canary under 36 h, no failed wake check since). The host's selftest above records
 # nothing in the box. The gate's status (GET /models) is kept in records/canary-gate.json.
 d_gate() {
-  # F35/F38 (2026-11-16): the orchestrator refused the admin "Run now" (POST /models/canary) from lane G's token (403).
-  # The gate's other way in is its own: at start the orchestrator runs the full pair canary in the background
-  # (canary_gate.startup). So the orchestrator is restarted once the model servers answer, and the gate's status is
-  # read (GET /models, a read) until a report other than the one before the restart is there.
-  local before IMG_NET=trialbox-net
-  before=$(gate_read once | tail -n 1)
-  echo "gate before the restart: $before"
+  # D2 (P1b review): GET /models needs the service token: it is read from inside the box (a service's container, as
+  # d_study_ready reads), never from a bare container (the 401 that P1b polled for 1,500 s). Read once first: since
+  # D-915/D-916 the pair canary of step 07 (trialbox selftest) is the gate's result, so an open gate ends the step in
+  # seconds. Otherwise the orchestrator is restarted (its own canary at start) and the gate read until a new report,
+  # at most TB_GATE_WAIT_S (480 s). A 401 or 403 is a failure at once (exit 3), never waited on.
+  local before rc at
+  before=$(d_gate_read once "" 0); rc=$?
+  before=$(printf '%s\n' "$before" | tail -n 1)
+  echo "gate before any restart:"; printf '%s\n' "$before"   # its own line: step_gate keeps the last {"gate": ...}
+  [ "$rc" = 3 ] && return 3
+  if printf '%s' "$before" | grep -q '"allows_block": true'; then echo "the gate is open: no restart"; return 0; fi
   dc restart orchestrator || return 1
   for _ in $(seq 1 60); do d_healthy && break; sleep 5; done
-  TB_GATE_BEFORE="$before" gate_read wait
+  at=$(printf '%s' "$before" | "$PY" -c 'import json,sys
+try: print(json.loads(sys.stdin.read())["gate"].get("at") or "")
+except (ValueError, KeyError, AttributeError): print("")' 2>/dev/null)
+  d_gate_read wait "$at" "${TB_GATE_WAIT_S:-480}"
 }
-gate_read() {  # $1 once | wait: the gate's status from GET /models (wait: until a new report, not running)
-  local IMG_NET=trialbox-net
-  docker run --rm -i --user 0 --network "${IMG_NET:-none}" -e "TB_GATE_MODE=$1" -e "TB_GATE_BEFORE=${TB_GATE_BEFORE:-}" "$(img_py)" python - <<'PYG'
-# tb-boxrun: canary-gate
-import json, os, time, urllib.error, urllib.request
-base, mode = "http://orchestrator:8010", os.environ.get("TB_GATE_MODE", "once")
-try:
-    b_ = json.loads(os.environ.get("TB_GATE_BEFORE") or "{}")
-    before = (b_.get("gate") or b_).get("at")
-except (ValueError, AttributeError):
-    before = None
+d_gate_read() { in_svc mail-gateway <<EOF
+# tb-boxrun: canary-gate $1
+import json, time, httpx
+from tb_common.service_auth import auth_headers
+mode, before, limit = "$1", "$2", float("$3" or 0)
 start, c = time.time(), {}
 while True:
     try:
-        with urllib.request.urlopen(base + "/models", timeout=60) as r:
-            c = json.loads(r.read() or b"{}").get("canary") or {}
-    except (urllib.error.URLError, OSError, ValueError) as exc:
+        r = httpx.get("http://orchestrator:8010/models", headers=auth_headers(), timeout=60)
+        c = (r.json().get("canary") or {}) if r.status_code == 200 else {"error": f"HTTP {r.status_code}", "status": r.status_code}
+    except (httpx.HTTPError, ValueError) as exc:
         c = {"error": str(exc)[:200]}
+    if c.get("status") in (401, 403):
+        print(json.dumps({"gate": c}), flush=True)
+        raise SystemExit(3)
     if mode == "once":
-        print(json.dumps({"at": c.get("at"), "ok": c.get("ok")}), flush=True)
         break
-    print(json.dumps({"elapsed_s": int(time.time() - start), "running": c.get("running"), "at": c.get("at")}), flush=True)
-    if (c.get("at") and c.get("at") != before and not c.get("running")) or time.time() - start > 1500:
+    print(json.dumps({"elapsed_s": int(time.time() - start), "running": c.get("running"), "at": c.get("at"),
+                      "allows_block": c.get("allows_block")}), flush=True)
+    if not c.get("running") and (c.get("allows_block") is True or (c.get("at") and c.get("at") != before)):
+        break
+    if time.time() - start > limit:
+        c["waited_s"] = int(time.time() - start)
         break
     time.sleep(15)
 print(json.dumps({"gate": c}), flush=True)
-PYG
+EOF
 }
 step_gate() {
-  watched d_gate; note gate_exit $?   # watched writes the snippet's lines to the step's log
+  watched d_gate; local rc=$?; note gate_exit "$rc"   # watched writes the snippet's lines to the step's log
   grep '^{"gate"' "$STEP_LOG" | tail -n 1 | "$PY" -c 'import json,sys; print(json.dumps(json.loads(sys.stdin.read())["gate"], indent=1))' > "$REC/canary-gate.json" 2>> "$STEP_LOG"
   note allows_block "$(jget "$REC/canary-gate.json" allows_block | tr A-Z a-z | grep . || echo null)"
   note pair_correct "$(jget "$REC/canary-gate.json" pair_correct | grep . || echo null)"
   note code "\"$(jget "$REC/canary-gate.json" code)\""
-  [ "$(jget "$REC/canary-gate.json" allows_block)" = True ] && note pass true || note pass false
+  if [ "$(jget "$REC/canary-gate.json" allows_block)" = True ]; then note pass true; return 0; fi
+  note pass false
+  # D2: a gate that is not open stops the run (a note answer could not exclude: the screens would mean nothing)
+  if [ "$rc" = 3 ]; then STOP="TB-GATE-REFUSED: GET /models refused the box's own service token ($(jget "$REC/canary-gate.json" error))"
+  else STOP="TB-GATE-CLOSED: the canary gate is not open ($(jget "$REC/canary-gate.json" code): $(jget "$REC/canary-gate.json" reason)$(jget "$REC/canary-gate.json" error))"; fi
+  return 1
 }
 # qualify, promote, resolve. In production a qualification that does not pass stops the run (G-2's rule). In
 # validation (the owner's ruling D-511: a failed gate is a RESULT): the record and each step's verdict are kept, the
@@ -1775,6 +1788,9 @@ acc_call() {  # acc_call <service> <onbox command> [JSON argument]
 }
 envset_box() { sed -i "/^$1=/d" "$BOXROOT/deploy/.env" && printf '%s=%s\n' "$1" "$2" >> "$BOXROOT/deploy/.env"; }
 acc_compile_only() { case "$1" in tfda|jrct|chia) return 0 ;; *) return 1 ;; esac; }   # as plan.RUN_A's screen=False
+# D7 (P1b review): protocols in flight by default: 3 for a compile-bound set (tools/box_run.py compile_bound: 50
+# protocols or more), else 1; the orchestrator runs 4 jobs at once and keeps one for the ingest
+acc_streams_default() { case "$1" in sigir|trec|trec2023|tfda|jrct|chia) echo 3 ;; *) echo 1 ;; esac; }
 acc_fetch_set() { case "$1" in trec2023) echo trec ;; *) echo "$1" ;; esac; }          # as plan.RUN_A's fetch
 step_acc_tools() {
   # a launch after the start's: the direct route installs no systemd unit, so the stack is brought up here (a no-op
@@ -1809,6 +1825,12 @@ step_acc_settings() {
   else
     note tripwire "\"on: no setting used (gateway step 4 runs on every call of class D0 to D2)\""
   fi
+  # D7 (P1b review): the run sets no pair budget. A ruleset of note criteria only (tcga) gets its population's pairs
+  # as its budget from the product itself (D-953, screen_cascade.notes_only_budget, on master since #866), so the
+  # fallback of #889 (TB_SCREEN_MAX_PAIRS=20000 when unset) is gone: it would also have capped every coded SCREEN,
+  # which has no budget by default (T-689). The box's own setting, if any, is recorded.
+  if [ -n "$(envget TB_SCREEN_MAX_PAIRS)" ]; then note max_pairs "\"the box's own: $(envget TB_SCREEN_MAX_PAIRS)\""
+  else note max_pairs '"unset: the population'"'"'s own pairs (T-689; a notes-only ruleset too, D-953)"'; fi
   # every service that reads deploy/.env, not the two model servers (their settings did not change; a reload of both
   # is minutes of the card for nothing)
   local svcs=(); mapfile -t svcs < <(dc config --services | grep -v '^llm-')
@@ -1961,8 +1983,8 @@ acc_services() {
   { embed_state; echo
     dc logs --no-log-prefix --since "${since}Z" orchestrator embed-service criteria-compiler gateway 2>/dev/null \
       | grep -iE "warn|error|exception|traceback|screen|cascade|embed|stage|hash|stub|budget|timeout|killed|uvicorn|loading" \
-      | grep -vE 'POST /embed|"path": "/embed", "status": 200' | cut -c1-300 | tail -n 2000
-  } > "$ACC/$name/work/services.log" 2>/dev/null || true
+      | grep -vE 'POST /embed|"path": "/embed", "status": 200' | cut -c1-20000 | tail -n 2000
+  } | head -c "${TB_SERVICES_LOG_BYTES:-16777216}" > "$ACC/$name/work/services.log" 2>/dev/null || true   # D6: lines whole (20,000 characters), the file at most 16 MiB
 }
 ACC_UP=false
 acc_pack() {  # acc_pack <set> [partial]: the set's gold, provenance and work so far to the bucket (ACC_UP: uploaded)
@@ -2003,7 +2025,8 @@ step_acc_set() {
   if [ -n "$pl" ]; then only=(--protocols "$pl"); note protocols_only "\"$pl\""; fi
   local ns   # protocols in flight at once: at most the orchestrator's job workers (TB_WORKERS 4, one for the ingest)
   ns=$(printf '%s\n' $ACC_STREAMS | sed -n "s/^$name://p" | head -n 1)
-  if [ -n "$ns" ]; then only+=(--streams "$ns"); note streams "$ns"; fi
+  [ -n "$ns" ] || ns=$(acc_streams_default "$name")   # D7: a compile-bound set runs 3 at once unless told otherwise
+  only+=(--streams "$ns"); note streams "$ns"
   local e   # F29: every earlier attempt's work of this set, newest first
   while IFS= read -r e; do only+=(--earlier "$e"); done < <(ls -1dt "$RUN"/logs/*-acc-"$name".work-* 2>/dev/null)
   dl=$(acc_deadline "$name"); note deadline_s "${dl:-0}"; note rate_used "\"$(st kv _ acc_rate | grep . || echo 'not measured yet: 4')\""
@@ -2027,7 +2050,7 @@ step_acc_set() {
   WATCH_GPU=1 PROG_FN=prog_acc need "the set $name through the box (FEAS, APPROVE, SCREEN by mail; box_vm.py acc-set)" \
     vm acc-set --set "$name" --built "$ACC/$name/built" --work "$ACC/$name/work" --onbox "$ONBOX" --dc "$DCCMD" \
       --sender "$(st kv _ acc_sender)" --reviewer "$(st kv _ acc_reviewer)" --run-id "$RUN_ID$(acc_attempt "$name")" ${co[@]+"${co[@]}"} \
-      --job-minutes "$ACC_JOB_MIN" --poll "$POLL" --notes "$NOTES" --beat "$HB" --deadline-s "${dl:-0}" \
+      --job-minutes "$ACC_JOB_MIN" --poll "$POLL" --notes "$NOTES" --beat "$HB" --deadline-s "${dl:-0}" --min-start-s "${ACC_MIN_START:-600}" \
       ${only[@]+"${only[@]}"} || { [ -z "$ms_pid" ] || kill "$ms_pid" 2>/dev/null; return 1; }
   [ -z "$ms_pid" ] || kill "$ms_pid" 2>/dev/null
   # F22 (2026-11-15): a set that answered nothing has no figure (a SCREEN set needs patients answered, a compile-only

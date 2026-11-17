@@ -138,14 +138,25 @@ def snippet(svc: str, text: str) -> int:
         print(f"box stand-in: a snippet without its name for {svc}", file=sys.stderr)
         return 2
     what, *rest = head.split(":", 1)[1].split()
-    if what == "canary-gate":  # B2: the pair canary through the box's own gate (POST /models/canary, GET /models)
-        called("canary-gate")
-        ok = not flag("fail-qualify")
-        print(json.dumps({"started": {"started": True, "running": True}}))
-        print(json.dumps({"elapsed_s": 15, "running": False}))
-        print(json.dumps({"gate": {"gate": "on", "allows_block": ok, "code": None if ok else "canary_failed",
-                                   "running": False, "ok": ok, "cases": 54, "pair_correct": 52 if ok else 40,
-                                   "pair_decided_wrong": 0}}))  # fmt: skip
+    if what == "canary-gate":  # D2: GET /models with the service token, from a service's container (once | wait)
+        mode = rest[0] if rest else "once"
+        called(f"canary-gate {mode}")
+        if "auth_headers()" not in text:
+            print(json.dumps({"gate": {"error": "HTTP 401", "status": 401}}))  # the orchestrator's reads need the token
+            return 3
+        if flag("gate-401"):  # knob gate-401: the box refuses the token: a failure at once, never waited on
+            print(json.dumps({"gate": {"error": "HTTP 401", "status": 401}}))
+            return 3
+        # the gate is open once step 07's canary is its result (D-916), unless a knob closes it: gate-closed opens
+        # after the orchestrator's restart (its own canary at start), gate-never stays closed
+        restarted = (BOX / "orchestrator-restarted").exists()
+        ok = not flag("gate-never") and (not flag("gate-closed") or (mode == "wait" and restarted))
+        if mode == "wait":
+            print(json.dumps({"elapsed_s": 15, "running": False, "at": "t1", "allows_block": ok}))
+        print(json.dumps({"gate": {"gate": "on", "allows_block": ok, "code": "ok" if ok else "none",
+                                   "reason": "" if ok else "the model self-test (canary) has not run on this box yet",
+                                   "running": False, "at": "t1" if restarted else "t0", "ok": ok, "cases": 54,
+                                   "pair_correct": 52 if ok else None, "pair_decided_wrong": 0}}))  # fmt: skip
         return 0
     if what == "study-ready":
         called("study-ready")
@@ -240,6 +251,8 @@ def compose(argv: list[str]) -> int:
             called(f"compose-start {svc}")
         else:
             interrupt(f"compose-restart {svc}")
+            if svc == "orchestrator":
+                (BOX / "orchestrator-restarted").touch()
         jsave(BOX / "stopped.json", sorted(down))
         return 0
     rest = [a for a in rest if a != "-T"]

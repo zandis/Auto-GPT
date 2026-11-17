@@ -11,6 +11,13 @@ installer, and every test run on that installed box (deploy/gcp/box-install-run.
     python -m tools.box_run results RESULTS.tgz|DIR [--out DIR]   # summary.json and report.md: checks per test,
                                                                  # and what every result names (provenance)
     python -m tools.box_run acc-score DIR                  # each accuracy set's answers against its gold, here
+    python -m tools.box_run acc-ids [--only SETS] [--rs-tag T] [--protocols "set:RS1,RS2 ..."]   # free: the
+                                                                 # ruleset ids a filter matches, refused if none
+    python -m tools.box_run src-bundle --commit SHA --out FILE   # the release commit's git bundle, proved
+    python -m tools.box_run src-bundle --commit SHA --check FILE # a bundle made by hand, proved
+    python -m tools.box_run preflight --steps S [--mode M] [--only SETS] [--src-bundle FILE] [--set k=v ...]
+                                                                 # free: every check of a launch (box-run.sh
+                                                                 # --preflight runs it with the launch's options)
 
 Modes (``--mode``): ``production`` (the default) builds with the vendor key from Secret Manager and starts the box
 the box's way (box-install.sh and the first-run wizard: a PRODUCTION box). ``validation`` (the owner's ruling of
@@ -81,6 +88,27 @@ ACC_TOOL_PATHS = (
     "tools/fetch_pinned.py",
     "eval/criterion_ml",
 )
+
+
+# D7 (P1b review): a set whose time is its compiles (many protocols, one after another: the run had 1 in flight and
+# the card at 22 % on average) runs this many protocols at once unless --acc-streams says otherwise; the
+# orchestrator runs 4 jobs side by side (TB_WORKERS) and keeps one for the ingest. A set of a few protocols (jmed,
+# tcga) is bound by its SCREENs and is left at one. The VM script holds the same list (acc_streams_default).
+COMPILE_BOUND_STREAMS = 3
+COMPILE_BOUND_MIN_PROTOCOLS = 50
+
+
+# the parts of a set's score that acc-score's summary carries; protocols, pathology and unjudged_exclusions come
+# from H-3's scorer (#934) and are taken only when the score has them
+SCORE_SUMMARY_KEYS = ("pairs", "criteria", "compile_pairs", "chia", "compiled", "written_lines", "protocols",
+                      "pathology", "unjudged_exclusions", "answer_key")  # fmt: skip
+
+
+def compile_bound(name: str) -> bool:
+    """Whether a Run A set is compile-bound (:data:`COMPILE_BOUND_STREAMS` in flight by default)."""
+    from tools.public_accuracy import plan
+
+    return plan.acc_set(name).protocols >= COMPILE_BOUND_MIN_PROTOCOLS
 
 
 def acc_sets(only: str = "") -> list[tuple[str, int]]:
@@ -436,6 +464,10 @@ def metadata(
         "tb-max-minutes": str(sum(group_cap(g, sets) for g in groups) * 60 - 5),
     }
     if "acc" in groups:
+        if values.get("tb-acc-protocols"):  # D1: a filter that matches no protocol stops the launch here, not on the VM
+            chk = acc_ids(only, values.get("tb-acc-rs-tag", ""), values["tb-acc-protocols"])
+            if chk["refused"]:
+                raise ValueError("--acc-protocols: " + "; ".join(chk["refused"]))
         vals["tb-acc-sets"] = " ".join(f"{n}:{z}" for n, z in sets)
         # each set's plan high bound in seconds at its size: the VM's time budget per set (box-install-run.sh)
         highs = [r for r in acc_rows(sets) if r["seconds"] is not None]
@@ -630,12 +662,20 @@ def acc_checks(d: Path | None, parts: dict[str, Any], routes: dict[str, Any]) ->
         det = v.get("detail") or {}
         counts = det.get("counts") or {}
         score = (_load(d, f"acc/{k[7:]}/score.json") if d is not None else None) or {}
+        # D7: said in the check's own line (the detail is cut at 400 characters in report.md)
+        flight = f"{det.get('in_flight_max') if det.get('in_flight_max') is not None else '?'} at most of " + str(
+            det.get("streams") or 1
+        )
         out.append(
             {
-                "check": f"{k[7:]}: every protocol compiled, approved and screened (compiled only: a compile-only set)",
+                "check": f"{k[7:]}: every protocol compiled, approved and screened (compiled only: a compile-only "
+                f"set); protocols in flight: {flight}",
                 "pass": v.get("pass"),
                 "detail": {
                     "counts": counts,
+                    # D7: how many protocols were in flight at once (asked, and the most there were)
+                    "streams": det.get("streams") or 1,
+                    "in_flight_max": det.get("in_flight_max"),
                     "refused_by_tripwire": counts.get("refused_by_tripwire"),
                     "uploaded": det.get("uploaded"),
                     "score": score.get("summary") if isinstance(score, dict) else None,
@@ -712,7 +752,7 @@ def acc_score(d: Path) -> dict[str, Any]:
         res["summary"] = {
             k: (v.get("summary") if isinstance(v, dict) and "summary" in v else v)
             for k, v in res.items()
-            if k in ("pairs", "criteria", "compile_pairs", "chia", "compiled")
+            if k in SCORE_SUMMARY_KEYS
         }
         (sd / "score.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
         if res.get("not_scored_because"):
@@ -720,6 +760,234 @@ def acc_score(d: Path) -> dict[str, Any]:
             continue
         out[sd.name] = {"scored": True, "summary": res.get("summary") if isinstance(res, dict) else None}
     return out
+
+
+# ------------------------------------------------------------------------------------------------ protocol ids (D1)
+def acc_ids(only: str = "", rs_tag: str = "", protocols: str = "", cache: Path | None = None) -> dict[str, Any]:
+    """Free and local: per set of the launch, the ruleset prefix its ids carry on the box (the set's letter and the
+    ``--acc-rs-tag``: tag ``m2`` makes TCGA-BRCA ``Gm2TCGA-BRCA``), the ids where they can be known here (a set of
+    fixed protocols: tcga, jmed; else a sampled set whose source files are in the local cache), and what a
+    ``--acc-protocols`` filter ("set:RS1,RS2 set2:RS3") matches. ``refused`` names every entry that cannot match: a
+    set not in the launch, an id without the set's prefix, an id the set does not have, a set left with none."""
+    from tools.public_accuracy import sets as st
+    from tools.public_accuracy import site
+    from tools.public_accuracy import sources as src
+
+    if rs_tag and not site.RULESET_ID.match(rs_tag):
+        raise ValueError(f"--acc-rs-tag {rs_tag!r}: letters, digits, - and _ only")
+    chosen = acc_sets(only)
+    fixed = {"tcga": sorted(st.TCGA_CRITERIA), "jmed": sorted(st.JMED_CRITERIA)}
+    out: dict[str, Any] = {"rs_tag": rs_tag, "sets": {}, "refused": []}
+    for name, size in chosen:
+        prefix = site.SET_OFFSETS[name][2] + rs_tag if name in site.SET_OFFSETS else rs_tag
+        ids: list[str] | None = None
+        how = "not known here: the sample is drawn from the set's source files, not in the local cache"
+        if name in fixed:
+            ids = sorted(site.ruleset_ids({k: None for k in fixed[name]}, prefix).values())  # type: ignore[misc]
+            how = "fixed protocols of the set"
+        elif (cache or src.CACHE).joinpath(plan_fetch(name)).is_dir():
+            try:
+                b = st.read(name, cache or src.CACHE, size, live=False)
+                ids = sorted(site.ruleset_ids(b.trials, prefix).values())
+                how = "built here from the local cache (the box builds the same sample)"
+            except (SystemExit, OSError, ValueError) as exc:
+                how = f"not known here: the local cache could not build it ({exc})"
+        out["sets"][name] = {"prefix": prefix, "ids": ids, "how": how}
+    for entry in protocols.split():
+        name, _, rest = entry.partition(":")
+        want = [x for x in rest.split(",") if x]
+        if name not in out["sets"]:
+            out["refused"].append(f"{entry}: set {name} is not in this launch ({', '.join(out['sets']) or 'none'})")
+            continue
+        info = out["sets"][name]
+        bad = [x for x in want if not x.startswith(info["prefix"])]
+        bad += [x for x in want if x not in bad and info["ids"] is not None and x not in info["ids"]]
+        info["filter"] = want
+        info["matches"] = [x for x in want if x not in bad]
+        if bad:
+            known = info["ids"] or []
+            listed = f"; ids {', '.join(known[:12])}{' ...' if len(known) > 12 else ''}" if known else ""
+            out["refused"].append(f"{name}: {', '.join(bad)} not among its ids (prefix {info['prefix']!r}{listed})")
+        if not info["matches"]:
+            out["refused"].append(f"{name}: the filter matches no protocol")
+    return out
+
+
+def plan_fetch(name: str) -> str:
+    """The cache folder a set's files are fetched into (plan.RUN_A's ``fetch``)."""
+    from tools.public_accuracy import plan
+
+    return plan.acc_set(name).fetch
+
+
+# ------------------------------------------------------------------------------------------------ source bundle (D8)
+def src_bundle(commit: str, out: Path | None = None, check: Path | None = None, root: Path = ROOT) -> dict[str, Any]:
+    """The release commit's git bundle, proved before it is uploaded (D8, P1b review: a bundle made from a shallow
+    checkout could not be cloned on the VM, and the build was paid for nothing). With ``out`` it is made here
+    (``git bundle create`` of the commit's whole history); with ``check`` a bundle made by hand is taken. Either way
+    it is cloned into a temporary folder and the commit checked out exactly as the VM's b01-source does it (``git
+    clone`` of the bundle, ``git checkout --detach`` of the commit, nothing fetched besides); ``ok`` only when HEAD
+    there is the commit, all 40 characters (the VM compares them)."""
+    import subprocess
+
+    def git(*a: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["git", *a], cwd=cwd, capture_output=True, text=True, check=False)
+
+    res: dict[str, Any] = {"commit": commit, "ok": False}
+    if out is not None:
+        full = git("rev-parse", "--verify", f"{commit}^{{commit}}", cwd=root)
+        if full.returncode != 0:
+            res["why"] = f"{commit} is not a commit of this repository"
+            return res
+        commit = res["commit"] = full.stdout.strip()
+        if git("rev-parse", "--is-shallow-repository", cwd=root).stdout.strip() == "true":
+            res["why"] = "this checkout is shallow: its bundle would lack the history (git fetch --unshallow first)"
+            return res
+        out.parent.mkdir(parents=True, exist_ok=True)
+        # git bundles refs, not a bare commit id: a short-lived ref names it, removed again whatever happens. A
+        # branch (refs/heads/): a plain `git clone` of the bundle, as on the VM, takes only branches and tags, and a
+        # bundle of any other ref clones as an empty repository (H-1: the proof below now clones as the VM does)
+        ref = f"refs/heads/tb-release-{commit}"
+        git("update-ref", ref, commit, cwd=root)
+        try:
+            made = git("bundle", "create", str(out.resolve()), ref, cwd=root)
+        finally:
+            git("update-ref", "-d", ref, cwd=root)
+        if made.returncode != 0:
+            res["why"] = f"git bundle create: {made.stderr.strip()[:300]}"
+            return res
+        check = out
+    if check is None or not check.is_file():
+        res["why"] = f"no bundle at {check}"
+        return res
+    res["bundle"] = str(check)
+    with tempfile.TemporaryDirectory() as t:
+        dst = Path(t) / "src"
+        steps = [
+            ("verify", git("bundle", "verify", str(check.resolve()), cwd=root)),
+            ("clone", git("clone", "-q", str(check.resolve()), str(dst))),  # as b01-source: no other fetch
+        ]
+        if steps[-1][1].returncode == 0:
+            steps.append(("checkout", git("checkout", "-q", "--detach", commit, cwd=dst)))
+        for what, r in steps:
+            if r.returncode != 0:
+                res["why"] = f"git {what} of the bundle failed: {(r.stderr or r.stdout).strip()[:300]}"
+                return res
+        head = git("rev-parse", "HEAD", cwd=dst).stdout.strip()
+    if not head or head != commit:
+        whole = " (give the full 40-character commit: the VM compares HEAD with it exactly)"
+        res["why"] = f"the clone's HEAD is {head or 'nothing'}, not {commit}" + (
+            whole if head.startswith(commit) else ""
+        )
+        return res
+    res.update(ok=True, head=head)
+    return res
+
+
+# ------------------------------------------------------------------------------------------------ preflight (H-1)
+def _site_workers(site_env: str) -> int:
+    """TB_WORKERS as the launch's --site-env sets it, else the box's default (4)."""
+    for kv in site_env.split():
+        k, _, v = kv.partition("=")
+        if k == "TB_WORKERS" and v.isdigit():
+            return int(v)
+    return 4
+
+
+def launch_checks(groups: list[str], values: dict[str, str], only: str = "") -> list[str]:
+    """Free and local: every option of a launch that would only fail on the VM, after the paid install. Returns
+    each refusal (empty: none). The accuracy options (D1, D4, D7 of the P1b review): the protocol filter matches
+    protocols of the launch's sets (:func:`acc_ids`); ``--acc-streams`` names sets of the launch with a whole number
+    from 1 to the orchestrator's job workers less the one kept for the ingest (TB_WORKERS 4: 3; ``--site-env`` may
+    set it); ``--acc-deadline`` and ``--acc-min-start`` are seconds. A build or dev launch (D8): a full commit (the VM
+    compares HEAD with it exactly)."""
+    bad: list[str] = []
+    if any(g in groups for g in ("build", "dev")):
+        c = values.get("tb-commit", "")
+        if not (len(c) == 40 and all(ch in "0123456789abcdef" for ch in c)):
+            bad.append(f"--commit {c!r}: the full 40-character commit (b01-source compares HEAD with it exactly)")
+    if "acc" not in groups:
+        return bad
+    from tools.public_accuracy import site
+
+    names = [n for n, _ in acc_sets(only)]
+    tag = values.get("tb-acc-rs-tag", "")
+    if tag and not site.RULESET_ID.match(tag):
+        bad.append(f"--acc-rs-tag {tag!r}: letters, digits, - and _ only")
+    elif values.get("tb-acc-protocols") is not None and not values["tb-acc-protocols"].strip():
+        bad.append('--acc-protocols is empty: name protocols ("set:RS1,RS2") or leave the option out')
+    elif values.get("tb-acc-protocols"):
+        bad += [f"--acc-protocols: {r}" for r in acc_ids(only, tag, values["tb-acc-protocols"])["refused"]]
+    most = _site_workers(values.get("tb-site-env", "")) - 1
+    for entry in (values.get("tb-acc-streams") or "").split():
+        name, _, n = entry.partition(":")
+        if name not in names:
+            bad.append(f"--acc-streams {entry}: set {name} is not in this launch ({', '.join(names)})")
+        elif not n.isdigit() or not 1 <= int(n) <= max(1, most):
+            bad.append(f"--acc-streams {entry}: a whole number from 1 to {max(1, most)} (TB_WORKERS {most + 1}, "
+                       "one kept for the ingest)")  # fmt: skip
+    for key, opt in (("tb-acc-deadline", "--acc-deadline"), ("tb-acc-min-start", "--acc-min-start")):
+        for entry in (values.get(key) or "").split():
+            name, _, n = entry.rpartition(":")
+            if (name and name not in names) or not n.isdigit():
+                bad.append(f'{opt} {entry}: seconds (one number, or "set:seconds" for a set of this launch)')
+    return bad
+
+
+def streams_of(only: str = "", acc_streams: str = "") -> dict[str, int]:
+    """Per set of the launch, the protocols it will have in flight: ``--acc-streams``, else
+    :data:`COMPILE_BOUND_STREAMS` for a compile-bound set, else 1 (the VM script's acc_streams_default, D7)."""
+    asked = dict(e.split(":", 1) for e in acc_streams.split() if ":" in e)
+    return {
+        n: int(asked[n]) if asked.get(n, "").isdigit() else (COMPILE_BOUND_STREAMS if compile_bound(n) else 1)
+        for n, _ in acc_sets(only)
+    }
+
+
+def preflight(
+    groups: list[str],
+    values: dict[str, str],
+    mode: str = "production",
+    only: str = "",
+    src: Path | None = None,
+    root: Path = ROOT,
+) -> dict[str, Any]:
+    """Every free check of a launch, before anything is uploaded or started (H-1 of the P1b fixes): the options
+    (:func:`launch_checks`), the source bundle of a build or dev launch proved as the VM will clone it
+    (:func:`src_bundle`; the bucket's own is never taken unproved), and the metadata built into a temporary folder
+    (the keys each step needs, no key-like value). ``ok`` only when every check passed; the driver's
+    ``--preflight`` runs this alone, a launch runs it first. The validation-check stays the driver's own step."""
+    checks: list[dict[str, Any]] = []
+
+    def add(name: str, ok: bool, detail: Any = None) -> None:
+        checks.append({"check": name, "pass": ok, "detail": detail})
+
+    unknown = [g for g in groups if g not in GROUPS]
+    add("the steps are known", not unknown and bool(groups), unknown or None)
+    refused = launch_checks(groups, values, only)
+    add("the launch's options would hold on the VM (filter, tag, streams, budgets, commit)", not refused,
+        refused or None)  # fmt: skip
+    if "acc" in groups:
+        add("protocols in flight per set (D7: 3 for a compile-bound set unless --acc-streams)", True,
+            streams_of(only, values.get("tb-acc-streams", "")))  # fmt: skip
+    if any(g in groups for g in ("build", "dev")):
+        if src is None:
+            add("the source bundle is proved (D8)", False,
+                "--src-bundle FILE is needed: the bucket's src.bundle is never taken unproved (make one with "
+                "tools/box_run.py src-bundle --commit <sha> --out FILE)")  # fmt: skip
+        else:
+            sb = src_bundle(values.get("tb-commit", ""), check=src, root=root)
+            add("the source bundle is proved (D8): cloned as the VM clones it, the commit checked out", sb["ok"], sb)
+    try:
+        with tempfile.TemporaryDirectory() as t:
+            vals = dict(values)
+            if "acc" in groups:
+                vals.setdefault("tb-acc-tools", "<uploaded by the launch>")
+            keys = metadata(groups, vals, Path(t), mode, only)
+        add("the metadata builds (every key the steps need, no key-like value)", True, len(keys))
+    except ValueError as exc:
+        add("the metadata builds (every key the steps need, no key-like value)", False, str(exc))
+    return {"ok": all(c["pass"] for c in checks), "checks": checks}
 
 
 # ------------------------------------------------------------------------------------------------ the VALIDATION check
@@ -818,6 +1086,21 @@ def main(argv: list[str] | None = None) -> int:
     at.add_argument("--out", type=Path, required=True)
     c = sub.add_parser("acc-score")
     c.add_argument("dir", type=Path)
+    ai = sub.add_parser("acc-ids", help="free: the ruleset ids an --acc-protocols filter matches (D1)")
+    ai.add_argument("--only", default="")
+    ai.add_argument("--rs-tag", default="")
+    ai.add_argument("--protocols", default="")
+    sb = sub.add_parser("src-bundle", help="the release commit's git bundle, proved by a clone and a checkout (D8)")
+    sb.add_argument("--commit", required=True)
+    sbx = sb.add_mutually_exclusive_group(required=True)
+    sbx.add_argument("--out", type=Path)
+    sbx.add_argument("--check", type=Path)
+    pf = sub.add_parser("preflight", help="free: every check of a launch before anything is uploaded or started")
+    pf.add_argument("--steps", required=True)
+    pf.add_argument("--mode", default="production", choices=MODES)
+    pf.add_argument("--only", default="")
+    pf.add_argument("--src-bundle", type=Path)
+    pf.add_argument("--set", action="append", default=[], help="key=value")
     sub.add_parser("validation-check", help="can a VALIDATION box with the real pair run the accuracy set here?")
     r = sub.add_parser("results")
     r.add_argument("results", type=Path)
@@ -843,6 +1126,27 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "acc-score":
             print(json.dumps(acc_score(a.dir), ensure_ascii=False, indent=1))
             return 0
+        if a.cmd == "acc-ids":
+            ids = acc_ids(a.only, a.rs_tag, a.protocols)
+            print(json.dumps(ids, ensure_ascii=False, indent=1))
+            for r in ids["refused"]:
+                print(f"box_run: --acc-protocols refused: {r}", file=sys.stderr)
+            return 4 if ids["refused"] else 0
+        if a.cmd == "src-bundle":
+            sbr = src_bundle(a.commit, out=a.out, check=a.check)
+            print(json.dumps(sbr, indent=1))
+            if not sbr["ok"]:
+                print(f"box_run: the source bundle is not usable: {sbr.get('why')}", file=sys.stderr)
+            return 0 if sbr["ok"] else 5
+        if a.cmd == "preflight":
+            pfr = preflight([g for g in a.steps.replace(",", " ").split() if g],
+                            dict(x.split("=", 1) for x in a.set), a.mode, a.only, a.src_bundle)  # fmt: skip
+            print(json.dumps(pfr, ensure_ascii=False, indent=1))
+            for c in pfr["checks"]:
+                said = not c["pass"] or c["check"].startswith("protocols in flight")
+                print(f"preflight: {'ok    ' if c['pass'] else 'FAILED'} {c['check']}"
+                      + (f": {c['detail']}" if said else ""), file=sys.stderr)  # fmt: skip
+            return 0 if pfr["ok"] else 6
         if a.cmd == "validation-check":
             vc = validation_check()
             print(json.dumps(vc, ensure_ascii=False, indent=1))

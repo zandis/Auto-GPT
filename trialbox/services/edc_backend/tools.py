@@ -46,6 +46,29 @@ def module_on(doc: dict[str, Any]) -> bool:
     return any(str(row.get("id") or "") == "trialbox" for row in doc.get("modules") or [] if isinstance(row, dict))
 
 
+def http_client() -> httpx.Client:
+    """The HTTP client for the EDC's tool door (one place, so a test can give its own transport)."""
+    return httpx.Client()
+
+
+def connection_status(base: str, token: str, http: httpx.Client) -> dict[str, Any]:
+    """D-1046: how the connection to the EDC stands, for ``/admin/edc``: set up or not, the capabilities document
+    readable, the ``trialbox`` module on. ``pending`` and ``dead_letter`` (the EDC's own counts) are None: their
+    shape is not in #813 or #895, and they are not guessed (asked of the owner through the integrator)."""
+    out: dict[str, Any] = {"configured": bool(base and token), "reachable": False, "module": False,
+                           "pending": None, "dead_letter": None, "reason": ""}  # fmt: skip
+    if not out["configured"]:
+        out["reason"] = "the EDC's tool URL or token is not set"
+        return out
+    try:
+        doc = ToolClient(base, token, http).capabilities()
+    except ToolError as exc:
+        out["reason"] = exc.message
+        return out
+    out["reachable"], out["module"] = True, module_on(doc)
+    return out
+
+
 class ToolClient:
     def __init__(self, base: str, token: str, http: httpx.Client) -> None:
         self.base = base.rstrip("/")

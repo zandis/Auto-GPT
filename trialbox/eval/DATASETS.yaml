@@ -6,6 +6,11 @@ datasets:
     data_class: D0
     kind: open
     licence: NCBI TrialGPT data (public domain notice in LICENSE.NCBI); translations by TrialBox
+  public_accuracy_key:
+    path: eval/public_accuracy_key
+    data_class: D0
+    kind: open
+    licence: ids and sha256 only, of SIGIR 2016 (NCBI TrialGPT copy, LICENSE.NCBI) and JMED-Personas (Sociocom (NAIST), CC BY 4.0)
   trialgpt_compare:
     path: eval/trialgpt_compare
     data_class: D0
