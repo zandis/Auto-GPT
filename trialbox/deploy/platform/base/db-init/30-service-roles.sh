@@ -301,6 +301,56 @@ GRANT EXECUTE ON FUNCTION audit.append(text, text, jsonb) TO tb_lake, tb_criteri
 -- the drain reads the journal; trialbox (backups) reads it; nobody else does
 GRANT SELECT ON audit.journal TO tb_audit_writer, trialbox;
 -- END AUDIT WRITER
+-- D-989 step 2c (D-997): the provenance index, derived from the audit chain and rebuilt from it
+-- (tb_common.provenance_index). Its own schema, owned like the journal by audit_writer. The drain
+-- (tb_audit_writer) writes the rows; the console and the orchestrator read them; the orchestrator, which runs the
+-- opt-out worker (D-465), deletes a patient's use rows; trialbox (the host's rebuild and check) acts as the owner,
+-- audit_writer, whose one member it is (as for the journal).
+-- Kept equal to tb_common.provenance_index.INDEX_SQL.
+-- BEGIN PROVENANCE INDEX (D-989)
+CREATE SCHEMA IF NOT EXISTS provenance;
+SET search_path = provenance, pg_catalog;
+CREATE TABLE IF NOT EXISTS model_calls (
+  rec_hash text NOT NULL,
+  call_id text NOT NULL,
+  model text NOT NULL DEFAULT '',
+  build_sha text NOT NULL DEFAULT '',
+  prompt_id text NOT NULL DEFAULT '',
+  prompt_version text NOT NULL DEFAULT '',
+  prompt_sha text NOT NULL DEFAULT '',
+  at timestamptz NOT NULL,
+  PRIMARY KEY (rec_hash, call_id)
+);
+CREATE INDEX IF NOT EXISTS model_calls_call ON model_calls (call_id);
+CREATE INDEX IF NOT EXISTS model_calls_build ON model_calls (build_sha);
+CREATE INDEX IF NOT EXISTS model_calls_prompt_sha ON model_calls (prompt_sha);
+CREATE INDEX IF NOT EXISTS model_calls_prompt ON model_calls (prompt_id, prompt_version);
+CREATE INDEX IF NOT EXISTS model_calls_model ON model_calls (model);
+CREATE TABLE IF NOT EXISTS model_uses (
+  rec_hash text NOT NULL,
+  call_id text NOT NULL,
+  event text NOT NULL CHECK (event IN ('used', 'confirmed')),
+  record_kind text NOT NULL,
+  record_ref text NOT NULL,
+  pid text,
+  decision text,
+  by_whom text,
+  at timestamptz NOT NULL,
+  PRIMARY KEY (rec_hash, call_id)
+);
+CREATE INDEX IF NOT EXISTS model_uses_call ON model_uses (call_id);
+CREATE INDEX IF NOT EXISTS model_uses_pid ON model_uses (pid);
+RESET search_path;
+-- END PROVENANCE INDEX
+ALTER SCHEMA provenance OWNER TO audit_writer;
+ALTER TABLE provenance.model_calls OWNER TO audit_writer;
+ALTER TABLE provenance.model_uses OWNER TO audit_writer;
+REVOKE ALL ON SCHEMA provenance FROM PUBLIC;
+REVOKE ALL ON provenance.model_calls, provenance.model_uses FROM PUBLIC;
+GRANT USAGE ON SCHEMA provenance TO tb_audit_writer, tb_console, tb_orchestrator;
+GRANT SELECT, INSERT ON provenance.model_calls, provenance.model_uses TO tb_audit_writer;
+GRANT SELECT ON provenance.model_calls, provenance.model_uses TO tb_console, tb_orchestrator;
+GRANT DELETE ON provenance.model_uses TO tb_orchestrator;
 ALTER ROLE tb_audit_writer PASSWORD :'pw_audit_writer';
 SQL
 # D-541: inside `hapi`, what HAPI made while it signed in as the superuser becomes the FHIR store's own (tables with
