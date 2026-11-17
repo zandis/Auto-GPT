@@ -35,6 +35,7 @@ import os
 import re
 import time
 from dataclasses import dataclass, replace
+from datetime import date
 from functools import lru_cache, partial
 from pathlib import Path
 from typing import Any
@@ -128,6 +129,22 @@ class LlmResult:
     prompt_sha: str = ""
     build_sha: str = ""  # through the gateway: the build that answered (weights digest); "" on a direct call (D-276)
     call_id: str = ""  # D-989: the gateway's call id (``llm.gateway.call``); ``direct-<output sha>`` on a direct call
+
+
+def no_sentinel_date(data: dict[str, Any]) -> dict[str, Any]:
+    """G8 of the P1b review (D-958): a quote date that is no real date ("0000-01-01", a model's way of saying it has
+    none) is no date: null, so an "unknown" with it is an answer, not a reply outside the schema. Applied to every
+    model answer that has a ``quote_date`` (the note judge on SCREEN's path here, the cascade's gateway judge too)."""
+    if "quote_date" not in data:
+        return data
+    qd = data.get("quote_date")
+    if qd is None:
+        return data
+    try:
+        ok = date.fromisoformat(str(qd)[:10]).year >= 1900
+    except ValueError:
+        ok = False
+    return data if ok else {**data, "quote_date": None}
 
 
 def load_prompt(prompt_id: str, environment: str | None = None) -> Prompt:
@@ -412,6 +429,9 @@ class LlmClient:
             truncated = payload["choices"][0].get("finish_reason") == "length"
             try:
                 data = null_absent(load_schema(schema_name), _extract_json(content))  # null == absent
+                # G8 (D-958), on every path (P2b: SCREEN's note judge failed three protocols on it): a quote date
+                # that is no real date is no date, before the schema reads it
+                data = no_sentinel_date(data) if isinstance(data, dict) else data
                 errors = schema_errors(schema_name, data)
                 codes = schema_error_codes(schema_name, data)  # what leaves the call: no model output (T-605)
             except (json.JSONDecodeError, ValueError) as exc:

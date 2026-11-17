@@ -14,7 +14,8 @@ from datetime import date
 from typing import Any
 
 import pytest
-from matching.cascade.judge import GatewayJudge, no_sentinel_date
+from matching.cascade.judge import GatewayJudge
+from tb_common.llm import no_sentinel_date
 
 
 class _Res:
