@@ -61,11 +61,13 @@
   // while it is typed, as a mark's note is, so a session that ends before Save does not lose it: back on the same form
   // after sign-in, the kept values go into the fields still empty (never over a value shown) and count as unsaved
   // edits. A sent form is dropped on the next page that is neither a sign-in page nor that same form (the save reached
-  // a live session); Sign out drops every kept form.
+  // a live session). A save that met the sign-in page instead (the session had ended) keeps it, and when the sign-in
+  // lands on the home page (no page was kept: the console sends no Referer) the tab goes back to the form's own address,
+  // a path of this console. Sign out drops every kept form.
   try {
-    var SENT = "tb-form-sent";
+    var SENT = "tb-form-sent", AT = "tb-form-sent-at", VIA = "tb-form-via-sign-in";
     var sent = sessionStorage.getItem(SENT);
-    var here = false;
+    var here = false, signIn = !!document.querySelector("form[action^='/login']");
     document.querySelectorAll("form[data-keep]").forEach(function (f) {
       var id = f.getAttribute("data-keep"), key = "tb-form:" + id;
       if (id === sent) here = true;
@@ -101,11 +103,22 @@
       };
       f.addEventListener("input", save);
       f.addEventListener("change", save);
-      f.addEventListener("submit", function () { sessionStorage.setItem(SENT, id); });
+      f.addEventListener("submit", function () {
+        sessionStorage.setItem(SENT, id);
+        sessionStorage.setItem(AT, window.location.pathname + window.location.search);
+        sessionStorage.removeItem(VIA);
+      });
     });
-    if (sent && !document.querySelector("form[action^='/login']")) {
-      if (!here) sessionStorage.removeItem("tb-form:" + sent);
-      sessionStorage.removeItem(SENT);
+    if (sent && signIn) {
+      sessionStorage.setItem(VIA, "1");
+    } else if (sent) {
+      var via = sessionStorage.getItem(VIA), at = sessionStorage.getItem(AT) || "";
+      [SENT, AT, VIA].forEach(function (k) { sessionStorage.removeItem(k); });
+      if (!here && !via) {
+        sessionStorage.removeItem("tb-form:" + sent);
+      } else if (!here && /^\/[^/\\]/.test(at) && ["/", "/home"].indexOf(window.location.pathname) >= 0) {
+        window.location.replace(at);
+      }
     }
     document.querySelectorAll("form[action='/logout']").forEach(function (f) {
       f.addEventListener("submit", function () {

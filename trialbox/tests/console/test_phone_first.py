@@ -210,12 +210,13 @@ def test_the_entry_form_is_guarded_and_kept_per_account_and_record() -> None:
 
 
 RUN_JS = """
-const [src, stored, signIn, typed, noForm] = process.argv.slice(1);
+const [src, stored, signIn, typed, noForm, path] = process.argv.slice(1);
 const store = JSON.parse(stored);
 global.sessionStorage = {getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); },
   removeItem: (k) => { delete store[k]; }, get length() { return Object.keys(store).length; },
   key: (i) => Object.keys(store)[i]};
 const on = {};
+let replaced = null;
 const el = (name, type, value, checked) => ({name, type, value, checked, disabled: false});
 const fields = [el("f_ae_term", "text", "", false), el("f_ae_serious", "radio", "1", false),
                 el("f_ae_serious", "radio", "0", false), el("csrf", "hidden", "x", false)];
@@ -223,24 +224,27 @@ const form = {elements: fields, getAttribute: (a) => (a === "data-keep" ? "crc|G
   hasAttribute: (a) => a === "data-guard", addEventListener: (ev, fn) => { (on[ev] = on[ev] || []).push(fn); }};
 const pages = noForm === "1" ? {} : {"form[data-keep]": [form], "form[data-guard]": [form]};
 global.navigator = {};
-global.window = {location: {hash: "", pathname: "/x", search: ""}, history: {length: 1}, addEventListener: () => {}};
+global.window = {location: {hash: "", pathname: path, search: noForm === "1" ? "" : "?record=S-1",
+  replace: (u) => { replaced = u; }}, history: {length: 1}, addEventListener: () => {}};
 global.document = {getElementById: () => null,
   querySelector: (q) => (q === "form[action^='/login']" && signIn === "1" ? {} : null),
   querySelectorAll: (q) => pages[q] || []};
 eval(src);
 if (typed) { fields[0].value = typed; fields[1].checked = true; (on.input || []).forEach((f) => f()); }
-console.log(JSON.stringify({term: fields[0].value, serious: fields[1].checked, store}));
+if (typed === "send") (on.submit || []).forEach((f) => f());
+console.log(JSON.stringify({term: fields[0].value, serious: fields[1].checked, store, replaced}));
 """
+FORM_AT = "/studies/GZQO/entry"
 
 
-def _run(store: dict[str, str], sign_in: bool = False, typed: str = "", no_form: bool = False) -> dict[str, Any]:
+def _run(store: dict[str, str], sign_in: bool = False, typed: str = "", path: str = FORM_AT) -> dict[str, Any]:
     from console.app import CONSOLE_JS
 
     node = shutil.which("node")
     assert node, "node runs the console's script in the tests"
-    out = subprocess.run([node, "-e", RUN_JS, CONSOLE_JS, json.dumps(store), "1" if sign_in else "0", typed,
-                          "1" if no_form else "0"],
-                         capture_output=True, text=True, timeout=30, check=True)  # fmt: skip
+    no_form = "0" if path == FORM_AT else "1"
+    out = subprocess.run([node, "-e", RUN_JS, CONSOLE_JS, json.dumps(store), "1" if sign_in else "0", typed, no_form,
+                          path], capture_output=True, text=True, timeout=30, check=True)  # fmt: skip
     got: dict[str, Any] = json.loads(out.stdout.strip().splitlines()[-1])
     return got
 
@@ -253,7 +257,15 @@ def test_the_script_keeps_restores_and_drops_a_long_form() -> None:
     assert "csrf" not in got["store"][key]  # never the hidden fields
     got = _run({key: kept})
     assert got["term"] == "gout flare, knee" and got["serious"] is True  # back on the form after sign-in
-    sent = {key: kept, "tb-form-sent": key.removeprefix("tb-form:")}
-    assert _run(dict(sent), sign_in=True)["store"] == sent  # the save met the sign-in page: kept
-    assert _run(dict(sent))["store"] == {key: kept}  # the same form again (a refusal): kept, no longer "sent"
-    assert _run(dict(sent), no_form=True)["store"] == {}  # the next page is another one: the save went through
+    sent = _run({}, typed="send")["store"]  # Save tapped: the form's own address goes with it
+    assert sent["tb-form-sent"] == key.removeprefix("tb-form:") and sent["tb-form-sent-at"] == FORM_AT + "?record=S-1"
+    # the session had ended: the save met the sign-in page; after sign-in the home page sends the tab back to the form
+    met = _run(dict(sent), sign_in=True, path="/login")["store"]
+    assert met[key] and met["tb-form-via-sign-in"] == "1"
+    got = _run(dict(met), path="/home")
+    assert got["replaced"] == FORM_AT + "?record=S-1" and set(got["store"]) == {key}
+    assert _run(dict(met), path="/studies/GZQO/week")["replaced"] is None  # a kept page wins; the form stays kept
+    # the session was live: the save went through, the next page is another one: dropped, nowhere to go back to
+    got = _run(dict(sent), path="/studies/GZQO/history")
+    assert got["store"] == {} and got["replaced"] is None
+    assert set(_run(dict(sent))["store"]) == {key}  # the same form again (a refusal): kept, no longer "sent"
