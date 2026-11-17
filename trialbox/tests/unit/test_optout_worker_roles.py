@@ -197,6 +197,8 @@ def test_no_code_asks_whether_a_table_exists_over_another_stores_connection() ->
         ("libs/tb_common/db.py", "::regclass"): (2, "the connection's own schema (its version table, its sequences)"),
         ("libs/tb_common/flags.py", "to_regclass"): (4, "the flags' own schema, on a connection without a group role"),
         ("libs/tb_common/optout.py", "to_regclass"): (1, "the register's own table, on the register's connection"),
+        ("libs/tb_common/provenance_index.py", "to_regclass"): (1, "the index's own tables (D-989), on the drain's or "
+                                                                 "the admin's connection, never a service's"),
         ("services/orchestrator/scenarios/retention.py", "to_regclass"): (1, "the site store's own schema"),
         ("services/orchestrator/scheduler.py", "to_regclass"): (1, "the site store's own schema"),
         ("services/omop/vocab_load.py", "information_schema.tables"): (1, "the reference store's own schema"),

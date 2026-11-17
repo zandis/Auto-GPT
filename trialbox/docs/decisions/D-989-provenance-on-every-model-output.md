@@ -27,7 +27,7 @@
 - **Pre-fill:** each EDC draft field from a model gains `prov`. Mapped, non-model fields carry none, which is itself the answer "no model".
 
 **3. Who confirmed it.** Every existing confirmation writes one audit event `ai.confirmed`, `{record_kind, record_ref, calls, by, decision}`. The confirmations are: a PI mark or excluded review on a patient with model evidence, a ruleset's approval of extracted criteria, and an EDC draft's decision.
-- `decision` is one of confirmed, changed or rejected.
+- `decision` is one of confirmed, changed, rejected or withdrawn. `withdrawn` (added for D-1152) takes back an earlier confirmation of the same record and calls, such as a Withdraw or the Undo of an Approach, so the index shows the confirmation as no longer standing without inferring it from a later mark.
 - A model answer nobody confirmed is reported as unconfirmed, never inferred as confirmed.
 
 **4. The query: an index derived from the chain, not a new store.** Two kinds of event feed it:
@@ -38,15 +38,15 @@ When the audit drain copies these events into the chain, it also writes two appe
 
 | Table | Columns | Indexes |
 |---|---|---|
-| `audit.model_calls` | call_id, model, build_sha, prompt_id, prompt_version, prompt_sha, at | build_sha, prompt_sha, (prompt_id, prompt_version), model |
-| `audit.model_uses` | call_id, record_kind, record_ref, at | call_id |
+| `provenance.model_calls` | call_id, model, build_sha, prompt_id, prompt_version, prompt_sha, at | build_sha, prompt_sha, (prompt_id, prompt_version), model |
+| `provenance.model_uses` | call_id, record_kind, record_ref, at | call_id |
 
 Properties:
 - "Which records did X influence" is one indexed join: milliseconds at tens of millions of rows, well under the minute. The console's audit page gains this as a search, steward and admin only, because the answer names patients.
 - The tables are rebuildable. `tools.trialbox provenance --rebuild` rebuilds them from the chain, and `--check` diffs them against it (the doctor runs the check). The chain stays the one source of truth: if the index and the chain disagree, the chain wins and the doctor fails.
 - A `record_ref` names the record as the console and the erasure registry already do: (ruleset, pid, job, crit), (ruleset, version, crit), (draft id, field). The patient is named only by the pseudonym the chain already uses, never a chart number or free text: the chain is not erased.
 
-**5. Erasure.** On opt-out, `audit.model_uses` rows that name the patient are deleted, following the erasure registry's rule for the journal. The chain is append-only and keeps its events, as every other audit event does today. The judged-pair rows are already deleted on opt-out (D-908).
+**5. Erasure.** On opt-out, `provenance.model_uses` rows that name the patient are deleted, following the erasure registry's rule for the journal. The chain is append-only and keeps its events, as every other audit event does today. The judged-pair rows are already deleted on opt-out (D-908).
 
 **6. Export.** Mapping `prov` to FHIR (Provenance with an AI device, per the HL7 AI Transparency on FHIR guide) is a later export. The fields above are chosen so the mapping is direct (agent = the model build, entity = the input hashes, recorded = the time, the confirmer as a second agent). Nothing depends on the guide.
 
@@ -61,7 +61,7 @@ One condition, part of the decision:
 
 **Build order:**
 1. The gap-closing: `prompt_sha` in the cascade's evidence, the real `build_sha` on SCREEN, `build_sha` on `llm.call`, the extraction's and the pre-fill's pointers.
-2. Then the index (`audit.model_calls`, `audit.model_uses`, rebuild and check) and the search.
+2. Then the index (`provenance.model_calls`, `provenance.model_uses`, rebuild and check) and the search.
 
 ## Step 1 as built (2026-11-16)
 
@@ -118,3 +118,27 @@ One condition, part of the decision:
   with model evidence (`ai.confirmed`, `verdict`; the console), and the EDC draft field and its decision (`ai.used`
   and `ai.confirmed`, `edc_field`; lane E).
 - **Next (step 2c):** the index tables from these events and `llm.call`, their rebuild and check, and the search.
+
+## Step 2c as built (2026-11-17): the index, its check and the search
+
+- **`tb_common.provenance_index`:** `INDEX_SQL` creates `provenance.model_calls` (from `llm.call`: call id, model,
+  build, prompt id, version and sha) and `provenance.model_uses` (from `ai.used` and `ai.confirmed`: the call, the
+  record's kind and reference, the pseudonym when the record names one, the event, and a confirmation's decision and
+  person). Each row keeps its chain line's hash, so a line written twice is one row and the check is line by line.
+- **The drain** writes a record's rows right after its chain line, only when the tables are installed; a failed
+  index write is logged and never stops the drain (the chain is the record).
+- **`trialbox provenance --check | --rebuild | --search`:** the search is one join by model, build, prompt sha, or
+  prompt id and version. The doctor's `provenance_index` check fails when the index and the chain differ (the
+  chain wins: rebuild), warns when the tables are not installed, and says NOT CHECKED with no database.
+- **Erasure (point 5):** `provenance_index.erase` deletes a patient's use rows; a rebuild leaves opted-out
+  patients out, and the check does not report them missing. The chain keeps its events (D-394). The opt-out worker
+  calls it once the role script grants its role DELETE: until then the registry's `outside:provenance_index` entry is
+  on the erasure owed list (card D-989).
+- **Schema:** the tables live in a schema of their own, `provenance`, not the journal's `audit` (only
+  `audit.append` writes there), owned by `audit_writer` like the journal.
+- **Lane D (through the integrator):** the role script runs `INDEX_SQL` beside `JOURNAL_SQL` and grants the drain's
+  role INSERT and SELECT, the console's and the orchestrator's roles SELECT, and the opt-out worker's role DELETE
+  on `provenance.model_uses` (and USAGE on the schema). Until then the drain writes no index and the doctor warns.
+- **The console's search page is lane C2's** (the integrator's ruling): it calls `provenance_index.search(con, *, model,
+  build_sha, prompt_sha, prompt_id, prompt_version, limit)`; the CLI is built here. Still to come: the concept-map
+  calls per value set.
