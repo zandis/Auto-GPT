@@ -1,0 +1,61 @@
+{
+ "card": "V-2",
+ "date": "2026-11-17",
+ "source": "docs/plan/measurements/role-walk-2026-11-17.md",
+ "note": "Written by hand from the runs of tools/role_walk.py (walk.json beside this file). basis: shown = a test or run of this card showed it (the test is named); hypothesis = read from code, not run; not_run = not run. Places are on master d7c91fc3.",
+ "verdict": "On the in-process apps, every console route answers all 14 columns (the seven roles, signed out, in- and out-of-scope accounts, the PI, a sub-investigator, a monitor grant) as the matrix says, both ways; no role was allowed anything the matrix refuses. On the orchestrator, every require_actor route answers every role as its declared row says, except two routes that refuse a coordinator by a second check outside the matrix (V2-01, recorded in D-871 and D-864). The two-person rules (D-719, the break-glass review, the EDC re-entry) and break-glass hold, also for one person who switches roles. Not proved: the compose box (not run), and 176 console cells that stay unclear (mostly a 503 where the test box has no study store). Four findings, none High.",
+ "findings": [
+  {
+   "id": "V2-01",
+   "date": "2026-11-17",
+   "source": "docs/plan/measurements/role-walk-2026-11-17.md",
+   "severity": "Medium",
+   "basis": "shown",
+   "lane": "C2",
+   "claim": "Two orchestrator routes refuse a coordinator what the matrix row they declare allows: the cancel (request.prepare, also asks ops.view) and an instrument switch (site.setup, then role == admin).",
+   "place": "services/orchestrator/app.py:697; services/orchestrator/setup_api.py:84",
+   "expected": "each role may do exactly what the matrix says (plan 8 V8, criterion 10); the route asks one row (D-366, D-483)",
+   "happened": "403 reason right for the coordinator on POST /jobs/{job_id}/cancel and PUT /setup/instruments/{iid}; D-871 and D-864 record the choice and say no row was added because the guides are frozen",
+   "test": "tests/unit/test_role_walk_orchestrator.py::test_v2_01_a_route_answers_as_the_row_it_declares (xfail strict)"
+  },
+  {
+   "id": "V2-02",
+   "date": "2026-11-17",
+   "source": "docs/plan/measurements/role-walk-2026-11-17.md",
+   "severity": "Medium",
+   "basis": "shown",
+   "lane": "C2",
+   "claim": "46 refusals on 9 console routes write no console.denied record, among them the patient page refused to the administrator, the steward and the privacy office.",
+   "place": "services/console/home.py:1096 (the patient page); the other routes: /studies/{rs}/week, /week, /ops/users, /ops/identity, /reports/research-office, /pilot/jobs/{job_id}/sponsor-pack.zip, POST /admin/redcap/{ref}/test, POST /studies/{rs}/setup/redcap/test",
+   "expected": "the console refuses with 403 and console.denied what the matrix refuses (D-483 2.); the sibling refusals (2535 of the 2581 refusals with 403 to a signed-in column in this walk) are recorded",
+   "happened": "403 and no audit event for those cells (walk.json, cells with got R, status 403, audited 0)",
+   "test": "tests/console/test_role_walk.py::test_v2_02_every_refusal_of_these_routes_is_in_the_audit_trail (xfail strict)"
+  },
+  {
+   "id": "V2-03",
+   "date": "2026-11-17",
+   "source": "docs/plan/measurements/role-walk-2026-11-17.md",
+   "severity": "Medium",
+   "basis": "hypothesis",
+   "lane": "C2",
+   "claim": "The orchestrator compares a role name in two places with no matrix row behind them (the blind re-entry record, the instrument switch); the grep test against inline role checks reads console modules only.",
+   "place": "services/orchestrator/edc_api.py:260; services/orchestrator/setup_api.py:84; tests/unit/test_t102c_permit_sites.py:59",
+   "expected": "one permission function over the matrix, no inline role check (D-366, D-425)",
+   "happened": "a.role != \"admin\" and who.role != \"admin\" decide; the matrix has no row for either action, so the role pages generated from it (ROLE-018) do not name them",
+   "test": "read from code; the coordinator's refusal on the re-entry route is shown by tests/console/test_role_walk_rules.py::test_two_person_edc_reentry_and_switch_on"
+  },
+  {
+   "id": "V2-04",
+   "date": "2026-11-17",
+   "source": "docs/plan/measurements/role-walk-2026-11-17.md",
+   "severity": "Medium",
+   "basis": "shown",
+   "lane": "C2",
+   "claim": "The committed role x route design table says the steward and the privacy office open a study's candidate registry page (patient rows); the box refuses them, but only because the backend signs the read: the page has no check of its own, and the test box's stand-in backend skips that layer.",
+   "place": "tests/console/data/role_route_matrix.md:107; tests/console/test_console_app.py:307 (FakeBackend.registry_rows); services/console/app.py:2211 (the page); services/console/backend.py:539 (the signed read)",
+   "expected": "the design table equals what the box answers (D-366 5.); the registry's rows are patient level (app.py:2217, D-280); phi.view is false for steward and privacy",
+   "happened": "with the stand-in as it is, GET /pilot/registry/GZQO answers 200 to the steward and the privacy office; with the backend's signing layer put back (test_role_walk.faithful_reads) it answers 403",
+   "test": "tests/console/test_role_walk.py::test_every_console_route_answers_every_column_as_the_matrix_says (with faithful_reads) against tests/console/data/role_route_matrix.md"
+  }
+ ]
+}
