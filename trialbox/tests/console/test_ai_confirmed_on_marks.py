@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
 from tb_common.crypto import sha256_bytes
 from tb_contracts import JobOutput
 
@@ -64,8 +65,11 @@ def test_not_suitable_now_and_the_other_marks_decide_nothing(box: dict[str, Any]
 
     pi, csrf, _job = _pi(box, [_row(A, "high", CALLS), _row(B, "review", CALLS)])
     for mark in ("need_info", "not_now", "withdraw"):
-        pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": csrf, "mark": mark})
-    pi.post(f"/studies/GZQO/patients/{B}/mark", data={"csrf": csrf, "mark": "not_suitable", "reason": "comorbidity"})
+        assert pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": csrf, "mark": mark}).status_code == 200
+    r = pi.post(
+        f"/studies/GZQO/patients/{B}/mark", data={"csrf": csrf, "mark": "not_suitable", "reason": "comorbidity"}
+    )
+    assert r.status_code == 200
     assert SiteStore().latest_marks("GZQO")[B].mark == "not_suitable"  # the mark is kept
     assert _events(box) == []  # the model's answer stays unconfirmed
     pi.post(f"/studies/GZQO/patients/{B}/mark", data={"csrf": csrf, "mark": "approach"})
@@ -135,3 +139,69 @@ def test_the_api_review_writes_the_same(box: dict[str, Any]) -> None:  # noqa: F
     assert r.status_code == 200, r.text
     (ev,) = _events(box)
     assert ev["detail"]["decision"] == "rejected" and ev["detail"]["record_ref"]["crit"] == "GZQO-EXC-02"
+
+
+def test_an_unknown_answer_and_a_repeated_approach_write_nothing_more(box: dict[str, Any]) -> None:  # noqa: F811
+    """The review of D-1152: an ``unknown`` answer is no answer to confirm; an Approach on an Approach is no new
+    decision."""
+    row = _row(A, "high", CALLS)
+    row["criteria"].append({"id": "GZQO-INC-02", "verdict": "unknown", "evidence": {"resource_refs": []},
+                            "prov": CALLS[:1]})  # fmt: skip
+    pi, csrf, _job = _pi(box, [row, _row(B, "review", CALLS)])
+    for _ in range(2):
+        assert pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": csrf, "mark": "approach"}).status_code == 200
+    assert [e["detail"]["record_ref"]["crit"] for e in _events(box)] == ["GZQO-INC-05"]
+
+
+def test_a_second_review_the_store_does_not_keep_writes_no_decision(box: dict[str, Any]) -> None:  # noqa: F811
+    """The review of D-1152: only a patient's first review on a run is kept; a second one (another person, another
+    criterion) writes no ``ai.confirmed`` under that person's name."""
+    _with_excluded(box)
+    for name in ("crc", "crc2"):
+        box["users"].create(name, "coordinator", PW, f"{name}@hospa.test")
+    crc, csrf = login(box["app"], "crc", PW)
+    crc2, csrf2 = login(box["app"], "crc2", PW)
+    dpid = "d" * 32
+    assert (
+        crc.post(f"/studies/GZQO/not-matched/{dpid}/review", data={"csrf": csrf, "crit": "GZQO-EXC-02"}).status_code
+        == 200
+    )
+    assert crc2.post(f"/studies/GZQO/not-matched/{dpid}/review", data={"csrf": csrf2, "crit": ""}).status_code == 200
+    assert [(e["detail"]["by"], e["detail"]["record_ref"]["crit"]) for e in _events(box)] == [("crc", "GZQO-EXC-02")]
+
+
+def test_a_review_whose_decision_cannot_be_written_is_not_kept(box: dict[str, Any],  # noqa: F811
+                                                               monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """The review of D-1152: the decision is written inside the review's transaction, so a failed append keeps no
+    review (the person can send it again), as a mark's events are."""
+    from console.sitestore import SiteStore
+    from tb_common import provenance
+
+    _with_excluded(box)
+    box["users"].create("crc", "coordinator", PW, "crc@hospa.test")
+    crc, csrf = login(box["app"], "crc", PW)
+
+    def broken(*_a: Any, **_k: Any) -> bool:
+        raise OSError("the audit volume is full")
+
+    real = provenance.confirmed
+    monkeypatch.setattr(provenance, "confirmed", broken)
+    cpid = "c" * 32
+    with pytest.raises(OSError):
+        crc.post(f"/studies/GZQO/not-matched/{cpid}/review", data={"csrf": csrf, "crit": ""})
+    assert cpid not in SiteStore().excluded_reviews("GZQO")
+    monkeypatch.setattr(provenance, "confirmed", real)  # (not undo(): that would undo the box's settings too)
+    assert crc.post(f"/studies/GZQO/not-matched/{cpid}/review", data={"csrf": csrf, "crit": ""}).status_code == 200
+    assert cpid in SiteStore().excluded_reviews("GZQO") and len(_events(box)) == 1
+
+
+def test_a_patient_not_named_by_a_pseudonym_is_never_written(box: dict[str, Any]) -> None:  # noqa: F811
+    from console import ai_confirm
+
+    written: list[Any] = []
+    audit = type("A", (), {"append": lambda self, *a, **k: written.append((a, k))})()
+    crit = [{"id": "GZQO-INC-05", "verdict": "pass", "prov": CALLS}]
+    common = {"ruleset": "GZQO", "version": "1.0.0", "job": "01J0000000000000000000000A", "criteria": crit,
+              "by": "pi", "decision": "confirmed"}  # fmt: skip
+    assert ai_confirm.on_verdicts(audit, pid="A123456789", **common) == 0 and written == []  # a chart-number shape
+    assert ai_confirm.on_verdicts(audit, pid=A, **common) == 1

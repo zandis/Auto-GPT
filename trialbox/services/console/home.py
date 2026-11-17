@@ -1013,16 +1013,20 @@ def register(app: FastAPI, h: Helpers) -> None:
         ):
             raise h.problem(404, "notfound")
         crit = crit.strip()[:40]
-        store.send_excluded_review(rid, pid, job.job_id, crit, note.strip()[:300], h.actor(sess), h.clock().isoformat())
+        row = ai_confirm.row_of(doc, pid)
+        version = str(doc.get("version") or job.ruleset_version or "")
+
+        def decided() -> None:  # D-989 (D-1152): the review rejects the model's answers that excluded the patient
+            if row is not None and version:
+                ai_confirm.on_verdicts(au, ruleset=rid, version=version, job=job.job_id, pid=pid,
+                                       criteria=row.get("criteria") or [], by=sess.user.username,
+                                       decision=ai_confirm.REVIEW_DECISION, crit=crit, job_id=job.job_id,
+                                       actor=h.actor(sess))  # fmt: skip
+
+        store.send_excluded_review(rid, pid, job.job_id, crit, note.strip()[:300], h.actor(sess),
+                                   h.clock().isoformat(), before_commit=decided)  # fmt: skip
         au.append("console.excluded_review", job_id=job.job_id, ruleset=rid, actor=h.actor(sess),
                   detail={"pid": pid, "criterion": crit, "role": sess.user.role})  # fmt: skip
-        row = ai_confirm.row_of(doc, pid)  # D-989: the review rejects the model's answers that excluded the patient
-        version = str(doc.get("version") or job.ruleset_version or "")
-        if row is not None and version:
-            ai_confirm.on_verdicts(au, ruleset=rid, version=version, job=job.job_id, pid=pid,
-                                   criteria=row.get("criteria") or [], by=sess.user.username,
-                                   decision=ai_confirm.REVIEW_DECISION, crit=crit, job_id=job.job_id,
-                                   actor=h.actor(sess))  # fmt: skip
         return rid, job.job_id
 
     @app.post("/studies/{rs}/not-matched/{pid}/review")
@@ -1229,7 +1233,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                 au.append("console.approach_override", job_id=wk["job"].job_id, ruleset=rid, actor=h.actor(sess),
                           detail={"pid": pid, "action": "approach", "reason": ",".join(warned)})  # fmt: skip
             au.append("console.pi_mark", job_id=wk["job"].job_id, ruleset=rid, actor=h.actor(sess), detail=detail)
-            row = ai_confirm.row_of(wk["cl"], pid) if decided else None
+            # D-1152 (the review): an Approach on an Approach is no new decision
+            row = ai_confirm.row_of(wk["cl"], pid) if decided and (prev is None or prev.mark != value) else None
             if (
                 row is not None and version and decided
             ):  # D-989: inside the transaction too, so a mark is never kept without its events
