@@ -34,6 +34,7 @@ import json
 import os
 import re
 import time
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from functools import lru_cache, partial
 from pathlib import Path
@@ -128,6 +129,13 @@ class LlmResult:
     prompt_sha: str = ""
     build_sha: str = ""  # through the gateway: the build that answered (weights digest); "" on a direct call (D-276)
     call_id: str = ""  # D-989: the gateway's call id (``llm.gateway.call``); ``direct-<output sha>`` on a direct call
+
+
+#: H-16 (lane H's offline review, H-18): what the call in this thread is asked for, set by a caller around a model call
+#: and written beside it in ``llm.call`` (``asking``): the cascade's stage (S3 or S4) and role, the patient's
+#: pseudonym, the criterion's canonical hash, the window and the digest of the question shown. Ids and hashes only,
+#: never text; None outside such a call.
+CALL_CONTEXT: ContextVar[dict[str, Any] | None] = ContextVar("tb_llm_call_context", default=None)
 
 
 def load_prompt(prompt_id: str, environment: str | None = None) -> Prompt:
@@ -439,6 +447,8 @@ class LlmClient:
                             "build_sha": build_sha,  # D-989: the build that answered ("" on a direct call)
                             "call_id": call_id,  # D-989: what a record's ``prov`` names
                             "ms": round((time.perf_counter() - t0) * 1000),
+                            "schema": schema,  # H-16: the answer schema the call was made with (None: the prompt's)
+                            **({"asking": dict(asking)} if (asking := CALL_CONTEXT.get()) else {}),
                         },
                     )
                 return LlmResult(

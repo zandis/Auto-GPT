@@ -50,6 +50,27 @@ class Asking:
 ASKING: ContextVar[Asking | None] = ContextVar("tb_cascade_asking", default=None)
 
 
+def call_context(
+    role: str, pid: str, criterion_hash: str, window: tuple[str, str], question: str, audit: bool = False
+) -> dict[str, Any]:
+    """H-16: what ``tb_common.llm.CALL_CONTEXT`` writes beside a judge call (``llm.call``'s ``asking``): the stage
+    (S3 for the judge, S4 for the second opinion), the context of use the cascade's gateway client labels it with, the
+    role, the patient's pseudonym, the criterion's canonical hash, the window and the question digest, with whether
+    it is an audit sample. With the call's prompt, schema and build beside it, the judged-pair key can be computed
+    offline (lane H's H-18 review). Ids and hashes only."""
+    stage = "S3" if role == "judge" else "S4"
+    return {
+        "stage": stage,
+        "context_of_use": "s3_note_judgement" if stage == "S3" else "s4_second_opinion",
+        "role": role,
+        "pid": pid,
+        "criterion_hash": criterion_hash,
+        "window": list(window),
+        "question": question,
+        "audit": audit,
+    }
+
+
 def question_digest(criterion_text: str, note_question: str, index_date: str, excerpts: list[dict[str, Any]]) -> str:
     """The sha256 of a note question as the models see it: the criterion's wording, the note question, the index
     date and the excerpts' shown fields. A model call below the cascade whose variables give another digest (a wake
