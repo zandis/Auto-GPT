@@ -8,7 +8,7 @@ You look after the patients' data: you review break-glass grants, settle conflic
 
 ## What TrialBox lets you do
 
-the hold after a restore: see it and release it; accounts: passwords, disable, enable; review every break-glass use; read break-glass grants; keep the opt-out register; keep the staff directory; write a study's PI entry from the signed log; give a CRO account a monitor grant for a visit; pseudonyms in the audit trail; the site's audit trail: filters, one patient's report, chain verification (every read recorded); the clinical item catalogue; clinical conflicts (read and resolve); data operations: the nights of every source (the steward decides on a held night); record the site's check of criteria not matched
+the hold after a restore: see it and release it; accounts: passwords, disable, enable; review every break-glass use; read break-glass grants; keep the opt-out register; keep the staff directory; write a study's PI entry from the signed log; give a CRO account a monitor grant for a visit; pseudonyms in the audit trail; the site's audit trail: filters, one patient's report, chain verification (every read recorded); which records a model, build or prompt touched (every search recorded); the clinical item catalogue; clinical conflicts (read and resolve); data operations: the nights of every source (the steward decides on a held night); record the site's check of criteria not matched
 
 ## Your pages
 
