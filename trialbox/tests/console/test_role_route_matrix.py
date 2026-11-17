@@ -58,7 +58,7 @@ COLUMNS: dict[str, tuple[str, str, str, str]] = {
     "privacy": ("dpo", "privacy", "hospital", ""),
 }
 # not walked: signing in and out, the session's own routes, static files
-SKIP = re.compile(r"^/(login|logout|lang|static|healthz|favicon|api/v1/session)(/|$|\.)")
+SKIP = re.compile(r"^/(login|logout|lang|role|static|healthz|favicon|api/v1/session)(/|$|\.)")  # role: D-877
 CHANGING = ("POST", "PUT", "DELETE")
 HEADER = "| Method | Route | " + " | ".join(COLUMNS) + " |"
 

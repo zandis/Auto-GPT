@@ -53,11 +53,11 @@ from tb_common.ulid import new_ulid
 from tb_common.verdict_word import shown_of
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
+from console import acting, api_first, demo_guard, feedback, firstrun, i18n_roles, next_page
 from console import actor as console_actor
-from console import api_first, demo_guard, feedback, firstrun, i18n_roles, next_page
 from console.account_rules import Hooks as AccountHooks
 from console.account_rules import Rules as AccountRules
-from console.account_rules import account_class, protected
+from console.account_rules import account_class, protected, protected_account
 from console.account_rules import register as register_accounts
 from console.admin_accounts import end_date
 from console.auth import (
@@ -684,6 +684,7 @@ def create_app(
                 "/home",
                 "/reports",
                 "/lang",
+                "/role",
                 "/logout",
                 "/cmd",
                 "/account",
@@ -825,6 +826,9 @@ def create_app(
             "sess": sess,
             "user": sess.user if sess else None,
             "csrf": sess.csrf if sess else "",
+            # STEPS-ROLE (D-877): the roles the session may act in (none: no switch) and the account's own role
+            "acting_roles": _once(lambda: acting.roles_of(us, sess)),
+            "acting_from": sess.acting_from if sess else None,
             "settings": settings,
             "pilot": settings.pilot,
             "path": request.url.path,
@@ -1260,7 +1264,7 @@ def create_app(
                     return confirm_step(request, sess, text, "/ops/users", {"action": "reset", "username": name},
                                         "/ops/users")  # fmt: skip
                 role_now = us.role_of(name)  # disabled or past its end date too (the review of D-719)
-                if role_now and protected(role_now):  # D-719: one factor at a time, a second person
+                if role_now and protected_account(us, name):  # D-719: one factor at a time, a second person
                     held = account_rules.refuse_held(name, "password", me)
                     if held is not None:
                         return page(request, "factor_held.html", sess, 409, account=name, held=held[0],
@@ -1282,7 +1286,7 @@ def create_app(
                 if was is not None:  # D-406 (OPS-059): a local account's end date, at most 12 months ahead
                     expires = end_date(was.role, expires or None, us.today(), sso=us.is_sso(name)) or ""
                 role_now = us.role_of(name)  # disabled or past its end date too (the review of D-719)
-                if role_now and protected(role_now) and account_rules.second_person(me):  # D-719 (c)
+                if role_now and protected_account(us, name) and account_rules.second_person(me):  # D-719 (c)
                     scope_values(affiliation, studies, expires or None, role_now)
                     account_rules.request("scope", name, {"affiliation": affiliation, "studies": studies,
                                                           "expires": expires}, me, role_now)  # fmt: skip
@@ -1390,6 +1394,10 @@ def create_app(
     account_team["h"] = helpers  # D-719: the account notices find each study's PI here
     sdv_page.register(app, helpers)  # T-303 (D-436): the monitor's SDV pages, after team (it reads the standing)
     admin_flags.register(app, helpers)  # /ops/flags and the flags' first-start seed (T-008, D-207)
+    # STEPS-ROLE (D-877): the role a session acts in, on a test box with the flag on; refused to start otherwise
+    acting.check_at_start(raw_env, us)
+    us.acting_on = lambda: acting.on(raw_env)
+    acting.register(app, helpers, us, raw_env)
     edc_pages.register(app, helpers)  # EDC prefill: switch, map, review, e-signature, send, ODM (D-160)
     from console import copy_assist_page
 

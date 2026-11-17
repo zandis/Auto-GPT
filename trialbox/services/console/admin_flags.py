@@ -20,7 +20,7 @@ from typing import Any, TypeVar
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from tb_common.authz import permit
-from tb_common.flags import DECLARED, MAX_REASON, Flags, check_value
+from tb_common.flags import DECLARED, MAX_REASON, TEST_BOX_ONLY, Flags, check_value, test_box
 
 from console import i18n_flags
 from console.home import Helpers
@@ -110,6 +110,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(400, "flags.err.reason")
         if len(why) > MAX_REASON:
             raise h.problem(400, "flags.err.long", n=MAX_REASON)
+        if name in TEST_BOX_ONLY and new != DECLARED[name].default and not test_box():  # D-877 (the review)
+            raise h.problem(400, "flags.err.testbox", flag=name)
         store = Flags(audit=h.au)
         current = stored(lambda: store.row(name)) or ""  # the store is down: a 503 page, never a 500
         if confirm != "yes":
