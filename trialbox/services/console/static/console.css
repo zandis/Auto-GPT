@@ -605,6 +605,17 @@ details.tech > summary { cursor: pointer; }
   body.phone-first table.worklist a.rowlink::after { content: ""; position: absolute; inset: 0; }
   body.phone-first table.worklist details.quick { position: relative; z-index: 1; }
 }
+/* the participant's page (life_subject.html): its visits and its step trail as cards under 640 px, each cell with
+   its column's name, so the visit window is not clipped and the step is not squeezed to one character a line */
+@media (max-width: 640px) {
+  body.phone-first table.pf-cards, body.phone-first table.pf-cards tbody, body.phone-first table.pf-cards tr,
+  body.phone-first table.pf-cards td { display: block; width: auto; }
+  body.phone-first table.pf-cards thead { display: none; }
+  body.phone-first table.pf-cards tr { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  body.phone-first table.pf-cards td { padding: 2px 0; border: 0; white-space: normal; }
+  body.phone-first table.pf-cards td:empty { display: none; }
+  body.phone-first table.pf-cards td[data-label]::before { content: attr(data-label) " "; color: var(--muted); font-weight: 600; }
+}
 /* E-M4: "More" in two levels: each group a fold of its links. On a phone the groups are 44 px chips in the menu's
    flow (no longer over the language and Sign out); an opened group takes the whole line. On a desktop each group
    shows its links under its name, as one list. */

@@ -229,6 +229,13 @@ const TASKS = {
     await page.goto(`${BASE}/studies/${RS}/subjects`);
     const rec = await page.locator(`main a[href*='/studies/${RS}/subjects/']`).first().getAttribute("href");
     await page.goto(BASE + rec);
+    // the participant's page: its visits and its step trail as cards, nothing cut off or squeezed
+    const cells = await page.evaluate(() => Array.from(document.querySelectorAll("table.pf-cards td[data-label]"))
+      .filter((td) => td.offsetParent).map((td) => { const r = td.getBoundingClientRect(); return [Math.round(r.right), Math.round(r.width)]; }));
+    check(cells.length > 0 && cells.every(([right, width]) => right <= 390 && width > 200),
+      `${args.lang} the participant's visits and steps are cards within the screen (${cells.length} cells)`);
+    await fits(page, "participant page");
+    await shot(page, "participant");
     await load(page, () => page.click("[data-testid=ae-add]"));
     const field = page.locator("form#entry input[type=text]:not([disabled]), form#entry textarea:not([disabled])").first();
     const typed = "Synthetic test: gout flare of the knee, 3 days";

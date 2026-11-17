@@ -174,6 +174,17 @@ def test_with_the_flag_on_the_investigator_reads_the_evidence_before_the_mark_fi
     assert off < crits < patient.index("{% if pf %}{{ markpart }}")
 
 
+def test_with_the_flag_on_the_participants_tables_are_cards() -> None:
+    """The participant's page: its visits and its step trail are cards under 640 px with the flag on (each cell
+    labelled); off, the class and the labels are not written (the e2e walk checks the rendered cards)."""
+    tpl = (TEMPLATES / "life_subject.html").read_text(encoding="utf-8")
+    assert tpl.count("<table class=\"candidates{{ ' pf-cards' if pf else '' }}\">") == 2
+    for col in ("visit", "status", "window", "day", "step", "who", "source", "note"):
+        assert f"{{% if pf %}} data-label=\"{{{{ t('life.col.{col}') }}}}\"{{% endif %}}" in tpl, col
+    css = (ROOT / "services" / "console" / "static" / "console.css").read_text(encoding="utf-8")
+    assert "body.phone-first table.pf-cards thead { display: none; }" in css
+
+
 # ------------------------------------------------------------------------------------------- E-M2 the hop
 def test_a_link_from_another_site_hops_once_on_the_same_site(box: dict[str, Any]) -> None:
     c = TestClient(box["app"])
