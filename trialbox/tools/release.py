@@ -29,6 +29,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -448,6 +449,41 @@ def problems(release: Any, manifest: dict[str, Any], lock: Any = None) -> list[s
     return out
 
 
+def embedder_problems(
+    release: dict[str, Any], manifest: dict[str, Any], registry_path: Path | None = None
+) -> list[str]:
+    """D-1066 (D-998): a bundle for a site carries the embedder, ``e-embed-1``, whole in ``embedder/``: a box without
+    a GPU (a feasibility-only site, a PRODUCTION product form) pins it at install, and every box's embed service loads
+    it. Its files, as the signed manifest lists them, must hash to the registry's expected manifest (the pin's own
+    format, ``tools.pin_model.manifest_sha256_of_files``). A rehearsal bundle, which a site box refuses (D-726), is
+    exempt: its placeholders are no model."""
+    import yaml
+
+    from tools.pin_model import EMBED_BUILD, expected_of, manifest_sha256_of_files
+
+    if release.get("rehearsal") is True:
+        return []
+    # TB_RELEASE_REGISTRY: the unit tests' synthetic registry only (a release reads the one it ships)
+    path = registry_path or Path(os.environ.get("TB_RELEASE_REGISTRY") or ROOT / "models" / "registry.yaml")
+    reg = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    row = next((b for b in reg.get("builds") or [] if b.get("build_id") == EMBED_BUILD), {})
+    want = expected_of(row)[0]
+    files = [{"path": str(f["path"]).removeprefix("embedder/"), "sha256": f.get("sha256")}
+             for f in manifest.get("files", []) if str(f.get("path", "")).startswith("embedder/")]  # fmt: skip
+    if not files:
+        what = f"{row.get('repository', '?')} at {str(row.get('revision', '?'))[:12]}"
+        return [
+            f"embedder/: the bundle carries no {EMBED_BUILD} ({what}, the whole folder the registry's expected "
+            "manifest names); every site bundle carries it (D-1066): pass its folder as embedder/ under make_bundle.sh "
+            "--models"
+        ]
+    got = manifest_sha256_of_files(files)
+    if want and got != want:
+        return [f"embedder/: these {len(files)} files are not the release's {EMBED_BUILD}: manifest {got[:12]} "
+                f"differs from the expected {want[:12]} in models/registry.yaml"]  # fmt: skip
+    return []
+
+
 def gates_mode_line(bundle: Path) -> str:
     """D-884: the gates' vuln mode as ``release check`` says it; "report" is never read as a green release."""
     try:
@@ -479,6 +515,7 @@ def check_bundle(bundle: Path) -> list[str]:
     if release is None:
         return ["the bundle carries no release.json"]
     out = problems(release, manifest, lock)
+    out += embedder_problems(release, manifest)
     listed = {str(f["path"]) for f in manifest.get("files", [])}
     out += [f"{p}: a payload file the manifest does not list" for p in sorted(payload - listed)]
     return out

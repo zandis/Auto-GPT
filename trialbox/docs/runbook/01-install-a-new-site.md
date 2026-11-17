@@ -42,7 +42,12 @@ IT), installs both cron files (log retention and backups), runs the host check, 
 registry's label of the build the profile serves, and the pin) and ends with the `https://` console URL, which it
 checks from the box with the certificate the clinic PCs will see. It exits 1 when a FAIL line remains, and lists them
 (T-632, D-382). On a machine without a GPU, `--mode stub` takes the place of `--tier` (the installer refuses
-the two together): structured criteria only.
+the two together). A box without a GPU is a product form (D-1066): a feasibility-only site, which may add a GPU
+later. It runs feasibility and screening on the structured criteria (diagnoses, labs, medicines, ages, dates);
+criteria that need a note's free text wait for a GPU or a pinned cloud model. The installer pins the embedder
+(`e-embed-1`, BGE-M3, on the CPU) from the bundle's weights: every site bundle carries them (about 2.3 GB, 18
+files), and `release check` refuses a site bundle without them. A PRODUCTION install stops when they are missing.
+How fast the CPU embeds a hospital's records is not measured yet.
 
 **The questions it asks.** Without `--yes`, at the terminal, the installer asks whether to start the stack now and,
 when the answers lack them, the ClinicalTrials.gov mode (`ctgov_mode`), the console's name (`tls_hostname`) and the
