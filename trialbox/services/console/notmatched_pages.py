@@ -32,7 +32,7 @@ from fastapi.responses import RedirectResponse, Response
 from tb_common.notmatched import ANSWERS, NotMatchedError, NotMatchedStore, gate_on, iso_week, sample_week
 from tb_contracts import Job
 
-from console import i18n_notmatched
+from console import ai_confirm, i18n_notmatched
 from console import studies as st
 from console.auth import Session
 from console.home import Helpers, json_body
@@ -184,8 +184,13 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str], store: NotMatched
                       detail={"pid": pid, "week": week, "answer": answer, "role": sess.user.role})  # fmt: skip
             if answer == "send_back":  # CR-014: back on the PI's weekly list, as from the not-matched page
                 crit = mine.criteria[0] if mine.criteria and mine.criteria[0] != "rule" else ""
+                _job, doc = run_doc(mine.job_id)  # D-989 (D-1152): the review rejects the answers that excluded
+
+                def decided() -> None:
+                    ai_confirm.review(au, rid, mine.job_id, doc, pid, crit, sess.user.username, h.actor(sess))
+
                 h.store.send_excluded_review(rid, pid, mine.job_id, crit, " ".join(note.split())[:300],
-                                             h.actor(sess), now)  # fmt: skip
+                                             h.actor(sess), now, before_commit=decided)  # fmt: skip
 
         try:
             nm.store.answer(rid, week, pid, answer, note, h.actor(sess), now, before_commit=before_commit)
