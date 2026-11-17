@@ -127,7 +127,12 @@ ALTER TABLE switch_event ADD COLUMN IF NOT EXISTS dataflow_ref TEXT NOT NULL DEF
 CREATE TABLE IF NOT EXISTS direct_source_event (id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   study TEXT NOT NULL, fields TEXT NOT NULL, reference TEXT NOT NULL, by_user TEXT NOT NULL, at TEXT NOT NULL)
 """
-MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7)
+# E-PROV-1 (D-1047, D-989): the model calls a draft came from, a JSON list of call ids; NULL (a row drafted before
+# this version, or read from an ODM file) is read as the empty list: no model
+SCHEMA_V8 = """
+ALTER TABLE draft ADD COLUMN IF NOT EXISTS prov TEXT
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8)
 #: tables that only ever grow (D-281): a trigger refuses UPDATE, DELETE and TRUNCATE on each
 APPEND_ONLY = ("decision", "signature", "signature_void", "sent", "switch_event", "map_event", "reentry_record",
                "copy_tick", "direct_source_event")  # fmt: skip
@@ -605,12 +610,12 @@ class EdcStore:
                     continue
                 ids.append(int(tx.fetchval(
                     "INSERT INTO draft (study, record, pid, visit, visit_date, item, form, cdash, test, value, state, "
-                    "why, citation, version, run_id, built_by, built_at, map_sha, dict_sha, target) VALUES "
-                    "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
+                    "why, citation, version, run_id, built_by, built_at, map_sha, dict_sha, target, prov) VALUES "
+                    "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
                     (study, record, pid, visit, visit_date, d["item"], d["form"], d["cdash"], d["test"], d["value"],
                      d["state"], d["why"], json.dumps(d["citation"], ensure_ascii=False) if d["citation"] else None,
                      d["version"], run_id, by, at, str(d.get("map_sha") or ""), str(d.get("dict_sha") or ""),
-                     str(d.get("target") or "")))))  # fmt: skip
+                     str(d.get("target") or ""), json.dumps([str(c) for c in d.get("prov") or []])))))  # fmt: skip
         return ids
 
     @staticmethod
@@ -702,6 +707,7 @@ class EdcStore:
         r["final_citation"] = _cit(r.get("final_citation"))
         for k in ("source_changed", "source_seen"):  # NEW-EDC-4
             r[k] = json.loads(r[k]) if r.get(k) else None
+        r["prov"] = json.loads(r["prov"]) if r.get("prov") else []  # D-989: no pointer is "no model"
         r["sha"] = draft_sha(r) if r.get("fate") in DECIDED else ""  # what a signature would cover now
         return r
 

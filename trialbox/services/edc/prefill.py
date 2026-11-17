@@ -49,10 +49,12 @@ class Draft:
     why: str = ""  # the reason it is unknown (WHY)
     citation: dict[str, Any] | None = None
     version: str = ""  # what drafted it: the snapshot, and the prompt version for a note
+    prov: list[str] = field(default_factory=list)  # D-989: the model calls it came from; [] says "no model"
 
     def as_dict(self) -> dict[str, Any]:
         return {"item": self.item, "form": self.form, "cdash": self.cdash, "test": self.test, "value": self.value,
-                "state": self.state, "why": self.why, "citation": self.citation, "version": self.version}  # fmt: skip
+                "state": self.state, "why": self.why, "citation": self.citation, "version": self.version,
+                "prov": list(self.prov)}  # fmt: skip
 
 
 class Facts(Protocol):
@@ -312,8 +314,9 @@ def _coded(ctx: _Ctx, m: ItemMap, f: Field) -> Draft:
     return _value(m, f, text, cite, ctx.snap)
 
 
-# a note drafter: (item map, field, notes) -> {"found", "value", "quote", "note", "date"} and its version
-NoteDrafter = Callable[[ItemMap, Field, list[dict[str, Any]]], tuple[dict[str, Any], str]]
+# a note drafter: (item map, field, notes) -> {"found", "value", "quote", "note", "date"}, its version, and the
+# model call that answered (D-989: the gateway's call id; "" when the answer names none)
+NoteDrafter = Callable[[ItemMap, Field, list[dict[str, Any]]], tuple[dict[str, Any], str, str]]
 
 
 def _note(ctx: _Ctx, m: ItemMap, f: Field, drafter: NoteDrafter | None) -> Draft:
@@ -334,8 +337,18 @@ def _note(ctx: _Ctx, m: ItemMap, f: Field, drafter: NoteDrafter | None) -> Draft
         notes.append({"id": str(n.get("row")), "date": d.isoformat(), "type": str(n.get("type") or ""), "text": text})
     if not notes:
         return _unknown(m, f, "too_long" if skipped else "no_record", ctx.snap)
-    ans, version = drafter(m, f, notes)
+    ans, version, call_id = drafter(m, f, notes)
     stamp = f"{ctx.snap}|{version}"
+    return _from_model(_answer(ctx, m, f, notes, ans, stamp), call_id)
+
+
+def _from_model(d: Draft, call_id: str) -> Draft:
+    """D-989: a draft the model's answer decided, a value or an unknown, names the call; no id is never made up."""
+    d.prov = [call_id] if call_id else []
+    return d
+
+
+def _answer(ctx: _Ctx, m: ItemMap, f: Field, notes: list[dict[str, Any]], ans: dict[str, Any], stamp: str) -> Draft:
     if not ans.get("found") or not str(ans.get("value") or "").strip():
         return _unknown(m, f, "no_record", stamp)
     note = next((n for n in notes if n["id"] == str(ans.get("note") or "")), None)
@@ -456,14 +469,14 @@ def build(pid: str, visit: date, items: list[ItemMap], fields: dict[str, Field],
 def gateway_drafter(llm: Any, job_id: str | None = None) -> NoteDrafter:
     """The note drafter through the box's gateway (prompt ``crf_prefill``; the stub in tests and the e2e)."""
 
-    def draft(m: ItemMap, f: Field, notes: list[dict[str, Any]]) -> tuple[dict[str, Any], str]:
+    def draft(m: ItemMap, f: Field, notes: list[dict[str, Any]]) -> tuple[dict[str, Any], str, str]:
         choices = [{"code": c, "label": lbl} for c, lbl in f.options.items()]
         res = llm.chat_json("crf_prefill", {"item": {"name": f.name, "label": f.label, "kind": f.kind,
                                                      "choices": choices, "question": m.question},
                                             "notes": notes}, job_id=job_id)  # fmt: skip
         data = res.data if hasattr(res, "data") else res
         version = f"crf_prefill_v{getattr(res, 'prompt_version', '') or '1'}"
-        return dict(data or {}), version
+        return dict(data or {}), version, str(getattr(res, "call_id", "") or "")  # D-989
 
     return draft
 
