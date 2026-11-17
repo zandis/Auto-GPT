@@ -23,6 +23,8 @@ import pytest
 
 from tests.unit.test_error_answers import _caught, _is_log, _uses_text_of
 
+pytestmark = [pytest.mark.guard, pytest.mark.nodb]  # D-1119: the guard step of `checks`; no database
+
 ROOT = Path(__file__).resolve().parents[2] / "services"
 CHART = "A1234567"
 GENERAL = {"Exception", "BaseException", "ValueError", "KeyError", "FileNotFoundError", "OSError", "RuntimeError",

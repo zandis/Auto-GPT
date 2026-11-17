@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+pytestmark = [pytest.mark.guard, pytest.mark.nodb]  # D-1119: the guard step of `checks`; no database
+
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT.parent / ".github" / "workflows" / "trialbox-ci.yml"
 
