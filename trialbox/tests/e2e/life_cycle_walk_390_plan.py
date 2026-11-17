@@ -91,7 +91,7 @@ FINDINGS: tuple[Finding, ...] = (
             "box named \"Menu\"; the walk finds the button by its data-testid, at every step and every role",
             "one Menu button that is the control a person sees and the one assistive technology names",
             "D-133 (\"one Menu button\"); WCAG 4.1.2 in " + SPEC + " (accessibility table)",
-            "cosmetic", "C2", also=tuple(range(2, 22))),
+            "cosmetic", "C2", also=tuple(range(2, 23))),
     Finding("P-02", 3, "coordinator", "/pilot/jobs/{job}", "table wider than the screen",
             "the job page's thread table is 666 to 861 px wide and the SCREEN job's rows 783 to 894 px (en to ja); "
             + TABLES,
@@ -143,15 +143,20 @@ FINDINGS: tuple[Finding, ...] = (
     Finding("P-13", 19, "steward", "/site/opt-outs", "table wider than the screen",
             "the opt-out register's list is 467 to 565 px wide; " + TABLES,
             "not among the phone's pages: no expectation for a phone", SPEC + " §10 (phone's pages)",
+            "cosmetic", "C2", also=(21,)),
+    Finding("P-14", 21, "steward", "/audit", "table wider than the screen",
+            "the audit trail's table is 1,304 to 1,332 px wide; the worker's run sits in its first row, its time on "
+            "the left and its detail on the right; " + TABLES,
+            "not among the phone's pages: no expectation for a phone", SPEC + " §10 (phone's pages)",
             "cosmetic", "C2"),
+    Finding("P-15", 21, "steward", "/audit", "target under 44 px",
+            "the audit filter's \"Clear\" link (\"清除\", \"クリア\") is 32 to 40 by 24 px",
+            "44 px controls on a phone (the card's size; the spec asks 24 px except for the PI's marks)",
+            SPEC + " (2.5.8)", "cosmetic", "C2"),
 )  # fmt: skip
 
 #: the steps the phone could not complete, and why (read from the logs)
-NOT_COMPLETED: tuple[tuple[int, str, str], ...] = (
-    (21, "the erase: the opt-out worker's clears (D-441, D-465)",
-     "as on a desktop (H-20's F-20): the steps-mode box's orchestrator never starts the opt-out worker; the phone "
-     "adds nothing"),
-)  # fmt: skip
+NOT_COMPLETED: tuple[tuple[int, str, str], ...] = ()  # H-25 (D-1124) settled the erase; the phone adds none
 
 
 def plan_json(lang: str, rs: str, accounts: dict[str, str], log: str = "", shots: str = "") -> dict[str, Any]:
@@ -175,7 +180,7 @@ def render_findings() -> str:
     out = [BEGIN, "", "| Id | Step | Role | Page | Measure | What the phone showed | Expected (from) | Severity | Lane |",
            "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]  # fmt: skip
     for f in sorted(FINDINGS, key=lambda f: (f.step, f.id)):
-        steps = "1 to 21" if len(f.steps()) == 21 else ", ".join(str(n) for n in f.steps())
+        steps = "1 to 22" if len(f.steps()) == 22 else ", ".join(str(n) for n in f.steps())
         out.append(
             f"| {f.id} | {steps} | {f.role} | `{f.path}` | {f.kind} | {_cell(f.showed)} | {_cell(f.expected)} "
             f"({_cell(f.source)}) | {f.severity} | {f.lane} |"

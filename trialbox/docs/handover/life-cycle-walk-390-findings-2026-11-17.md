@@ -3,7 +3,7 @@
 **Reader:** the people who build TrialBox: the lane that owns the console (C2) and the integrator. Findings for
 builders, so in one language.
 
-This is card H-21, decision D-1138. It runs H-20's walk (D-1135) again on a phone: the same 21 steps, roles, refusals
+This is card H-21, decision D-1138. It runs H-20's walk (D-1135) again on a phone: the same 22 steps, roles, refusals
 and languages (en, zh-TW, ja), each language under its own new study id. The browser window is 390 x 844 px, touch and
 mobile. The box is the same local steps-mode box (D-1062).
 
@@ -49,7 +49,7 @@ the top bar, the language or More, and "← Back to the list" where the patient 
 
 | Id | Step | Role | Page | Measure | What the phone showed | Expected (from) | Severity | Lane |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| P-01 | 1 to 21 | coordinator | `/home` | behind the menu | on a phone the top bar's links, the language box and Sign out are behind "☰ Menu"; that visible label is hidden from assistive technology (`aria-hidden`), the accessible control being a hidden check box named "Menu"; the walk finds the button by its data-testid, at every step and every role | one Menu button that is the control a person sees and the one assistive technology names (D-133 ("one Menu button"); WCAG 4.1.2 in `docs/plan/design/09-ui-ux-spec.md` (accessibility table)) | cosmetic | C2 |
+| P-01 | 1 to 22 | coordinator | `/home` | behind the menu | on a phone the top bar's links, the language box and Sign out are behind "☰ Menu"; that visible label is hidden from assistive technology (`aria-hidden`), the accessible control being a hidden check box named "Menu"; the walk finds the button by its data-testid, at every step and every role | one Menu button that is the control a person sees and the one assistive technology names (D-133 ("one Menu button"); WCAG 4.1.2 in `docs/plan/design/09-ui-ux-spec.md` (accessibility table)) | cosmetic | C2 |
 | P-02 | 3, 7, 8, 9, 10, 11, 13 | coordinator | `/pilot/jobs/{job}` | table wider than the screen | the job page's thread table is 666 to 861 px wide and the SCREEN job's rows 783 to 894 px (en to ja); the table scrolls sideways inside its own frame, the page does not | the job page in one column on a phone (not among the phone's pages) (`docs/plan/design/09-ui-ux-spec.md` §10 (phone's pages)) | cosmetic | C2 |
 | P-03 | 4, 5, 7, 8 | coordinator | `/pilot/jobs/{job}/approval` | table wider than the screen | in ja only, the approval table (S20) is 463 to 485 px wide; the table scrolls sideways inside its own frame, the page does not | S20 approval readable on a phone ("allowed on a phone when no row is amber") (`docs/plan/design/09-ui-ux-spec.md` §10 (phone 390–767 px: S20 approval), S20) | cosmetic | C2 |
 | P-04 | 6, 19 | steward | `/studies/{rs}/team` | table wider than the screen | the delegation log is 792 to 932 px wide; the table scrolls sideways inside its own frame, the page does not | not among the phone's pages: no expectation for a phone (`docs/plan/design/09-ui-ux-spec.md` §10 (phone's pages)) | cosmetic | C2 |
@@ -61,15 +61,16 @@ the top bar, the language or More, and "← Back to the list" where the patient 
 | P-10 | 12 | coordinator | `/studies/{rs}/week` | not shown on the phone | the coordinator's line "The investigator decides here; you get a task…" is only in the patient sheet, which a phone shows after a row is tapped; the desktop shows it beside the list | the list first on a phone, the sheet after a tap (D-133 (the phone's sheet)) | cosmetic | C2 |
 | P-11 | 15 | coordinator | `/studies/{rs}/week` | covered | with a patient's sheet open, the sheet's bar ("← Back to the list") covers "☰ Menu": the coordinator taps Back first to reach the menu and My studies | the menu reachable from every page (D-133 (Back, Next and the menu on the phone's sheet)) | slows the tester | C2 |
 | P-12 | 17, 18 | coordinator | `/studies/{rs}/state` | table wider than the screen | in en the study's state history is 413 px wide; the table scrolls sideways inside its own frame, the page does not | not among the phone's pages: no expectation for a phone (`docs/plan/design/09-ui-ux-spec.md` §10 (phone's pages)) | cosmetic | C2 |
-| P-13 | 19 | steward | `/site/opt-outs` | table wider than the screen | the opt-out register's list is 467 to 565 px wide; the table scrolls sideways inside its own frame, the page does not | not among the phone's pages: no expectation for a phone (`docs/plan/design/09-ui-ux-spec.md` §10 (phone's pages)) | cosmetic | C2 |
+| P-13 | 19, 21 | steward | `/site/opt-outs` | table wider than the screen | the opt-out register's list is 467 to 565 px wide; the table scrolls sideways inside its own frame, the page does not | not among the phone's pages: no expectation for a phone (`docs/plan/design/09-ui-ux-spec.md` §10 (phone's pages)) | cosmetic | C2 |
+| P-14 | 21 | steward | `/audit` | table wider than the screen | the audit trail's table is 1,304 to 1,332 px wide; the worker's run sits in its first row, its time on the left and its detail on the right; the table scrolls sideways inside its own frame, the page does not | not among the phone's pages: no expectation for a phone (`docs/plan/design/09-ui-ux-spec.md` §10 (phone's pages)) | cosmetic | C2 |
+| P-15 | 21 | steward | `/audit` | target under 44 px | the audit filter's "Clear" link ("清除", "クリア") is 32 to 40 by 24 px | 44 px controls on a phone (the card's size; the spec asks 24 px except for the PI's marks) (`docs/plan/design/09-ui-ux-spec.md` (2.5.8)) | cosmetic | C2 |
 
 <!-- life-cycle-walk-390: end of findings -->
 
 ## Steps the phone cannot complete
 
-| Step | What | Why |
-| --- | --- | --- |
-| 21 | the erase: the opt-out worker's clears (D-441, D-465) | as on a desktop (H-20's F-20): the steps-mode box's orchestrator never starts the opt-out worker; the phone adds nothing |
+None. Every step was done on the phone. The erase completes on a steps-mode box since H-25 (D-1124), on the phone as on
+a desktop: step 21 sees the worker's run after the opt-out, and step 22 reads its health check at 0.
 
 ## Counts
 
@@ -77,4 +78,4 @@ the top bar, the language or More, and "← Back to the list" where the patient 
 | --- | --- |
 | blocks the step | 0 |
 | slows the tester | 3 |
-| cosmetic | 10 |
+| cosmetic | 12 |

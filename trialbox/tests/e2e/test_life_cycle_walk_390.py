@@ -34,6 +34,7 @@ from tests.e2e.test_new_study_walk import RULESET_ID, _node_playwright, accounts
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = Path(__file__).with_name("life_cycle_walk.js")
+PHONE = Path(__file__).with_name("life_cycle_walk_phone.js")  # the phone's measures, loaded by the driver
 WALK_BUDGET_S = 1200  # one language's walk on a phone took 140 to 190 s on a 4-core container (2026-11-17)
 
 
@@ -138,10 +139,12 @@ def test_the_new_ids_are_new_to_the_stub_and_the_box() -> None:
 def test_the_driver_measures_what_the_plan_names() -> None:
     """Every measure kind of the plan is one the driver writes, and the driver keeps its screenshots in the plan's
     folder (never a path of its own)."""
-    code = SCRIPT.read_text(encoding="utf-8")
+    code = PHONE.read_text(encoding="utf-8")
     for kind in pp.KINDS:
         assert f'"{kind}"' in code, kind
     assert "plan.shots" in code and "viewport" in code
+    driver = SCRIPT.read_text(encoding="utf-8")
+    assert 'require("./life_cycle_walk_phone.js")' in driver and "plan.viewport ?" in driver
 
 
 def test_the_measures_of_a_log() -> None:

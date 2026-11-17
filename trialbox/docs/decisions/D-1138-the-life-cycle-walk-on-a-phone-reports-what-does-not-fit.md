@@ -23,7 +23,9 @@ No walk had opened the console at that width.
 1. **The same walk on a phone.** `tests/e2e/test_life_cycle_walk_390.py` (marked e2e) runs H-20's plan and driver
    with a phone's viewport: 390 x 844 px, touch, mobile. It keeps every step, role, language and refusal of H-20's
    walk, and nothing is copied: the driver takes a `viewport`, and a fast test holds the phone plan equal to
-   H-20's plan but for it. Each walk has its own new ids (`LIFEPHONE`, `LIFEPHONEZH`, `LIFEPHONEJA`).
+   H-20's plan but for it. The phone's code is its own module (`tests/e2e/life_cycle_walk_phone.js`), which the shared
+   driver loads only for a plan with a viewport and calls through one-line hooks at its existing places (the browser
+   context, a page reached, a click, the menu, an expectation, a stop). Each walk has its own new ids (`LIFEPHONE`, `LIFEPHONEZH`, `LIFEPHONEJA`).
 2. **What it measures.** On every page it reaches and before every click, the driver measures:
    - a horizontal page scroll;
    - a control off the screen, or covered where the finger would land;
