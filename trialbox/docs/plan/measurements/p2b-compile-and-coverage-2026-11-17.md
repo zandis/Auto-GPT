@@ -111,7 +111,7 @@ not run. They are counted apart (`flags_of_steps_not_run`) and not read as findi
 
 **What the rule does not catch (shown).** The stored drafts hold 14 exclusions whose coded logic is an age or a sex
 alone, in a class whose logic runs (`sets.sigir.stored.exclusions_demographic_alone`):
-- 9 are age-only lines that name nothing more ("Less than 18 years of age"). The rule rightly leaves them alone.
+- 9 are age-only lines whose words name only an age ("Less than 18 years of age"). The rule leaves them alone.
 - 5 are sex-only. The rule holds 3 of them (the table above).
 - It misses 2:
   - NCT01863628 EXC-06 "in pregnancy and lactation;" stays `structured` with `sex: female` and nothing else.

@@ -97,7 +97,8 @@ def make_run(root: Path) -> Path:
 def run(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     root = tmp_path_factory.mktemp("h26")
     d = make_run(root)
-    return compile_report.report([d], root / "scratch", index_day=date(2026, 11, 17))["sets"]["made"]
+    made: dict[str, Any] = compile_report.report([d], root / "scratch", index_day=date(2026, 11, 17))["sets"]["made"]
+    return made
 
 
 def test_the_stored_compile_counts_protocols_classes_and_screen(run: dict[str, Any]) -> None:
