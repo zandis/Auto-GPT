@@ -1394,8 +1394,9 @@ step_canary() { watched d_canary; local rc=$?; note canary_exit "$rc"; [ "$rc" =
 # exclude (D-117: a passing pair canary under 36 h, no failed wake check since). The host's selftest above records
 # nothing in the box. The gate's status (GET /models) is kept in records/canary-gate.json.
 d_gate() {
-  # D2 (P1b review): GET /models needs the service token: it is read from inside the box (a service's container, as
-  # d_study_ready reads), never from a bare container (the 401 that P1b polled for 1,500 s). Read once first: since
+  # D2 (P1b review): GET /models needs the service token: it is read from inside the box (the console's container,
+  # as d_study_ready reads: the caller the orchestrator allows on that route), never from a bare container (the 401
+  # that P1b polled for 1,500 s). Read once first: since
   # D-915/D-916 the pair canary of step 07 (trialbox selftest) is the gate's result, so an open gate ends the step in
   # seconds. Otherwise the orchestrator is restarted (its own canary at start) and the gate read until a new report,
   # at most TB_GATE_WAIT_S (480 s). A 401 or 403 is a failure at once (exit 3), never waited on.
@@ -1412,7 +1413,11 @@ try: print(json.loads(sys.stdin.read())["gate"].get("at") or "")
 except (ValueError, KeyError, AttributeError): print("")' 2>/dev/null)
   d_gate_read wait "$at" "${TB_GATE_WAIT_S:-480}"
 }
-d_gate_read() { in_svc mail-gateway <<EOF
+# The caller is the console: GET /models is in the orchestrator's group models_read, which route_callers.yaml gives
+# to the console and the operator only (T-713, D-464). The mail gateway may start and read mailed jobs and nothing
+# else, and launch P2 stopped here on its 403 (D-1125). tests/unit/test_h13_driver_callers.py holds every in_svc
+# call of this file against the orchestrator's own table.
+d_gate_read() { in_svc console <<EOF
 # tb-boxrun: canary-gate $1
 import json, time, httpx
 from tb_common.service_auth import auth_headers

@@ -142,6 +142,9 @@ and needs no `TB_BUCKET` or credentials, and it stops where the launch would fir
 - **The protocol filter (D1).** Every id must be one of its set's ids under `--acc-rs-tag`. With tag `m2` the
   TCGA-BRCA protocol is `Gm2TCGA-BRCA`, so launch P1b's `G2TCGA-BRCA` is refused, and the refusal lists the ids
   that do exist. An empty filter is refused too.
+  A filter on a set whose ids are not known locally (sigir, trec2023: the sample is drawn from source files the VM
+  fetches) is refused as well (D-1125): it cannot be checked for free, so it is not accepted for free. Leave such
+  a set out of `--acc-protocols`.
 - **The streams and budgets (D4, D7).** `--acc-streams` must name a set of the launch, with 1 to TB_WORKERS
   less one (3 by default). `--acc-deadline` and `--acc-min-start` must be seconds. The preflight prints how many
   protocols each set will have in flight: 3 for a compile-bound set, else 1.
