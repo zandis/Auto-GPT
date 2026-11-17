@@ -230,7 +230,7 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
             return
         subject, body = office_notice(rid, v, rules)
         try:
-            bk.send_notice("N2", to, subject, body, SYNC)
+            bk.send_notice("N2", to, subject, body, actor.SAE_SYNC)  # T-715: the sync's own name
             detail = {"action": "office_copy", "record": v["record"], "event": v["event"], "to": ", ".join(to)}
             au.append("console.sae", ruleset=rid, actor=SYNC, detail=detail)
         except Exception as exc:

@@ -11,3 +11,19 @@
   - **Setting and report:** `TB_JUDGED_STORE=off` turns it off. The job's summary says `judged_store: {on, read, live}` (model calls of note questions read and asked).
   - **Adversarial review (2026-11-16):** eight findings, all fixed: the store off for new jobs (snapshot read lazily), canary calls keyed under a patient (question digest), the build frozen at the first answer, opt-outs during a job, retention over the store's own snapshots, S4 sharing S3's row (role in the key), a store fault failing the job, and the report when off.
 - **Test:** `tests/unit/test_judged_pair_store.py`.
+
+## Each judge call's record names its stage and its question (H-16, 2026-11-17)
+
+Lane H's offline review of a stored run (#970, for H-18) could not tell S3's calls from S4's: SCREEN's note calls
+are all labelled with one context of use on the gateway (the v1 path's role table names the prompt, not the stage),
+and the cascade's question was not recorded beside a call. Now the cascade sets `tb_common.llm.CALL_CONTEXT` around
+each judge question (beside `ASKING`), and `llm.call` writes it as `asking`, with the answer schema the call used:
+
+- `stage` (S3 for the judge, S4 for the second opinion) and the `context_of_use` the cascade's gateway client labels
+  it with, and the cascade's `role`;
+- the patient's pseudonym, the criterion's canonical hash, the window and the question digest (`question_digest`,
+  what the models are shown), and whether it was an audit sample.
+
+Ids and hashes only, never the question's text. With the call's prompt id, prompt sha, schema and build beside it,
+the store's key can be computed from the records. The gateway labels of the v1 path are unchanged: they route the
+call, and changing them is the gateway's card.

@@ -40,10 +40,10 @@ def test_a_refused_address_loses_only_its_own_mail(tmp_path: Path) -> None:
     app, bk = _box(tmp_path, 3)
     real = bk.send_notice
 
-    def send(kind: str, to: list[str], subject: str, body: str, by: str) -> str:
+    def send(kind: str, to: list[str], subject: str, body: str, principal: str) -> str:
         if to == ["stew1@hospa.test"]:
             raise RuntimeError("notices go to hospital addresses only")
-        return str(real(kind, to, subject, body, by))
+        return str(real(kind, to, subject, body, principal))
 
     bk.send_notice = send
     app.state.account_rules.tell_people("crc1", "password", "admin", "")
