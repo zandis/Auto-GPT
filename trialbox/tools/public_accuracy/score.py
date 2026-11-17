@@ -30,6 +30,11 @@ failed protocol stays in the denominator of the failure share; the target "fewer
 boolean. Pair and criterion rows on a protocol that never screened are counted by that protocol's status, never
 dropped from sight.
 
+Attempts (D-1129, card H-14): a set that ended on its own budget and was taken up again by a resume is one record:
+``answers.json`` holds each protocol once (the attempt that answered it in ``attempt``), so every denominator counts
+a protocol once and a protocol cut in attempt 1 and screened in attempt 2 is screened. The ``protocols`` block says
+``attempts`` (how many, the protocols finished in each, those still cut) and its line.
+
 Pathology (TCGA, the PoC-1 figure): over the protocols screened, ineligible reports excluded (n of N), wrong
 exclusions (of the box's exclusions), eligible reports lost (n of N). A set with nothing screened or no verdict is
 "not scored", by name (D-1108).
@@ -50,9 +55,9 @@ from typing import Any
 from tools.public_accuracy import key as answer_keys
 
 #: the report's layout: 2 adds ``protocols``, ``pathology``, ``unjudged_exclusions`` and the denominators (card H-3);
-#: 3 adds ``pairs.conflicted`` and, per language, ``eligible_lost_without_conflicted`` (D-1064, card H-6); a report
-#: with no such field is layout 1. Keys are only ever added.
-SCHEMA_VERSION = 3
+#: 3 adds ``pairs.conflicted`` and, per language, ``eligible_lost_without_conflicted`` (D-1064, card H-6); 4 adds
+#: ``protocols.attempts`` (D-1129, card H-14); a report with no such field is layout 1. Keys are only ever added.
+SCHEMA_VERSION = 4
 
 OPEN_VERDICTS = ("pending_human", "unknown", "not_evaluated", "not evaluated", "data_gap", "uncertain")
 
@@ -226,10 +231,32 @@ def statuses(ids: dict[str, Any], answers: dict[str, Any]) -> dict[str, tuple[st
     return {rs: protocol_status(answers.get(rs)) for rs in sorted(rss)}
 
 
-def score_protocols(ids: dict[str, Any], answers: dict[str, Any]) -> dict[str, Any]:
+def attempts(answers: dict[str, Any], clock: dict[str, Any] | None = None) -> dict[str, Any]:
+    """D-1129: the set's attempts read as one: how many (the set's clock, ``set-clock.json``, or the highest
+    ``attempt`` an answer carries), the protocols finished in each (an answer with no ``attempt``: attempt 1), and
+    those still cut by a budget. The line is the one the set's report prints."""
+    done = [a for a in answers.values() if protocol_status(a)[0] != "not_run_time_budget"]
+    n = max([int((clock or {}).get("attempt") or 1)] + [int(a.get("attempt") or 1) for a in done])
+    fin = {str(i): 0 for i in range(1, n + 1)}
+    cut = 0
+    for a in answers.values():
+        if protocol_status(a)[0] == "not_run_time_budget":
+            cut += 1
+        else:
+            k = str(int(a.get("attempt") or 1))
+            fin[k] = fin.get(k, 0) + 1
+    said = "; ".join(f"in attempt {k}: {v}" if i else f"protocols finished in attempt {k}: {v}"
+                     for i, (k, v) in enumerate(sorted(fin.items(), key=lambda kv: int(kv[0]))))  # fmt: skip
+    return {"attempts": n, "finished_in": fin, "still_cut": cut, "line": f"attempts: {n}; {said}; still cut: {cut}"}
+
+
+def score_protocols(
+    ids: dict[str, Any], answers: dict[str, Any], clock: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """D-1107 (card H-3): what became of each protocol of the set. A protocol that failed before or in SCREEN is its
     own line, by class, and stays in the denominator of the failure share; a budget cut is said apart and is not
-    attempted. The target is "fewer than one protocol in ten of those attempted fails" (before or in SCREEN)."""
+    attempted. The target is "fewer than one protocol in ten of those attempted fails" (before or in SCREEN).
+    ``clock``: the set's ``set-clock.json`` (D-1129: its attempts)."""
     in_set = sorted(set((ids.get("rulesets") or {}).values()))
     st = statuses(ids, answers)
     by: Counter[str] = Counter(s for s, _ in st.values())
@@ -267,6 +294,7 @@ def score_protocols(ids: dict[str, Any], answers: dict[str, Any]) -> dict[str, A
         "this wider share, and the share failed before SCREEN is printed beside it); attempted = "
         "screened + compiled + failed + unfinished (budget cuts and protocols not in answers.json are not)",
         "statuses": STATUS_WHAT,
+        "attempts": attempts(answers, clock),  # D-1129: the attempts of a set taken up again after its budget
     }
 
 
@@ -914,13 +942,19 @@ def score(built: Path, work: Path, key: bytes | None = None) -> dict[str, Any]:
             miss["pathology"] = score_pathology(ids, [], None, key)
         return miss
     ids, pairs, crits, answers = load(built, work)
+    clock: dict[str, Any] | None = None
+    if (work / "set-clock.json").exists():  # D-1129: the set's attempts (the clock of the run's own folder)
+        try:
+            clock = json.loads((work / "set-clock.json").read_text(encoding="utf-8"))
+        except ValueError:
+            clock = None
     out: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "set": ids.get("set"),
         "what": "joined by ids after the run; the gold was not in the box",
         "answer_key": answer_keys.describe(built),  # D-1104: every score names the key it was scored on
     }
-    out["protocols"] = score_protocols(ids, answers)
+    out["protocols"] = score_protocols(ids, answers, clock if isinstance(clock, dict) else None)
     if ids.get("set") == "tcga":
         out["pathology"] = score_pathology(ids, pairs, answers, key)
     if pairs:
