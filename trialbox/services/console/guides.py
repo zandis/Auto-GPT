@@ -2,7 +2,8 @@
 
 One source: what Help says on each page is what the guide says. For each role: what the role does
 (``help.role.<role>``), what the matrix lets it do (``console.app.role_description``), the pages it opens (each with
-``help.page.<slug>``), the glossary for a role that sees patients (``life.gloss.*``), the commands to try
+``help.page.<slug>``, or ``help.page.<slug>.<role>`` where the page reads differently for the role:
+``step4.help_key``), the glossary for a role that sees patients (``life.gloss.*``), the commands to try
 (``cmd.ex.<role>.<n>``) and where to ask. :func:`markdown` is the printable guide that ``tools.role_guides`` writes to
 ``docs/guides/<role>.<lang>.md``; :func:`sections` is what ``/help/guide`` shows. Every word comes from the catalogue,
 so a guide in ja or zh-TW has no English unless the catalogue has none (a test holds both)."""
@@ -13,7 +14,8 @@ from typing import Any
 
 from tb_common.authz import conditional, permit
 
-from console.i18n import translate
+from console.i18n import lookup, translate
+from console.step4 import help_key
 
 #: the console's roles, in the order the guides are listed
 ROLES = ("admin", "coordinator", "investigator", "viewer", "cro", "steward", "privacy")
@@ -38,6 +40,8 @@ PAGES: dict[str, tuple[str, str | None]] = {
     "candidates": ("GET /studies/{rs}/candidates", None),
     "referrals": ("GET /studies/{rs}/referrals", None),
     "edc": ("GET /studies/{rs}/edc", None),
+    "subjects": ("GET /studies/{rs}/subjects", None),  # J-4 (D-1224, walk F-08)
+    "state": ("GET /studies/{rs}/state", None),
     "reports": ("GET /reports", None),
     "admin": ("GET /admin", None),
     "users": ("GET /ops/users", "POST /ops/users"),
@@ -91,6 +95,8 @@ ROLE_PAGES: dict[str, tuple[tuple[str, bool], ...]] = {
         ("candidates", False),
         ("referrals", False),
         ("edc", False),
+        ("subjects", False),
+        ("state", False),
         ("reports", False),
         ("staff", False),
         ("jobs", True),
@@ -115,6 +121,8 @@ ROLE_PAGES: dict[str, tuple[tuple[str, bool], ...]] = {
         ("candidates", True),
         ("referrals", True),
         ("edc", True),
+        ("subjects", True),
+        ("state", False),
         ("reports", False),
         ("breakglass", False),
         ("staff", False),
@@ -204,8 +212,8 @@ def examples(role: str, lang: str) -> list[str]:
     out = []
     for n in range(1, EXAMPLES + 1):
         key = f"cmd.ex.{role}.{n}"
-        ex = translate(lang, key)
-        if ex != key:
+        ex = lookup(lang, key)
+        if ex is not None:
             out.append(ex.replace("GZQO", "STUDY"))
     return out
 
@@ -215,7 +223,7 @@ def keys(role: str) -> list[str]:
     out = [f"role.{role}", "guide.title", "guide.intro", "guide.what", f"help.role.{role}", "guide.rights",
            "guide.pages", "guide.commands", "guide.commands.help", "guide.ask", "guide.ask.text"]  # fmt: skip
     out += ["guide.cond"] if any(c for _s, c in ROLE_PAGES[role]) else []
-    out += [k for s, _c in ROLE_PAGES[role] for k in (f"guide.page.{s}", f"help.page.{s}")]
+    out += [k for s, _c in ROLE_PAGES[role] for k in (f"guide.page.{s}", help_key(s, role))]
     out += ["guide.words", *[f"life.gloss.{w}" for w in GLOSSARY]] if sees_patients(role) else []
     out += [f"cmd.ex.{role}.{n}" for n in range(1, EXAMPLES + 1) if f"cmd.ex.{role}.{n}" in _en()]
     return out
@@ -245,7 +253,7 @@ def sections(role: str, lang: str) -> dict[str, Any]:
         "pages": (
             t("guide.pages"),
             [
-                (t("guide.cond", page=t(f"guide.page.{s}")) if cond else t(f"guide.page.{s}"), t(f"help.page.{s}"))
+                (t("guide.cond", page=t(f"guide.page.{s}")) if cond else t(f"guide.page.{s}"), t(help_key(s, role)))
                 for s, cond in ROLE_PAGES[role]
             ],
         ),

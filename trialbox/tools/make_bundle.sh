@@ -225,5 +225,13 @@ PYTHONPATH="$ROOT/libs:$ROOT" "$PY" "$ROOT/tools/sign_bundle.py" build --key "$K
   --description "TrialBox release $ID: images, models, rulesets, installer" "${ITEMS[@]}"
 (cd "$ROOT" && PYTHONPATH="$ROOT/libs:$ROOT/services:$ROOT" "$PY" -m tools.release check "$OUT") \
   || { rm -f "$OUT"; echo "make_bundle: the signed bundle does not match its release record; removed" >&2; exit 1; }
-sha256sum "$OUT" | tee "$OUT.sha256"
-echo "done: hand over $OUT and $OUT.sha256 on a USB stick; the site runs: deploy/install.sh $(basename "$OUT")"
+# H-22 (D-996): the install's first command, beside the bundle and signed by the same key; RUNBOOK §1 checks its .sig
+# with openssl, then runs it: it verifies the bundle, unpacks the host tree to /opt/trialbox and runs the installer
+BOOT="$(dirname "$OUT")/trialbox-bootstrap.sh"
+cp "$ROOT/deploy/bootstrap.sh" "$BOOT"
+PYTHONPATH="$ROOT/libs:$ROOT" "$PY" "$ROOT/tools/sign_bundle.py" sign-file --key "$KEY" "$BOOT" >/dev/null \
+  || { echo "make_bundle: the bootstrap could not be signed" >&2; exit 1; }
+# each file named bare, written from its own folder: the sidecar checks wherever the stick is mounted (H-22 finding 4)
+(cd "$(dirname "$OUT")" && sha256sum "$(basename "$OUT")" "$(basename "$BOOT")" "$(basename "$BOOT").sig") | tee "$OUT.sha256"
+echo "done: hand over, on a USB stick: $(basename "$OUT"), $(basename "$OUT").sha256, $(basename "$BOOT") and $(basename "$BOOT").sig"
+echo "      (the vendor key goes apart from the stick); the site runs RUNBOOK section 1's first command"

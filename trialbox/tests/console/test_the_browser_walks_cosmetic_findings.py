@@ -92,7 +92,7 @@ def test_the_new_words_are_in_every_language() -> None:
 
 # ---------------------------------------------------------------------------------------------- D-861 (2026-11-16)
 _STUDY = {"name": "", "regulator": "", "parties": {"regulator_expected": True}, "confirmed_by": "", "source": "country",
-          "problems": ["not_chosen"]}  # fmt: skip
+          "problems": ["unknown_rules"]}  # fmt: skip
 
 
 def _card(role: str, study: dict[str, Any], fu: dict[str, Any] | None = None) -> str:
@@ -113,6 +113,6 @@ def test_the_sae_set_up_notes_go_to_who_can_act_and_no_empty_line_is_printed() -
     assert 'data-testid="sae-deadlines"' not in pi and 'data-testid="sae-followup"' not in pi  # nothing to say
     assert ": ." not in pi and 'data-testid="sae-rules-GZQO"' in pi
     crc = _card("coordinator", _STUDY)
-    assert 'data-testid="sae-unconfirmed"' in crc and 'data-testid="sae-rule-problem-not_chosen"' in crc
+    assert 'data-testid="sae-unconfirmed"' in crc and 'data-testid="sae-rule-problem-unknown_rules"' in crc
     dated = _card("investigator", {**_STUDY, "parties": {"sponsor": [7, 15]}}, {"sponsor": [7, 15]})
     assert 'data-testid="sae-deadlines"' in dated and "7/15" in dated and 'data-testid="sae-followup"' in dated
