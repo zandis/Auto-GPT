@@ -198,7 +198,8 @@ ALTER TABLE sessions ADD COLUMN acting_role TEXT
 # STEPS-ROLE-2 (D-1151, the owner's ruling of 2026-11-17): the role a person last acted in, the default of the next
 # sign-in (chosen on the sign-in page, or the last switch)
 SCHEMA_V8 = """
-ALTER TABLE users ADD COLUMN last_acting_role TEXT
+ALTER TABLE users ADD COLUMN last_acting_role TEXT;
+ALTER TABLE pending_logins ADD COLUMN role TEXT
 """
 MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8)
 FACTORS = ("password", "totp")
@@ -455,6 +456,9 @@ class UserStore:
         #: STEPS-ROLE (D-877): whether a session may act in an extra role now (the flag on, on a test box: set by
         #: console.app from console.acting); off, every account is its own role only
         self.acting_on: Callable[[], bool] = lambda: False
+        #: D-1151 (the review): told (user, from, to) when a session starts acting in the remembered role, so the
+        #: audit trail has it (console.app sets it to a ``role.acting`` event at session start)
+        self.on_acting_start: Callable[[str, str, str], object] | None = None
 
     def close(self) -> None:
         self.db.close()
@@ -763,12 +767,18 @@ class UserStore:
         )
         self.db.execute("UPDATE users SET last_login = ? WHERE username = ?", (now, user.username))  # D-406
         sess = Session(user, csrf, lang, _sha(token))
-        # D-1151: a session starts in the role the person last acted in (chosen at sign-in, or the last switch), when
-        # acting is on and the account still holds it; else in the account's own role
+        # D-1151: a page session starts in the role the person last acted in (chosen at sign-in, or the last switch),
+        # when acting is on and the account still holds it; else in the account's own role. An API token never acts
+        # (the review of D-1151: the switch is the pages'), and a remembered role no longer held is forgotten
         last = self.last_role(user.username)
-        if last and last != user.role and self.acting_on() and last in self.extra_roles(user.username):
-            self.db.execute("UPDATE sessions SET acting_role = ? WHERE token_sha = ?", (last, sess.token_sha))
-            sess = self._acting(sess, last)
+        if last and last != user.role:
+            if not self.acting_on() or last not in self.extra_roles(user.username):
+                self.forget_role(user.username)
+            elif not is_api_via(via):
+                self.db.execute("UPDATE sessions SET acting_role = ? WHERE token_sha = ?", (last, sess.token_sha))
+                sess = self._acting(sess, last)
+                if self.on_acting_start is not None:
+                    self.on_acting_start(user.username, user.role, last)
         return token, sess
 
     def session(self, token: str | None, touch: bool = True, api: bool = False) -> Session | None:
@@ -811,6 +821,7 @@ class UserStore:
             # the review of D-877: a role no longer held, or acting switched off, ends the acting role for good, so
             # it never comes back unannounced when the flag goes on again (a new switch is audited)
             self.db.execute("UPDATE sessions SET acting_role = NULL WHERE token_sha = ?", (sess.token_sha,))
+            self.forget_role(sess.user.username)  # the review of D-1151: nor at the next sign-in
             return sess
         return replace(sess, user=replace(sess.user, role=acting), acting_from=sess.user.role)  # type: ignore[arg-type]
 
@@ -836,6 +847,8 @@ class UserStore:
             raise AuthError(f"role must be one of {', '.join(ROLES)} (got {', '.join(bad)})")
         extra = tuple(sorted({r for r in roles if r != own}))
         self.db.execute("UPDATE users SET extra_roles = ? WHERE username = ?", (",".join(extra) or None, username))
+        if self.last_role(username) not in (own, *extra):
+            self.forget_role(username)  # D-1151: a role taken away is not the next sign-in's
         return extra
 
     def set_acting(self, sess: Session, role: str) -> tuple[str, str]:
@@ -849,6 +862,16 @@ class UserStore:
                         (None if role == own else role, sess.token_sha))  # fmt: skip
         self.db.execute("UPDATE users SET last_acting_role = ? WHERE username = ?", (role, sess.user.username))
         return before, role
+
+    def forget_role(self, username: str) -> None:
+        self.db.execute("UPDATE users SET last_acting_role = NULL WHERE username = ? AND last_acting_role IS NOT NULL",
+                        (username,))  # fmt: skip
+
+    def pending_role(self, token: str | None) -> str:
+        """D-1151: the role chosen on the sign-in page of a half-done sign-in (taken once the code is right)."""
+        if not token or len(token) > 256:
+            return ""
+        return str(self.db.fetchval("SELECT role FROM pending_logins WHERE token_sha = ?", (_sha(token),)) or "")
 
     def last_role(self, username: str) -> str:
         """The role the person last acted in ("" when none was ever chosen)."""
@@ -870,9 +893,9 @@ class UserStore:
         if not self.acting_on():
             return []
         held: set[str] = set()
-        for own, extra in self.db.fetchall("SELECT role, extra_roles FROM users WHERE coalesce(extra_roles, '') <> ''"):
-            held |= {str(own), *[r for r in str(extra).split(",") if r in ROLES]}
-        return [r for r in ROLES if r in held]
+        for own, extra in self.db.fetchall("SELECT role, extra_roles FROM users WHERE disabled = 0"):
+            held |= {str(own), *[r for r in str(extra or "").split(",") if r in ROLES]}
+        return [r for r in ROLES if r in held] if self.any_extra_roles() else []
 
     def end_sessions(self, username: str) -> None:
         self.db.execute("DELETE FROM sessions WHERE username = ?", (username,))
@@ -952,7 +975,7 @@ class UserStore:
         typed = "-".join(p for p in re.split(r"[\s-]+", (code or "").strip().lower()) if p)
         return hmac.compare_digest(str(row[0]).encode(), _sha(typed).encode())
 
-    def new_pending(self, username: str, enrol_ok: bool = False) -> tuple[str, str]:
+    def new_pending(self, username: str, enrol_ok: bool = False, role: str = "") -> tuple[str, str]:
         """A sign-in whose password was right and whose code is still to come: (browser token, form token).
         ``enrol_ok``: it came through the holder's enrolment code (D-719), which the authenticator step then does
         not ask again."""
@@ -960,8 +983,8 @@ class UserStore:
         with self.db.transaction() as tx:
             tx.execute("DELETE FROM pending_logins WHERE username = ?", (username,))  # one at a time per account
             tx.execute(
-                "INSERT INTO pending_logins (token_sha, username, csrf, created, enrol_ok) VALUES (?,?,?,?,?)",
-                (_sha(token), username, csrf, self.clock().isoformat(), int(enrol_ok)),
+                "INSERT INTO pending_logins (token_sha, username, csrf, created, enrol_ok, role) VALUES (?,?,?,?,?,?)",
+                (_sha(token), username, csrf, self.clock().isoformat(), int(enrol_ok), role[:20] or None),
             )
         return token, csrf
 

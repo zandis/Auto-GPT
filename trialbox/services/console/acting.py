@@ -102,6 +102,17 @@ for _lang, _words in WORDS.items():
     CATALOGUES[_lang].update(_words)
 
 
+def at_sign_in(users: Any, audit: Any, username: str, role: str) -> None:
+    """D-1151: the role chosen on the sign-in page, once every factor is right, becomes the person's starting role
+    when the account holds it (audited); any other value is ignored."""
+    if not role:
+        return
+    before = users.last_role(username) or users.role_of(username)
+    if users.remember_role(username, role[:20]) and role != before:
+        audit.append(AUDIT, actor=f"console:{username}",
+                     detail={"user": username, "from": before, "to": role, "at": "sign-in"})  # fmt: skip
+
+
 def register(app: FastAPI, h: Any, users: Any, env: Mapping[str, str]) -> None:
     @app.post("/role")
     def switch(request: Request, role: str = Form(""), csrf: str = Form(""), back: str = Form("")) -> Response:

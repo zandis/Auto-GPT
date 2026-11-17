@@ -1038,13 +1038,9 @@ def create_app(
             return login_page(
                 request, 401, failed=True, uninitialised=False, until=until.isoformat() if until else "", left=left
             )
-        if role:  # D-1151: the role chosen on the sign-in page is the session's starting role (held roles only)
-            before = us.last_role(user.username) or user.role
-            if us.remember_role(user.username, role[:20]) and role != before:
-                au.append(acting.AUDIT, actor=f"console:{user.username}",
-                          detail={"user": user.username, "from": before, "to": role, "at": "sign-in"})  # fmt: skip
         if ident.needs_code(user):  # D-192: local accounts give a TOTP code before a session exists
-            return ident.second_step(user)
+            return ident.second_step(user, role=role)  # D-1151: the chosen role waits for the code
+        acting.at_sign_in(us, au, user.username, role)  # D-1151: every factor is right
         token, _ = us.new_session(user, lang_of(request, None), "password")
         au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role})
         landing = "/home" if settings.pilot else "/"  # S1: land on the work list
@@ -1407,6 +1403,9 @@ def create_app(
     # STEPS-ROLE (D-877): the role a session acts in, on a test box with the flag on; refused to start otherwise
     acting.check_at_start(raw_env, us)
     us.acting_on = lambda: acting.on(raw_env)
+    us.on_acting_start = lambda name, own, role: au.append(  # D-1151 (the review): a session that starts acting
+        acting.AUDIT, actor=f"console:{name}", detail={"user": name, "from": own, "to": role, "at": "session-start"}
+    )
     acting.register(app, helpers, us, raw_env)
     edc_pages.register(app, helpers)  # EDC prefill: switch, map, review, e-signature, send, ODM (D-160)
     from console import copy_assist_page

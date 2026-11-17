@@ -340,3 +340,95 @@ def test_a_page_the_acting_role_may_not_open_offers_the_switch(person: dict[str,
     r = c.get("/ops/flags")  # the administrator's page, refused to a viewer
     assert r.status_code == 403 and 'data-testid="problem-role-switch"' in r.text
     assert 'value="admin"' in r.text and 'name="back" value="/ops/flags"' in r.text
+
+
+def test_the_chosen_role_waits_for_the_second_factor(person: dict[str, Any]) -> None:
+    """The review of D-1151 (1): with TOTP on, the role chosen on the sign-in page is neither remembered nor audited
+    on the password alone; only once the code is right."""
+    import dataclasses
+    import re
+    from datetime import UTC, datetime
+
+    from console import totp
+
+    _flag(person, "on")
+    app, users = person["app"], person["users"]
+    ident = app.state.identity
+    ident.settings = dataclasses.replace(ident.settings, mfa="totp")
+    enrol = users.issue_enrol_code("mei")
+    c = TestClient(app, base_url="https://testserver")
+    token = re.search(r'name="login_csrf" value="([^"]+)"', c.get("/login").text)
+    assert token
+    form = {"username": "mei", "password": PW, "login_csrf": token.group(1), "role": "admin"}
+    r = c.post("/login", data=form, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/login/totp", r.text
+    assert users.last_role("mei") == "" and not _events(person, "role.acting")  # the password alone: nothing yet
+    page = c.get("/login/totp").text
+    key = re.search(r'id="totp-key"[^>]*value="([A-Z2-7 ]+)"', page)
+    mfa = re.search(r'name="mfa_csrf" value="([^"]+)"', page)
+    assert key and mfa
+    bad = c.post("/login/totp", data={"code": "000000", "mfa_csrf": mfa.group(1), "enrol_code": enrol},
+                 follow_redirects=False)  # fmt: skip
+    assert bad.status_code != 303 or bad.headers["location"] != "/"
+    assert users.last_role("mei") == "" and not _events(person, "role.acting")  # a wrong code: still nothing
+    code = totp.totp(key.group(1).replace(" ", ""), datetime.now(UTC).timestamp())
+    r = c.post("/login/totp", data={"code": code, "mfa_csrf": mfa.group(1), "enrol_code": enrol},
+               follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303, r.text
+    assert users.last_role("mei") == "admin"
+    (ev,) = [e for e in _events(person, "role.acting") if e["detail"].get("at") == "sign-in"]
+    assert ev["detail"]["from"] == "viewer" and ev["detail"]["to"] == "admin"
+    assert c.get("/ops/users", follow_redirects=False).status_code == 200  # the session acts as the administrator
+
+
+def test_a_remembered_role_taken_away_or_switched_off_is_forgotten(person: dict[str, Any]) -> None:
+    """The review of D-1151 (2): a remembered role the account no longer holds, or kept while acting was off, never
+    comes back at a later sign-in."""
+    users = person["users"]
+    _flag(person, "on")
+    assert users.remember_role("mei", "admin") and users.last_role("mei") == "admin"
+    users.grant_roles("mei", ["coordinator"], allowed=True)  # admin taken away
+    assert users.last_role("mei") == ""
+    assert users.remember_role("mei", "coordinator")
+    _flag(person, "off")
+    _token, sess = users.new_session(users.get("mei"))
+    assert sess.user.role == "viewer" and users.last_role("mei") == ""  # acting off: forgotten, not kept for later
+    _flag(person, "on")
+    _token, sess = users.new_session(users.get("mei"))
+    assert sess.user.role == "viewer"  # the flag back on brings no role back unannounced
+
+
+def test_an_api_token_never_starts_acting_and_a_page_session_that_does_is_audited(person: dict[str, Any]) -> None:
+    """The review of D-1151 (3): the remembered role is a page session's; an API token starts in the account's own
+    role. A page session that starts acting writes a ``role.acting`` event (at session-start)."""
+    users = person["users"]
+    _flag(person, "on")
+    assert users.remember_role("mei", "admin")
+    _token, api = users.new_session(users.get("mei"), via="api")
+    assert api.user.role == "viewer" and not _events(person, "role.acting")
+    _c, _csrf, _page = _sign_in(person["app"], "mei", PW)
+    (ev,) = _events(person, "role.acting")
+    assert ev["actor"] == "console:mei" and ev["detail"] == {"user": "mei", "from": "viewer", "to": "admin",
+                                                             "at": "session-start"}  # fmt: skip
+
+
+def test_a_refused_change_offers_the_switch_without_a_way_back_to_repeat_it(person: dict[str, Any]) -> None:
+    """The review of D-1151 (LOW): the switch on a refused page goes back only to a page read (GET), never to repeat
+    a change."""
+    _flag(person, "on")
+    c, csrf, _page = _sign_in(person["app"], "mei", PW)
+    r = c.post("/ops/flags", data={"csrf": csrf, "name": "x", "value": "on", "reason": "r"}, follow_redirects=False)
+    assert r.status_code == 403 and 'data-testid="problem-role-switch"' in r.text
+    assert 'name="back"' not in r.text.split('data-testid="problem-role-switch"')[1].split("</form>")[0]
+
+
+def test_the_sign_in_page_offers_every_accounts_own_role_too(person: dict[str, Any]) -> None:
+    """The review of D-1151 (LOW): the page cannot know who signs in, so it offers each account's own role as well
+    (an account holding privacy only may choose it); still none while acting is off."""
+    import re
+
+    person["users"].create("lin", "privacy", PW, "lin@hospa.test")
+    _flag(person, "on")
+    page = TestClient(person["app"]).get("/login").text
+    offered = re.findall(r'<option value="([a-z]+)">', page.split('data-testid="login-role"')[1].split("</select>")[0])
+    assert "privacy" in offered and "admin" in offered
