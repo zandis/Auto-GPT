@@ -361,6 +361,11 @@ gets one account for each (`wenn.admin:admin,wenn:investigator`). The model is s
 still synthetic, and nothing else about the VM changes. Synthetic or public text only: tell the people so with
 their links. The default mode is `demo`.
 
+In steps mode a person may hold several roles under one account, written `name:role+role` (D-1063: the acting
+role, chosen in the top bar; lane C2's `console.steps_roles` opens the accounts and the boot switches the flag
+`steps.acting_role` on). `TB_DEMO_VM_SHARED_LOGIN=1` (D-1065) gives every person's account one password that the
+boot makes: `links` then prints the address, that password and the user names, once.
+
 **Demo mode (D-328).** The banner, the refusal of every upload and pasted text, and the acknowledgement at each
 account's first sign-in. The boot script switches the audited flag `demo.mode` on **after** the seed and **before**
 Caddy opens tcp:443: it signs in as `admin` inside the container and sets it on `/ops/flags` with a reason (one

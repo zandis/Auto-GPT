@@ -555,6 +555,9 @@ DECLARED: dict[str, Declared] = {
     "TB_DEMO_VM_MODE": Declared(
         "str", "demo", "demo VM: demo (demo mode on), or steps (D-1062): demo mode off, admin and steward offered"
     ),
+    "TB_DEMO_VM_SHARED_LOGIN": Declared(
+        "bool", "0", "demo VM, steps mode only (D-1065): 1 = one password made at boot for every person's account"
+    ),
     "TB_DEMO_VM_PEOPLE": Declared(
         "str",
         "owner:investigator,guest:coordinator",
