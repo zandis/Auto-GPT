@@ -23,6 +23,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, Protocol
 
+from tb_common.llm import no_sentinel_date
 from tb_common.pair import Vote, combine, needs_verifier, served_keys
 from tb_common.quotes import quote_in, quote_key
 from tb_llm import budget
@@ -48,6 +49,27 @@ class Asking:
 
 #: the question being asked in this thread (None outside the cascade's judge calls)
 ASKING: ContextVar[Asking | None] = ContextVar("tb_cascade_asking", default=None)
+
+
+def call_context(
+    role: str, pid: str, criterion_hash: str, window: tuple[str, str], question: str, audit: bool = False
+) -> dict[str, Any]:
+    """H-16: what ``tb_common.llm.CALL_CONTEXT`` writes beside a judge call (``llm.call``'s ``asking``): the stage
+    (S3 for the judge, S4 for the second opinion), the context of use the cascade's gateway client labels it with, the
+    role, the patient's pseudonym, the criterion's canonical hash, the window and the question digest, with whether
+    it is an audit sample. With the call's prompt, schema and build beside it, the judged-pair key can be computed
+    offline (lane H's H-18 review). Ids and hashes only."""
+    stage = "S3" if role == "judge" else "S4"
+    return {
+        "stage": stage,
+        "context_of_use": "s3_note_judgement" if stage == "S3" else "s4_second_opinion",
+        "role": role,
+        "pid": pid,
+        "criterion_hash": criterion_hash,
+        "window": list(window),
+        "question": question,
+        "audit": audit,
+    }
 
 
 def question_digest(criterion_text: str, note_question: str, index_date: str, excerpts: list[dict[str, Any]]) -> str:
@@ -217,19 +239,6 @@ class GatewayJudge:
             tokens_in=res.tokens_in,
             tokens_out=res.tokens_out,
         )
-
-
-def no_sentinel_date(data: dict[str, Any]) -> dict[str, Any]:
-    """G8 of the P1b review (D-958): a quote date that is no real date ("0000-01-01", the model's way of saying it has
-    none) is no date: null, so an "unknown" with it is an answer, not a reply outside the schema."""
-    qd = data.get("quote_date")
-    if qd is None:
-        return data
-    try:
-        ok = date.fromisoformat(str(qd)[:10]).year >= 1900
-    except ValueError:
-        ok = False
-    return data if ok else {**data, "quote_date": None}
 
 
 @dataclass

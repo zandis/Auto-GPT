@@ -118,7 +118,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.trialbox == 'true'
-    timeout-minutes: 15
+    timeout-minutes: 8  # D-995: measured 3 min 8 s; D-537 ceiling is 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
@@ -176,6 +176,34 @@ jobs:
           pin=$(sed -n 's/^CADDY_IMAGE_PIN="\(.*\)"$/\1/p' deploy/gcp/hosted-demo-startup.sh)
           docker run --rm -v "$RUNNER_TEMP/Caddyfile:/etc/caddy/Caddyfile:ro" "$pin" \
             caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
+      # D-1119: the guard tests on every tier: the test files marked `guard` (their pytestmark; `make guard`), static
+      # readers of the tree that fail when something that must not be there is ("no X", "only X"). No database: they
+      # are `nodb` and run as `make test-pure` does (TB_PG_BIN points nowhere, no TB_TEST_DB_URL), so the step can
+      # never start PostgreSQL (tests/unit/test_ci_guard.py). About a minute on two workers; the budget is under three.
+      # On the full tier the unit shards run them again (each test in exactly one shard, as before).
+      - name: guard tests (the files marked guard; no database, no service; D-1119)
+        if: ${{ !cancelled() }}
+        run: |
+          env -u TB_TEST_DB_URL TB_PG_BIN=/nonexistent TB_ENV=TEST PYTHONPATH=libs:services:. \
+            .venv/bin/python -m pytest -m guard -q -n 2 tests/unit
+      # D-1119: the test files a pull request adds or changes, collected twice, must give the same ids
+      # (tools/collect_stable.py): an id that carries the clock or random bytes fails here in seconds, not in
+      # `tools.test_shard check` after the shards. A push or a run by hand has no pull request's diff: the full tier's
+      # shards compare every collection there (or did, on the train whose tree a fast-tier master push carries).
+      - name: collection check (a pull request's test files give the same ids twice; D-1119)
+        if: ${{ !cancelled() }}
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT" != pull_request ]; then
+            echo "not a pull request: the shards of the full tier compare every collection (tools.test_shard check)"
+            exit 0
+          fi
+          git fetch --quiet --depth=1 origin "$BASE"
+          git diff --name-only --diff-filter=d --relative "$BASE" HEAD -- tests > "$RUNNER_TEMP/tests-changed"
+          mapfile -t files < "$RUNNER_TEMP/tests-changed"
+          TB_ENV=TEST PYTHONPATH=libs:services:. .venv/bin/python -m tools.collect_stable "${files[@]}"
 
   # T-619a (D-417; STD-011, STD-017, STD-070): standards conformance. TW Core 1.0.0 through the HL7 validator on 200
   # mapped synthetic resources (0 errors, each fillable slice matched); the TW Core and JP Core rule files rebuilt from

@@ -376,19 +376,6 @@ class EmbedResponse(BaseModel):
     dim: int
 
 
-class EquivalenceReport(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        populate_by_name=True,
-    )
-    overall_pct: float
-    per_criterion: dict[str, float]
-    failing: list[str]
-    sample_size: int
-    disagreements: list[Disagreement] | None = None
-    engine: str | None = None
-
-
 class EquivalenceSummary(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1234,6 +1221,23 @@ class RebuildResult(BaseModel):
     """
     the lake generation this rebuild made, "<snapshot>.g<n>" (T-724, D-490); the publish names it when it promotes (D-531). Absent: a lake step from before generations
     """
+
+
+class RefusedTable(BaseModel):
+    """
+    One installed code table the compile could not read (E-TERM-3, D-1048): its table name (site_<name> for a site list) and the refusal's sentence, never a row of it.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    table: str = Field(..., pattern="^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$")
+    system: str | None = None
+    """
+    the code system's URI, or site for a site list (as terminology_tables names it)
+    """
+    reason: str = Field(..., max_length=600)
 
 
 class RegistryPromote(BaseModel):
@@ -2086,6 +2090,21 @@ class SiteSchema(BaseModel):
     """
 
 
+class TerminologyTable(BaseModel):
+    """
+    One table loaded at install that a compile read (TERM-2 follow-up): its name, the URI of the code system it serves (site for a site list, as lane E's terminology_refused entries name it), its version and the sha256 of its manifest line. Codes and names only, never a patient value.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    table: str
+    system: str | None = None
+    version: str | None = None
+    sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+
+
 class TierSummary(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2413,6 +2432,23 @@ class CtgovSearchResult(BaseModel):
     source: Literal["api", "cassette", "refdata"]
     fetched_at: AwareDatetime
     studies: list[CtgovStudy]
+
+
+class EquivalenceReport(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    overall_pct: float
+    per_criterion: dict[str, float]
+    failing: list[str]
+    sample_size: int
+    disagreements: list[Disagreement] | None = None
+    engine: str | None = None
+    terminology_tables: list[TerminologyTable] | None = None
+    """
+    TERM-2 follow-up: the loaded terminology tables the compared compile read, as its manifest names them (absent: none, the shipped Parquet alone)
+    """
 
 
 class ExtractedAtom(BaseModel):
@@ -3021,7 +3057,7 @@ class PatientProfile(BaseModel):
 
 class RulesetManifest(BaseModel):
     """
-    rulesets/<ID>/manifest.yaml (SPEC 3.4). Schema version 1.0.0.
+    rulesets/<ID>/manifest.yaml (SPEC 3.4). Schema version 1.2.0 (1.1.0: optional terminology_tables, the TERM-2 follow-up; 1.2.0: optional terminology_refused, E-TERM-3).
     """
 
     model_config = ConfigDict(
@@ -3089,11 +3125,19 @@ class RulesetManifest(BaseModel):
     """
     the prompts the approved ruleset runs with, by prompt id (D-318): SCREEN runs the pinned version and text until the investigator re-approves; a newer registered version puts the study in approval needed
     """
+    terminology_tables: list[TerminologyTable] | None = None
+    """
+    TERM-2 follow-up: each table loaded at install (a site list, the NHI lists, ICD-10-PCS, a licensed table, a later ICD-10-CM release) the compile read, beside terminology_release (the shipped Parquet). Absent: no loaded table was read. Approval is blocked while the box's loaded tables differ from these
+    """
     derived_pins: dict[str, DerivedPin] | None = None
     """
     the score definitions the approved ruleset's criteria follow, by engine score (D-442): a definition of another version or text on the box puts the study in approval needed, and until then screening reads those scores as unknown
     """
     source_last_update: str | None = None
+    terminology_refused: list[RefusedTable] | None = None
+    """
+    the installed code tables the compile could not read (E-TERM-3, D-1048): each by its table name and why; while one is a site list (site_*), approval is refused
+    """
 
 
 class CandidateList(BaseModel):

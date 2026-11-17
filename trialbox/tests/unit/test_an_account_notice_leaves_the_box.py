@@ -1,0 +1,84 @@
+"""NOTICE-ACCOUNT (D-879): an account notice leaves the box.
+
+D-719 tells the data stewards and the PI of each of the account's studies when someone else set a factor of an
+account (a password reset, a new authenticator). The console sends it through the orchestrator's ``POST /notices``
+with the kind ``ACCOUNT``; the orchestrator accepted only N1, N2, BG and HEALTH, so every account notice was refused
+(422) and the console's best effort recorded it as not sent. Like every notice, it is an aggregate mail to hospital addresses only.
+
+A real orchestrator in PRODUCTION with per-service tokens; the console signs as its accounts principal (D-1150). Synthetic data only."""
+
+from __future__ import annotations
+
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+from tb_common import service_auth as sa
+
+from tests.service_tokens import token_of
+from tests.unit.test_admin_retry_scheduled import client, orch  # noqa: F401 - the fixtures are used by name
+
+
+class Mail:
+    def __init__(self) -> None:
+        self.sent: list[Any] = []
+
+    def send(self, req: Any) -> Any:
+        from tb_contracts import SendResult
+
+        self.sent.append(req)
+        return SendResult(message_id="<acct@t>", sent_to=req.to, encrypted=False)
+
+
+def _post(client: TestClient, body: dict[str, Any]) -> Any:  # noqa: F811
+    """As the console sends it (T-715 refuse mode, D-1150): signed as the accounts principal."""
+    from tb_common import actor_v3
+
+    from tests.actor3 import signed
+
+    sign = signed("account.reset", "", "POST", "/notices", body, sub="service:console-accounts",
+                  role=actor_v3.SERVICE_ROLE)  # fmt: skip
+    return client.post("/notices", json=body, headers={sa.TOKEN_HEADER: token_of("console"), **sign})
+
+
+@pytest.mark.parametrize("to", [["holder@hospa.test", "pi@hospa.test"]])
+def test_an_account_notice_reaches_the_mail_gateway(client: TestClient, orch: Any, to: list[str]) -> None:  # noqa: F811
+    mail = Mail()
+    orch.services.mail = mail
+    body = {"kind": "ACCOUNT", "to": to, "subject": "TrialBox account crc1: a new password",
+            "body_md": "TrialBox account crc1: a new password, by admin.\n\nIf this was not asked for, tell IT."}  # fmt: skip
+    r = _post(client, body)
+    assert r.status_code == 200, r.text
+    assert r.json()["message_id"] == "<acct@t>"
+    (req,) = mail.sent
+    assert req.to == to and req.tag == "aggregate"  # like every notice: aggregate, hospital addresses only
+
+
+def test_an_account_notice_to_an_outside_address_is_refused(client: TestClient, orch: Any) -> None:  # noqa: F811
+    mail = Mail()
+    orch.services.mail = mail
+    body = {"kind": "ACCOUNT", "to": ["someone@example.com"], "subject": "s", "body_md": "b"}
+    assert _post(client, body).status_code == 400 and mail.sent == []
+
+
+def test_an_unknown_kind_is_still_refused(client: TestClient, orch: Any) -> None:  # noqa: F811
+    body = {"kind": "OTHER", "to": ["holder@hospa.test"], "subject": "s", "body_md": "b"}
+    assert _post(client, body).status_code == 422
+
+
+def test_a_second_reset_the_same_day_is_a_mail_of_its_own(client: TestClient, orch: Any,  # noqa: F811
+                                                          monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """The review of D-879: the gateway sends a key once; an account notice is one event (sent once, by the person's
+    own request), so the same subject twice in a day are two mails, never a duplicate dropped as sent."""
+    from datetime import UTC, datetime
+
+    mail = Mail()
+    orch.services.mail = mail
+    now = [datetime(2026, 11, 17, 9, 0, tzinfo=UTC)]
+    monkeypatch.setattr(orch, "_now", lambda: now[0])
+    body = {"kind": "ACCOUNT", "to": ["stew@hospa.test"], "subject": "TrialBox account crc1: a new password",
+            "body_md": "TrialBox account crc1: a new password, by admin."}  # fmt: skip
+    assert _post(client, body).status_code == 200
+    now[0] = datetime(2026, 11, 17, 10, 0, tzinfo=UTC)  # the second reset, an hour later
+    assert _post(client, body).status_code == 200
+    assert len({r.idempotency_key for r in mail.sent}) == 2

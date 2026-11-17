@@ -169,6 +169,19 @@ def norm(text: str) -> str:
 # TERM-2 (D-1113 to D-1116): the systems of the tables loaded at install (``terminology.installed``) that the shipped
 # tables lack, beside ``SYSTEMS``; NHI's service and order codes are the shipped ``nhi_order`` system
 LOADED_SYSTEMS = {**SYSTEMS, "icd10pcs": "http://www.cms.gov/Medicare/Coding/ICD10", "icd10_who": ICD10_WHO}
+# the code system each table loaded at install serves (a site list names its own, row by row): the release stamp
+# (TERM-2 follow-up) says which loaded table of which system a compile read
+TABLE_SYSTEMS = {"icd10cm_blocks": "icd10cm", "icd10cm_index": "icd10cm", "atc_index": "atc",
+                 "nhi_drug_list": "nhi_drug", "nhi_service_list": "nhi_order", "icd10pcs": "icd10pcs",
+                 "loinc_table": "loinc", "icd10_who": "icd10_who"}  # fmt: skip
+
+
+def table_system(table: str) -> str:
+    """The code system a table loaded at install serves, as the release stamp and the refusals name it (one shape,
+    TERM-2 follow-up and E-TERM-3, D-1048): its URI, or ``site`` for a site list (it names its own, row by row)."""
+    return "site" if table.startswith("site_") else LOADED_SYSTEMS.get(TABLE_SYSTEMS.get(table, ""), "")
+
+
 # which systems of a site list answer which IR domain (the site's lists win over every other table, D-1113)
 SITE_DOMAIN_SYSTEMS: dict[str, tuple[str, ...]] = {
     "condition": ("icd10cm", "icd10_who"),
@@ -179,6 +192,12 @@ SITE_DOMAIN_SYSTEMS: dict[str, tuple[str, ...]] = {
     "encounter": ("department",),
     "claim": ("nhi_drug",),
 }
+# H-17 review (D-1127): an NHI service or order item is one billing item (inpatient or outpatient, with or without
+# contrast), which may be narrower than the trial's word: an answer from it always goes to a person, as TERM-2's class B
+# rule has it for an answer that may be narrower than the word asks for. The note of an answer from a table shipped in
+# the image (not loaded at install) starts with this
+_ALWAYS_REVIEWED = frozenset({"nhi_service_list"})
+_SHIPPED_NOTE = "shipped NHI table"
 # LOINC's specimens a lab named without one is read from (a component's codes in blood, serum or plasma)
 _LOINC_BLOOD = frozenset({"bld", "blda", "bldc", "bldv", "plas", "ser", "ser/plas", "ser/plas/bld"})
 
@@ -306,17 +325,23 @@ class Terminology:
         self.icd_index: dict[str, tuple[str, str]] = {}
         self.icd_display: dict[str, list[str]] = {}
         self.icd_sources: dict[str, str] = {}
-        self.installed_problems: list[str] = []
+        # E-TERM-3 (D-1048): each refused table by name: a refused site list blocks approval, every mapping says so
+        self._icd_refused: list[dict[str, str]] = []
+        self._term2_refused: list[dict[str, str]] = []
+        # TERM-2 follow-up: each table loaded at install that these tables read, as the release stamp names it
+        self.installed_read: dict[str, dict[str, str]] = {}
         where = installed if installed is not None else inst.installed_dir()
+        self._where = where
         cats = sorted({str(r["code"]) for r in self.full.get("icd10cm", []) if len(str(r["code"])) == 3})
         for name in (inst.ICD_BLOCKS, inst.ICD_INDEX):
             try:
                 rows = inst.read_table(where, name)
             except inst.TerminologyRefused as exc:
-                self.installed_problems.append(str(exc))
+                self._icd_refused.append({"table": name, "system": table_system(name), "reason": str(exc)})
                 rows = None
             if rows is not None:
                 self.icd_sources[name] = str(inst.manifest(where)["tables"][name].get("version") or "installed")
+                self._read_installed(inst, where, name, rows)
             else:
                 # beside the tables, else the shipped ones (a box's vocabulary-built tables hold codes, not these)
                 path = directory / f"{name}.parquet"
@@ -348,6 +373,29 @@ class Terminology:
         self.loaded_names: dict[str, dict[str, tuple[list[Concept], frozenset[tuple[str, str]], bool, str]]] = {}
         self.loaded_sources: dict[str, str] = {}
         self._load_term2(where)
+
+    @property
+    def terminology_refused(self) -> list[dict[str, str]]:
+        """E-TERM-3 (D-1048): each installed table refused at read, ``{"table", "reason"}`` (the reason names the
+        table and why, never a row of it). A compile records them in its manifest (``terminology_refused``)."""
+        return [*self._icd_refused, *self._term2_refused]
+
+    @property
+    def installed_problems(self) -> list[str]:
+        """The refusals' sentences (``trialbox doctor``, ``tools.terminology_coverage``)."""
+        return [r["reason"] for r in self.terminology_refused]
+
+    def refused_site_lists(self) -> list[dict[str, str]]:
+        """E-TERM-3 (D-1048): the refused tables that are site lists (D-1113: the primary source). While one is
+        refused, approval is refused; a refused shipped or licensed table is recorded and stays a warning."""
+        from criteria_compiler.terminology import installed as inst
+
+        return [r for r in self.terminology_refused if r["table"].startswith(inst.SITE_PREFIX)]
+
+    def refresh_installed(self) -> None:
+        """E-TERM-3 (D-1048): read the site's lists and the TERM-2 tables again, as they are now on the box (a list
+        loaded again or removed is seen without a restart). A compile and an approval call this first."""
+        self._load_term2(self._where)
 
     _release: str | None = None
 
@@ -392,6 +440,15 @@ class Terminology:
         return out
 
     def map(
+        self, domain: str, name: str, synonyms: list[str] | None = None, llm: ConceptMapLLM | None = None
+    ) -> MappingResult:
+        """The concept's codes. E-TERM-3 (D-1048): while a site list is refused, every answer says it was not read."""
+        res = self._map(domain, name, synonyms, llm)
+        for r in self.refused_site_lists():
+            res.notes.append(f"site list {r['table']} was not read; the shipped tables answered")
+        return res
+
+    def _map(
         self, domain: str, name: str, synonyms: list[str] | None = None, llm: ConceptMapLLM | None = None
     ) -> MappingResult:
         primary = norm(name)
@@ -525,31 +582,68 @@ class Terminology:
         for it; a refused one is reported in ``installed_problems`` and never read)."""
         from criteria_compiler.terminology import installed as inst
 
+        self.site_names = {}
+        self.site_codes = {}
+        self.loaded_names = {}
+        self.loaded_sources = {}
+        self._term2_refused = []
+        # the stamp's TERM-2 part is read again with them (the ICD blocks and index stay as __init__ read them)
+        self.installed_read = {k: v for k, v in self.installed_read.items() if k in (inst.ICD_BLOCKS, inst.ICD_INDEX)}
         self.loaded_codes: set[tuple[str, str]] = set()  # every code of a loaded table (a site code is checked here)
         self.who_categories: dict[str, list[Concept]] = {}  # a WHO ICD-10 category -> its codes, when loaded
         have = sorted(p.stem for p in where.glob("*.parquet")) if where.is_dir() else []
+        # H-17 (D-1127): the NHI open data shipped in the image answers when the box loaded none of its own
+        shipped = {n for n in inst.SHIPPABLE if n not in have and (inst.SHIPPED_DIR / f"{n}.parquet").is_file()}
+        try:  # E-TERM-3 (D-1048): a site list whose line stays while its file is gone was not removed on purpose
+            lines = inst.manifest(where)["tables"] if where.is_dir() else {}
+        except inst.TerminologyRefused:
+            lines = {}  # a damaged manifest: each table below is refused by read_loaded, by name
+        for gone in sorted(n for n in lines if n.startswith(inst.SITE_PREFIX) and n not in have):
+            self._term2_refused.append({"table": gone, "system": "site", "reason": (
+                f"{where / (gone + '.parquet')}: in {inst.MANIFEST} but its file is missing; load it again, or remove "
+                "it with python -m tools.terminology_install remove-site-list")})  # fmt: skip
         order = [n for n in have if n.startswith(inst.SITE_PREFIX)] + [
             n for n in (inst.ATC_INDEX, inst.NHI_DRUGS, inst.NHI_SERVICES, inst.ICD_PCS, inst.LOINC_TABLE,
-                        inst.ICD10_WHO) if n in have]  # fmt: skip
+                        inst.ICD10_WHO) if n in have or n in shipped]  # fmt: skip
         exact: list[_Entry] = []
         loose: list[_Entry] = []
         for table in order:
+            src = inst.SHIPPED_DIR if table in shipped else where
             try:
-                rows = inst.read_loaded(where, table)
+                rows = inst.read_loaded(src, table)
             except inst.TerminologyRefused as exc:
-                self.installed_problems.append(str(exc))
+                self._term2_refused.append({"table": table, "system": table_system(table), "reason": str(exc)})
                 continue
             if rows is None:
                 continue
-            self.loaded_sources[table] = str(inst.manifest(where)["tables"][table].get("version") or "installed")
+            self.loaded_sources[table] = str(inst.manifest(src)["tables"][table].get("version") or "installed")
+            self._read_installed(inst, src, table, rows)
             if table.startswith(inst.SITE_PREFIX):
                 self._index_site(table, rows)
             else:
                 e, lo = self._index_loaded(inst, table, rows)
+                if table in shipped:  # H-17 review (D-1127): the answer says it came from the image's table
+                    said = f"{_SHIPPED_NOTE} {self.loaded_sources[table]}: "
+                    e, lo = [(*x[:5], said + x[5]) for x in e], [(*x[:5], said + x[5]) for x in lo]
                 exact += e
                 loose += lo
         self._merge(exact, False)
         self._merge(loose, True)  # a component or an ingredient: after every exact name, always for review
+
+    def _read_installed(self, inst: Any, where: Path, table: str, rows: list[dict[str, Any]]) -> None:
+        """Record one loaded table as read: its system's URI (``site`` for a site list), the version and the sha256 of
+        its manifest line (the bytes :func:`installed.read_table` checked)."""
+        line = inst.manifest(where)["tables"][table]
+        # the shape lane E's refusals use too (E-TERM-3, D-1048): a system URI, or "site" for a site list
+        system = table_system(table)
+        self.installed_read[table] = {"table": table, "system": system, "version": str(line.get("version") or ""),
+                                      "sha256": str(line.get("sha256") or "")}  # fmt: skip
+
+    def installed_stamp(self) -> list[dict[str, str]]:
+        """TERM-2 follow-up: each table loaded at install these tables read, by name (system, version, the manifest's
+        sha256). Empty: the shipped Parquet alone, which ``release`` names. Two boxes whose loaded tables differ
+        compile under different stamps, never under one."""
+        return [self.installed_read[n] for n in sorted(self.installed_read)]
 
     def _merge(self, entries: list[_Entry], loose: bool) -> None:
         """TERM-2 review (D-1114, D-1115): every code a name has, never the first one alone. One table's rows that give
@@ -570,8 +664,9 @@ class Terminology:
             several = len(rowsets) > 1
             text = first_note + ("; several codes share this name" if several else "")
             text += f"; also in {', '.join(others)}" if others else ""
-            self.loaded_names.setdefault(domain, {})[key] = (_dedupe(found), frozenset(families),
-                                                             loose or several or bool(others), text)  # fmt: skip
+            review = loose or several or bool(others) or first in _ALWAYS_REVIEWED
+            self.loaded_names.setdefault(domain, {})[key] = (_dedupe(found), frozenset(families), review,
+                                                             text)  # fmt: skip
 
     def _index_site(self, table: str, rows: list[dict[str, Any]]) -> None:
         mine: dict[tuple[str, str], list[Concept]] = {}
@@ -626,7 +721,9 @@ class Terminology:
                 self.loaded_codes.add((LOADED_SYSTEMS["nhi_drug"], str(r["nhi_code"])))
                 ing = _ingredient(str(r.get("ingredient") or ""))
                 atc = str(r.get("atc") or "")
-                if ing and len(atc) == 7 and not ended(r):
+                # H-17 review (D-1127): NHIA names one ingredient in 成分 for some 複方 (combination) products; such
+                # a row never answers for that ingredient (a table without the column, TERM-2's, is read as before)
+                if ing and len(atc) == 7 and not ended(r) and str(r.get("kind") or "") != "複方":
                     c = self.concept(uri, atc) or Concept(uri, atc, ing)
                     note = f"NHI drug list ingredient ({table})"
                     loose += [("medication", k, [c], frozenset(), table, note) for k in _name_keys(ing)]
@@ -731,7 +828,8 @@ class Terminology:
             got = self.loaded_names.get(domain, {}).get(key)
             if got is not None:
                 concepts, fams, review, note = got
-                return MappingResult(name, domain, _dedupe(concepts), "loaded", review, [f"loaded at install: {note}"],
+                said = note if note.startswith(_SHIPPED_NOTE) else f"loaded at install: {note}"
+                return MappingResult(name, domain, _dedupe(concepts), "loaded", review, [said],
                                      families=sorted(fams))  # fmt: skip
         return None
 

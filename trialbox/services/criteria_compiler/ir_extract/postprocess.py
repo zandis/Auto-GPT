@@ -482,6 +482,19 @@ def strip_stray(node: Any, text: str = "", kind_: str = "inclusion") -> tuple[An
     return walk(node), sorted(set(flags))
 
 
+def demographic_alone(logic: Any) -> bool:
+    """Whether a criterion's coded logic is an age or a sex and nothing else: every atom demographic, none naming a
+    ValueSet or a derived value (P2b: an exclusion that compiled to this while its line named more lost its
+    qualifier)."""
+    if logic is None:
+        return False
+    got = list(atoms(logic))
+    return bool(got) and all(
+        a.domain == "demographic" and a.valueset in ("NONE", "", None) and not a.derived and (a.sex or a.age)
+        for a in got
+    )
+
+
 def postprocess(
     ruleset: str,
     extracted: LlmExtractOutput,
@@ -566,6 +579,22 @@ def postprocess(
                 ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
                                            "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
                 warnings.append(f"{cid}: its logic's meaning is unsure; kept for a person to check")
+        named = sorted({str(c.name) for c in ec.concept_candidates if c.domain != "demographic"})
+        if ir.kind == "exclusion" and ir.class_ in FILTERED and named and demographic_alone(ir.logic):
+            # P2b (lane H's trace, 2026-11-17): "women with pregnant or lactation" compiled to sex: female alone and
+            # excluded every woman at S1, with no model asked. An exclusion whose coded part keeps only an age or a
+            # sex while its line names more (here pregnancy, lactation) has lost its qualifier: the coded part never
+            # excludes on its own. The notes decide (a mixed line with its question), else a person
+            flags.append("qualifier_dropped")
+            if ir.class_ == "mixed" and ir.note_question:
+                ir = ir.model_copy(update={"class_": "note", "logic": Atom(domain="demographic", valueset="NONE")})
+                warnings.append(f"{cid}: its coded part keeps only an age or sex of {', '.join(named)}; the notes "
+                                "decide it (check it)")  # fmt: skip
+            else:
+                ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
+                                           "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
+                warnings.append(f"{cid}: its coded part keeps only an age or sex of {', '.join(named)}; kept for a "
+                                "person to check")  # fmt: skip
         moved = sorted({str(c.name) for c in ec.concept_candidates if c.name.strip().lower() in refiled})
         if moved and ir.logic is not None and any(a.domain == "condition" for a in atoms(ir.logic)):
             flags.append("domain_refiled")

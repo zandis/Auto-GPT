@@ -338,11 +338,14 @@ class InprocBackend:
             raise problem_of(r.status_code, r.text)
         return r.json()
 
-    def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, by: str) -> str:
+    def send_notice(self, kind: str, to: list[str], subject: str, body_md: str, principal: str) -> str:
+        from console import actor
         from console.backend import Refused
 
         body = {"kind": kind, "to": to, "subject": subject, "body_md": body_md}
-        r = self.c.post("/notices", json=body, headers=actor_header(by))
+        # T-715 refuse mode (D-1150): signed as the sender's principal, as the console's backend does
+        headers = actor.assert_service(principal, actor.NOTICE_ACTION[principal], None, "POST", "/notices", body)
+        r = self.c.post("/notices", json=body, headers=headers)
         if r.status_code != 200:
             raise Refused(r.text[:200])
         return str(r.json().get("message_id") or "")

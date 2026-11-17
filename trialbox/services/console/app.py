@@ -540,13 +540,20 @@ def create_app(
         if not to:
             au.append("console.account_notice", actor=f"console:{by}", detail={"user": name, "sent": 0})
             return
-        try:
-            bk.send_notice("ACCOUNT", sorted(to), subject, body, f"console:{by}")
-        except Exception as exc:  # best effort, as break-glass: a mail that fails is an audit event
-            au.append("console.account_notice", actor=f"console:{by}",
-                      detail={"user": name, "sent": 0, "error": type(exc).__name__})  # fmt: skip
-            return
-        au.append("console.account_notice", actor=f"console:{by}", detail={"user": name, "sent": len(to)})
+        # D-879 (the review): one mail per person, as the morning notices: a notice takes at most five recipients,
+        # and an address the orchestrator refuses (not the hospital's) loses only its own mail. Best effort, as
+        # break-glass: a mail that fails is counted in the audit event
+        sent, errors = 0, []
+        for addr in sorted(to):
+            try:
+                bk.send_notice("ACCOUNT", [addr], subject, body, console_actor.ACCOUNTS)
+                sent += 1
+            except Exception as exc:
+                errors.append(type(exc).__name__)
+        detail: dict[str, Any] = {"user": name, "sent": sent}
+        if errors:
+            detail.update(failed=len(errors), error=sorted(set(errors))[0])
+        au.append("console.account_notice", actor=f"console:{by}", detail=detail)
 
     account_rules = AccountRules(us, au, account_tell)
 
@@ -563,6 +570,7 @@ def create_app(
                     sched.shutdown(wait=False)
 
     app = FastAPI(title="trialbox-console", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+    app.state.account_rules = account_rules  # the tests reach D-719's notices here (as app.state.test_backend)
     api_first.install(app)  # T-657 (D-444): /api/v1 changes check the session and permit before the body
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
     app.state.settings = settings
@@ -986,6 +994,7 @@ def create_app(
             admin_mail=settings.admin_email,
             sso=settings.sso,
             oidc=ident.oidc_enabled,
+            box_roles=us.box_roles(),  # D-1151: the role drop-down (a test box with acting on), else empty
             **ctx,
         )
         resp.set_cookie(
@@ -1007,7 +1016,11 @@ def create_app(
 
     @app.post("/login")
     def login(
-        request: Request, username: str = Form(""), password: str = Form(""), login_csrf: str = Form("")
+        request: Request,
+        username: str = Form(""),
+        password: str = Form(""),
+        login_csrf: str = Form(""),
+        role: str = Form(""),
     ) -> Response:
         cookie = request.cookies.get(LOGIN_COOKIE, "")
         if not cookie or not secrets.compare_digest(cookie, login_csrf):
@@ -1034,7 +1047,8 @@ def create_app(
                 request, 401, failed=True, uninitialised=False, until=until.isoformat() if until else "", left=left
             )
         if ident.needs_code(user):  # D-192: local accounts give a TOTP code before a session exists
-            return ident.second_step(user)
+            return ident.second_step(user, role=role)  # D-1151: the chosen role waits for the code
+        acting.at_sign_in(us, au, user.username, role)  # D-1151: every factor is right
         token, _ = us.new_session(user, lang_of(request, None), "password")
         au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role})
         landing = "/home" if settings.pilot else "/"  # S1: land on the work list
@@ -1397,6 +1411,9 @@ def create_app(
     # STEPS-ROLE (D-877): the role a session acts in, on a test box with the flag on; refused to start otherwise
     acting.check_at_start(raw_env, us)
     us.acting_on = lambda: acting.on(raw_env)
+    us.on_acting_start = lambda name, own, role: au.append(  # D-1151 (the review): a session that starts acting
+        acting.AUDIT, actor=f"console:{name}", detail={"user": name, "from": own, "to": role, "at": "session-start"}
+    )
     acting.register(app, helpers, us, raw_env)
     edc_pages.register(app, helpers)  # EDC prefill: switch, map, review, e-signature, send, ODM (D-160)
     from console import copy_assist_page

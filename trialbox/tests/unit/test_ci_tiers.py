@@ -33,6 +33,9 @@ FOLDED = {
     "traceability": ["tools/gen_traceability.py --check"],
     "shellcheck": ["xargs -0 shellcheck --severity=warning --format=gcc"],
     "PoC host scripts": ["shellcheck --severity=warning deploy/gcp/poc-host.sh", "caddy validate --adapter caddyfile"],
+    # D-1119: the fast tier includes the guard tests (tests/unit/test_ci_guard.py holds the step to no database)
+    "guard tests": ["-m pytest -m guard -q -n 2 tests/unit", "TB_PG_BIN=/nonexistent"],
+    "collection check": ["-m tools.collect_stable"],
 }
 #: the full tier: not on a draft
 FULL = {"unit-shard", "unit", "property", "goldens", "e2e-simple", "demo-boot", "security", "standards", "images"}
