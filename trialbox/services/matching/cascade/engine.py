@@ -41,6 +41,7 @@ from typing import Any
 from criteria_compiler.compile_sql.overlay import safe_sql
 from tb_common import lakeprobe
 from tb_common.labunit import reason_of as derived_reason
+from tb_common.llm import CALL_CONTEXT
 from tb_common.optout import REGISTRY_SQL, RegistryState, registry_state
 from tb_common.reasons import CODES as REASON_CODES
 from tb_common.ruleset import Ruleset
@@ -54,6 +55,7 @@ from matching.cascade.judge import (
     Asking,
     JudgeClient,
     JudgeReply,
+    call_context,
     expected_tokens,
     norm,
     question_digest,
@@ -1153,6 +1155,9 @@ class _Run:
         asking = ASKING.set(Asking(r.pid, self.hashes[r.cid], (lo.isoformat(), hi.isoformat()),
                                    audit=self.cfg.sample_per_stratum is not None, role=role,
                                    question=question))  # fmt: skip
+        # H-16: the same, beside each model call's own record (llm.call), so S3 and S4 are told apart offline
+        context = CALL_CONTEXT.set(call_context(role, r.pid, self.hashes[r.cid], (lo.isoformat(), hi.isoformat()),
+                                                question, self.cfg.sample_per_stratum is not None))  # fmt: skip
         try:
             reply = self.judge.judge(
                 role=role,
@@ -1166,6 +1171,7 @@ class _Run:
                 purpose=self.cfg.purpose,
             )
         finally:
+            CALL_CONTEXT.reset(context)
             ASKING.reset(asking)
         with self._lock:
             if reply.refused:
