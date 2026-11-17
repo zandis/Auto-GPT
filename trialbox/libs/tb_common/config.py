@@ -1021,6 +1021,7 @@ DECLARED: dict[str, Declared] = {
     "TB_SPONSOR_WEEKLY_MAX_BYTES": Declared("int", "2000000", "largest sponsor weekly sheet read (D-435)"),
     "TB_STANDIN_LOAD_DELAY": Declared("float", "0", "model stand-in: load delay"),
     "TB_STEP_ID": Declared("str", "", "step id a gateway call names"),
+    "TB_STRICT_TEXT": Declared("bool", "", "console: a missing text key raises (set by hand; D-1220)"),
     "TB_STUB_CONTEXT": Declared("int", "", "model stub: context size"),
     "TB_STUB_LATENCY_S": Declared(
         "float", "", "model stub: seconds per answer (the scale gate's slow stand-in, T-687)"

@@ -1,14 +1,29 @@
 """The words of a person's state (D-1221): ``person.state.<name>`` for every name of ``console.person_state.STATES``,
 in en, zh-TW and ja. The older key families that name the same states (the participant record's ``life.state.*`` and
-the screening log's ``registry.status.*``) are not written again: :func:`alias`
-copies these words under them, so one state reads the same on every page, sheet and mail. Joined into
+the screening log's ``registry.status.*``) are written here with the same words (literals, as ``tools.text_keys``
+reads them; a test holds them equal), so one state reads the same on every page, sheet and mail. Joined into
 ``console.i18n`` (merged with plain ``dict.update``)."""
 
 from __future__ import annotations
 
-from console.person_state import FROM_LIFE, FROM_REGISTRY
-
 EN: dict[str, str] = {
+    # the participant record's and the screening log's own key families, in the same words (one state, one
+    # name; tests/unit/test_person_state.py holds them equal)
+    "life.state.candidate": "On the list",
+    "life.state.approached": "Contacted",
+    "life.state.consented": "Consented",
+    "life.state.enrolled": "Enrolled",
+    "life.state.on_study": "On study",
+    "life.state.completed": "Completed",
+    "life.state.withdrawn": "Withdrawn",
+    "life.state.screen_fail": "Screen failure",
+    "registry.status.candidate": "On the list",
+    "registry.status.contacted": "Contacted",
+    "registry.status.consented": "Consented",
+    "registry.status.enrolled": "Enrolled",
+    "registry.status.screen_fail": "Screen failure",
+    "registry.status.declined": "Declined",
+    "registry.status.withdrawn": "Withdrawn",
     "person.state.listed": "On the list",
     "person.state.need_info": "Waiting for information",
     "person.state.set_aside": "Set aside",
@@ -42,6 +57,23 @@ EN: dict[str, str] = {
 }
 
 JA: dict[str, str] = {
+    # the participant record's and the screening log's own key families, in the same words (one state, one
+    # name; tests/unit/test_person_state.py holds them equal)
+    "life.state.candidate": "リスト掲載",
+    "life.state.approached": "連絡済み",
+    "life.state.consented": "同意取得",
+    "life.state.enrolled": "登録",
+    "life.state.on_study": "試験参加中",
+    "life.state.completed": "試験終了",
+    "life.state.withdrawn": "中止",
+    "life.state.screen_fail": "スクリーニング不適格",
+    "registry.status.candidate": "リスト掲載",
+    "registry.status.contacted": "連絡済み",
+    "registry.status.consented": "同意取得",
+    "registry.status.enrolled": "登録",
+    "registry.status.screen_fail": "スクリーニング不適格",
+    "registry.status.declined": "辞退",
+    "registry.status.withdrawn": "中止",
     "person.state.listed": "リスト掲載",
     "person.state.need_info": "情報待ち",
     "person.state.set_aside": "見合わせ",
@@ -75,6 +107,23 @@ JA: dict[str, str] = {
 }
 
 ZH: dict[str, str] = {
+    # the participant record's and the screening log's own key families, in the same words (one state, one
+    # name; tests/unit/test_person_state.py holds them equal)
+    "life.state.candidate": "在名單上",
+    "life.state.approached": "已聯絡",
+    "life.state.consented": "已同意",
+    "life.state.enrolled": "已收案",
+    "life.state.on_study": "試驗進行中",
+    "life.state.completed": "已完成試驗",
+    "life.state.withdrawn": "退出",
+    "life.state.screen_fail": "篩選失敗",
+    "registry.status.candidate": "在名單上",
+    "registry.status.contacted": "已聯絡",
+    "registry.status.consented": "已同意",
+    "registry.status.enrolled": "已收案",
+    "registry.status.screen_fail": "篩選失敗",
+    "registry.status.declined": "婉拒",
+    "registry.status.withdrawn": "退出",
     "person.state.listed": "在名單上",
     "person.state.need_info": "等待資料",
     "person.state.set_aside": "暫緩",
@@ -103,16 +152,3 @@ ZH: dict[str, str] = {
     "outcome.state_unknown": "未記錄：目前無法讀取此人的狀態，因此不記錄聯絡。請稍後再試。",
     "person.no_contact": "不需聯絡步驟：此人目前為「{state}」。",
 }
-
-#: the older key families and the person state each of their names is
-ALIASES: dict[str, dict[str, str]] = {
-    "life.state.": FROM_LIFE,
-    "registry.status.": FROM_REGISTRY,
-}
-
-
-def alias(cat: dict[str, str], words: dict[str, str]) -> None:
-    """Write ``words``' state names under the older keys of ``cat``."""
-    for prefix, names in ALIASES.items():
-        for old, name in names.items():
-            cat[prefix + old] = words["person.state." + name]

@@ -7,8 +7,11 @@
 {% macro src(s) %}{% set k = s.split(':') %}{% if k[0] == 'form' %}{{ t('life.source.form', form=k[1]) }}{% else %}{{ t_or('life.source.' + k[0], k[0]) }}{% endif %}{% endmacro %}
 {% block content %}
 {% set sub = one.subject if one else none %}
-<div class="headrow"><h1><span class="mono">{{ record }}</span> · {{ t('life.subjects.title') }}</h1></div>
+{# J-4 (D-1224, walk F-09): one participant's page is headed by the participant, not the list's title #}
+<div class="headrow"><h1>{{ t('life.subject.title', r=record) }}</h1></div>
 {{ life_nav(rs) }}
+{# J-4 (walk F-18): the way back from the participant to the patient sheet (the pseudonym the screening number was given to) #}
+{% if sheet_pid %}<p class="hint chartlinks" data-testid="subject-patient"><a href="/studies/{{ rs }}/patients/{{ sheet_pid|urlencode }}" data-testid="to-patient">{{ t('life.to.patient') }}</a> <span class="mono">{{ sheet_pid[:8] }}</span></p>{% endif %}
 {% if err %}{% include "_data_err.html" %}{% endif %}
 {% if done == 'step' %}<p class="ok" role="status" data-testid="life-saved">{{ t('life.step.saved', state=t('life.state.' + sub.state)) if sub else '' }}</p>{% endif %}
 {% if done == 'entry' %}<p class="ok" role="status" data-testid="life-entry-saved">{{ t('life.entry.saved') }}</p>{% endif %}
@@ -59,12 +62,12 @@
 <section class="card" data-testid="life-visits">
 <h2>{{ t('life.visits.title') }}</h2>
 {% if not one.visits %}<p class="empty">{{ t('life.visits.none_scheduled') }} <a href="/studies/{{ rs }}/schedule">{{ t('life.to.schedule') }}</a></p>{% else %}
-<div class="scroll" tabindex="0"><table class="candidates">
+{% set pf = request is defined and request.state is defined and request.state.phone_first %}<div class="scroll" tabindex="0"><table class="candidates{{ ' pf-cards' if pf else '' }}">
 <thead><tr><th>{{ t('life.col.visit') }}</th><th>{{ t('life.col.status') }}</th><th>{{ t('life.col.window') }}</th><th><span class="sr">{{ t('col.actions') }}</span></th></tr></thead>
 <tbody>{% for v in one.visits %}<tr data-testid="sv-{{ v.visit }}" data-status="{{ v.status }}">
-<td>{{ vlabel(v) }}</td>
-<td><span class="pill v-{{ v.status }}">{{ t('life.vstate.' + v.status) }}</span>{% if v.done_on %} <span class="nowrap">{{ v.done_on }}</span>{% if v.in_window == false %} <span class="hint">{{ t('life.visit.out') }}</span>{% endif %}{% endif %}{% if v.days_late %} <span class="hint">{{ t('life.visit.late', n=v.days_late) }}</span>{% endif %}</td>
-<td class="nowrap">{% if v.due %}{{ t('life.visit.window', start=v.start, end=v.end) }}{% else %}–{% endif %}</td>
+<td{% if pf %} data-label="{{ t('life.col.visit') }}"{% endif %}>{{ vlabel(v) }}</td>
+<td{% if pf %} data-label="{{ t('life.col.status') }}"{% endif %}><span class="pill v-{{ v.status }}">{{ t('life.vstate.' + v.status) }}</span>{% if v.done_on %} <span class="nowrap">{{ v.done_on }}</span>{% if v.in_window == false %} <span class="hint">{{ t('life.visit.out') }}</span>{% endif %}{% endif %}{% if v.days_late %} <span class="hint">{{ t('life.visit.late', n=v.days_late) }}</span>{% endif %}</td>
+<td class="nowrap"{% if pf %} data-label="{{ t('life.col.window') }}"{% endif %}>{% if v.due %}{{ t('life.visit.window', start=v.start, end=v.end) }}{% else %}–{% endif %}</td>
 <td>{% if editable and v.status != 'unplanned' %}<a href="/studies/{{ rs }}/entry?record={{ record|urlencode }}&amp;form=tb_visit&amp;event={{ v.visit }}&amp;back=subject" data-testid="sv-open-{{ v.visit }}">{{ t('life.visit.open') }}</a>{% endif %}</td>
 </tr>{% endfor %}</tbody></table></div>{% endif %}
 </section>
@@ -90,14 +93,15 @@
 <section class="card" data-testid="life-trail">
 <h2>{{ t('life.trail.title') }}</h2>
 <p class="hint">{{ t('life.trail.help') }}</p>
-<div class="scroll" tabindex="0"><table class="candidates">
+{% set pf = request is defined and request.state is defined and request.state.phone_first %}<div class="scroll" tabindex="0"><table class="candidates{{ ' pf-cards' if pf else '' }}">
 <thead><tr><th>{{ t('life.col.day') }}</th><th>{{ t('life.col.step') }}</th><th>{{ t('life.col.who') }}</th><th>{{ t('life.col.source') }}</th><th>{{ t('life.col.note') }}</th></tr></thead>
 <tbody>{% for s in one.steps %}<tr data-testid="step-{{ s.id }}">
-<td class="nowrap">{{ s.on_day }}</td>
-<td>{% if s.old %}{{ t('life.state.' + s.old) }} → {% endif %}<b>{{ t('life.state.' + s.new) }}</b>{% if s.reason %} <span class="hint">({{ t_or('life.reason.sf.' + s.reason, t_or('life.reason.wd.' + s.reason, s.reason)) }})</span>{% endif %}{% if s.criterion %} <span class="hint" data-testid="step-criterion-{{ s.id }}">{{ t('life.trail.criterion', c=s.criterion ~ (' (v' ~ s.criteria_version ~ ')' if s.criteria_version else '')) }}</span>{% endif %}</td>
-<td class="mono">{{ s.who|replace('console:', '') }}</td>
-<td>{{ src(s.source) }}</td>
-<td>{% if s.note.startswith('implied by ') %}{{ t('life.note.implied', src=src(s.note[11:])) }}{% else %}<span data-authored>{{ s.note }}</span>{% endif %}</td>
+<td class="nowrap"{% if pf %} data-label="{{ t('life.col.day') }}"{% endif %}>{{ s.on_day }}</td>
+<td{% if pf %} data-label="{{ t('life.col.step') }}"{% endif %}>{% if s.old %}{{ t('life.state.' + s.old) }} → {% endif %}<b>{{ t('life.state.' + s.new) }}</b>{% if s.reason %} <span class="hint">({{ t_or('life.reason.sf.' + s.reason, t_or('life.reason.wd.' + s.reason, s.reason)) }})</span>{% endif %}{% if s.criterion %} <span class="hint" data-testid="step-criterion-{{ s.id }}">{{ t('life.trail.criterion', c=s.criterion ~ (' (v' ~ s.criteria_version ~ ')' if s.criteria_version else '')) }}</span>{% endif %}</td>
+{# J-4 (D-1224): a step TrialBox recorded itself (a service principal) reads "TrialBox"; a person's step their user name #}
+<td{% if not s.who.startswith('service:') %} class="mono"{% endif %}{% if pf %} data-label="{{ t('life.col.who') }}"{% endif %}>{% if s.who.startswith('service:') %}{{ t('life.who.service') }}{% else %}{{ s.who|replace('console:', '') }}{% endif %}</td>
+<td{% if pf %} data-label="{{ t('life.col.source') }}"{% endif %}>{{ src(s.source) }}</td>
+<td{% if pf %} data-label="{{ t('life.col.note') }}"{% endif %}>{% if s.note.startswith('implied by ') %}{{ t('life.note.implied', src=src(s.note[11:])) }}{% else %}<span data-authored>{{ s.note }}</span>{% endif %}</td>
 </tr>{% endfor %}</tbody></table></div>
 </section>
 {% endif %}

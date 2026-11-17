@@ -1,6 +1,8 @@
 {# D-104: each role sees at most four items; everything else sits under "More". All older pages stay reachable. #}
-{% set r = user.role %}
-{% macro item(href, key, active) %}<a href="{{ href }}" class="{{ 'active' if active else '' }}">{{ t(key) }}</a>{% endmacro %}
+{% set r = user.role %}{% set pf = request is defined and request.state is defined and request.state.phone_first %}
+{% macro item(href, key, active) %}<a href="{{ href }}" class="{{ 'active' if active else '' }}">{{ t(key) }}</a>{% endmacro %}{#
+   D-1222 (E-M4, flag layout.phone_first): "More" folds in two levels, each group a fold of its links (chips on a
+   phone); the links and the rules that show them are the same; with the flag off the list is as before #}{% macro grp(pf, key, body, rs='') %}{% if not pf %}{{ body }}{% elif body|trim %}<details class="moregrp" data-testid="more-grp-{{ key }}"><summary>{{ t('nav.grp.' + key, rs=rs) }}</summary><div class="moregrp-items">{{ body }}</div></details>{% endif %}{% endmacro %}
 {# NEW-JRN-8 (D-772): a CRO account's monitor grants link the monitoring page (it was a typed address) #}
 {% macro monitor_items() %}{% for m in monitoring() %}<a href="/studies/{{ m[0] }}/monitor" class="{{ 'active' if path.startswith('/studies/' ~ m[0] ~ '/monitor') else '' }}" data-testid="nav-monitor">{{ t('roles.monitor.title') }} · {{ m[0] }}</a>{% endfor %}{% endmacro %}
 <nav aria-label="main" data-testid="nav" data-role="{{ r }}">
@@ -37,11 +39,11 @@
       <div class="more-items">
         <a href="/account" data-testid="more-account">{{ t('account.title') }}</a>
         <a href="/help?back={{ path|urlencode }}">{{ t('help.title') }}</a>
-        {% if r in ('investigator', 'coordinator', 'admin') %}<a href="/site" data-testid="more-site">{{ t('site.ready.title') }}</a>{% endif %}
+        {% set g %}{% if r in ('investigator', 'coordinator', 'admin') %}<a href="/site" data-testid="more-site">{{ t('site.ready.title') }}</a>{% endif %}
         {% if r in ('investigator', 'coordinator', 'admin') %}<a href="/notices/received" data-testid="more-notices">{{ t('received.title') }}</a>{% endif %}
-        {% if settings.pilot and permit(r, 'sae.view') %}<a href="/sae" data-testid="more-sae">{{ t('sae.nav') }}</a>{% endif %}
+        {% if settings.pilot and permit(r, 'sae.view') %}<a href="/sae" data-testid="more-sae">{{ t('sae.nav') }}</a>{% endif %}{% endset %}{{ grp(pf, 'site', g) }}
         {% if r == 'cro' %}<a href="/reports">{{ t('nav.reports') }}</a>{% else %}
-        {% set sp = path.split('/') %}{% if user.can_view_phi and sp|length > 2 and sp[1] == 'studies' and sp[2] and user.sees_study(sp[2]) %}{% set srs = sp[2]|upper %}
+        {% set g %}{% set sp = path.split('/') %}{% if user.can_view_phi and sp|length > 2 and sp[1] == 'studies' and sp[2] and user.sees_study(sp[2]) %}{% set srs = sp[2]|upper %}
         <a href="/studies/{{ srs }}/setup" data-testid="more-setup">{{ srs }} · {{ t('setup.title') }}</a>
         <a href="/studies/{{ srs }}/sources" data-testid="more-sources">{{ srs }} · {{ t('dc.sources.title') }}</a>
         <a href="/studies/{{ srs }}/conflicts" data-testid="more-conflicts">{{ srs }} · {{ t('dc.conflicts.title') }}</a>
@@ -50,12 +52,12 @@
         {% if user.can_view_phi %}<a href="/studies/{{ srs }}/candidates" data-testid="more-candidates">{{ srs }} · {{ t('team.cand.title') }}</a>
         <a href="/studies/{{ srs }}/referrals" data-testid="more-referrals">{{ srs }} · {{ t('team.ref.title') }}</a>
         <a href="/studies/{{ srs }}/team" data-testid="more-team">{{ srs }} · {{ t('team.log.title') }}</a>
-        <a href="/studies/{{ srs }}/irb" data-testid="more-irb">{{ srs }} · {{ t('team.irb.title') }}</a>{% endif %}{% endif %}
-        {% if user.can_view_phi or permit(r, 'staff.keep') %}<a href="/site/staff" data-testid="more-staff">{{ t('team.staff.title') }}</a>{% endif %}
+        <a href="/studies/{{ srs }}/irb" data-testid="more-irb">{{ srs }} · {{ t('team.irb.title') }}</a>{% endif %}{% endif %}{% endset %}{{ grp(pf, 'study', g, path.split('/')[2]|upper if path.count('/') > 1 else '') }}
+        {% set g %}{% if user.can_view_phi or permit(r, 'staff.keep') %}<a href="/site/staff" data-testid="more-staff">{{ t('team.staff.title') }}</a>{% endif %}
         {% if permit(r, 'optout.keep') %}<a href="/site/opt-outs" data-testid="more-optouts">{{ t('team.optout.title') }}</a>{% endif %}
-        {% if permit(r, 'breakglass.read', BEST) %}<a href="/breakglass" data-testid="more-breakglass">{{ t('nav.breakglass') }}</a>{% endif %}
-        {% if r == 'admin' %}<a href="/admin?tab=health">{{ t('admin.tab.health') }}</a><a href="/admin?tab=jobs">{{ t('admin.tab.jobs') }}</a><a href="/admin?tab=sources">{{ t('admin.tab.sources') }}</a>{% endif %}
-        <a href="/">{{ t('nav.overview') }}</a>
+        {% if permit(r, 'breakglass.read', BEST) %}<a href="/breakglass" data-testid="more-breakglass">{{ t('nav.breakglass') }}</a>{% endif %}{% endset %}{{ grp(pf, 'registers', g) }}
+        {% set g %}{% if r == 'admin' %}<a href="/admin?tab=health">{{ t('admin.tab.health') }}</a><a href="/admin?tab=jobs">{{ t('admin.tab.jobs') }}</a><a href="/admin?tab=sources">{{ t('admin.tab.sources') }}</a>{% endif %}{% endset %}{{ grp(pf, 'box', g) }}
+        {% set g %}<a href="/">{{ t('nav.overview') }}</a>
         {% if user.aggregate_only %}<a href="/reports">{{ t('nav.reports') }}</a>{% else %}{# D-146: viewer and CRO open no run, registry or audit page #}
         {% if not user.studies %}<a href="/jobs">{{ t('nav.jobs') }}</a>{% endif %}{% endif %}{# ROLE-018: a study-scoped account opens no cross-study list #}
         {% if user.can_request %}
@@ -70,11 +72,11 @@
         <a href="/pilot/registry">{{ t('nav.registry') }}</a>
         {% if settings.test_smtp and not user.studies %}<a href="/pilot/mailbox">{{ t('nav.mailbox') }}</a>{% endif %}
         {% if not user.studies and permit(r, 'audit.browse') %}<a href="/audit">{{ t('nav.audit') }}</a>{% endif %}
-        {% endif %}
-        <a href="/settings/notices">{{ t('notices.title') }}</a>
+        {% endif %}{% endset %}{{ grp(pf, 'lists', g) }}
+        {% set g %}<a href="/settings/notices">{{ t('notices.title') }}</a>
         {% if r == 'admin' %}<a href="/admin/redcap">{{ t('s36.title') }}</a>{% endif %}
         {% if user.role in ('admin', 'viewer', 'coordinator') %}<a href="/reports/research-office">{{ t('office.title') }}</a>{% endif %}
-        {% if permit(r, 'ops.view') %}<a href="/ops/users">{{ t('nav.users') }}</a>{% endif %}
+        {% if permit(r, 'ops.view') %}<a href="/ops/users">{{ t('nav.users') }}</a>{% endif %}{% endset %}{{ grp(pf, 'settings', g) }}
         {% endif %}
       </div>
     </details>

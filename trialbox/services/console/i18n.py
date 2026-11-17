@@ -1,17 +1,20 @@
 """Console message catalogue (FR-UX-32 direction: no user-facing strings in code paths; en, ja, zh-TW).
 
 Keys missing in a language fall back to English; ``tests/console/test_console_app.py`` checks that every language
-has every key.
+has every key. D-1220: ``python -m tools.text_keys`` (``make lint``, ``tests/unit/test_text_keys.py``) fails on a key
+defined twice with different words and on a key a page asks for that no catalogue has; in the test suite's own
+process (``STRICT``, set by ``tests/conftest.py``) ``translate`` raises on a missing key instead of showing it.
 """
 
 from __future__ import annotations
+
+import os
 
 LANGS = ("en", "ja", "zh-TW")
 
 EN: dict[str, str] = {
     "brand": "TrialBox console",
     "nav.overview": "Overview",
-    "nav.jobs": "Jobs",
     "nav.request": "New request",
     "nav.protocol": "Protocol",
     "nav.cascade": "Cascade",
@@ -239,11 +242,8 @@ EN: dict[str, str] = {
     "mailbox.attach": "Attachment (optional)",
     "mailbox.send": "Send",
     "mailbox.sent": "Sent {mid}. The mail gateway polls every few seconds; the job appears on the Jobs page.",
-    "audit.title": "Audit trail (newest first)",
     "audit.verify": "Chain",
     "csrf": "The form expired. Reload the page and try again.",
-    "forbidden": "Your role does not allow this action.",
-    "notfound": "Not found.",
     "unavailable": "A TrialBox service did not answer: {detail}",
     "download": "Download",
     "yes": "yes",
@@ -371,11 +371,8 @@ EN: dict[str, str] = {
     "registry.source.case": "CASE check",
     "registry.source.import": "import",
     "users.title": "Users",
-    "users.help": "Console accounts of this box. A new account gets a one-time password shown once; the person "
-    "changes it at first sign-in. Disabling signs the person out everywhere.",
     "users.sso": "Hospital sign-in is on: accounts marked 'hospital account' are created and updated by the "
     "identity provider and have no console password.",
-    "users.made": "Account {user} is ready. One-time password (shown once):",
     "users.made.help": "Hand it over in person or by phone, never by e-mail. Accounts lock after 5 failed sign-ins.",
     "users.add": "Add an account",
     "users.add.submit": "Create account",
@@ -385,7 +382,6 @@ EN: dict[str, str] = {
     "users.role.admin": "operations, accounts, ingest and the update bundle; no patient data, except one patient or one job by an audited 60-minute break-glass grant",
     "users.role.coordinator": "start requests, approve review workbooks, keep the registry, draft consent guides",
     "users.role.viewer": "read jobs, aggregate results and the audit trail",
-    "users.role.investigator": "read everything a viewer reads, plus candidate rows and CASE sheets; may show the study's chart numbers (recorded); no requests",
     "job.sponsor_pack": "Download sponsor pack (zip)",
     "job.sponsor_pack.help": "PDF, workbook and JSON with a README that names the ruleset version, snapshot, approval record and the models that ran. Aggregate only, small cells suppressed.",
     "users.signin": "Sign-in",
@@ -399,7 +395,6 @@ EN: dict[str, str] = {
 JA: dict[str, str] = {
     "brand": "TrialBox コンソール",
     "nav.overview": "概要",
-    "nav.jobs": "処理",
     "nav.request": "新規リクエスト",
     "nav.protocol": "プロトコル",
     "nav.cascade": "カスケード",
@@ -619,11 +614,8 @@ JA: dict[str, str] = {
     "mailbox.attach": "添付（任意）",
     "mailbox.send": "送信",
     "mailbox.sent": "{mid} を送信しました。メールゲートウェイは数秒ごとに受信します。処理は処理ページに表示されます。",
-    "audit.title": "監査証跡（新しい順）",
     "audit.verify": "チェーン",
     "csrf": "フォームの有効期限が切れました。ページを再読み込みしてやり直してください。",
-    "forbidden": "あなたの役割ではこの操作はできません。",
-    "notfound": "見つかりません。",
     "unavailable": "TrialBox のサービスが応答しませんでした：{detail}",
     "download": "ダウンロード",
     "yes": "はい",
@@ -740,11 +732,8 @@ JA: dict[str, str] = {
     "registry.source.case": "CASE 確認",
     "registry.source.import": "取り込み",
     "users.title": "ユーザー",
-    "users.help": "TrialBox のコンソールアカウント。新規アカウントには 1 回だけ表示される初期パスワードが発行され、初回ログインで"
-    "変更します。無効化すると全端末からログアウトされます。",
     "users.sso": "病院ログインが有効です。「病院アカウント」の表示があるアカウントは ID プロバイダーが作成・更新し、"
     "コンソールのパスワードを持ちません。",
-    "users.made": "アカウント {user} を作成しました。初期パスワード（1 回のみ表示）：",
     "users.made.help": "対面または電話で伝え、メールでは送らないでください。5 回失敗するとロックされます。",
     "users.add": "アカウントを追加",
     "users.add.submit": "作成",
@@ -754,7 +743,6 @@ JA: dict[str, str] = {
     "users.role.admin": "運用、アカウント、取り込み、更新バンドル。患者データは見ない（監査される60分のブレイクグラス許可で、1人の患者または1件の処理のみ例外）",
     "users.role.coordinator": "リクエストの開始、確認ワークブックの承認、レジストリの管理、同意説明補助の下書き",
     "users.role.viewer": "処理、集計結果、監査証跡の閲覧",
-    "users.role.investigator": "閲覧者の権限に加え、候補者行と適格性シートの閲覧。担当試験のカルテ番号を表示可（記録あり）。リクエストの開始は不可",
     "job.sponsor_pack": "スポンサー向けパック（zip）をダウンロード",
     "job.sponsor_pack.help": "PDF・ワークブック・JSON と、選択・除外基準版、スナップショット、承認記録、実行したモデルを記した README。集計のみ、少数セルは抑制。",
     "users.signin": "ログイン方法",
@@ -768,7 +756,6 @@ JA: dict[str, str] = {
 ZH: dict[str, str] = {
     "brand": "TrialBox 主控台",
     "nav.overview": "總覽",
-    "nav.jobs": "作業",
     "nav.request": "新請求",
     "nav.protocol": "計畫書",
     "nav.cascade": "串聯篩選",
@@ -983,11 +970,8 @@ ZH: dict[str, str] = {
     "mailbox.attach": "附件（選填）",
     "mailbox.send": "寄出",
     "mailbox.sent": "已寄出 {mid}。郵件閘道每幾秒收信一次；作業會出現在作業頁面。",
-    "audit.title": "稽核軌跡（最新在前）",
     "audit.verify": "雜湊鏈",
     "csrf": "表單已過期，請重新整理後再試。",
-    "forbidden": "您的角色不允許此操作。",
-    "notfound": "找不到。",
     "unavailable": "TrialBox 服務沒有回應：{detail}",
     "download": "下載",
     "yes": "是",
@@ -1100,9 +1084,7 @@ ZH: dict[str, str] = {
     "registry.source.case": "CASE 檢核",
     "registry.source.import": "匯入",
     "users.title": "使用者",
-    "users.help": "此 TrialBox 的主控台帳號。新帳號會取得只顯示一次的一次性密碼，首次登入時更改。停用會使該人員在所有裝置登出。",
     "users.sso": "醫院登入已啟用：標示「醫院帳號」的帳號由身分提供者建立與更新，沒有主控台密碼。",
-    "users.made": "帳號 {user} 已建立。一次性密碼（只顯示一次）：",
     "users.made.help": "請當面或電話告知，不要以電子郵件寄送。登入失敗 5 次會鎖定。",
     "users.add": "新增帳號",
     "users.add.submit": "建立帳號",
@@ -1112,7 +1094,6 @@ ZH: dict[str, str] = {
     "users.role.admin": "維運、帳號、資料匯入與更新包；不看病人資料（僅能以受稽核的 60 分鐘緊急存取授權查看一位病人或一個作業）",
     "users.role.coordinator": "發起請求、核准審閱工作簿、維護登錄、起草同意說明",
     "users.role.viewer": "閱讀作業、彙總結果與稽核軌跡",
-    "users.role.investigator": "檢視者的權限，加上候選者列與資格表；可顯示所負責試驗的病歷號（會記錄），不可發起請求",
     "job.sponsor_pack": "下載試驗委託者資料包（zip）",
     "job.sponsor_pack.help": "PDF、工作簿與 JSON，附 README 記載納入／排除條件版本、快照、核准記錄與實際執行的模型。僅彙總資料，小格數已抑制。",
     "users.signin": "登入方式",
@@ -1126,8 +1107,27 @@ ZH: dict[str, str] = {
 CATALOGUES: dict[str, dict[str, str]] = {"en": EN, "ja": JA, "zh-TW": ZH}
 
 
+#: D-1220: the test suite sets it in its own process (tests/conftest.py, never through the environment, so a box a
+#: test starts keeps the fallback); a box shows a missing key as the key itself, unless TB_STRICT_TEXT=1 by hand
+STRICT = os.environ.get("TB_STRICT_TEXT") == "1"
+
+
+class MissingText(LookupError):
+    """A text key no catalogue has, asked for while ``STRICT`` is on."""
+
+
+def lookup(lang: str, key: str) -> str | None:
+    """The words of ``key`` in ``lang`` (English when the language lacks it); None when no catalogue has the key. For a
+    page that has its own fallback (``t_or``, a state's badge): it never raises."""
+    return CATALOGUES.get(lang, EN).get(key) or EN.get(key)
+
+
 def translate(lang: str, key: str, **values: object) -> str:
-    text = CATALOGUES.get(lang, EN).get(key) or EN.get(key) or key
+    text = lookup(lang, key)
+    if text is None:
+        if STRICT:
+            raise MissingText(f"no catalogue has the text key {key!r} (python -m tools.text_keys)")
+        text = key
     return text.format(**values) if values else text
 
 
@@ -1217,10 +1217,7 @@ ZH.update(_IC_ZH)
 from console.i18n_person import EN as _PS_EN  # noqa: E402
 from console.i18n_person import JA as _PS_JA  # noqa: E402
 from console.i18n_person import ZH as _PS_ZH  # noqa: E402
-from console.i18n_person import alias as _ps_alias  # noqa: E402
 
 EN.update(_PS_EN)
 JA.update(_PS_JA)
 ZH.update(_PS_ZH)
-for _cat, _words in ((EN, _PS_EN), (JA, _PS_JA), (ZH, _PS_ZH)):
-    _ps_alias(_cat, _words)

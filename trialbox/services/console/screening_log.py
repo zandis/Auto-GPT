@@ -36,7 +36,7 @@ from console import studies as st
 from console.auth import Session
 from console.backend import Problem, Unavailable
 from console.home import Helpers
-from console.i18n import translate
+from console.i18n import lookup, translate
 from console.studies import known_study
 from console.timefmt import local_date, site_zone
 
@@ -154,9 +154,8 @@ LISTS = {"approach_irb_override": "team.irb.w."}
 
 
 def _word(lang: str, prefix: str, code: str) -> str:
-    key = prefix + code
-    word = translate(lang, key)
-    return word if word != key else code
+    word = lookup(lang, prefix + code)
+    return word if word is not None else code
 
 
 def _width(text: str) -> int:

@@ -54,7 +54,7 @@ from tb_common.ulid import new_ulid
 from tb_common.verdict_word import shown_of
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
-from console import acting, api_first, demo_guard, feedback, firstrun, i18n_roles, next_page, person_state
+from console import acting, api_first, demo_guard, feedback, firstrun, i18n_roles, next_page, person_state, phone
 from console import actor as console_actor
 from console.account_rules import Hooks as AccountHooks
 from console.account_rules import Rules as AccountRules
@@ -75,7 +75,7 @@ from console.auth import (
 )
 from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
 from console.cascade import CascadeRuns
-from console.i18n import CATALOGUES, LANGS, pick_language, translate
+from console.i18n import CATALOGUES, LANGS, lookup, pick_language, translate
 from console.identity import (
     MUST_CHANGE_OPEN,
     Hooks,
@@ -810,13 +810,12 @@ def create_app(
             return translate(lang, key, **values)
 
         def t_or(key: str, fallback: str) -> str:  # a translation when the catalogue has one, else the fallback
-            text = t(key)
-            return fallback if text == key else text
+            text = lookup(lang, key)
+            return fallback if text is None else text
 
         def state(value: str) -> str:  # badge text; the machine state stays in data-state
-            key = f"state.{value}"
-            text = t(key)
-            return value if text == key else text
+            text = lookup(lang, f"state.{value}")
+            return value if text is None else text
 
         def given(value: object, cls: str = "") -> Markup | str:
             """D-133 (review F-09): words that come from the study or the hospital's data (a criterion label, a
@@ -1348,6 +1347,7 @@ def create_app(
     # T-211c (D-451): /audit, the privacy office's and the steward's audit browser, with or without the workspace
     audit_hooks = audit_page.Hooks(need=need, page=page, problem=_Problem, csrf_ok=csrf_ok, actor=actor, au=au)
     audit_page.register(app, audit_hooks)
+    phone.register(app)  # J-3 (D-1222): the phone-first flag per request, the web manifest and the icons
 
     # ------------------------------------------------------------------ pilot workspace
     if not settings.pilot:
