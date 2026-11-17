@@ -410,8 +410,8 @@ def site_list_rows(text: str, system: str = "", what: str = "the site list") -> 
             raise ValueError(f"{what}, line {i}: a row needs a code and a local code or a local name")
         try:
             c = site_code(s, r[code])
-        except ValueError as exc:
-            raise ValueError(f"{what}, line {i}: {exc}") from exc
+        except ValueError as exc:  # the sentence is written here, not taken from the error (D-700)
+            raise ValueError(f"{what}, line {i}: {r[code]!r} is not a {s} code") from exc
         local = {"local_code": r.get(lc, "") if lc else "", "local_name": r.get(ln, "") if ln else ""}
         for kind, value in local.items():  # one local code or name, two standard codes: the list contradicts itself
             key = (s, kind, " ".join(value.lower().split()))
