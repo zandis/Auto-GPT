@@ -1,0 +1,3834 @@
+{
+ "commit": "15108f46b8ea59e6676bc003000d5dcaa24c97a1",
+ "machine": "4 shared cores; 2 mutation workers (the whole set would take about a day on one core)",
+ "made": {
+  "libs/tb_common/pair.py": 71,
+  "libs/tb_common/quotes.py": 7,
+  "services/matching/coverage.py": 63,
+  "services/matching/proposed.py": 119,
+  "services/matching/cascade/judge.py": 70,
+  "services/matching/cascade/engine.py": 604,
+  "services/orchestrator/scenarios/evaluate.py": 303
+ },
+ "runs": {
+  "small": {
+   "score": 72.73,
+   "threshold": 90.0,
+   "floor": 60.0,
+   "counts": {
+    "no-coverage": 24,
+    "killed": 240,
+    "survived": 66
+   },
+   "meta": {
+    "targets": {
+     "libs/tb_common/pair.py": {
+      "mutants": 71,
+      "baseline_s": 170.4,
+      "rc": 0
+     },
+     "libs/tb_common/quotes.py": {
+      "mutants": 7,
+      "baseline_s": 9.4,
+      "rc": 0
+     },
+     "services/matching/coverage.py": {
+      "mutants": 63,
+      "baseline_s": 80.3,
+      "rc": 0
+     },
+     "services/matching/proposed.py": {
+      "mutants": 119,
+      "baseline_s": 42.5,
+      "rc": 0
+     },
+     "services/matching/cascade/judge.py": {
+      "mutants": 70,
+      "baseline_s": 255.7,
+      "rc": 0
+     }
+    },
+    "stale_accepted": []
+   },
+   "results": [
+    {
+     "mutant": "services/matching/coverage.py:166:4:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/coverage.py:157:8:const:+1",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/coverage.py:84:8:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/coverage.py:127:12:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/coverage.py:160:17:bool:or->and",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/coverage.py:163:15:cmp:Eq->NotEq",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/coverage.py:165:16:flow:break->continue",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/coverage.py:164:21:const:+1",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/coverage.py:162:22:bool:or->and",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/proposed.py:153:8:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/proposed.py:82:8:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/proposed.py:119:12:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/proposed.py:149:12:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/proposed.py:173:12:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/proposed.py:173:19:const:True->False",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/proposed.py:119:33:bool:or->and",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/proposed.py:149:33:bool:or->and",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:168:12:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:215:12:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:166:15:bool:and->or",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:167:16:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:206:12:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:166:51:cmp:In->NotIn",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:298:66:const:+1",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:57:4:return:None",
+     "status": "killed",
+     "seconds": 4.418193946999963
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:63:4:return:None",
+     "status": "killed",
+     "seconds": 4.44276344500031
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:79:4:return:None",
+     "status": "killed",
+     "seconds": 4.092341302999557
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:86:4:return:None",
+     "status": "killed",
+     "seconds": 5.634983205000026
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:94:4:return:None",
+     "status": "killed",
+     "seconds": 4.408660484999928
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:105:4:return:None",
+     "status": "killed",
+     "seconds": 5.387588653999046
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:51:25:const:False->True",
+     "status": "killed",
+     "seconds": 4.4647401710008126
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:114:4:return:None",
+     "status": "killed",
+     "seconds": 8.583482307998565
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:52:20:const:False->True",
+     "status": "killed",
+     "seconds": 4.100418351999906
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:53:23:const:False->True",
+     "status": "killed",
+     "seconds": 4.084839742999975
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:57:11:cmp:In->NotIn",
+     "status": "killed",
+     "seconds": 4.0742015590003575
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:61:7:bool:and->or",
+     "status": "killed",
+     "seconds": 4.353228783998929
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:62:8:return:None",
+     "status": "killed",
+     "seconds": 4.1530330709992995
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:69:7:bool:or->and",
+     "status": "killed",
+     "seconds": 4.415854279999621
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:70:8:return:None",
+     "status": "killed",
+     "seconds": 4.371062784999594
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:71:7:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 4.1678557969989924
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:72:8:return:None",
+     "status": "killed",
+     "seconds": 4.4672034089999215
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:75:7:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 4.491985653001393
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:74:8:return:None",
+     "status": "killed",
+     "seconds": 9.698511321001206
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:76:8:return:None",
+     "status": "killed",
+     "seconds": 4.28692909900019
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:77:7:cmp:NotEq->Eq",
+     "status": "killed",
+     "seconds": 4.4987714889994095
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:78:8:return:None",
+     "status": "killed",
+     "seconds": 4.614950817000135
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:101:7:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 6.334591687000284
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:103:8:return:None",
+     "status": "killed",
+     "seconds": 6.225147907998689
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:147:7:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 6.45696298599978
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:124:8:return:None",
+     "status": "killed",
+     "seconds": 10.242215622000003
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:148:8:return:None",
+     "status": "killed",
+     "seconds": 6.9779516749986215
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:155:7:cmp:NotEq->Eq",
+     "status": "killed",
+     "seconds": 6.64941858200109
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:157:7:bool:or->and",
+     "status": "killed",
+     "seconds": 7.522961964999922
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:156:8:return:None",
+     "status": "killed",
+     "seconds": 11.418235622000793
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:158:8:return:None",
+     "status": "killed",
+     "seconds": 8.42354296099984
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:159:7:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 7.826714102000551
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:160:8:return:None",
+     "status": "killed",
+     "seconds": 7.820082614000057
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:164:8:return:None",
+     "status": "killed",
+     "seconds": 13.553758230000312
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:167:7:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 8.558591680999598
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:168:8:return:None",
+     "status": "killed",
+     "seconds": 10.281350567000118
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:162:7:bool:or->and",
+     "status": "survived",
+     "seconds": 94.32071830199857
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:34:18:const:True->False",
+     "status": "survived",
+     "seconds": 86.30667010700017
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:61:7:cmp:In->NotIn",
+     "status": "killed",
+     "seconds": 4.770860065000306
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:46:18:const:True->False",
+     "status": "survived",
+     "seconds": 74.40189538499908
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:69:7:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 4.566427871999622
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:69:25:not:drop",
+     "status": "killed",
+     "seconds": 4.7723352709999745
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:113:15:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 9.976837485000942
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:114:30:cmp:In->NotIn",
+     "status": "killed",
+     "seconds": 8.253313636001621
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:61:32:cmp:Lt->LtE",
+     "status": "survived",
+     "seconds": 74.22179178199985
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:124:15:bool:or->and",
+     "status": "killed",
+     "seconds": 9.81288262400085
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:130:17:bool:or->and",
+     "status": "killed",
+     "seconds": 5.491811433999828
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:152:11:bool:and->or",
+     "status": "killed",
+     "seconds": 5.847178365998843
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:153:12:return:None",
+     "status": "killed",
+     "seconds": 6.648937569998452
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:157:7:not:drop",
+     "status": "killed",
+     "seconds": 10.012301934999414
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:157:17:not:drop",
+     "status": "killed",
+     "seconds": 9.921560484999645
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:162:7:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 5.504874053000094
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:162:21:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 5.190097519998744
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:128:11:cmp:GtE->Gt",
+     "status": "survived",
+     "seconds": 72.28230208200148
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:131:15:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 5.3072230750003655
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:132:16:return:None",
+     "status": "killed",
+     "seconds": 5.558479785999225
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:151:17:bool:or->and",
+     "status": "killed",
+     "seconds": 6.364220289000514
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:151:60:bool:or->and",
+     "status": "killed",
+     "seconds": 9.858443679999255
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:152:11:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 6.629862067000431
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:152:24:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 5.005842858001415
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:128:31:const:+1",
+     "status": "survived",
+     "seconds": 67.26007371899868
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:72:73:const:True->False",
+     "status": "killed",
+     "seconds": 3.5511133370000607
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:74:73:const:True->False",
+     "status": "killed",
+     "seconds": 8.285042285999225
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:74:90:const:True->False",
+     "status": "killed",
+     "seconds": 8.89249267300147
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:76:90:const:True->False",
+     "status": "killed",
+     "seconds": 3.8728634670005704
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:78:76:const:True->False",
+     "status": "killed",
+     "seconds": 3.8475127189994964
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:132:23:bool:or->and",
+     "status": "killed",
+     "seconds": 5.296120593999149
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:163:22:cmp:Is->IsNot",
+     "status": "survived",
+     "seconds": 69.08355412700075
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:86:24:bool:or->and",
+     "status": "killed",
+     "seconds": 9.023444411999662
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:104:14:bool:or->and",
+     "status": "survived",
+     "seconds": 100.3615427800014
+    },
+    {
+     "mutant": "libs/tb_common/quotes.py:22:4:return:None",
+     "status": "killed",
+     "seconds": 3.2444817619998503
+    },
+    {
+     "mutant": "libs/tb_common/quotes.py:37:4:return:None",
+     "status": "killed",
+     "seconds": 3.512150399999882
+    },
+    {
+     "mutant": "libs/tb_common/quotes.py:44:4:return:None",
+     "status": "killed",
+     "seconds": 3.648364448999928
+    },
+    {
+     "mutant": "libs/tb_common/quotes.py:44:11:bool:and->or",
+     "status": "killed",
+     "seconds": 3.0307007119990885
+    },
+    {
+     "mutant": "libs/tb_common/quotes.py:33:11:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 2.697903344998849
+    },
+    {
+     "mutant": "libs/tb_common/quotes.py:44:27:cmp:In->NotIn",
+     "status": "killed",
+     "seconds": 2.4627143439993233
+    },
+    {
+     "mutant": "libs/tb_common/quotes.py:36:17:const:+1",
+     "status": "killed",
+     "seconds": 2.5264267589991505
+    },
+    {
+     "mutant": "services/matching/coverage.py:70:4:return:None",
+     "status": "killed",
+     "seconds": 5.344033752999167
+    },
+    {
+     "mutant": "services/matching/coverage.py:87:4:return:None",
+     "status": "killed",
+     "seconds": 6.356713273000423
+    },
+    {
+     "mutant": "services/matching/coverage.py:92:4:return:None",
+     "status": "killed",
+     "seconds": 10.325870616999964
+    },
+    {
+     "mutant": "libs/tb_common/pair.py:102:18:bool:or->and",
+     "status": "survived",
+     "seconds": 107.0322793560008
+    },
+    {
+     "mutant": "services/matching/coverage.py:73:59:const:True->False",
+     "status": "killed",
+     "seconds": 8.327844257999459
+    },
+    {
+     "mutant": "services/matching/coverage.py:78:8:return:None",
+     "status": "killed",
+     "seconds": 7.807357800000318
+    },
+    {
+     "mutant": "services/matching/coverage.py:79:7:cmp:NotIn->In",
+     "status": "killed",
+     "seconds": 8.219962748000398
+    },
+    {
+     "mutant": "services/matching/coverage.py:85:7:bool:or->and",
+     "status": "killed",
+     "seconds": 9.681861839999328
+    },
+    {
+     "mutant": "services/matching/coverage.py:86:8:return:None",
+     "status": "killed",
+     "seconds": 8.224880203999419
+    },
+    {
+     "mutant": "services/matching/coverage.py:92:11:bool:and->or",
+     "status": "killed",
+     "seconds": 9.747646830999656
+    },
+    {
+     "mutant": "services/matching/coverage.py:114:8:return:None",
+     "status": "killed",
+     "seconds": 10.76948990299934
+    },
+    {
+     "mutant": "services/matching/coverage.py:80:8:return:None",
+     "status": "survived",
+     "seconds": 47.87587606899979
+    },
+    {
+     "mutant": "services/matching/coverage.py:128:8:return:None",
+     "status": "killed",
+     "seconds": 9.410531161000108
+    },
+    {
+     "mutant": "services/matching/coverage.py:131:8:return:None",
+     "status": "killed",
+     "seconds": 11.76280413600034
+    },
+    {
+     "mutant": "services/matching/coverage.py:152:8:return:None",
+     "status": "killed",
+     "seconds": 10.55839956500131
+    },
+    {
+     "mutant": "services/matching/coverage.py:67:19:bool:or->and",
+     "status": "killed",
+     "seconds": 8.90311388200098
+    },
+    {
+     "mutant": "services/matching/coverage.py:77:15:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 8.043329565998647
+    },
+    {
+     "mutant": "services/matching/coverage.py:85:7:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 8.26923159100079
+    },
+    {
+     "mutant": "services/matching/coverage.py:85:34:bool:and->or",
+     "status": "killed",
+     "seconds": 8.199746281999978
+    },
+    {
+     "mutant": "services/matching/coverage.py:55:18:const:True->False",
+     "status": "survived",
+     "seconds": 47.04576562799957
+    },
+    {
+     "mutant": "services/matching/coverage.py:92:11:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 12.523857931999373
+    },
+    {
+     "mutant": "services/matching/coverage.py:92:37:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 10.570545124001
+    },
+    {
+     "mutant": "services/matching/coverage.py:106:11:bool:and->or",
+     "status": "killed",
+     "seconds": 10.538621549998425
+    },
+    {
+     "mutant": "services/matching/coverage.py:107:12:return:None",
+     "status": "killed",
+     "seconds": 12.542012952999357
+    },
+    {
+     "mutant": "services/matching/coverage.py:126:11:not:drop",
+     "status": "killed",
+     "seconds": 11.636340906001351
+    },
+    {
+     "mutant": "services/matching/coverage.py:137:11:bool:or->and",
+     "status": "killed",
+     "seconds": 10.88370025400036
+    },
+    {
+     "mutant": "services/matching/coverage.py:138:12:return:None",
+     "status": "killed",
+     "seconds": 13.435820348000561
+    },
+    {
+     "mutant": "services/matching/coverage.py:66:15:bool:or->and",
+     "status": "killed",
+     "seconds": 10.46866824800054
+    },
+    {
+     "mutant": "services/matching/coverage.py:85:34:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 9.035650146999615
+    },
+    {
+     "mutant": "services/matching/coverage.py:85:57:cmp:NotEq->Eq",
+     "status": "killed",
+     "seconds": 9.635406858000351
+    },
+    {
+     "mutant": "services/matching/coverage.py:105:24:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 12.831495509999513
+    },
+    {
+     "mutant": "services/matching/coverage.py:106:11:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 13.757079117000103
+    },
+    {
+     "mutant": "services/matching/coverage.py:106:33:not:drop",
+     "status": "killed",
+     "seconds": 11.544206505999682
+    },
+    {
+     "mutant": "services/matching/coverage.py:137:11:not:drop",
+     "status": "killed",
+     "seconds": 10.056382390999715
+    },
+    {
+     "mutant": "services/matching/coverage.py:137:23:not:drop",
+     "status": "killed",
+     "seconds": 13.13178572400102
+    },
+    {
+     "mutant": "services/matching/coverage.py:85:58:bool:or->and",
+     "status": "killed",
+     "seconds": 9.908215592000488
+    },
+    {
+     "mutant": "services/matching/coverage.py:142:25:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 9.091692997999417
+    },
+    {
+     "mutant": "services/matching/coverage.py:142:50:binop:Add->Sub",
+     "status": "killed",
+     "seconds": 9.893598213000587
+    },
+    {
+     "mutant": "services/matching/coverage.py:145:19:cmp:NotEq->Eq",
+     "status": "killed",
+     "seconds": 10.590098160000707
+    },
+    {
+     "mutant": "services/matching/coverage.py:143:17:binop:Add->Sub",
+     "status": "survived",
+     "seconds": 53.759299038998506
+    },
+    {
+     "mutant": "services/matching/coverage.py:147:19:bool:and->or",
+     "status": "killed",
+     "seconds": 12.074830651999946
+    },
+    {
+     "mutant": "services/matching/coverage.py:146:20:flow:continue->break",
+     "status": "survived",
+     "seconds": 53.79314501599947
+    },
+    {
+     "mutant": "services/matching/coverage.py:150:19:cmp:NotIn->In",
+     "status": "killed",
+     "seconds": 14.128776429000936
+    },
+    {
+     "mutant": "services/matching/coverage.py:148:20:flow:continue->break",
+     "status": "survived",
+     "seconds": 52.313379186998645
+    },
+    {
+     "mutant": "services/matching/coverage.py:67:20:bool:or->and",
+     "status": "killed",
+     "seconds": 9.42509963699922
+    },
+    {
+     "mutant": "services/matching/coverage.py:78:64:cmp:NotEq->Eq",
+     "status": "killed",
+     "seconds": 9.063157369999317
+    },
+    {
+     "mutant": "services/matching/coverage.py:147:19:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 11.996574452999994
+    },
+    {
+     "mutant": "services/matching/coverage.py:147:40:bool:or->and",
+     "status": "killed",
+     "seconds": 12.43552561999968
+    },
+    {
+     "mutant": "services/matching/coverage.py:131:62:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 14.70253725800103
+    },
+    {
+     "mutant": "services/matching/coverage.py:112:68:bool:or->and",
+     "status": "survived",
+     "seconds": 52.19879408700035
+    },
+    {
+     "mutant": "services/matching/coverage.py:147:53:bool:and->or",
+     "status": "killed",
+     "seconds": 10.504648468999221
+    },
+    {
+     "mutant": "services/matching/coverage.py:147:40:cmp:Gt->GtE",
+     "status": "killed",
+     "seconds": 51.180531718000566
+    },
+    {
+     "mutant": "services/matching/coverage.py:147:53:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 11.381150658000479
+    },
+    {
+     "mutant": "services/matching/coverage.py:67:21:bool:or->and",
+     "status": "killed",
+     "seconds": 9.072928610999952
+    },
+    {
+     "mutant": "services/matching/proposed.py:61:4:return:None",
+     "status": "killed",
+     "seconds": 6.500420309999754
+    },
+    {
+     "mutant": "services/matching/proposed.py:88:4:return:None",
+     "status": "killed",
+     "seconds": 9.146524244999455
+    },
+    {
+     "mutant": "services/matching/proposed.py:99:4:return:None",
+     "status": "killed",
+     "seconds": 8.16422891000002
+    },
+    {
+     "mutant": "services/matching/coverage.py:147:72:cmp:Lt->LtE",
+     "status": "killed",
+     "seconds": 46.35187080700052
+    },
+    {
+     "mutant": "services/matching/proposed.py:214:4:return:None",
+     "status": "killed",
+     "seconds": 9.010363381999923
+    },
+    {
+     "mutant": "services/matching/proposed.py:74:57:const:True->False",
+     "status": "killed",
+     "seconds": 7.750545396000234
+    },
+    {
+     "mutant": "services/matching/proposed.py:78:8:return:None",
+     "status": "killed",
+     "seconds": 10.242601267000282
+    },
+    {
+     "mutant": "services/matching/proposed.py:83:7:cmp:In->NotIn",
+     "status": "killed",
+     "seconds": 8.147721657000147
+    },
+    {
+     "mutant": "services/matching/proposed.py:84:8:return:None",
+     "status": "killed",
+     "seconds": 9.58007046199964
+    },
+    {
+     "mutant": "services/matching/proposed.py:86:7:not:drop",
+     "status": "killed",
+     "seconds": 9.03898241800016
+    },
+    {
+     "mutant": "services/matching/proposed.py:96:15:bool:or->and",
+     "status": "killed",
+     "seconds": 9.754376337001304
+    },
+    {
+     "mutant": "services/matching/proposed.py:93:15:bool:or->and",
+     "status": "killed",
+     "seconds": 13.014373279998836
+    },
+    {
+     "mutant": "services/matching/proposed.py:137:8:return:None",
+     "status": "killed",
+     "seconds": 7.939290202000848
+    },
+    {
+     "mutant": "services/matching/proposed.py:150:8:return:None",
+     "status": "killed",
+     "seconds": 7.328297003999978
+    },
+    {
+     "mutant": "services/matching/proposed.py:176:8:return:None",
+     "status": "killed",
+     "seconds": 6.512268033999135
+    },
+    {
+     "mutant": "services/matching/proposed.py:193:8:return:None",
+     "status": "killed",
+     "seconds": 6.677657530999568
+    },
+    {
+     "mutant": "services/matching/proposed.py:210:7:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 6.169550079999681
+    },
+    {
+     "mutant": "services/matching/proposed.py:200:8:return:None",
+     "status": "killed",
+     "seconds": 7.0558118499993725
+    },
+    {
+     "mutant": "services/matching/proposed.py:211:8:return:None",
+     "status": "killed",
+     "seconds": 12.263810812000884
+    },
+    {
+     "mutant": "services/matching/proposed.py:77:15:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 12.58936043400172
+    },
+    {
+     "mutant": "services/matching/proposed.py:64:18:const:True->False",
+     "status": "survived",
+     "seconds": 27.791839797000648
+    },
+    {
+     "mutant": "services/matching/proposed.py:85:18:bool:and->or",
+     "status": "killed",
+     "seconds": 7.28087713000059
+    },
+    {
+     "mutant": "services/matching/proposed.py:118:11:bool:and->or",
+     "status": "killed",
+     "seconds": 8.630989137000142
+    },
+    {
+     "mutant": "services/matching/proposed.py:123:11:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 8.665618917000756
+    },
+    {
+     "mutant": "services/matching/proposed.py:97:11:bool:and->or",
+     "status": "survived",
+     "seconds": 24.306933051999295
+    },
+    {
+     "mutant": "services/matching/proposed.py:148:11:not:drop",
+     "status": "killed",
+     "seconds": 9.080770635999215
+    },
+    {
+     "mutant": "services/matching/proposed.py:124:12:return:None",
+     "status": "killed",
+     "seconds": 12.536247666001145
+    },
+    {
+     "mutant": "services/matching/proposed.py:156:11:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 8.649803566999253
+    },
+    {
+     "mutant": "services/matching/proposed.py:160:11:bool:and->or",
+     "status": "killed",
+     "seconds": 13.087965361999522
+    },
+    {
+     "mutant": "services/matching/proposed.py:159:12:return:None",
+     "status": "killed",
+     "seconds": 24.090923961000954
+    },
+    {
+     "mutant": "services/matching/proposed.py:162:11:cmp:NotEq->Eq",
+     "status": "killed",
+     "seconds": 10.989939389000938
+    },
+    {
+     "mutant": "services/matching/proposed.py:161:12:return:None",
+     "status": "killed",
+     "seconds": 13.821563088000403
+    },
+    {
+     "mutant": "services/matching/proposed.py:164:11:bool:and->or",
+     "status": "killed",
+     "seconds": 10.336182633000135
+    },
+    {
+     "mutant": "services/matching/proposed.py:168:11:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 10.739325507998728
+    },
+    {
+     "mutant": "services/matching/proposed.py:163:12:return:None",
+     "status": "survived",
+     "seconds": 31.10892746799982
+    },
+    {
+     "mutant": "services/matching/proposed.py:169:12:return:None",
+     "status": "killed",
+     "seconds": 15.57504883799993
+    },
+    {
+     "mutant": "services/matching/proposed.py:176:15:not:drop",
+     "status": "killed",
+     "seconds": 10.828335996000533
+    },
+    {
+     "mutant": "services/matching/proposed.py:182:11:bool:or->and",
+     "status": "killed",
+     "seconds": 12.627079126001263
+    },
+    {
+     "mutant": "services/matching/proposed.py:175:13:binop:Add->Sub",
+     "status": "survived",
+     "seconds": 31.663961786998698
+    },
+    {
+     "mutant": "services/matching/proposed.py:85:18:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 12.353072834001068
+    },
+    {
+     "mutant": "services/matching/proposed.py:183:12:return:None",
+     "status": "killed",
+     "seconds": 15.456750286000897
+    },
+    {
+     "mutant": "services/matching/proposed.py:85:41:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 12.055822129999797
+    },
+    {
+     "mutant": "services/matching/proposed.py:87:22:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 19.12031999700048
+    },
+    {
+     "mutant": "services/matching/proposed.py:97:11:cmp:Eq->NotEq",
+     "status": "survived",
+     "seconds": 36.948105887000565
+    },
+    {
+     "mutant": "services/matching/proposed.py:97:44:cmp:In->NotIn",
+     "status": "survived",
+     "seconds": 36.38741488800042
+    },
+    {
+     "mutant": "services/matching/proposed.py:117:24:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 15.789716716999465
+    },
+    {
+     "mutant": "services/matching/proposed.py:118:11:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 15.032410482001069
+    },
+    {
+     "mutant": "services/matching/proposed.py:118:33:not:drop",
+     "status": "killed",
+     "seconds": 10.626833569000155
+    },
+    {
+     "mutant": "services/matching/proposed.py:137:24:bool:or->and",
+     "status": "killed",
+     "seconds": 9.8832307019984
+    },
+    {
+     "mutant": "services/matching/proposed.py:157:15:cmp:NotEq->Eq",
+     "status": "killed",
+     "seconds": 27.181654236999748
+    },
+    {
+     "mutant": "services/matching/proposed.py:158:16:return:None",
+     "status": "survived",
+     "seconds": 33.487680880998596
+    },
+    {
+     "mutant": "services/matching/proposed.py:160:11:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 18.675753870000335
+    },
+    {
+     "mutant": "services/matching/proposed.py:159:19:bool:or->and",
+     "status": "killed",
+     "seconds": 31.896254544999465
+    },
+    {
+     "mutant": "services/matching/proposed.py:161:19:const:True->False",
+     "status": "killed",
+     "seconds": 16.240098246000343
+    },
+    {
+     "mutant": "services/matching/proposed.py:160:37:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 18.64442556799986
+    },
+    {
+     "mutant": "services/matching/proposed.py:163:19:const:False->True",
+     "status": "killed",
+     "seconds": 14.415877241000999
+    },
+    {
+     "mutant": "services/matching/proposed.py:164:22:cmp:NotIn->In",
+     "status": "killed",
+     "seconds": 14.390306926999983
+    },
+    {
+     "mutant": "services/matching/proposed.py:166:15:bool:and->or",
+     "status": "killed",
+     "seconds": 13.792633438999474
+    },
+    {
+     "mutant": "services/matching/proposed.py:169:19:const:True->False",
+     "status": "killed",
+     "seconds": 19.770428022000488
+    },
+    {
+     "mutant": "services/matching/proposed.py:167:16:return:None",
+     "status": "survived",
+     "seconds": 39.00183379800001
+    },
+    {
+     "mutant": "services/matching/proposed.py:174:21:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 12.612006757999552
+    },
+    {
+     "mutant": "services/matching/proposed.py:174:46:binop:Add->Sub",
+     "status": "killed",
+     "seconds": 12.590401389999897
+    },
+    {
+     "mutant": "services/matching/proposed.py:176:20:bool:or->and",
+     "status": "killed",
+     "seconds": 10.643659094999748
+    },
+    {
+     "mutant": "services/matching/proposed.py:182:11:not:drop",
+     "status": "killed",
+     "seconds": 11.155766066998694
+    },
+    {
+     "mutant": "services/matching/proposed.py:182:23:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 10.855392982999547
+    },
+    {
+     "mutant": "services/matching/proposed.py:182:40:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 10.99180854199949
+    },
+    {
+     "mutant": "services/matching/proposed.py:186:15:not:drop",
+     "status": "killed",
+     "seconds": 10.162178824000875
+    },
+    {
+     "mutant": "services/matching/proposed.py:200:38:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 12.323314880999533
+    },
+    {
+     "mutant": "services/matching/proposed.py:212:48:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 9.618493537000177
+    },
+    {
+     "mutant": "services/matching/proposed.py:187:16:flow:continue->break",
+     "status": "survived",
+     "seconds": 33.77974298400113
+    },
+    {
+     "mutant": "services/matching/proposed.py:213:47:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 11.271363779998865
+    },
+    {
+     "mutant": "services/matching/proposed.py:85:42:bool:or->and",
+     "status": "killed",
+     "seconds": 11.632307478999792
+    },
+    {
+     "mutant": "services/matching/proposed.py:93:16:bool:or->and",
+     "status": "killed",
+     "seconds": 17.757564909001303
+    },
+    {
+     "mutant": "services/matching/proposed.py:96:16:bool:or->and",
+     "status": "killed",
+     "seconds": 18.002510145999622
+    },
+    {
+     "mutant": "services/matching/proposed.py:94:46:bool:or->and",
+     "status": "survived",
+     "seconds": 35.018879744000515
+    },
+    {
+     "mutant": "services/matching/proposed.py:158:23:const:False->True",
+     "status": "killed",
+     "seconds": 11.247728246999031
+    },
+    {
+     "mutant": "services/matching/proposed.py:159:20:bool:and->or",
+     "status": "survived",
+     "seconds": 35.0921323019993
+    },
+    {
+     "mutant": "services/matching/proposed.py:159:70:bool:and->or",
+     "status": "survived",
+     "seconds": 38.15249132900135
+    },
+    {
+     "mutant": "services/matching/proposed.py:166:35:cmp:NotIn->In",
+     "status": "killed",
+     "seconds": 11.387017017001199
+    },
+    {
+     "mutant": "services/matching/proposed.py:166:59:not:drop",
+     "status": "killed",
+     "seconds": 10.799198562999663
+    },
+    {
+     "mutant": "services/matching/proposed.py:166:16:bool:or->and",
+     "status": "survived",
+     "seconds": 33.52587275699989
+    },
+    {
+     "mutant": "services/matching/proposed.py:167:23:const:False->True",
+     "status": "killed",
+     "seconds": 11.504687003000072
+    },
+    {
+     "mutant": "services/matching/proposed.py:176:20:cmp:Gt->GtE",
+     "status": "killed",
+     "seconds": 17.53600396100046
+    },
+    {
+     "mutant": "services/matching/proposed.py:176:33:bool:and->or",
+     "status": "killed",
+     "seconds": 15.37935686200035
+    },
+    {
+     "mutant": "services/matching/proposed.py:186:20:bool:or->and",
+     "status": "killed",
+     "seconds": 12.73009852999894
+    },
+    {
+     "mutant": "services/matching/proposed.py:198:28:const:+1",
+     "status": "killed",
+     "seconds": 16.08708617100092
+    },
+    {
+     "mutant": "services/matching/proposed.py:199:60:cmp:In->NotIn",
+     "status": "killed",
+     "seconds": 15.491372180000326
+    },
+    {
+     "mutant": "services/matching/proposed.py:78:62:cmp:NotEq->Eq",
+     "status": "killed",
+     "seconds": 16.27615802999935
+    },
+    {
+     "mutant": "services/matching/proposed.py:98:63:const:+1",
+     "status": "killed",
+     "seconds": 12.326372731000447
+    },
+    {
+     "mutant": "services/matching/proposed.py:148:19:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 9.94517455300047
+    },
+    {
+     "mutant": "services/matching/proposed.py:124:33:bool:or->and",
+     "status": "survived",
+     "seconds": 32.58410011200067
+    },
+    {
+     "mutant": "services/matching/proposed.py:159:20:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 26.880934959001024
+    },
+    {
+     "mutant": "services/matching/proposed.py:159:47:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 28.31634820600084
+    },
+    {
+     "mutant": "services/matching/proposed.py:159:70:cmp:Eq->NotEq",
+     "status": "survived",
+     "seconds": 34.538471697000205
+    },
+    {
+     "mutant": "services/matching/proposed.py:176:33:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 11.015726356999949
+    },
+    {
+     "mutant": "services/matching/proposed.py:159:90:cmp:IsNot->Is",
+     "status": "survived",
+     "seconds": 34.527232026001
+    },
+    {
+     "mutant": "services/matching/proposed.py:176:52:cmp:Lt->LtE",
+     "status": "killed",
+     "seconds": 16.140044059000502
+    },
+    {
+     "mutant": "services/matching/proposed.py:186:20:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 11.27610054499928
+    },
+    {
+     "mutant": "services/matching/proposed.py:186:37:bool:and->or",
+     "status": "killed",
+     "seconds": 12.50408318100017
+    },
+    {
+     "mutant": "services/matching/proposed.py:186:73:bool:and->or",
+     "status": "killed",
+     "seconds": 9.414168286999484
+    },
+    {
+     "mutant": "services/matching/proposed.py:191:23:cmp:NotIn->In",
+     "status": "killed",
+     "seconds": 8.907701629999792
+    },
+    {
+     "mutant": "services/matching/proposed.py:131:24:bool:or->and",
+     "status": "killed",
+     "seconds": 12.011921117999009
+    },
+    {
+     "mutant": "services/matching/proposed.py:98:60:const:+1",
+     "status": "survived",
+     "seconds": 32.50397525799963
+    },
+    {
+     "mutant": "services/matching/proposed.py:134:24:bool:or->and",
+     "status": "killed",
+     "seconds": 20.292048557999806
+    },
+    {
+     "mutant": "services/matching/proposed.py:132:24:bool:or->and",
+     "status": "survived",
+     "seconds": 35.32605083999988
+    },
+    {
+     "mutant": "services/matching/proposed.py:186:37:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 11.135488142001122
+    },
+    {
+     "mutant": "services/matching/proposed.py:186:53:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 11.608945798001514
+    },
+    {
+     "mutant": "services/matching/proposed.py:186:73:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 12.075730603999546
+    },
+    {
+     "mutant": "services/matching/proposed.py:186:89:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 12.233817835000082
+    },
+    {
+     "mutant": "services/matching/proposed.py:186:62:const:False->True",
+     "status": "killed",
+     "seconds": 13.33241094799996
+    },
+    {
+     "mutant": "services/matching/proposed.py:93:17:bool:or->and",
+     "status": "killed",
+     "seconds": 17.635489495
+    },
+    {
+     "mutant": "services/matching/proposed.py:186:98:const:True->False",
+     "status": "killed",
+     "seconds": 13.598460433999207
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:63:4:return:None",
+     "status": "survived",
+     "seconds": 237.27258469900153
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:85:4:return:None",
+     "status": "survived",
+     "seconds": 235.41605451599935
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:306:4:return:None",
+     "status": "killed",
+     "seconds": 4.9626339730002655
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:310:4:return:None",
+     "status": "killed",
+     "seconds": 4.697120046999771
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:314:4:return:None",
+     "status": "killed",
+     "seconds": 5.227487273999941
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:348:4:return:None",
+     "status": "killed",
+     "seconds": 5.122092803001578
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:299:4:return:None",
+     "status": "survived",
+     "seconds": 201.42696422100016
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:45:18:const:False->True",
+     "status": "survived",
+     "seconds": 195.60613545399974
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:55:100:const:False->True",
+     "status": "survived",
+     "seconds": 198.31389458000012
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:99:21:const:+1",
+     "status": "survived",
+     "seconds": 204.17898372700074
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:108:8:return:None",
+     "status": "killed",
+     "seconds": 4.790585942999314
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:100:22:const:+1",
+     "status": "survived",
+     "seconds": 201.08271162200072
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:137:17:const:+1",
+     "status": "survived",
+     "seconds": 207.0643030559986
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:256:25:const:+1",
+     "status": "killed",
+     "seconds": 4.571352752998791
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:277:8:return:None",
+     "status": "killed",
+     "seconds": 4.227807683000719
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:229:8:return:None",
+     "status": "killed",
+     "seconds": 72.42261402499935
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:305:8:return:None",
+     "status": "killed",
+     "seconds": 6.073157161001291
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:314:11:binop:Add->Sub",
+     "status": "killed",
+     "seconds": 5.234024020001016
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:319:7:not:drop",
+     "status": "killed",
+     "seconds": 6.8154791640008625
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:333:8:return:None",
+     "status": "killed",
+     "seconds": 6.842008303001421
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:348:11:binop:Add->Sub",
+     "status": "killed",
+     "seconds": 5.5738993149989255
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:295:63:const:False->True",
+     "status": "survived",
+     "seconds": 203.74128744600057
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:35:18:const:True->False",
+     "status": "survived",
+     "seconds": 202.93537686599848
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:62:20:cmp:Eq->NotEq",
+     "status": "survived",
+     "seconds": 244.0273639749994
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:88:18:const:True->False",
+     "status": "survived",
+     "seconds": 262.6966084129999
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:162:11:cmp:Is->IsNot",
+     "status": "survived",
+     "seconds": 284.798808431
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:190:22:const:+1",
+     "status": "survived",
+     "seconds": 292.9112279120018
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:259:11:cmp:NotEq->Eq",
+     "status": "killed",
+     "seconds": 6.73178830300094
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:261:12:return:None",
+     "status": "killed",
+     "seconds": 8.745131919000414
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:263:11:not:drop",
+     "status": "killed",
+     "seconds": 9.117190773000402
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:264:12:return:None",
+     "status": "killed",
+     "seconds": 7.942935945999125
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:267:19:cmp:NotEq->Eq",
+     "status": "killed",
+     "seconds": 6.089465525999913
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:274:16:binop:Add->Sub",
+     "status": "killed",
+     "seconds": 7.023756681999657
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:275:11:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 9.445560114998443
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:276:12:return:None",
+     "status": "killed",
+     "seconds": 8.510966820000249
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:212:11:bool:or->and",
+     "status": "survived",
+     "seconds": 254.88776989100006
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:326:11:bool:or->and",
+     "status": "survived",
+     "seconds": 252.45885573399937
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:329:11:not:drop",
+     "status": "killed",
+     "seconds": 7.845072391999565
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:327:12:flow:continue->break",
+     "status": "killed",
+     "seconds": 238.61538979099896
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:331:11:bool:and->or",
+     "status": "killed",
+     "seconds": 6.624146661999475
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:330:12:flow:continue->break",
+     "status": "survived",
+     "seconds": 220.0758785880007
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:332:12:flow:continue->break",
+     "status": "survived",
+     "seconds": 222.9913064829998
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:348:11:const:+1",
+     "status": "survived",
+     "seconds": 195.04647418900095
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:65:49:cmp:Eq->NotEq",
+     "status": "survived",
+     "seconds": 204.44342099499954
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:81:18:const:True->False",
+     "status": "survived",
+     "seconds": 233.75680861
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:82:21:const:False->True",
+     "status": "survived",
+     "seconds": 237.32428262699977
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:273:34:const:+1",
+     "status": "killed",
+     "seconds": 5.886012008000762
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:282:12:bool:or->and",
+     "status": "killed",
+     "seconds": 6.765465255999516
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:326:11:cmp:Lt->LtE",
+     "status": "killed",
+     "seconds": 11.38323483699969
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:326:24:not:drop",
+     "status": "killed",
+     "seconds": 7.024244752999948
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:331:32:cmp:NotEq->Eq",
+     "status": "killed",
+     "seconds": 6.930195561000801
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:212:11:not:drop",
+     "status": "survived",
+     "seconds": 241.68702096199922
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:336:19:binop:Add->Sub",
+     "status": "survived",
+     "seconds": 249.73526264900102
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:108:35:bool:or->and",
+     "status": "survived",
+     "seconds": 241.04293397000038
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:287:22:binop:Add->Sub",
+     "status": "survived",
+     "seconds": 206.11662165100097
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:326:19:const:+1",
+     "status": "killed",
+     "seconds": 8.51183984599993
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:288:23:binop:Add->Sub",
+     "status": "survived",
+     "seconds": 185.8067656940002
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:184:50:cmp:Eq->NotEq",
+     "status": "survived",
+     "seconds": 195.21288622099746
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:231:29:bool:or->and",
+     "status": "survived",
+     "seconds": 194.98517766400255
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:233:31:cmp:Is->IsNot",
+     "status": "survived",
+     "seconds": 187.99250717199902
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:234:23:bool:or->and",
+     "status": "survived",
+     "seconds": 196.75136851000207
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:328:48:const:+1",
+     "status": "survived",
+     "seconds": 206.2354818729982
+    },
+    {
+     "mutant": "services/matching/cascade/judge.py:331:50:const:+1",
+     "status": "survived",
+     "seconds": 187.63196723299916
+    }
+   ],
+   "command": "python -m tools.mutation --target libs/tb_common/quotes.py --target libs/tb_common/pair.py --target services/matching/coverage.py --target services/matching/proposed.py --target services/matching/cascade/judge.py --workers 2",
+   "started": "2026-11-17T16:19:54Z",
+   "ended": "2026-11-17T18:06:36Z"
+  },
+  "engine-p1of6": {
+   "score": 57.43,
+   "threshold": 90.0,
+   "floor": 60.0,
+   "counts": {
+    "no-coverage": 8,
+    "killed": 58,
+    "survived": 35
+   },
+   "meta": {
+    "targets": {
+     "services/matching/cascade/engine.py (part 1/6)": {
+      "mutants": 101,
+      "baseline_s": 371.9,
+      "rc": 0
+     }
+    },
+    "stale_accepted": []
+   },
+   "results": [
+    {
+     "mutant": "services/matching/cascade/engine.py:1468:8:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:445:11:cmp:IsNot->Is",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:447:45:not:drop",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:546:47:const:True->False",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:921:19:cmp:Eq->NotEq",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:948:20:not:drop",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:585:24:flow:continue->break",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:545:23:cmp:In->NotIn",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:315:4:return:None",
+     "status": "killed",
+     "seconds": 26.48657255999933
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:103:17:const:+1",
+     "status": "survived",
+     "seconds": 270.15363930999956
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1469:4:return:None",
+     "status": "survived",
+     "seconds": 277.9983047700007
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:133:7:bool:or->and",
+     "status": "survived",
+     "seconds": 265.22217313200235
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:195:30:const:False->True",
+     "status": "survived",
+     "seconds": 249.9840969299985
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:330:9:binop:Sub->Add",
+     "status": "killed",
+     "seconds": 7.902872030001163
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:246:8:return:None",
+     "status": "killed",
+     "seconds": 135.64938913099832
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:533:8:return:None",
+     "status": "killed",
+     "seconds": 9.806859792999603
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:751:8:return:None",
+     "status": "killed",
+     "seconds": 8.011235760997806
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:399:20:const:+1",
+     "status": "survived",
+     "seconds": 231.64277419200153
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1377:8:return:None",
+     "status": "killed",
+     "seconds": 18.467413180998847
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1069:8:return:None",
+     "status": "killed",
+     "seconds": 253.97520385700045
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:133:49:cmp:LtE->Lt",
+     "status": "survived",
+     "seconds": 248.84927132499797
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:154:11:cmp:LtE->Lt",
+     "status": "survived",
+     "seconds": 255.8240053599984
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:333:13:binop:Add->Sub",
+     "status": "survived",
+     "seconds": 253.40408685999864
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:630:11:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 82.81029036600012
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:640:11:not:drop",
+     "status": "killed",
+     "seconds": 15.412870962001762
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:484:20:const:+1",
+     "status": "survived",
+     "seconds": 222.01631547600118
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:667:11:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 7.751469704999181
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:709:11:not:drop",
+     "status": "killed",
+     "seconds": 7.045051663997583
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:678:11:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 19.48942129200077
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:910:97:const:True->False",
+     "status": "killed",
+     "seconds": 7.320290241001203
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1082:11:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 7.444254665999324
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:767:12:return:None",
+     "status": "survived",
+     "seconds": 234.6623212529994
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1209:11:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 8.398039618001349
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1187:11:bool:or->and",
+     "status": "killed",
+     "seconds": 221.7362726249994
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1226:12:return:None",
+     "status": "killed",
+     "seconds": 10.28361388600024
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1311:12:return:None",
+     "status": "killed",
+     "seconds": 8.143925846001366
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1417:15:bool:and->or",
+     "status": "killed",
+     "seconds": 16.200516439999774
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:163:16:return:None",
+     "status": "killed",
+     "seconds": 8.154308715998923
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1555:33:binop:Add->Sub",
+     "status": "killed",
+     "seconds": 138.50537522100058
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:491:27:cmp:NotIn->In",
+     "status": "killed",
+     "seconds": 6.76200444099959
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:577:16:flow:continue->break",
+     "status": "killed",
+     "seconds": 27.89700423800241
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:351:23:bool:or->and",
+     "status": "survived",
+     "seconds": 202.30670600899975
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:664:25:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 95.36344039499818
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:676:11:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 77.75322000899905
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:770:15:bool:and->or",
+     "status": "survived",
+     "seconds": 237.07775725700048
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:943:16:bool:and->or",
+     "status": "killed",
+     "seconds": 22.94859179299965
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:797:23:bool:and->or",
+     "status": "survived",
+     "seconds": 242.1440569890001
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1007:85:const:+1",
+     "status": "survived",
+     "seconds": 253.46325089899983
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1095:27:const:+1",
+     "status": "survived",
+     "seconds": 255.99982490600087
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1229:21:bool:or->and",
+     "status": "killed",
+     "seconds": 47.483400770001026
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1360:16:return:None",
+     "status": "killed",
+     "seconds": 20.36692909500198
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1393:16:flow:continue->break",
+     "status": "killed",
+     "seconds": 28.252635540000483
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1186:22:const:+1",
+     "status": "killed",
+     "seconds": 306.20331808300034
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1417:15:cmp:IsNot->Is",
+     "status": "survived",
+     "seconds": 326.3841071459974
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1454:12:const:+1",
+     "status": "survived",
+     "seconds": 302.5199612969991
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1507:42:const:+1",
+     "status": "survived",
+     "seconds": 312.9277922450019
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:251:47:const:+1",
+     "status": "survived",
+     "seconds": 329.5636787980002
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:450:51:bool:and->or",
+     "status": "killed",
+     "seconds": 272.9085536570019
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:596:20:const:+1",
+     "status": "killed",
+     "seconds": 13.944396907998453
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:582:20:flow:continue->break",
+     "status": "killed",
+     "seconds": 238.8507776160004
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:826:19:not:drop",
+     "status": "killed",
+     "seconds": 13.91674991400214
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:856:28:cmp:In->NotIn",
+     "status": "killed",
+     "seconds": 26.117763926999032
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:789:39:cmp:In->NotIn",
+     "status": "survived",
+     "seconds": 348.33429715499733
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1039:68:const:+1",
+     "status": "survived",
+     "seconds": 348.09139621399663
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1134:44:const:+1",
+     "status": "survived",
+     "seconds": 274.94809581499794
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1187:40:const:+1",
+     "status": "survived",
+     "seconds": 273.7660784340005
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1360:23:const:True->False",
+     "status": "killed",
+     "seconds": 17.535737614998652
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1441:44:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 9.339786112999718
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1310:20:flow:break->continue",
+     "status": "killed",
+     "seconds": 302.7515060950027
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:251:42:const:+1",
+     "status": "killed",
+     "seconds": 60.71347038500244
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:467:103:const:+1",
+     "status": "killed",
+     "seconds": 7.075776068999403
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1543:21:binop:Add->Sub",
+     "status": "killed",
+     "seconds": 174.47573750299853
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:571:24:flow:break->continue",
+     "status": "killed",
+     "seconds": 230.0459856870002
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:642:56:const:+1",
+     "status": "killed",
+     "seconds": 337.7872264739999
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:827:54:const:+1",
+     "status": "killed",
+     "seconds": 26.140806973999133
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:711:75:const:+1",
+     "status": "survived",
+     "seconds": 313.5516420089989
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:862:23:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 242.7348170289988
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1097:60:const:False->True",
+     "status": "killed",
+     "seconds": 62.683225177002896
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:939:22:bool:or->and",
+     "status": "survived",
+     "seconds": 187.04392734000066
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1240:21:const:False->True",
+     "status": "killed",
+     "seconds": 40.09480018699833
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1131:49:cmp:LtE->Lt",
+     "status": "survived",
+     "seconds": 236.7077906939994
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1395:19:bool:and->or",
+     "status": "killed",
+     "seconds": 18.202059808998456
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1351:27:const:False->True",
+     "status": "killed",
+     "seconds": 279.769494725002
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1548:113:const:+1",
+     "status": "survived",
+     "seconds": 268.50737238500005
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:570:23:not:drop",
+     "status": "killed",
+     "seconds": 180.4636973300003
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:669:56:const:True->False",
+     "status": "killed",
+     "seconds": 121.05899531199975
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:874:70:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 30.783961936002015
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:612:16:const:+1",
+     "status": "survived",
+     "seconds": 292.4309566439988
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1296:59:const:+1",
+     "status": "killed",
+     "seconds": 22.0316930959998
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1050:34:not:drop",
+     "status": "killed",
+     "seconds": 310.9314209689983
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1453:16:binop:Add->Sub",
+     "status": "survived",
+     "seconds": 324.17393590199936
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:967:21:bool:and->or",
+     "status": "killed",
+     "seconds": 23.49639865499921
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:607:76:cmp:NotEq->Eq",
+     "status": "survived",
+     "seconds": 281.98222437000004
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1457:45:cmp:NotEq->Eq",
+     "status": "survived",
+     "seconds": 250.63151671399828
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:309:62:const:+1",
+     "status": "survived",
+     "seconds": 221.18123411800116
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:692:47:const:+1",
+     "status": "killed",
+     "seconds": 92.43574184699901
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:878:89:cmp:In->NotIn",
+     "status": "killed",
+     "seconds": 24.82826868399934
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:984:54:const:+1",
+     "status": "killed",
+     "seconds": 21.327921715997945
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1428:80:cmp:Eq->NotEq",
+     "status": "survived",
+     "seconds": 299.5291569220026
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:694:47:bool:or->and",
+     "status": "survived",
+     "seconds": 306.27375299399864
+    },
+    {
+     "mutant": "services/matching/cascade/engine.py:1432:49:cmp:Eq->NotEq",
+     "status": "survived",
+     "seconds": 258.67328614099824
+    }
+   ],
+   "command": "python -m tools.mutation --target services/matching/cascade/engine.py --part 1/6 --budget-minutes 150 --workers 2",
+   "started": "2026-11-17T18:06:36Z",
+   "ended": "2026-11-17T20:14:13Z"
+  },
+  "evaluate": {
+   "score": 46.49,
+   "threshold": 90.0,
+   "floor": 60.0,
+   "counts": {
+    "no-coverage": 88,
+    "survived": 57,
+    "killed": 126,
+    "not-run": 32
+   },
+   "meta": {
+    "targets": {
+     "services/orchestrator/scenarios/evaluate.py": {
+      "mutants": 303,
+      "baseline_s": 350.9,
+      "rc": 0
+     }
+    },
+    "stale_accepted": []
+   },
+   "results": [
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:186:4:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:193:4:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:201:4:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:238:4:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:503:4:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:891:4:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:100:8:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:184:7:cmp:NotEq->Eq",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:197:9:binop:Sub->Add",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:199:7:bool:and->or",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:284:8:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:298:8:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:303:8:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:306:8:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:324:8:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:343:8:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:364:8:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:367:8:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:372:8:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:382:8:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:404:8:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:728:8:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:747:8:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:95:11:not:drop",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:96:12:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:108:11:bool:and->or",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:117:11:cmp:In->NotIn",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:135:12:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:199:7:cmp:IsNot->Is",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:199:25:cmp:IsNot->Is",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:199:53:cmp:Gt->GtE",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:200:13:binop:Add->Sub",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:283:16:bool:or->and",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:301:11:cmp:Is->IsNot",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:379:11:not:drop",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:381:12:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:391:11:not:drop",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:392:12:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:395:11:bool:and->or",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:396:12:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:402:11:cmp:In->NotIn",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:403:12:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:411:12:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:426:12:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:538:12:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:683:12:flow:continue->break",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:891:12:cmp:Is->IsNot",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:108:11:cmp:Eq->NotEq",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:108:39:cmp:Eq->NotEq",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:298:30:cmp:IsNot->Is",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:306:48:const:+1",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:314:29:bool:or->and",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:333:29:bool:or->and",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:363:25:cmp:IsNot->Is",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:367:48:const:+1",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:378:34:not:drop",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:390:40:bool:or->and",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:395:11:cmp:In->NotIn",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:395:38:cmp:Eq->NotEq",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:418:12:return:None",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:728:15:const:False->True",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:747:15:const:False->True",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:825:25:const:False->True",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:891:82:const:+1",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:98:42:cmp:In->NotIn",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:108:31:const:+1",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:197:37:const:+1",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:199:68:const:+1",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:320:57:cmp:IsNot->Is",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:339:57:cmp:IsNot->Is",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:360:19:cmp:IsNot->Is",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:364:85:const:True->False",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:503:21:const:+1",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:294:58:const:True->False",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:353:60:bool:or->and",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:353:86:bool:or->and",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:357:30:bool:or->and",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:395:58:cmp:Eq->NotEq",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:410:29:const:+1",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:425:33:const:+1",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:472:35:const:+1",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:472:47:const:+1",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:503:29:const:+1",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:891:54:const:+1",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:891:67:const:+1",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:184:8:bool:or->and",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:417:33:const:+1",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:361:70:bool:or->and",
+     "status": "no-coverage",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:57:21:const:+1",
+     "status": "survived",
+     "seconds": 385.14918594700066
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:59:17:const:+1",
+     "status": "survived",
+     "seconds": 385.8918919809985
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:228:4:return:None",
+     "status": "killed",
+     "seconds": 18.587848712999403
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:232:4:return:None",
+     "status": "killed",
+     "seconds": 19.399756606002484
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:510:4:return:None",
+     "status": "killed",
+     "seconds": 18.863815876000444
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:542:4:return:None",
+     "status": "killed",
+     "seconds": 17.49981787700017
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:551:4:return:None",
+     "status": "killed",
+     "seconds": 21.271750887000962
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:557:4:return:None",
+     "status": "killed",
+     "seconds": 28.605740013998002
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:583:4:return:None",
+     "status": "killed",
+     "seconds": 28.654394111999864
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:76:4:return:None",
+     "status": "survived",
+     "seconds": 322.88101130200084
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:605:4:return:None",
+     "status": "killed",
+     "seconds": 26.061760694999975
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:628:4:return:None",
+     "status": "killed",
+     "seconds": 20.86715035299858
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:632:4:return:None",
+     "status": "killed",
+     "seconds": 23.817169379002735
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:655:4:return:None",
+     "status": "killed",
+     "seconds": 22.22994759499852
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:665:4:return:None",
+     "status": "killed",
+     "seconds": 24.636436634998972
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:594:4:return:None",
+     "status": "survived",
+     "seconds": 324.1040497169997
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:689:4:return:None",
+     "status": "killed",
+     "seconds": 21.090935609001463
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:702:4:return:None",
+     "status": "killed",
+     "seconds": 19.636357704999682
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:748:4:return:None",
+     "status": "killed",
+     "seconds": 21.22715956799948
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:758:4:return:None",
+     "status": "killed",
+     "seconds": 21.91886747299941
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:772:4:return:None",
+     "status": "killed",
+     "seconds": 11.827930135001225
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:856:4:return:None",
+     "status": "killed",
+     "seconds": 20.124729336999735
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:867:4:return:None",
+     "status": "killed",
+     "seconds": 75.5016163750006
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:76:11:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 21.56846842700179
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:175:8:return:None",
+     "status": "killed",
+     "seconds": 29.708718000998488
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:670:4:return:None",
+     "status": "survived",
+     "seconds": 331.7059078759994
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:213:20:const:+1",
+     "status": "survived",
+     "seconds": 315.44581658099924
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:221:21:const:+1",
+     "status": "survived",
+     "seconds": 316.07655244299895
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:222:22:const:+1",
+     "status": "survived",
+     "seconds": 312.03644282499954
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:264:17:const:+1",
+     "status": "survived",
+     "seconds": 307.9416153509992
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:265:21:const:+1",
+     "status": "survived",
+     "seconds": 336.0861767000024
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:267:20:const:+1",
+     "status": "killed",
+     "seconds": 12.711222722999082
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:266:22:const:+1",
+     "status": "survived",
+     "seconds": 329.2926554600017
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:268:25:const:+1",
+     "status": "killed",
+     "seconds": 51.09269737900104
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:269:22:const:+1",
+     "status": "survived",
+     "seconds": 329.7740607470005
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:270:16:const:+1",
+     "status": "survived",
+     "seconds": 331.88418318000186
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:434:8:return:None",
+     "status": "killed",
+     "seconds": 22.777075133002654
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:491:8:return:None",
+     "status": "killed",
+     "seconds": 21.499842634999368
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:273:21:const:+1",
+     "status": "survived",
+     "seconds": 354.0745080939996
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:506:62:const:False->True",
+     "status": "survived",
+     "seconds": 356.2044121600011
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:520:12:binop:Add->Sub",
+     "status": "killed",
+     "seconds": 11.811818343998311
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:518:7:bool:or->and",
+     "status": "survived",
+     "seconds": 301.36347901499903
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:532:7:cmp:NotEq->Eq",
+     "status": "killed",
+     "seconds": 14.860024162997433
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:557:11:bool:and->or",
+     "status": "killed",
+     "seconds": 17.32459713500066
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:576:7:bool:and->or",
+     "status": "killed",
+     "seconds": 22.483311803000106
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:521:7:cmp:Gt->GtE",
+     "status": "survived",
+     "seconds": 291.32155212
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:627:8:return:None",
+     "status": "killed",
+     "seconds": 19.266159677998075
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:665:11:bool:and->or",
+     "status": "killed",
+     "seconds": 13.044445611998526
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:677:7:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 15.036986967999837
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:626:7:bool:or->and",
+     "status": "survived",
+     "seconds": 268.7464587100003
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:689:11:const:True->False",
+     "status": "killed",
+     "seconds": 13.353414471999713
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:699:8:bool:or->and",
+     "status": "killed",
+     "seconds": 10.540241320999485
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:700:7:cmp:NotIn->In",
+     "status": "killed",
+     "seconds": 15.993989184000384
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:678:8:return:None",
+     "status": "killed",
+     "seconds": 251.0269148949992
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:729:7:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 13.405638532000012
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:730:8:return:None",
+     "status": "killed",
+     "seconds": 14.156311603001086
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:731:7:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 12.335919879998983
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:732:8:return:None",
+     "status": "killed",
+     "seconds": 11.123899966001773
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:733:7:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 11.62414629399791
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:734:8:return:None",
+     "status": "killed",
+     "seconds": 13.011815619996923
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:737:8:return:None",
+     "status": "killed",
+     "seconds": 13.197541060999356
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:746:7:not:drop",
+     "status": "killed",
+     "seconds": 12.497373600999708
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:783:33:const:True->False",
+     "status": "survived",
+     "seconds": 259.10850972999833
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:785:27:const:False->True",
+     "status": "killed",
+     "seconds": 11.165197468999395
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:784:19:const:+1",
+     "status": "survived",
+     "seconds": 267.1149139019981
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:799:7:not:drop",
+     "status": "killed",
+     "seconds": 12.644155197001965
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:806:7:bool:and->or",
+     "status": "killed",
+     "seconds": 14.555664783998509
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:134:11:not:drop",
+     "status": "killed",
+     "seconds": 19.458792744000675
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:292:18:bool:and->or",
+     "status": "killed",
+     "seconds": 13.280494255999656
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:293:11:bool:and->or",
+     "status": "killed",
+     "seconds": 16.36394238199864
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:792:7:cmp:Is->IsNot",
+     "status": "survived",
+     "seconds": 274.3821973840022
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:422:11:bool:and->or",
+     "status": "killed",
+     "seconds": 11.90853674200116
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:374:85:const:False->True",
+     "status": "survived",
+     "seconds": 261.68089186200086
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:453:23:const:True->False",
+     "status": "killed",
+     "seconds": 12.694547253002384
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:466:11:bool:and->or",
+     "status": "killed",
+     "seconds": 13.356328106001456
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:433:18:bool:or->and",
+     "status": "survived",
+     "seconds": 222.70310472100027
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:474:15:binop:Add->Sub",
+     "status": "survived",
+     "seconds": 234.99969759699889
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:477:11:cmp:NotEq->Eq",
+     "status": "killed",
+     "seconds": 17.829048866999074
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:478:12:return:None",
+     "status": "killed",
+     "seconds": 19.310024794998753
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:518:7:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 16.510981150997395
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:518:24:not:drop",
+     "status": "killed",
+     "seconds": 15.157171975002711
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:535:11:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 11.778699711001536
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:536:12:return:None",
+     "status": "killed",
+     "seconds": 9.611116975000186
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:540:31:cmp:In->NotIn",
+     "status": "killed",
+     "seconds": 14.314305061998311
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:541:23:bool:or->and",
+     "status": "killed",
+     "seconds": 13.777254442000412
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:557:11:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 14.64990214199861
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:475:16:binop:Add->Sub",
+     "status": "survived",
+     "seconds": 227.95747966699855
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:557:33:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 9.210021210001287
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:557:64:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 9.10551799699897
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:570:19:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 10.20497228900058
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:573:43:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 13.776921443000901
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:576:7:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 18.75322830499863
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:578:9:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 16.413378389999707
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:571:17:bool:or->and",
+     "status": "survived",
+     "seconds": 276.6588936900007
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:626:7:cmp:NotEq->Eq",
+     "status": "survived",
+     "seconds": 281.47290652899756
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:665:11:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 18.42176589900191
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:665:35:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 24.03155432099811
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:665:54:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 24.364801816002
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:626:30:not:drop",
+     "status": "survived",
+     "seconds": 288.28164326200204
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:678:15:const:False->True",
+     "status": "killed",
+     "seconds": 283.438059737
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:680:11:bool:or->and",
+     "status": "survived",
+     "seconds": 285.6715659729998
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:682:11:cmp:NotIn->In",
+     "status": "killed",
+     "seconds": 19.142521846999443
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:685:11:bool:and->or",
+     "status": "killed",
+     "seconds": 14.895326434998424
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:686:12:return:None",
+     "status": "killed",
+     "seconds": 15.766522321999219
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:687:11:bool:and->or",
+     "status": "killed",
+     "seconds": 14.44680419100041
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:681:12:flow:continue->break",
+     "status": "survived",
+     "seconds": 269.3209022239971
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:748:11:const:True->False",
+     "status": "killed",
+     "seconds": 11.018882917000155
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:806:7:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 16.07732852100162
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:821:11:bool:and->or",
+     "status": "killed",
+     "seconds": 19.18993065199902
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:830:11:bool:and->or",
+     "status": "killed",
+     "seconds": 18.918861023001227
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:688:12:return:None",
+     "status": "killed",
+     "seconds": 271.7609913519991
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:851:11:cmp:In->NotIn",
+     "status": "killed",
+     "seconds": 18.62646010300159
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:832:12:flow:continue->break",
+     "status": "survived",
+     "seconds": 295.01779395500125
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:276:71:const:False->True",
+     "status": "survived",
+     "seconds": 269.9233999319986
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:276:86:const:False->True",
+     "status": "survived",
+     "seconds": 253.00288001600347
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:279:73:const:False->True",
+     "status": "survived",
+     "seconds": 252.42047334299787
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:279:88:const:False->True",
+     "status": "survived",
+     "seconds": 270.428194619999
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:292:42:cmp:Gt->GtE",
+     "status": "survived",
+     "seconds": 265.658203256
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:292:65:cmp:GtE->Gt",
+     "status": "survived",
+     "seconds": 268.3008770029992
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:421:12:return:None",
+     "status": "killed",
+     "seconds": 15.761020308000298
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:422:11:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 18.641059747002146
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:293:23:cmp:Gt->GtE",
+     "status": "survived",
+     "seconds": 276.781492782
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:422:60:not:drop",
+     "status": "survived",
+     "seconds": 278.25808158699874
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:428:29:bool:and->or",
+     "status": "survived",
+     "seconds": 236.09604471700004
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:466:22:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 10.343072097999539
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:431:36:binop:Add->Sub",
+     "status": "survived",
+     "seconds": 184.78987065899855
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:533:16:bool:or->and",
+     "status": "killed",
+     "seconds": 8.127158168001188
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:476:79:bool:and->or",
+     "status": "survived",
+     "seconds": 174.30454947700127
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:571:17:cmp:Is->IsNot",
+     "status": "survived",
+     "seconds": 183.16329981499803
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:571:31:not:drop",
+     "status": "survived",
+     "seconds": 187.18167707199973
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:571:57:bool:or->and",
+     "status": "survived",
+     "seconds": 217.5391057320012
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:653:11:cmp:In->NotIn",
+     "status": "killed",
+     "seconds": 17.948011429998587
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:665:78:const:True->False",
+     "status": "killed",
+     "seconds": 14.7566980149968
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:680:11:cmp:NotIn->In",
+     "status": "killed",
+     "seconds": 15.362015721999342
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:680:40:bool:and->or",
+     "status": "killed",
+     "seconds": 14.485496973000409
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:685:11:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 16.031445370994334
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:685:37:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 15.96353344200179
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:594:30:bool:or->and",
+     "status": "survived",
+     "seconds": 239.1442496239979
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:685:52:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 14.260229300998617
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:686:19:const:False->True",
+     "status": "killed",
+     "seconds": 12.407821827000589
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:687:11:cmp:Eq->NotEq",
+     "status": "killed",
+     "seconds": 13.962138722003147
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:687:37:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 13.579809986003966
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:730:15:const:False->True",
+     "status": "killed",
+     "seconds": 12.3503866989995
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:732:15:const:False->True",
+     "status": "killed",
+     "seconds": 14.9813396400059
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:734:15:const:False->True",
+     "status": "killed",
+     "seconds": 13.541019142998266
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:738:12:const:False->True",
+     "status": "killed",
+     "seconds": 54.12262911400467
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:758:34:const:+1",
+     "status": "killed",
+     "seconds": 17.82536163199984
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:796:40:bool:and->or",
+     "status": "killed",
+     "seconds": 14.9530802090012
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:797:46:cmp:In->NotIn",
+     "status": "killed",
+     "seconds": 13.839600127001177
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:803:32:bool:or->and",
+     "status": "killed",
+     "seconds": 11.506032058001438
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:804:34:cmp:In->NotIn",
+     "status": "killed",
+     "seconds": 8.999122810004337
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:814:16:return:None",
+     "status": "killed",
+     "seconds": 11.108286529000907
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:817:16:return:None",
+     "status": "killed",
+     "seconds": 12.1633518239978
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:830:30:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 13.515040998994664
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:830:45:not:drop",
+     "status": "killed",
+     "seconds": 13.000284245994408
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:835:15:bool:or->and",
+     "status": "killed",
+     "seconds": 14.389360143999511
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:688:19:const:False->True",
+     "status": "killed",
+     "seconds": 230.23226161300408
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:138:42:cmp:In->NotIn",
+     "status": "killed",
+     "seconds": 17.4855995839971
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:153:19:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 19.402630140997644
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:165:19:bool:and->or",
+     "status": "killed",
+     "seconds": 20.081303270999342
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:878:23:bool:or->and",
+     "status": "survived",
+     "seconds": 277.4312779870015
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:290:45:binop:Add->Sub",
+     "status": "survived",
+     "seconds": 263.6600148199941
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:292:59:const:+1",
+     "status": "survived",
+     "seconds": 185.79720876800275
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:427:26:const:+1",
+     "status": "survived",
+     "seconds": 181.2951691240014
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:428:29:cmp:IsNot->Is",
+     "status": "survived",
+     "seconds": 172.49044489899825
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:428:59:cmp:Is->IsNot",
+     "status": "survived",
+     "seconds": 172.0494612870025
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:464:37:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 9.686201650001749
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:468:42:cmp:Is->IsNot",
+     "status": "killed",
+     "seconds": 11.301853402001143
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:431:67:const:+1",
+     "status": "survived",
+     "seconds": 175.37412194499484
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:474:66:const:+1",
+     "status": "survived",
+     "seconds": 176.06294020199857
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:573:12:bool:or->and",
+     "status": "killed",
+     "seconds": 12.313998837002146
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:475:69:const:+1",
+     "status": "survived",
+     "seconds": 171.91836748700007
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:602:20:const:True->False",
+     "status": "killed",
+     "seconds": 31.051276304002386
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:602:34:const:False->True",
+     "status": "killed",
+     "seconds": 9.23672715700377
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:587:25:cmp:NotEq->Eq",
+     "status": "survived",
+     "seconds": 168.80374044700147
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:616:48:bool:and->or",
+     "status": "killed",
+     "seconds": 30.97943812399899
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:680:40:cmp:IsNot->Is",
+     "status": "killed",
+     "seconds": 10.109385149000445
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:685:42:const:False->True",
+     "status": "killed",
+     "seconds": 10.461288483005774
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:687:42:const:True->False",
+     "status": "killed",
+     "seconds": 10.373888083995553
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:796:40:cmp:In->NotIn",
+     "status": "killed",
+     "seconds": 8.827928760998475
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:796:61:bool:or->and",
+     "status": "killed",
+     "seconds": 9.647289577995252
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:807:57:not:drop",
+     "status": "killed",
+     "seconds": 11.740139952999016
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:835:15:cmp:Eq->NotEq",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:837:17:cmp:In->NotIn",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:854:45:const:+1",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:146:49:bool:and->or",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:148:83:bool:and->or",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:155:23:cmp:Is->IsNot",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:158:66:cmp:Is->IsNot",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:165:29:not:drop",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:167:21:bool:and->or",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:173:103:bool:or->and",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:289:36:binop:Add->Sub",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:431:62:const:+1",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:433:65:const:+1",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:470:38:const:+1",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:614:21:bool:or->and",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:616:48:cmp:NotEq->Eq",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:616:73:cmp:IsNot->Is",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:796:61:cmp:Is->IsNot",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:796:77:cmp:In->NotIn",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:146:21:const:+1",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:146:72:cmp:In->NotIn",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:148:18:const:+1",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:148:106:cmp:In->NotIn",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:158:83:const:False->True",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:167:21:not:drop",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:420:33:const:+1",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:571:58:bool:or->and",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:586:46:const:+1",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:841:23:cmp:IsNot->Is",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:148:36:bool:or->and",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:146:74:const:+1",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:148:108:const:+1",
+     "status": "not-run",
+     "seconds": 0.0
+    },
+    {
+     "mutant": "services/orchestrator/scenarios/evaluate.py:680:60:cmp:NotIn->In",
+     "status": "survived",
+     "seconds": 157.30447704999824
+    }
+   ],
+   "command": "python -m tools.mutation --target services/orchestrator/scenarios/evaluate.py --budget-minutes 150 --workers 2",
+   "started": "2026-11-17T20:14:13Z",
+   "ended": "2026-11-17T22:51:53Z"
+  }
+ },
+ "ci_nightly_2026_11_16": {
+  "run": "https://github.com/zandis/Auto-GPT/actions/runs/43912198355",
+  "commit": "d117301fd04525c2192d320eb9046420d6d10471",
+  "score": 61.65,
+  "counts": {
+   "no-coverage": 150,
+   "killed": 712,
+   "survived": 293,
+   "not-run": 20
+  },
+  "targets": {
+   "services/matching/cascade/engine.py (part 1/2)": {
+    "mutants": 282,
+    "baseline_s": 258.1,
+    "rc": 0
+   },
+   "services/matching/cascade/engine.py (part 2/2)": {
+    "mutants": 281,
+    "baseline_s": 183.9,
+    "rc": 0
+   },
+   "services/orchestrator/scenarios/evaluate.py": {
+    "mutants": 289,
+    "baseline_s": 132.2,
+    "rc": 0
+   },
+   "libs/tb_common/pair.py": {
+    "mutants": 71,
+    "baseline_s": 47.1,
+    "rc": 0
+   },
+   "libs/tb_common/quotes.py": {
+    "mutants": 7,
+    "baseline_s": 4.6,
+    "rc": 0
+   },
+   "services/matching/coverage.py": {
+    "mutants": 63,
+    "baseline_s": 30.4,
+    "rc": 0
+   },
+   "services/matching/proposed.py": {
+    "mutants": 119,
+    "baseline_s": 17.5,
+    "rc": 0
+   },
+   "services/matching/cascade/judge.py": {
+    "mutants": 63,
+    "baseline_s": 132.9,
+    "rc": 0
+   }
+  }
+ }
+}

@@ -1,0 +1,139 @@
+{
+ "card": "V-4",
+ "note": "Written by hand from the runs named in each claim (mutation.json, coverage.json). Held by tests/unit/test_test_trust_page.py through tools/test_trust.py --check. Places are on master 15108f46.",
+ "findings": [
+  {
+   "id": "V4-01", "date": "2026-11-17", "source": "docs/plan/measurements/test-trust-2026-11-17.md",
+   "severity": "Medium", "lane": "D", "basis": "shown",
+   "place": ".github/workflows/trialbox-nightly-quality.yml:124",
+   "expected": "plan 8 criterion 3 and V19: the nightly writes the safety core's mutation score to the repository",
+   "claim": "The nightly writes no mutation score to the repository: the score is only a CI artifact (kept 90 days) and the job summary. No committed file holds a score with its commit and date. The last artifact (run 43912198355, 2026-11-16, commit d117301f) says 61.65 %."
+  },
+  {
+   "id": "V4-02", "date": "2026-11-17", "source": "docs/plan/measurements/test-trust-2026-11-17.md",
+   "severity": "Medium", "lane": "A2", "basis": "shown",
+   "place": "tools/mutation.toml:8",
+   "expected": "tools/mutation.toml: threshold 90 %, floor 60 %",
+   "claim": "Measured on 15108f46: 60.4 % over the 702 scored mutants run here (424 killed), under the threshold of 90 % and just over the floor of 60 %. By file: quotes.py 100 %, pair.py 87.3 %, proposed.py 78.2 %, coverage.py 76.2 %, engine.py 57.4 % (part 1 of 6 only), evaluate.py 46.5 % (32 not run), judge.py 42.9 %. engine.py alone and evaluate.py alone are under the floor."
+  },
+  {
+   "id": "V4-03", "date": "2026-11-17", "source": "docs/plan/measurements/test-trust-2026-11-17.md",
+   "severity": "Medium", "lane": "A2", "basis": "shown",
+   "place": "tools/mutation.toml:38",
+   "expected": "plan 8 V19: the safety core's mutation score; the safety core is the 18 files of [safety_core]",
+   "claim": "9 safety-core files of lane A2 are no mutation target (compile_sql/generator.py, compile_cql/generator.py, compile_cql/translator.py, semantics.py, equivalence/gate.py, guard/guard.py, guard/recognisers.py, gateway/core.py, gateway/policy.py; 1,232 mutants the tool would make). The only reason written is that the targets are where the 28 hand-made mutants of TB-DR-04 lived."
+  },
+  {
+   "id": "V4-04", "date": "2026-11-17", "source": "docs/plan/measurements/test-trust-2026-11-17.md",
+   "severity": "Medium", "lane": "B2", "basis": "shown",
+   "place": "tools/mutation.toml:38",
+   "expected": "plan 8 V19: the safety core's mutation score",
+   "claim": "libs/tb_common/derived.py (177 mutants) and libs/tb_common/phi_guard.py (148) are no mutation target. derived.py is on the 'a proposed fact never counts' path (a proposed birth date or sex under eGFR)."
+  },
+  {
+   "id": "V4-05", "date": "2026-11-17", "source": "docs/plan/measurements/test-trust-2026-11-17.md",
+   "severity": "Medium", "lane": "A2", "basis": "shown",
+   "place": "services/matching/coverage.py:143",
+   "expected": "invariant 'unknown never excludes': an inclusion FALSE beside a record in an unreadable code system is unknown",
+   "claim": "Mutants on the gap-row scan survive: coverage.py:146 and :148 continue->break (the scan stops at the first row of another domain or out of the window) and :143 the window's end moved the wrong way. No listed test has two rows where order matters, or a window that ends after the index date. Not shown to change an eligibility answer in a runnable example."
+  },
+  {
+   "id": "V4-06", "date": "2026-11-17", "source": "docs/plan/measurements/test-trust-2026-11-17.md",
+   "severity": "Medium", "lane": "A2", "basis": "shown",
+   "place": "services/matching/proposed.py:159",
+   "expected": "invariant 'a proposed fact never counts': a proposed fact that could change a decided answer makes it unknown",
+   "claim": "18 survivors in proposed.py. On the invariant path: :159 a proposed sex under a sex criterion (Eq->NotEq, IsNot->Is), :166 the value-set filter (or->and), :187 continue->break over signed atoms, :175 the window end (all test windows end on the index date), :97-98 the WHO family extension. No test asks refs() for a demographic sex atom."
+  },
+  {
+   "id": "V4-07", "date": "2026-11-17", "source": "docs/plan/measurements/test-trust-2026-11-17.md",
+   "severity": "Medium", "lane": "A2", "basis": "shown",
+   "place": "services/matching/cascade/judge.py:212",
+   "expected": "a judge reply that fails its schema, or whose quote is not in the excerpt, never decides",
+   "claim": "judge.py scores 42.9 % (30 of 70 killed). Survivors on the decision path: :212 the schema check (not dropped; or->and), :231/:233/:234 the defaults of a reply with a missing field, :326/:330/:332/:336 how a quote is located in the excerpts, :162 the outage switch. The listed tests never send a malformed reply."
+  },
+  {
+   "id": "V4-08", "date": "2026-11-17", "source": "docs/plan/measurements/test-trust-2026-11-17.md",
+   "severity": "Medium", "lane": "A2", "basis": "shown",
+   "place": "services/matching/cascade/engine.py:1417",
+   "expected": "a judged 'met' under the confidence floor never counts as strong (T-709)",
+   "claim": "In the engine sample (part 1 of 6) 35 of 101 survive. On the invariant path: :1417 IsNot->Is (a weak 'met' then counts as strong), :333 Add->Sub (a note window narrower than a year opens after the index date), :1428/:1432 how the review queue sorts 'uncertain' and 'data gap', :612 the unknown-code-system count."
+  },
+  {
+   "id": "V4-09", "date": "2026-11-17", "source": "docs/plan/measurements/test-trust-2026-11-17.md",
+   "severity": "Medium", "lane": "A2", "basis": "shown",
+   "place": "libs/tb_common/pair.py:61",
+   "expected": "a decided verdict exactly at the minimum confidence keeps its verdict (pair.floor)",
+   "claim": "pair.py: the boundary of the confidence floor (< to <=) survives, and so do :162/:163 (one endpoint of the pair that does not name its weights). No test sits on the boundary."
+  },
+  {
+   "id": "V4-10", "date": "2026-11-17", "source": "docs/plan/measurements/test-trust-2026-11-17.md",
+   "severity": "Medium", "lane": "D", "basis": "hypothesis",
+   "place": "tools/mutation.py:146",
+   "expected": "TB-DR-04 3.3: the score shows the tests would notice a wrong safety core",
+   "claim": "The tool has 9 operator classes. It never removes a call, a statement or a raise, never swaps arguments, never changes a string, never replaces a condition by True or False, never mutates chained comparisons, * or /, min or max, or an except clause. return:None is equivalent for a bool used as a truth value (proposed.py:158, :163, :167 survive for that reason) and the accepted list is empty."
+  },
+  {
+   "id": "V4-11", "date": "2026-11-17", "source": "docs/plan/measurements/test-trust-2026-11-17.md",
+   "severity": "Medium", "lane": "D", "basis": "shown",
+   "place": "tools/mutation.py:387",
+   "expected": "the score says what the unit suite notices",
+   "claim": "A mutant runs only the target's listed tests, and a line those tests never run counts as a survivor. The lists cover less than the suite (engine.py branches 86.1 % by its listed tests, 95.1 % by the suite). The tool records no test that killed a mutant, so no test can be shown never to be the first to fail."
+  },
+  {
+   "id": "V4-12", "date": "2026-11-17", "source": "docs/plan/measurements/test-trust-2026-11-17.md",
+   "severity": "Medium", "lane": "A2", "basis": "shown",
+   "place": "services/orchestrator/scenarios/evaluate.py:94",
+   "expected": "tools/coverage_ratchet.py: 95 % line and 90 % branch per safety-core file",
+   "claim": "evaluate.py: 93.0 % line and 88.6 % branch in the nightly of 2026-11-16, under target and under its own baseline (91.8 %): the nightly's ratchet failed on it. 15 arcs missed (commit d117301f)."
+  },
+  {
+   "id": "V4-13", "date": "2026-11-17", "source": "docs/plan/measurements/test-trust-2026-11-17.md",
+   "severity": "Medium", "lane": "A2", "basis": "shown",
+   "place": "services/gateway/core.py:1",
+   "expected": "tools/coverage_ratchet.py: 90 % branch per safety-core file",
+   "claim": "gateway/core.py: 87.4 % branch (25 arcs missed), under target and under its baseline floor 89.16 %: the nightly's ratchet failed on it."
+  },
+  {
+   "id": "V4-14", "date": "2026-11-17", "source": "docs/plan/measurements/test-trust-2026-11-17.md",
+   "severity": "Medium", "lane": "A2", "basis": "shown",
+   "place": "services/criteria_compiler/compile_cql/translator.py:1",
+   "expected": "tools/coverage_ratchet.py: 90 % branch per safety-core file",
+   "claim": "compile_cql/translator.py: 89.3 % branch, under target (above its baseline of 77.3 %, so the ratchet passes it)."
+  },
+  {
+   "id": "V4-15", "date": "2026-11-17", "source": "docs/plan/measurements/test-trust-2026-11-17.md",
+   "severity": "Medium", "lane": "B2", "basis": "shown",
+   "place": "libs/tb_common/derived.py:216",
+   "expected": "a derived value with a missing input is unknown; 95 % line and 90 % branch",
+   "claim": "derived.py: 94.4 % line and 89.7 % branch. The branch derived.py:216->217 (a missing component gives no value) is never taken by the unit suite, nor :236 (a non-finite value) nor the basdai and asdas lines :450-:455."
+  },
+  {
+   "id": "V4-16", "date": "2026-11-17", "source": "docs/plan/measurements/test-trust-2026-11-17.md",
+   "severity": "Medium", "lane": "D", "basis": "shown",
+   "place": ".github/workflows/trialbox-nightly-quality.yml:12",
+   "expected": "plan 8 criterion 3: three green nights",
+   "claim": "The last five nightly quality runs (2026-11-12 to 2026-11-16) are 3 cancelled and 2 failed; on 2026-11-16 the branch-coverage job failed (model_guard, evaluate.py, gateway/core.py)."
+  },
+  {
+   "id": "V4-17", "date": "2026-11-17", "source": "docs/plan/measurements/test-trust-2026-11-17.md",
+   "severity": "Medium", "lane": "B2", "basis": "hypothesis",
+   "place": "services/lake/client.py:303",
+   "expected": "plan 8 V19: the tests that use the in-process lake run against the HTTP one once per train",
+   "claim": "No switch exists. Every mutation target's tests reach the lake through LakeLocal or a fake, so they never pass the service token check on reads, the LakeQuery contract, the generation header, the status mapping to LakeQueryFailed, LakeBadAnswer and LakeUnhealthy, the Arrow IPC answer, or the 503 on a lake limit."
+  },
+  {
+   "id": "V4-18", "date": "2026-11-17", "source": "docs/plan/measurements/test-trust-2026-11-17.md",
+   "severity": "Medium", "lane": "A2", "basis": "hypothesis",
+   "place": "tests/unit/test_cascade_pipeline.py:207",
+   "expected": "a safety test fails when the code is wrong",
+   "claim": "Eight safety-core tests would pass with a wrong answer in the case they name (the table 'The weakest tests' of the page): an unused computed value, assertions an empty result satisfies, cases that never sit on a boundary."
+  },
+  {
+   "id": "V4-19", "date": "2026-11-17", "source": "docs/plan/measurements/test-trust-2026-11-17.md",
+   "severity": "Low", "lane": "D", "basis": "shown",
+   "place": "tools/coverage_baseline.json:1",
+   "expected": "the ratchet's baseline follows the rises it reports",
+   "claim": "The baseline still holds equivalence/gate.py at 26.8 % line and 0 % branch; the nightly measures 100 % and 100 %. The review's L-2 rests on the old figure."
+  }
+ ]
+}
