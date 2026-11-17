@@ -78,6 +78,12 @@ class JudgeReply:
     tokens_out: int = 0
     refused: str | None = None  # gateway refusal code: the pair stays unknown, never excluded
     opinions: list[dict[str, Any]] = field(default_factory=list)  # both answers when the checks disagree (D-120)
+    calls: tuple[str, ...] = ()  # D-989: every model call the answer rests on; () = this reply's own call_id
+
+    @property
+    def all_calls(self) -> tuple[str, ...]:
+        """The model calls behind this answer, once each (D-989): the pair's two, or the reply's own call."""
+        return tuple(dict.fromkeys(self.calls or ((self.call_id,) if self.call_id else ())))
 
 
 class JudgeClient(Protocol):
@@ -256,8 +262,9 @@ class AgreementJudge:
         d = combine(_vote(first), _vote(second))  # the one two-model rule (tb_common.pair, D-118)
         if d.disagreement:
             self.disagreements += 1
+        calls = first.all_calls + second.all_calls  # D-989: the verifier's call counts too
         if d.verdict == first.verdict:
-            return replace(first, confidence=d.confidence)
+            return replace(first, confidence=d.confidence, calls=calls)
         return JudgeReply(
             "unknown",
             0.0,
@@ -272,6 +279,7 @@ class AgreementJudge:
             tokens_out=first.tokens_out + second.tokens_out,
             refused=second.refused,
             opinions=[_opinion("judge", first), _opinion("verifier", answered, mismatch)] if d.disagreement else [],
+            calls=calls,
         )
 
 

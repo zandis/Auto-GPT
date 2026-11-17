@@ -213,6 +213,7 @@ class NoteResult:
     left_out: int = 0  # notes of the window the token budget did not show (T-603: flagged, never silent)
     model_reason: str = ""  # the judge model's own sentence: audit and debugging only, never shown on a page
     call_id: str = ""  # the judge call behind the answer (the cascade's evidence meta)
+    calls: list[str] = field(default_factory=list)  # D-989: every model call the answer rests on (judge, verifier)
     model: str = ""
     build_sha: str = ""  # through the gateway: the build that answered (D-276)
     prompt: str = ""
@@ -429,9 +430,11 @@ class NoteJudge:
             names = self.served.setdefault(role, {})
             names[str(res.model)] = names.get(str(res.model), 0) + 1
         r = postprocess(res.data, excerpts, source)
+        call_id = getattr(res, "call_id", "") or res.output_sha[:16]  # D-989: the call that gave it
         return replace(
             r,
-            call_id=getattr(res, "call_id", "") or res.output_sha[:16],  # D-989: the call that gave it
+            call_id=call_id,
+            calls=[call_id],
             model=res.model,
             build_sha=getattr(res, "build_sha", ""),
             prompt=f"{res.prompt_id}@{res.prompt_version}",
@@ -467,6 +470,7 @@ class NoteJudge:
             self._count(disagreements=1)
         if d.same_model:  # the same build answered twice: the judge did not answer (a failure, review LLM-002)
             self._count(same_model=1, failures=1)
+        calls = [*first.calls, *(second.calls if second else [])]  # D-989: the verifier's call counts too
         t_in = first.tokens_in + (second.tokens_in if second else 0)
         t_out = first.tokens_out + (second.tokens_out if second else 0)
         opinions = [_opinion("judge", first), _opinion("verifier", second)] if d.disagreement and second else []
@@ -482,8 +486,9 @@ class NoteJudge:
                 tokens_in=t_in,
                 tokens_out=t_out,
                 opinions=opinions,
+                calls=calls,
             )
-        return replace(first, confidence=d.confidence, reason=d.reason, tokens_in=t_in, tokens_out=t_out)
+        return replace(first, confidence=d.confidence, reason=d.reason, tokens_in=t_in, tokens_out=t_out, calls=calls)
 
 
 # a few unanswered note checks stay "unknown" (manual review); more than this share means the model was down and the
@@ -580,7 +585,13 @@ def structured_verdict(c: CriterionIR, ev: PatientEvaluation | None) -> Criterio
         verdict=verdict,
         evidence=Evidence(resource_refs=refs[:20], reason=why),
         basis="coded" if verdict != "unknown" else None,  # D-478: the records decided it
+        prov=[],  # D-989: no model (the coded records, S1's SQL), stated
     )
+
+
+def note_calls(r: NoteResult) -> list[str]:
+    """D-989: the model calls a note answer rests on, once each, in order (empty: no model answered)."""
+    return list(dict.fromkeys(r.calls or ([r.call_id] if r.call_id else [])))
 
 
 def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> CriterionVerdict:
@@ -603,6 +614,7 @@ def note_verdict(c: CriterionIR, r: NoteResult, pair: bool | None = None) -> Cri
             opinions=[Opinion(**o) for o in r.opinions] or None,
         ),
         basis=("pair" if pair else "single") if verdict != "unknown" and pair is not None else None,
+        prov=note_calls(r),
     )
 
 
@@ -622,6 +634,7 @@ def human_verdict(c: CriterionIR) -> CriterionVerdict:
         verdict="pending_human",
         evidence=Evidence(resource_refs=[], reason=Reason.HUMAN.value),
         basis="person",
+        prov=[],
     )
 
 
@@ -635,7 +648,7 @@ def not_in_snapshot(
     so a person looks (tier ``review``), never an exclusion (Fable review 2026-11-08, finding 10; D-118). The same
     for a patient the snapshot holds as deceased or not yet born on the screening date (``check_dates``, D-142)."""
     vs = [
-        CriterionVerdict(id=c.id, verdict="unknown", evidence=Evidence(resource_refs=[], reason=reason.value))
+        CriterionVerdict(id=c.id, verdict="unknown", evidence=Evidence(resource_refs=[], reason=reason.value), prov=[])
         for c in rs.active()
         if c.kind in kinds
     ]
@@ -830,6 +843,7 @@ def evaluate_patients(
                         id=c.id,
                         verdict="unknown",
                         evidence=Evidence(resource_refs=[], reason=Reason.NOT_EVALUATED.value),
+                        prov=[],
                     )
                 )
             else:
