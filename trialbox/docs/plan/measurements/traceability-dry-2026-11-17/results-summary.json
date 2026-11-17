@@ -1,0 +1,27 @@
+{
+ "from": [
+  "results.xml"
+ ],
+ "outcomes": {
+  "passed": 775,
+  "skipped": 13,
+  "xfailed": 2
+ },
+ "not_passed": [
+  "tests/e2e/test_life_cycle_walk.py::test_the_whole_life_of_a_study[en] skipped",
+  "tests/e2e/test_life_cycle_walk.py::test_the_whole_life_of_a_study[ja] skipped",
+  "tests/e2e/test_life_cycle_walk.py::test_the_whole_life_of_a_study[zh-TW] skipped",
+  "tests/e2e/test_new_study_walk.py::test_a_new_study_from_its_first_step[en] skipped",
+  "tests/e2e/test_new_study_walk.py::test_a_new_study_from_its_first_step[ja] skipped",
+  "tests/e2e/test_new_study_walk.py::test_a_new_study_from_its_first_step[zh-TW] skipped",
+  "tests/e2e/test_role_walk.py::test_five_roles_three_languages_desktop_and_phone skipped",
+  "tests/unit/test_code_coverage.py::test_cql_fails_closed_the_same_way skipped",
+  "tests/unit/test_criteria_safety.py::test_an_impossible_score_input_is_null_in_the_cql_engine skipped",
+  "tests/unit/test_criteria_safety.py::test_cql_carries_the_same_rules_and_translates skipped",
+  "tests/unit/test_derived_scores.py::test_cql_names_the_equation_and_translates skipped",
+  "tests/unit/test_erasure_seed.py::test_the_vector_store_is_cleared_by_the_tick skipped",
+  "tests/unit/test_judge_tier.py::test_judge_set_agreement_real_model skipped",
+  "tests/unit/test_valueset_family.py::test_who_family_twin_in_cql_too xfailed",
+  "tests/unit/test_valueset_family.py::test_who_only_code_resolves_to_its_icd10cm_family_and_fails_closed_outside_it xfailed"
+ ]
+}
