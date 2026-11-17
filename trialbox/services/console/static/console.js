@@ -58,12 +58,12 @@
     });
   } catch (e) { /* no session storage (a private mode that refuses it): the page works as before */ }
   // 6. D-1222 (E-M3): a long form marked data-keep (an AE's or a visit's form) is kept in this tab's session storage
-  // while it is typed, as a mark's note is, so a session that ends before Save does not lose it: back on the same form
+  // while it is typed, as a mark's note is, so a session that ends before it is saved does not lose it: back on the same form
   // after sign-in, the kept values go into the fields still empty (never over a value shown) and count as unsaved
   // edits. A sent form is dropped on the next page that is neither a sign-in page nor that same form (the save reached
   // a live session). A save that met the sign-in page instead (the session had ended) keeps it, and when the sign-in
   // lands on the home page (no page was kept: the console sends no Referer) the tab goes back to the form's own address,
-  // a path of this console. Sign out drops every kept form.
+  // a path of this console; signing out drops every kept form.
   try {
     var SENT = "tb-form-sent", AT = "tb-form-sent-at", VIA = "tb-form-via-sign-in";
     var sent = sessionStorage.getItem(SENT);
