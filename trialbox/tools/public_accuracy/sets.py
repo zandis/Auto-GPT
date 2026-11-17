@@ -11,6 +11,8 @@ A bundle holds what a site would screen and what only the scorer may see:
   them outside the site folder; the box never reads them.
 
 Readers take the cache folder and a seeded sample size, so a first run, a dry run and a unit test read the same code.
+They take the answer key's version too (``key``, :mod:`.key`, D-1104): ``v1`` reads as launch P1b did, ``v2`` (the
+default) with the P1b review's corrections B2 and B3; the old version stays readable, never overwritten.
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from tools.public_accuracy import key as keys
 from tools.public_accuracy import sources as src
 
 SEED = 20261114
@@ -184,13 +187,25 @@ def stated_age_bounds(lines: Iterable[str]) -> set[float]:
 
 
 def placed_lines(
-    min_age: str | None, max_age: str | None, sex: str | None, stated: Iterable[str] = ()
+    min_age: str | None, max_age: str | None, sex: str | None, stated: Iterable[str] = (), key: str = keys.CURRENT
 ) -> tuple[list[str], list[str]]:
     """(inclusion lines, notes) a site's protocol carries for the structured age and sex limits.
 
-    B2 (P1b review): the limit keeps its unit ("2 Months" is "Aged 2 months or older", never "0.17 years"), and a
-    bound the protocol's own lines (``stated``) already give is not written again (11 rulesets carried one twice)."""
+    B2 (P1b review, key v2): the limit keeps its unit ("2 Months" is "Aged 2 months or older", never "0.17 years"),
+    and a bound the protocol's own lines (``stated``) already give is not written again (11 rulesets carried one
+    twice). Key ``v1`` writes them as launch P1b had them: in years, whatever the protocol states."""
     inc, notes, skipped = [], [], []
+    if keys.check(key) == "v1":
+        lo, hi = age_years(min_age), age_years(max_age)
+        if lo is not None:
+            inc.append(f"Aged {lo:g} years or older")
+        if hi is not None:
+            inc.append(f"Age <= {hi:g} years")
+        if (sex or "").upper() in ("FEMALE", "MALE"):
+            inc.append(f"{sex.capitalize()} participants only")  # type: ignore[union-attr]
+        if inc:
+            notes.append("age/sex lines written from ClinicalTrials.gov's structured eligibility fields")
+        return inc, notes
     have = stated_age_bounds(stated)
 
     def phrase(lim: tuple[float, str]) -> str:
@@ -464,7 +479,12 @@ def split_ctgov_criteria(text: str) -> tuple[list[str], list[str]]:
 
 
 def read_trec(
-    cache: Path, years: tuple[str, ...] = ("2021", "2022"), n_pairs: int = 60, live: bool = True, get: Any = None
+    cache: Path,
+    years: tuple[str, ...] = ("2021", "2022"),
+    n_pairs: int = 60,
+    live: bool = True,
+    get: Any = None,
+    key: str = keys.CURRENT,
 ) -> Bundle:
     """TREC CT: the sampled pairs, their patients, and their trials' criteria (2021/2022 from NCBI's corpus, the
     snapshot the assessors judged; 2023 from ClinicalTrials.gov's current record, marked so). Age and sex lines from
@@ -491,7 +511,7 @@ def read_trec(
             notes.append("criteria from ClinicalTrials.gov's current record, not the judged snapshot")
         else:
             inc, exc, title = criteria_lines(t["inclusion"]), criteria_lines(t["exclusion"]), t["title"]
-        placed, pn = placed_lines(f.get("minimumAge"), f.get("maximumAge"), f.get("sex"), [*inc, *exc])
+        placed, pn = placed_lines(f.get("minimumAge"), f.get("maximumAge"), f.get("sex"), [*inc, *exc], key)
         b.trials[nct] = Trial(nct, "en", title, inc, exc, placed, notes=notes + pn)
     b.patients = {k: v for k, v in b.patients.items() if k in {p.patient for p in b.pairs}}
     b.pairs = [
@@ -511,7 +531,12 @@ def sentences_en(text: str) -> list[str]:
 
 
 def read_sigir(
-    cache: Path, n_pairs: int = 60, labels: tuple[str, ...] = ("2", "1", "0"), live: bool = True, get: Any = None
+    cache: Path,
+    n_pairs: int = 60,
+    labels: tuple[str, ...] = ("2", "1", "0"),
+    live: bool = True,
+    get: Any = None,
+    key: str = keys.CURRENT,
 ) -> Bundle:
     """SIGIR 2016 (NCBI copy: 58 patients, 3,835 judgements): all three labels kept apart ("would consider" is its own
     stratum, never merged into eligible), the trials from NCBI's SIGIR corpus, and the 1,015 TrialGPT physician
@@ -560,7 +585,7 @@ def read_sigir(
             continue
         f = fields.get(nct, {})
         inc, exc = criteria_lines(t["inclusion"]), criteria_lines(t["exclusion"])
-        placed, pn = placed_lines(f.get("minimumAge"), f.get("maximumAge"), f.get("sex"), [*inc, *exc])
+        placed, pn = placed_lines(f.get("minimumAge"), f.get("maximumAge"), f.get("sex"), [*inc, *exc], key)
         b.trials[nct] = Trial(nct, "en", t["title"], inc, exc, placed, notes=pn)
     b.pairs = [p for p in chosen if p.trial in b.trials and p.patient in b.patients]
     keep = {(p.patient, p.trial) for p in b.pairs}
@@ -980,11 +1005,17 @@ def jmed_note(r: dict[str, Any]) -> str:
     return "\n".join(str(r.get(k) or "") for k in JMED_NOTE_FIELDS)
 
 
+# D-1104: a risk, a tendency or a borderline state is not the condition. In launch P1b's notes "糖尿病のリスクは低い",
+# "境界型糖尿病", "高血圧リスク" and "高血圧傾向" were read as the patient having it (4 of the labels the note changes)
+JMED_HEDGE_AFTER = re.compile(r"^\s*の?\s*(リスク|傾向|予備群)")
+JMED_HEDGE_BEFORE = re.compile(r"(境界型|境界域)\s*$")
+
+
 def jmed_stratum(note: str, word: str) -> str:
     """B3 (P1b review): the truth of a JMED criterion from the chart the box reads (the persona fields), not from the
     structured 主病名 / 既往歴 / 現病歴, which the note need not state while it states a comorbidity they lack (3 of the
     7 "wrong exclusions" of P1b were right by the note). ``own``: a sentence says the patient has it (not negated,
-    not a relative's); ``family-only``: only a relative's; ``none``."""
+    not a relative's, not a risk, a tendency or a borderline state); ``family-only``: only a relative's; ``none``."""
     from tools.public_site import JA_FAMILY, JA_NEG_AFTER, _nfkc
 
     w = _nfkc(word)
@@ -993,27 +1024,42 @@ def jmed_stratum(note: str, word: str) -> str:
         for m in re.finditer(re.escape(w), sent):
             if JA_FAMILY.search(sent[: m.start()]):
                 family = True
-            elif not JA_NEG_AFTER.search(sent[m.end() :]):
+            elif not (
+                JA_NEG_AFTER.search(sent[m.end() :])
+                or JMED_HEDGE_AFTER.search(sent[m.end() :])
+                or JMED_HEDGE_BEFORE.search(sent[: m.start()])
+            ):
                 own = True
     return "own" if own else "family-only" if family else "none"
 
 
-def read_jmed(cache: Path, n: int = 40) -> Bundle:
+def jmed_coded_stratum(r: dict[str, Any], word: str) -> str:
+    """The stratum of a JMED criterion by the structured fields: ``own`` when the condition is in 主病名 / 既往歴 /
+    現病歴, ``family-only`` when it is only in 家族歴, else ``none``. The sampling frame of every key version, and the
+    truth of key v1 (launch P1b)."""
+    own = " ".join(str(r.get(k) or "") for k in ("主病名", "既往歴", "現病歴"))
+    fam = str(r.get("家族歴") or "")
+    return "own" if word in own else "family-only" if word in fam else "none"
+
+
+def read_jmed(cache: Path, n: int = 40, key: str = keys.CURRENT) -> Bundle:
     """JMED-Personas (synthetic Japanese patients, CC BY 4.0): the narrative fields as the chart; two exclusion
-    criteria (diabetes, hypertension in the history); truth from the same chart the box reads (B3,
-    :func:`jmed_stratum`): excluded when the note says the patient has the condition, not when it is only a
-    relative's (the family-history stratum). Where the structured fields say otherwise it is counted in the
-    provenance, never used as the truth."""
+    criteria (diabetes, hypertension in the history). The patients are sampled per stratum of the structured fields
+    (:func:`jmed_coded_stratum`) in every key version, so v1 and v2 judge the same patients. Key v2: the truth from
+    the same chart the box reads (B3, :func:`jmed_stratum`): excluded when the note says the patient has the
+    condition, not when it is only a relative's (the family-history stratum); where the structured fields say
+    otherwise it is counted in the provenance, never used as the truth. Key v1 (launch P1b): the truth from the
+    structured fields."""
     import pyarrow.parquet as pq
 
+    keys.check(key)
     b = Bundle("jmed")
     t = pq.read_table(io.BytesIO(_read_cached(cache, "jmed_personas_01.parquet"))).to_pylist()
     rng = random.Random(SEED)
     strata: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for r in t:
-        note = jmed_note(r)
         for tid, (word, _crit) in JMED_CRITERIA.items():
-            strata[f"{tid}:{jmed_stratum(note, word)}"].append(r)
+            strata[f"{tid}:{jmed_coded_stratum(r, word)}"].append(r)
     for v in strata.values():
         rng.shuffle(v)
     chosen: dict[str, dict[str, Any]] = {}
@@ -1037,10 +1083,10 @@ def read_jmed(cache: Path, n: int = 40) -> Bundle:
         age = int(r["年齢"]) if str(r.get("年齢") or "").isdigit() else None
         sex = {"男性": "M", "女性": "F"}.get(str(r.get("性別")))
         b.patients[pid] = Patient(pid, "ja", text, age, sex, notes=["synthetic patient (JMED-Personas)"])
-        coded = " ".join(str(r.get(k) or "") for k in ("主病名", "既往歴", "現病歴"))
         for tid, (word, crit) in JMED_CRITERIA.items():
-            stratum = jmed_stratum(text, word)
-            differ += (stratum == "own") != (word in coded)
+            coded = jmed_coded_stratum(r, word)
+            stratum = coded if key == "v1" else jmed_stratum(text, word)
+            differ += (stratum == "own") != (coded == "own")
             b.criteria.append(
                 CriterionGold(
                     pid,
@@ -1052,10 +1098,11 @@ def read_jmed(cache: Path, n: int = 40) -> Bundle:
                 )
             )
     b.provenance.append(f"JMED-Personas shard 01: {len(chosen)} patients, strata {sorted(strata)}")
-    b.provenance.append(
-        f"JMED truth from the chart the box reads (B3): {differ} patient x criterion labels differ from the structured "
-        "主病名/既往歴/現病歴"
-    )
+    if key != "v1":
+        b.provenance.append(
+            f"JMED truth from the chart the box reads (B3): {differ} patient x criterion labels differ from the "
+            "structured 主病名/既往歴/現病歴 (the patients sampled by those fields' strata, as key v1)"
+        )
     return b
 
 
@@ -1159,15 +1206,19 @@ def medtxt_count(cache_medtxt: Path) -> dict[str, int]:
 READERS = {"trec", "trec2023", "sigir", "tfda", "jrct", "chia", "tcga", "jmed", "aci", "maccrobat", "opentw", "pmc_zh"}
 
 
-def read(name: str, cache: Path = src.CACHE, size: int = 20, live: bool = True, get: Any = None) -> Bundle:
+def read(
+    name: str, cache: Path = src.CACHE, size: int = 20, live: bool = True, get: Any = None, key: str = keys.CURRENT
+) -> Bundle:
     """The bundle of set ``name`` at sample ``size`` (pairs for TREC/SIGIR, trials for TFDA/jRCT/Chia, reports or
-    patients for the others)."""
+    patients for the others), as answer key ``key`` has it (:mod:`.key`; the sets B2 and B3 do not touch read the
+    same in every version)."""
+    keys.check(key)
     if name == "trec":
-        return read_trec(cache, ("2021", "2022"), size, live=live, get=get)
+        return read_trec(cache, ("2021", "2022"), size, live=live, get=get, key=key)
     if name == "trec2023":
-        return read_trec(cache, ("2023",), size, live=live, get=get)
+        return read_trec(cache, ("2023",), size, live=live, get=get, key=key)
     if name == "sigir":
-        return read_sigir(cache, size, live=live, get=get)
+        return read_sigir(cache, size, live=live, get=get, key=key)
     if name == "tfda":
         return read_tfda(cache, size, lookups=6 * size, get=get)
     if name == "jrct":
@@ -1177,7 +1228,7 @@ def read(name: str, cache: Path = src.CACHE, size: int = 20, live: bool = True, 
     if name == "tcga":
         return read_tcga(cache, size, get=get)
     if name == "jmed":
-        return read_jmed(cache, size)
+        return read_jmed(cache, size, key)
     if name in ("aci", "maccrobat", "opentw", "pmc_zh"):
         return read_notes_only(cache, name, size, get=get)
     raise SystemExit(f"unknown set {name}: one of {', '.join(sorted(READERS))}")
