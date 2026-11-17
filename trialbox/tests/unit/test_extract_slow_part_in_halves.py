@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 from criteria_compiler import service
-from criteria_compiler.service import CompileFailed, Compiler, lines_per_part
+from criteria_compiler.service import CompileFailed, Compiler, _Answers, lines_per_part
 from tb_common.llm import LlmError, LlmModelFault, LlmPromptTooLong, LlmUpstreamFailed
 
 
@@ -27,11 +27,11 @@ def _lines(n: int) -> list[dict[str, Any]]:
 def _comp(fails_over: int, error: Exception, asked: list[int]) -> Compiler:
     comp = Compiler(SimpleNamespace())  # type: ignore[arg-type]
 
-    def ask(job_id: str, ruleset: str, language: str, part: list[dict[str, Any]], guard: Any, where: str) -> list[Any]:
+    def ask(job_id: str, ruleset: str, language: str, part: list[dict[str, Any]], guard: Any, where: str) -> _Answers:
         asked.append(len(part))
         if len(part) > fails_over:
             raise CompileFailed("ir_extract", "the model did not return usable criteria") from error
-        return [{"text": ln["text"]} for ln in part]
+        return _Answers([{"text": ln["text"]} for ln in part])
 
     comp._ask_extract = ask  # type: ignore[method-assign]
     return comp
