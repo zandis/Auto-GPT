@@ -3829,6 +3829,7 @@
     "baseline_s": 132.9,
     "rc": 0
    }
-  }
+  },
+  "fetched": "CI artifacts of commit d117301f, not measured here: downloaded on 2026-11-17 into this card's cloud container with the GitHub CLI through the container's proxy: gh run download -R zandis/Auto-GPT 43912198355 -n mutation (and -n coverage-branch for coverage.json); the failed job's log with gh run view 43912198355 --log-failed"
  }
 }

@@ -3737,7 +3737,8 @@
  "ci_nightly": {
   "run": "https://github.com/zandis/Auto-GPT/actions/runs/43912198355",
   "commit": "d117301fd04525c2192d320eb9046420d6d10471",
-  "artifact": "coverage-branch (the unit suite in 12 shards, branches on)"
+  "artifact": "coverage-branch (the unit suite in 12 shards, branches on)",
+  "fetched": "CI artifacts of commit d117301f, not measured here: downloaded on 2026-11-17 into this card's cloud container with the GitHub CLI through the container's proxy: gh run download -R zandis/Auto-GPT 43912198355 -n mutation (and -n coverage-branch for coverage.json); the failed job's log with gh run view 43912198355 --log-failed"
  },
  "local_target_tests": {
   "commit": "15108f46b8ea59e6676bc003000d5dcaa24c97a1",

@@ -1,9 +1,13 @@
-"""The test-trust page's tables match its JSON (card V-4), and a planted change is caught."""
+"""The test-trust page's blocks match its JSON (card V-4), and each planted change is caught."""
 
 from __future__ import annotations
 
+import json
+import re
 import shutil
 from pathlib import Path
+
+import pytest
 
 from tools import test_trust
 
@@ -20,29 +24,50 @@ def _copy(tmp_path: Path) -> Path:
     return page
 
 
-def test_a_changed_count_in_the_page_is_caught(tmp_path: Path) -> None:
+@pytest.mark.parametrize("name", test_trust.NAMES)
+def test_a_changed_digit_in_any_block_is_caught(tmp_path: Path, name: str) -> None:
     page = _copy(tmp_path)
     text = page.read_text(encoding="utf-8")
-    start = text.index("<!-- test-trust:begin mutation -->")
-    row = text.index("| **all run here** |", start)
-    cells = text[row:].split("\n", 1)[0].split(" | ")
-    cells[3] = str(int(cells[3]) + 1)  # one more killed mutant than the tool wrote
-    page.write_text(text[:row] + " | ".join(cells) + text[row + len(text[row:].split("\n", 1)[0]) :], "utf-8")
-    assert test_trust.check(page) == ["mutation"]
+    start = text.index(f"<!-- test-trust:begin {name} -->")
+    end = text.index(f"<!-- test-trust:end {name} -->")
+    digit = re.search(r"\d", text[start + len(name) + 25 : end])
+    assert digit, name
+    at = start + len(name) + 25 + digit.start()
+    page.write_text(text[:at] + str((int(text[at]) + 1) % 10) + text[at + 1 :], encoding="utf-8")
+    assert name in test_trust.check(page)
     assert test_trust.main(["--check", "--page", str(page)]) == 1
     test_trust.write(page)
     assert test_trust.check(page) == []
 
 
-def test_a_changed_json_is_caught(tmp_path: Path) -> None:
+def _edit(page: Path, name: str, change: object) -> None:
+    path = page.with_suffix("") / f"{name}.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    change(data)  # type: ignore[operator]
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_a_changed_nightly_score_is_caught(tmp_path: Path) -> None:
     page = _copy(tmp_path)
-    path = page.with_suffix("") / "findings.json"
-    path.write_text(path.read_text(encoding="utf-8").replace('"Medium"', '"Low"', 1), encoding="utf-8")
-    assert test_trust.check(page) == ["findings"]
+    _edit(page, "mutation", lambda d: d["ci_nightly_2026_11_16"].update(score=99.0))
+    assert {"verdict", "nightly"} <= set(test_trust.check(page))
+
+
+def test_a_changed_severity_is_caught(tmp_path: Path) -> None:
+    page = _copy(tmp_path)
+    _edit(page, "findings", lambda d: d["findings"][0].update(severity="Low"))
+    assert "findings" in test_trust.check(page)
+
+
+def test_a_survivor_that_is_no_survivor_is_caught(tmp_path: Path) -> None:
+    page = _copy(tmp_path)
+    _edit(page, "survivors", lambda d: d["survivors"][0].update(mutant="libs/tb_common/quotes.py:1:1:const:+1"))
+    test_trust.write(page)  # even with the table rewritten, the id must be a survivor of mutation.json
+    assert test_trust.check(page) == ["survivors"]
 
 
 def test_a_removed_block_is_caught(tmp_path: Path) -> None:
     page = _copy(tmp_path)
     text = page.read_text(encoding="utf-8")
     page.write_text(text.replace("<!-- test-trust:begin coverage -->", "<!-- coverage -->"), encoding="utf-8")
-    assert test_trust.check(page) == ["coverage"]
+    assert "coverage" in test_trust.check(page)
