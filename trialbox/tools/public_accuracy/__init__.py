@@ -20,9 +20,12 @@ turns the public sets the catalogues mark usable by a product vendor into what a
   compiler and SCREEN through a PRODUCTION gateway, behind model-guard, to the strict vLLM stand-ins. Never an
   accuracy result: the stand-ins answer from ``services/llm_stub``.
 * :mod:`.plan`     the first real-model run's sample and the model calls it implies.
+* :mod:`.key`      the answer key's versions (D-1104): ``v1`` as launch P1b used it, ``v2`` with the P1b review's
+  corrections B1-B3; a built folder names its version, and ``key-diff`` lists what differs between two, and why.
 
     python -m tools.public_accuracy fetch [--only trec,sigir,...]
-    python -m tools.public_accuracy build --set trec --out DIR [--pairs N]
+    python -m tools.public_accuracy build --set trec --out DIR [--pairs N] [--key v1|v2]
     python -m tools.public_accuracy dryrun --set trec --work DIR
     python -m tools.public_accuracy score --work DIR
+    python -m tools.public_accuracy key-diff OLD_DIR NEW_DIR
 """

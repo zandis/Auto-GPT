@@ -15,9 +15,10 @@
   judged for it, through the product's own scope rule (``screen.scope_patients``), not a list handed in.
 
 ``<out>/gold/`` is never given to the box: ``pairs.jsonl``, ``criteria.jsonl``, ``compile_gold.json`` and
-``ids.json`` (source ids -> chart numbers and ruleset ids). The scorer joins the box's answers to it by ids only, after
-the run. Placed values (chart numbers, visit and appointment dates, birth month, staff) are listed in
-``site/PROVENANCE.md`` as public_site does.
+``ids.json`` (source ids -> chart numbers and ruleset ids), ``written.json`` (the lines the benchmark wrote) and
+``key.json`` (the answer key's version, :mod:`.key`, D-1104: ``v1`` as launch P1b, ``v2`` with B1-B3). The scorer
+joins the box's answers to it by ids only, after the run. Placed values (chart numbers, visit and appointment dates,
+birth month, staff) are listed in ``site/PROVENANCE.md`` as public_site does.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from tools.public_accuracy import key as keys
 from tools.public_accuracy.sets import Bundle, Trial
 
 REF = date(2026, 11, 1)  # the snapshot day of a built site (as tools.public_site.REF)
@@ -76,6 +78,11 @@ def ruleset_ids(trials: dict[str, Trial], prefix: str = "") -> dict[str, str]:
         if not RULESET_ID.match(out[key]):
             raise ValueError(f"ruleset id {out[key]!r} is longer than 16 characters: a shorter prefix")
     return out
+
+
+def birth_date_v1(visit: date, age: int | None) -> str:
+    """Key v1 (launch P1b): 1 July of the visit's year minus the age, a year less when the visit is before July."""
+    return date(visit.year - age - (1 if visit.month < 7 else 0), 7, 1).isoformat() if age is not None else ""
 
 
 def birth_date(visit: date, age: int | None, stated: tuple[int, str] | None = None) -> str:
@@ -134,12 +141,22 @@ def _jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def build(
-    bundle: Bundle, out: Path, ref: date = REF, *, mrn0: int = MRN0, pi0: int = PI0, rs_prefix: str = ""
+    bundle: Bundle,
+    out: Path,
+    ref: date = REF,
+    *,
+    mrn0: int = MRN0,
+    pi0: int = PI0,
+    rs_prefix: str = "",
+    key: str = keys.CURRENT,
 ) -> dict[str, Any]:
     """Write ``out/site`` (what the box is given) and ``out/gold`` (what only the scorer reads). Returns the counts.
     ``ref`` is the site's day (the installed box screens on its own calendar day, so its accuracy run builds on that
     day); ``mrn0``, ``pi0`` and ``rs_prefix`` keep the chart numbers, investigators and rulesets of several sets on one
-    box apart (:data:`SET_OFFSETS`)."""
+    box apart (:data:`SET_OFFSETS`). ``key`` is the answer key's version (:mod:`.key`): ``v1`` writes the birth dates
+    as launch P1b had them, ``v2`` as B1 has them; the bundle must be read as the same version
+    (``sets.read(..., key=)``)."""
+    version = keys.check(key)  # ``key`` is a loop name below
     site, gold = out / "site", out / "gold"
     hosp, protos, profiles = site / "hospital", site / "protocols", site / "profiles"
     for d in (hosp, protos, profiles, gold):
@@ -153,7 +170,8 @@ def build(
     for i, (key, p) in enumerate(sorted(bundle.patients.items()), 1):
         mrn = mrns[key]
         visit = datetime.combine(ref - timedelta(days=7 + (i * 37) % 300), datetime.min.time()).replace(hour=10)
-        birth = birth_date(visit.date(), p.age, p.age_stated)
+        v1 = version == "v1"
+        birth = birth_date_v1(visit.date(), p.age) if v1 else birth_date(visit.date(), p.age, p.age_stated)
         pats.append([mrn, "", "", birth, p.sex or "", "", ""])
         enc = f"E{mrn}"
         encs.append([enc, mrn, visit.strftime("%Y-%m-%d %H:%M:%S"), "MED", CHART_DOCTOR[0], "OPD"])
@@ -228,6 +246,8 @@ def build(
         "site_sha256": _tree_sha(site),
     }
     (gold / "bundle.json").write_text(json.dumps(summary, ensure_ascii=False, indent=1), encoding="utf-8")
+    keys.stamp(gold, version)  # a file of its own: the files launch P1b's gold held stay byte for byte as v1 wrote them
+    summary["key"] = version  # said in the build's output, not in bundle.json (whose bytes v1 keeps)
     (site / "PROVENANCE.md").write_text(provenance_md(bundle, len(appts)), encoding="utf-8")
     return summary
 
