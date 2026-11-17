@@ -155,7 +155,7 @@ class PersonState:
 
     @property
     def phase(self) -> str:
-        """``candidate`` before consent, ``participant`` from consent on."""
+        """``candidate`` before consent, ``participant`` once consented."""
         return "participant" if self.name in PARTICIPANT else "candidate"
 
     @property

@@ -264,9 +264,12 @@ def _stage11(res: dict[str, Any], api: Any, crc: Any, pi: Any, lang: str, mrns: 
     s.check("the visit schedule is saved (3 visits with windows)", 'data-testid="schedule-saved"' in r.text,
             r.status_code)  # fmt: skip
     page = crc.get(f"/studies/{rs}/subjects")
-    s.check("the new screening number is a participant (candidate)",
-            re.search(rf'data-testid="subject-{no}">.*?data-state="candidate"', page.text, re.S) is not None,
-            page.status_code)  # fmt: skip
+    # D-1221: the row names the person's one state; a new screening number is a record still before consent
+    from console.person_state import CANDIDATE
+
+    got = re.search(rf'data-testid="subject-{no}">.*?data-state="([a-z_]+)"', page.text, re.S)
+    s.check("the new screening number is a participant (a candidate, before consent)",
+            got is not None and got.group(1) in CANDIDATE, (page.status_code, got and got.group(1)))  # fmt: skip
     csrf = fd._csrf(page.text)
     r = crc.post(f"/studies/{rs}/subjects/{no}/step", data={"csrf": csrf, "to": "enrolled"})
     plain = cat["life.why.order"].split("{")[0]
