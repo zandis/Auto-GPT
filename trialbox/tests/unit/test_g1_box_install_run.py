@@ -48,6 +48,30 @@ CASES = [
     "gate-401",
     "gate-never",
     "acc-cut-resume",  # D-1129 (card H-14): a set that ended on its own budget, taken up by a resume with a new one
+    # the owner's live session (D-1130 to D-1133)
+    "session",
+    "session-stop",
+    "session-cut",
+    "session-wide",
+    "session-egress",
+    "session-dev-refused",
+    "session-skip",
+    "session-resume",
+    "session-ssh",
+    "session-then-acc",
+    "session-close-fails",
+    "session-update-fails",
+    # the re-review's round 3: findings 1 (lane D's trialbox.service) and 4 (a later boot without tb-retry)
+    "session-cut-56",
+    "session-unit",
+    "session-unit-race",
+    "session-unit-fails",
+    # round 4: a, b, c, f, g (lane D's timers, a unit that gives no answer, ss, the same run booted again)
+    "session-unit-dbus",
+    "session-ops",
+    "session-quiet-fails",
+    "session-ss-fails",
+    "session-ended-again",
 ]
 
 pytestmark = pytest.mark.skipif(
