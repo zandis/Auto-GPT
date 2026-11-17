@@ -21,7 +21,7 @@
   {# D-133 (review F-10): the examples name the user's own study, and each one is a link that runs it #}
   {# D-398 (UX-029): "your study" is the study of the page the help was opened from, else the account's own (delegation log) #}
   <h3>{{ t('help.yours') }}</h3>
-  <ul class="plain" data-testid="help-examples">{% for n in range(1, 7) %}{% set ex = t('cmd.ex.' ~ user.role ~ '.' ~ n) %}{% if ex != 'cmd.ex.' ~ user.role ~ '.' ~ n and (mine or 'GZQO' not in ex) %}{% set ex = ex|replace('GZQO', mine) %}<li><a href="/cmd?q={{ ex|urlencode }}&amp;back={{ back|urlencode }}"><code>{{ ex }}</code></a></li>{% endif %}{% endfor %}</ul>
+  <ul class="plain" data-testid="help-examples">{% for n in range(1, 7) %}{% set ex = t_or('cmd.ex.' ~ user.role ~ '.' ~ n, '') %}{% if ex and (mine or 'GZQO' not in ex) %}{% set ex = ex|replace('GZQO', mine) %}<li><a href="/cmd?q={{ ex|urlencode }}&amp;back={{ back|urlencode }}"><code>{{ ex }}</code></a></li>{% endif %}{% endfor %}</ul>
   {% if not studies %}<p class="hint">{{ t('help.yours.none') }}</p>{% endif %}
 </section>
 <section class="card">

@@ -74,7 +74,7 @@ from console.auth import (
 )
 from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
 from console.cascade import CascadeRuns
-from console.i18n import CATALOGUES, LANGS, pick_language, translate
+from console.i18n import CATALOGUES, LANGS, lookup, pick_language, translate
 from console.identity import (
     MUST_CHANGE_OPEN,
     Hooks,
@@ -804,13 +804,12 @@ def create_app(
             return translate(lang, key, **values)
 
         def t_or(key: str, fallback: str) -> str:  # a translation when the catalogue has one, else the fallback
-            text = t(key)
-            return fallback if text == key else text
+            text = lookup(lang, key)
+            return fallback if text is None else text
 
         def state(value: str) -> str:  # badge text; the machine state stays in data-state
-            key = f"state.{value}"
-            text = t(key)
-            return value if text == key else text
+            text = lookup(lang, f"state.{value}")
+            return value if text is None else text
 
         def given(value: object, cls: str = "") -> Markup | str:
             """D-133 (review F-09): words that come from the study or the hospital's data (a criterion label, a

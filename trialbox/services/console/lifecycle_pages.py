@@ -42,7 +42,7 @@ from console.backend import Problem, Unavailable, service_and_status
 from console.data_pages import err_of
 from console.entry_pages import can_enter, record_key
 from console.home import Helpers
-from console.i18n import translate
+from console.i18n import lookup, translate
 from console.screening_log import criteria_choices
 from console.studies import known_study
 from console.timefmt import local_today, site_zone
@@ -88,9 +88,10 @@ def why_text(lang: str, exc: Problem) -> str:
     def st(s: str) -> str:
         return translate(lang, f"life.state.{s}") if s in STATES else s
 
+    if lookup(lang, key) is None:  # a reason with no sentence of its own
+        return translate(lang, "life.why.other")
     allowed = ", ".join(st(x.strip()) for x in str(d.get("allowed") or "").split(",") if x.strip()) or "–"
-    text = translate(lang, key, state=st(str(d.get("state") or "")), to=st(str(d.get("to") or "")), allowed=allowed)
-    return translate(lang, "life.why.other") if text == key else text
+    return translate(lang, key, state=st(str(d.get("state") or "")), to=st(str(d.get("to") or "")), allowed=allowed)
 
 
 log = logging.getLogger("console.lifecycle")

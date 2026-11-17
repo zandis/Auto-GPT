@@ -80,7 +80,6 @@ EN: dict[str, str] = {
     "problem.ask.mail": "Need help? Ask your TrialBox administrator: {mail}",
     # audit pager (review F-07)
     "audit.newer": "Newer",
-    "audit.older": "Older",
     "audit.page": "Page {n}",
     # study set-up in one form (review F-04, F-11)
     "setup.help": "One form for the study. Fill in what you know and press Save at the bottom: everything on the page "
@@ -187,7 +186,6 @@ JA: dict[str, str] = {
     "problem.ask": "困ったときは TrialBox の管理者に連絡してください。",
     "problem.ask.mail": "困ったときは TrialBox の管理者に連絡してください：{mail}",
     "audit.newer": "新しい記録",
-    "audit.older": "古い記録",
     "audit.page": "{n} ページ目",
     "setup.help": "試験ごとに 1 つのフォームです。分かるところを入力し、最後に一番下の「保存」を押してください。"
     "ページ全体がまとめて保存されます。いつでも戻って直せます。",
@@ -286,7 +284,6 @@ ZH: dict[str, str] = {
     "problem.ask": "需要協助？請聯絡 TrialBox 管理者。",
     "problem.ask.mail": "需要協助？請聯絡 TrialBox 管理者：{mail}",
     "audit.newer": "較新的紀錄",
-    "audit.older": "較舊的紀錄",
     "audit.page": "第 {n} 頁",
     "setup.help": "每個試驗一份表單。填入您知道的部分，最後按最下方的「儲存」：整頁會一起儲存。隨時可以回來修改。",
     "setup.step.study": "試驗",

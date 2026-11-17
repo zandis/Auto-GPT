@@ -20,6 +20,9 @@ os.environ["TB_LAKE_BUILD"] = "thread"
 # D-663: the same for the adapter's ingest: most tests hand the adapter a configuration in memory (``build_config``
 # replaced); tests/unit/test_adapter_run_process.py runs the box's way, with real processes.
 os.environ["TB_ADAPTER_RUN"] = "thread"
+# D-1220: a text key no catalogue has is an error under the suite (console.i18n.translate raises), so a page a test
+# renders cannot show a raw key; a box shows the key. Set before any console module is imported (i18n reads it once).
+os.environ["TB_STRICT_TEXT"] = "1"
 
 
 @pytest.fixture
