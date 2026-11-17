@@ -26,7 +26,7 @@ const base = plan.base;
 const acc = plan.accounts;
 const checks = [];
 const ctx = {}; // role (or "person") -> page
-const vars = { job: "" }; // values read from the product on the way ({job}, {pid}, {record})
+const vars = { job: "" }; // values read from the product on the way ({job}, {pid}, {short}, {record}, {chart})
 const stopped = new Set(); // steps stopped with a recorded finding
 let current = "";
 let rec = null; // the record of the step being walked
@@ -41,15 +41,22 @@ function check(ok, what) {
 }
 
 function fill(s) {
-  return String(s || "").replace(/\{(job|pid|record|short)\}/g, (_, k) => vars[k] || "");
+  return String(s || "").replace(/\{(job|pid|record|short|chart)\}/g, (_, k) => vars[k] || "");
 }
 
-function guess(kind, detail) {
-  if (rec) rec.guesses.push({ kind, detail });
+// what the log may hold: never a pseudonym in full or a chart number, only their names
+function masked(s) {
+  let out = String(s || "");
+  for (const k of ["chart", "pid"]) if (vars[k]) out = out.split(vars[k]).join(`{${k}}`);
+  return out;
+}
+
+function guess(a) {
+  if (rec && a.finding) rec.guesses.push({ finding: a.finding, detail: a.guess });
 }
 
 function clicked(text) {
-  if (rec) rec.clicks.push(text);
+  if (rec) rec.clicks.push(masked(text));
 }
 
 async function signIn(browser, user) {
@@ -152,17 +159,24 @@ async function act(p, a, tag) {
       return click(p, p.locator("main").getByRole("link", { name: text, exact: true }).first(), a.wait_s, text);
     case "row_link":
       return click(p, p.getByRole("row").filter({ hasText: fill(a.within) }).getByRole("link", { name: text, exact: true }), a.wait_s, text);
+    case "link_start": {
+      // a link whose name starts with the product's text (the worklist's list links end with their count)
+      guess(a);
+      const re = new RegExp("^\\s*" + text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      return click(p, p.locator("main").getByRole("link", { name: re }).first(), a.wait_s, text);
+    }
     case "card_link": {
-      // a link inside the section (card) that holds ``within`` (the home page's study card)
-      const card = p.locator("main section").filter({ hasText: fill(a.within) });
+      // the link in the card whose heading is ``within`` (the home page's study card)
+      guess(a);
+      const card = p.locator("main section").filter({ has: p.getByRole("heading", { name: fill(a.within), exact: true }) });
       return click(p, card.getByRole("link", { name: text, exact: true }).first(), a.wait_s, text);
     }
     case "fill":
       if (rec) rec.inputs.push(a.label);
-      return p.locator("main").getByLabel(a.label, exact).fill(value);
+      return p.locator("main").getByLabel(a.label, exact).first().fill(value);
     case "select":
       if (rec) rec.inputs.push(a.label);
-      return p.locator("main").getByLabel(a.label, exact).selectOption(value);
+      return p.locator("main").getByLabel(a.label, exact).first().selectOption(value);
     case "radio":
       clicked(a.label);
       return p.locator("main").getByLabel(a.label, exact).check();
@@ -176,36 +190,39 @@ async function act(p, a, tag) {
     }
     case "goto":
       // a page reached only by typing its address: a guess, recorded
-      guess("address", a.guess || `typed the address ${value}`);
+      guess(a);
       await p.goto(base + value, { waitUntil: "load" });
+      clicked(`(typed) ${masked(value)}`);
       return settle(p);
     case "first_row_link": {
-      // the first row of the page's list (testid ``within``), by the link the row's text gives: the tester picks one
-      const row = p.locator(`main [data-testid="${a.within}"] tbody tr`).first();
-      const link = row.getByRole("link").first();
+      // the first row of the table ``data-testid=within``: the tester picks one by a name only the product knows
+      guess(a);
+      const link = p.locator(`main [data-testid="${a.within}"] tbody tr`).first().getByRole("link").first();
       const label = (await link.innerText()).replace(/\s+/g, " ").trim();
-      if (a.guess) guess("label", a.guess);
       return click(p, link, a.wait_s, label);
     }
     case "remember": {
-      // a value the product shows, kept for a later step: from the address (``value`` is a regular expression with
-      // one group) or from the element ``within`` (a data-testid)
+      // a value the product shows, kept for a later step: from the address (``value``: a regular expression with
+      // one group) or from the element ``within`` (a CSS selector)
+      guess(a);
       if (a.within) {
-        const el = p.locator(`[data-testid="${a.within}"]`).first();
-        vars[a.label] = ((await el.count()) ? (await el.innerText()) : "").replace(/\s+/g, " ").trim();
+        const el = p.locator(a.within).first();
+        vars[a.label] = ((await el.count()) ? await el.innerText() : "").replace(/\s+/g, " ").trim();
       } else {
-        const m = new URL(p.url()).pathname.match(new RegExp(a.value));
+        const u = new URL(p.url());
+        const m = (u.pathname + u.search).match(new RegExp(a.value));
         vars[a.label] = m ? decodeURIComponent(m[1]) : "";
       }
-      if (vars[a.label] && a.label === "pid") vars.short = vars.pid.slice(0, 8);
-      return check(vars[a.label], `${tag}: read ${a.label} from the page (${vars[a.label]})`);
+      if (a.label === "pid" && vars.pid) vars.short = vars.pid.slice(0, 8);
+      return check(vars[a.label], `${tag}: read the ${a.label} from the page`);
     }
-    case "testid": {
-      // a control found by its data-testid: recorded as a guess when it has no visible label of the plan's
-      const el = p.locator(`main [data-testid="${value}"]`).first();
-      const label = ((await el.innerText().catch(() => "")) || "").replace(/\s+/g, " ").trim();
-      if (a.guess) guess("testid", `${a.guess} (data-testid ${value}${label ? `, shown "${label}"` : ""})`);
-      return click(p, el, a.wait_s, label || value);
+    case "read": {
+      // a text the product shows, kept in the log (what a finding quotes)
+      const els = p.locator(a.within);
+      const texts = [];
+      for (let i = 0; i < Math.min(await els.count(), 12); i++) texts.push((await els.nth(i).innerText()).replace(/\s+/g, " ").trim());
+      if (rec) rec.read[a.label] = masked(texts.join(" | "));
+      return;
     }
     case "open_all": {
       const link = () => p.locator("main").getByRole("link", { name: text, exact: true });
@@ -259,10 +276,10 @@ async function holds(p, a) {
     }
     case "path":
       return [new RegExp(value).test(path), `path ${value} (${path})`];
-    case "pill": {
-      // the participant's state pill (data-state) in the element ``within``
-      const s = await p.getAttribute(`main [data-testid="${a.within}"] [data-state]`, "data-state").catch(() => null);
-      return [s === value, `state ${value} (${s}) at ${path}`];
+    case "body": {
+      // the response's own text (a page with no main part, such as /metrics)
+      const t = await p.evaluate(() => document.body.innerText);
+      return [t.includes(value), `the response holds "${value}" at ${path}`];
     }
     default:
       throw new Error("unknown expectation " + a.kind);
@@ -278,8 +295,8 @@ async function see(p, a, tag) {
 async function stopIf(p, a, tag) {
   const [ok] = await holds(p, a);
   if (!ok) return false;
-  const words = (await alertText(p)) || fill(a.text);
-  rec.stopped = { why: a.why, page: words, path: new URL(p.url()).pathname };
+  const words = (await alertText(p)) || fill(a.value);
+  rec.stopped = { finding: a.finding, why: a.why, page: masked(words), path: masked(new URL(p.url()).pathname) };
   stopped.add(rec.n);
   console.error(`STOP: ${tag}: ${a.why} (${words})`);
   return true;
@@ -303,7 +320,7 @@ async function refuse(browser, r, tag) {
     },
     [r.method, path, fields],
   );
-  if (rec) rec.refusals.push({ role: r.role, request: `${r.method} ${path.replace(vars.pid || "\u0000", "{pid}")}`, status: out.status });
+  if (rec) rec.refusals.push({ role: r.role, request: masked(`${r.method} ${path}`), status: out.status });
   return check(
     out.status === 403 && out.h1.includes(plan.forbidden),
     `${tag}: ${r.role} ${r.method} ${path} refused (${out.status}, "${out.h1}")`,
@@ -324,11 +341,11 @@ async function heading(p) {
     for (const st of plan.steps) {
       const tag = `step ${st.n} (${st.role}, ${plan.lang})`;
       const t1 = Date.now();
-      rec = { n: st.n, key: st.key, role: st.role, lang: plan.lang, at: new Date().toISOString(), clicks: [], inputs: [],
-              guesses: [...(st.guesses || [])], refusals: [], stopped: null };  // fmt: skip
+      rec = { n: st.n, key: st.key, role: st.role, lane: st.lane, lang: plan.lang, at: new Date().toISOString(),
+              clicks: [], inputs: [], read: {}, guesses: [...(st.guesses || [])], refusals: [], stopped: null };
       steps.push(rec);
       if ((st.after || []).some((n) => stopped.has(n))) {
-        rec.stopped = { why: "stands on a step that stopped", page: "", path: "" };
+        rec.stopped = { finding: "", why: "stands on a step that stopped", page: "", path: "" };
         stopped.add(st.n);
         continue;
       }
@@ -349,8 +366,8 @@ async function heading(p) {
       } catch (e) {
         check(false, `${tag}: ${e.message.split("\n")[0]} at ${new URL(p.url()).pathname}`);
       }
-      rec.path = new URL(p.url()).pathname.replace(vars.pid || "\u0000", "{pid}");
-      rec.heading = (await heading(p)).replace(vars.pid || "\u0000", "{pid}");
+      rec.path = masked(new URL(p.url()).pathname);
+      rec.heading = masked(await heading(p));
       rec.seconds = Math.round((Date.now() - t1) / 100) / 10;
       if (checks.some((c) => !c.ok)) break; // a later step stands on this one
     }
