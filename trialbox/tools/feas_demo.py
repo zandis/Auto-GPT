@@ -182,7 +182,8 @@ def people_mailboxes(environ: Mapping[str, str] | None = None) -> tuple[str, ...
     out = []
     for part in (p.strip() for p in raw.split(",")):
         name, _, role = part.partition(":")
-        if name and role.strip() in ("investigator", "coordinator"):
+        # steps mode (D-1063): name:role+role; a person who may act as investigator or coordinator reads patient data
+        if name and {r.strip() for r in role.split("+")} & {"investigator", "coordinator"}:
             out.append(f"{name.strip()}@hospa.test")
     return tuple(out)
 

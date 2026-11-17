@@ -929,7 +929,7 @@ def test_the_boot_in_steps_mode_opens_one_account_a_person_and_switches_the_acti
     flag = out.index("python - http://127.0.0.1:8080 steps.acting_role")
     people = out.index(f"python - {ONE_EACH} 24 shared < (the steps people script)")
     assert flag < people < out.index("docker run -d --name tb-demo-caddy")
-    assert "TB_DEMO_PEOPLE=zandis:investigator,wenn:investigator" in out  # the seed sees each person's own role
+    assert f"TB_DEMO_PEOPLE={ONE_EACH}" in out  # the seed reads the roles a person holds (tools/feas_demo.py)
     assert "--print-demo-switch" not in out
 
 

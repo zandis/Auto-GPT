@@ -49,6 +49,8 @@ def test_the_people_who_read_patient_data_are_named_recipients(tmp_path: Path) -
     env = {"TB_DEMO_PEOPLE": "ana:investigator, ben:coordinator, cy:viewer"}
     assert fd.people_mailboxes(env) == ("ana@hospa.test", "ben@hospa.test")
     assert fd.people_mailboxes({}) == ()
+    steps = {"TB_DEMO_PEOPLE": "zandis:investigator+coordinator+steward+admin,dee:steward+admin,cy:viewer"}
+    assert fd.people_mailboxes(steps) == ("zandis@hospa.test",)  # D-1063: several roles under one account
     (tmp_path / "GZQO").mkdir()
     (tmp_path / "GZQO" / "manifest.yaml").write_text(
         yaml.safe_dump({"id": "GZQO", "routing": {"list_to": ["pi@hospa.test"]}}), encoding="utf-8"
