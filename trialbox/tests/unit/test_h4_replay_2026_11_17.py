@@ -155,7 +155,8 @@ def test_the_p1b_record_is_checked_only_on_p1bs_own_key(run: dict[str, Any]) -> 
 
 # ---------------------------------------------------------------- level (b)
 def _failed(run: dict[str, Any]) -> dict[str, Any]:
-    return run["report"]["sets"]["sigir"]["level_b"]["failed_protocols"]
+    out: dict[str, Any] = run["report"]["sets"]["sigir"]["level_b"]["failed_protocols"]
+    return out
 
 
 def test_a_feas_equivalence_failure_whose_valueset_id_was_over_64_is_gone_on_rerun(run: dict[str, Any]) -> None:

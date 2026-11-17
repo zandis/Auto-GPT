@@ -683,7 +683,7 @@ def _pct(x: float | None) -> str:
 def _why(row: dict[str, Any]) -> str:
     c = row.get("checks") or {}
     if row["outcome"] == "not_rerun":
-        return row.get("compile_message") or row.get("what", "")
+        return str(row.get("compile_message") or row.get("what", ""))
     if row["outcome"] == "still_fails":
         return f"{row.get('compile_step')}: {row.get('compile_message')}" if row.get("compile_step") else json.dumps(c)
     bits = []

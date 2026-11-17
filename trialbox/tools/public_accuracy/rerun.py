@@ -273,7 +273,7 @@ def recompile(stored: Stored, job: str, index_date: date, tz: str) -> Recompiled
         except CompileFailed as exc:
             out.status, out.step, out.message = "failed", exc.step, str(exc)
         else:
-            files = {p[len(ruleset) + 1 :]: b for p, b in repo.files(res.branch, f"{ruleset}/").items()}
+            files = {p[len(ruleset) + 1 :]: b for p, b in repo.files(str(res.branch), f"{ruleset}/").items()}
             out.criteria = list(res.criteria)
             out.rs = Ruleset.from_files(files)
         out.concepts_not_stored = sorted(set(model.concepts_not_stored))
