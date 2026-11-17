@@ -244,3 +244,4 @@ def test_the_record_keeps_no_secret() -> None:
     got = ri.redact(text)
     assert "s3cr3t" not in got and "123456" not in got and "abc" not in got
     assert "TB_LLM_API_KEY=[redacted]" in got
+    assert ri.redact("audit signing key 0d1d7a72c8690ac7101d3944a3e9d3f6 made") == "audit signing key [redacted] made"

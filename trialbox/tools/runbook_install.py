@@ -25,20 +25,22 @@ tool holds the two to the same list. Each command keeps its place (file, line of
 in (the bold lead of its paragraph, or ``N. Title`` of a numbered step) and the sentence that introduces it. A command
 that starts ``--`` is a fragment: an option to a command named before it. The extractor runs nothing.
 
-**The install path** (``PLAN``, D-1136). The hub's convention (``/opt/trialbox``, as root); step 1's prerequisites,
-checked on the machine, never installed; the **One command.** paragraph's command; then, in the runbook's order, each
-numbered step the **One command.** paragraph does not say the installer does (4: the mapping check, 6: the vendor key,
-7: the first ingest and its report). Steps 2, 3, 5 and 8 are the installer's by the runbook's own words (quoted in
-``PLAN``); 9 and 10 point at other sections and carry no command. Every other command of §1 is listed as one the
-install path never needed, with the reason the runbook gives.
+**The install path** (``PLAN``, D-1136, D-1139). The hub's convention (``/opt/trialbox``, as root); step 1's
+prerequisites, checked on the machine, never installed; the **One command** paragraph's command (since D-996 the
+bootstrap from the stick); then, in the runbook's order, each numbered step the one command's paragraph does not say
+the installer does (4: the mapping check in the image, 6: the key checked in place, 7: the first ingest and its
+report). Steps 2, 3, 5 and 8 are the installer's by the runbook's own words (quoted in ``PLAN``); 9 and 10 point at
+other sections and carry no command. Every other command of §1 is listed as one the install path never needed, with
+the reason the runbook gives.
 
-**What the follower may supply** (D-1136): only what the runbook tells the reader to bring. The bundle; the vendor key
-"received out of band" (placed only where the runbook says, step 6); the site's folder of "What the site brings"
-(``site.yaml`` and ``mapping/``), whose values are the hospital's and so come from the box rehearsal's documented
-synthetic answers (``tools/rehearse_box/site_answers.yaml`` and its mapping), plus any answer the runbook itself names
-as required, with a synthetic value (each one is recorded); the feed folder's content (the hospital's export: the
-synthetic site A export); and an Enter at a prompt, which is what a reader at the terminal gives (each prompt the
-runbook does not mention is a finding). ``sudo`` is dropped when the follower is already root (the hub's "as root").
+**What the follower may supply** (D-1136, D-1139): only what the runbook tells the reader to bring, where it says. The
+stick (the bundle, its .sha256, the bootstrap and its .sig) at ``/media/usb``; the vendor key at
+``/root/vendor_ed25519.pub``; the site's folder (``site.yaml`` and ``mapping/``) at ``/root/site``, whose values are the
+hospital's and so come from the box rehearsal's documented synthetic answers (``tools/rehearse_box/site_answers.yaml``
+and its mapping), plus any answer the runbook names as required, with a synthetic value; the feed folder at §1's own
+example, holding the synthetic export before the one command; and an Enter at a prompt. ``--mode stub`` replaces
+``--tier`` on a machine without a GPU (§1 says so). Every ``sudo`` that starts a command of the line is dropped when the
+follower is already root (the hub's "as root"). Each supplied value is recorded.
 
 **What it may not supply.** Anything else: no directory made, no package installed, no environment variable, no
 reordered step, no option added. When the runbook's text does not get the box installed, the verdict is "the runbook
@@ -948,7 +950,7 @@ class Follower:
 
 
 SECRET_VALUE = re.compile(r"(?i)(\w*(?:password|passphrase|code|token|key|secret)\w*)(\s*[:=]\s*)\S+")
-FINGERPRINT = re.compile(r"(?i)(fingerprint\s+)[0-9a-f]{8,}")
+FINGERPRINT = re.compile(r"(?i)((?:fingerprint|key)\s+)[0-9a-f]{16,}")
 
 
 def redact(text: str) -> str:
