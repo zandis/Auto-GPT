@@ -383,6 +383,22 @@ def _env_map(env: Mapping[str, str] | None) -> dict[str, str]:
     return dict(env if env is not None else os.environ)
 
 
+def _provenance_db(env: Mapping[str, str]) -> Callable[[], Any] | None:
+    """D-1155: a connection to the trial database for D-989's provenance index, as the console's role, or None when
+    the box has no trial database (the search says it is off). One short-lived connection per search."""
+    url = (env.get("TB_DB_URL") or "").strip()
+    if not url:
+        return None
+
+    def connect() -> Any:
+        import psycopg
+        from tb_common.db import split_url
+
+        return psycopg.connect(split_url(url)[0], autocommit=True, connect_timeout=10)
+
+    return connect
+
+
 def _default_backend(settings: ConsoleSettings) -> tuple[Backend, AuditLog]:
     from tb_common.config import get_config
     from tb_common.objstore import from_config
@@ -1339,7 +1355,17 @@ def create_app(
     from console import audit_page
 
     # T-211c (D-451): /audit, the privacy office's and the steward's audit browser, with or without the workspace
-    audit_hooks = audit_page.Hooks(need=need, page=page, problem=_Problem, csrf_ok=csrf_ok, actor=actor, au=au)
+    audit_hooks = audit_page.Hooks(
+        need=need,
+        page=page,
+        problem=_Problem,
+        csrf_ok=csrf_ok,
+        actor=actor,
+        au=au,
+    )
+    if (prov_db := _provenance_db(_env_map(env))) is not None:  # D-1155: D-989's search, on the trial database
+        audit_hooks.doors["provenance"] = prov_db
+    app.state.audit_hooks = audit_hooks
     audit_page.register(app, audit_hooks)
     phone.register(app)  # J-3 (D-1222): the phone-first flag per request, the web manifest and the icons
 
