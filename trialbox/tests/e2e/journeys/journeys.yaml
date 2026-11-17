@@ -208,7 +208,7 @@ journeys:
         covers: [referral]
       - id: J-PI-05
         do: After the doctor agreed (J-CRC-04) and the IRB record is in (J-CRC-05), press "Approach" on that patient.
-        expect: No IRB warning; "Approved. The coordinator has a task to contact this patient."; a screening number
+        expect: No IRB warning; "Marked Approach. The coordinator has a task to contact this patient."; a screening number
           RA-JAK-nnnn on the screening log.
         covers: [approach, referral]
       - id: J-PI-06

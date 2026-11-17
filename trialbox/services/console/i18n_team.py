@@ -185,6 +185,7 @@ EN: dict[str, str] = {
     "team.optout.add": "Record an opt-out",
     "team.optout.chart": "Chart number",
     "team.optout.unknown_reason": "Only for a number this TrialBox does not know: why it is registered anyway",
+    "team.optout.note": "Note for the register",  # J-4 (D-1224, walk F-19): not the mark's "Note for the coordinator"
     "team.optout.unknown_reason.help": "TrialBox checks that the chart number is one of its patients. If it is not, check the number first. A number of a patient who is not loaded yet can be registered with a written reason.",
     "team.optout.pid": "Pseudonym",
     "team.optout.source": "How it reached us",
@@ -400,6 +401,7 @@ JA: dict[str, str] = {
     "team.optout.add": "オプトアウトを登録",
     "team.optout.chart": "カルテ番号",
     "team.optout.unknown_reason": "このTrialBoxにない番号の場合のみ：それでも登録する理由",
+    "team.optout.note": "登録のメモ",
     "team.optout.unknown_reason.help": "TrialBoxは、カルテ番号がこのTrialBoxの患者さんのものかを確認します。該当しない場合は、まず番号を確かめてください。まだ取り込まれていない患者さんの番号は、理由を書けば登録できます。",
     "team.optout.pid": "仮名ID",
     "team.optout.source": "受付方法",
@@ -614,6 +616,7 @@ ZH: dict[str, str] = {
     "team.optout.add": "登記拒絕",
     "team.optout.chart": "病歷號",
     "team.optout.unknown_reason": "僅限本 TrialBox 沒有的號碼：仍要登記的理由",
+    "team.optout.note": "登記備註",
     "team.optout.unknown_reason.help": "TrialBox 會確認病歷號是否為本機的病人。若不是，請先核對號碼。尚未載入的病人，其號碼可在寫明理由後登記。",
     "team.optout.pid": "假名代碼",
     "team.optout.source": "收到的方式",
