@@ -1,9 +1,9 @@
 """NOTICE-ACCOUNT (D-879): an account notice leaves the box.
 
-D-719 tells an account's holder and its PIs when someone else set a factor of the account (a password reset, a new
-authenticator). The console sends it through the orchestrator's ``POST /notices`` with the kind ``ACCOUNT``; the
-orchestrator accepted only N1, N2, BG and HEALTH, so every account notice was refused (422) and the console's best
-effort recorded it as not sent. Like every notice, it is an aggregate mail to hospital addresses only.
+D-719 tells the data stewards and the PI of each of the account's studies when someone else set a factor of an
+account (a password reset, a new authenticator). The console sends it through the orchestrator's ``POST /notices``
+with the kind ``ACCOUNT``; the orchestrator accepted only N1, N2, BG and HEALTH, so every account notice was refused
+(422) and the console's best effort recorded it as not sent. Like every notice, it is an aggregate mail to hospital addresses only.
 
 A real orchestrator in PRODUCTION with per-service tokens, the console's signed actor header. Synthetic data only."""
 
@@ -58,3 +58,21 @@ def test_an_account_notice_to_an_outside_address_is_refused(client: TestClient, 
 def test_an_unknown_kind_is_still_refused(client: TestClient, orch: Any) -> None:  # noqa: F811
     body = {"kind": "OTHER", "to": ["holder@hospa.test"], "subject": "s", "body_md": "b"}
     assert _post(client, body).status_code == 422
+
+
+def test_a_second_reset_the_same_day_is_a_mail_of_its_own(client: TestClient, orch: Any,  # noqa: F811
+                                                          monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """The review of D-879: the gateway sends a key once; an account notice is one event (sent once, by the person's
+    own request), so the same subject twice in a day are two mails, never a duplicate dropped as sent."""
+    from datetime import UTC, datetime
+
+    mail = Mail()
+    orch.services.mail = mail
+    now = [datetime(2026, 11, 17, 9, 0, tzinfo=UTC)]
+    monkeypatch.setattr(orch, "_now", lambda: now[0])
+    body = {"kind": "ACCOUNT", "to": ["stew@hospa.test"], "subject": "TrialBox account crc1: a new password",
+            "body_md": "TrialBox account crc1: a new password, by admin."}  # fmt: skip
+    assert _post(client, body).status_code == 200
+    now[0] = datetime(2026, 11, 17, 10, 0, tzinfo=UTC)  # the second reset, an hour later
+    assert _post(client, body).status_code == 200
+    assert len({r.idempotency_key for r in mail.sent}) == 2

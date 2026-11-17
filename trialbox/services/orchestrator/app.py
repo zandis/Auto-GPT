@@ -637,8 +637,11 @@ def notice(req: NoticeRequest, request: Request, who: Claim = AS_NOTICE) -> dict
     from orchestrator.core import send_key
 
     day = o._now().date().isoformat()
-    # D-127 (F-02): one notice of a kind per recipients, subject and day, even when the console's timer retries
-    key = send_key(f"notice:{day}", req.kind, list(req.to), req.subject, [])
+    # D-127 (F-02): one notice of a kind per recipients, subject and day, even when the console's timer retries. An
+    # account notice is one event, sent once by the person's own request (no timer retries it): each is its own mail,
+    # or a second reset of the same account the same day would be dropped as a duplicate (D-879, the review)
+    when = o._now().isoformat() if req.kind == "ACCOUNT" else day
+    key = send_key(f"notice:{when}", req.kind, list(req.to), req.subject, [])
     res = o.services.mail.send(
         SendRequest(
             job_id=None, to=req.to, subject=req.subject, body_md=req.body_md, tag="aggregate", idempotency_key=key
