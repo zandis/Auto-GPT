@@ -99,6 +99,8 @@ def register(app: FastAPI, h: Helpers) -> None:
     @app.post("/api/edc/tools")
     async def propose(request: Request) -> JSONResponse:
         sess = admin(request)
+        if not h.csrf_ok(sess, request.headers.get("x-csrf") or ""):  # D-1045: a tool call is a change
+            raise h.problem(400, "csrf")
         try:
             body = json.loads(await request.body() or b"{}")
         except ValueError:
@@ -195,8 +197,10 @@ def register(app: FastAPI, h: Helpers) -> None:
             or str(form.get("client_id") or "") != oidc.client_id()
         ):
             return JSONResponse({"error": "invalid_client"}, status_code=401)
+        # D-1045: the redirect and the client the code was issued for are required, and must be the code's own
         try:
-            username = oidc.take_code(str(form.get("code") or ""))
+            username = oidc.redeem(str(form.get("code") or ""), str(form.get("client_id") or ""),
+                                   str(form.get("redirect_uri") or ""))  # fmt: skip
         except door.NoStorage:
             return no_storage()
         if username is None:

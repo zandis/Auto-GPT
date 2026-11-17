@@ -168,6 +168,8 @@ compiled external module). That is optional, on a machine that is allowed to hol
 server the person starts themselves. It is the wrong tool for the hospital's REDCap, and it must not be pointed
 at REDCap's source.
 
+What the EDC provides, and how this side matches it, is [§14](14-edc-integration-handoff.md).
+
 ## Contract version 1 (D-1042)
 
 The internal service's contract, section 20 of its architecture, is what this box implements. The record API is
@@ -206,13 +208,39 @@ number.
 
 `GET {edc}/api/v1/capabilities` says whether the `trialbox` module is on. `POST {edc}/api/v1/tools` uses
 `TB_EDC_TOOL_TOKEN`, which is not the `/api/` token, and `TB_EDC_TOOL_URL` when that origin differs. Answers are
-de-identified. `apply_draft` and `open_query` are not sent until an administrator confirms them on `/admin/edc`
-(`POST /api/edc/tools/{id}/confirm`). The other tools are reads. If the module is absent the call is not sent.
+de-identified: an answer whose `deidentified` is not exactly `true` is refused and not used (D-1043).
+`POST /api/edc/tools` needs the session's CSRF token in `X-CSRF` (D-1045). `apply_draft` and `open_query` are not
+sent until an administrator confirms them on `/admin/edc` (`POST /api/edc/tools/{id}/confirm`, with the CSRF token
+too). The other tools are reads. If the module is absent the call is not sent.
 
 `TB_EDC_OIDC=1` makes TrialBox an OIDC issuer for the EDC only: discovery, authorize, token and userinfo under
 `/api/edc/oidc/`. The EDC stores `TB_EDC_OIDC_ISSUER`, `TB_EDC_OIDC_CLIENT_ID` and `TB_EDC_OIDC_CLIENT_SECRET`,
 and maps `sub` to its own user. Redirects must be listed in `TB_EDC_OIDC_REDIRECT`. Off, those routes answer 404.
 The console's own sign-in is unchanged.
+
+A code is bound to the client and the redirect it was issued for (D-1045). `POST /api/edc/oidc/token` needs
+`client_id`, `client_secret` and `redirect_uri`:
+
+- a wrong client id or secret is 401, and the code is not touched;
+- a `redirect_uri` that is missing or is not the one the code was issued for is 400 (`invalid_grant`), and the code
+  is spent: a code is good for one attempt.
+
+### Changing the event secret
+
+`TB_EDC_EVENT_SECRET` holds one secret, or two separated by a comma: the new one first, then the one it replaces.
+While it holds two, an event signed with either is taken in. To change it without losing an event:
+
+1. Make the new secret (at least 32 random bytes, for example `openssl rand -hex 32`). Keep it where the box's other
+   secrets are kept; never put it in a ticket or a chat.
+2. On TrialBox, set `TB_EDC_EVENT_SECRET=<new>,<old>` and restart the console. Both are now accepted.
+3. On the EDC, change its TrialBox event secret to the new one. Events queued before the change were signed with the
+   old secret and are still taken in; the EDC's retries keep the same event id, so nothing is read twice.
+4. When the EDC's outbox has no event left from before the change (its admin page shows the pending count), set
+   `TB_EDC_EVENT_SECRET=<new>` alone and restart the console. From then on the old secret is refused (401).
+
+A third value is not read. If the old secret may have leaked, skip the wait in step 4: an event the EDC still holds
+under the old secret is refused, and the EDC keeps retrying it until it is signed again or dropped to its dead
+letters.
 
 ## What is left
 

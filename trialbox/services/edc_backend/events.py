@@ -30,18 +30,28 @@ def event_secret(environ: dict[str, str] | None = None) -> str:
     return (env.get("TB_EDC_EVENT_SECRET") or "").strip()
 
 
+def event_secrets(environ: dict[str, str] | None = None) -> list[str]:
+    """D-1045: ``current`` or ``current,previous``. While the EDC moves to a new secret both are accepted; the
+    rotation ends when the setting holds the new one alone (``docs/data/13``, "Changing the event secret")."""
+    return [part.strip() for part in event_secret(environ).split(",") if part.strip()][:2]
+
+
 def event_dir(environ: dict[str, str] | None = None) -> str:
     env = os.environ if environ is None else environ
     return (env.get("TB_EDC_EVENT_DIR") or "").strip()
 
 
 def signature_ok(secret: str, body: bytes, header: str) -> bool:
-    """``X-TrialBox-Signature: sha256=`` plus the hex HMAC-SHA256 of the raw body."""
-    if not secret or not header.lower().startswith("sha256="):
+    """``X-TrialBox-Signature: sha256=`` plus the hex HMAC-SHA256 of the raw body, under ``secret``: one secret, or
+    ``current,previous`` during a rotation (D-1045; either matches)."""
+    keys = [part.strip() for part in secret.split(",") if part.strip()][:2]
+    if not keys or not header.lower().startswith("sha256="):
         return False
     given = header.split("=", 1)[1].strip().lower()
-    mac = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(mac, given)
+    ok = False
+    for key in keys:  # every key is tried, so the time taken does not say which one matched
+        ok |= hmac.compare_digest(hmac.new(key.encode(), body, hashlib.sha256).hexdigest(), given)
+    return ok
 
 
 def parse_event(body: bytes) -> dict[str, Any]:

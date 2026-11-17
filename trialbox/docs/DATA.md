@@ -64,4 +64,8 @@ File: [data/12-data-operations.md](data/12-data-operations.md).
 
 File: [data/13-redcap-and-the-edc-backend.md](data/13-redcap-and-the-edc-backend.md). In it: [What the hospital sets on REDCap](data/13-redcap-and-the-edc-backend.md#what-the-hospital-sets-on-redcap), [Versions: 13.7.23, and what "17" is](data/13-redcap-and-the-edc-backend.md#versions-13723-and-what-17-is), [How a dictionary maps](data/13-redcap-and-the-edc-backend.md#how-a-dictionary-maps), [Security, the IRB, and personal data](data/13-redcap-and-the-edc-backend.md#security-the-irb-and-personal-data), [rea](data/13-redcap-and-the-edc-backend.md#rea), [Contract version 1 (D-1042)](data/13-redcap-and-the-edc-backend.md#contract-version-1-d-1042), [What is left](data/13-redcap-and-the-edc-backend.md#what-is-left).
 
+## 14. EDC integration handoff
+
+File: [data/14-edc-integration-handoff.md](data/14-edc-integration-handoff.md). In it: [What the EDC is](data/14-edc-integration-handoff.md#what-the-edc-is), [Already matched](data/14-edc-integration-handoff.md#already-matched), [How the EDC delivers events](data/14-edc-integration-handoff.md#how-the-edc-delivers-events), [Sign-in](data/14-edc-integration-handoff.md#sign-in), [The gap that was open on TrialBox, now closed](data/14-edc-integration-handoff.md#the-gap-that-was-open-on-trialbox-now-closed), [Contract test and the release](data/14-edc-integration-handoff.md#contract-test-and-the-release), [Checklist](data/14-edc-integration-handoff.md#checklist).
+
 <!-- end of the generated index -->
