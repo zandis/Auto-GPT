@@ -2,6 +2,7 @@
 signed bundle that ``tools/apply_update.sh`` accepts.
 
     python tools/sign_bundle.py keygen --out keys/                       # vendor_ed25519.key (keep offline) + .pub
+    python tools/sign_bundle.py sign-file --key keys/vendor_ed25519.key trialbox-bootstrap.sh   # .sig, raw (D-996)
     python tools/sign_bundle.py build --key keys/vendor_ed25519.key --id 2026.10-1 --release-seq 7 \\
         --out update-2026.10-1.tar [--min-installed 5] [--valid-days 365] [--compat compat.json] \\
         [--release release.json --images-lock deploy/images.lock] [--rotate-add new.pub [--rotate-retire KEY_ID]] \\
@@ -81,6 +82,21 @@ def rotation_for(new_pub: Path, retire: str | None = None) -> dict[str, Any]:
 #: D-625: where a release's tree states the lowest release_seq it can be applied over
 FLOOR_FILE = "tools/trialbox/prestart.py"
 _FLOOR = re.compile(r"^[ \t]*MIN_INSTALLED_SEQ\b[^=\n]*=[ \t]*(.*)$", re.M)
+
+
+def sign_file(key_path: Path, path: Path) -> Path:
+    """``<path>.sig``: the vendor key's raw Ed25519 signature over the file (64 bytes), as ``tools/linux_media.py``
+    signs ``SHA256SUMS``. A bare Ubuntu checks it with ``openssl pkeyutl -verify -pubin -rawin`` before running the
+    file: RUNBOOK §1 checks ``trialbox-bootstrap.sh`` this way (H-22, D-996)."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import load_pem_private_key
+
+    key = load_pem_private_key(key_path.read_bytes(), password=None)
+    if not isinstance(key, Ed25519PrivateKey):
+        raise SystemExit("vendor key must be Ed25519")
+    sig = path.with_name(path.name + ".sig")
+    sig.write_bytes(key.sign(path.read_bytes()))
+    return sig
 
 
 def tree_floor(text: str) -> int:
@@ -213,6 +229,9 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     kg = sub.add_parser("keygen")
     kg.add_argument("--out", type=Path, required=True)
+    sf = sub.add_parser("sign-file", help="<file>.sig: a raw Ed25519 signature openssl checks (D-996)")
+    sf.add_argument("--key", type=Path, required=True)
+    sf.add_argument("file", type=Path)
     b = sub.add_parser("build")
     b.add_argument("--key", type=Path, required=True)
     b.add_argument("--id", required=True)
@@ -232,6 +251,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "keygen":
         priv, pub = keygen(args.out)
         print(f"wrote {priv} (keep offline) and {pub} (install on boxes as deploy/keys/vendor_ed25519.pub)")
+        return 0
+    if args.cmd == "sign-file":
+        print(f"wrote {sign_file(args.key, args.file)}")
         return 0
     items = []
     for it in args.items:

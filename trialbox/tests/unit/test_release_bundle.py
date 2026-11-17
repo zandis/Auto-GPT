@@ -127,7 +127,7 @@ def _gate_record(tmp: Path, refs: list[str], *, report_mode: tuple[str, ...] = (
 
 
 @pytest.fixture()
-def kit(tmp_path: Path) -> dict[str, Any]:
+def kit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     from tools.sign_bundle import keygen
 
     bindir = tmp_path / "bin"
@@ -136,7 +136,15 @@ def kit(tmp_path: Path) -> dict[str, Any]:
     docker.write_text(FAKE_DOCKER.replace("PYTHON", sys.executable), encoding="utf-8")
     docker.chmod(0o755)
     priv, pub = keygen(tmp_path / "keys")
-    return {"tmp": tmp_path, "bin": bindir, "key": priv, "pub": pub, "log": tmp_path / "docker.log"}
+    # D-1066 (D-998): a site bundle carries the embedder; here a synthetic one under a registry that expects it
+    from tests.unit.test_stub_box_embedder import _embedder, _registry
+    from tools.pin_model import weight_manifest
+
+    models = tmp_path / "vendor-models"
+    reg = _registry(tmp_path, weight_manifest(_embedder(models / "embedder")).sha256)
+    monkeypatch.setenv("TB_RELEASE_REGISTRY", str(reg))  # release.check_bundle in this process too
+    return {"tmp": tmp_path, "bin": bindir, "key": priv, "pub": pub, "log": tmp_path / "docker.log",
+            "models": models, "registry": reg}  # fmt: skip
 
 
 def _make(
@@ -149,7 +157,10 @@ def _make(
         "TMPDIR": str(kit["tmp"]),
         "FAKE_DOCKER_LOG": str(kit["log"]),
         "FAKE_COMPOSE_IMAGES": " ".join(compose),
+        "TB_RELEASE_REGISTRY": str(kit["registry"]),
     }
+    if "--models" not in extra and "--rehearsal" not in extra:
+        extra = (*extra, "--models", str(kit["models"]))
     cmd = [
         "bash",
         str(SCRIPT),
@@ -297,14 +308,19 @@ def test_no_test_mail_server_in_a_bundle(kit: dict[str, Any]) -> None:
     assert "--profile stub --profile gpu" in compose_calls[0]
 
 
-def test_check_finds_a_file_release_json_does_not_name(tmp_path: Path) -> None:
+def test_check_finds_a_file_release_json_does_not_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.unit.test_stub_box_embedder import _embedder, _registry
+    from tools.pin_model import weight_manifest
     from tools.sign_bundle import build, keygen
+
+    emb = _embedder(tmp_path / "embedder")  # D-1066: a site bundle carries the embedder (D-998)
+    monkeypatch.setenv("TB_RELEASE_REGISTRY", str(_registry(tmp_path, weight_manifest(emb).sha256)))
 
     gates, sbom = _gate_record(tmp_path, ["trialbox-py:1.0.0"])
     archive = _archive(
         tmp_path / "py.tar", "trialbox-py:1.0.0", config=_iid("trialbox-py:1.0.0").removeprefix("sha256:")
     )
-    items = [("image", archive, "py.tar")]
+    items = [("image", archive, "py.tar"), *(("model", p, f"embedder/{p.name}") for p in sorted(emb.iterdir()))]
     rel = release.build(release_id="r1", release_seq=1, gates=gates, sbom_dir=sbom, out_dir=tmp_path / "meta",
                         images=[("trialbox-py:1.0.0", archive)], items=items)  # fmt: skip
     extra = [tuple(ln.split(":", 1)[0:1]) + tuple(ln.split(":", 1)[1].split("=")) for ln in

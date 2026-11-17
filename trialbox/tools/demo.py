@@ -427,6 +427,7 @@ def _reopen(work: Path) -> tuple[Any, Any, Callable[[], datetime]]:
     box.today[0] = date.fromisoformat(st["box_today"])
     clock = ld.Clock(box.today[0], ld.site_tz_of(box))
     clock.now = datetime.fromisoformat(st["clock"])
+    box.orch.clock = clock  # J-4 (D-1224): the orchestrator's stamps take the console's clock, as at the seed
     if st.get("live"):  # T-513: a demo seeded on the real day goes on with the real day after a restart
         ld.go_live(box, clock)
     sim = sim_app()  # the REDCap simulator of the seed, with the projects it held at the last clean stop

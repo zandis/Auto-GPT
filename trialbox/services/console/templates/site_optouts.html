@@ -16,7 +16,7 @@
 <label for="oo-chart">{{ t('team.optout.chart') }}</label><input id="oo-chart" name="chart_no" maxlength="40" data-testid="optout-chart">
 <label for="oo-pid">{{ t('team.optout.pid') }}</label><input id="oo-pid" name="pid" maxlength="64" data-testid="optout-pid">
 <label for="oo-src">{{ t('team.optout.source') }}</label><select id="oo-src" name="source">{% for s in sources %}<option value="{{ s }}">{{ t('team.optout.src.' + s) }}</option>{% endfor %}</select>
-<label for="oo-note">{{ t('mark.note') }}</label><input id="oo-note" name="note" maxlength="300">
+<label for="oo-note">{{ t('team.optout.note') }}</label><input id="oo-note" name="note" maxlength="300">
 <label for="oo-unknown">{{ t('team.optout.unknown_reason') }}</label><input id="oo-unknown" name="unknown_reason" maxlength="300" data-testid="optout-unknown-reason" aria-describedby="oo-unknown-help">
 <p class="hint" id="oo-unknown-help">{{ t('team.optout.unknown_reason.help') }}</p>
 <button type="submit" data-testid="optout-save">{{ t('team.optout.save') }}</button>

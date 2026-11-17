@@ -74,7 +74,7 @@ from console.auth import (
 )
 from console.backend import Backend, MailItem, Refused, RulesetInfo, Unavailable
 from console.cascade import CascadeRuns
-from console.i18n import CATALOGUES, LANGS, pick_language, translate
+from console.i18n import CATALOGUES, LANGS, lookup, pick_language, translate
 from console.identity import (
     MUST_CHANGE_OPEN,
     Hooks,
@@ -381,6 +381,22 @@ def job_line(job: Job) -> str:
 
 def _env_map(env: Mapping[str, str] | None) -> dict[str, str]:
     return dict(env if env is not None else os.environ)
+
+
+def _provenance_db(env: Mapping[str, str]) -> Callable[[], Any] | None:
+    """D-1155: a connection to the trial database for D-989's provenance index, as the console's role, or None when
+    the box has no trial database (the search says it is off). One short-lived connection per search."""
+    url = (env.get("TB_DB_URL") or "").strip()
+    if not url:
+        return None
+
+    def connect() -> Any:
+        import psycopg
+        from tb_common.db import split_url
+
+        return psycopg.connect(split_url(url)[0], autocommit=True, connect_timeout=10)
+
+    return connect
 
 
 def _default_backend(settings: ConsoleSettings) -> tuple[Backend, AuditLog]:
@@ -804,13 +820,12 @@ def create_app(
             return translate(lang, key, **values)
 
         def t_or(key: str, fallback: str) -> str:  # a translation when the catalogue has one, else the fallback
-            text = t(key)
-            return fallback if text == key else text
+            text = lookup(lang, key)
+            return fallback if text is None else text
 
         def state(value: str) -> str:  # badge text; the machine state stays in data-state
-            key = f"state.{value}"
-            text = t(key)
-            return value if text == key else text
+            text = lookup(lang, f"state.{value}")
+            return value if text is None else text
 
         def given(value: object, cls: str = "") -> Markup | str:
             """D-133 (review F-09): words that come from the study or the hospital's data (a criterion label, a
@@ -1340,7 +1355,17 @@ def create_app(
     from console import audit_page
 
     # T-211c (D-451): /audit, the privacy office's and the steward's audit browser, with or without the workspace
-    audit_hooks = audit_page.Hooks(need=need, page=page, problem=_Problem, csrf_ok=csrf_ok, actor=actor, au=au)
+    audit_hooks = audit_page.Hooks(
+        need=need,
+        page=page,
+        problem=_Problem,
+        csrf_ok=csrf_ok,
+        actor=actor,
+        au=au,
+    )
+    if (prov_db := _provenance_db(_env_map(env))) is not None:  # D-1155: D-989's search, on the trial database
+        audit_hooks.doors["provenance"] = prov_db
+    app.state.audit_hooks = audit_hooks
     audit_page.register(app, audit_hooks)
 
     # ------------------------------------------------------------------ pilot workspace
