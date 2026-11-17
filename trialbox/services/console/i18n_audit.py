@@ -259,6 +259,11 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     ),
     "redcap.link": ("REDCap project linked", "REDCap プロジェクトの連携", "連結 REDCap 專案"),
     "redcap.read": ("REDCap read (service)", "REDCap の読取（サービス）", "讀取 REDCap（服務）"),
+    "redcap.erased_consent": (
+        "REDCap shows consent for an erased number (service)",
+        "消去済みの番号に REDCap が同意を示す（サービス）",
+        "REDCap 顯示已抹除號碼的同意（服務）",
+    ),
     "redcap.test": ("REDCap connection tested", "REDCap 接続テスト", "測試 REDCap 連線"),
     "redcap.write": ("REDCap written", "REDCap への書込", "寫入 REDCap"),
     "registry.promote": ("Registry entry promoted", "レジストリ項目の昇格", "提升登錄項目"),
