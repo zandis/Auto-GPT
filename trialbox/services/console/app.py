@@ -53,8 +53,8 @@ from tb_common.ulid import new_ulid
 from tb_common.verdict_word import shown_of
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
+from console import acting, api_first, demo_guard, feedback, firstrun, i18n_roles, next_page
 from console import actor as console_actor
-from console import api_first, demo_guard, feedback, firstrun, i18n_roles, next_page
 from console.account_rules import Hooks as AccountHooks
 from console.account_rules import Rules as AccountRules
 from console.account_rules import account_class, protected
@@ -684,6 +684,7 @@ def create_app(
                 "/home",
                 "/reports",
                 "/lang",
+                "/role",
                 "/logout",
                 "/cmd",
                 "/account",
@@ -825,6 +826,9 @@ def create_app(
             "sess": sess,
             "user": sess.user if sess else None,
             "csrf": sess.csrf if sess else "",
+            # STEPS-ROLE (D-877): the roles the session may act in (none: no switch) and the account's own role
+            "acting_roles": _once(lambda: acting.roles_of(us, sess)),
+            "acting_from": sess.acting_from if sess else None,
             "settings": settings,
             "pilot": settings.pilot,
             "path": request.url.path,
@@ -1390,6 +1394,10 @@ def create_app(
     account_team["h"] = helpers  # D-719: the account notices find each study's PI here
     sdv_page.register(app, helpers)  # T-303 (D-436): the monitor's SDV pages, after team (it reads the standing)
     admin_flags.register(app, helpers)  # /ops/flags and the flags' first-start seed (T-008, D-207)
+    # STEPS-ROLE (D-877): the role a session acts in, on a test box with the flag on; refused to start otherwise
+    acting.check_at_start(raw_env, us)
+    us.acting_on = lambda: acting.on(raw_env)
+    acting.register(app, helpers, us, raw_env)
     edc_pages.register(app, helpers)  # EDC prefill: switch, map, review, e-signature, send, ODM (D-160)
     from console import copy_assist_page
 

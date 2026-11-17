@@ -36,7 +36,7 @@ import json
 import re
 import secrets
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -188,7 +188,14 @@ CREATE TABLE account_notices (
   seen INTEGER NOT NULL DEFAULT 0
 )
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6)
+# STEPS-ROLE (D-877, the owner's D-1063): on a test box an account may act in extra roles (``extra_roles``, granted
+# only by the boot tool ``console.steps_roles``), and a session carries the role it acts in (``acting_role``; none:
+# the account's own role)
+SCHEMA_V7 = """
+ALTER TABLE users ADD COLUMN extra_roles TEXT;
+ALTER TABLE sessions ADD COLUMN acting_role TEXT
+"""
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7)
 FACTORS = ("password", "totp")
 FACTOR_WINDOW = timedelta(days=30)  # D-719: the owner's rule, not a setting: one factor at a time for 30 days
 _COLS = "username, role, mailbox, affiliation, studies, expires"
@@ -373,6 +380,9 @@ class Session:
     csrf: str
     lang: str
     token_sha: str
+    #: STEPS-ROLE (D-877): the account's own role while the session acts in another (``user.role`` is the acting
+    #: role then, read by every permission check); None when the session acts in the account's own role
+    acting_from: str | None = None
 
 
 Clock = Callable[[], datetime]
@@ -437,6 +447,9 @@ class UserStore:
         self.oidc_absolute = oidc_absolute
         self.zone: ZoneInfo | None = None  # the site's zone, set by console.app (D-270)
         self.enrol_ttl = ENROL_TTL  # D-719: TB_CONSOLE_ENROL_CODE_HOURS, set by console.app
+        #: STEPS-ROLE (D-877): whether a session may act in an extra role now (the flag on, on a test box: set by
+        #: console.app from console.acting); off, every account is its own role only
+        self.acting_on: Callable[[], bool] = lambda: False
 
     def close(self) -> None:
         self.db.close()
@@ -758,7 +771,8 @@ class UserStore:
         sha = _sha(token)
         now = self.clock()
         row = self.db.fetchone(
-            "SELECT username, csrf, created, last_seen, lang, via FROM sessions WHERE token_sha = ?", (sha,)
+            "SELECT username, csrf, created, last_seen, lang, via, acting_role FROM sessions WHERE token_sha = ?",
+            (sha,),
         )
         if row is None or is_api_via(str(row[5])) != api:
             return None
@@ -771,7 +785,54 @@ class UserStore:
             return None
         if touch:
             self.db.execute("UPDATE sessions SET last_seen = ? WHERE token_sha = ?", (now.isoformat(), sha))
-        return Session(user, str(row[1]), str(row[4]), sha)
+        return self._acting(Session(user, str(row[1]), str(row[4]), sha), str(row[6] or ""))
+
+    # ------------------------------------------------------------------ acting role (STEPS-ROLE, D-877)
+    def _acting(self, sess: Session, acting: str) -> Session:
+        """The one place a request's role is resolved: the session's acting role, when the flag is on (on a test box)
+        and the account still holds that role, replaces the account's role on the session's user, so every permission
+        check reads it as it reads an account's role. The user name stays (the delegation log, the audit trail and
+        the erasure records name the person). Otherwise the account's own role."""
+        if not acting or acting == sess.user.role or acting not in self.extra_roles(sess.user.username):
+            return sess
+        if not self.acting_on():
+            return sess
+        return replace(sess, user=replace(sess.user, role=acting), acting_from=sess.user.role)  # type: ignore[arg-type]
+
+    def extra_roles(self, username: str) -> tuple[str, ...]:
+        """The roles besides its own an account may act in (a test box only; granted by ``console.steps_roles``)."""
+        raw = self.db.fetchval("SELECT extra_roles FROM users WHERE username = ?", (username,))
+        return tuple(r for r in str(raw or "").split(",") if r in ROLES)
+
+    def any_extra_roles(self) -> bool:
+        return bool(self.db.fetchval("SELECT count(*) FROM users WHERE coalesce(extra_roles, '') <> ''"))
+
+    def grant_roles(self, username: str, roles: list[str], allowed: bool) -> tuple[str, ...]:
+        """Let ``username`` act in ``roles`` (its own role left out). ``allowed``: the box is a test box
+        (``console.acting.env_allows``); refused otherwise, so the column is never filled on a validation or
+        production box. Only the boot tool calls this; no console page does."""
+        if not allowed:
+            raise AuthError("extra roles are for a test box only (TB_ENV DEV or TEST)")
+        own = self.role_of(username)
+        if not own:
+            raise AuthError(f"no account {username}")
+        bad = [r for r in roles if r not in ROLES]
+        if bad:
+            raise AuthError(f"role must be one of {', '.join(ROLES)} (got {', '.join(bad)})")
+        extra = tuple(sorted({r for r in roles if r != own}))
+        self.db.execute("UPDATE users SET extra_roles = ? WHERE username = ?", (",".join(extra) or None, username))
+        return extra
+
+    def set_acting(self, sess: Session, role: str) -> tuple[str, str]:
+        """The session acts in ``role`` from the next request: the account's own role, or one of its extra roles while
+        acting is on. Returns (from, to); refused (``AuthError``) otherwise."""
+        own = sess.acting_from or sess.user.role
+        before = sess.user.role
+        if role != own and (not self.acting_on() or role not in self.extra_roles(sess.user.username)):
+            raise AuthError("this account may not act in that role")
+        self.db.execute("UPDATE sessions SET acting_role = ? WHERE token_sha = ?",
+                        (None if role == own else role, sess.token_sha))  # fmt: skip
+        return before, role
 
     def end_sessions(self, username: str) -> None:
         self.db.execute("DELETE FROM sessions WHERE username = ?", (username,))
