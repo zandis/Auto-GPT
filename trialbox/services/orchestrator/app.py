@@ -600,7 +600,9 @@ class NoticeRequest(BaseModel):
     """A console notice (D-108): N1 the investigator's pre-clinic list, N2 the coordinator's digest. Pseudonyms and
     counts only (FR-NOTIF-01/02), so the mail is ``aggregate`` and goes to internal addresses only."""
 
-    kind: Literal["N1", "N2", "BG", "HEALTH"]  # D-280: BG, a break-glass grant; T-209a: HEALTH, the daily health mail
+    # D-280: BG, a break-glass grant; T-209a: HEALTH, the daily health mail; NOTICE-ACCOUNT (D-879): ACCOUNT, D-719's
+    # notice to an account's holder and its PIs that someone else set a factor of the account
+    kind: Literal["N1", "N2", "BG", "HEALTH", "ACCOUNT"]
     to: list[str] = Field(min_length=1, max_length=5)
     subject: str = Field(min_length=1, max_length=200)
     body_md: str = Field(min_length=1, max_length=20_000)
