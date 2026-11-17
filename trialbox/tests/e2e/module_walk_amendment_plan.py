@@ -45,9 +45,14 @@ STEPS: tuple[Step, ...] = (
             See("says", T("wb.done.approach")),
         ),
         (
-            refuse("coordinator", "POST", "/studies/{rs}/patients/{pid}/mark", "the coordinator cannot mark Approach",
-                   (("mark", "approach"),)),
-        ),  # fmt: skip
+            refuse(
+                "coordinator",
+                "POST",
+                "/studies/{rs}/patients/{pid}/mark",
+                "the coordinator cannot mark Approach",
+                (("mark", "approach"),),
+            ),
+        ),
         "As the investigator: open the first patient of the weekly page and mark Approach.",
         "The mark is saved under version 1.0.0 (D-364 rule 4).",
     ),
@@ -70,11 +75,21 @@ STEPS: tuple[Step, ...] = (
             Act("remember", label="job", value=r"/pilot/jobs/([0-9A-HJKMNP-TV-Z]{26})"),
         ),
         (
-            refuse("coordinator", "POST", "/pilot/jobs/{job}/approve", "the coordinator cannot approve the amendment",
-                   (("confirm", "yes"),)),
-            refuse("steward", "POST", "/pilot/protocol", "the steward cannot send criteria in",
-                   (("ruleset", "{rs}"), ("criteria", AMENDED))),
-        ),  # fmt: skip
+            refuse(
+                "coordinator",
+                "POST",
+                "/pilot/jobs/{job}/approve",
+                "the coordinator cannot approve the amendment",
+                (("confirm", "yes"),),
+            ),
+            refuse(
+                "steward",
+                "POST",
+                "/pilot/protocol",
+                "the steward cannot send criteria in",
+                (("ruleset", "{rs}"), ("criteria", AMENDED)),
+            ),
+        ),
         "Read the candidates; then on the protocol page type the study's own id, paste the amended criteria (age 20 "
         "or older) and send them.",
         "A new version of the study's criteria, 1.1.0, waiting for the PI's approval (D-364; the compiler's next "
@@ -167,9 +182,96 @@ STEPS: tuple[Step, ...] = (
     ),
 )
 
-FINDINGS: tuple[Finding, ...] = ()
+FINDINGS: tuple[Finding, ...] = (
+    Finding(
+        "AMD-01",
+        16,
+        "investigator",
+        "/studies/{rs}/week",
+        "label",
+        "patients are named by an 8-character pseudonym only; the walk takes the worklist's first row (as H-20 F-03)",
+        "a patient the tester can be told to take",
+        "D-133",
+        "cosmetic",
+        "C2",
+    ),
+    Finding(
+        "AMD-02",
+        17,
+        "coordinator",
+        "/pilot/protocol",
+        "term",
+        'the field reads "New ruleset id (e.g. GZQO-DEMO)"; an amendment is sent under the study\'s own id, and nothing on the page says that the same id makes the next version',
+        "the protocol page says how an amendment is sent (the study's id, the next version)",
+        "D-364; `protocol.ruleset`",
+        "slows the tester",
+        "C2",
+    ),
+    Finding(
+        "AMD-03",
+        18,
+        "investigator",
+        "/pilot/jobs/{job}/approval",
+        "other",
+        '"Changes since 1.0.0" names one criterion (INC-01, new wording), but approving 1.1.0 asks the PI to open all four amber rows again (1.0.0 asked three)',
+        "the changed criteria are the ones to look at again, or the page says why every row is",
+        "D-364 rule 1, `s20.changes`",
+        "slows the tester",
+        "C2",
+    ),
+    Finding(
+        "AMD-04",
+        18,
+        "investigator",
+        "/pilot/jobs/{job}/approval",
+        "label",
+        'the change reads "INC-01 · new wording" with the earlier wording struck through; the new wording is only in the table below',
+        "the change shows the old and the new wording side by side",
+        "`s20.chg.text`",
+        "cosmetic",
+        "C2",
+    ),
+    Finding(
+        "AMD-05",
+        21,
+        "investigator",
+        "/studies/{rs}/week",
+        "label",
+        'the list links\' names end with their count ("Approved and contacted (n)"); the walk finds the link by the start of its name (as H-20 F-05)',
+        "a link named by its list",
+        "D-133",
+        "cosmetic",
+        "C2",
+    ),
+    Finding(
+        "AMD-06",
+        21,
+        "investigator",
+        "/studies/{rs}/week",
+        "other",
+        "the patient approached under 1.0.0 is listed with the mark, but no page says which criteria version the mark was made on",
+        "the mark shows its version where the version decides the re-screen list",
+        "D-364 rule 4",
+        "cosmetic",
+        "C2",
+    ),
+)
 
-NOT_COMPLETED: tuple[tuple[int, str, str], ...] = ()
+NOT_COMPLETED: tuple[tuple[int, str, str], ...] = (
+    (
+        18,
+        "an amendment that takes effect on a later day (D-364 rule 3: the version before screens until then)",
+        "a box whose day moves: the walk's box runs on `--day data`, a frozen clock, so the effective date is left "
+        "empty (in force from the approval)",
+    ),
+    (
+        20,
+        "the re-screen list with patients in it (D-364 rule 5)",
+        "a patient set aside, approached or in screening whom the amendment changes: the walk's amendment (age 18 to "
+        "20) took 43 unmarked candidates off the list and left the walk's marked patients eligible, so all three "
+        "groups are empty",
+    ),
+)
 
 MODULE = Module(
     key="amendment",

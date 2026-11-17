@@ -36,7 +36,7 @@ from typing import Any
 
 from tests.e2e import life_cycle_walk_plan as lp
 from tests.e2e import new_study_walk_plan as nw
-from tests.e2e.life_cycle_walk_plan import K, Finding
+from tests.e2e.life_cycle_walk_plan import Finding, K
 from tests.e2e.new_study_walk_plan import Do, Refuse, See, T
 
 ROOT = nw.ROOT
@@ -288,8 +288,11 @@ def counts(mod: Module) -> dict[str, int]:
 
 def render_module(mod: Module) -> list[str]:
     out = [f"### {mod.title}", ""]
-    study = f"the seeded study {mod.study}" if mod.study else (
-        "a new study per language (" + ", ".join(mod.rulesets.values()) + "), from H-20's steps 1 to 15")
+    study = (
+        f"the seeded study {mod.study}"
+        if mod.study
+        else ("a new study per language (" + ", ".join(mod.rulesets.values()) + "), from H-20's steps 1 to 15")
+    )
     out += [f"Roles: {', '.join(mod.roles)}. Study: {study}. Sources: {mod.sources}.", ""]
     out += ["#### The walk by step", ""]
     out += ["| Step | Role | Matrix row | What the step does | Page reached (en) | Clicks | The clicks (en) | Median s | "
@@ -343,6 +346,35 @@ def render_findings() -> str:
     return "\n".join(out)
 
 
+#: the findings register's file form (``tools/findings_register.py``, ``--add-from``), beside the page; its rows wait
+#: for lane V (the register is pinned to its seed rows), so the file is written, not added
+FINDINGS_JSON = FINDINGS_PAGE.with_suffix(".json")
+REGISTER_SEVERITY = {
+    "blocks the step": "Medium (mapped)",
+    "slows the tester": "Medium (mapped)",
+    "cosmetic": "Low (mapped)",
+}
+REGISTER_LANE = {"integrator": "Int"}
+
+
+def findings_json() -> str:
+    """The findings of the four walks in the register's ``--add-from`` form (card H29), one row per finding."""
+    rows = []
+    for key in MODULES:
+        mod = modules()[key]
+        for f in sorted(mod.findings, key=lambda f: (f.step, f.id)):
+            rows.append({
+                "id": f"H29-{f.id}", "severity": REGISTER_SEVERITY[f.severity], "claim": f"{mod.key} step {f.step}: {f.showed}",
+                "lane": REGISTER_LANE.get(f.lane, f.lane), "basis": "shown", "state": "open", "module": key,
+                "step": f.step, "role": f.role, "place": f.path, "kind": f.kind, "walk_severity": f.severity,
+                "expected": f.expected, "from": f.source,
+            })  # fmt: skip
+    doc = {"card": "H29", "title": "the module walks (feasibility, safety, monitoring, amendment)",
+           "date": "2026-11-17", "source": str(FINDINGS_PAGE.relative_to(ROOT)), "decision": "D-1103",
+           "findings": rows}  # fmt: skip
+    return json.dumps(doc, ensure_ascii=False, indent=1) + "\n"
+
+
 def block_of(page: str) -> str:
     m = re.search(re.escape(BEGIN) + r".*?" + re.escape(END), page, re.S)
     return m.group(0) if m else ""
@@ -354,9 +386,11 @@ def write_page() -> bool:
     if not old:
         raise SystemExit(f"{FINDINGS_PAGE}: no marker lines")
     new = page.replace(old, render_findings())
+    changed = new != page or not FINDINGS_JSON.exists() or FINDINGS_JSON.read_text(encoding="utf-8") != findings_json()
     if new != page:
         FINDINGS_PAGE.write_text(new, encoding="utf-8")
-    return new != page
+    FINDINGS_JSON.write_text(findings_json(), encoding="utf-8")
+    return changed
 
 
 # ---------------------------------------------------------------------------------------------- the runs' logs
@@ -394,7 +428,7 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-__all__ = ["Do", "Refuse", "See", "T", "K", "F", "S", "M", "Act", "Stop", "Step", "Module", "Finding", "refuse"]
+__all__ = ["Act", "Do", "F", "Finding", "K", "M", "Module", "Refuse", "S", "See", "Step", "Stop", "T", "refuse"]
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -47,13 +47,28 @@ STEPS: tuple[Step, ...] = (
             See("h1", T(None, prefix="FEAS {rs} v{v}")),
         ),
         (
-            refuse("steward", "POST", "/pilot/request", "the steward cannot start a run",
-                   (("kind", "FEAS"), ("ruleset", "{rs}"))),
-            refuse("viewer", "POST", "/pilot/request", "the viewer cannot start a run",
-                   (("kind", "FEAS"), ("ruleset", "{rs}"))),
-            refuse("cro", "POST", "/pilot/request", "the CRO account cannot start a run",
-                   (("kind", "FEAS"), ("ruleset", "{rs}"))),
-        ),  # fmt: skip
+            refuse(
+                "steward",
+                "POST",
+                "/pilot/request",
+                "the steward cannot start a run",
+                (("kind", "FEAS"), ("ruleset", "{rs}")),
+            ),
+            refuse(
+                "viewer",
+                "POST",
+                "/pilot/request",
+                "the viewer cannot start a run",
+                (("kind", "FEAS"), ("ruleset", "{rs}")),
+            ),
+            refuse(
+                "cro",
+                "POST",
+                "/pilot/request",
+                "the CRO account cannot start a run",
+                (("kind", "FEAS"), ("ruleset", "{rs}")),
+            ),
+        ),
         "Open New request (More) and count eligible patients for the approved study.",
         "The FEAS job, done (D-104 §2).",
     ),
@@ -129,17 +144,30 @@ STEPS: tuple[Step, ...] = (
         (
             Do("more", T("nav.request")),
             See("h1", T("request.title")),
-            Stop("says", "FEA-04", T("request.start.screen")),
+            Stop("says", "FEA-01", T("request.start.screen")),
         ),
         (),
         "On New request: read what this box does not do without a GPU (note criteria, screening).",
         "A box without a GPU does feasibility and the structured criteria; criteria that need the notes read wait "
-        "for a GPU (D-1066 ruling 1; `deploy/install.sh` --mode stub: \"note criteria wait for a GPU\").",
+        'for a GPU (D-1066 ruling 1; `deploy/install.sh` --mode stub: "note criteria wait for a GPU").',
         lane="D",
     ),
 )
 
-FINDINGS: tuple[Finding, ...] = ()
+FINDINGS: tuple[Finding, ...] = (
+    Finding(
+        "FEA-01",
+        7,
+        "coordinator",
+        "/pilot/request",
+        "stop",
+        'New request offers "Find candidates for the next visits" (SCREEN) and the plain-words field "goes to the conversation engine"; nothing on the box says that note criteria, screening and the engine need a GPU. Master has no no-GPU form: the steps-mode box runs the stub model, so SCREEN runs here',
+        "on a box without a GPU, the pages say what waits for a GPU (note criteria, SCREEN, the engine) and do not offer it as if it ran",
+        'D-1066 ruling 1; `deploy/install.sh` --mode stub ("note criteria wait for a GPU"); lane D\'s second card',
+        "blocks the step",
+        "D",
+    ),
+)
 
 NOT_COMPLETED: tuple[tuple[int, str, str], ...] = (
     (

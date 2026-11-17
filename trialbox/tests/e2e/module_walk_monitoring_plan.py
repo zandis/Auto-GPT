@@ -40,9 +40,9 @@ STEPS: tuple[Step, ...] = (
             Do("signin"),
             Do("language", T("lang.apply"), T("lang.label")),
             See("h1", T("reports.title")),
-            Act("goto", value=f"/studies/{NO_GRANT}/monitor", finding="MON-01"),
+            Act("goto", value=f"/studies/{NO_GRANT}/monitor"),
             See("h1", T("problem.h.forbidden")),
-            Stop("says", "MON-02", T("problem.why.forbidden")),
+            Stop("says", "MON-01", T("problem.why.forbidden")),
         ),
         (),
         "As the CRO account: open the monitoring page of a study it is named for, before any grant.",
@@ -61,9 +61,14 @@ STEPS: tuple[Step, ...] = (
             See("shown", value="users-scope-{cro}"),
         ),
         (
-            refuse("steward", "POST", "/ops/users", "the steward cannot change an account's studies",
-                   (("action", "scope"), ("username", "{cro}"), ("affiliation", "cro"), ("studies", STUDY))),
-        ),  # fmt: skip
+            refuse(
+                "steward",
+                "POST",
+                "/ops/users",
+                "the steward cannot change an account's studies",
+                (("action", "scope"), ("username", "{cro}"), ("affiliation", "cro"), ("studies", STUDY)),
+            ),
+        ),
         "As the administrator: open Users and find the CRO account and its studies.",
         "The administrator opens a CRO account and names its studies (D-380, `account.create.aggregate`).",
     ),
@@ -74,7 +79,7 @@ STEPS: tuple[Step, ...] = (
         (
             Do("signin"),
             Do("language", T("lang.apply"), T("lang.label")),
-            Act("goto", value="/studies/{rs}/team", finding="MON-03"),
+            Act("goto", value="/studies/{rs}/team", finding="MON-02"),
             See("h1", T("team.log.title", prefix="{rs} · ")),
             Do("select", label=T("team.log.account"), value="{cro}"),
             Do("select", label=T("team.log.role"), value="monitor"),
@@ -110,7 +115,9 @@ STEPS: tuple[Step, ...] = (
             refuse("cro", "GET", "/studies/{rs}/week", "the monitor cannot open the weekly page"),
             refuse("cro", "GET", "/studies/{rs}/candidates", "the monitor cannot open the candidate list"),
             refuse("cro", "GET", f"/studies/{{rs}}/subjects/{ENROLLED}", "the monitor cannot open a participant page"),
-            refuse("cro", "GET", f"/studies/{{rs}}/monitor/{CONSENTED}", "the monitor cannot open a subject not enrolled"),
+            refuse(
+                "cro", "GET", f"/studies/{{rs}}/monitor/{CONSENTED}", "the monitor cannot open a subject not enrolled"
+            ),
             refuse("cro", "GET", "/sae", "the monitor cannot open the SAE register"),
         ),
         "As the CRO account: open Reports (its monitoring line is there now), then Monitoring from the menu.",
@@ -145,9 +152,14 @@ STEPS: tuple[Step, ...] = (
             See("says", T("sdv.visits.saved")),
         ),
         (
-            refuse("coordinator", "POST", "/studies/{rs}/monitor/visits", "the coordinator cannot record a monitoring "
-                   "visit", (("visit_day", "{day}"), ("subjects", ENROLLED), ("findings", "none"))),
-        ),  # fmt: skip
+            refuse(
+                "coordinator",
+                "POST",
+                "/studies/{rs}/monitor/visits",
+                "the coordinator cannot record a monitoring visit",
+                (("visit_day", "{day}"), ("subjects", ENROLLED), ("findings", "none")),
+            ),
+        ),
         "Record the monitoring visit: its day, the subject verified, the findings.",
         "The visit record, with the CRA and the visit's id (D-436).",
     ),
@@ -168,7 +180,68 @@ STEPS: tuple[Step, ...] = (
     ),
 )
 
-FINDINGS: tuple[Finding, ...] = ()
+FINDINGS: tuple[Finding, ...] = (
+    Finding(
+        "MON-01",
+        1,
+        "cro",
+        "/studies/GOUT-COH/monitor",
+        "stop",
+        'the refusal says "If you need it, ask the TrialBox administrator to change your role"; the monitor grant is given by the PI the log names or the data steward, and the administrator is refused it (step 3)',
+        "the refusal of a monitor's page says who grants: the study's PI or the data steward",
+        "`monitor.grant`, D-380, FIT-002; `problem.why.forbidden`",
+        "blocks the step",
+        "C2",
+    ),
+    Finding(
+        "MON-02",
+        3,
+        "steward",
+        "/studies/GZQO/team",
+        "address",
+        "the steward's menu and home page have no link to a study's delegation log once its PI is named; the walk types /studies/GZQO/team",
+        "a way from the steward's pages to each study's delegation log, where the steward grants",
+        "D-380, FIT-002",
+        "slows the tester",
+        "C2",
+    ),
+    Finding(
+        "MON-03",
+        7,
+        "investigator",
+        "/studies/GZQO/monitor",
+        "address",
+        "the PI reaches the monitoring visit records only by typing /studies/GZQO/monitor: no link on the study's pages, the weekly page or the delegation log",
+        "a link to the monitoring visits from the study's pages for the PI who grants them",
+        "D-436",
+        "slows the tester",
+        "C2",
+    ),
+    Finding(
+        "MON-04",
+        5,
+        "cro",
+        "/studies/GZQO/monitor/GZQO-0001",
+        "other",
+        "the sheet's \"Consent given\" and \"Enrolled on\" read 2026-11-17 (the day the seed recorded the steps, the real day) while the consent form's date on the same sheet and the state's day read 2026-11-02 (the box's day)",
+        "the sheet's dates agree with the forms a monitor verifies them against",
+        "D-436, D-772; as H-20 F-10 (`--day data`)",
+        "slows the tester",
+        "C2",
+    ),
+    Finding(
+        "MON-05",
+        5,
+        "cro",
+        "/studies/GZQO/monitor/GZQO-0001",
+        "term",
+        'the state reads "On study (on_study, 2026-11-02)": the code on_study is shown in every page language',
+        "the state in words with its day",
+        "`life.state.on_study`",
+        "cosmetic",
+        "C2",
+    ),
+)
 
 NOT_COMPLETED: tuple[tuple[int, str, str], ...] = ()
 

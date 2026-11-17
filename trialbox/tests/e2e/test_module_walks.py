@@ -241,7 +241,15 @@ def test_the_page_holds_the_findings_the_plans_have() -> None:
         "PYTHONPATH=libs:services:. python -m tests.e2e.module_walk_common --write"
     )
     assert page.splitlines()[2].startswith("**Reader:**")
-    for must in ("D-1103", "D-1135", "D-1121", "D-1062", "D-1066", "make walk-modules", "Cannot complete on a steps-mode box"):
+    for must in (
+        "D-1103",
+        "D-1135",
+        "D-1121",
+        "D-1062",
+        "D-1066",
+        "make walk-modules",
+        "Cannot complete on a steps-mode box",
+    ):
         assert must in page, must
     for key in mw.MODULES:
         for n, what, _why in mw.modules()[key].not_completed:
@@ -276,3 +284,21 @@ def test_the_accounts_and_the_logs(tmp_path: Path) -> None:
     safety = mw.modules()["safety"]
     assert mw.ids(safety, {"TB_WALK_ID": "trysafe"}) == {"en": "TRYSAFES", "zh-TW": "TRYSAFESZH", "ja": "TRYSAFESJA"}
     assert set(mw.ids(mw.modules()["monitoring"], {"TB_WALK_ID": "x"}).values()) == {"GZQO"}
+
+
+def test_the_findings_file_is_the_registers_form() -> None:
+    """The findings beside the page, in the register's ``--add-from`` form (card H29), equal to the plans; their rows
+    wait for lane V (the register is pinned to its seed rows), so they are not in the register."""
+    from tools import findings_register as fr
+
+    assert mw.FINDINGS_JSON.read_text(encoding="utf-8") == mw.findings_json(), (
+        "PYTHONPATH=libs:services:. python -m tests.e2e.module_walk_common --write"
+    )
+    doc = json.loads(mw.findings_json())
+    rows = doc["findings"]
+    assert doc["card"] == "H29" and (ROOT / doc["source"]).is_file()
+    assert len(rows) == sum(len(mw.modules()[m].findings) for m in mw.MODULES)
+    for r in rows:
+        assert r["id"].startswith("H29-") and r["lane"] in fr.LANES and r["basis"] == "shown", r
+        assert r["severity"] in ("Medium (mapped)", "Low (mapped)") and "\n" not in r["claim"], r
+    assert "H29-" not in fr.REGISTER.read_text(encoding="utf-8")
