@@ -99,14 +99,13 @@ def test_consent_record_version_check_order_flags_and_reconsent_list(lb: dict[st
 
 def test_registry_no_longer_records_consent(lb: dict[str, Any]) -> None:  # noqa: F811
     """D-399 (UX-012): consent is recorded one way, the consent form. Since D-1221 the registry chooses no status at
-    all: its page has no status field, and a "consented" sent to its add is not taken (the person is "On the list")."""
+    all: its page has no status field, and a "consented" sent to its add is refused (400)."""
     c, _ = login(lb["app"], "crc", PW)
     page = c.get("/pilot/registry/GZQO").text
     assert 'id="status"' not in page and 'name="status"' not in page and 'value="consented"' not in page
     pid = "ab" * 16
-    r = c.post("/pilot/registry/GZQO", data={"csrf": _csrf(page), "pid": pid, "status": "consented"},
-               follow_redirects=False)  # fmt: skip
-    assert r.status_code == 303 and lb["backend"].registry[("GZQO", pid)].status == "candidate"
+    r = c.post("/pilot/registry/GZQO", data={"csrf": _csrf(page), "pid": pid, "status": "consented"})
+    assert r.status_code == 400 and ("GZQO", pid) not in lb["backend"].registry  # refused, nothing written
 
 
 def test_consent_strings_in_every_language() -> None:
