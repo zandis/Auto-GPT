@@ -310,6 +310,12 @@ walk-new-study:
 	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
 	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e tests/e2e/test_new_study_walk.py
 
+# H-20 (D-1135): the whole life of a study on a local steps-mode box, four roles, three languages; reports findings
+.PHONY: walk-life-cycle
+walk-life-cycle:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e tests/e2e/test_life_cycle_walk.py
+
 # root + nftables + iproute2 + the running test stack (docs/SECURITY.md §2)
 test-egress:
 	TB_EGRESS_TEST=1 $(PY) -m pytest -q -m egress tests/integration/test_egress.py
