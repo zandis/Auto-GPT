@@ -481,7 +481,7 @@ def icd10_who_rows(data: bytes) -> tuple[list[dict[str, str]], str]:
         data = re.sub(rb"<!DOCTYPE[^\[>]*>", b"", data, count=1)
         if b"<!DOCTYPE" in data:
             raise ValueError("the ClaML file declares an internal DTD: refused")
-        root = ET.fromstring(data)  # noqa: S314 - no DTD and no entity left (refused or dropped above)
+        root = _xml(data)  # TERM-1's parser: it refuses a DTD or an entity, and none is left here
         if root.tag != "ClaML":
             raise ValueError("not a ClaML file")
         title = root.find("Title")
