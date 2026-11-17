@@ -14,6 +14,19 @@
 
 <div class="grid">
 <section class="card">
+<h2>{{ t('registry.add') }}</h2>
+<p class="hint">{{ t('registry.add.help') }}</p>
+{# D-1221: a person by chart number goes on the log "On the list", with the reason; no status is chosen here #}
+<form method="post" action="/pilot/registry/{{ ruleset }}">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label for="mrn">{{ t('registry.mrn') }}</label>
+  <input id="mrn" name="mrn" required maxlength="32" pattern="[A-Za-z0-9\-]+" autocomplete="off">
+  <label for="reason">{{ t('registry.reason') }}</label>
+  <input id="reason" name="reason" maxlength="500">
+  <button type="submit" {{ 'disabled' if not user.can_request else '' }} data-testid="registry-add">{{ t('registry.add.submit') }}</button>
+</form>
+</section>
+<section class="card">
 <h2>{{ t('registry.promote') }}</h2>
 <p class="hint">{{ t('registry.promote.help') }}</p>
 <form method="post" action="/pilot/registry/{{ ruleset }}/promote">
@@ -35,7 +48,7 @@
 <tbody>
 {% for r in rows %}{% set e = r.entry %}
 <tr data-pid="{{ r.pid }}" id="p-{{ r.pid }}">
-<td class="mono" title="{{ r.pid }}">{{ r.pid[:12] }}…</td>
+<td class="mono" title="{{ r.pid }}">{% if r.pid.startswith('#') %}{{ r.state.record }}{% else %}{{ r.pid[:12] }}…{% endif %}</td>
 <td>{{ person_pill(r.state, 'reg-state-' + r.pid[:8]) }}</td>
 <td class="mono">{{ r.state.since|local if r.state.since else '–' }}</td>
 <td>{{ (e.reason or '') if e else '' }}</td>

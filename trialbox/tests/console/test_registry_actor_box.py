@@ -75,12 +75,15 @@ def test_the_coordinator_promotes_and_edits_through_the_console(site: dict[str, 
     r = c.post(f"/pilot/registry/{STUDY}/promote", data={"csrf": csrf}, follow_redirects=False)
     assert r.status_code == 303 and "added=" in r.headers["location"], r.text[-300:]
     pid = _rows(ob)[0]["pid"]
-    # D-1221 (R10): the console sets no registry status by hand any more; its POST is gone and nothing is written
-    r = c.post(f"/pilot/registry/{STUDY}", data={"csrf": csrf, "pid": pid, "status": "contacted", "reason": "phone"},
+    # the console's add (D-1221: no status is chosen; a person goes on the log "On the list", with the reason) is a
+    # signed write end to end: a note on the row, recorded under the verified person; a status sent is not taken
+    r = c.post(f"/pilot/registry/{STUDY}", data={"csrf": csrf, "pid": pid, "status": "enrolled", "reason": "phone"},
                follow_redirects=False)  # fmt: skip
-    assert r.status_code == 405, r.text[-300:]
+    assert r.status_code == 303, r.text[-300:]
     rows = {row["pid"]: row for row in _rows(ob)}
-    assert rows[pid]["status"] == "candidate" and {row["updated_by"] for row in rows.values()} == {"console:crc"}
+    assert rows[pid]["status"] == "candidate" and rows[pid]["reason"] == "phone"
+    assert {row["updated_by"] for row in rows.values()} == {"console:crc"}
+    assert [e["actor"] for e in ob.events("registry.update")] == ["console:crc"]
     assert not ob.events("actor.refused") and not ob.events("actor.unsigned")
 
 

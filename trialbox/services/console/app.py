@@ -51,7 +51,7 @@ from tb_common.reasons import label as reason_label
 from tb_common.service_auth import bind_session
 from tb_common.ulid import new_ulid
 from tb_common.verdict_word import shown_of
-from tb_contracts import Job, JobOutput, RegistryPromote
+from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
 from console import acting, api_first, demo_guard, feedback, firstrun, i18n_roles, next_page, person_state
 from console import actor as console_actor
@@ -578,7 +578,13 @@ def create_app(
     # ------------------------------------------------------------------ plumbing
     @app.middleware("http")
     async def headers(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
-        resp = await call_next(request)
+        # D-1221: a page view reads each study's people once (a GET only: a write reads afresh)
+        token = person_state.begin_request() if request.method == "GET" else None
+        try:
+            resp = await call_next(request)
+        finally:
+            if token is not None:
+                person_state.end_request(token)
         resp.headers.setdefault("Content-Security-Policy", CSP)  # the sandboxed preview sets its own
         resp.headers["X-Frame-Options"] = "DENY"
         resp.headers["X-Content-Type-Options"] = "nosniff"
@@ -2189,12 +2195,15 @@ def create_app(
     def _registry_page(request: Request, sess: Session, rs: str, status: int = 200, **ctx: Any) -> HTMLResponse:
         # D-1221 (review R10): every person of the study with their one state (console.person_state), the same on
         # every list; the screening log's own row (its reason, who, from where) beside it. No status is set here.
-        entries = {e.pid: e for e in bk.registry_rows(rs)}  # a refusal of the study is the page's (400)
+        # a refusal of the study is the page's (400); read once per page view, with the people below
+        entries = {e.pid: e for e in person_state.registry_rows(helpers, rs)}
         people = person_state.read(helpers, rs)  # D-273 (PV-4): leaves out who opted out, as the export does
         order = {name: i for i, name in enumerate(person_state.STATES)}
-        ranked = sorted((st_.name, pid) for pid, st_ in people.states().items() if not pid.startswith("#"))
+        # the table holds the people the counts count: a participant record with no pseudonym yet too ("#" and its
+        # screening number), once
+        ranked = sorted((st_.name, pid) for pid, st_ in people.states().items())
         rows = [{"pid": pid, "state": people.of(pid), "entry": entries.get(pid)}
-                for _, pid in sorted(ranked, key=lambda x: (order[x[0]], x[1]))]  # fmt: skip
+                for _, pid in sorted(ranked, key=lambda x: (order.get(x[0], 99), x[1]))]  # fmt: skip
         return page(
             request,
             "registry_ruleset.html",
@@ -2216,12 +2225,22 @@ def create_app(
         # a registry may outlive its ruleset version (e.g. after a re-approval): still list it
         rulesets += [RulesetInfo(rs_id, None, "registry", "trial") for rs_id in sorted(summaries) if rs_id not in known]
         rulesets = [r for r in rulesets if sess.user.sees_study(r.id)]
-        # D-1221: each study's people by their one state, as its home card and its own page count them
-        people = {r.id: person_state.read(helpers, r.id) for r in rulesets}
-        counts = {k: v.counts() for k, v in people.items()}
+        # D-1221: each study's people by their one state, as its home card and its own page count them; an account
+        # that may not read patient rows (D-280) gets the aggregate source as before, and no refused read is made
+        counts: dict[str, dict[str, int]] = {}
+        readable: dict[str, bool] = {}
+        for r in rulesets:
+            if person_state.may_read_rows(r.id):
+                ppl = person_state.read(helpers, r.id)
+                counts[r.id], readable[r.id] = ppl.counts(), ppl.readable
+            else:
+                agg = person_state.counts([])
+                for status, n in (summaries[r.id].counts if r.id in summaries else {}).items():
+                    agg[person_state.FROM_REGISTRY.get(status, "listed")] += int(n)
+                counts[r.id], readable[r.id] = agg, True
         cols = [s for s in person_state.COUNTED if any(c[s] for c in counts.values())]
         return page(request, "registry.html", sess, rulesets=rulesets, summaries=summaries, counts=counts,
-                    readable={k: v.readable for k, v in people.items()}, cols=cols)  # fmt: skip
+                    readable=readable, cols=cols)  # fmt: skip
 
     @app.get("/pilot/registry/{ruleset}", response_class=HTMLResponse)
     def registry_view(request: Request, ruleset: str) -> Response:
@@ -2238,9 +2257,33 @@ def create_app(
         except Refused as exc:
             raise _Problem(400, "request.refused", reason=str(exc)) from exc
 
-    # D-1221 (review B-2, R10): the registry's own status form (POST /pilot/registry/{ruleset}) is gone. A person's
-    # state follows the steps that record it: the investigator's mark, the contact outcome, the consent form and the
-    # participant's life steps; the screening log follows them (D-399, T-516).
+    @app.post("/pilot/registry/{ruleset}")
+    def registry_add(
+        request: Request, ruleset: str, csrf: str = Form(""), pid: str = Form(""), mrn: str = Form(""),
+        reason: str = Form(""),
+    ) -> Response:  # fmt: skip
+        """A person no screening run found (a walk-in, a referral) put on the screening log by chart number (or a
+        pseudonym), "On the list", with the reason; or a note on a row already there. D-1221 (review B-2, R10): the
+        status drop-down is gone: a person's state follows the steps that record it (the investigator's mark, the
+        contact outcome, the consent form and the participant's steps; D-399, T-516). Every add is signed for this
+        person and this request (T-715b, D-550; T-719: a row by chart number is this person's lookup)."""
+        sess = need_requester(request, csrf)
+        rs = ruleset.strip().upper()
+        if not _RULESET_ID.match(rs):
+            raise _Problem(400, "request.refused", reason="choose a ruleset")
+        upd = RegistryUpdate(pid=pid.strip() or None, mrn="".join(mrn.split()) or None, status="candidate",
+                             reason=reason.strip()[:500] or None, by=actor(sess), source="manual")  # fmt: skip
+        au.append("console.registry", actor=actor(sess), ruleset=rs, detail={"action": "add", "by_mrn": bool(upd.mrn)})
+        from console import actor as acting
+
+        def sign(method: str, path: str, body: Any) -> dict[str, str]:
+            return acting.assert_for(helpers, sess, "request.prepare", rs, method, path, body)
+
+        try:
+            bk.registry_update(rs, upd, sign)
+        except Refused as exc:
+            return _registry_page(request, sess, rs, 422, error=str(exc))
+        return RedirectResponse(f"/pilot/registry/{rs}", status_code=303)
 
     @app.post("/pilot/registry/{ruleset}/promote")
     def registry_promote(request: Request, ruleset: str, csrf: str = Form("")) -> Response:

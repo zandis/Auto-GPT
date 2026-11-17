@@ -14,19 +14,17 @@ own counts. :func:`state_of` reads all four and returns ONE name from :data:`STA
 ``person.state.<name>`` in en, zh-TW and ja (``console.i18n_person``). Every list and every count imports it from
 here; the older key families (``life.state.*``, ``registry.status.*``) are aliases of these words.
 
-**When the facts disagree** (the rule, D-1221):
+**When the facts disagree** (the rule, D-1221): time decides, and an older fact never overrides a newer one.
 
-1. An end state on the participant record (completed, withdrawn, screen failure) wins: it is the later fact and a
-   person recorded it on the participant page.
-2. Else an end state on the screening log (declined, screen failure, withdrawn) wins: the participant record takes
-   it at its next refresh (the data core moves a subject forward to the log, never back).
-3. Else the further of the participant record and the screening log on the main line (on the list, contacted,
-   consented, enrolled, on study, completed); a tie goes to the participant record.
-4. Only while neither says more than "on the list" or "contacted": the latest contact outcome in force (it is the
-   later fact: "not approached" and "not reached" leave the log as it was).
-5. Only while nothing above says more than "on the list": the investigator's mark (a "Not now" whose re-check day
-   has come no longer sets the person aside).
-6. Otherwise: on the list.
+1. The record is the newer of the participant record's last step and the screening log's row ("on the list" on
+   either says nothing). Once consented (consented, enrolled, on study, completed, withdrawn) the record is the
+   state: no mark or contact outcome speaks for a participant.
+2. Before consent, the newest of the record, the contact outcome in force and the investigator's latest mark event
+   is the state. A mark taken back, or a "Not now" whose re-check day has come, is a fact too: on the list.
+3. On a tie of times (or facts with no time), the later step in the work wins: participant record, then screening
+   log, then contact outcome, then mark.
+4. Nothing recorded: on the list. The facts could not be read for this reader: **unknown** (never "on the list",
+   never contactable; a count of it is "–").
 
 The console never writes a state here: this is the console's reading of what the other steps recorded.
 """
@@ -34,7 +32,9 @@ The console never writes a state here: this is the console's reading of what the
 from __future__ import annotations
 
 import contextlib
+import logging
 from collections.abc import Callable, Iterable, Mapping
+from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
@@ -63,7 +63,8 @@ ENDED: frozenset[str] = frozenset({"not_approached", "declined", "screen_fail", 
 #: "On the list", which is every listed patient nobody has reviewed yet)
 COUNTED: tuple[str, ...] = STATES[1:]
 KEY = "person.state."
-MAIN_LINE: tuple[str, ...] = ("listed", "contacted", "consented", "enrolled", "on_study", "completed")
+#: the state when the facts could not be read for this reader (CR-010): never "on the list", never contactable
+UNKNOWN = "unknown"
 
 #: the participant record's life step (``datacore.lifecycle.STATES``) as a person state
 FROM_LIFE: dict[str, str] = {
@@ -164,8 +165,8 @@ class PersonState:
 
     @property
     def contactable(self) -> bool:
-        """A contact outcome still makes sense: a candidate the study has not finished with (review F-13)."""
-        return self.phase == "candidate" and not self.ended
+        """A contact outcome may be recorded: a candidate, before consent (review F-13); never an unknown state."""
+        return self.phase == "candidate" and self.name != UNKNOWN
 
 
 def _recheck_due(day: str, today: date | None) -> bool:
@@ -177,8 +178,22 @@ def _recheck_due(day: str, today: date | None) -> bool:
         return True  # a "Not now" with no readable day is back on the list, as on the weekly page
 
 
-def _rank(name: str | None) -> int:
-    return MAIN_LINE.index(name) if name in MAIN_LINE else -1
+#: the contact outcomes that write the screening log (``sitestore.OUTCOMES``); a log row "on the list" newer than one
+#: of them says the step was taken back
+LOGGED = frozenset({"reached_booked", "reached_declined", "lost_contact"})
+#: on a tie of times (or facts with no time) the fact of the later step in the work wins
+_PRIORITY = {"participant": 3, "registry": 2, "outcome": 1, "mark": 0}
+
+
+def _key(ps: PersonState) -> tuple[str, int]:
+    return (_when(ps.since), _PRIORITY.get(ps.source, -1))
+
+
+def _when(at: str) -> str:
+    """A time as compared: ISO text, a plain day as its first instant (``2026-11-02`` -> ``2026-11-02T00:00``), UTC
+    offsets dropped (every stored time of these sources is UTC)."""
+    t = str(at or "").replace(" ", "T")
+    return t[:19] if "T" in t else (t[:10] + "T00:00:00" if t else "")
 
 
 def state_of(f: Facts, today: date | None = None) -> PersonState:
@@ -187,32 +202,25 @@ def state_of(f: Facts, today: date | None = None) -> PersonState:
     if life == "screen_fail" and f.life_reason == "declined":
         life = "declined"
     reg = FROM_REGISTRY.get(f.registry or "")
-    by_life = PersonState(life or "listed", "participant", f.life_at, f.life_by, f.record)
-    by_reg = PersonState(reg or "listed", "registry", f.registry_at, f.registry_by, f.record)
-    if life in ENDED:  # 1
-        return by_life
-    if reg in ENDED:  # 2
-        return by_reg
-    best: PersonState | None = None  # 3
-    if _rank(life) >= max(_rank(reg), 1):
-        best = by_life
-    elif _rank(reg) >= 1:
-        best = by_reg
-    if best is not None and best.name != "contacted":
-        return best
-    oc = FROM_OUTCOME.get(f.outcome or "")  # 4
-    if oc is not None and (best is None or oc in ENDED):
-        return PersonState(oc, "outcome", f.outcome_at, f.outcome_by, f.record)
-    if best is not None:
-        return best
-    mk = FROM_MARK.get(f.mark or "")  # 5
-    if mk is not None and not (f.mark == "not_now" and _recheck_due(f.recheck, today)):
-        return PersonState(mk, "mark", f.mark_at, f.mark_by, f.record)
-    if life is not None:  # 6
-        return by_life
-    if reg is not None:
-        return by_reg
-    return PersonState("listed", "list", record=f.record)
+    by_life = PersonState(life, "participant", f.life_at, f.life_by, f.record) if life else None
+    by_reg = PersonState(reg, "registry", f.registry_at, f.registry_by, f.record) if reg else None
+    # 1. the record: the newer of the participant record and the screening log ("on the list" says nothing)
+    record = max((x for x in (by_life, by_reg) if x is not None and x.name != "listed"), key=_key, default=None)
+    if record is not None and record.name in PARTICIPANT:
+        return record  # 2. once consented, no mark or contact outcome speaks for the person
+    facts: list[PersonState] = [record] if record is not None else []
+    oc = FROM_OUTCOME.get(f.outcome or "")
+    if oc is not None and reg == "listed" and f.outcome in LOGGED and _when(f.registry_at) > _when(f.outcome_at):
+        oc = None  # the log was set back after the outcome wrote it (an undo on the participant page): it is older
+    if oc is not None:
+        facts.append(PersonState(oc, "outcome", f.outcome_at, f.outcome_by, f.record))
+    if f.mark == "withdrawn" or (f.mark == "not_now" and _recheck_due(f.recheck, today)):
+        facts.append(PersonState("listed", "mark", f.mark_at, f.mark_by, f.record))  # taken back, or re-check due
+    elif f.mark in FROM_MARK:
+        facts.append(PersonState(FROM_MARK[f.mark], "mark", f.mark_at, f.mark_by, f.record))
+    if facts:  # 3. the newest fact wins: an older fact never overrides a newer one
+        return max(facts, key=_key)
+    return by_life or by_reg or PersonState("listed", "list", record=f.record)
 
 
 def counts(states: Iterable[PersonState | str]) -> dict[str, int]:
@@ -234,8 +242,8 @@ def shown_counts(c: Mapping[str, int], keep: Iterable[str] = COUNTED) -> list[tu
 @dataclass
 class People:
     """Every person of one study the console holds a fact about, and the state of each. ``readable`` is False when
-    the screening log or the participant records could not be read for this reader: a count is then unknown, never
-    zero (CR-010)."""
+    the screening log or the participant records could not be read for this reader: every state is then
+    :data:`UNKNOWN` and a count is unknown, never zero (CR-010)."""
 
     facts: dict[str, Facts]
     today: date | None = None
@@ -245,6 +253,8 @@ class People:
 
     def of(self, pid: str) -> PersonState:
         """The state of ``pid`` (a person nobody recorded anything about is on the list)."""
+        if not self.readable:
+            return PersonState(UNKNOWN, "list")
         got = self._cache.get(pid)
         if got is None:
             got = self._cache[pid] = state_of(self.facts.get(pid) or Facts(), self.today)
@@ -259,6 +269,34 @@ class People:
     def in_year(self, year: int) -> dict[str, int]:
         """The counts of the people whose state began in ``year`` (the research office's calendar year)."""
         return counts(s for s in self.states().values() if s.since[:4] == str(year))
+
+
+#: "reached at least": the cumulative steps of the home card's funnel and the research office (D-1221). A person is
+#: counted at every step their one state has passed: contacted = contacted or any later state (a decline, a screen
+#: failure and every participant state included); consented = every participant state; enrolled = enrolled, on study
+#: or completed (a withdrawal does not say whether enrolment came first, so it is not counted as enrolled)
+REACHED: dict[str, frozenset[str]] = {
+    "contacted": frozenset({"contacted", "declined", "screen_fail", *PARTICIPANT}),
+    "consented": frozenset(PARTICIPANT),
+    "enrolled": frozenset({"enrolled", "on_study", "completed"}),
+}
+
+
+def reached(c: Mapping[str, int], step: str) -> int:
+    """How many people of the counts ``c`` have reached ``step`` (:data:`REACHED`)."""
+    return sum(int(c.get(s, 0)) for s in REACHED[step])
+
+
+def funnel(people: People, listed: Iterable[str] = ()) -> dict[str, int]:
+    """The home card's funnel, as master showed it (Found, PI reviewed, Contacted, Consented, Enrolled; cumulative),
+    from the one state: found = on the latest list or with a fact; reviewed = an investigator's mark or past it."""
+    st = people.states()
+    c = counts(st.values())
+    found = {p for p in listed if p not in people.gone} | set(st)
+    marked = {p for p, f in people.facts.items() if f.mark and f.mark != "withdrawn" and p not in people.gone}
+    passed = {p for p, x in st.items() if x.name not in ("listed",)}
+    return {"found": len(found), "reviewed": len(marked | passed), "contacted": reached(c, "contacted"),
+            "consented": reached(c, "consented"), "enrolled": reached(c, "enrolled")}  # fmt: skip
 
 
 def _at(v: Any) -> str:
@@ -276,11 +314,12 @@ def gather(
     readable: bool = True,
 ) -> People:
     """The people of one study from the four sources: ``registry`` the screening log's rows (``RegistryEntry``),
-    ``marks`` the current mark per pseudonym (``Mark``), ``outcomes`` the contact outcomes in force, oldest first
-    (``Outcome``), ``subjects`` the participant records (dicts with ``pid``, ``record``, ``state``, ``since``). A person
-    in ``gone`` (opted out) is in no count and no population (:meth:`People.states`), as on every list; a page that
-    keeps their trial record (NEW-LIFE-5) still reads their state with :meth:`People.of`. A participant record with
-    no pseudonym yet is keyed by ``#`` and its screening number."""
+    ``marks`` the latest mark event per pseudonym (``Mark``; a ``withdrawn`` event is a mark taken back),
+    ``outcomes`` the contact outcomes in force, oldest first (``Outcome``), ``subjects`` the participant records
+    (dicts with ``pid``, ``record``, ``state``, ``since``, ``changed_at``; of two records of one pseudonym the latest
+    is kept). A person in ``gone`` (opted out) is in no count and no population (:meth:`People.states`), as on every
+    list; a page that keeps their trial record (NEW-LIFE-5) still reads their state with :meth:`People.of`. A
+    participant record with no pseudonym yet is keyed by ``#`` and its screening number."""
     raw: dict[str, dict[str, Any]] = {}
 
     def one(pid: str) -> dict[str, Any]:
@@ -297,50 +336,119 @@ def gather(
     for s in subjects:
         pid = str(s.get("pid") or "")
         rec = str(s.get("record") or "")
-        k = pid or f"#{rec}"
-        one(k).update(life=str(s.get("state") or ""), life_reason=str(s.get("reason") or ""),
-                      life_at=str(s.get("since") or ""), life_by=str(s.get("changed_by") or ""),
-                      record=rec)  # fmt: skip
+        at = str(s.get("changed_at") or s.get("since") or "")
+        mine = one(pid or f"#{rec}")
+        if mine.get("life") and _when(mine.get("life_at", "")) > _when(at):
+            continue  # an older record of the same pseudonym
+        mine.update(life=str(s.get("state") or ""), life_reason=str(s.get("reason") or ""), life_at=at,
+                    life_by=str(s.get("changed_by") or ""), record=rec)  # fmt: skip
     facts = {pid: Facts(**v) for pid, v in raw.items()}
     return People(facts, today, readable, frozenset(gone))
 
 
-def read(h: Any, rs: str, *, subjects: list[dict[str, Any]] | None = None) -> People:
-    """The people of study ``rs`` as this reader may read them (``h`` is ``console.home.Helpers``). The screening log
-    and the participant records are read signed for the person of the request, as every patient read (D-717); a
-    refused or failed read leaves ``readable`` False for a page, and is an error for a mail round (never "no
-    status"). ``subjects``: the participant records when the caller already holds them."""
+def latest_marks(all_marks: Iterable[Any]) -> dict[str, Any]:
+    """The latest mark event per pseudonym, a mark taken back (``withdrawn``) included: it is a fact with a time."""
+    out: dict[str, Any] = {}
+    for m in all_marks:  # oldest first
+        out[str(m.pid)] = m
+    return out
+
+
+_REQUEST: ContextVar[dict[tuple[str, str], Any] | None] = ContextVar("person_state_request", default=None)
+
+
+def begin_request() -> Token[dict[tuple[str, str], Any] | None]:
+    """One page view: reads made during it are kept for it (a GET only; a write reads afresh)."""
+    return _REQUEST.set({})
+
+
+def end_request(token: Token[dict[tuple[str, str], Any] | None]) -> None:
+    _REQUEST.reset(token)
+
+
+def _kept(name: str, rs: str, make: Callable[[], Any]) -> Any:
+    cache = _REQUEST.get()
+    if cache is None:
+        return make()
+    k = (name, rs)
+    if k not in cache:
+        cache[k] = make()
+    return cache[k]
+
+
+def registry_rows(h: Any, rs: str) -> list[Any]:
+    """The screening log's rows of ``rs``, read once per page view (signed for the reader, D-717)."""
+    return list(_kept("registry", rs, lambda: list(h.bk.registry_rows(rs))))
+
+
+def may_read_rows(rs: str) -> bool:
+    """Whether the reader of this request may read patient-level rows of ``rs`` (``phi.view`` on the study); a timer
+    (no person) reads as its own principal. Asked before a read so a refused read is never attempted."""
     from console import actor as console_actor
+
+    check = getattr(console_actor, "may_read", None)
+    return bool(check(rs)) if callable(check) else True
+
+
+def subject_rows(h: Any, rs: str) -> list[dict[str, Any]] | None:
+    """The participant records of ``rs``: record, pseudonym, state, since and when it changed (the slim read), once
+    per page view; ``None`` when they could not be read; ``[]`` on a box with no study store."""
     from console import s28
     from console.backend import Problem, Unavailable
 
+    if not s28.has_api(h.bk):
+        return []
+
+    def make() -> list[dict[str, Any]] | None:
+        try:
+            got = s28.call(h.bk, "GET", f"/studies/{rs}/subjects?slim=1")
+        except (Problem, Unavailable):
+            return None
+        return [x for x in (got or {}).get("subjects") or [] if isinstance(x, dict)]
+
+    return _kept("subjects", rs, make)  # type: ignore[no-any-return]
+
+
+def read(h: Any, rs: str, *, subjects: list[dict[str, Any]] | None = None) -> People:
+    """The people of study ``rs`` as this reader may read them (``h`` is ``console.home.Helpers``), once per page view.
+    The screening log and the participant records are read signed for the person of the request (D-717); a reader
+    without the right to patient-level rows is not asked to read them (no refused read is attempted). A refused,
+    failed or not permitted read leaves ``readable`` False (every state unknown) for a page, and is an error for a
+    mail round (never "no status"). ``subjects``: the participant records when the caller already holds them."""
+    from console import actor as console_actor
+
+    log = logging.getLogger("console.person_state")
+    mail = not console_actor.reading_for_a_person()
+    if not mail and not may_read_rows(rs):
+        return People({}, h.today(), False)
     readable = True
     rows: list[Any] = []
     try:
-        rows = list(h.bk.registry_rows(rs))
+        rows = registry_rows(h, rs)
     except Exception:
-        if not console_actor.reading_for_a_person():
+        if mail:
             raise
         readable = False
-    today = h.today()
     subs: list[dict[str, Any]] = list(subjects or [])
-    if subjects is None and readable and s28.has_api(h.bk):  # a reader refused the log is not asked twice
-        try:
-            got = s28.call(h.bk, "GET", f"/studies/{rs}/subjects?today={today.isoformat()}")
-            subs = [x for x in (got or {}).get("subjects") or [] if isinstance(x, dict)]
-        except (Problem, Unavailable):
+    if subjects is None and readable:
+        got = subject_rows(h, rs)
+        if got is None:
             readable = False
+            if mail:  # a mail round never goes on with an unknown state as if it were known
+                log.error("the participant records could not be read", extra={"study": rs})
+        else:
+            subs = got
     outcomes: list[Any] = []
     marks: dict[str, Any] = {}
     with contextlib.suppress(Exception):  # a store without the tables (an old box) holds no mark or outcome
-        marks = h.store.latest_marks(rs)
+        marks = latest_marks(h.store.all_marks(rs))
         outcomes = h.store.outcomes(rs)
     gone: set[str] = set()
     gone_of: Callable[[], set[str]] | None = getattr(h, "gone", None)
     if callable(gone_of):
         with contextlib.suppress(Exception):
             gone = set(gone_of())
-    return gather(registry=rows, marks=marks, outcomes=outcomes, subjects=subs, gone=gone, today=today,
+    return gather(registry=rows, marks=marks, outcomes=outcomes, subjects=subs, gone=gone, today=h.today(),
                   readable=readable)  # fmt: skip
 
 
@@ -355,14 +463,22 @@ __all__ = [
     "FROM_WEEK",
     "KEY",
     "PARTICIPANT",
+    "REACHED",
     "STATES",
+    "UNKNOWN",
     "Facts",
     "People",
     "PersonState",
+    "begin_request",
     "counts",
+    "end_request",
+    "funnel",
     "gather",
     "key",
+    "latest_marks",
+    "reached",
     "read",
+    "registry_rows",
     "shown_counts",
     "state_of",
 ]

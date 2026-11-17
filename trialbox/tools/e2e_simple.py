@@ -253,7 +253,8 @@ def _stage11(res: dict[str, Any], api: Any, crc: Any, pi: Any, lang: str, mrns: 
     today = local_today(h.clock(), site_zone(h.bk))  # the site's date (07:00 in Tokyo is the day before in UTC)
     # a new participant: the next listed patient without a screening number gets one
     have = set(h.store.screening_nos(rs))
-    pid = next(r["pid"] for r in h.mail_week(rs)["rows"] if r["pid"] not in have)
+    # (D-1221: one nobody has marked, so its state is known exactly: on the list)
+    pid = next(r["pid"] for r in h.mail_week(rs)["rows"] if r["pid"] not in have and r.get("mark") is None)
     no = h.store.assign_screening_no(rs, pid, h.settings_of(rs), h.clock().isoformat())
     # the visit schedule, defined in TrialBox
     page = crc.get(f"/studies/{rs}/schedule")
@@ -264,12 +265,10 @@ def _stage11(res: dict[str, Any], api: Any, crc: Any, pi: Any, lang: str, mrns: 
     s.check("the visit schedule is saved (3 visits with windows)", 'data-testid="schedule-saved"' in r.text,
             r.status_code)  # fmt: skip
     page = crc.get(f"/studies/{rs}/subjects")
-    # D-1221: the row names the person's one state; a new screening number is a record still before consent
-    from console.person_state import CANDIDATE
-
+    # D-1221: the row names the person's one state: a record nobody has marked, contacted or consented is on the list
     got = re.search(rf'data-testid="subject-{no}">.*?data-state="([a-z_]+)"', page.text, re.S)
-    s.check("the new screening number is a participant (a candidate, before consent)",
-            got is not None and got.group(1) in CANDIDATE, (page.status_code, got and got.group(1)))  # fmt: skip
+    s.check("the new screening number is a participant (on the list)",
+            got is not None and got.group(1) == "listed", (page.status_code, got and got.group(1)))  # fmt: skip
     csrf = fd._csrf(page.text)
     r = crc.post(f"/studies/{rs}/subjects/{no}/step", data={"csrf": csrf, "to": "enrolled"})
     plain = cat["life.why.order"].split("{")[0]

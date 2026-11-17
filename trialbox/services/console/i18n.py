@@ -349,6 +349,10 @@ EN: dict[str, str] = {
     "registry.steps": "A state is not set on this page: it follows the investigator's mark, the contact outcome, the "
     "consent form and the participant's steps.",
     "registry.updated": "Last change",
+    "registry.add": "Add a patient",
+    "registry.add.help": "A patient no screening run found (a walk-in, a referral): type the chart number. The box "
+    "turns it into the pseudonym and does not store the number. The patient is added On the list.",
+    "registry.add.submit": "Add to the registry",
     "registry.status": "Status",
     "registry.reason": "Note (why)",
     "registry.promote": "Take over SCREEN candidates",
@@ -715,6 +719,10 @@ JA: dict[str, str] = {
     "registry.notice": "TrialBox 内では仮名のみ。患者 ID は出力時のみ表示されます。",
     "registry.steps": "このページでは状態を設定しません。医師の判断、連絡結果、同意書、参加者の手順に従います。",
     "registry.updated": "最終更新",
+    "registry.add": "患者さんを追加",
+    "registry.add.help": "スクリーニング実行で見つからなかった患者さん（来院・紹介）：患者 ID を入力してください。TrialBox 内で仮名に"
+    "変換し、番号は保存しません。「リスト掲載」として追加します。",
+    "registry.add.submit": "レジストリに追加",
     "registry.status": "状況",
     "registry.reason": "メモ（理由）",
     "registry.promote": "SCREEN の候補者を引き継ぐ",
@@ -1072,6 +1080,9 @@ ZH: dict[str, str] = {
     "registry.notice": "TrialBox 內僅存假名；病歷號只在匯出時出現。",
     "registry.steps": "此頁不設定狀態：狀態依主持人的標記、聯絡結果、同意書與受試者的步驟而定。",
     "registry.updated": "最後變更",
+    "registry.add": "加入病人",
+    "registry.add.help": "篩選執行未找到的病人（自行就診、轉介）：輸入病歷號。TrialBox 內轉為假名，不儲存病歷號。以「在名單上」加入。",
+    "registry.add.submit": "加入登錄",
     "registry.status": "狀態",
     "registry.reason": "註記（原因）",
     "registry.promote": "接手 SCREEN 候選者",

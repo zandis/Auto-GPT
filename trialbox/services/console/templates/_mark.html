@@ -54,10 +54,10 @@
 </div>{% endif %}
 {% endmacro %}
 
-{% macro outcome_box(rs, pid, back, keys, screening_no, outcomes, mark=none, contact=none, person=none) %}
+{% macro outcome_box(rs, pid, back, keys, screening_no, outcomes, mark=none, contact=none, person=none, closed=false) %}
 {% if user.can_request %}
-{# D-1221 (walk finding F-13): no contact step for a participant or a person the study has finished with #}
-{% if person and not person.contactable %}
+{# D-1221 (walk finding F-13): no contact step for a participant (the outcome route refuses it too) or in a closed study #}
+{% if person and (closed or not person.contactable) %}
 <div class="actp outform" data-testid="outcome-done"><strong>{{ t('outcome.title') }}</strong><p class="hint">{{ t('person.no_contact', state=t(person.key)) }}</p>{% if outcomes %}<ul class="plain hint">{% for o in outcomes[-3:] %}<li>{{ o.at|local }} · {{ o.by }} · {{ t('outcome.' + o.outcome) }}</li>{% endfor %}</ul>{% endif %}</div>
 {% elif not mark or mark.mark != 'approach' %}
 <div class="actp outform" data-testid="outcome-wait"><strong>{{ t('outcome.title') }}</strong><p class="hint">{{ t('outcome.wait_pi.hint') }}</p></div>

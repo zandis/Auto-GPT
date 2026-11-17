@@ -193,7 +193,7 @@ def test_registry_page_words(box: dict[str, Any], lang: str) -> None:  # noqa: F
         assert words == set(), (path, words)
     assert t["nav.patients"] == t["registry.title"]
     page = c.get("/pilot/registry/GZQO").text
-    assert 'id="mrn"' not in page and "MRN" not in page  # D-1221: the hand form and its chart-number field are gone
+    assert f'<label for="mrn">{html.escape(t["registry.mrn"])}</label>' in page and "MRN" not in t["registry.mrn"]
     week = c.get(f"/studies/GZQO/week?pid={B}").text
     links = re.search(r'<p class="chartlinks">(.*?)</p>', week, re.S)
     assert links
@@ -207,7 +207,7 @@ def test_new_layout_keys_in_every_language() -> None:
         for k in LAYOUT_EN:
             assert CATALOGUES[lang][k].strip(), (lang, k)
     for lang in ("ja", "zh-TW"):
-        for k in ("nav.patients", "registry.promote.help", "registry.help", "registry.steps"):
+        for k in ("nav.patients", "registry.promote.help", "registry.help", "registry.mrn"):
             assert not re.search(r"\b(tier|high|review|screening log|MRN)\b", CATALOGUES[lang][k]), (lang, k)
 
 

@@ -1401,19 +1401,41 @@ def test_registry_pages_add_promote_export(box: dict[str, Any]) -> None:
     page = c.get("/pilot/registry").text
     assert 'data-testid="registry-summary"' in page and "GZQO" in page
     page = c.get("/pilot/registry/GZQO").text
-    assert 'data-testid="registry-empty"' in page
-    # D-1221 (R10): no status is set by hand on the registry: no form, and its POST is gone (nothing written)
-    assert 'data-testid="registry-add"' not in page and 'name="status"' not in page and 'name="mrn"' not in page
-    r = c.post("/pilot/registry/GZQO", data={"csrf": csrf, "mrn": "A1001", "status": "candidate"})
-    assert r.status_code == 405 and box["backend"].registry == {}
+    assert 'data-testid="registry-empty"' in page and 'data-testid="registry-add"' in page
+    # D-1221 (R10): a person by chart number goes on the log "On the list", with the reason; no status is chosen
+    assert 'name="status"' not in page and "<select" not in page.split('data-testid="registry-add"')[0][-900:]
+    r = c.post(
+        "/pilot/registry/GZQO",
+        data={"csrf": csrf, "mrn": "A1001", "status": "enrolled", "reason": "referred by Dr Lin"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    page = c.get("/pilot/registry/GZQO").text
+    assert 'data-testid="registry-rows"' in page and "referred by Dr Lin" in page and "A1001" not in page
+    assert 'data-pid="' + "ab" * 16 + '"' in page
+    # no row has a status form any more (the drop-down went with D-1221); a status sent is not taken
+    assert "<select" not in page.split('data-testid="registry-rows"')[1].split("</table>")[0]
+    assert box["backend"].registry[("GZQO", "ab" * 16)].status == "candidate"
+    # a note on a row already there, by pseudonym
+    r = c.post(
+        "/pilot/registry/GZQO",
+        data={"csrf": csrf, "pid": "ab" * 16, "status": "contacted", "reason": "called back"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert box["backend"].registry[("GZQO", "ab" * 16)].status == "candidate"
+    assert box["backend"].registry[("GZQO", "ab" * 16)].reason == "called back"
+    # a refusal from the orchestrator comes back on the page, not as a crash
+    r = c.post("/pilot/registry/GZQO", data={"csrf": csrf, "mrn": "nope", "status": "candidate"})
+    assert r.status_code == 422 and 'data-testid="registry-error"' in r.text and "chart number" in r.text
     # promote SCREEN candidates
     r = c.post("/pilot/registry/GZQO/promote", data={"csrf": csrf}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"].endswith("?added=2")
     page = c.get(r.headers["location"]).text
     assert 'data-testid="registry-added"' in page and "2 candidates added" in page and "SCREEN run" in page
-    # D-1221: each row in the person's one state; taken over and nobody has acted on them yet: on the list
+    # D-1221: every row in the person's one state; nobody has acted on them yet: on the list (counted nowhere)
     rows = re.findall(r'<tr data-pid="([0-9a-f]+)".*?data-state="([a-z_]+)"', page, re.S)
-    assert len(rows) == 2 and {s for _, s in rows} == {"listed"}, rows
+    assert len(rows) == 3 and {s for _, s in rows} == {"listed"}, rows
     assert "On the list" in page and 'data-testid="registry-counts-none"' in page
     # the summary page counts them
     page = c.get("/pilot/registry").text
@@ -1427,8 +1449,8 @@ def test_registry_pages_add_promote_export(box: dict[str, Any]) -> None:
     )
     assert c.get("/pilot/registry/BAD").status_code == 400
     events = [e.event for e in read_audit(box["dir"] / "audit")]
-    # promote + export requested (D-273, before the file is built) + export (D-1221: no hand-set status any more)
-    assert events.count("console.registry") == 3
+    # 2 updates + 1 refused update + promote + export requested (D-273, before the file is built) + export
+    assert events.count("console.registry") == 6
     assert verify(box["dir"] / "audit").ok
 
 
@@ -1436,8 +1458,7 @@ def test_viewer_cannot_read_change_or_export_the_registry(box: dict[str, Any]) -
     v, csrf = login(box["app"], "viewer", VIEWER_PW)
     # D-146 (J-04): the registry lists pseudonyms, statuses and reasons: not an aggregate-only account's page
     assert v.get("/pilot/registry").status_code == 403 and v.get("/pilot/registry/GZQO").status_code == 403
-    # D-1221: the hand-set status route is gone for everyone (405); nothing is written either way
-    assert v.post("/pilot/registry/GZQO", data={"csrf": csrf, "mrn": "A1001", "status": "candidate"}).status_code == 405
+    assert v.post("/pilot/registry/GZQO", data={"csrf": csrf, "mrn": "A1001", "status": "candidate"}).status_code == 403
     assert v.post("/pilot/registry/GZQO/promote", data={"csrf": csrf}).status_code == 403
     assert v.get("/pilot/registry/GZQO/export.xlsx").status_code == 403
     assert v.post("/pilot/case", data={"csrf": csrf, "ruleset": "GZQO"}).status_code == 403
@@ -1479,10 +1500,10 @@ def test_coordinator_requests_and_approves_but_does_not_operate(box: dict[str, A
     )
     assert r.status_code == 303
     assert box["backend"].created[-1].requested_by == "crc1@hospa.test"
-    # D-1221 (R10): the registry takes the screening run's candidates (promote); no status is set by hand there
-    r = c.post("/pilot/registry/GZQO/promote", data={"csrf": csrf}, follow_redirects=False)
+    r = c.post(
+        "/pilot/registry/GZQO", data={"csrf": csrf, "mrn": "A1001", "status": "candidate"}, follow_redirects=False
+    )
     assert r.status_code == 303
-    assert c.post("/pilot/registry/GZQO", data={"csrf": csrf, "mrn": "A1001", "status": "candidate"}).status_code == 405
     assert c.post("/ops/ingest", data={"csrf": csrf}).status_code == 403
     assert c.get("/ops/users").status_code == 403
     assert (

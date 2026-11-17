@@ -467,8 +467,14 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         return refresh(svc, rid, nos, who.name)
 
     @r.get("/studies/{rs}/subjects", dependencies=[MONITOR_READ])
-    def get_subjects(rs: str, today: str = "") -> dict[str, Any]:
+    def get_subjects(rs: str, today: str = "", slim: bool = False) -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
+        if slim:  # D-1221: the state only (the console's lists read each person's one state; no visit or consent view)
+            keep = ("record", "pid", "state", "since", "reason", "changed_by", "changed_at")
+            return {
+                "study": rid,
+                "subjects": [{k: s.get(k, "") for k in keep} for s in Lifecycle(svc.dc).subjects(rid)],
+            }
         life, day = Lifecycle(svc.dc), _today(svc, today)
         sched = life.schedule_on(rid, day)
         detail = life.screen_detail(rid)  # D-387: consent, enrolment and the criterion not met, for the screening log

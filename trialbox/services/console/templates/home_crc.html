@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_steps.html" import steps_bar with context %}
-{% from "_person.html" import person_pill, count_strip with context %}
+{% from "_person.html" import person_pill with context %}
 {% from "_life.html" import sae_banner, sae_failed, report_banner, visit_row with context %}
 {% block title %}{{ t('home.studies') }}{% endblock %}
 {% block content %}
@@ -48,7 +48,7 @@
 <section class="card study" data-testid="study-{{ c.id }}">
   <div class="headrow"><h2>{{ c.id }}</h2><span class="hint">v{{ c.version }}</span></div>
   {{ steps_bar(steps, c.step) }}
-  {{ count_strip(c.people_shown, c.people_readable, '/pilot/registry/' + c.id, 'pipeline-' + c.id) }}
+  <div class="pipe" data-testid="pipeline-{{ c.id }}">{% for k in pipeline_keys %}<a href="{{ '/pilot/registry/' + c.id if k != 'found' and k != 'reviewed' else '/studies/' + c.id + '/week?list=all' }}" data-testid="pipeline-{{ c.id }}-{{ k }}"><b>{{ c.pipeline[k] if c.people_readable else '–' }}</b><span>{{ t('wb.pipe.' + k) }}</span></a>{% endfor %}</div>
   <dl class="facts">
     <dt>{{ t('home.feas') }}</dt>
     <dd>{% if c.feas %}

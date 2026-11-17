@@ -339,8 +339,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         return data if isinstance(data, dict) else None
 
     def registry_map(rs: str) -> dict[str, str]:
+        if not console_actor.may_read_any():
+            return {}  # D-1221: an account without patient rows anywhere makes no read it would be refused
         try:
-            return {e.pid: e.status for e in bk.registry_rows(rs)}
+            return {e.pid: e.status for e in ps.registry_rows(h, rs)}  # once per page view (D-1221)
         except Exception:  # a page's account without the right (refused and audited) or a service down: none shown;
             if console_actor.reading_for_a_person():  # the D-717 review: in a mail round a failed read is an error,
                 return {}  # never "no status"
@@ -513,8 +515,9 @@ def register(app: FastAPI, h: Helpers) -> None:
             "id": rs,
             "version": r.version,
             "step": study_step(rs, people),
-            "people": people.counts(),
-            "people_shown": ps.shown_counts(people.counts()),
+            # D-1221: master's funnel (found, PI reviewed, contacted, consented, enrolled; cumulative), fed by the one
+            # state of each person; the opening page's layout changes only behind card J-7's flag
+            "pipeline": ps.funnel(people, [str(w["pid"]) for w in rows]),
             "people_readable": people.readable,
             "tasks": tasks,
             "clinic": clinic,
@@ -562,7 +565,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         phi = sess.user.can_view_phi  # D-280 (CR-023): the administrator's study view carries no patient row
         return h.page(
             request, "home_crc.html", sess, cards=cards, tasks=tasks, clinic=clinic if phi else [], steps=st.STEPS,
-            models=bk.models(), life=h.life_home(sess) if h.life_home and phi else None,
+            pipeline_keys=st.PIPELINE, models=bk.models(), life=h.life_home(sess) if h.life_home and phi else None,
         )  # fmt: skip
 
     def admin_home(request: Request, sess: Session) -> Response:
@@ -813,13 +816,13 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     def study_step(rid: str, people: ps.People | None = None) -> int:
         jobs = bk.list_jobs(limit=500)
-        n = (people or ps.read(h, rid)).counts()  # D-1221: the step follows the same states as the counts
+        n = (people or ps.read(h, rid)).counts()  # D-1221: the step follows the same states as the funnel
         return st.procedure_step(
             approved=any(r.id == rid and r.status == "approved" for r in bk.rulesets()),
             feas_done=st.latest_job(jobs, rid, ("FEAS",)) is not None,
             screen_done=st.latest_job(jobs, rid, SCREEN_TYPES) is not None,
-            contacted=sum(n[k] for k in ps.STATES[ps.STATES.index("contacted") :] if k != "not_approached"),
-            enrolled=n["enrolled"] + n["on_study"] + n["completed"],
+            contacted=ps.reached(n, "contacted"),
+            enrolled=ps.reached(n, "enrolled"),
             waiting=st.latest_job(jobs, rid, ("FEAS", "SCREEN", "COMPILE"), state="awaiting_approval") is not None,
         )
 
@@ -872,6 +875,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             "history": store.mark_history(rid, pid),
             "registry": registry_map(rid).get(pid),
             "person": (listed or {}).get("person") or wk["people"].of(pid),  # D-1221
+            "study_closed": store.study_state(rid).state == "closed",
             "judging": (wk["cl"] or {}).get("judging") or {},
             "marks": MARKS,
             "reasons": settings_of(rid).reasons,
@@ -1300,6 +1304,11 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(404, "notfound")
         if outcome == "undo":
             return undo_outcome(sess, rid, pid, wk["job"].job_id)
+        who = wk["people"].of(pid)  # D-1221 (walk finding F-13): no contact step for a participant, as on the page
+        if not who.contactable:
+            au.append("console.refused", ruleset=rid, actor=h.actor(sess),
+                      detail={"pid": pid, "action": outcome, "reason": f"state {who.name}"})  # fmt: skip
+            raise h.problem(409, "outcome.participant" if who.phase == "participant" else "outcome.state_unknown")
         mk = store.latest_marks(rid).get(pid)
         if mk is None or mk.mark != "approach":
             # D-133 (review F-36): the coordinator calls a patient only after the investigator's "OK to contact";

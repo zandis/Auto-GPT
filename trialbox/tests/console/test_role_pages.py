@@ -397,10 +397,14 @@ def test_worklists_pipeline_and_procedure_step() -> None:
     assert st.met_score(fit) == (17, 23)
     # D-1221: the home card counts each person once, in their one state (console.person_state)
     marks = {r["pid"]: r["mark"] for r in rows if r.get("mark") is not None}
-    entries = [Row(pid="c", status="contacted", updated_at="", updated_by=""),
-               Row(pid="z", status="consented", updated_at="", updated_by="")]  # fmt: skip
-    pipe = ps.gather(registry=entries, marks=marks).counts()
-    assert {k: v for k, v in pipe.items() if v} == {"need_info": 1, "contacted": 1, "consented": 1}
+    # the log's rows were written after the marks ("x"): the newer fact wins (D-1221)
+    entries = [Row(pid="c", status="contacted", updated_at="y", updated_by=""),
+               Row(pid="z", status="consented", updated_at="y", updated_by="")]  # fmt: skip
+    people = ps.gather(registry=entries, marks=marks)
+    assert {k: v for k, v in people.counts().items() if v} == {"need_info": 1, "contacted": 1, "consented": 1}
+    # master's funnel, the same numbers, now fed by the one state of each person
+    pipe = ps.funnel(people, [r["pid"] for r in rows])
+    assert pipe == {"found": 5, "reviewed": 3, "contacted": 2, "consented": 1, "enrolled": 0}
     kw: dict[str, Any] = {
         "approved": True,
         "feas_done": True,
@@ -436,7 +440,7 @@ def test_pi_workbench_selects_marks_and_creates_coordinator_task(box: dict[str, 
     home = crc.get("/home").text
     assert 'data-testid="task-call"' in home and 'data-testid="pipeline-GZQO"' in home
     for lang in ("ja", "zh-TW"):
-        for key in ("wb.task.call", "wb.list.clinic", "steps.weekly", "person.state.consented"):
+        for key in ("wb.task.call", "wb.list.clinic", "steps.weekly", "wb.pipe.consented", "person.state.consented"):
             assert key in CATALOGUES[lang], (lang, key)
 
 

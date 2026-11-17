@@ -413,7 +413,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         except (Problem, Unavailable) as exc:
             err = err_of(exc)
         # D-1221 (review R10): each participant's one state, from the same function as every other list
-        people = ps.read(h, rid, subjects=subs)
+        people = ps.read(h, rid, subjects=subs if err is None else None)
         for s in subs:
             s["person"] = people.of(str(s.get("pid") or "") or f"#{s.get('record')}")
         counts = ps.counts(s["person"] for s in subs)  # one per row: a kept record of an opted-out person too

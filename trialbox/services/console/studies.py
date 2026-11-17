@@ -705,6 +705,7 @@ def paged(rows: Sequence[dict[str, Any]], page: int, size: int = PAGE_SIZE) -> t
     return list(rows[(page - 1) * size : page * size]), page, pages
 
 
+PIPELINE: tuple[str, ...] = ("found", "reviewed", "contacted", "consented", "enrolled")
 STEPS: tuple[str, ...] = ("protocol", "criteria", "feasibility", "weekly", "contact", "enrolled")
 
 

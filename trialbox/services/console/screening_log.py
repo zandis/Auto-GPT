@@ -43,10 +43,7 @@ from console.timefmt import local_date, site_zone
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 SMALL_CELL = 5  # FR-REP-09: the site's small-cell threshold (k) for counts that leave the study team
-#: FR-REP-09: what happened in the year (listed, reviewed by the investigator, given a screening number), then the
-#: people whose state began in the year, by their one state (D-1221: the states of the home card and the registry)
-ACTIVITY_KEYS = ("listed", "reviewed", "approached")
-COUNT_KEYS = (*ACTIVITY_KEYS, *ps.COUNTED)
+COUNT_KEYS = ("listed", "reviewed", "approached", "contacted", "consented", "enrolled", "screen_fail", "declined")
 
 
 _RC_NOTE = re.compile(r"^REDCap record (\S+)(?: \((.*)\))?$")
@@ -155,7 +152,7 @@ def _width(text: str) -> int:
     return sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in text)
 
 
-def printable(wb: Any, lang: str, table: list[list[Any]]) -> Any:
+def printable(wb: Any, lang: str, table: list[list[Any]], states: list[str] | None = None) -> Any:
     """NEW-UX-3 (D-698, UX-003): the screening log as a person reads and prints it, put first in the workbook: the
     headings and the words of the reader's language, dates as dates, the header frozen and printed on every page,
     landscape and one page wide. The machine-readable sheets stay as they are, for the systems that read them."""
@@ -171,10 +168,12 @@ def printable(wb: Any, lang: str, table: list[list[Any]]) -> Any:
     ws.append(heads)
     for cell in ws[1]:
         cell.font = Font(bold=True)
-    for line in table:
+    for n, line in enumerate(table):
         out: list[Any] = []
         for col, v in zip(sponsor.LOG_COLUMNS, line, strict=False):
-            if col in WORDS and isinstance(v, str) and v:
+            if col == "status" and states is not None and n < len(states):
+                out.append(translate(lang, ps.key(states[n])))  # D-1221: the word the page shows, the one state
+            elif col in WORDS and isinstance(v, str) and v:
                 out.append(_word(lang, WORDS[col], v))
             elif col in LISTS and isinstance(v, str) and v:
                 sep = ", " if lang == "en" else "、"
@@ -382,7 +381,9 @@ def register(app: FastAPI, h: Helpers) -> None:
         ws: Any = wb.active
         ws.title = "screening log"
         table: list[list[Any]] = []
+        states: list[str] = []
         for r in log_rows(rid):
+            states.append(r["person"].name)
             mk, oc, rf, ov = r["mark"], r["outcome"], r["referral"], r["override"]
             table.append(
                 [
@@ -439,7 +440,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         ws.append(list(sponsor.LOG_COLUMNS))
         for line in table:
             ws.append(line)
-        printable(wb, sess.lang, table)  # NEW-UX-3 (D-698): the first sheet is the log for people
+        printable(wb, sess.lang, table, states)  # NEW-UX-3 (D-698): the first sheet is the log for people
         pre = wb.create_sheet("pre-screen log")  # D-387 (LIFE-015): one row per investigator mark
         pre.append(["pseudonym", "first_listed", "criteria_version", "pi_mark", "pi_mark_reason", "pi_mark_date",
                     "pi_mark_by", "later", "screening_no", "referral_outcome", "referral_reason", "status",
@@ -523,6 +524,22 @@ def register(app: FastAPI, h: Helpers) -> None:
         )
 
     # ------------------------------------------------------------------ FR-REP-09
+    def office_states(rid: str, year: int) -> dict[str, int]:
+        """The people of ``rid`` whose state began in ``year``, by state. An account that may not read patient rows
+        (the administrator, a viewer) gets the aggregate source, as before (the screening log's own counts by status,
+        D-146, D-280): no patient-level read is attempted for it (D-1221)."""
+        if ps.may_read_rows(rid):
+            people = ps.read(h, rid)
+            if people.readable:
+                return people.in_year(year)
+        out: dict[str, int] = {}
+        for sm in bk.registry_summaries():
+            if sm.ruleset == rid and (sm.updated_at is None or sm.updated_at.year == year):
+                for status, n in sm.counts.items():
+                    name = ps.FROM_REGISTRY.get(status, "")
+                    out[name] = out.get(name, 0) + int(n)
+        return out
+
     def office_counts(year: int, k: int) -> list[dict[str, Any]]:
         out = []
         for info in bk.rulesets():
@@ -538,16 +555,14 @@ def register(app: FastAPI, h: Helpers) -> None:
                 "reviewed": len({m.pid for m in marks if m.at.startswith(y) and m.mark != "withdrawn"}),
                 "approached": sum(1 for _p, _n, a in nos if a.startswith(y)),
             }
-            # D-1221 (review B-2): the people by their one state, read as the home card and the registry read them;
-            # a state this reader may not read is unknown ("–"), never 0 (CR-010)
-            people = ps.read(h, rid)
-            in_year = people.in_year(year)
-            states: dict[str, int | None] = {s: in_year[s] if people.readable else None for s in ps.COUNTED}
-            if not any(counts.values()) and not any(states.values()):
+            # D-1221 (review B-2): how far people came, by the one state of each (whose state began in the year),
+            # cumulative as before: contacted = contacted or further, consented = consented or further (REACHED)
+            yr = office_states(rid, year)
+            counts.update({s: ps.reached(yr, s) for s in ("contacted", "consented", "enrolled")},
+                          screen_fail=yr.get("screen_fail", 0), declined=yr.get("declined", 0))  # fmt: skip
+            if not any(counts.values()):
                 continue
-            shown = {c: suppress(n, k) for c, n in counts.items()} | {
-                s: "–" if n is None else suppress(n, k) for s, n in states.items()}  # fmt: skip
-            out.append({"study": rid, "kind": info.kind or "trial", **shown})
+            out.append({"study": rid, "kind": info.kind or "trial", **{c: suppress(counts[c], k) for c in COUNT_KEYS}})
         return out
 
     def office_allowed(sess: Session) -> bool:
@@ -560,8 +575,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(403, "forbidden")
         y = year or h.today().year  # the site's year (D-270)
         k = SMALL_CELL
-        return h.page(request, "research_office.html", sess, year=y, rows=office_counts(y, k), keys=COUNT_KEYS,
-                      activity=ACTIVITY_KEYS, small=k)  # fmt: skip
+        return h.page(request, "research_office.html", sess, year=y, rows=office_counts(y, k), keys=COUNT_KEYS, small=k)
 
     @app.get("/reports/research-office.xlsx")
     def research_office_xlsx(request: Request, year: int = 0) -> Response:

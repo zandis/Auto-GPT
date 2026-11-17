@@ -14,6 +14,8 @@ from orchestrator.candidates import STATUSES
 
 TODAY = date(2026, 11, 17)
 
+T1, T2, T3, T4 = "2026-11-01T09:00:00", "2026-11-02T09:00:00", "2026-11-03T09:00:00", "2026-11-04T09:00:00"
+
 # (facts, the state, where it came from)
 CASES: list[tuple[dict[str, str], str, str]] = [
     ({}, "listed", "list"),
@@ -22,36 +24,108 @@ CASES: list[tuple[dict[str, str], str, str]] = [
     ({"mark": "need_info"}, "need_info", "mark"),
     ({"mark": "not_suitable"}, "set_aside", "mark"),
     ({"mark": "not_now", "recheck": "2026-12-01"}, "set_aside", "mark"),
-    ({"mark": "not_now", "recheck": "2026-11-17"}, "listed", "list"),  # the re-check day has come: back on the list
+    ({"mark": "not_now", "recheck": "2026-11-17"}, "listed", "mark"),  # the re-check day has come: back on the list
     ({"mark": "approach"}, "to_contact", "mark"),  # F-05: approved, nobody has called yet
     ({"mark": "approach", "registry": "candidate"}, "to_contact", "mark"),
-    ({"mark": "approach", "outcome": "not_reached"}, "to_contact", "outcome"),
-    ({"mark": "approach", "outcome": "not_approached"}, "not_approached", "outcome"),
-    ({"mark": "approach", "outcome": "reached_booked", "registry": "contacted"}, "contacted", "registry"),
-    ({"mark": "approach", "outcome": "reached_declined", "registry": "declined"}, "declined", "registry"),
-    ({"mark": "approach", "outcome": "lost_contact", "registry": "screen_fail"}, "screen_fail", "registry"),
+    ({"mark": "approach", "mark_at": T1, "outcome": "not_reached", "outcome_at": T2}, "to_contact", "outcome"),
+    ({"mark": "approach", "mark_at": T1, "outcome": "not_approached", "outcome_at": T2}, "not_approached", "outcome"),
+    (
+        {
+            "mark": "approach",
+            "mark_at": T1,
+            "outcome": "reached_booked",
+            "outcome_at": T2,
+            "registry": "contacted",
+            "registry_at": T2,
+        },
+        "contacted",
+        "registry",
+    ),
+    (
+        {
+            "mark": "approach",
+            "mark_at": T1,
+            "outcome": "reached_declined",
+            "outcome_at": T2,
+            "registry": "declined",
+            "registry_at": T2,
+        },
+        "declined",
+        "registry",
+    ),
     # a contact outcome whose screening-log write did not land still names the person's state
-    ({"mark": "approach", "outcome": "reached_declined"}, "declined", "outcome"),
-    # the later outcome closes a contact the log still calls contacted
-    ({"registry": "contacted", "outcome": "not_approached"}, "not_approached", "outcome"),
-    ({"registry": "contacted", "life": "approached"}, "contacted", "participant"),
-    # the participant record is further along: it wins over the log and over the mark
-    ({"mark": "approach", "registry": "contacted", "life": "consented"}, "consented", "participant"),
-    ({"registry": "consented", "life": "enrolled"}, "enrolled", "participant"),
-    ({"registry": "enrolled", "life": "on_study"}, "on_study", "participant"),
-    ({"registry": "enrolled", "life": "completed"}, "completed", "participant"),
-    # the log is further along (the REDCap read-back): the record takes it at its next refresh
-    ({"registry": "consented", "life": "approached"}, "consented", "registry"),
-    ({"registry": "enrolled", "life": "consented"}, "enrolled", "registry"),
-    # B-2: the log says consented, the participant record withdrawn: the record's end state wins
-    ({"registry": "consented", "life": "withdrawn"}, "withdrawn", "participant"),
-    ({"registry": "enrolled", "life": "screen_fail"}, "screen_fail", "participant"),
+    ({"mark": "approach", "mark_at": T1, "outcome": "reached_declined", "outcome_at": T2}, "declined", "outcome"),
+    # the later outcome closes a contact the log called contacted before it
+    (
+        {"registry": "contacted", "registry_at": T1, "outcome": "not_approached", "outcome_at": T2},
+        "not_approached",
+        "outcome",
+    ),
+    ({"registry": "contacted", "life": "approached"}, "contacted", "participant"),  # a tie: the participant record
+    # from consent on, the record is the state; the newer of the participant record and the log
+    (
+        {"mark": "approach", "registry": "contacted", "registry_at": T1, "life": "consented", "life_at": T2},
+        "consented",
+        "participant",
+    ),
+    ({"registry": "consented", "registry_at": T1, "life": "enrolled", "life_at": T2}, "enrolled", "participant"),
+    ({"registry": "enrolled", "registry_at": T1, "life": "on_study", "life_at": T2}, "on_study", "participant"),
+    # the log is newer (the REDCap read-back): the record takes it at its next refresh
+    ({"registry": "consented", "registry_at": T2, "life": "approached", "life_at": T1}, "consented", "registry"),
+    ({"registry": "enrolled", "registry_at": T2, "life": "consented", "life_at": T1}, "enrolled", "registry"),
+    # B-2: the log said consented, the participant record withdrew later
+    ({"registry": "consented", "registry_at": T1, "life": "withdrawn", "life_at": T2}, "withdrawn", "participant"),
     ({"life": "screen_fail", "life_reason": "declined"}, "declined", "participant"),
-    # an end state on the log wins over a participant record not yet at an end
-    ({"registry": "withdrawn", "life": "on_study"}, "withdrawn", "registry"),
-    ({"registry": "declined", "life": "approached"}, "declined", "registry"),
-    # a set-aside mark never hides what the log says happened
-    ({"mark": "not_suitable", "registry": "contacted"}, "contacted", "registry"),
+    # review of J-2: an old hand-set end state on the log never beats a later participant step
+    ({"registry": "withdrawn", "registry_at": T1, "life": "consented", "life_at": T2}, "consented", "participant"),
+    ({"registry": "declined", "registry_at": T1, "life": "consented", "life_at": T2}, "consented", "participant"),
+    # a set-aside mark never hides what the log says happened after it
+    ({"mark": "not_suitable", "mark_at": T1, "registry": "contacted", "registry_at": T2}, "contacted", "registry"),
+    # S1: approached, not reached, then the investigator sets the person aside or takes the mark back
+    ({"mark": "not_suitable", "mark_at": T3, "outcome": "not_reached", "outcome_at": T2}, "set_aside", "mark"),
+    ({"mark": "withdrawn", "mark_at": T3, "outcome": "not_reached", "outcome_at": T2}, "listed", "mark"),
+    # A: not approached, then the investigator marks Approach again: to contact again
+    ({"mark": "approach", "mark_at": T3, "outcome": "not_approached", "outcome_at": T2}, "to_contact", "mark"),
+    # B: declined, then contacted again on the log
+    (
+        {"outcome": "reached_declined", "outcome_at": T1, "registry": "contacted", "registry_at": T2},
+        "contacted",
+        "registry",
+    ),
+    # C: lost contact, then a later fact (reached and booked)
+    (
+        {"outcome": "reached_booked", "outcome_at": T3, "registry": "screen_fail", "registry_at": T2},
+        "contacted",
+        "outcome",
+    ),
+    # D: declined, the record screen-failed, then the coordinator undoes the step on the participant page
+    (
+        {
+            "outcome": "reached_declined",
+            "outcome_at": T1,
+            "registry": "declined",
+            "registry_at": T1,
+            "life": "approached",
+            "life_at": T4,
+        },
+        "contacted",
+        "participant",
+    ),
+    # D, undone to the start: the log set back after the outcome wrote it; the Approach in force speaks again
+    (
+        {
+            "mark": "approach",
+            "mark_at": T1,
+            "outcome": "reached_declined",
+            "outcome_at": T2,
+            "registry": "candidate",
+            "registry_at": T3,
+            "life": "candidate",
+            "life_at": T3,
+        },
+        "to_contact",
+        "mark",
+    ),
 ]
 
 
@@ -85,8 +159,27 @@ def test_phase_and_contact_step() -> None:
     for life in ("consented", "enrolled", "on_study", "completed", "withdrawn"):
         s = ps.state_of(ps.Facts(life=life))
         assert s.phase == "participant" and not s.contactable, life  # F-13: no contact step for a participant
-    for reg in ("declined", "screen_fail"):
-        assert not ps.state_of(ps.Facts(registry=reg)).contactable
+    for reg in ("declined", "screen_fail"):  # the review: a candidate the study has finished with keeps the panel
+        assert ps.state_of(ps.Facts(registry=reg)).contactable
+    # the facts could not be read: unknown, never on the list, never contactable, counted nowhere
+    people = ps.People({"a": ps.Facts(mark="approach")}, TODAY, readable=False)
+    assert people.of("a").name == ps.UNKNOWN and not people.of("a").contactable
+    assert ps.shown_counts(people.counts()) == []
+    for cat in CATALOGUES.values():
+        assert cat[ps.key(ps.UNKNOWN)] and cat["outcome.participant"] and cat["outcome.state_unknown"]
+
+
+def test_the_latest_record_of_a_pseudonym_is_kept_and_the_funnel_reconciles() -> None:
+    subs = [{"pid": "a", "record": "X-0002", "state": "withdrawn", "changed_at": T3},
+            {"pid": "a", "record": "X-0001", "state": "consented", "changed_at": T1}]  # fmt: skip
+    people = ps.gather(subjects=subs, registry=[Row(pid="b", status="enrolled", updated_at=T2, updated_by="")])
+    assert people.of("a").name == "withdrawn" and people.of("a").record == "X-0002"
+    c = people.counts()
+    f = ps.funnel(people, ["a", "b", "c"])
+    # the written definition (D-1221): consented-or-further on the home card = the participant states on the registry
+    assert f["consented"] == sum(c[s] for s in ps.PARTICIPANT) == 2
+    assert f["enrolled"] == c["enrolled"] + c["on_study"] + c["completed"] == 1
+    assert f["found"] == 3 and f["contacted"] == 2
 
 
 def test_a_study_gathered_from_its_four_sources_and_counted_once() -> None:

@@ -27,6 +27,11 @@ EN: dict[str, str] = {
     "person.counts.unread": "The state of this study's people could not be read for your account.",
     "person.col.state": "State",
     "person.col.since": "Since",
+    "person.state.unknown": "State unknown",
+    "outcome.participant": "Not recorded: this person has consented and is a participant. Contact outcomes are for "
+    "candidates; record the participant's steps on the participant's page.",
+    "outcome.state_unknown": "Not recorded: this person's state could not be read just now, so no contact step is "
+    "taken. Try again in a moment.",
     "person.no_contact": "No contact step: this person is {state}.",
 }
 
@@ -49,6 +54,11 @@ JA: dict[str, str] = {
     "person.counts.unread": "このアカウントでは、この試験の人の状態を読めませんでした。",
     "person.col.state": "状態",
     "person.col.since": "この状態になった日",
+    "person.state.unknown": "状態不明",
+    "outcome.participant": "記録していません：この人は同意済みの参加者です。連絡結果は候補者のためのものです。"
+    "参加者の手順は参加者のページで記録してください。",
+    "outcome.state_unknown": "記録していません：いまこの人の状態を読めなかったため、連絡の記録はしません。"
+    "少し待ってからもう一度試してください。",
     "person.no_contact": "連絡の記録はありません：この人は「{state}」です。",
 }
 
@@ -71,6 +81,9 @@ ZH: dict[str, str] = {
     "person.counts.unread": "您的帳號無法讀取此試驗人員的狀態。",
     "person.col.state": "狀態",
     "person.col.since": "起始日",
+    "person.state.unknown": "狀態不明",
+    "outcome.participant": "未記錄：此人已同意，是受試者。聯絡結果只用於候選者；受試者的步驟請在受試者頁面記錄。",
+    "outcome.state_unknown": "未記錄：目前無法讀取此人的狀態，因此不記錄聯絡。請稍後再試。",
     "person.no_contact": "不需聯絡步驟：此人目前為「{state}」。",
 }
 

@@ -964,6 +964,11 @@ EN.update(
         "wb.clinic.help": "Candidates with a visit in the next 14 days.",
         "wb.clinic.none": "No candidate has a visit in the next 14 days.",
         "wb.prepare": "check:",
+        "wb.pipe.found": "Found",
+        "wb.pipe.reviewed": "PI reviewed",
+        "wb.pipe.contacted": "Contacted",
+        "wb.pipe.consented": "Consented",
+        "wb.pipe.enrolled": "Enrolled",
     }
 )
 JA.update(
@@ -1033,6 +1038,11 @@ JA.update(
         "wb.clinic.help": "14日以内に受診予定の候補患者。",
         "wb.clinic.none": "14日以内に受診予定の候補患者はいません。",
         "wb.prepare": "確認：",
+        "wb.pipe.found": "抽出",
+        "wb.pipe.reviewed": "医師確認",
+        "wb.pipe.contacted": "連絡済み",
+        "wb.pipe.consented": "同意取得",
+        "wb.pipe.enrolled": "登録",
     }
 )
 ZH.update(
@@ -1102,6 +1112,11 @@ ZH.update(
         "wb.clinic.help": "14 天內有門診的候選病人。",
         "wb.clinic.none": "14 天內沒有候選病人的門診。",
         "wb.prepare": "確認：",
+        "wb.pipe.found": "找到",
+        "wb.pipe.reviewed": "主持人已審閱",
+        "wb.pipe.contacted": "已聯絡",
+        "wb.pipe.consented": "已同意",
+        "wb.pipe.enrolled": "已收案",
     }
 )
 

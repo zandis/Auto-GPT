@@ -7,8 +7,7 @@
 <p><a href="?year={{ year - 1 }}">← {{ year - 1 }}</a> · <a href="?year={{ year + 1 }}">{{ year + 1 }} →</a></p>
 <section class="card">{% if not rows %}<p class="empty">{{ t('office.empty') }}</p>{% else %}
 <div class="scroll" tabindex="0"><table class="candidates" data-testid="office">
-{# D-1221 (review R10): after the year's activity, the people whose state began in the year, by their one state #}
-<thead><tr><th>{{ t('office.study') }}</th>{% for k in keys %}<th>{{ t('office.' + k) if k in activity else t('person.state.' + k) }}</th>{% endfor %}</tr></thead>
-<tbody>{% for r in rows %}<tr data-testid="office-{{ r.study }}"><td>{{ r.study }}</td>{% for k in keys %}<td class="num" data-key="{{ k }}">{{ r[k] }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div>{% endif %}
+<thead><tr><th>{{ t('office.study') }}</th>{% for k in keys %}<th>{{ t('office.' + k) }}</th>{% endfor %}</tr></thead>
+<tbody>{% for r in rows %}<tr><td>{{ r.study }}</td>{% for k in keys %}<td class="num">{{ r[k] }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div>{% endif %}
 </section>
 {% endblock %}

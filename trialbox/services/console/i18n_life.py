@@ -9,7 +9,7 @@ from __future__ import annotations
 
 EN: dict[str, str] = {
     "life.subjects.title": "Participants",
-    "life.subjects.help": "Every screening number of this study and where the person is now: candidate, approached, consented, enrolled, on study, completed, withdrawn or screen failure. TrialBox follows the forms (consent, enrolment, visits, withdrawal) and the screening log; you can also record a step here.",
+    "life.subjects.help": "Every screening number of this study and where the person is now, in the words of every list: on the list, contacted, consented, enrolled, on study, completed, withdrawn, declined or screen failure. TrialBox follows the forms (consent, enrolment, visits, withdrawal) and the screening log; a step is recorded or undone on the participant's page, which is also where a wrong state is corrected.",
     "life.subjects.none": "No participant yet. A patient becomes one when they get a screening number.",
     "life.subjects.open": "Open",
     "life.go.approached": "Told about the study",
@@ -215,7 +215,7 @@ EN: dict[str, str] = {
 
 JA: dict[str, str] = {
     "life.subjects.title": "被験者",
-    "life.subjects.help": "この試験のスクリーニング番号ごとの現在の段階です：候補、声かけ済み、同意取得、登録、試験参加中、試験終了、中止、スクリーニング不適格。TrialBox はフォーム（同意、登録、来院、中止）とスクリーニングログから段階を進めます。ここで記録することもできます。",
+    "life.subjects.help": "この試験のスクリーニング番号ごとの現在の段階です（どの一覧とも同じ言葉）：リスト掲載、連絡済み、同意取得、登録、試験参加中、試験終了、中止、辞退、スクリーニング不適格。TrialBox はフォーム（同意、登録、来院、中止）とスクリーニングログから段階を進めます。手順の記録と取り消しは参加者のページで行い、誤った状態もそこで直します。",
     "life.subjects.none": "被験者はまだいません。スクリーニング番号を付けると被験者として表示されます。",
     "life.subjects.open": "開く",
     "life.go.approached": "試験について説明した",
@@ -421,7 +421,7 @@ JA: dict[str, str] = {
 
 ZH: dict[str, str] = {
     "life.subjects.title": "受試者",
-    "life.subjects.help": "本試驗每個篩選編號目前的階段：候選、已邀請、已同意、已收案、試驗進行中、已完成試驗、退出或篩選失敗。TrialBox 依表單（同意、收案、訪視、退出）與篩選紀錄更新階段；您也可以在此記錄。",
+    "life.subjects.help": "本試驗每個篩選編號目前的階段（與所有清單相同的用語）：在名單上、已聯絡、已同意、已收案、試驗進行中、已完成試驗、退出、婉拒或篩選失敗。TrialBox 依表單（同意、收案、訪視、退出）與篩選紀錄更新階段；步驟在受試者頁面記錄或復原，錯誤的狀態也在那裡修正。",
     "life.subjects.none": "尚無受試者。病人取得篩選編號後即會列出。",
     "life.subjects.open": "開啟",
     "life.go.approached": "已說明試驗",
