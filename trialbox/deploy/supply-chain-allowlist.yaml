@@ -535,13 +535,6 @@ licences:
 # Licence budgets: open licence flags counted per image and ecosystem (tools/supply_chain/licences.py evaluate). A
 # count above its budget fails, so every new component is reviewed; when a count drops, lower the budget.
 budgets:
-  # trialbox-postgres (T-110b): gosu and its Go modules in the postgres:16-trixie base, Syft reads no licence from a
-  # Go binary (gosu is Apache-2.0, its modules BSD-3-Clause and Apache-2.0)
-  - image: trialbox-postgres
-    ecosystem: golang
-    max: 3
-    reason: gosu and its Go modules from the official postgres base image, counted because Go binaries carry no licence data
-    review_by: 2027-02-01
   # trialbox-backup (PERF-010, D-968): restic and its Go modules, built from source in the nightly backup's own image.
   # The owner's yes of 2026-11-16 (D-1038) is for this licence count only, at most 86; it is no vulnerability waiver.
   - image: trialbox-backup

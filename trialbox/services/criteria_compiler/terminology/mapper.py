@@ -192,6 +192,12 @@ SITE_DOMAIN_SYSTEMS: dict[str, tuple[str, ...]] = {
     "encounter": ("department",),
     "claim": ("nhi_drug",),
 }
+# H-17 review (D-1127): an NHI service or order item is one billing item (inpatient or outpatient, with or without
+# contrast), which may be narrower than the trial's word: an answer from it always goes to a person, as TERM-2's class B
+# rule has it for an answer that may be narrower than the word asks for. The note of an answer from a table shipped in
+# the image (not loaded at install) starts with this
+_ALWAYS_REVIEWED = frozenset({"nhi_service_list"})
+_SHIPPED_NOTE = "shipped NHI table"
 # LOINC's specimens a lab named without one is read from (a component's codes in blood, serum or plasma)
 _LOINC_BLOOD = frozenset({"bld", "blda", "bldc", "bldv", "plas", "ser", "ser/plas", "ser/plas/bld"})
 
@@ -586,6 +592,8 @@ class Terminology:
         self.loaded_codes: set[tuple[str, str]] = set()  # every code of a loaded table (a site code is checked here)
         self.who_categories: dict[str, list[Concept]] = {}  # a WHO ICD-10 category -> its codes, when loaded
         have = sorted(p.stem for p in where.glob("*.parquet")) if where.is_dir() else []
+        # H-17 (D-1127): the NHI open data shipped in the image answers when the box loaded none of its own
+        shipped = {n for n in inst.SHIPPABLE if n not in have and (inst.SHIPPED_DIR / f"{n}.parquet").is_file()}
         try:  # E-TERM-3 (D-1048): a site list whose line stays while its file is gone was not removed on purpose
             lines = inst.manifest(where)["tables"] if where.is_dir() else {}
         except inst.TerminologyRefused:
@@ -596,23 +604,27 @@ class Terminology:
                 "it with python -m tools.terminology_install remove-site-list")})  # fmt: skip
         order = [n for n in have if n.startswith(inst.SITE_PREFIX)] + [
             n for n in (inst.ATC_INDEX, inst.NHI_DRUGS, inst.NHI_SERVICES, inst.ICD_PCS, inst.LOINC_TABLE,
-                        inst.ICD10_WHO) if n in have]  # fmt: skip
+                        inst.ICD10_WHO) if n in have or n in shipped]  # fmt: skip
         exact: list[_Entry] = []
         loose: list[_Entry] = []
         for table in order:
+            src = inst.SHIPPED_DIR if table in shipped else where
             try:
-                rows = inst.read_loaded(where, table)
+                rows = inst.read_loaded(src, table)
             except inst.TerminologyRefused as exc:
                 self._term2_refused.append({"table": table, "system": table_system(table), "reason": str(exc)})
                 continue
             if rows is None:
                 continue
-            self.loaded_sources[table] = str(inst.manifest(where)["tables"][table].get("version") or "installed")
-            self._read_installed(inst, where, table, rows)
+            self.loaded_sources[table] = str(inst.manifest(src)["tables"][table].get("version") or "installed")
+            self._read_installed(inst, src, table, rows)
             if table.startswith(inst.SITE_PREFIX):
                 self._index_site(table, rows)
             else:
                 e, lo = self._index_loaded(inst, table, rows)
+                if table in shipped:  # H-17 review (D-1127): the answer says it came from the image's table
+                    said = f"{_SHIPPED_NOTE} {self.loaded_sources[table]}: "
+                    e, lo = [(*x[:5], said + x[5]) for x in e], [(*x[:5], said + x[5]) for x in lo]
                 exact += e
                 loose += lo
         self._merge(exact, False)
@@ -652,8 +664,9 @@ class Terminology:
             several = len(rowsets) > 1
             text = first_note + ("; several codes share this name" if several else "")
             text += f"; also in {', '.join(others)}" if others else ""
-            self.loaded_names.setdefault(domain, {})[key] = (_dedupe(found), frozenset(families),
-                                                             loose or several or bool(others), text)  # fmt: skip
+            review = loose or several or bool(others) or first in _ALWAYS_REVIEWED
+            self.loaded_names.setdefault(domain, {})[key] = (_dedupe(found), frozenset(families), review,
+                                                             text)  # fmt: skip
 
     def _index_site(self, table: str, rows: list[dict[str, Any]]) -> None:
         mine: dict[tuple[str, str], list[Concept]] = {}
@@ -708,7 +721,9 @@ class Terminology:
                 self.loaded_codes.add((LOADED_SYSTEMS["nhi_drug"], str(r["nhi_code"])))
                 ing = _ingredient(str(r.get("ingredient") or ""))
                 atc = str(r.get("atc") or "")
-                if ing and len(atc) == 7 and not ended(r):
+                # H-17 review (D-1127): NHIA names one ingredient in 成分 for some 複方 (combination) products; such
+                # a row never answers for that ingredient (a table without the column, TERM-2's, is read as before)
+                if ing and len(atc) == 7 and not ended(r) and str(r.get("kind") or "") != "複方":
                     c = self.concept(uri, atc) or Concept(uri, atc, ing)
                     note = f"NHI drug list ingredient ({table})"
                     loose += [("medication", k, [c], frozenset(), table, note) for k in _name_keys(ing)]
@@ -813,7 +828,8 @@ class Terminology:
             got = self.loaded_names.get(domain, {}).get(key)
             if got is not None:
                 concepts, fams, review, note = got
-                return MappingResult(name, domain, _dedupe(concepts), "loaded", review, [f"loaded at install: {note}"],
+                said = note if note.startswith(_SHIPPED_NOTE) else f"loaded at install: {note}"
+                return MappingResult(name, domain, _dedupe(concepts), "loaded", review, [said],
                                      families=sorted(fams))  # fmt: skip
         return None
 

@@ -1,0 +1,22 @@
+診療項目代碼,健保支付點數,生效起日,生效迄日,英文項目名稱,中文項目名稱,備註
+ZZ901C,100,20200101,29101231,Hemodialysis,合成血液透析（一次）- 門診,SYNTHETIC row
+ZZ902B,100,20200101,29101231,Hemodialysis,合成血液透析（一次）- 住院,"SYNTHETIC row
+第二行: a note over two lines"
+ZZ903C,50,20150101,20191231,Bronchoscopy,合成支氣管鏡檢查,"SYNTHETIC row, first period"
+ZZ903C,60,20200101,29101231,Bronchoscopy,合成支氣管鏡檢查,"SYNTHETIC row, newest period"
+ZZ904C,70,20100101,20201231,Colonoscopy,合成大腸鏡檢查,SYNTHETIC row: ended 2020
+ZZ905C,10,20200101,29101231,Acupuncture,合成針灸,SYNTHETIC row
+ZZ906B,300,20200101,29101231,Mechanical ventilation,合成呼吸器使用,SYNTHETIC row
+ZZ907C,20,1050101,1991231,SYNTHETIC item in ROC dates,合成項目民國日期,SYNTHETIC row
+ZZ911C,10,20200101,29101231,SYNTHETIC service item 1,合成診療項目1,
+ZZ912C,20,20200101,29101231,SYNTHETIC service item 2,合成診療項目2,
+ZZ913C,30,20200101,29101231,SYNTHETIC service item 3,合成診療項目3,
+ZZ914C,40,20200101,29101231,SYNTHETIC service item 4,合成診療項目4,
+ZZ915C,50,20200101,29101231,SYNTHETIC service item 5,合成診療項目5,
+ZZ916C,60,20200101,29101231,SYNTHETIC service item 6,合成診療項目6,
+ZZ917C,70,20200101,29101231,SYNTHETIC service item 7,合成診療項目7,
+ZZ918C,80,20200101,29101231,SYNTHETIC service item 8,合成診療項目8,
+ZZ919C,90,20200101,29101231,SYNTHETIC service item 9,合成診療項目9,
+ZZ920C,100,20200101,29101231,SYNTHETIC service item 10,合成診療項目10,
+ZZ921C,110,20200101,29101231,SYNTHETIC service item 11,合成診療項目11,
+ZZ922C,120,20200101,29101231,SYNTHETIC service item 12,合成診療項目12,
