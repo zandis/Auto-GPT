@@ -29,8 +29,9 @@ own (and on a box without a GPU), safety, monitoring and an amendment.
    `JA`) with H-10's steps 1 to 11 and H-20's 12 to 15, imported from H-20's plan, not copied; a fast test holds them
    equal. Feasibility walks the seeded study `AD-MAB` (approved criteria, no report) and monitoring the seeded study
    `GZQO` with the seeded CRO account `cra` (named for it), each language adding its own monitoring visit.
-3. **Feasibility on a box without a GPU.** The no-GPU product form of D-1066 is lane D's second card and is not on
-   master. The walk is the feasibility user's path on the box master has (the stub model) and stops, as a finding of
+3. **Feasibility on a box without a GPU.** Lane D's D-998 pins the embedder on a PRODUCTION box installed with
+   `--mode stub` and says in RUNBOOK §1 what such a box does; a steps-mode box is not such an install. The walk is
+   the feasibility user's path on the box master has (the stub model) and stops, as a finding of
    lane D, where the box would have to say what it cannot do without a GPU.
 4. **One driver.** The browser is H-20's driver, `tests/e2e/life_cycle_walk.js`. It gains a small exported extension
    point: `extend({acts, holds})` registers extra act and expectation kinds, which the driver's two `default:`

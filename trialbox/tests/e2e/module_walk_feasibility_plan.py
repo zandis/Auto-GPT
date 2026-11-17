@@ -1,8 +1,9 @@
 """H-29 (D-1103): the feasibility walk. Feasibility alone, as a box without a GPU would do it (D-1066: a PRODUCTION
 box without a GPU is a product form that does feasibility and the structured criteria; note criteria wait for a GPU).
 
-The no-GPU form is lane D's second card and is not on master: the box the walk starts is the steps-mode box (the stub
-model). So the walk is what a feasibility user does on the box master has, on a study the box seeds with approved
+Lane D's second card (D-998) made the installer pin the embedder on a PRODUCTION box installed with ``--mode stub``
+and RUNBOOK §1 say what such a box does; the box the walk starts is the steps-mode box (the stub model), not such an
+install. So the walk is what a feasibility user does on the box master has, on a study the box seeds with approved
 criteria and no feasibility report (``AD-MAB``), and it stops where the box would have to say what it cannot do:
 
 1. the coordinator signs in and chooses the page language;
@@ -163,9 +164,9 @@ FINDINGS: tuple[Finding, ...] = (
         "coordinator",
         "/pilot/request",
         "stop",
-        'New request offers "Find candidates for the next visits" (SCREEN) and the plain-words field "goes to the conversation engine"; nothing on the box says that note criteria, screening and the engine need a GPU. Master has no no-GPU form: the steps-mode box runs the stub model, so SCREEN runs here',
+        'New request offers "Find candidates for the next visits" (SCREEN) and the plain-words field "goes to the conversation engine"; nothing on the box\'s pages says that note criteria, screening and the engine need a GPU (RUNBOOK §1 says it, D-998; the pages are unchanged). The steps-mode box runs the stub model, so SCREEN runs here',
         "on a box without a GPU, the pages say what waits for a GPU (note criteria, SCREEN, the engine) and do not offer it as if it ran",
-        'D-1066 ruling 1; `deploy/install.sh` --mode stub ("note criteria wait for a GPU"); lane D\'s second card',
+        'D-1066 ruling 1; `deploy/install.sh` --mode stub ("note criteria wait for a GPU"); D-998 (RUNBOOK §1: what a box without a GPU does and does not do)',
         "blocks the step",
         "D",
     ),
@@ -175,9 +176,8 @@ NOT_COMPLETED: tuple[tuple[int, str, str], ...] = (
     (
         7,
         "what a box without a GPU says it cannot do (D-1066)",
-        "the no-GPU product form (lane D's second card after D-1066: the installer pins the embedder in stub mode; "
-        "the bundle carries its weights; the box plan and the runbook say what a no-GPU box does). The steps-mode box "
-        "runs the stub model, so note criteria and SCREEN run on it",
+        "a PRODUCTION box installed with `--mode stub` (D-998: the embedder pinned on the CPU from the bundle, no "
+        "model for the notes). The steps-mode box runs the stub model, so note criteria and SCREEN run on it",
     ),
 )
 

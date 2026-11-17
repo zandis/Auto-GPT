@@ -9,8 +9,9 @@ mode off, the stub model, the synthetic hospital and `--day data`. Each step is 
 permission matrix (`libs/tb_common/authz_matrix.yaml`), in en, zh-TW and ja, and every role boundary is checked by a
 refusal: a real request carrying the page's own form token, answered 403 with the refusal page. The four walks:
 
-1. **Feasibility alone** (D-1066): what a feasibility user does on a box without a GPU. The no-GPU product form is
-   lane D's second card and is not on master, so the walk is on the box master has (the stub model), on the seeded
+1. **Feasibility alone** (D-1066): what a feasibility user does on a box without a GPU. Lane D's D-998 pins the
+   embedder on a PRODUCTION box installed with `--mode stub` and RUNBOOK §1 says what such a box does; a steps-mode
+   box is not such an install, so the walk is on the box master has (the stub model), on the seeded
    study `AD-MAB`, and stops where the box would have to say what it cannot do.
 2. **Safety**: a serious adverse event from the report, through D-415's SAE-type gate and the PI's acknowledgement,
    to the notice the box records. A new study per language, from H-20's steps 1 to 15.
@@ -68,13 +69,13 @@ Roles: coordinator, investigator, viewer, cro, steward. Study: the seeded study 
 
 | Id | Step | Role | Page | Clicks | What a tester would have had to guess | Expected (from) | Severity | Lane |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| FEA-01 | 7 | coordinator | `/pilot/request` | 2 | New request offers "Find candidates for the next visits" (SCREEN) and the plain-words field "goes to the conversation engine"; nothing on the box says that note criteria, screening and the engine need a GPU. Master has no no-GPU form: the steps-mode box runs the stub model, so SCREEN runs here | on a box without a GPU, the pages say what waits for a GPU (note criteria, SCREEN, the engine) and do not offer it as if it ran (D-1066 ruling 1; `deploy/install.sh` --mode stub ("note criteria wait for a GPU"); lane D's second card) | blocks the step | D |
+| FEA-01 | 7 | coordinator | `/pilot/request` | 2 | New request offers "Find candidates for the next visits" (SCREEN) and the plain-words field "goes to the conversation engine"; nothing on the box's pages says that note criteria, screening and the engine need a GPU (RUNBOOK §1 says it, D-998; the pages are unchanged). The steps-mode box runs the stub model, so SCREEN runs here | on a box without a GPU, the pages say what waits for a GPU (note criteria, SCREEN, the engine) and do not offer it as if it ran (D-1066 ruling 1; `deploy/install.sh` --mode stub ("note criteria wait for a GPU"); D-998 (RUNBOOK §1: what a box without a GPU does and does not do)) | blocks the step | D |
 
 #### Feasibility: cannot complete on a steps-mode box
 
 | Step | What | What the product needs that the box does not have |
 | --- | --- | --- |
-| 7 | what a box without a GPU says it cannot do (D-1066) | the no-GPU product form (lane D's second card after D-1066: the installer pins the embedder in stub mode; the bundle carries its weights; the box plan and the runbook say what a no-GPU box does). The steps-mode box runs the stub model, so note criteria and SCREEN run on it |
+| 7 | what a box without a GPU says it cannot do (D-1066) | a PRODUCTION box installed with `--mode stub` (D-998: the embedder pinned on the CPU from the bundle, no model for the notes). The steps-mode box runs the stub model, so note criteria and SCREEN run on it |
 
 ### Safety: a serious adverse event from the report to the notice
 

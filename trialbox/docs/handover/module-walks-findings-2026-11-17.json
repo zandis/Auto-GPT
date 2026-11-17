@@ -8,7 +8,7 @@
   {
    "id": "H29-FEA-01",
    "severity": "Medium (mapped)",
-   "claim": "feasibility step 7: New request offers \"Find candidates for the next visits\" (SCREEN) and the plain-words field \"goes to the conversation engine\"; nothing on the box says that note criteria, screening and the engine need a GPU. Master has no no-GPU form: the steps-mode box runs the stub model, so SCREEN runs here",
+   "claim": "feasibility step 7: New request offers \"Find candidates for the next visits\" (SCREEN) and the plain-words field \"goes to the conversation engine\"; nothing on the box's pages says that note criteria, screening and the engine need a GPU (RUNBOOK §1 says it, D-998; the pages are unchanged). The steps-mode box runs the stub model, so SCREEN runs here",
    "lane": "D",
    "basis": "shown",
    "state": "open",
@@ -19,7 +19,7 @@
    "kind": "stop",
    "walk_severity": "blocks the step",
    "expected": "on a box without a GPU, the pages say what waits for a GPU (note criteria, SCREEN, the engine) and do not offer it as if it ran",
-   "from": "D-1066 ruling 1; `deploy/install.sh` --mode stub (\"note criteria wait for a GPU\"); lane D's second card"
+   "from": "D-1066 ruling 1; `deploy/install.sh` --mode stub (\"note criteria wait for a GPU\"); D-998 (RUNBOOK §1: what a box without a GPU does and does not do)"
   },
   {
    "id": "H29-SAF-01",
