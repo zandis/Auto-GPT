@@ -1236,6 +1236,19 @@ class RebuildResult(BaseModel):
     """
 
 
+class RefusedTable(BaseModel):
+    """
+    One installed code table the compile could not read (E-TERM-3, D-1048): its table name (site_<name> for a site list) and the refusal's sentence, never a row of it.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    table: str = Field(..., pattern="^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$")
+    reason: str = Field(..., max_length=600)
+
+
 class RegistryPromote(BaseModel):
     """
     Add the candidates of the ruleset's current SCREEN pool (tiers high and review) that are not yet in the registry.
@@ -1373,9 +1386,7 @@ class ReleaseRecord(BaseModel):
     )
     format: Literal["trialbox-release/1"]
     product: Literal["trialbox"]
-    version: str = Field(
-        ..., pattern="^[0-9]+\\.[0-9]+\\.[0-9]+([.+-][0-9A-Za-z.-]+)?$"
-    )
+    version: str = Field(..., pattern="^[0-9]+\\.[0-9]+\\.[0-9]+([.+-][0-9A-Za-z.-]+)?$")
     release_id: str = Field(..., pattern="^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
     release_seq: int = Field(..., ge=1)
     created_at: AwareDatetime
@@ -1805,9 +1816,7 @@ class Settings(BaseModel):
     """
     practitioners: dict[str, PractitionerInfo] | None = None
     retention: Retention | None = Field(None, title="Retention")
-    calibration_defaults: CalibrationDefaults | None = Field(
-        None, title="CalibrationDefaults"
-    )
+    calibration_defaults: CalibrationDefaults | None = Field(None, title="CalibrationDefaults")
     twpas: TwpasSettings | None = Field(None, title="TwpasSettings")
     ethics_gate: bool | None = None
     """
@@ -1956,9 +1965,7 @@ class SiteCodeLists(BaseModel):
         populate_by_name=True,
     )
     sex: SiteSexCodes | None = Field(None, title="SiteSexCodes")
-    encounter_type: SiteEncounterTypeCodes | None = Field(
-        None, title="SiteEncounterTypeCodes"
-    )
+    encounter_type: SiteEncounterTypeCodes | None = Field(None, title="SiteEncounterTypeCodes")
     department: list[SiteCode] | None = Field(None, min_length=1)
     lab: list[SiteLabItem] = Field(..., min_length=1)
     diagnosis: list[SiteDiagnosisCode] | None = None
@@ -1987,9 +1994,7 @@ class SiteNotes(BaseModel):
         extra="forbid",
         populate_by_name=True,
     )
-    types: list[Literal["progress", "admission", "discharge", "consult", "nursing"]] = (
-        Field(..., min_length=1)
-    )
+    types: list[Literal["progress", "admission", "discharge", "consult", "nursing"]] = Field(..., min_length=1)
 
 
 class SiteUnitMismatch(BaseModel):
@@ -2296,14 +2301,9 @@ class Atom(BaseModel):
     """
     computed observation; egfr_ckd_epi and egfr_jsn name the equation (D-149), a plain egfr is CKD-EPI 2021
     """
-    clinical_status: (
-        list[
-            Literal[
-                "active", "recurrence", "relapse", "inactive", "remission", "resolved"
-            ]
-        ]
-        | None
-    ) = Field(None, min_length=1)
+    clinical_status: list[Literal["active", "recurrence", "relapse", "inactive", "remission", "resolved"]] | None = (
+        Field(None, min_length=1)
+    )
     """
     condition atoms only (D-917): the clinical statuses that count; a row recorded with another status makes the answer unknown, a row with no status counts as before
     """
@@ -2315,9 +2315,7 @@ class B200Layout(BaseModel):
         populate_by_name=True,
     )
     name: str
-    mig_profile: str = Field(
-        ..., pattern="^judge=\\d+g\\.\\d+gb(\\+me)?,verifier=\\d+g\\.\\d+gb(\\+me)?$"
-    )
+    mig_profile: str = Field(..., pattern="^judge=\\d+g\\.\\d+gb(\\+me)?,verifier=\\d+g\\.\\d+gb(\\+me)?$")
     fingerprint: HostFingerprint
     serving_record: B200ServingRecordRef = Field(..., title="B200ServingRecordRef")
     qualification: B200QualificationRef = Field(..., title="B200QualificationRef")
@@ -2803,9 +2801,7 @@ class QualificationRecord(BaseModel):
     status: Literal["passed", "failed"]
     failed_steps: list[str]
     qualifies_production: bool
-    change_protocol: QualificationChangeProtocol = Field(
-        ..., title="QualificationChangeProtocol"
-    )
+    change_protocol: QualificationChangeProtocol = Field(..., title="QualificationChangeProtocol")
     """
     The model change protocol this record is evidence for (D-343): the document, the sha256 of its text and the change id of its table of foreseen changes.
     """
@@ -3094,6 +3090,10 @@ class RulesetManifest(BaseModel):
     the score definitions the approved ruleset's criteria follow, by engine score (D-442): a definition of another version or text on the box puts the study in approval needed, and until then screening reads those scores as unknown
     """
     source_last_update: str | None = None
+    terminology_refused: list[RefusedTable] | None = None
+    """
+    the installed code tables the compile could not read (E-TERM-3, D-1048): each by its table name and why; while one is a site list (site_*), approval is refused
+    """
 
 
 class CandidateList(BaseModel):
@@ -3241,9 +3241,7 @@ class CriterionIR(BaseModel):
         extra="forbid",
         populate_by_name=True,
     )
-    id: str = Field(
-        ..., pattern="^[A-Z0-9]+(-[A-Z0-9]+)*-(INC|EXC|REN|DOC)-[0-9]{2,3}$"
-    )
+    id: str = Field(..., pattern="^[A-Z0-9]+(-[A-Z0-9]+)*-(INC|EXC|REN|DOC)-[0-9]{2,3}$")
     ruleset: str
     text: str
     label: str | None = None

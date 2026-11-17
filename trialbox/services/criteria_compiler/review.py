@@ -230,6 +230,7 @@ def review_xlsx(
     criteria: list[CriterionIR],
     valuesets: dict[str, dict[str, Any]],
     tests: EquivalenceReport | None,
+    refused: list[dict[str, Any]] | None = None,
 ) -> bytes:
     wb = Workbook()
     ws = wb.active
@@ -277,6 +278,11 @@ def review_xlsx(
         for inc in vs["compose"]["include"]:
             for c in inc.get("concept", []):
                 vs_ws.append([name, vs.get("title", ""), inc["system"], c["code"], c.get("display", "")])
+    if refused:  # E-TERM-3 (D-1048): the installed tables this compile could not read; a site list blocks approval
+        tw = wb.create_sheet("terminology")
+        tw.append(["table", "reason", "blocks approval"])
+        for r in refused:
+            tw.append([str(r["table"]), str(r["reason"]), "yes" if str(r["table"]).startswith("site_") else "no"])
     about = wb.create_sheet("about")
     for k, v in [
         ("ruleset", ruleset),

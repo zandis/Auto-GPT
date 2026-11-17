@@ -54,6 +54,7 @@ from criteria_compiler.ir_extract.postprocess import KIND_CODE, postprocess
 from criteria_compiler.repo import RulesetRepo
 from criteria_compiler.review import draft_zip, json_bytes, review_html, review_xlsx
 from criteria_compiler.semantics import FILTERED, CompileError, atoms, class_split, compiled
+from criteria_compiler.terminology.installed import SITE_PREFIX
 from criteria_compiler.terminology.mapper import Concept, Terminology, ValueSets
 
 log = logging.getLogger("criteria-compiler")
@@ -278,6 +279,50 @@ class Artifacts:
     library: str
     library_version: str
     warnings: list[str] = field(default_factory=list)
+
+
+REFUSED_REASON_MAX = 600  # characters of a refusal's sentence kept in the manifest (the schema's maxLength)
+
+
+def refresh_installed(term: Any) -> None:
+    """E-TERM-3 (D-1048): read the installed site lists and tables again (a terminology without them: nothing)."""
+    fn = getattr(term, "refresh_installed", None)
+    if fn is not None:
+        fn()
+
+
+def refused_tables(term: Any) -> list[dict[str, str]]:
+    """E-TERM-3 (D-1048): the installed tables ``term`` could not read, ``{"table", "reason"}``, for the manifest."""
+    got = getattr(term, "terminology_refused", None) or []
+    return [{"table": str(r["table"]), "reason": str(r["reason"])[:REFUSED_REASON_MAX]} for r in got]
+
+
+def refused_notes(manifest: RulesetManifest) -> list[str]:
+    """The review's lines for each refused table: a site list blocks approval, any other table is a warning."""
+    out = []
+    for r in manifest.terminology_refused or []:
+        if r.table.startswith(SITE_PREFIX):
+            out.append(
+                f"Site list {r.table} was not read ({r.reason}); the shipped tables answered. Approval is refused "
+                "until the box's IT loads it again or removes it, and the protocol is compiled again"
+            )
+        else:
+            out.append(f"Table {r.table} was not read ({r.reason}); the shipped tables answered")
+    return out
+
+
+def site_list_blocks(manifest: RulesetManifest, term: Any) -> list[str]:
+    """E-TERM-3 (D-1048, the integrator's ruling on #639): approval is refused while a site list is refused, at the
+    compile (its mappings answered from the shipped tables) or now. D-1028 makes the site's lists the primary source;
+    approving such a compile would fix the shipped tables' mappings into the ruleset. One blocking line per list."""
+    at_compile = {r.table: r.reason for r in manifest.terminology_refused or [] if r.table.startswith(SITE_PREFIX)}
+    out = [f"site list {t} was not read at the compile ({why}): the box's IT loads it again or removes it "
+           "(python -m tools.terminology_install), then the protocol is compiled again"
+           for t, why in sorted(at_compile.items())]  # fmt: skip
+    out += [f"site list {r['table']} was not read now ({r['reason']}): the box's IT loads it again or removes it "
+            "(python -m tools.terminology_install)"
+            for r in getattr(term, "refused_site_lists", lambda: [])() if r["table"] not in at_compile]  # fmt: skip
+    return out
 
 
 @dataclass
@@ -705,6 +750,11 @@ class Compiler:
             m["terminology_release"] = release
         else:
             m.pop("terminology_release", None)
+        refused = refused_tables(self.d.term)  # E-TERM-3 (D-1048): what this compile could not read, by name
+        if refused:
+            m["terminology_refused"] = refused
+        else:
+            m.pop("terminology_refused", None)
         m.pop("review", None)
         m.pop("equivalence", None)
         m.pop("prompt_pins", None)  # pinned again at approval (D-318)
@@ -725,7 +775,8 @@ class Compiler:
         notes: list[str],
     ) -> tuple[str, str, str]:
         html_doc = review_html(manifest.id, manifest.version, round_no, criteria, valuesets, tests, notes)
-        xlsx = review_xlsx(manifest.id, manifest.version, round_no, job_id, criteria, valuesets, tests)
+        refused = [dump(r) for r in manifest.terminology_refused or []]
+        xlsx = review_xlsx(manifest.id, manifest.version, round_no, job_id, criteria, valuesets, tests, refused)
         zipped = draft_zip(
             {f"{manifest.id}/{p}": b for p, b in files.items()}, {"review.html": html_doc.encode("utf-8")}
         )
@@ -743,6 +794,7 @@ class Compiler:
     # ------------------------------------------------------------------ public API
     def compile(self, req: CompileRequest) -> CompileResult:
         options = dict(req.options or {})
+        refresh_installed(self.d.term)  # E-TERM-3 (D-1048): the site's lists as they are on the box now
         try:
             parsed = ParsedDoc.model_validate_json(self.d.store.get(req.parsed_doc_key))
         except KeyError as exc:
@@ -873,6 +925,7 @@ class Compiler:
             f"{len(lines) - len(todo)} criteria reused from the approved version, {len(todo)} extracted",
         ]
         notes.extend(warnings)
+        notes.extend(refused_notes(manifest))
         keys = self._package(req.job_id, manifest, criteria, valuesets, tests, files, 1, notes)
         needs = [c.id for c in criteria if c.flags and "needs_review" in c.flags]
         self._audit(
@@ -977,6 +1030,7 @@ class Compiler:
 
     def approve(self, req: ApproveRequest) -> ApproveResult:
         branch, rs = self._draft(req.ruleset, req.version)
+        refresh_installed(self.d.term)  # E-TERM-3 (D-1048): a list loaded again or removed since the compile
         job_id = req.job_id or branch.split("/", 1)[1]
         now = datetime.now(ZoneInfo(self.d.tz))
         decisions = {d.id: d for d in req.decisions}
@@ -1063,6 +1117,7 @@ class Compiler:
         )
         if not art.elm and compiled(active):
             blocking.append("ELM translation unavailable")
+        blocking += site_list_blocks(rs.manifest, self.d.term)  # E-TERM-3 (D-1048): fail closed
         manifest = rs.manifest.model_copy(update={"criteria": [c.id for c in updated]})
         if edits or blocking:
             manifest = RulesetManifest.model_validate({**dump(manifest), "review": {"rounds": round_no}})

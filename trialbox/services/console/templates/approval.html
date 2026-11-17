@@ -6,6 +6,13 @@
 {% if done == 'tick' %}<p class="ok" role="status">{{ t('s20.ticked') }}</p>{% endif %}{% if done == 'label' %}<p class="ok" role="status">{{ t('wb.done.label') }}</p>{% endif %}
 <p>{{ t('s20.help') }}</p>
 <p class="hint" data-testid="s20-who">{{ t('s20.who') }}</p>
+{% if term_refused %}
+<section class="card attention" data-testid="term-refused">
+<h2>{{ t('term.refused.title') }}</h2>
+<ul>{% for r in term_refused %}<li data-testid="term-refused-{{ r.table }}">{% if r.site %}{{ t('term.refused.site', table=r.table, reason=r.reason) }}{% else %}{{ t('term.refused.other', table=r.table, reason=r.reason) }}{% endif %}</li>{% endfor %}</ul>
+{% if site_blocked %}<p class="warn" data-testid="term-refused-blocks">{{ t('term.refused.approval') }}</p>{% endif %}
+</section>
+{% endif %}
 {% if pin_state and pin_state.state == 'approval_needed' %}
 <section class="card attention" data-testid="pins-needed">
 <h2>{{ t('s20.pins.title') }}</h2>
@@ -53,7 +60,7 @@
 </section>
 <section class="card attention" data-testid="approve-box">
 {% if user.can_approve and approver %}
-  {% if missing or unlabelled %}{% if missing %}<p class="warn" data-testid="approve-missing">{{ t('s20.missing', n=missing|length) }}</p>{% endif %}
+  {% if missing or unlabelled or site_blocked %}{% if site_blocked %}<p class="warn" data-testid="approve-term-refused">{{ t('term.refused.approval') }}</p>{% endif %}{% if missing %}<p class="warn" data-testid="approve-missing">{{ t('s20.missing', n=missing|length) }}</p>{% endif %}
   {% if unlabelled %}<p class="warn" data-testid="approve-unlabelled">{{ t('s20.labels.missing', n=unlabelled|length, language=t('lang.name.' + lang)) }}</p>{% endif %}
   <button type="button" disabled data-testid="approve">{{ t('s20.approve_all') }}</button>
   {% else %}

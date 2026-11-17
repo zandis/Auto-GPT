@@ -306,14 +306,17 @@ class Terminology:
         self.icd_index: dict[str, tuple[str, str]] = {}
         self.icd_display: dict[str, list[str]] = {}
         self.icd_sources: dict[str, str] = {}
-        self.installed_problems: list[str] = []
+        # E-TERM-3 (D-1048): each refused table by name: a refused site list blocks approval, every mapping says so
+        self._icd_refused: list[dict[str, str]] = []
+        self._term2_refused: list[dict[str, str]] = []
         where = installed if installed is not None else inst.installed_dir()
+        self._where = where
         cats = sorted({str(r["code"]) for r in self.full.get("icd10cm", []) if len(str(r["code"])) == 3})
         for name in (inst.ICD_BLOCKS, inst.ICD_INDEX):
             try:
                 rows = inst.read_table(where, name)
             except inst.TerminologyRefused as exc:
-                self.installed_problems.append(str(exc))
+                self._icd_refused.append({"table": name, "reason": str(exc)})
                 rows = None
             if rows is not None:
                 self.icd_sources[name] = str(inst.manifest(where)["tables"][name].get("version") or "installed")
@@ -348,6 +351,29 @@ class Terminology:
         self.loaded_names: dict[str, dict[str, tuple[list[Concept], frozenset[tuple[str, str]], bool, str]]] = {}
         self.loaded_sources: dict[str, str] = {}
         self._load_term2(where)
+
+    @property
+    def terminology_refused(self) -> list[dict[str, str]]:
+        """E-TERM-3 (D-1048): each installed table refused at read, ``{"table", "reason"}`` (the reason names the
+        table and why, never a row of it). A compile records them in its manifest (``terminology_refused``)."""
+        return [*self._icd_refused, *self._term2_refused]
+
+    @property
+    def installed_problems(self) -> list[str]:
+        """The refusals' sentences (``trialbox doctor``, ``tools.terminology_coverage``)."""
+        return [r["reason"] for r in self.terminology_refused]
+
+    def refused_site_lists(self) -> list[dict[str, str]]:
+        """E-TERM-3 (D-1048): the refused tables that are site lists (D-1113: the primary source). While one is
+        refused, approval is refused; a refused shipped or licensed table is recorded and stays a warning."""
+        from criteria_compiler.terminology import installed as inst
+
+        return [r for r in self.terminology_refused if r["table"].startswith(inst.SITE_PREFIX)]
+
+    def refresh_installed(self) -> None:
+        """E-TERM-3 (D-1048): read the site's lists and the TERM-2 tables again, as they are now on the box (a list
+        loaded again or removed is seen without a restart). A compile and an approval call this first."""
+        self._load_term2(self._where)
 
     _release: str | None = None
 
@@ -392,6 +418,15 @@ class Terminology:
         return out
 
     def map(
+        self, domain: str, name: str, synonyms: list[str] | None = None, llm: ConceptMapLLM | None = None
+    ) -> MappingResult:
+        """The concept's codes. E-TERM-3 (D-1048): while a site list is refused, every answer says it was not read."""
+        res = self._map(domain, name, synonyms, llm)
+        for r in self.refused_site_lists():
+            res.notes.append(f"site list {r['table']} was not read; the shipped tables answered")
+        return res
+
+    def _map(
         self, domain: str, name: str, synonyms: list[str] | None = None, llm: ConceptMapLLM | None = None
     ) -> MappingResult:
         primary = norm(name)
@@ -525,9 +560,22 @@ class Terminology:
         for it; a refused one is reported in ``installed_problems`` and never read)."""
         from criteria_compiler.terminology import installed as inst
 
+        self.site_names = {}
+        self.site_codes = {}
+        self.loaded_names = {}
+        self.loaded_sources = {}
+        self._term2_refused = []
         self.loaded_codes: set[tuple[str, str]] = set()  # every code of a loaded table (a site code is checked here)
         self.who_categories: dict[str, list[Concept]] = {}  # a WHO ICD-10 category -> its codes, when loaded
         have = sorted(p.stem for p in where.glob("*.parquet")) if where.is_dir() else []
+        try:  # E-TERM-3 (D-1048): a site list whose line stays while its file is gone was not removed on purpose
+            lines = inst.manifest(where)["tables"] if where.is_dir() else {}
+        except inst.TerminologyRefused:
+            lines = {}  # a damaged manifest: each table below is refused by read_loaded, by name
+        for gone in sorted(n for n in lines if n.startswith(inst.SITE_PREFIX) and n not in have):
+            self._term2_refused.append({"table": gone, "reason": (
+                f"{where / (gone + '.parquet')}: in {inst.MANIFEST} but its file is missing; load it again, or remove "
+                "it with python -m tools.terminology_install remove-site-list")})  # fmt: skip
         order = [n for n in have if n.startswith(inst.SITE_PREFIX)] + [
             n for n in (inst.ATC_INDEX, inst.NHI_DRUGS, inst.NHI_SERVICES, inst.ICD_PCS, inst.LOINC_TABLE,
                         inst.ICD10_WHO) if n in have]  # fmt: skip
@@ -537,7 +585,7 @@ class Terminology:
             try:
                 rows = inst.read_loaded(where, table)
             except inst.TerminologyRefused as exc:
-                self.installed_problems.append(str(exc))
+                self._term2_refused.append({"table": table, "reason": str(exc)})
                 continue
             if rows is None:
                 continue
