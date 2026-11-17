@@ -1513,11 +1513,20 @@ step_gate() {
 # whether it really routes the run's calls is asked of the box's own gateway at 52-acc-routes.
 QSTEPS="pin serving_record licence schema longest_prompt log_marker canary pair_gate determinism throughput injection n12 public_e2e goldens planted_defect"
 prog_qualify() {  # the gate qualify is in now: the one after the last it reported (tools/qualify.py STEPS order)
-  local last next n
-  last=$(grep -oE '^qualify: [a-z_0-9]+:' "$STEP_LOG" 2>/dev/null | tail -n 1 | cut -d' ' -f2 | tr -d :)
-  n=$(grep -cE '^qualify: [a-z_0-9]+: ' "$STEP_LOG" 2>/dev/null)
-  next=$(printf '%s\n' $QSTEPS | grep -A1 -x "${last:-none}" | sed -n 2p); [ -n "$last" ] || next=pin
-  echo "qualify gate ${next:-?} ($n of 15 reported);"
+  # A gate's result is "qualify: <gate>: passed|failed[ (reason)]" (qualify.py run_steps). The pair gate's heartbeat
+  # (D-838, every 30 s: "qualify: pair_gate: 3/40 items answered (90 s)") is not a result: it names the running
+  # gate's progress. Each gate counts once, and never more than there are gates (H-15 F2: 9 of 15 with 7 gates).
+  local res last next n all beat
+  all=$(printf '%s\n' $QSTEPS | grep -c .)
+  res=$(grep -E '^qualify: [a-z_0-9]+: (passed|failed)( \(|$)' "$STEP_LOG" 2>/dev/null | cut -d' ' -f2 | tr -d : \
+    | grep -xF -f <(printf '%s\n' $QSTEPS) | awk '!seen[$0]++')
+  last=$(printf '%s\n' "$res" | grep . | tail -n 1)
+  n=$(printf '%s\n' "$res" | grep -c .)
+  [ "$n" -le "$all" ] || n=$all
+  next=$(printf '%s\n' $QSTEPS | grep -A1 -x "${last:-none}" | sed -n 2p); [ -n "$last" ] || next=$(printf '%s\n' $QSTEPS | head -n 1)
+  if [ -z "$next" ]; then echo "qualify gate: every gate reported ($n of $all);"; return 0; fi
+  beat=$(grep -oE "^qualify: $next: [0-9]+/[0-9]+ items answered" "$STEP_LOG" 2>/dev/null | tail -n 1 | cut -d' ' -f3-)
+  echo "qualify gate $next${beat:+ ($beat)} ($n of $all reported);"
 }
 prog_line() { echo "now: $(grep -v '^TB-PROGRESS' "$STEP_LOG" 2>/dev/null | tail -n 1 | cut -c1-80);"; }
 step_qualify() {
