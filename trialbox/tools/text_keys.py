@@ -510,7 +510,6 @@ UNCHECKED_FAMILIES: dict[str, str] = {
             "site.pc.",
             "site.q.",
             "site.role.",
-            "site.sex.",
             "site.sheets.kind.",
             "site.state.",
             "site.verdict.",
