@@ -36,6 +36,11 @@
 #               lock). The metadata block-project-ssh-keys=TRUE keeps the project's SSH keys off the VM.
 #   hard stop   metadata tb-demo-hours (whole hours): `shutdown -P` is armed at every boot, so the VM powers itself
 #               off that long after it started (Compute Engine's max-run-duration stops it at the same time).
+#   boot id     D-1120: each boot makes a random id (8 bytes from /dev/urandom, hex; from no secret, not a secret) and
+#               prints it, with the time in UTC (RFC 3339), on its first line, on a refusal and on its marker
+#               (DEMO-VM-READY boot=<id> at=<time>), and writes it into the codes' object, which `demo-vm.sh links`
+#               prints. `demo-vm.sh status` counts a marker only when it is this boot's (an earlier boot's marker
+#               stays in the serial console's buffer across a stop and a start).
 #
 #   demo-vm-boot.sh                    the boot run, as root
 #   demo-vm-boot.sh --dry-run          print what it would do; metadata from TB_MD_<KEY> (e.g. TB_MD_TB_DEMO_IMAGE)
@@ -52,7 +57,7 @@ while [ $# -gt 0 ]; do
     --print-caddyfile) PRINT_CADDY=1; DRY=1 ;;
     --print-demo-switch) PRINT_SWITCH=1; DRY=1 ;;
     --print-people) PRINT_PEOPLE=1; DRY=1 ;;
-    -h | --help) sed -n 2,45p "$0"; exit 0 ;;
+    -h | --help) sed -n 2,50p "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -66,8 +71,14 @@ MD=http://metadata.google.internal/computeMetadata/v1
 # the first answer on /login: CI's demo-boot budget is 600 s (demo/README.md, measured 166 to 339 s); twice that
 SEED_WAIT_S=1200
 
+# D-1120: this boot's id (random, not a secret, derived from nothing) and its time (UTC, RFC 3339) on the lines that
+# demo-vm.sh status weighs: the first line, a refusal, the marker. Never from the metadata: a boot cannot reuse an id.
+BOOT_ID=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+[[ "$BOOT_ID" =~ ^[0-9a-f]{16}$ ]] || { echo "TB-DEMO-VM refused: no boot id from /dev/urandom" >&2; exit 3; }
+now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 say() { echo "TB-DEMO-VM $(date -u +%H:%M:%S) $*"; }
-die() { echo "TB-DEMO-VM refused: $*" >&2; exit 3; }
+die() { echo "TB-DEMO-VM refused: $* (boot $BOOT_ID at $(now_utc))" >&2; exit 3; }
+marker() { echo "DEMO-VM-$1 boot=$BOOT_ID at=$(now_utc)"; }  # READY or NOT-READY, the last line of every boot
 run() { if [ "$DRY" = 1 ]; then printf '+'; printf ' %q' "$@"; printf '\n'; else "$@"; fi; }
 gone() { if [ "$DRY" = 1 ]; then echo "+ docker rm -f $1"; else docker rm -f "$1" >/dev/null 2>&1 || true; fi; }
 md() {  # md PATH [DEFAULT]: an instance metadata value; in a dry run the environment variable TB_MD_<KEY>
@@ -329,7 +340,7 @@ elif [[ "$IMAGE" =~ ^gs://[a-z0-9._-]+/.+\.tar\.gz$ ]]; then
 else die "metadata tb-demo-image must be an image by digest or a gs:// .tar.gz (got '$IMAGE')"; fi
 
 # the hard stop first, before anything that could hang: a forgotten demo cannot bill for a week
-say "hard stop: this VM powers off $HOURS h after this boot"
+say "hard stop: this VM powers off $HOURS h after this boot (boot $BOOT_ID started $(now_utc))"
 run shutdown -P "+$((HOURS * 60))" "TrialBox demo VM: the hard stop (tb-demo-hours=$HOURS)"
 
 say "no SSH: sshd stopped and disabled (the firewall's deny-all on the VM's tag is the first lock)"
@@ -393,11 +404,11 @@ else
     if curl -sf -o /dev/null "http://127.0.0.1:8080/login" 2>/dev/null; then ok=1; break; fi
     if [ "$(docker inspect -f '{{.State.Running}}' tb-demo 2>/dev/null)" != true ]; then
       say "the demo container stopped during the seed (exit $(docker inspect -f '{{.State.ExitCode}}' tb-demo 2>/dev/null)): docker logs tb-demo (on the VM)"
-      echo DEMO-VM-NOT-READY; exit 3
+      marker NOT-READY; exit 3
     fi
     sleep 5
   done
-  [ "$ok" = 1 ] || { say "the seed gave no answer on 127.0.0.1:8080 within $SEED_WAIT_S s: docker logs tb-demo (on the VM)"; echo DEMO-VM-NOT-READY; exit 3; }
+  [ "$ok" = 1 ] || { say "the seed gave no answer on 127.0.0.1:8080 within $SEED_WAIT_S s: docker logs tb-demo (on the VM)"; marker NOT-READY; exit 3; }
 fi
 
 if [ "$MODE" = steps ]; then
@@ -417,7 +428,7 @@ elif [ "$DRY" = 1 ]; then echo "+ docker exec -i tb-demo python - http://127.0.0
 elif ! demo_switch | docker exec -i tb-demo python - http://127.0.0.1:8080; then
   docker rm -f tb-demo >/dev/null 2>&1 || true
   say "demo mode could not be switched on: the demo was removed and tcp:443 stays closed"
-  echo DEMO-VM-NOT-READY; exit 3
+  marker NOT-READY; exit 3
 fi
 
 SHARED_WORD=codes; [ "$SHARED" != 1 ] || SHARED_WORD=shared
@@ -438,12 +449,12 @@ else
         else people | docker exec -i tb-demo python - "$PEOPLE" "$ENROL_HOURS"; fi >"$ETC/people.tsv"); then
     rm -f "$ETC/people.tsv"; docker rm -f tb-demo >/dev/null 2>&1 || true
     say "the people's accounts could not be opened: the demo was removed and tcp:443 stays closed"
-    echo DEMO-VM-NOT-READY; exit 3
+    marker NOT-READY; exit 3
   fi
   if ! (
     umask 077
     {
-      echo "TrialBox demo VM https://$IP/ (boot $STAMP). Synthetic data only. Give each person their own line, privately."
+      echo "TrialBox demo VM https://$IP/ (boot $STAMP, boot id $BOOT_ID). Synthetic data only. Give each person their own line, privately."
       echo "Each person: open their one-time link (best in a private window; the browser warns once: Caddy's own"
       echo "certificate). The page fills the user name and the code; choose a password of at least 12 characters and"
       echo "sign in. The link then works no more. If the two fields stay empty, type the user name and the code shown."
@@ -465,13 +476,13 @@ else
   ); then
     rm -f "$ETC/people.tsv" "$ETC/handoff.txt"; docker rm -f tb-demo >/dev/null 2>&1 || true
     say "a one-time code is not of the product's form (letters, digits, hyphens): the demo was removed"
-    echo DEMO-VM-NOT-READY; exit 3
+    marker NOT-READY; exit 3
   fi
   rm -f "$ETC/people.tsv"
   if ! gcloud storage cp "$ETC/handoff.txt" "$OBJECT" >/dev/null 2>&1; then
     rm -f "$ETC/handoff.txt"; docker rm -f tb-demo >/dev/null 2>&1 || true
     say "the codes could not be written to $OBJECT (the VM's service account needs objectAdmin there): the demo was removed"
-    echo DEMO-VM-NOT-READY; exit 3
+    marker NOT-READY; exit 3
   fi
   rm -f "$ETC/handoff.txt"
 fi
@@ -499,9 +510,9 @@ ROOT_FP=$(openssl x509 -noout -fingerprint -sha256 -in "$DATA/caddy/pki/authorit
 if [ "$ok" = 1 ]; then
   say "ready https://$IP/ (each person: /enrol with their code from $OBJECT, then sign in)"
   say "certificate: Caddy's local CA, root SHA-256 ${ROOT_FP:-unknown} (the browser warns once; compare this)"
-  echo DEMO-VM-READY
+  marker READY
 else
   say "no answer on https://$IP/login within $SEED_WAIT_S s: docker logs tb-demo (on the VM)"
   docker ps --format '{{.Names}} {{.Status}}' | sed 's/^/TB-DEMO-VM /'
-  echo DEMO-VM-NOT-READY
+  marker NOT-READY
 fi
