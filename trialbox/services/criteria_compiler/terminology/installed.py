@@ -494,9 +494,9 @@ def icd10_who_rows(data: bytes) -> tuple[list[dict[str, str]], str]:
                 out.append({"code": str(cls.get("code")), "display": label, "kind": str(cls.get("kind") or "")})
         return out, ver
     rows = table_rows(_text(data, "WHO ICD-10"), "WHO ICD-10")
-    code, title = _col(rows, ("code",), "WHO ICD-10"), _col(rows, ("title", "display"), "WHO ICD-10")
-    return [{"code": r[code], "display": r[title], "kind": "category" if "-" not in r[code] else "block"}
-            for r in rows if r.get(code) and r.get(title)], ""  # fmt: skip
+    code, label = _col(rows, ("code",), "WHO ICD-10"), _col(rows, ("title", "display"), "WHO ICD-10")
+    return [{"code": r[code], "display": r[label], "kind": "category" if "-" not in r[code] else "block"}
+            for r in rows if r.get(code) and r.get(label)], ""  # fmt: skip
 
 
 def install_icd10_who(path: Path, directory: Path, accepted_by: str, accepted_on: str = "", version: str = "",

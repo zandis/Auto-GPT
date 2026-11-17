@@ -550,8 +550,10 @@ class Terminology:
             under: dict[str, list[Concept]] = {}  # an ATC group -> its substances (level 5)
             for x in rows:
                 if len(str(x["code"])) == 7:
-                    for n in (1, 3, 4, 5):
-                        under.setdefault(str(x["code"])[:n], []).append(Concept(uri, str(x["code"]), str(x["display"])))
+                    for depth in (1, 3, 4, 5):
+                        under.setdefault(str(x["code"])[:depth], []).append(
+                            Concept(uri, str(x["code"]), str(x["display"]))
+                        )
             for r in rows:
                 code = str(r["code"])
                 concepts = [Concept(uri, code, str(r["display"]))] if len(code) == 7 else under.get(code, [])

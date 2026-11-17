@@ -35,7 +35,7 @@ LOINC_CSV = """"LOINC_NUM","COMPONENT","PROPERTY","SYSTEM","SCALE_TYP","CLASS","
 "99991-9","SYNTHETIC analyte","MCnc","Bld","Qn","CHEM","ACTIVE","SYN analyte Bld","SYNTHETIC analyte [Mass/volume] in Blood"
 "99992-7","SYNTHETIC analyte","MCnc","Urine","Qn","CHEM","ACTIVE","SYN analyte Ur","SYNTHETIC analyte [Mass/volume] in Urine"
 "99993-5","SYNTHETIC old analyte","MCnc","Ser","Qn","CHEM","DEPRECATED","SYN old","SYNTHETIC old analyte in Serum"
-"""  # noqa: E501
+"""
 # a ClaML file shaped like WHO's (an external DTD reference, a block, categories), every class made up
 CLAML = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE ClaML SYSTEM "ClaML.dtd">
@@ -44,7 +44,7 @@ CLAML = """<?xml version="1.0" encoding="UTF-8"?>
 <Class code="U98" kind="category"><Rubric kind="preferred"><Label>SYNTHETIC who only disorder</Label></Rubric></Class>
 <Class code="U98.0" kind="category"><Rubric kind="preferred"><Label>SYNTHETIC who only disorder, first kind</Label></Rubric></Class>
 <Class code="U98.9" kind="category"><Rubric kind="preferred"><Label>SYNTHETIC who only disorder, unspecified</Label></Rubric></Class>
-</ClaML>"""  # noqa: E501
+</ClaML>"""
 ATC_TSV = "ATC code\tATC level name\tDDD\tU\tAdm.R\tNote\n" + "\n".join([
     "Z\tSYNTHETIC anatomical group\t\t\t\t",
     "Z99\tSYNTHETIC therapeutic group\t\t\t\t",
@@ -174,7 +174,9 @@ def test_a_licensed_system_names_who_accepted_its_licence(loaded: Path) -> None:
     for t in ("loinc_table", "icd10_who", "atc_index"):
         assert lines[t]["licence_accepted_by"] == NAME and len(lines[t]["sha256"]) == 64
         assert lines[t]["licence"] == installed.LICENSED[t]
-    assert lines["loinc_table"]["licence_accepted_on"] == "2099-01-02" and lines["loinc_table"]["version"] == "LOINC 2.99"
+    assert (
+        lines["loinc_table"]["licence_accepted_on"] == "2099-01-02" and lines["loinc_table"]["version"] == "LOINC 2.99"
+    )
     assert lines["icd10_who"]["version"] == "WHO ICD-10 2099" and lines["atc_index"]["version"] == "ATC 2099"
     assert "site_dx" in lines and "licence_accepted_by" not in lines["site_dx"]
 
@@ -219,7 +221,9 @@ def test_who_icd10_answers_a_condition_icd10cm_does_not_know(term: Terminology) 
     assert term.map("condition", "ischemic heart disease").method == "icd10cm"  # ICD-10-CM answers first
 
 
-@pytest.mark.parametrize("bad", ['<!DOCTYPE x [<!ENTITY e "boom">]><ClaML/>', "<!DOCTYPE x [<!ELEMENT a ANY>]><ClaML/>"])
+@pytest.mark.parametrize(
+    "bad", ['<!DOCTYPE x [<!ENTITY e "boom">]><ClaML/>', "<!DOCTYPE x [<!ELEMENT a ANY>]><ClaML/>"]
+)
 def test_a_claml_with_an_entity_or_an_internal_dtd_is_refused(tmp_path: Path, bad: str) -> None:
     with pytest.raises(ValueError, match="refused"):
         installed.install_icd10_who(_write(tmp_path, "w.xml", bad), tmp_path / "t", NAME, version="x")
@@ -252,7 +256,8 @@ def test_doctor_names_each_system_and_who_accepted(loaded: Path, tmp_path: Path)
     assert "site_dx 4 rows" in ok.detail and "icd10pcs 3 rows (ICD-10-PCS 2099)" in ok.detail
     none = doctor.check_terminology(doctor.DoctorInputs(env={"TB_TERMINOLOGY_DIR": str(tmp_path / "e")}))
     assert none.status == "PASS" and none.detail.endswith(
-        "not loaded: site lists, NHI drug list, NHI service codes, ICD-10-PCS, LOINC, WHO ICD-10, ATC")
+        "not loaded: site lists, NHI drug list, NHI service codes, ICD-10-PCS, LOINC, WHO ICD-10, ATC"
+    )
 
 
 def test_the_command_line(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
