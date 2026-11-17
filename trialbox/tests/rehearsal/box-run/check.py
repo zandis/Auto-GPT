@@ -219,6 +219,12 @@ if full_start:
         parts["07-canary"].get("pass") is True and parts["12-doctor"].get("pass") is True,
         "the canary passed; doctor: no unexpected FAIL",
     )
+    commit = (S / "metadata" / "tb-commit").read_text().strip()
+    qrec = json.loads((R / "records" / "qualification.json").read_text())
+    ok(
+        parts["08-qualify"]["detail"].get("code_commit") == commit and qrec.get("git_head") == commit,
+        "H-19: the record names its code by the installed release's commit (installed.json), not the image",
+    )
     q = parts["11-resolve"]["detail"]
     ok(q.get("production_resolves_promoted") is True, "G-2: PRODUCTION resolves both roles to the promoted builds")
     ok(parts["12-doctor"]["detail"]["fails"] == ["backup"], "doctor's one FAIL is the expected one")

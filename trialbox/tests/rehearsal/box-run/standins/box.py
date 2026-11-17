@@ -566,6 +566,9 @@ def img_run(argv: list[str]) -> int:
     container paths put back to the host's."""
     i = argv.index("-m")
     name = argv[i + 1].removeprefix("tools.")
+    for k, a in enumerate(argv[:i]):  # the code identity the container is given (D-881; H-19, D-1105)
+        if k and argv[k - 1] == "-e" and a.startswith(("TB_CODE_COMMIT=", "TB_CODE_IMAGE=")):
+            os.environ[a.split("=", 1)[0]] = a.split("=", 1)[1]
     return tool(name, mapped(argv)[i + 2 :])
 
 
@@ -917,6 +920,8 @@ def tool(name: str, argv: list[str]) -> int:
                 "verifier": {"build_id": "standin-verifier-1", "registry_status": "candidate"},
             },
             "steps": {"pin": {"status": "passed", "reason": "stand-in"}},
+            # tools.code_identity's order on this route: the installed commit, else the image (H-19, D-1105)
+            "git_head": os.environ.get("TB_CODE_COMMIT") or f"image:{os.environ.get('TB_CODE_IMAGE', '')}",
         }
         if flag("fail-qualify"):  # a record that failed a gate: a result in validation mode, a stop in production
             qrec.update(status="failed", failed_steps=["schema"])
