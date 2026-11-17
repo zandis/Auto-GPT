@@ -1,38 +1,58 @@
 """findings_register: the one findings register is well formed, and says what is open (plan 8 criterion 11, D-1180).
 
-    python -m tools.findings_register --check             # exit 1 on a malformed row; CI job `checks`, `make lint`
-    python -m tools.findings_register --check --release   # also exit 1 if a High is not closed or a Medium is `open`
+    python -m tools.findings_register --check             # exit 1 on a malformed line or row; `make lint`, CI `checks`
+    python -m tools.findings_register --check --release   # also exit 1 while a finding stops the release (criterion 11)
     python -m tools.findings_register --counts            # open High, open Medium, open Low, total (printed, not kept)
     python -m tools.findings_register --add-from FILE     # append a card's findings.json to the register
+    python -m tools.findings_register --resolve           # after a merge: fold the copies of a row whose state changed
 
-The register is ``docs/handover/findings-register.md``: one Markdown table per card, under a heading
-``## <card>: <words>``, with the columns
+The register is ``docs/handover/findings-register.md``. Its head is prose. From the first card heading on, the file is
+nothing but card sections, each a heading ``## <card>: <words>``, blank lines, the header and rule
 
     | Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+    | --- | --- | --- | --- | --- | --- | --- | --- |
 
-``--check`` reads every such table and fails, naming the line and the id, when a row breaks a rule:
+and one or more rows, one per line, with no blank line among them. Between one table and the next card heading only
+blank lines may stand. ``--check`` is strict, so that it cannot read fewer rows than the file holds without failing:
+
+* in the head, a ``|`` outside a code span is an error (a table there would be read by no one);
+* below the first card heading, every line that is not blank, a card heading, the header, the rule or a row of a
+  table is an error; a card heading with no table, a table with no row, a second section of one card, a header that
+  is not exactly the register's, a rule missing after it, and a row that does not start and end with ``|`` are errors.
+
+A parse error names its line (``findings-register.md:57: ...``); a row error names the line and the id
+(``findings-register.md:59: row H20-F-01: ...``). The rules of a row:
 
 * **id**        unique in the file, of the form ``<card>-<local>`` with ``<card>`` the heading's card; lane V's cards
                 (``V2``) take a number of two or more digits (``V2-07``); other cards keep the id their source gave
                 (``H20-F-16``, ``H22-no-host-tree``) or the register's two-digit number in the source's order
                 (``H18-01``);
-* **date**      an ISO date (``2026-11-17``);
-* **source**    a relative Markdown link ``[text](path)`` to a file that exists, from the register's folder;
+* **date**      a real calendar date written ``YYYY-MM-DD``;
+* **source**    a relative Markdown link ``[text](path)`` to a file (not a folder) inside the ``trialbox/`` tree;
 * **severity**  ``High``, ``Medium`` or ``Low``, followed by `` (mapped)`` when the register mapped it from another
                 scale;
 * **claim**     one line, not empty;
 * **lane**      one of ``LANES``;
 * **basis**     ``shown``, ``hypothesis``, ``not_run``, or ``not stated`` (a seeded row whose source does not say);
-* **state**     exactly one of ``open``; ``card issued #<pr>``; ``fixed <sha>`` (7 to 40 hex) optionally followed by
-                ``, seen closed by <who> on <date>``; ``not a defect: <why>``.
+* **state**     exactly one of ``open``; ``card issued #<pr>``; ``fixed <sha>`` (7 to 40 lower-case hex) optionally
+                followed by ``, seen closed by <who> on <date>``; ``not a defect: <why>``. The sha and the PR number are
+                checked for their form only, not looked up.
 
-A table whose header is not the register's header is not read (the file's head may hold other tables). A register
-header under a heading that is not ``## <card>: ...`` is an error, and so is a heading of a card used twice.
+``--release`` is criterion 11 of plan 8 ("No High finding is open ... every Medium has a card done or a recorded
+ruling"; "a finding closes when it is seen closed"): a High passes only as ``fixed <sha>, seen closed by ... on
+<date>`` or ``not a defect: ...``; a Medium passes only as ``fixed <sha>`` or ``not a defect: ...`` (``card issued``
+is not a card done); a Low never stops the release. It is not wired into CI.
 
 The counts are printed by ``--counts``, never written into the file: a counts line in the file would be changed by
-every pull request that adds a row, and so would conflict in every pair of them (D-1180). "Open" in the counts is
-any row not closed: ``open`` or ``card issued``. ``--release`` is criterion 11: no High that is ``open`` or
-``card issued``, and no Medium that is ``open`` (a Medium with a card or a recorded ruling passes).
+every pull request that adds a row, and so would conflict in every pair of them (D-1180). "Open" in the counts is a
+row in state ``open`` or ``card issued``.
+
+**Merges.** The file is merged as a union (``.gitattributes``): rows that two branches append are both kept. When one
+branch changes a row's state and the other changes a neighbouring row or appends next to it, the union keeps both
+copies of the changed row, and ``--check`` fails on the id used twice. ``--resolve`` folds such copies: when the
+copies of an id are the same in every cell but the state, and exactly one state other than ``open`` is among them,
+one row with that state stays in the place of the first copy (copies identical in every cell are folded too). Any
+other duplicate (a different claim or severity, or two different states other than ``open``) is left for a person.
 
 ``--add-from FILE`` reads a card's findings file and appends its rows to the card's table (made at the end of the
 file when the card has none). The file is the form of ``docs/plan/measurements/runbook-install-2026-11-17/
@@ -51,9 +71,12 @@ findings.json`` (an object with a ``findings`` list) with these fields added:
       ]
     }
 
-``source`` is a path from the ``trialbox/`` folder; the row gets a link relative to the register. Every new row is
-checked with the rules above before anything is written, and an id already in the register is refused. The rows are
-appended in the file's order; nothing is sorted or rewritten, so two cards' additions touch different lines.
+Every field the register takes is a string with no line break or control character. ``source`` is a relative path
+from the ``trialbox/`` folder to an existing file inside it; the row gets a link relative to the register. A ``|``
+in a claim is written ``\\|`` (one already written so is kept). Every new row is checked with the rules above before
+anything is written; an id already in the register, or twice in the file, is refused and nothing is written. After
+writing, the whole register is checked again and the old file is put back if the check fails. The rows are appended
+in the file's order; nothing is sorted or rewritten, so two cards' additions touch different lines.
 """
 
 from __future__ import annotations
@@ -64,6 +87,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -74,7 +98,7 @@ COLUMNS = ("Id", "Date found", "Source", "Severity", "Claim", "Lane", "Basis", "
 HEADER = "| " + " | ".join(COLUMNS) + " |"
 RULE = "| " + " | ".join("---" for _ in COLUMNS) + " |"
 
-LANES = ("A2", "B2", "C2", "C2a", "C2b", "D", "E", "H", "W", "R", "Int", "V")
+LANES = ("A2", "B2", "C2", "C2a", "C2b", "D", "E", "G", "H", "W", "R", "Int", "V")
 SEVERITIES = ("High", "Medium", "Low")
 BASES = ("shown", "hypothesis", "not_run", "not stated")
 
@@ -94,6 +118,19 @@ STATE_RES = {
     "not a defect": re.compile(r"^not a defect: (?P<why>\S.*)$"),
 }
 CELL_SPLIT = re.compile(r"(?<!\\)\|")
+UNESCAPED_PIPE = re.compile(r"(?<!\\)\|")
+CODE_SPAN = re.compile(r"`[^`]*`")
+CONTROL = re.compile(r"[\x00-\x1f\x7f  ]")
+
+
+def real_date(text: str) -> bool:
+    if not DATE_RE.match(text):
+        return False
+    try:
+        date.fromisoformat(text)
+    except ValueError:
+        return False
+    return True
 
 
 @dataclass
@@ -118,20 +155,29 @@ class Row:
                 return name
         return ""
 
+    @property
+    def seen_closed(self) -> bool:
+        m = STATE_RES["fixed"].match(self.cells["State"])
+        return bool(m and m.group("seen"))
+
 
 @dataclass
 class Register:
     path: Path
+    lines: list[str] = field(default_factory=list)
     rows: list[Row] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
-    #: card -> the line number of the last line of its table (where a new row goes)
+    #: card -> the line number of the last row of its table (a new row goes after it)
     table_end: dict[str, int] = field(default_factory=dict)
 
 
+def root_of(register_path: Path) -> Path:
+    """The ``trialbox/`` folder of a register at ``<root>/docs/handover/<name>.md``."""
+    return register_path.resolve().parents[2]
+
+
 def split_cells(line: str) -> list[str]:
-    body = line.strip()
-    if body.startswith("|"):
-        body = body[1:]
+    body = line.strip()[1:]
     if body.endswith("|") and not body.endswith("\\|"):
         body = body[:-1]
     return [c.strip() for c in CELL_SPLIT.split(body)]
@@ -140,53 +186,87 @@ def split_cells(line: str) -> list[str]:
 def parse(path: Path = REGISTER) -> Register:
     reg = Register(path)
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        text = path.read_text(encoding="utf-8")
     except OSError as exc:
         reg.errors.append(f"{path}: cannot be read: {exc}")
         return reg
-    heading_card: str | None = None
-    heading_line = 0
-    seen_cards: dict[str, int] = {}
-    in_table = False
-    i = 0
-    while i < len(lines):
-        text = lines[i]
+    reg.lines = text.removeprefix("﻿").splitlines()
+    name = path.name
+
+    def err(n: int, msg: str) -> None:
+        reg.errors.append(f"{name}:{n}: {msg}")
+
+    # head | heading (blank lines, then the header) | header (the rule) | rule (a row) | rows | between | skip
+    phase = "head"
+    card = "?"
+    card_line = 0
+    seen: dict[str, int] = {}
+    for i, raw in enumerate(reg.lines):
         n = i + 1
-        if text.startswith("#"):
-            in_table = False
-            m = HEADING_RE.match(text)
-            heading_card = m.group("card") if (m and text.startswith("## ")) else None
-            heading_line = n
-        elif text.strip() == HEADER:
-            if heading_card is None or not CARD_RE.match(heading_card):
-                reg.errors.append(f"{path.name}:{n}: a register table must sit under a heading '## <card>: <words>'")
-                heading_card = heading_card or "?"
-            elif heading_card in seen_cards:
-                reg.errors.append(
-                    f"{path.name}:{heading_line}: card {heading_card} has a second table (first at line "
-                    f"{seen_cards[heading_card]}): add rows to the first"
-                )
-            seen_cards.setdefault(heading_card, n)
-            if i + 1 >= len(lines) or split_cells(lines[i + 1]) != ["---"] * len(COLUMNS):
-                reg.errors.append(f"{path.name}:{n + 1}: the register header must be followed by {RULE}")
+        line = raw.rstrip()
+        blank = not line.strip()
+        heading = HEADING_RE.match(line)
+        if phase == "head" and not heading:
+            if "|" in CODE_SPAN.sub("", line):
+                err(n, "a '|' in the head, before the first card heading: a table belongs under '## <card>: <words>'")
+            continue
+        if heading:
+            if phase in ("heading", "header", "rule"):
+                err(card_line, f"card {card}'s heading has no table with a row under it")
+            card, card_line = heading.group("card"), n
+            if not CARD_RE.match(card):
+                err(n, f"'{card}' is not a card name (letters and digits, no hyphen: V2, H20)")
+            if card in seen:
+                err(n, f"card {card} has a second section (first at line {seen[card]}): add rows to the first")
+            seen.setdefault(card, n)
+            phase = "heading"
+            continue
+        if phase == "skip":
+            continue
+        if blank:
+            if phase == "header":
+                err(n, f"the register header must be followed at once by {RULE}")
+                phase = "skip"
+            elif phase == "rule":
+                err(n, f"card {card}'s table: a blank line after the rule (a table has rows and no blank line in it)")
+                phase = "between"
+            elif phase == "rows":
+                phase = "between"
+            continue
+        if phase == "heading":
+            if line.strip() == HEADER:
+                phase = "header"
             else:
-                i += 1
-            in_table = True
-            reg.table_end[heading_card] = i + 1
-        elif in_table and text.strip().startswith("|"):
-            cells = split_cells(text)
+                err(n, f"after the heading of card {card} the only line allowed is the register header {HEADER}")
+                phase = "skip"
+        elif phase == "header":
+            if split_cells(line) == ["---"] * len(COLUMNS) and line.strip().startswith("|"):
+                phase = "rule"
+            else:
+                err(n, f"the register header must be followed at once by {RULE}")
+                phase = "skip"
+        elif phase in ("rule", "rows"):
+            stripped = line.strip()
+            if not stripped.startswith("|") or not stripped.endswith("|") or stripped.endswith("\\|"):
+                err(n, f"inside card {card}'s table, a line that is not a row (a row starts and ends with '|')")
+                phase = "skip"
+                continue
+            cells = split_cells(stripped)
             if len(cells) != len(COLUMNS):
-                first = cells[0] if cells else "?"
-                reg.errors.append(
-                    f"{path.name}:{n}: row {first}: {len(cells)} cells, the register has {len(COLUMNS)} "
-                    "(a '|' inside a cell is written '\\|')"
+                err(
+                    n, f"row {cells[0]}: {len(cells)} cells, the register has {len(COLUMNS)} (a '|' in a cell is '\\|')"
                 )
             else:
-                reg.rows.append(Row(n, heading_card or "?", dict(zip(COLUMNS, cells, strict=True))))
-            reg.table_end[heading_card or "?"] = n
-        else:
-            in_table = False
-        i += 1
+                reg.rows.append(Row(n, card, dict(zip(COLUMNS, cells, strict=True))))
+            reg.table_end[card] = n
+            phase = "rows"
+        else:  # between
+            err(n, f"after card {card}'s table only blank lines may stand before the next card heading")
+            phase = "skip"
+    if phase in ("heading", "header", "rule"):
+        err(card_line, f"card {card}'s heading has no table with a row under it")
+    if not seen:
+        reg.errors.append(f"{name}: no card heading '## <card>: <words>': the register holds no table")
     return reg
 
 
@@ -202,20 +282,29 @@ def id_problem(card: str, rid: str) -> str | None:
     return None
 
 
-def row_problems(row: Row, folder: Path) -> list[str]:
+def source_problem(link_path: str, folder: Path, root: Path) -> str | None:
+    if link_path.startswith("/") or ":" in link_path:
+        return f"source '{link_path}' is not a relative path"
+    target = (folder / link_path).resolve()
+    if not target.is_relative_to(root.resolve()):
+        return f"source '{link_path}' leaves the trialbox/ tree"
+    if not target.is_file():
+        return f"source '{link_path}' is not an existing file (from {folder.name}/)"
+    return None
+
+
+def row_problems(row: Row, folder: Path, root: Path) -> list[str]:
     c = row.cells
     out = []
     if (p := id_problem(row.card, c["Id"])) is not None:
         out.append(p)
-    if not DATE_RE.match(c["Date found"]):
-        out.append(f"date found '{c['Date found']}' is not an ISO date (YYYY-MM-DD)")
+    if not real_date(c["Date found"]):
+        out.append(f"date found '{c['Date found']}' is not a real date written YYYY-MM-DD")
     m = LINK_RE.match(c["Source"])
     if not m:
         out.append(f"source '{c['Source']}' is not a relative link [text](path)")
-    elif m.group("path").startswith(("/", "http:", "https:")):
-        out.append(f"source '{m.group('path')}' is not a relative path")
-    elif not (folder / m.group("path")).exists():
-        out.append(f"source '{m.group('path')}' does not exist (from {folder.name}/)")
+    elif (p := source_problem(m.group("path"), folder, root)) is not None:
+        out.append(p)
     if not SEVERITY_RE.match(c["Severity"]):
         out.append(f"severity '{c['Severity']}' is not one of {', '.join(SEVERITIES)} (optionally ' (mapped)')")
     if not c["Claim"]:
@@ -224,25 +313,30 @@ def row_problems(row: Row, folder: Path) -> list[str]:
         out.append(f"lane '{c['Lane']}' is not one of {', '.join(LANES)}")
     if c["Basis"] not in BASES:
         out.append(f"basis '{c['Basis']}' is not one of {', '.join(BASES)}")
+    seen = STATE_RES["fixed"].match(c["State"])
     if not row.state:
         out.append(
             f"state '{c['State']}' is not one of: open; card issued #<pr>; fixed <sha of 7 to 40 hex>"
             "[, seen closed by <who> on <date>]; not a defect: <why>"
         )
+    elif seen and seen.group("seen") and not real_date(seen.group("seen")):
+        out.append(f"state '{c['State']}': '{seen.group('seen')}' is not a real date")
     return out
 
 
 def check(reg: Register) -> list[str]:
     errors = list(reg.errors)
     folder = reg.path.parent
+    root = root_of(reg.path)
     first: dict[str, int] = {}
     for row in reg.rows:
         if row.id in first:
             errors.append(
-                f"{reg.path.name}:{row.line}: row {row.id}: the id is used twice (first at line {first[row.id]})"
+                f"{reg.path.name}:{row.line}: row {row.id}: the id is used twice (first at line {first[row.id]}); "
+                "run --resolve after a merge"
             )
         first.setdefault(row.id, row.line)
-        errors.extend(f"{reg.path.name}:{row.line}: row {row.id}: {p}" for p in row_problems(row, folder))
+        errors.extend(f"{reg.path.name}:{row.line}: row {row.id}: {p}" for p in row_problems(row, folder, root))
     return errors
 
 
@@ -255,6 +349,7 @@ def counts(reg: Register) -> dict[str, int]:
     out["total"] = len(reg.rows)
     for st in STATE_RES:
         out[st] = sum(1 for r in reg.rows if r.state == st)
+    out["fixed, not seen closed"] = sum(1 for r in reg.rows if r.state == "fixed" and not r.seen_closed)
     return out
 
 
@@ -262,27 +357,92 @@ def counts_line(reg: Register) -> str:
     c = counts(reg)
     return (
         f"open High {c['open High']}, open Medium {c['open Medium']}, open Low {c['open Low']}, total {c['total']} "
-        f"(open {c['open']}, card issued {c['card issued']}, fixed {c['fixed']}, not a defect {c['not a defect']})"
+        f"(open {c['open']}, card issued {c['card issued']}, fixed {c['fixed']} of which not seen closed "
+        f"{c['fixed, not seen closed']}, not a defect {c['not a defect']})"
     )
 
 
+def passes_release(row: Row) -> bool:
+    """Criterion 11: a High is closed only when seen closed or ruled no defect; a Medium needs its fix or a ruling."""
+    if row.level == "High":
+        return (row.state == "fixed" and row.seen_closed) or row.state == "not a defect"
+    if row.level == "Medium":
+        return row.state in ("fixed", "not a defect")
+    return True
+
+
 def release_blockers(reg: Register) -> list[Row]:
-    """Criterion 11 of plan 8: a High not closed, or a Medium still `open` (no card, no ruling)."""
-    return [r for r in reg.rows if (r.level == "High" and not_closed(r)) or (r.level == "Medium" and r.state == "open")]
+    return [r for r in reg.rows if not passes_release(r)]
 
 
-# --- --add-from -------------------------------------------------------------------------------------------------------
+# --- --resolve ---
+
+
+def render(cells: dict[str, str]) -> str:
+    return "| " + " | ".join(cells[c] for c in COLUMNS) + " |"
+
+
+def resolve(path: Path = REGISTER) -> tuple[list[str], list[str]]:
+    """Fold the copies of a row that a union merge kept. Returns (ids folded, problems left for a person)."""
+    reg = parse(path)
+    groups: dict[str, list[Row]] = {}
+    for r in reg.rows:
+        groups.setdefault(r.id, []).append(r)
+    lines = list(reg.lines)
+    drop: list[int] = []
+    folded, left = [], []
+    for rid, copies in groups.items():
+        if len(copies) < 2:
+            continue
+        rest = [{k: v for k, v in r.cells.items() if k != "State"} for r in copies]
+        states = [r.cells["State"] for r in copies]
+        moved = sorted({s for s in states if s != "open"})
+        if any(x != rest[0] for x in rest[1:]):
+            left.append(f"{rid}: its copies differ beyond the state (lines {', '.join(str(r.line) for r in copies)})")
+            continue
+        if len(set(states)) == 1:
+            keep = states[0]
+        elif len(moved) == 1:
+            keep = moved[0]
+        else:
+            left.append(f"{rid}: two states other than open ({'; '.join(moved)}): a person decides")
+            continue
+        lines[copies[0].line - 1] = render({**copies[0].cells, "State": keep})
+        drop.extend(r.line - 1 for r in copies[1:])
+        folded.append(rid)
+    if folded:
+        for i in sorted(drop, reverse=True):
+            del lines[i]
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return folded, left
+
+
+# --- --add-from ---
 
 
 class AddError(ValueError):
     pass
 
 
-def _cell(value: Any, name: str, fid: str) -> str:
+def _text(value: Any, name: str, fid: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise AddError(f"finding {fid}: '{name}' is missing or not text")
-    one = " ".join(value.split())
-    return one.replace("|", "\\|")
+    if CONTROL.search(value):
+        raise AddError(f"finding {fid}: '{name}' holds a line break or a control character")
+    return UNESCAPED_PIPE.sub(r"\\|", value.strip())
+
+
+def _source(value: Any, fid: str, root: Path) -> str:
+    src = _text(value, "source", fid)
+    p = Path(src)
+    if p.is_absolute() or ":" in src:
+        raise AddError(f"finding {fid}: source '{src}' is not a path relative to trialbox/")
+    target = (root / p).resolve()
+    if not target.is_relative_to(root.resolve()):
+        raise AddError(f"finding {fid}: source '{src}' leaves the trialbox/ tree")
+    if not target.is_file():
+        raise AddError(f"finding {fid}: source '{src}' is not an existing file")
+    return src
 
 
 def rows_from(data: dict[str, Any], register_path: Path, root: Path = ROOT) -> tuple[str, str, list[dict[str, str]]]:
@@ -294,36 +454,32 @@ def rows_from(data: dict[str, Any], register_path: Path, root: Path = ROOT) -> t
     card = data.get("card") or (first_id.split("-", 1)[0] if isinstance(first_id, str) else None)
     if not isinstance(card, str) or not CARD_RE.match(card):
         raise AddError(f"card '{card}' is not a card name (letters and digits, no hyphen: V2, H20)")
-    title = data.get("title") or f"findings of card {card}"
+    title = _text(data["title"], "title", card) if "title" in data else f"findings of card {card}"
     out = []
     for f in findings:
         if not isinstance(f, dict):
             raise AddError("a finding is not an object")
-        fid = _cell(f.get("id"), "id", "?")
-        source = _cell(f.get("source") or data.get("source"), "source", fid)
-        target = root / source
-        rel = Path(os.path.relpath(target, register_path.parent)).as_posix()
+        fid = _text(f.get("id"), "id", "?")
+        source = _source(f.get("source", data.get("source")), fid, root)
+        target = (root / source).resolve()
+        link = Path(os.path.relpath(target, register_path.resolve().parent)).as_posix()
         out.append(
             {
                 "Id": fid,
-                "Date found": _cell(f.get("date") or data.get("date"), "date", fid),
-                "Source": f"[{Path(source).name}]({rel})",
-                "Severity": _cell(f.get("severity"), "severity", fid),
-                "Claim": _cell(f.get("claim"), "claim", fid),
-                "Lane": _cell(f.get("lane"), "lane", fid),
-                "Basis": _cell(f.get("basis"), "basis", fid),
-                "State": _cell(f.get("state") or "open", "state", fid),
+                "Date found": _text(f.get("date", data.get("date")), "date", fid),
+                "Source": f"[{target.name}]({link})",
+                "Severity": _text(f.get("severity"), "severity", fid),
+                "Claim": _text(f.get("claim"), "claim", fid),
+                "Lane": _text(f.get("lane"), "lane", fid),
+                "Basis": _text(f.get("basis"), "basis", fid),
+                "State": _text(f.get("state", "open"), "state", fid),
             }
         )
-    return card, str(title), out
-
-
-def render(cells: dict[str, str]) -> str:
-    return "| " + " | ".join(cells[c] for c in COLUMNS) + " |"
+    return card, title, out
 
 
 def add_from(findings_file: Path, register_path: Path = REGISTER, root: Path = ROOT) -> list[str]:
-    """Append the rows; return the problems (nothing is written when there is one)."""
+    """Append the rows; return the problems (nothing is written, or the old file is put back, when there is one)."""
     try:
         data = json.loads(findings_file.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
@@ -333,22 +489,28 @@ def add_from(findings_file: Path, register_path: Path = REGISTER, root: Path = R
     try:
         card, title, cells = rows_from(data, register_path, root)
     except AddError as exc:
-        return [f"{findings_file}: {exc}"]
+        return [f"{findings_file.name}: {exc}: nothing written"]
     reg = parse(register_path)
     if errs := check(reg):
-        return ["the register does not pass --check before the addition:", *errs]
+        return ["the register does not pass --check before the addition: nothing written", *errs]
     have = {r.id for r in reg.rows}
     problems = []
     seen: set[str] = set()
     for i, c in enumerate(cells):
-        row = Row(i + 1, card, c)
-        if c["Id"] in have or c["Id"] in seen:
-            problems.append(f"{findings_file.name}: {c['Id']}: the id is already in the register")
+        if c["Id"] in have:
+            problems.append(f"{findings_file.name}: {c['Id']}: already in the register: nothing written")
+        elif c["Id"] in seen:
+            problems.append(f"{findings_file.name}: {c['Id']}: twice in the file: nothing written")
         seen.add(c["Id"])
-        problems.extend(f"{findings_file.name}: {c['Id']}: {p}" for p in row_problems(row, register_path.parent))
+        row = Row(i + 1, card, c)
+        problems.extend(
+            f"{findings_file.name}: {c['Id']}: {p}"
+            for p in row_problems(row, register_path.parent, root_of(register_path))
+        )
     if problems:
         return problems
-    lines = register_path.read_text(encoding="utf-8").splitlines()
+    before = register_path.read_text(encoding="utf-8")
+    lines = list(reg.lines)
     new = [render(c) for c in cells]
     if card in reg.table_end:
         at = reg.table_end[card]
@@ -358,20 +520,24 @@ def add_from(findings_file: Path, register_path: Path = REGISTER, root: Path = R
             lines.pop()
         lines += ["", f"## {card}: {title}", "", HEADER, RULE, *new]
     register_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if errs := check(parse(register_path)):
+        register_path.write_text(before, encoding="utf-8")
+        return ["the register after the addition fails --check; the old file is put back:", *errs]
     return []
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m tools.findings_register", description=__doc__.split("\n")[0])
-    ap.add_argument("--check", action="store_true", help="exit 1 on a malformed row")
-    ap.add_argument("--release", action="store_true", help="with --check: criterion 11 (no High open, no Medium open)")
+    ap.add_argument("--check", action="store_true", help="exit 1 on a malformed line or row")
+    ap.add_argument("--release", action="store_true", help="with --check: criterion 11")
     ap.add_argument("--counts", action="store_true", help="print the counts of open findings")
     ap.add_argument("--add-from", type=Path, metavar="FINDINGS_JSON", help="append a card's findings to the register")
+    ap.add_argument("--resolve", action="store_true", help="after a merge: fold the copies of a row (see the doc)")
     ap.add_argument("--register", type=Path, default=REGISTER, help=argparse.SUPPRESS)
     ap.add_argument("--root", type=Path, default=ROOT, help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
-    if not (args.check or args.counts or args.add_from):
-        ap.error("give --check, --counts or --add-from")
+    if not (args.check or args.counts or args.add_from or args.resolve):
+        ap.error("give --check, --counts, --add-from or --resolve")
     if args.release and not args.check:
         ap.error("--release goes with --check")
     rc = 0
@@ -382,8 +548,16 @@ def main(argv: list[str] | None = None) -> int:
         if problems:
             return 1
         print(f"findings register: added the rows of {args.add_from}")
+    if args.resolve:
+        folded, left = resolve(args.register)
+        for rid in folded:
+            print(f"findings register: resolved {rid}: one row kept")
+        for p in left:
+            print(f"findings register: not resolved: {p}", file=sys.stderr)
+        if left:
+            rc = 1
     reg = parse(args.register)
-    if args.check:
+    if args.check or args.resolve:
         errors = check(reg)
         for e in errors:
             print(f"findings register: {e}", file=sys.stderr)
