@@ -646,8 +646,13 @@ if case.startswith("session"):
     accounts = json.loads((S / "box" / "accounts.json").read_text()) if (S / "box" / "accounts.json").exists() else {}
     rec = json.loads((R / "records" / "session.json").read_text()) if (R / "records" / "session.json").exists() else {}
     units = (S / "units.log").read_text() if (S / "units.log").exists() else ""
-    ok("systemctl disable --now ssh.service" in units, "sshd stopped and disabled at the session's boot (D-1130)")
-    ok(all(re.search(r"TB-SESSION-BOOT boot=[0-9a-f]{16} started=", o) for o in out), "every boot prints its own id")
+    booted = "TB-SESSION-BOOT" in "".join(out)  # a boot refused at its preflight gets no further
+    ok(not booted or ("systemctl stop ssh.socket ssh.service" in units and "systemctl mask ssh.socket ssh.service" in units),
+       "ssh.socket and ssh.service stopped and masked at the session's boot (D-1130, the review's finding 5)")  # fmt: skip
+    ok(all("listening on :22: nothing" in o for o in out if "TB-SESSION no SSH" in o) or case == "session-ssh",
+       "nothing listens on tcp:22 after the stop, checked")  # fmt: skip
+    ok(all(re.search(r"TB-SESSION-BOOT boot=[0-9a-f]{16} started=", o) for o in out if "groups dev session" in o),
+       "every boot of the session prints its own id")  # fmt: skip
     ok(re.search(r"^TB_ENV=VALIDATION$", env_now, re.M) is not None and env_now.count("TB_ENV=") == 1,
        "the box is back in VALIDATION on the kept disk")  # fmt: skip
     ok(not list((S / "vm" / "tb" / "session").glob("*.t*")), "no codes' file left on the VM's disk")
@@ -706,6 +711,36 @@ if case == "session-cut":
        "the session is never opened again after a cut (D-1123 4.4)")  # fmt: skip
     ok(rec["closed_by"].startswith("the next boot"), "the record says the next boot closed it")
     ok("TB-SESSION-NOT-READY" in b2, "the second boot says it opened no session")
+if case in ("session", "session-stop", "session-then-acc"):
+    closed = BKT / "session" / f"rehearsal-{case}" / "CLOSED"
+    ok(closed.exists() and "closed " in closed.read_text(), "the VM wrote the CLOSED marker once the accounts closed")
+    ok(any(c.startswith("docker-update --restart=no cid-console cid-caddy") for c in calls)
+       and any(c.startswith("docker-update --restart=unless-stopped") for c in calls),
+       "the console and Caddy did not restart by themselves while the accounts were open, and do again after")  # fmt: skip
+    ok("TB_CONSOLE_PUBLIC_URL" not in env_now, "the box's public address is put back (it had none)")
+if case in ("session-skip", "session-resume", "session-ssh"):
+    why = {"session-skip": "tb-skip names 55-session-egress", "session-resume": "a session run is never resumed",
+           "session-ssh": "TB-SESSION-SSH"}[case]  # fmt: skip
+    ok(why in ended, f"refused: {why} ({ended[:160]})")
+    ok(not links and not any(c.startswith("session-people") for c in calls), "no account and no link was made")
+    if case == "session-skip":
+        ok(state["order"] == [], "refused before any step")
+    if case == "session-resume":
+        ok("TB-SESSION-READY" not in "".join(out), "the session never opened")
+if case == "session-then-acc":
+    units_order = units.splitlines()
+    mask = next(i for i, x in enumerate(units_order) if "mask ssh.socket" in x and "unmask" not in x)
+    ok(any("unmask ssh.socket ssh.service" in x for x in units_order[mask:])
+       and any("enable ssh.socket" in x for x in units_order[mask:])
+       and any("start ssh.socket" in x for x in units_order[mask:])
+       and not any("enable ssh.service" in x or "start ssh.service" in x for x in units_order[mask:]),
+       "the next boot that is no session put SSH back exactly as it was (socket enabled and active, service not)")  # fmt: skip
+    feed = S / "feed" / "acc"
+    ok(feed.is_dir() and not (feed / "vital.csv").exists()
+       and "10000001" not in (feed / "patient.csv").read_text(),
+       "the accuracy run's feed holds only its own sets: no table or patient of the session's hospital")  # fmt: skip
+    ok(ended.startswith("TB-BOX-RUN-COMPLETE") and "TB-SESSION-ACCOUNTS-OPEN" not in out[-1],
+       "the accuracy run ran with no session account open")  # fmt: skip
 if case in ("session-egress", "session-dev-refused"):
     at = "55-session-egress" if case == "session-egress" else "52-acc-routes"
     ok(state["order"][-1] == at and parts[at]["status"] == "stop", f"stopped at {at}")

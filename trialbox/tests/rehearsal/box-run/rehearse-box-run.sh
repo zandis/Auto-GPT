@@ -92,6 +92,14 @@
 #   session-wide       the driver refuses a range too wide (0.0.0.0/0, any, a /8) before anything: no VM booted
 #   session-egress     the box's egress table lets a container out (as a DEV box's opens a model host): the session
 #                      stops at 55-session-egress and no account or link is made
+#   session-skip       a session launch whose tb-skip names one of its own steps (55, the egress proof): refused at
+#                      the VM's preflight, before anything is built (the security review's finding 1)
+#   session-resume     a session cut during its bring-up, then a resume (a new tb-retry): refused, no account and no
+#                      link are made (finding 2: more time is a new launch)
+#   session-ssh        something still listens on tcp:22 after the session's stop of sshd: no session (finding 5)
+#   session-then-acc   a session (VALIDATION) to its end, then an accuracy launch on the same disk: SSH put back as it
+#                      was, the box's public address put back, the session's CLOSED marker written, and the accuracy
+#                      run's feed holds no table of the session's synthetic hospital (findings 5, 6, 11)
 #   session-dev-refused  DEV on this tree (no routing change): the box itself refuses the session's calls at
 #                      52-acc-routes, before any data, account or link
 # Needs: bash, python3 (with PyYAML), the repo's venv (.venv: cryptography, the console), curl, openssl, git, make,
@@ -106,7 +114,8 @@ REH="${TB_BOXRUN_REHEARSAL_DIR:-/tmp/tb-boxrun-rehearsal}"
 ALL=(build build-gate-fails build-refused build-preempt happy step-fails reboot cap bad-hash bad-tar-hash
      refused-rehearsal wizard-refused oom list-differs identity-differs build-validation acc acc-preempt acc-blocked
      resume-after-stop acc-qualify-fails probe direct dev acc-cut qualify-timebox acc-gate acc-redo gate-closed gate-401 gate-never
-     session session-stop session-cut session-wide session-egress session-dev-refused)
+     session session-stop session-cut session-wide session-egress session-dev-refused session-skip session-resume
+     session-ssh session-then-acc)
 # shellcheck disable=SC2206  # CASES=happy,cap: split on commas and spaces
 CASES=(${*//,/ }); [ "${#CASES[@]}" -gt 0 ] || CASES=("${ALL[@]}")
 # the harness's own ceiling for one wait (a declared setting): a case takes 5 to 40 seconds on the short clock, so
@@ -304,7 +313,7 @@ session_wide() {  # the driver, free: each too-wide range refused before anythin
   done
 }
 boot() { "$HERE/standins/boot.sh" "$S"; }
-RES() { echo "$BKT/boxruns/rehearsal-$CASE/results.tgz"; }
+RES() { echo "$BKT/boxruns/${RUNID:-rehearsal-$CASE}/results.tgz"; }
 is_done() { grep -q '^BOX-RUN-DONE$' "$S/boot-$(cat "$S/boots").out"; }
 is_off() { [ "$(cat "$S/status")" = TERMINATED ]; }
 asks_power() { [ -f "$BKT/boxruns/rehearsal-$CASE/POWER-CYCLE-REQUEST" ]; }
@@ -428,6 +437,22 @@ for CASE in "${CASES[@]}"; do
     session-wide) S="$REH/$CASE"; rm -rf "$S"; mkdir -p "$S"; session_wide ;;
     session-egress) setup "$CASE" "dev session" dev-routes egress-open; session_setup DEV; boot; to_the_end ;;
     session-dev-refused) setup "$CASE" "dev session"; session_setup DEV; boot; to_the_end ;;
+    session-skip)
+      setup "$CASE" "dev session"; session_setup VALIDATION
+      m tb-skip "08-qualify 09-promote-judge 10-promote-verifier 11-resolve 12-doctor 55-session-egress"; boot; to_the_end ;;
+    session-resume)
+      setup "$CASE" "dev session"; session_setup VALIDATION; boot
+      wait_for "the session's data step" grep -aq 'TB-STEP 53-acc-data start' "$S/boot-1.out"
+      kill -KILL -- "-$(cat "$S/vm.pgid")" 2>/dev/null || true; echo TERMINATED > "$S/status"   # a pre-emption
+      m tb-retry "retry-1"   # the driver's --resume (refused there too; here the VM's own refusal is rehearsed)
+      boot; to_the_end ;;
+    session-ssh) setup "$CASE" "dev session" ssh-listens; session_setup VALIDATION; boot; to_the_end ;;
+    session-then-acc)
+      setup "$CASE" "dev session"; session_setup VALIDATION; boot; to_the_end
+      mv "$S/evidence/results" "$S/evidence/results-session"
+      for k in tb-session-env tb-session-minutes tb-session-synth tb-session-idle-minutes tb-session-handoff \
+               tb-session-people tb-skip block-project-ssh-keys; do rm -f "$S/metadata/$k"; done
+      RUNID="rehearsal-$CASE-acc"; m tb-run-id "$RUNID"; m tb-steps acc; boot; to_the_end; RUNID="" ;;
     *) die "no such case: $CASE" ;;
   esac
   python3 "$HERE/check.py" "$CASE" "$S" || die "case $CASE: the checks above"

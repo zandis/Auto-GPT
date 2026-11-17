@@ -10,3 +10,11 @@ if [ "$1" = poweroff ]; then
   exit 0
 fi
 echo "systemctl $* (no-op)" >> "$BR_S/units.log"
+# the image's sshd as Ubuntu 24.04 ships it: started from ssh.socket (enabled, active), ssh.service on demand
+case "$1 $2" in
+  "is-enabled ssh.socket") echo enabled ;;
+  "is-enabled ssh.service") echo disabled ;;
+  "is-active ssh.socket") echo active ;;
+  "is-active ssh.service") echo inactive ;;
+esac
+exit 0

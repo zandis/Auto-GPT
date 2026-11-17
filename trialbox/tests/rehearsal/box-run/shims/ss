@@ -1,0 +1,6 @@
+#!/bin/bash
+# Box-run rehearsal shim for ss on the "VM": what listens on tcp:22 (the session's sshd check, D-1130). Nothing, unless
+# the knob ssh-listens says sshd (or anything) still listens after the session's stop.
+echo "ss $*" >> "$BR_S/calls.log"
+[ -f "$BR_S/knobs/ssh-listens" ] && echo "LISTEN 0      4096         0.0.0.0:22        0.0.0.0:*"
+exit 0

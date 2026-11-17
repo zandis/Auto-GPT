@@ -361,7 +361,10 @@ def compose(argv: list[str]) -> int:
             print("Killed", file=sys.stderr)
             return 137
         use("lake", 2 << 30, 0.3)
-        (BOX / "current").write_text("snapshot-2026-10-04\n")
+        # the snapshot the ingest was asked for becomes CURRENT, as the lake publishes it: a second run on one box (an
+        # accuracy run after a session) sees its own snapshot published
+        snap = prog[prog.index("--snapshot") + 1] if "--snapshot" in prog else "snapshot-2026-10-04"
+        (BOX / "current").write_text(f"{snap}\n")
         return 0
     if prog[:1] == ["sha256sum"]:  # the judge's template inside its container: the pinned file (knob template-differs)
         import re
@@ -447,6 +450,9 @@ def feed(argv: list[str]) -> int:
         "mrn,name,id_no,birth_date,sex,death_date,phone\n"
         + "".join(f"{10000001 + i},,,1960-01-01,F,,\n" for i in range(min(n, 50)))
     )
+    # a table only the generator writes (the public sets' feeds have none): an accuracy run after a session must not
+    # find it in the box's feed folder (the security review's finding 11)
+    (site / "vital.csv").write_text("mrn,measured_at,code,value\n10000001,2026-11-01 08:00:00,8867-4,72\n")
     called(f"feed {n}")
     print(json.dumps({"patients": n, "records_per_patient": 500, "notes_per_patient": 40}))
     return 0
