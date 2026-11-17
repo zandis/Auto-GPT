@@ -29,7 +29,7 @@
    }
   },
   "v2": {
-   "what": "B1-B3 of the P1b review: B1 birth date the visit minus the stated age in its unit; B2 placed age lines keep their unit and a bound the protocol states is not written again; B3 JMED truth from the note the box reads, over the same patients as v1",
+   "what": "B1-B3 of the P1b review: B1 birth date the visit minus the stated age in its unit; B2 placed age lines keep their unit and a bound the protocol states is not written again; B3 JMED truth from the note the box reads, over the same patients as v1; D-1064: an eligible pair whose own criterion labels exclude the patient is marked conflicted, not relabelled",
    "build": "python -m tools.public_accuracy build --set SET --out DIR --for-box --ref DAY (--key v2 is the default)",
    "sha256": null,
    "why_no_sha256": "not built here: the sources (the SIGIR files, ClinicalTrials.gov's fields, the JMED-Personas parquet) are fetched at build time and are not in the repository; H-2 made no network call. The first v2 build adds its sha256 here as a new entry",
@@ -119,9 +119,75 @@
     },
     "sigir": {
      "labels": [],
-     "why": "B1 and B2 change the site (birth dates, placed lines), not the physicians' labels; the 2 pairs whose label conflicts with the physicians' own criterion labels are the scorer's to report (S1): sigir-201413 x NCT00163709 and sigir-20142 x NCT00711399",
+     "why": "B1 and B2 change the site (birth dates, placed lines), not the physicians' labels. D-1064 (the integrator's ruling of 2026-11-17, 05:56 UTC: all pairs the gold rule marks): key v2 marks conflicted, never relabelled, every eligible pair whose own criterion labels exclude the patient; on this gold the rule marks the 6 listed under 'conflicted'",
      "birth_dates": "43 of 46 patients' birth dates change (the other 3 have no note in eval/criterion_ml to check here); under v1, 24 of the 43 were a year too old on the run day; sigir-201418, a 6-month-old, was born 2026-07-01 under v1 (2 months old at the visit) and is born 2026-02-28 under v2",
-     "protocol_lines": "B2 changes the placed age lines (sigir-201418 x NCT01260883: 'Aged 0.17 years or older' becomes 'Aged 2 months or older'); the full list needs ClinicalTrials.gov's fields"
+     "protocol_lines": "B2 changes the placed age lines (sigir-201418 x NCT01260883: 'Aged 0.17 years or older' becomes 'Aged 2 months or older'); the full list needs ClinicalTrials.gov's fields",
+     "conflicted": [
+      {
+       "patient": "sigir-201410",
+       "trial": "NCT02097186",
+       "label": "eligible",
+       "why": "D-1064",
+       "excluding": [
+        "inclusion not included: Patients undergoing elective carotid endarterectomy",
+        "inclusion not included: Patients undergoing open abdominal aortic aneurysm repair",
+        "inclusion not included: Patients undergoing endovascular abdominal aneurysm repair",
+        "inclusion not included: Patients undergoing surgical lower limb revascularisation (suprainguinal or infrainguinal)"
+       ],
+       "p1b_box": "review"
+      },
+      {
+       "patient": "sigir-201413",
+       "trial": "NCT00163709",
+       "label": "eligible",
+       "why": "D-1064",
+       "excluding": [
+        "inclusion not included: all patients presenting to the ED with shortness of breath that are over 40 years old and present with an emergency department triage category of 3 or higher"
+       ],
+       "p1b_box": "excluded, on the age line \"Aged 40 years or older\", the line the labels exclude on"
+      },
+      {
+       "patient": "sigir-201418",
+       "trial": "NCT01260883",
+       "label": "eligible",
+       "why": "D-1064",
+       "excluding": [
+        "exclusion excluded: Renal or hepatic disease assessed by history and by pre-drug blood tests"
+       ],
+       "p1b_box": "excluded, on the placed age line \"Aged 0.17 years or older\", which no criterion label excludes on: a finding to trace (B1, B2)"
+      },
+      {
+       "patient": "sigir-20142",
+       "trial": "NCT00711399",
+       "label": "eligible",
+       "why": "D-1064",
+       "excluding": [
+        "exclusion excluded: Respiratory distress"
+       ],
+       "p1b_box": "excluded, on \"Respiratory distress\", the line the labels exclude on"
+      },
+      {
+       "patient": "sigir-201425",
+       "trial": "NCT00282269",
+       "label": "eligible",
+       "why": "D-1064",
+       "excluding": [
+        "inclusion not included: have a severe traumatic brain injury as defined by either a GCS ≤ 8 and an abnormal CT scan (intracranial hemorrhage, cerebral edema or diffuse axonal injury) or a motor score ≤ 3 and normal CT scan",
+        "inclusion not included: are mechanically ventilated"
+       ],
+       "p1b_box": "review"
+      },
+      {
+       "patient": "sigir-201429",
+       "trial": "NCT00703417",
+       "label": "eligible",
+       "why": "D-1064",
+       "excluding": [
+        "inclusion not included: Postmenopausal female, 55-75 years old"
+       ],
+       "p1b_box": "review"
+      }
+     ]
     }
    }
   }

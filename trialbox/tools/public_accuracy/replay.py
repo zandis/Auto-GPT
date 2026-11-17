@@ -59,7 +59,9 @@ for _p in (ROOT, ROOT / "libs", ROOT / "services"):
         sys.path.insert(0, str(_p))
 
 #: the report's layout: 2 adds ``within_target`` and ``met_only_by`` (D-1064 item 4: ``met`` is never true for a
-#: replay), each set's ``zone`` and ``key_stated``. Keys are only ever added.
+#: replay), each set's ``zone`` and ``key_stated``, and the target read without the conflicted pairs with
+#: ``with_conflicted``, ``conflicted`` and ``conflicted_excluded_on_another_line`` beside it (D-1064 items 1-2). Keys
+#: are only ever added.
 SCHEMA_VERSION = 2
 MET_ONLY_BY = (
     "a launch (D-1064 item 4): a replay's figure decides whether a launch is worth its cost; it is not a result"
@@ -296,13 +298,14 @@ def v2_overlay(name: str, built: Path, out: Path, *, pinned: bool, require_pin: 
     rows = (((manifest().get("versions") or {}).get("v2") or {}).get("launch_p1b_rows_that_change") or {}).get(name)
     info: dict[str, Any] = {"key": "v2", "how": "the stored v1 gold with MANIFEST.json's listed changes applied",
                             "gold_matches_the_pins": pinned}  # fmt: skip
+    f = out / "gold" / "criteria.jsonl"
+    crits = [json.loads(x) for x in f.read_text(encoding="utf-8").splitlines() if x]
+    pairs = [json.loads(x) for x in (out / "gold" / "pairs.jsonl").read_text(encoding="utf-8").splitlines() if x]
     if not rows:
         info["applied"] = 0
         info["note"] = "MANIFEST.json lists no label row of this set that v2 changes"
-        return info
-    info["manifest_says"] = {k: v for k, v in rows.items() if k != "labels"}
-    f = out / "gold" / "criteria.jsonl"
-    crits = [json.loads(x) for x in f.read_text(encoding="utf-8").splitlines() if x]
+        return info | _mark_conflicted(out, pairs, crits, None)
+    info["manifest_says"] = {k: v for k, v in rows.items() if k not in ("labels", "conflicted")}
     applied, unmatched = 0, []
     for ch in rows.get("labels") or []:
         hit = [c for c in crits if c.get("patient") == ch.get("patient") and c.get("trial") == ch.get("trial")
@@ -314,7 +317,22 @@ def v2_overlay(name: str, built: Path, out: Path, *, pinned: bool, require_pin: 
         applied += 1
     f.write_text("".join(json.dumps(c, ensure_ascii=False, sort_keys=True) + "\n" for c in crits), encoding="utf-8")
     info |= {"applied": applied, "unmatched": unmatched}
-    return info
+    return info | _mark_conflicted(out, pairs, crits, rows.get("conflicted"))
+
+
+def _mark_conflicted(
+    out: Path, pairs: list[dict[str, Any]], crits: list[dict[str, Any]], listed: list[dict[str, Any]] | None
+) -> dict[str, Any]:
+    """D-1064 on the offline v2: the key's own rule (:func:`tools.public_accuracy.key.write_conflicted`) marks the
+    conflicted pairs of the overlaid gold; MANIFEST.json's list for the run, when it has one, is checked against it."""
+    from tools.public_accuracy import key as keys
+
+    marks = keys.write_conflicted(out / "gold", pairs, crits)
+    got = sorted((str(m["patient"]), str(m["trial"])) for m in marks)
+    res: dict[str, Any] = {"conflicted": len(marks), "conflicted_pairs": [f"{p} x {t}" for p, t in got]}
+    if listed is not None:
+        res["manifest_lists_the_same_conflicted"] = got == sorted((str(x["patient"]), str(x["trial"])) for x in listed)
+    return res
 
 
 def score_all(sets: dict[str, tuple[Path, Any, Path]], where: Path) -> dict[str, Any]:
@@ -353,21 +371,42 @@ def eligible_figure(name: str, sc: dict[str, Any], refused: str | None = None) -
         extra = {lang: {kk: s.get(kk) for kk in ("eligible_lost_where_the_criterion_labels_exclude",
                                                  "eligible_lost_on_the_line_the_criterion_labels_exclude")}
                  for lang, s in summ.items()}  # fmt: skip
-        return {"set": name, "scored": True, "what": "gold-eligible pairs the box excluded, of those it answered",
-                "numerator": k, "denominator": n, "s1_label_conflicts": extra}  # fmt: skip
+        out: dict[str, Any] = {"set": name, "scored": True, "s1_label_conflicts": extra,
+                               "what": "gold-eligible pairs the box excluded, of those it answered",
+                               "numerator": k, "denominator": n, "with_conflicted": {"numerator": k, "denominator": n},
+                               "conflicted": None, "conflicted_excluded_on_another_line": []}  # fmt: skip
+        con = (sc.get("pairs") or {}).get("conflicted")
+        if con is not None:
+            # D-1064: the target reads the key without its conflicted pairs; the figure with them is beside it
+            out["numerator"] = sum(int(s["eligible_lost_without_conflicted"]["k"]) for s in summ.values())
+            out["denominator"] = sum(int(s["eligible_lost_without_conflicted"]["n"]) for s in summ.values())
+            out["what"] += ", without the pairs the key marks conflicted (D-1064)"
+            out["conflicted"] = con["pairs"]
+            out["conflicted_excluded_on_another_line"] = sc["pairs"].get("conflicted_excluded_on_another_line") or []
+        return out
     cr = sc.get("criteria") or {}
     w = cr.get("wrong_exclusion") or {}
-    return {"set": name, "scored": True, "numerator": int(w.get("k") or 0), "denominator": int(w.get("n") or 0),
+    k, n = int(w.get("k") or 0), int(w.get("n") or 0)
+    return {"set": name, "scored": True, "numerator": k, "denominator": n,
             "what": "gold rows met or not applicable (JMED: not excluded) the box blocked, of those it answered",
-            "rows_with_no_verdict": cr.get("no_verdict")}  # fmt: skip
+            "with_conflicted": {"numerator": k, "denominator": n}, "conflicted": None,
+            "conflicted_excluded_on_another_line": [], "rows_with_no_verdict": cr.get("no_verdict")}  # fmt: skip
 
 
 def figure(level: str, key: str, per_set: list[dict[str, Any]]) -> dict[str, Any]:
     k = sum(int(x.get("numerator") or 0) for x in per_set)
     n = sum(int(x.get("denominator") or 0) for x in per_set)
     scored = all(x.get("scored", True) for x in per_set)
+    wk = sum(int((x.get("with_conflicted") or {}).get("numerator") or 0) for x in per_set)
+    wn = sum(int((x.get("with_conflicted") or {}).get("denominator") or 0) for x in per_set)
+    marks = [x for x in per_set if x.get("conflicted") is not None]
     return {"level": level, "key": key, "numerator": k, "denominator": n, "met": False, "met_only_by": MET_ONLY_BY,
-            "within_target": scored and n > 0 and k == 0, "all_sets_scored": scored, "per_set": per_set}  # fmt: skip
+            "within_target": scored and n > 0 and k == 0, "all_sets_scored": scored,
+            "with_conflicted": {"numerator": wk, "denominator": wn},
+            "conflicted": None if not marks else [{"set": x["set"], **r} for x in marks for r in x["conflicted"]],
+            "conflicted_excluded_on_another_line": [{"set": x["set"], **r} for x in per_set
+                                                    for r in x.get("conflicted_excluded_on_another_line") or []],
+            "per_set": per_set}  # fmt: skip
 
 
 def protocols_figure(level: str, scores: dict[str, Any], rerun: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -410,8 +449,8 @@ def protocols_figure(level: str, scores: dict[str, Any], rerun: dict[str, Any] |
         "met_only_by": MET_ONLY_BY,
         "within_target": att > 0 and failed * 10 < att,
         "within_target_before_screen_only": att > 0 and before * 10 < att,
-        "target": "fewer than one protocol in ten of those attempted fails (before or in SCREEN, D-1107); failing "
-        "before SCREEN alone is said beside it",
+        "target": "fewer than one protocol in ten of those attempted fails before or in SCREEN (D-1107); the "
+        "target reads this wider share, and the share failing before SCREEN is printed beside it",
     }
     return out
 
@@ -690,6 +729,9 @@ def _brief(sc: dict[str, Any], key: dict[str, Any], refused: str | None = None) 
         out["pairs"] = {lang: {k: v for k, v in s.items() if k != "denominators"}
                         for lang, s in sc["pairs"]["summary"].items()}  # fmt: skip
         out["label_conflicts"] = {k: v for k, v in sc["pairs"]["label_conflicts"].items() if k != "excluded"}
+        if "conflicted" in sc["pairs"]:  # D-1064
+            out["conflicted"] = sc["pairs"]["conflicted"]
+            out["conflicted_excluded_on_another_line"] = sc["pairs"]["conflicted_excluded_on_another_line"]
     if "criteria" in sc:
         keep_c = ("answered", "wrong_exclusion", "caught", "no_verdict", "not_compiled", "rows_in_gold")
         out["criteria"] = {k: sc["criteria"][k] for k in keep_c if k in sc["criteria"]}
@@ -771,18 +813,44 @@ def render(r: dict[str, Any]) -> str:
         if kv.get("refused"):
             w(f"    key v2: refused: {kv['refused']}")
             continue
+        same = kv.get("manifest_lists_the_same_conflicted")
         w(f"    key v2: {kv.get('applied', 0)} label rows applied"
-          + (f", {len(kv['unmatched'])} unmatched" if kv.get("unmatched") else ""))  # fmt: skip
+          + (f", {len(kv['unmatched'])} unmatched" if kv.get("unmatched") else "")
+          + f"; {kv.get('conflicted', 0)} pairs marked conflicted by the rule (D-1064)"
+          + ("" if same is None else "; MANIFEST.json lists the same" if same
+             else "; MANIFEST.json lists OTHERS"))  # fmt: skip
     t = r["targets"]
     w("")
     w(f"Every target is met only by {MET_ONLY_BY}.")
     w("1. Eligible patients wrongly excluded (target: none, on the corrected key; met only by a launch)")
-    w(f"   {'level':<6}{'key':<5}{'excluded':>10}{'of':>6}  within target  per set")
+    w("   The target reads the key without the pairs it marks conflicted (D-1064); the figure with them is beside it.")
+    w(f"   {'level':<6}{'key':<5}{'excluded':>10}{'of':>6}  {'with conflicted':<16}within target  per set")
     for lvl, by in sorted((k, v) for k, v in t["eligible_wrongly_excluded"].items() if k in ("a", "b")):
         for key, f in sorted(by.items()):
             per = ", ".join(f"{x['set']} {x['numerator']}/{x['denominator']}" if x.get("scored", True)
                             else f"{x['set']} not scored" for x in f["per_set"])  # fmt: skip
-            w(f"   ({lvl})   {key:<5}{f['numerator']:>10}{f['denominator']:>6}  {_yes(f['within_target']):<13}  {per}")
+            wc = f.get("with_conflicted") or {}
+            withc = f"{wc.get('numerator')}/{wc.get('denominator')}" if f.get("conflicted") is not None else "-"
+            w(f"   ({lvl})   {key:<5}{f['numerator']:>10}{f['denominator']:>6}  {withc:<16}"
+              f"{_yes(f['within_target']):<13}  {per}")  # fmt: skip
+    levels = [lv for lv in ("a", "b") if (t["eligible_wrongly_excluded"].get(lv) or {}).get("v2", {}).get("conflicted")
+              is not None]  # fmt: skip
+    if levels:
+        by_lvl = {lv: {(c["set"], c["patient"], c["trial"]): c for c in t["eligible_wrongly_excluded"][lv]["v2"]
+                       ["conflicted"]} for lv in levels}  # fmt: skip
+        first = by_lvl[levels[0]]
+        w(f"   Conflicted pairs on key v2 ({len(first)}; set aside from the target, never relabelled):")
+        for k, c in first.items():
+            w(f"     {c['set']} {c['patient']} x {c['trial']}: the labels exclude on {'; '.join(c['excluding'])}")
+            for lv in levels:
+                x = by_lvl[lv].get(k) or {}
+                w(f"       the box at ({lv}): {_box_said(x)}")
+        for lv in levels:
+            other = t["eligible_wrongly_excluded"][lv]["v2"].get("conflicted_excluded_on_another_line") or []
+            w(f"   Findings to trace at ({lv}): conflicted pairs the box excluded on a line the physicians did not "
+              f"label as excluding: {len(other)}")  # fmt: skip
+            for c in other:
+                w(f"     {c['set']} {c['patient']} x {c['trial']}: excluded on {'; '.join(c['blocked_on'])}")
     w("2. Pathology figure (target: " + t["pathology"]["claim"] + "; met only by a launch)")
     pr = t["pathology"]["run"]
     if pr.get("scored"):
@@ -799,7 +867,10 @@ def render(r: dict[str, Any]) -> str:
                   f"{row['eligible']} over {row['answered']} answered: "
                   f"{'matches the claim' if row['matches_the_claim'] else 'differs from the claim'}")  # fmt: skip
         w(f"   could not: {sc_['could_not']}")
-    w("3. Protocols failing (target: fewer than one in ten of those attempted; met only by a launch)")
+    w(
+        "3. Protocols failing (target: fewer than one in ten of those attempted fail before or in SCREEN; the share "
+        "before SCREEN alone is beside it; met only by a launch)"
+    )
     for lvl in ("a", "b"):
         f = t["protocols_failing"].get(lvl)
         if not f:
@@ -830,6 +901,19 @@ def render(r: dict[str, Any]) -> str:
     for x in r["limits"]:
         w(f"  - {x}")
     return "\n".join(lines) + "\n"
+
+
+def _box_said(c: dict[str, Any]) -> str:
+    if not c:
+        return "not scored"
+    if c.get("box") == "excluded":
+        where = "a line the labels exclude on" if c.get("on_an_excluding_line") else "another line (a finding to trace)"
+        return f"excluded on {'; '.join(c.get('blocked_on') or [])} ({where})"
+    if c.get("box") == "review":
+        on = c.get("left_open_on_an_excluding_line") or []
+        more = int(c.get("left_open_elsewhere") or 0)
+        return "review" + (f", open on {'; '.join(on)}" if on else "") + (f" (and {more} other open)" if more else "")
+    return str(c.get("box"))
 
 
 def _within(x: Any) -> str:

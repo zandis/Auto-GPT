@@ -73,11 +73,16 @@ def test_a_v2_stamped_run_is_scored_as_it_is_with_no_overlay_and_no_pin(native: 
         t = r["targets"]["eligible_wrongly_excluded"][lvl]
         assert t["v2"]["all_sets_scored"] is True and all(x["scored"] for x in t["v2"]["per_set"])
         assert t["v1"]["all_sets_scored"] is False and not any(x["scored"] for x in t["v1"]["per_set"])
-    # the same verdicts as the H-4 slice on its offline v2 (sigir: 2 of 2 at (a), 0 of 2 at (b))
+    # the same verdicts as the H-4 slice on its offline v2; with no gold/conflicted.json, the rule marks the infant's
+    # pair (sigir: 1 of 1 without it, 2 of 2 with it, at (a); 0 of 1 and 0 of 2 at (b))
     a2 = {x["set"]: x for x in r["targets"]["eligible_wrongly_excluded"]["a"]["v2"]["per_set"]}
     b2 = {x["set"]: x for x in r["targets"]["eligible_wrongly_excluded"]["b"]["v2"]["per_set"]}
-    assert (a2["sigir"]["numerator"], a2["sigir"]["denominator"]) == (2, 2)
-    assert (b2["sigir"]["numerator"], b2["sigir"]["denominator"]) == (0, 2)
+    assert (a2["sigir"]["numerator"], a2["sigir"]["denominator"]) == (1, 1)
+    assert a2["sigir"]["with_conflicted"] == {"numerator": 2, "denominator": 2}
+    assert (b2["sigir"]["numerator"], b2["sigir"]["denominator"]) == (0, 1)
+    assert b2["sigir"]["with_conflicted"] == {"numerator": 0, "denominator": 2}
+    assert [(c["patient"], c["trial"]) for c in a2["sigir"]["conflicted"]] == [("sigir-201418", "NCT01260883")]
+    assert r["sets"]["sigir"]["level_a"]["v2"]["conflicted"]["from"].startswith("computed by the rule")
     said = replay.render(r)
     assert "key the folder states: v2" in said and "the run's own gold (built on v2)" in said
     assert any("Built on key v2" in x for x in r["limits"])

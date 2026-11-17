@@ -32,6 +32,9 @@ pinned v1) and labelled its gold "v1".
    no check against P1b's pins. It has no v1 figure ("not scored", with the reason). Each set's report carries
    `key_stated` (the scorer's `key.describe`). A set without `key.json`, or stamped v1, is read as before.
 
+The pairs key v2 marks conflicted, and the target read without them, are D-1118. Target 3 reads the wider share,
+failing before or in SCREEN (the integrator, 2026-11-17 05:35 UTC); the share failing before SCREEN is printed beside it.
+
 ## What it showed on launch P1b
 
 The stored sets (`sigir.tgz`, `jmed.tgz`) record no zone. `set-clock.json` holds the time used and the deadline;
