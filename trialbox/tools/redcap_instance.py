@@ -20,7 +20,7 @@ checkbox, one ``date_dmy`` and one number TrialBox keeps to one decimal place (D
 in the unit tests against a stand-in archive and the simulator (``rc_sim``). The install itself (``up``: the
 containers, REDCap's own SQL, the rows this tool writes into REDCap's tables for the users, the tokens and the lock)
 has never run in its containers. RC13-C (D-850): the project builder, the tokens, the lock and R1 to R9 of
-:class:`RealAdmin` ran against the owner's REDCap 13.7.23, installed privately and offline outside compose (D-521):
+:class:`RealAdmin` ran against the owner's REDCap 13.7.23, installed privately and offline outside compose (D-1021):
 all nine pass with this tool's fixes; the compose path stays unrun.
 
 The record of a run holds, for each test, the status and body REDCap gave, what was written, and pass or fail

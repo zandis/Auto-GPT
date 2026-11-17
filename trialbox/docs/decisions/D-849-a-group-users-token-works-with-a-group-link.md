@@ -1,6 +1,6 @@
 # D-849 A link with a data access group works with a group user's token
 
-- **Task:** RC13-D (D-521: the owner's REDCap 13.7.23 run privately and offline in lane E's container; synthetic
+- **Task:** RC13-D (D-1021: the owner's REDCap 13.7.23 run privately and offline in lane E's container; synthetic
   projects only)
 - **PR:** this branch (`agent/RC13-D-group-bound-token`)
 - **Date:** 2026-11-16

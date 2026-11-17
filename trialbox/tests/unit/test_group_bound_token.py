@@ -1,6 +1,6 @@
 """RC13-D (D-849): a link with a data access group works with a group user's token.
 
-On the private REDCap 13.7 instance (D-521; synthetic projects), a token of a user who is in a data access group
+On the private REDCap 13.7 instance (D-1021; synthetic projects), a token of a user who is in a data access group
 exports only that group's records and **never the group column**, even when asked for it; and any import carrying
 the group column is refused whole, even naming the user's own group. A site coordinator's token is such a token.
 TrialBox filtered on the group column, so every record counted as outside the group, and its create mode sent the

@@ -1,6 +1,6 @@
 """RC13-B (D-848): the data dictionary TrialBox hands out has REDCap's 18 columns, in REDCap's order.
 
-On the private REDCap 13.7 instance (D-521; synthetic projects) the dictionary import read its columns by position:
+On the private REDCap 13.7 instance (D-1021; synthetic projects) the dictionary import read its columns by position:
 a row with fewer columns, or the columns in another order, was refused (the field type was read from the wrong
 column). ``forms.metadata`` gave 12 of the 18 columns and ``dictionary_csv`` wrote them in another order; the field
 annotation, where ``@TB-DECIMALS`` lives, and the identifier flag were lost."""

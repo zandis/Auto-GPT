@@ -334,6 +334,7 @@ def run_end_to_end(
     recipient_class: str = "external_sponsor",
     kind: str | None = None,
     repro: bool = True,
+    language: str = "auto",
 ) -> E2EResult:
     """Run the adapter's night → cascade → DL-1 pack + recall certificate for one trial; return a PASS/FAIL summary.
 
@@ -440,8 +441,13 @@ def run_end_to_end(
         return j
 
     def cascade() -> Any:
+        from matching.notelang import cascade_languages
+
+        lang, notes_lang = cascade_languages(language, "zh-TW")  # D-987: the synthetic sources write zh-TW notes
         cfg = CascadeConfig(
             study_id=trial_id,
+            language=lang,
+            notes_language=notes_lang,
             run_date=run_date,
             lookback_months=lookback,
             notes_class=notes_class,
@@ -704,9 +710,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--recipient", default="external_sponsor", choices=["external_sponsor", "internal"])
     ap.add_argument("--no-repro", action="store_true")
+    ap.add_argument(
+        "--language", default="auto", help="the notes' language: auto (read per patient), en, zh-TW, ja (D-987)"
+    )
     args = ap.parse_args(argv)
     try:
-        r = run_end_to_end(args.source, args.trial, args.out, recipient_class=args.recipient, repro=not args.no_repro)
+        r = run_end_to_end(
+            args.source,
+            args.trial,
+            args.out,
+            recipient_class=args.recipient,
+            repro=not args.no_repro,
+            language=args.language,
+        )
     except E2EError as exc:
         print(str(exc), file=sys.stderr)
         return 2

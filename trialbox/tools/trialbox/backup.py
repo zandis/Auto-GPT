@@ -111,10 +111,11 @@ LAKE_SKIP_TOP = ("tmp",)  # DuckDB spill (lake.store temp_dir default)
 # rebuild's swap never falls between the listing and the reads, and checked against their sidecars after the read
 LAKE_LOCKED = ("db", "parquet")
 LAKE_LOCK = ".rebuild.lock"
-# lane B2 (#639, 2026-11-16): the vector store is the one lake file written in place (a build adds embeddings to it),
-# by a build that holds its snapshot's build lock (locks/<snapshot>.build.lock) for the whole build, not the lake
-# lock. It goes to restic only while the lake is quiet: under the lake lock (no build can start) with every build
-# lock taken (none runs); a running build is waited for, up to LAKE_QUIET_WAIT_S (D-968)
+# D-971 (lane B2's answer on #639, 2026-11-16): the vector store is the one lake file written in place (a build adds
+# embeddings to it), by a build that holds its snapshot's build lock (locks/<snapshot>.build.lock) for the whole build,
+# not the lake lock. It is read only while the lake is quiet: under the lake lock (no build can start) with every build
+# lock taken (none runs), held for that read only; a running build is waited for, up to LAKE_QUIET_WAIT_S. With
+# restic (D-968) the store goes to restic with the served files, under the same quiet lake (_add_lake_restic)
 LAKE_STORE = ("embed_cache.duckdb", "embed_cache.duckdb.wal")
 LAKE_QUIET_WAIT_S = 3 * 3600
 LAKE_QUIET_POLL_S = 15
@@ -1018,7 +1019,7 @@ def _build_locks(root: Path) -> Iterator[list[str]]:
 
 @contextlib.contextmanager
 def _quiet_lake(root: Path, wait_s: float, poll_s: float) -> Iterator[bool]:
-    """The lake lock with no build running (:func:`_build_locks`), waited for up to ``wait_s``: a build that runs is
+    """The lake lock with no build running (:func:`_build_locks`), waited for up to ``wait_s``: a running build is
     let finish, the lake lock let go between looks. Yields whether the lake lock was taken (as :func:`_lake_lock`).
     A build still running after ``wait_s`` fails the backup by name."""
     deadline = time.monotonic() + wait_s
@@ -1117,6 +1118,31 @@ def _restore_lake_from_restic(file: Path, into: Path, manifest: dict[str, Any], 
         shutil.rmtree(stage, ignore_errors=True)
 
 
+def _add_lake_store(tar: tarfile.TarFile, root: Path, rels: list[str], manifest: dict[str, Any]) -> int:
+    """D-971: the vector store (``LAKE_STORE``), read while the lake is quiet (:func:`_quiet_lake`), the locks held
+    for this read only. ``manifest["lake_store"]`` records the files, how long the backup waited for a running build
+    and how long it held the locks."""
+    store = [r for r in rels if r in LAKE_STORE]
+    if not store:
+        return 0
+    t0 = time.monotonic()
+    taken: list[str] = []
+    with _quiet_lake(root, LAKE_QUIET_WAIT_S, LAKE_QUIET_POLL_S) as locked_ok:
+        t1 = time.monotonic()
+        for rel in store:
+            arc = f"dirs/lake/{rel}"
+            try:
+                manifest["files"][arc], manifest["sizes"][arc] = _add(tar, root / rel, arc)
+            except FileNotFoundError:  # a .wal that DuckDB checkpointed away between the listing and the lock
+                continue
+            taken.append(rel)
+        t2 = time.monotonic()
+    manifest["lake_store"] = {"files": taken, "locked": locked_ok, "waited_s": round(t1 - t0, 3),
+                              "held_s": round(t2 - t1, 3)}  # fmt: skip
+    n = len(taken)
+    return n
+
+
 def _add_lake(
     tar: tarfile.TarFile, root: Path, manifest: dict[str, Any], repo: _rr.Repo | None = None
 ) -> tuple[int, dict[str, int]]:
@@ -1125,8 +1151,9 @@ def _add_lake(
     half the old snapshot and half the new. A listing that is not one state
     is listed again, up to ``READ_TRIES``; after the read every file taken with its sidecar must hash to it and the
     files must still be the ones listed, or the backup fails (nothing vanished, nothing new). The rest of the lake
-    (NDJSON, the vector store, the site inputs) is read after, without the lock. Returns the files taken and the
-    count left out per reason. With ``repo``, the served files go to restic instead (:func:`_add_lake_restic`)."""
+    (NDJSON, the site inputs) is read after, without the lock; the vector store last, while no build runs
+    (D-971). Returns the files taken and the count left out per reason. With ``repo``, the served files and the
+    vector store go to restic instead (:func:`_add_lake_restic`, D-968)."""
     if repo is not None:
         return _add_lake_restic(tar, root, manifest, repo)
     left: dict[str, int] = {}
@@ -1164,7 +1191,7 @@ def _add_lake(
                               f"{bad[:3]}, listing {'changed' if again != locked else 'unchanged'}; run the "
                               "backup again")  # fmt: skip
         break
-    for rel in [r for r in rels if Path(r).parts[0] not in LAKE_LOCKED]:
+    for rel in [r for r in rels if Path(r).parts[0] not in LAKE_LOCKED and r not in LAKE_STORE]:
         arc = f"dirs/lake/{rel}"
         try:
             manifest["files"][arc], manifest["sizes"][arc] = _add(tar, root / rel, arc)
@@ -1172,6 +1199,7 @@ def _add_lake(
             left["removed while the backup ran"] = left.get("removed while the backup ran", 0) + 1
             continue
         n += 1
+    n += _add_lake_store(tar, root, rels, manifest)  # D-971: while no build writes it
     return n, left
 
 

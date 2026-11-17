@@ -36,6 +36,10 @@ defaults:
 
 env:
   TB_SCRATCH: ${{ github.workspace }}/../tb-scratch  # pglocal compares resolved paths, so the .. is harmless
+  # D-970: a card's pull request runs the fast tier unless it changes a path of trialbox/tools/ci_tier.py's FULL_TIER
+  # list or carries the label ci:full (the trial of E). `touched` reverts the trial to D: every ready card runs the
+  # full tier, one that changes only deploy/, tools/ or .github/ without the scenario jobs. A train runs everything.
+  CARD_TIER: fast
 
 jobs:
   changes:
@@ -49,6 +53,8 @@ jobs:
       trialbox: ${{ steps.diff.outputs.trialbox }}
       # D-564: 'true' when the full tier runs: not on a draft pull request, except a merge train (train/*)
       full: ${{ steps.tier.outputs.full }}
+      # D-970: 'true' when the scenario jobs (goldens, e2e-simple, demo-boot) run: as `full`, except D's case
+      scenarios: ${{ steps.tier.outputs.scenarios }}
       # D-969: the tests that read the documents of a docs-only pull request (empty otherwise), run by `cross-card`
       docs_tests: ${{ steps.diff.outputs.docs_tests }}
     steps:
@@ -78,9 +84,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: echo "proved=$(python3 trialbox/tools/ci_proved_tree.py)" >> "$GITHUB_OUTPUT"
-      # D-564: the tiers. Fast (every push; D-969: also a card's pull request that changes only documents): changes, checks, data-scan, cross-card, powershell, differential. Full (a pull request that is not a draft, a branch train/*, master, a run by hand): unit-shard,
+      # D-564: the tiers. Fast: changes, checks, data-scan, cross-card, powershell, differential. Full: unit-shard,
       # unit, property, goldens, e2e-simple, demo-boot, security, standards, images. tests/unit/test_ci_tiers.py
-      # holds the two lists; a new job is put in one.
+      # holds the two lists; a new job is put in one. Which tier a run gets: tools/ci_tier.py (D-970): a train,
+      # master and a run by hand everything; a card the fast tier unless it is on the full-tier list or labelled
+      # ci:full (CARD_TIER above); a draft and a docs-only card (D-969) the fast tier.
       - id: tier
         working-directory: .
         env:
@@ -89,13 +97,18 @@ jobs:
           HEAD_REF: ${{ github.head_ref }}
           PROVED: ${{ steps.proved.outputs.proved }}
           DOCS_ONLY: ${{ steps.diff.outputs.docs_only }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          full=true
-          if [ "$EVENT" = pull_request ] && { [ "$DRAFT" = true ] || [ "$DOCS_ONLY" = true ]; }; then
-            case "$HEAD_REF" in train/*) ;; *) full=false ;; esac
+          # D-970: the labels as they are now (a re-run sees a ci:full added since the push); unreadable: the full tier
+          labels=""
+          if [ "$EVENT" = pull_request ]; then
+            labels="$(gh api "repos/$REPO/pulls/$PR" --jq '.labels[].name')" || labels="ci:full"
           fi
-          if [ "$EVENT" = push ] && [ "$PROVED" = true ]; then full=false; fi
-          echo "full=$full" >> "$GITHUB_OUTPUT"
+          changed="$RUNNER_TEMP/changed"
+          [ -f "$changed" ] || changed=/dev/null
+          LABELS="$labels" python3 trialbox/tools/ci_tier.py < "$changed" >> "$GITHUB_OUTPUT"
 
   # D-578: the checks of under a minute each were a job each (lint, types, docs, contracts, trace, shell): six
   # runners, six set-ups, six billed minutes for a few seconds of work. They are the steps of one job. Every check
@@ -500,7 +513,7 @@ jobs:
     name: ${{ matrix.lake_source == 'legacy' && 'e2e-simple' || 'e2e-simple (omop)' }}
     runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
     needs: changes
-    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
+    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true' && needs.changes.outputs.scenarios == 'true'
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -546,7 +559,7 @@ jobs:
     name: ${{ matrix.lake_source == 'legacy' && 'goldens' || 'goldens (omop)' }}
     runs-on: ubuntu-24.04  # carries PostgreSQL 16: tools/ci_postgres.sh installs nothing (ubuntu-latest lost it and cost 7 min of apt)
     needs: changes
-    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
+    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true' && needs.changes.outputs.scenarios == 'true'
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -703,7 +716,7 @@ jobs:
   demo-boot:
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true'
+    if: needs.changes.outputs.trialbox == 'true' && needs.changes.outputs.full == 'true' && needs.changes.outputs.scenarios == 'true'
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0

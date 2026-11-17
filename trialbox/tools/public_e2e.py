@@ -75,6 +75,23 @@ MALIGNANT = ("C0", "C1", "C2", "C3", "C40", "C41", "C43", "C45", "C46", "C47", "
 PRINT_DETAIL = 300
 
 
+def find_on_list(get: Any, path: str, shorts: list[str], max_pages: int = 100) -> tuple[int, list[str]]:
+    """D-974: read a paged list (``path`` with ``?list=...``) page by page, following its next-page link, until every
+    patient's row (``data-testid="row-<short>"``) was seen; returns the last status and the ones on no page."""
+    want = list(shorts)
+    page, status = 1, 0
+    while want and page <= max_pages:
+        r = get(f"{path}&page={page}")
+        status = r.status_code
+        if status != 200:
+            break
+        want = [x for x in want if f'data-testid="row-{x}"' not in r.text]
+        if 'data-testid="next-page"' not in r.text:
+            break
+        page += 1
+    return status, want
+
+
 def shown(detail: str) -> str:
     if len(detail) <= PRINT_DETAIL:
         return detail
@@ -495,8 +512,11 @@ def run(work: Path, password: str, lang: str = "en", llm: Any = None, verifier: 
     day = days[0] if days else clock.now.date()
     clock.set(day)
     picks = rows[:3]
-    lst = pi.get(f"/studies/{TRIAL}/week?list=all")
-    s.check("PI list page", lst.status_code == 200 and all(p["pid"][:8] in lst.text for p in picks), lst.status_code)
+    # D-974: the list shows 25 rows a page in its own order; each picked patient's row is on some page of it
+    status, missing = find_on_list(pi.get, f"/studies/{TRIAL}/week?list=all", [p["pid"][:8] for p in picks])
+    s.check(
+        "PI list page", status == 200 and not missing, f"{status}; not on any page: {missing}" if missing else status
+    )
     marks = [
         ("approach", {}),
         ("need_info", {"note": "ECOG not recorded"}),

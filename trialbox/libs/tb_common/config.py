@@ -1003,7 +1003,7 @@ DECLARED: dict[str, Declared] = {
     "TB_TERMINOLOGY_DIR": Declared(
         "path",
         "/data/terminology",
-        "compiler (D-528, D-858): code systems loaded on the box, each with its manifest line",
+        "compiler (D-1028, D-858): code systems loaded on the box, each with its manifest line",
     ),
     "TB_TERMINOLOGY_SOURCE": Declared("str", "", "compiler: terminology source"),
     "TB_TESTBENCH_E2E": Declared("str", "", "testbench: run the e2e entry point"),
