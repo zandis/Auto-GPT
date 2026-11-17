@@ -236,6 +236,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "edc.dictionary": ("EDC dictionary read", "EDC 辞書の読込", "讀取 EDC 資料字典"),
     "edc.drafts": ("EDC drafts made", "EDC 下書きの作成", "產生 EDC 草稿"),
     "edc.erase_hidden": ("EDC hidden values erased", "EDC 非表示値の消去", "清除 EDC 隱藏值"),
+    "edc.event": ("EDC event received", "EDC イベントの受信", "收到 EDC 事件"),
     "edc.map": ("EDC mapping changed", "EDC マッピングの変更", "EDC 對應變更"),
     "edc.odm_import": ("ODM file imported", "ODM ファイルの取込", "匯入 ODM 檔"),
     "edc.preview": ("EDC preview", "EDC プレビュー", "EDC 預覽"),
@@ -250,6 +251,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     ),
     "edc.sign": ("EDC values signed", "EDC 値の署名", "簽署 EDC 數值"),
     "edc.switch": ("EDC prefill switched", "EDC 事前入力の切替", "切換 EDC 預填"),
+    "edc.tool_confirm": ("EDC tool write confirmed", "EDC ツール書き込みの確定", "確認 EDC 工具寫入"),
     "redcap.connection": (
         "REDCap connection changed (service)",
         "REDCap 接続の変更（サービス）",

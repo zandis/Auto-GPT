@@ -102,12 +102,15 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--public", type=Path, default=Path(os.environ.get("TB_BACKUP_PUBKEY", "deploy/secrets/backup.pub")))
     b.add_argument("--dir", action="append", default=[], help="name=path (default: TB_BACKUP_DIRS or the volumes)")
     b.add_argument("--keep", type=int, default=int(os.environ.get("TB_BACKUP_KEEP", "14")))
+    b.add_argument("--restic", action="store_true",
+                   help="the lake's served files to restic under restic.key (D-968; the KEK unsealed)")  # fmt: skip
     ck = sub.add_parser("backup-check", help="check a backup is whole without the key (D-178; JSON)")
     ck.add_argument("file", type=Path)
     v = sub.add_parser("backup-verify", help="decrypt a backup and check every hash (needs the private key)")
     v.add_argument("file", type=Path)
     v.add_argument("--key", type=Path, required=True)
     v.add_argument("--deploy", type=Path, default=None, help="where deploy/site/backup-verified.json goes (T-209a)")
+    _restic_args(v)
     r = sub.add_parser("restore", help="restore databases and files from a backup (needs the private key)")
     r.add_argument("file", type=Path)
     r.add_argument("--key", type=Path, required=True)
@@ -136,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--no-copy", action="store_true", help="keep no copy of the box first (audited)")
     r.add_argument("--other-site", action="store_true", help="restore a backup of another site (new hardware)")
     r.add_argument("--older-ok", action="store_true", help="restore a backup older than 14 days")
+    _restic_args(r)
     kept = Path(__file__).resolve().parents[2] / "deploy" / "refdata" / "loaded"
     r.add_argument("--refdata", type=Path, default=Path(os.environ.get("TB_REFDATA_DIR") or kept),
                    help="the kept reference packs (default: TB_REFDATA_DIR or deploy/refdata/loaded)")  # fmt: skip
@@ -456,6 +460,38 @@ def _drill_cmd(a: argparse.Namespace) -> int:
     return 0 if res["ok"] else 1
 
 
+def _restic_args(p: argparse.ArgumentParser) -> None:
+    """D-968: how a restic backup's lake is opened: the box's own key under its unsealed KEK, or the custodians'
+    shares (the stewards' shares of a shamir KEK, the escrow shares of a TPM KEK) and the file beside the repository.
+    """
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--restic-from-box", action="store_true", help="the box's restic.key, under its unsealed KEK")
+    g.add_argument("--restic-share", type=Path, action="append", default=[],
+                   help="a custodian's share file, one per share (a dead box's backup)")  # fmt: skip
+
+
+def _secrets_dir() -> Path:
+    return Path(os.environ.get("TB_SECRETS_DIR") or "/run/secrets/trialbox")
+
+
+def _restic_pw(a: argparse.Namespace) -> str | None:
+    from tb_common import kek as K
+    from tb_common.crypto import KeyMissingError
+
+    from tools.trialbox import backup as bk
+    from tools.trialbox import restic_repo as rr
+
+    try:
+        if a.restic_from_box:
+            return rr.password(_secrets_dir(), os.environ)
+        if a.restic_share:
+            texts = [f.read_text(encoding="utf-8") for f in a.restic_share]
+            return rr.open_from_target(a.file.parent, texts, rr.escrow_for(a.file))
+    except (K.KekError, KeyMissingError, OSError, ValueError) as e:  # a share or a key named, never its content
+        raise bk.BackupError(f"the restic repository cannot be opened: {e}") from e
+    return None
+
+
 def _backup_cmd(a: argparse.Namespace) -> int:
     from tools.trialbox import backup as bk
 
@@ -466,14 +502,15 @@ def _backup_cmd(a: argparse.Namespace) -> int:
             return 0
         if a.cmd == "backup":
             dirs = bk.layout(os.environ, a.dir)
-            for f in bk.backup(a.to, a.public, dirs=dirs, keep=a.keep):
+            for f in bk.backup(a.to, a.public, dirs=dirs, keep=a.keep,
+                               restic_secrets=_secrets_dir() if a.restic else None):  # fmt: skip
                 print(f"wrote {f}")
             return 0
         if a.cmd == "backup-check":
             print(json.dumps(bk.check(a.file), indent=1, ensure_ascii=False))
             return 0
         if a.cmd == "backup-verify":
-            res = bk.verify(a.file, a.key)
+            res = bk.verify(a.file, a.key, restic_pw=_restic_pw(a))
             print(json.dumps(res, indent=1, ensure_ascii=False))
             from tb_common import metrics  # T-209a (D-379, OPS-047): the health check is red 100 days after this
 
@@ -491,7 +528,8 @@ def _backup_cmd(a: argparse.Namespace) -> int:
 
         out = bk.restore(a.file, a.key, dirs=bk.layout(os.environ, a.dir), refdata_dir=a.refdata,
                          public_key=a.public, keep_to=a.keep_to, no_copy=a.no_copy, other_site=a.other_site,
-                         max_age_days=None if a.older_ok else bk.RESTORE_MAX_AGE_DAYS, running=running)  # fmt: skip
+                         max_age_days=None if a.older_ok else bk.RESTORE_MAX_AGE_DAYS, running=running,
+                         restic_pw=_restic_pw(a))  # fmt: skip
         print(json.dumps(out, indent=1, ensure_ascii=False))
         for w in out["warnings"]:
             print(f"restore: warning: {w}", file=sys.stderr)
