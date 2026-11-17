@@ -1,6 +1,6 @@
 # The whole life of a study, walked: findings by step (2026-11-17)
 
-**Reader:** the builders of the console (lane C2), the lake and erasure (lane B2), the installer (lane D) and the
+**Reader:** the people who build TrialBox: the lanes that own the console (C2), erasure (B2) and the box (D), and the
 integrator. Findings for builders, so in one language.
 
 Card H-20, decision D-1135. It extends H-10's walk (D-1121) from the new study to the end of a study. The box is a

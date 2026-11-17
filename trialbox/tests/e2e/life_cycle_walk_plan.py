@@ -117,8 +117,20 @@ class Stop:
 
 
 @dataclass(frozen=True)
+class LifeStep:
+    """A life-cycle step: H-10's :class:`Step` with the life-cycle acts (:class:`Act`, :class:`Stop`) too."""
+
+    n: int
+    role: str
+    acts: tuple[Do | See | Act | Stop, ...]
+    refusals: tuple[Refuse, ...]
+    what: dict[str, str]
+    expect: dict[str, str]
+
+
+@dataclass(frozen=True)
 class Life:
-    step: Step
+    step: LifeStep
     lane: str
     after: tuple[int, ...] = ()
 
@@ -152,7 +164,7 @@ def _refuse(role: str, method: str, path: str, fields: tuple[tuple[str, str], ..
 
 LIFE: tuple[Life, ...] = (
     Life(
-        Step(
+        LifeStep(
             12,
             "coordinator",
             (
@@ -190,7 +202,7 @@ LIFE: tuple[Life, ...] = (
         "C2",
     ),
     Life(
-        Step(
+        LifeStep(
             13,
             "investigator",
             (
@@ -230,7 +242,7 @@ LIFE: tuple[Life, ...] = (
         "C2",
     ),
     Life(
-        Step(
+        LifeStep(
             14,
             "coordinator",
             (
@@ -271,7 +283,7 @@ LIFE: tuple[Life, ...] = (
         after=(13,),
     ),
     Life(
-        Step(
+        LifeStep(
             15,
             "coordinator",
             (
@@ -310,7 +322,7 @@ LIFE: tuple[Life, ...] = (
         after=(14,),
     ),
     Life(
-        Step(
+        LifeStep(
             16,
             "coordinator",
             (
@@ -349,7 +361,7 @@ LIFE: tuple[Life, ...] = (
         after=(15,),
     ),
     Life(
-        Step(
+        LifeStep(
             17,
             "coordinator",
             (
@@ -400,7 +412,7 @@ LIFE: tuple[Life, ...] = (
         after=(16,),
     ),
     Life(
-        Step(
+        LifeStep(
             18,
             "coordinator",
             (
@@ -429,7 +441,7 @@ LIFE: tuple[Life, ...] = (
         after=(14,),
     ),
     Life(
-        Step(
+        LifeStep(
             19,
             "steward",
             (
@@ -478,7 +490,7 @@ LIFE: tuple[Life, ...] = (
         after=(18,),
     ),
     Life(
-        Step(
+        LifeStep(
             20,
             "coordinator",
             (
@@ -507,7 +519,7 @@ LIFE: tuple[Life, ...] = (
         after=(19,),
     ),
     Life(
-        Step(
+        LifeStep(
             21,
             "operator",
             (
@@ -860,7 +872,7 @@ NOT_COMPLETED: tuple[tuple[int, str, str], ...] = (
 )
 
 
-def all_steps() -> tuple[Step, ...]:
+def all_steps() -> tuple[Step | LifeStep, ...]:
     return (*nw.STEPS, *(lf.step for lf in LIFE))
 
 
@@ -949,7 +961,7 @@ def plan_json(lang: str, rs: str, accounts: dict[str, str], log: str = "") -> di
     return plan
 
 
-def texts_of(step: Step) -> list[T]:
+def texts_of(step: Step | LifeStep) -> list[T]:
     out: list[T] = []
     for a in step.acts:
         for t in (getattr(a, "text", None), getattr(a, "label", None)):
@@ -960,7 +972,7 @@ def texts_of(step: Step) -> list[T]:
     return out
 
 
-def untranslated(step: Step, lang: str) -> list[str]:
+def untranslated(step: Step | LifeStep, lang: str) -> list[str]:
     """The texts of ``step`` the product has no ``lang`` form of (a zh-TW or ja page shows them in English)."""
     return [f"{t.key}: no {lang} form, shown in English" for t in texts_of(step) if t.key and lang in t.missing()]
 
