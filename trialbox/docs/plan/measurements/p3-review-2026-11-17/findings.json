@@ -1,0 +1,43 @@
+{
+ "card": "H36",
+ "title": "launch P3 reviewed: why sigir ran slower, and the pathology report that moved",
+ "date": "2026-11-17",
+ "source": "docs/plan/measurements/p3-review-2026-11-17.md",
+ "findings": [
+  {
+   "id": "H36-01",
+   "severity": "High",
+   "claim": "APPROVE costs about 41 s more per approval on 15108f46 than on 57263236 whatever the protocol (30 s to 71 s on one stream); with sigir's 3 streams it took 219 s per protocol and the budget cut 38 of 104",
+   "lane": "A2",
+   "basis": "shown"
+  },
+  {
+   "id": "H36-02",
+   "severity": "Medium",
+   "claim": "Which step of Compiler.approve costs the 41 s is in no record: no job records a step's time",
+   "lane": "A2",
+   "basis": "not_run"
+  },
+  {
+   "id": "H36-03",
+   "severity": "Medium",
+   "claim": "Approvals of different rulesets appear to wait on each other in the compiler (2 or more in flight 78 % of P3's sigir seconds, each about 3 times its time alone)",
+   "lane": "A2",
+   "basis": "hypothesis"
+  },
+  {
+   "id": "H36-04",
+   "severity": "Low",
+   "claim": "On P3 the judge answered unknown on TCGA-EM-A3FK while its own reason is a plain fail, so the report moved from excluded (P2b) to open",
+   "lane": "A2",
+   "basis": "shown"
+  },
+  {
+   "id": "H36-05",
+   "severity": "Medium",
+   "claim": "P3's tcga read 939 of 1,020 note answers from the judged-pair store, so its 378 is not an independent measurement of the pair's run-to-run variation, and no figure says so",
+   "lane": "H",
+   "basis": "shown"
+  }
+ ]
+}
