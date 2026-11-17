@@ -304,7 +304,10 @@ def evaluate_case(
             source = "chart"
         else:
             v = CriterionVerdict(
-                id=c.id, verdict="unknown", evidence=Evidence(resource_refs=[], reason=Reason.NOT_EVALUATED.value)
+                id=c.id,
+                verdict="unknown",
+                evidence=Evidence(resource_refs=[], reason=Reason.NOT_EVALUATED.value),
+                prov=[],
             )
             source = "chart"
         ev = v.evidence or Evidence(resource_refs=[])

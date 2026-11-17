@@ -292,11 +292,15 @@ class Repo:
 
     def backup(self, root: Path, files: list[str], *, tag: str) -> str:
         """Back up exactly ``files`` (paths under ``root``); the new snapshot's id. A file restic could not read
-        fails the backup: an incomplete snapshot is not a backup."""
+        fails the backup: an incomplete snapshot is not a backup. Each file is listed by its absolute path
+        (D-978): restic keeps an absolute entry under its whole path, so a restore puts it at
+        ``restored_root(target, root)``; a relative entry is kept relative to the snapshot's top instead, which the
+        box rehearsal's restore found at ``<target>/db/...`` while the manifest's root said ``<target>/v/lake``."""
         import tempfile
 
+        base = Path(root).resolve()  # as the manifest records the root (backup.py: str(root.resolve()))
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".list", delete=False) as fh:
-            fh.write("".join(f"{f}\n" for f in files))
+            fh.write("".join(f"{base / f}\n" for f in files))
             listing = fh.name
         try:
             r = self._run(["backup", "--files-from-verbatim", listing, "--tag", tag, "--host", "trialbox", "--json"],
