@@ -57,4 +57,63 @@
       });
     });
   } catch (e) { /* no session storage (a private mode that refuses it): the page works as before */ }
+  // 6. D-1222 (E-M3): a long form marked data-keep (an AE's or a visit's form) is kept in this tab's session storage
+  // while it is typed, as a mark's note is, so a session that ends before Save does not lose it: back on the same form
+  // after sign-in, the kept values go into the fields still empty (never over a value shown) and count as unsaved
+  // edits. A sent form is dropped on the next page that is neither a sign-in page nor that same form (the save reached
+  // a live session); Sign out drops every kept form.
+  try {
+    var SENT = "tb-form-sent";
+    var sent = sessionStorage.getItem(SENT);
+    var here = false;
+    document.querySelectorAll("form[data-keep]").forEach(function (f) {
+      var id = f.getAttribute("data-keep"), key = "tb-form:" + id;
+      if (id === sent) here = true;
+      var fields = function () {
+        return Array.prototype.filter.call(f.elements, function (e) {
+          return e.name && !e.disabled && ["hidden", "submit", "button"].indexOf(e.type) < 0;
+        });
+      };
+      var kept = JSON.parse(sessionStorage.getItem(key) || "null");
+      if (kept) {
+        var all = fields(), had = {}, back = false;
+        all.forEach(function (x) { if (x.checked) had[x.name] = true; });  // a group with a box ticked stays as shown
+        all.forEach(function (e) {
+          var v = kept[e.name];
+          if (v === undefined) return;
+          if (e.type === "checkbox" || e.type === "radio") {
+            if (!had[e.name] && v.indexOf(e.value) >= 0) e.checked = back = true;
+          } else if (!e.value) {
+            e.value = v;
+            back = true;
+          }
+        });
+        if (back && f.hasAttribute("data-guard")) dirty = true;
+      }
+      var save = function () {
+        var out = {};
+        fields().forEach(function (e) {
+          if (e.type === "checkbox" || e.type === "radio") {
+            if (e.checked) (out[e.name] = out[e.name] || []).push(e.value);
+          } else if (e.value) out[e.name] = e.value;
+        });
+        if (Object.keys(out).length) sessionStorage.setItem(key, JSON.stringify(out)); else sessionStorage.removeItem(key);
+      };
+      f.addEventListener("input", save);
+      f.addEventListener("change", save);
+      f.addEventListener("submit", function () { sessionStorage.setItem(SENT, id); });
+    });
+    if (sent && !document.querySelector("form[action^='/login']")) {
+      if (!here) sessionStorage.removeItem("tb-form:" + sent);
+      sessionStorage.removeItem(SENT);
+    }
+    document.querySelectorAll("form[action='/logout']").forEach(function (f) {
+      f.addEventListener("submit", function () {
+        for (var i = sessionStorage.length - 1; i >= 0; i--) {
+          var k = sessionStorage.key(i);
+          if (k && k.indexOf("tb-form") === 0) sessionStorage.removeItem(k);
+        }
+      });
+    });
+  } catch (e) { /* no session storage: the page works as before */ }
 })();

@@ -53,7 +53,7 @@ from tb_common.ulid import new_ulid
 from tb_common.verdict_word import shown_of
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
-from console import acting, api_first, demo_guard, feedback, firstrun, i18n_roles, next_page
+from console import acting, api_first, demo_guard, feedback, firstrun, i18n_roles, next_page, phone
 from console import actor as console_actor
 from console.account_rules import Hooks as AccountHooks
 from console.account_rules import Rules as AccountRules
@@ -1006,13 +1006,21 @@ def create_app(
         return resp
 
     @app.get("/login", response_class=HTMLResponse)
-    def login_form(request: Request, lang: str = "", why: str = "") -> Response:
+    def login_form(request: Request, lang: str = "", why: str = "", hop: str = "") -> Response:
         if settings.sso and (session_of(request) is not None or sso_user(request) is not None):
             return RedirectResponse("/", status_code=303)
+        # D-1222 (E-M2): a link from another site (a mail) comes without the SameSite=Strict session cookie; the page
+        # reloads itself once from this site (?hop=1), which sends it: a live session goes on to the kept page
+        if hop == "1" and session_of(request) is not None:
+            done = RedirectResponse("/home" if settings.pilot else "/", status_code=303)
+            next_page.take(request, done)  # a same-origin path only (next_page.safe_next)
+            return done
+        cross = hop != "1" and request.headers.get("sec-fetch-site") == "cross-site"
         if lang in LANGS:
             request.state.lang = lang
         idle = int(us.idle.total_seconds() // 60) if why == "idle" else 0  # D-777: why the session ended
-        return login_page(request, uninitialised=us.count("admin") == 0, idle_minutes=idle)
+        return login_page(request, uninitialised=us.count("admin") == 0, idle_minutes=idle,
+                          hop="/login?hop=1" + (f"&lang={lang}" if lang in LANGS else "") if cross else "")  # fmt: skip
 
     @app.post("/login")
     def login(
@@ -1342,6 +1350,7 @@ def create_app(
     # T-211c (D-451): /audit, the privacy office's and the steward's audit browser, with or without the workspace
     audit_hooks = audit_page.Hooks(need=need, page=page, problem=_Problem, csrf_ok=csrf_ok, actor=actor, au=au)
     audit_page.register(app, audit_hooks)
+    phone.register(app)  # J-3 (D-1222): the phone-first flag per request, the web manifest and the icons
 
     # ------------------------------------------------------------------ pilot workspace
     if not settings.pilot:
