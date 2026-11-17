@@ -196,6 +196,14 @@ install)
   grep -q '^TB_TLS_HOSTNAME=trialbox.hospa.test' deploy/.env || fail "TLS is not on"
   ok "site inputs: mapping in deploy/site/mapping (not the image), feed folder mounted, TLS on"
   wait_healthy 300
+  # SC-1b (D-993): the db server dropped root through the setpriv shim, not the upstream gosu binary: PID 1 of the db
+  # container is postgres itself, uid and gid 999 (real, effective, saved, fs) and no group but its own
+  [ "$(dc exec -T db head -c 2 /usr/local/bin/gosu)" = "#!" ] || fail "the db image still has the gosu binary"
+  dbst="$(dc exec -T db sh -c 'grep -E "^(Uid|Gid|Groups):" /proc/1/status')" || fail "cannot read the db server's status"
+  echo "$dbst" | awk '/^Uid:/{u=$2" "$3" "$4" "$5} /^Gid:/{g=$2" "$3" "$4" "$5} /^Groups:/{$1=""; gr=$0}
+    END{gsub(/^ +| +$/, "", gr); exit !(u=="999 999 999 999" && g=="999 999 999 999" && (gr=="" || gr=="999"))}' \
+    || { echo "$dbst"; fail "the db server does not run as postgres (999) with only its own group"; }
+  ok "db server runs as postgres: uid 999, gid 999, no other group (dropped by setpriv, no gosu binary)"
   ;;
 
 # ------------------------------------------------------------------------------------------------ reinstall
