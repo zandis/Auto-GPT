@@ -78,7 +78,7 @@ DECLARE
                         "study", "team", "terminology", "tuned", "vec"],
     "tb_mail_gateway": ["app", "mail"],
     "tb_gateway": ["app", "trace"],
-    "tb_console": ["app", "auth", "breakglass", "datacore", "derived", "feedback", "library", "mpi",
+    "tb_console": ["app", "auth", "breakglass", "datacore", "derived", "edcdoor", "feedback", "library", "mpi",
                    "optout", "orch", "pidmap", "profile", "recall", "refdata", "sae", "site", "study",
                    "team", "terminology", "tuned"]
   }';

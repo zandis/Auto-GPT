@@ -49,9 +49,11 @@ def test_wrong_token_unsupported_method_and_rate_limit() -> None:
     c = TestClient(create_app())
     r = post(c, "0" * 32, "record")
     assert r.status_code == 403 and r.json() == {"error": NO_PERMISSION}
-    for content in ("file", "import", "participantList"):
+    for content in ("import", "participantList"):
         r = post(c, TOKEN_A, content)
         assert r.status_code == 501 and "error" in r.json()
+    r = post(c, TOKEN_A, "file")  # file is supported; a call with no action is refused
+    assert r.status_code == 400 and "error" in r.json()
     for content in ("arm", "event"):  # D-134: answered for a longitudinal project; project A is a classic one
         r = post(c, TOKEN_A, content)
         assert r.status_code == 400 and "classic" in r.json()["error"]

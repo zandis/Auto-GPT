@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ t('edc.title') }}{% endblock %}
+{% block content %}
+<h1>{{ t('edc.title') }}</h1>
+<p class="hint">{{ t('edc.help') }}</p>
+<section class="card" data-testid="edc-map">
+  <h2>{{ t('edc.map') }}</h2>
+  <p class="mono">{{ saved.studies|length }} {{ t('edc.studies') }}</p>
+</section>
+<section class="card" data-testid="edc-confirm">
+  <h2>{{ t('edc.confirm') }}</h2>
+  {% if not pending %}<p class="empty">{{ t('edc.none') }}</p>{% else %}
+  {% for pid in pending %}
+  <form method="post" action="/api/edc/tools/{{ pid }}/confirm">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit" data-testid="confirm-{{ pid }}">{{ t('edc.confirm_one') }}</button>
+  </form>
+  {% endfor %}
+  {% endif %}
+</section>
+{% endblock %}

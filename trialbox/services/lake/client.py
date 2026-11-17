@@ -257,6 +257,19 @@ class LakeHttp:
         resp.raise_for_status()
         return bool(_key(resp, "released", (bool,)))
 
+    def memory_limit_bytes(self) -> int | None:
+        """NEW-B-58 (D-924): the lake service's memory limit (``GET /limits``), read through the one reader (D-673):
+        None only for a lake from before the route (404); a refusal or an answer of another shape raises, and the
+        caller (``matching.cascade.engine.patients_per_query``) then keeps to D-748's batches."""
+        resp = self.client.get(f"{self.base}/limits")
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        value = int(_key(resp, "memory_limit_bytes", (int,)))
+        if value <= 0:
+            raise LakeBadAnswer(resp.status_code, "has no usable 'memory_limit_bytes'")
+        return value
+
     def holds(self) -> dict[str, str]:
         resp = self.client.get(f"{self.base}/holds")
         resp.raise_for_status()
@@ -327,6 +340,12 @@ class LakeLocal:
 
     def snapshot(self) -> str | None:
         return self.lake.current()
+
+    def memory_limit_bytes(self) -> int | None:
+        """NEW-B-58 (D-924): the memory limit this process gives the lake (``lake.store.memory_limit``)."""
+        from lake.store import memory_limit_bytes
+
+        return memory_limit_bytes()
 
     def put_site(self, resources: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
         return self.lake.put_site(resources)

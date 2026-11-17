@@ -710,6 +710,20 @@ def memory_limit() -> str:
     return f"{max(1, int(total * 0.4 / 2**30))}GB"
 
 
+_SIZE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(B|KB|MB|GB|TB|KIB|MIB|GIB|TIB)?\s*$", re.I)
+_UNIT = {"B": 1, "KB": 10**3, "MB": 10**6, "GB": 10**9, "TB": 10**12, "KIB": 2**10, "MIB": 2**20, "GIB": 2**30,
+         "TIB": 2**40}  # fmt: skip
+
+
+def memory_limit_bytes(limit: str | None = None) -> int | None:
+    """NEW-B-58 (D-924): :func:`memory_limit` (or ``limit``) in bytes, as DuckDB reads it (``8GB`` is 8 x 10^9,
+    ``8GiB`` 8 x 2^30); None when it cannot be read."""
+    m = _SIZE.match(memory_limit() if limit is None else limit)
+    if m is None:
+        return None
+    return int(float(m.group(1)) * _UNIT[(m.group(2) or "B").upper()])
+
+
 def temp_limit(temp_dir: Path) -> str:
     """``TB_LAKE_MAX_TEMP`` (e.g. ``20GB``) or a quarter of the free space where the lake spills, at most 50 GB and
     at least 1 GB: a query that needs more fails with :class:`LakeLimitError` instead of filling the disk the lake,
