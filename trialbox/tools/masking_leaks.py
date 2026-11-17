@@ -1,35 +1,40 @@
 """The planted-identifier harness of card V-5 (plan 8, activity V6): does the note masker hide every identifier?
 
-    python -m tools.masking_leaks --write   # the full run: writes leaks.json and the page's generated tables
-    python -m tools.masking_leaks --check   # the page's generated tables equal what leaks.json gives (no run)
+    python -m tools.masking_leaks --write   # the full run: writes leaks.json and the page's generated blocks
+    python -m tools.masking_leaks --check   # the page's generated blocks equal what leaks.json and findings.json give
 
-Base notes are the synthetic hospital's own sentences (``tools.synth.notes``, ``notes_ja``, ``notes_en``). Into each
-note copy this tool plants ONE identifier it invents itself (its own name pools, digits from a seeded random source,
-never the masker's patterns), at one of seven places. Then the text goes through the two real entry points:
+Base notes are the synthetic hospital's own notes (``tools.synth.generator.Generator``, a Taiwan site writing zh-TW
+and English and a Japan site writing ja and English), split into sentences. Only base notes in which neither entry
+point finds anything are used. Into each note copy this tool plants ONE identifier it invents itself (its own name
+pools, digits from a seeded random source in the real numbering formats, never the masker's patterns), at one of
+seven places. Then the text goes through the two real entry points:
 
 * ``tb_common.phi_guard.mask_note(text, site_mrn_regex())``: what ``lake.store.Lake.rebuild`` runs before a note is
-  chunked, indexed and embedded (``services/lake/store.py:1463``), and what the console runs on a note it shows
-  (``services/console/reveal.py:81``);
-* ``guard.Guard.from_settings().tripwire(text)``: what the gateway runs on a call that leaves the box
-  (``services/gateway/core.py:579``). A miss there means the raw note is sent out.
+  chunked, indexed and embedded (``services/lake/store.py:1463``);
+* ``guard.Guard.from_settings().tripwire(text)``: what the gateway runs on a call of class D0 to D2
+  (``services/gateway/core.py:579``).
 
-Leak rule. ``mask_note`` keeps the length, so the planted value's own characters are read back at their place. The
-value leaked when none of its characters other than separators (space, line break, dash, dot, slash, brackets,
-colon, plus) was masked, so its surface string and its normalised form are still in the output. A name leaked when
-its family name and at least one more letter of the name are unmasked. A tripwire leak is a note with a plant that
-gives no hit. Date rule (D-745): a date of birth (after its label, or before the word for born) must be masked; a
-date with neither is a clinical date and must stay, so bare dates are counted with the clinical strings.
+Leak rule. ``mask_note`` keeps the length, so the planted value's characters are read back at their place
+(separators: space, line break, dash, dot, slash, brackets, colon, plus, comma, and their full-width forms, are not
+counted). The value LEAKED when any of these holds: every character is readable; for a name, the whole family name
+is readable and either the value is the family name alone or one more letter of the name is readable; for a
+national ID, chart number or phone number, at least half of its digits are readable; a part that identifies alone
+(a full postcode, an e-mail's local part) is wholly readable. PARTLY: at least one character readable but none of
+the above. A tripwire leak is a note with a plant that gives no hit.
 
-Second set: clinical strings that screening criteria need (ages, lab values, doses, dates of diagnosis, durations,
-stage, scores, variants, trial ids, codes, compact dates). Each is planted in a fresh note; a string with any
-character masked counts as altered.
+Scope. A name is in the ruling's scope (D-337 section 1) when it follows a label (the label and table places) or
+carries a role, title or honorific; a name with neither is free-standing and counted apart. A line break inside a
+value is counted apart too; the break falls where a hard wrap would put it (see ``wrap``). Forms in ``NOT_HELD`` are
+not identifiers by themselves and are in no rate.
+
+Date rule (D-745): a date of birth (after its label, or before the word for born) must be masked; a date with neither
+is a clinical date and must stay, so bare dates are counted with the clinical strings, where a mask is over-masking.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import math
 import random
 import re
 import sys
@@ -42,12 +47,11 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "docs/plan/measurements/masking-leaks-2026-11-17"
 JSON_PATH = OUT_DIR / "leaks.json"
+FINDINGS_PATH = OUT_DIR / "findings.json"
 PAGE_PATH = ROOT / "docs/plan/measurements/masking-leaks-2026-11-17.md"
 SEED = 20261117
 LANGS = ("zh-TW", "ja", "en")
 POSITIONS = ("start", "middle", "end", "label", "table", "cjk_adjacent", "line_break")
-MIN_NOTES = 1000  # planted notes per language, at least
-SEPARATORS = set(" \t\n　-‐－.．/／()（）:：+＋,，")
 
 # ---------------------------------------------------------------------------------------------- invented pools
 # Han surnames, common and rarer; given-name characters; romanised pairs (Wade-Giles, Pinyin)
@@ -186,18 +190,70 @@ def zh_numeral(n: int) -> str:
     return "".join(ZH_DIGITS[int(d)] for d in str(n))
 
 
+def arc_old(rng: random.Random) -> str:
+    """An old-form Taiwan resident certificate number: two letters (the second A to D) and eight digits, the last a
+    check digit computed as for the ID, with the second letter's code taken modulo 10 as the first digit."""
+    letter, second = rng.choice(sorted(TW_LETTERS)), rng.choice("ABCD")
+    body = digits(rng, 7)
+    n = TW_LETTERS[letter]
+    vals = [n // 10, n % 10, TW_LETTERS[second] % 10, *(int(d) for d in body)]
+    total = sum(v * w for v, w in zip(vals, (1, 9, 8, 7, 6, 5, 4, 3, 2, 1), strict=True))
+    return letter + second + body + str((10 - total % 10) % 10)
+
+
+def my_number(rng: random.Random) -> str:
+    """A 12-digit My Number with its check digit (weights 2..7 then 2..6 from the right)."""
+    body = digits(rng, 11)
+    total = sum(int(p) * (n + 1 if n <= 6 else n - 5) for n, p in enumerate(reversed(body), start=1))
+    r = total % 11
+    return body + str(0 if r <= 1 else 11 - r)
+
+
+def insurer_no(rng: random.Random) -> str:
+    """An 8-digit Japanese insurer number: law code, prefecture (01 to 47), insurer, check digit (weights 2,1 from
+    the left, digit sums added)."""
+    body = rng.choice(["01", "06", "31", "32", "33", "34", "63", "67"]) + f"{rng.randint(1, 47):02d}" + digits(rng, 3)
+    total = sum(sum(divmod(int(c) * (2 if i % 2 == 0 else 1), 10)) for i, c in enumerate(body))
+    return body + str((10 - total % 10) % 10)
+
+
+def ssn(rng: random.Random) -> str:
+    """A US SSN in the issued ranges: area 001 to 899 but 666, group 01 to 99, serial 0001 to 9999."""
+    area = rng.choice([a for a in range(1, 900) if a != 666])
+    return f"{area:03d}-{rng.randint(1, 99):02d}-{rng.randint(1, 9999):04d}"
+
+
+# Taiwan area codes and the length of the subscriber number after each (NCC numbering plan)
+TW_AREAS = [("02", 8), ("03", 7), ("037", 6), ("04", 8), ("049", 7), ("05", 7), ("06", 7), ("07", 7), ("08", 7),
+            ("089", 6)]  # fmt: skip
+
+
+def tw_landline(rng: random.Random) -> tuple[str, str]:
+    """``(area code, subscriber number)``; the subscriber number never starts with 0 or 1."""
+    area, n = rng.choice(TW_AREAS)
+    return area, str(rng.randint(2, 9)) + digits(rng, n - 1)
+
+
+def _grp(sub: str) -> str:
+    return f"{sub[:4]}-{sub[4:]}" if len(sub) == 8 else f"{sub[:-4]}-{sub[-4:]}"
+
+
 @dataclass
 class Item:
-    """One planted string: ``surface`` is inserted; ``v`` the value's offsets in it; ``fam`` the family name's."""
+    """One planted string. ``surface`` is inserted; ``v`` is the value's offsets in it; ``fam`` the family name's;
+    ``keys`` the parts that identify alone (a postcode, an e-mail's local part); ``cue``: a name carries a role, a
+    title or an honorific; ``labelled``: the form carries its own label."""
 
     surface: str
     v: tuple[int, int]
     fam: tuple[int, int] | None = None
-    labelled: bool = False  # the form carries its own label
+    labelled: bool = False
+    cue: bool = False
+    keys: tuple[tuple[int, int], ...] = ()
 
 
-def plain(s: str) -> Item:
-    return Item(s, (0, len(s)))
+def plain(s: str, keys: tuple[tuple[int, int], ...] = ()) -> Item:
+    return Item(s, (0, len(s)), keys=keys)
 
 
 def labelled(label: str, value: str) -> Item:
@@ -208,7 +264,7 @@ def name_item(prefix: str, name: str, family: str, suffix: str = "") -> Item:
     s = prefix + name + suffix
     a = len(prefix)
     f = name.index(family)
-    return Item(s, (a, a + len(name)), (a + f, a + f + len(family)))
+    return Item(s, (a, a + len(name)), (a + f, a + f + len(family)), cue=bool(prefix or suffix))
 
 
 # ---------------------------------------------------------------------------------------------- the forms
@@ -263,28 +319,30 @@ def _en(rng: random.Random, form: str) -> Item:
 
 def _tw_phone(rng: random.Random, form: str) -> str:
     m = "09" + digits(rng, 8)
-    land = "2" + digits(rng, 7)
+    area, sub = tw_landline(rng)
     return {
         "mobile_hyphen": f"{m[:4]}-{m[4:7]}-{m[7:]}",
         "mobile_plain": m,
         "mobile_space": f"{m[:4]} {m[4:7]} {m[7:]}",
         "mobile_intl": f"+886-{m[1:4]}-{m[4:7]}-{m[7:]}",
-        "mobile_intl_space": f"+886 {m[1]} {m[2:6]} {m[6:]}",
-        "landline_paren": f"(0{land[0]}){land[1:5]}-{land[5:]}",
-        "landline_hyphen": f"0{land[0]}-{land[1:5]}-{land[5:]}",
-        "landline_ext": f"0{land[0]}-{land[1:5]}-{land[5:]} 分機{digits(rng, 3)}",
+        "mobile_intl_space": f"+886 {m[1:4]} {m[4:7]} {m[7:]}",
+        "landline_paren": f"({area}){_grp(sub)}",
+        "landline_hyphen": f"{area}-{_grp(sub)}",
+        "landline_ext": f"{area}-{_grp(sub)} 分機{digits(rng, 3)}",
         "mobile_fullwidth": fw(f"{m[:4]}-{m[4:7]}-{m[7:]}"),
     }[form]
 
 
 def _jp_phone(rng: random.Random, form: str) -> str:
     a, b = digits(rng, 4), digits(rng, 4)
+    pre = rng.choice(["090", "080", "070"])
     return {
-        "mobile": f"090-{a}-{b}",
+        "mobile": f"{pre}-{a}-{b}",
         "landline": f"03-{a}-{b}",
-        "intl": f"+81-90-{a}-{b}",
-        "plain": f"090{a}{b}",
-        "fullwidth": fw(f"090-{a}-{b}"),
+        "landline_3": f"045-{a[:3]}-{b}",
+        "intl": f"+81-{pre[1:]}-{a}-{b}",
+        "plain": f"{pre}{a}{b}",
+        "fullwidth": fw(f"{pre}-{a}-{b}"),
     }[form]
 
 
@@ -293,47 +351,48 @@ def _na_phone(rng: random.Random, form: str) -> str:
     return {"paren": f"({area}) 555-{last}", "hyphen": f"{area}-555-{last}", "intl": f"+1 {area} 555 {last}"}[form]
 
 
-def _tw_addr(rng: random.Random, form: str) -> str:
+def _tw_addr(rng: random.Random, form: str) -> Item:
     city = rng.choice(["臺北市中正區", "新北市板橋區", "臺中市西屯區", "高雄市苓雅區", "宜蘭縣羅東鎮"])
     road = rng.choice(["測試路", "範例街", "模擬大道", "示範路"])
     no = f"{rng.randint(1, 300)}號"
     if form == "full":
-        head = f"{rng.randint(100, 999)}{city}{road}{rng.choice('一二三')}段"
-        return head + f"{rng.randint(1, 99)}巷{rng.randint(1, 20)}弄{no}{rng.randint(2, 15)}樓"
+        post = str(rng.randint(100, 983))
+        head = f"{post}{city}{road}{rng.choice('一二三')}段"
+        return plain(head + f"{rng.randint(1, 99)}巷{rng.randint(1, 20)}弄{no}{rng.randint(2, 15)}樓", ((0, 3),))
     if form == "no_postcode":
-        return f"{city}{road}{rng.randint(1, 99)}巷{no}"
-    return f"{city}{road}{no}{rng.randint(2, 15)}樓之{rng.randint(1, 5)}"  # floor and unit
+        return plain(f"{city}{road}{rng.randint(1, 99)}巷{no}")
+    return plain(f"{city}{road}{no}{rng.randint(2, 15)}樓之{rng.randint(1, 5)}")  # floor and unit
 
 
-def _jp_addr(rng: random.Random, form: str) -> str:
+def _jp_addr(rng: random.Random, form: str) -> Item:
     pref = rng.choice(["東京都千代田区", "大阪府大阪市北区", "愛知県名古屋市中区", "北海道札幌市中央区"])
     town = rng.choice(["試験町", "見本町", "仮町"])
     chome = f"{rng.randint(1, 9)}丁目{rng.randint(1, 30)}番{rng.randint(1, 20)}号"
     post = f"〒{digits(rng, 3)}-{digits(rng, 4)}"
     if form == "full":
-        return f"{post} {pref}{town}{chome}"
+        return plain(f"{post} {pref}{town}{chome}", ((1, 9),))
     if form == "hyphen_building":
         head = f"{pref}{town}{rng.randint(1, 9)}-{rng.randint(1, 30)}-{rng.randint(1, 20)}"
-        return head + f" サンプルハイツ{rng.randint(101, 909)}号室"
-    return f"{pref}{town}{chome}"
+        return plain(head + f" サンプルハイツ{rng.randint(101, 909)}号室")
+    return plain(f"{pref}{town}{chome}")
 
 
-def _en_addr(rng: random.Random, form: str) -> str:
+def _en_addr(rng: random.Random, form: str) -> Item:
     st = rng.choice(["Example Street", "Sample Avenue", "Testing Road", "Placeholder Lane"])
     n = rng.randint(10, 9999)
     if form == "full":
-        return f"{n} {st}, Springfield, IL {digits(rng, 5)}"
-    return f"{n} {st}, Apt {rng.randint(1, 40)}"
+        s = f"{n} {st}, Springfield, IL {rng.randint(501, 99950):05d}"
+        return plain(s, ((len(s) - 5, len(s)),))
+    return plain(f"{n} {st}, Apt {rng.randint(1, 40)}")
 
 
-def _email(rng: random.Random, form: str) -> str:
+def _email(rng: random.Random, form: str) -> Item:
     user = rng.choice(["chen", "yamada", "a.tester", "pt"]) + digits(rng, 2)
     dom = rng.choice(["example.com", "example.org", "example.net"])
     if form == "plus":
-        return f"{user}+clinic@{dom}"
-    if form == "fullwidth_at":
-        return f"{user}＠{dom}"
-    return f"{user}@{dom}"
+        user += "+clinic"
+    at = "＠" if form == "fullwidth_at" else "@"
+    return plain(f"{user}{at}{dom}", ((0, len(user)),))
 
 
 def _dob_values(rng: random.Random, lang: str) -> dict[str, str]:
@@ -402,8 +461,8 @@ def _pl(r: random.Random, fn: Callable[..., str], *args: Any) -> Item:
     return plain(fn(r, *args))
 
 
-def _lab_digits(r: random.Random, label: str, n: int) -> Item:
-    return labelled(label, digits(r, n))
+def _lab(r: random.Random, label: str, fn: Callable[..., str], *args: Any) -> Item:
+    return labelled(label, fn(r, *args))
 
 
 def _dob_label(r: random.Random, lang: str, form: str) -> Item:
@@ -415,10 +474,6 @@ def _dob_born(r: random.Random, lang: str, form: str, born: str) -> Item:
     return Item(v + born, (0, len(v)), labelled=True)
 
 
-def _arc_old(r: random.Random) -> str:
-    return r.choice("ABCDEF") + r.choice("ABCD") + digits(r, 8)
-
-
 def _arc_new(r: random.Random) -> str:
     return tw_id(r, r.choice("89"))
 
@@ -428,23 +483,25 @@ def _tw_id_fw(r: random.Random) -> str:
 
 
 def _my_number_spaced(r: random.Random) -> str:
-    return f"{digits(r, 4)} {digits(r, 4)} {digits(r, 4)}"
+    n = my_number(r)
+    return f"{n[:4]} {n[4:8]} {n[8:]}"
+
+
+def _my_number_fw(r: random.Random) -> str:
+    return fw(my_number(r))
 
 
 def _insurance_symbol_no(r: random.Random) -> Item:
     return labelled("被保険者証 記号・番号：", f"{digits(r, 4)}・{digits(r, 3)}")
 
 
-def _ssn(r: random.Random) -> str:
-    return f"9{digits(r, 2)}-{digits(r, 2)}-{digits(r, 4)}"
-
-
 def _letter_7(r: random.Random) -> str:
     return r.choice("ABCDEFGH") + digits(r, 7)
 
 
-def _digits_fw(r: random.Random, n: int) -> str:
-    return fw(digits(r, n))
+#: forms planted and reported but held to be no identifier by themselves: a bare 7-digit, or letter and 7-digit,
+#: number with no label is a chart number only at a site whose chart pattern says so (the shipped example is 8 digits)
+NOT_HELD = frozenset({"bare_7", "letter_7"})
 
 
 def forms(lang: str) -> list[tuple[str, str, Gen]]:
@@ -479,18 +536,18 @@ def forms(lang: str) -> list[tuple[str, str, Gen]]:
     # national and residence numbers
     if lang in ("zh-TW", "en"):
         add("national_id", "tw_id", bind(_pl, tw_id))
-        add("national_id", "tw_arc_old", bind(_pl, _arc_old))
+        add("national_id", "tw_arc_old", bind(_pl, arc_old))
         add("national_id", "tw_arc_new", bind(_pl, _arc_new))
     if lang == "zh-TW":
         add("national_id", "tw_id_fullwidth", bind(_pl, _tw_id_fw))
     if lang == "ja":
-        add("national_id", "my_number", bind(_pl, digits, 12))
+        add("national_id", "my_number", bind(_pl, my_number))
         add("national_id", "my_number_spaced", bind(_pl, _my_number_spaced))
-        add("national_id", "my_number_fullwidth", bind(_pl, _digits_fw, 12))
-        add("national_id", "insurer_no", bind(_lab_digits, "保険者番号：", 8))
+        add("national_id", "my_number_fullwidth", bind(_pl, _my_number_fw))
+        add("national_id", "insurer_no", bind(_lab, "保険者番号：", insurer_no))
         add("national_id", "insurance_symbol_no", bind(_insurance_symbol_no))
     if lang == "en":
-        add("national_id", "us_ssn", bind(_pl, _ssn))
+        add("national_id", "us_ssn", bind(_pl, ssn))
     # chart numbers: bare (the site pattern is 8 digits), CGRD-like letter forms, and after each label
     add("chart", "bare_8", bind(_pl, digits, 8))
     add("chart", "bare_7", bind(_pl, digits, 7))
@@ -501,7 +558,8 @@ def forms(lang: str) -> list[tuple[str, str, Gen]]:
         "en": ["MRN ", "MRN: ", "Chart No. ", "Hospital No.: ", "ID: "],
     }[lang]
     for lab in chart_labels:
-        add("chart", "label_" + lab.strip(" :：.").replace(" ", "_"), bind(_lab_digits, lab, 8))
+        colon = "_colon" if lab.rstrip().endswith((":", "：")) else ""
+        add("chart", "label_" + lab.strip(" :：.").replace(" ", "_") + colon, bind(_lab, lab, digits, 8))
     # phones
     tw_phones = ("mobile_hyphen", "mobile_plain", "mobile_space", "mobile_intl", "mobile_intl_space")
     if lang in ("zh-TW", "en"):
@@ -510,7 +568,7 @@ def forms(lang: str) -> list[tuple[str, str, Gen]]:
     if lang == "zh-TW":
         add("phone", "tw_mobile_fullwidth", bind(_pl, _tw_phone, "mobile_fullwidth"))
     if lang == "ja":
-        for f in ("mobile", "landline", "intl", "plain", "fullwidth"):
+        for f in ("mobile", "landline", "landline_3", "intl", "plain", "fullwidth"):
             add("phone", "jp_" + f, bind(_pl, _jp_phone, f))
     if lang == "en":
         for f in ("paren", "hyphen", "intl"):
@@ -518,16 +576,16 @@ def forms(lang: str) -> list[tuple[str, str, Gen]]:
     # addresses
     if lang == "zh-TW":
         for f in ("full", "no_postcode", "floor_unit"):
-            add("address", "tw_" + f, bind(_pl, _tw_addr, f))
+            add("address", "tw_" + f, bind(_tw_addr, f))
     if lang == "ja":
         for f in ("full", "hyphen_building", "no_postcode"):
-            add("address", "jp_" + f, bind(_pl, _jp_addr, f))
+            add("address", "jp_" + f, bind(_jp_addr, f))
     if lang == "en":
         for f in ("full", "apt"):
-            add("address", "en_" + f, bind(_pl, _en_addr, f))
+            add("address", "en_" + f, bind(_en_addr, f))
     # e-mail
     for f in ("ascii", "plus", "fullwidth_at"):
-        add("email", f, bind(_pl, _email, f))
+        add("email", f, bind(_email, f))
     # dates of birth: after the label, and (zh-TW, ja) before the word for born (the value is what comes before it)
     born = BORN_AFTER[lang]
     for f in _dob_values(random.Random(0), lang):
@@ -550,30 +608,75 @@ ADJ = {"zh-TW": ("聯絡", "已確認"), "ja": ("連絡先", "確認済"), "en":
 
 
 # ---------------------------------------------------------------------------------------------- notes
-def fillers(lang: str) -> list[str]:
-    from tools.synth import notes, notes_en, notes_ja
-
-    return list({"zh-TW": notes, "ja": notes_ja, "en": notes_en}[lang].FILLER)
+_BASE: dict[str, list[list[str]]] = {}
+BASE_INFO: dict[str, dict[str, int]] = {}
 
 
-def base_note(rng: random.Random, lang: str) -> list[str]:
-    return rng.sample(fillers(lang), 3)
+def _lang_of(text: str) -> str:
+    if re.search("[぀-ヿ]", text):
+        return "ja"
+    cjk = len(re.findall("[一-鿿]", text))
+    return "zh-TW" if cjk > len(text) * 0.2 else "en"
+
+
+def _sentences(text: str) -> list[str]:
+    return [s for s in re.split(r"(?<=[。])|(?<=\. )", text) if s.strip()]
+
+
+def base_notes(lang: str, accept: Callable[[str], bool] | None = None) -> list[list[str]]:
+    """The synthetic hospital's notes of ``lang`` as sentence lists (seeded; at least three sentences each). With
+    ``accept``, only the notes it accepts (the run keeps notes in which neither entry point finds anything)."""
+    if lang not in _BASE:
+        from datetime import date
+
+        from tools.synth.generator import Generator
+
+        pool: dict[str, list[str]] = {"zh-TW": [], "ja": [], "en": []}
+        for site, style, mix in (("TW-T", "TW", {"zh-TW": 0.6, "en": 0.4}), ("JP-T", "JP", {"ja": 0.8, "en": 0.2})):
+            g = Generator(SEED % 1000, site, date(2026, 11, 17), 200, "3", style=style, lang_mix=mix)
+            g.run()
+            for row in g.t["note"]:
+                text = str(row["text"])
+                pool[_lang_of(text)].append(text)
+        for lg, texts in pool.items():
+            notes = [_sentences(t) for t in sorted(set(texts))]
+            kept = [s for s in notes if len(s) >= 3 and (accept is None or accept("".join(s)))]
+            BASE_INFO[lg] = {"generated": len(notes), "kept": len(kept)}
+            _BASE[lg] = kept
+    return _BASE[lang]
+
+
+def wrap(it: Item) -> Item:
+    """``it`` with one line break where a hard wrap would split the value: at a separator between groups (the one
+    nearest the middle; a space becomes the break, after a dash, dot, slash or comma the break follows it), and in a
+    value with no separator, in the middle of the run (where a wrap at a fixed column falls)."""
+    a, b = it.v
+    s = it.surface
+    seps = [i for i in range(a + 1, b - 1) if s[i] in " 　-./,、・"]
+    if seps:
+        i = min(seps, key=lambda i: abs(2 * i - a - b))
+        if s[i] in " 　":
+            return Item(s[:i] + "\n" + s[i + 1 :], it.v, it.fam, it.labelled, it.cue, it.keys)
+        cut = i + 1
+    else:
+        cut = a + (b - a) // 2
+
+    def sh(x: int) -> int:
+        return x + 1 if x >= cut else x
+
+    def shs(p: tuple[int, int]) -> tuple[int, int]:
+        return (sh(p[0]), sh(p[1]))
+
+    fam = shs(it.fam) if it.fam else None
+    return Item(s[:cut] + "\n" + s[cut:], shs(it.v), fam, it.labelled, it.cue, tuple(shs(k) for k in it.keys))
 
 
 def plant(sents: list[str], it: Item, pos: str, lang: str, kind: str) -> tuple[str, int, int, Item]:
-    """The note text, and where the planted surface starts and ends in it. ``line_break`` puts a line break inside
-    the value (between family and given name for a name)."""
+    """The note text, and where the planted surface starts and ends in it."""
+    if pos == "line_break":
+        it = wrap(it)
     sp = " " if lang == "en" else ""
     end = ". " if lang == "en" else "。"
-    if pos == "line_break":
-        a, b = it.v
-        cut = it.fam[1] if it.fam and it.fam[1] < b else a + max(1, (b - a) // 2)
-        s = it.surface[:cut] + "\n" + it.surface[cut:]
-
-        def shift(x: int) -> int:
-            return x + 1 if x >= cut else x
-
-        it = Item(s, (shift(a), shift(b)), (shift(it.fam[0]), shift(it.fam[1])) if it.fam else None, it.labelled)
     label = "" if it.labelled else LABELS[kind][lang]
     if pos == "start":
         pre, post = "", sp + "".join(sents)
@@ -591,27 +694,55 @@ def plant(sents: list[str], it: Item, pos: str, lang: str, kind: str) -> tuple[s
     return text, len(pre), len(pre) + len(it.surface), it
 
 
+def scope(kind: str, it: Item, pos: str) -> str:
+    """``line_break``; ``free`` for a name with no label, role, title or honorific (outside D-337 section 1); else
+    ``in``."""
+    if pos == "line_break":
+        return "line_break"
+    if kind == "name" and not it.cue and pos not in ("label", "table"):
+        return "free"
+    return "in"
+
+
 class PlantError(RuntimeError):
     """The planted value is not where the harness put it: a harness error, never a masker result."""
 
 
-def judge(text: str, out: str, start: int, it: Item, mask_char: str) -> str:
-    """``leaked``, ``partly`` (some characters masked, not all) or ``masked``; see the module's leak rule."""
+SEPARATORS = set(" \t\n　-‐－.．/／()（）:：+＋,，、・")
+DIGIT_KINDS = ("national_id", "chart", "phone")
+
+
+def judge(text: str, out: str, start: int, it: Item, mask_char: str, kind: str = "") -> str:
+    """``leaked``, ``partly`` or ``masked`` by the module's leak rule."""
     if len(out) != len(text):
         raise PlantError("the masker changed the length; the leak rule reads by place")
     a, b = start + it.v[0], start + it.v[1]
-    val = [i for i in range(a, b) if text[i] not in SEPARATORS]
-    if not val or text[a:b] != it.surface[it.v[0] : it.v[1]]:
+    if text[a:b] != it.surface[it.v[0] : it.v[1]]:
         raise PlantError("the value is not in the input")
-    kept = [i for i in val if out[i] != mask_char]
-    if it.fam:
-        fam = range(start + it.fam[0], start + it.fam[1])
-        rest = [i for i in kept if i not in fam]
-        if all(out[i] != mask_char for i in fam if text[i] not in SEPARATORS) and rest:
-            return "leaked"
-    elif len(kept) == len(val):
+
+    def chars(lo: int, hi: int) -> list[int]:
+        return [i for i in range(lo, hi) if text[i] not in SEPARATORS]
+
+    val = chars(a, b)
+    if not val:
+        raise PlantError("the value has no character")
+    readable = {i for i in val if out[i] != mask_char}
+    if not readable:
+        return "masked"
+    if len(readable) == len(val):
         return "leaked"
-    return "masked" if not kept else "partly"
+    if it.fam:
+        fam = set(chars(start + it.fam[0], start + it.fam[1]))
+        if fam <= readable and (fam == set(val) or readable - fam):
+            return "leaked"
+    for k0, k1 in it.keys:
+        if set(chars(start + k0, start + k1)) <= readable:
+            return "leaked"
+    if kind in DIGIT_KINDS:
+        dg = [i for i in val if text[i] in "0123456789０１２３４５６７８９"]
+        if dg and 2 * sum(i in readable for i in dg) >= len(dg):
+            return "leaked"
+    return "partly"
 
 
 # ---------------------------------------------------------------------------------------------- clinical strings
@@ -755,61 +886,52 @@ def engines() -> Engines:
     return Engines(lambda t: mask_note(t, rx), lambda t: g.tripwire(t).hit, MASK_CHAR, rx)
 
 
+def clean_base(eng: Engines) -> Callable[[str], bool]:
+    """A base note is used only when the masker masks nothing in it and the tripwire does not fire on it."""
+    return lambda t: eng.mask(t) == t and not eng.tripwire(t)
+
+
 def _shape(s: str) -> str:
     """An example for the record without its digits (the data scan would read a planted number as a real one)."""
     return re.sub(r"[0-9０-９]", "d", s.replace("\n", "⏎").replace("\t", "⇥"))
 
 
 def cases(lang: str, per_form: int, seed: int = SEED) -> Iterator[tuple[str, str, str, str, int, Item]]:
-    """``(kind, form, position, text, start, item)`` of every planted note of ``lang``, deterministic."""
+    """``(kind, form, place, text, start, item)`` of every planted note of ``lang``, deterministic. The base notes
+    must have been loaded (``base_notes``)."""
     rng = random.Random(f"{seed}:{lang}")
+    pool = base_notes(lang)
     for kind, form, gen in forms(lang):
         for i in range(per_form):
             pos = POSITIONS[i % len(POSITIONS)]
             it = gen(rng)
-            text, start, _end, it = plant(base_note(rng, lang), it, pos, lang, kind)
+            text, start, _end, it = plant(rng.choice(pool), it, pos, lang, kind)
             yield kind, form, pos, text, start, it
 
 
-def per_form(lang: str) -> int:
-    n = len(forms(lang))
-    return max(len(POSITIONS), math.ceil(MIN_NOTES / n / len(POSITIONS)) * len(POSITIONS))
+PER_FORM = 3 * len(POSITIONS)  # three notes per form and place
 
 
-def run(eng: Engines, per: int | None = None, seed: int = SEED, langs: tuple[str, ...] = LANGS) -> dict[str, Any]:
+def _cell() -> dict[str, Any]:
+    return {"planted": 0, "leaked": 0, "partly": 0, "tripwire_missed": 0, "positions": {}, "examples": []}
+
+
+def run(eng: Engines, per: int = PER_FORM, seed: int = SEED, langs: tuple[str, ...] = LANGS) -> dict[str, Any]:
     t0 = time.monotonic()
     cells: dict[str, Any] = {}
-    control: dict[str, Any] = {}
+    not_held: dict[str, Any] = {}
     for lang in langs:
-        k = per or per_form(lang)
-        rng = random.Random(f"{seed}:control:{lang}")
-        base = ["".join(base_note(rng, lang)) for _ in range(200)]
-        control[lang] = {
-            "notes": len(base),
-            "masked_chars": sum(eng.mask(t).count(eng.mask_char) for t in base),
-            "tripwire_hits": sum(eng.tripwire(t) for t in base),
-        }
-        for kind, form, pos, text, start, it in cases(lang, k, seed):
+        base_notes(lang, clean_base(eng))
+        for kind, form, pos, text, start, it in cases(lang, per, seed):
             out = eng.mask(text)
-            verdict = judge(text, out, start, it, eng.mask_char)
-            tw_leak = not eng.tripwire(text)
-            c = cells.setdefault(
-                f"{lang}|{kind}|{form}",
-                {
-                    "planted": 0,
-                    "leaked": 0,
-                    "partly": 0,
-                    "tripwire_missed": 0,
-                    "examples": [],
-                    "positions": {},
-                    "planted_at": {},
-                },
-            )
+            verdict = judge(text, out, start, it, eng.mask_char, kind)
+            sc = scope(kind, it, pos)
+            where = not_held if form in NOT_HELD else cells
+            c = where.setdefault(f"{lang}|{kind}|{form}|{sc}", _cell())
             c["planted"] += 1
-            c["planted_at"][pos] = c["planted_at"].get(pos, 0) + 1
             c["leaked"] += verdict == "leaked"
             c["partly"] += verdict == "partly"
-            c["tripwire_missed"] += tw_leak
+            c["tripwire_missed"] += not eng.tripwire(text)
             if verdict == "leaked":
                 c["positions"][pos] = c["positions"].get(pos, 0) + 1
                 if len(c["examples"]) < 5:
@@ -824,12 +946,13 @@ def run(eng: Engines, per: int | None = None, seed: int = SEED, langs: tuple[str
     over: dict[str, Any] = {}
     for lang in langs:
         rng = random.Random(f"{seed}:clinical:{lang}")
+        pool = base_notes(lang)
         sp = " " if lang == "en" else ""
         for kind, gen in clinical(lang):
             o = over.setdefault(f"{lang}|{kind}", {"planted": 0, "altered": 0, "tripwire_hits": 0, "examples": []})
             for i in range(60):
                 s = gen(rng)
-                sents = base_note(rng, lang)
+                sents = rng.choice(pool)
                 pre = ["", sents[0] + sp, "".join(sents) + sp][i % 3]
                 text = pre + s + sp + ("".join(sents[1:]) if i % 3 == 1 else "")
                 if text[len(pre) : len(pre) + len(s)] != s:
@@ -842,7 +965,7 @@ def run(eng: Engines, per: int | None = None, seed: int = SEED, langs: tuple[str
                     o["altered"] += 1
                     if len(o["examples"]) < 5:
                         o["examples"].append({"input": _shape(s), "output": _shape(got)})
-    for c in list(cells.values()) + list(over.values()):
+    for c in [*cells.values(), *not_held.values(), *over.values()]:
         c["per_thousand"] = round(1000 * c.get("leaked", c.get("altered", 0)) / c["planted"], 1)
     return {
         "card": "V-5",
@@ -853,57 +976,102 @@ def run(eng: Engines, per: int | None = None, seed: int = SEED, langs: tuple[str
             "tripwire": "guard.Guard.from_settings().tripwire(text) as at services/gateway/core.py:579",
         },
         "site_mrn_regex": eng.mrn_regex,
-        "control_unplanted": control,
+        "base_notes": {lg: BASE_INFO[lg] for lg in langs},
         "cells": dict(sorted(cells.items())),
+        "not_held": dict(sorted(not_held.items())),
         "over_masking": dict(sorted(over.items())),
         "seconds": round(time.monotonic() - t0, 1),
     }
 
 
 # ---------------------------------------------------------------------------------------------- tables
+SCOPES = {"in": "in scope", "free": "free-standing name", "line_break": "line break"}
+
+
 def _pt(n: int, d: int) -> str:
     return f"{1000 * n / d:.1f}" if d else "-"
 
 
-def tables(data: dict[str, Any]) -> dict[str, str]:
-    cells = data["cells"]
-    by_lang: dict[str, list[int]] = {}
-    by_kind: dict[tuple[str, str], list[int]] = {}
+def _sum(cells: dict[str, Any], keep: Callable[[list[str]], bool]) -> list[int]:
+    v = [0, 0, 0, 0]
     for key, c in cells.items():
-        lang, kind, _form = key.split("|")
-        for agg in (by_lang.setdefault(lang, [0, 0, 0, 0]), by_kind.setdefault((lang, kind), [0, 0, 0, 0])):
-            agg[0] += c["planted"]
-            agg[1] += c["leaked"]
-            agg[2] += c["partly"]
-            agg[3] += c["tripwire_missed"]
-    tot = [sum(v[i] for v in by_lang.values()) for i in range(4)]
-    s = [
-        "| Language | Planted notes | Leaked (masker) | Per 1,000 | Partly masked | Tripwire missed | Per 1,000 |",
-        "|---|---:|---:|---:|---:|---:|---:|",
-    ]
-    for lang, v in [*sorted(by_lang.items()), ("all", tot)]:
-        s.append(f"| {lang} | {v[0]} | {v[1]} | {_pt(v[1], v[0])} | {v[2]} | {v[3]} | {_pt(v[3], v[0])} |")
-    k = [
-        "| Language | Kind | Planted | Leaked | Per 1,000 | Tripwire missed | Per 1,000 |",
-        "|---|---|---:|---:|---:|---:|---:|",
-    ]
-    for (lang, kind), v in sorted(by_kind.items()):
-        k.append(f"| {lang} | {kind} | {v[0]} | {v[1]} | {_pt(v[1], v[0])} | {v[3]} | {_pt(v[3], v[0])} |")
+        if keep(key.split("|")):
+            v[0] += c["planted"]
+            v[1] += c["leaked"]
+            v[2] += c["partly"]
+            v[3] += c["tripwire_missed"]
+    return v
+
+
+def _sel(cells: dict[str, Any], lang: str | None, kind: str | None, sc: str | None) -> list[int]:
+    """The sums of the cells of one language, kind and scope (``None``: any)."""
+
+    def keep(p: list[str]) -> bool:
+        return all(want is None or want == got for want, got in ((lang, p[0]), (kind, p[1]), (sc, p[3])))
+
+    return _sum(cells, keep)
+
+
+def _row(head: str, v: list[int]) -> str:
+    return f"| {head} | {v[0]} | {v[1]} | {_pt(v[1], v[0])} | {v[2]} | {_pt(v[2], v[0])} | {v[3]} | {_pt(v[3], v[0])} |"
+
+
+_HEAD = "Planted | Leaked | Per 1,000 | Partly | Per 1,000 | Tripwire missed | Per 1,000 |"
+
+
+def verdict(data: dict[str, Any]) -> str:
+    cells = data["cells"]
+    langs = sorted({k.split("|")[0] for k in cells})
+
+    def fig(sc: str, lang: str | None = None) -> list[int]:
+        return _sum(cells, lambda p: p[3] == sc and (lang is None or p[0] == lang))
+
+    i, f, lb = fig("in"), fig("free"), fig("line_break")
+    by = ", ".join(f"{lg} {_pt(fig('in', lg)[1], fig('in', lg)[0])}" for lg in langs)
+    nh = _sum(data["not_held"], lambda p: True)
+    return (
+        f"In the ruling's scope, the masker left {i[1]} of {i[0]} planted identifiers readable: "
+        f"**{_pt(i[1], i[0])} per 1,000** ({by}); {i[2]} more ({_pt(i[2], i[0])} per 1,000) were partly masked. "
+        f"Free-standing names, outside D-337 section 1: {f[1]} of {f[0]} leaked (**{_pt(f[1], f[0])} per 1,000**). "
+        f"Values split by a hard wrap: {lb[1]} of {lb[0]} leaked (**{_pt(lb[1], lb[0])} per 1,000**). "
+        f"The tripwire missed {i[3]} of the {i[0]} in-scope notes ({_pt(i[3], i[0])} per 1,000). "
+        f"Forms not held to be identifiers ({nh[0]} notes) are in no rate."
+    )
+
+
+def tables(data: dict[str, Any], findings: dict[str, Any] | None = None) -> dict[str, str]:
+    cells = data["cells"]
+    langs = sorted({k.split("|")[0] for k in cells})
+    s = ["| Language | Scope | " + _HEAD, "|---|---|" + "---:|" * 7]
+    for lang in [*langs, "all"]:
+        for sc, word in SCOPES.items():
+            v = _sel(cells, None if lang == "all" else lang, None, sc)
+            if v[0]:
+                s.append(_row(f"{lang} | {word}", v))
+    kinds = sorted({(k.split("|")[0], k.split("|")[1], k.split("|")[3]) for k in cells})
+    k = ["| Language | Kind | Scope | " + _HEAD, "|---|---|---|" + "---:|" * 7]
+    for lang, kind, sc in kinds:
+        v = _sel(cells, lang, kind, sc)
+        k.append(_row(f"{lang} | {kind} | {SCOPES[sc]}", v))
     f = [
-        "| Language | Kind | Form | Planted | Leaked | Per 1,000 | Partly | Tripwire missed | Leaked at |",
-        "|---|---|---|---:|---:|---:|---:|---:|---|",
+        "| Language | Kind | Form | Scope | Planted | Leaked | Per 1,000 | Partly | Tripwire missed | Leaked at |",
+        "|---|---|---|---|---:|---:|---:|---:|---:|---|",
     ]
     for key, c in cells.items():
         if c["leaked"] or c["partly"] or c["tripwire_missed"]:
-            lang, kind, form = key.split("|")
+            lang, kind, form, sc = key.split("|")
             where = ", ".join(f"{p} {n}" for p, n in sorted(c["positions"].items()))
             f.append(
-                f"| {lang} | {kind} | {form} | {c['planted']} | {c['leaked']} | {c['per_thousand']} | "
+                f"| {lang} | {kind} | {form} | {SCOPES[sc]} | {c['planted']} | {c['leaked']} | {c['per_thousand']} | "
                 f"{c['partly']} | {c['tripwire_missed']} | {where} |"
             )
-    clean = sorted(key for key, c in cells.items() if not (c["leaked"] or c["partly"] or c["tripwire_missed"]))
+    clean = [key for key, c in cells.items() if not (c["leaked"] or c["partly"] or c["tripwire_missed"])]
     f.append("")
     f.append(f"Clean cells (no leak, no partial mask, no tripwire miss): {len(clean)} of {len(cells)}.")
+    nh = ["| Language | Kind | Form | Scope | " + _HEAD, "|---|---|---|---|" + "---:|" * 7]
+    for key, c in data["not_held"].items():
+        lang, kind, form, sc = key.split("|")
+        nh.append(_row(f"{lang} | {kind} | {form} | {SCOPES[sc]}", [c[x] for x in _KEYS]))
     o = [
         "| Language | Clinical kind | Planted | Altered (masker) | Per 1,000 | Tripwire hits | Example (digits as d) |",
         "|---|---|---:|---:|---:|---:|---|",
@@ -914,62 +1082,55 @@ def tables(data: dict[str, Any]) -> dict[str, str]:
         o.append(
             f"| {lang} | {kind} | {c['planted']} | {c['altered']} | {c['per_thousand']} | {c['tripwire_hits']} | {ex} |"
         )
-    pos_n: dict[tuple[str, str], list[int]] = {}
-    for key, c in cells.items():
-        lang = key.split("|")[0]
-        for p in POSITIONS:
-            v = pos_n.setdefault((lang, p), [0, 0])
-            v[0] += c["planted_at"].get(p, 0)
-            v[1] += c["positions"].get(p, 0)
-    langs = sorted({k[0] for k in pos_n})
-    ps = [
-        "| Position | " + " | ".join(f"{lang} leaked / planted (per 1,000)" for lang in langs) + " |",
-        "|---|" + "---:|" * len(langs),
-    ]
-    for p in POSITIONS:
-        ps.append(
-            f"| {p} | "
-            + " | ".join(
-                f"{pos_n[(lang, p)][1]} / {pos_n[(lang, p)][0]} ({_pt(pos_n[(lang, p)][1], pos_n[(lang, p)][0])})"
-                for lang in langs
-            )
-            + " |"
-        )
-    ctl = ["| Language | Unplanted notes | Characters masked | Tripwire hits |", "|---|---:|---:|---:|"]
-    for lang, c in data["control_unplanted"].items():
-        ctl.append(f"| {lang} | {c['notes']} | {c['masked_chars']} | {c['tripwire_hits']} |")
-    return {
+    ctl = ["| Language | Notes generated | Kept (nothing masked, no tripwire hit) |", "|---|---:|---:|"]
+    for lang, c in data["base_notes"].items():
+        ctl.append(f"| {lang} | {c['generated']} | {c['kept']} |")
+    out = {
+        "verdict": verdict(data),
         "summary": "\n".join(s),
         "kinds": "\n".join(k),
         "forms": "\n".join(f),
+        "not_held": "\n".join(nh),
         "over": "\n".join(o),
         "control": "\n".join(ctl),
-        "positions": "\n".join(ps),
     }
+    if findings is not None:
+        fr = ["| Id | Severity | Lane | Basis | Ruling | Place | Claim |", "|---|---|---|---|---|---|---|"]
+        for x in findings["findings"]:
+            fr.append(
+                f"| {x['id']} | {x['severity']} | {x['lane']} | {x['basis']} | {x['ruling'] or '-'} | "
+                f"`{x['place']}` | {x['claim']} |"
+            )
+        out["findings"] = "\n".join(fr)
+    return out
+
+
+_KEYS = ("planted", "leaked", "partly", "tripwire_missed")
 
 
 def _block(name: str) -> re.Pattern[str]:
     return re.compile(rf"(<!-- masking-leaks:{name}:begin -->\n)(.*?)(\n<!-- masking-leaks:{name}:end -->)", re.S)
 
 
-def render(page: str, data: dict[str, Any]) -> str:
-    for name, body in tables(data).items():
-        rx = _block(name)
-        if not rx.search(page):
+def render(page: str, blocks: dict[str, str]) -> str:
+    for name, body in blocks.items():
+        m = _block(name).search(page)
+        if m is None:
             raise SystemExit(f"the page has no generated block {name!r}")
-        m = rx.search(page)
-        assert m is not None
         page = page[: m.start(2)] + body + page[m.end(2) :]
     return page
 
 
-def check(page_path: Path = PAGE_PATH, json_path: Path = JSON_PATH) -> list[str]:
-    """The generated blocks of the page that differ from what ``leaks.json`` gives (empty when none)."""
-    page = page_path.read_text(encoding="utf-8")
+def _load(json_path: Path, findings_path: Path) -> dict[str, str]:
     data = json.loads(json_path.read_text(encoding="utf-8"))
-    want = tables(data)
+    return tables(data, json.loads(findings_path.read_text(encoding="utf-8")))
+
+
+def check(page_path: Path = PAGE_PATH, json_path: Path = JSON_PATH, findings_path: Path = FINDINGS_PATH) -> list[str]:
+    """The generated blocks of the page that differ from what ``leaks.json`` and ``findings.json`` give."""
+    page = page_path.read_text(encoding="utf-8")
     bad = []
-    for name, body in want.items():
+    for name, body in _load(json_path, findings_path).items():
         m = _block(name).search(page)
         if not m or m.group(2) != body:
             bad.append(name)
@@ -977,21 +1138,21 @@ def check(page_path: Path = PAGE_PATH, json_path: Path = JSON_PATH) -> list[str]
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     g = ap.add_mutually_exclusive_group(required=True)
-    g.add_argument("--write", action="store_true", help="run, write leaks.json and the page's generated tables")
-    g.add_argument("--check", action="store_true", help="the page's generated tables equal leaks.json")
+    g.add_argument("--write", action="store_true", help="run, write leaks.json and the page's generated blocks")
+    g.add_argument("--check", action="store_true", help="the page's generated blocks equal the two json files")
     a = ap.parse_args(argv)
     if a.check:
         bad = check()
-        print("masking-leaks: page and leaks.json agree" if not bad else f"masking-leaks: blocks differ: {bad}")
+        print("masking-leaks: page, leaks.json and findings.json agree" if not bad else f"masking-leaks: differ: {bad}")
         return 1 if bad else 0
     data = run(engines())
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     JSON_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    PAGE_PATH.write_text(render(PAGE_PATH.read_text(encoding="utf-8"), data), encoding="utf-8")
+    PAGE_PATH.write_text(render(PAGE_PATH.read_text(encoding="utf-8"), _load(JSON_PATH, FINDINGS_PATH)), "utf-8")
     n = sum(c["planted"] for c in data["cells"].values())
-    print(f"masking-leaks: {n} planted notes, {data['seconds']} s; wrote {JSON_PATH.relative_to(ROOT)}")
+    print(f"masking-leaks: {n} planted notes held, {data['seconds']} s; wrote {JSON_PATH.relative_to(ROOT)}")
     return 0
 
 
