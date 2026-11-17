@@ -31,7 +31,7 @@ only about the demo's tag. The GPU VM carries other tags, and a rule on one of t
    - the allow is tcp:443 alone, from exactly the given ranges, at priority 500, on the session tag alone;
    - the deny is all protocols from 0.0.0.0/0 at priority 510 on the session tag, to every address of the VM: no
      `destinationRanges`, 0.0.0.0/0, or ranges that hold the VM's internal and external addresses (the re-review's
-     B);
+     B) and each of its alias IP ranges whole (round 3's finding 6);
    - the VM carries the tag;
    - no other enabled allow rule reaches the VM at a priority below 510. The demo's `reaching_rules` is asked once
      for each tag the VM carries, so the old door on `tb-gpu-door` is seen;
@@ -62,12 +62,15 @@ only about the demo's tag. The GPU VM carries other tags, and a rule on one of t
    deny names has its `CLOSED` marker beside its links (D-1132 item 7), whichever run's `--stop` is asked (the
    re-review's D): until then nothing, not the old door and not SSH, reaches the VM. A later `--stop` then removes
    them, with any links object of that run nobody read (its codes are dead). The project's own rules are not
-   touched.
-8. **Nothing outlives a session into another launch** (the re-review's A). Before any launch or resume starts the
-   VM, an earlier session's allow is deleted. Its deny and tag go when the run the deny names has its `CLOSED`
+   touched. The deny is never removed while the allow may exist (round 3's finding 5): the allow is deleted and
+   confirmed gone (gcloud says "not found") first; else the deny-all and the tag stay.
+8. **Nothing outlives a session into another launch** (the re-review's A). Before any launch, resume or power cycle
+   (G-9, from a collect: round 3's finding 3) starts the VM, an earlier session's allow is deleted. Its deny and tag go when the run the deny names has its `CLOSED`
    marker; else they stay, and a launch that is no session goes on behind them (its boot closes those accounts
    first, D-1132 item 7), while a new session launch is refused (exit 7). A launch refused after its door was made
-   (exit 7) takes the door away again.
+   (exit 7) takes the door away again. A rule the driver cannot read is never taken for "not there" (round 3's
+   finding 2): `rule_exists` tells gcloud's "not found" from any other error; on an error a start is refused (exit 7,
+   the VM left off) and a `--stop` keeps the deny and the tag.
 9. **Run ids.** A run id given to `--links`, `--session-status`, `--collect`, `--stop` or `--resume` must be of the
    VM's own form (letters, digits, `.`, `_`, `-`; no `..`), checked before any cloud call. `--links` and
    `--session-status` take `--session-allow` for the ranges when the run folder is not on this machine.
@@ -84,6 +87,24 @@ An independent re-review of the fixes found two more ways the door could fail: a
 (kept as it was), and an allow left by a session nobody stopped or by a refused launch (exit 7), which a later launch
 neither checked nor removed. A firewall policy's other actions counted as no way in. Items 4, 7, 8 and 9 close them;
 each has a test that failed before.
+
+## Round 3 of the re-review (2026-11-17)
+
+A second independent re-review found four more ways around the door, each with a test that failed before:
+
+- a describe error read as "no rule" (finding 2, item 8);
+- a power cycle that started the VM without looking at an earlier session's allow (finding 3, item 8);
+- a deny removed while the allow's delete had failed (finding 5, item 7);
+- an alias IP range the deny's destination ranges did not hold (finding 6, item 4).
+
+Its finding 1 (the box's own `trialbox.service` at a boot) and 4 (a later boot of a session run) are D-1132's items 7,
+9 and 11. Its finding 7 is stated here, with no code:
+
+- `--stop` or `--collect` of any older run deletes the allow of a session that is live now. It fails closed: the
+  owner's page stops answering (availability only); the deny and the tag stay until that session's `CLOSED`.
+- A start that goes around the driver (by hand, or after `reset_vm` put the plain `gpu-sim-startup.sh` back) runs no
+  close: the session's accounts stay open on the disk. The kept deny-all bounds it: nothing from outside reaches the
+  VM until a box run's boot closes them (D-1132 item 11).
 
 ## Held by
 

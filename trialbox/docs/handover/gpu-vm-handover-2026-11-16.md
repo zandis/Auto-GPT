@@ -937,9 +937,12 @@ Run from `trialbox/` with the credentials of section 2. Each command, what it mu
    deny and the tag once the VM's `CLOSED` marker is in the bucket; until then it prints "accounts not confirmed
    closed" and keeps them. Early: `deploy/gcp/box-run.sh --stop <run id>`. The accounts are then disabled at the
    next boot of any box run, with the box's Caddy down; run `--stop <run id>` again after it, to take the deny away.
-   Every launch first deletes an earlier session's allow; a new session launch is refused (exit 7) while an earlier
-   one's `CLOSED` marker is missing. A session is never resumed, skipped in part or redone: more time is a new
-   launch.
+   Every launch, resume and power cycle first deletes an earlier session's allow; a new session launch is refused
+   (exit 7) while an earlier one's `CLOSED` marker is missing, and any start is refused (exit 7) while the session's
+   rules cannot be read. A session is never resumed, skipped in part or redone: any later boot of a session run (a
+   power cycle, a start by hand) closes its accounts and stops (`TB-SESSION-AGAIN`). More time is a new launch.
+   While the accounts are open the box's own `trialbox.service` is disabled (step 56 prints its state before); the
+   close puts it back as it was once `CLOSED` is written.
 
 **Healthy:**
 

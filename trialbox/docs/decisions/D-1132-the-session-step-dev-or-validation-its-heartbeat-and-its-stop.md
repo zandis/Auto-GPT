@@ -88,6 +88,17 @@
    The names wait in a root-only file on the disk until they are disabled. A close that cannot reach the console
    says `TB-SESSION-ACCOUNTS-OPEN` and is tried again at the next boot.
 
+   **The box's own unit** (round 3's finding 1). Lane D's `trialbox.service` (installed and enabled by
+   `deploy/install.sh` when its egress check passes) runs `docker compose up` at every boot, Caddy with it, whatever
+   the containers' restart policy. Step 56 records what `systemctl is-enabled` and `is-active` said of it
+   (`unit-before`, as for sshd) and disables it before any account is opened; it is not stopped (its `ExecStop`
+   stops the stack the session serves). When it stays enabled, no account is opened. A close at a boot stops the
+   unit and waits until it is neither active nor activating before Caddy is stopped (its `up` would land in the
+   middle of the close). It then checks tcp:443 right before and right after the accounts are disabled: the accounts
+   are disabled all the same, and a Caddy that served stops the run (`TB-SESSION-SERVED`). The unit is put back as
+   it was only once the accounts are disabled and every `CLOSED` marker is written; until then it stays disabled and
+   the next boot tries again.
+
    Every session run that booted on the disk is listed there too. Once no session account is open on the disk, each
    listed run gets its `CLOSED` marker, even one that never opened an account (a refusal, a stop before 56, a cut):
    the driver keeps the door's deny until it says "closed" (the re-review's C). Step 56 sets its own run's marker to
@@ -101,7 +112,9 @@
    `tools/box_run.py session_values` refuses any other `--skip`, any `--redo` and `--only` (exit 6), and the VM's
    preflight refuses a skip of any step 50 to 58 and a `tb-redo`. A session run is never resumed: `--resume` of
    it is refused (exit 2), and the VM refuses a `tb-retry` on a session run, or on any run that opened a session on
-   that disk. More time is a new launch (D-1123 4.4).
+   that disk. More time is a new launch (D-1123 4.4). Without `tb-retry` too (round 3's finding 4): step 56 lists its
+   run on the disk before anything else, and any later boot of that run (a power cycle, a start by hand, a host
+   restart) closes its accounts with Caddy down, then stops (`TB-SESSION-AGAIN`). Step 56 never runs a second time.
 10. **SSH as it was** (finding 5). Ubuntu 24.04 starts sshd from `ssh.socket`. A session boot stops and masks both
     `ssh.socket` and `ssh.service`. It records what `systemctl is-enabled` and `is-active` said of each before
     (`records/sshd-before.txt`), and checks that nothing listens on tcp:22; if something does, there is no session.
@@ -110,7 +123,8 @@
     - While the accounts are open, the console's and Caddy's restart policy is `no` (`docker update`; no compose
       file is changed), so they do not come back by themselves at a boot before the close runs. The close puts
       `unless-stopped` back. A policy that cannot be set stops step 56 before any account is opened (the
-      re-review's E).
+      re-review's E). The policy does not hold back the box's own `trialbox.service`, so it is disabled too
+      (item 7, round 3's finding 1).
     - The close writes `CLOSED` beside the links. Until it exists, `--stop` keeps the deny-all and the tag
       (D-1130 item 7), and `--collect` and `--session-status` say "accounts not confirmed closed".
     - A run that is no session stops (`TB-SESSION-ACCOUNTS-OPEN`) when a session's accounts are still open after
@@ -143,7 +157,12 @@ The rehearsal cases (in `tests/unit/test_g1_box_install_run.py`):
   `CLOSED` written, the feed holding only the accuracy run's own sets;
 - `session-close-fails`: a cut, then the console cannot be asked at the next boot: the run stops before any step, the
   box's Caddy never came up on that boot, no `CLOSED` marker;
-- `session-update-fails`: the restart policy cannot be set: no account, no link, the run's `CLOSED` marker written.
+- `session-update-fails`: the restart policy cannot be set: no account, no link, the run's `CLOSED` marker written;
+- `session-cut-56` (round 3's finding 4): a cut while 56 opens the accounts, then a boot with no `tb-retry`: closed,
+  stopped, 56 never run again, no link;
+- `session-unit`, `session-unit-race`, `session-unit-fails` (finding 1): `trialbox.service` enabled on the disk. A cut:
+  its Caddy never serves the open accounts at the next boot, also when the unit was enabled again by hand and its
+  `up` lands mid-close. The unit is put back after `CLOSED`. A unit that cannot be disabled: no account, no link.
 
 Every session case checks its `CLOSED` marker; `session-cut` checks that the next boot disabled the accounts with
 Caddy down; `session` and `session-stop` that the console was recreated on the box's own address after the close.
