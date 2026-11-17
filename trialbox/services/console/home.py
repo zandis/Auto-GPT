@@ -34,7 +34,7 @@ from tb_common.service_auth import bind_session
 from tb_contracts import Job
 
 from console import actor as console_actor
-from console import coded_view, s28, terminology_refused
+from console import ai_confirm, coded_view, s28, terminology_refused
 from console import studies as st
 from console.api_first import before_body, page_twin
 from console.auth import Session, source_of
@@ -1016,6 +1016,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         store.send_excluded_review(rid, pid, job.job_id, crit, note.strip()[:300], h.actor(sess), h.clock().isoformat())
         au.append("console.excluded_review", job_id=job.job_id, ruleset=rid, actor=h.actor(sess),
                   detail={"pid": pid, "criterion": crit, "role": sess.user.role})  # fmt: skip
+        row = ai_confirm.row_of(doc, pid)  # D-989: the review rejects the model's answers that excluded the patient
+        version = str(doc.get("version") or job.ruleset_version or "")
+        if row is not None and version:
+            ai_confirm.on_verdicts(au, ruleset=rid, version=version, job=job.job_id, pid=pid,
+                                   criteria=row.get("criteria") or [], by=sess.user.username,
+                                   decision=ai_confirm.REVIEW_DECISION, crit=crit, job_id=job.job_id,
+                                   actor=h.actor(sess))  # fmt: skip
         return rid, job.job_id
 
     @app.post("/studies/{rs}/not-matched/{pid}/review")
@@ -1155,6 +1162,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(403, "forbidden")
         if mark not in (*MARKS, "withdraw", "undo") or not _PID.match(pid):
             raise h.problem(400, "request.refused", reason="choose Approach, Need info, Not suitable now or Not now")
+        decided = ai_confirm.MARK_DECISION.get(mark)  # D-989: the decision on the model's answers (an undo: none)
         conf = settings_of(rid)
         if mark == "not_suitable" and reason not in conf.reasons:
             # D-133 (review F-03): a medical reason is never guessed (it used to fall back to "other"); no reason,
@@ -1221,6 +1229,13 @@ def register(app: FastAPI, h: Helpers) -> None:
                 au.append("console.approach_override", job_id=wk["job"].job_id, ruleset=rid, actor=h.actor(sess),
                           detail={"pid": pid, "action": "approach", "reason": ",".join(warned)})  # fmt: skip
             au.append("console.pi_mark", job_id=wk["job"].job_id, ruleset=rid, actor=h.actor(sess), detail=detail)
+            row = ai_confirm.row_of(wk["cl"], pid) if decided else None
+            if (
+                row is not None and version and decided
+            ):  # D-989: inside the transaction too, so a mark is never kept without its events
+                ai_confirm.on_verdicts(au, ruleset=rid, version=version, job=wk["job"].job_id, pid=pid,
+                                       criteria=row.get("criteria") or [], by=sess.user.username, decision=decided,
+                                       job_id=wk["job"].job_id, actor=h.actor(sess))  # fmt: skip
 
         # D-364 (LIFE-010): the criteria version of the list the mark was made on
         version = str((wk.get("cl") or {}).get("version") or wk["job"].ruleset_version or "") or None
