@@ -211,7 +211,38 @@ def stage_rows(run: Mapping[str, Any]) -> list[dict[str, Any]]:
         every = [j for j in jobs.get("lines", []) if j["kind"] == kind]
         for k in marks(len(every)):
             rows.append(_job_row(kind, every[:k], n, jobs))
+    cut = cut_job(jobs)
+    if cut is not None:
+        rows.append(cut | {"units": n, "ms_per_unit": per_unit_ms(cut["seconds"], n)})
     return rows
+
+
+def cut_job(jobs: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The job the orchestrator process was in when it ended without finishing (killed at its cap, or an error): the
+    one after the last job line (each study's FEAS, then its SCREEN), its time the process's time after the last line,
+    its peak the process's peak. None when the process finished."""
+    if not jobs or (not jobs.get("orchestrator_oom") and not jobs.get("orchestrator_rc")):
+        return None
+    lines = jobs.get("lines", [])
+    if lines and lines[-1]["kind"] == "FEAS":
+        kind, study, i = "SCREEN", lines[-1]["study"], lines[-1]["i"]
+    else:
+        i = (lines[-1]["i"] + 1) if lines else 0
+        kind, study = "FEAS", study_list(i + 1)[i]
+    done = sum(1 for j in lines if j["kind"] == kind)
+    why = "killed at the cap" if jobs.get("orchestrator_oom") else f"exit {jobs.get('orchestrator_rc')}"
+    return {
+        "stage": f"{kind} x{done + 1}",
+        "service": "orchestrator",
+        "seconds": round(max(0.0, float(jobs.get("orchestrator_s", 0.0)) - sum(j["seconds"] for j in lines)), 2),
+        "peak": int(jobs.get("orchestrator_peak", 0)),
+        "cap": int(jobs.get("orchestrator_cap", 0)),
+        "unit": "patient-study",
+        "ok": False,
+        "studies": done + 1,
+        "cut": f"{study}: {why}",
+        "lake_peak": int(jobs.get("lake_peak", 0)),
+    }
 
 
 def marks(k: int) -> list[int]:
@@ -267,7 +298,7 @@ def summarise(runs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
                 "ok": all(r["ok"] for r in rows),
                 **{
                     k: first[k]
-                    for k in ("records", "model_calls", "stub_s", "studies", "scoped", "lake_peak")
+                    for k in ("records", "model_calls", "stub_s", "studies", "scoped", "lake_peak", "cut")
                     if k in first
                 },
             }
@@ -307,7 +338,7 @@ def markdown_table(summary: Mapping[str, Any]) -> str:
         )
         counts = ", ".join(
             f"{k.replace('_', ' ')} {t[k]:,}" if isinstance(t[k], int) else f"{k.replace('_', ' ')} {t[k]}"
-            for k in ("records", "model_calls", "stub_s", "scoped")
+            for k in ("records", "model_calls", "stub_s", "scoped", "cut")
             if k in t
         )
         cap = f"{t['service']} ({gib(t['cap'])})" if t["cap"] else t["service"]

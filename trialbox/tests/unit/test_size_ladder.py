@@ -192,3 +192,14 @@ def test_the_marks_sort_by_number() -> None:
         "SCREEN x5",
         "SCREEN x20",
     ]
+
+
+def test_a_job_cut_at_the_cap_is_a_failed_row() -> None:
+    run = _run(50000, 800.0, [312.0], [1.0])
+    run["jobs"]["lines"] = run["jobs"]["lines"][:1]  # the FEAS line only: the SCREEN never printed
+    run["jobs"].update(orchestrator_oom=True, orchestrator_rc=-9, orchestrator_s=544.6, orchestrator_peak=4 * GIB + 1)
+    cut = next(r for r in sl.stage_rows(run) if r["stage"] == "SCREEN x1")
+    assert cut["ok"] is False and cut["seconds"] == 232.6 and cut["peak"] == 4 * GIB + 1
+    assert cut["cut"] == "GZQO: killed at the cap" and cut["units"] == 50000
+    assert "SCREEN x1 **FAILED**" in sl.markdown_table(sl.summarise([run]))
+    assert sl.cut_job({"orchestrator_rc": 0, "lines": []}) is None
