@@ -1,9 +1,11 @@
 # D-1123 A live session on the GPU VM: the owner walks one public protocol on the installed box with the served models
 
-- **Task:** lane H, card H-11 (design only; nothing is built or launched by this card)
-- **PR:** this branch (`claude/lane-h-11-gpu-session-design`), from master `fae5c1f7` (train 65)
+- **Task:** lane H, card H-11 (design only; nothing is built or launched by this card); amended by card H-13
+  (the session built) after the integrator's ruling, section "Ruled by the integrator, 2026-11-17"
+- **PR:** this branch (`claude/lane-h-11-gpu-session-design`), from master `fae5c1f7` (train 65); the amendment on
+  `claude/lane-h-13-live-session`
 - **Date:** 2026-11-17
-- **Status:** proposed (a design for the integrator and the owner to rule on)
+- **Status:** proposed (the integrator ruled on its eight questions; the integrator flips the status)
 - **Builds on:** D-505 and D-516 (the budget and the launch rule), D-1062 (steps mode), D-1063 (the acting role),
   D-776 (the one-time link), D-423 (443 only, no secret in metadata), D-1036, D-515, D-506, D-775
 
@@ -25,8 +27,8 @@ section 4.8), and no person signs in. Sources below are that hand-over ("GPU han
    compile (FEAS), read and approve the criteria, SCREEN over the public sets already on the box's lake (tcga
    pathology reports, jmed: GPU hand-over 4.8, built by `53-acc-data` and `54-acc-ingest`), then read the candidate
    list and the report.
-3. It is not a measurement: no score is run, its figures go in no evidence page and support no target (D-515: evidence
-   stays on its two commits). It is never a hospital box and never reaches one (D-1036). It is synthetic or public
+3. It is not a measurement, and **nothing from this session is evidence**: no score is run, its figures go in no
+   evidence page and support no target (D-515: evidence stays on its two commits). It is never a hospital box and never reaches one (D-1036). It is synthetic or public
    text only (handover rule 1, `docs/plan/38-handover-2026-11-15.md`).
 
 ### 2. How the installed box is reached
@@ -49,19 +51,49 @@ section 4.8), and no person signs in. Sources below are that hand-over ("GPU han
    The integrator reads it once with a `links` command that deletes it (`demo-vm.sh links`) and gives the owner his
    line in the integrator's own session, never on a PR, in a comment or in a file (GPU hand-over section 3, "Healthy").
 
-### 3. Accounts and roles
+### 3. The environment, the accounts and the roles (rewritten after the ruling)
 
-1. The walk needs four roles: coordinator, investigator, the PI who approves criteria (runbook 11, "Which
-   accounts": approving criteria is PI-only), and the steward or administrator for the study's set-up.
-2. **Four accounts, not an acting role.** D-1063 forbids the acting-role flag on a VALIDATION box (its item 3), and
-   the session box is VALIDATION (`03-wizard`, `box-install-run.sh` `step_venv_env` stops on anything else). Lane C2's
-   STEPS-ROLE is also not on master at `fae5c1f7` (no acting role in `services/`). So: one account per role, made
-   unattended at bring-up, each with its own line (as steps mode before D-1063: runbook 11, "Steps mode").
-3. Whether the console can make the owner's account the PI of a new study on a box with no demo seed is not verified
+1. **What the session is.** The owner looking at the product, not a validation record. **Nothing from this session
+   is evidence**: no figure, page, list or record of it supports a target, a measurement or a release, and no
+   evidence page names it (D-515). The session's record (`records/session.json`), its links object and the owner's
+   line all say so in those words. The console's own pages cannot say it without a product change (no setting puts a
+   line on every page; the demo banner of D-328 belongs to `demo.mode`, which refuses the paste the walk needs):
+   that is a question to lane C2, below.
+2. **The DEV environment, with the served models** (the integrator's answer 2). The box runs `TB_ENV=DEV`, so
+   D-1063's acting role is allowed there (its item 3 forbids it on VALIDATION and PRODUCTION only). The walk needs
+   four roles: coordinator, investigator, the PI who approves criteria (runbook 11, "Which accounts": approving
+   criteria is PI-only), and the steward or administrator for the study's set-up.
+3. **One sign-in per person, with the acting role.** Lane C2's build of D-1063 is on master: D-877, the boot tool
+   `python -m console.steps_roles` and `services/console/acting.py` (the flag `steps.acting_role`, the switch
+   `POST /role`, audited `role.acting`). The session opens each person's account with that tool (the first role is
+   the account's own, the others are the roles it may act in; one one-time enrolment code each) and switches the
+   flag on as the tool does (audited, actor `console:steps-roles`). The default is one person, the owner:
+   `owner:coordinator+investigator+steward+admin`. Every permission is the acting role's own (D-1063 item 2), so the
+   separation of duties of a real box is not claimed for this box.
+4. **What the box does in DEV today, read from this tree.** The box's routing policy (`models/routing.yaml`, read by
+   the gateway's own `RoutingPolicy`) does not route the served pair in DEV: DEV's ceiling is D0, so the compile's
+   calls (D1) and the screen's judge (D3) are refused (`class_not_allowed_in_env`); a call relabelled D0 goes to the
+   route `dev-public`, whose candidates are the stub and `j-workhorse` at the external bake-off endpoint
+   (`openrouter`, zone `dev_public`), never the box's own servers; the embedder (`e-embed@embed`) has no DEV route
+   at all. And `deploy/egress.py` opens that external endpoint to the gateway when `TB_ENV` is DEV. So a DEV box with
+   the served pair is a combination the box refuses, and the one way to force it (relabelling the data D0) would
+   point the pasted text at an external endpoint. The session does not build around it: the driver asks the same
+   policy for free before anything is paid (`tools/box_run.py session-check`) and refuses a DEV session while the
+   policy says so, naming the file and the rule. This is the build's stop for a product change, reported to the
+   integrator (a DEV route for the box's own pair, perimeter only, and no DEV-only external endpoint opened by the
+   egress table; the routing table's owner).
+5. **The environment is a named option of the driver**: `--session-env dev` (the ruling, the default) or
+   `--session-env validation`. In VALIDATION the box routes the served pair (D-823) and the acting role cannot
+   exist, so the session falls back to one account per role, as this design first proposed
+   (`owner-crc:coordinator,owner-inv:investigator,owner-stw:steward,owner-adm:admin`). The fallback is taken only
+   when the integrator names it; the integrator ruled DEV, so it is a question, not a default. The day the routing
+   change lands, `session-check` passes for DEV and the same launch gives one sign-in with no other change.
+6. Whether the console can make the owner's account the PI of a new study on a box with no demo seed is not verified
    here. The demo VM's PI is a seeded account (runbook 11).
-4. **Removed at the end.** The 400 GiB disk is kept between launches (lane G README, section 1), so the accounts would
-   outlive the session. The session's last step disables them before power-off, and the next boot of any box run
-   disables any session account still open. An unused code expires after 24 h (D-776).
+7. **Removed at the end.** The 400 GiB disk is kept between launches (lane G README, section 1), so the accounts would
+   outlive the session. The session's last step disables them (`UserStore.disable`: the account off, its sessions
+   ended) before power-off, and the next boot of any box run on the disk disables any session account still open
+   before any step runs. An unused code expires after its hours (D-776).
 
 ### 4. The hard stop
 
@@ -109,7 +141,7 @@ section 4.8), and no person signs in. Sources below are that hand-over ("GPU han
 | Must never | Mechanism | Check before the owner gets a link |
 | --- | --- | --- |
 | Real patient data | No hospital adapter: the synthetic site's answers (`deploy/gcp/validation-site-answers.yaml`); the VM is in the cloud with no route to a hospital network. The paste and upload paths are open (steps mode needs them, D-1062 item 2), so the rule is told, with the first sign-in's acknowledgement (D-1062 item 4) | The lake holds only the public sets' ingest (`54-acc-ingest` record); the owner's line says "public text only" |
-| PRODUCTION | `03-wizard` stops unless the box says VALIDATION (`box-install-run.sh` `step_venv_env`) | `03-wizard` done in `state.json` |
+| PRODUCTION | `03-wizard` stops unless the box says VALIDATION (`box-install-run.sh` `step_venv_env`); the session then sets the named environment, DEV or VALIDATION, never PRODUCTION (D-1132) | `03-wizard` and `51s-session-env` done in `state.json` |
 | A secret in metadata | `tools/box_run.py metadata` refuses a key-like value; `--preflight` checks it (GPU hand-over 4.0) | the preflight's exit 0; `instances describe` lists only `tb-*` names and the startup script |
 | A secret on the serial port | Codes go to the private object only (as `demo-vm-boot.sh`); installer lines are masked (`box_vm.py redact`) | the serial output has no `enrol#` and no code-shaped line |
 | Port 80 or any port but 443 | The deny-all and the one 443 rule (section 2); sshd off | the rules listed on the network reach the VM by tcp:443 only (`demo_vm.py rules-check`'s logic) |
@@ -147,7 +179,28 @@ section 4.8), and no person signs in. Sources below are that hand-over ("GPU han
 - **Recommendation.** C, built as the four cards of section 7, launched once they are on master, after the
   owner's yes on the posted estimate. Until then, A for the clicks and B for the pair's answers on his protocol.
 
-## Questions for the integrator
+## Ruled by the integrator, 2026-11-17
+
+The integrator's answers on PR #639 (2026-11-17 05:35 UTC), as given:
+
+1. Is the session wanted as designed (option C)? **Yes, option C, built.**
+2. Four accounts on the VALIDATION box, or D-1063 on this box? **"Neither as asked. The session box runs in the DEV
+   environment with the served models: it is the owner looking, not a validation record, so D-1063's acting role is
+   allowed there and he gets one sign-in per person. Change the design to say so, and say plainly on the session's
+   pages and in its record that nothing from it is evidence."** Section 3 is rewritten for it; its item 4 is what the
+   box does in DEV today.
+3. Spot or on demand? **Spot.**
+4. The same US$200 cap as the confirming launch? **Yes, the same US$200 cap.**
+5. The owner's line given in the integrator's own session? **Yes.**
+6. Which public set? **Both tcga and jmed, and the synthetic hospital.**
+7. The four cards of section 7 to lane H? **Yes, the four cards are lane H's.**
+8. Option B first? **No** (the steps-mode preview has been running since 2026-11-17); a recorded run only if the
+   owner names a protocol.
+
+The four cards are built as D-1130 (SESSION-DOOR), D-1131 (SESSION-EGRESS), D-1132 (SESSION-STEP) and D-1133
+(SESSION-LINKS).
+
+## Questions for the integrator (answered above)
 
 1. Is the session wanted as designed (option C), yes or no?
 2. Four accounts on the VALIDATION box (recommended), or ask the owner to rule D-1063 onto this box?
