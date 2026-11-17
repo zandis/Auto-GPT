@@ -432,6 +432,7 @@ Every folder of the image that holds code lists, code maps or value sets, and th
   tests/fixtures/refdata/                       samples of the public lists (section 1)
   tests/fixtures/refdata/nhi_pas_sample/        TWPAS package and ConceptMap nhi-loinc (section 1)
   tests/fixtures/licensed/                      invented rows in licensed masters' layout (section 1)
+  tests/fixtures/terminology/                   made-up NHI extracts and site list; P1b's drafted concept names (sections 1, 4)
   tests/fixtures/catalogue_verify/              a small catalogue with LOINC and ICD-10-CM codes for its tests (sections 1, 3)
   tests/fixtures/catalogue_verify/verification/ its verification maps (sections 1, 3)
   tests/fixtures/open_data/rulesets/*/valuesets/  value sets of ClinicalTrials.gov test protocols (section 1)
