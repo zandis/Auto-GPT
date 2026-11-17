@@ -825,6 +825,11 @@ class Updater:
         source = (plan.release or {}).get("source")
         if isinstance(source, dict) and isinstance(source.get("dirty"), bool):
             record["dirty"] = source["dirty"]  # D-633: built from a working tree (a DEV or TEST box took it)
+        if plan.release is not None:
+            # D-994 (H-15 F1): the commit the release was built from, from the verified release record, so the
+            # evidence gates can name the box's code by it (a 40-hex git sha, else null; never an image id)
+            commit = source.get("commit") if isinstance(source, dict) else None
+            record["commit"] = commit if isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit) else None
         if (plan.release or {}).get("rehearsal") is True:
             record["rehearsal"] = True  # D-887: the pin reads it (a site box refuses such a bundle)
         marked = getattr(self.box, "rehearsal_mark", None)
