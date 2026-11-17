@@ -32,9 +32,10 @@ place: after it, P1b's key could no longer be built, and nothing said which key 
    (the version) and `gold/written.json` (#889's list of the lines the benchmark wrote, for S3 and S4). A folder
    without `key.json` (P1b's stored folders) is v1. `eval/public_accuracy_key/MANIFEST.json` pins the sha256 of each
    file of P1b's stored `built/gold` for sigir and jmed.
-3. **A score names its key.** `python -m tools.public_accuracy score` writes `key` (version, what it is, whether the
-   folder says so itself) into `score.json`. `score.score` and `box_run acc-score` belong to cards H-3 and H-1; they
-   add the same line with `key.describe(built)`.
+3. **A score names its key.** `python -m tools.public_accuracy score` writes `answer_key` (version, what it is,
+   whether the folder says so itself) into `score.json`. The field is not named `key`: `score.score(built, work,
+   key=)` already takes `key`, the site's pseudonym key. `score.score` and `box_run acc-score` belong to cards H-3
+   and H-1; they add the same field with `tools.public_accuracy.key.describe(built)` (imported under another name).
 4. **`key-diff` lists what differs, and why**: `python -m tools.public_accuracy key-diff OLD NEW` (`key.diff`) gives
    one row per (set, patient, protocol, criterion or line) whose label, birth date or protocol line differs, with
    the fix that changes it (B1, B2, B3), and names what it could not compare (a stored folder holds `built/gold`

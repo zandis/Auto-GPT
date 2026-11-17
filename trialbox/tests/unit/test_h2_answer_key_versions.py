@@ -266,4 +266,4 @@ def test_a_score_names_the_key_it_was_scored_on(tmp_path: Path, capsys: Any) -> 
     (tmp_path / "work" / "answers.json").write_text("{}", encoding="utf-8")
     assert cli.main(["score", "--out", str(tmp_path)]) == 0
     capsys.readouterr()
-    assert json.loads((tmp_path / "score.json").read_text(encoding="utf-8"))["key"]["key"] == "v1"
+    assert json.loads((tmp_path / "score.json").read_text(encoding="utf-8"))["answer_key"]["key"] == "v1"

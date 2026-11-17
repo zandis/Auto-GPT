@@ -90,7 +90,8 @@ def main(argv: list[str] | None = None) -> int:
         from tools.public_accuracy import key, score
 
         res = score.score(a.out / "built", a.out / "work")
-        res["key"] = key.describe(a.out / "built")  # the answer key's version the figures were scored on (D-1104)
+        # the answer key's version the figures were scored on (D-1104); not score()'s ``key``, the site's pseudonym key
+        res["answer_key"] = key.describe(a.out / "built")
         (a.out / "score.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
         print(json.dumps(res, ensure_ascii=False, indent=1)[:4000])
         return 0
