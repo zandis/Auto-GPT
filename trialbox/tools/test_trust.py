@@ -80,8 +80,9 @@ def coverage_table(data: dict[str, Any]) -> str:
     for r in data["rows"]:
         ci, loc, base = r["ci_nightly"] or {}, r["local_target_tests"] or {}, r["baseline"] or {}
         verdict = "met" if ci and ci["line"] >= lt and ci["branch"] >= bt else "UNDER"
+        missed = len(ci.get("missing_branches", []))
         lines.append(
-            f"| `{r['file']}` | {_pct(ci.get('line'))} | {_pct(ci.get('branch'))} | {len(ci.get('missing_branches', []))} "
+            f"| `{r['file']}` | {_pct(ci.get('line'))} | {_pct(ci.get('branch'))} | {missed} "
             f"| {_pct(loc.get('line'))} | {_pct(loc.get('branch'))} | {_pct(base.get('line'))} | "
             f"{_pct(base.get('branch'))} | {verdict} |"
         )
