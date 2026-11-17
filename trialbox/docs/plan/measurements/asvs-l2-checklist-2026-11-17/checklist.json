@@ -1,0 +1,2360 @@
+{
+ "card": "V-3",
+ "standard": "OWASP ASVS 4.0.3, Level 2",
+ "commit": "d7c91fc3bcd215096fda815c73c80f1dd270ec34",
+ "note": "Line numbers are for the named commit. Paraphrases are this card's own words.",
+ "requirements": [
+  {
+   "id": "2.1.1",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "A password a person chooses has at least 12 characters.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/auth.py",
+   "line": 246,
+   "also": [
+    "services/console/auth.py:63"
+   ],
+   "test": [
+    "tests/console/test_identity_d447.py::test_a_listed_password_is_refused_at_creation_and_change"
+   ],
+   "note": "Local accounts. Directory accounts: the hospital directory's own policy.",
+   "finding": "",
+   "id_check": false,
+   "delegate": "Authelia and the hospital directory, for directory (OIDC) accounts"
+  },
+  {
+   "id": "2.1.2",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "Passwords of 64 characters or more are allowed; more than 128 may be refused.",
+   "verdict": "partly",
+   "basis": "shown",
+   "file": "services/console/app.py",
+   "line": 1033,
+   "also": [
+    "services/console/templates/login.html:23",
+    "services/console/templates/account.html:36"
+   ],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v2_1_2_a_password_of_200_characters_signs_in",
+    "tests/console/test_asvs_evidence.py::test_v2_1_2_a_long_password_that_is_accepted_also_signs_in"
+   ],
+   "note": "Up to 256 characters work. Nothing refuses more than 128: the change page takes any length, but the sign-in reads only 256, so a longer password never signs in.",
+   "finding": "V3-05",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.1.3",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "A password is never cut short before it is checked.",
+   "verdict": "partly",
+   "basis": "shown",
+   "file": "services/console/app.py",
+   "line": 1033,
+   "also": [
+    "services/console/auth.py:609"
+   ],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v2_1_2_a_long_password_that_is_accepted_also_signs_in"
+   ],
+   "note": "The sign-in cuts at 256 characters; the stored hash is of the whole password, so a cut password is refused, never accepted (V3-05).",
+   "finding": "V3-05",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.1.4",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "Any printable Unicode character, spaces included, is allowed in a password.",
+   "verdict": "partly",
+   "basis": "hypothesis",
+   "file": "services/console/auth.py",
+   "line": 248,
+   "also": [],
+   "test": [],
+   "note": "Any character is allowed inside the password; white space at either end is refused.",
+   "finding": "V3-08",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.1.5",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "A person can change their own password.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/step4.py",
+   "line": 216,
+   "also": [],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v3_7_1_a_password_change_asks_for_the_current_password",
+    "tests/console/test_identity_d447.py::test_the_last_five_passwords_cannot_be_chosen_again"
+   ],
+   "note": "Directory accounts change it at the directory (the console refuses: account.err.sso).",
+   "finding": "",
+   "id_check": false,
+   "delegate": "Authelia and the hospital directory, for directory (OIDC) accounts"
+  },
+  {
+   "id": "2.1.6",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "Changing a password needs the current one and the new one.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/step4.py",
+   "line": 235,
+   "also": [],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v3_7_1_a_password_change_asks_for_the_current_password"
+   ],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.1.7",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "A new password is checked against a list of breached passwords.",
+   "verdict": "partly",
+   "basis": "hypothesis",
+   "file": "services/console/auth.py",
+   "line": 250,
+   "also": [
+    "services/console/breached.py:14"
+   ],
+   "test": [
+    "tests/console/test_identity_d447.py::test_a_listed_password_is_refused_at_creation_and_change",
+    "tests/console/test_identity_d447.py::test_a_configured_list_that_cannot_be_used_refuses_every_password"
+   ],
+   "note": "The check works when the operator gives the list (TB_CONSOLE_BREACHED_PASSWORDS_FILE). Unset, there is no check, in PRODUCTION too; no list ships and no doctor check was found (grep of tools/ and deploy/).",
+   "finding": "V3-07",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.1.8",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "A strength meter helps the person choose a stronger password.",
+   "verdict": "does not meet",
+   "basis": "hypothesis",
+   "file": "services/console/templates/account.html",
+   "line": 36,
+   "also": [],
+   "test": [],
+   "note": "No meter in the change, first sign-in or first-run pages (grep for 'strength' in templates and static).",
+   "finding": "V3-08",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.1.9",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "No rule demands kinds of characters (upper case, digits, symbols).",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/auth.py",
+   "line": 241,
+   "also": [],
+   "test": [],
+   "note": "check_password_policy asks for length, no white space at the ends and the breached list only.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.1.10",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "No forced periodic change and no password-history rule.",
+   "verdict": "does not meet",
+   "basis": "shown",
+   "file": "services/console/auth.py",
+   "line": 616,
+   "also": [
+    "docs/decisions/D-447-identity-leftovers.md:31"
+   ],
+   "test": [
+    "tests/console/test_identity_d447.py::test_the_last_five_passwords_cannot_be_chosen_again"
+   ],
+   "note": "No periodic change. A history of five is enforced on the owner's own change: a recorded ruling (D-447, after the MHLW guideline v7.0) that goes against this requirement.",
+   "finding": "V3-06",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.1.11",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "Pasting and password managers work in password fields.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/templates/login.html",
+   "line": 23,
+   "also": [
+    "services/console/templates/account.html:35"
+   ],
+   "test": [],
+   "note": "autocomplete names the field; no script blocks paste (grep for onpaste found none).",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.1.12",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "The person can see the masked password, or its last character, for a moment.",
+   "verdict": "does not meet",
+   "basis": "hypothesis",
+   "file": "services/console/templates/login.html",
+   "line": 23,
+   "also": [],
+   "test": [],
+   "note": "No show-password control on any password field.",
+   "finding": "V3-08",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.2.1",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "Anti-automation stops credential stuffing, brute force and lock-out attacks.",
+   "verdict": "does not meet",
+   "basis": "shown",
+   "file": "services/console/identity.py",
+   "line": 68,
+   "also": [
+    "services/console/auth.py:677",
+    "services/console/auth.py:694",
+    "deploy/docker-compose.yml:366",
+    "deploy/docker-compose.identity.yml:93"
+   ],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v2_2_1_the_console_behind_caddy_trusts_the_proxy_address",
+    "tests/console/test_asvs_evidence.py::test_v2_2_1_five_wrong_passwords_lock_the_name_from_that_address",
+    "tests/console/test_identity.py::test_password_lockout_and_the_audited_unlock"
+   ],
+   "note": "The lock is per account and address (D-279). Behind Caddy every browser is Caddy's address, because the identity overlay and the installer never set TB_CONSOLE_FORWARDED_ALLOW_IPS: five wrong guesses for a name lock that person out for every PC, which is the lock-out attack this requirement names. Directory accounts: Authelia's regulation (5 in 15 min) applies too.",
+   "finding": "V3-01",
+   "id_check": false,
+   "delegate": "Authelia and the hospital directory, for directory (OIDC) accounts"
+  },
+  {
+   "id": "2.2.2",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "Weak authenticators (SMS, e-mail) serve only as a second step and never replace a stronger one.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/identity.py",
+   "line": 710,
+   "also": [
+    "deploy/identity/authelia/configuration.example.yml:22"
+   ],
+   "test": [],
+   "note": "No code is sent by SMS or mail. The enrolment code and its link are shown on screen once (D-776).",
+   "finding": "",
+   "id_check": true,
+   "delegate": ""
+  },
+  {
+   "id": "2.2.3",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "The person is told after a change to their sign-in details (reset, new address, new sign-in).",
+   "verdict": "partly",
+   "basis": "hypothesis",
+   "file": "services/console/account_rules.py",
+   "line": 135,
+   "also": [
+    "services/console/auth.py:1102"
+   ],
+   "test": [],
+   "note": "A reset or opening by someone else is told at the next sign-in and to the steward and PI (D-719). The holder is not told of their own password change, of a sign-in from a new place, or of a replayed code.",
+   "finding": "V3-11",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.3.1",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "First or reset passwords made by the system are random, short-lived, and must be replaced.",
+   "verdict": "partly",
+   "basis": "hypothesis",
+   "file": "services/console/account_rules.py",
+   "line": 132,
+   "also": [
+    "services/console/auth.py:271",
+    "services/console/auth.py:961",
+    "services/console/auth.py:1160"
+   ],
+   "test": [],
+   "note": "Random (about 99 bits) and replaced at first sign-in (must_change). A new account's code expires in 24 hours, but a password an administrator resets has no expiry: it works until used.",
+   "finding": "V3-17",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.3.2",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "Security keys and similar devices (FIDO, U2F) can be enrolled and used.",
+   "verdict": "partly",
+   "basis": "hypothesis",
+   "file": "deploy/identity/authelia/configuration.example.yml",
+   "line": 30,
+   "also": [
+    "docs/decisions/D-447-identity-leftovers.md:55"
+   ],
+   "test": [],
+   "note": "Directory accounts: WebAuthn at Authelia. Local accounts: TOTP only (D-447 'Open').",
+   "finding": "V3-10",
+   "id_check": false,
+   "delegate": "Authelia and the hospital directory, for directory (OIDC) accounts"
+  },
+  {
+   "id": "2.3.3",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "Renewal notices are sent in time for authenticators that expire.",
+   "verdict": "not applicable",
+   "basis": "hypothesis",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "No authenticator here expires by date (no client certificate, no password expiry).",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.4.1",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "Passwords are stored salted and hashed with an approved slow one-way function.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/auth.py",
+   "line": 218,
+   "also": [
+    "services/console/auth.py:76"
+   ],
+   "test": [],
+   "note": "scrypt N=2^14, r=8, p=1.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.4.2",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "The salt has at least 32 bits and is unique per password.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/auth.py",
+   "line": 217,
+   "also": [],
+   "test": [],
+   "note": "16 random bytes per hash.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.4.3",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "With PBKDF2, the iteration count is high enough.",
+   "verdict": "not applicable",
+   "basis": "hypothesis",
+   "file": "services/console/auth.py",
+   "line": 218,
+   "also": [],
+   "test": [],
+   "note": "scrypt, not PBKDF2.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.4.4",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "With bcrypt, the work factor is high enough.",
+   "verdict": "not applicable",
+   "basis": "hypothesis",
+   "file": "services/console/auth.py",
+   "line": 218,
+   "also": [],
+   "test": [],
+   "note": "scrypt, not bcrypt.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.4.5",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "A second derivation with a secret salt (a pepper) kept apart from the hashes.",
+   "verdict": "does not meet",
+   "basis": "hypothesis",
+   "file": "services/console/auth.py",
+   "line": 216,
+   "also": [],
+   "test": [],
+   "note": "No pepper: the hash depends on the password and its stored salt only.",
+   "finding": "V3-09",
+   "id_check": true,
+   "delegate": ""
+  },
+  {
+   "id": "2.5.1",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "A first-use or recovery secret is never sent in clear text.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/identity.py",
+   "line": 710,
+   "also": [
+    "services/console/auth.py:1011"
+   ],
+   "test": [
+    "tests/console/test_a_one_time_sign_in_link.py::test_the_link_works_once_like_the_code"
+   ],
+   "note": "Shown once on the administrator's page; the link keeps the code after '#', so no request line or log holds it.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.5.2",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "No password hints or secret questions.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/auth.py",
+   "line": 241,
+   "also": [],
+   "test": [],
+   "note": "None exist (grep for 'hint' and 'question' in the sign-in and account code).",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.5.3",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "Recovery never shows the current password.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/auth.py",
+   "line": 870,
+   "also": [],
+   "test": [],
+   "note": "Only hashes are stored; a reset gives a new code or password.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.5.4",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "No shared or default accounts (root, admin, sa).",
+   "verdict": "partly",
+   "basis": "hypothesis",
+   "file": "services/console/auth.py",
+   "line": 1154,
+   "also": [
+    "services/console/cli.py:133"
+   ],
+   "test": [],
+   "note": "The first administrator is named 'admin' unless the operator names it, but it has no default password: random or from a secret file, and replaced at first sign-in. The first-run wizard names it from the owner's user name.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.5.5",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "The person is told when a factor is changed or replaced.",
+   "verdict": "partly",
+   "basis": "hypothesis",
+   "file": "services/console/account_rules.py",
+   "line": 135,
+   "also": [
+    "services/console/auth.py:1102"
+   ],
+   "test": [],
+   "note": "Told when someone else resets it (D-719). Not told of their own change.",
+   "finding": "V3-11",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.5.6",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "Forgotten-password and recovery paths use a secure mechanism.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/identity.py",
+   "line": 716,
+   "also": [
+    "services/console/account_rules.py:132"
+   ],
+   "test": [
+    "tests/console/test_identity.py::test_admin_resets_an_authenticator_and_only_an_admin_may",
+    "tests/console/test_no_one_holds_both_factors.py::test_the_administrator_never_holds_both_factors_within_30_days"
+   ],
+   "note": "Recovery is an administrator's reset with a one-time code; for a protected account a second person confirms and nobody holds both factors (D-719). The code is about 79 bits, stored as unsalted SHA-256, alive 24 hours.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.5.7",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "A lost factor is replaced only after identity proofing as strong as at enrolment.",
+   "verdict": "not determined",
+   "basis": "not_run",
+   "file": "services/console/identity.py",
+   "line": 716,
+   "also": [],
+   "test": [],
+   "note": "A procedure, not code: would be determined by the runbook's identity steps and a site's record of one reset.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.6.1",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "Look-up secrets work once.",
+   "verdict": "not applicable",
+   "basis": "hypothesis",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "No list of look-up (recovery) codes; the single enrolment code is judged under 2.5.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.6.2",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "Look-up secrets are random enough or salted and hashed.",
+   "verdict": "not applicable",
+   "basis": "hypothesis",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.6.3",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "Look-up secrets resist offline attack.",
+   "verdict": "not applicable",
+   "basis": "hypothesis",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.7.1",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "No clear-text out-of-band verifier (SMS, phone) by default.",
+   "verdict": "not applicable",
+   "basis": "hypothesis",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "The console has no out-of-band verifier (no code by SMS, phone or mail).",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.7.2",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "An out-of-band request expires within 10 minutes.",
+   "verdict": "not applicable",
+   "basis": "hypothesis",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "The console has no out-of-band verifier (no code by SMS, phone or mail).",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.7.3",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "An out-of-band code works once.",
+   "verdict": "not applicable",
+   "basis": "hypothesis",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "The console has no out-of-band verifier (no code by SMS, phone or mail).",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.7.4",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "The out-of-band channel is secure and separate.",
+   "verdict": "not applicable",
+   "basis": "hypothesis",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "The console has no out-of-band verifier (no code by SMS, phone or mail).",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.7.5",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "Only a hash of an out-of-band code is kept.",
+   "verdict": "not applicable",
+   "basis": "hypothesis",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "The console has no out-of-band verifier (no code by SMS, phone or mail).",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.7.6",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "An out-of-band code has at least 20 bits of entropy.",
+   "verdict": "not applicable",
+   "basis": "hypothesis",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "The console has no out-of-band verifier (no code by SMS, phone or mail).",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.8.1",
+   "chapter": "V2",
+   "level": "L1",
+   "requirement": "Time-based one-time codes have a defined life.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/totp.py",
+   "line": 26,
+   "also": [
+    "services/console/totp.py:66"
+   ],
+   "test": [],
+   "note": "30 s steps, one step either side.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.8.2",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "The keys that check one-time codes are well protected.",
+   "verdict": "partly",
+   "basis": "hypothesis",
+   "file": "services/console/totp.py",
+   "line": 110,
+   "also": [
+    "services/console/identity.py:98"
+   ],
+   "test": [],
+   "note": "Sealed with AES-GCM under totp.key, a file in the console's volume, not an HSM or the OS key store; D-447 notes it shares a backup with the database.",
+   "finding": "V3-13",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.8.3",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "One-time codes are made and checked with approved algorithms.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/totp.py",
+   "line": 31,
+   "also": [
+    "services/console/totp.py:41"
+   ],
+   "test": [],
+   "note": "RFC 6238 HMAC-SHA1, 160-bit secret.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.8.4",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "A time-based code works only once in its window.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/auth.py",
+   "line": 861,
+   "also": [],
+   "test": [
+    "tests/console/test_identity.py::test_a_totp_code_is_refused_when_wrong_or_replayed"
+   ],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.8.5",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "A replayed code is logged, refused, and its holder told.",
+   "verdict": "partly",
+   "basis": "hypothesis",
+   "file": "services/console/identity.py",
+   "line": 499,
+   "also": [
+    "services/console/identity.py:502"
+   ],
+   "test": [
+    "tests/console/test_identity.py::test_a_totp_code_is_refused_when_wrong_or_replayed"
+   ],
+   "note": "Logged and refused; the holder is not told.",
+   "finding": "V3-11",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.8.6",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "A lost or stolen one-time-code device can be revoked.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/auth.py",
+   "line": 870,
+   "also": [],
+   "test": [
+    "tests/console/test_identity.py::test_admin_resets_an_authenticator_and_only_an_admin_may"
+   ],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.9.1",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "Keys of cryptographic verifiers are protected.",
+   "verdict": "not applicable",
+   "basis": "hypothesis",
+   "file": "deploy/identity/authelia/configuration.example.yml",
+   "line": 30,
+   "also": [],
+   "test": [],
+   "note": "The console has no cryptographic verifier; security keys are Authelia's (WebAuthn).",
+   "finding": "",
+   "id_check": false,
+   "delegate": "Authelia and the hospital directory, for directory (OIDC) accounts"
+  },
+  {
+   "id": "2.9.2",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "Challenges of cryptographic verifiers are unique and long enough.",
+   "verdict": "not applicable",
+   "basis": "hypothesis",
+   "file": "deploy/identity/authelia/configuration.example.yml",
+   "line": 30,
+   "also": [],
+   "test": [],
+   "note": "The console has no cryptographic verifier; security keys are Authelia's (WebAuthn).",
+   "finding": "",
+   "id_check": true,
+   "delegate": "Authelia and the hospital directory, for directory (OIDC) accounts"
+  },
+  {
+   "id": "2.9.3",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "Cryptographic verifiers use approved algorithms.",
+   "verdict": "not applicable",
+   "basis": "hypothesis",
+   "file": "deploy/identity/authelia/configuration.example.yml",
+   "line": 30,
+   "also": [],
+   "test": [],
+   "note": "The console has no cryptographic verifier; security keys are Authelia's (WebAuthn).",
+   "finding": "",
+   "id_check": false,
+   "delegate": "Authelia and the hospital directory, for directory (OIDC) accounts"
+  },
+  {
+   "id": "2.10.1",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "Services do not authenticate to each other with fixed passwords or keys.",
+   "verdict": "partly",
+   "basis": "hypothesis",
+   "file": "libs/tb_common/service_auth.py",
+   "line": 88,
+   "also": [
+    "deploy/docker-compose.secrets.yml:32"
+   ],
+   "test": [],
+   "note": "One token per service, from a file, with a rotation command; still a long-lived bearer secret.",
+   "finding": "V3-13",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.10.2",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "A service account with a password is not a default one.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "deploy/docker-compose.yml",
+   "line": 368,
+   "also": [],
+   "test": [],
+   "note": "Each service has its own database role (tb_console, ...).",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.10.3",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "Service passwords are stored so that they resist offline recovery.",
+   "verdict": "does not meet",
+   "basis": "hypothesis",
+   "file": "deploy/docker-compose.yml",
+   "line": 368,
+   "also": [
+    "deploy/docker-compose.yml:31"
+   ],
+   "test": [],
+   "note": "Database passwords come from deploy/.env into environment variables and the database URL.",
+   "finding": "V3-13",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "2.10.4",
+   "chapter": "V2",
+   "level": "L2",
+   "requirement": "Secrets are managed safely and never in source code.",
+   "verdict": "partly",
+   "basis": "hypothesis",
+   "file": "deploy/docker-compose.secrets.yml",
+   "line": 32,
+   "also": [
+    "deploy/docker-compose.yml:31"
+   ],
+   "test": [],
+   "note": "Tokens and keys are files mounted per service; database, mail and KEK passwords stay in deploy/.env.",
+   "finding": "V3-13",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "3.1.1",
+   "chapter": "V3",
+   "level": "L1",
+   "requirement": "Session tokens never appear in URL parameters.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/app.py",
+   "line": 648,
+   "also": [
+    "services/console/auth.py:777"
+   ],
+   "test": [],
+   "note": "Cookie for pages, bearer header for /api/v1. The re-authentication proof in a URL (identity.py:610) is a one-time 2-minute proof, not a session token.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "3.2.1",
+   "chapter": "V3",
+   "level": "L1",
+   "requirement": "A new session token is made at sign-in.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/auth.py",
+   "line": 752,
+   "also": [
+    "services/console/app.py:1046"
+   ],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v3_2_1_sign_in_makes_a_new_token_and_ignores_a_planted_one"
+   ],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "3.2.2",
+   "chapter": "V3",
+   "level": "L1",
+   "requirement": "Session tokens have at least 64 bits of entropy.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/auth.py",
+   "line": 752,
+   "also": [],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v3_2_1_sign_in_makes_a_new_token_and_ignores_a_planted_one"
+   ],
+   "note": "256 random bits.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "3.2.3",
+   "chapter": "V3",
+   "level": "L1",
+   "requirement": "The browser keeps the session token only in a secure cookie or session storage.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/app.py",
+   "line": 1054,
+   "also": [],
+   "test": [
+    "tests/console/test_identity.py::test_production_cookies_are_secure_httponly_and_strict"
+   ],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "3.2.4",
+   "chapter": "V3",
+   "level": "L2",
+   "requirement": "Session tokens come from an approved random generator.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/auth.py",
+   "line": 752,
+   "also": [],
+   "test": [],
+   "note": "Python secrets.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "3.3.1",
+   "chapter": "V3",
+   "level": "L1",
+   "requirement": "Sign-out and expiry end the session on the server.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/app.py",
+   "line": 1064,
+   "also": [
+    "services/console/auth.py:783",
+    "services/console/app.py:589"
+   ],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v3_3_1_sign_out_ends_the_session_on_the_server",
+    "tests/console/test_identity.py::test_session_expires_when_idle_and_at_the_absolute_limit"
+   ],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "3.3.2",
+   "chapter": "V3",
+   "level": "L1",
+   "requirement": "Sessions need a new sign-in after a set time (L2: 12 hours, or 30 minutes idle).",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/identity.py",
+   "line": 124,
+   "also": [
+    "services/console/auth.py:782",
+    "deploy/identity/authelia/configuration.example.yml:64"
+   ],
+   "test": [
+    "tests/console/test_identity.py::test_session_expires_when_idle_and_at_the_absolute_limit"
+   ],
+   "note": "Idle 10 minutes (1 to 60), absolute 8 hours (at most 12); directory sessions 60 minutes.",
+   "finding": "",
+   "id_check": false,
+   "delegate": "Authelia and the hospital directory, for directory (OIDC) accounts"
+  },
+  {
+   "id": "3.3.3",
+   "chapter": "V3",
+   "level": "L2",
+   "requirement": "After a password change, every other session can be ended.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/auth.py",
+   "line": 626,
+   "also": [],
+   "test": [],
+   "note": "Every session of the account ends at once (not an option: always).",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "3.3.4",
+   "chapter": "V3",
+   "level": "L2",
+   "requirement": "A person can see their active sessions and end any of them.",
+   "verdict": "does not meet",
+   "basis": "hypothesis",
+   "file": "services/console/auth.py",
+   "line": 840,
+   "also": [],
+   "test": [],
+   "note": "No page lists sessions; end_sessions is never called by a page (grep). A new sign-in leaves older sessions alive.",
+   "finding": "V3-03",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "3.4.1",
+   "chapter": "V3",
+   "level": "L1",
+   "requirement": "Session cookies carry Secure.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/identity.py",
+   "line": 134,
+   "also": [
+    "deploy/docker-compose.identity.yml:93"
+   ],
+   "test": [
+    "tests/console/test_identity.py::test_production_cookies_are_secure_httponly_and_strict"
+   ],
+   "note": "Set with Secure in PRODUCTION and behind Caddy. The removal at sign-out lacks the flags (V3-12).",
+   "finding": "V3-12",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "3.4.2",
+   "chapter": "V3",
+   "level": "L1",
+   "requirement": "Session cookies carry HttpOnly.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/app.py",
+   "line": 1054,
+   "also": [],
+   "test": [
+    "tests/console/test_identity.py::test_production_cookies_are_secure_httponly_and_strict"
+   ],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "3.4.3",
+   "chapter": "V3",
+   "level": "L1",
+   "requirement": "Session cookies carry SameSite.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/app.py",
+   "line": 1054,
+   "also": [],
+   "test": [
+    "tests/console/test_identity.py::test_production_cookies_are_secure_httponly_and_strict"
+   ],
+   "note": "Strict.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "3.4.4",
+   "chapter": "V3",
+   "level": "L1",
+   "requirement": "Session cookies use the __Host- prefix.",
+   "verdict": "does not meet",
+   "basis": "shown",
+   "file": "services/console/app.py",
+   "line": 93,
+   "also": [],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v3_4_4_the_session_cookie_has_the_host_prefix"
+   ],
+   "note": "The cookie is 'tb_console'.",
+   "finding": "V3-02",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "3.4.5",
+   "chapter": "V3",
+   "level": "L1",
+   "requirement": "With other applications on the same name, the cookie path is as narrow as it can be.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "deploy/identity/Caddyfile",
+   "line": 59,
+   "also": [
+    "deploy/identity/Caddyfile:85"
+   ],
+   "test": [],
+   "note": "The console is the only application on its host name; Authelia has its own name and cookie domain.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "3.5.1",
+   "chapter": "V3",
+   "level": "L2",
+   "requirement": "A person can revoke OAuth grants given to linked applications.",
+   "verdict": "not applicable",
+   "basis": "hypothesis",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "The console grants no OAuth access to other applications; it is only an OIDC client.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "3.5.2",
+   "chapter": "V3",
+   "level": "L2",
+   "requirement": "Session tokens are used rather than fixed API keys.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/auth.py",
+   "line": 762,
+   "also": [],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v4_the_api_refuses_a_page_cookie_as_a_bearer_and_a_bearer_as_a_cookie"
+   ],
+   "note": "/api/v1 opens a session with a sign-in (POST /api/v1/session) and refuses a page cookie.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "3.5.3",
+   "chapter": "V3",
+   "level": "L2",
+   "requirement": "Stateless tokens are signed and checked against tampering and replay.",
+   "verdict": "not applicable",
+   "basis": "hypothesis",
+   "file": "services/console/auth.py",
+   "line": 755,
+   "also": [],
+   "test": [],
+   "note": "Sessions are server-side rows. The actor assertion between services (D-447) is signed and single-use, but it is no session token.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "3.7.1",
+   "chapter": "V3",
+   "level": "L1",
+   "requirement": "Sensitive actions need a full session plus a fresh sign-in or second check.",
+   "verdict": "partly",
+   "basis": "shown",
+   "file": "services/console/breakglass.py",
+   "line": 189,
+   "also": [
+    "services/console/identity.py:306",
+    "services/console/step4.py:235"
+   ],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v3_7_1_break_glass_asks_for_a_fresh_credential",
+    "tests/console/test_asvs_evidence.py::test_v3_7_1_a_password_change_asks_for_the_current_password",
+    "tests/console/test_d280_breakglass.py::test_a_patient_grant_opens_one_patient_for_60_minutes"
+   ],
+   "note": "Password change asks for the current password; a signature asks for a fresh code (step_up). Opening a break-glass grant asks for neither.",
+   "finding": "V3-04",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "4.1.1",
+   "chapter": "V4",
+   "level": "L1",
+   "requirement": "Access rules are enforced on the server.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "libs/tb_common/authz.py",
+   "line": 157,
+   "also": [
+    "services/console/app.py:731"
+   ],
+   "test": [
+    "tests/console/test_role_route_matrix.py::test_the_generated_matrix_equals_the_design_table"
+   ],
+   "note": "Every route walked by nine roles; the answers equal the design table and the matrix.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "4.1.2",
+   "chapter": "V4",
+   "level": "L1",
+   "requirement": "People cannot change the attributes access decisions read.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/auth.py",
+   "line": 788,
+   "also": [
+    "services/console/auth.py:817"
+   ],
+   "test": [],
+   "note": "The role comes from the account row on the server. The acting role is granted only by a boot tool on a test box (D-877).",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "4.1.3",
+   "chapter": "V4",
+   "level": "L1",
+   "requirement": "Least privilege: each role reaches only what it needs.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "libs/tb_common/authz_matrix.yaml",
+   "line": 1,
+   "also": [],
+   "test": [
+    "tests/unit/test_authz_matrix.py::test_d380_the_administrator_reads_no_patient_row_at_all",
+    "tests/console/test_role_route_matrix.py::test_the_generated_matrix_equals_the_design_table"
+   ],
+   "note": "One matrix; the administrator reads no patient row except by break-glass (D-280).",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "4.1.5",
+   "chapter": "V4",
+   "level": "L1",
+   "requirement": "Access control fails closed, also on an error.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "libs/tb_common/authz.py",
+   "line": 160,
+   "also": [],
+   "test": [
+    "tests/unit/test_authz_matrix.py::test_a_role_or_an_action_not_in_the_matrix_is_refused"
+   ],
+   "note": "Unknown role or action: refused. Between services an unlisted callee accepts any token (V3-15, under 1.2.2): no deployed callee is unlisted today.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "4.2.1",
+   "chapter": "V4",
+   "level": "L1",
+   "requirement": "Records are protected against direct object reference (another study's job or patient).",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/app.py",
+   "line": 683,
+   "also": [
+    "services/console/app.py:924"
+   ],
+   "test": [
+    "tests/console/test_a_scoped_account_sees_only_its_studies_to_run.py::test_a_scoped_coordinator_cannot_run_another_study",
+    "tests/console/test_a_scoped_account_sees_only_its_studies_to_run.py::test_a_scoped_coordinator_cannot_ask_status_or_cancel_of_another_studys_job",
+    "tests/console/test_role_route_matrix.py::test_the_generated_matrix_equals_the_design_table"
+   ],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "4.2.2",
+   "chapter": "V4",
+   "level": "L1",
+   "requirement": "A strong anti-CSRF control protects every changing request.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/auth.py",
+   "line": 1163,
+   "also": [
+    "services/console/app.py:732",
+    "services/console/app.py:1021"
+   ],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v4_2_2_every_changing_page_route_refuses_a_post_without_the_csrf_token",
+    "tests/console/test_asvs_evidence.py::test_v4_the_api_refuses_a_page_cookie_as_a_bearer_and_a_bearer_as_a_cookie"
+   ],
+   "note": "A per-session token on every changing page route (walked as three roles) and SameSite=Strict; /api/v1 takes a bearer token only.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "4.3.1",
+   "chapter": "V4",
+   "level": "L1",
+   "requirement": "Administrative pages need a second factor.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/identity.py",
+   "line": 113,
+   "also": [
+    "services/console/identity.py:120",
+    "deploy/docker-compose.identity.yml:95"
+   ],
+   "test": [
+    "tests/console/test_identity.py::test_totp_is_the_default_outside_dev_and_test_and_cannot_be_turned_off_in_production",
+    "tests/console/test_identity_d447.py::test_doctor_fails_production_without_a_second_factor"
+   ],
+   "note": "TOTP cannot be turned off outside DEV and TEST; directory sign-ins must report MFA.",
+   "finding": "",
+   "id_check": false,
+   "delegate": "Authelia and the hospital directory, for directory (OIDC) accounts"
+  },
+  {
+   "id": "4.3.2",
+   "chapter": "V4",
+   "level": "L1",
+   "requirement": "No folder listing; no metadata files (.git) are served.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/app.py",
+   "line": 575,
+   "also": [
+    "services/console/app.py:572"
+   ],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v4_3_2_no_folder_listing_and_no_api_description_page"
+   ],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "4.3.3",
+   "chapter": "V4",
+   "level": "L2",
+   "requirement": "Step-up checks or separation of duties guard high-value actions.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/identity.py",
+   "line": 306,
+   "also": [
+    "services/console/account_rules.py:112"
+   ],
+   "test": [
+    "tests/console/test_no_one_holds_both_factors.py::test_the_administrator_never_holds_both_factors_within_30_days"
+   ],
+   "note": "Signatures ask for a fresh code; protected accounts need a second person (D-719). Break-glass asks for neither (3.7.1, V3-04) but is told to the steward at once and reviewed.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "1.1.2",
+   "chapter": "V1",
+   "level": "L2",
+   "requirement": "A threat model exists for the design and its changes.",
+   "verdict": "does not meet",
+   "basis": "hypothesis",
+   "file": "docs/security/01-the-host.md",
+   "line": 1,
+   "also": [],
+   "test": [],
+   "note": "No threat model in docs/security/ (ten files) or docs/validation/ (grep for 'threat model', 'STRIDE').",
+   "finding": "V3-16",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "1.2.2",
+   "chapter": "V1",
+   "level": "L2",
+   "requirement": "Calls between the parts of the application are authenticated.",
+   "verdict": "partly",
+   "basis": "hypothesis",
+   "file": "libs/tb_common/service_auth.py",
+   "line": 201,
+   "also": [
+    "libs/tb_common/service_auth.py:88"
+   ],
+   "test": [],
+   "note": "Every call carries a service token, but a callee not in CALLERS accepts any service's token. Every deployed service is listed today, so the gap is latent (the trace store's HTTP app, which trusts unsigned role headers, is not started by any compose file).",
+   "finding": "V3-15",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "1.4.1",
+   "chapter": "V1",
+   "level": "L2",
+   "requirement": "Access is enforced at trusted points on the server, never in the client.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "libs/tb_common/authz.py",
+   "line": 157,
+   "also": [],
+   "test": [
+    "tests/console/test_role_route_matrix.py::test_the_generated_matrix_equals_the_design_table"
+   ],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "V1-rest",
+   "chapter": "V1",
+   "level": "-",
+   "requirement": "The rest of V1 (1.1.1, 1.1.3-1.1.7, 1.2.1, 1.2.3, 1.2.4, 1.4.4, 1.4.5, 1.5-1.14).",
+   "verdict": "not assessed",
+   "basis": "not_run",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "Not reached.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "5.1.5",
+   "chapter": "V5",
+   "level": "L1",
+   "requirement": "Redirects go only to allowed places.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/next_page.py",
+   "line": 23,
+   "also": [
+    "services/console/app.py:1126"
+   ],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v5_1_5_the_language_switch_stays_on_the_console"
+   ],
+   "note": "The language switch checks '/' and '//' only, but the redirect percent-encodes a backslash, so it stays a path.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "5.3.1",
+   "chapter": "V5",
+   "level": "L1",
+   "requirement": "Output is encoded for its context (HTML here).",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/app.py",
+   "line": 508,
+   "also": [
+    "services/console/templates/base.html:70"
+   ],
+   "test": [],
+   "note": "Jinja autoescape on for .html; the one '|safe' is the console's own script constant.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "5.3.3",
+   "chapter": "V5",
+   "level": "L1",
+   "requirement": "Encoding prevents reflected, stored and DOM cross-site scripting.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/app.py",
+   "line": 110,
+   "also": [],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v14_4_security_headers_on_the_sign_in_page_and_a_signed_in_page"
+   ],
+   "note": "Autoescape, plus a CSP with a script hash and no 'unsafe-inline'.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "5.3.4",
+   "chapter": "V5",
+   "level": "L1",
+   "requirement": "Database queries are parameterised.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/auth.py",
+   "line": 730,
+   "also": [
+    "services/lake/sqlguard.py:60"
+   ],
+   "test": [
+    "tests/unit/test_textproc_sqlguard.py::test_non_select_rejected"
+   ],
+   "note": "The stores bind values with '?'. Criteria SQL is generated, not parameterised (5.3.5); the lake runs a SELECT-only guard.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "5.3.5",
+   "chapter": "V5",
+   "level": "L1",
+   "requirement": "Where parameters are impossible, values are escaped for the query language.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/criteria_compiler/compile_sql/generator.py",
+   "line": 67,
+   "also": [
+    "services/criteria_compiler/compile_sql/generator.py:153"
+   ],
+   "test": [],
+   "note": "String literals double their quotes, names are quoted, criterion text in a comment is put on one line.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "V5-rest",
+   "chapter": "V5",
+   "level": "-",
+   "requirement": "The rest of V5 (5.1.1-5.1.4, 5.2, 5.3.2, 5.3.6-5.3.10, 5.4, 5.5).",
+   "verdict": "not assessed",
+   "basis": "not_run",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "Not reached. The prompt-injection suite on the real model pair (full review J-5) is outside ASVS.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "6.2.1",
+   "chapter": "V6",
+   "level": "L1",
+   "requirement": "Cryptographic modules fail safely and errors are handled.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/identity.py",
+   "line": 416,
+   "also": [
+    "services/console/totp.py:114"
+   ],
+   "test": [],
+   "note": "A wrong TOTP key file is a refusal, never a pass.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "6.2.2",
+   "chapter": "V6",
+   "level": "L2",
+   "requirement": "Proven algorithms and libraries are used.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "libs/tb_common/crypto.py",
+   "line": 103,
+   "also": [],
+   "test": [],
+   "note": "AES-GCM, scrypt, Ed25519, HMAC-SHA256 from the cryptography package and the standard library.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "6.2.5",
+   "chapter": "V6",
+   "level": "L2",
+   "requirement": "No insecure modes or weak padding.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "libs/tb_common/crypto.py",
+   "line": 105,
+   "also": [],
+   "test": [],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "6.2.6",
+   "chapter": "V6",
+   "level": "L2",
+   "requirement": "Nonces and IVs are not reused.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "libs/tb_common/crypto.py",
+   "line": 104,
+   "also": [],
+   "test": [],
+   "note": "A fresh 96-bit random nonce per encryption.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "6.3.1",
+   "chapter": "V6",
+   "level": "L2",
+   "requirement": "Random values come from a cryptographically secure generator.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/auth.py",
+   "line": 752,
+   "also": [
+    "services/console/auth.py:217"
+   ],
+   "test": [],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "6.4.1",
+   "chapter": "V6",
+   "level": "L2",
+   "requirement": "A secrets-management solution creates, stores and controls secrets.",
+   "verdict": "does not meet",
+   "basis": "hypothesis",
+   "file": "deploy/docker-compose.yml",
+   "line": 368,
+   "also": [
+    "deploy/docker-compose.secrets.yml:32"
+   ],
+   "test": [],
+   "note": "Service tokens and keys are files; database, mail and KEK passwords stay in deploy/.env (full review J-M5).",
+   "finding": "V3-13",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "6.4.2",
+   "chapter": "V6",
+   "level": "L2",
+   "requirement": "Key material is not exposed to the application (an isolated module or vault).",
+   "verdict": "partly",
+   "basis": "hypothesis",
+   "file": "services/console/totp.py",
+   "line": 104,
+   "also": [],
+   "test": [],
+   "note": "Site keys can be sealed by TPM or shares (tools/key_ceremony.py, not read for this line); the TOTP key is a plain file the console reads.",
+   "finding": "V3-13",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "V6-rest",
+   "chapter": "V6",
+   "level": "-",
+   "requirement": "The rest of V6 (6.1, 6.2.3, 6.2.4, 6.3.2).",
+   "verdict": "not assessed",
+   "basis": "not_run",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "Not reached.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "7.1.1",
+   "chapter": "V7",
+   "level": "L1",
+   "requirement": "Logs hold no credentials or session tokens.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/auth.py",
+   "line": 757,
+   "also": [
+    "deploy/identity/Caddyfile:52",
+    "services/console/identity.py:710"
+   ],
+   "test": [],
+   "note": "Sessions stored as SHA-256; Caddy drops Cookie and Authorization from its log.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "7.1.2",
+   "chapter": "V7",
+   "level": "L1",
+   "requirement": "Logs hold no other sensitive data under privacy law.",
+   "verdict": "partly",
+   "basis": "shown",
+   "file": "libs/tb_common/audit.py",
+   "line": 106,
+   "also": [
+    "services/console/app.py:942"
+   ],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v7_1_2_a_chart_number_in_a_free_text_note_is_masked"
+   ],
+   "note": "Masked by key name and 'key=value'; a chart number in free text (a note) is kept.",
+   "finding": "V3-14",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "7.1.3",
+   "chapter": "V7",
+   "level": "L2",
+   "requirement": "Security events are logged (sign-in, failure, denial, lock).",
+   "verdict": "partly",
+   "basis": "hypothesis",
+   "file": "services/console/app.py",
+   "line": 1036,
+   "also": [
+    "services/console/app.py:1047",
+    "services/console/identity.py:300",
+    "services/console/app.py:735",
+    "services/console/breakglass.py:211"
+   ],
+   "test": [],
+   "note": "Break-glass writes its audit event after the grant is stored (V3-18). Sign-in, failure, denial and lock are logged.",
+   "finding": "V3-18",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "7.1.4",
+   "chapter": "V7",
+   "level": "L2",
+   "requirement": "Each event has what an investigation needs (who, when, from where).",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/identity.py",
+   "line": 303,
+   "also": [
+    "services/console/app.py:1037"
+   ],
+   "test": [],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "7.2.1",
+   "chapter": "V7",
+   "level": "L2",
+   "requirement": "Every authentication decision is logged, without tokens or passwords.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/app.py",
+   "line": 1036,
+   "also": [
+    "services/console/identity.py:502"
+   ],
+   "test": [
+    "tests/console/test_identity.py::test_a_totp_code_is_refused_when_wrong_or_replayed"
+   ],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "7.2.2",
+   "chapter": "V7",
+   "level": "L2",
+   "requirement": "Access-control decisions can be logged and failures are logged.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/app.py",
+   "line": 735,
+   "also": [
+    "services/console/app.py:709"
+   ],
+   "test": [],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "7.3.1",
+   "chapter": "V7",
+   "level": "L2",
+   "requirement": "Log content is encoded so that it cannot inject into the log.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "libs/tb_common/audit.py",
+   "line": 144,
+   "also": [],
+   "test": [],
+   "note": "Canonical JSON per line.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "7.3.3",
+   "chapter": "V7",
+   "level": "L2",
+   "requirement": "Security logs are protected from change.",
+   "verdict": "partly",
+   "basis": "hypothesis",
+   "file": "libs/tb_common/audit.py",
+   "line": 144,
+   "also": [],
+   "test": [
+    "tests/unit/test_audit.py::test_tamper_detected",
+    "tests/unit/test_audit_anchor.py::test_rewriting_and_rehashing_everything_fails"
+   ],
+   "note": "A hash chain and a head anchor detect a change. How often the heads are signed (full review J-M2: nightly) was not read for this card.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "V7-rest",
+   "chapter": "V7",
+   "level": "-",
+   "requirement": "The rest of V7 (7.1.? not listed, 7.3.2, 7.3.4, 7.4).",
+   "verdict": "not assessed",
+   "basis": "not_run",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "Not reached.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "8.2.1",
+   "chapter": "V8",
+   "level": "L1",
+   "requirement": "Sensitive pages tell the browser not to cache them.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/app.py",
+   "line": 589,
+   "also": [],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v14_4_security_headers_on_the_sign_in_page_and_a_signed_in_page"
+   ],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "8.2.2",
+   "chapter": "V8",
+   "level": "L1",
+   "requirement": "Data in browser storage is cleared when the session ends.",
+   "verdict": "partly",
+   "basis": "hypothesis",
+   "file": "services/console/static/console.js",
+   "line": 56,
+   "also": [
+    "docs/decisions/REGISTRY.md:591"
+   ],
+   "test": [],
+   "note": "A typed mark note stays in the tab's session storage after the session ends, on purpose (D-777), and is put back for whoever signs in next in that tab and opens that patient.",
+   "finding": "V3-19",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "8.3.1",
+   "chapter": "V8",
+   "level": "L1",
+   "requirement": "Sensitive data travel in the body or headers, not the query string.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/templates/case.html",
+   "line": 10,
+   "also": [
+    "services/console/templates/audit.html:18"
+   ],
+   "test": [],
+   "note": "Chart numbers are posted. Pseudonyms (not identifying) appear in paths; Caddy drops query strings from its log.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "V8-rest",
+   "chapter": "V8",
+   "level": "-",
+   "requirement": "The rest of V8 (8.1, 8.2.3, 8.3.2-8.3.8).",
+   "verdict": "not assessed",
+   "basis": "not_run",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "Not reached. Erasure (full review J-2) is lane V's card for criterion 8.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "9.1.1",
+   "chapter": "V9",
+   "level": "L1",
+   "requirement": "TLS for every client connection; no fallback to plain HTTP.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "deploy/identity/Caddyfile",
+   "line": 59,
+   "also": [
+    "deploy/docker-compose.identity.yml:91",
+    "deploy/docker-compose.identity.yml:46"
+   ],
+   "test": [],
+   "note": "Behind the overlay only Caddy's 443 is published. Without the overlay the console listens on the box's loopback only (deploy/docker-compose.yml:388).",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "9.1.2",
+   "chapter": "V9",
+   "level": "L1",
+   "requirement": "Only strong TLS versions and ciphers.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "deploy/identity/Caddyfile",
+   "line": 35,
+   "also": [],
+   "test": [],
+   "note": "TLS 1.2 and 1.3 (Caddy's defaults in internal mode). No TLS scan record found: a scan would show it.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "9.2.1",
+   "chapter": "V9",
+   "level": "L2",
+   "requirement": "Outbound and server connections use trusted certificates.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "deploy/docker-compose.identity.yml",
+   "line": 74,
+   "also": [
+    "deploy/identity/authelia/configuration.example.yml:47"
+   ],
+   "test": [],
+   "note": "LDAPS checked against the hospital CA only (D-722); the OIDC client against a CA file.",
+   "finding": "",
+   "id_check": true,
+   "delegate": ""
+  },
+  {
+   "id": "9.2.2",
+   "chapter": "V9",
+   "level": "L2",
+   "requirement": "Every connection, internal ones too, is encrypted.",
+   "verdict": "partly",
+   "basis": "hypothesis",
+   "file": "docs/security/02-network.md",
+   "line": 41,
+   "also": [
+    "deploy/docker-compose.yml:370"
+   ],
+   "test": [],
+   "note": "Between containers on one host the calls are plain HTTP on internal networks: a recorded rationale (no mTLS on one host; added when a call crosses a physical network).",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "V9-rest",
+   "chapter": "V9",
+   "level": "-",
+   "requirement": "The rest of V9 (9.1.3, 9.2.3-9.2.5).",
+   "verdict": "not assessed",
+   "basis": "not_run",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "Not reached.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "V10",
+   "chapter": "V10",
+   "level": "-",
+   "requirement": "Malicious code and supply chain (whole chapter).",
+   "verdict": "not assessed",
+   "basis": "not_run",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "Not reached. The supply-chain gates are their own part of plan 8's V9.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "V11",
+   "chapter": "V11",
+   "level": "-",
+   "requirement": "Business logic (whole chapter).",
+   "verdict": "not assessed",
+   "basis": "not_run",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "Not reached.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "12.1.1",
+   "chapter": "V12",
+   "level": "L1",
+   "requirement": "Large files are refused before they fill storage.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/app.py",
+   "line": 2056,
+   "also": [
+    "services/console/app.py:98",
+    "deploy/identity/Caddyfile:62"
+   ],
+   "test": [],
+   "note": "50 MB in the console, 60 MB at Caddy.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "V12-rest",
+   "chapter": "V12",
+   "level": "-",
+   "requirement": "The rest of V12.",
+   "verdict": "not assessed",
+   "basis": "not_run",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "Not reached.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "13.1.3",
+   "chapter": "V13",
+   "level": "L1",
+   "requirement": "API URLs carry no key or session token.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/auth.py",
+   "line": 777,
+   "also": [],
+   "test": [],
+   "note": "The API token is a bearer header.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "13.2.3",
+   "chapter": "V13",
+   "level": "L1",
+   "requirement": "Changing API calls are protected against CSRF.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/auth.py",
+   "line": 777,
+   "also": [],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v4_the_api_refuses_a_page_cookie_as_a_bearer_and_a_bearer_as_a_cookie"
+   ],
+   "note": "The API never accepts the browser's cookie.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "V13-rest",
+   "chapter": "V13",
+   "level": "-",
+   "requirement": "The rest of V13.",
+   "verdict": "not assessed",
+   "basis": "not_run",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "Not reached.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "14.3.2",
+   "chapter": "V14",
+   "level": "L1",
+   "requirement": "Debug modes and API description pages are off in production.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/app.py",
+   "line": 572,
+   "also": [],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v4_3_2_no_folder_listing_and_no_api_description_page"
+   ],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "14.3.3",
+   "chapter": "V14",
+   "level": "L1",
+   "requirement": "Headers do not show component versions.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "deploy/identity/Caddyfile",
+   "line": 44,
+   "also": [],
+   "test": [],
+   "note": "Caddy removes Server.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "14.4.1",
+   "chapter": "V14",
+   "level": "L1",
+   "requirement": "Each response names its content type and character set.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/app.py",
+   "line": 858,
+   "also": [],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v14_4_security_headers_on_the_sign_in_page_and_a_signed_in_page"
+   ],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "14.4.3",
+   "chapter": "V14",
+   "level": "L1",
+   "requirement": "A Content-Security-Policy is set.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/app.py",
+   "line": 110,
+   "also": [],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v14_4_security_headers_on_the_sign_in_page_and_a_signed_in_page"
+   ],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "14.4.4",
+   "chapter": "V14",
+   "level": "L1",
+   "requirement": "X-Content-Type-Options: nosniff.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/app.py",
+   "line": 585,
+   "also": [],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v14_4_security_headers_on_the_sign_in_page_and_a_signed_in_page"
+   ],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "14.4.5",
+   "chapter": "V14",
+   "level": "L1",
+   "requirement": "Strict-Transport-Security with includeSubDomains.",
+   "verdict": "partly",
+   "basis": "hypothesis",
+   "file": "deploy/identity/Caddyfile",
+   "line": 42,
+   "also": [],
+   "test": [],
+   "note": "One year, without includeSubDomains (D-447 'Open').",
+   "finding": "",
+   "id_check": true,
+   "delegate": ""
+  },
+  {
+   "id": "14.4.6",
+   "chapter": "V14",
+   "level": "L1",
+   "requirement": "A suitable Referrer-Policy.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/app.py",
+   "line": 586,
+   "also": [],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v14_4_security_headers_on_the_sign_in_page_and_a_signed_in_page"
+   ],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "14.4.7",
+   "chapter": "V14",
+   "level": "L1",
+   "requirement": "Framing by other sites is refused.",
+   "verdict": "meets",
+   "basis": "shown",
+   "file": "services/console/app.py",
+   "line": 584,
+   "also": [],
+   "test": [
+    "tests/console/test_asvs_evidence.py::test_v14_4_security_headers_on_the_sign_in_page_and_a_signed_in_page"
+   ],
+   "note": "",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "14.5.3",
+   "chapter": "V14",
+   "level": "L1",
+   "requirement": "CORS allows only trusted origins.",
+   "verdict": "meets",
+   "basis": "hypothesis",
+   "file": "services/console/app.py",
+   "line": 572,
+   "also": [],
+   "test": [],
+   "note": "No CORS middleware anywhere (grep CORSMiddleware): no cross-origin read is allowed.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  },
+  {
+   "id": "V14-rest",
+   "chapter": "V14",
+   "level": "-",
+   "requirement": "The rest of V14 (14.1, 14.2, 14.3.1, 14.4.2, 14.5.1, 14.5.2, 14.5.4).",
+   "verdict": "not assessed",
+   "basis": "not_run",
+   "file": "",
+   "line": 0,
+   "also": [],
+   "test": [],
+   "note": "Not reached. Container hardening (full review J-M4: only model-guard drops capabilities, deploy/docker-compose.yml:469) has no single L2 line; listed with the comparison.",
+   "finding": "",
+   "id_check": false,
+   "delegate": ""
+  }
+ ]
+}
