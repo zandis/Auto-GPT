@@ -153,6 +153,26 @@ wsl2)
   ;;
 
 # ------------------------------------------------------------------------------------------------ negative: media
+bootstrap)
+  # H-22 (D-996): RUNBOOK §1's first command as written, on the media as the vendor handed it over: the signature of
+  # the bootstrap first (openssl, as a bare Ubuntu has it), then the bootstrap into an empty /opt/trialbox stand-in. It
+  # verifies the bundle's signature and host tree, unpacks the tree, places the key and runs that tree's installer
+  # (here its check-only mode, --ctgov-check: the full install is the install step's)
+  b="$MEDIA/linux/trialbox-bootstrap.sh"; pub="$MEDIA/linux/vendor_ed25519.pub"; opt="$W/bootstrap/opt/trialbox"
+  [ -f "$b" ] && [ -f "$b.sig" ] || fail "the media carries no trialbox-bootstrap.sh and .sig"
+  openssl pkeyutl -verify -pubin -inkey "$pub" -rawin -in "$b" -sigfile "$b.sig" >/dev/null \
+    || fail "the bootstrap's signature does not check with the vendor key"
+  (cd "$MEDIA/linux" && sha256sum -c "$(basename "$BUNDLE").sha256") || fail "the bundle's sidecar does not check from the media"
+  rm -rf "$W/bootstrap"
+  out="$(TB_CTGOV_PROBE=fail TB_BOOTSTRAP_ROOT="$opt" bash "$b" "$BUNDLE" --pub "$pub" -- --ctgov-check 2>&1)"; rc=$?
+  echo "$out"
+  [ "$rc" = 0 ] || fail "the bootstrap stopped (exit $rc)"
+  [ -f "$opt/deploy/install.sh" ] && cmp -s "$pub" "$opt/deploy/keys/vendor_ed25519.pub" \
+    || fail "the bootstrap left no host tree or no vendor key in $opt"
+  echo "$out" | grep -q "^running: $opt/deploy/install.sh $BUNDLE --ctgov-check" || fail "the bootstrap did not run the tree's installer"
+  rm -rf "$W/bootstrap"
+  ok "RUNBOOK §1's first command: bootstrap signature checked, bundle verified, host tree unpacked, key placed, installer run"
+  ;;
 media-negative)
   NEG="$W/box-neg"
   unpack_release "$NEG"

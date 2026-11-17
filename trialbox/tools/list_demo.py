@@ -231,6 +231,9 @@ def console(
 
     from tools.role_demo import InprocBackend
 
+    # J-4 (D-1224, walk F-10): one day for the box: every stamp of the in-process orchestrator takes the console's
+    # clock (list_demo, cgmh_demo, scenarios and public_e2e all build their console here)
+    box.orch.clock = clock
     shutil.rmtree(work / "console", ignore_errors=True)
     (work / "console").mkdir(parents=True)
     url = fd.fresh_console_db(work)
