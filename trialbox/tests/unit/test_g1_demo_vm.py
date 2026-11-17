@@ -867,7 +867,7 @@ def test_the_boot_in_steps_mode_leaves_demo_mode_off_and_says_so(tmp_path: Path)
     assert rc == 0, out
     assert "steps mode (D-1062): demo mode stays OFF" in out
     assert "--print-demo-switch" not in out and "demo mode on (D-328" not in out
-    assert "python - owner.admin:admin,owner:investigator 24 < (demo-vm-boot.sh --print-people)" in out
+    assert "python - owner.admin:admin,owner:investigator 24 codes < (the steps people script)" in out
     # everything else is as in demo mode: the stub model, the hard stop, no sshd, the console behind Caddy only
     assert "TB_LLM_MODE=stub" in out and "+ shutdown -P +720" in out and "+ systemctl disable --now ssh.service" in out
     assert "-p 127.0.0.1:8080:8080" in out
@@ -882,5 +882,67 @@ def test_the_boot_in_steps_mode_leaves_demo_mode_off_and_says_so(tmp_path: Path)
     ],
 )
 def test_the_boot_refuses_a_mode_or_a_role_it_does_not_know(tmp_path: Path, md: dict[str, str], why: str) -> None:
+    rc, out = _boot(tmp_path, "--dry-run", **md)
+    assert rc != 0 and why in out, out
+
+
+# ------------------------------------------- steps mode: one sign-in per person (D-1063) and a shared password (D-1065)
+
+ONE_EACH = "zandis:investigator+coordinator+steward+admin,wenn:investigator+coordinator+steward+admin"
+
+
+def test_steps_mode_takes_several_roles_a_person_and_the_shared_login(tmp_path: Path) -> None:
+    env = _env(tmp_path, TB_DEMO_VM_MODE="steps", TB_DEMO_VM_PEOPLE=ONE_EACH, TB_DEMO_VM_SHARED_LOGIN="1")
+    rc, out = _run(tmp_path, "--dry-run", "up", env=env)
+    assert rc == 0, out
+    assert "tb-demo-people=zandis:investigator+coordinator+steward+admin;wenn:investigator+" in out
+    assert (
+        "tb-demo-shared-login=1" in out
+        and "password" not in out.split("tb-demo-shared-login=1")[0].split("--metadata")[-1]
+    )
+
+
+@pytest.mark.parametrize(
+    ("extra", "why"),
+    [
+        ({"TB_DEMO_VM_PEOPLE": "owner:investigator+coordinator"}, "role must be one of"),  # demo mode: one role
+        ({"TB_DEMO_VM_SHARED_LOGIN": "1"}, "TB_DEMO_VM_MODE=steps only"),
+        ({"TB_DEMO_VM_MODE": "steps", "TB_DEMO_VM_SHARED_LOGIN": "yes"}, "must be 0 or 1"),
+        ({"TB_DEMO_VM_MODE": "steps", "TB_DEMO_VM_PEOPLE": "owner:admin+admin"}, "role must be one of"),
+        ({"TB_DEMO_VM_MODE": "steps", "TB_DEMO_VM_PEOPLE": "owner:admin+privacy"}, "role must be one of"),
+    ],
+)
+def test_several_roles_and_the_shared_login_are_for_steps_mode_only(
+    tmp_path: Path, extra: dict[str, str], why: str
+) -> None:
+    rc, out = _run(tmp_path, "up", "--yes", env=_env(tmp_path, **extra))
+    assert rc == 2 and why in out, out
+    assert _argv(tmp_path) == []
+
+
+def test_the_boot_in_steps_mode_opens_one_account_a_person_and_switches_the_acting_role_on(tmp_path: Path) -> None:
+    rc, out = _boot(
+        tmp_path, "--dry-run", TB_MD_TB_DEMO_MODE="steps", TB_MD_TB_DEMO_SHARED_LOGIN="1",
+        TB_MD_TB_DEMO_PEOPLE=ONE_EACH.replace(",", ";"),
+    )  # fmt: skip
+    assert rc == 0, out
+    flag = out.index("python - http://127.0.0.1:8080 steps.acting_role")
+    people = out.index(f"python - {ONE_EACH} 24 shared < (the steps people script)")
+    assert flag < people < out.index("docker run -d --name tb-demo-caddy")
+    assert f"TB_DEMO_PEOPLE={ONE_EACH}" in out  # the seed reads the roles a person holds (tools/feas_demo.py)
+    assert "--print-demo-switch" not in out
+
+
+@pytest.mark.parametrize(
+    ("md", "why"),
+    [
+        ({"TB_MD_TB_DEMO_SHARED_LOGIN": "1"}, "tb-demo-shared-login"),  # demo mode: refused
+        ({"TB_MD_TB_DEMO_MODE": "steps", "TB_MD_TB_DEMO_SHARED_LOGIN": "2"}, "tb-demo-shared-login"),
+        ({"TB_MD_TB_DEMO_PEOPLE": "owner:investigator+coordinator"}, "tb-demo-people"),  # demo mode: one role
+    ],
+)
+def test_the_boot_refuses_the_shared_login_and_several_roles_outside_steps_mode(
+    tmp_path: Path, md: dict[str, str], why: str
+) -> None:
     rc, out = _boot(tmp_path, "--dry-run", **md)
     assert rc != 0 and why in out, out

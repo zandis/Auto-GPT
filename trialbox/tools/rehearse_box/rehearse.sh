@@ -302,6 +302,7 @@ step after-restart 1 in_box after-restart
 step doctor-after-restart 0 in_box doctor
 step console-after-restart 0 in_box console
 step screen-after-restart 0 in_box screen second
+step restic-restore 0 in_box restic-restore
 step wrong-name 0 in_box wrong-name
 step missing-key 0 in_box missing-key
 step no-registry-pull 0 no_registry_pull
