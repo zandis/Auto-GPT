@@ -287,6 +287,53 @@ def test_what_the_page_says_the_stub_does_with_text_it_has_not_seen() -> None:
             assert name in _page(lang), (lang, name)
 
 
+@pytest.mark.parametrize("n", sorted(wp.OWNER_ROW))
+def test_the_steps_that_set_up_and_open_the_study_are_the_coordinators(n: int) -> None:
+    """D-1153: steps 9 and 10 (the type for SAE reporting, Open) are done by the role that owns them in the matrix,
+    and each refusal there is a role that does not hold them."""
+    from tb_common.authz import conditional, permit
+
+    st = next(s for s in wp.STEPS if s.n == n)
+    role = wp.CONSOLE_ROLE[st.role]
+    assert st.refusals, n
+    for row in wp.OWNER_ROW[n]:
+        assert permit(role, row).allowed, (n, role, row)
+    for r in st.refusals:
+        other = wp.CONSOLE_ROLE[r.role]
+        row = "study.setup" if r.path.endswith("/setup/sae") else "study.state"
+        assert row in wp.OWNER_ROW[n], (n, r.path)
+        assert not permit(other, row).allowed and not conditional(other, row), (n, other, row)
+        assert set(r.why) == set(wp.LANGS) and all(r.why.values()), (n, r)
+
+
+def test_the_type_for_sae_reporting_is_one_the_box_offers() -> None:
+    """Set-up offers only the types of the site's country (T-629); the steps-mode box's site is the example
+    settings' (``tools.demo`` adopts its zone)."""
+    import yaml
+    from datacore.lifecycle import RULE_SETS
+    from tb_common.derived import country_of
+
+    doc = yaml.safe_load((ROOT / "deploy" / "settings.example.yaml").read_text(encoding="utf-8"))
+    assert RULE_SETS[wp.SAE_RULE_SET].country == country_of(doc["site"]["tz"])
+
+
+def test_screen_before_open_shows_the_orchestrators_words() -> None:
+    """D-1153: SCREEN of a study in start-up fails at the orchestrator's first check (D-386); step 10 asserts the
+    product's words, the catalogue's ``job.error`` in the page language and the orchestrator's message (English only,
+    finding F-22 of the life-cycle walk), which says who changes the state and where."""
+    said = wp.Said(None)
+    texts = {lang: said.text(lang, wp.SHOWN_ID) for lang in wp.LANGS}
+    translate, _ = wp.catalogue()
+    for lang, text in texts.items():
+        assert text.startswith(translate(lang, "job.error", step="ruleset") + ": "), (lang, text)
+    message = texts["en"].split(": ", 1)[1]
+    assert {t.split(": ", 1)[1] for t in texts.values()} == {message}
+    assert f"Study {wp.SHOWN_ID} is startup" in message and "changes the state" in message, message
+    assert said.missing() == ["zh-TW", "ja"]
+    step10 = next(s for s in wp.STEPS if s.n == 10)
+    assert any(isinstance(a, wp.See) and isinstance(a.text, wp.Said) for a in step10.acts)
+
+
 def test_the_accounts_parameter() -> None:
     assert accounts({}, "pw") == {"mode": "four", **wp.SEEDED_ACCOUNTS, "password": "pw"}
     one = accounts({"TB_WALK_ACCOUNTS": '{"person": "tester1"}'}, "pw")

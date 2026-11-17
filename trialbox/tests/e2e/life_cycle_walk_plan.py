@@ -38,8 +38,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from tb_common.retention import STUDY_YEARS_AFTER_CLOSE
+
 from tests.e2e import new_study_walk_plan as nw
-from tests.e2e.new_study_walk_plan import Do, Refuse, See, Step, T
+from tests.e2e.new_study_walk_plan import Do, K, Marked, Refuse, See, Step, T
 
 ROOT = nw.ROOT
 LANGS = nw.LANGS
@@ -69,17 +71,8 @@ OWNER_ROW = {
 CLOSE_REASON = "end of the life-cycle walk"
 #: the withdrawal reason the coordinator chooses: "1", the participant's decision (``life.reason.wd.1``)
 WITHDRAW_REASON = "1"
-
-
-@dataclass(frozen=True)
-class K(T):
-    """A product text whose values are themselves catalogue keys (``@key``: the key's text in the page language),
-    such as "The study is now {state}." with the state's own word."""
-
-    def text(self, lang: str, rs: str) -> str:
-        translate, _ = nw.catalogue()
-        vals = tuple((k, translate(lang, v[1:]) if v.startswith("@") else v) for k, v in self.values)
-        return T(self.key, vals, self.prefix).text(lang, rs)
+#: the years a closed study's files are kept when the close names none (D-779): the day the close sheet names
+CLOSE_YEARS = STUDY_YEARS_AFTER_CLOSE
 
 
 @dataclass(frozen=True)
@@ -328,8 +321,24 @@ LIFE: tuple[Life, ...] = (
             (
                 Do("button", T("life.go.withdrawn")),
                 See("shown", value="life-refused"),
-                Do("select", label=T("life.step.reason"), value=WITHDRAW_REASON),
+                See("gone", value="confirm"),  # D-1153: without a reason it is refused before any sheet
+                See("shown", value="step-reason-required"),
+                Do("select", label=Marked("life.step.reason", hint="life.step.reason_required"), value=WITHDRAW_REASON),
                 Do("button", T("life.go.withdrawn")),
+                # D-1153 (the walk's F-11): the final step is named, with its reason, before it is recorded
+                See("h1", T("confirm.title")),
+                See(
+                    "says",
+                    K(
+                        "life.confirm.final",
+                        (
+                            ("step", "@life.state.withdrawn"),
+                            ("record", "{record}"),
+                            ("reason", f"@life.reason.wd.{WITHDRAW_REASON}"),
+                        ),
+                    ),
+                ),
+                Do("button", T("confirm.yes")),
                 See("says", K("life.step.saved", (("state", "@life.state.withdrawn"),))),
                 See("says", K("life.subject.final", (("state", "@life.state.withdrawn"),))),
             ),
@@ -347,14 +356,18 @@ LIFE: tuple[Life, ...] = (
                 ),
             ),
             _w(
-                "Record the participant's withdrawal (first without a reason, then with: the participant's decision).",
-                "記錄受試者退出（先不選原因，再選：受試者決定）。",
-                "被験者の中止を記録します（まず理由なしで、次に「参加者の意思」で）。",
+                "Record the participant's withdrawal (first without a reason, then with: the participant's decision), "
+                "and confirm it on the sheet that says it is final.",
+                "記錄受試者退出（先不選原因，再選：受試者決定），並在說明此為最終記錄的確認頁面確認。",
+                "被験者の中止を記録します（まず理由なしで、次に「参加者の意思」で）。最終の記録だと示す確認画面で確定します。",
             ),
             _w(
-                "Without a reason it is refused; with one the participant has finished: withdrawn.",
-                "沒有原因時被拒絕；選了原因後受試者結束：退出。",
-                "理由なしでは拒否され、理由を選ぶと被験者は終了（中止）になります。",
+                "Without a reason it is refused before any sheet; with one a sheet names the step, the participant and "
+                "the reason and says it is final; after Yes the participant has finished: withdrawn.",
+                "沒有原因時直接被拒絕，不出現確認頁面；選了原因後確認頁面列出階段、受試者與原因，並說明此為最終記錄；"
+                "按「是」後受試者結束：退出。",
+                "理由なしでは確認画面の前に拒否されます。理由を選ぶと確認画面に段階・被験者・理由と最終の記録である旨が"
+                "表示され、「はい」で被験者は終了（中止）になります。",
             ),
         ),
         "C2",
@@ -369,11 +382,26 @@ LIFE: tuple[Life, ...] = (
                 Do("link", T("sstate.link")),
                 See("h1", T("sstate.title", prefix="{rs} · ")),
                 Do("select", label=T("sstate.move"), value="closed"),
-                Do("fill", label=T("sstate.reason"), value=CLOSE_REASON),
+                Do("button", T("sstate.save")),
+                # D-1153: a close without a reason is refused before any sheet
+                See("shown", value="state-error"),
+                See("says", T("sstate.need_reason")),
+                See("gone", value="confirm"),
+                Do("select", label=T("sstate.move"), value="closed"),
+                Do("fill", label=Marked("sstate.reason", hint="sstate.reason_required"), value=CLOSE_REASON),
                 Do("button", T("sstate.save")),
                 Stop("shown", "close-refused", "F-00"),
+                # D-1153 (the walk's F-15): the close is named, with the day its files are kept until, before it is made
+                See("h1", T("confirm.title")),
+                Act("remember", label="kept", value=r"(\d{4}-\d{2}-\d{2})", within="[data-testid=confirm-text]"),
+                See("says", K("sstate.confirm.close", (("rs", "{rs}"), ("day", "{kept}")))),
+                Do("button", T("confirm.yes")),
                 See("says", K("sstate.changed", (("state", "@sstate.closed"),))),
                 See("shown", value="state-kept-until"),
+                See("says", K("sstate.kept_until", (("day", "{kept}"), ("years", str(CLOSE_YEARS))))),
+                # D-1153 (the walk's F-16): kept until is the close's own site day plus the period
+                Act("remember", label="since", value=r"(\d{4}-\d{2}-\d{2})", within="[data-testid=state-since]"),
+                See("years", value="{since}+" + str(CLOSE_YEARS) + "={kept}"),
                 Act("read", label="kept until", within="[data-testid=state-kept-until]"),
                 Act("read", label="since", within="[data-testid=state-since]"),
             ),
@@ -398,14 +426,20 @@ LIFE: tuple[Life, ...] = (
                 ),
             ),
             _w(
-                "Open the study's set-up, then its state, and close it with a reason.",
-                "開啟試驗設定，再開啟試驗狀態，填寫原因後結束試驗。",
-                "試験の設定から状態を開き、理由を入れて終了します。",
+                "Open the study's set-up, then its state, and close it (first without a reason, then with one), and "
+                "confirm it on the sheet that names the day its files are kept until.",
+                "開啟試驗設定，再開啟試驗狀態，結束試驗（先不填原因，再填寫原因），並在列出檔案保存期限的確認頁面確認。",
+                "試験の設定から状態を開き、試験を終了します（まず理由なしで、次に理由を入れて）。ファイルの保存期限を示す"
+                "確認画面で確定します。",
             ),
             _w(
-                "The study is closed; its files are kept for five years.",
-                "試驗已結束；檔案保存五年。",
-                "試験が終了し、ファイルは 5 年保存されます。",
+                "Without a reason it is refused before any sheet; with one a sheet says the close is final and names "
+                "the day the files are kept until; after Yes the study is closed, kept until that day: the close's "
+                "own day plus five years.",
+                "沒有原因時直接被拒絕，不出現確認頁面；填寫原因後確認頁面說明結束為最終狀態並列出檔案保存期限；按「是」後"
+                "試驗結束，檔案保存至該日：結束當天加五年。",
+                "理由なしでは確認画面の前に拒否されます。理由を入れると確認画面に終了が最終である旨とファイルの保存期限が"
+                "表示され、「はい」で試験は終了し、その日（終了日から 5 年後）まで保存されます。",
             ),
         ),
         "C2",
@@ -694,20 +728,6 @@ FINDINGS: tuple[Finding, ...] = (
         "C2",
     ),
     Finding(
-        "F-11",
-        16,
-        "coordinator",
-        "/studies/{rs}/subjects/{record}",
-        "required",
-        '"Withdraw" with no reason is refused only after the click (the Reason select is not marked '
-        'required); with a reason one click makes the participant final ("No further step can be recorded") '
-        "with no confirmation page",
-        "a final step named before it is done, and a required field marked",
-        "D-178 (an outcome that ends the contact names its consequence first); `life.subject.final`",
-        "slows the tester",
-        "C2",
-    ),
-    Finding(
         "F-12",
         16,
         "coordinator",
@@ -730,45 +750,6 @@ FINDINGS: tuple[Finding, ...] = (
         'approached (physician)" and "Lost contact" (registry: withdrawn)',
         "no contact step for a finished participant of a closed study",
         "D-763 (nobody goes back on study)",
-        "cosmetic",
-        "C2",
-    ),
-    Finding(
-        "F-14",
-        17,
-        "coordinator",
-        "/studies/{rs}/state",
-        "other",
-        'the new study was never opened: "No state has been recorded: the study counts as open"; so its type '
-        'for SAE reporting was never asked, though a trial "opens only with its type"',
-        "a new study starts in start-up and opens through the SAE check",
-        "D-386 (start-up, open, paused, closed), D-415",
-        "slows the tester",
-        "C2",
-    ),
-    Finding(
-        "F-15",
-        17,
-        "coordinator",
-        "/studies/{rs}/state",
-        "confirmation",
-        '"Change state" to Closed is done in one click with no confirmation page; the page says "Closed is '
-        'final" (only the PI may take it back the same day)',
-        "a final step named before it is done",
-        "D-763; D-178",
-        "slows the tester",
-        "C2",
-    ),
-    Finding(
-        "F-16",
-        17,
-        "coordinator",
-        "/studies/{rs}/state",
-        "other",
-        'closed "2026-11-02 07:00" (site time) with 5 years; "kept until 2031-11-01": the period is counted '
-        "from the close's UTC day, a day before the site's",
-        "the close's own day plus the period: 2031-11-02",
-        "D-779; `libs/tb_common/retention.py` (`kept_until`)",
         "cosmetic",
         "C2",
     ),
@@ -841,6 +822,81 @@ FINDINGS: tuple[Finding, ...] = (
         "D-441, T-209a",
         "slows the tester",
         "C2",
+    ),
+    Finding(
+        "F-22",
+        10,
+        "coordinator",
+        "/pilot/jobs/{job}",
+        "language",
+        "SCREEN of a study in start-up is taken as a job that fails at its first check; on every page the reason is "
+        "the orchestrator's English (\"Study … is startup: lists run only for an open study. The study coordinator "
+        "changes the state on the study's set-up page.\"), the state named by its code, not as the page names it "
+        '("Start-up", 準備中)',
+        "the reason in the page's language, the state by its name",
+        "D-386 (lists only for an open study), D-1153; `sstate.startup`; `orchestrator/scheduler.py` (`require_open`)",
+        "slows the tester",
+        "C2",
+    ),
+    Finding(
+        "F-23",
+        10,
+        "coordinator",
+        "/pilot/jobs/{job}",
+        "way back",
+        'the failed job sends the coordinator to "the study\'s set-up page" but has no link to it, and the state is '
+        'changed one page further, on "Study state and identifiers"; the walk goes Reports, the study\'s report, '
+        "More, set-up, state",
+        "a link from the reason to the page that opens the study",
+        "D-386, D-1153; D-178 (the next step in one place)",
+        "slows the tester",
+        "C2",
+    ),
+    Finding(
+        "F-24",
+        9,
+        "coordinator",
+        "/studies/{rs}/setup",
+        "term",
+        "Open is refused until the coordinator chooses \"this study's type for serious adverse event reporting on the "
+        'set-up page"; set-up has no field of that name: the section is "SAE reporting rules", its field "Rule set", '
+        'its button "Save and confirm"',
+        "one name for the field in the refusal and on set-up",
+        "`sstate.sae_type`, `sae.setup.title`, `sae.setup.field`; D-415",
+        "cosmetic",
+        "C2",
+    ),
+)
+#: the findings the walk no longer sees, since the product changed: their ids are not used again (id, step, the
+#: decision that changed the product, what the walk sees now and asserts)
+FIXED: tuple[tuple[str, int, str, str], ...] = (
+    (
+        "F-11",
+        16,
+        "D-1153",
+        'the Reason label says "Required to withdraw or to record a screen failure"; without a reason Withdraw is '
+        "refused before any sheet; with one a confirmation sheet names the step, the participant and the reason and "
+        "says it is final, and only Yes records it",
+    ),
+    (
+        "F-14",
+        17,
+        "D-1153",
+        "the new study is in start-up when its protocol is sent; Open is refused until its type for SAE reporting is "
+        "chosen (D-415), and SCREEN fails until it is open (steps 9 and 10)",
+    ),
+    (
+        "F-15",
+        17,
+        "D-1153",
+        "Change state to Closed shows a confirmation sheet that says the close is final and names the day the files "
+        "are kept until; only Yes closes the study",
+    ),
+    (
+        "F-16",
+        17,
+        "D-1153",
+        "the day on the sheet and on the state page is the close's own site day plus five years",
     ),
 )
 
@@ -986,7 +1042,8 @@ def render_findings() -> str:
     """The generated part of the findings page: the walk by step (from :data:`SUMMARY`, the runs' logs summed up:
     the page, the clicks from the previous step's page and their texts in en, the median time, the refusals), then
     the findings by step (the role, the page, the clicks, what a tester would have had to guess, what was expected
-    and where that comes from, the severity and the owning lane)."""
+    and where that comes from, the severity and the owning lane), then the findings the walk no longer sees
+    (:data:`FIXED`)."""
     out = [BEGIN, "", "### The walk by step", ""]
     out += ["| Step | Role | Page reached (en) | Clicks | The clicks (en) | Median s | Refused (403) | Guesses |",
             "| --- | --- | --- | --- | --- | --- | --- | --- |"]  # fmt: skip
@@ -1008,6 +1065,10 @@ def render_findings() -> str:
             f"| {f.id} | {f.step} | {f.role} | `{f.path}` | {clicks} | {_cell(f.showed)} | "
             f"{_cell(f.expected)} ({_cell(f.source)}) | {f.severity} | {f.lane} |"
         )
+    out += ["", "### The findings the walk no longer sees", ""]
+    out += ["| Id | Step | Changed by | What the walk sees now and asserts |", "| --- | --- | --- | --- |"]
+    for fid, step, by, now in FIXED:
+        out.append(f"| {fid} | {step} | {by} | {_cell(now)} |")
     out += ["", END]
     return "\n".join(out)
 
@@ -1030,7 +1091,8 @@ def write_page() -> bool:
 
 # ---------------------------------------------------------------------------------------------- the runs' logs
 #: the committed summary of the walks of 2026-11-17 (three runs x three languages on a 4-core container), written by
-#: ``--summary`` from the logs (per life-cycle step: the clicks and their texts in en, the median seconds)
+#: ``--summary`` from the logs (per life-cycle step: the clicks and their texts in en, the median seconds); steps 16
+#: and 17 from H-30's run on lane C2's WALK-1 head (one run x three languages, D-1106)
 SUMMARY: dict[int, dict[str, Any]] = {
     12: {
         "path": "/studies/{rs}/week",
@@ -1073,17 +1135,24 @@ SUMMARY: dict[int, dict[str, Any]] = {
     16: {
         "path": "/studies/{rs}/subjects/{rs}-0001",
         "heading": "{rs}-0001 · Participants",
-        "clicks": 2,
-        "click_texts": ["Withdraw", "Withdraw"],
-        "seconds": 1.1,
+        "clicks": 3,
+        "click_texts": ["Withdraw", "Withdraw", "Yes, do it"],
+        "seconds": 1.4,
         "guesses": [],
     },
     17: {
         "path": "/studies/{rs}/state",
         "heading": "{rs} · Study state and identifiers",
-        "clicks": 4,
-        "click_texts": ["More", "{rs} · Study set-up", "Study state and identifiers", "Change state"],
-        "seconds": 1.2,
+        "clicks": 6,
+        "click_texts": [
+            "More",
+            "{rs} · Study set-up",
+            "Study state and identifiers",
+            "Change state",
+            "Change state",
+            "Yes, do it",
+        ],
+        "seconds": 1.6,
         "guesses": [],
     },
     18: {
