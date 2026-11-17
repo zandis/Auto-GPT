@@ -1938,10 +1938,16 @@ def check_terminology(inp: DoctorInputs) -> Check:
     bad = [f"{t.name}: {t.problem}" for t in tables if t.problem]
     if bad:
         return Check("terminology", "FAIL", "; ".join(bad))
+    # TERM-2 (D-1113 to D-1116): every install-time system is named, loaded or not; a licensed one with who accepted
+    missing = installed.not_loaded(where)
+    rest = f"; not loaded: {', '.join(missing)}" if missing else ""
     if not tables:
         return Check("terminology", "PASS", f"nothing loaded in {where}: the shipped tables answer (ICD-10-CM "
-                     "FY2026 with its blocks and index); python -m tools.terminology_install loads more")  # fmt: skip
-    return Check("terminology", "PASS", "; ".join(f"{t.name} {t.rows} rows ({t.version})" for t in tables))
+                     "FY2026 with its blocks and index); python -m tools.terminology_install loads more"
+                     + rest)  # fmt: skip
+    said = [f"{t.name} {t.rows} rows ({t.version})" + (f", {a}" if (a := installed.accepted(where, t.name)) else "")
+            for t in tables]  # fmt: skip
+    return Check("terminology", "PASS", "; ".join(said) + rest)
 
 
 CHECKS: tuple[Callable[[DoctorInputs], Check], ...] = (

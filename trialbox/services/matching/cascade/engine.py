@@ -1192,6 +1192,7 @@ class _Run:
             "build_sha": reply.build_sha,
             "prompt": reply.prompt,
             "prompt_sha": reply.prompt_sha,  # D-989: which prompt text, not only its id and version
+            "calls": list(reply.all_calls),  # D-989: every model call the answer rests on (judge, verifier)
             "confidence": reply.confidence,
         }
         if reply.opinions:

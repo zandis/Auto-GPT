@@ -33,3 +33,8 @@ deploy/ops/
 eval/complete_run/**/shots/
 # the browser test tools lock (DEP-025, D-393); the repository root ignores every package-lock.json
 !tools/package-lock.json
+# TERM-2 (D-1116): code systems loaded at install (LOINC, WHO ICD-10, ATC, the site's own lists) are never committed;
+# the site's IT stages them under deploy/site/terminology/ (already ignored with deploy/site/*) and a loaded folder
+# inside the tree is data/terminology/ (already ignored with /data/). Named here so a later change cannot drop them.
+deploy/site/terminology/
+/data/terminology/

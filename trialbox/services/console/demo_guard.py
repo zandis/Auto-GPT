@@ -78,8 +78,8 @@ GUARDED: tuple[re.Pattern[str], ...] = tuple(
 )
 
 #: what a signed-in account may open before it has accepted the acknowledgement
-ACK_OPEN = frozenset({"/demo/ack", "/login", "/login/totp", "/logout", "/lang", "/account", "/account/password",
-                      "/healthz", "/api/v1/session"})  # fmt: skip
+ACK_OPEN = frozenset({"/demo/ack", "/login", "/login/totp", "/logout", "/lang", "/role", "/account",
+                      "/account/password", "/healthz", "/api/v1/session"})  # fmt: skip
 ACK_OPEN_PREFIX = ("/static/", "/auth/oidc/")
 
 #: free-text columns of the trial database (``schema.table.column``, without ``tb_prefix``) the ``--db`` scan must read:
