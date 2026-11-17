@@ -23,6 +23,8 @@ ARG PGVECTOR_VERSION=0.8.7-1.pgdg13+1
 ARG PGROONGA_VERSION=4.1.0-1
 ARG LIBGROONGA_VERSION=16.1.5-1
 ARG PGBACKREST_VERSION=2.60.0-1.pgdg13+1
+# SC-1b (D-993): the base's zlib1g carries CVE-2026-85091; the fix is in trixie-security, held at it like the rest
+ARG ZLIB1G_VERSION=1:1.3.dfsg+really1.3.1-1+deb13u1
 ARG PG_MAJOR_EXPECTED=16
 ARG GROONGA_KEY_FINGERPRINT=2701F317CFCCCB975CADE9C2624CF77434839225
 COPY db.groonga-archive-keyring.asc /usr/share/keyrings/groonga-archive-keyring.asc
@@ -53,8 +55,11 @@ RUN --mount=type=secret,id=extra_ca,required=false,mode=0444 \
       "postgresql-${PG_MAJOR}-pgvector=${PGVECTOR_VERSION}" \
       "postgresql-${PG_MAJOR}-pgdg-pgroonga=${PGROONGA_VERSION}" \
       "libgroonga0=${LIBGROONGA_VERSION}" \
-      "pgbackrest=${PGBACKREST_VERSION}"; \
+      "pgbackrest=${PGBACKREST_VERSION}" \
+      "zlib1g=${ZLIB1G_VERSION}"; \
     apt-mark hold "postgresql-${PG_MAJOR}-pgvector" "postgresql-${PG_MAJOR}-pgdg-pgroonga" libgroonga0 pgbackrest; \
+    apt-mark hold zlib1g; \
+    test "$(dpkg-query -W -f '${Version}' zlib1g)" = "${ZLIB1G_VERSION}"; \
     test "$(dpkg-query -W -f '${Version}' pgbackrest)" = "${PGBACKREST_VERSION}"; \
     pgbackrest version | grep -q "^pgBackRest ${PGBACKREST_VERSION%%-*}$"; \
     install -d -o postgres -g postgres -m 0750 /var/lib/pgbackrest /var/spool/pgbackrest /var/log/pgbackrest; \

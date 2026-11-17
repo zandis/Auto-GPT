@@ -27,9 +27,13 @@ digest. No base digest clears these findings until upstream rebuilds gosu.
    - the image test (`test_db_image`, TB_INTEGRATION) reads `/proc/1/status` of the db container: postgres, 999 in all
      four uid and gid slots, no group but its own;
    - the box rehearsal's `install` step checks the same on the installed box.
-4. **The allow-list.** The 28 entries match nothing once the image is built this way. Their removal is an allow-list
+4. **zlib1g is held at the Debian security fix.** The base's `1:1.3.dfsg+really1.3.1-1+b1` carries CVE-2026-85091, and
+   trixie-security publishes `1:1.3.dfsg+really1.3.1-1+deb13u1` for amd64 and arm64 (checked on 2026-11-17). The image
+   installs it and holds it like its other pinned packages: an `ARG` default, `apt-mark hold`, a `dpkg-query` check and
+   the `images.lock` entry that `test_db_image` keeps equal.
+5. **The allow-list.** The 28 gosu entries and the zlib1g one match nothing once the image is built this way. Their removal is an allow-list
    change: it goes with the train-ready line as an exact diff, and the integrator applies it on the train.
 
 ## Test
 
-`tests/unit/test_db_no_gosu.py` (6 tests), the new `test_db_image` check, and the box rehearsal's `install` step.
+`tests/unit/test_db_no_gosu.py` (7 tests, the zlib1g pin included), the new `test_db_image` check, and the box rehearsal's `install` step.

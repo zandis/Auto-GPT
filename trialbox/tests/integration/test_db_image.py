@@ -55,6 +55,7 @@ def test_images_lock_pins_the_db_base_by_digest_and_matches_the_dockerfile() -> 
         "postgresql-16-pgdg-pgroonga": args["PGROONGA_VERSION"],
         "libgroonga0": args["LIBGROONGA_VERSION"],
         "pgbackrest": args["PGBACKREST_VERSION"],  # D-371: from PGDG, pinned
+        "zlib1g": args["ZLIB1G_VERSION"],  # SC-1b (D-993): the trixie-security fix
     }
     assert db["trusted_extensions"] == list(IMAGE_EXTENSIONS) and "trusted = true" in DOCKERFILE.read_text()
     assert db["healthcheck"] == "/usr/local/bin/tb-db-check"

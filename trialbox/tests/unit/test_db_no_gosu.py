@@ -79,3 +79,16 @@ def test_the_rehearsal_checks_the_server_runs_as_postgres() -> None:
     box = (ROOT / "tools" / "rehearse_box" / "box.sh").read_text(encoding="utf-8")
     install = box[box.index("\ninstall)\n") : box.index("\n  ;;\n", box.index("\ninstall)\n"))]
     assert "/proc/1/status" in install and "999" in install
+
+
+def test_zlib_is_held_at_the_debian_security_fix() -> None:
+    """The base's zlib1g (1:1.3.dfsg+really1.3.1-1+b1) carries CVE-2026-85091; trixie-security has the fix
+    (``+deb13u1``) for amd64 and arm64. The image installs and holds it like its other pinned packages."""
+    df = (DOCKER / "db.Dockerfile").read_text(encoding="utf-8")
+    assert re.search(r"^ARG ZLIB1G_VERSION=1:1\.3\.dfsg\+really1\.3\.1-1\+deb13u1$", df, re.M)
+    assert '"zlib1g=${ZLIB1G_VERSION}"' in df and "apt-mark hold" in df and " zlib1g" in df.split("apt-mark hold", 1)[1]
+    assert 'dpkg-query -W -f \'${Version}\' zlib1g)" = "${ZLIB1G_VERSION}"' in df
+    import json
+
+    lock = json.loads((ROOT / "deploy" / "images.lock").read_text(encoding="utf-8"))
+    assert lock["images"]["db"]["packages"]["zlib1g"] == "1:1.3.dfsg+really1.3.1-1+deb13u1"
