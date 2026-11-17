@@ -4,8 +4,8 @@
   "about": "The container images the box runs, pinned: the one digest list (D-204, D-348). `images`: the images the box builds (only db so far; the others move here with T-110). For a built image: the base it is built FROM (reference and multi-arch index digest), the exact OS packages it adds (each installed at that version and held; the build fails otherwise), the signing keys it trusts, the extensions it provides with their versions and whether the image marks them trusted, and `digest`: the built image's digest, written by the release build (T-110 release.json carries the same value). `digest` is null until a release pins it: a locally built image is a mutable tag, and the update path must refuse a bundle while it is null or differs (T-111). tests/integration/test_db_image.py keeps this file equal to the Dockerfile's ARG defaults and the compose `db` image line. `postgres_major` is the one PostgreSQL major of the db image, the demo image and CI (D-371; tests/unit/test_pg_major.py, tools/ci_postgres.sh). `third_party`: every image the box pulls as published (D-348): `image` (repository:tag), `digest` (the multi-arch index digest, read from the registry), `platforms` (each platform's manifest digest; for a GPU image the CUDA architectures it is built for), `variables` (the compose variables that name it; every compose file writes ${VAR:-image@digest} with exactly these values: tools/images_lock.py check-compose and tests/unit/test_images_lock.py). `gpu` holds what the host must give the image (deploy/check_host.sh reads it): the CUDA version, the lowest NVIDIA driver it runs on, and the structured-output backend the serving record names. Moving the vLLM entry is a model change: requalify first.",
   "checked": {
     "date": "2026-11-17",
-    "by": "SC-1 (D-979), the 2026-12-10 lapse of the image findings",
-    "result": "The db base read from Docker Hub: postgres:16-trixie's index moved from sha256:f9a7b9eb (pinned 2026-11-11) to sha256:dd2bf3ce, linux/amd64 and linux/arm64 still in it; every pinned PGDG and Groonga package version is still published for both. The third_party digests were not read again here (SC-2: caddy and authelia; SC-3: HAPI). vLLM stays at v0.32.0: moving it is a model change (requalify first)."
+    "by": "SC-1 (D-979) and SC-2 (D-990), the 2026-12-10 lapse of the image findings",
+    "result": "The db base read from Docker Hub: postgres:16-trixie's index moved from sha256:f9a7b9eb (pinned 2026-11-11) to sha256:dd2bf3ce, linux/amd64 and linux/arm64 still in it; every pinned PGDG and Groonga package version is still published for both. SC-2 (D-990), the same day: caddy:2.11.9-alpine was rebuilt under its tag, index sha256:0bbb055b to sha256:003a9780, and moves; authelia/authelia:4.39.28 (sha256:bd97cff4) and hapiproject/hapi:v8.12.0-2 (sha256:0ff86aac) are unchanged and still the newest tags of their lines, so nothing moves for them. vLLM stays at v0.32.0: moving it is a model change (requalify first)."
   },
   "images": {
     "db": {
@@ -100,7 +100,7 @@
     },
     "caddy": {
       "image": "caddy:2.11.9-alpine",
-      "digest": "sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee",
+      "digest": "sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0",
       "platforms": {
         "linux/amd64": {},
         "linux/arm64": {}
