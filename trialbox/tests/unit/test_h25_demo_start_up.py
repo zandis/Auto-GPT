@@ -10,6 +10,7 @@ rule). A part the lifespan gains that the table does not name fails here until i
 from __future__ import annotations
 
 import ast
+import atexit
 import re
 from pathlib import Path
 from typing import Any
@@ -86,7 +87,7 @@ def test_only_the_opt_out_worker_starts_also_without_tb_env(tb_env: str, monkeyp
     monkeypatch.setattr(optout_worker, "start", worker)
     monkeypatch.setattr(scheduler, "start", never)
     monkeypatch.setattr(canary_gate, "startup", never)
-    monkeypatch.setattr(demo.atexit, "register", lambda _f: None)
+    monkeypatch.setattr(atexit, "register", lambda _f: None)
     env: dict[str, str] = {} if tb_env == "unset" else {"TB_ENV": tb_env}
     orch = object()
     stop = demo.start_up(orch, env)
@@ -100,7 +101,7 @@ def test_a_set_interval_is_kept(monkeypatch: pytest.MonkeyPatch) -> None:
     from datacore import optout_worker
 
     monkeypatch.setattr(optout_worker, "start", lambda _o, production=False: None)
-    monkeypatch.setattr(demo.atexit, "register", lambda _f: None)
+    monkeypatch.setattr(atexit, "register", lambda _f: None)
     env = {optout_worker.MINUTES_ENV: "5"}
     demo.start_up(object(), env)()
     assert env[optout_worker.MINUTES_ENV] == "5"
