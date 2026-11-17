@@ -296,6 +296,14 @@ walk:
 	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.complete_run part walk --dir "$(WALK_DIR)" \
 		--shots "$(WALK_DIR)/shots"
 
+# H-10 (D-1121): a new study from its first step, in Chromium, on a local box in steps mode (D-1062: tools/demo.py,
+# demo mode off, the stub model), once per language; about 7 minutes of seed, then about 70 s per language.
+# TB_WALK_ACCOUNTS, TB_WALK_BASE, TB_WALK_PASSWORD, TB_WALK_ID: tests/e2e/test_new_study_walk.py
+.PHONY: walk-new-study
+walk-new-study:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e tests/e2e/test_new_study_walk.py
+
 # root + nftables + iproute2 + the running test stack (docs/SECURITY.md §2)
 test-egress:
 	TB_EGRESS_TEST=1 $(PY) -m pytest -q -m egress tests/integration/test_egress.py
