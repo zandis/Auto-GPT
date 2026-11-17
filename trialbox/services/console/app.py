@@ -540,13 +540,20 @@ def create_app(
         if not to:
             au.append("console.account_notice", actor=f"console:{by}", detail={"user": name, "sent": 0})
             return
-        try:
-            bk.send_notice("ACCOUNT", sorted(to), subject, body, f"console:{by}")
-        except Exception as exc:  # best effort, as break-glass: a mail that fails is an audit event
-            au.append("console.account_notice", actor=f"console:{by}",
-                      detail={"user": name, "sent": 0, "error": type(exc).__name__})  # fmt: skip
-            return
-        au.append("console.account_notice", actor=f"console:{by}", detail={"user": name, "sent": len(to)})
+        # D-879 (the review): one mail per person, as the morning notices: a notice takes at most five recipients,
+        # and an address the orchestrator refuses (not the hospital's) loses only its own mail. Best effort, as
+        # break-glass: a mail that fails is counted in the audit event
+        sent, errors = 0, []
+        for addr in sorted(to):
+            try:
+                bk.send_notice("ACCOUNT", [addr], subject, body, f"console:{by}")
+                sent += 1
+            except Exception as exc:
+                errors.append(type(exc).__name__)
+        detail: dict[str, Any] = {"user": name, "sent": sent}
+        if errors:
+            detail.update(failed=len(errors), error=sorted(set(errors))[0])
+        au.append("console.account_notice", actor=f"console:{by}", detail=detail)
 
     account_rules = AccountRules(us, au, account_tell)
 
@@ -563,6 +570,7 @@ def create_app(
                     sched.shutdown(wait=False)
 
     app = FastAPI(title="trialbox-console", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+    app.state.account_rules = account_rules  # the tests reach D-719's notices here (as app.state.test_backend)
     api_first.install(app)  # T-657 (D-444): /api/v1 changes check the session and permit before the body
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
     app.state.settings = settings

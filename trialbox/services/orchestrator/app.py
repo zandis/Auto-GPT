@@ -600,7 +600,9 @@ class NoticeRequest(BaseModel):
     """A console notice (D-108): N1 the investigator's pre-clinic list, N2 the coordinator's digest. Pseudonyms and
     counts only (FR-NOTIF-01/02), so the mail is ``aggregate`` and goes to internal addresses only."""
 
-    kind: Literal["N1", "N2", "BG", "HEALTH"]  # D-280: BG, a break-glass grant; T-209a: HEALTH, the daily health mail
+    # D-280: BG, a break-glass grant; T-209a: HEALTH, the daily health mail; NOTICE-ACCOUNT (D-879): ACCOUNT, D-719's
+    # notice to an account's holder and its PIs that someone else set a factor of the account
+    kind: Literal["N1", "N2", "BG", "HEALTH", "ACCOUNT"]
     to: list[str] = Field(min_length=1, max_length=5)
     subject: str = Field(min_length=1, max_length=200)
     body_md: str = Field(min_length=1, max_length=20_000)
@@ -621,8 +623,11 @@ def notice(req: NoticeRequest, request: Request) -> dict[str, Any]:
     from orchestrator.core import send_key
 
     day = o._now().date().isoformat()
-    # D-127 (F-02): one notice of a kind per recipients, subject and day, even when the console's timer retries
-    key = send_key(f"notice:{day}", req.kind, list(req.to), req.subject, [])
+    # D-127 (F-02): one notice of a kind per recipients, subject and day, even when the console's timer retries. An
+    # account notice is one event, sent once by the person's own request (no timer retries it): each is its own mail,
+    # or a second reset of the same account the same day would be dropped as a duplicate (D-879, the review)
+    when = o._now().isoformat() if req.kind == "ACCOUNT" else day
+    key = send_key(f"notice:{when}", req.kind, list(req.to), req.subject, [])
     res = o.services.mail.send(
         SendRequest(
             job_id=None, to=req.to, subject=req.subject, body_md=req.body_md, tag="aggregate", idempotency_key=key

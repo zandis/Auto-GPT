@@ -50,12 +50,14 @@ def e_owner() -> str:
     return str(_entries()[0]["owner"])
 
 
-def test_the_postgres_base_entry_of_the_same_id_is_not_touched() -> None:
+def test_the_authelia_entry_stands_on_its_own() -> None:
+    """Until SC-1b the db image carried the same id in its gosu binary, under an entry of its own. D-993 deleted that
+    binary and its entries went with it: the Authelia entry is now the only one of this id, scoped to its image, and
+    its reason does not lean on another image's entry."""
     doc = yaml.safe_load((ROOT / "deploy" / "supply-chain-allowlist.yaml").read_text(encoding="utf-8"))
-    pg = [
-        e for e in doc["vulnerabilities"] if e.get("id") == "CVE-2026-111943" and e.get("image") == "trialbox-postgres"
-    ]
-    assert len(pg) == 1 and "gosu" in str(pg[0]["reason"])
+    same_id = [e for e in doc["vulnerabilities"] if e.get("id") == "CVE-2026-111943"]
+    assert [e.get("image") for e in same_id] == ["authelia/authelia"]
+    assert "gosu" not in str(same_id[0]["reason"]) and "trialbox-postgres" not in str(same_id[0]["reason"])
 
 
 def test_no_entry_covers_every_finding_of_the_login_front() -> None:
