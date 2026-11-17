@@ -181,6 +181,7 @@ NOT_COMPLETED: tuple[tuple[int, str, str], ...] = (
     ),
 )
 
+
 #: the committed summary of the walks of 2026-11-17 (three runs x three languages, ``make walk-modules`` on a
 #: 4-core container), written by ``--summary`` from the logs (per step: the page and the clicks in en, the median
 #: seconds); the clicks count every click of the step's log, the refusals' sign-ins included
@@ -190,7 +191,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
         "heading": "My work",
         "clicks": 3,
         "click_texts": ["Sign in", "Change", "Change"],
-        "seconds": 3.3,
+        "seconds": 3.2,
         "guesses": [],
         "stopped": [],
     },
@@ -209,7 +210,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
             "Sign in",
             "Change",
         ],
-        "seconds": 6.3,
+        "seconds": 6.0,
         "guesses": [],
         "stopped": [],
     },
@@ -227,7 +228,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
         "heading": "AD-MAB · Feasibility report",
         "clicks": 5,
         "click_texts": ["Sign in", "Change", "Change", "Reports", "Open report"],
-        "seconds": 3.6,
+        "seconds": 3.4,
         "guesses": [],
         "stopped": [],
     },
@@ -245,7 +246,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
         "heading": "GZQO · Feasibility report",
         "clicks": 3,
         "click_texts": ["Change", "Reports", "Open report"],
-        "seconds": 0.9,
+        "seconds": 0.8,
         "guesses": [],
         "stopped": [],
     },

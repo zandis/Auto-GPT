@@ -40,10 +40,14 @@ same page.
 
 ## Findings
 
+Closed before this page: the first runs' MON-04 (the source-reference sheet's "Consent given" and "Enrolled on" read
+the real day while its forms read the box's day, as H-20 F-10) no longer happens since D-1224 (one day for the box) is
+on master: the sheet reads the box's day throughout. The term finding that followed it is MON-04 now.
+
 Clicks are counted from the previous step's page; signing in and choosing the language count on a role's first step,
 and the sign-ins of a step's refusals (each refused role signs in first) are counted in that step too. Page, clicks
 and median seconds are from three runs of `make walk-modules` in a row on fresh boxes (2026-11-17, a 4-core
-container; 21 m 41 s, 21 m 38 s, 21 m 52 s), the page and the clicks in en.
+container, master `8778394f` merged; 22 m 32 s, 21 m 33 s, 21 m 42 s), the page and the clicks in en.
 Severity is the walk's: blocks the step, slows the tester, cosmetic. The register's scale is in the JSON file
 (blocks and slows map to Medium, cosmetic to Low).
 
@@ -57,12 +61,12 @@ Roles: coordinator, investigator, viewer, cro, steward. Study: the seeded study 
 
 | Step | Role | Matrix row | What the step does | Page reached (en) | Clicks | The clicks (en) | Median s | Refused (403) | Guesses |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | coordinator | `–` | Sign in and choose the page language. | `/home` · My work | 3 | Sign in → Change → Change | 3.3 | – | – |
-| 2 | coordinator | `command.FEAS` | Open New request (More) and count eligible patients for the approved study. | `/pilot/jobs/{job}` · FEAS AD-MAB v1.0.0 done | 9 | More → New request → Count eligible patients → Sign in → Change → Sign in → Change → Sign in → Change | 6.3 | steward: `POST /pilot/request`; viewer: `POST /pilot/request`; cro: `POST /pilot/request` | – |
+| 1 | coordinator | `–` | Sign in and choose the page language. | `/home` · My work | 3 | Sign in → Change → Change | 3.2 | – | – |
+| 2 | coordinator | `command.FEAS` | Open New request (More) and count eligible patients for the approved study. | `/pilot/jobs/{job}` · FEAS AD-MAB v1.0.0 done | 9 | More → New request → Count eligible patients → Sign in → Change → Sign in → Change → Sign in → Change | 6.0 | steward: `POST /pilot/request`; viewer: `POST /pilot/request`; cro: `POST /pilot/request` | – |
 | 3 | coordinator | `phi.view` | Open Reports and the study's feasibility report. | `/studies/AD-MAB/feasibility` · AD-MAB · Feasibility report | 2 | Reports → Open report | 0.5 | – | – |
-| 4 | investigator | `task.screen` | As the investigator (the study's PI): open Reports and the study's feasibility report. | `/studies/AD-MAB/feasibility` · AD-MAB · Feasibility report | 5 | Sign in → Change → Change → Reports → Open report | 3.6 | – | – |
+| 4 | investigator | `task.screen` | As the investigator (the study's PI): open Reports and the study's feasibility report. | `/studies/AD-MAB/feasibility` · AD-MAB · Feasibility report | 5 | Sign in → Change → Change → Reports → Open report | 3.4 | – | – |
 | 5 | viewer | `report.office` | As the viewer: open Reports and the study's report. | `/studies/AD-MAB/feasibility` · AD-MAB · Feasibility report | 3 | Change → Reports → Open report | 0.6 | viewer: `GET /studies/{rs}/candidates` | – |
-| 6 | cro | `report.sponsor_form` | As the CRO account: open Reports and the sponsor copy of its study's report. | `/studies/GZQO/feasibility` · GZQO · Feasibility report | 3 | Change → Reports → Open report | 0.9 | cro: `GET /studies/GZQO/candidates` | – |
+| 6 | cro | `report.sponsor_form` | As the CRO account: open Reports and the sponsor copy of its study's report. | `/studies/GZQO/feasibility` · GZQO · Feasibility report | 3 | Change → Reports → Open report | 0.8 | cro: `GET /studies/GZQO/candidates` | – |
 | 7 | coordinator | `command.FEAS` | On New request: read what this box does not do without a GPU (note criteria, screening). | `/pilot/request` · New request (stops: FEA-01) | 2 | More → New request | 0.2 | – | – |
 
 #### Feasibility: the findings by step
@@ -87,12 +91,12 @@ Roles: coordinator, investigator, steward, operator. Study: a new study per lang
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1–15 | (H-10, H-20) | – | H-10's new study and H-20's steps 12 to 15, unchanged: protocol in, PI named, approval, FEAS, SCREEN, candidates; weekly page, Approach, contact outcome, consent and enrolment | – | – | – | – | as H-10 and H-20 | – |
 | 16 | coordinator | `task.enter_data` | On the participant's page: Add an adverse event. | `/studies/{rs}/entry` · {rs} · Data entry (stops: SAF-01) | 1 | Add an adverse event | 0.2 | – | – |
-| 17 | coordinator | `task.enter_data` | Add the built-in forms on the study's Forms page; back on the participant's page, Add an adverse event, fill the AE form for a serious event (hospital stay) and save. | `/studies/{rs}/subjects/{rs}-0001` · {rs}-0001 · Participants | 15 | Forms → Add the built-in forms → My studies → Participants → {rs}-0001 → Add an adverse event → Serious: Yes → Why serious: Hospital stay or a longer stay → Severity: Moderate → Outcome: Recovering → Related to the study treatment or procedure: Unknown → Related in the sponsor's assessment: Not yet assessed → Expected per the reference safety information: Not yet assessed → Treatment unblinded for this event: Open-label study → Save | 4.7 | steward: `POST /studies/{rs}/entry`; operator: `POST /studies/{rs}/entry` | SAF-03 |
+| 17 | coordinator | `task.enter_data` | Add the built-in forms on the study's Forms page; back on the participant's page, Add an adverse event, fill the AE form for a serious event (hospital stay) and save. | `/studies/{rs}/subjects/{rs}-0001` · Participant {rs}-0001 | 15 | Forms → Add the built-in forms → My studies → Participants → {rs}-0001 → Add an adverse event → Serious: Yes → Why serious: Hospital stay or a longer stay → Severity: Moderate → Outcome: Recovering → Related to the study treatment or procedure: Unknown → Related in the sponsor's assessment: Not yet assessed → Expected per the reference safety information: Not yet assessed → Treatment unblinded for this event: Open-label study → Save | 4.7 | steward: `POST /studies/{rs}/entry`; operator: `POST /studies/{rs}/entry` | SAF-03 |
 | 18 | coordinator | `sae.record` | Open the SAE register (More), then the case of the new SAE. | `/studies/{rs}/sae/{rs}-0001/ae1` · Serious adverse event {rs}-0001 · ae1 (stops: SAF-02) | 3 | More → SAE register → Open | 0.9 | steward: `GET /sae`; operator: `GET /sae` | – |
 | 19 | coordinator | `study.state` | Open the study's state: it counts as open with no state recorded. Pause it (with a reason), then try to open it again. | `/studies/{rs}/state` · {rs} · Study state and identifiers | 5 | More → {rs} · Study set-up → Study state and identifiers → Change state → Change state | 1.2 | steward: `POST /studies/{rs}/state` | – |
 | 20 | coordinator | `study.setup` | On the study's set-up: choose the SAE rule set (Taiwan, trial) and confirm it; then open the study. | `/studies/{rs}/state` · {rs} · Study state and identifiers | 5 | More → {rs} · Study set-up → Save and confirm → Study state and identifiers → Change state | 1.4 | investigator: `POST /studies/{rs}/setup/sae` | – |
 | 21 | investigator | `sae.ack` | As the investigator: open the SAE register, the case, and acknowledge it. | `/studies/{rs}/sae/{rs}-0001/ae1` · Serious adverse event {rs}-0001 · ae1 | 4 | More → SAE register → Open → Acknowledge | 1.3 | coordinator: `POST /studies/{rs}/sae/{record}/ae1/ack` | – |
-| 22 | coordinator | `sae.record` | Open the case again and record the first report as sent today. | `/studies/{rs}/sae/{rs}-0001/ae1` · Serious adverse event {rs}-0001 · ae1 | 4 | More → SAE register → Open → Record the report sent | 1.4 | investigator: `POST /studies/{rs}/sae/{record}/ae1/sent` | – |
+| 22 | coordinator | `sae.record` | Open the case again and record the first report as sent today. | `/studies/{rs}/sae/{rs}-0001/ae1` · Serious adverse event {rs}-0001 · ae1 | 4 | More → SAE register → Open → Record the report sent | 1.3 | investigator: `POST /studies/{rs}/sae/{record}/ae1/sent` | – |
 | 23 | steward | `audit.browse` | As the data steward: open the audit trail and filter on the event "SAE record changed". | `/audit` · Audit trail | 2 | Audit trail → Show | 0.3 | coordinator: `GET /audit` | – |
 | 24 | investigator | `–` | As the investigator: open Notices received and find the notice of the new SAE. | `/notices/received` · Notices received (stops: SAF-07) | 2 | More → Notices received | 0.1 | – | – |
 
@@ -123,12 +127,12 @@ Roles: cro, operator, steward, coordinator, investigator. Study: the seeded stud
 
 | Step | Role | Matrix row | What the step does | Page reached (en) | Clicks | The clicks (en) | Median s | Refused (403) | Guesses |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | cro | `monitor.read` | As the CRO account: open the monitoring page of a study it is named for, before any grant. | `/studies/GOUT-COH/monitor` · This page needs another role (stops: MON-01) | 4 | Sign in → Change → Change → (typed) /studies/GOUT-COH/monitor | 1.3 | – | – |
-| 2 | operator | `account.create.aggregate` | As the administrator: open Users and find the CRO account and its studies. | `/ops/users` · Users | 6 | Sign in → Change → Change → Users → Sign in → Change | 1.5 | steward: `POST /ops/users` | – |
-| 3 | steward | `monitor.grant` | As the data steward: on the study's delegation log, add the CRO account as monitor for one visit (its id, its last day). | `/studies/GZQO/team` · GZQO · Delegation log | 5 | Change → (typed) /studies/GZQO/team → Add and sign → Sign in → Change | 7.7 | coordinator: `POST /studies/{rs}/team`; cro: `POST /studies/{rs}/team`; operator: `POST /studies/{rs}/team` | MON-02 |
-| 4 | cro | `monitor.read` | As the CRO account: open Reports (its monitoring line is there now), then Monitoring from the menu. | `/studies/GZQO/monitor` · GZQO · Monitoring | 2 | Reports → Monitoring · GZQO | 1.1 | cro: `GET /studies/{rs}/week`; cro: `GET /studies/{rs}/candidates`; cro: `GET /studies/{rs}/subjects/GZQO-0001`; cro: `GET /studies/{rs}/monitor/GZQO-0002`; cro: `GET /sae` | – |
+| 1 | cro | `monitor.read` | As the CRO account: open the monitoring page of a study it is named for, before any grant. | `/studies/GOUT-COH/monitor` · This page needs another role (stops: MON-01) | 4 | Sign in → Change → Change → (typed) /studies/GOUT-COH/monitor | 1.4 | – | – |
+| 2 | operator | `account.create.aggregate` | As the administrator: open Users and find the CRO account and its studies. | `/ops/users` · Users | 6 | Sign in → Change → Change → Users → Sign in → Change | 1.6 | steward: `POST /ops/users` | – |
+| 3 | steward | `monitor.grant` | As the data steward: on the study's delegation log, add the CRO account as monitor for one visit (its id, its last day). | `/studies/GZQO/team` · GZQO · Delegation log | 5 | Change → (typed) /studies/GZQO/team → Add and sign → Sign in → Change | 8.3 | coordinator: `POST /studies/{rs}/team`; cro: `POST /studies/{rs}/team`; operator: `POST /studies/{rs}/team` | MON-02 |
+| 4 | cro | `monitor.read` | As the CRO account: open Reports (its monitoring line is there now), then Monitoring from the menu. | `/studies/GZQO/monitor` · GZQO · Monitoring | 2 | Reports → Monitoring · GZQO | 1.2 | cro: `GET /studies/{rs}/week`; cro: `GET /studies/{rs}/candidates`; cro: `GET /studies/{rs}/subjects/GZQO-0001`; cro: `GET /studies/{rs}/monitor/GZQO-0002`; cro: `GET /sae` | – |
 | 5 | cro | `monitor.read` | Open the enrolled subject's source-reference sheet. | `/studies/GZQO/monitor/GZQO-0001` · GZQO · Source references · GZQO-0001 | 1 | GZQO-0001 | 0.3 | – | – |
-| 6 | cro | `monitor.visit` | Record the monitoring visit: its day, the subject verified, the findings. | `/studies/GZQO/monitor` · GZQO · Monitoring | 3 | Monitoring · GZQO → GZQO-0001 → Save the visit record | 0.8 | coordinator: `POST /studies/{rs}/monitor/visits` | – |
+| 6 | cro | `monitor.visit` | Record the monitoring visit: its day, the subject verified, the findings. | `/studies/GZQO/monitor` · GZQO · Monitoring | 3 | Monitoring · GZQO → GZQO-0001 → Save the visit record | 0.9 | coordinator: `POST /studies/{rs}/monitor/visits` | – |
 | 7 | investigator | `monitor.grant` | As the investigator (the study's PI): read the monitoring visits. | `/studies/GZQO/monitor` · GZQO · Monitoring | 4 | Sign in → Change → Change → (typed) /studies/GZQO/monitor | 2.4 | – | MON-03 |
 
 #### Monitoring: the findings by step
@@ -137,8 +141,7 @@ Roles: cro, operator, steward, coordinator, investigator. Study: the seeded stud
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | MON-01 | 1 | cro | `/studies/GOUT-COH/monitor` | 4 | the refusal says "If you need it, ask the TrialBox administrator to change your role"; the monitor grant is given by the PI the log names or the data steward, and the administrator is refused it (step 3) | the refusal of a monitor's page says who grants: the study's PI or the data steward (`monitor.grant`, D-380, FIT-002; `problem.why.forbidden`) | blocks the step | C2 |
 | MON-02 | 3 | steward | `/studies/GZQO/team` | 5 | the steward's menu and home page have no link to a study's delegation log once its PI is named; the walk types /studies/GZQO/team | a way from the steward's pages to each study's delegation log, where the steward grants (D-380, FIT-002) | slows the tester | C2 |
-| MON-04 | 5 | cro | `/studies/GZQO/monitor/GZQO-0001` | 1 | the sheet's "Consent given" and "Enrolled on" read 2026-11-17 (the day the seed recorded the steps, the real day) while the consent form's date on the same sheet and the state's day read 2026-11-02 (the box's day) | the sheet's dates agree with the forms a monitor verifies them against (D-436, D-772; as H-20 F-10 (`--day data`)) | slows the tester | C2 |
-| MON-05 | 5 | cro | `/studies/GZQO/monitor/GZQO-0001` | 1 | the state reads "On study (on_study, 2026-11-02)": the code on_study is shown in every page language | the state in words with its day (`life.state.on_study`) | cosmetic | C2 |
+| MON-04 | 5 | cro | `/studies/GZQO/monitor/GZQO-0001` | 1 | the state reads "On study (on_study, 2026-11-02)": the code on_study is shown in every page language | the state in words with its day (`life.state.on_study`) | cosmetic | C2 |
 | MON-03 | 7 | investigator | `/studies/GZQO/monitor` | 4 | the PI reaches the monitoring visit records only by typing /studies/GZQO/monitor: no link on the study's pages, the weekly page or the delegation log | a link to the monitoring visits from the study's pages for the PI who grants them (D-436) | slows the tester | C2 |
 
 #### Monitoring: cannot complete on a steps-mode box
@@ -155,11 +158,11 @@ Roles: coordinator, investigator, steward. Study: a new study per language (AMEN
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1–15 | (H-10, H-20) | – | H-10's new study and H-20's steps 12 to 15, unchanged: protocol in, PI named, approval, FEAS, SCREEN, candidates; weekly page, Approach, contact outcome, consent and enrolment | – | – | – | – | as H-10 and H-20 | – |
 | 16 | investigator | `task.approach` | As the investigator: open the first patient of the weekly page and mark Approach. | `/studies/{rs}/week` · This week's patients · {rs} | 4 | This week's patients → {rs} → patient {short} → Approach | 7.0 | coordinator: `POST /studies/{rs}/patients/{pid}/mark` | AMD-01 |
-| 17 | coordinator | `request.prepare` | Read the candidates; then on the protocol page type the study's own id, paste the amended criteria (age 20 or older) and send them. | `/pilot/jobs/{job}` · FEAS {rs} v1.1.0 waiting for approval | 6 | This week's patients → {rs} → Candidates → More → Protocol → Compile | 3.9 | coordinator: `POST /pilot/jobs/{job}/approve`; steward: `POST /pilot/protocol` | – |
-| 18 | investigator | `criteria.approve` | As the investigator: open the criteria waiting for approval (v1.1.0), check each row, give the amendment record (IRB approval number and day) and approve all. | `/pilot/jobs/{job}` · APPROVE {rs} v1.1.0 done | 8 | This week's patients → Criteria waiting for your approval: {rs} v1.1.0 → Open → Open → Open → Open → Approve all → Yes, do it | 7.4 | – | – |
-| 19 | coordinator | `command.SCREEN` | Read the weekly page (the list of 1.0.0), then run SCREEN on the study: it runs on version 1.1.0. | `/pilot/jobs/{job}` · SCREEN {rs} v1.1.0 done | 5 | This week's patients → {rs} → More → New request → Find candidates for the next visits | 41.8 | – | – |
-| 20 | coordinator | `task.screen` | From the weekly page, open Re-screen after amendment. | `/studies/{rs}/rescreen` · {rs} · Re-screen after amendment | 6 | This week's patients → {rs} → Candidates → This week's patients → {rs} → Re-screen after amendment | 7.9 | steward: `GET /studies/{rs}/rescreen` | – |
-| 21 | investigator | `task.screen` | As the investigator: open the weekly page's list of approached patients after the amendment. | `/studies/{rs}/week` · This week's patients · {rs} | 3 | This week's patients → {rs} → Approved and contacted | 4.1 | – | AMD-05 |
+| 17 | coordinator | `request.prepare` | Read the candidates; then on the protocol page type the study's own id, paste the amended criteria (age 20 or older) and send them. | `/pilot/jobs/{job}` · FEAS {rs} v1.1.0 waiting for approval | 6 | This week's patients → {rs} → Candidates → More → Protocol → Compile | 4.0 | coordinator: `POST /pilot/jobs/{job}/approve`; steward: `POST /pilot/protocol` | – |
+| 18 | investigator | `criteria.approve` | As the investigator: open the criteria waiting for approval (v1.1.0), check each row, give the amendment record (IRB approval number and day) and approve all. | `/pilot/jobs/{job}` · APPROVE {rs} v1.1.0 done | 8 | This week's patients → Criteria waiting for your approval: {rs} v1.1.0 → Open → Open → Open → Open → Approve all → Yes, do it | 7.2 | – | – |
+| 19 | coordinator | `command.SCREEN` | Read the weekly page (the list of 1.0.0), then run SCREEN on the study: it runs on version 1.1.0. | `/pilot/jobs/{job}` · SCREEN {rs} v1.1.0 done | 5 | This week's patients → {rs} → More → New request → Find candidates for the next visits | 41.4 | – | – |
+| 20 | coordinator | `task.screen` | From the weekly page, open Re-screen after amendment. | `/studies/{rs}/rescreen` · {rs} · Re-screen after amendment | 6 | This week's patients → {rs} → Candidates → This week's patients → {rs} → Re-screen after amendment | 8.0 | steward: `GET /studies/{rs}/rescreen` | – |
+| 21 | investigator | `task.screen` | As the investigator: open the weekly page's list of approached patients after the amendment. | `/studies/{rs}/week` · This week's patients · {rs} | 3 | This week's patients → {rs} → Approved and contacted | 4.0 | – | AMD-05 |
 
 #### Amendment: the findings by step
 
@@ -185,14 +188,14 @@ Roles: coordinator, investigator, steward. Study: a new study per language (AMEN
 | --- | --- | --- | --- | --- | --- | --- |
 | feasibility | 7 | 5 | 1 | 0 | 0 | D 1 |
 | safety | 9 | 9 | 3 | 3 | 2 | C2 7, integrator 1 |
-| monitoring | 7 | 10 | 1 | 3 | 1 | C2 5 |
+| monitoring | 7 | 10 | 1 | 2 | 1 | C2 4 |
 | amendment | 6 | 4 | 0 | 2 | 4 | C2 6 |
 
 <!-- module-walks: end of findings -->
 
 ## When lane C2's WALK-1 is on master
 
-WALK-1 (D-1153, lane C2's #1013) was not on master when these walks ran (master `ceae5467`). Once it lands, a study
+WALK-1 (D-1153, lane C2's #1013) was not on master when these walks ran (master `8778394f`). Once it lands, a study
 the box does not know starts in start-up, opens only through "Study state and identifiers" → Open after its type for
 SAE reporting is chosen, SCREEN is refused until it is open, and Withdraw, Screen fail and Close ask for confirmation.
 These steps change then:

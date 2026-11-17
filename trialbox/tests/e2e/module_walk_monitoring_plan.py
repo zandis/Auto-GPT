@@ -224,18 +224,6 @@ FINDINGS: tuple[Finding, ...] = (
         5,
         "cro",
         "/studies/GZQO/monitor/GZQO-0001",
-        "other",
-        "the sheet's \"Consent given\" and \"Enrolled on\" read 2026-11-17 (the day the seed recorded the steps, the real day) while the consent form's date on the same sheet and the state's day read 2026-11-02 (the box's day)",
-        "the sheet's dates agree with the forms a monitor verifies them against",
-        "D-436, D-772; as H-20 F-10 (`--day data`)",
-        "slows the tester",
-        "C2",
-    ),
-    Finding(
-        "MON-05",
-        5,
-        "cro",
-        "/studies/GZQO/monitor/GZQO-0001",
         "term",
         'the state reads "On study (on_study, 2026-11-02)": the code on_study is shown in every page language',
         "the state in words with its day",
@@ -247,6 +235,7 @@ FINDINGS: tuple[Finding, ...] = (
 
 NOT_COMPLETED: tuple[tuple[int, str, str], ...] = ()
 
+
 #: the committed summary of the walks of 2026-11-17 (three runs x three languages, ``make walk-modules`` on a
 #: 4-core container), written by ``--summary`` from the logs (per step: the page and the clicks in en, the median
 #: seconds); the clicks count every click of the step's log, the refusals' sign-ins included
@@ -256,7 +245,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
         "heading": "This page needs another role",
         "clicks": 4,
         "click_texts": ["Sign in", "Change", "Change", "(typed) /studies/GOUT-COH/monitor"],
-        "seconds": 1.3,
+        "seconds": 1.4,
         "guesses": [],
         "stopped": ["MON-01"],
     },
@@ -265,7 +254,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
         "heading": "Users",
         "clicks": 6,
         "click_texts": ["Sign in", "Change", "Change", "Users", "Sign in", "Change"],
-        "seconds": 1.5,
+        "seconds": 1.6,
         "guesses": [],
         "stopped": [],
     },
@@ -274,7 +263,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
         "heading": "GZQO · Delegation log",
         "clicks": 5,
         "click_texts": ["Change", "(typed) /studies/GZQO/team", "Add and sign", "Sign in", "Change"],
-        "seconds": 7.7,
+        "seconds": 8.3,
         "guesses": ["MON-02"],
         "stopped": [],
     },
@@ -283,7 +272,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
         "heading": "GZQO · Monitoring",
         "clicks": 2,
         "click_texts": ["Reports", "Monitoring · GZQO"],
-        "seconds": 1.1,
+        "seconds": 1.2,
         "guesses": [],
         "stopped": [],
     },
@@ -301,7 +290,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
         "heading": "GZQO · Monitoring",
         "clicks": 3,
         "click_texts": ["Monitoring · GZQO", "GZQO-0001", "Save the visit record"],
-        "seconds": 0.8,
+        "seconds": 0.9,
         "guesses": [],
         "stopped": [],
     },

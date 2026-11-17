@@ -183,22 +183,6 @@
   },
   {
    "id": "H29-MON-04",
-   "severity": "Medium (mapped)",
-   "claim": "monitoring step 5: the sheet's \"Consent given\" and \"Enrolled on\" read 2026-11-17 (the day the seed recorded the steps, the real day) while the consent form's date on the same sheet and the state's day read 2026-11-02 (the box's day)",
-   "lane": "C2",
-   "basis": "shown",
-   "state": "open",
-   "module": "monitoring",
-   "step": 5,
-   "role": "cro",
-   "place": "/studies/GZQO/monitor/GZQO-0001",
-   "kind": "other",
-   "walk_severity": "slows the tester",
-   "expected": "the sheet's dates agree with the forms a monitor verifies them against",
-   "from": "D-436, D-772; as H-20 F-10 (`--day data`)"
-  },
-  {
-   "id": "H29-MON-05",
    "severity": "Low (mapped)",
    "claim": "monitoring step 5: the state reads \"On study (on_study, 2026-11-02)\": the code on_study is shown in every page language",
    "lane": "C2",

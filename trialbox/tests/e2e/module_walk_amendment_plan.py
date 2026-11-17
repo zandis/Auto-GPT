@@ -275,6 +275,7 @@ NOT_COMPLETED: tuple[tuple[int, str, str], ...] = (
     ),
 )
 
+
 #: the committed summary of the walks of 2026-11-17 (three runs x three languages, ``make walk-modules`` on a
 #: 4-core container), written by ``--summary`` from the logs (per step: the page and the clicks in en, the median
 #: seconds); the clicks count every click of the step's log, the refusals' sign-ins included
@@ -293,7 +294,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
         "heading": "FEAS {rs} v1.1.0 waiting for approval",
         "clicks": 6,
         "click_texts": ["This week's patients", "{rs}", "Candidates", "More", "Protocol", "Compile"],
-        "seconds": 3.9,
+        "seconds": 4.0,
         "guesses": [],
         "stopped": [],
     },
@@ -311,7 +312,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
             "Approve all",
             "Yes, do it",
         ],
-        "seconds": 7.4,
+        "seconds": 7.2,
         "guesses": [],
         "stopped": [],
     },
@@ -320,7 +321,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
         "heading": "SCREEN {rs} v1.1.0 done",
         "clicks": 5,
         "click_texts": ["This week's patients", "{rs}", "More", "New request", "Find candidates for the next visits"],
-        "seconds": 41.8,
+        "seconds": 41.4,
         "guesses": [],
         "stopped": [],
     },
@@ -336,7 +337,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
             "{rs}",
             "Re-screen after amendment",
         ],
-        "seconds": 7.9,
+        "seconds": 8.0,
         "guesses": [],
         "stopped": [],
     },
@@ -345,7 +346,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
         "heading": "This week's patients · {rs}",
         "clicks": 3,
         "click_texts": ["This week's patients", "{rs}", "Approved and contacted"],
-        "seconds": 4.1,
+        "seconds": 4.0,
         "guesses": ["AMD-05"],
         "stopped": [],
     },

@@ -362,6 +362,7 @@ NOT_COMPLETED: tuple[tuple[int, str, str], ...] = (
     ),
 )
 
+
 #: the committed summary of the walks of 2026-11-17 (three runs x three languages, ``make walk-modules`` on a
 #: 4-core container), written by ``--summary`` from the logs (per step: the page and the clicks in en, the median
 #: seconds); the clicks count every click of the step's log, the refusals' sign-ins included
@@ -377,7 +378,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
     },
     17: {
         "path": "/studies/{rs}/subjects/{rs}-0001",
-        "heading": "{rs}-0001 · Participants",
+        "heading": "Participant {rs}-0001",
         "clicks": 15,
         "click_texts": [
             "Forms",
@@ -447,7 +448,7 @@ SUMMARY: dict[int, dict[str, Any]] = {
         "heading": "Serious adverse event {rs}-0001 · ae1",
         "clicks": 4,
         "click_texts": ["More", "SAE register", "Open", "Record the report sent"],
-        "seconds": 1.4,
+        "seconds": 1.3,
         "guesses": [],
         "stopped": [],
     },
