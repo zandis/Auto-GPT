@@ -1,7 +1,9 @@
 #!/bin/bash
 # Box-run rehearsal shim: `systemctl poweroff` records who powered off and why (the console's last TB- line that says
 # so), marks the "VM" TERMINATED and ends every process of it (its process group). The disk ($BR_S/vm) stays.
-# Any other systemctl call (stop of the first-run unit) is written down and does nothing.
+# Lane D's units (trialbox.service, trialbox-ops.*, trialbox-watchdog.*: rounds 3 and 4) go to standins/box.py, which
+# keeps its state beside the stand-in's Caddy. Any other systemctl call (stop of the first-run unit) is written down
+# and does nothing.
 if [ "$1" = poweroff ]; then
   why=$(grep -a 'TB-WATCHDOG\|TB-NO-KEY\|TB-DOOR-FAILED' "$BR_S/vm/serial.log" 2>/dev/null | tail -n 1)
   echo "$(date -u +%FT%TZ) poweroff | $why" >> "$BR_S/POWEROFF"
@@ -9,4 +11,13 @@ if [ "$1" = poweroff ]; then
   kill -KILL -- "-$(cat "$BR_S/vm.pgid")" 2>/dev/null
   exit 0
 fi
+case " $* " in *" trialbox.service "*|*" trialbox-ops."*|*" trialbox-watchdog."*) exec python3 "$BR_HERE/standins/box.py" unit "$@" ;; esac
 echo "systemctl $* (no-op)" >> "$BR_S/units.log"
+# the image's sshd as Ubuntu 24.04 ships it: started from ssh.socket (enabled, active), ssh.service on demand
+case "$1 $2" in
+  "is-enabled ssh.socket") echo enabled ;;
+  "is-enabled ssh.service") echo disabled ;;
+  "is-active ssh.socket") echo active ;;
+  "is-active ssh.service") echo inactive ;;
+esac
+exit 0
