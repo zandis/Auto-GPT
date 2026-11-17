@@ -26,6 +26,13 @@ NOTIFY = "service:console-notify"  # the morning notices: no session (route_acto
 #: T-719 (D-487): a page asks whether a running case's subject is on the opt-out register. The reader may be anyone
 #: who sees the job and never sees the pseudonym, so the lookup is the console's, under this name, capped and logged
 OPTOUT_CHECK = "service:console-optout-check"
+#: T-715 refuse mode (the notices): the box's own mail, each sender under its own name and the one row it acts under
+#: there (route_actors.yaml); the orchestrator takes from each only its own kinds. Fixed in the code that sends:
+#: never a name or a row a session supplies
+SAE_SYNC = "service:console-sae-sync"
+ACCOUNTS = "service:console-accounts"
+BREAKGLASS = "service:console-breakglass"
+NOTICE_ACTION = {NOTIFY: "phi.view", SAE_SYNC: "sae.view", ACCOUNTS: "account.reset", BREAKGLASS: "breakglass.open"}
 
 
 #: NEW-SEC-1 (D-717): the console's helpers and the signed-in session of this request, set by ``need`` (one value

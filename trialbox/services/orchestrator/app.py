@@ -606,15 +606,29 @@ class NoticeRequest(BaseModel):
     to: list[str] = Field(min_length=1, max_length=5)
     subject: str = Field(min_length=1, max_length=200)
     body_md: str = Field(min_length=1, max_length=20_000)
-    by: str | None = Field(default=None, max_length=200)  # DEV/TEST without a token only; else X-TB-Actor
+
+
+#: T-715 refuse mode (the integrator's answer, 2026-11-17): a notice is the box's own mail, never a person's. Each of
+#: the console's four senders is a service principal acting under a row it already holds (route_actors.yaml), and
+#: may send only its own kinds; a person's assertion, or a kind outside the principal's set, is refused (403)
+NOTICE_KINDS: dict[str, frozenset[str]] = {
+    "service:console-notify": frozenset({"N1", "N2", "HEALTH"}),  # the morning notices and the daily health mail
+    "service:console-sae-sync": frozenset({"N2"}),  # the copy of a serious AE to the office at once (D-277)
+    "service:console-accounts": frozenset({"ACCOUNT"}),  # D-719: someone else set a factor of the account
+    "service:console-breakglass": frozenset({"BG"}),  # D-280: a break-glass grant
+}
+AS_NOTICE = route_actor.require_actor(("phi.view", "sae.view", "account.reset", "breakglass.open"), service=True)
 
 
 @app.post("/notices")
-def notice(req: NoticeRequest, request: Request) -> dict[str, Any]:
+def notice(req: NoticeRequest, request: Request, who: Claim = AS_NOTICE) -> dict[str, Any]:
     from tb_common.routing import is_internal
     from tb_contracts import SendRequest
 
-    who = _claim(request, req.by).name
+    if not who.is_service:  # a person's assertion: a notice is never a person's (the matrix row is not enough)
+        raise route_actor.refusal(request, who.action, "principal", who.sub, None)
+    if req.kind not in NOTICE_KINDS.get(who.sub, frozenset()):
+        raise route_actor.refusal(request, who.action, "kind", who.sub, None)
     o = orch()
     external = [r for r in req.to if not is_internal(r, o.cfg.settings.internal_domains)]
     if external:
@@ -635,7 +649,7 @@ def notice(req: NoticeRequest, request: Request) -> dict[str, Any]:
     )
     o.audit.append(
         "notice.sent",
-        actor=who,
+        actor=who.sub,
         detail={"kind": req.kind, "to": req.to, "subject": req.subject, "message_id": res.message_id},
     )
     return {"message_id": res.message_id}
