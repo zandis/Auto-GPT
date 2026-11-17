@@ -146,7 +146,7 @@ def test_level_a_scores_the_stored_verdicts_on_key_v1_and_v2(run: dict[str, Any]
             by2["sigir"]["denominator"],
         )
     )
-    assert a1["level"] == "a" and a1["met"] is False
+    assert a1["level"] == "a" and a1["met"] is False and a1["within_target"] is False
 
 
 def test_the_p1b_record_is_checked_only_on_p1bs_own_key(run: dict[str, Any]) -> None:
@@ -194,7 +194,8 @@ def test_the_protocol_figure_keeps_failures_not_rerun_and_counts_both_shares(run
     assert a["per_set"]["sigir"]["not_run_time_budget"] == 1
     assert (a["numerator"], a["denominator"], a["failed_before_screen"]) == (4, 8, 2)
     assert (b["numerator"], b["denominator"], b["failed_before_screen"]) == (1, 8, 1)
-    assert a["met"] is False and b["met"] is False  # 1 of 8 is not fewer than one in ten
+    assert a["within_target"] is False and b["within_target"] is False  # 1 of 8 is not fewer than one in ten
+    assert a["met"] is False and b["met"] is False  # D-1064 item 4: never met by a replay
     assert b["proof"].startswith("cause-level")
 
 
@@ -209,7 +210,8 @@ def test_coded_age_lines_are_decided_again_on_each_keys_birth_dates(run: dict[st
     assert (b1["sigir"]["numerator"], b1["sigir"]["denominator"]) == (0, 2)
     # jmed: the inference guard (F6, D-985) sends two stored note exclusions to review; on key v2 none is left
     assert (b1["jmed"]["numerator"], b2["jmed"]["numerator"], b2["jmed"]["denominator"]) == (3, 0, 7)
-    assert t["v2"]["met"] is True and t["v2"]["level"] == "b"
+    assert t["v2"]["within_target"] is True and t["v2"]["level"] == "b"
+    assert t["v2"]["met"] is False and "launch" in t["v2"]["met_only_by"]  # D-1064 item 4: met only by a launch
 
 
 def test_jmed_age_evidence_is_pooled_over_the_patients_protocols(run: dict[str, Any]) -> None:
