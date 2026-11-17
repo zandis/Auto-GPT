@@ -98,3 +98,114 @@ def test_the_record_always_says_it_is_no_evidence(tmp_path: Path) -> None:
     rec = vm.session_record(f, ["closed_by=the session's stop"])
     assert rec["evidence"] == "nothing from this session is evidence" and rec["environment"] == "DEV"
     assert json.loads(f.read_text())["closed_by"] == "the session's stop"
+
+
+# ---------------------------------------------------------------- the security review's finding 3: exact shapes only
+# What `nft list table inet trialbox_egress` printed (nftables 1.0.9, in a network namespace, 2026-11-17) for the
+# product's own script (deploy/egress.py render) of three networks: adjacent networks merged into one /15, a set of
+# one element without braces, counters. These are the shapes the paid run's 55-session-egress reads back.
+REAL_NETS = ["172.18.0.0/16", "172.19.0.0/16", "fd00:1::/64"]
+REAL = """table inet trialbox_egress {
+	chain forward {
+		type filter hook forward priority filter - 10; policy accept;
+		ct state established,related accept
+		ip saddr { 172.18.0.0/15 } ip daddr { 172.18.0.0/15 } accept comment "intra-box"
+		ip6 saddr fd00:1::/64 ip6 daddr fd00:1::/64 accept comment "intra-box"
+		ip daddr { 172.18.0.0/15 } ct status dnat accept comment "published ports"
+		ip daddr { 172.18.0.0/15 } counter packets 0 bytes 0 drop comment "trialbox no direct access"
+		ip saddr { 172.18.0.0/15 } counter packets 0 bytes 0 drop comment "trialbox default deny"
+		ip6 daddr fd00:1::/64 ct status dnat accept comment "published ports"
+		ip6 daddr fd00:1::/64 counter packets 0 bytes 0 drop comment "trialbox no direct access"
+		ip6 saddr fd00:1::/64 counter packets 0 bytes 0 drop comment "trialbox default deny"
+	}
+
+	chain input {
+		type filter hook input priority filter - 10; policy accept;
+		ct state established,related accept
+		ip saddr { 172.18.0.0/15 } counter packets 0 bytes 0 drop comment "trialbox no access to the host"
+		ip6 saddr fd00:1::/64 counter packets 0 bytes 0 drop comment "trialbox no access to the host"
+	}
+}
+"""
+# the same for four networks (three adjacent ones listed as a range a-b) with one allow out (a DEV box's)
+REAL_OPEN_NETS = ["172.18.0.0/16", "172.19.0.0/16", "172.20.0.0/16", "192.168.5.0/24"]
+REAL_OPEN = """table inet trialbox_egress {
+	chain forward {
+		type filter hook forward priority filter - 10; policy accept;
+		ct state established,related accept
+		ip saddr { 172.18.0.0-172.20.255.255, 192.168.5.0/24 } ip daddr { 172.18.0.0-172.20.255.255, 192.168.5.0/24 } accept comment "intra-box"
+		ip saddr 172.18.0.5 ip daddr 198.51.100.7 tcp dport 443 accept comment "gateway -> 198.51.100.7:443 (model endpoint openrouter (dev_public))"
+		ip daddr { 172.18.0.0-172.20.255.255, 192.168.5.0/24 } ct status dnat accept comment "published ports"
+		ip daddr { 172.18.0.0-172.20.255.255, 192.168.5.0/24 } counter packets 0 bytes 0 drop comment "trialbox no direct access"
+		ip saddr { 172.18.0.0-172.20.255.255, 192.168.5.0/24 } counter packets 0 bytes 0 drop comment "trialbox default deny"
+	}
+
+	chain input {
+		type filter hook input priority filter - 10; policy accept;
+		ct state established,related accept
+		ip saddr 172.18.0.5 ip daddr 198.51.100.7 tcp dport 443 accept comment "gateway -> 198.51.100.7:443 (model endpoint openrouter (dev_public))"
+		ip saddr { 172.18.0.0-172.20.255.255, 192.168.5.0/24 } counter packets 0 bytes 0 drop comment "trialbox no access to the host"
+	}
+}
+"""
+
+
+def test_the_kernels_own_listing_of_the_closed_table_is_read_with_its_merged_networks() -> None:
+    res = vm.session_egress(REAL, REAL_NETS)
+    assert not res["text_can_leave"] and res["problems"] == [], res["problems"]
+    assert res["under_default_deny"] == sorted(REAL_NETS)
+    opened = vm.session_egress(REAL_OPEN, REAL_OPEN_NETS)  # ranges a-b read; the one allow out refused
+    assert opened["text_can_leave"] and len(opened["problems"]) == 1 and "198.51.100.7" in opened["problems"][0]
+    assert opened["under_default_deny"] == sorted(REAL_OPEN_NETS)
+
+
+def _with(line: str, after: str = "\t\tct state established,related accept\n") -> str:
+    return REAL.replace(after, after + f"\t\t{line}\n", 1)
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["ct state new accept",
+     "ct state { established, related, new } accept",
+     'ip saddr { 172.18.0.0/15 } ip daddr 0.0.0.0/0 accept comment "intra-box"',
+     'ip saddr 0.0.0.0/0 ip daddr { 172.18.0.0/15 } accept comment "intra-box"',
+     'ip daddr { 172.18.0.0/15 } tcp dport 443 accept comment "published ports"',
+     'ip daddr 0.0.0.0/0 ct status dnat accept comment "published ports"',
+     "jump out",
+     "goto out",
+     "ip saddr { 172.18.0.0/15 } accept",
+     'ip saddr != { 172.18.0.0/15 } counter packets 0 bytes 0 drop comment "trialbox default deny"'],
+)  # fmt: skip
+def test_any_rule_shape_the_product_does_not_write_is_refused(line: str) -> None:
+    """Each line, inserted into the kernel's own listing of the product's closed table, is a way out (or a deny that
+    is not one): the read-back says the text could leave."""
+    res = vm.session_egress(_with(line), REAL_NETS)
+    assert res["text_can_leave"], (line, res["problems"])
+
+
+def test_a_deny_that_is_not_last_or_a_chain_the_product_does_not_make_is_refused() -> None:
+    moved = REAL.replace('drop comment "trialbox no access to the host"', 'drop comment "x"')  # input chain: harmless
+    assert not vm.session_egress(moved, REAL_NETS)["text_can_leave"]
+    last = REAL.replace('\t\tip6 saddr fd00:1::/64 counter packets 0 bytes 0 drop comment "trialbox default deny"\n\t}',
+                        '\t\tip6 saddr fd00:1::/64 counter packets 0 bytes 0 drop comment "trialbox default deny"\n'
+                        '\t\tip6 daddr fd00:1::/64 ct status dnat accept comment "published ports"\n\t}')  # fmt: skip
+    assert last != REAL and vm.session_egress(last, REAL_NETS)["text_can_leave"]
+    chain = REAL.replace("\tchain input {", "\tchain postrouting {")
+    assert vm.session_egress(chain, REAL_NETS)["text_can_leave"]
+
+
+def test_the_rehearsals_stand_in_prints_what_nft_prints(tmp_path: Path) -> None:
+    """The stand-in's `status` is the kernel's listing of the same script, byte for byte (so the rehearsal reads back
+    the paid run's format)."""
+    import os
+    import subprocess
+
+    for nets, allows, want in ((REAL_NETS, [], REAL), (REAL_OPEN_NETS,
+            [egress.Allow("gateway", "198.51.100.7", 443, "model endpoint openrouter (dev_public)")], REAL_OPEN)):  # fmt: skip
+        script, _ = egress.render(egress.Box(subnets=nets, addresses={"gateway": ["172.18.0.5"]}), allows,
+                                  resolver=lambda h: [h])  # fmt: skip
+        (tmp_path / "s.nft").write_text(script)
+        env = {**os.environ, "BR_S": str(tmp_path), "BR_HERE": str(ROOT / "tests" / "rehearsal" / "box-run")}
+        out = subprocess.run(["sh", str(ROOT / "tests/rehearsal/box-run/standins/network.sh"), "nft-list",
+                              str(tmp_path / "s.nft")], env=env, capture_output=True, text=True, check=True).stdout  # fmt: skip
+        assert out == want

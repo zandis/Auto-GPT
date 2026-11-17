@@ -25,7 +25,18 @@ connection out. A session takes pasted text, so it must prove that text cannot l
    - no rule lets a box container open a connection out. A `tcp dport ... accept` to an outside address is such a
      rule (a model host, a mail relay, the live registry).
 
-   What the table allows and drops is in `records/session-egress.json`.
+   The read-back is rule by rule, against exact shapes only (the security review's finding 3, which got six tables
+   that let text out past the first reader). It passes:
+   - `ct state established,related accept`;
+   - an intra-box accept only when its source and its destination are both inside the box's own networks;
+   - a published-ports accept only with `ct status dnat` and its destination inside them;
+   - drops with no negation.
+
+   Any other accept (`ct state new`, a port to the outside, a rule whose comment alone says intra-box), any `jump`,
+   `goto` or `!=`, a chain the product does not make: all fail. The forward chain must end with the default deny,
+   and that deny must cover every network of the box. nft lists adjacent networks merged (a /15, or a range
+   `172.18.0.0-172.20.255.255`) and a one-element set without braces: the reader takes each form. What the table
+   allows and drops is in `records/session-egress.json`.
 3. **Before any link.** A table that would let text out stops the run at 55, before any account or link is made
    (`TB-SESSION-EGRESS`).
 4. **Free, before any launch.** `tools/box_run.py session-check` asks the same product code
@@ -50,8 +61,13 @@ connection out. A session takes pasted text, so it must prove that text cannot l
 cases: `session` (applied and read back) and `session-egress` (a table that lets the gateway out: the run stops at
 55, no account, no link). Their stand-in `network.sh` renders with the real `deploy/egress.py`.
 
+## Checked against the kernel's own listing
+
+The product's script, as `deploy/egress.py render` writes it, was loaded into nftables 1.0.9 in a separate network
+namespace on the build machine, and `nft list table inet trialbox_egress` printed it. Those listings are the unit
+tests' fixtures. The rehearsal's stand-in `network.sh status` prints the same form, byte for byte (a test holds it).
+
 ## Not verified
 
-`deploy/network.sh apply` was not run against a real kernel or Docker here: the rehearsal's stand-in renders the
-table and loads nothing. That `nft list table` prints the comments the read-back relies on is nftables' documented
-behaviour, not checked on the VM.
+`deploy/network.sh apply` was not run on the GPU VM: the VM's nftables version and Docker's networks there are not
+known here.

@@ -1289,45 +1289,124 @@ def routes_verdict(gw: dict[str, Any], emb: dict[str, Any]) -> dict[str, Any]:
 
 # ------------------------------------------------------------------------------------------------ the owner's session
 SESSION_EVIDENCE = "nothing from this session is evidence"
-_CIDR = re.compile(r"\b[0-9a-fA-F:.]+/[0-9]{1,3}\b")
+
+
+_SET = r"(\{[^}]*\}|\S+)"
+_FAM = r"(ip6?)"
+_SHAPES = {
+    # the product's own rules (deploy/egress.py render), in `nft list` form or the script's; nothing else accepts
+    "intra-box": re.compile(rf"^{_FAM} saddr {_SET} \1 daddr {_SET} accept comment \"intra-box\"$"),
+    "published ports": re.compile(rf"^{_FAM} daddr {_SET} ct status dnat accept comment \"published ports\"$"),
+    "drop": re.compile(rf"^{_FAM} (saddr|daddr) {_SET} counter(?: packets \d+ bytes \d+)? drop comment \"([^\"]*)\"$"),
+}
+
+
+def _nets(field: str) -> list[Any] | None:
+    """The networks of one nft field: `{ a, b-c }` or one element; a prefix, an address or a range. None when an
+    element is not an address (a negation, a named set, a variable)."""
+    import ipaddress
+
+    out: list[Any] = []
+    for item in [x.strip() for x in field.strip().strip("{}").split(",") if x.strip()]:
+        try:
+            if "-" in item and "/" not in item:
+                lo, hi = (ipaddress.ip_address(x) for x in item.split("-", 1))
+                out += list(ipaddress.summarize_address_range(lo, hi))  # type: ignore[arg-type]
+            else:
+                out.append(ipaddress.ip_network(item, strict=False))
+        except ValueError:
+            return None
+    return out
+
+
+def _inside(nets: list[Any] | None, box: list[Any]) -> bool:
+    """Every network of the field inside the box's own (merged as nft merges them: adjacent networks as one)."""
+    import ipaddress
+
+    merged = [*ipaddress.collapse_addresses(b for b in box if b.version == 4),
+              *ipaddress.collapse_addresses(b for b in box if b.version == 6)]  # fmt: skip
+    return bool(nets) and all(any(n.version == b.version and n.subnet_of(b) for b in merged) for n in nets or [])
 
 
 def session_egress(table: str, subnets: list[str]) -> dict[str, Any]:
-    """D-1131: the live egress table read back. Holds when the product's table is loaded, each of the box's networks
-    is under its default deny, and no accept rule lets a box container out (only intra-box traffic, replies,
-    published ports inbound). Each rule of the table is listed with what it does."""
+    """D-1131: the live egress table (`nft list table inet trialbox_egress`, as `deploy/network.sh status` prints it)
+    read back, rule by rule, against the box's own networks (the state file `apply` wrote). Only the product's own
+    shapes pass: `ct state established,related accept`; intra-box with source AND destination inside the box's
+    networks; published ports with the destination inside them and `ct status dnat`; drops with no negation. Any other
+    accept, a jump, a goto, a `!=`, a chain the product does not make, fails. The forward chain must end with the
+    default deny, and that deny must name every network of the box. nft prints adjacent networks merged (a /15, or a
+    range a-b): both are read."""
+    import ipaddress
+
     problems: list[str] = []
     rules: list[dict[str, str]] = []
-    denied: set[str] = set()
+    denied: list[Any] = []
+    box = [ipaddress.ip_network(s, strict=False) for s in subnets]
     live = "table inet trialbox_egress" in table
     if not live:
         problems.append("the table inet trialbox_egress is not loaded (deploy/network.sh apply did not take)")
+    chain, last_forward = "", ""
+
+    def bad(why: str, line: str) -> None:
+        rules.append({"rule": line, "does": f"REFUSED: {why}"})
+        if f"{why}: {line}" not in problems:
+            problems.append(f"{why}: {line}")
+
     for raw in table.splitlines():
-        line = raw.strip()
-        if not line or line.startswith(("table ", "chain ", "type ", "}", "policy ")):
+        line = " ".join(raw.split())
+        if not line or line in ("}",) or line.startswith(("table ", "delete table")):
             continue
-        m = re.search(r'comment "([^"]*)"', line)
-        why = m.group(1) if m else ""
-        if line.endswith("accept") or " accept" in line:
-            if line.startswith("ct state") or why in ("intra-box", "published ports"):
-                rules.append(
-                    {"rule": why or line, "does": "allows traffic inside the box, replies or a published port"}
-                )
+        m = re.match(r"^chain (\S+) \{$", line)
+        if m:
+            chain = m.group(1)
+            if chain not in ("forward", "input"):
+                bad("a chain the product does not make", line)
+            continue
+        if line.startswith("type filter hook "):
+            if not line.endswith("policy accept;") or f"hook {chain} " not in line:
+                bad("a chain header the product does not write", line)
+            continue
+        if chain == "forward":
+            last_forward = line
+        if "!=" in line or re.search(r"\b(jump|goto|queue|redirect|dnat to|snat to)\b", line):
+            bad("a negation, a jump or a rewrite", line)
+            continue
+        if line == "ct state established,related accept":
+            rules.append({"rule": line, "does": "lets in: replies to the box's own connections"})
+            continue
+        mi = _SHAPES["intra-box"].match(line)
+        if mi:
+            if _inside(_nets(mi.group(2)), box) and _inside(_nets(mi.group(3)), box):
+                rules.append({"rule": "intra-box", "does": "lets in: the box's networks to each other"})
             else:
-                rules.append({"rule": why or line, "does": "ALLOWS a box container out"})
-                bad = f"an allow rule lets a box container out: {why or line}"
-                if bad not in problems:  # the same allow sits in the forward and the input chain
-                    problems.append(bad)
-        elif " drop" in line or line.endswith("drop"):
-            rules.append({"rule": why or line, "does": "drops"})
-            if why == "trialbox default deny":
-                denied.update(_CIDR.findall(line.split("daddr")[0]))
-    missing = sorted(s for s in subnets if s not in denied)
+                bad("an intra-box rule whose source or destination is not the box's own networks", line)
+            continue
+        mp = _SHAPES["published ports"].match(line)
+        if mp:
+            if _inside(_nets(mp.group(2)), box):
+                rules.append({"rule": "published ports", "does": "lets in: the box's published ports"})
+            else:
+                bad("a published-ports rule whose destination is not the box's own networks", line)
+            continue
+        md = _SHAPES["drop"].match(line)
+        if md:
+            nets = _nets(md.group(3))
+            rules.append({"rule": md.group(4) or line, "does": "drops"})
+            if nets is None:
+                bad("a drop on something that is not a network", line)
+            elif md.group(4) == "trialbox default deny" and md.group(2) == "saddr" and chain == "forward":
+                denied += nets
+            continue
+        bad("a rule the product does not write (it could let a box container out)", line)
+    covered = [str(b) for b in box if any(b.version == d.version and b.subnet_of(d) for d in denied)]
+    missing = sorted(str(b) for b in box if str(b) not in covered)
     if not subnets:
         problems.append("the state file names no network of the box (is the stack up?): nothing is filtered")
     if missing:
         problems.append(f"networks of the box with no default deny: {missing}")
-    return {"live": live, "box_networks": sorted(subnets), "under_default_deny": sorted(denied),
+    if live and 'drop comment "trialbox default deny"' not in last_forward:
+        problems.append("the forward chain does not end with the default deny")
+    return {"live": live, "box_networks": sorted(subnets), "under_default_deny": sorted(covered),
             "rules": rules, "text_can_leave": bool(problems), "problems": problems}  # fmt: skip
 
 
