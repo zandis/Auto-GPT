@@ -26,3 +26,13 @@
 5. **Nothing is committed that could not be verified.** No full NHI list and no ICD-10-PCS release is in the
    repository or this session's caches, and nothing was downloaded. D-1028 and D-1029 allow committing them; that
    waits for a verified copy. The tests use the committed public NHI samples and made-up PCS lines.
+
+## After the class B review (same PR)
+
+1. **An NHI code whose validity ended** (有效迄日 or 生效迄日 before today) answers nothing. The sample's only drug,
+   flupentixol, left the list in 2014.
+2. **An NHI ingredient keeps its digits.** `VITAMIN B12 1 MG` is vitamin b12. Only the strength and the salt in
+   brackets are dropped.
+3. **Several NHI items with one name** answer together, for review (D-1114 point 3).
+4. **An ICD-10-PCS order-file line** is always read in its fixed columns. A line without its long description is
+   refused; it no longer falls back to the codes-file reading, which made the order number a "code".

@@ -25,3 +25,18 @@
    counts by domain. On launch P1b's `sigir.tgz` it reproduces lane E's figures: 58 of 1,273 before TERM-1, and 266
    with TERM-1 (lane E's first draft said 270). The figures and what remains are in
    `docs/plan/measurements/term2-coverage-2026-11-17.md`.
+
+## After the class B review (same PR)
+
+1. **The guard scans the whole repository** (from its root, not `trialbox/` only), and looks into more files:
+   - zip, xlsx and gz files, including the zip's member names (`Loinc.csv`), its ClaML files and an xlsx's header
+     cells;
+   - UTF-16 files with their BOM;
+   - files separated by `;` or `|`.
+2. **What it calls LOINC, ATC or a site list:**
+   - LOINC is matched on its `LOINC_NUM` column alone, and the ATC index on `ATC code` too.
+   - A site list is any file with `local_code` or `local_name` beside `code`, whatever its other columns.
+   - Such a file passes only when the licence register accounts for its path as own work, synthetic or cleared
+     (the adapter's demo maps). A site's own list has no such row: its row is `site-loaded` and has no paths.
+3. **"Nothing changes when nothing is loaded" is a test.** The mapper's answers to a fixed list of names are the same
+   with no folder and with an empty one, and none comes from TERM-2's steps. The goldens stay identical.

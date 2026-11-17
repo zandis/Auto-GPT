@@ -37,7 +37,12 @@ There are 132 `extract_criteria` calls and 1,533 candidates. The 1,273 that are 
   copy, ATC index or site list was available offline, and none was fabricated.
 - **The last column only shows the path working.** It loads the public NHI rows committed as test samples
   (`tests/fixtures/refdata`: 1 drug, 7 service codes) through `nhi-drugs` and `nhi-services`. The +3 is "hemodialysis"
-  three times, resolved to NHI 58001C (an inpatient haemodialysis session). It is not a coverage figure.
+  three times, resolved to NHI 58001C. It is not a coverage figure, and the match is weaker than it looks. 58001C is
+  one inpatient haemodialysis session (血液透析（一次）- 住院). It answers without review only because the 7-row sample
+  holds no other item of that name. With the full list, every item named "Hemodialysis" answers together, for review
+  (D-1114 point 3, after the class B review). Whether other items share the name was not checked. The sample's drug
+  (flupentixol) left the list in 2014, so an ended code answers nothing. The figures were measured again after that
+  review, on commit `f6a90903`; they are unchanged.
 
 **What remains, and which install-time system would answer it. NOT MEASURED.** These are counts of the names that
 remain, read by eye from the tool's `--json` output. No licensed table was loaded, so no "after" figure for them

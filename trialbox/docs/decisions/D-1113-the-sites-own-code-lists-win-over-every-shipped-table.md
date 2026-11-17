@@ -33,3 +33,23 @@ built the loader (`tools/terminology_install.py`), the manifest and the refusal,
 
 The `site` method is not one the site set-up's automatic proposals accept (`services/sitesetup/mapping.py` takes
 `exact` and `synonym` only). That set-up is lane E's, and a site name it does not take stays for a person.
+
+## After the class B review (same PR)
+
+1. **A name is matched as written, never reduced.**
+   - A name with any letter outside Latin (zh, ja) has only its written form as a key. Earlier, `B型肝炎` and
+     `B群鏈球菌感染` became one key.
+   - A Latin name also has a key without punctuation and plain plurals. Words in brackets stay words:
+     `Hepatitis B (HBsAg)` is not `Hepatitis B (anti-HBs)`.
+   - The same rule applies to the loaded tables (D-1114, D-1115).
+2. **A site code is checked at load.** It is normalised (NFKC, upper case: `e11` and `Ｅ１１` are E11), then checked
+   against its system's shape: ICD-10-CM dotted (`I109` is refused), WHO ICD-10, ICD-10-PCS, LOINC, ATC, NHI drug,
+   NHI order, department. A bad code refuses the whole file and names the row.
+3. **When a site answer is for review.** A site code that no table holds (not in the full ICD-10-CM list, the
+   shipped tables or a loaded table) is for review, and its note names it. A WHO ICD-10 category stands for its
+   family, as an ICD-10-CM category does.
+4. **Conflicts.**
+   - A list that gives one local code or local name two codes is refused at load.
+   - Two lists that give one name different codes: the first list by name answers, for review, and the note names
+     both lists. The test that expected a silent first answer was corrected to expect this; that corrects a wrong
+     expectation and weakens nothing.

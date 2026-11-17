@@ -27,3 +27,21 @@
    - a WHO ICD-10 title resolves to its code (a category: its family under the WHO URI, D-314), only after ICD-10-CM.
    - an ATC name resolves to its code (a group: its substances, as a family).
    - deprecated LOINC codes are left out.
+
+## After the class B review (same PR)
+
+1. **A name is a plausible full name:** two words with at least three letters, or a CJK name of at least two
+   characters. "A", "Ada" and "A B" are refused.
+2. **WHO ICD-10 keeps only codes.** Its categories (`A00`, `A00.1`) and blocks (`A00-A09`) are kept; a chapter (`I`,
+   `XXII`) is not a code and is dropped.
+3. **A name that several codes share in one loaded table answers with every one of them, for review.** Before this,
+   the first code answered alone and without review. We chose the union with review over no answer: the person sees
+   every candidate, where dropping the match would hide them and pass the name on to the model. A name in two tables
+   answers from the first (in the order site lists, ATC, NHI drugs, NHI services, ICD-10-PCS, LOINC, WHO ICD-10),
+   also for review, and the note names the other tables.
+4. **The manifest (TERM-1's helpers, lane E's code, same behaviour for valid inputs):**
+   - It is written whole: a temporary file, fsync, then rename. A lock is held around a table's replace and its
+     manifest line.
+   - A damaged manifest is a refusal (doctor FAIL), not a crash.
+   - A key that is not a plain file name (`../x`) is refused.
+   - The bytes hashed are the bytes parsed.
