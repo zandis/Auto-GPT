@@ -5,7 +5,7 @@ account (a password reset, a new authenticator). The console sends it through th
 with the kind ``ACCOUNT``; the orchestrator accepted only N1, N2, BG and HEALTH, so every account notice was refused
 (422) and the console's best effort recorded it as not sent. Like every notice, it is an aggregate mail to hospital addresses only.
 
-A real orchestrator in PRODUCTION with per-service tokens, the console's signed actor header. Synthetic data only."""
+A real orchestrator in PRODUCTION with per-service tokens; the console signs as its accounts principal (D-1150). Synthetic data only."""
 
 from __future__ import annotations
 
@@ -31,8 +31,14 @@ class Mail:
 
 
 def _post(client: TestClient, body: dict[str, Any]) -> Any:  # noqa: F811
-    headers = {sa.TOKEN_HEADER: token_of("console"), **sa.actor_header("console:admin")}
-    return client.post("/notices", json=body, headers=headers)
+    """As the console sends it (T-715 refuse mode, D-1150): signed as the accounts principal."""
+    from tb_common import actor_v3
+
+    from tests.actor3 import signed
+
+    sign = signed("account.reset", "", "POST", "/notices", body, sub="service:console-accounts",
+                  role=actor_v3.SERVICE_ROLE)  # fmt: skip
+    return client.post("/notices", json=body, headers={sa.TOKEN_HEADER: token_of("console"), **sign})
 
 
 @pytest.mark.parametrize("to", [["holder@hospa.test", "pi@hospa.test"]])
