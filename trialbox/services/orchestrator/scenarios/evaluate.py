@@ -216,6 +216,7 @@ class NoteResult:
     model: str = ""
     build_sha: str = ""  # through the gateway: the build that answered (D-276)
     prompt: str = ""
+    prompt_sha: str = ""  # D-989: the registry's sha256 of the prompt text that was sent
     tokens_in: int = 0
     tokens_out: int = 0
     # D-120: when the two checks disagree, each model's answer and verified quote, so a person sees both
@@ -430,10 +431,11 @@ class NoteJudge:
         r = postprocess(res.data, excerpts, source)
         return replace(
             r,
-            call_id=res.output_sha[:16],
+            call_id=getattr(res, "call_id", "") or res.output_sha[:16],  # D-989: the call that gave it
             model=res.model,
             build_sha=getattr(res, "build_sha", ""),
             prompt=f"{res.prompt_id}@{res.prompt_version}",
+            prompt_sha=getattr(res, "prompt_sha", ""),
             tokens_in=res.tokens_in,
             tokens_out=res.tokens_out,
         )
