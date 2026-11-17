@@ -15,7 +15,7 @@ cloud access. A target is met only by a launch (D-1064).
 | Step `07g-gate` polled an unreadable `GET /models` for 1,500 s | Fixed, not skipped: the step reads with the service token, ends in seconds when the gate is open, fails at once on 401 or 403, waits at most 480 s, and a closed gate stops the run (D2) |
 | One protocol in flight, GPU mean 22 % | Three in flight for a compile-bound set (sigir) by default; the report says how many were in flight (D7) |
 | The source bundle was shallow and the clone failed on the VM (P1a) | The bundle is proved before it is uploaded, by cloning it as the VM does; a build or dev launch is refused without `--src-bundle` (D8) |
-| A protocol in flight at the deadline was marked as a FEAS timeout | No protocol starts with less than `--acc-min-start` (600 s) of its set's budget left; a cut is `not_run_time_budget` and a resume picks it up (D4) |
+| A protocol in flight at the deadline was marked as a FEAS timeout | No protocol starts with less than `--acc-min-start` (600 s) of its set's budget left; a cut is `not_run_time_budget`, never a failure (D4). Finishing the cut protocols later is not cheap: see section 8 |
 | `--resume` dropped the tag | `--resume` keeps the launch's `--acc-rs-tag` (D3) |
 
 ## 2. The ids, under the tag
@@ -176,8 +176,18 @@ Also read, before believing any figure:
 
 ## 8. If it stops
 
-- A pre-emption or a budget cut: `deploy/gcp/box-run.sh --resume <run id>`. Finished steps and finished protocols
-  are kept; the tag is kept.
+- **A set that ends on its own budget is done.** Its step ends as `done`, and a plain `--resume` keeps a done step,
+  so the protocols it cut (`not_run_time_budget`) are not run. `--resume <run id> --redo <the set's step>` runs the
+  set again from no work: approvals are reused, but every protocol already screened is screened again, and the
+  scorer cannot merge two attempts. So give sigir a budget that holds the high figure of section 6 (about 10,000 s
+  for 103 protocols at 97 s, plus the 600 s a protocol needs to start), not P1b's 9,000 s, which cut 10 protocols.
+- **A set stopped mid-step** (a pre-emption, the VM's cap or the cloud's cap) is not ended. `--resume <run id>` goes
+  on with it: finished protocols are kept, and the tag is kept (D3). Give `--acc-deadline` again on the resume.
 - A refusal with exit 2, 6 or 9 cost nothing: no VM was started.
 - A stop on the VM leaves the last checkpoint (`acc-partial/<set>.tgz`), which the replay reads like a finished
   set and labels by what it holds.
+
+Found by card H-12 while reading the driver for the trec2023 plan (`trec2023-plan-2026-11-17.md`, on its own
+branch): the first point, and that the free listing cannot check an id of a set whose ids are not known locally
+(sigir, trec2023): it accepts any id with the right prefix, and the VM then stops after the install is paid for.
+Pass no `--acc-protocols` for those sets.
