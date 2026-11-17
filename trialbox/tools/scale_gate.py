@@ -331,6 +331,24 @@ print(json.dumps({"seconds": round(time.perf_counter() - t0, 1), "judge_calls": 
 """
 
 
+def latency_share(calls: int, latency_s: float, screen_s: float, night_s: float) -> str:
+    """D-973: the stand-in's waiting (calls x seconds per call) as a share of the screen and of the night up to the
+    screen's end (the parts before it and the screen); empty without a latency or calls. An upper bound: calls that
+    overlap wait at the same time."""
+    if latency_s <= 0 or calls <= 0:
+        return ""
+    wait = calls * latency_s
+
+    def pct(total: float) -> str:
+        return f"{100 * wait / total:.0f} %" if total > 0 else "n/a"
+
+    return (
+        f"Model stand-in waiting: {calls:,} calls x {latency_s:g} s = {wait:,.0f} s, {pct(screen_s)} of the screen's "
+        f"{screen_s:,.0f} s and {pct(night_s)} of the night's {night_s:,.0f} s up to the screen's end (an upper bound: "
+        "calls that overlap wait at the same time)."
+    )
+
+
 def _env(**extra: str) -> dict[str, str]:
     env = {**os.environ, "PYTHONPATH": "libs:services:.", "TB_ENV": os.environ.get("TB_ENV", "DEV")}
     env.update(extra)
@@ -767,6 +785,11 @@ def _screen(
         "stand_in_outage_answers": model.refused(),
         "stand_in_restarts": model.restarts,
     }
+    # D-973: how much of the screen and of the night was the stand-in's waiting (D-537 asked for the scale gate's
+    # latency share)
+    share = latency_share(model.calls(), p.latency_s, sc.seconds, sum(r.seconds for r in rep.runs))
+    if share:
+        rep.notes.append(share)
     why = _over(sc)
     if why and not lake_alive():
         why += " (the lake died under it)"
