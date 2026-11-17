@@ -35,31 +35,72 @@ def _run(root: Path, prefix: str, approve_s: float, *, cut: int = 0, extra_judge
             progress[rid] = {"ruleset": rid, "attempt": 1, "outcome": "not_run_time_budget", "finished": True}
             continue
         ids = {typ: f"{prefix}-{typ}-{i}" for typ in timing.TYPES}
-        progress[rid] = {"ruleset": rid, "feas_job": ids["FEAS"], "approve_job": ids["APPROVE"],
-                         "screen_job": ids["SCREEN"], "outcome": "screened",
-                         "screen_metrics": {"llm_calls": 2, "tokens_in": 500, "tokens_out": 50, "wall_seconds": 5.0}}
+        progress[rid] = {
+            "ruleset": rid,
+            "feas_job": ids["FEAS"],
+            "approve_job": ids["APPROVE"],
+            "screen_job": ids["SCREEN"],
+            "outcome": "screened",
+            "screen_metrics": {"llm_calls": 2, "tokens_in": 500, "tokens_out": 50, "wall_seconds": 5.0},
+        }
         for typ, wall in (("FEAS", 30.0), ("APPROVE", approve_s), ("SCREEN", 5.0)):
             log.append(f"+ mail-gateway onbox send 10:0{i}:00")
             log.append(json.dumps({"folder": "Processed", "action": "job", "job": ids[typ], "reason": ""}))
             log.append(f"+ mail-gateway onbox wait 10:0{i}:01")
             log.append(f"job {ids[typ]} compiling")
-            log.append(json.dumps({"job": ids[typ], "type": typ, "ruleset": rid.upper(), "state": "done",
-                                   "metrics": {"llm_calls": 0, "wall_seconds": wall}, "waited": "ended"}))
-        for prompt, job, alias in (("ir_extract@4", "FEAS", "j-workhorse"), ("concept_map@2", "FEAS", "j-workhorse"),
-                                   ("judge@5", "SCREEN", "j-workhorse"), ("judge@5", "SCREEN", "v-verifier")):
-            traces.append({"attributes": {"tb.prompt": prompt, "tb.model_alias": alias, "tb.study_id": ids[job],
-                                          "tb.cache": "miss"}, "prompt": [{"role": "user", "content": "made up"}]})
+            log.append(
+                json.dumps(
+                    {
+                        "job": ids[typ],
+                        "type": typ,
+                        "ruleset": rid.upper(),
+                        "state": "done",
+                        "metrics": {"llm_calls": 0, "wall_seconds": wall},
+                        "waited": "ended",
+                    }
+                )
+            )
+        for prompt, job, alias in (
+            ("ir_extract@4", "FEAS", "j-workhorse"),
+            ("concept_map@2", "FEAS", "j-workhorse"),
+            ("judge@5", "SCREEN", "j-workhorse"),
+            ("judge@5", "SCREEN", "v-verifier"),
+        ):
+            traces.append(
+                {
+                    "attributes": {
+                        "tb.prompt": prompt,
+                        "tb.model_alias": alias,
+                        "tb.study_id": ids[job],
+                        "tb.cache": "miss",
+                    },
+                    "prompt": [{"role": "user", "content": "made up"}],
+                }
+            )
         for _ in range(extra_judge):  # a schema repair: its prompt holds an earlier answer
-            traces.append({"attributes": {"tb.prompt": "judge@5", "tb.model_alias": "j-workhorse",
-                                          "tb.study_id": ids["SCREEN"], "tb.cache": "hit"},
-                           "prompt": [{"role": "user", "content": "q"}, {"role": "assistant", "content": "{}"}]})
-        screen = {"cascade": {"metrics": {"pairs_judged": {"S3": 1, "S4": 0}},
-                              "judged_store": {"on": True, "read": 0, "live": 2}}}
+            traces.append(
+                {
+                    "attributes": {
+                        "tb.prompt": "judge@5",
+                        "tb.model_alias": "j-workhorse",
+                        "tb.study_id": ids["SCREEN"],
+                        "tb.cache": "hit",
+                    },
+                    "prompt": [{"role": "user", "content": "q"}, {"role": "assistant", "content": "{}"}],
+                }
+            )
+        screen = {
+            "cascade": {
+                "metrics": {"pairs_judged": {"S3": 1, "S4": 0}},
+                "judged_store": {"on": True, "read": 0, "live": 2},
+            }
+        }
         (d / "work" / "screen" / f"{rid}.json").write_text(json.dumps(screen), encoding="utf-8")
     (d / "work" / "progress.json").write_text(json.dumps(progress), encoding="utf-8")
     (d / "work" / "box-calls.log").write_text("\n".join(log) + "\n", encoding="utf-8")
-    (d / "work" / "raw-traces.json").write_text(json.dumps({"since": "x", "calls": len(traces), "traces": traces}),
-                                                encoding="utf-8")
+    (d / "work" / "raw-traces.json").write_text(
+        json.dumps({"since": "x", "calls": len(traces), "traces": traces}), encoding="utf-8"
+    )
     return d
 
 

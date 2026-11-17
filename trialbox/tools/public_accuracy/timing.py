@@ -159,7 +159,7 @@ def _q(xs: list[float]) -> dict[str, float]:
         return {}
     s = sorted(xs)
     pick = {"min": 0.0, "p25": 0.25, "median": 0.5, "p75": 0.75, "max": 1.0}
-    return {k: round(s[min(len(s) - 1, int(round(f * (len(s) - 1))))], 1) for k, f in pick.items()}
+    return {k: round(s[min(len(s) - 1, round(f * (len(s) - 1)))], 1) for k, f in pick.items()}
 
 
 def compare(before: Path, after: Path) -> dict[str, Any]:
@@ -191,7 +191,7 @@ def compare(before: Path, after: Path) -> dict[str, Any]:
                  if r["sent"] is not None] for n, p in (("before", b), ("after", a))}  # fmt: skip
     cut = {n: sorted(t for t, r in p.items() if r["outcome"] == "not_run_time_budget")
            for n, p in (("before", b), ("after", a))}  # fmt: skip
-    tail = order["before"][len(order["before"]) - len(cut["after"]):] if cut["after"] else []
+    tail = order["before"][len(order["before"]) - len(cut["after"]) :] if cut["after"] else []
     return {"schema_version": SCHEMA_VERSION, "protocols_both": len(both), "rows": rows, "totals": totals,
             "difference_quantiles_s": diff, "order": order, "cut": cut,
             "after_cut_is_before_tail": bool(cut["after"]) and sorted(tail) == cut["after"],
