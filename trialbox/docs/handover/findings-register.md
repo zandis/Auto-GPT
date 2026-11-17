@@ -63,7 +63,7 @@ git.
 The first rows (card V-0, D-1180) are the findings of three pages of 2026-11-17, none dropped. Each severity is
 mapped by the rule above from what the finding says; the source's own word is not copied.
 
-- H20, lane H's walk of a study's life: its 21 findings. Basis `shown`: the page is written from the logs of its three
+- H20, lane H's walk of a study's life: its 22 findings (F-20 was settled by H-25 on master, D-1124, and F-22 came with it). Basis `shown`: the page is written from the logs of its three
   runs. "Blocks the step" became High; every other finding is Medium (a person slowed or misled) except the four that
   are wording only (F-02, F-09, F-12, F-19), which are Low. F-10 happens on a test-day box only (`tools/demo.py`
   with `--day data`), which the installer never starts, so it is Medium, not an audit trail that can be wrong.
@@ -96,8 +96,9 @@ mapped by the rule above from what the finding says; the source's own word is no
 | H20-F-17 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | The steward's opt-out form asks for the chart number, and no page of the steward shows one | C2 | shown | open |
 | H20-F-18 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | After the withdrawal the patient is on no weekly list but the paged "All on the list", and the participant's page has no link to the patient sheet | C2 | shown | open |
 | H20-F-19 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Low (mapped) | The opt-out form's note is labelled "Note for the coordinator" on the steward's register | C2 | shown | open |
-| H20-F-20 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | High (mapped) | The opt-out worker never ran on the steps-mode box, so none of the erasure registry's clears ran after an opt-out | Int | shown | open |
+| H20-F-20 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | High (mapped) | The opt-out worker never ran on the steps-mode box, so none of the erasure registry's clears ran after an opt-out | Int | shown | fixed 09b26e8ca |
 | H20-F-21 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | The red opt-out worker check is on the metrics page only; the administrator's Health tab shows no line for it | C2 | shown | open |
+| H20-F-22 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | The audit trail shows each run of the opt-out worker with an empty detail, so a steward cannot see on any page that an erase completed | C2 | shown | open |
 
 ## H22: the install runbook followed alone (lane H, 2026-11-17)
 

@@ -75,7 +75,7 @@ def sub(old: str, new: str, text: str = SRC) -> str:
 def test_the_committed_register_passes_check() -> None:
     reg = fr.parse(REGISTER)
     assert fr.check(reg) == []
-    assert len(reg.rows) == 47
+    assert len(reg.rows) == len(SEED)
     assert fr.main(["--check"]) == 0
 
 
@@ -87,7 +87,7 @@ def test_the_register_keeps_no_counts_line() -> None:
 def test_counts_prints_the_open_findings(capsys: pytest.CaptureFixture[str]) -> None:
     assert fr.main(["--counts"]) == 0
     out = capsys.readouterr().out
-    assert out.startswith("open High 6, open Medium 35, open Low 4, total 47 ")
+    assert out.startswith("open High 5, open Medium 36, open Low 4, total 48 ")
 
 
 # --- the seed: every finding of the three sources, none dropped, none invented ----------------------------------------
@@ -113,8 +113,9 @@ SEED = [
     ("H20-F-17", "Medium (mapped)", "C2", "shown", "open", "6c28da265b"),
     ("H20-F-18", "Medium (mapped)", "C2", "shown", "open", "c9fb4c82ec"),
     ("H20-F-19", "Low (mapped)", "C2", "shown", "open", "aa3b656705"),
-    ("H20-F-20", "High (mapped)", "Int", "shown", "open", "552e4894f8"),
+    ("H20-F-20", "High (mapped)", "Int", "shown", "fixed 09b26e8ca", "552e4894f8"),
     ("H20-F-21", "Medium (mapped)", "C2", "shown", "open", "4f9ddbfe55"),
+    ("H20-F-22", "Medium (mapped)", "C2", "shown", "open", "0b2c0bcc41"),
     ("H22-no-host-tree", "High (mapped)", "D", "shown", "open", "7446e30613"),
     ("H22-vendor-key-after-start", "High (mapped)", "D", "shown", "open", "96dce1b88a"),
     ("H22-stub-fragment-vs-tier", "Medium (mapped)", "D", "shown", "open", "dea98c5bdf"),
@@ -160,9 +161,10 @@ def test_the_seed_is_the_reviewed_seed() -> None:
     assert got == {s[0]: s[1:] for s in SEED}
 
 
-def test_the_walk_seed_holds_the_walks_21_findings() -> None:
-    """The walk's findings table (between its markers) has 21 rows: 1 blocks the step, 10 slow the tester, 10 are
-    cosmetic (its own counts table, checked by hand on 2026-11-17). The one that blocks is the one High."""
+def test_the_walk_seed_holds_every_finding_of_the_walks_page() -> None:
+    """Every finding in the walk's table (between its markers) has its row here; the one that blocks a step is High.
+    The page is lane H's and moves (H-25 settled F-20 and took its row out, and added F-22), so no count is pinned:
+    a row is never deleted here, and a finding new on the page fails this test until it has its row."""
     text = WALK.read_text(encoding="utf-8")
     table = text.split("### The findings by step", 1)[1].split("<!-- life-cycle-walk: end of findings -->", 1)[0]
     source = {}
@@ -170,10 +172,9 @@ def test_the_walk_seed_holds_the_walks_21_findings() -> None:
         if line.startswith("| F-"):
             cells = [c.strip() for c in line.strip("|").split(" | ")]
             source[cells[0]] = (cells[-2], cells[-1])
-    assert len(source) == 21
-    assert sorted(v[0] for v in source.values()).count("slows the tester") == 10
+    assert len(source) >= 21
     rows = {r.id.removeprefix("H20-"): r for r in by_card("H20")}
-    assert set(rows) == set(source)
+    assert set(source) <= set(rows), sorted(set(source) - set(rows))
     for fid, (sev, lane) in source.items():
         assert (rows[fid].level == "High") == (sev == "blocks the step"), fid
         assert rows[fid].cells["Lane"] == ("Int" if lane == "integrator" else lane), fid
@@ -210,7 +211,7 @@ def test_the_p2b_seed_holds_its_8_proposed_cards_then_6_more_findings() -> None:
 
 def test_the_seed_closes_only_what_a_commit_plainly_fixed() -> None:
     closed = {r.id: r.cells["State"] for r in fr.parse(REGISTER).rows if r.cells["State"] != "open"}
-    assert closed == {"H18-01": "fixed 0ee24331a", "H18-02": "fixed f549bfb8b"}
+    assert closed == {"H18-01": "fixed 0ee24331a", "H18-02": "fixed f549bfb8b", "H20-F-20": "fixed 09b26e8ca"}
 
 
 # --- the parser cannot read fewer rows than the file holds -------------------------------------------------------------
@@ -293,7 +294,7 @@ def test_a_hidden_high_cannot_pass_release(tmp_path: Path) -> None:
 )
 def test_harmless_forms_read_every_row(tmp_path: Path, name: str, text: str) -> None:
     reg = fr.parse(tree(tmp_path, text))
-    assert fr.check(reg) == [] and len(reg.rows) == 47, name
+    assert fr.check(reg) == [] and len(reg.rows) == len(SEED), name
 
 
 def test_a_parse_error_names_its_line(tmp_path: Path) -> None:
@@ -498,12 +499,12 @@ def new_section(card: str) -> Callable[[str], str]:
 
 MERGES: dict[str, tuple[Callable[[str], str], Callable[[str], str], str]] = {
     "same table, both append after its last row": (
-        append_after("H20-F-21", ROW_NEW.format(id="H20-F-22")),
-        append_after("H20-F-21", ROW_NEW.format(id="H20-F-23")),
+        append_after("H20-F-21", ROW_NEW.format(id="H20-F-32")),
+        append_after("H20-F-21", ROW_NEW.format(id="H20-F-33")),
         "clean",
     ),
     "two tables, one row each": (
-        append_after("H20-F-21", ROW_NEW.format(id="H20-F-22")),
+        append_after("H20-F-21", ROW_NEW.format(id="H20-F-32")),
         append_after("H22-ingest-report-in-volume", ROW_NEW.format(id="H22-extra")),
         "clean",
     ),
@@ -520,7 +521,7 @@ MERGES: dict[str, tuple[Callable[[str], str], Callable[[str], str], str]] = {
     ),
     "one side changes the last row's state, the other appends after it": (
         set_state("H20-F-21", "card issued #1200"),
-        append_after("H20-F-21", ROW_NEW.format(id="H20-F-22")),
+        append_after("H20-F-21", ROW_NEW.format(id="H20-F-32")),
         "resolve",
     ),
     "one side changes the file's last row, the other adds a card at the end": (
