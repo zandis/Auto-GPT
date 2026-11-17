@@ -1,0 +1,375 @@
+{
+ "machine": "container",
+ "started": "2026-11-17T08:49:50Z",
+ "runbook_commit": "c1cb24aa3782bcd07497e349daf536e96d158534",
+ "steps": [
+  {
+   "step": "1-host",
+   "place": "docs/runbook/01-install-a-new-site.md:73",
+   "note": "machine has: Ubuntu 24.04 yes, Docker Engine 27+ yes, nftables yes, swap off yes, TPM2 no, LUKS2 no",
+   "after_lifts": []
+  },
+  {
+   "step": "one-command",
+   "place": "docs/runbook/01-install-a-new-site.md:28",
+   "as_written": "sudo deploy/install.sh trialbox-<version>.tar --tier large --answers site.yaml",
+   "ran": "deploy/install.sh /media/usb/trialbox-runbook-20261117.tar --tier large --answers site.yaml",
+   "cwd": "/opt/trialbox",
+   "env": [],
+   "rc": 127,
+   "seconds": 0.1,
+   "after_lifts": [],
+   "prompts": [],
+   "out": "",
+   "err": "bash: line 1: deploy/install.sh: No such file or directory"
+  },
+  {
+   "step": "lift:host-tree",
+   "place": "docs/handover/OFFLINE-MEDIA.md:34 (the Windows media page)",
+   "as_written": "(lift) unpack the bundle's host tree",
+   "ran": "mkdir -p /opt/trialbox && tar -xOf /media/usb/trialbox-runbook-20261117.tar files/trialbox-host.tar | tar -x -C /opt/trialbox",
+   "cwd": "/",
+   "env": [],
+   "rc": 0,
+   "seconds": 0.1,
+   "after_lifts": [
+    "host-tree"
+   ],
+   "prompts": [],
+   "out": "",
+   "err": ""
+  },
+  {
+   "step": "one-command",
+   "place": "docs/runbook/01-install-a-new-site.md:28",
+   "as_written": "sudo deploy/install.sh trialbox-<version>.tar --tier large --answers site.yaml",
+   "ran": "deploy/install.sh /media/usb/trialbox-runbook-20261117.tar --tier large --answers site.yaml",
+   "cwd": "/opt/trialbox",
+   "env": [],
+   "rc": 3,
+   "seconds": 0.2,
+   "after_lifts": [
+    "host-tree"
+   ],
+   "prompts": [],
+   "out": "",
+   "err": "install: refused: tier large needs one RTX PRO 6000 (96 GB), and this machine shows no NVIDIA card (nvidia-smi found none). Install the driver and the container toolkit (docs/SECURITY.md), or install without a tier (--mode stub: structured criteria only)."
+  },
+  {
+   "step": "one-command",
+   "place": "docs/runbook/01-install-a-new-site.md:35",
+   "note": "exit 3: this machine has no RTX PRO 6000 (the runbook says the installer stops); a box without a GPU: '`--mode stub` installs a box without a GPU'",
+   "after_lifts": [
+    "host-tree"
+   ]
+  },
+  {
+   "step": "one-command",
+   "place": "docs/runbook/01-install-a-new-site.md:35",
+   "as_written": "sudo deploy/install.sh trialbox-<version>.tar --tier large --answers site.yaml --mode stub",
+   "ran": "deploy/install.sh /media/usb/trialbox-runbook-20261117.tar --tier large --answers site.yaml --mode stub",
+   "cwd": "/opt/trialbox",
+   "env": [],
+   "rc": 1,
+   "seconds": 0.1,
+   "after_lifts": [
+    "host-tree"
+   ],
+   "prompts": [],
+   "out": "",
+   "err": "install: --tier needs the GPU: drop --mode stub"
+  },
+  {
+   "step": "one-command",
+   "place": "docs/runbook/01-install-a-new-site.md:28",
+   "as_written": "sudo deploy/install.sh trialbox-<version>.tar --tier large --answers site.yaml",
+   "ran": "deploy/install.sh /media/usb/trialbox-runbook-20261117.tar --mode stub --answers site.yaml",
+   "cwd": "/opt/trialbox",
+   "env": [],
+   "rc": 1,
+   "seconds": 0.3,
+   "after_lifts": [
+    "host-tree",
+    "drop-tier"
+   ],
+   "prompts": [],
+   "out": "\u001b[1m==> host\u001b[0m\n    no GPU: structured criteria only (FEAS, NAV, COHORT); note criteria wait for a GPU or a pinned cloud model",
+   "err": "install: vendor public key missing: copy vendor_ed25519.pub (from the vendor, out of band) to /opt/trialbox/deploy/keys/vendor_ed25519.pub"
+  },
+  {
+   "step": "one-command",
+   "place": "docs/runbook/01-install-a-new-site.md:28",
+   "as_written": "sudo deploy/install.sh trialbox-<version>.tar --tier large --answers site.yaml",
+   "ran": "deploy/install.sh /media/usb/trialbox-runbook-20261117.tar --mode stub --answers site.yaml",
+   "cwd": "/opt/trialbox",
+   "env": [],
+   "rc": 1,
+   "seconds": 0.3,
+   "after_lifts": [
+    "host-tree",
+    "drop-tier",
+    "vendor-key-first"
+   ],
+   "prompts": [],
+   "out": "\u001b[1m==> host\u001b[0m\n    no GPU: structured criteria only (FEAS, NAV, COHORT); note criteria wait for a GPU or a pinned cloud model",
+   "err": "sha256sum: /tmp/tb-runbook-install/media/trialbox-runbook-20261117.tar: No such file or directory\nsha256sum: WARNING: 1 listed file could not be read\ninstall: bundle checksum mismatch"
+  },
+  {
+   "step": "one-command",
+   "place": "docs/runbook/01-install-a-new-site.md:28",
+   "as_written": "sudo deploy/install.sh trialbox-<version>.tar --tier large --answers site.yaml",
+   "ran": "deploy/install.sh /media/usb/trialbox-runbook-20261117.tar --mode stub --answers site.yaml",
+   "cwd": "/opt/trialbox",
+   "env": [],
+   "rc": 1,
+   "seconds": 74.3,
+   "after_lifts": [
+    "host-tree",
+    "drop-tier",
+    "vendor-key-first",
+    "sidecar-name"
+   ],
+   "prompts": [],
+   "out": "\u001b[1m==> host\u001b[0m\n    no GPU: structured criteria only (FEAS, NAV, COHORT); note criteria wait for a GPU or a pinned cloud model\n    docker 29.9.2, model profile: stub, gpu: auto, vendor key: [redacted]\n\u001b[1m==> bundle: verify and load (host tree, images, models, rulesets)\u001b[0m\n    verifying the signature and every file of trialbox-runbook-20261117.tar (minutes for a large bundle)\n    loading the images, models and rulesets (10-20 minutes for a GPU bundle)\n    verified: {\"bundle_id\": \"runbook-20261117\", \"compat\": {\"bundle_id\": \"runbook-20261117\", \"format\": \"trialbox-update-compat/1\", \"rows\": [{\"model_pin\": \"*\", \"prompt_registry\": \"*\", \"vocabulary_release\": \"*\"}]}, \"compat_notes\": [\"schema versions not compared here (read from the database by the update itself)\", \"vocabulary_release: the box records none, not compared\", \"model_pin: the box records none, not compared\", \"prompt_registry: the box records none, not compared\"], \"downgrade\": null, \"files\": [{\"kind\": \"image\", \"path\": \"trialbox-py_1.0.0.tar\", \"size\": 265837568}, {\"kind\": \"image\", \"path\": \"trialbox-jvm_1.0.0.tar\", \"size\": 690618880}, {\"kind\": \"image\", \"path\": \"trialbox-postgres_16-1.tar\", \"size\": 200543232}, {\"kind\": \"image\", \"path\": \"trialbox-embed_1.0.0.tar\", \"size\": 632434688}, {\"kind\": \"image\", \"path\": \"caddy_2.11.9-alpine@sha256_003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0.tar\", \"size\": 25161728}, {\"kind\": \"image\", \"path\": \"hapiproject_hapi_v8.12.0-2@sha256_0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e.tar\", \"size\": 445905920}, {\"kind\": \"image\", \"path\": \"trialbox-backup_1.0.0.tar\", \"size\": 280488960}, {\"kind\": \"other\", \"path\": \"image-pins.json\", \"size\": 423}, {\"kind\": \"refdata\", \"path\": \"trialbox-refdata-20261109.tar\", \"size\": 81920}, {\"kind\": \"host\", \"path\": \"trialbox-host.tar\", \"size\": 9482240}, {\"kind\": \"other\", \"path\": \"install.sh\", \"size\": 74314}, {\"kind\": \"other\", \"path\": \"check_host.sh\", \"size\": 23871}, {\"kind\": \"other\", \"path\": \"settings.example.yaml\", \"size\": \n... (12848 characters cut) ...\namd64.cdx.json\n    other sbom/gates.json\n    other sbom/hapiproject_hapi_v8.12.0-2_0ff86aac4c7b_linux_amd64.cdx.json\n    other sbom/index.json\n    other sbom/licences.md\n    other sbom/requirements.lock.cdx.json\n    other sbom/trialbox-backup_1.0.0_linux_amd64.cdx.json\n    other sbom/trialbox-embed_1.0.0_linux_amd64.cdx.json\n    other sbom/trialbox-jvm_1.0.0_linux_amd64.cdx.json\n    other sbom/trialbox-postgres_16-1_linux_amd64.cdx.json\n    other sbom/trialbox-py_1.0.0_linux_amd64.cdx.json\n    other settings.example.yaml\n    image pins: 2\n    update runbook-20261117 loaded; the box is not running, so install.sh starts it and audits it\n    release: /opt/trialbox/current -> releases/runbook-20261117\n\u001b[1m==> continuing from the signed release (/opt/trialbox/deploy/install.sh -> ../current/deploy/install.sh)\u001b[0m\n\u001b[1m==> host\u001b[0m\n    no GPU: structured criteria only (FEAS, NAV, COHORT); note criteria wait for a GPU or a pinned cloud model\n    docker 29.9.2, model profile: stub, gpu: auto, vendor key: [redacted]\n\u001b[1m==> bundle: verify and load (host tree, images, models, rulesets)\u001b[0m\n    release: /opt/trialbox/current -> releases/runbook-20261117\n\u001b[1m==> settings\u001b[0m\n    site mapping folder: deploy/site/mapping (from ./mapping)\nwarning: tls_mode internal: hospital IT must install Caddy's root certificate on every clinic PC (group policy), and personal devices cannot open the console; the hospital's certificate is the first choice (RUNBOOK §12)\nwrote /out/settings.yaml and /out/.env (0600)\n    ClinicalTrials.gov: offline\n    tokens made for: lake, embed-service, doc-parser, criteria-compiler, adapter, orchestrator, mail-gateway, gateway, console, operator, actor, model; registry /opt/trialbox/deploy/secrets/services/public/tokens.json\n    feed folder: /opt/trialbox/deploy/site/feed-a -> /data/source/site-a in the adapter\n    SAE office mailbox: trial-office@hospa.test\n    memcaps: no CURRENT snapshot and no TB_SITE_PATIENTS: the compose defaults stay (set TB_SITE_PATIENTS to size them)\n    pgsize: TB_PG_SHARED_BUFFERS=1024MB, TB_PG_EFFECTIVE_CACHE_SIZE=3072MB, TB_PG_MAINTENANCE_WORK_MEM=256MB, TB_PG_MAX_WAL_SIZE=16GB, TB_PG_MIN_WAL_SIZE=4GB, TB_PG_IDLE_TX_TIMEOUT=3600s, TB_PG_SHM=1024m\n\u001b[1m==> TLS: https://trialbox.hospa.test (internal)\u001b[0m\n    tls: mode internal, host trialbox.hospa.test\n    note: Caddy issues the certificate from its own CA; install its root on the staff PCs (RUNBOOK §12)\n    PASS  third-party images of 3 compose file(s) as deploy/images.lock (4 entries)\n\u001b[1m==> starting the stack (profile stub)\u001b[0m\n    image pins: AUTHELIA_IMAGE: authelia/authelia:4.39.28@sha256:bd97cff4fcbf715b5ff1f9ae286afbe6033afce385302520b0368122d43a6f54: no service of this box's stack runs it (not needed on this box)\n    image pins: CADDY_IMAGE: caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0 on this box by its digest\n    image pins: HAPI_IMAGE: hapiproject/hapi:v8.12.0-2@sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e on this box by its digest\n    image pins: VLLM_IMAGE: vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34: no service of this box's stack runs it (not needed on this box)\n    every image of the stack is on this box (nothing is pulled)\n    pre-start: image pins: compose is pointed at the bundle's images where the image store kept no digest\n    pre-start: model key: [redacted] place, or not a GPU box\n    pre-start: actor signing key: [redacted] place\n    pre-start: FHIR store password: [redacted] place\n    pre-start: hospital directory CA: the hospital sign-in is off: Authelia does not run\n\u001b[1m==> site keys (made once, never replaced)\u001b[0m\n    site_hmac.key: [redacted] (fingerprint [redacted])\n    pid_map.key: [redacted] (fingerprint [redacted])\n\u001b[1m==> site keys sealed under the KEK (deploy/hardening/seal_keys.sh)\u001b[0m\n    sealing the site keys under a new KEK (back end tpm)",
+   "err": "cp: warning: behavior of -n is non-portable and may change in future; use --update=none instead\n Network trialbox-net  Creating\n Network trialbox-net  Created\n Volume trialbox_lake-data  Creating\n Volume trialbox_lake-data  Created\n Volume trialbox_audit-data  Creating\n Volume trialbox_audit-data  Created\n Volume trialbox_tb-secrets  Creating\n Volume trialbox_tb-secrets  Created\n Volume trialbox_db-pg  Creating\n Volume trialbox_db-pg  Created\nhardening: KEK_BACKEND=tpm but this host has no TPM 2.0 device; on a host without a usable TPM 2.0 run the installer with TB_KEK_BACKEND=passphrase and TB_KEK_PASSPHRASE set (12 characters or more; no hardening.conf needed)\ninstall: the site keys are not sealed (above): without a usable TPM run again with TB_KEK_BACKEND=passphrase and TB_KEK_PASSPHRASE set (no hardening.conf needed); docs/security/01-the-host.md"
+  },
+  {
+   "step": "one-command",
+   "place": "docs/runbook/01-install-a-new-site.md:28",
+   "as_written": "sudo deploy/install.sh trialbox-<version>.tar --tier large --answers site.yaml",
+   "ran": "deploy/install.sh /media/usb/trialbox-runbook-20261117.tar --mode stub --answers site.yaml",
+   "cwd": "/opt/trialbox",
+   "env": [
+    "TB_KEK_BACKEND",
+    "TB_KEK_PASSPHRASE"
+   ],
+   "rc": 1,
+   "seconds": 112.5,
+   "after_lifts": [
+    "host-tree",
+    "drop-tier",
+    "vendor-key-first",
+    "sidecar-name",
+    "no-tpm"
+   ],
+   "prompts": [],
+   "out": "\u001b[1m==> host\u001b[0m\n    no GPU: structured criteria only (FEAS, NAV, COHORT); note criteria wait for a GPU or a pinned cloud model\n    docker 29.9.2, model profile: stub, gpu: auto, vendor key: [redacted]\n\u001b[1m==> bundle: verify and load (host tree, images, models, rulesets)\u001b[0m\n    verifying the signature and every file of trialbox-runbook-20261117.tar (minutes for a large bundle)\n    loading the images, models and rulesets (10-20 minutes for a GPU bundle)\n    keys: [redacted] site_hmac.key, pid_map.key plain in PRODUCTION: python -m tools.keys init (or wrap)\n    keys: [redacted] wrapped, 2 plain, KEK none\n    verified: {\"bundle_id\": \"runbook-20261117\", \"compat\": {\"bundle_id\": \"runbook-20261117\", \"format\": \"trialbox-update-compat/1\", \"rows\": [{\"model_pin\": \"*\", \"prompt_registry\": \"*\", \"vocabulary_release\": \"*\"}]}, \"compat_notes\": [\"schema versions not compared here (read from the database by the update itself)\", \"vocabulary_release: the box records none, not compared\", \"model_pin: the box records none, not compared\", \"prompt_registry: the box records none, not compared\"], \"downgrade\": null, \"files\": [{\"kind\": \"image\", \"path\": \"trialbox-py_1.0.0.tar\", \"size\": 265837568}, {\"kind\": \"image\", \"path\": \"trialbox-jvm_1.0.0.tar\", \"size\": 690618880}, {\"kind\": \"image\", \"path\": \"trialbox-postgres_16-1.tar\", \"size\": 200543232}, {\"kind\": \"image\", \"path\": \"trialbox-embed_1.0.0.tar\", \"size\": 632434688}, {\"kind\": \"image\", \"path\": \"caddy_2.11.9-alpine@sha256_003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0.tar\", \"size\": 25161728}, {\"kind\": \"image\", \"path\": \"hapiproject_hapi_v8.12.0-2@sha256_0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e.tar\", \"size\": 445905920}, {\"kind\": \"image\", \"path\": \"trialbox-backup_1.0.0.tar\", \"size\": 280488960}, {\"kind\": \"other\", \"path\": \"image-pins.json\", \"size\": 423}, {\"kind\": \"refdata\", \"path\": \"trialbox-refdata-20261109.tar\", \"size\": 81920}, {\"kind\": \"host\", \"path\": \"trialbox-host.tar\", \"size\": 9482240}, {\"kind\": \"other\", \"pa\n... (15774 characters cut) ...\nthe next boot)\nkeys: [redacted] wrapped, 0 plain, KEK ok\naudit signing key ed543340fd81244aaa4293cb0d260a27 made: audit_sign.key.wrapped, audit_sign.pub\n    db-up: FHIR store password is set: yes\n    db-up: database: made again: it held another release's scripts\n    db-up: service roles: set by the role script\n    db-up: owned schemas: made by the box's admin\n    db-up: service stores: migrated in a one-off container each: orchestrator, mail-gateway, gateway, criteria-compiler, console\nNAME                           IMAGE                                                                                                COMMAND                  SERVICE             CREATED              STATUS                         PORTS\ntrialbox-adapter-1             trialbox-jvm:1.0.0                                                                                   \"uvicorn adapter.app…\"   adapter             53 seconds ago       Up 51 seconds (healthy)        \ntrialbox-audit-writer-1        trialbox-py:1.0.0                                                                                    \"python -m tb_common…\"   audit-writer        53 seconds ago       Up 51 seconds (healthy)        \ntrialbox-caddy-1               caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0          \"caddy run --config …\"   caddy               53 seconds ago       Up 32 seconds (healthy)        80/tcp, 2019/tcp, 443/udp, 0.0.0.0:443->443/tcp\ntrialbox-console-1             trialbox-py:1.0.0                                                                                    \"uvicorn --factory c…\"   console             53 seconds ago       Up 38 seconds (healthy)        \ntrialbox-criteria-compiler-1   trialbox-jvm:1.0.0                                                                                   \"uvicorn criteria_co…\"   criteria-compiler   53 seconds ago       Up 51 seconds (healthy)        \ntrialbox-db-1                  trialbox-postgres:16-1                                                                               \"docker-entrypoint.s…\"   db                  About a minute ago   Up About a minute (healthy)    5432/tcp\ntrialbox-doc-parser-1          trialbox-py:1.0.0                                                                                    \"uvicorn doc_parser.…\"   doc-parser          53 seconds ago       Up 51 seconds (healthy)        \ntrialbox-embed-service-1       trialbox-embed:1.0.0                                                                                 \"uvicorn embed_servi…\"   embed-service       53 seconds ago       Restarting (1) 4 seconds ago   \ntrialbox-fhir-store-1          hapiproject/hapi:v8.12.0-2@sha256:0ff86aac4c7bd13a1ee226444a70263bb46ed1c28ef543c30a44f865b80ca04e   \"java --class-path /…\"   fhir-store          53 seconds ago       Up 51 seconds (healthy)        \ntrialbox-gateway-1             trialbox-py:1.0.0                                                                                    \"uvicorn --factory g…\"   gateway             53 seconds ago       Up 51 seconds (healthy)        \ntrialbox-lake-1                trialbox-py:1.0.0                                                                                    \"uvicorn lake.app:ap…\"   lake                53 seconds ago       Up 51 seconds (healthy)        \ntrialbox-llm-stub-1            trialbox-py:1.0.0                                                                                    \"uvicorn llm_stub.ap…\"   llm-stub            53 seconds ago       Up 51 seconds (healthy)        \ntrialbox-mail-gateway-1        trialbox-py:1.0.0                                                                                    \"uvicorn mail_gatewa…\"   mail-gateway        53 seconds ago       Up 51 seconds (healthy)        \ntrialbox-orchestrator-1        trialbox-jvm:1.0.0                                                                                   \"uvicorn orchestrato…\"   orchestrator        53 seconds ago       Up 51 seconds (healthy)        ",
+   "err": "keys: [redacted] site_hmac.key, pid_map.key plain in PRODUCTION: python -m tools.keys init (or wrap)\ncp: warning: behavior of -n is non-portable and may change in future; use --update=none instead\n Container trialbox-db-1  Creating\n Container trialbox-db-1  Created\n Container trialbox-db-1  Starting\n Container trialbox-db-1  Started\n Container trialbox-db-1  Waiting\n Container trialbox-db-1  Healthy\n Network trialbox-edge  Creating\n Network trialbox-edge  Created\n Volume trialbox_caddy-config  Creating\n Volume trialbox_caddy-config  Created\n Volume trialbox_caddy-data  Creating\n Volume trialbox_caddy-data  Created\n Container trialbox-db-1  Running\n Container trialbox-audit-writer-1  Creating\n Container trialbox-lake-1  Creating\n Container trialbox-doc-parser-1  Creating\n Container trialbox-embed-service-1  Creating\n Container trialbox-llm-stub-1  Creating\n Container trialbox-adapter-1  Creating\n Container trialbox-mail-gateway-1  Creating\n Container trialbox-criteria-compiler-1  Creating\n Container trialbox-gateway-1  Creating\n Container trialbox-orchestrator-1  Creating\n Container trialbox-fhir-store-1  Creating\n Container trialbox-mail-gateway-1  Created\n Container trialbox-doc-parser-1  Created\n Container trialbox-gateway-1  Created\n Container trialbox-llm-stub-1  Created\n Container trialbox-audit-writer-1  Created\n Container trialbox-lake-1  Created\n Container trialbox-embed-service-1  Created\n Container trialbox-criteria-compiler-1  Created\n Container trialbox-fhir-store-1  Created\n Container trialbox-adapter-1  Created\n Container trialbox-orchestrator-1  Created\n Container trialbox-console-1  Creating\n Container trialbox-console-1  Created\n Container trialbox-caddy-1  Creating\n Container trialbox-caddy-1  Created\n Container trialbox-db-1  Waiting\n Container trialbox-db-1  Waiting\n Container trialbox-db-1  Waiting\n Container trialbox-db-1  Waiting\n Container trialbox-db-1  Waiting\n Container trialbox-db-1  Waiting\n Container trialbox-db-1  Waiting\n Container trialbox-db-1  Waiting\n Container trialbox-db-1  Waiting\n Container trialbox-db-1  Waiting\n Container trialbox-db-1  Waiting\n Container trialbox-db-1  Healthy\n Container trialbox-adapter-1  Starting\n Container trialbox-db-1  Healthy\n Container trialbox-gateway-1  Starting\n Container trialbox-db-1  Healthy\n Container trialbox-doc-parser-1  Starting\n Container trialbox-db-1  Healthy\n Container trialbox-lake-1  Starting\n Container trialbox-db-1  Healthy\n Container trialbox-embed-service-1  Starting\n Container trialbox-db-1  Healthy\n Container trialbox-mail-gateway-1  Starting\n Container trialbox-db-1  Healthy\n Container trialbox-llm-stub-1  Starting\n Container trialbox-db-1  Healthy\n Container trialbox-fhir-store-1  Starting\n Container trialbox-db-1  Healthy\n Container trialbox-orchestrator-1  Starting\n Container trialbox-db-1  Healthy\n Container trialbox-audit-writer-1  Starting\n Container trialbox-db-1  Healthy\n Container trialbox-criteria-compiler-1  Starting\n Container trialbox-orchestrator-1  Started\n Container trialbox-audit-writer-1  Started\n Container trialbox-llm-stub-1  Started\n Container trialbox-fhir-store-1  Started\n Container trialbox-doc-parser-1  Started\n Container trialbox-criteria-compiler-1  Started\n Container trialbox-mail-gateway-1  Started\n Container trialbox-embed-service-1  Started\n Container trialbox-lake-1  Started\n Container trialbox-gateway-1  Started\n Container trialbox-db-1  Waiting\n Container trialbox-orchestrator-1  Waiting\n Container trialbox-mail-gateway-1  Waiting\n Container trialbox-gateway-1  Waiting\n Container trialbox-adapter-1  Started\n Container trialbox-db-1  Healthy\n Container trialbox-mail-gateway-1  Healthy\n Container trialbox-gateway-1  Healthy\n Container trialbox-orchestrator-1  Healthy\n Container trialbox-console-1  Starting\n Container trialbox-console-1  Started\n Container trialbox-console-1  Waiting\n Container trialbox-console-1  Healthy\n Container trialbox-caddy-1  Starting\n Container trialbox-caddy-1  Started\n Container trialbox-gateway-1  Waiting\n Container trialbox-orchestrator-1  Waiting\n Container trialbox-audit-writer-1  Waiting\n Container trialbox-db-1  Waiting\n Container trialbox-lake-1  Waiting\n Container trialbox-mail-gateway-1  Waiting\n Container trialbox-doc-parser-1  Waiting\n Container trialbox-fhir-store-1  Waiting\n Container trialbox-embed-service-1  Waiting\n Container trialbox-llm-stub-1  Waiting\n Container trialbox-adapter-1  Waiting\n Container trialbox-caddy-1  Waiting\n Container trialbox-console-1  Waiting\n Container trialbox-criteria-compiler-1  Waiting\n Container trialbox-gateway-1  Healthy\n Container trialbox-console-1  Healthy\n Container trialbox-orchestrator-1  Healthy\n Container trialbox-criteria-compiler-1  Healthy\n Container trialbox-audit-writer-1  Healthy\n Container trialbox-llm-stub-1  Healthy\n Container trialbox-mail-gateway-1  Healthy\n Container trialbox-adapter-1  Healthy\n Container trialbox-doc-parser-1  Healthy\n Container trialbox-lake-1  Healthy\n Container trialbox-db-1  Healthy\n Container trialbox-caddy-1  Healthy\n Container trialbox-fhir-store-1  Healthy\ncontainer trialbox-embed-service-1 is unhealthy\ninstall: the stack did not become healthy (docker compose logs)"
+  }
+ ],
+ "findings": [
+  {
+   "id": "no-host-tree",
+   "step": "one-command",
+   "evidence": "rc 127: bash: line 1: deploy/install.sh: No such file or directory"
+  },
+  {
+   "id": "stub-fragment-vs-tier",
+   "step": "one-command",
+   "evidence": "install: --tier needs the GPU: drop --mode stub"
+  },
+  {
+   "id": "vendor-key-after-start",
+   "step": "one-command",
+   "evidence": "\u001b[1m==> host\u001b[0m |     no GPU: structured criteria only (FEAS, NAV, COHORT); note criteria wait for a GPU or a pinned cloud model | install: vendor public key missing: copy vendor_ed25519.pub (from the vendor, out of band) to /opt/trialbox/deploy/keys/vendor_ed25519.pub"
+  },
+  {
+   "id": "bundle-sidecar-path",
+   "step": "one-command",
+   "evidence": "    no GPU: structured criteria only (FEAS, NAV, COHORT); note criteria wait for a GPU or a pinned cloud model | sha256sum: /tmp/tb-runbook-install/media/trialbox-runbook-20261117.tar: No such file or directory | sha256sum: WARNING: 1 listed file could not be read | install: bundle checksum mismatch"
+  },
+  {
+   "id": "stub-production-embedder",
+   "step": "one-command",
+   "evidence": " Container trialbox-caddy-1  Healthy |  Container trialbox-fhir-store-1  Healthy | container trialbox-embed-service-1 is unhealthy | install: the stack did not become healthy (docker compose logs)"
+  }
+ ],
+ "lifts": [
+  "host-tree",
+  "drop-tier",
+  "vendor-key-first",
+  "sidecar-name",
+  "no-tpm"
+ ],
+ "supplied": [
+  {
+   "what": "the signed bundle",
+   "from": "trialbox-runbook-20261117.tar",
+   "to": "/media/usb/trialbox-runbook-20261117.tar",
+   "why": "the one command's <version>.tar"
+  },
+  {
+   "what": "answer sae_office_mailbox",
+   "from": "a synthetic value",
+   "to": "site.yaml",
+   "why": "§1 names it as required for a PRODUCTION install; the rehearsal's answers lack it"
+  },
+  {
+   "what": "the site's folder (site.yaml, mapping/)",
+   "from": "tools/rehearse_box/site_answers.yaml",
+   "to": "/opt/trialbox/",
+   "why": "'What the site brings'; values are the hospital's: the rehearsal's synthetic answers; placed where the one command's relative --answers site.yaml finds it"
+  },
+  {
+   "what": "the feed folder's content (the hospital's export)",
+   "from": "tests/fixtures/synthetic_patients/site-a",
+   "to": "/opt/trialbox/deploy/site/feed-a",
+   "why": "the answers' data_source_host_dir (./site/feed-a); the export is the hospital's"
+  }
+ ],
+ "verdict": "the runbook alone does not install the box: stopped at the one command (§1:28) because deploy/install.sh is not on the machine: the runbook never says how /opt/trialbox gets the release's host tree",
+ "installed": false,
+ "reached": [
+  "convention",
+  "1-host",
+  "one-command"
+ ],
+ "seconds": 187.8701721970001,
+ "commands_run": 8,
+ "machine_stop": "",
+ "diagnostics": [
+  {
+   "service": "embed-service",
+   "log": "  File \"/usr/local/lib/python3.12/site-packages/click/core.py\", line 911, in invoke\n    return callback(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/site-packages/uvicorn/main.py\", line 448, in main\n    run(\n  File \"/usr/local/lib/python3.12/site-packages/uvicorn/main.py\", line 620, in run\n    config.load_app()\n  File \"/usr/local/lib/python3.12/site-packages/uvicorn/config.py\", line 434, in load_app\n    return import_from_string(self.app)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/site-packages/uvicorn/importer.py\", line 19, in import_from_string\n    module = importlib.import_module(module_str)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/importlib/__init__.py\", line 90, in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<frozen importlib._bootstrap>\", line 1387, in _gcd_import\n  File \"<frozen importlib._bootstrap>\", line 1360, in _find_and_load\n  File \"<frozen importlib._bootstrap>\", line 1331, in _find_and_load_unlocked\n  File \"<frozen importlib._bootstrap>\", line 935, in _load_unlocked\n  File \"<frozen importlib._bootstrap_external>\", line 999, in exec_module\n  File \"<frozen importlib._bootstrap>\", line 488, in _call_with_frames_removed\n  File \"/app/services/embed_service/app.py\", line 73, in <module>\n    embedder()\n  File \"/app/services/embed_service/app.py\", line 36, in embedder\n    _embedder = service_embedder()\n                ^^^^^^^^^^^^^^^^^^\n  File \"/app/services/embed_service/embedder.py\", line 291, in service_embedder\n    raise EmbedderRefused(\nembed_service.embedder.EmbedderRefused: no pin for e-embed-1 in the site override (TB_REGISTRY_OVERRIDE): the embedder's weights cannot be checked; pin them with python -m tools.pin_model --build e-embed-1 --endpoint embed ..."
+  }
+ ],
+ "wall_seconds": 189.3,
+ "not_needed": [
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:14",
+   "command": "tools/serving_config.py measured",
+   "why": "names the check the installer runs"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:16",
+   "command": "deploy/install.sh --tier large --tier-check",
+   "why": "only asks (the runbook: 'only asks')"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:18",
+   "command": "TB_COMPOSE_OVERRIDE= TB_ACCEPT_UNMEASURED_GPU=1 deploy/install.sh <bundle> --gpu <profile> --rehearsal",
+   "why": "measuring a new card on a rehearsal box"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:20",
+   "command": "python3 tools/serving_config.py capture --container judge=trialbox-llm-service-1 --container verifier=trialbox-llm-verifier-1 --models-dir deploy/models --out deploy/site/serving_config.<profile>.json",
+   "why": "measuring a new card on a rehearsal box"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:24",
+   "command": "python -m tools.gpu_sizing",
+   "why": "an estimate, not an install step"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:35",
+   "command": "--mode stub",
+   "why": "a box without a GPU (used by the follower only on such a machine; D-1136)"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:41",
+   "command": "python -m tools.trialbox.memcaps --measure",
+   "why": "re-measuring or re-sizing the memory caps (the installer sizes them)"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:43",
+   "command": "python -m tools.trialbox.memcaps --env-file deploy/.env --write",
+   "why": "re-measuring or re-sizing the memory caps (the installer sizes them)"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:65",
+   "command": "tools/make_bundle.sh",
+   "why": "the vendor builds the bundle"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:65",
+   "command": "make release-bundle",
+   "why": "the vendor builds the bundle"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:75",
+   "command": "tools/apply_update.sh trialbox-<version>.tar",
+   "why": "step 2: the installer loads the bundle"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:76",
+   "command": "make images",
+   "why": "step 2: a development host builds instead"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:76",
+   "command": "make images-multiarch",
+   "why": "step 2: a development host builds instead"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:82",
+   "command": "docker compose exec criteria-compiler sh -c 'cd /app/rulesets && python -m zipfile -c /tmp/GZQO.zip GZQO && python -m criteria_compiler.import_ruleset /tmp/GZQO.zip --by \"synthetic-run:<who>\"'",
+   "why": "step 2: a synthetic run on a PRODUCTION box, optional"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:92",
+   "command": "python -m tools.settings_wizard --out deploy/settings.yaml --env-out deploy/.env",
+   "why": "step 3: the installer runs the wizard"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:93",
+   "command": "--answers site.yaml",
+   "why": "step 3: the installer runs the wizard with the answers"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:93",
+   "command": "python -m tools.settings_wizard --answers tests/fixtures/onboarding/site_c_answers.yaml --out deploy/settings.yaml --env-out deploy/.env",
+   "why": "step 3: the installer runs the wizard"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:96",
+   "command": "--check deploy/settings.yaml",
+   "why": "step 3: re-checking an edited file"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:104",
+   "command": "sudo python3 -m tools.trialbox secrets init",
+   "why": "step 5: the installer does it"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:104",
+   "command": "cd deploy && docker compose -f docker-compose.yml -f docker-compose.secrets.yml -f docker-compose.identity.yml -f docker-compose.<gpu>.yml --profile gpu up -d --wait",
+   "why": "step 5: the installer does it"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:106",
+   "command": "--profile stub",
+   "why": "step 5: the installer does it"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:107",
+   "command": "deploy/network.sh apply",
+   "why": "step 5: the installer does it"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:110",
+   "command": "systemctl enable trialbox-egress.service trialbox.service trialbox-egress-refresh.timer trialbox-watchdog.timer",
+   "why": "step 5: by hand only; the installer does it"
+  },
+  {
+   "place": "docs/runbook/01-install-a-new-site.md:115",
+   "command": "deploy/check_host.sh [--gb10]",
+   "why": "step 8: the installer runs the host check"
+  }
+ ],
+ "static": [
+  "compose-cwd-unstated",
+  "feed-folder-content-unstated",
+  "host-packages-unnamed",
+  "ingest-report-in-volume",
+  "no-host-tree",
+  "python-not-python3",
+  "site-folder-place-unstated",
+  "stub-fragment-vs-tier",
+  "unmentioned-questions",
+  "vendor-key-after-start"
+ ],
+ "machine_lacks": [
+  "TPM2",
+  "LUKS2"
+ ]
+}
