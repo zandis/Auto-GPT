@@ -728,7 +728,7 @@ def _pi_close(s: Site, st: dict[str, Any]) -> None:
     name, rs = user("pi"), "GZQO"
     why = "the sponsor stopped recruitment at every site"
     page = s.get(name, f"/studies/{rs}/state")
-    r = s.post(name, f"/studies/{rs}/state", {"state": "closed", "reason": why}, page.text)
+    r = s.post(name, f"/studies/{rs}/state", {"state": "closed", "reason": why, "confirm": "yes"}, page.text)
     assert r.status_code == 200 and 'data-state="closed"' in r.text, (r.status_code, js.text(r.text)[-300:])
     assert why in js.text(r.text)
     log = js.text(s.get(name, f"/studies/{rs}/screening-log").text)

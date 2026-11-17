@@ -54,6 +54,7 @@ _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _VISIT = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 _DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 STATES = ("candidate", "approached", "consented", "enrolled", "on_study", "completed", "withdrawn", "screen_fail")
+FINAL_STEPS = ("withdrawn", "screen_fail")  # WALK-1 (F-11): the final steps that take a reason, confirmed first
 SF_REASONS = ("not_eligible", "declined", "lost_contact", "other")
 WD_REASONS = ("1", "2", "3", "4", "5", "6")
 SCHEDULE_ROWS = 4  # empty rows on the schedule page for new visits
@@ -451,6 +452,16 @@ def register(app: FastAPI, h: Helpers) -> None:
         rec = record_key(record[:64])
         to, on_day, reason, note = (str(data.get(k) or "").strip()[:300] for k in ("to", "on_day", "reason", "note"))
         criterion = str(data.get("criterion") or "").strip()[:48] if reason == "not_eligible" else ""
+        if to in FINAL_STEPS and reason and str(data.get("confirm") or "") != "yes" and h.confirm is not None:
+            # WALK-1 (F-11, D-178): a final step is named before it is recorded (no reason: refused as before)
+            lang = lang_of(sess)
+            key = f"life.reason.{'wd' if to == 'withdrawn' else 'sf'}.{reason}"
+            words = translate(lang, key)
+            text = translate(lang, "life.confirm.final", step=translate(lang, f"life.state.{to}"), record=rec,
+                             reason=reason if words == key else words)  # fmt: skip
+            fields = {k: v for k, v in (("to", to), ("on_day", on_day), ("reason", reason), ("note", note),
+                                        ("criterion", criterion)) if v}  # fmt: skip
+            return h.confirm(request, sess, text, request.url.path, fields, f"/studies/{rid}/subjects/{quote(rec)}")
         try:
             apply_step(sess, request.url.path, rid, rec, to, on_day, reason, note, criterion)
         except Problem as exc:

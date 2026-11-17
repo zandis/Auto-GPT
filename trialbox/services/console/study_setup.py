@@ -41,6 +41,7 @@ from console.api_first import before_body
 from console.auth import Session, User
 from console.backend import Problem, Unavailable
 from console.home import Helpers
+from console.i18n import translate
 from console.sitestore import (
     ALL_REASONS,
     COHORT_KINDS,
@@ -520,7 +521,9 @@ def register(app: FastAPI, h: Helpers) -> None:
             take_back=take_back_open(cur) and may_take_back(h, sess.user, rid),  # D-763: the PI, the same day
             keep_default=STUDY_YEARS_AFTER_CLOSE,  # D-779 (T-305c): the period after the close
             keep_max=STUDY_YEARS_MAX,
-            kept_until=kept_until(cur.at, cur.keep_years).isoformat() if cur.state == "closed" and cur.at else "",
+            kept_until=kept_until(cur.at, cur.keep_years, site_zone(bk)).isoformat()  # F-16: the site's day
+            if cur.state == "closed" and cur.at
+            else "",
             irbt=irbt or store.irb_text(rid),
             irbt_history=list(reversed(store.irb_text_history(rid))),
             irbt_edit=may_record_irb_text(h, sess.user, rid),
@@ -599,7 +602,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     @app.post("/studies/{rs}/state")
     def change_state(
         request: Request, rs: str, csrf: str = Form(""), state: str = Form(""), reason: str = Form(""),
-        keep_years: str = Form(""),
+        keep_years: str = Form(""), confirm: str = Form(""),
     ) -> Response:  # fmt: skip
         """Move the study to ``state`` (D-386). Pausing or closing takes a reason. The audit event is written in the
         store's transaction, so a change is never kept without it. A close names the years the study's files are
@@ -624,6 +627,14 @@ def register(app: FastAPI, h: Helpers) -> None:
             refused, counts = close_refused(rid)
             if refused:
                 return state_page(request, sess, rid, status=409, err=refused, close=counts)
+            if (
+                confirm != "yes" and h.confirm is not None
+            ):  # WALK-1 (F-15, D-763): the close is final; it is named, with its day, before it is made
+                day = kept_until(h.clock().isoformat(), years, site_zone(bk)).isoformat()
+                text = translate(sess.lang, "sstate.confirm.close", rs=rid, day=day)
+                return h.confirm(request, sess, text, request.url.path,
+                                 {"state": state, "reason": why, "keep_years": str(years)},
+                                 f"/studies/{rid}/state")  # fmt: skip
 
         def audit(new: StudyState) -> None:
             au.append("console.study_state", ruleset=rid, actor=h.actor(sess),
