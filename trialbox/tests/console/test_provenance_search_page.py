@@ -88,3 +88,31 @@ def test_an_index_that_cannot_be_read_is_said(box: dict[str, Any], con: Any, tmp
     stw, _ = login(box["app"], "stw", PW)
     page = stw.get("/audit/provenance", params={"model": "m-judge"})
     assert page.status_code == 503 and 'data-testid="prov-error"' in page.text
+
+
+def test_free_text_is_never_searched_or_written_to_the_chain(box: dict[str, Any], con: Any, tmp_path: Path) -> None:  # noqa: F811
+    """The review of D-1155: a filter is an id; anything else (a name, a chart number with a space, markup) is
+    refused before any search or audit line, and a prompt version needs its prompt id."""
+    _box(box, con, tmp_path)
+    stw, _ = login(box["app"], "stw", PW)
+    for params in ({"model": "Wang Xiao Ming"}, {"model": "<script>x</script>"}, {"prompt_version": "4"}):
+        page = stw.get("/audit/provenance", params=params)
+        assert page.status_code == 400 and 'data-testid="prov-bad"' in page.text, params
+        assert "<script>x" not in page.text
+    assert _events(box) == []
+
+
+def test_a_failed_search_is_audited_and_the_administrators_search_says_no_pseudonym(box: dict[str, Any], con: Any,  # noqa: F811
+                                                                                     tmp_path: Path) -> None:  # fmt: skip
+    _box(box, con, tmp_path)
+    ops, _ = login(box["app"], "ops", PW)
+    assert ops.get("/audit/provenance", params={"build_sha": "b2"}).status_code == 200
+    (ev,) = _events(box)
+    assert ev["detail"]["pids"] is False and ev["actor"] == "console:ops"
+
+    def down() -> Any:
+        raise OSError("the trial database does not answer")
+
+    box["app"].state.audit_hooks.doors["provenance"] = down
+    assert ops.get("/audit/provenance", params={"build_sha": "b2"}).status_code == 503
+    assert _events(box)[-1]["detail"]["error"] is True

@@ -12,6 +12,7 @@
 {% endfor %}
 <button type="submit">{{ t('prov.go') }}</button>
 </form>
+{% if bad is defined and bad %}<p class="error" role="alert" data-testid="prov-bad">{{ t('prov.bad') }}</p>{% endif %}
 {% if not ids %}<p class="hint" data-testid="prov-hidden">{{ t('prov.hidden') }}</p>{% endif %}
 {% if error %}<p class="error" role="alert" data-testid="prov-error">{{ t('prov.error') }}</p>
 {% elif rows is not none %}

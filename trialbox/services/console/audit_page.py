@@ -55,6 +55,7 @@ for _lang, _cat in (("en", i18n_audit.EN), ("ja", i18n_audit.JA), ("zh-TW", i18n
 log = logging.getLogger(__name__)
 BROWSE = "audit.browse"
 PROVENANCE = "audit.provenance"  # D-1155: D-989's search
+_PROV_TOKEN = re.compile(r"^[A-Za-z0-9_.:@/+-]{1,120}$")  # a model name, a sha, a prompt id or version
 PROVENANCE_LIMIT = 200  # the newest records a search shows (the CLI lists them all: trialbox provenance --search)
 PAGE = 50
 REPORT_PAGE = 200
@@ -487,6 +488,15 @@ def register(app: FastAPI, h: Hooks) -> None:
             )
             if v.strip()
         }
+        # the review of D-1155: a filter is an id (no free text reaches the audit chain), and a prompt version is
+        # asked with its prompt id (the index is on the pair)
+        bad = [k for k, v in given.items() if not _PROV_TOKEN.match(v)]
+        if "prompt_version" in given and "prompt_id" not in given:
+            bad.append("prompt_version")
+        if bad:
+            return h.page(request, "audit_provenance.html", sess, status=400, given={}, rows=None, error=False,
+                          bad=sorted(set(bad)), ids=bool(permit(sess.user.role, "audit.ids")),
+                          limit=PROVENANCE_LIMIT)  # fmt: skip
         ids = bool(permit(sess.user.role, "audit.ids"))
         rows: list[dict[str, Any]] | None = None
         if given and "provenance" in h.doors:
@@ -500,12 +510,16 @@ def register(app: FastAPI, h: Hooks) -> None:
                     getattr(con, "close", lambda: None)()
             except Exception:  # the index or its database cannot be read: said on the page, never a 500
                 log.warning("the provenance index could not be read", exc_info=True)
+                h.au.append("console.provenance_search", actor=h.actor(sess),
+                            detail={"filters": given, "rows": None, "error": True, "pids": ids})  # fmt: skip
                 return h.page(request, "audit_provenance.html", sess, status=503, given=given, rows=None,
                               error=True, ids=ids, limit=PROVENANCE_LIMIT)  # fmt: skip
             h.au.append("console.provenance_search", actor=h.actor(sess),
                         detail={"filters": given, "rows": len(rows), "pids": ids})  # fmt: skip
-            if not ids:
-                rows = [{**r, "record_ref": {k: v for k, v in (r.get("record_ref") or {}).items() if k != "pid"}}
+            if not ids:  # D-280: no pseudonym, under the pid key or any other, nor in who decided
+                rows = [{**r, "by": _PSEUDONYM.sub(tb_audit.ID_MASK, str(r.get("by") or "")),
+                         "record_ref": {k: _PSEUDONYM.sub(tb_audit.ID_MASK, str(v))
+                                        for k, v in (r.get("record_ref") or {}).items() if k != "pid"}}
                         for r in rows]  # fmt: skip
         return h.page(request, "audit_provenance.html", sess, given=given, rows=rows, error=False, ids=ids,
                       limit=PROVENANCE_LIMIT, off="provenance" not in h.doors)  # fmt: skip
