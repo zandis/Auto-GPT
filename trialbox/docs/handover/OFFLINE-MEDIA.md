@@ -145,27 +145,30 @@ brings: the NHI lists and ICD-10-PCS may ship one day (D-1028 point 3, D-1029) b
 and the site's own lists never enter the media or the repository (D-1116). The site's IT copies its files to `/opt/trialbox/deploy/site/terminology/` (git and the image
 ignore that folder), then loads them in this order. Each command writes one table into `TB_TERMINOLOGY_DIR` (default
 `/data/terminology`) with its line in `manifest.json`: source file and its sha256, version, licence, rows and the
-day it was loaded. The loader needs the `trialbox-py` image's Python (pyarrow), so the commands run in that image,
-with the staging folder mounted read-only at `T` and the terminology folder at `TB_TERMINOLOGY_DIR`. Open (TERM-2,
-for lanes D and E): the compose files do not mount `TB_TERMINOLOGY_DIR` into `criteria-compiler` or `orchestrator`
-yet, so until that volume is added a loaded table is not read by the box's services.
+day it was loaded. The loader needs the `trialbox-py` image's Python (pyarrow), so `deploy/terminology.sh` (D-991)
+runs each command in that image with no network, the staging folder mounted read-only at `/stage` and the
+terminology volume (`tb-terminology`) read-write at `TB_TERMINOLOGY_DIR`. It is the only writer of that volume.
+criteria-compiler, orchestrator and console mount it read-only and read what is loaded there, and the host check's
+doctor sees it too.
+The box must have been started once: `docker compose up` creates the volume. A backup takes the volume, so a
+restored box reads the tables it had.
 
 ```
-T=/stage    # /opt/trialbox/deploy/site/terminology, mounted read-only
+T=/stage    # /opt/trialbox/deploy/site/terminology, mounted read-only by deploy/terminology.sh
 # 1. the site's own code lists: the primary source; a name in them wins over every other table (D-1113)
-python -m tools.terminology_install site-list $T/icd_local.csv --name icd_local --system icd10cm
+deploy/terminology.sh site-list $T/icd_local.csv --name icd_local --system icd10cm
 #    columns: local_code and/or local_name, code, system (or --system for the whole file), display (optional)
 # 2. the NHI open data (OGDL 1.0, attribution in the manifest line: docs/licences/nhi-open-data-attribution.md)
-python -m tools.terminology_install nhi-drugs $T/健保用藥品項查詢項目檔.csv        # data.gov.tw 23715, with ATC代碼
-python -m tools.terminology_install nhi-services $T/醫療服務給付項目.csv            # data.gov.tw 174450
+deploy/terminology.sh nhi-drugs $T/健保用藥品項查詢項目檔.csv        # data.gov.tw 23715, with ATC代碼
+deploy/terminology.sh nhi-services $T/醫療服務給付項目.csv            # data.gov.tw 174450
 # 3. ICD-10-CM (a release later than the image's) and ICD-10-PCS, from CMS (US public domain)
-python -m tools.terminology_install icd10cm $T/2027-code-tables-tabular-and-index.zip --year 2027
-python -m tools.terminology_install icd10pcs $T/2026-icd-10-pcs-codes-file.zip --year 2026
+deploy/terminology.sh icd10cm $T/2027-code-tables-tabular-and-index.zip --year 2027
+deploy/terminology.sh icd10pcs $T/2026-icd-10-pcs-codes-file.zip --year 2026
 # 4. LOINC, WHO ICD-10, ATC: the site's own licensed copies; a named person accepts each licence (D-1114)
-python -m tools.terminology_install loinc $T/Loinc_2.81.zip --accepted-by "<name of the person>" --accepted-on <day>
-python -m tools.terminology_install icd10who $T/icd102019en.xml --accepted-by "<name of the person>"
-python -m tools.terminology_install atc $T/atc_index_2026.csv --accepted-by "<name of the person>" --version 2026
-python -m tools.terminology_install status         # then the doctor's line `terminology`
+deploy/terminology.sh loinc $T/Loinc_2.81.zip --accepted-by "<name of the person>" --accepted-on <day>
+deploy/terminology.sh icd10who $T/icd102019en.xml --accepted-by "<name of the person>"
+deploy/terminology.sh atc $T/atc_index_2026.csv --accepted-by "<name of the person>" --version 2026
+deploy/terminology.sh status         # then the doctor's line `terminology`
 ```
 
 Each step is optional. A table the site does not load is named "not loaded" on the doctor's `terminology` line, and
