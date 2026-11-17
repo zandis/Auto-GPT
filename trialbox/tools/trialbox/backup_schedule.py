@@ -29,6 +29,14 @@ folder carries a ``host/`` part (``deploy/.env``, settings, ``deploy/site``, ``d
 Authelia and Caddy volumes). ``backup-install`` (install.sh) writes the cron file, turns WAL archiving on where the
 image and an off-box share allow it, and runs the first backup; in PRODUCTION it needs an alert route.
 
+**Incremental (PERF-010, D-968, D-977).** Each night the host decides before the job starts
+(:meth:`ComposeOps.incremental`): with ``TB_BACKUP_RESTIC=auto`` (the default) and the KEK covered by the custodians'
+shares (a shamir KEK, or a TPM KEK whose escrow set is the current one), the host makes ``restic.key`` under the KEK
+if it is not there yet, and the job runs in the release's backup image (``TB_BACKUP_IMAGE``, restic inside) with
+``--restic``: the lake's served files go to the restic repository beside each target, the rest to the ``.tbbak``.
+Otherwise the single ``.tbbak``, as before, and the reason. The choice is in ``backup-last.json`` and the audit
+(``incremental``); a restic key the custodians could not open is never made.
+
 **Windows (WSL2; NEW-WIN-7, D-608).** A Windows drive mounted in WSL2 (``/mnt/e``) is off-box only when the
 Windows installer recorded the workstation's own drives (``deploy/site/box/windows-drives``), the drive is none
 of them, and its root carries the installer's mark of an outside drive (``box-install.ps1 -BackupDrive E:``). A
@@ -561,6 +569,7 @@ class Config:
     min_mbps: float = MIN_MBPS  # D-455: TB_BACKUP_MIN_MBPS
     step_start_s: float = STEP_START_S  # D-455: TB_BACKUP_STEP_START_S
     quiesce: str = "off"  # D-455: TB_BACKUP_QUIESCE, off (the snapshot alone) or pause
+    restic: str = "auto"  # D-977: TB_BACKUP_RESTIC, auto (the lake to restic when shares cover the KEK) or off
     # D-455 (R1): TB_BACKUP_JOB_WAIT_S as config() reads it (default JOB_WAIT_S); a Config built in code waits 0 s
     job_wait_s: float = 0.0
     setting_errors: list[str] = field(default_factory=list)  # D-455: a bad setting fails the run with a record
@@ -680,8 +689,18 @@ def config(deploy: Path, env: Mapping[str, str], process_env: bool = True) -> Co
         step_start_s=_num(e, "TB_BACKUP_STEP_START_S", STEP_START_S, errors),
         quiesce="pause" if (e.get("TB_BACKUP_QUIESCE") or "off").lower() == "pause" else "off",
         job_wait_s=_num(e, "TB_BACKUP_JOB_WAIT_S", JOB_WAIT_S, errors, zero=True),
+        restic=_restic_setting(e, errors),
         setting_errors=errors,
     )
+
+
+def _restic_setting(e: Mapping[str, str], errors: list[str]) -> str:
+    """D-977: ``TB_BACKUP_RESTIC`` is ``auto`` (the default) or ``off``; anything else is a setting error."""
+    raw = (e.get("TB_BACKUP_RESTIC") or "auto").strip().lower()
+    if raw not in ("auto", "off"):
+        errors.append(f"TB_BACKUP_RESTIC={raw!r} is not auto or off (deploy/.env)")
+        return "off"
+    return raw
 
 
 def _local_weekday(now: datetime, tz: str) -> int:
@@ -762,6 +781,9 @@ def nightly(
     pit = getattr(make_backup, "point_in_time", None)
     if pit is not None:  # D-455: what the point in time is (the snapshots, the files' window, a pause if any)
         res["point_in_time"] = dict(pit)
+    inc = getattr(make_backup, "incremental", None)
+    if inc is not None:  # D-977: whether the lake went to restic tonight, and why (never a key)
+        res["incremental"] = dict(inc)
     if cfg.archive_on and pgbackrest is not None:
         kind = "full" if _local_weekday(now, cfg.tz) == cfg.full_day else "diff"
         try:
@@ -779,7 +801,7 @@ def nightly(
               "sha256": (res["file"] or {}).get("sha256"), "targets": len(kinds),
               "offbox_targets": sum(k.offbox for k in kinds), "pgbackrest": res.get("pgbackrest"),
               "beside_jobs": (res.get("point_in_time") or {}).get("beside_jobs"),
-              "errors": errors}  # fmt: skip
+              "incremental": res.get("incremental"), "errors": errors}  # fmt: skip
     audit("backup.done" if res["ok"] else "backup.failed", detail)
     return res
 
@@ -970,6 +992,29 @@ class ComposeOps:
         with contextlib.suppress(Exception):
             self.box.run(self.box._c("exec", "-T", "db", "rm", "-rf", CONTAINER_SPOOL))
 
+    def incremental(self, cfg: Config) -> tuple[bool, str]:
+        """D-977: whether tonight's backup sends the lake to restic, and why, decided on the host before the job
+        starts. Only when ``TB_BACKUP_RESTIC`` is ``auto`` and the custodians' shares cover the KEK
+        (``restic_repo.shares_cover``); the host then makes ``restic.key`` under the KEK if it is not there yet
+        (``tools.keys restic-key``'s own function). Anything else keeps the single encrypted backup and says why; a
+        restic key the custodians could not open is never made."""
+        from tools import keys as keys_cli
+        from tools.trialbox import restic_repo as rr
+
+        if cfg.restic == "off":
+            return False, "TB_BACKUP_RESTIC=off: the single encrypted backup"
+        sec = Path(self.env.get("TB_SECRETS_DIR") or keys_cli.HOST_SECRETS)
+        why = rr.shares_cover(sec)
+        if why:
+            return False, why
+        env: dict[str, str] = dict(os.environ)
+        env.update({k: self.env[k] for k in ("TB_KEK_FILE", "TB_KEK_PASSPHRASE") if k in self.env})
+        try:
+            made = rr.make_key(sec, env)
+        except Exception as e:  # a locked KEK, a plain key left there: named, never with a key in it
+            return False, f"no restic key ({type(e).__name__}: {str(e)[-200:]}): the single encrypted backup tonight"
+        return True, "restic key made under the KEK; the lake to restic" if made else "the lake to restic"
+
     def db_bytes(self, db: str, user: str) -> int | None:
         """``pg_database_size`` of ``db`` (D-455: what its snapshot step reads), or None when it cannot be asked."""
         return self.box.db_bytes(db, user)
@@ -1115,8 +1160,10 @@ class ComposeOps:
                     dumps = tree_bytes(work) or 0
                     limit = cfg.timeout(None if vols is None else dumps + vols)
                     pit["limits"]["container"] = limit
+                    use, why = self.incremental(cfg)  # D-977: tonight's choice, made on the host
+                    run.incremental = {"restic": use, "why": why}  # type: ignore[attr-defined]
                     self.box._backup_container(work, cfg.public_key, [str(t) for t in targets], keep=cfg.keep,
-                                               timeout=limit)  # fmt: skip
+                                               timeout=limit, restic=use)  # fmt: skip
                     pit["files_done_at"] = datetime.now(UTC).isoformat(timespec="milliseconds")
                 finally:
                     if paused:

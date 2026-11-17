@@ -157,6 +157,23 @@ def _write_target(path: Path, data: bytes) -> None:
         os.close(dfd)
 
 
+def shares_cover(secrets_dir: Path) -> str:
+    """D-977: "" when the custodians' shares cover the box's KEK (a shamir KEK, or a TPM KEK whose escrow set is the
+    current KEK's), so an incremental backup may run; otherwise why not, in words (no key, no share, no salt)."""
+    try:
+        meta = K.read_meta(secrets_dir)
+    except (OSError, ValueError, K.KekError):
+        meta = None
+    if meta is None:
+        return (f"no KEK in {secrets_dir} ({K.META_FILE}; python -m tools.keys init): "
+                "this box keeps the single encrypted backup")  # fmt: skip
+    try:
+        public_kek(meta)
+    except ResticKeyError as e:
+        return str(e)
+    return ""
+
+
 def escrow_copy(secrets_dir: Path, target: Path, name: str = ESCROW) -> Path:
     """Write the escrow file beside the repository in ``target``. The same key re-wrapped (after ``rotate-kek`` and
     new escrow shares) replaces it; another key is refused, since the repository's snapshots open only with the key
