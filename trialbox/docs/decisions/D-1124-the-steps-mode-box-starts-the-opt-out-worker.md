@@ -36,7 +36,7 @@ start-up is what starts the worker.
    is ruled for, the other parts are turned on in this one table.
 3. **What a tester sees, and when.** The worker's first run is at the console's start, then every minute
    (`TB_OPTOUT_WORKER_MINUTES` is 1 on a demo box unless set). Within a minute of an opt-out the audit trail (the
-   steward's, event "Opt-out worker run") shows a run that:
+   steward's, event "Opt-out worker run") shows a run, and its record in the audit log:
    - counts the new opt-out;
    - names every clear of `docs/validation/erasure-registry.md` §1 (candidate_pool, candidate_registry, held_mail,
      omop, owed_tables, pid_pending, profile, screening_log, setup_uploads, vec);
@@ -45,10 +45,16 @@ start-up is what starts the worker.
    `omop` and `vec` report "skipped": this box has no OMOP store and no vector store. The administrator's `/metrics`
    shows `tb_health_check_level{check="optout_worker"} 0`. The Health tab still shows no line for it (F-21 stands).
 4. **The walk.**
-   - Step 21 of H-20's walk is now the steward's: the audit trail filtered to the worker's event. The walk waits on
-     that page for the newest run to count the opt-outs the register showed (every 2 s, at most 240 s), then asserts
-     the clears and nothing failed or left.
-   - Step 22 is the administrator's `/metrics` at level 0.
+   - Step 21 of H-20's walk is now the steward's: the audit trail filtered to the worker's event. The walk notes the
+     newest run, then waits on that page (read again every 2 s, at most 240 s) for a newer one, which is a run after
+     the opt-out.
+   - The page shows the run but not what it did: the browser shows only its allowed detail keys, and the worker's are
+     not among them. So the test reads the run's own record in the box's audit log (`TB_WALK_AUDIT_DIR`, set by the
+     walk's box fixture) and asserts every clear of §1, none failed, nothing left. A box given by its address has no
+     log on the walk's machine, and the test says so as a reasoned skip after the pages have passed.
+   - New finding F-22 (lane C2, slows the tester): a steward cannot see on any page what an erase did.
+   - Step 22 is the administrator's `/metrics` at level 0, which means the last run had nothing failed and nothing
+     left.
    - The coordinator is refused both pages.
    - F-20 leaves the plan and the findings page, which stay equal, and the erase leaves "cannot complete".
 

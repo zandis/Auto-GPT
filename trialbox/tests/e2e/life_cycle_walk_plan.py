@@ -548,7 +548,7 @@ LIFE: tuple[Life, ...] = (
                 See("h1", T("audit.title")),
                 Do("select", label=T("audit.filter.event"), value=WORKER_EVENT),
                 Do("button", T("audit.filter.go")),
-                Act("worker_ran", label="optouts", value=",".join(CLEARS), wait_s=WORKER_WAIT_S),
+                Act("worker_ran", label="optouts", value=",".join(CLEARS), finding="F-22", wait_s=WORKER_WAIT_S),
             ),
             (
                 _refuse(
@@ -881,6 +881,21 @@ FINDINGS: tuple[Finding, ...] = (
         "line for it",
         "the health line turns red on a stale or failed tick, where a person reads it",
         "D-441, T-209a",
+        "slows the tester",
+        "C2",
+    ),
+    Finding(
+        "F-22",
+        21,
+        "steward",
+        "/audit",
+        "other",
+        'the audit trail shows each run of the opt-out worker ("Opt-out worker run") with an empty detail: what '
+        "it cleared, whether a clear failed and whether a store still holds the patient are recorded in the audit log "
+        "but on no page; a steward cannot see that an erase completed",
+        "the run's counts on the page: the stores cleared, failed, left (they are counts, never a pseudonym)",
+        "D-441 (one `optout.worker` event per run); `services/console/audit_page.py` `SHOWN` (the keys the browser "
+        "shows); D-451",
         "slows the tester",
         "C2",
     ),

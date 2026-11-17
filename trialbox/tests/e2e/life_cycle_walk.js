@@ -217,35 +217,33 @@ async function act(p, a, tag) {
       return check(vars[a.label], `${tag}: read the ${a.label} from the page`);
     }
     case "worker_ran": {
-      // H-25 (D-1124): the opt-out worker's run after the opt-out, as the audit trail records it. Waits on the
-      // product's own page (fetched again every 2 s, up to wait_s) for the newest run that counts at least the
-      // opt-outs the register showed (``label``); then that run's detail names every clear of ``value`` (the
-      // erasure registry's §1) with nothing failed and nothing left.
-      const need = parseInt((String(vars[a.label] || "").match(/\d+/) || ["0"])[0], 10);
+      // H-25 (D-1124): the opt-out worker's next run after the opt-out, as the audit trail shows it. The newest run on
+      // the page when the steward opens it is noted; the walk then waits on the product's own page (read again every
+      // 2 s, up to wait_s) for a newer one. The page shows the run, not what it did (F-22): the clears are read from
+      // the audit log by the test (test_life_cycle_walk.py), and step 22 reads the health check.
+      const row = 'tr[data-event="optout.worker"]';
+      const first = async () => (await p.locator(`main ${row}`).count()) ? await p.locator(`main ${row} td[title]`).first().getAttribute("title") : "";
+      const before = await first();
       const url = new URL(p.url());
       await p.waitForFunction(
-        async ([path, need]) => {
-          const html = await (await fetch(path)).text();
-          const d = new DOMParser().parseFromString(html, "text/html");
-          const cell = d.querySelector('tr[data-event="optout.worker"] td[data-src=audit]');
-          const m = cell ? cell.textContent.match(/opted_out=(\d+)/) : null;
-          return !!m && Number(m[1]) >= need;
+        ([path, before, row]) => {
+          const x = new XMLHttpRequest();
+          x.open("GET", path, false);
+          x.send();
+          const d = new DOMParser().parseFromString(x.responseText, "text/html");
+          const cell = d.querySelector(`${row} td[title]`);
+          return !!cell && cell.getAttribute("title") !== before;
         },
-        [url.pathname + url.search, need],
+        [url.pathname + url.search, before, row],
         { polling: 2000, timeout: a.wait_s * 1000 },
       );
       await p.reload({ waitUntil: "load" });
       await settle(p);
-      const cell = p.locator('main tr[data-event="optout.worker"] td[data-src=audit]').first();
-      // textContent: the audit table may sit in a folded frame on a narrow page, where innerText is empty
-      const text = ((await cell.count()) ? await cell.textContent() : "").replace(/\s+/g, " ");
-      const counted = (text.match(/opted_out=(\d+)/) || [])[1] || "";
-      check(need > 0, `${tag}: the register counted the opt-out (${need})`);
-      check(Number(counted) >= need, `${tag}: the newest run counts the opt-outs (${counted} of at least ${need})`);
-      for (const name of value.split(",")) check(text.includes(`'${name}'`), `${tag}: the worker's run names the clear ${name}`);
-      check(text.includes("failed=[]"), `${tag}: no clear failed`);
-      check(text.includes("left={}"), `${tag}: no store still holds an opted-out patient`);
-      if (rec) rec.read.worker = masked(text.slice(0, 600));
+      const after = await first();
+      check(after && after !== before, `${tag}: the audit trail shows a run of the opt-out worker after the opt-out`);
+      const detail = ((await p.locator(`main ${row} td[data-src=audit]`).first().textContent()) || "").trim();
+      if (!detail) guess({ finding: a.finding, guess: "the run's detail is empty on the page" });
+      if (rec) rec.read.worker = masked(detail.slice(0, 300)) || "(no detail on the page)";
       return;
     }
     case "read": {

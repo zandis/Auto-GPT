@@ -32,9 +32,14 @@ Run time, H-20: three runs in a row on a 4-core container (2026-11-17), each a f
 21 stopped as F-20. H-10's `make walk-new-study` passed after them (698 seconds).
 
 H-25 (D-1124) settled F-20. A steps-mode box now starts the orchestrator's opt-out worker after its seed, and nothing
-else of the start-up (`tools/demo.py`, `START_UP`). Step 21 now asserts that the worker's run after the opt-out names
-every clear of the erasure registry's §1, with none failed and nothing left, and step 22 that the health check is
-green. The run times of H-25's three runs are in its pull request.
+else of the start-up (`tools/demo.py`, `START_UP`).
+
+- Step 21: the steward sees, in the audit trail, the worker's next run after the opt-out. The run's own record in
+  the box's audit log names every clear of the erasure registry's §1, with none failed and nothing left; the test
+  reads that log, because no page shows it (F-22).
+- Step 22: the health check is green.
+
+The run times of H-25's three runs are in its pull request.
 
 How it is run: `make walk-life-cycle` (or `tests/e2e/test_life_cycle_walk.py -m e2e`). Each run writes a JSON log per
 language outside the repository: per step the page and heading reached, the clicks and their texts, the time, the
@@ -87,6 +92,7 @@ only. "Guess" is anything the walk could not find by a documented label and had 
 | F-17 | 18 | steward | `/site/opt-outs` | 5 | the opt-out form asks for the chart number ("Type the chart number"); no page of the steward shows one, so on a box the tester must get it elsewhere; the walk has the coordinator show it on the patient sheet (recorded) and carries it over | the testers' page says where the chart number comes from on a box (`team.optout.help`, `help.page.optouts`; D-1062) | slows the tester | C2 |
 | F-18 | 18 | coordinator | `/studies/{rs}/week` | 5 | after the withdrawal the patient is on none of the weekly page's lists but "All on the list" (4,000 rows, paged), and the participant's page has no link to the patient sheet; the walk types `?list=all&pid=...` here and in step 20 | a search by pseudonym or screening number, or a link from the participant to the patient sheet (D-133 (the weekly page)) | cosmetic | C2 |
 | F-19 | 19 | steward | `/site/opt-outs` | 2 | the opt-out form's note is labelled "Note for the coordinator" (the PI's mark note) on the steward's register | a label of the register's own (`mark.note`, `team.optout.help`) | cosmetic | C2 |
+| F-22 | 21 | steward | `/audit` | 1 | the audit trail shows each run of the opt-out worker ("Opt-out worker run") with an empty detail: what it cleared, whether a clear failed and whether a store still holds the patient are recorded in the audit log but on no page; a steward cannot see that an erase completed | the run's counts on the page: the stores cleared, failed, left (they are counts, never a pseudonym) (D-441 (one `optout.worker` event per run); `services/console/audit_page.py` `SHOWN` (the keys the browser shows); D-451) | slows the tester | C2 |
 | F-21 | 22 | operator | `/admin?tab=health` |  | the red opt-out worker check is on `/metrics` only (typed in); the administrator's Health tab shows no line for it | the health line turns red on a stale or failed tick, where a person reads it (D-441, T-209a) | slows the tester | C2 |
 
 <!-- life-cycle-walk: end of findings -->
@@ -103,7 +109,8 @@ The opt-out works on the box from end to end:
 
 - step 19: the register takes the chart number;
 - step 20: the patient leaves the weekly list and the candidate list at once;
-- step 21: within a minute the worker runs every clear of `docs/validation/erasure-registry.md` §1.
+- step 21: within a minute the worker runs every clear of `docs/validation/erasure-registry.md` §1, as its audit
+  record says; the page shows only that it ran (F-22).
 
 `omop` and `vec` report "skipped": this box has no OMOP store and no vector store.
 
@@ -112,7 +119,7 @@ The opt-out works on the box from end to end:
 | Severity | Findings |
 | --- | --- |
 | blocks the step | 0 |
-| slows the tester | 10 |
+| slows the tester | 11 |
 | cosmetic | 10 |
 
 ## The testers' pages
