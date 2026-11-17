@@ -98,3 +98,23 @@ One condition, part of the decision:
   rebuild and check, and the search. The drain writes the index, so its database role needs INSERT on the two tables;
   the grant is in the role script (`deploy/docker/db-init/30-service-roles.sh`, lane D) and goes over through the
   integrator with that card.
+
+## Step 2b as built (2026-11-17): the two events
+
+- **`tb_common.provenance`** writes them; the `ai` family joins the families every role that hosts a model call may
+  send through the journal (`audit_writer._SHARED`, and the compiler's own list).
+  - `ai.used {record_kind, record_ref, calls}`: one event per record with its calls listed (the index writes a row per
+    call); nothing for a record no model answered, whose `prov: []` already says so.
+  - `ai.confirmed {record_kind, record_ref, calls, by, decision}`, `decision` one of confirmed, changed, rejected.
+  - `record_ref` takes only the registry's parts (ruleset, version, job, pid, crit, valueset, draft, field), each a
+    short token (letters, digits, `_ . : @ -`): free text or a space is refused, and a patient is a pseudonym.
+- **Written today:**
+  - the compiler: `ai.used` for each criterion a model extracted (`criterion`, ruleset, version, crit), and
+    `ai.confirmed` for each decision the review sheet sends on one (approve: confirmed, edit: changed, reject:
+    rejected), when the sheet arrives;
+  - SCREEN and MICROBATCH: `ai.used` for each verdict a model answered (`verdict`, ruleset, version, job, pid,
+    crit); MICROBATCH for the rows it read on the job, a carried row having been recorded when it was read.
+- **Handed over (through the integrator), with the helper to call:** the PI mark and the excluded review on a patient
+  with model evidence (`ai.confirmed`, `verdict`; the console), and the EDC draft field and its decision (`ai.used`
+  and `ai.confirmed`, `edc_field`; lane E).
+- **Next (step 2c):** the index tables from these events and `llm.call`, their rebuild and check, and the search.
