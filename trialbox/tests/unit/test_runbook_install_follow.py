@@ -18,8 +18,11 @@ the install path on a machine with only the bundle and what the runbook tells th
 
 from __future__ import annotations
 
+import hashlib
 import json
+import shutil
 import sys
+from collections.abc import Iterator
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -29,7 +32,7 @@ import pytest
 from tests.unit import test_runbook_install_commands as t632
 from tools import host_tree as ht
 from tools import runbook_install as ri
-from tools.sign_bundle import build, keygen
+from tools.sign_bundle import build, keygen, sign_file
 
 pytestmark = pytest.mark.nodb
 ROOT = Path(__file__).resolve().parents[2]
@@ -141,44 +144,92 @@ def test_the_static_findings_are_the_committed_ones() -> None:
 
 
 def _unit_machine(tmp: Path) -> tuple[ri.LocalMachine, Path, Path]:
+    """The stick as the vendor hands it over (D-996): the bundle (this checkout's host tree, a throwaway key), its
+    .sha256 naming each file bare as make_bundle.sh writes it, the bootstrap and its raw signature."""
     priv, pub = keygen(tmp / "vendor")
+    stick = tmp / "stick"
+    stick.mkdir()
     ht.pack(ROOT, tmp / "host.tar")
-    bundle = tmp / "trialbox-2026.11-runbook.tar"
+    bundle = stick / "trialbox-2026.11-runbook.tar"
     build(priv, "2026.11-runbook", [("host", tmp / "host.tar", ht.HOST_TAR)], bundle, release_seq=1)
+    shutil.copy(ROOT / "deploy/bootstrap.sh", stick / "trialbox-bootstrap.sh")
+    sign_file(priv, stick / "trialbox-bootstrap.sh")
+    names = [bundle.name, "trialbox-bootstrap.sh", "trialbox-bootstrap.sh.sig"]
+    sums = "".join(f"{hashlib.sha256((stick / n).read_bytes()).hexdigest()}  {n}\n" for n in names)
+    (stick / f"{bundle.name}.sha256").write_text(sums, encoding="utf-8")
     bin_dir = tmp / "bin"
     bin_dir.mkdir()
     (bin_dir / "docker").write_text(f"#!{sys.executable}\n{STAND_IN_DOCKER}", encoding="utf-8")
     (bin_dir / "docker").chmod(0o755)
     (tmp / "opt").mkdir()
     path = f"{bin_dir}:{Path(sys.executable).parent}:/usr/bin:/bin"
+    # deploy/bootstrap.sh's test knobs (as test_runbook_install_commands gives them): its /opt/trialbox is the
+    # stand-in's, and it runs without root
+    knobs = {"TB_BOOTSTRAP_ROOT": str(tmp / "opt/trialbox"), "TB_BOOTSTRAP_NO_ROOT": "1"}
     m = ri.LocalMachine(
         tmp / "opt",
         path,
+        extra_env=knobs,
         name="unit",
         stand_in_markers=("runbook-follower stand-in", "the bundle carried no trialbox-py"),
     )
     return m, bundle, pub
 
 
+@pytest.fixture(autouse=True)
+def _the_real_machine_is_untouched() -> Iterator[None]:
+    """The unit machine is a folder: nothing the follower runs may reach this machine's own /opt/trialbox (an inner
+    `sudo` resets the environment and would take the bootstrap there; the follower drops it, as root)."""
+    real = [Path(p).exists() for p in ("/opt/trialbox", "/root/site", "/srv/his-export")]
+    yield
+    assert [Path(p).exists() for p in ("/opt/trialbox", "/root/site", "/srv/his-export")] == real
+
+
 def test_the_follower_on_the_unit_machine_shows_the_committed_findings(tmp_path: Path) -> None:
     m, bundle, pub = _unit_machine(tmp_path)
     rec = ri.Follower(m, bundle=bundle, vendor_pub=pub, work=tmp_path / "work").follow()
     run = json.loads(json.dumps(asdict(rec)))
-    # it ran and recorded: the one command as written first, every later attempt marked with the lifts before it
-    assert rec.commands_run >= 4 and rec.steps
-    first = next(s for s in rec.steps if s["step"] == "one-command")
-    assert first["as_written"] == "sudo deploy/install.sh trialbox-<version>.tar --tier large --answers site.yaml"
-    assert first["after_lifts"] == [] and first["rc"] != 0
-    assert rec.verdict.startswith("the runbook alone does not install the box: stopped at the one command (§1:28)")
-    assert rec.machine_stop  # the stand-in docker ends the unit run; it is never a finding
+    # it ran and recorded: the one command as written (with --mode stub in place of --tier: no GPU here, §1:44)
+    one = [s for s in rec.steps if s.get("step") == "one-command"]
+    assert len(one) == 1 and one[0]["as_written"] == ri.ONE_COMMAND and one[0]["after_lifts"] == []
+    assert "--mode stub" in one[0]["ran"] and "--tier" not in one[0]["ran"] and not one[0]["ran"].startswith("sudo")
+    out = one[0]["out"]
+    assert "Signature Verified Successfully" in out and "unpacked: the release's host tree" in out
+    assert "placed: the vendor key" in out and "running: " in out and "==> bundle: verify and load" in out
+    assert (tmp_path / "opt/trialbox/deploy/keys/vendor_ed25519.pub").read_bytes() == pub.read_bytes()
+    assert {x["to"] for x in rec.supplied} >= {ri.KEY_AT, f"{ri.SITE_AT}/", ri.FEED_AT}
+    assert rec.verdict == (
+        "no runbook stop before this machine's limit (the one command (§1:32): this machine's stand-ins serve no more)"
+    )
+    assert rec.machine_stop and rec.lifts == []  # the stand-in docker ends the unit run; it is never a finding
     assert ri.compare(run, ri.load_findings()) == []
 
 
-def test_strict_follow_stops_at_the_verdict(tmp_path: Path) -> None:
+def test_strict_follow_needs_no_lift_on_the_unit_machine(tmp_path: Path) -> None:
+    """H-22's lifts host-tree and vendor-key-first went with D-996: the strict run goes as far as the lifted one."""
     m, bundle, pub = _unit_machine(tmp_path)
     rec = ri.Follower(m, bundle=bundle, vendor_pub=pub, work=tmp_path / "work", lifts=False).follow()
-    assert rec.lifts == [] and [f["id"] for f in rec.findings] == ["no-host-tree"]
+    assert rec.lifts == [] and rec.findings == [] and rec.machine_stop
     assert [s["step"] for s in rec.steps if "rc" in s] == ["one-command"]
+
+
+def test_a_stand_in_machine_without_the_bootstrap_knobs_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="bootstrap's knobs"):
+        ri.LocalMachine(tmp_path / "opt", "/usr/bin:/bin")
+
+
+def test_a_site_bundle_is_asked_for_the_embedder(tmp_path: Path) -> None:
+    """D-998: release check refuses a site bundle without the embedder; the follower's own bundle step asks for a models
+    folder holding embedder/ before anything slow runs, and never fetches the weights."""
+    with pytest.raises(SystemExit, match="carries the embedder since D-998"):
+        ri.models_args(None)
+    with pytest.raises(SystemExit, match="holds no embedder/"):
+        ri.models_args(tmp_path)
+    (tmp_path / "embedder").mkdir()
+    assert ri.models_args(tmp_path) == ["--models", str(tmp_path.resolve())]
+    with pytest.raises(SystemExit, match="since D-998"):
+        ri.vendor_bundle(tmp_path / "work", sys.executable)
+    assert not (tmp_path / "work").exists()
 
 
 def test_compare_fails_on_a_vanished_and_on_a_new_finding() -> None:
@@ -216,3 +267,4 @@ def test_the_record_keeps_no_secret() -> None:
     got = ri.redact(text)
     assert "s3cr3t" not in got and "123456" not in got and "abc" not in got
     assert "TB_LLM_API_KEY=[redacted]" in got
+    assert ri.redact("audit signing key 0d1d7a72c8690ac7101d3944a3e9d3f6 made") == "audit signing key [redacted] made"
