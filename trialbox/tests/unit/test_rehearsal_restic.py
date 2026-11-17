@@ -76,6 +76,17 @@ def test_verify_says_how_many_lake_files_came_from_restic(site: dict[str, Any]) 
     assert "pw" not in json_text(res) and site["pw"] not in json_text(res)
 
 
+def test_restic_keeps_the_lake_under_the_root_the_manifest_records(site: dict[str, Any], tmp_path: Path) -> None:  # noqa: F811
+    """D-978: the box rehearsal's restore found every lake file missing (16 changed, 0 unlisted). restic keeps a
+    relative entry relative to the snapshot's top, so the listing names each file by the root the manifest records
+    (resolved): here the lake is reached through a link, as /v/lake is a mount in the job."""
+    link = tmp_path / "lake-link"
+    link.symlink_to(site["lake"], target_is_directory=True)
+    f = bk.backup([site["nas"]], site["pub"], env=site["env"], dirs={"lake": link}, restic_secrets=site["sec"])[0]
+    res = bk.verify(f, site["priv"], restic_pw=site["pw"])
+    assert res["restic"]["files"] == 3
+
+
 def json_text(d: dict[str, Any]) -> str:
     import json
 

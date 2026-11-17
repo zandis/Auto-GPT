@@ -42,6 +42,15 @@ live lake.
    `null` for a single `.tbbak`. This tells an empty restic record apart from a real restore. The output never holds a
    password, a share or a key.
 
+4. **restic is given absolute paths** (`restic_repo.Repo.backup`). The rehearsal's first run (#951, run 44018457949)
+   found the defect R3b's tests had missed: every lake file restored from restic was missing ("16 changed, 0
+   unlisted"). `Repo.backup` listed the files relative to the lake root, with the root as the working folder. restic
+   keeps a relative entry relative to the snapshot's top, so the restore put the files at `<target>/db/...`. The
+   manifest's root (`/v/lake`, resolved) said `<target>/v/lake/db/...`. The listing now names each file under the
+   resolved root, which restic keeps whole. The test stand-in (`tests/fixtures/restic/fake_restic.py`) had stored
+   relative entries under the working folder. It now keeps them as restic does, and with that change seven
+   `test_backup_restic` and two `test_restic_runner` tests failed with the rehearsal's exact message before the fix.
+
 ## Test
 
 `tests/unit/test_rehearsal_restic.py`:
@@ -49,6 +58,7 @@ live lake.
 - the job mounts the decided folder by path, or the volume for the box's own folder;
 - the nightly passes the folder it checked;
 - verify's restic count;
+- a lake reached through a link restores where the manifest's root says (it fails with an unresolved listing);
 - the step runs after the SCREENs;
 - the step uses a throwaway shamir KEK in the work folder and never the box's KEK or backup key;
 - the step checks the box's own choice;
