@@ -591,7 +591,7 @@ FINDINGS: tuple[Finding, ...] = (
         "investigator",
         "/studies/{rs}/week",
         "label",
-        'patients are named by an 8-character pseudonym only ("patient 02ed…"); a tester told to take "a '
+        'patients are named by an 8-character pseudonym only ("patient 1a2b3c4d"); a tester told to take "a '
         'patient" must pick one; the walk takes the first row of the list the page opens on',
         "a testers' page that names which patient to take",
         "D-1062 (the testers walk from the first step)",
@@ -1031,7 +1031,100 @@ def write_page() -> bool:
 # ---------------------------------------------------------------------------------------------- the runs' logs
 #: the committed summary of the walks of 2026-11-17 (three runs x three languages on a 4-core container), written by
 #: ``--summary`` from the logs (per life-cycle step: the clicks and their texts in en, the median seconds)
-SUMMARY: dict[int, dict[str, Any]] = {}
+SUMMARY: dict[int, dict[str, Any]] = {
+    12: {
+        "path": "/studies/{rs}/week",
+        "heading": "This week's patients · {rs}",
+        "clicks": 2,
+        "click_texts": ["This week's patients", "{rs}"],
+        "seconds": 2.5,
+        "guesses": [],
+    },
+    13: {
+        "path": "/studies/{rs}/week",
+        "heading": "This week's patients · {rs}",
+        "clicks": 4,
+        "click_texts": ["This week's patients", "{rs}", "patient {short}", "Approach"],
+        "seconds": 6.4,
+        "guesses": ["F-03"],
+    },
+    14: {
+        "path": "/studies/{rs}/week",
+        "heading": "This week's patients · {rs}",
+        "clicks": 5,
+        "click_texts": [
+            "This week's patients",
+            "{rs}",
+            "Approved and contacted",
+            "patient {short}",
+            "Reached, visit booked",
+        ],
+        "seconds": 8.3,
+        "guesses": ["F-05"],
+    },
+    15: {
+        "path": "/studies/{rs}/subjects/{rs}-0001",
+        "heading": "{rs}-0001 · Participants",
+        "clicks": 5,
+        "click_texts": ["My studies", "Participants", "{rs}-0001", "Consent given", "Enrolled"],
+        "seconds": 4.6,
+        "guesses": ["F-07"],
+    },
+    16: {
+        "path": "/studies/{rs}/subjects/{rs}-0001",
+        "heading": "{rs}-0001 · Participants",
+        "clicks": 2,
+        "click_texts": ["Withdraw", "Withdraw"],
+        "seconds": 1.1,
+        "guesses": [],
+    },
+    17: {
+        "path": "/studies/{rs}/state",
+        "heading": "{rs} · Study state and identifiers",
+        "clicks": 4,
+        "click_texts": ["More", "{rs} · Study set-up", "Study state and identifiers", "Change state"],
+        "seconds": 1.2,
+        "guesses": [],
+    },
+    18: {
+        "path": "/studies/{rs}/patients/{pid}/reveal",
+        "heading": "{rs} · patient {short}",
+        "clicks": 5,
+        "click_texts": [
+            "This week's patients",
+            "{rs}",
+            "(typed) /studies/{rs}/week?list=all&pid={pid}",
+            "Open full chart view",
+            "Show chart number (recorded with your name)",
+        ],
+        "seconds": 6.0,
+        "guesses": ["F-17", "F-18"],
+    },
+    19: {
+        "path": "/site/opt-outs",
+        "heading": "Opt-out register",
+        "clicks": 2,
+        "click_texts": ["Opt-out register", "Record the opt-out"],
+        "seconds": 0.3,
+        "guesses": [],
+    },
+    20: {
+        "path": "/studies/{rs}/candidates",
+        "heading": "{rs} · Candidates",
+        "clicks": 4,
+        "click_texts": ["This week's patients", "{rs}", "(typed) /studies/{rs}/week?list=all&pid={pid}", "Candidates"],
+        "seconds": 5.5,
+        "guesses": ["F-18"],
+    },
+    21: {
+        "path": "/metrics",
+        "heading": "",
+        "clicks": 1,
+        "click_texts": ["(typed) /metrics"],
+        "seconds": 0.1,
+        "guesses": ["F-21"],
+    },
+}
 
 
 def summarise(logs: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
