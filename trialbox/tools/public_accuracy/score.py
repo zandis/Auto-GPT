@@ -639,9 +639,9 @@ def score_unjudged(
         if not pats:
             continue
         judged = {
-            c["id"]
+            hit["id"]
             for t, k in {(str(r.get("text") or ""), str(r.get("kind") or "")) for r in rows}
-            if (c := match_criterion(t, draft, k)) is not None
+            if (hit := match_criterion(t, draft, k)) is not None
         }
         by_id = {c.get("id"): c for c in draft}
         lang = lang_of.get(rs, "?")

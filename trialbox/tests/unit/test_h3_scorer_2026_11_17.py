@@ -230,8 +230,12 @@ def test_s1_eligible_lost_on_the_line_the_criterion_labels_exclude() -> None:
         {"mrn": "chart-a", "ruleset": "S2", "kind": "exclusion", "label": "excluded", "text": "Renal disease"},
         {"mrn": "chart-a", "ruleset": "S3", "kind": "exclusion", "label": "excluded", "text": "Respiratory distress"},
     ]  # fmt: skip
-    age = {"kind": "inclusion", "class": "structured", "logic": {"domain": "demographic", "age": {"min": 40}}}
-    answers = {
+    age: dict[str, Any] = {
+        "kind": "inclusion",
+        "class": "structured",
+        "logic": {"domain": "demographic", "age": {"min": 40}},
+    }
+    answers: dict[str, dict[str, Any]] = {
         "S1": {"draft": [{"id": "i1", "text": "Aged 40 years or older", **age}]},
         "S2": {"draft": [{"id": "i1", "text": "Aged 0.17 years or older", **age}]},
         "S3": {"draft": [{"id": "x3", "kind": "exclusion", "text": "Respiratory distress"}]},
