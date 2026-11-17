@@ -133,6 +133,35 @@ def s1_rows(environ: Mapping[str, str] | None = None) -> int:
     return int(raw)
 
 
+def patients_per_query(lake: Any, patients: int, dates: int, rows: int | None = None) -> int:
+    """NEW-B-58 (D-924): how many patients one query of the approved SQL carries. ``rows`` given (a run's own
+    ``s1_rows``) or ``TB_CASCADE_S1_ROWS`` set: batches of those rows (D-748). Otherwise the whole scope in one
+    query when its rows (patients times index dates) are at most ``TB_CASCADE_S1_WHOLE_ROWS`` and the lake says its
+    memory limit is at least ``TB_CASCADE_S1_WHOLE_GB`` (the measurement both come from); a lake that cannot say
+    gets the batches."""
+    import os
+
+    from tb_common.config import DECLARED
+
+    if rows is not None and rows <= 0:
+        raise CascadeError(f"s1_rows={rows}: give a whole number of rows above 0")
+    per = rows if rows is not None else s1_rows()
+    if rows is None and not os.environ.get("TB_CASCADE_S1_ROWS"):
+        whole_rows = int(os.environ.get("TB_CASCADE_S1_WHOLE_ROWS") or DECLARED["TB_CASCADE_S1_WHOLE_ROWS"].default)
+        whole_gb = int(os.environ.get("TB_CASCADE_S1_WHOLE_GB") or DECLARED["TB_CASCADE_S1_WHOLE_GB"].default)
+        if patients * max(1, dates) <= whole_rows:
+            told = getattr(lake, "memory_limit_bytes", None)
+            mem = None
+            if callable(told):
+                try:
+                    mem = told()
+                except Exception:
+                    mem = None
+            if isinstance(mem, int) and mem >= whole_gb * 10**9:
+                return max(1, patients)
+    return max(1, per // max(1, dates))
+
+
 @dataclass
 class CascadeConfig:
     study_id: str
@@ -493,10 +522,7 @@ class _Run:
         index date, so the batches change no row; the lake holds one batch, not the whole scope, at a time. The
         lake's memory grows with the rows the query carries (patients times index dates), so a batch is as many
         patients as fit the rows a query may carry."""
-        rows_ = s1_rows() if self.cfg.s1_rows is None else self.cfg.s1_rows
-        if rows_ <= 0:
-            raise CascadeError(f"s1_rows={rows_}: give a whole number of rows above 0")
-        size = max(1, rows_ // max(1, len(idx)))
+        size = patients_per_query(self.lake, len(scope), len(idx), self.cfg.s1_rows)  # D-748, D-924
         dates_ = [d.isoformat() for d in idx]
         sql = safe_sql(self.rs)
         rows: list[dict[str, Any]] = []
