@@ -195,8 +195,7 @@ def test_the_follower_on_the_unit_machine_shows_the_committed_findings(tmp_path:
     assert (tmp_path / "opt/trialbox/deploy/keys/vendor_ed25519.pub").read_bytes() == pub.read_bytes()
     assert {x["to"] for x in rec.supplied} >= {ri.KEY_AT, f"{ri.SITE_AT}/", ri.FEED_AT}
     assert rec.verdict == (
-        "the runbook alone does not install the box: stopped at the one command (§1:32) because this machine's "
-        "stand-in serves no more (a machine stop)"
+        "no runbook stop before this machine's limit (the one command (§1:32): this machine's stand-ins serve no more)"
     )
     assert rec.machine_stop and rec.lifts == []  # the stand-in docker ends the unit run; it is never a finding
     assert ri.compare(run, ri.load_findings()) == []

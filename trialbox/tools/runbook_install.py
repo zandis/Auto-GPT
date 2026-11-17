@@ -624,14 +624,19 @@ class Record:
     seconds: float = 0.0
     commands_run: int = 0
     machine_stop: str = ""
+    machine_stops: list[str] = field(default_factory=list)
     diagnostics: list[dict[str, str]] = field(default_factory=list)
 
     def find(self, fid: str, step: str, evidence: str) -> None:
         if fid not in {f["id"] for f in self.findings}:
             self.findings.append({"id": fid, "step": step, "evidence": _clip(evidence, 600)})
 
-    def stop(self, step: str, why: str) -> None:
-        if not self.verdict:
+    def stop(self, step: str, why: str, *, machine: bool = False) -> None:
+        """A runbook stop makes the verdict (the first one); a machine stop (the machine lacks what step 1 names, or
+        the unit machine's stand-ins end) is recorded and never is the runbook's verdict (H-24)."""
+        if machine:
+            self.machine_stops.append(f"{step}: {why}")
+        elif not self.verdict:
             self.verdict = f"the runbook alone does not install the box: stopped at {step} because {why}"
 
 
@@ -777,7 +782,12 @@ class Follower:
             self._mapping_check()
             self._vendor_key_step()
             self._first_ingest()
-        self.rec.verdict = self.rec.verdict or "the runbook alone installs the box"
+        if not self.rec.verdict:
+            self.rec.verdict = (
+                "the runbook alone installs the box"
+                if self.rec.installed
+                else f"no runbook stop before this machine's limit ({'; '.join(self.rec.machine_stops) or 'none'})"
+            )
         return self.rec
 
     def _prereq(self) -> None:
@@ -861,7 +871,7 @@ class Follower:
                 self.rec.stop("the one command (§1:32)", "the installer did not find the vendor key")
                 return
             if "the site keys are not sealed" in text and "TPM" in text and "TB_KEK_BACKEND" not in self.env:
-                self.rec.stop("the one command (§1:32)", "the machine has no TPM (step 1 names TPM2): a machine stop")
+                self.rec.stop("the one command (§1:32)", "the machine has no TPM (step 1 names TPM2)", machine=True)
                 if not self._lift("no-tpm"):
                     return
                 self.env |= {
@@ -876,7 +886,7 @@ class Follower:
             markers = getattr(self.m, "stand_in_markers", ())
             if any(mk in text for mk in markers):
                 self.rec.machine_stop = f"the one command: {_last(text, 300)}"
-                self.rec.stop("the one command (§1:32)", "this machine's stand-in serves no more (a machine stop)")
+                self.rec.stop("the one command (§1:32)", "this machine's stand-ins serve no more", machine=True)
                 return
             self._prompts(r)
             bad = re.findall(r"container trialbox-([\w-]+?)-1 is unhealthy", text)
