@@ -35,11 +35,11 @@
   {% include "_nav.html" %}
   <div class="who">
     <a href="/account" data-testid="whoami">{{ user.username }} · {% if acting_from %}<span data-testid="acting-role" data-acting="{{ user.role }}">{{ t('acting.as', role=t('role.' + user.role)) }}</span>{% else %}{{ t('role.' + user.role) }}{% endif %}</a>
-    {% set roles = acting_roles() %}{% if roles %}
+    {% set my_acting_roles = acting_roles() %}{% if my_acting_roles %}
     <form method="post" action="/role" class="inline" data-testid="role-switch">
       <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="back" value="{{ path }}">
       <label class="sr" for="acting-role">{{ t('acting.label') }}</label>
-      <select id="acting-role" name="role">{% for r in roles %}<option value="{{ r }}" {{ 'selected' if r == user.role else '' }}>{{ t('role.' + r) }}</option>{% endfor %}</select>
+      <select id="acting-role" name="role">{% for r in my_acting_roles %}<option value="{{ r }}" {{ 'selected' if r == user.role else '' }}>{{ t('role.' + r) }}</option>{% endfor %}</select>
       <button type="submit" class="secondary">{{ t('acting.apply') }}</button>
     </form>{% endif %}
     <form method="post" action="/lang" class="inline">

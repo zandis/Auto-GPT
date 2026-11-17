@@ -61,11 +61,13 @@ def _tasks() -> tuple[str, ...]:
 
 
 def flag_on(audit_dir: Path, reason: str) -> None:
-    """Switch ``steps.acting_role`` on, audited (``Flags.set`` refuses off a test box)."""
-    from tb_common.audit import AuditLog
+    """Switch ``steps.acting_role`` on, audited through the box's one writer (D-394; ``Flags.set`` refuses off a test
+    box)."""
+    from tb_common.audit_writer import open_audit
+    from tb_common.config import site_tz
     from tb_common.flags import Flags
 
-    flags = Flags(audit=AuditLog(audit_dir))
+    flags = Flags(audit=open_audit(audit_dir, site_tz()))
     if flags.get("steps.acting_role", "off") != "on":
         flags.set("steps.acting_role", "on", ACTOR, reason)
 

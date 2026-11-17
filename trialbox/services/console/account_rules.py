@@ -180,6 +180,9 @@ class Rules:
     def request(self, kind: str, name: str, payload: dict[str, str], by: str, role: str) -> str:
         rid = self.users.add_request(kind, name, payload, by)
         detail = {"request": rid, "kind": kind, "user": name, "class": account_class(role)}
+        extra = self.users.extra_roles(name)  # D-877: the roles a test box's account may act in, said with it
+        if extra:
+            detail["acting_roles"] = ",".join(extra)
         self.audit.append("console.account_request", actor=f"console:{by}", detail=detail)
         return rid
 
