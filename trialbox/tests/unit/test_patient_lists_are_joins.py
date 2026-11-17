@@ -15,6 +15,8 @@ from typing import Any
 import duckdb
 import pytest
 
+pytestmark = [pytest.mark.guard, pytest.mark.nodb]  # D-1119: the guard step of `checks`; no database
+
 ROOT = Path(__file__).resolve().parents[2]
 ID_COLUMNS = ("pid", "oid", "cid", "mid", "prid", "rid", "eid", "kid")  # patients and the record ids of a scope
 # a per-row list check (DuckDB's names for it) whose second argument is a patient or record-id column

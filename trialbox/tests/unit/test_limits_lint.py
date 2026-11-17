@@ -5,7 +5,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from tools import limits_lint as ll
+
+pytestmark = [pytest.mark.guard, pytest.mark.nodb]  # D-1119: the guard step of `checks`; no database
 
 ROOT = Path(__file__).resolve().parents[2]
 
