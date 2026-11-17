@@ -126,6 +126,9 @@ def test_level_a_scores_the_stored_verdicts_on_key_v1_and_v2(run: dict[str, Any]
     assert sorted(r["sets"]) == ["jmed", "sigir"] and r["schema_version"] == replay.SCHEMA_VERSION
     jm = r["sets"]["jmed"]
     assert jm["key_v2"]["applied"] == 4  # the slice's four MANIFEST rows; the others' patients are not in it
+    v2 = jm["level_a"]["v2"]
+    assert v2["answer_key"]["key"] == "v2" and "MANIFEST.json" in v2["answer_key"]["how"]
+    assert v2["scorer_read_the_folder_as"]["key"] == "v1"  # no key.json: the scorer's own reading, kept apart
     a1 = r["targets"]["eligible_wrongly_excluded"]["a"]["v1"]
     a2 = r["targets"]["eligible_wrongly_excluded"]["a"]["v2"]
     by1 = {x["set"]: x for x in a1["per_set"]}

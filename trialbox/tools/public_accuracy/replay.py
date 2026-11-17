@@ -513,7 +513,9 @@ def replay(
     a1 = score_all({n: (found[n] / "built", found[n] / "work", found[n] / "work") for n in names}, scratch / "a-v1")
     a2 = score_all({n: (v2dirs[n], found[n] / "work", found[n] / "work") for n in names}, scratch / "a-v2")
     for n in names:
-        report["sets"][n]["level_a"] = {"v1": _brief(a1[n]), "v2": _brief(a2[n])}
+        k1 = {"key": "v1", "how": "the run's own stored gold"}
+        report["sets"][n]["key_v1"] = k1
+        report["sets"][n]["level_a"] = {"v1": _brief(a1[n], k1), "v2": _brief(a2[n], report["sets"][n]["key_v2"])}
         if ident[n]["launch_p1b_key_v1"]:
             report["sets"][n]["p1b_record"] = _record(n, a1[n])
     refused = {n: report["sets"][n]["key_v2"].get("refused") for n in names}
@@ -528,7 +530,8 @@ def replay(
         b2 = score_all({n: (v2dirs[n], b_runs[n]["answers"]["v2"], found[n] / "work") for n in names}, scratch / "b-v2")
         for n in names:
             report["sets"][n]["level_b"] = {
-                "v1": _brief(b1[n]), "v2": _brief(b2[n]), "rescreen": b_runs[n]["rescreen"],
+                "v1": _brief(b1[n], report["sets"][n]["key_v1"]), "v2": _brief(b2[n], report["sets"][n]["key_v2"]),
+                "rescreen": b_runs[n]["rescreen"],
                 "failed_protocols": b_runs[n]["protocols"], "recompiled": b_runs[n]["recompiled"]}  # fmt: skip
         t1["b"] = {"v1": figure("b", "v1", [eligible_figure(n, b1[n]) for n in names]),
                    "v2": figure("b", "v2", [eligible_figure(n, b2[n], refused[n]) for n in names])}  # fmt: skip
@@ -556,9 +559,12 @@ def replay(
     return report
 
 
-def _brief(sc: dict[str, Any]) -> dict[str, Any]:
+def _brief(sc: dict[str, Any], key: dict[str, Any]) -> dict[str, Any]:
+    """The parts of a score the report keeps. ``answer_key`` is the replay's own label of the key it scored on; the
+    scorer's reading of the folder (D-1104: a gold folder without ``key.json`` reads as v1, which the offline v2 of a
+    stored v1 gold is not) is kept beside it as ``scorer_read_the_folder_as``."""
     keep = ("not_scored_because", "protocols", "pathology", "unjudged_exclusions")
-    out = {k: sc[k] for k in keep if k in sc}
+    out = {"answer_key": key, "scorer_read_the_folder_as": sc.get("answer_key"), **{k: sc[k] for k in keep if k in sc}}
     if "pairs" in sc:
         out["pairs"] = {lang: {k: v for k, v in s.items() if k != "denominators"}
                         for lang, s in sc["pairs"]["summary"].items()}  # fmt: skip
