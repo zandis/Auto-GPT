@@ -30,12 +30,19 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from tests.e2e import life_cycle_walk_plan as lp
 from tests.e2e import new_study_walk_plan as nw
-from tests.e2e.test_new_study_walk import RULESET_ID, _node_playwright, accounts, box  # noqa: F401 (the fixture)
+from tests.e2e.test_new_study_walk import (  # noqa: F401 (box: the fixture)
+    AUDIT_DIR_ENV,
+    RULESET_ID,
+    _node_playwright,
+    accounts,
+    box,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = Path(__file__).with_name("life_cycle_walk.js")
@@ -98,10 +105,33 @@ def test_the_whole_life_of_a_study(box: tuple[str, str], lang: str) -> None:  # 
             st = next(lf for lf in lp.LIFE if lf.step.n == s["n"])
             assert any(n in out["stopped"] for n in st.after), s
         else:
-            assert (s["path"] and s["heading"]) or s["n"] == 21, s
+            assert (s["path"] and s["heading"]) or s["n"] == 22, s  # step 22 reads /metrics: no heading
     refused = [x for s in steps for x in s["refusals"]]
     assert refused and all(x["status"] == 403 for x in refused), refused
     assert out["checks"] >= 90, out
+    # H-25 (D-1124): what the worker did is in the box's audit log, on no page (F-22): its newest run, after step 21
+    # saw a run after the opt-out, names every clear of the erasure registry's section 1, none failed, nothing left
+    audit = os.environ.get(AUDIT_DIR_ENV, "")
+    if not audit:
+        pytest.skip("a box given by its address (TB_WALK_BASE): its audit log is not on this machine; the pages passed")
+    run = worker_runs(Path(audit))[-1]
+    assert sorted(run["stores"]) == sorted(lp.CLEARS), run
+    assert run["failed"] == [] and run["left"] == {} and run["opted_out"] >= 1, run
+
+
+def worker_runs(audit: Path) -> list[dict[str, Any]]:
+    """The details of the opt-out worker's runs (``optout.worker``) the box's audit log holds, oldest first."""
+    runs = []
+    for day in sorted(audit.glob("*.jsonl")):
+        for line in day.read_text(encoding="utf-8").splitlines():
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            if rec.get("event") == lp.WORKER_EVENT:
+                runs.append(rec.get("detail") or {})
+    assert runs, f"no run of the opt-out worker in {audit}"
+    return runs
 
 
 # ------------------------------------------------------------------------------- the plan and the findings page
@@ -158,7 +188,8 @@ def test_the_findings_are_well_formed() -> None:
     ids = [f.id for f in lp.FINDINGS]
     fixed = [x[0] for x in lp.FIXED]
     assert ids == sorted(set(ids)) and fixed == sorted(set(fixed)) and not set(ids) & set(fixed), (ids, fixed)
-    # a finding the walk no longer sees keeps its id (decisions cite it): the ids still run on with no gap
+    # a finding the walk no longer sees keeps its id (decisions cite it): the ids still run on with no gap (F-20, the
+    # erase not running, was settled by H-25, D-1124)
     every = sorted(ids + fixed)
     assert every == [f"F-{i:02d}" for i in range(1, len(every) + 1)], every
     for fid, step, by, now in lp.FIXED:
@@ -188,18 +219,24 @@ def _keys(st: object) -> set[str]:
                 out.add(t.key)
         if isinstance(a, nw.See):
             out.add("see:" + a.kind)
+        if isinstance(a, lp.Act):
+            out.add("act:" + a.kind)
     return out
 
 
 def test_what_a_fixed_finding_asked_for_is_asserted_by_the_walk() -> None:
-    """A finding leaves the plan only where the walk asserts the changed behaviour (D-1153): the step that saw it
-    now checks it."""
+    """A finding leaves the plan only where the walk asserts the changed behaviour (D-1153; F-20 D-1124): the step that
+    saw it now checks it."""
     steps = {st.n: st for st in lp.all_steps()}
     asked = {
         "F-11": (16, {"life.step.reason_required", "confirm.title", "life.confirm.final", "confirm.yes"}),
         "F-14": (9, {"sstate.now", "see:gone", "sstate.sae_type", "sae.setup.save"}),
         "F-15": (17, {"sstate.reason_required", "confirm.title", "sstate.confirm.close", "confirm.yes"}),
         "F-16": (17, {"sstate.kept_until", "see:years"}),
+        "F-20": (
+            21,
+            {"nav.audit", "audit.title", "act:worker_ran"},
+        ),  # H-25 (D-1124): the worker's run after the opt-out
     }
     assert set(asked) == {x[0] for x in lp.FIXED}
     for fid, (n, keys) in asked.items():
@@ -261,3 +298,23 @@ def test_the_driver_knows_every_act_of_the_plan() -> None:
             assert a["do"] in cases | {"stop"}, a["do"]
             if a["do"] in ("see", "stop"):
                 assert a["kind"] in cases, a["kind"]
+
+
+def test_the_worker_runs_are_read_from_the_audit_log(tmp_path: Path) -> None:
+    (tmp_path / "2026-11-17.jsonl").write_text(
+        "\n".join([json.dumps({"event": "console.x", "detail": {}}), "torn{",
+                   json.dumps({"event": lp.WORKER_EVENT, "detail": {"opted_out": 2, "failed": [], "left": {},
+                                                                    "stores": {c: {} for c in lp.CLEARS}}})]),
+        encoding="utf-8",
+    )  # fmt: skip
+    (run,) = worker_runs(tmp_path)
+    assert sorted(run["stores"]) == sorted(lp.CLEARS)
+    with pytest.raises(AssertionError, match="no run"):
+        worker_runs(tmp_path / "none")
+
+
+def test_the_clears_are_the_erasure_registrys() -> None:
+    """The walk's list of clears is the erasure registry's section 1 (``tb_common.erasure.clears``)."""
+    from tb_common import erasure
+
+    assert tuple(sorted(c.name for c in erasure.clears())) == tuple(sorted(lp.CLEARS))

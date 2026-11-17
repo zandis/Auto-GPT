@@ -785,7 +785,9 @@ def excluded_doc(ctx: Ctx, run: ScreenRun) -> dict[str, Any]:
     for r in ex:
         failing = [
             {"id": v.id, "source": source(v), **(v.evidence.model_dump(mode="json", exclude_none=True)
-                                                 if v.evidence is not None else {})}
+                                                 if v.evidence is not None else {}),
+             # D-989: the calls behind the answer, for the console's review (``ai.confirmed``); [] is "no model"
+             **({"prov": list(v.prov)} if v.prov is not None else {})}
             for v in r.criteria if shown_of(v)[0] == "fail"  # D-478: an answer that could not exclude is no reason
         ]  # fmt: skip
         rows.append({"pid": r.pid, "criteria": failing, "actions": list(r.actions)})

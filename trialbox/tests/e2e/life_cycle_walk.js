@@ -218,6 +218,36 @@ async function act(p, a, tag) {
       if (a.label === "pid" && vars.pid) vars.short = vars.pid.slice(0, 8);
       return check(vars[a.label], `${tag}: read the ${a.label} from the page`);
     }
+    case "worker_ran": {
+      // H-25 (D-1124): the opt-out worker's next run after the opt-out, as the audit trail shows it. The newest run on
+      // the page when the steward opens it is noted; the walk then waits on the product's own page (read again every
+      // 2 s, up to wait_s) for a newer one. The page shows the run, not what it did (F-22): the clears are read from
+      // the audit log by the test (test_life_cycle_walk.py), and step 22 reads the health check.
+      const row = 'tr[data-event="optout.worker"]';
+      const first = async () => (await p.locator(`main ${row}`).count()) ? await p.locator(`main ${row} td[title]`).first().getAttribute("title") : "";
+      const before = await first();
+      const url = new URL(p.url());
+      await p.waitForFunction(
+        ([path, before, row]) => {
+          const x = new XMLHttpRequest();
+          x.open("GET", path, false);
+          x.send();
+          const d = new DOMParser().parseFromString(x.responseText, "text/html");
+          const cell = d.querySelector(`${row} td[title]`);
+          return !!cell && cell.getAttribute("title") !== before;
+        },
+        [url.pathname + url.search, before, row],
+        { polling: 2000, timeout: a.wait_s * 1000 },
+      );
+      await p.reload({ waitUntil: "load" });
+      await settle(p);
+      const after = await first();
+      check(after && after !== before, `${tag}: the audit trail shows a run of the opt-out worker after the opt-out`);
+      const detail = ((await p.locator(`main ${row} td[data-src=audit]`).first().textContent()) || "").trim();
+      if (!detail) guess({ finding: a.finding, guess: "the run's detail is empty on the page" });
+      if (rec) rec.read.worker = masked(detail.slice(0, 300)) || "(no detail on the page)";
+      return;
+    }
     case "read": {
       // a text the product shows, kept in the log (what a finding quotes)
       const els = p.locator(a.within);

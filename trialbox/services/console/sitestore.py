@@ -708,13 +708,20 @@ class SiteStore:
         return {str(c): (str(b), str(a)) for c, b, a in rows}
 
     # ------------------------------------------------------------------ excluded patients sent to review (P-04)
-    def send_excluded_review(self, ruleset: str, pid: str, job_id: str, crit: str, note: str, by: str,
-                             at: str) -> None:  # fmt: skip
-        self.db.execute(
-            "INSERT INTO excluded_review (ruleset, pid, job_id, crit, note, by, at) VALUES (?,?,?,?,?,?,?) "
-            "ON CONFLICT (ruleset, pid, job_id) DO NOTHING",
-            (ruleset.upper(), pid, job_id, crit, note, by, at),
-        )
+    def send_excluded_review(self, ruleset: str, pid: str, job_id: str, crit: str, note: str, by: str, at: str,
+                             before_commit: Callable[[], None] | None = None) -> bool:  # fmt: skip
+        """Record the first "send to review" of a patient on a run (a later one is not kept). True when this one was
+        recorded; ``before_commit`` (D-989's events, the review of D-1152) runs inside the transaction then only, so
+        a review the store does not keep writes no decision, and a failed append keeps no review."""
+        with self.db.transaction() as tx:
+            n = tx.execute(
+                "INSERT INTO excluded_review (ruleset, pid, job_id, crit, note, by, at) VALUES (?,?,?,?,?,?,?) "
+                "ON CONFLICT (ruleset, pid, job_id) DO NOTHING",
+                (ruleset.upper(), pid, job_id, crit, note, by, at),
+            )
+            if n and before_commit is not None:
+                before_commit()
+        return bool(n)
 
     def excluded_reviews(self, ruleset: str) -> dict[str, dict[str, str]]:
         """pid -> the first "send to review" of this patient (who, when, the criterion, the note)."""

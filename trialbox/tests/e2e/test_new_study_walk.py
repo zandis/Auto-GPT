@@ -50,7 +50,11 @@ SCRIPT = Path(__file__).with_name("new_study_walk.js")
 STUB = ROOT / "services" / "llm_stub" / "handlers.py"
 RULESET_ID = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,15}$")  # console.app._RULESET_ID
 SEED_BUDGET_S = 1500  # the seed took 410 to 430 s on a 4-core container (2026-11-17); CI's demo-boot budget is 600 s
-WALK_BUDGET_S = 900  # one language's walk took 65 to 71 s there, SCREEN of the whole hospital about 40 s of it
+WALK_BUDGET_S = 900
+#: H-25 (D-1124): set while a box this module started runs: the folder of its audit log
+AUDIT_DIR_ENV = (
+    "TB_WALK_AUDIT_DIR"  # one language's walk took 65 to 71 s there, SCREEN of the whole hospital about 40 s of it
+)
 
 
 # ------------------------------------------------------------------------------------------------- the browser walk
@@ -130,8 +134,11 @@ def box() -> Iterator[tuple[str, str]]:
             if time.monotonic() > deadline:
                 pytest.fail(f"the steps-mode box did not answer within {SEED_BUDGET_S} s")
             time.sleep(2)
+        # H-25 (D-1124): where this box writes its audit log, for a walk that reads what the box recorded
+        os.environ[AUDIT_DIR_ENV] = str(work / "box" / "box" / "audit")
         yield base, password
     finally:
+        os.environ.pop(AUDIT_DIR_ENV, None)
         proc.terminate()
         try:
             proc.wait(timeout=60)

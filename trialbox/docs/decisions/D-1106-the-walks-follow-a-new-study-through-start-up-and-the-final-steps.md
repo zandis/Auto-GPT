@@ -34,10 +34,11 @@ sheet. Both walks ran SCREEN on a new study, and withdrew and closed in one clic
    `tests/e2e/life_cycle_walk_plan.py` with the decision that changed the product and what the walk now asserts; the
    findings page lists it under "The findings the walk no longer sees". Ids are not used again: the findings and the
    fixed ones together still run F-01 to F-nn with no gap (the fast test that held the ids consecutive now holds both
-   lists). A test holds each fixed finding to the acts that assert it. F-11, F-14, F-15 and F-16 leave so (D-1153).
-   What the walk saw on the new steps is new: F-22 (the reason SCREEN fails is the orchestrator's English on every
-   page, the state by its code), F-23 (no link from the failed job to the page that opens the study), F-24 (the
-   refusal's "type for serious adverse event reporting" has no field of that name on set-up).
+   lists). A test holds each fixed finding to the acts that assert it. F-11, F-14, F-15 and F-16 leave so (D-1153);
+   F-20, which H-25 settled (D-1124), is listed with them.
+   What the walk saw on the new steps is new (F-22 is H-25's): F-23 (the reason SCREEN fails is the orchestrator's
+   English on every page, the state by its code), F-24 (no link from the failed job to the page that opens the
+   study), F-25 (the refusal's "type for serious adverse event reporting" has no field of that name on set-up).
 4. **The testers' pages** `docs/handover/new-study-walk.{en,zh-TW,ja}.md` carry the new acts in their step tables
    (written by the plan) and a line in each language on start-up before the steps.
 
@@ -45,8 +46,8 @@ sheet. Both walks ran SCREEN on a new study, and withdrew and closed in one clic
 
 - Both walks pass only on a product with D-1153. They are stacked on its branch and go to master with it or after it.
 - The SCREEN refusal's own words are not in the console's catalogue: the walk asserts them as the product shows them
-  and reports them (F-22), it does not assert them as correct.
-- Lane H's H-25 changes step 21 and F-20 at the same time; this card leaves both alone.
+  and reports them (F-23), it does not assert them as correct.
+- Lane H's H-25 (D-1124) changed steps 21 and 22, F-20, F-21 and F-22 on master; this card takes them as they are.
 
 ## Held by
 
