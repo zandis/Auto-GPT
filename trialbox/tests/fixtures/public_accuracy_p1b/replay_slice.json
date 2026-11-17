@@ -1,0 +1,2190 @@
+{
+ "sets": {
+  "jmed": {
+   "answers": {
+    "Mm2JMED-DM": {
+     "approve": "done",
+     "approved_in": null,
+     "draft": [
+      {
+       "class": "mixed",
+       "domain": "observation",
+       "flags": [
+        "concept_unmapped",
+        "needs_review",
+        "negated_logic_rewritten"
+       ],
+       "id": "MM2JMED-DM-EXC-01",
+       "kind": "exclusion",
+       "logic": {
+        "domain": "observation",
+        "quantifier": "any",
+        "valueset": "VS_DIABETES_MELLITUS"
+       },
+       "text": "糖尿病の既往がある患者"
+      },
+      {
+       "class": "human",
+       "domain": "demographic",
+       "flags": [
+        "logic_invalid",
+        "needs_review"
+       ],
+       "id": "MM2JMED-DM-INC-01",
+       "kind": "inclusion",
+       "logic": {
+        "domain": "demographic",
+        "quantifier": "any",
+        "valueset": "NONE"
+       },
+       "text": "20歳以上"
+      }
+     ],
+     "feas": "awaiting_approval",
+     "feas_error": null,
+     "outcome": "screened",
+     "patients": {
+      "00518a0577d0fee7f7d07f130fff6b92": {
+       "actions": [],
+       "tier": "review",
+       "verdicts": [
+        {
+         "basis": "person",
+         "id": "MM2JMED-DM-INC-01",
+         "quote": null,
+         "verdict": "pending_human"
+        },
+        {
+         "basis": null,
+         "id": "MM2JMED-DM-EXC-01",
+         "quote": null,
+         "verdict": "unknown"
+        }
+       ]
+      },
+      "037a9808cde27feecfdd7d64d0659ba6": {
+       "actions": [],
+       "tier": "high",
+       "verdicts": [
+        {
+         "basis": "person",
+         "id": "MM2JMED-DM-INC-01",
+         "quote": null,
+         "verdict": "pending_human"
+        },
+        {
+         "basis": "pair",
+         "id": "MM2JMED-DM-EXC-01",
+         "quote": "既往歴や併存疾患はなく、血液検査や腹部超音波で特に異常は認められませんでした。",
+         "verdict": "pass"
+        }
+       ]
+      },
+      "0b6e194863f245ce152543052a0fe25f": {
+       "actions": [],
+       "tier": "review",
+       "verdicts": [
+        {
+         "basis": "person",
+         "id": "MM2JMED-DM-INC-01",
+         "quote": null,
+         "verdict": "pending_human"
+        },
+        {
+         "basis": null,
+         "id": "MM2JMED-DM-EXC-01",
+         "quote": null,
+         "verdict": "unknown"
+        }
+       ]
+      },
+      "27319ffb498c628d26e817a7ba975760": {
+       "actions": [],
+       "tier": "review",
+       "verdicts": [
+        {
+         "basis": "person",
+         "id": "MM2JMED-DM-INC-01",
+         "quote": null,
+         "verdict": "pending_human"
+        },
+        {
+         "basis": null,
+         "id": "MM2JMED-DM-EXC-01",
+         "quote": null,
+         "verdict": "unknown"
+        }
+       ]
+      },
+      "39c1db1b12b3e090623352218f653dc4": {
+       "actions": [],
+       "tier": "excluded",
+       "verdicts": [
+        {
+         "basis": "notes",
+         "id": "MM2JMED-DM-EXC-01",
+         "quote": "萱沼 美琴は、処方された降圧薬ロサルタンとメトホルミンを服用していますが、飲み忘れが時々あり、服薬管理が課題です。",
+         "verdict": "fail"
+        }
+       ]
+      },
+      "64ab3100f45adb78df13517d0f732b7f": {
+       "actions": [],
+       "tier": "high",
+       "verdicts": [
+        {
+         "basis": "person",
+         "id": "MM2JMED-DM-INC-01",
+         "quote": null,
+         "verdict": "pending_human"
+        },
+        {
+         "basis": "pair",
+         "id": "MM2JMED-DM-EXC-01",
+         "quote": "既往に喫煙歴があり、家族歴に高血圧と糖尿病があります。",
+         "verdict": "pass"
+        }
+       ]
+      }
+     },
+     "ruleset": "Mm2JMED-DM",
+     "screen": "done",
+     "screen_error": null
+    },
+    "Mm2JMED-HT": {
+     "approve": "done",
+     "approved_in": null,
+     "draft": [
+      {
+       "class": "mixed",
+       "domain": "condition",
+       "flags": [
+        "concept_needs_review",
+        "needs_review",
+        "negated_logic_rewritten"
+       ],
+       "id": "MM2JMED-HT-EXC-01",
+       "kind": "exclusion",
+       "logic": {
+        "domain": "condition",
+        "quantifier": "any",
+        "valueset": "VS_HYPERTENSION",
+        "window": {
+         "anchor": "index"
+        }
+       },
+       "text": "高血圧症の既往がある患者"
+      },
+      {
+       "class": "structured",
+       "domain": "demographic",
+       "flags": [],
+       "id": "MM2JMED-HT-INC-01",
+       "kind": "inclusion",
+       "logic": {
+        "age": {
+         "min": 20.0
+        },
+        "domain": "demographic",
+        "quantifier": "none",
+        "valueset": "NONE"
+       },
+       "text": "20歳以上"
+      }
+     ],
+     "feas": "awaiting_approval",
+     "feas_error": null,
+     "outcome": "screened",
+     "patients": {
+      "00518a0577d0fee7f7d07f130fff6b92": {
+       "actions": [],
+       "tier": "review",
+       "verdicts": [
+        {
+         "basis": "coded",
+         "id": "MM2JMED-HT-INC-01",
+         "quote": null,
+         "verdict": "pass"
+        },
+        {
+         "basis": null,
+         "id": "MM2JMED-HT-EXC-01",
+         "quote": null,
+         "verdict": "unknown"
+        }
+       ]
+      },
+      "037a9808cde27feecfdd7d64d0659ba6": {
+       "actions": [],
+       "tier": "excluded",
+       "verdicts": [
+        {
+         "basis": "coded",
+         "id": "MM2JMED-HT-INC-01",
+         "quote": null,
+         "verdict": "fail"
+        }
+       ]
+      },
+      "0b6e194863f245ce152543052a0fe25f": {
+       "actions": [],
+       "tier": "excluded",
+       "verdicts": [
+        {
+         "basis": "notes",
+         "id": "MM2JMED-HT-EXC-01",
+         "quote": "鶴原 直美は心房細動と診断され、血圧も高めで脂質異常症があります。",
+         "verdict": "fail"
+        }
+       ]
+      },
+      "27319ffb498c628d26e817a7ba975760": {
+       "actions": [],
+       "tier": "excluded",
+       "verdicts": [
+        {
+         "basis": "notes",
+         "id": "MM2JMED-HT-EXC-01",
+         "quote": "併存疾患として軽度の高血圧があり、血圧は145/92 mmHgとやや上昇しています。",
+         "verdict": "fail"
+        }
+       ]
+      },
+      "39c1db1b12b3e090623352218f653dc4": {
+       "actions": [],
+       "tier": "excluded",
+       "verdicts": [
+        {
+         "basis": "notes",
+         "id": "MM2JMED-HT-EXC-01",
+         "quote": "併存疾患として高血圧があり、血圧は150/92 mmHgとやや高めです。",
+         "verdict": "fail"
+        }
+       ]
+      },
+      "64ab3100f45adb78df13517d0f732b7f": {
+       "actions": [],
+       "tier": "excluded",
+       "verdicts": [
+        {
+         "basis": "notes",
+         "id": "MM2JMED-HT-EXC-01",
+         "quote": "光吉 瑛斗はBMI28.3の肥満と軽度の高血圧があり、内科で生活習慣指導を受けています。",
+         "verdict": "fail"
+        }
+       ]
+      }
+     },
+     "ruleset": "Mm2JMED-HT",
+     "screen": "done",
+     "screen_error": null
+    }
+   },
+   "criteria": [
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 3,
+     "patient": "03a1f9967bee4bc18419ed6b3c610e97",
+     "ruleset": "Mm2JMED-DM",
+     "stratum": "jmed-family-only",
+     "text": "糖尿病の既往がある患者",
+     "trial": "JMED-DM"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "excluded",
+     "mrn": 3,
+     "patient": "03a1f9967bee4bc18419ed6b3c610e97",
+     "ruleset": "Mm2JMED-HT",
+     "stratum": "jmed-own",
+     "text": "高血圧症の既往がある患者",
+     "trial": "JMED-HT"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 99,
+     "patient": "5c64094724ac466b9b6264ce7a35184f",
+     "ruleset": "Mm2JMED-DM",
+     "stratum": "jmed-none",
+     "text": "糖尿病の既往がある患者",
+     "trial": "JMED-DM"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "excluded",
+     "mrn": 99,
+     "patient": "5c64094724ac466b9b6264ce7a35184f",
+     "ruleset": "Mm2JMED-HT",
+     "stratum": "jmed-own",
+     "text": "高血圧症の既往がある患者",
+     "trial": "JMED-HT"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 130,
+     "patient": "7187be72a58d487cb1c16727123237e9",
+     "ruleset": "Mm2JMED-DM",
+     "stratum": "jmed-none",
+     "text": "糖尿病の既往がある患者",
+     "trial": "JMED-DM"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 130,
+     "patient": "7187be72a58d487cb1c16727123237e9",
+     "ruleset": "Mm2JMED-HT",
+     "stratum": "jmed-none",
+     "text": "高血圧症の既往がある患者",
+     "trial": "JMED-HT"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 287,
+     "patient": "f1f374875280433d8fdec6ff9ced4c28",
+     "ruleset": "Mm2JMED-DM",
+     "stratum": "jmed-family-only",
+     "text": "糖尿病の既往がある患者",
+     "trial": "JMED-DM"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 287,
+     "patient": "f1f374875280433d8fdec6ff9ced4c28",
+     "ruleset": "Mm2JMED-HT",
+     "stratum": "jmed-family-only",
+     "text": "高血圧症の既往がある患者",
+     "trial": "JMED-HT"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 195,
+     "patient": "9f56d1cf27804387be624da5005a7f03",
+     "ruleset": "Mm2JMED-DM",
+     "stratum": "jmed-family-only",
+     "text": "糖尿病の既往がある患者",
+     "trial": "JMED-DM"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 195,
+     "patient": "9f56d1cf27804387be624da5005a7f03",
+     "ruleset": "Mm2JMED-HT",
+     "stratum": "jmed-family-only",
+     "text": "高血圧症の既往がある患者",
+     "trial": "JMED-HT"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 290,
+     "patient": "f5da14174f2f4fba864c0e161bb49c21",
+     "ruleset": "Mm2JMED-DM",
+     "stratum": "jmed-family-only",
+     "text": "糖尿病の既往がある患者",
+     "trial": "JMED-DM"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 290,
+     "patient": "f5da14174f2f4fba864c0e161bb49c21",
+     "ruleset": "Mm2JMED-HT",
+     "stratum": "jmed-family-only",
+     "text": "高血圧症の既往がある患者",
+     "trial": "JMED-HT"
+    }
+   ],
+   "ids": {
+    "lang": {
+     "Mm2JMED-DM": "ja",
+     "Mm2JMED-HT": "ja"
+    },
+    "pair_of": {},
+    "patients": {
+     "03a1f9967bee4bc18419ed6b3c610e97": 3,
+     "5c64094724ac466b9b6264ce7a35184f": 99,
+     "7187be72a58d487cb1c16727123237e9": 130,
+     "9f56d1cf27804387be624da5005a7f03": 195,
+     "f1f374875280433d8fdec6ff9ced4c28": 287,
+     "f5da14174f2f4fba864c0e161bb49c21": 290
+    },
+    "rulesets": {
+     "JMED-DM": "Mm2JMED-DM",
+     "JMED-HT": "Mm2JMED-HT"
+    },
+    "set": "jmed"
+   },
+   "pairs": [],
+   "pidmap": {
+    "130": "037a9808cde27feecfdd7d64d0659ba6",
+    "195": "39c1db1b12b3e090623352218f653dc4",
+    "287": "27319ffb498c628d26e817a7ba975760",
+    "290": "64ab3100f45adb78df13517d0f732b7f",
+    "3": "00518a0577d0fee7f7d07f130fff6b92",
+    "99": "0b6e194863f245ce152543052a0fe25f"
+   },
+   "progress": {
+    "Mm2JMED-DM": {
+     "feas_job": "01M7HR09TPHT0CEPWQ6ZPBNFRH",
+     "screen_job": "01M7HR1BF20WJ5RHQ8BH8FBRM7"
+    },
+    "Mm2JMED-HT": {
+     "feas_job": "01M7HR3KMKCDPT341NXK27ACPQ",
+     "screen_job": "01M7HR4NA16D9Y9NNSRMQ48BZC"
+    }
+   },
+   "traces": [
+    {
+     "attributes": {
+      "tb.prompt": "ir_extract@3",
+      "tb.study_id": "01M7HR09TPHT0CEPWQ6ZPBNFRH"
+     },
+     "output": "{\"criteria\": [{\"text\": \"20歳以上\", \"source_ref\": \"選択基準 #1\", \"kind\": \"inclusion\", \"class\": \"structured\", \"logic\": {\"domain\": \"demographic\", \"concept\": \"age\", \"quantifier\": \"none\", \"value\": \n  {\"op\": \">=\", \"num\": 20}}, \"concept_candidates\": [{\"domain\": \"demographic\", \"name\": \"age\", \"synonyms\": [\"年齢\", \"age\"]} ]}, {\"text\": \"糖尿病の既往がある患者\", \"source_ref\": \"除外基準 #1\", \"kind\": \"exclusion\", \"class\": \"mixed\", \"logic\": {\"domain\": \"observation\", \"concept\": \"diabetes_mellitus\", \"quantifier\": \"none\"}, \"note_question\": \"患者に糖尿病の既往がありますか？\", \"concept_candidates\": [{\"domain\": \"observation\", \"name\": \"diabetes_mellitus\", \"synonyms\": [\"糖尿病\", \"diabetes mellitus\"]}]}]}",
+     "prompt": [
+      {
+       "content": "Ruleset: MM2JMED-DM (document language: ja)\n\nINPUT:\n```json\n{\n \"criteria\": [\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"選択基準 #1\",\n   \"text\": \"20歳以上\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"除外基準 #1\",\n   \"text\": \"糖尿病の既往がある患者\"\n  }\n ],\n \"language\": \"ja\",\n \"ruleset\": \"MM2JMED-DM\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T08:36:36.676988+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HR09TPHT0CEPWQ6ZPBNFRH"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"3084-1\",\n   \"display\": \"Urate [Mass/volume] in Serum or Plasma\",\n   \"system\": \"http://loinc.org\"\n  },\n  {\n   \"code\": \"2106-3\",\n   \"display\": \"Choriogonadotropin (pregnancy test) [Presence] in Urine\",\n   \"system\": \"http://loinc.org\"\n  },\n  {\n   \"code\": \"4548-4\",\n   \"display\": \"Hemoglobin A1c/Hemoglobin.total in Blood\",\n   \"system\": \"http://loinc.org\"\n  },\n  {\n   \"code\": \"PTGA\",\n   \"display\": \"Patient global assessment of disease activity\",\n   \"system\": \"https://trialbox.local/fhir/CodeSystem/clinical-score\"\n  }\n ],\n \"concept\": \"diabetes_mellitus\",\n \"domain\": \"observation\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T08:36:37.109010+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "ir_extract@3",
+      "tb.study_id": "01M7HR3KMKCDPT341NXK27ACPQ"
+     },
+     "output": "{\n  \"criteria\": [\n    {\n      \"text\": \"20歳以上\",\n      \"source_ref\": \"選択基準 #1\",\n      \"kind\": \"inclusion\",\n      \"class\": \"structured\",\n      \"logic\": {\n        \"domain\": \"demographic\",\n        \"concept\": \"age\",\n        \"quantifier\": \"none\",\n        \"age\": {\n          \"min\": 20\n        }\n      },\n      \"concept_candidates\": [\n        {\n          \"domain\": \"demographic\",\n          \"name\": \"age\",\n          \"synonyms\": [\n            \"年齢\",\n            \"age\"\n          ]\n        }\n      ]\n    },\n    {\n      \"text\": \"高血圧症の既往がある患者\",\n      \"source_ref\": \"除外基準 #1\",\n      \"kind\": \"exclusion\",\n      \"class\": \"mixed\",\n      \"logic\": {\n        \"domain\": \"condition\",\n        \"concept\": \"hypertension\",\n        \"quantifier\": \"none\",\n        \"window\": {\n          \"anchor\": \"index\"\n        }\n      },\n      \"note_question\": \"Does the patient have a history of hypertension?\",\n      \"concept_candidates\": [\n        {\n          \"domain\": \"condition\",\n          \"name\": \"hypertension\",\n          \"synonyms\": [\n            \"高血圧症\",\n            \"essential hypertension\",\n            \"高血圧\"\n          ]\n        }\n      ]\n    }\n  ]\n}",
+     "prompt": [
+      {
+       "content": "Ruleset: MM2JMED-HT (document language: ja)\n\nINPUT:\n```json\n{\n \"criteria\": [\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"選択基準 #1\",\n   \"text\": \"20歳以上\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"除外基準 #1\",\n   \"text\": \"高血圧症の既往がある患者\"\n  }\n ],\n \"language\": \"ja\",\n \"ruleset\": \"MM2JMED-HT\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T08:38:25.826645+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HR3KMKCDPT341NXK27ACPQ"
+     },
+     "output": "{\n \"choices\": [\n  {\n   \"code\": \"I10\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\",\n   \"confidence\": 1.0\n  }\n ],\n \"needs_review\": false\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"I10\",\n   \"display\": \"Essential (primary) hypertension\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E78.5\",\n   \"display\": \"Hyperlipidemia unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"A41.9\",\n   \"display\": \"Sepsis unspecified organism\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E10.65\",\n   \"display\": \"Type 1 diabetes mellitus with hyperglycemia\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E11.65\",\n   \"display\": \"Type 2 diabetes mellitus with hyperglycemia\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"F03.90\",\n   \"display\": \"Unspecified dementia without behavioral disturbance\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G30.9\",\n   \"display\": \"Alzheimer's disease unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.1\",\n   \"display\": \"Carotid artery syndrome (hemispheric)\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.0\",\n   \"display\": \"Vertebro-basilar artery syndrome\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.9\",\n   \"display\": \"Transient cerebral ischemic attack unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G30.0\",\n   \"display\": \"Alzheimer's disease with early onset\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G30.1\",\n   \"display\": \"Alzheimer's disease with late onset\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.8\",\n   \"display\": \"Other transient cerebral ischemic attacks and related syndromes\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.2\",\n   \"display\": \"Multiple and bilateral precerebral artery syndromes\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  }\n ],\n \"concept\": \"hypertension\",\n \"domain\": \"condition\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T08:38:27.478628+00:00"
+    }
+   ]
+  },
+  "sigir": {
+   "answers": {
+    "Sm2NCT00277680": {
+     "approve": "done",
+     "approved_in": null,
+     "draft": [
+      {
+       "class": "mixed",
+       "domain": "condition",
+       "flags": [],
+       "id": "SM2NCT00277680-EXC-01",
+       "kind": "exclusion",
+       "logic": {
+        "domain": "condition",
+        "quantifier": "any",
+        "valueset": "VS_MALIGNANCY"
+       },
+       "text": "Malignancy"
+      },
+      {
+       "class": "mixed",
+       "domain": "condition",
+       "flags": [],
+       "id": "SM2NCT00277680-EXC-02",
+       "kind": "exclusion",
+       "logic": {
+        "domain": "condition",
+        "quantifier": "any",
+        "valueset": "VS_PREGNANCY"
+       },
+       "text": "Current or planned pregnancy"
+      },
+      {
+       "class": "mixed",
+       "domain": "condition",
+       "flags": [
+        "concept_unmapped",
+        "needs_review"
+       ],
+       "id": "SM2NCT00277680-EXC-03",
+       "kind": "exclusion",
+       "logic": {
+        "domain": "condition",
+        "quantifier": "any",
+        "valueset": "VS_SUBMUCOUS_FIBROIDS"
+       },
+       "text": "Small submucous fibroids suitable for hysteroscopic resection"
+      },
+      {
+       "class": "structured",
+       "domain": "condition",
+       "flags": [
+        "concept_unmapped",
+        "needs_review"
+       ],
+       "id": "SM2NCT00277680-EXC-04",
+       "kind": "exclusion",
+       "logic": {
+        "domain": "condition",
+        "quantifier": "any",
+        "valueset": "VS_MENOPAUSE"
+       },
+       "text": "Postmenopausal women"
+      },
+      {
+       "class": "mixed",
+       "domain": "condition",
+       "flags": [
+        "concept_unmapped",
+        "needs_review"
+       ],
+       "id": "SM2NCT00277680-EXC-05",
+       "kind": "exclusion",
+       "logic": {
+        "domain": "condition",
+        "quantifier": "any",
+        "valueset": "VS_ADENOMYOSIS"
+       },
+       "text": "Suspected or known adenomyosis"
+      },
+      {
+       "class": "note",
+       "domain": "observation",
+       "flags": [],
+       "id": "SM2NCT00277680-EXC-06",
+       "kind": "exclusion",
+       "logic": {
+        "domain": "observation",
+        "quantifier": "any",
+        "valueset": "VS_UTERUS_SIZE"
+       },
+       "text": "Uterus size exceeding the umbilical level"
+      },
+      {
+       "class": "mixed",
+       "domain": "condition",
+       "flags": [
+        "concept_unmapped",
+        "needs_review"
+       ],
+       "id": "SM2NCT00277680-EXC-07",
+       "kind": "exclusion",
+       "logic": {
+        "domain": "condition",
+        "quantifier": "any",
+        "valueset": "VS_CONTRAINDICATION_FOR_LAPAROSCOPY"
+       },
+       "text": "Contraindications against laparoscopic surgery"
+      },
+      {
+       "class": "human",
+       "domain": "demographic",
+       "flags": [
+        "logic_invalid",
+        "needs_review"
+       ],
+       "id": "SM2NCT00277680-INC-01",
+       "kind": "inclusion",
+       "logic": {
+        "domain": "demographic",
+        "quantifier": "any",
+        "valueset": "NONE"
+       },
+       "text": "Menorrhagia and/or bulk symptoms associated with uterine fibroids"
+      },
+      {
+       "class": "structured",
+       "domain": "demographic",
+       "flags": [],
+       "id": "SM2NCT00277680-INC-02",
+       "kind": "inclusion",
+       "logic": {
+        "age": {
+         "min": 30.0
+        },
+        "domain": "demographic",
+        "quantifier": "any",
+        "valueset": "NONE"
+       },
+       "text": "Aged 30 years or older"
+      },
+      {
+       "class": "structured",
+       "domain": "demographic",
+       "flags": [],
+       "id": "SM2NCT00277680-INC-03",
+       "kind": "inclusion",
+       "logic": {
+        "domain": "demographic",
+        "quantifier": "any",
+        "sex": "female",
+        "valueset": "NONE"
+       },
+       "text": "Female participants only"
+      }
+     ],
+     "feas": "awaiting_approval",
+     "feas_error": null,
+     "outcome": "failed",
+     "patients": {},
+     "ruleset": "Sm2NCT00277680",
+     "screen": "failed",
+     "screen_error": {
+      "detail": null,
+      "message": "The model did not answer 1 of 7 note checks, so the note-based criteria could not be judged. Nothing was sent; send the request again when the model is back.",
+      "step": "judging"
+     }
+    },
+    "Sm2NCT00493103": {
+     "approve": null,
+     "approved_in": null,
+     "draft": [],
+     "feas": "failed",
+     "feas_error": {
+      "detail": "criteria-compiler HTTP 422",
+      "message": "equivalence: the comparison of the compiled CQL and SQL could not run: the FHIR server refused it (FhirEvalError); check the criteria flagged for review",
+      "step": "equivalence"
+     },
+     "outcome": "failed",
+     "patients": {},
+     "ruleset": "Sm2NCT00493103",
+     "screen": null,
+     "screen_error": null
+    },
+    "Sm2NCT00606840": {
+     "approve": "done",
+     "approved_in": null,
+     "draft": [
+      {
+       "class": "human",
+       "domain": "demographic",
+       "flags": [
+        "logic_invalid",
+        "needs_review"
+       ],
+       "id": "SM2NCT00606840-EXC-01",
+       "kind": "exclusion",
+       "logic": {
+        "domain": "demographic",
+        "quantifier": "any",
+        "valueset": "NONE"
+       },
+       "text": "BMI outside of range specified"
+      },
+      {
+       "class": "structured",
+       "domain": "demographic",
+       "flags": [],
+       "id": "SM2NCT00606840-EXC-02",
+       "kind": "exclusion",
+       "logic": {
+        "age": {
+         "max": 35.0,
+         "min": 18.0
+        },
+        "derived": "egfr",
+        "domain": "demographic",
+        "quantifier": "all",
+        "valueset": "NONE"
+       },
+       "text": "Age outside of range specified"
+      },
+      {
+       "class": "human",
+       "domain": "demographic",
+       "flags": [
+        "logic_invalid",
+        "needs_review"
+       ],
+       "id": "SM2NCT00606840-EXC-03",
+       "kind": "exclusion",
+       "logic": {
+        "domain": "demographic",
+        "quantifier": "any",
+        "valueset": "NONE"
+       },
+       "text": "History of or current eating disorder or substance abuse"
+      },
+      {
+       "class": "mixed",
+       "domain": "observation",
+       "flags": [
+        "concept_unmapped",
+        "needs_review"
+       ],
+       "id": "SM2NCT00606840-EXC-04",
+       "kind": "exclusion",
+       "logic": {
+        "domain": "observation",
+        "quantifier": "any",
+        "value": {
+         "num": 5.0,
+         "op": ">"
+        },
+        "valueset": "VS_WEIGHT_LOSS_PERCENTAGE",
+        "window": {
+         "anchor": "index",
+         "from_days": -90
+        }
+       },
+       "text": "Recent weight loss greater than 5% of weight"
+      },
+      {
+       "class": "human",
+       "domain": "demographic",
+       "flags": [],
+       "id": "SM2NCT00606840-EXC-05",
+       "kind": "exclusion",
+       "logic": {
+        "domain": "demographic",
+        "quantifier": "any",
+        "valueset": "NONE"
+       },
+       "text": "Currently in another research study that would interfere"
+      },
+      {
+       "class": "structured",
+       "domain": "demographic",
+       "flags": [],
+       "id": "SM2NCT00606840-INC-01",
+       "kind": "inclusion",
+       "logic": {
+        "age": {
+         "max": 35.0,
+         "min": 18.0
+        },
+        "domain": "demographic",
+        "quantifier": "all",
+        "valueset": "NONE"
+       },
+       "text": "Age 18-35"
+      },
+      {
+       "class": "structured",
+       "domain": "observation",
+       "flags": [
+        "concept_needs_review",
+        "needs_review",
+        "value_unit_missing"
+       ],
+       "id": "SM2NCT00606840-INC-02",
+       "kind": "inclusion",
+       "logic": {
+        "domain": "observation",
+        "quantifier": "all",
+        "value": {
+         "num": 23.0,
+         "num2": 30.0,
+         "op": "between"
+        },
+        "valueset": "VS_BMI"
+       },
+       "text": "Body mass index between 23 and 30"
+      },
+      {
+       "class": "human",
+       "domain": "demographic",
+       "flags": [],
+       "id": "SM2NCT00606840-INC-03",
+       "kind": "inclusion",
+       "logic": {
+        "domain": "demographic",
+        "quantifier": "any",
+        "valueset": "NONE"
+       },
+       "text": "Interested in preventing weight gain"
+      },
+      {
+       "class": "structured",
+       "domain": "demographic",
+       "flags": [],
+       "id": "SM2NCT00606840-INC-04",
+       "kind": "inclusion",
+       "logic": {
+        "age": {
+         "min": 18.0
+        },
+        "domain": "demographic",
+        "quantifier": "all",
+        "valueset": "NONE"
+       },
+       "text": "Aged 18 years or older"
+      },
+      {
+       "class": "structured",
+       "domain": "demographic",
+       "flags": [],
+       "id": "SM2NCT00606840-INC-05",
+       "kind": "inclusion",
+       "logic": {
+        "age": {
+         "max": 35.0
+        },
+        "domain": "demographic",
+        "quantifier": "all",
+        "valueset": "NONE"
+       },
+       "text": "Age <= 35 years"
+      }
+     ],
+     "feas": "awaiting_approval",
+     "feas_error": null,
+     "outcome": "screened",
+     "patients": {
+      "58af5413e9f249053b270b6b734a128a": {
+       "actions": [],
+       "tier": "excluded",
+       "verdicts": [
+        {
+         "basis": "coded",
+         "id": "SM2NCT00606840-EXC-02",
+         "quote": null,
+         "verdict": "fail"
+        }
+       ]
+      }
+     },
+     "ruleset": "Sm2NCT00606840",
+     "screen": "done",
+     "screen_error": null
+    },
+    "Sm2NCT01260883": {
+     "approve": "done",
+     "approved_in": null,
+     "draft": [
+      {
+       "class": "mixed",
+       "domain": "condition",
+       "flags": [
+        "concept_unmapped",
+        "needs_review"
+       ],
+       "id": "SM2NCT01260883-EXC-01",
+       "kind": "exclusion",
+       "logic": {
+        "count": 1,
+        "domain": "condition",
+        "quantifier": "any",
+        "valueset": "VS_BLEEDING_HISTORY"
+       },
+       "text": "Bleeding history in infant or family"
+      },
+      {
+       "class": "structured",
+       "domain": "condition",
+       "flags": [
+        "concept_unmapped",
+        "needs_review"
+       ],
+       "id": "SM2NCT01260883-EXC-02",
+       "kind": "exclusion",
+       "logic": {
+        "domain": "condition",
+        "quantifier": "any",
+        "valueset": "VS_COAGULOPATHY"
+       },
+       "text": "Coagulopathy"
+      },
+      {
+       "class": "mixed",
+       "domain": "condition",
+       "flags": [
+        "concept_unmapped",
+        "needs_review"
+       ],
+       "id": "SM2NCT01260883-EXC-03",
+       "kind": "exclusion",
+       "logic": {
+        "domain": "condition",
+        "quantifier": "any",
+        "valueset": "VS_GASTROINTESTINAL_BLEEDING"
+       },
+       "text": "Gastrointestinal bleeding history"
+      },
+      {
+       "class": "human",
+       "domain": "demographic",
+       "flags": [
+        "logic_invalid",
+        "needs_review"
+       ],
+       "id": "SM2NCT01260883-EXC-04",
+       "kind": "exclusion",
+       "logic": {
+        "domain": "demographic",
+        "quantifier": "any",
+        "valueset": "NONE"
+       },
+       "text": "Renal or hepatic disease assessed by history and by pre-drug blood tests"
+      },
+      {
+       "class": "mixed",
+       "domain": "condition",
+       "flags": [
+        "concept_unmapped",
+        "needs_review"
+       ],
+       "id": "SM2NCT01260883-EXC-05",
+       "kind": "exclusion",
+       "logic": {
+        "age": {
+         "max": 36.0
+        },
+        "domain": "condition",
+        "quantifier": "any",
+        "valueset": "VS_PREMATURE_BIRTH"
+       },
+       "text": "Premature birth (<36 weeks gestation)"
+      },
+      {
+       "class": "mixed",
+       "domain": "demographic",
+       "flags": [],
+       "id": "SM2NCT01260883-INC-01",
+       "kind": "inclusion",
+       "logic": {
+        "age": {
+         "max": 18.0,
+         "min": 2.0
+        },
+        "derived": "asdas",
+        "domain": "demographic",
+        "quantifier": "any",
+        "sex": "female",
+        "valueset": "NONE"
+       },
+       "text": "Non-prematurely-born infants admitted to hospital following surgery ages 2-18 months, studied by age group 12-18 months, 6-12 months, < 6 months"
+      },
+      {
+       "class": "structured",
+       "domain": "demographic",
+       "flags": [],
+       "id": "SM2NCT01260883-INC-02",
+       "kind": "inclusion",
+       "logic": {
+        "age": {
+         "min": 0.17
+        },
+        "domain": "demographic",
+        "quantifier": "any",
+        "valueset": "NONE"
+       },
+       "text": "Aged 0.17 years or older"
+      },
+      {
+       "class": "structured",
+       "domain": "demographic",
+       "flags": [],
+       "id": "SM2NCT01260883-INC-03",
+       "kind": "inclusion",
+       "logic": {
+        "age": {
+         "max": 1.5
+        },
+        "domain": "demographic",
+        "quantifier": "any",
+        "valueset": "NONE"
+       },
+       "text": "Age <= 1.5 years"
+      }
+     ],
+     "feas": "awaiting_approval",
+     "feas_error": null,
+     "outcome": "screened",
+     "patients": {
+      "5820630d80bc082f8331ffffd465ded9": {
+       "actions": [],
+       "tier": "excluded",
+       "verdicts": [
+        {
+         "basis": "coded",
+         "id": "SM2NCT01260883-INC-02",
+         "quote": null,
+         "verdict": "fail"
+        }
+       ]
+      }
+     },
+     "ruleset": "Sm2NCT01260883",
+     "screen": "done",
+     "screen_error": null
+    },
+    "Sm2NCT01723137": {
+     "approve": "done",
+     "approved_in": null,
+     "draft": [
+      {
+       "class": "human",
+       "domain": "demographic",
+       "flags": [
+        "logic_invalid",
+        "needs_review",
+        "negated_logic_rewritten"
+       ],
+       "id": "SM2NCT01723137-EXC-01",
+       "kind": "exclusion",
+       "logic": {
+        "domain": "demographic",
+        "quantifier": "any",
+        "valueset": "NONE"
+       },
+       "text": "Less than 18 years of age"
+      },
+      {
+       "class": "human",
+       "domain": "demographic",
+       "flags": [
+        "logic_invalid",
+        "needs_review",
+        "negated_logic_rewritten"
+       ],
+       "id": "SM2NCT01723137-EXC-02",
+       "kind": "exclusion",
+       "logic": {
+        "domain": "demographic",
+        "quantifier": "any",
+        "valueset": "NONE"
+       },
+       "text": "Decreased level of consciousness"
+      },
+      {
+       "class": "human",
+       "domain": "demographic",
+       "flags": [],
+       "id": "SM2NCT01723137-EXC-03",
+       "kind": "exclusion",
+       "logic": {
+        "domain": "demographic",
+        "quantifier": "any",
+        "valueset": "NONE"
+       },
+       "text": "Inability to answer questions"
+      },
+      {
+       "class": "human",
+       "domain": "demographic",
+       "flags": [
+        "logic_invalid",
+        "needs_review",
+        "negated_logic_rewritten"
+       ],
+       "id": "SM2NCT01723137-EXC-04",
+       "kind": "exclusion",
+       "logic": {
+        "domain": "demographic",
+        "quantifier": "any",
+        "valueset": "NONE"
+       },
+       "text": "Prisoner"
+      },
+      {
+       "class": "note",
+       "domain": "observation",
+       "flags": [
+        "missing_note_question",
+        "needs_review"
+       ],
+       "id": "SM2NCT01723137-INC-01",
+       "kind": "inclusion",
+       "logic": {
+        "domain": "observation",
+        "quantifier": "none",
+        "value": {
+         "num": 3.0,
+         "op": ">="
+        },
+        "valueset": "VS_PAIN_SCORE"
+       },
+       "text": "Reported pain greater than or equal to 3 out of 10"
+      },
+      {
+       "class": "human",
+       "domain": "demographic",
+       "flags": [
+        "logic_invalid",
+        "needs_review"
+       ],
+       "id": "SM2NCT01723137-INC-02",
+       "kind": "inclusion",
+       "logic": {
+        "domain": "demographic",
+        "quantifier": "any",
+        "valueset": "NONE"
+       },
+       "text": "Aged 18 years or older"
+      }
+     ],
+     "feas": "awaiting_approval",
+     "feas_error": null,
+     "outcome": "failed",
+     "patients": {},
+     "ruleset": "Sm2NCT01723137",
+     "screen": "failed",
+     "screen_error": {
+      "detail": null,
+      "message": "The screening cascade could not run for SM2NCT01723137 v1.0.0: ruleset SM2NCT01723137 has no coded criterion, so every patient goes to the models: set max_pairs",
+      "step": "running"
+     }
+    },
+    "Sm2NCT02378311": {
+     "approve": null,
+     "approved_in": null,
+     "draft": [],
+     "feas": "failed",
+     "feas_error": {
+      "detail": "criteria-compiler HTTP 422",
+      "message": "ir_extract: the model did not return usable criteria (gateway refused ir_extract: upstream_failed); send the protocol again",
+      "step": "ir_extract"
+     },
+     "outcome": "failed",
+     "patients": {},
+     "ruleset": "Sm2NCT02378311",
+     "screen": null,
+     "screen_error": null
+    },
+    "Sm2NCT02410616": {
+     "approve": null,
+     "approved_in": null,
+     "draft": [],
+     "feas": null,
+     "feas_error": null,
+     "outcome": "not_run_time_budget",
+     "patients": {},
+     "ruleset": "Sm2NCT02410616",
+     "screen": null,
+     "screen_error": null
+    }
+   },
+   "criteria": [
+    {
+     "evidence": [
+      0
+     ],
+     "kind": "inclusion",
+     "label": "included",
+     "mrn": 3,
+     "patient": "sigir-201411",
+     "ruleset": "Sm2NCT01723137",
+     "stratum": "sigir-criterion",
+     "text": "Reported pain greater than or equal to 3 out of 10",
+     "trial": "NCT01723137"
+    },
+    {
+     "evidence": [
+      0
+     ],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 3,
+     "patient": "sigir-201411",
+     "ruleset": "Sm2NCT01723137",
+     "stratum": "sigir-criterion",
+     "text": "Less than 18 years of age",
+     "trial": "NCT01723137"
+    },
+    {
+     "evidence": [
+      0,
+      5
+     ],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 3,
+     "patient": "sigir-201411",
+     "ruleset": "Sm2NCT01723137",
+     "stratum": "sigir-criterion",
+     "text": "Decreased level of consciousness",
+     "trial": "NCT01723137"
+    },
+    {
+     "evidence": [
+      5
+     ],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 3,
+     "patient": "sigir-201411",
+     "ruleset": "Sm2NCT01723137",
+     "stratum": "sigir-criterion",
+     "text": "Inability to answer questions",
+     "trial": "NCT01723137"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 3,
+     "patient": "sigir-201411",
+     "ruleset": "Sm2NCT01723137",
+     "stratum": "sigir-criterion",
+     "text": "Prisoner",
+     "trial": "NCT01723137"
+    },
+    {
+     "evidence": [
+      0,
+      1,
+      4,
+      5
+     ],
+     "kind": "inclusion",
+     "label": "not enough information",
+     "mrn": 7,
+     "patient": "sigir-201415",
+     "ruleset": "Sm2NCT00277680",
+     "stratum": "sigir-criterion",
+     "text": "Menorrhagia and/or bulk symptoms associated with uterine fibroids",
+     "trial": "NCT00277680"
+    },
+    {
+     "evidence": [
+      0,
+      1,
+      4,
+      5
+     ],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 7,
+     "patient": "sigir-201415",
+     "ruleset": "Sm2NCT00277680",
+     "stratum": "sigir-criterion",
+     "text": "Malignancy",
+     "trial": "NCT00277680"
+    },
+    {
+     "evidence": [
+      0,
+      3
+     ],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 7,
+     "patient": "sigir-201415",
+     "ruleset": "Sm2NCT00277680",
+     "stratum": "sigir-criterion",
+     "text": "Current or planned pregnancy",
+     "trial": "NCT00277680"
+    },
+    {
+     "evidence": [
+      4
+     ],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 7,
+     "patient": "sigir-201415",
+     "ruleset": "Sm2NCT00277680",
+     "stratum": "sigir-criterion",
+     "text": "Small submucous fibroids suitable for hysteroscopic resection",
+     "trial": "NCT00277680"
+    },
+    {
+     "evidence": [
+      0
+     ],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 7,
+     "patient": "sigir-201415",
+     "ruleset": "Sm2NCT00277680",
+     "stratum": "sigir-criterion",
+     "text": "Postmenopausal women",
+     "trial": "NCT00277680"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 7,
+     "patient": "sigir-201415",
+     "ruleset": "Sm2NCT00277680",
+     "stratum": "sigir-criterion",
+     "text": "Suspected or known adenomyosis",
+     "trial": "NCT00277680"
+    },
+    {
+     "evidence": [
+      1
+     ],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 7,
+     "patient": "sigir-201415",
+     "ruleset": "Sm2NCT00277680",
+     "stratum": "sigir-criterion",
+     "text": "Uterus size exceeding the umbilical level",
+     "trial": "NCT00277680"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 7,
+     "patient": "sigir-201415",
+     "ruleset": "Sm2NCT00277680",
+     "stratum": "sigir-criterion",
+     "text": "Contraindications against laparoscopic surgery",
+     "trial": "NCT00277680"
+    },
+    {
+     "evidence": [
+      0
+     ],
+     "kind": "inclusion",
+     "label": "not enough information",
+     "mrn": 10,
+     "patient": "sigir-201418",
+     "ruleset": "Sm2NCT01260883",
+     "stratum": "sigir-criterion",
+     "text": "Non-prematurely-born infants admitted to hospital following surgery ages 2-18 months, studied by age group 12-18 months, 6-12 months, < 6 months",
+     "trial": "NCT01260883"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 10,
+     "patient": "sigir-201418",
+     "ruleset": "Sm2NCT01260883",
+     "stratum": "sigir-criterion",
+     "text": "Bleeding history in infant or family",
+     "trial": "NCT01260883"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not enough information",
+     "mrn": 10,
+     "patient": "sigir-201418",
+     "ruleset": "Sm2NCT01260883",
+     "stratum": "sigir-criterion",
+     "text": "Coagulopathy",
+     "trial": "NCT01260883"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 10,
+     "patient": "sigir-201418",
+     "ruleset": "Sm2NCT01260883",
+     "stratum": "sigir-criterion",
+     "text": "Gastrointestinal bleeding history",
+     "trial": "NCT01260883"
+    },
+    {
+     "evidence": [
+      0,
+      1,
+      3
+     ],
+     "kind": "exclusion",
+     "label": "excluded",
+     "mrn": 10,
+     "patient": "sigir-201418",
+     "ruleset": "Sm2NCT01260883",
+     "stratum": "sigir-criterion",
+     "text": "Renal or hepatic disease assessed by history and by pre-drug blood tests",
+     "trial": "NCT01260883"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not enough information",
+     "mrn": 10,
+     "patient": "sigir-201418",
+     "ruleset": "Sm2NCT01260883",
+     "stratum": "sigir-criterion",
+     "text": "Premature birth (<36 weeks gestation)",
+     "trial": "NCT01260883"
+    },
+    {
+     "evidence": [
+      0
+     ],
+     "kind": "inclusion",
+     "label": "included",
+     "mrn": 18,
+     "patient": "sigir-201425",
+     "ruleset": "Sm2NCT02378311",
+     "stratum": "sigir-criterion",
+     "text": "Children 0-15 years inclusive",
+     "trial": "NCT02378311"
+    },
+    {
+     "evidence": [],
+     "kind": "inclusion",
+     "label": "not enough information",
+     "mrn": 18,
+     "patient": "sigir-201425",
+     "ruleset": "Sm2NCT02378311",
+     "stratum": "sigir-criterion",
+     "text": "Presenting to either of the study hospitals for assessment or treatment",
+     "trial": "NCT02378311"
+    },
+    {
+     "evidence": [
+      0,
+      2,
+      4,
+      5
+     ],
+     "kind": "inclusion",
+     "label": "included",
+     "mrn": 18,
+     "patient": "sigir-201425",
+     "ruleset": "Sm2NCT02378311",
+     "stratum": "sigir-criterion",
+     "text": "Sustained an injury or suspected to have sustained an injury (i.e. AIS >=0)",
+     "trial": "NCT02378311"
+    },
+    {
+     "evidence": [
+      0
+     ],
+     "kind": "inclusion",
+     "label": "included",
+     "mrn": 18,
+     "patient": "sigir-201425",
+     "ruleset": "Sm2NCT02378311",
+     "stratum": "sigir-criterion",
+     "text": "Due to an incident involving any non-motorized bicycle, tricycle or kick scooter",
+     "trial": "NCT02378311"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 18,
+     "patient": "sigir-201425",
+     "ruleset": "Sm2NCT02378311",
+     "stratum": "sigir-criterion",
+     "text": "Incidents where the injured child was involved in a motor vehicle collision",
+     "trial": "NCT02378311"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 18,
+     "patient": "sigir-201425",
+     "ruleset": "Sm2NCT02378311",
+     "stratum": "sigir-criterion",
+     "text": "Incidents where the injured child was injured by another rider (e.g. injured child run over by a cyclist)",
+     "trial": "NCT02378311"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not enough information",
+     "mrn": 18,
+     "patient": "sigir-201425",
+     "ruleset": "Sm2NCT02378311",
+     "stratum": "sigir-criterion",
+     "text": "Incidents involving a bicycle fitted with 'bull bars'",
+     "trial": "NCT02378311"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not excluded",
+     "mrn": 18,
+     "patient": "sigir-201425",
+     "ruleset": "Sm2NCT02378311",
+     "stratum": "sigir-criterion",
+     "text": "Patients for whom neither parent / guardian is fluent in English (if the history is clear from a parent, the patient will be eligible for inclusion)",
+     "trial": "NCT02378311"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not applicable",
+     "mrn": 18,
+     "patient": "sigir-201425",
+     "ruleset": "Sm2NCT02378311",
+     "stratum": "sigir-criterion",
+     "text": "If an eligible patient is dead on arrival the family will not be invited to participate, and they will not subsequently be contacted",
+     "trial": "NCT02378311"
+    },
+    {
+     "evidence": [],
+     "kind": "exclusion",
+     "label": "not enough information",
+     "mrn": 18,
+     "patient": "sigir-201425",
+     "ruleset": "Sm2NCT02378311",
+     "stratum": "sigir-criterion",
+     "text": "If an eligible patient dies during their admission, they will be withdrawn from further involvement in the study and the family will not be contacted",
+     "trial": "NCT02378311"
+    }
+   ],
+   "ids": {
+    "lang": {
+     "Sm2NCT00277680": "en",
+     "Sm2NCT00493103": "en",
+     "Sm2NCT00606840": "en",
+     "Sm2NCT01260883": "en",
+     "Sm2NCT01723137": "en",
+     "Sm2NCT02378311": "en",
+     "Sm2NCT02410616": "en"
+    },
+    "pair_of": {},
+    "patients": {
+     "sigir-201411": 3,
+     "sigir-201412": 4,
+     "sigir-201415": 7,
+     "sigir-201418": 10,
+     "sigir-201425": 18,
+     "sigir-201511": 29,
+     "sigir-20157": 45
+    },
+    "rulesets": {
+     "NCT00277680": "Sm2NCT00277680",
+     "NCT00493103": "Sm2NCT00493103",
+     "NCT00606840": "Sm2NCT00606840",
+     "NCT01260883": "Sm2NCT01260883",
+     "NCT01723137": "Sm2NCT01723137",
+     "NCT02378311": "Sm2NCT02378311",
+     "NCT02410616": "Sm2NCT02410616"
+    },
+    "set": "sigir"
+   },
+   "pairs": [
+    {
+     "label": "eligible",
+     "mrn": 3,
+     "patient": "sigir-201411",
+     "ruleset": "Sm2NCT01723137",
+     "stratum": "sigir-eligible",
+     "trial": "NCT01723137"
+    },
+    {
+     "label": "eligible",
+     "mrn": 7,
+     "patient": "sigir-201415",
+     "ruleset": "Sm2NCT00277680",
+     "stratum": "sigir-eligible",
+     "trial": "NCT00277680"
+    },
+    {
+     "label": "eligible",
+     "mrn": 10,
+     "patient": "sigir-201418",
+     "ruleset": "Sm2NCT01260883",
+     "stratum": "sigir-eligible",
+     "trial": "NCT01260883"
+    },
+    {
+     "label": "eligible",
+     "mrn": 18,
+     "patient": "sigir-201425",
+     "ruleset": "Sm2NCT02378311",
+     "stratum": "sigir-eligible",
+     "trial": "NCT02378311"
+    },
+    {
+     "label": "would_consider",
+     "mrn": 29,
+     "patient": "sigir-201511",
+     "ruleset": "Sm2NCT00493103",
+     "stratum": "sigir-would_consider",
+     "trial": "NCT00493103"
+    },
+    {
+     "label": "eligible",
+     "mrn": 4,
+     "patient": "sigir-201412",
+     "ruleset": "Sm2NCT00606840",
+     "stratum": "sigir-eligible",
+     "trial": "NCT00606840"
+    },
+    {
+     "label": "eligible",
+     "mrn": 45,
+     "patient": "sigir-20157",
+     "ruleset": "Sm2NCT02410616",
+     "stratum": "sigir-eligible",
+     "trial": "NCT02410616"
+    }
+   ],
+   "pidmap": {
+    "10": "5820630d80bc082f8331ffffd465ded9",
+    "18": "b5ba17f82edd446ddea8d3cf0d3a110d",
+    "29": "af1234d1377866deac979d2e80d09836",
+    "3": "432b665d4e3cd38e42152690c09b6b3c",
+    "4": "58af5413e9f249053b270b6b734a128a",
+    "45": "6e736b8bb99ea8726a3bfd9cfa6fee9c",
+    "7": "2a31140fb3ff9b8a1d9b3dd62a804038"
+   },
+   "progress": {
+    "Sm2NCT00277680": {
+     "feas_job": "01M7HSQQXAC2R5TFGF18GD9Z1A",
+     "screen_job": "01M7HSSPY7K67EPF2X6TJWVBYT"
+    },
+    "Sm2NCT00493103": {
+     "feas_job": "01M7HSY9BQVSAQ8QGQ5KNHF4XM",
+     "screen_job": null
+    },
+    "Sm2NCT00606840": {
+     "feas_job": "01M7HT4S5BEYVPXZ47CRK00KYQ",
+     "screen_job": "01M7HT6K9HYCG34SQ55M1DKBCH"
+    },
+    "Sm2NCT01260883": {
+     "feas_job": "01M7HWTZJTQZW2ZGERKBQ6TZFP",
+     "screen_job": "01M7HWWYKS35M4SWWC9NR7291F"
+    },
+    "Sm2NCT01723137": {
+     "feas_job": "01M7HXXJP0H7BV0SATS4KWGQEA",
+     "screen_job": "01M7HXZ315KWV175W6WJ6H69J8"
+    },
+    "Sm2NCT02378311": {
+     "feas_job": "01M7J0FRCZWF9S42F0P6JMGCHD",
+     "screen_job": null
+    },
+    "Sm2NCT02410616": {
+     "feas_job": null,
+     "screen_job": null
+    }
+   },
+   "traces": [
+    {
+     "attributes": {
+      "tb.prompt": "ir_extract@3",
+      "tb.study_id": "01M7HSQQXAC2R5TFGF18GD9Z1A"
+     },
+     "output": "{\"criteria\": [{\"text\": \"Menorrhagia and/or bulk symptoms associated with uterine fibroids\", \"source_ref\": \"Inclusion criteria #1\", \"kind\": \"inclusion\", \"class\": \"mixed\", \"logic\": {\"domain\": \"condition\", \"concept\": \"uterine fibroids\", \"quantifier\": \"any\", \"window\": {\"from_days\": -365, \"to_days\": 0}, \"age\": {\"min\": 0}, \"sex\": \"female\", \"derived\": \"bmi\"}, \"note_question\": \"Does the patient have menorrhagia or bulk symptoms associated with uterine fibroids?\", \"concept_candidates\": [{\"domain\": \"condition\", \"name\": \"uterine fibroids\", \"synonyms\": [\"uterine leiomyoma\", \"fibroids\", \"子宮肌瘤\"]} , {\"domain\": \"condition\", \"name\": \"menorrhagia\", \"synonyms\": [\"heavy menstrual bleeding\", \"menorrhagia\", \"經量過多\"]} , {\"domain\": \"condition\", \"name\": \"bulk symptoms\", \"synonyms\": [\"pelvic pressure\", \"bulk symptoms\", \"壓迫感\"]} ]}, {\"text\": \"Aged 30 years or older\", \"source_ref\": \"Inclusion criteria #2\", \"kind\": \"inclusion\", \"class\": \"structured\", \"logic\": {\"domain\": \"demographic\", \"concept\": \"age\", \"quantifier\": \"any\", \"age\": {\"min\": 30}}, \"concept_candidates\": [{\"domain\": \"demographic\", \"name\": \"age\", \"synonyms\": [\"age\", \"年齡\"]}]}, {\"text\": \"Female participants only\", \"source_ref\": \"Inclusion criteria #3\", \"kind\": \"inclusion\", \"class\": \"structured\", \"logic\": {\"domain\": \"demographic\", \"concept\": \"sex\", \"quantifier\": \"any\", \"sex\": \"female\"}, \"concept_candidates\": [{\"domain\": \"demographic\", \"name\": \"sex\", \"synonyms\": [\"gender\", \"sex\", \"性別\"]}]}, {\"text\": \"Malignancy\", \"source_ref\": \"Exclusion criteria #1\", \"kind\": \"exclusion\", \"class\": \"mixed\", \"logic\": {\"domain\": \"condition\", \"concept\": \"malignancy\", \"quantifier\": \"any\"}, \"note_question\": \"Does the patient have a malignancy?\", \"concept_candidates\": [{\"domain\": \"condition\", \"name\": \"malignancy\", \"synonyms\": [\"cancer\", \"neoplasm\", \"malignant tumor\", \"惡性腫瘤\"]} ]}, {\"text\": \"Current or planned pregnancy\", \"source_ref\": \"Exclusion criteria #2\", \"kind\": \"exclusion\", \"class\": \"mixed\", \"logic\": {\"domain\": \"condition\", \"concept\": \"pregnancy\", \"quantifier\": \"any\"}, \"note_question\": \"Is the patient currently pregnant or planning pregnancy?\", \"concept_candidates\": [{\"domain\": \"condition\", \"name\": \"pregnancy\", \"synonyms\": [\"gestation\", \"pregnancy\", \"懷孕\"]} ]}, {\"text\": \"Small submucous fibroids suitable for hysteroscopic resection\", \"source_ref\": \"Exclusion criteria #3\", \"kind\": \"exclusion\", \"class\": \"mixed\", \"logic\": {\"domain\": \"condition\", \"concept\": \"submucous fibroids\", \"quantifier\": \"any\"}, \"note_question\": \"Does the patient have small submucous fibroids suitable for hysteroscopic resection?\", \"concept_candidates\": [{\"domain\": \"condition\", \"name\": \"submucous fibroids\", \"synonyms\": [\"submucosal leiomyoma\", \"submucous fibroid\", \"黏膜下肌瘤\"]} ]}, {\"text\": \"Postmenopausal women\", \"source_ref\": \"Exclusion criteria #4\", \"kind\": \"exclusion\", \"class\": \"structured\", \"logic\": {\"domain\": \"condition\", \"concept\": \"menopause\", \"quantifier\": \"any\"}, \"concept_candidates\": [{\"domain\": \"condition\", \"name\": \"menopause\", \"synonyms\": [\"postmenopause\", \"menopause\", \"更年期/停經\"]} ]}, {\"text\": \"Suspected or known adenomyosis\", \"source_ref\": \"Exclusion criteria #5\", \"kind\": \"exclusion\", \"class\": \"mixed\", \"logic\": {\"domain\": \"condition\", \"concept\": \"adenomyosis\", \"quantifier\": \"any\"}, \"note_question\": \"Does the patient have suspected or known adenomyosis?\", \"concept_candidates\": [{\"domain\": \"condition\", \"name\": \"adenomyosis\", \"synonyms\": [\"adenomyomatosis\", \"adenomyosis\", \"子宮腺肌症\"]} ]}, {\"text\": \"Uterus size exceeding the umbilical level\", \"source_ref\": \"Exclusion criteria #6\", \"kind\": \"exclusion\", \"class\": \"note\", \"logic\": {\"domain\": \"observation\", \"concept\": \"uterus size\", \"quantifier\": \"any\"}, \"note_question\": \"Does the uterus size exceed the umbilical level?\", \"concept_candidates\": [{\"domain\": \"observation\", \"name\": \"uterus size\", \"synonyms\": [\"uterine size\", \"uterus size\", \"子宮大小\"]} ]}, {\"text\": \"Contraindications against laparoscopic surgery\", \"source_ref\": \"Exclusion criteria #7\", \"kind\": \"exclusion\", \"class\": \"mixed\", \"logic\": {\"domain\": \"condition\", \"concept\": \"contraindication for laparoscopy\", \"quantifier\": \"any\"}, \"note_question\": \"Does the patient have contraindications against laparoscopic surgery?\", \"concept_candidates\": [{\"domain\": \"condition\", \"name\": \"contraindication for laparoscopy\", \"synonyms\": [\"laparoscopic contraindication\", \"contraindication to laparoscopy\", \"腹腔鏡手術禁忌症\"]} ]}]}",
+     "prompt": [
+      {
+       "content": "Ruleset: SM2NCT00277680 (document language: en)\n\nINPUT:\n```json\n{\n \"criteria\": [\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Inclusion criteria #1\",\n   \"text\": \"Menorrhagia and/or bulk symptoms associated with uterine fibroids\"\n  },\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Inclusion criteria #2\",\n   \"text\": \"Aged 30 years or older\"\n  },\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Inclusion criteria #3\",\n   \"text\": \"Female participants only\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #1\",\n   \"text\": \"Malignancy\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #2\",\n   \"text\": \"Current or planned pregnancy\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #3\",\n   \"text\": \"Small submucous fibroids suitable for hysteroscopic resection\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #4\",\n   \"text\": \"Postmenopausal women\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #5\",\n   \"text\": \"Suspected or known adenomyosis\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #6\",\n   \"text\": \"Uterus size exceeding the umbilical level\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #7\",\n   \"text\": \"Contraindications against laparoscopic surgery\"\n  }\n ],\n \"language\": \"en\",\n \"ruleset\": \"SM2NCT00277680\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:07:14.965185+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HSQQXAC2R5TFGF18GD9Z1A"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"C16.9\",\n   \"display\": \"Malignant neoplasm of stomach unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C80.0\",\n   \"display\": \"Disseminated malignant neoplasm unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"I21.9\",\n   \"display\": \"Acute myocardial infarction unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C18.9\",\n   \"display\": \"Malignant neoplasm of colon unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C25.9\",\n   \"display\": \"Malignant neoplasm of pancreas unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C61\",\n   \"display\": \"Malignant neoplasm of prostate\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C73\",\n   \"display\": \"Malignant neoplasm of thyroid gland\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C34.90\",\n   \"display\": \"Malignant neoplasm of unspecified part of unspecified bronchus or lung\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C80.1\",\n   \"display\": \"Malignant (primary) neoplasm unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"I21.4\",\n   \"display\": \"Non-ST elevation myocardial infarction\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"M05.9\",\n   \"display\": \"Rheumatoid arthritis with rheumatoid factor unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C50.911\",\n   \"display\": \"Malignant neoplasm of unspecified site of right female breast\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"M06.00\",\n   \"display\": \"Rheumatoid arthritis without rheumatoid factor unspecified site\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C34.11\",\n   \"display\": \"Malignant neoplasm of upper lobe right bronchus or lung\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C50.9\",\n   \"display\": \"Malignant neoplasm of breast unspecified (ICD-10 WHO)\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C79.9\",\n   \"display\": \"Secondary malignant neoplasm of unspecified site\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E31.22\",\n   \"display\": \"Multiple endocrine neoplasia type IIA\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E31.23\",\n   \"display\": \"Multiple endocrine neoplasia type IIB\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"M05.79\",\n   \"display\": \"Rheumatoid arthritis with rheumatoid factor of multiple sites\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  }\n ],\n \"concept\": \"uterine fibroids\",\n \"domain\": \"condition\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:07:14.986712+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HSQQXAC2R5TFGF18GD9Z1A"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"M06.4\",\n   \"display\": \"Inflammatory polyarthropathy\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E31.22\",\n   \"display\": \"Multiple endocrine neoplasia type IIA\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E31.23\",\n   \"display\": \"Multiple endocrine neoplasia type IIB\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.2\",\n   \"display\": \"Multiple and bilateral precerebral artery syndromes\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"M05.79\",\n   \"display\": \"Rheumatoid arthritis with rheumatoid factor of multiple sites\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  }\n ],\n \"concept\": \"menorrhagia\",\n \"domain\": \"condition\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:07:15.403214+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HSQQXAC2R5TFGF18GD9Z1A"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"Z22.7\",\n   \"display\": \"Latent tuberculosis\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"I10\",\n   \"display\": \"Essential (primary) hypertension\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  }\n ],\n \"concept\": \"bulk symptoms\",\n \"domain\": \"condition\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:07:15.855297+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HSQQXAC2R5TFGF18GD9Z1A"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"M54.50\",\n   \"display\": \"Low back pain unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C16.9\",\n   \"display\": \"Malignant neoplasm of stomach unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C80.0\",\n   \"display\": \"Disseminated malignant neoplasm unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"I21.9\",\n   \"display\": \"Acute myocardial infarction unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C18.9\",\n   \"display\": \"Malignant neoplasm of colon unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C25.9\",\n   \"display\": \"Malignant neoplasm of pancreas unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C61\",\n   \"display\": \"Malignant neoplasm of prostate\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C73\",\n   \"display\": \"Malignant neoplasm of thyroid gland\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C34.90\",\n   \"display\": \"Malignant neoplasm of unspecified part of unspecified bronchus or lung\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C80.1\",\n   \"display\": \"Malignant (primary) neoplasm unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"I21.4\",\n   \"display\": \"Non-ST elevation myocardial infarction\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C50.911\",\n   \"display\": \"Malignant neoplasm of unspecified site of right female breast\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C34.11\",\n   \"display\": \"Malignant neoplasm of upper lobe right bronchus or lung\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C50.9\",\n   \"display\": \"Malignant neoplasm of breast unspecified (ICD-10 WHO)\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C79.9\",\n   \"display\": \"Secondary malignant neoplasm of unspecified site\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E31.22\",\n   \"display\": \"Multiple endocrine neoplasia type IIA\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E31.23\",\n   \"display\": \"Multiple endocrine neoplasia type IIB\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"I82.409\",\n   \"display\": \"Acute embolism and thrombosis of unspecified deep veins of unspecified lower extremity\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  }\n ],\n \"concept\": \"submucous fibroids\",\n \"domain\": \"condition\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:07:16.387884+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HSQQXAC2R5TFGF18GD9Z1A"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"N18.4\",\n   \"display\": \"Chronic kidney disease stage 4\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"N18.5\",\n   \"display\": \"Chronic kidney disease stage 5\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"M81.0\",\n   \"display\": \"Age-related osteoporosis without current pathological fracture\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"N18.30\",\n   \"display\": \"Chronic kidney disease stage 3 unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  }\n ],\n \"concept\": \"menopause\",\n \"domain\": \"condition\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:07:16.839492+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HSQQXAC2R5TFGF18GD9Z1A"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"A41.9\",\n   \"display\": \"Sepsis unspecified organism\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E78.5\",\n   \"display\": \"Hyperlipidemia unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"F03.90\",\n   \"display\": \"Unspecified dementia without behavioral disturbance\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G30.9\",\n   \"display\": \"Alzheimer's disease unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.1\",\n   \"display\": \"Carotid artery syndrome (hemispheric)\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"I21.9\",\n   \"display\": \"Acute myocardial infarction unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C61\",\n   \"display\": \"Malignant neoplasm of prostate\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C73\",\n   \"display\": \"Malignant neoplasm of thyroid gland\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.0\",\n   \"display\": \"Vertebro-basilar artery syndrome\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G30.0\",\n   \"display\": \"Alzheimer's disease with early onset\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G30.1\",\n   \"display\": \"Alzheimer's disease with late onset\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"I21.4\",\n   \"display\": \"Non-ST elevation myocardial infarction\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"M05.9\",\n   \"display\": \"Rheumatoid arthritis with rheumatoid factor unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"M06.00\",\n   \"display\": \"Rheumatoid arthritis without rheumatoid factor unspecified site\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.2\",\n   \"display\": \"Multiple and bilateral precerebral artery syndromes\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"M05.79\",\n   \"display\": \"Rheumatoid arthritis with rheumatoid factor of multiple sites\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  }\n ],\n \"concept\": \"adenomyosis\",\n \"domain\": \"condition\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:07:16.855338+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HSQQXAC2R5TFGF18GD9Z1A"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"A41.9\",\n   \"display\": \"Sepsis unspecified organism\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E78.5\",\n   \"display\": \"Hyperlipidemia unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"F03.90\",\n   \"display\": \"Unspecified dementia without behavioral disturbance\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G30.9\",\n   \"display\": \"Alzheimer's disease unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.1\",\n   \"display\": \"Carotid artery syndrome (hemispheric)\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E66.01\",\n   \"display\": \"Morbid (severe) obesity due to excess calories\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"I63.50\",\n   \"display\": \"Cerebral infarction due to unspecified occlusion of cerebral artery\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.0\",\n   \"display\": \"Vertebro-basilar artery syndrome\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G30.0\",\n   \"display\": \"Alzheimer's disease with early onset\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G30.1\",\n   \"display\": \"Alzheimer's disease with late onset\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.2\",\n   \"display\": \"Multiple and bilateral precerebral artery syndromes\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"R76.11\",\n   \"display\": \"Nonspecific reaction to tuberculin skin test without active tuberculosis\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  }\n ],\n \"concept\": \"contraindication for laparoscopy\",\n \"domain\": \"condition\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:07:17.310548+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "judge@5",
+      "tb.study_id": "01M7HSSPY7K67EPF2X6TJWVBYT"
+     },
+     "output": "{\n \"verdict\": \"unknown\",\n \"reason\": \"The excerpts mention a differential diagnosis of 'vesicular mole vs fibroid degeneration', but do not confirm a diagnosis of malignancy.\",\n \"quote\": \"The differential diagnosis includes vesicular mole vs fibroid degeneration.\",\n \"quote_date\": \"2026-02-23\",\n \"confidence\": 1.0\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"criterion_text\": \"Malignancy\",\n \"excerpts\": [\n  {\n   \"date\": \"2026-02-23\",\n   \"note_type\": \"consult\",\n   \"text\": \"A 36-year-old woman presents to the emergency department with 12 weeks of amenorrhea, vaginal spotting that has increased since yesterday, lower abdominal tenderness, nausea and vomiting. The physical exam reveals overall tender abdomen, 18-week sized uterus, and cervical dilation of 2 cm. The complete blood count and biochemical profile are normal. Point of care pregnancy test with cut-off sensitivity of 25 mIU/ml Beta-HCG is negative. The ultrasound reports enlarged uterus (12 cm x 9 cm x 7 cms) with multiple cystic areas in the interior. The differential diagnosis includes vesicular mole vs fibroid degeneration. The patient will provide informed consent, and will comply with the trial protocol without any practical issues.\"\n  }\n ],\n \"index_date\": \"2026-11-16\",\n \"note_question\": \"Does the patient have a malignancy?\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:07:53.768555+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "judge@5",
+      "tb.study_id": "01M7HSSPY7K67EPF2X6TJWVBYT"
+     },
+     "output": "{\n \"verdict\": \"fail\",\n \"reason\": \"The patient's pregnancy test was negative, and the differential diagnosis (vesicular mole vs fibroid degeneration) suggests the symptoms are not due to a standard pregnancy.\",\n \"quote\": \"Point of care pregnancy test with cut-off sensitivity of 25 mIU/ml Beta-HCG is negative.\",\n \"quote_date\": \"2026-02-23\",\n \"confidence\": 1.0\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"criterion_text\": \"Current or planned pregnancy\",\n \"excerpts\": [\n  {\n   \"date\": \"2026-02-23\",\n   \"note_type\": \"consult\",\n   \"text\": \"A 36-year-old woman presents to the emergency department with 12 weeks of amenorrhea, vaginal spotting that has increased since yesterday, lower abdominal tenderness, nausea and vomiting. The physical exam reveals overall tender abdomen, 18-week sized uterus, and cervical dilation of 2 cm. The complete blood count and biochemical profile are normal. Point of care pregnancy test with cut-off sensitivity of 25 mIU/ml Beta-HCG is negative. The ultrasound reports enlarged uterus (12 cm x 9 cm x 7 cms) with multiple cystic areas in the interior. The differential diagnosis includes vesicular mole vs fibroid degeneration. The patient will provide informed consent, and will comply with the trial protocol without any practical issues.\"\n  }\n ],\n \"index_date\": \"2026-11-16\",\n \"note_question\": \"Is the patient currently pregnant or planning pregnancy?\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:07:56.359274+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "judge@5",
+      "tb.study_id": "01M7HSSPY7K67EPF2X6TJWVBYT"
+     },
+     "output": "{\n  \"verdict\": \"fail\",\n  \"reason\": \"The excerpts state that the pregnancy test was negative, indicating the patient is not currently pregnant, and there is no mention of planning a pregnancy.\",\n  \"quote\": \"Point of care pregnancy test with cut-off sensitivity of 25 mIU/ml Beta-HCG is negative.\",\n  \"quote_date\": \"2026-02-23\",\n  \"confidence\": 0.95\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"criterion_text\": \"Current or planned pregnancy\",\n \"excerpts\": [\n  {\n   \"date\": \"2026-02-23\",\n   \"note_type\": \"consult\",\n   \"text\": \"A 36-year-old woman presents to the emergency department with 12 weeks of amenorrhea, vaginal spotting that has increased since yesterday, lower abdominal tenderness, nausea and vomiting. The physical exam reveals overall tender abdomen, 18-week sized uterus, and cervical dilation of 2 cm. The complete blood count and biochemical profile are normal. Point of care pregnancy test with cut-off sensitivity of 25 mIU/ml Beta-HCG is negative. The ultrasound reports enlarged uterus (12 cm x 9 cm x 7 cms) with multiple cystic areas in the interior. The differential diagnosis includes vesicular mole vs fibroid degeneration. The patient will provide informed consent, and will comply with the trial protocol without any practical issues.\"\n  }\n ],\n \"index_date\": \"2026-11-16\",\n \"note_question\": \"Is the patient currently pregnant or planning pregnancy?\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:07:58.299097+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "judge@5",
+      "tb.study_id": "01M7HSSPY7K67EPF2X6TJWVBYT"
+     },
+     "output": "{\n \"verdict\": \"unknown\",\n \"reason\": \"The excerpts mention a differential diagnosis of 'vesicular mole vs fibroid degeneration' and an enlarged uterus with multiple cystic areas, but they do not confirm the presence of small submucous fibroids, nor do they specify if they are suitable for hysteroscopic resection.\",\n \"quote\": \"The differential diagnosis includes vesicular mole vs fibroid degeneration.\",\n \"quote_date\": \"2026-02-23\",\n \"confidence\": 1.0\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"criterion_text\": \"Small submucous fibroids suitable for hysteroscopic resection\",\n \"excerpts\": [\n  {\n   \"date\": \"2026-02-23\",\n   \"note_type\": \"consult\",\n   \"text\": \"A 36-year-old woman presents to the emergency department with 12 weeks of amenorrhea, vaginal spotting that has increased since yesterday, lower abdominal tenderness, nausea and vomiting. The physical exam reveals overall tender abdomen, 18-week sized uterus, and cervical dilation of 2 cm. The complete blood count and biochemical profile are normal. Point of care pregnancy test with cut-off sensitivity of 25 mIU/ml Beta-HCG is negative. The ultrasound reports enlarged uterus (12 cm x 9 cm x 7 cms) with multiple cystic areas in the interior. The differential diagnosis includes vesicular mole vs fibroid degeneration. The patient will provide informed consent, and will comply with the trial protocol without any practical issues.\"\n  }\n ],\n \"index_date\": \"2026-11-16\",\n \"note_question\": \"Does the patient have small submucous fibroids suitable for hysteroscopic resection?\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:08:00.967455+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "judge@5",
+      "tb.study_id": "01M7HSSPY7K67EPF2X6TJWVBYT"
+     },
+     "output": "{\n \"verdict\": \"unknown\",\n \"reason\": \"The excerpts mention a differential diagnosis of vesicular mole vs fibroid degeneration, but they do not mention adenomyosis as a suspected or known diagnosis.\",\n \"quote\": \"The differential diagnosis includes vesicular mole vs fibroid degeneration.\",\n \"quote_date\": \"2026-02-23\",\n \"confidence\": 1.0\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"criterion_text\": \"Suspected or known adenomyosis\",\n \"excerpts\": [\n  {\n   \"date\": \"2026-02-23\",\n   \"note_type\": \"consult\",\n   \"text\": \"A 36-year-old woman presents to the emergency department with 12 weeks of amenorrhea, vaginal spotting that has increased since yesterday, lower abdominal tenderness, nausea and vomiting. The physical exam reveals overall tender abdomen, 18-week sized uterus, and cervical dilation of 2 cm. The complete blood count and biochemical profile are normal. Point of care pregnancy test with cut-off sensitivity of 25 mIU/ml Beta-HCG is negative. The ultrasound reports enlarged uterus (12 cm x 9 cm x 7 cms) with multiple cystic areas in the interior. The differential diagnosis includes vesicular mole vs fibroid degeneration. The patient will provide informed consent, and will comply with the trial protocol without any practical issues.\"\n  }\n ],\n \"index_date\": \"2026-11-16\",\n \"note_question\": \"Does the patient have suspected or known adenomyosis?\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:08:03.125423+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "judge@5",
+      "tb.study_id": "01M7HSSPY7K67EPF2X6TJWVBYT"
+     },
+     "output": "{\n \"verdict\": \"unknown\",\n \"reason\": \"The excerpts state the uterus is '18-week sized', but they do not provide information regarding the position of the fundus relative to the umbilical level.\",\n \"quote\": \"The physical exam reveals overall tender abdomen, 18-week sized uterus, and cervical dilation of 2 cm.\",\n \"quote_date\": \"2026-02-23\",\n \"confidence\": 1.0\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"criterion_text\": \"Uterus size exceeding the umbilical level\",\n \"excerpts\": [\n  {\n   \"date\": \"2026-02-23\",\n   \"note_type\": \"consult\",\n   \"text\": \"A 36-year-old woman presents to the emergency department with 12 weeks of amenorrhea, vaginal spotting that has increased since yesterday, lower abdominal tenderness, nausea and vomiting. The physical exam reveals overall tender abdomen, 18-week sized uterus, and cervical dilation of 2 cm. The complete blood count and biochemical profile are normal. Point of care pregnancy test with cut-off sensitivity of 25 mIU/ml Beta-HCG is negative. The ultrasound reports enlarged uterus (12 cm x 9 cm x 7 cms) with multiple cystic areas in the interior. The differential diagnosis includes vesicular mole vs fibroid degeneration. The patient will provide informed consent, and will comply with the trial protocol without any practical issues.\"\n  }\n ],\n \"index_date\": \"2026-11-16\",\n \"note_question\": \"Does the uterus size exceed the umbilical level?\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:08:05.668260+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "judge@5",
+      "tb.study_id": "01M7HSSPY7K67EPF2X6TJWVBYT"
+     },
+     "output": "{\n \"verdict\": \"unknown\",\n \"reason\": \"The provided excerpts do not mention any contraindications against laparoscopic surgery for the patient.\",\n \"quote\": \"unknown\",\n \"quote_date\": \"0000-01-01\",\n \"confidence\": 1.0\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"criterion_text\": \"Contraindications against laparoscopic surgery\",\n \"excerpts\": [\n  {\n   \"date\": \"2026-02-23\",\n   \"note_type\": \"consult\",\n   \"text\": \"A 36-year-old woman presents to the emergency department with 12 weeks of amenorrhea, vaginal spotting that has increased since yesterday, lower abdominal tenderness, nausea and vomiting. The physical exam reveals overall tender abdomen, 18-week sized uterus, and cervical dilation of 2 cm. The complete blood count and biochemical profile are normal. Point of care pregnancy test with cut-off sensitivity of 25 mIU/ml Beta-HCG is negative. The ultrasound reports enlarged uterus (12 cm x 9 cm x 7 cms) with multiple cystic areas in the interior. The differential diagnosis includes vesicular mole vs fibroid degeneration. The patient will provide informed consent, and will comply with the trial protocol without any practical issues.\"\n  }\n ],\n \"index_date\": \"2026-11-16\",\n \"note_question\": \"Does the patient have contraindications against laparoscopic surgery?\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:08:07.294300+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "judge@5",
+      "tb.study_id": "01M7HSSPY7K67EPF2X6TJWVBYT"
+     },
+     "output": "{\n \"verdict\": \"unknown\",\n \"reason\": \"The excerpts do not contain information regarding whether the patient has contraindications against laparoscopic surgery.\",\n \"quote\": \"unknown\",\n \"quote_date\": \"0000-01-01\",\n \"confidence\": 1.0\n}",
+     "prompt": [
+      {
+       "content": "Your previous output violated the JSON schema: quote_date: '0000-01-01' is not a 'date'. Return only corrected JSON.",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:08:08.934905+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "ir_extract@3",
+      "tb.study_id": "01M7HSY9BQVSAQ8QGQ5KNHF4XM"
+     },
+     "output": "{\"criteria\": [{\"text\": \"Patients with congenital hypothyroidism due to thyroglobulin defective synthesis.\", \"source_ref\": \"Inclusion criteria #1\", \"kind\": \"inclusion\", \"class\": \"mixed\", \"logic\": {\"domain\": \"condition\", \"concept\": \"congenital hypothyroidism due to thyroglobulin defective synthesis\", \"quantifier\": \"any\"}, \"note_question\": \"Does the patient have congenital hypothyroidism due to thyroglobulin defective synthesis?\", \"concept_candidates\": [{\"domain\": \"condition\", \"name\": \"congenital hypothyroidism due to thyroglobulin defective synthesis\", \"synonyms\": [\"congenital hypothyroidism due to thyroglobulin defective synthesis\", \"先天性甲狀腺功能低下症（因甲狀腺球蛋白合成缺陷引起）\"]}]}, {\"text\": \"Patients with another disease.\", \"source_ref\": \"Exclusion criteria #1\", \"kind\": \"exclusion\", \"class\": \"mixed\", \"logic\": {\"domain\": \"condition\", \"concept\": \"other disease\", \"quantifier\": \"any\"}, \"note_question\": \"Does the patient have another disease?\", \"concept_candidates\": [{\"domain\": \"condition\", \"name\": \"other disease\", \"synonyms\": [\"other disease\", \"其他疾病\"]}]}]}",
+     "prompt": [
+      {
+       "content": "Ruleset: SM2NCT00493103 (document language: en)\n\nINPUT:\n```json\n{\n \"criteria\": [\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Inclusion criteria #1\",\n   \"text\": \"Patients with congenital hypothyroidism due to thyroglobulin defective synthesis.\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #1\",\n   \"text\": \"Patients with another disease.\"\n  }\n ],\n \"language\": \"en\",\n \"ruleset\": \"SM2NCT00493103\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:10:26.615824+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HSY9BQVSAQ8QGQ5KNHF4XM"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"C73\",\n   \"display\": \"Malignant neoplasm of thyroid gland\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C61\",\n   \"display\": \"Malignant neoplasm of prostate\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E66.01\",\n   \"display\": \"Morbid (severe) obesity due to excess calories\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"I63.50\",\n   \"display\": \"Cerebral infarction due to unspecified occlusion of cerebral artery\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.9\",\n   \"display\": \"Transient cerebral ischemic attack unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G30.0\",\n   \"display\": \"Alzheimer's disease with early onset\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G30.1\",\n   \"display\": \"Alzheimer's disease with late onset\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"B18.0\",\n   \"display\": \"Chronic viral hepatitis B with delta-agent\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"M05.9\",\n   \"display\": \"Rheumatoid arthritis with rheumatoid factor unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"M06.00\",\n   \"display\": \"Rheumatoid arthritis without rheumatoid factor unspecified site\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.8\",\n   \"display\": \"Other transient cerebral ischemic attacks and related syndromes\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.2\",\n   \"display\": \"Multiple and bilateral precerebral artery syndromes\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"M05.79\",\n   \"display\": \"Rheumatoid arthritis with rheumatoid factor of multiple sites\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"A41.9\",\n   \"display\": \"Sepsis unspecified organism\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E78.5\",\n   \"display\": \"Hyperlipidemia unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"B02.9\",\n   \"display\": \"Zoster without complications\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"M54.50\",\n   \"display\": \"Low back pain unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"Z33.1\",\n   \"display\": \"Pregnant state incidental\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"A19.9\",\n   \"display\": \"Miliary tuberculosis unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"F03.90\",\n   \"display\": \"Unspecified dementia without behavioral disturbance\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  }\n ],\n \"concept\": \"congenital hypothyroidism due to thyroglobulin defective synthesis\",\n \"domain\": \"condition\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:10:27.080800+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HSY9BQVSAQ8QGQ5KNHF4XM"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"K86.1\",\n   \"display\": \"Other chronic pancreatitis\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.8\",\n   \"display\": \"Other transient cerebral ischemic attacks and related syndromes\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"B02.39\",\n   \"display\": \"Other herpes zoster eye disease\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"N18.4\",\n   \"display\": \"Chronic kidney disease stage 4\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"N18.5\",\n   \"display\": \"Chronic kidney disease stage 5\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"N18.30\",\n   \"display\": \"Chronic kidney disease stage 3 unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G30.9\",\n   \"display\": \"Alzheimer's disease unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"I26.99\",\n   \"display\": \"Other pulmonary embolism without acute cor pulmonale\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"M06.4\",\n   \"display\": \"Inflammatory polyarthropathy\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E66.01\",\n   \"display\": \"Morbid (severe) obesity due to excess calories\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"K21.9\",\n   \"display\": \"Gastro-esophageal reflux disease without esophagitis\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E10.9\",\n   \"display\": \"Type 1 diabetes mellitus without complications\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E11.9\",\n   \"display\": \"Type 2 diabetes mellitus without complications\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G30.0\",\n   \"display\": \"Alzheimer's disease with early onset\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G30.1\",\n   \"display\": \"Alzheimer's disease with late onset\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E10.65\",\n   \"display\": \"Type 1 diabetes mellitus with hyperglycemia\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E11.65\",\n   \"display\": \"Type 2 diabetes mellitus with hyperglycemia\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E10.10\",\n   \"display\": \"Type 1 diabetes mellitus with ketoacidosis without coma\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  }\n ],\n \"concept\": \"other disease\",\n \"domain\": \"condition\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:10:27.548668+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "ir_extract@3",
+      "tb.study_id": "01M7HT4S5BEYVPXZ47CRK00KYQ"
+     },
+     "output": "{\"criteria\": [{\"text\": \"Age 18-35\", \"source_ref\": \"Inclusion criteria #1\", \"kind\": \"inclusion\", \"class\": \"structured\", \"logic\": {\"domain\": \"demographic\", \"concept\": \"age\", \"quantifier\": \"all\", \"age\": {\"min\": 18, \"max\": 35}}, \"concept_candidates\": [{\"domain\": \"demographic\", \"name\": \"age\", \"synonyms\": [\"age\", \"歲齡\", \"年齡\"]}]}, {\"text\": \"Body mass index between 23 and 30\", \"source_ref\": \"Inclusion criteria #2\", \"kind\": \"inclusion\", \"class\": \"structured\", \"logic\": {\"domain\": \"observation\", \"concept\": \"bmi\", \"quantifier\": \"all\", \"value\": {\"op\": \"between\", \"num\": 23, \"num2\": 30}}, \"concept_candidates\": [{\"domain\": \"observation\", \"name\": \"bmi\", \"synonyms\": [\"body mass index\", \"BMI\", \"身體質量指數\"]} ]}, {\"text\": \"Interested in preventing weight gain\", \"source_ref\": \"Inclusion criteria #3\", \"kind\": \"inclusion\", \"class\": \"human\", \"human_question\": \"Is the patient interested in preventing weight gain?\", \"concept_candidates\": []}, {\"text\": \"Aged 18 years or older\", \"source_ref\": \"Inclusion criteria #4\", \"kind\": \"inclusion\", \"class\": \"structured\", \"logic\": {\"domain\": \"demographic\", \"concept\": \"age\", \"quantifier\": \"all\", \"age\": {\"min\": 18}}, \"concept_candidates\": [{\"domain\": \"demographic\", \"name\": \"age\", \"synonyms\": [\"age\", \"歲齡\", \"年齡\"]}]}, {\"text\": \"Age <= 35 years\", \"source_ref\": \"Inclusion criteria #5\", \"kind\": \"inclusion\", \"class\": \"structured\", \"logic\": {\"domain\": \"demographic\", \"concept\": \"age\", \"quantifier\": \"all\", \"age\": {\"max\": 35}}, \"concept_candidates\": [{\"domain\": \"demographic\", \"name\": \"age\", \"synonyms\": [\"age\", \"歲齡\", \"年齡\"]}]}, {\"text\": \"BMI outside of range specified\", \"source_ref\": \"Exclusion criteria #1\", \"kind\": \"exclusion\", \"class\": \"structured\", \"logic\": {\"domain\": \"observation\", \"concept\": \"bmi\", \"quantifier\": \"all\", \"value\": {\"op\": \"in\", \"num\": 23, \"num2\": 30, \"unit\": \"not\"}}, \"concept_candidates\": [{\"domain\": \"observation\", \"name\": \"bmi\", \"synonyms\": [\"body mass index\", \"BMI\", \"身體質量指數\"]}]}, {\"text\": \"Age outside of range specified\", \"source_ref\": \"Exclusion criteria #2\", \"kind\": \"exclusion\", \"class\": \"structured\", \"logic\": {\"domain\": \"demographic\", \"concept\": \"age\", \"quantifier\": \"all\", \"age\": {\"min\": 18, \"max\": 35}, \"derived\": \"egfr\" }, \"concept_candidates\": [{\"domain\": \"demographic\", \"name\": \"age\", \"synonyms\": [\"age\", \"歲齡\", \"年齡\"]}]}, {\"text\": \"History of or current eating disorder or substance abuse\", \"source_ref\": \"Exclusion criteria #3\", \"kind\": \"exclusion\", \"class\": \"mixed\", \"logic\": {\"domain\": \"condition\", \"concept\": \"eating disorder or substance abuse\", \"quantifier\": \"any\"}, \"note_question\": \"Does the patient have a history of or current eating disorder or substance abuse?\", \"concept_candidates\": [{\"domain\": \"condition\", \"name\": \"eating disorder\", \"synonyms\": [\"eating disorder\", \"飲食障礙\"]}, {\"domain\": \"condition\", \"name\": \"substance abuse\", \"synonyms\": [\"substance abuse\", \"物質濫用\"]}]}, {\"text\": \"Recent weight loss greater than 5% of weight\", \"source_ref\": \"Exclusion criteria #4\", \"kind\": \"exclusion\", \"class\": \"mixed\", \"logic\": {\"domain\": \"observation\", \"concept\": \"weight loss percentage\", \"quantifier\": \"any\", \"value\": {\"op\": \">\", \"num\": 5}, \"window\": {\"from_days\": -90}}, \"note_question\": \"Has the patient experienced a weight loss greater than 5% recently?\", \"concept_candidates\": [{\"domain\": \"observation\", \"name\": \"weight loss percentage\", \"synonyms\": [\"weight loss\", \"體重減輕\"]}]}, {\"text\": \"Currently in another research study that would interfere\", \"source_ref\": \"Exclusion criteria #5\", \"kind\": \"exclusion\", \"class\": \"human\", \"human_question\": \"Is the patient currently in another research study that would interfere?\", \"concept_candidates\": []}]}",
+     "prompt": [
+      {
+       "content": "Ruleset: SM2NCT00606840 (document language: en)\n\nINPUT:\n```json\n{\n \"criteria\": [\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Inclusion criteria #1\",\n   \"text\": \"Age 18-35\"\n  },\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Inclusion criteria #2\",\n   \"text\": \"Body mass index between 23 and 30\"\n  },\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Inclusion criteria #3\",\n   \"text\": \"Interested in preventing weight gain\"\n  },\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Inclusion criteria #4\",\n   \"text\": \"Aged 18 years or older\"\n  },\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Inclusion criteria #5\",\n   \"text\": \"Age <= 35 years\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #1\",\n   \"text\": \"BMI outside of range specified\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #2\",\n   \"text\": \"Age outside of range specified\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #3\",\n   \"text\": \"History of or current eating disorder or substance abuse\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #4\",\n   \"text\": \"Recent weight loss greater than 5% of weight\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #5\",\n   \"text\": \"Currently in another research study that would interfere\"\n  }\n ],\n \"language\": \"en\",\n \"ruleset\": \"SM2NCT00606840\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:14:18.758464+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HT4S5BEYVPXZ47CRK00KYQ"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"G31.84\",\n   \"display\": \"Mild cognitive impairment of uncertain or unknown etiology\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"K21.9\",\n   \"display\": \"Gastro-esophageal reflux disease without esophagitis\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  }\n ],\n \"concept\": \"eating disorder\",\n \"domain\": \"condition\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:14:19.172284+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HT4S5BEYVPXZ47CRK00KYQ"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"M81.0\",\n   \"display\": \"Age-related osteoporosis without current pathological fracture\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  }\n ],\n \"concept\": \"substance abuse\",\n \"domain\": \"condition\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:14:19.620248+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HT4S5BEYVPXZ47CRK00KYQ"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"29463-7\",\n   \"display\": \"Body weight\",\n   \"system\": \"http://loinc.org\"\n  },\n  {\n   \"code\": \"39156-5\",\n   \"display\": \"Body mass index (BMI) [Ratio]\",\n   \"system\": \"http://loinc.org\"\n  },\n  {\n   \"code\": \"PTGA\",\n   \"display\": \"Patient global assessment of disease activity\",\n   \"system\": \"https://trialbox.local/fhir/CodeSystem/clinical-score\"\n  },\n  {\n   \"code\": \"16933-4\",\n   \"display\": \"Hepatitis B virus core Ab [Presence] in Serum\",\n   \"system\": \"http://loinc.org\"\n  }\n ],\n \"concept\": \"weight loss percentage\",\n \"domain\": \"observation\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T09:14:20.074032+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "ir_extract@3",
+      "tb.study_id": "01M7HWTZJTQZW2ZGERKBQ6TZFP"
+     },
+     "output": "{\n \"criteria\": [\n  {\n   \"text\": \"Non-prematurely-born infants admitted to hospital following surgery ages 2-18 months, studied by age group 12-18 months, 6-12 months, < 6 months\",\n   \"source_ref\": \"Inclusion criteria #1\",\n   \"kind\": \"inclusion\",\n   \"class\": \"mixed\",\n   \"logic\": {\n    \"domain\": \"demographic\",\n    \"concept\": \"infant\",\n    \"age\": {\n      \"min\": 2,\n      \"max\": 18\n    },\n    \"sex\": \"female\",\n    \"derived\": \"asdas\"\n   },\n   \"note_question\": \"Is the infant non-prematurely born and admitted to hospital following surgery?\",\n   \"concept_candidates\": [\n    {\n     \"domain\": \"demographic\",\n     \"name\": \"infant\",\n     \"synonyms\": [\n      \"infant\",\n      \"嬰兒\"\n     ]\n    },\n    {\n     \"domain\": \"procedure\",\n     \"name\": \"surgery\",\n     \"synonyms\": [\n      \"surgery\",\n      \"手術\"\n     ]\n    }\n   ]\n  },\n  {\n   \"text\": \"Aged 0.17 years or older\",\n   \"source_ref\": \"Inclusion criteria #2\",\n   \"kind\": \"inclusion\",\n   \"class\": \"structured\",\n   \"logic\": {\n    \"domain\": \"demographic\",\n    \"concept\": \"age\",\n    \"age\": {\n      \"min\": 0.17\n    }\n   },\n   \"concept_candidates\": [\n    {\n     \"domain\": \"demographic\",\n     \"name\": \"age\",\n     \"synonyms\": [\n      \"age\",\n      \"年齡\"\n     ]\n    }\n   ]\n  },\n  {\n   \"text\": \"Age <= 1.5 years\",\n   \"source_ref\": \"Inclusion criteria #3\",\n   \"kind\": \"inclusion\",\n   \"class\": \"structured\",\n   \"logic\": {\n    \"domain\": \"demographic\",\n    \"concept\": \"age\",\n    \"age\": {\n      \"max\": 1.5\n    }\n   },\n   \"concept_candidates\": [\n    {\n     \"domain\": \"demographic\",\n     \"name\": \"age\",\n     \"synonyms\": [\n      \"age\",\n      \"年齡\"\n     ]\n    }\n   ]\n  },\n  {\n   \"text\": \"Bleeding history in infant or family\",\n   \"source_ref\": \"Exclusion criteria #1\",\n   \"kind\": \"exclusion\",\n   \"class\": \"mixed\",\n   \"logic\": {\n    \"domain\": \"condition\",\n    \"concept\": \"bleeding history\",\n    \"count\": 1\n   },\n   \"note_question\": \"Does the patient or their family have a history of bleeding?\",\n   \"concept_candidates\": [\n    {\n     \"domain\": \"condition\",\n     \"name\": \"bleeding history\",\n     \"synonyms\": [\n      \"bleeding history\",\n      \"出血史\"\n     ]\n    }\n   ]\n  },\n  {\n   \"text\": \"Coagulopathy\",\n   \"source_ref\": \"Exclusion criteria #2\",\n   \"kind\": \"exclusion\",\n   \"class\": \"structured\",\n   \"logic\": {\n    \"domain\": \"condition\",\n    \"concept\": \"coagulopathy\"\n   },\n   \"concept_candidates\": [\n    {\n     \"domain\": \"condition\",\n     \"name\": \"coagulopathy\",\n     \"synonyms\": [\n      \"coagulopathy\",\n      \"凝血功能障礙\"\n     ]\n    }\n   ]\n  },\n  {\n   \"text\": \"Gastrointestinal bleeding history\",\n   \"source_ref\": \"Exclusion criteria #3\",\n   \"kind\": \"exclusion\",\n   \"class\": \"mixed\",\n   \"logic\": {\n    \"domain\": \"condition\",\n    \"concept\": \"gastrointestinal bleeding\"\n   },\n   \"note_question\": \"Does the patient have a history of gastrointestinal bleeding?\",\n   \"concept_candidates\": [\n    {\n     \"domain\": \"condition\",\n     \"name\": \"gastrointestinal bleeding\",\n     \"synonyms\": [\n      \"gastrointestinal bleeding\",\n      \"胃腸道出血\"\n     ]\n    }\n   ]\n  },\n  {\n   \"text\": \"Renal or hepatic disease assessed by history and by pre-drug blood tests\",\n   \"source_ref\": \"Exclusion criteria #4\",\n   \"kind\": \"exclusion\",\n   \"class\": \"mixed\",\n   \"logic\": {\n    \"domain\": \"condition\",\n    \"concept\": \"renal or hepatic disease\"\n   },\n   \"note_question\": \"Does the patient have renal or hepatic disease?\",\n   \"concept_candidates\": [\n    {\n     \"domain\": \"condition\",\n     \"name\": \"renal disease\",\n     \"synonyms\": [\n      \"renal disease\",\n      \"腎臟疾病\"\n     ]\n    },\n    {\n     \"domain\": \"condition\",\n     \"name\": \"hepatic disease\",\n     \"synonyms\": [\n      \"hepatic disease\",\n      \"肝臟疾病\"\n     ]\n    }\n   ]\n  },\n  {\n   \"text\": \"Premature birth (<36 weeks gestation)\",\n   \"source_ref\": \"Exclusion criteria #5\",\n   \"kind\": \"exclusion\",\n   \"class\": \"mixed\",\n   \"logic\": {\n    \"domain\": \"condition\",\n    \"concept\": \"premature birth\",\n    \"age\": {\n      \"max\": 36\n    }\n   },\n   \"note_question\": \"Was the patient born prematurely (less than 36 weeks gestation)?\",\n   \"concept_candidates\": [\n    {\n     \"domain\": \"condition\",\n     \"name\": \"premature birth\",\n     \"synonyms\": [\n      \"premature birth\",\n      \"早產\"\n     ]\n    }\n   ]\n  }\n ]\n}",
+     "prompt": [
+      {
+       "content": "Ruleset: SM2NCT01260883 (document language: en)\n\nINPUT:\n```json\n{\n \"criteria\": [\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Inclusion criteria #1\",\n   \"text\": \"Non-prematurely-born infants admitted to hospital following surgery ages 2-18 months, studied by age group 12-18 months, 6-12 months, < 6 months\"\n  },\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Inclusion criteria #2\",\n   \"text\": \"Aged 0.17 years or older\"\n  },\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Inclusion criteria #3\",\n   \"text\": \"Age <= 1.5 years\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #1\",\n   \"text\": \"Bleeding history in infant or family\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #2\",\n   \"text\": \"Coagulopathy\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #3\",\n   \"text\": \"Gastrointestinal bleeding history\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #4\",\n   \"text\": \"Renal or hepatic disease assessed by history and by pre-drug blood tests\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #5\",\n   \"text\": \"Premature birth (<36 weeks gestation)\"\n  }\n ],\n \"language\": \"en\",\n \"ruleset\": \"SM2NCT01260883\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T10:01:31.173269+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HWTZJTQZW2ZGERKBQ6TZFP"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"75613B\",\n   \"display\": \"Laparoscopic gastric bypass\",\n   \"system\": \"https://trialbox.local/fhir/CodeSystem/nhi-order\"\n  },\n  {\n   \"code\": \"75614B\",\n   \"display\": \"Laparoscopic sleeve gastrectomy\",\n   \"system\": \"https://trialbox.local/fhir/CodeSystem/nhi-order\"\n  }\n ],\n \"concept\": \"surgery\",\n \"domain\": \"procedure\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T10:01:31.187426+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HWTZJTQZW2ZGERKBQ6TZFP"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"A41.9\",\n   \"display\": \"Sepsis unspecified organism\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E78.5\",\n   \"display\": \"Hyperlipidemia unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"I10\",\n   \"display\": \"Essential (primary) hypertension\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.9\",\n   \"display\": \"Transient cerebral ischemic attack unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E10.65\",\n   \"display\": \"Type 1 diabetes mellitus with hyperglycemia\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E11.65\",\n   \"display\": \"Type 2 diabetes mellitus with hyperglycemia\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.8\",\n   \"display\": \"Other transient cerebral ischemic attacks and related syndromes\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  }\n ],\n \"concept\": \"bleeding history\",\n \"domain\": \"condition\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T10:01:31.609208+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HWTZJTQZW2ZGERKBQ6TZFP"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"G31.84\",\n   \"display\": \"Mild cognitive impairment of uncertain or unknown etiology\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"A41.9\",\n   \"display\": \"Sepsis unspecified organism\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E78.5\",\n   \"display\": \"Hyperlipidemia unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"I10\",\n   \"display\": \"Essential (primary) hypertension\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.9\",\n   \"display\": \"Transient cerebral ischemic attack unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E10.65\",\n   \"display\": \"Type 1 diabetes mellitus with hyperglycemia\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E11.65\",\n   \"display\": \"Type 2 diabetes mellitus with hyperglycemia\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.8\",\n   \"display\": \"Other transient cerebral ischemic attacks and related syndromes\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  }\n ],\n \"concept\": \"coagulopathy\",\n \"domain\": \"condition\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T10:01:32.072983+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HWTZJTQZW2ZGERKBQ6TZFP"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"K21.9\",\n   \"display\": \"Gastro-esophageal reflux disease without esophagitis\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"A41.9\",\n   \"display\": \"Sepsis unspecified organism\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E78.5\",\n   \"display\": \"Hyperlipidemia unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"A15.9\",\n   \"display\": \"Respiratory tuberculosis unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"I10\",\n   \"display\": \"Essential (primary) hypertension\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C16.9\",\n   \"display\": \"Malignant neoplasm of stomach unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C18.9\",\n   \"display\": \"Malignant neoplasm of colon unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.9\",\n   \"display\": \"Transient cerebral ischemic attack unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E10.65\",\n   \"display\": \"Type 1 diabetes mellitus with hyperglycemia\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E11.65\",\n   \"display\": \"Type 2 diabetes mellitus with hyperglycemia\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G45.8\",\n   \"display\": \"Other transient cerebral ischemic attacks and related syndromes\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  }\n ],\n \"concept\": \"gastrointestinal bleeding\",\n \"domain\": \"condition\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T10:01:32.545969+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HWTZJTQZW2ZGERKBQ6TZFP"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"N18.4\",\n   \"display\": \"Chronic kidney disease stage 4\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"N18.5\",\n   \"display\": \"Chronic kidney disease stage 5\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"N18.30\",\n   \"display\": \"Chronic kidney disease stage 3 unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G30.9\",\n   \"display\": \"Alzheimer's disease unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"K86.1\",\n   \"display\": \"Other chronic pancreatitis\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"M06.4\",\n   \"display\": \"Inflammatory polyarthropathy\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"B02.39\",\n   \"display\": \"Other herpes zoster eye disease\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C25.9\",\n   \"display\": \"Malignant neoplasm of pancreas unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E66.01\",\n   \"display\": \"Morbid (severe) obesity due to excess calories\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"K21.9\",\n   \"display\": \"Gastro-esophageal reflux disease without esophagitis\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"K86.0\",\n   \"display\": \"Alcohol-induced chronic pancreatitis\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E10.9\",\n   \"display\": \"Type 1 diabetes mellitus without complications\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E11.9\",\n   \"display\": \"Type 2 diabetes mellitus without complications\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"K85.90\",\n   \"display\": \"Acute pancreatitis without necrosis or infection unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G30.0\",\n   \"display\": \"Alzheimer's disease with early onset\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G30.1\",\n   \"display\": \"Alzheimer's disease with late onset\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E10.65\",\n   \"display\": \"Type 1 diabetes mellitus with hyperglycemia\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E11.65\",\n   \"display\": \"Type 2 diabetes mellitus with hyperglycemia\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"K85.20\",\n   \"display\": \"Alcohol induced acute pancreatitis without necrosis or infection\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E10.10\",\n   \"display\": \"Type 1 diabetes mellitus with ketoacidosis without coma\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  }\n ],\n \"concept\": \"renal disease\",\n \"domain\": \"condition\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T10:01:33.012733+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HWTZJTQZW2ZGERKBQ6TZFP"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"N18.4\",\n   \"display\": \"Chronic kidney disease stage 4\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"N18.5\",\n   \"display\": \"Chronic kidney disease stage 5\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"N18.30\",\n   \"display\": \"Chronic kidney disease stage 3 unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C22.0\",\n   \"display\": \"Liver cell carcinoma\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G30.9\",\n   \"display\": \"Alzheimer's disease unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"K86.1\",\n   \"display\": \"Other chronic pancreatitis\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"M06.4\",\n   \"display\": \"Inflammatory polyarthropathy\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"B02.39\",\n   \"display\": \"Other herpes zoster eye disease\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"C25.9\",\n   \"display\": \"Malignant neoplasm of pancreas unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E66.01\",\n   \"display\": \"Morbid (severe) obesity due to excess calories\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"K21.9\",\n   \"display\": \"Gastro-esophageal reflux disease without esophagitis\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"K86.0\",\n   \"display\": \"Alcohol-induced chronic pancreatitis\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"B18.1\",\n   \"display\": \"Chronic viral hepatitis B without delta-agent\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E10.9\",\n   \"display\": \"Type 1 diabetes mellitus without complications\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E11.9\",\n   \"display\": \"Type 2 diabetes mellitus without complications\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"K85.90\",\n   \"display\": \"Acute pancreatitis without necrosis or infection unspecified\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G30.0\",\n   \"display\": \"Alzheimer's disease with early onset\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"G30.1\",\n   \"display\": \"Alzheimer's disease with late onset\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"B18.0\",\n   \"display\": \"Chronic viral hepatitis B with delta-agent\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  },\n  {\n   \"code\": \"E10.65\",\n   \"display\": \"Type 1 diabetes mellitus with hyperglycemia\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  }\n ],\n \"concept\": \"hepatic disease\",\n \"domain\": \"condition\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T10:01:33.475200+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HWTZJTQZW2ZGERKBQ6TZFP"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"G30.0\",\n   \"display\": \"Alzheimer's disease with early onset\",\n   \"system\": \"http://hl7.org/fhir/sid/icd-10-cm\"\n  }\n ],\n \"concept\": \"premature birth\",\n \"domain\": \"condition\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T10:01:33.929968+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "ir_extract@3",
+      "tb.study_id": "01M7HXXJP0H7BV0SATS4KWGQEA"
+     },
+     "output": "{\"criteria\": [{\"text\": \"Reported pain greater than or equal to 3 out of 10\", \"source_ref\": \"Inclusion criteria #1\", \"kind\": \"inclusion\", \"class\": \"note\", \"logic\": {\"domain\": \"observation\", \"concept\": \"pain_score\", \"quantifier\": \"none\", \"value\": \n    {\"op\": \">=\", \"num\": 3}}, \"concept_candidates\": [{\"domain\": \"observation\", \"name\": \"pain score\", \"synonyms\": [\"pain intensity\", \"疼痛評分\"]} ]}, {\"text\": \"Aged 18 years or older\", \"source_ref\": \"Inclusion criteria #2\", \"kind\": \"inclusion\", \"class\": \"structured\", \"logic\": {\"domain\": \"demographic\", \"concept\": \"age\", \"quantifier\": \"none\", \"value\": {\"op\": \">=\", \"num\": 18}}, \"concept_candidates\": [{\"domain\": \"demographic\", \"name\": \"age\", \"synonyms\": [\"歲\", \"年齡\"]}]}, {\"text\": \"Less than 18 years of age\", \"source_ref\": \"Exclusion criteria #1\", \"kind\": \"exclusion\", \"class\": \"structured\", \"logic\": {\"domain\": \"demographic\", \"concept\": \"age\", \"quantifier\": \"none\", \"value\": {\"op\": \"<\", \"num\": 18}}, \"concept_candidates\": [{\"domain\": \"demographic\", \"name\": \"age\", \"synonyms\": [\"歲\", \"年齡\"]}]}, {\"text\": \"Decreased level of consciousness\", \"source_ref\": \"Exclusion criteria #2\", \"kind\": \"exclusion\", \"class\": \"mixed\", \"logic\": {\"domain\": \"observation\", \"concept\": \"consciousness_level\", \"quantifier\": \"none\", \"value\": {\"op\": \"=\", \"num\": 1}}, \"note_question\": \"Does the patient have a decreased level of consciousness?\", \"concept_candidates\": [{\"domain\": \"observation\", \"name\": \"decreased level of consciousness\", \"synonyms\": [\"意識水平降低\", \"意識不清\"]} ]}, {\"text\": \"Inability to answer questions\", \"source_ref\": \"Exclusion criteria #3\", \"kind\": \"exclusion\", \"class\": \"human\", \"human_question\": \"Is the patient unable to answer questions?\", \"concept_candidates\": [{\"domain\": \"observation\", \"name\": \"inability to answer questions\", \"synonyms\": [\"無法回答問題\"]} ]}, {\"text\": \"Prisoner\", \"source_ref\": \"Exclusion criteria #4\", \"kind\": \"exclusion\", \"class\": \"structured\", \"logic\": {\"domain\": \"demographic\", \"concept\": \"prisoner_status\", \"quantifier\": \"none\", \"value\": {\"op\": \"=\", \"num\": 1}}, \"concept_candidates\": [{\"domain\": \"demographic\", \"name\": \"prisoner status\", \"synonyms\": [\"囚犯身分\", \"在囚狀態\"]} ]}]}",
+     "prompt": [
+      {
+       "content": "Ruleset: SM2NCT01723137 (document language: en)\n\nINPUT:\n```json\n{\n \"criteria\": [\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Inclusion criteria #1\",\n   \"text\": \"Reported pain greater than or equal to 3 out of 10\"\n  },\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Inclusion criteria #2\",\n   \"text\": \"Aged 18 years or older\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #1\",\n   \"text\": \"Less than 18 years of age\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #2\",\n   \"text\": \"Decreased level of consciousness\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #3\",\n   \"text\": \"Inability to answer questions\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #4\",\n   \"text\": \"Prisoner\"\n  }\n ],\n \"language\": \"en\",\n \"ruleset\": \"SM2NCT01723137\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T10:20:06.670668+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HXXJP0H7BV0SATS4KWGQEA"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"BASDAI-Q2\",\n   \"display\": \"BASDAI spinal pain\",\n   \"system\": \"https://trialbox.local/fhir/CodeSystem/clinical-score\"\n  },\n  {\n   \"code\": \"BASDAI-Q3\",\n   \"display\": \"BASDAI peripheral joint pain/swelling\",\n   \"system\": \"https://trialbox.local/fhir/CodeSystem/clinical-score\"\n  },\n  {\n   \"code\": \"TJC28\",\n   \"display\": \"Tender joint count (28 joints)\",\n   \"system\": \"https://trialbox.local/fhir/CodeSystem/clinical-score\"\n  },\n  {\n   \"code\": \"PTGA\",\n   \"display\": \"Patient global assessment of disease activity\",\n   \"system\": \"https://trialbox.local/fhir/CodeSystem/clinical-score\"\n  }\n ],\n \"concept\": \"pain score\",\n \"domain\": \"observation\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T10:20:07.127218+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "concept_map@2",
+      "tb.study_id": "01M7HXXJP0H7BV0SATS4KWGQEA"
+     },
+     "output": "{\n \"choices\": [],\n \"needs_review\": true\n}",
+     "prompt": [
+      {
+       "content": "INPUT:\n```json\n{\n \"candidates\": [\n  {\n   \"code\": \"PTGA\",\n   \"display\": \"Patient global assessment of disease activity\",\n   \"system\": \"https://trialbox.local/fhir/CodeSystem/clinical-score\"\n  },\n  {\n   \"code\": \"4537-7\",\n   \"display\": \"Erythrocyte sedimentation rate by Westergren method\",\n   \"system\": \"http://loinc.org\"\n  }\n ],\n \"concept\": \"decreased level of consciousness\",\n \"domain\": \"observation\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T10:20:07.582552+00:00"
+    },
+    {
+     "attributes": {
+      "tb.prompt": "ir_extract@3",
+      "tb.study_id": "01M7J0FRCZWF9S42F0P6JMGCHD"
+     },
+     "output": null,
+     "prompt": [
+      {
+       "content": "Ruleset: SM2NCT02378311 (document language: en)\n\nINPUT:\n```json\n{\n \"criteria\": [\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Inclusion criteria #1\",\n   \"text\": \"Children 0-15 years inclusive\"\n  },\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Inclusion criteria #2\",\n   \"text\": \"Presenting to either of the study hospitals for assessment or treatment\"\n  },\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Inclusion criteria #3\",\n   \"text\": \"Sustained an injury or suspected to have sustained an injury (i.e. AIS >=0)\"\n  },\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Inclusion criteria #4\",\n   \"text\": \"Due to an incident involving any non-motorized bicycle, tricycle or kick scooter\"\n  },\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Inclusion criteria #5\",\n   \"text\": \"Aged 0 years or older\"\n  },\n  {\n   \"kind\": \"inclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Inclusion criteria #6\",\n   \"text\": \"Age <= 15 years\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #1\",\n   \"text\": \"Incidents where the injured child was involved in a motor vehicle collision\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #2\",\n   \"text\": \"Incidents where the injured child was injured by another rider (e.g. injured child run over by a cyclist)\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #3\",\n   \"text\": \"Incidents involving a bicycle fitted with 'bull bars'\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #4\",\n   \"text\": \"Patients for whom neither parent / guardian is fluent in English (if the history is clear from a parent, the patient will be eligible for inclusion)\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #5\",\n   \"text\": \"If an eligible patient is dead on arrival the family will not be invited to participate, and they will not subsequently be contacted\"\n  },\n  {\n   \"kind\": \"exclusion\",\n   \"parent\": null,\n   \"source_ref\": \"Exclusion criteria #6\",\n   \"text\": \"If an eligible patient dies during their admission, they will be withdrawn from further involvement in the study and the family will not be contacted\"\n  }\n ],\n \"language\": \"en\",\n \"ruleset\": \"SM2NCT02378311\"\n}\n```",
+       "role": "user"
+      }
+     ],
+     "ts": "2026-11-16T11:07:44.906117+00:00"
+    }
+   ]
+  }
+ },
+ "what": "launch P1b (run box-20261116T074927Z-3b2f5e38), a slice of its stored sets for the H-4 replay tests"
+}

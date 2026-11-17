@@ -127,6 +127,7 @@ class LlmResult:
     attempts: int
     prompt_sha: str = ""
     build_sha: str = ""  # through the gateway: the build that answered (weights digest); "" on a direct call (D-276)
+    call_id: str = ""  # D-989: the gateway's call id (``llm.gateway.call``); ``direct-<output sha>`` on a direct call
 
 
 def load_prompt(prompt_id: str, environment: str | None = None) -> Prompt:
@@ -358,7 +359,7 @@ class LlmClient:
         if target == "cloud" and self.cloud_api_key:
             headers["Authorization"] = f"Bearer {self.cloud_api_key}"
         tokens_in = tokens_out = 0
-        build_sha = ""
+        build_sha = call_id = ""
         errors: list[str] = []
         codes: list[str] = []
         convo = list(messages)
@@ -390,6 +391,7 @@ class LlmClient:
                 payload = self._via_gateway(body, prompt, job_id, data_class)
                 model = served = str(payload.get("model") or model)
                 build_sha = str((payload.get("tb") or {}).get("build_sha") or "")
+                call_id = str((payload.get("tb") or {}).get("call_id") or "")
             else:
                 try:  # a dropped connection once more, a timeout never (T-608, D-445)
                     resp = once_more(partial(self.http.post, f"{base}/chat/completions", json=body, headers=headers))
@@ -416,6 +418,9 @@ class LlmClient:
                 data, errors, codes = None, [f"not JSON: {exc}"], ["<root>: not JSON"]
             if not errors and isinstance(data, dict):
                 output_sha = sha256_text(json.dumps(data, sort_keys=True, ensure_ascii=False))
+                # D-989: every answer names the call that gave it; a direct call (DEV, no gateway) has no gateway
+                # record, so its id is derived from its answer: a re-run's records stay the same
+                call_id = call_id or f"direct-{output_sha[:16]}"
                 if self.audit is not None:
                     self.audit.append(
                         "llm.call",
@@ -431,6 +436,8 @@ class LlmClient:
                             "tokens_out": tokens_out,
                             "phi_guard_hit": phi_guard_hit,
                             "prompt_sha": prompt.sha256,
+                            "build_sha": build_sha,  # D-989: the build that answered ("" on a direct call)
+                            "call_id": call_id,  # D-989: what a record's ``prov`` names
                             "ms": round((time.perf_counter() - t0) * 1000),
                         },
                     )
@@ -447,6 +454,7 @@ class LlmClient:
                     attempt,
                     prompt.sha256,
                     build_sha,
+                    call_id,
                 )
             if truncated:
                 # a reasoning model (gpt-oss, nemotron) spends max_tokens on reasoning before the JSON: the answer was

@@ -1236,13 +1236,19 @@ class ComposeBox(_DockerImages):
         return ", ".join(targets)
 
     def _backup_container(self, rb: Path, pub: Path, targets: list[str], keep: int | None = None,
-                          timeout: float | None = None) -> None:  # fmt: skip
+                          timeout: float | None = None, restic: bool = False) -> None:  # fmt: skip
         """``trialbox backup`` in a one-off container on trialbox-net with every volume read-only and the dumps just
         taken (``TB_PG_DUMP_DIR``): the image has no pg_dump, the db container has no Python. Passwords travel in
         the environment (``-e NAME`` without a value), never on the command line. ``timeout``: from the size it
-        reads (D-455, ``backup_schedule.step_timeout``); None: no limit."""
+        reads (D-455, ``backup_schedule.step_timeout``); None: no limit. ``restic`` (D-977): the release's backup job
+        image (``TB_BACKUP_IMAGE``, restic inside), the secrets volume and the unsealed KEK read-only, and
+        ``--restic``: the lake's served files go to the restic repository beside each target."""
         from_backup = BACKUP_VOLUMES
-        image = self.env.get("TB_IMAGE") or "trialbox-py:1.0.0"
+        image = (
+            (self.env.get("TB_BACKUP_IMAGE") or "trialbox-backup:1.0.0")
+            if restic
+            else (self.env.get("TB_IMAGE") or "trialbox-py:1.0.0")
+        )
         site = f"TB_SITE_ID={self.env.get('TB_SITE_ID', '')}"
         argv = ["docker", "run", "--rm", "--network", "trialbox-net", "--user", "0", "-e", "TB_DB_URL",
                 "-e", "TB_HAPI_DB_URL", "-e", "TB_PG_DUMP_DIR=/dumps", "-e", site,
@@ -1256,8 +1262,12 @@ class ComposeBox(_DockerImages):
             Path(t).mkdir(parents=True, exist_ok=True)
             argv += ["-v", f"{t}:/backup/{i}"]
             tos += ["--to", f"/backup/{i}"]
+        if restic:  # D-968 (R2): restic.key opens only under the KEK, inside restic's own process environment
+            kek_dir = self.env.get("TB_KEK_HOST_DIR") or "/run/trialbox"
+            argv += ["-v", "trialbox_tb-secrets:/run/secrets/trialbox:ro", "-v", f"{kek_dir}:/run/trialbox:ro"]
         argv += [image, "python", "-m", "tools.trialbox", "backup", *tos, "--public", "/in/backup.pub", *dirs]
         argv += ["--keep", str(keep)] if keep is not None else []  # D-188: the schedule's TB_BACKUP_KEEP
+        argv += ["--restic"] if restic else []
         hapi_pw = self.env.get("POSTGRES_PASSWORD", "")
         env = {
             "TB_DB_URL": self.env.get("TB_DB_URL", ""),

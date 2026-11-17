@@ -84,7 +84,7 @@ def _compiler(model: _Model) -> Any:
 def test_a_long_protocol_is_asked_in_parts_and_the_answers_join_in_order() -> None:
     lines = _protocol(30, 40)
     model = _Model()
-    out, _guard, unread = _compiler(model)._extract("J", "T", "en", lines)
+    out, _guard, unread, _calls = _compiler(model)._extract("J", "T", "en", lines)
     assert len(model.parts) > 1 and max(model.parts) <= lines_per_part() and sum(model.parts) == len(lines)
     assert [c.text for c in out.criteria] == [ln["text"] for ln in lines] and not unread
     short = _compiler(_Model())._extract("J", "T", "en", _protocol(3, 3))[0]
