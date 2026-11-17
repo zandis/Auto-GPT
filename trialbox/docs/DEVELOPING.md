@@ -28,16 +28,11 @@ site document links may live here instead.
 
 ## Before a push
 
-From `trialbox/`, after `make venv` (the list in `CONTRIBUTING.md` is the source):
+From `trialbox/`, after `make venv` (`CONTRIBUTING.md` is the source):
 
 ```sh
-.venv/bin/python -m ruff check .
-.venv/bin/python -m ruff format --check .
-.venv/bin/python -m tools.doclint
-.venv/bin/python -m tools.decisions_index --check
-.venv/bin/python -m tools.data_scan
-.venv/bin/python -m mypy <every .py file you changed>
-TB_ENV=DEV TB_TZ=Asia/Taipei PYTHONPATH=libs:services:. .venv/bin/python -m pytest <the tests you touched> -p no:cacheprovider -n 0
+.venv/bin/python -m tools.prepush --tests <the tests you touched>   # CI's fast tier and the security scans
+.venv/bin/python -m tools.prepush --list                            # the steps, and the tools each needs
 ```
 
 There is no default site time zone (D-315): a test run names one. The full suite (`make test`) is CI's.
