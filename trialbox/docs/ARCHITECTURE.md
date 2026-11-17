@@ -44,7 +44,8 @@ and retention.
 
 Packages inside the services: `datacore` (forms, answers, sync, lifecycle; D-123, D-129, D-134), `sitesetup`
 (readiness, chart upload, proposed facts, code mapping; D-135), `matching` (the cascade, coverage), `deliverables`
-(the feasibility pack), `rc_bridge` and `rc_sim` (REDCap and its simulator), `registry`, `guard`, `tracestore` (model
+(the feasibility pack), `rc_bridge` and `rc_sim` (REDCap and its simulator), `edc_backend` (the same API against
+the site's REDCap or an internal service; off unless `TB_EDC_BACKEND` is set, D-1041), `registry`, `guard`, `tracestore` (model
 registry, PHI recognisers, redacted traces). The adapter is the one ingest stack (D-370, D-381): its data contracts,
 row quarantine, one gate record per night, `pid_alias` and `lineage.json` live in `adapter/governance.py` and
 `adapter/pidmap.py`.

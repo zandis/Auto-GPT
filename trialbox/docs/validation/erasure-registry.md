@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-230 entries: 87 erase, 27 keep, 116 no patient data. 28 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+233 entries: 87 erase, 29 keep, 117 no patient data. 28 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -72,6 +72,8 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `edc.sent` | OD-8 | the trial record of a consented or enrolled subject stays (GCP) |
 | `edc.signature` | OD-8 | the trial record of a consented or enrolled subject stays (GCP) |
 | `edc.signature_void` | OD-8 | the trial record of a consented or enrolled subject stays (GCP) |
+| `edcdoor.event` | OD-8 | the id of an event the trial's EDC sent, with the EDC's record id; no value |
+| `edcdoor.proposal` | OD-8 | a write held for a staff member's confirmation, by the EDC's record id; gone once confirmed or after 15 minutes |
 | `omop.tb_consent` | D-441 | the refusal itself must reach the lake, or the registry would read as silent |
 | `omop.tb_id_map` | D-441 | pseudonym to person id: the worker and the loader must still find the person |
 | `omop.tb_record` | D-876 | the record ledger, ids and provenance (D-441, the owner's D-1031): the person's live records are tombstoned at the opt-out, and the FHIR fields a record carried (extra) are blanked at retention by the omop clear |
@@ -120,6 +122,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `edc.switch` | settings and configuration, no patient |
 | `edc.switch_event` | settings and configuration, no patient |
 | `edc.target` | settings and configuration, no patient |
+| `edcdoor.oidc_code` | staff, accounts or sign-in state, no patient |
 | `feedback.entry` | in-product feedback from staff, not about a patient (record inventory O-02) |
 | `lake:.rebuild.lock` | the lock one lake rebuild holds (T-722), no patient |
 | `lake:CURRENT` | the name of the served snapshot |

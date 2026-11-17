@@ -34,7 +34,8 @@ from typing import Any
 from tb_common import kek as K
 
 KEY = "restic.key"
-#: the one file written beside a repository on a target: the wrapped key and the KEK's public description
+#: the one file written beside a repository on a target: the wrapped key and the KEK's public description; one per
+#: site (:func:`escrow_name`), since several boxes may share a NAS
 ESCROW = "trialbox-restic.key.json"
 ESCROW_FORMAT = "tb-restic-escrow/1"
 
@@ -98,6 +99,30 @@ def public_kek(meta: Mapping[str, Any]) -> dict[str, Any]:
     )
 
 
+def _safe_site(site: str) -> str:
+    import re
+
+    return re.sub(r"[^A-Za-z0-9._-]", "_", site).strip("._") or "box"
+
+
+def repo_dir(site: str) -> str:
+    """The repository's folder on a target, one per site (review of D-968: boxes share a NAS)."""
+    return f"trialbox-restic-{_safe_site(site)}"
+
+
+def escrow_name(site: str) -> str:
+    return f"trialbox-restic-{_safe_site(site)}.key.json"
+
+
+def escrow_for(tbbak: Path) -> str:
+    """The escrow file beside a sealed backup file ``trialbox-<site>-<time>.tbbak``: the one whose site it names."""
+    for e in sorted(tbbak.parent.glob("trialbox-restic-*.key.json")):
+        site = e.name[len("trialbox-restic-") : -len(".key.json")]
+        if tbbak.name.startswith(f"trialbox-{site}-"):
+            return e.name
+    raise ResticKeyError(f"no restic escrow file of this backup's site beside {tbbak.name}")
+
+
 def _read_target(path: Path) -> dict[str, Any] | None:
     if path.is_symlink() or (path.exists() and not stat.S_ISREG(path.lstat().st_mode)):
         raise ResticKeyError(f"{path} is not a plain file (a link or a folder): nothing was read or written")
@@ -132,7 +157,7 @@ def _write_target(path: Path, data: bytes) -> None:
         os.close(dfd)
 
 
-def escrow_copy(secrets_dir: Path, target: Path) -> Path:
+def escrow_copy(secrets_dir: Path, target: Path, name: str = ESCROW) -> Path:
     """Write the escrow file beside the repository in ``target``. The same key re-wrapped (after ``rotate-kek`` and
     new escrow shares) replaces it; another key is refused, since the repository's snapshots open only with the key
     they were made under."""
@@ -141,7 +166,7 @@ def escrow_copy(secrets_dir: Path, target: Path) -> Path:
         raise ResticKeyError(f"{secrets_dir} has no KEK ({K.META_FILE})")
     kek_public = public_kek(meta)
     wrapped = K.read_wrapped(secrets_dir / KEY)
-    there = target / ESCROW
+    there = target / name
     old = _read_target(there)
     if old is not None and (old.get("wrapped") or {}).get("fingerprint") != wrapped.get("fingerprint"):
         raise ResticKeyError(
@@ -153,12 +178,12 @@ def escrow_copy(secrets_dir: Path, target: Path) -> Path:
     return there
 
 
-def open_from_target(target: Path, share_texts: list[str]) -> str:
+def open_from_target(target: Path, share_texts: list[str], name: str = ESCROW) -> str:
     """The repository password from the escrow file beside the repository and the custodians' shares: the stewards'
     shares of a shamir KEK, or the escrow shares of a TPM KEK (D-894). Refused for shares of another set or KEK."""
-    doc = _read_target(target / ESCROW)
+    doc = _read_target(target / name)
     if not doc or doc.get("format") != ESCROW_FORMAT:
-        raise ResticKeyError(f"{target / ESCROW} is not a restic escrow file")
+        raise ResticKeyError(f"{target / name} is not a restic escrow file")
     kek_meta = doc["kek"]
     kek = (K.kek_from_shares if kek_meta.get("backend") == "shamir" else K.kek_from_escrow)(kek_meta, share_texts)
     wrapped = doc["wrapped"]
@@ -171,7 +196,7 @@ def open_from_target(target: Path, share_texts: list[str]) -> str:
 
 #: the restic command (the image's /usr/local/bin/restic, pinned in R1); a command line for the tests' stand-in
 CMD_ENV = "TB_RESTIC"
-#: the repository's folder on a backup target, beside the escrow file
+#: the repository's folder on a backup target, beside the escrow file (:func:`repo_dir` adds the site)
 REPO_DIR = "trialbox-restic"
 LAKE_TAG = "lake"
 #: restic's exit codes (0.19): 3 a snapshot was made but some files could not be read; 10 no repository; 12 the
@@ -190,9 +215,13 @@ def _cmd(env: Mapping[str, str]) -> list[str]:
     return shlex.split(env.get(CMD_ENV) or "restic")
 
 
-def restored_root(into: Path, root: Path) -> Path:
-    """Where ``restore --target into`` puts the files backed up from ``root``: restic keeps their absolute path."""
-    return into / str(root.resolve()).lstrip("/")
+def restored_root(into: Path, root: str | Path) -> Path:
+    """Where ``restore --target into`` puts the files backed up from ``root`` (the absolute path restic recorded,
+    taken as written: it is not resolved again on the restoring machine, whose links differ)."""
+    rel = str(root).lstrip("/")
+    if not str(root).startswith("/") or any(p in ("", ".", "..") for p in rel.split("/")):
+        raise ResticError(f"the lake's recorded root {str(root)!r} is not a plain absolute path")
+    return into / rel
 
 
 class Repo:
@@ -209,6 +238,7 @@ class Repo:
     def _run(self, args: list[str], *, what: str, cwd: Path | None = None, extra: Mapping[str, str] | None = None,
              ok: tuple[int, ...] = (0,)) -> subprocess.CompletedProcess[str]:  # fmt: skip
         env = restic_env(self._pw, self._base)
+        env.pop("PWD", None)  # restic takes its working folder from the system, not from an inherited $PWD
         env.update(extra or {})
         argv = [*_cmd(self._base), "-r", str(self.path), *args]
         try:
@@ -275,7 +305,19 @@ class Repo:
                   extra={"RESTIC_FROM_PASSWORD": src._pw})  # fmt: skip
 
     def forget(self, *, keep: int, tag: str) -> None:
-        self._run(["forget", "--tag", tag, "--keep-last", str(keep)], what="forget")
+        self._run(["forget", "--tag", tag, "--keep-last", str(keep), "--prune"], what="forget")
+
+    def forget_ids(self, ids: list[str]) -> None:
+        """Forget exactly these snapshots and free their space (``--prune``)."""
+        if ids:
+            self._run(["forget", *ids, "--prune"], what="forget")
+
+    def forget_except(self, keep: set[str], *, tag: str) -> list[str]:
+        """Forget every snapshot of ``tag`` that no kept backup names; the ids forgotten."""
+        r = self._run(["snapshots", "--json", "--tag", tag], what="snapshots")
+        drop = [str(s["id"]) for s in json.loads(r.stdout or "[]") if str(s["id"]) not in keep]
+        self.forget_ids(drop)
+        return drop
 
     def prune(self) -> None:
         self._run(["prune"], what="prune")

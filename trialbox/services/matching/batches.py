@@ -31,17 +31,16 @@ def query_by_patients(
     """``lake.query(sql, [dates, pids, *extra], snapshot)``, a slice of ``pids`` at a time (every patient of the
     snapshot when None); the tables put together in the slices' order. ``rows``: the rows one query may carry
     (``TB_CASCADE_S1_ROWS`` when None)."""
-    from matching.cascade.engine import CascadeError, s1_rows
+    from matching.cascade.engine import CascadeError, patients_per_query
 
-    limit = s1_rows() if rows is None else rows
-    if limit <= 0:
-        raise CascadeError(f"rows={limit}: give a whole number of rows above 0")
+    if rows is not None and rows <= 0:
+        raise CascadeError(f"rows={rows}: give a whole number of rows above 0")
     who = (
         [str(r["pid"]) for r in lake.query(ALL_PATIENTS_SQL, [], snapshot).to_pylist()]
         if pids is None
         else sorted(set(pids))  # the SQL orders by pid, so the slices do too (and a patient is asked once)
     )
-    size = max(1, limit // max(1, len(dates)))
+    size = patients_per_query(lake, len(who), len(dates), rows)  # D-748's batches, or one query (D-924)
     tables = [
         lake.query(sql, [list(dates), who[start : start + size], *extra], snapshot)
         for start in range(0, max(len(who), 1), size)

@@ -222,6 +222,14 @@ def get_holds() -> dict[str, Any]:
     return {"holds": lake().holds()}
 
 
+@app.get("/limits")
+def get_limits() -> dict[str, Any]:
+    """NEW-B-58 (D-924): the memory limit this service gives DuckDB, so a caller can size its queries to it."""
+    from lake.store import memory_limit, memory_limit_bytes
+
+    return {"memory_limit": memory_limit(), "memory_limit_bytes": memory_limit_bytes()}
+
+
 @app.get("/generations/{snapshot}")
 def get_generations(snapshot: str) -> dict[str, Any]:
     """T-724 (D-490): the generations of a date on the box and the one the date names now (``generation``: None for

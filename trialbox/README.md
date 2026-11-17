@@ -63,7 +63,7 @@ card has no measured serving record.
 
 | Path | What |
 | --- | --- |
-| `services/` | console, orchestrator, gateway, mail_gateway, criteria_compiler, doc_parser, adapter, lake, embed_service, datacore, edc, omop, sitesetup, matching, deliverables, registry, guard, model_guard, tracestore, rc_bridge, rc_sim, llm_stub, channels |
+| `services/` | console, orchestrator, gateway, mail_gateway, criteria_compiler, doc_parser, adapter, lake, embed_service, datacore, edc, edc_backend, omop, sitesetup, matching, deliverables, registry, guard, model_guard, tracestore, rc_bridge, rc_sim, llm_stub, channels |
 | `libs/` | `tb_contracts` (models generated from `schemas/`), `tb_common` (config, audit, db, service tokens, crypto, LLM client, retention), `tb_llm`, `tb_testkit` |
 | `schemas/` | JSON Schemas, the one source of every contract |
 | `rulesets/` | approved demo rulesets: trials GZQO, AD-MAB and RA-JAK; cohorts GOUT-COH, RA-COH and NEUR-COH; NHI lists RA-BIO and ONC-OSI |
