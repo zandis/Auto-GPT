@@ -201,6 +201,32 @@ def _write(directory: Path, name: str, rows: list[dict[str, str]], cols: tuple[s
         os.replace(mtmp, directory / MANIFEST)
 
 
+def remove_site_list(directory: Path, name: str) -> dict[str, Any]:
+    """E-TERM-3 (D-1048): remove one of the site's own lists on purpose: its file and its manifest line, under the
+    loader's lock. A list removed this way is no refusal; one whose file is gone while its line stays is. Returns the
+    removed line (for the audit event); ValueError when there is no such list."""
+    import fcntl
+
+    if not re.fullmatch(r"[a-z0-9_]{1,60}", name):
+        raise ValueError(f"--name {name!r}: lower-case letters, digits and _ only (it names the table site_<name>)")
+    table = SITE_PREFIX + name
+    with (directory / ".manifest.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        data = manifest(directory)
+        line = data["tables"].pop(table, None)
+        path = directory / f"{table}.parquet"
+        if line is None and not path.exists():
+            raise ValueError(f"{table}: no such site list in {directory}")
+        mtmp = directory / f".{MANIFEST}.tmp"
+        with mtmp.open("w", encoding="utf-8") as f:
+            f.write(json.dumps(data, indent=1, sort_keys=True) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(mtmp, directory / MANIFEST)
+        path.unlink(missing_ok=True)
+    return {"table": table, **{k: str(v) for k, v in (line or {}).items() if k in ("version", "sha256", "rows")}}
+
+
 def install_icd10cm(zip_path: Path, directory: Path, year: str, now: datetime | None = None) -> dict[str, int]:
     """Load ICD-10-CM's blocks and Alphabetic Index from CMS's code-tables zip of ``year`` (read, never unpacked)."""
     with zipfile.ZipFile(zip_path) as z:
@@ -324,6 +350,14 @@ def read_loaded(directory: Path, name: str) -> list[dict[str, Any]] | None:
         if problem:
             raise TerminologyRefused(problem)
     return rows
+
+
+def refused_site_lists(directory: Path) -> list[dict[str, str]]:
+    """E-TERM-3 (D-1048): each site list on the box that is not read now, ``{"table", "reason"}``: its bytes differ
+    from its manifest line, the manifest is damaged, or its file is gone while its line stays. A list removed on
+    purpose (``remove_site_list``) has neither file nor line and is not here."""
+    return [{"table": t.name, "reason": t.problem} for t in status(directory)
+            if t.problem and t.name.startswith(SITE_PREFIX)]  # fmt: skip
 
 
 def not_loaded(directory: Path) -> list[str]:

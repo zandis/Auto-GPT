@@ -35,7 +35,7 @@ from fastapi.responses import RedirectResponse
 from guard.injection import screen
 from tb_contracts import Job
 
-from console import ruleset_labels
+from console import ruleset_labels, terminology_refused
 from console import studies as st
 from console.auth import Session
 from console.home import Helpers
@@ -130,7 +130,9 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         }
 
     def context(sess: Session, job: Job, book: Any) -> dict[str, Any]:
-        rows = review_rows(bk.get_object(book.minio_key))
+        data = bk.get_object(book.minio_key)
+        rows = review_rows(data)
+        refused = terminology_refused.for_approval(data)  # E-TERM-3 (D-1048): a code list the compile did not read
         fn = getattr(bk, "criteria", None)
         approved = fn(job.ruleset) if fn else []
         prev = next((r.version for r in bk.rulesets() if r.id == job.ruleset and r.status == "approved"), None)
@@ -146,6 +148,8 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         pins = getattr(bk, "approval_state", None)  # D-318: why the approved version needs the investigator again
         return {
             "pin_state": pins(job.ruleset) if pins else None,
+            "term_refused": refused,
+            "site_blocked": any(r["site"] for r in refused),  # D-1048: fail closed while a site list is not read
             "job": job,
             "rs": job.ruleset,
             "version": job.ruleset_version,
@@ -269,6 +273,10 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
         ctx = context(sess, job, book)
+        if ctx["site_blocked"]:  # E-TERM-3 (D-1048): the compiler refuses it too; the page says why first
+            tables = ", ".join(r["table"] for r in ctx["term_refused"] if r["site"])
+            raise h.problem(409, "request.refused",
+                            reason=f"{tables}: " + translate(sess.lang, "term.refused.approval"))  # fmt: skip
         if ctx["missing"]:
             raise h.problem(
                 409, "request.refused", reason="open every amber row first: " + ", ".join(ctx["missing"][:5])

@@ -17,6 +17,12 @@ TERM-2 (D-1113 to D-1116), in the order of the install step (``docs/handover/OFF
     python -m tools.terminology_install icd10who <ClaML xml or code table> --accepted-by "NAME" [--version V]
     python -m tools.terminology_install atc <ATC index csv or tsv> --accepted-by "NAME" --version YEAR
 
+E-TERM-3 (D-1048): a site list removed on purpose (its file and its manifest line; a list whose file is gone while its
+line stays is refused, and while a site list is refused no ruleset is approved). The removal is in the hash-chained
+audit (``terminology.remove``); without an audit folder it is refused:
+
+    python -m tools.terminology_install remove-site-list --name NAME --by "WHO" [--audit-dir DIR] [--dir DIR]
+
 ``icd10cm``: CMS's ``<year>-code-tables-tabular-and-index.zip`` (US public domain; cms.gov, "ICD-10-CM" files),
 read without unpacking: its tabular list's blocks and its Alphabetic Index. The FY2026 tables ship in the image
 (D-1029); this loads a later release in their place.
@@ -46,8 +52,15 @@ def main(argv: list[str] | None = None) -> int:
     st = sub.add_parser("status", help="what is loaded, and what is refused")
     st.add_argument("--dir", type=Path, default=None)
     _term2(sub)
+    rm = sub.add_parser("remove-site-list", help="remove one of the site's own lists on purpose (audited)")
+    rm.add_argument("--name", required=True, help="the list's name: the table is site_<name>")
+    rm.add_argument("--by", required=True, help="who removes it (the audit's actor)")
+    rm.add_argument("--audit-dir", type=Path, default=None, help="the audit folder (default: TB_AUDIT_DIR)")
+    rm.add_argument("--dir", type=Path, default=None)
     args = ap.parse_args(argv)
     where = args.dir or installed.installed_dir()
+    if args.cmd == "remove-site-list":
+        return _remove(args, where)
     if args.cmd == "icd10cm":
         for name, n in installed.install_icd10cm(args.zip, where, args.year).items():
             print(f"{name}: {n} rows loaded into {where}")
@@ -68,6 +81,30 @@ def main(argv: list[str] | None = None) -> int:
               + (f", {said}" if said else ""))  # fmt: skip
         bad += bool(t.problem)
     return 1 if bad else 0
+
+
+def _remove(args: argparse.Namespace, where: Path) -> int:
+    """E-TERM-3 (D-1048): the removal is audited, or it does not happen."""
+    import os
+
+    from tb_common.audit_writer import open_audit
+    from tb_common.config import site_tz
+
+    adir = args.audit_dir or (Path(os.environ["TB_AUDIT_DIR"]) if os.environ.get("TB_AUDIT_DIR") else None)
+    if adir is None or not args.by.strip():
+        print("terminology_install remove-site-list: refused: name an audit folder (--audit-dir or TB_AUDIT_DIR) "
+              "and who removes it (--by); a removal is audited", file=sys.stderr)  # fmt: skip
+        return 2
+    audit = open_audit(adir, site_tz())  # opened first: a removal the audit cannot take does not happen
+    try:
+        gone = installed.remove_site_list(where, args.name)
+    except (ValueError, OSError, installed.TerminologyRefused) as exc:
+        print(f"terminology_install remove-site-list: refused: {exc}", file=sys.stderr)
+        return 2
+    audit.append("terminology.remove", actor=args.by.strip(), output_sha=gone.get("sha256") or None,
+                 detail={**gone, "dir": str(where)})  # fmt: skip
+    print(f"{gone['table']}: removed from {where}")
+    return 0
 
 
 def _term2(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]

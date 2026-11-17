@@ -177,6 +177,7 @@ _D1 = {
     "PromptMeta",
     "PromptPin",
     "DerivedPin",  # D-442: a score definition's version and sha, no patient data
+    "RefusedTable",  # E-TERM-3 (D-1048): an installed code table's name and why it was not read, no patient data
     "ModelEntry",
     "ModelManifest",
     # the qualification record (D-313): build ids, hashes, counts and codes, no note text

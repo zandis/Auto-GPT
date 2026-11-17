@@ -320,6 +320,7 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "instrument.switch": ("Instrument switched", "評価尺度の切替", "切換評估量表"),
     "instrument.switch_refused": ("Instrument switch refused", "評価尺度切替の拒否", "拒絕切換評估量表"),
     "terminology.load": ("Terminology loaded", "用語集の読込", "載入術語集"),
+    "terminology.remove": ("Site code list removed", "施設コード表の削除", "移除院內代碼表"),
     "ingest.backfill": ("Past records loaded", "過去記録の取込", "匯入過往紀錄"),
     "ingest.failed": ("Nightly load failed", "夜間取込の失敗", "夜間匯入失敗"),
     "lake.rebuild.source": ("Data store rebuilt from a source", "ソースからのデータ再構築", "自來源重建資料"),
