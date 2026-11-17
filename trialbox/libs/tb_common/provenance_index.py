@@ -68,6 +68,26 @@ CREATE INDEX IF NOT EXISTS model_uses_pid ON model_uses (pid);
 RESET search_path;
 """
 TABLES = ("provenance.model_calls", "provenance.model_uses")
+#: each table's statements written out whole (no SQL is built from a name)
+_COUNT = {
+    "provenance.model_calls": "SELECT count(*) FROM provenance.model_calls",
+    "provenance.model_uses": "SELECT count(*) FROM provenance.model_uses",
+}
+_KEYS = {
+    "provenance.model_calls": "SELECT rec_hash, call_id FROM provenance.model_calls",
+    "provenance.model_uses": "SELECT rec_hash, call_id FROM provenance.model_uses",
+}
+#: one statement for every search: a filter not given is NULL and matches every row
+_SEARCH = (
+    "SELECT u.record_kind, u.record_ref, u.event, u.decision, u.by_whom, u.at, c.call_id, c.model, c.build_sha, "
+    "c.prompt_id, c.prompt_version, c.prompt_sha FROM provenance.model_calls c JOIN provenance.model_uses u "
+    "ON u.call_id = c.call_id WHERE (%(model)s::text IS NULL OR c.model = %(model)s) "
+    "AND (%(build_sha)s::text IS NULL OR c.build_sha = %(build_sha)s) "
+    "AND (%(prompt_sha)s::text IS NULL OR c.prompt_sha = %(prompt_sha)s) "
+    "AND (%(prompt_id)s::text IS NULL OR c.prompt_id = %(prompt_id)s) "
+    "AND (%(prompt_version)s::text IS NULL OR c.prompt_version = %(prompt_version)s) "
+    "ORDER BY u.at DESC LIMIT %(limit)s"
+)
 _EVENT = {USED: "used", CONFIRMED: "confirmed"}
 
 
@@ -187,7 +207,7 @@ def rebuild(con: Any, directory: Path, erased: Iterable[str] = ()) -> tuple[int,
 
 
 def _count(con: Any, table: str) -> int:
-    return int(con.execute(f"SELECT count(*) FROM {table}").fetchone()[0])
+    return int(con.execute(_COUNT[table]).fetchone()[0])
 
 
 @dataclass
@@ -212,7 +232,7 @@ def check(con: Any, directory: Path, erased: Iterable[str] = ()) -> Diff:
         want["provenance.model_uses"] |= {(u.rec_hash, u.call_id) for u in uses if not (u.pid and u.pid in gone)}
     out = Diff()
     for t in TABLES:
-        have = {(str(a), str(b)) for a, b in con.execute(f"SELECT rec_hash, call_id FROM {t}").fetchall()}
+        have = {(str(a), str(b)) for a, b in con.execute(_KEYS[t]).fetchall()}
         out.missing += [(t, *k) for k in sorted(want[t] - have)]
         out.extra += [(t, *k) for k in sorted(have - want[t])]
     return out
@@ -239,20 +259,12 @@ def search(
 ) -> list[dict[str, Any]]:
     """The records the calls matching every given filter touched, newest first: one indexed join. At least one
     filter is required (an unfiltered search would list every record a model ever touched)."""
-    where, args = [], []
-    for col, val in (("model", model), ("build_sha", build_sha), ("prompt_sha", prompt_sha),
-                     ("prompt_id", prompt_id), ("prompt_version", prompt_version)):  # fmt: skip
-        if val:
-            where.append(f"c.{col} = %s")
-            args.append(val)
-    if not where:
+    filters = {"model": model, "build_sha": build_sha, "prompt_sha": prompt_sha, "prompt_id": prompt_id,
+               "prompt_version": prompt_version}  # fmt: skip
+    if not any(filters.values()):
         raise ValueError("search: name a model, build, prompt sha, or prompt id (and version)")
-    rows = con.execute(
-        "SELECT u.record_kind, u.record_ref, u.event, u.decision, u.by_whom, u.at, c.call_id, c.model, c.build_sha, "
-        "c.prompt_id, c.prompt_version, c.prompt_sha FROM provenance.model_calls c JOIN provenance.model_uses u "
-        f"ON u.call_id = c.call_id WHERE {' AND '.join(where)} ORDER BY u.at DESC LIMIT %s",
-        (*args, int(limit)),
-    ).fetchall()
+    args = {k: (v or None) for k, v in filters.items()}
+    rows = con.execute(_SEARCH, {**args, "limit": int(limit)}).fetchall()
     keys = ("record_kind", "record_ref", "event", "decision", "by", "at", "call_id", "model", "build_sha",
             "prompt_id", "prompt_version", "prompt_sha")  # fmt: skip
     out = []
