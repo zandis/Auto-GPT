@@ -77,7 +77,7 @@ class F(T):
     def text(self, lang: str, rs: str) -> str:
         f = form_fields()[str(self.key)]
         if self.option:
-            return f.options[self.option] if lang == "en" else f.option_labels.get(lang, {}).get(self.option, "")
+            return str(f.options[self.option] if lang == "en" else f.option_labels.get(lang, {}).get(self.option, ""))
         return str(f.label) if lang == "en" else f.labels.get(lang, "")
 
     def missing(self) -> list[str]:
