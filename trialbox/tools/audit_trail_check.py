@@ -118,19 +118,22 @@ BLOCK = re.compile(r"<!-- generated:(\w+) -->\n(.*?)<!-- /generated:\1 -->", re.
 
 
 def _load(d: Path) -> dict[str, Any]:
-    return {n: json.loads((d / f"{n}.json").read_text("utf-8")) for n in ("tamper", "routes", "findings")}
+    return {n: json.loads((d / f"{n}.json").read_text("utf-8")) for n in ("tamper", "routes", "findings", "sweep")}
 
 
 def render(data: dict[str, Any]) -> dict[str, str]:
     """The page's generated blocks, from the json."""
     t = data["tamper"]["cases"]
     tamper = [
-        "| case | `audit_verify --heads` | console Verify | without `--heads` | first error |",
-        "|---|---|---|---|---|",
+        "| case | `audit_verify --heads` | console Verify | without `--heads` | box key pinned | night signed "
+        "| first error |",
+        "|---|---|---|---|---|---|---|",
     ]
     for c in t:
         tamper.append(f"| {c['case']} | {_ok(c['cli_heads_ok'])} | {_ok(c['console_ok'])} | "
-                      f"{_ok(c['cli_no_heads_ok'])} | {_cell(c['first_error'])} |")  # fmt: skip
+                      f"{_ok(c['cli_no_heads_ok'])} | {_ok(c.get('cli_box_key_pinned_ok'))} | "
+                      f"{ {True: 'yes', False: 'no', None: '-'}[c.get('night_signed')] } | "
+                      f"{_cell(c['first_error'])} |")  # fmt: skip
     caught = sum(1 for c in t if c["cli_heads_ok"] is False and c["console_ok"] is False)
     tamper.append("")
     tamper.append(f"Cases: {len(t)}. Caught by both entries: {caught}. Passed by both: "
@@ -145,10 +148,18 @@ def render(data: dict[str, Any]) -> dict[str, str]:
     ok = [x for x in r["driven"] if x["success"]]
     done = sum(1 for x in r["inventory"] if x.get("driven"))
     driven.append("")
+    body_none = sum(1 for x in r["inventory"] if not x["audit_call"] and not x.get("driven"))
     driven.append(f"Changing routes in the live apps: {len(r['inventory'])}. Brought to success: {done} "
                   f"({len(ok)} calls). Calls with no event: {sum(1 for x in ok if not x['what'])}. "
-                  f"Not shown: {len(r['inventory']) - done}, of which no audit call in the handler's own body: "
-                  f"{sum(1 for x in r['inventory'] if not x['audit_call'] and not x.get('driven'))}.")  # fmt: skip
+                  f"Not shown: {len(r['inventory']) - done}. Of those, {body_none} have no audit write in the "
+                  "handler's own body; the services they call were not traced, so this is not a count of missing "
+                  "events.")  # fmt: skip
+    s = data["sweep"]
+    free = [x for x in s if x["free"]]
+    sweep = (
+        f"Audit writes in `services/`: {len(s)}. With a field named like typed text or a person: {len(free)}. "
+        f"Of those, not wrapped in a masking function at the call: {sum(1 for x in free if not x['masked'])}.\n"
+    )
     f = data["findings"]["findings"]
     findings = ["| id | severity | lane | basis | place | claim | ruling |", "|---|---|---|---|---|---|---|"]
     for x in f:
@@ -158,8 +169,12 @@ def render(data: dict[str, Any]) -> dict[str, str]:
     findings.append(f"Findings: {len(f)}. High: {sum(1 for x in f if x['severity'] == 'High')}. "
                     f"Medium: {sum(1 for x in f if x['severity'] == 'Medium')}. "
                     f"Low: {sum(1 for x in f if x['severity'] == 'Low')}.")  # fmt: skip
+    high = [x["id"] for x in f if x["severity"] == "High"]
+    verdict = (f"Counts behind the verdict: {len(t)} tamper cases, {caught} caught by both verifiers; "
+               f"{len(r['inventory'])} changing routes, {done} brought to success; {len(f)} findings, "
+               f"{len(high)} High ({', '.join(high)}).\n")  # fmt: skip
     return {"tamper": "\n".join(tamper) + "\n", "driven": "\n".join(driven) + "\n",
-            "findings": "\n".join(findings) + "\n"}  # fmt: skip
+            "findings": "\n".join(findings) + "\n", "sweep": sweep, "verdict": verdict}  # fmt: skip
 
 
 def _ok(v: Any) -> str:

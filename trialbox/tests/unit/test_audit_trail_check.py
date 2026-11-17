@@ -13,7 +13,9 @@ from tools import audit_trail_check as atc
 
 
 def _data() -> dict[str, Any]:
-    return {n: json.loads((atc.DIR / f"{n}.json").read_text("utf-8")) for n in ("tamper", "routes", "findings")}
+    return {
+        n: json.loads((atc.DIR / f"{n}.json").read_text("utf-8")) for n in ("tamper", "routes", "findings", "sweep")
+    }
 
 
 def test_the_committed_page_matches_its_json() -> None:
@@ -33,6 +35,15 @@ def test_a_changed_json_is_found() -> None:
     data = _data()
     data["tamper"]["cases"][0]["cli_heads_ok"] = True  # a case now said to pass
     assert any("tamper" in p for p in atc.problems(atc.PAGE.read_text("utf-8"), data))
+
+
+def test_the_verdict_counts_and_the_sweep_figures_are_held() -> None:
+    data = _data()
+    data["sweep"] = data["sweep"][1:]  # one audit write fewer than the page says
+    assert any("sweep" in p for p in atc.problems(atc.PAGE.read_text("utf-8"), data))
+    data = _data()
+    data["findings"]["findings"] = data["findings"]["findings"][1:]  # one finding fewer: the verdict's count moves
+    assert any("verdict" in p for p in atc.problems(atc.PAGE.read_text("utf-8"), data))
 
 
 def test_a_missing_block_is_found() -> None:

@@ -19,13 +19,13 @@
    "id": "V8-02",
    "date": "2026-11-17",
    "source": "docs/plan/measurements/audit-trail-2026-11-17.md",
-   "severity": "Medium",
-   "lane": "C2 (D for the Makefile target)",
+   "severity": "High",
+   "lane": "C2 (D for the Makefile target and the runbook)",
    "basis": "shown",
    "place": "tools/audit_verify.py:148",
-   "claim": "make audit-verify without ANCHOR (tools/audit_verify.py without --heads) prints PASS on a fully re-chained forgery, a prefix, a fresh chain and a rollback, and says nothing about the signed heads it did not read.",
-   "expected": "D-355: only the signed heads catch a chain rewritten with its HEAD.json; the console says so when no anchor folder is set (audit.verify.no_anchor), the tool should too.",
-   "happened": "tamper.json: cli_no_heads_ok is PASS for rechained_with_head, prefix_with_head, fresh_chain_from_genesis and rollback_to_backup, with no note.",
+   "claim": "make audit-verify without ANCHOR (tools/audit_verify.py without --heads) prints PASS on a fully re-chained forgery, a prefix, a fresh chain and a rollback, with no word that no signed head was read: a check that says PASS on a forged trail. The daily runbook names --heads (docs/runbook/02-daily-operation.md:8); the Makefile default (Makefile:434) and the close-out runbook's first command (20-close-out-and-decommissioning.md:39) do not.",
+   "expected": "D-355: only the signed heads catch a chain rewritten with its HEAD.json; the console says so when no anchor folder is set (audit.verify.no_anchor).",
+   "happened": "tamper.json: cli_no_heads_ok is PASS for rechained_with_head, prefix_with_head, fresh_chain_from_genesis and rollback_to_backup, exit 0, no note.",
    "test": "tests/unit/test_audit_tamper.py::test_a_check_without_signed_heads_says_so"
   },
   {
@@ -36,9 +36,9 @@
    "lane": "C2 (audit); B2 (services/datacore/dataops.py)",
    "basis": "shown",
    "place": "services/datacore/dataops.py:497",
-   "claim": "The steward's typed reason for a data-ops decision (page and /api/v1) reaches the audit chain in clear: a chart number, a name, a phone and an e-mail typed there are all stored as typed, in a store that is never erased.",
+   "claim": "The steward's typed reason for a data-ops decision (page and /api/v1) reaches the audit chain in clear: a chart number, a name, a phone and an e-mail typed there are stored as typed, in a store that is never erased.",
    "expected": "D-272 (CR-016): no chart number in clear in the audit; writers pass free text through mask_ids/mask_detail.",
-   "happened": "POST /data-ops/batches/{bid}/decide and POST /api/v1/data/batches/{bid}/decide: the dataops.decide event's detail.reason holds all four planted values (routes.json, driven rows, leaks).",
+   "happened": "POST /data-ops/batches/{bid}/decide and POST /api/v1/data/batches/{bid}/decide: the dataops.decide event's detail.reason holds all four planted values (routes.json).",
    "test": "tests/console/test_audit_trail_routes.py::test_the_data_ops_reason_is_not_in_clear_in_the_audit"
   },
   {
@@ -49,11 +49,52 @@
    "lane": "C2",
    "basis": "shown",
    "place": "services/console/app.py:1257",
-   "claim": "POST /ops/users (add) makes the account before its audit event; with the audit write failing (AuditFull) the request fails but the account stays, with no event. Reset (app.py:1293), scope (app.py:1308) and disable (app.py:1321) have the same order by reading.",
-   "expected": "The 13:30 rule: an audit trail that can be wrong is High; D-273 (DI-5) writes the event inside the change's transaction for marks and opt-outs. V3-18 found the same order for break-glass and five account-factor routes; this extends it to account creation.",
-   "happened": "With TB_AUDIT_MIN_FREE_MB set huge: 500, no console.user event, and users.get('atfull') returns the new account.",
+   "claim": "POST /ops/users (add) makes the account before its audit event; with the audit write failing (AuditFull) the account stays, with no event. Reset (app.py:1293), scope (:1308), disable (:1328) and enable (:1332) have the same order by reading (hypothesis).",
+   "expected": "The 13:30 rule: an audit trail that can be wrong is High; D-273 (DI-5) writes the event inside the change's transaction for marks and opt-outs.",
+   "happened": "With TB_AUDIT_MIN_FREE_MB set huge: no console.user event, and users.get('atfull') returns the new account.",
    "test": "tests/console/test_audit_trail_routes.py::test_an_account_is_not_made_when_its_audit_event_cannot_be_written",
    "ruling": "extends V3-18"
+  },
+  {
+   "id": "V8-05",
+   "date": "2026-11-17",
+   "source": "docs/plan/measurements/audit-trail-2026-11-17.md",
+   "severity": "High",
+   "lane": "C2 (console verify, audit_verify, nightly signer); D (runbook, anchor folder placement)",
+   "basis": "shown",
+   "place": "services/console/audit_page.py:356",
+   "claim": "A re-signed forgery passes both verifiers as an operator runs them (actor changed, chain re-made without its head_signed events, HEAD.json rewritten, the anchor folder's heads/ and keys/ emptied, a new key signs). The console trusts the keys it finds in the folder and cannot pin one; audit_verify --heads passes with a note only; the runbook never passes --pubkey (20-close-out-and-decommissioning.md:41, and :65 checks an archive against its own keys). With heads/ emptied, the nightly signer (tools/trialbox/audit_heads.py:113, :127) checks the chain only against its own HEAD.json and signs the forgery with the box's real key.",
+   "expected": "D-355: a process that can write the audit volume cannot make a signature. To close it: the verifiers trust only a key pinned outside what the same person can write (the box's own audit_sign*.pub, or a key the hospital holds), and the nightly signer compares the folder with the chain's own audit.head_signed events.",
+   "happened": "tamper.json: resigned_forgery PASS on the CLI with --heads and on the console, FAIL only with --pubkey of the box key; night_signs_forgery: the night returned ok and signed.",
+   "test": "tests/unit/test_audit_tamper.py::test_a_re_signed_forgery_fails_both_verifiers and ::test_the_nightly_signer_refuses_a_forgery_after_its_heads_were_removed",
+   "ruling": "D-562, 'Not done here': 'a person who can delete files in the anchor folder and write the audit volume is not caught; the folder must be one the box's root cannot prune'. Filed because plan 8's High rule asks for more."
+  },
+  {
+   "id": "V8-06",
+   "date": "2026-11-17",
+   "source": "docs/plan/measurements/audit-trail-2026-11-17.md",
+   "severity": "High",
+   "lane": "C2; D (anchor folder placement)",
+   "basis": "shown",
+   "place": "libs/tb_common/audit.py:654",
+   "claim": "With the newest signed head deleted from the anchor folder, the genuine chain passes both verifiers with no word, so the rollback window silently widens to the night before.",
+   "expected": "The chain's own audit.head_signed events name every head published; one missing from the folder must be said.",
+   "happened": "tamper.json: newest_head_deleted PASS on the CLI with --heads and on the console.",
+   "test": "tests/unit/test_audit_tamper.py::test_a_deleted_signed_head_is_noticed",
+   "ruling": "D-562, 'Not done here': the comparison of the anchor folder with the chain's own audit.head_signed events is not done. Filed because plan 8's High rule asks for more."
+  },
+  {
+   "id": "V8-07",
+   "date": "2026-11-17",
+   "source": "docs/plan/measurements/audit-trail-2026-11-17.md",
+   "severity": "High",
+   "lane": "C2",
+   "basis": "shown",
+   "place": "services/console/team.py:827",
+   "claim": "The IRB record's typed reason reaches the audit in clear: a chart number, a name, a phone and an e-mail typed there are stored as typed. team.save_irb also stores before the event (team.py:821, then :824; hypothesis).",
+   "expected": "D-272 (CR-016): no chart number in clear in the audit.",
+   "happened": "POST /studies/{rs}/irb: the console.irb event's detail.reason holds all four planted values (routes.json).",
+   "test": "tests/console/test_audit_trail_routes.py::test_the_irb_reason_is_not_in_clear_in_the_audit"
   }
  ],
  "cited": [
@@ -61,6 +102,7 @@
   {"id": "V3-18", "what": "break-glass grant and five account-factor routes store the change before the audit event"},
   {"id": "V2-02", "what": "46 refusals on 9 console routes write no audit record"},
   {"id": "D-394", "what": "the audit chain is kept after an opt-out (erasure registry 'outside:audit', keep; the opt-out's own events carry counts only, D-147, D-441)"},
-  {"id": "D-562", "what": "the head is signed once a night; events after the newest signed head can be rolled back unseen until the next night (shown: rollback_after_last_signed_head)"}
+  {"id": "D-562", "what": "point 5: 'Events written after the newest signed head are protected by the chain and its anchor only, until the next night' (shown: rollback_after_last_signed_head)"},
+  {"id": "D-281", "what": "EDC sign's audit line holds printed_name and values (services/edc/service.py:433). The printed name is part of the signature's signed content (D-281, content_sha). Not driven; hypothesis; not filed."}
  ]
 }

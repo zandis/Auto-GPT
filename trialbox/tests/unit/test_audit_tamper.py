@@ -23,10 +23,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from tb_common import audit, kek
 from tb_common.audit import GENESIS, AuditLog, canonical, line_hash, write_head
 from tb_common.crypto import ed25519_generate
 
 from tools import audit_verify
+from tools.trialbox import audit_heads
 
 DAYS = ("2026-11-14", "2026-11-15", "2026-11-16")
 PER_DAY = 120
@@ -69,6 +71,16 @@ def _write(d: Path, files: dict[str, list[dict[str, Any]]], *, rechain: bool = F
         last = name
     if head:
         write_head(d, n, prev, last)
+
+
+def _forge(d: Path, share: Path) -> None:
+    """A person who can write the audit volume and the anchor folder: change an actor, drop the chain's own
+    ``audit.head_signed`` events, re-chain, rewrite ``HEAD.json``, and empty the anchor folder's heads and keys."""
+    files = {n: [r for r in recs if r["event"] != audit.SIGNED_EVENT] for n, recs in _read(d).items()}
+    files[D2][50]["actor"] = "someone_else"
+    _write(d, files, rechain=True, head=True)
+    shutil.rmtree(share / "heads")
+    shutil.rmtree(share / "keys")
 
 
 def _rehash_one(rec: dict[str, Any]) -> dict[str, Any]:
@@ -209,9 +221,9 @@ CASES: list[tuple[str, Callable[[Path, dict[str, Any]], None], str]] = [
 WINDOW = [("rollback_after_last_signed_head", _rollback_unsigned)]
 
 
-def run_cli(d: Path, share: Path | None) -> dict[str, Any]:
+def run_cli(d: Path, share: Path | None, extra: tuple[str, ...] = ()) -> dict[str, Any]:
     out = io.StringIO()
-    argv = [str(d), "--json"] + (["--heads", str(share)] if share else [])
+    argv = [str(d), "--json"] + (["--heads", str(share)] if share else []) + list(extra)
     with contextlib.redirect_stdout(out):
         code = audit_verify.main(argv)
     rec = json.loads(out.getvalue())
@@ -231,6 +243,10 @@ def results(tmp_path_factory: pytest.TempPathFactory) -> dict[str, dict[str, Any
     good, share = root / "audit", root / "share"
     share.mkdir()
     keys = ed25519_generate()
+    secrets = root / "secrets"  # the box's own key, as the nightly signer reads it (plain: a TEST box)
+    secrets.mkdir()
+    kek.store_key(secrets / audit.SIGN_KEY_FILE, keys[0], None)
+    (secrets / audit.SIGN_PUB_FILE).write_bytes(keys[1])
     log = AuditLog(good, "UTC")
     ctx: dict[str, Any] = {}
     for k, day in enumerate(DAYS):
@@ -267,6 +283,34 @@ def results(tmp_path_factory: pytest.TempPathFactory) -> dict[str, dict[str, Any
         op(d, ctx)
         out[name] = {"cli": run_cli(d, wshare), "console": run_console(d, wshare), "cli_no_heads": run_cli(d, None),
                      "where": ""}  # fmt: skip
+    # the re-signed forgery (the reviewer's script): an actor changed, the chain re-made without its head_signed
+    # events, HEAD.json rewritten, the anchor folder's heads/ and keys/ emptied, a new key signs. Checked as the
+    # runbook runs it (--heads ANCHOR, no --pubkey) and by the console; and with the box's key pinned.
+    pub = root / "box.pub"
+    pub.write_bytes(keys[1])
+    forged, fshare = root / "resigned_forgery", root / "fshare"
+    shutil.copytree(good, forged)
+    shutil.copytree(share, fshare)
+    _forge(forged, fshare)
+    newk = ed25519_generate()
+    AuditLog(forged, "UTC").sign_head(newk[0], newk[1], [fshare], actor="trialbox:audit-sign",
+                                      ts=datetime(2026, 11, 16, 16, 30, tzinfo=UTC))  # fmt: skip
+    out["resigned_forgery"] = {"cli": run_cli(forged, fshare), "console": run_console(forged, fshare),
+                               "cli_pinned": run_cli(forged, fshare, ("--pubkey", str(pub))), "where": ""}  # fmt: skip
+    # the nightly signer facing the same forgery with an emptied anchor folder: does it sign it with the box's key?
+    nforged, nshare = root / "night_forgery", root / "nshare"
+    shutil.copytree(good, nforged)
+    shutil.copytree(share, nshare)
+    _forge(nforged, nshare)
+    night = audit_heads.check_and_sign(nforged, secrets, [nshare], datetime(2026, 11, 16, 16, 40, tzinfo=UTC))
+    out["night_signs_forgery"] = {"night_ok": night.ok, "problems": night.problems, "where": "",
+                                  "cli": run_cli(nforged, nshare, ("--pubkey", str(pub))),
+                                  "console": run_console(nforged, nshare)}  # fmt: skip
+    # the genuine chain, the newest signed head deleted from the anchor folder
+    dshare = root / "dshare"
+    shutil.copytree(share, dshare)
+    sorted((dshare / "heads").glob("*.json"))[-1].unlink()
+    out["newest_head_deleted"] = {"cli": run_cli(good, dshare), "console": run_console(good, dshare), "where": ""}
     torn = root / "torn_then_written"
     shutil.copytree(good, torn)
     _torn(torn, ctx)
@@ -279,7 +323,9 @@ def results(tmp_path_factory: pytest.TempPathFactory) -> dict[str, dict[str, Any
                 continue
             rows.append({"case": name, "cli_heads_ok": r["cli"]["ok"], "console_ok": r["console"]["ok"],
                          "cli_no_heads_ok": r.get("cli_no_heads", {}).get("ok"),
-                         "where_expected": r["where"], "first_error": (r["cli"]["errors"] or [""])[0]})  # fmt: skip
+                         "where_expected": r["where"], "first_error": (r["cli"]["errors"] or [""])[0],
+                         "cli_box_key_pinned_ok": r.get("cli_pinned", {}).get("ok"),
+                         "night_signed": r.get("night_ok")})  # fmt: skip
         dest = Path(os.environ["AUDIT_TRAIL_OUT"]) / "tamper.json"
         dest.write_text(json.dumps({"events": base["cli"], "cases": rows}, indent=1, ensure_ascii=False) + "\n")
     return out
@@ -326,17 +372,50 @@ def test_without_signed_heads_a_rechained_forgery_passes(results: dict[str, dict
 
 
 @pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="V8-02: audit_verify without --heads says PASS and never says no signed head was checked")  # fmt: skip
+                   reason="V8-02: audit_verify without --heads says PASS on a forged chain, with no word")  # fmt: skip
 def test_a_check_without_signed_heads_says_so(results: dict[str, dict[str, Any]]) -> None:
     """The console says "only the chain and its head anchor were checked" when no anchor folder is set; the tool that
     ``make audit-verify`` runs prints PASS on a fully re-chained forgery with no word that nothing signed was read."""
     r = results["rechained_with_head"]["cli_no_heads"]
-    said = " ".join(r["notes"])
-    assert re.search(r"signed head|--heads|anchor folder|not checked", said, re.I), r
+    said = " ".join(r["notes"] + r["errors"])
+    # a fix may refuse to PASS without signed heads, or say plainly that none was checked
+    assert not r["ok"] or r["code"] != 0 or re.search(r"signed head|--heads|anchor folder|not checked", said, re.I), r
 
 
 def test_the_window_after_the_last_signed_head_is_open(results: dict[str, dict[str, Any]]) -> None:
-    """Shown, ruled: events after the newest signed head can be rolled back unseen until the next night signs
-    (D-562 signs nightly; doctor FAILs a head older than 36 hours)."""
+    """Shown: events after the newest signed head can be rolled back unseen until the next night signs. D-562
+    (point 5) says so: "Events written after the newest signed head are protected by the chain and its anchor only,
+    until the next night"."""
     r = results["rollback_after_last_signed_head"]
     assert r["cli"]["ok"] and r["console"]["ok"]
+
+
+@pytest.mark.xfail(strict=True, raises=AssertionError,
+                   reason="V8-05: a re-signed forgery passes both verifiers as the runbook runs them")  # fmt: skip
+def test_a_re_signed_forgery_fails_both_verifiers(results: dict[str, dict[str, Any]]) -> None:
+    """The forger emptied the anchor folder and signed with a key of their own. The check must not trust a key the
+    same person could write. Shown control: with the box's key pinned (``--pubkey``) the CLI fails it."""
+    r = results["resigned_forgery"]
+    assert not r["cli_pinned"]["ok"], r["cli_pinned"]  # control: the forgery is a forgery
+    assert not r["cli"]["ok"], f"audit_verify --heads passed a re-signed forgery: {r['cli']['notes']}"
+    assert not r["console"]["ok"], "the console's Verify passed a re-signed forgery"
+
+
+@pytest.mark.xfail(strict=True, raises=AssertionError,
+                   reason="V8-05: with the anchor folder emptied the nightly signer signs a forgery with the box key")  # fmt: skip
+def test_the_nightly_signer_refuses_a_forgery_after_its_heads_were_removed(results: dict[str, dict[str, Any]]) -> None:
+    """tools/trialbox/audit_heads.py:113 reads the earlier heads from the folder; none left, it checks the chain only
+    against its own HEAD.json (:127) and signs. Afterwards the forgery carries a genuine signature."""
+    r = results["night_signs_forgery"]
+    assert not r["night_ok"], "the nightly signer signed the forged chain with the box's own key"
+
+
+@pytest.mark.xfail(strict=True, raises=AssertionError,
+                   reason="V8-06: the newest signed head deleted from the anchor folder is not noticed")  # fmt: skip
+def test_a_deleted_signed_head_is_noticed(results: dict[str, dict[str, Any]]) -> None:
+    """The chain's own ``audit.head_signed`` events name every head published; one missing from the folder widens
+    the rollback window to the night before, and must be said (an error, or a note naming it)."""
+    for entry in ("cli", "console"):
+        r = results["newest_head_deleted"][entry]
+        said = " ".join(list(r.get("errors") or []) + [str(n) for n in r.get("notes") or []])
+        assert not r["ok"] or re.search(r"missing|deleted|removed|not found|absent", said, re.I), (entry, said)

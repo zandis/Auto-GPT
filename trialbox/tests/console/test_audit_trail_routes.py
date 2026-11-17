@@ -160,6 +160,10 @@ def _prep(b: dict[str, Any]) -> dict[tuple[str, str], tuple[str, Callable[[], di
                                                             "role": "viewer"}}),
         ("POST", "/ops/users#disable"): ("admin", lambda: {"form": {"action": "disable", "username": throwaway(),
                                                                     "confirm": "yes"}}),
+        ("POST", "/studies/{rs}/patients/{pid}/reveal#other"): ("crc", lambda: {"form": {"reason": "other",
+                                                                                          "note": "{text}"}}),
+        ("POST", "/studies/{rs}/irb"): ("crc", lambda: {"form": {"approval_no": "IRB-T-1",
+                                                                 "approved_on": "2026-01-02", "reason": "{text}"}}),
         ("POST", "/audit/verify"): ("privacy", lambda: {"form": {}}),
         ("POST", "/api/v1/audit/verify"): ("privacy", lambda: {"json": {}}),
     }  # fmt: skip
@@ -203,6 +207,26 @@ def success(resp: Any) -> bool:
     return 200 <= int(resp.status_code) < 300
 
 
+def _username(col: str) -> str:
+    return col if col == "admin" else f"at{col}"
+
+
+def named(path: str, body: dict[str, Any], job_id: str) -> list[str]:
+    """The record ids the request names: the path's study, patient and job, the body's patient or account, and the
+    batch or grant it acts on."""
+    out = []
+    if "{rs}" in path or "{ruleset}" in path:
+        out.append("GZQO")
+    if "{pid}" in path:
+        out.append(A)
+    if "{job_id}" in path:
+        out.append(job_id)
+    out += [str(v) for v in body.get("params", {}).values()]
+    form = {**body.get("form", {}), **body.get("json", {})}
+    out += [str(form[k]) for k in ("pid", "username") if k in form]
+    return out
+
+
 def walk(b: dict[str, Any], text: str = "a plain note") -> list[dict[str, Any]]:
     """Each prepared route once, as its column; the audit lines its request wrote, read from the files."""
     from tests.console.dataops_orch import attach
@@ -221,34 +245,24 @@ def walk(b: dict[str, Any], text: str = "a plain note") -> list[dict[str, Any]]:
         resp = call(b, cl, method, path, col, body, job_id, text)
         events = lines.new()
         out.append({"method": method, "path": path, "column": col, "status": resp.status_code,
-                    "success": success(resp), "events": events})  # fmt: skip
+                    "success": success(resp), "events": events, "actor": f"console:{_username(col)}",
+                    "named": named(path, body, job_id)})  # fmt: skip
     return out
 
 
 def judge(row: dict[str, Any]) -> dict[str, Any]:
-    """Who (an account id, ``console:<username>``), what (the event), when (ts), which record (a study, patient,
-    batch, grant, account or job named in the event) for the request's events."""
+    """Who: every event's actor is the account that made the request (``console:<username>``). What: an event.
+    When: a timestamp. Which: every record the request named (study, patient, batch, grant, account, job) stands in
+    the request's events."""
     evs = [e for e in row["events"] if not str(e.get("event", "")).startswith("audit.")]
-    who = all(re.fullmatch(r"console:[a-z0-9_.-]+", str(e.get("actor", ""))) for e in evs) and bool(evs)
-    when = all(e.get("ts") for e in evs) and bool(evs)
-    which_keys = (
-        "ruleset",
-        "pid",
-        "user",
-        "batch",
-        "bid",
-        "grant",
-        "gid",
-        "username",
-        "target",
-        "job_id",
-        "id",
-        "study",
-    )
-    which = any(k in e or k in (e.get("detail") or {}) for e in evs for k in which_keys)
+    who = bool(evs) and all(e.get("actor") == row["actor"] for e in evs)
+    when = bool(evs) and all(e.get("ts") for e in evs)
+    raw = json.dumps(evs, ensure_ascii=False)
+    missing = [v for v in row["named"] if str(v) not in raw]
     return {"route": f"{row['method']} {row['path']}", "column": row["column"], "status": row["status"],
             "success": row["success"], "events": sorted({str(e.get("event")) for e in evs}),
-            "who": who, "what": bool(evs), "when": when, "which": which}  # fmt: skip
+            "who": who, "what": bool(evs), "when": when, "which": bool(evs) and not missing,
+            "named": [str(v) for v in row["named"]], "not_named": missing}  # fmt: skip
 
 
 def leaks(rows: list[dict[str, Any]]) -> dict[str, list[str]]:
@@ -277,6 +291,7 @@ ORDER: dict[str, tuple[str, str]] = {
     ),
     "POST /api/v1/studies/{rs}/patients/{pid}/mark": ("one transaction", "services/console/home.py:1218 (D-273)"),
     "POST /ops/users": ("change first", "services/console/app.py:1257 us.create, then :1259 (shown here)"),
+    "POST /studies/{rs}/irb": ("change first", "services/console/team.py:821 team.save_irb, then :824"),
     "POST /ops/users#disable": ("change first", "services/console/app.py:1328 us.disable, then :1329"),
 }
 
@@ -339,8 +354,15 @@ def test_each_driven_route_succeeds_and_records_who_what_when_which(walked: dict
                    reason="V8-03: the data-ops decision's typed reason reaches the audit in clear")  # fmt: skip
 def test_the_data_ops_reason_is_not_in_clear_in_the_audit(walked: dict[str, Any], route: str) -> None:
     row = next(j for j in walked["judged"] if j["route"] == route)
-    assert row["success"] and "dataops.decide" in row["events"], row  # the request did what it should
+    # only the leak counts: a fix may also refuse identifying text with a 4xx
     assert not row["leaks"], f"{route}: in clear in the audit: {row['leaks']}"
+
+
+@pytest.mark.xfail(strict=True, raises=AssertionError,
+                   reason="V8-07: the IRB record's typed reason reaches the audit in clear (team.py:827)")  # fmt: skip
+def test_the_irb_reason_is_not_in_clear_in_the_audit(walked: dict[str, Any]) -> None:
+    row = next(j for j in walked["judged"] if j["route"] == "POST /studies/{rs}/irb")
+    assert not row["leaks"], f"in clear in the audit: {row['leaks']}"
 
 
 def test_the_notes_that_are_masked_or_not_kept_stay_out(walked: dict[str, Any]) -> None:
@@ -369,6 +391,6 @@ def test_an_account_is_not_made_when_its_audit_event_cannot_be_written(
     monkeypatch.setenv("TB_AUDIT_MIN_FREE_MB", str(2**40))
     r = page.post("/ops/users", data={"csrf": csrf, "action": "add", "username": "atfull", "role": "viewer"},
                   follow_redirects=False)  # fmt: skip
-    assert r.status_code >= 500, r.status_code  # the audit write failed and the request did not succeed
-    assert not [e for e in lines.new() if e.get("event") == "console.user"]
-    assert box["users"].get("atfull") is None, "the account was made with no audit event"
+    made = box["users"].get("atfull") is not None
+    told = any(e.get("event") == "console.user" and "atfull" in json.dumps(e) for e in lines.new())
+    assert not made or told, f"the account was made with no audit event ({r.status_code})"  # a refusal is a fix too
