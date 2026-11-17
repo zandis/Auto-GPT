@@ -125,12 +125,9 @@ def only_begun(ruleset: str, url: str | None = None) -> bool:
     url = url or os.environ.get("TB_DB_URL")
     if not url:
         return False
+    # asked after recorded_study_state found a row, so the table is there (no second to_regclass, D-683)
     with Database.connect(url, "site") as site:
-        if site.fetchval("SELECT to_regclass(?)", (f'"{site.schema}".study_state',)) is None:
-            return False
-        rows = site.fetchall(
-            "SELECT state, prev FROM study_state WHERE ruleset = ? LIMIT 2", ((ruleset or "").upper(),)
-        )
+        rows = site.fetchall("SELECT state, prev FROM study_state WHERE ruleset = ?", ((ruleset or "").upper(),))
     return len(rows) == 1 and str(rows[0][0]) == "startup" and rows[0][1] is None
 
 
