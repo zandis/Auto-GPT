@@ -3,7 +3,7 @@
     python -m tools.runbook_install extract [--json]            # the runbook's commands, in order, with their place
     python -m tools.runbook_install plan                        # the install path the follower walks (D-1136)
     python -m tools.runbook_install static                      # the findings the runbook's text alone shows
-    python -m tools.runbook_install follow --bundle B --vendor-pub K --out run.json [--machine container|vm|local]
+    python -m tools.runbook_install follow --bundle B --vendor-pub K --out run.json [--machine container|vm]
     python -m tools.runbook_install compare run.json            # the run against the committed findings file
     python -m tools.runbook_install bundle                      # the vendor side only: a site bundle from a commit
     python -m tools.runbook_install run [--bundle B --vendor-pub K]   # make runbook-install: the container run
@@ -25,20 +25,22 @@ tool holds the two to the same list. Each command keeps its place (file, line of
 in (the bold lead of its paragraph, or ``N. Title`` of a numbered step) and the sentence that introduces it. A command
 that starts ``--`` is a fragment: an option to a command named before it. The extractor runs nothing.
 
-**The install path** (``PLAN``, D-1136). The hub's convention (``/opt/trialbox``, as root); step 1's prerequisites,
-checked on the machine, never installed; the **One command.** paragraph's command; then, in the runbook's order, each
-numbered step the **One command.** paragraph does not say the installer does (4: the mapping check, 6: the vendor key,
-7: the first ingest and its report). Steps 2, 3, 5 and 8 are the installer's by the runbook's own words (quoted in
-``PLAN``); 9 and 10 point at other sections and carry no command. Every other command of §1 is listed as one the
-install path never needed, with the reason the runbook gives.
+**The install path** (``PLAN``, D-1136, D-1139). The hub's convention (``/opt/trialbox``, as root); step 1's
+prerequisites, checked on the machine, never installed; the **One command** paragraph's command (since D-996 the
+bootstrap from the stick); then, in the runbook's order, each numbered step the one command's paragraph does not say
+the installer does (4: the mapping check in the image, 6: the key checked in place, 7: the first ingest and its
+report). Steps 2, 3, 5 and 8 are the installer's by the runbook's own words (quoted in ``PLAN``); 9 and 10 point at
+other sections and carry no command. Every other command of §1 is listed as one the install path never needed, with
+the reason the runbook gives.
 
-**What the follower may supply** (D-1136): only what the runbook tells the reader to bring. The bundle; the vendor key
-"received out of band" (placed only where the runbook says, step 6); the site's folder of "What the site brings"
-(``site.yaml`` and ``mapping/``), whose values are the hospital's and so come from the box rehearsal's documented
-synthetic answers (``tools/rehearse_box/site_answers.yaml`` and its mapping), plus any answer the runbook itself names
-as required, with a synthetic value (each one is recorded); the feed folder's content (the hospital's export: the
-synthetic site A export); and an Enter at a prompt, which is what a reader at the terminal gives (each prompt the
-runbook does not mention is a finding). ``sudo`` is dropped when the follower is already root (the hub's "as root").
+**What the follower may supply** (D-1136, D-1139): only what the runbook tells the reader to bring, where it says. The
+stick (the bundle, its .sha256, the bootstrap and its .sig) at ``/media/usb``; the vendor key at
+``/root/vendor_ed25519.pub``; the site's folder (``site.yaml`` and ``mapping/``) at ``/root/site``, whose values are the
+hospital's and so come from the box rehearsal's documented synthetic answers (``tools/rehearse_box/site_answers.yaml``
+and its mapping), plus any answer the runbook names as required, with a synthetic value; the feed folder at §1's own
+example, holding the synthetic export before the one command; and an Enter at a prompt. ``--mode stub`` replaces
+``--tier`` on a machine without a GPU (§1 says so). Every ``sudo`` that starts a command of the line is dropped when the
+follower is already root (the hub's "as root"). Each supplied value is recorded.
 
 **What it may not supply.** Anything else: no directory made, no package installed, no environment variable, no
 reordered step, no option added. When the runbook's text does not get the box installed, the verdict is "the runbook
@@ -231,7 +233,7 @@ class Step:
     """One step of the install path. ``quote`` is the runbook's text that makes it a step (held by the test)."""
 
     key: str
-    action: str  # convention | prereq | run | place | expect | installer | other-section
+    action: str  # convention | prereq | run | rule | check | installer | other-section
     file: str
     quote: str
     command: str = ""
@@ -239,39 +241,48 @@ class Step:
     in_block: str = ""  # the quote is in this bold-lead paragraph, not in the step itself
 
 
+ONE_COMMAND = (
+    "cd /media/usb && openssl pkeyutl -verify -pubin -inkey /root/vendor_ed25519.pub -rawin -in trialbox-bootstrap.sh "
+    "-sigfile trialbox-bootstrap.sh.sig && sudo bash trialbox-bootstrap.sh trialbox-<version>.tar --pub "
+    "/root/vendor_ed25519.pub -- --tier large --answers /root/site/site.yaml"
+)
+# where the one command says the reader has put what they bring (§1, "One command" and "What the site brings")
+STICK, KEY_AT, SITE_AT = "/media/usb", "/root/vendor_ed25519.pub", "/root/site"
+# the feed folder: the runbook's own example (§1 "What the site brings"); the rehearsal's answers put it under
+# /opt/trialbox, which must be empty before the one command (the bootstrap refuses another folder's content)
+FEED_AT = "/srv/his-export"
+
 PLAN: list[Step] = [
     Step("convention", "convention", HUB, "Commands run on the box from `/opt/trialbox` as root unless noted"),
     Step(
         "1-host",
         "prereq",
         SECTION,
-        "Ubuntu 24.04 LTS on LUKS2 with TPM2 unlock, swap off, Docker Engine 27+, nftables",
+        "Ubuntu 24.04 LTS on LUKS2 with TPM2 unlock, swap off, Docker Engine 27+ with its compose plugin",
         step=1,
     ),
+    Step("one-command", "run", SECTION, "The vendor hands over a USB stick with four files", command=ONE_COMMAND),
+    Step("stub-instead", "rule", SECTION, "On a machine without a GPU, `--mode stub` takes the place of `--tier`"),
     Step(
-        "one-command",
-        "run",
-        SECTION,
-        "With the vendor's signed bundle on a USB stick",
-        command="sudo deploy/install.sh trialbox-<version>.tar --tier large --answers site.yaml",
+        "2-images", "installer", SECTION, "The installer verifies and loads the bundle", step=2, in_block="One command"
     ),
-    Step("2-images", "installer", SECTION, "It verifies and loads the bundle", step=2, in_block="One command."),
-    Step("3-settings", "installer", SECTION, "runs the settings wizard", step=3, in_block="One command."),
+    Step("3-settings", "installer", SECTION, "runs the settings wizard", step=3, in_block="One command"),
     Step(
         "4-mapping-check",
         "run",
         SECTION,
         "It must report 0 missing columns",
         step=4,
-        command="python tools/mapping_check.py --mapping deploy/site/mapping/tw_core/<site>.yaml --source csv "
-        "--path <export dir>",
+        command="docker run --rm --network none --user 0:0 -v /opt/trialbox/deploy/site/mapping:/app/deploy/site/"
+        "mapping:ro -v <export dir>:/export:ro trialbox-py:1.0.0 python tools/mapping_check.py --mapping "
+        "deploy/site/mapping/tw_core/<site>.yaml --source csv --path /export",
     ),
     Step("5-start", "installer", SECTION, "`install.sh` does both and enables the systemd units", step=5),
     Step(
         "6-vendor-key",
-        "place",
+        "check",
         SECTION,
-        "Install `deploy/keys/vendor_ed25519.pub`, received out of band",
+        "The one command placed it (`deploy/keys/vendor_ed25519.pub`",
         step=6,
         command="deploy/keys/vendor_ed25519.pub",
     ),
@@ -281,17 +292,18 @@ PLAN: list[Step] = [
         SECTION,
         "or wait for 02:00",
         step=7,
-        command="docker compose exec adapter python -m adapter.cli run",
+        command="docker compose --project-directory deploy exec adapter python -m adapter.cli run",
     ),
     Step(
         "7-ingest-report",
-        "expect",
+        "run",
         SECTION,
         "`passed: true`, validator errors under 0.5 %",
         step=7,
-        command="/data/lake/ndjson/<date>/ingest_report.json",
+        command="docker compose --project-directory deploy exec adapter cat "
+        "/data/lake/ndjson/<date>/ingest_report.json",
     ),
-    Step("8-host-check", "installer", SECTION, "runs the host check", step=8, in_block="One command."),
+    Step("8-host-check", "installer", SECTION, "runs the host check", step=8, in_block="One command"),
     Step("9-backup-key", "other-section", SECTION, "With hospital IT, once (§5)", step=9),
     Step("10-acceptance", "other-section", SECTION, "before go-live (§6)", step=10),
 ]
@@ -303,7 +315,7 @@ NOT_ON_PATH: list[tuple[str, str]] = [
     (r"TB_COMPOSE_OVERRIDE= .*--rehearsal", "measuring a new card on a rehearsal box"),
     (r"python3 tools/serving_config\.py capture .*", "measuring a new card on a rehearsal box"),
     (r"python -m tools\.gpu_sizing", "an estimate, not an install step"),
-    (r"--mode stub", "a box without a GPU (used by the follower only on such a machine; D-1136)"),
+    (r"--mode stub", "the one command's option on a machine without a GPU (the follower applies it there)"),
     (r"python -m tools\.trialbox\.memcaps .*", "re-measuring or re-sizing the memory caps (the installer sizes them)"),
     (r"tools/make_bundle\.sh", "the vendor builds the bundle"),
     (r"make release-bundle", "the vendor builds the bundle"),
@@ -344,9 +356,12 @@ def _sec(root: Path) -> str:
 
 
 def _block(root: Path, lead: str) -> str:
+    """The paragraph whose bold lead starts with ``lead`` (``**One command.**`` or ``**One command** (D-996).``)."""
     text = _sec(root)
-    i = text.index(f"**{lead}**")
-    return _fold(text[i : text.find("\n\n", i)])
+    m = re.search(rf"^\*\*{re.escape(lead.rstrip('.'))}\.?\*\*", text, flags=re.M)
+    if m is None:
+        raise ValueError(f"§1 has no paragraph led by **{lead}**")
+    return _fold(text[m.start() : text.find("\n\n", m.start())])
 
 
 def _step(root: Path, n: int) -> str:
@@ -354,6 +369,8 @@ def _step(root: Path, n: int) -> str:
     return _fold(m.group(0)) if m else ""
 
 
+# Each check is True while the runbook's text still shows the finding (H-22); a fix in the text makes it False, and the
+# test then fails until findings.json moves the finding to "closed" (H-24).
 def s_no_host_tree(root: Path) -> bool:
     """§1 and the hub never say how /opt/trialbox gets deploy/install.sh (the bundle's host tree) before the one
     command."""
@@ -364,14 +381,12 @@ def s_no_host_tree(root: Path) -> bool:
 def s_vendor_key_after(root: Path) -> bool:
     """The vendor key is step 6, after step 5's start, and the one command never names it; the installer needs it
     at its first step."""
-    one = _block(root, "One command.")
-    s6 = _step(root, 6)
-    return "vendor_ed25519.pub" not in one and "vendor_ed25519.pub" in s6
+    return "vendor_ed25519.pub" not in _block(root, "One command") and "vendor_ed25519.pub" in _step(root, 6)
 
 
 def s_no_yes(root: Path) -> bool:
     """The one command has no --yes and §1 names no question the installer asks."""
-    one = _block(root, "One command.")
+    one = _block(root, "One command")
     return "--yes" not in one and not re.search(r"\[Y/n\]|asks whether|answer the question", _sec(root))
 
 
@@ -389,9 +404,11 @@ def s_host_packages(root: Path) -> bool:
 
 
 def s_tier_vs_stub(root: Path) -> bool:
-    """`--mode stub` is given as a fragment next to the one command, whose --tier the installer refuses with it."""
-    one = _block(root, "One command.")
-    return "`--mode stub`" in one and "--tier large" in one and "drop `--tier`" not in one
+    """`--mode stub` is given beside the one command's --tier, which the installer refuses with it, and §1 does not
+    say it replaces --tier."""
+    one = _block(root, "One command")
+    replaces = re.search(r"takes the place of `--tier`|in place of `--tier`|instead of `--tier`|drop `--tier`", one)
+    return "`--mode stub`" in one and "--tier large" in one and not replaces
 
 
 def s_compose_cwd(root: Path) -> bool:
@@ -401,23 +418,22 @@ def s_compose_cwd(root: Path) -> bool:
 
 
 def s_report_in_volume(root: Path) -> bool:
-    """Step 7's report path `/data/lake/...` is inside a container's volume, not on the host the reader is on."""
+    """Step 7's report path `/data/lake/...` is inside a container's volume, and §1 does not say how to read it."""
     s7 = _step(root, 7)
-    return "/data/lake/ndjson/<date>/ingest_report.json" in s7 and "docker compose exec" not in s7.split("Check", 1)[-1]
+    read = re.search(r"exec adapter cat /data/lake/ndjson/<date>/ingest_report\.json", s7)
+    return "/data/lake/ndjson/<date>/ingest_report.json" in s7 and not read
 
 
 def s_site_folder_place(root: Path) -> bool:
-    """The site's folder (site.yaml beside mapping/) is named, but not where it goes on the box: the one command's
-    `--answers site.yaml` is relative to /opt/trialbox."""
-    brings = _block(root, "What the site brings")
-    return "/opt/trialbox" not in brings and "where" not in brings.split("beside it", 1)[0]
+    """The site's folder (site.yaml beside mapping/) is named, but not where it goes on the box."""
+    return not re.search(r"for example `/root/site`|by their full path", _block(root, "What the site brings"))
 
 
 def s_feed_folder_content(root: Path) -> bool:
     """The feed folder must exist at install (a PRODUCTION install stops without it), but §1 never says it must hold
     an export before the one command, nor who puts it there."""
     brings = _block(root, "What the site brings")
-    return "data_source_host_dir" in brings and not re.search(r"before the (one command|install)", brings)
+    return "data_source_host_dir" in brings and not re.search(r"before the\s+(one command|install)", brings)
 
 
 STATIC: dict[str, Callable[[Path], bool]] = {
@@ -466,8 +482,10 @@ def _clip(s: str, n: int = 6000) -> str:
 
 
 class LocalMachine:
-    """A folder standing for the machine's ``/opt`` (the unit test's machine): ``/opt/...`` and ``/media/...`` in a
-    command or a cwd are under that folder's parent; PATH is given (the test's stand-ins). It is not a clean machine."""
+    """A folder standing for the machine's ``/opt`` (the unit test's machine): ``/opt``, ``/media``, ``/root`` and
+    ``/srv`` in a command or a cwd are under that folder's parent; PATH is given (the test's stand-ins); the bootstrap
+    is pointed at the stand-in ``/opt/trialbox`` by its test knobs. It is not a clean machine. ``opt=/opt`` is the
+    machine itself."""
 
     def __init__(
         self,
@@ -484,12 +502,16 @@ class LocalMachine:
         # text in the installer's output that means the machine's stand-ins serve no more (a machine stop, never a
         # finding): the unit test's machine has a stand-in docker and a bundle with the host tree only
         self.extra_env, self.stand_in_markers = extra_env or {}, stand_in_markers
+        if opt != Path("/opt") and str(opt / "trialbox") not in self.extra_env.values():
+            # deploy/bootstrap.sh names /opt/trialbox itself: a stand-in machine is refused unless the caller (the
+            # test) gives the bootstrap's own test knobs pointing at its stand-in /opt/trialbox
+            raise ValueError(f"a stand-in machine needs the bootstrap's knobs pointing at {opt / 'trialbox'}")
 
     def _map(self, p: str) -> str:
         if self.opt == Path("/opt"):  # the machine itself (a clean VM): the paths are the real ones
             return p
-        for top in ("/opt/", "/media/"):
-            p = re.sub(rf"(?<![\w./-]){top}", f"{self.opt.parent}{top}", p)
+        for top in ("/opt", "/media", "/root", "/srv"):
+            p = re.sub(rf"(?<![\w./-]){top}(?=/|\s|$)", f"{self.opt.parent}{top}", p)
         return p
 
     def sh(
@@ -572,24 +594,7 @@ class Lift:
 
 
 LIFTS: dict[str, Lift] = {
-    "host-tree": Lift(
-        "host-tree",
-        "runbook",
-        "docs/handover/OFFLINE-MEDIA.md:34 (the Windows media page)",
-        "unpack the bundle's own host tree (files/trialbox-host.tar) into /opt/trialbox",
-    ),
-    "vendor-key-first": Lift(
-        "vendor-key-first",
-        "runbook",
-        "the installer's own message; §1 step 6",
-        "place the out-of-band vendor key at deploy/keys/vendor_ed25519.pub before the one command",
-    ),
-    "drop-tier": Lift(
-        "drop-tier",
-        "runbook",
-        "the installer's own message ('--tier needs the GPU: drop --mode stub')",
-        "run the one command with --mode stub in place of --tier large",
-    ),
+    # H-22's host-tree, vendor-key-first, drop-tier, python3 and compose-dir went with D-996's §1 (H-24)
     "no-tpm": Lift(
         "no-tpm",
         "machine",
@@ -599,20 +604,8 @@ LIFTS: dict[str, Lift] = {
     "sidecar-name": Lift(
         "sidecar-name",
         "bundle",
-        "deploy/install.sh (checks <bundle>.sha256 from the bundle's folder by its bare name)",
-        "the stick's <bundle>.sha256 written with the bundle's bare name, as make_bundle.sh writes it for a bare --out",
-    ),
-    "python3": Lift(
-        "python3",
-        "runbook",
-        "Ubuntu 24.04 names its interpreter python3",
-        "run step 4's check as python3 with the release's libs on PYTHONPATH",
-    ),
-    "compose-dir": Lift(
-        "compose-dir",
-        "runbook",
-        "§1 step 5 ('cd deploy && docker compose ...')",
-        "run step 7's compose command from deploy/",
+        "deploy/install.sh (checks <bundle>.sha256 by the bundle's bare name)",
+        "the stick's <bundle>.sha256 written with the bundle's bare name (H-22 finding 4; D-996 makes it so)",
     ),
 }
 
@@ -635,14 +628,19 @@ class Record:
     seconds: float = 0.0
     commands_run: int = 0
     machine_stop: str = ""
+    machine_stops: list[str] = field(default_factory=list)
     diagnostics: list[dict[str, str]] = field(default_factory=list)
 
     def find(self, fid: str, step: str, evidence: str) -> None:
         if fid not in {f["id"] for f in self.findings}:
             self.findings.append({"id": fid, "step": step, "evidence": _clip(evidence, 600)})
 
-    def stop(self, step: str, why: str) -> None:
-        if not self.verdict:
+    def stop(self, step: str, why: str, *, machine: bool = False) -> None:
+        """A runbook stop makes the verdict (the first one); a machine stop (the machine lacks what step 1 names, or
+        the unit machine's stand-ins end) is recorded and never is the runbook's verdict (H-24)."""
+        if machine:
+            self.machine_stops.append(f"{step}: {why}")
+        elif not self.verdict:
             self.verdict = f"the runbook alone does not install the box: stopped at {step} because {why}"
 
 
@@ -700,8 +698,8 @@ class Follower:
         as_written: str | None = None,
     ) -> Result:
         run = command
-        if run.startswith("sudo ") and self.m.is_root:
-            run = run[5:]
+        if self.m.is_root:  # the hub's "as root": every `sudo` that starts a command of the line is dropped
+            run = re.sub(r"(^|&&\s*|\|\|\s*|;\s*)sudo\s+", r"\1", run)
         r = self.m.sh(run, cwd=cwd or self.cwd, env={**self.env, **(env or {})}, stdin=stdin)
         self.rec.commands_run += 1
         self.rec.seconds += r.seconds
@@ -730,8 +728,8 @@ class Follower:
     def _supply(self, what: str, src: str, dest: str, why: str) -> None:
         self.rec.supplied.append({"what": what, "from": src, "to": dest, "why": why})
 
-    # -- the site's kit and the feed: what the runbook tells the reader to bring
-    def _site_kit(self) -> None:
+    # -- what the runbook tells the reader to bring, put where the one command says it is
+    def _bring(self) -> None:
         kit = self.work / "site-kit"
         shutil.rmtree(kit, ignore_errors=True)
         kit.mkdir(parents=True)
@@ -745,27 +743,32 @@ class Follower:
                     "site.yaml",
                     "§1 names it as required for a PRODUCTION install; the rehearsal's answers lack it",
                 )
+        text, n = re.subn(r"^data_source_host_dir:.*$", f"data_source_host_dir: {FEED_AT}", text, flags=re.M)
+        if n:
+            self._supply(
+                "answer data_source_host_dir",
+                "§1's own example",
+                FEED_AT,
+                "the rehearsal's value is under /opt/trialbox, which must be empty before the one command",
+            )
         (kit / "site.yaml").write_text(text, encoding="utf-8")
         shutil.copytree(self.root / SYNTHETIC_MAPPING, kit / "mapping")
-        dest = f"{self.cwd}"
-        self.m.put(kit / "site.yaml", f"{dest}/site.yaml")
-        self.m.put(kit / "mapping", f"{dest}/mapping")
+        self.m.put(kit / "site.yaml", f"{SITE_AT}/site.yaml")
+        self.m.put(kit / "mapping", f"{SITE_AT}/mapping")
         self._supply(
             "the site's folder (site.yaml, mapping/)",
             SYNTHETIC_ANSWERS,
-            f"{dest}/",
-            "'What the site brings'; values are the hospital's: the rehearsal's synthetic answers; placed where "
-            "the one command's relative --answers site.yaml finds it",
+            f"{SITE_AT}/",
+            "'What the site brings', at the one command's /root/site; values are the hospital's: the rehearsal's",
         )
-
-    def _feed(self) -> None:
-        dest = f"{self.cwd}/deploy/site/feed-a"
-        self.m.put(self.root / SYNTHETIC_FEED, dest)
+        self.m.put(self.pub, KEY_AT)
+        self._supply("the vendor key, out of band", "the vendor's throwaway key", KEY_AT, "the one command's --pub")
+        self.m.put(self.root / SYNTHETIC_FEED, FEED_AT)
         self._supply(
-            "the feed folder's content (the hospital's export)",
+            "the feed folder's first export (the hospital's)",
             SYNTHETIC_FEED,
-            dest,
-            "the answers' data_source_host_dir (./site/feed-a); the export is the hospital's",
+            FEED_AT,
+            "§1: the folder must exist and hold the first export before the one command",
         )
 
     # -- the steps
@@ -777,12 +780,18 @@ class Follower:
             return self.rec
         self._prereq()
         self._bundle_place()
+        self._bring()
         self._one_command()
         if self.rec.installed:
             self._mapping_check()
             self._vendor_key_step()
             self._first_ingest()
-        self.rec.verdict = self.rec.verdict or "the runbook alone installs the box"
+        if not self.rec.verdict:
+            self.rec.verdict = (
+                "the runbook alone installs the box"
+                if self.rec.installed
+                else f"no runbook stop before this machine's limit ({'; '.join(self.rec.machine_stops) or 'none'})"
+            )
         return self.rec
 
     def _prereq(self) -> None:
@@ -790,7 +799,11 @@ class Follower:
         checks = {
             "Ubuntu 24.04": "grep -q 'VERSION_ID=\"24.04\"' /etc/os-release",
             "Docker Engine 27+": "v=$(docker version --format '{{.Server.Version}}') && [ \"${v%%.*}\" -ge 27 ]",
+            "compose plugin": "docker compose version",
             "nftables": "command -v nft",
+            "python3-yaml": "python3 -c 'import yaml'",
+            "python3-cryptography": "python3 -c 'import cryptography'",
+            "curl, cron, openssl": "command -v curl && command -v cron && command -v openssl",
             "swap off": '[ "$(tail -n +2 /proc/swaps | wc -l)" = 0 ]',
             "TPM2": "[ -e /dev/tpmrm0 ]",
             "LUKS2": "lsblk -o TYPE 2>/dev/null | grep -q crypt",
@@ -798,48 +811,41 @@ class Follower:
         got = {k: self.m.sh(v, cwd="/", stdin="").rc == 0 for k, v in checks.items()}
         self._note(
             "1-host",
-            f"{SECTION}:73",
+            f"{SECTION}:90",
             "machine has: " + ", ".join(f"{k} {'yes' if v else 'no'}" for k, v in got.items()),
         )
         self.machine_lacks = [k for k, v in got.items() if not v]
 
     def _bundle_place(self) -> None:
-        # the reader has the bundle "on a USB stick": the follower names it by its path on the machine, as the reader
-        # would (trialbox-<version>.tar is the placeholder of the one command)
-        self.bundle_on_machine = f"/media/usb/{self.bundle.name}"
-        if not self.m.exists(self.bundle_on_machine):  # the container machine has the stick mounted read-only
-            self.m.put(self.bundle, self.bundle_on_machine)
+        # the stick, mounted at /media/usb as the one command says: the bundle, its .sha256, the bootstrap and its
+        # .sig; the follower names the bundle by its file name (trialbox-<version>.tar is the placeholder)
+        self.bundle_on_machine = f"{STICK}/{self.bundle.name}"
+        for f in (self.bundle, *self._stick_extras()):
+            if not self.m.exists(f"{STICK}/{f.name}"):  # the container machine has the stick mounted read-only
+                self.m.put(f, f"{STICK}/{f.name}")
         self._supply(
-            "the signed bundle", str(self.bundle.name), self.bundle_on_machine, "the one command's <version>.tar"
+            "the stick (bundle, .sha256, bootstrap, .sig)", self.bundle.name, f"{STICK}/", "the one command's stick"
         )
 
+    def _stick_extras(self) -> list[Path]:
+        d = self.bundle.parent
+        names = [f"{self.bundle.name}.sha256", "trialbox-bootstrap.sh", "trialbox-bootstrap.sh.sig"]
+        return [d / n for n in names if (d / n).is_file()]
+
     def _one_command_text(self, *, stub: bool) -> str:
-        cmd = next(s.command for s in PLAN if s.key == "one-command")
-        cmd = cmd.replace("trialbox-<version>.tar", self.bundle_on_machine)
+        cmd = ONE_COMMAND.replace("trialbox-<version>.tar", self.bundle.name)
         return cmd.replace("--tier large", "--mode stub") if stub else cmd
 
     def _one_command(self) -> None:
         self.rec.reached.append("one-command")
-        place = f"{SECTION}:28"
-        as_written = next(s.command for s in PLAN if s.key == "one-command")
-        # the cwd of the convention, as the reader finds it
-        if not self.m.exists(f"{self.cwd}/deploy/install.sh"):
-            r = self._run("one-command", place, self._one_command_text(stub=False), as_written=as_written)
-            self.rec.find("no-host-tree", "one-command", f"rc {r.rc}: {r.err.strip()[-300:]}")
-            self.rec.stop(
-                "the one command (§1:28)",
-                "deploy/install.sh is not on the machine: the runbook never says "
-                "how /opt/trialbox gets the release's host tree",
-            )
-            if not self._lift("host-tree"):
-                return
-            self._unpack_host_tree()
-        self._site_kit()
-        self._feed()
-        stub = False
+        place = f"{SECTION}:32"
+        stub = not self.m.has_gpu
+        if stub:  # §1:44, the runbook's own words for this machine
+            self._note("stub-instead", f"{SECTION}:44", "no GPU: `--mode stub` takes the place of `--tier large`")
         stdin = "\n" * 20  # a reader at the terminal presses Enter at a question
-        for _attempt in range(8):
-            r = self._run("one-command", place, self._one_command_text(stub=stub), stdin=stdin, as_written=as_written)
+        for _attempt in range(6):
+            cmd = self._one_command_text(stub=stub)
+            r = self._run("one-command", place, cmd, stdin=stdin, as_written=ONE_COMMAND, cwd="/")
             text = r.out + r.err
             if r.rc == 0 or self._looks_installed(text):
                 self.rec.installed = self._looks_installed(text)
@@ -847,54 +853,29 @@ class Follower:
                     self.rec.find("exit-1-host-fails", "one-command", _fails(text))
                 self._prompts(r)
                 if not self.rec.installed:
-                    self.rec.stop("the one command (§1:28)", f"the installer exited {r.rc} without the console URL")
+                    self.rec.stop("the one command (§1:32)", f"the installer exited {r.rc} without the console URL")
                 return
-            if (
-                "bundle checksum mismatch" in text
-                and self.sidecar_fix is not None
-                and "sidecar-name" not in self.rec.lifts
-            ):
+            if "Signature Verified Successfully" not in text:
+                self.rec.find("bootstrap-signature", "one-command", _last(text))
+                self.rec.stop("the one command (§1:32)", "openssl did not print 'Signature Verified Successfully'")
+                return
+            if "trialbox-bootstrap:" in text:
+                self.rec.find("bootstrap-refused", "one-command", _last(text))
+                self.rec.stop("the one command (§1:32)", f"the bootstrap stopped: {_last(text, 300)}")
+                return
+            if "checksum mismatch" in text or ("does not name" in text and ".sha256" in text):
                 self.rec.find("bundle-sidecar-path", "one-command", _last(text))
-                self.rec.stop("the one command (§1:28)", "the bundle's .sha256 beside it names the vendor's path")
-                if not self._lift("sidecar-name"):
+                self.rec.stop("the one command (§1:32)", "the bundle's .sha256 on the stick does not check")
+                if self.sidecar_fix is None or "sidecar-name" in self.rec.lifts or not self._lift("sidecar-name"):
                     return
                 self.sidecar_fix()
                 continue
             if "vendor public key missing" in text:
                 self.rec.find("vendor-key-after-start", "one-command", _last(text))
-                self.rec.stop(
-                    "the one command (§1:28)",
-                    "the installer needs the vendor key, which the runbook places at step 6, after the start",
-                )
-                if not self._lift("vendor-key-first"):
-                    return
-                self.m.put(self.pub, f"{self.cwd}/deploy/keys/vendor_ed25519.pub")
-                continue
-            if r.rc == 3 and not self.m.has_gpu and not stub:
-                # the runbook's own words for a machine without the tier's card: `--mode stub`. Added as written...
-                self._note(
-                    "one-command",
-                    f"{SECTION}:35",
-                    "exit 3: this machine has no RTX PRO 6000 (the runbook says "
-                    "the installer stops); a box without a GPU: '`--mode stub` installs a box without a GPU'",
-                )
-                frag = self._one_command_text(stub=False) + " --mode stub"
-                r2 = self._run(
-                    "one-command", f"{SECTION}:35", frag, stdin=stdin, as_written=f"{as_written} --mode stub"
-                )
-                if r2.rc != 0 and "drop --mode" in (r2.out + r2.err):
-                    self.rec.find("stub-fragment-vs-tier", "one-command", _last(r2.out + r2.err))
-                    self.rec.stop(
-                        "the one command with `--mode stub` (§1:35)",
-                        "the installer refuses --mode stub beside --tier, and the runbook does not say to drop --tier",
-                    )
-                    if not self._lift("drop-tier"):
-                        return
-                    stub = True
-                    continue
+                self.rec.stop("the one command (§1:32)", "the installer did not find the vendor key")
                 return
             if "the site keys are not sealed" in text and "TPM" in text and "TB_KEK_BACKEND" not in self.env:
-                self.rec.stop("the one command (§1:28)", "the machine has no TPM (step 1 names TPM2): a machine stop")
+                self.rec.stop("the one command (§1:32)", "the machine has no TPM (step 1 names TPM2)", machine=True)
                 if not self._lift("no-tpm"):
                     return
                 self.env |= {
@@ -904,27 +885,27 @@ class Follower:
                 continue
             if "lacks what the installer needs" in text or "compose plugin is missing" in text:
                 self.rec.find("host-packages-unnamed", "one-command", _last(text))
-                self.rec.stop("the one command (§1:28)", "the host lacks a package step 1 does not name")
+                self.rec.stop("the one command (§1:32)", "the host lacks a package step 1 does not name")
                 return
             markers = getattr(self.m, "stand_in_markers", ())
             if any(mk in text for mk in markers):
                 self.rec.machine_stop = f"the one command: {_last(text, 300)}"
-                self.rec.stop("the one command (§1:28)", "this machine's stand-in serves no more (a machine stop)")
+                self.rec.stop("the one command (§1:32)", "this machine's stand-ins serve no more", machine=True)
                 return
             self._prompts(r)
             bad = re.findall(r"container trialbox-([\w-]+?)-1 is unhealthy", text)
             for svc in bad:  # a diagnostic, not a runbook command: the service's own last words
                 d = self.m.sh(f"docker logs --tail 30 trialbox-{svc}-1 2>&1", cwd="/", stdin="")
                 self.rec.diagnostics.append({"service": svc, "log": _clip(redact(d.out), 3000)})
-            if "embed-service" in bad and "--mode stub" in self._one_command_text(stub=stub) and stub:
+            if "embed-service" in bad and stub:
                 self.rec.find("stub-production-embedder", "one-command", _last(text))
                 self.rec.stop(
-                    "the one command with `--mode stub` (§1:35)",
+                    "the one command with `--mode stub` (§1:44)",
                     "the stack did not become healthy: embed-service (see the diagnostics)",
                 )
                 return
             self.rec.find("one-command-failed", "one-command", _last(text))
-            self.rec.stop("the one command (§1:28)", f"the installer exited {r.rc}: {_last(text, 300)}")
+            self.rec.stop("the one command (§1:32)", f"the installer exited {r.rc}: {_last(text, 300)}")
             return
 
     def _prompts(self, r: Result) -> None:
@@ -937,71 +918,41 @@ class Follower:
         """The installer's own last words (deploy/install.sh: "TrialBox is running." and the console line)."""
         return "TrialBox is running." in text and bool(re.search(r"Console: +https?://\S+", text))
 
-    def _unpack_host_tree(self) -> None:
-        b = self.bundle_on_machine
-        r = self._run(
-            "lift:host-tree",
-            LIFTS["host-tree"].source,
-            f"mkdir -p {OPT} && tar -xOf {shlex.quote(b)} files/trialbox-host.tar | tar -x -C {OPT}",
-            cwd="/",
-            as_written="(lift) unpack the bundle's host tree",
-        )
-        if r.rc != 0:
-            self.rec.stop("the lift host-tree", f"the bundle's host tree did not unpack: {_last(r.err)}")
-
     def _mapping_check(self) -> None:
         self.rec.reached.append("4-mapping-check")
         step = next(s for s in PLAN if s.key == "4-mapping-check")
-        cmd = step.command.replace("<site>", "rehearsal_a").replace("<export dir>", "deploy/site/feed-a")
-        self._supply(
-            "step 4's <site> and <export dir>",
-            "the site kit",
-            "rehearsal_a, deploy/site/feed-a",
-            "the runbook's placeholders",
-        )
-        r = self._run("4-mapping-check", f"{SECTION}:101", cmd, as_written=step.command)
-        if r.rc == 0 and "missing" in r.out:
-            return
-        self.rec.find("python-not-python3", "4-mapping-check", f"rc {r.rc}: {_last(r.out + r.err)}")
-        if self._lift("python3"):
-            r2 = self._run(
-                "4-mapping-check",
-                f"{SECTION}:101",
-                "PYTHONPATH=libs:services:. python3 " + cmd[len("python ") :],
-                as_written=step.command,
-            )
-            if r2.rc != 0:
-                self.rec.find("mapping-check-needs-repo-python", "4-mapping-check", _last(r2.out + r2.err))
+        cmd = step.command.replace("<site>", "rehearsal_a").replace("<export dir>", FEED_AT)
+        self._supply("step 4's <site> and <export dir>", "the site kit", f"rehearsal_a, {FEED_AT}", "placeholders")
+        r = self._run("4-mapping-check", f"{SECTION}:123", cmd, as_written=step.command)
+        if r.rc != 0 or "missing" not in r.out:
+            self.rec.find("mapping-check-failed", "4-mapping-check", f"rc {r.rc}: {_last(r.out + r.err)}")
 
     def _vendor_key_step(self) -> None:
         self.rec.reached.append("6-vendor-key")
         dest = f"{self.cwd}/deploy/keys/vendor_ed25519.pub"
-        if not self.m.exists(dest):
-            self.m.put(self.pub, dest)
-            self._note("6-vendor-key", f"{SECTION}:111", f"placed the out-of-band key at {dest}")
-        else:
-            self._note("6-vendor-key", f"{SECTION}:111", "already there (the lift vendor-key-first placed it)")
+        there = self.m.exists(dest)
+        self._note("6-vendor-key", f"{SECTION}:132", f"{dest}: {'placed by the one command' if there else 'absent'}")
+        if not there:
+            self.rec.find("vendor-key-not-placed", "6-vendor-key", f"{dest} is absent after the one command")
 
     def _first_ingest(self) -> None:
         self.rec.reached.append("7-first-ingest")
         step = next(s for s in PLAN if s.key == "7-first-ingest")
-        r = self._run("7-first-ingest", f"{SECTION}:112", step.command)
-        if r.rc != 0:
-            self.rec.find("compose-cwd-unstated", "7-first-ingest", f"rc {r.rc}: {_last(r.err)}")
-            if self._lift("compose-dir"):
-                r = self._run("7-first-ingest", f"{SECTION}:112", step.command, cwd=f"{self.cwd}/deploy")
+        r = self._run("7-first-ingest", f"{SECTION}:134", step.command)
         if r.rc != 0:
             self.rec.find("first-ingest-failed", "7-first-ingest", _last(r.out + r.err))
             return
         self.rec.reached.append("7-ingest-report")
-        host = self.m.sh("ls /data/lake/ndjson/*/ingest_report.json", cwd="/", stdin="")
-        self.rec.commands_run += 1
-        if host.rc != 0:
-            self.rec.find("ingest-report-in-volume", "7-ingest-report", "/data/lake/ndjson is not on the host")
+        rep = next(s for s in PLAN if s.key == "7-ingest-report")
+        day = self.m.sh("date +%F", cwd="/", stdin="").out.strip()  # "<date> is the run's"
+        self._supply("step 7's <date>", "the machine's date", day, "the run's date, as §1 says")
+        r = self._run("7-ingest-report", f"{SECTION}:137", rep.command.replace("<date>", day), as_written=rep.command)
+        if r.rc != 0 or '"passed": true' not in r.out.replace("'", '"'):
+            self.rec.find("ingest-report-unread", "7-ingest-report", f"rc {r.rc}: {_last(r.out + r.err)}")
 
 
 SECRET_VALUE = re.compile(r"(?i)(\w*(?:password|passphrase|code|token|key|secret)\w*)(\s*[:=]\s*)\S+")
-FINGERPRINT = re.compile(r"(?i)(fingerprint\s+)[0-9a-f]{8,}")
+FINGERPRINT = re.compile(r"(?i)((?:fingerprint|key)\s+)[0-9a-f]{16,}")
 
 
 def redact(text: str) -> str:
@@ -1102,41 +1053,51 @@ def _cmd_static(a: argparse.Namespace) -> int:
     return 0
 
 
+# where the container machine keeps its /opt, /root/site and /srv: on the Docker host, under the work folder, with the
+# runbook's own paths there as links to them, because every bind mount the installer starts names a host path
+MACHINE_LINKS = {"/opt": OPT, "/root/site": SITE_AT, "/srv": FEED_AT}
+
+
+def _machine_dirs(work: Path) -> dict[str, Path]:
+    return {"/opt": work / "machine/opt", "/root/site": work / "machine/root-site", "/srv": work / "machine/srv"}
+
+
+def _links_down(work: Path) -> None:
+    for top, link in MACHINE_LINKS.items():
+        p, target = Path(link), _machine_dirs(work)[top]
+        if p.is_symlink() and str(target) in os.readlink(p):
+            p.unlink()
+
+
 def _container_up(name: str, image: str, work: Path, usb: Path) -> DockerMachine:
-    """The rehearsal's clean host image, started as the rehearsal starts it (tools/rehearse_box/rehearse.sh host_up)."""
+    """The rehearsal's clean host image, started as the rehearsal starts it (tools/rehearse_box/rehearse.sh host_up),
+    with an empty /opt, /root/site and /srv of its own whose paths are the same on the Docker host."""
     subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False)
     droot = subprocess.run(
         ["docker", "info", "--format", "{{.DockerRootDir}}"], capture_output=True, text=True, check=True
     ).stdout.strip()
-    Path(OPT).mkdir(parents=True, exist_ok=True)
     Path("/run/trialbox").mkdir(parents=True, exist_ok=True)
-    args = [
-        "docker",
-        "run",
-        "-d",
-        "--name",
-        name,
-        "--hostname",
-        "trialbox-runbook",
-        "--network",
-        "host",
-        "--add-host",
-        "trialbox.hospa.test:127.0.0.1",
-        "-v",
-        "/var/run/docker.sock:/var/run/docker.sock",
-        "-v",
-        f"{OPT}:{OPT}",
-        "-v",
-        f"{droot}/volumes:{droot}/volumes",
-        "-v",
-        "/run/trialbox:/run/trialbox",
-        "-v",
-        f"{usb}:/media/usb:ro",
-        image,
-        "sleep",
-        "infinity",
-    ]
-    subprocess.run(args, check=True, capture_output=True)
+    dirs = _machine_dirs(work)
+    _links_down(work)
+    for top, d in dirs.items():
+        link = Path(MACHINE_LINKS[top])
+        if link.exists() or link.is_symlink():
+            raise SystemExit(f"{link} exists on the Docker host: the container machine needs it free")
+        if d.exists():
+            rm = ["docker", "run", "--rm", "-v", f"{d.parent}:/w", "ubuntu:24.04", "rm", "-rf", f"/w/{d.name}"]
+            subprocess.run(rm, capture_output=True, check=False)
+        d.mkdir(parents=True)
+        inner = d / Path(MACHINE_LINKS[top]).relative_to(top) if MACHINE_LINKS[top] != top else d
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(inner)
+    mounts = [f"{dirs['/opt']}:/opt", f"{dirs['/root/site']}:/root/site", f"{dirs['/srv']}:/srv"]
+    mounts += ["/var/run/docker.sock:/var/run/docker.sock", f"{droot}/volumes:{droot}/volumes"]
+    mounts += ["/run/trialbox:/run/trialbox", f"{usb}:/media/usb:ro"]
+    args = ["docker", "run", "-d", "--name", name, "--hostname", "trialbox-runbook", "--network", "host"]
+    args += ["--add-host", "trialbox.hospa.test:127.0.0.1"]
+    for mnt in mounts:
+        args += ["-v", mnt]
+    subprocess.run([*args, image, "sleep", "infinity"], check=True, capture_output=True)
     return DockerMachine(name)
 
 
@@ -1150,9 +1111,7 @@ def _cmd_follow(a: argparse.Namespace) -> int:
             raise SystemExit(f"--machine vm runs as root on a machine whose {OPT} is absent or empty")
         m = LocalMachine(Path("/opt"), os.environ.get("PATH", ""), name="vm")
     else:
-        opt = work / "opt"
-        opt.mkdir(exist_ok=True)
-        m = LocalMachine(opt, os.environ.get("PATH", ""))
+        raise SystemExit(f"--machine {a.machine}: container or vm (the stand-in machine is the unit test's)")
     t0 = time.monotonic()
     bundle = Path(a.bundle).resolve()
     sidecar = Path(f"{bundle}.sha256")
@@ -1342,8 +1301,9 @@ def _cmd_run(a: argparse.Namespace) -> int:
     shutil.rmtree(usb, ignore_errors=True)
     usb.mkdir(parents=True)
     os.link(bundle, usb / bundle.name)
-    if Path(f"{bundle}.sha256").is_file():
-        shutil.copy2(f"{bundle}.sha256", usb / f"{bundle.name}.sha256")
+    for extra in (f"{bundle.name}.sha256", "trialbox-bootstrap.sh", "trialbox-bootstrap.sh.sig"):
+        if (bundle.parent / extra).is_file():
+            shutil.copy2(bundle.parent / extra, usb / extra)
     bundle = usb / bundle.name
     if subprocess.run(
         ["docker", "ps", "-aq", "--filter", "label=com.docker.compose.project=trialbox"],
@@ -1352,8 +1312,8 @@ def _cmd_run(a: argparse.Namespace) -> int:
         check=True,
     ).stdout.strip():
         raise SystemExit("a TrialBox compose project already exists on this Docker host: take it down first")
-    if any(Path(OPT).iterdir()) if Path(OPT).is_dir() else False:
-        raise SystemExit(f"{OPT} is not empty on the Docker host: the follower needs it empty")
+    if Path(OPT).exists() or Path(OPT).is_symlink():
+        raise SystemExit(f"{OPT} exists on the Docker host: the container machine needs it free")
     for _ref, iid in pairs:  # only the bundle may bring them back (as the box rehearsal clears them)
         _sh(["docker", "image", "rm", "-f", iid], log, check=False)
     try:
@@ -1375,23 +1335,12 @@ def _cmd_run(a: argparse.Namespace) -> int:
                 check=False,
             )
             subprocess.run(["docker", "rm", "-f", a.container], capture_output=True, check=False)
-            subprocess.run(
-                [
-                    "docker",
-                    "run",
-                    "--rm",
-                    "-v",
-                    f"{OPT}:/t",
-                    "-v",
-                    "/run/trialbox:/k",
-                    "ubuntu:24.04",
-                    "sh",
-                    "-c",
-                    "rm -rf /t/* /t/.[!.]* /k/kek",
-                ],
-                capture_output=True,
-                check=False,
-            )
+            machine = work / "machine"
+            rm = ["docker", "run", "--rm", "-v", f"{work}:/w", "-v", "/run/trialbox:/k", "ubuntu:24.04"]
+            subprocess.run([*rm, "sh", "-c", "rm -rf /w/machine /k/kek"], capture_output=True, check=False)
+            _links_down(work)
+            if machine.exists():
+                print(f"note: {machine} was not removed", file=sys.stderr)
             if pairs:
                 _restore(bundle, pairs, log)
     return _cmd_compare(argparse.Namespace(run=a.out))
@@ -1426,7 +1375,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     f.add_argument("--vendor-pub", required=True)
     f.add_argument("--out", required=True)
     f.add_argument("--work", default=WORK_DEFAULT)
-    f.add_argument("--machine", choices=["container", "vm", "local"], default="container")
+    f.add_argument("--machine", choices=["container", "vm"], default="container")
     f.add_argument("--image", default="trialbox-runbook-host:24.04")
     f.add_argument("--container", default="tb-runbook-host")
     f.add_argument("--strict", action="store_true", help="no lifts: stop at the verdict")
