@@ -733,6 +733,24 @@ except Exception:
     cuda = "see nvidia-smi"
 print(json.dumps({"driver": d, "cuda": cuda, "gpu": n.rstrip(",")}))'
 }
+# H-19 (D-1134): the record names its code by the commit the installer recorded in deploy/updates/installed.json
+# (D-994; the box has no git), beside the image id: the three evidence gates compare the evidence files' git commit
+# with it. Only 40 lowercase hex with dirty: false (box_vm.py installed-commit); dirty: true, a null, missing or
+# malformed commit is refused by name. A run whose record can be the product's (production mode, or evidence given)
+# stops on the refusal; a validation measurement without evidence runs on, its code named by the image as before.
+CODE_ENV=()
+code_commit() {  # code_commit [record]: CODE_ENV for qualify, or the refusal by name (a STOP when "record")
+  local cc
+  CODE_ENV=()
+  if cc=$(vm installed-commit "$BOXROOT/deploy/updates/installed.json" 2>&1); then
+    CODE_ENV=(-e "TB_CODE_COMMIT=$cc"); note code_commit "\"$cc\""; return 0
+  fi
+  cc=${cc#installed-commit refused: }
+  echo "TB-CODE-COMMIT-REFUSED: $cc" >> "$STEP_LOG"; note code_commit_refused "$cc"
+  [ "${1:-}" = record ] || return 0
+  STOP="TB-CODE-COMMIT-REFUSED: the record names its code by the installed release's commit: $cc"
+  return 1
+}
 d_qualify() {
   local out=$1 tok=() m=() p; shift
   for p in /var/run/docker.sock /var/lib/docker/containers /var/lib/docker/volumes "$BOXROOT" "$MODELS"; do
@@ -757,6 +775,7 @@ d_qualify() {
     -e "TB_COMPOSE=docker compose --project-directory $BOXROOT/deploy" -e TB_DOCKER=docker \
     -e "TB_ENV=$(envget TB_ENV)" \
     -e TB_HOST_PROFILE=poc -e "TB_CODE_IMAGE=$(docker image inspect -f '{{.Id}}' "$(img_py)" 2>/dev/null)" \
+    ${CODE_ENV[@]+"${CODE_ENV[@]}"} \
     -e "TB_HOST_GPU=$(host_gpu_json)" \
     trialbox eval qualify --box --profile "$PROFILE" --gateway-url http://gateway:8020/v1 --operator lane-g-box-run \
     --out /q "$@"
@@ -1537,6 +1556,7 @@ step_qualify() {
     args+=(--evidence "${e%%=*}=$TB/evidence/${e%%=*}.json")
   done
   note evidence "\"${QEVIDENCE:-none}\""
+  if [ "$MODE" = validation ] && [ -z "$QEVIDENCE" ]; then code_commit; else code_commit record || return 1; fi
   # a boot after the start's (a resume): the stack restarts by itself, the model servers load for minutes; qualify
   # starts only once compose says every service, both model servers too, is healthy (F14: model_unavailable)
   if [ -n "$DIRECT" ]; then WATCH_IO=1 need "the stack healthy before qualify (compose up --wait)" d_direct_up || return 1; fi
@@ -1832,6 +1852,7 @@ step_g10_image() {
 }
 step_g10_canary() { watched d_canary; local rc=$?; note canary_exit "$rc"; [ "$rc" = 0 ] && note pass true || note pass false; }
 step_g10_qualify() {
+  code_commit   # G-10's record is a measurement of the declared image (no evidence): a refusal is noted, not a stop
   watched d_qualify "$REC/qualification-g10.json"; local rc=$?
   note qualify_exit "$rc"; note status "\"$(jget "$REC/qualification-g10.json" status)\""
   [ "$rc" = 0 ] && [ "$(jget "$REC/qualification-g10.json" status)" = passed ] && note pass true || note pass false

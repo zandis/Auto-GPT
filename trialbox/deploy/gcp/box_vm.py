@@ -28,6 +28,10 @@ folder and calls one subcommand at a time:
   identity --box F --lock F --template-sha S --images F --weights-exit N
       what the box serves against what the release pins: chat template, image digests, weights, prompt versions
 
+  installed-commit INSTALLED_JSON   (H-19, D-1134) the commit the installed box runs, from the installer's
+      ``deploy/updates/installed.json`` (D-994): 40 lowercase hex with ``dirty: false``, printed alone; refused by
+      name (exit 1, the reason on stderr) when the file is missing or unreadable, ``dirty`` is not false, or
+      ``commit`` is missing, null or malformed. Qualify names the record's code by it (TB_CODE_COMMIT)
   redact                 stdin to stdout with the lines that carry a password or an enrolment code masked (the
       installer prints the first administrator's once: a VALIDATION install's log goes to the bucket)
   acc-merge-feed --into DIR SITE_HOSPITAL_DIR ...   the hospital CSV feeds of several built public sets as one feed
@@ -47,7 +51,8 @@ folder and calls one subcommand at a time:
   acc-merge-attempt --kind audit|traces --into F --new F --attempt N   one attempt's gateway audit or raw traces
       added to the set's file (each attempt read with its own since, so nothing is counted twice)
 
-Every subcommand prints one JSON object on stdout (and ``--notes`` lines ``key<TAB>json`` where it takes them).
+Every subcommand prints one JSON object on stdout (installed-commit: the commit alone), and ``--notes`` lines
+``key<TAB>json`` where it takes them.
 Nothing here prints a secret: the answers file's values are sent, never echoed.
 """
 
@@ -710,6 +715,39 @@ def qualify_verdict(rec: dict[str, Any]) -> dict[str, Any]:
         "git_head": rec.get("git_head"),
         "steps": per_step,
     }
+
+
+COMMIT_HEX = re.compile(r"[0-9a-f]{40}")
+
+
+def installed_commit(path: Path) -> tuple[str, str]:
+    """H-19 (D-1134): ``(commit, "")`` from the installed box's ``installed.json``, or ``("", why)``.
+
+    The evidence gates name the code by a git commit (the integrator's ruling on H-15 F1); a box installed from a
+    bundle has no git, so its installer records the release's commit (D-994). Taken only as 40 lowercase hex with
+    ``dirty`` exactly false; ``dirty: true`` (a rehearsal bundle), a ``commit`` that is null (the release named
+    none) or missing (a box installed before D-994) and anything malformed are refused, each by name. Never an
+    image id."""
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return "", f"{path}: missing (no installed release on this box)"
+    except (OSError, ValueError) as exc:
+        return "", f"{path}: unreadable ({type(exc).__name__})"
+    if not isinstance(doc, dict):
+        return "", f"{path}: not a JSON object"
+    if doc.get("dirty") is True:
+        return "", f"{path}: dirty: true (the release was built from a working tree with changes)"
+    if "commit" not in doc:
+        return "", f"{path}: commit: missing (installed before the installer recorded it, D-994: update the box)"
+    commit = doc["commit"]
+    if commit is None:
+        return "", f"{path}: commit: null (the release names no commit)"
+    if not isinstance(commit, str) or not COMMIT_HEX.fullmatch(commit):
+        return "", f"{path}: commit: malformed ({type(commit).__name__}, not 40 lowercase hex)"
+    if doc.get("dirty") is not False:
+        return "", f"{path}: dirty: {json.dumps(doc.get('dirty'))} (only dirty: false names a commit)"
+    return commit, ""
 
 
 # ------------------------------------------------------------------------------------------------ the command
@@ -1470,6 +1508,8 @@ def main(argv: list[str] | None = None) -> int:
     ap_ = sub.add_parser("acc-progress")
     ap_.add_argument("--work", type=Path, required=True)
     ap_.add_argument("--built", type=Path, required=True)
+    ic = sub.add_parser("installed-commit")
+    ic.add_argument("installed", type=Path)
     qv = sub.add_parser("qualify-verdict")
     qv.add_argument("record", type=Path)
     t = sub.add_parser("top-costs")
@@ -1569,6 +1609,13 @@ def main(argv: list[str] | None = None) -> int:
         _notes(a.notes, {"models": res})
         print(json.dumps(res))
         return 0 if res["ok"] else 1
+    if a.cmd == "installed-commit":
+        commit, why = installed_commit(a.installed)
+        if not commit:
+            print(f"installed-commit refused: {why}", file=sys.stderr)
+            return 1
+        print(commit)
+        return 0
     if a.cmd in ("g1-tokens", "qualify-verdict"):
 
         def jl2(p: Path) -> dict[str, Any]:
