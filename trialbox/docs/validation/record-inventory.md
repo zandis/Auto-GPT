@@ -97,6 +97,7 @@ are marked "files".
 | --- | --- | --- |
 | `libs/tb_common/audit.py` | files: the day files, the head anchor, the archive | R-01 |
 | `libs/tb_common/audit_writer.py` | `journal` | R-01 |
+| `libs/tb_common/provenance_index.py` | `model_calls`, `model_uses` | R-01 |
 | `libs/tb_common/flowledger.py` | files: `flow.export` events in the audit chain | R-02 |
 | `services/console/sitestore.py` | `screening_no`, `contact_outcomes`, `pi_marks` | R-03 |
 | `services/orchestrator/db.py` | `candidates`, `candidate_events` | R-03 |
