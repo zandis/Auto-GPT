@@ -92,7 +92,10 @@ def study_hold(rid: str, now: datetime) -> str:
     if state is None:
         return ""
     if state != CLOSED:
-        return RUNNING
+        try:  # WALK-1 (the review of D-1153): a study only begun (its protocol sent, never moved) is no running study
+            return "" if state == "startup" and scheduler.only_begun(rid) else RUNNING
+        except Exception:
+            return RUNNING
     try:
         row = scheduler.recorded_close(rid)
     except Exception:

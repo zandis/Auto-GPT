@@ -37,9 +37,24 @@ def test_a_new_study_starts_in_start_up(lb: dict[str, Any]) -> None:  # noqa: F8
     assert st.state == "startup" and st.by == "console:crc" and st.prev is None
     (ev,) = [e for e in _events(lb, "console.study_state") if e.get("ruleset") == "NEWSTUDY"]
     assert ev["detail"]["state"] == "startup" and ev["actor"] == "console:crc"
-    # a second protocol for the same id (an amendment before approval) keeps the state as it is
+    # a second protocol for the same id: the box knows the ruleset now (its first job made it), so it keeps its state
     c.post("/pilot/protocol", data={"csrf": csrf, "ruleset": "NEWSTUDY", "criteria": CRITERIA})
     assert len(SiteStore().state_history("NEWSTUDY")) == 1
+
+
+def test_a_refused_request_leaves_no_study_behind(lb: dict[str, Any], monkeypatch: Any) -> None:  # noqa: F811
+    """The review of D-1153: the state is written once the job is accepted; a refused request (a limit, a role)
+    records nothing."""
+    from console.backend import Refused
+
+    def refuse(*_a: Any, **_k: Any) -> Any:
+        raise Refused("rate limit reached (5 FEAS jobs today)")
+
+    monkeypatch.setattr(lb["backend"], "create_job", refuse)
+    c, csrf = login(lb["app"], "crc", LB_PW)
+    r = c.post("/pilot/protocol", data={"csrf": csrf, "ruleset": "REFUSED1", "criteria": CRITERIA})
+    assert r.status_code == 429
+    assert SiteStore().state_history("REFUSED1") == []
 
 
 def test_a_protocol_for_a_study_the_box_knows_records_no_state(lb: dict[str, Any]) -> None:  # noqa: F811
