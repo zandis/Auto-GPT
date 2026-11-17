@@ -13,7 +13,11 @@ Knobs ($BR_S/knobs): fail-qualify, qualify-seconds, oom-ingest, list-differs, do
 accuracy group's: acc-job-seconds (how long a FEAS, APPROVE or SCREEN job runs), acc-tripwire (the first protocol of
 each screened set is refused by the PHI tripwire, as the gateway refused public protocols in the dry run),
 acc-blocked (the gateway's routes refuse the screen's judge call: the VALIDATION ceiling of today's tree),
-tripwire-setting (the tree declares a tripwire setting).
+tripwire-setting (the tree declares a tripwire setting). The session's (D-1132): dev-routes (a DEV box routes the
+session's D1 and D3 calls: the routing change D-1123 section 3 asks for; without it a DEV box refuses them, as this
+tree's routing policy does), session-idle (no request through the box's Caddy: the session ends early). The console's
+accounts (session-people, session-disable) are kept in box/accounts.json; each one-time code is also written to
+evidence/session-codes.txt, so the checks can look for it in every log.
 """
 
 import json
@@ -101,6 +105,146 @@ def interrupt(what: str) -> None:
     called(what)
 
 
+# ---------------------------------------------------------------- the box's Caddy, its only door (the session's A)
+def caddy_up(new: bool | None = None, why: str = "") -> bool:
+    """Whether the box's Caddy serves, across the VM's boots: a boot brings it back only when it ran before and its
+    restart policy is not `no` (docker update, the session's finding 6); `compose up` of the whole stack or of caddy,
+    and `compose start caddy`, bring it up; `compose stop caddy` takes it down. Each change is in calls.log."""
+    st = jload(BOX / "caddy.json", {"up": False, "boot": 0})
+    boot = int((S / "boots").read_text()) if (S / "boots").exists() else 0
+    if st["boot"] != boot:
+        policy = (BOX / "restart-caddy").read_text().strip() if (BOX / "restart-caddy").exists() else "unless-stopped"
+        st = {"up": st["up"] and policy != "no", "boot": boot}
+        called(f"vm-boot {boot} caddy {'up' if st['up'] else 'down'}")
+        # round 3's finding 1, round 4's b: lane D's units at a boot, whatever the containers' restart policy
+        units_boot(st, boot)
+    if new is not None and new != st["up"]:
+        st["up"] = new
+        called(f"caddy {'up' if new else 'down'} ({why})")
+    jsave(BOX / "caddy.json", st)
+    return bool(st["up"])
+
+
+SVC, OPS, WD = "trialbox.service", "trialbox-ops.timer", "trialbox-watchdog.timer"
+RUNS = ("trialbox-ops.service", "trialbox-watchdog.service")
+
+
+def units_load() -> dict[str, dict[str, Any]]:
+    """Lane D's units on the "VM" (deploy/install.sh installs and enables them when its egress check passes). Knob
+    unit-enabled: trialbox.service installed and enabled; knob ops-timer: the Operations runner's and the watchdog's
+    timers (and the services they start) installed, the timers enabled. A unit not installed is "not-found" and has
+    no file in the "VM's" systemd folder ($BR_S/vm/systemd, the script's TB_BOXRUN_SYSTEMD_DIRS)."""
+    on = {SVC: flag("unit-enabled"), OPS: flag("ops-timer"), WD: flag("ops-timer"),
+          RUNS[0]: flag("ops-timer"), RUNS[1]: flag("ops-timer")}  # fmt: skip
+    default = {n: {"enabled": ("static" if n in RUNS else "enabled") if i else "not-found", "active": "inactive",
+                   "pending": False} for n, i in on.items()}  # fmt: skip
+    u: dict[str, dict[str, Any]] = jload(BOX / "units.json", default)
+    d = S / "vm" / "systemd"
+    d.mkdir(parents=True, exist_ok=True)
+    for n, x in u.items():
+        if x["enabled"] != "not-found" and not (d / n).exists():
+            (d / n).write_text("# lane D's unit (rehearsal stand-in)\n")
+    return u
+
+
+def units_boot(st: dict[str, Any], boot: int) -> None:
+    """A boot of the "VM": trialbox.service, enabled, runs `docker compose up` (Caddy up; knob unit-late: its up still
+    to come, mid-close); an enabled timer starts (knob ops-late: an Operations request's `compose up -d` of every
+    service lands at the next compose up of this boot, Caddy included, unless the timer is stopped first)."""
+    u = units_load()
+    for x in u.values():
+        x["active"], x["pending"] = "inactive", False
+    if u[SVC]["enabled"] == "enabled":
+        if flag("unit-late"):
+            u[SVC]["active"], u[SVC]["pending"] = "activating", True
+            called(f"unit trialbox.service activating at boot {boot} (its compose up still to come)")
+        else:
+            u[SVC]["active"] = "active"
+            if not st["up"]:
+                st["up"] = True
+                called(f"caddy up (trialbox.service compose up at boot {boot})")
+    for t in (OPS, WD):
+        if u[t]["enabled"] == "enabled":
+            u[t]["active"] = "active"
+            if t == OPS and flag("ops-late") and boot > 1:
+                u[t]["pending"] = True
+                called(f"unit trialbox-ops.timer active at boot {boot} (an Operations request queued)")
+    jsave(BOX / "units.json", u)
+
+
+def unit_late_up(why: str) -> None:
+    """An `up` started at the boot lands now: trialbox.service's (round 3's finding 1), or the Operations runner's
+    update (round 4's b), while its timer still runs."""
+    caddy_up()  # the boot's own state first
+    u = units_load()
+    for n, label in ((SVC, "trialbox.service compose up, late"), (OPS, "trialbox-ops: update_apply compose up -d")):
+        if u[n].get("pending"):
+            u[n]["pending"] = False
+            if n == SVC:
+                u[n]["active"] = "active"
+            jsave(BOX / "units.json", u)
+            caddy_up(True, f"{label}: {why}")
+
+
+def unit(argv: list[str]) -> int:
+    """systemctl <verb> [--no-block] <one of lane D's units>, from the systemctl shim."""
+    verb = next(a for a in argv if not a.startswith("-"))
+    name = next(a for a in argv[argv.index(verb) + 1 :] if not a.startswith("-"))
+    caddy_up()  # a boot of the "VM" is seen first
+    allu = units_load()
+    u = allu.get(name) or {"enabled": "not-found", "active": "inactive", "pending": False}
+    called(f"systemctl {verb} {name}")
+    if verb in ("is-enabled", "is-active") and name == SVC and flag("unit-dbus-error"):
+        print("Failed to connect to bus: Connection timed out", file=sys.stderr)  # round 4's c: no answer
+        return 1
+    if verb == "is-enabled":
+        if u["enabled"] == "not-found":
+            print(f"Failed to get unit file state for {name}: No such file or directory", file=sys.stderr)
+            return 1
+        print(u["enabled"])
+        return 0 if u["enabled"] == "enabled" else 1
+    if verb == "is-active":
+        print(u["active"])
+        return 0 if u["active"] == "active" else 3
+    if u["enabled"] == "not-found":
+        print(f"Failed: Unit file {name} does not exist.", file=sys.stderr)
+        return 5
+    if verb == "disable":
+        if flag("unit-disable-fails"):
+            print("Failed to disable unit: Access denied", file=sys.stderr)
+            return 1
+        u["enabled"] = "disabled"
+    elif verb == "enable":
+        u["enabled"] = "enabled"
+    elif verb == "stop":  # trialbox.service: the start job cancelled, ExecStop `docker compose stop` (Caddy with it)
+        if name == SVC and flag("unit-stop-hangs"):  # its stop job never ends (round 4's a): Caddy stays as it is
+            u["active"] = "deactivating"
+        else:
+            if name == SVC and (u["active"] != "inactive" or u.get("pending")):
+                caddy_up(False, "trialbox.service stop: compose stop")
+            u["active"], u["pending"] = "inactive", False
+    elif verb == "start":
+        u["active"], u["pending"] = "active", False
+        allu[name] = u
+        jsave(BOX / "units.json", allu)
+        if name == SVC:
+            caddy_up(True, "trialbox.service start: compose up")
+        return 0
+    else:
+        print(f"box-run rehearsal systemctl: not rehearsed for {name}: {verb}", file=sys.stderr)
+        return 1
+    allu[name] = u
+    jsave(BOX / "units.json", allu)
+    return 0
+
+
+def caddy_state() -> int:
+    """What listens on tcp:443 (the ss shim asks): the box's Caddy publishes it."""
+    if caddy_up():
+        print('LISTEN 0      4096         0.0.0.0:443       0.0.0.0:*    users:(("docker-proxy",pid=1,fd=4))')
+    return 0
+
+
 def ps(argv: list[str]) -> int:
     if "-q" in argv:
         svc = argv[-1]
@@ -111,6 +255,8 @@ def ps(argv: list[str]) -> int:
     sick = time.time() < jload(BOX / "unhealthy-until.json", 0.0)
     for svc in SERVICES:
         print(f"{svc} {'exited' if svc in down else 'running'} {'starting' if sick else 'healthy'}")
+    if caddy_up():
+        print(f"caddy running {'starting' if sick else 'healthy'}")
     return 0
 
 
@@ -248,13 +394,84 @@ def snippet(svc: str, text: str) -> int:
             rows = rows[1:]  # the disturbed run lost a patient
         print(json.dumps({"job": rest[0], "rows": rows}))
         return 0
+    if what in ("session-people", "session-disable"):
+        return session_snippet(what, svc, text)
     print(f"box stand-in: no snippet {what}", file=sys.stderr)
     return 2
 
 
+def session_snippet(what: str, svc: str, text: str) -> int:
+    """The session's accounts in the console's container (D-1132, D-1133): opened with a one-time code each (DEV: one
+    account, its extra roles and the acting flag; VALIDATION: one role each), or disabled. No real console here."""
+    import re
+    import secrets
+
+    accounts = jload(BOX / "accounts.json", {})
+    if svc != "console":
+        print(f"box stand-in: {what} runs in the console's container, not {svc}", file=sys.stderr)
+        return 2
+    if what == "session-people":
+        people = re.search(r'for x in "([^"]+)"\.split\(","\)', text)
+        env = re.search(r'hours, env = int\("([0-9]+)"\), "([A-Z]+)"', text)
+        if not people or not env:
+            print("box stand-in: session-people without its people or environment", file=sys.stderr)
+            return 2
+        rows = [x.split(":", 1) for x in people.group(1).split(",")]
+        called("session-people-start")
+        if flag("people-slow") and (S / "boots").read_text().strip() == "1":  # time for a cut in the middle of 56
+            time.sleep(120)
+        if env.group(2) == "DEV" and _env_of_box() != "DEV":
+            print("steps_roles: extra roles are for a test box only (TB_ENV DEV or TEST)", file=sys.stderr)
+            return 1
+        for name, roles in rows:
+            if name in accounts:
+                print(f"steps_roles: an account {name} exists already", file=sys.stderr)
+                return 1
+            if env.group(2) != "DEV" and "+" in roles:
+                print(f"session: {name}: one role per account on a VALIDATION box (D-1063 item 3)", file=sys.stderr)
+                return 1
+        S.joinpath("evidence").mkdir(exist_ok=True)
+        for name, roles in rows:
+            code = f"STANDIN-{secrets.token_hex(6).upper()}"  # the product's form: letters, digits, hyphens
+            accounts[name] = {"roles": roles, "disabled": False, "extra": "+" in roles}
+            with (S / "evidence" / "session-codes.txt").open("a") as fh:
+                fh.write(code + "\n")
+            print(f"{name}\t{roles}\t{code}\t2026-11-21 10:00 UTC")
+        if env.group(2) == "DEV":
+            accounts["_flag_acting"] = True
+        jsave(BOX / "accounts.json", accounts)
+        called(f"session-people {env.group(2)} {' '.join(n for n, _ in rows)}")
+        return 0
+    names = re.search(r'for name in "([^"]*)"\.split\(\)', text)
+    for name in names.group(1).split() if names else []:
+        if name in accounts:
+            accounts[name].update(disabled=True, extra=False)
+        print(f"disabled {name}")
+    if flag("disable-fails"):  # the console cannot be asked (the close is tried again at the next boot)
+        called("session-disable-failed")
+        print("console: the database is not reachable", file=sys.stderr)
+        return 1
+    accounts["_flag_acting"] = False
+    jsave(BOX / "accounts.json", accounts)
+    called(f"session-disable {names.group(1).strip() if names else ''}")
+    called(f"session-disable-caddy {'up' if caddy_up() else 'down'}")  # the re-review's A: served while closed?
+    return 0
+
+
 def compose(argv: list[str]) -> int:
-    i = next(k for k, a in enumerate(argv) if a in ("ps", "exec", "restart", "stop", "start", "up", "run", "logs"))
+    i = next(
+        k for k, a in enumerate(argv) if a in ("ps", "exec", "restart", "stop", "start", "up", "run", "logs", "config")
+    )
     cmd, rest = argv[i], argv[i + 1 :]
+    if cmd == "config":  # config --services: the box's services, Caddy among them
+        print("\n".join([*SERVICES, "caddy"]))
+        return 0
+    if cmd == "logs" and "caddy" in rest:  # the box's Caddy access log (the session's heartbeat, D-1132)
+        called("compose-logs caddy")
+        print('{"level":"info","logger":"http.log.access","request":{"client_ip":"127.0.0.1","uri":"/healthz"}}')
+        if not flag("session-idle"):  # the owner's browser, from his own address (a documentation-style address)
+            print('caddy  | {"level":"info","logger":"http.log.access","request":{"client_ip":"1.2.3.4","uri":"/"}}')
+        return 0
     if cmd == "logs":  # the set's progress line and its services' lines (F23): an embed request and a screen stage
         called("compose-logs " + " ".join(a for a in rest if not a.startswith("-")))
         print('INFO: 172.18.0.9:0 - "POST /embed HTTP/1.1" 200 OK')
@@ -264,7 +481,17 @@ def compose(argv: list[str]) -> int:
         called("compose-run " + " ".join(a for a in rest if not a.startswith("-")))
         return 0
     if cmd == "up":  # the stack recreated on new settings (the acc group's settings step)
+        unit_late_up("while compose up " + " ".join(a for a in rest if not a.startswith("-")))
+        named = [a for a in rest if not a.startswith("-") and not a.isdigit() and a != "never"]
         called("compose-up " + " ".join(a for a in rest if not a.startswith("-")))
+        if not named or "console" in named:  # the address the console's one-time links name (the session's F)
+            called(f"compose-up-console url={_env_val('TB_CONSOLE_PUBLIC_URL') or 'none'}")
+        if not named or "caddy" in named:  # the whole stack, or Caddy by name
+            caddy_up(True, "compose up")
+        return 0
+    if cmd in ("stop", "start") and rest[-1:] == ["caddy"]:
+        called(f"compose-{cmd} caddy")
+        caddy_up(cmd == "start", f"compose {cmd}")
         return 0
     if cmd == "ps":
         return ps(rest)
@@ -299,7 +526,10 @@ def compose(argv: list[str]) -> int:
             print("Killed", file=sys.stderr)
             return 137
         use("lake", 2 << 30, 0.3)
-        (BOX / "current").write_text("snapshot-2026-10-04\n")
+        # the snapshot the ingest was asked for becomes CURRENT, as the lake publishes it: a second run on one box (an
+        # accuracy run after a session) sees its own snapshot published
+        snap = prog[prog.index("--snapshot") + 1] if "--snapshot" in prog else "snapshot-2026-10-04"
+        (BOX / "current").write_text(f"{snap}\n")
         return 0
     if prog[:1] == ["sha256sum"]:  # the judge's template inside its container: the pinned file (knob template-differs)
         import re
@@ -382,7 +612,15 @@ def feed(argv: list[str]) -> int:
     n = int(argv[argv.index("-c") + 2])
     site = Path(host) / "site"
     site.mkdir(parents=True, exist_ok=True)
-    (site / "patient.csv").write_text("mrn,birth_date\n" + "".join(f"S{i:05d},1960-01-01\n" for i in range(min(n, 50))))
+    # the generator's own header (tools/make_fixtures.py write_site), as the public sets' builder writes it: the
+    # session's synthetic hospital is merged with them (54-acc-ingest); chart numbers in its own 10000001 range
+    (site / "patient.csv").write_text(
+        "mrn,name,id_no,birth_date,sex,death_date,phone\n"
+        + "".join(f"{10000001 + i},,,1960-01-01,F,,\n" for i in range(min(n, 50)))
+    )
+    # a table only the generator writes (the public sets' feeds have none): an accuracy run after a session must not
+    # find it in the box's feed folder (the security review's finding 11)
+    (site / "vital.csv").write_text("mrn,measured_at,code,value\n10000001,2026-11-01 08:00:00,8867-4,72\n")
     called(f"feed {n}")
     print(json.dumps({"patients": n, "records_per_patient": 500, "notes_per_patient": 40}))
     return 0
@@ -548,6 +786,9 @@ def onbox(svc: str, text: str, args: list[str]) -> int:
             if role == "judge" and flag("acc-blocked"):
                 rows.append({"role": role, "class": dc, "routes": False,
                              "why": f"{dc} data is not allowed in the {env} environment (ceiling D2)"})  # fmt: skip
+            elif env == "DEV" and dc != "D0" and not flag("dev-routes"):  # this tree's policy: DEV's ceiling is D0
+                rows.append({"role": role, "class": dc, "routes": False,
+                             "why": f"{dc} data is not allowed in the DEV environment (ceiling D0)"})  # fmt: skip
             else:
                 b = [{"alias": "j-workhorse", "build": "standin-judge-1", "routes": True}]
                 if role == "judge":
@@ -740,7 +981,18 @@ def main() -> int:
         return feed(a[1:])
     if a[:1] == ["interrupt"]:
         interrupt(a[1])
+        if flag("unit-reenabled"):  # someone enabled lane D's units again by hand while the VM was off
+            u = units_load()
+            for n in (SVC, OPS, WD):
+                if u[n]["enabled"] != "not-found":
+                    u[n]["enabled"] = "enabled"
+            jsave(BOX / "units.json", u)
+            called("trialbox.service enabled again by hand")
         return 0
+    if a[:1] == ["unit"]:
+        return unit(a[1:])
+    if a[:1] == ["caddy-state"]:
+        return caddy_state()
     if a[:1] == ["wizard-done"]:  # the real installer applied the owner's answers (its compose stand-in says so)
         (BOX / "wizard-done").parent.mkdir(parents=True, exist_ok=True)
         (BOX / "wizard-done").write_text("1")
