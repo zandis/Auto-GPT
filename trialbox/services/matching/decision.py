@@ -135,6 +135,10 @@ def status_of(by_id: Mapping[str, Any], verdicts: Iterable[Any], policy: Policy)
             weak = True  # a note answer that may not decide: review
         if c.action:  # what a person does about the open criterion (a weak "not met" too, as the cascade listed)
             actions.append(c.action)
+        elif v.verdict == "pending_human":
+            # H-10: a criterion a person decides is never silent on the patient: its question (the compiler's, for a
+            # line the model gave no criterion or one that would not compile), else that a person decides it
+            actions.append(getattr(c, "human_question", None) or f"a person decides {c.id}")
     if excluded_by:
         tier = "excluded"
     elif unknown or weak:

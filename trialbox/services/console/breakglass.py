@@ -46,7 +46,7 @@ from tb_common.authz import (
     permit,
 )
 
-from console import i18n_breakglass
+from console import actor, i18n_breakglass
 from console.auth import Session, User
 from console.breakglass_store import (
     NOTE_MAX,
@@ -144,7 +144,7 @@ def register(app: FastAPI, h: Helpers, store: BreakGlassStore | None = None) -> 
                 f"Review it on the console's break-glass page (/breakglass).")  # fmt: skip
         try:
             h.bk.send_notice("BG", sorted(to), f"TrialBox break-glass #{g.id}: {rid or 'job'}", body,
-                             h.actor(sess))  # fmt: skip
+                             actor.BREAKGLASS)  # fmt: skip
             sent = len(to)
         except Exception as exc:
             au.append("console.breakglass_notice", actor=h.actor(sess),

@@ -64,6 +64,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from matching import coded_values
+from tb_common import provenance
 from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
@@ -574,6 +575,8 @@ def run(ctx: Ctx) -> Outcome:
                 r.model_copy(update={"changed": [v.id for v in r.criteria]}) for r in srun.rows if r.tier in LISTED
             ]
             persist_pool(ctx, rs, new_rows)
+            # D-989: every row read on this job, listed or not (a carried row was recorded when it was read)
+            provenance.verdicts_used(ctx.orch.audit, rs.id, rs.version, ctx.job.job_id, srun.rows)
             back_rows = [r for r in new_rows if r.pid in set(back)]
             # one who was an excluded row of the pool and is listed again has one row: the new one
             again_listed = {r.pid for r in back_rows}

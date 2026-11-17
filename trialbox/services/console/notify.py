@@ -420,7 +420,7 @@ def _collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[N
 def send_all(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2"), by: str = "console:notify") -> list[Notice]:
     sent = []
     for n in collect(h, today, kinds):
-        h.bk.send_notice(n.kind, [n.to], n.subject, n.body, by)
+        h.bk.send_notice(n.kind, [n.to], n.subject, n.body, actor.NOTIFY)  # T-715: the timer's own name
         h.store.log_notice(n.log_kind or n.kind, n.username, n.day, h.clock().isoformat(), n.subject)
         h.au.append("console.notice", actor=by, detail={"action": n.kind, "to": n.to, "subject": n.subject})
         sent.append(n)
