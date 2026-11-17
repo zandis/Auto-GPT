@@ -3,8 +3,10 @@
     python -m tools.runbook_install extract [--json]            # the runbook's commands, in order, with their place
     python -m tools.runbook_install plan                        # the install path the follower walks (D-1136)
     python -m tools.runbook_install static                      # the findings the runbook's text alone shows
-    python -m tools.runbook_install follow --bundle B --vendor-pub K --out run.json [--machine container|local ...]
+    python -m tools.runbook_install follow --bundle B --vendor-pub K --out run.json [--machine container|vm|local]
     python -m tools.runbook_install compare run.json            # the run against the committed findings file
+    python -m tools.runbook_install bundle                      # the vendor side only: a site bundle from a commit
+    python -m tools.runbook_install run [--bundle B --vendor-pub K]   # make runbook-install: the container run
 
 **What is followed.** The install runbook of a site's IT on Linux: the RUNBOOK hub's opening (it says where commands run
 and as whom) and section 1, ``docs/runbook/01-install-a-new-site.md``. Nothing else is read by the follower; the
@@ -60,6 +62,7 @@ import argparse
 import json
 import os
 import re
+import secrets
 import shlex
 import shutil
 import subprocess
@@ -631,6 +634,7 @@ class Record:
     seconds: float = 0.0
     commands_run: int = 0
     machine_stop: str = ""
+    diagnostics: list[dict[str, str]] = field(default_factory=list)
 
     def find(self, fid: str, step: str, evidence: str) -> None:
         if fid not in {f["id"] for f in self.findings}:
@@ -892,7 +896,10 @@ class Follower:
                 self.rec.stop("the one command (§1:28)", "the machine has no TPM (step 1 names TPM2): a machine stop")
                 if not self._lift("no-tpm"):
                     return
-                self.env |= {"TB_KEK_BACKEND": "passphrase", "TB_KEK_PASSPHRASE": self.kek_pass or "rehearsal-only"}
+                self.env |= {
+                    "TB_KEK_BACKEND": "passphrase",
+                    "TB_KEK_PASSPHRASE": self.kek_pass or secrets.token_hex(12),
+                }
                 continue
             if "lacks what the installer needs" in text or "compose plugin is missing" in text:
                 self.rec.find("host-packages-unnamed", "one-command", _last(text))
@@ -904,6 +911,17 @@ class Follower:
                 self.rec.stop("the one command (§1:28)", "this machine's stand-in serves no more (a machine stop)")
                 return
             self._prompts(r)
+            bad = re.findall(r"container trialbox-([\w-]+?)-1 is unhealthy", text)
+            for svc in bad:  # a diagnostic, not a runbook command: the service's own last words
+                d = self.m.sh(f"docker logs --tail 30 trialbox-{svc}-1 2>&1", cwd="/", stdin="")
+                self.rec.diagnostics.append({"service": svc, "log": _clip(redact(d.out), 3000)})
+            if "embed-service" in bad and "--mode stub" in self._one_command_text(stub=stub) and stub:
+                self.rec.find("stub-production-embedder", "one-command", _last(text))
+                self.rec.stop(
+                    "the one command with `--mode stub` (§1:35)",
+                    "the stack did not become healthy: embed-service (see the diagnostics)",
+                )
+                return
             self.rec.find("one-command-failed", "one-command", _last(text))
             self.rec.stop("the one command (§1:28)", f"the installer exited {r.rc}: {_last(text, 300)}")
             return
@@ -982,6 +1000,7 @@ class Follower:
 
 
 SECRET_VALUE = re.compile(r"(?i)(\w*(?:password|passphrase|code|token|key|secret)\w*)(\s*[:=]\s*)\S+")
+FINGERPRINT = re.compile(r"(?i)(fingerprint\s+)[0-9a-f]{8,}")
 
 
 def redact(text: str) -> str:
@@ -999,6 +1018,7 @@ def redact(text: str) -> str:
             continue
         if "first console administrator" in ln:
             skip = True
+        ln = FINGERPRINT.sub(r"\1[redacted]", ln)
         out.append(SECRET_VALUE.sub(lambda m: f"{m.group(1)}{m.group(2)}[redacted]", ln))
     if skip:
         out.append("    [the administrator's password and enrolment code: not recorded]")
@@ -1105,8 +1125,6 @@ def _container_up(name: str, image: str, work: Path, usb: Path) -> DockerMachine
         "-v",
         f"{OPT}:{OPT}",
         "-v",
-        f"{work}:{work}",
-        "-v",
         f"{droot}/volumes:{droot}/volumes",
         "-v",
         "/run/trialbox:/run/trialbox",
@@ -1184,11 +1202,24 @@ JOB_IMAGES = ["trialbox-backup:1.0.0"]
 
 
 def vendor_bundle(work: Path, py: str) -> tuple[Path, Path, list[tuple[str, str]]]:
-    """A site bundle made the vendor's way (as the box rehearsal's media step makes its own, but not ``--rehearsal``:
-    a site box refuses a rehearsal bundle): a throwaway vendor key, the release gates over exactly these images,
-    ``tools/make_bundle.sh`` with the reference data pack. Returns the bundle, the public key, and (ref, id) of each
-    image."""
+    """A site bundle made the vendor's way (as the box rehearsal's media step makes its own, but not ``--rehearsal``
+    and not ``--allow-dirty``: a site box refuses both): a throwaway vendor key, the release gates over exactly these
+    images, ``tools/make_bundle.sh`` with the reference data pack. Returns the bundle, the public key, and (ref, id) of
+    each image."""
     v, log = work / "vendor", work / "logs" / "vendor.log"
+    # a PRODUCTION box refuses a bundle built from a working tree (release.json "dirty"): build from a commit
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all", "--", "."],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    if dirty:
+        raise SystemExit(
+            "runbook_install run: the checkout has changes; a site box refuses a bundle built from them "
+            "(commit first, or pass --bundle)"
+        )
     shutil.rmtree(v, ignore_errors=True)
     (v / "cfg").mkdir(parents=True)
     _sh([py, "tools/sign_bundle.py", "keygen", "--out", str(v / "keys")], log)
@@ -1248,8 +1279,6 @@ def vendor_bundle(work: Path, py: str) -> tuple[Path, Path, list[tuple[str, str]
     bundle.parent.mkdir(parents=True, exist_ok=True)
     args = [
         "tools/make_bundle.sh",
-        "--allow-dirty",
-        "the runbook follower's measurement (H-22)",
         "--key",
         str(v / "keys" / "vendor_ed25519.key"),
         "--id",
@@ -1366,6 +1395,13 @@ def _cmd_run(a: argparse.Namespace) -> int:
     return _cmd_compare(argparse.Namespace(run=a.out))
 
 
+def _cmd_bundle(a: argparse.Namespace) -> int:
+    """Only the vendor side of ``run``: a site bundle from a commit, its .sha256, the throwaway key, the image list."""
+    bundle, pub, _ = vendor_bundle(Path(a.work).resolve(), a.py or sys.executable)
+    print(f"bundle: {bundle}\nvendor key: {pub}")
+    return 0
+
+
 def _cmd_compare(a: argparse.Namespace) -> int:
     run = json.loads(Path(a.run).read_text(encoding="utf-8"))
     probs = compare(run, load_findings(), static_findings()) + quote_problems(load_findings())
@@ -1402,6 +1438,9 @@ def main(argv: Iterable[str] | None = None) -> int:
     r.add_argument("--py", default="")
     r.add_argument("--strict", action="store_true")
     r.add_argument("--keep", action="store_true", help="leave the box and the machine running")
+    bu = sub.add_parser("bundle", help="only the vendor side of run: a site bundle made the vendor's way")
+    bu.add_argument("--work", default=WORK_DEFAULT)
+    bu.add_argument("--py", default="")
     c = sub.add_parser("compare")
     c.add_argument("run")
     a = ap.parse_args(list(argv) if argv is not None else None)
@@ -1412,6 +1451,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         "follow": _cmd_follow,
         "compare": _cmd_compare,
         "run": _cmd_run,
+        "bundle": _cmd_bundle,
     }[a.cmd](a)
 
 

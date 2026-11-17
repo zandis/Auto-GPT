@@ -18,8 +18,10 @@
    "static": true,
    "step": "one-command",
    "seen_on": [
-    "unit"
-   ]
+    "unit",
+    "container"
+   ],
+   "owner": "the runbook (lane D)"
   },
   {
    "id": "vendor-key-after-start",
@@ -32,8 +34,10 @@
    "static": true,
    "step": "one-command",
    "seen_on": [
-    "unit"
-   ]
+    "unit",
+    "container"
+   ],
+   "owner": "the runbook (lane D)"
   },
   {
    "id": "stub-fragment-vs-tier",
@@ -46,8 +50,10 @@
    "static": true,
    "step": "one-command",
    "seen_on": [
-    "unit"
-   ]
+    "unit",
+    "container"
+   ],
+   "owner": "the runbook (lane D)"
   },
   {
    "id": "unmentioned-questions",
@@ -56,10 +62,11 @@
    "kind": "silent",
    "severity": "slows the reader",
    "needed": "to know the installer asks questions even with --answers (the one command has no --yes)",
-   "happened": "(container run) the installer asks a question §1 does not name",
+   "happened": "the installer asks at a terminal 'Start the stack now with profile <mode>? [Y/n]' (deploy/install.sh:637) and, when the answers lack them, the ClinicalTrials.gov mode, the console's DNS name and the trial office's mailbox; the follower has no terminal ([ -t 0 ] is false), so its runs do not see them: text only",
    "static": true,
    "step": "one-command",
-   "seen_on": []
+   "seen_on": [],
+   "owner": "the runbook (lane D)"
   },
   {
    "id": "python-not-python3",
@@ -68,10 +75,11 @@
    "kind": "wrong",
    "severity": "slows the reader",
    "needed": "an interpreter named python3 on Ubuntu 24.04, with the release's Python packages and libs/ on its path (step 1 names neither)",
-   "happened": "(container run) `python` is not found on the box",
+   "happened": "not reached: no run installed the box (the container stopped at the one command)",
    "static": true,
    "step": "4-mapping-check",
-   "seen_on": []
+   "seen_on": [],
+   "owner": "the runbook (lane D)"
   },
   {
    "id": "host-packages-unnamed",
@@ -83,7 +91,8 @@
    "happened": "not run on a host without them (the follower's machine is the rehearsal's host); the installer names the compose plugin and python3-yaml when they are missing",
    "static": true,
    "step": null,
-   "seen_on": []
+   "seen_on": [],
+   "owner": "the runbook (lane D)"
   },
   {
    "id": "compose-cwd-unstated",
@@ -92,10 +101,11 @@
    "kind": "wrong",
    "severity": "slows the reader",
    "needed": "the compose project folder: the installer's own closing lines say `docker compose --project-directory deploy exec adapter python -m adapter.cli run`",
-   "happened": "(container run) from /opt/trialbox compose finds no project",
+   "happened": "not reached by a run; the installer's own closing lines give the working form (`docker compose --project-directory deploy exec adapter python -m adapter.cli run`, deploy/install.sh:983)",
    "static": true,
    "step": "7-first-ingest",
-   "seen_on": []
+   "seen_on": [],
+   "owner": "the runbook (lane D)"
   },
   {
    "id": "ingest-report-in-volume",
@@ -104,10 +114,11 @@
    "kind": "silent",
    "severity": "slows the reader",
    "needed": "how to read a file that is inside the lake's volume (a compose exec, or the volume's path on the host)",
-   "happened": "(container run) the path is not on the host",
+   "happened": "not reached by a run",
    "static": true,
    "step": "7-ingest-report",
-   "seen_on": []
+   "seen_on": [],
+   "owner": "the runbook (lane D)"
   },
   {
    "id": "site-folder-place-unstated",
@@ -119,7 +130,8 @@
    "happened": "the follower placed site.yaml and mapping/ in /opt/trialbox, the only place the one command's relative path names",
    "static": true,
    "step": null,
-   "seen_on": []
+   "seen_on": [],
+   "owner": "the runbook (lane D)"
   },
   {
    "id": "feed-folder-content-unstated",
@@ -131,7 +143,38 @@
    "happened": "the follower copied the synthetic export to the answers' folder (deploy/site/feed-a) before the one command",
    "static": true,
    "step": null,
-   "seen_on": []
+   "seen_on": [],
+   "owner": "the runbook (lane D)"
+  },
+  {
+   "id": "bundle-sidecar-path",
+   "place": "tools/make_bundle.sh:228",
+   "says": "sha256sum \"$OUT\" | tee \"$OUT.sha256\"",
+   "kind": "wrong",
+   "severity": "stops the install",
+   "owner": "the bundle (lane D: tools/make_bundle.sh)",
+   "needed": "a <bundle>.sha256 that names the bundle by its bare file name: the installer checks it from the bundle's own folder (deploy/install.sh: cd \"$(dirname \"$BUNDLE\")\" && sha256sum -c \"$(basename \"$BUNDLE\").sha256\")",
+   "happened": "make_bundle.sh writes the path as given to --out (here /tmp/tb-runbook-install/media/...); on the stick that path does not exist: 'sha256sum: ...: No such file or directory', then 'install: bundle checksum mismatch'. The box rehearsal does not see it because its box container mounts the media at the vendor's own path. Its closing line tells the vendor to hand both files over",
+   "static": false,
+   "step": "one-command",
+   "seen_on": [
+    "container"
+   ]
+  },
+  {
+   "id": "stub-production-embedder",
+   "place": "docs/runbook/01-install-a-new-site.md:35",
+   "says": "`--mode stub` installs a box without a GPU.",
+   "kind": "wrong",
+   "severity": "stops the install",
+   "owner": "the runbook and the installer (lane D)",
+   "needed": "on a PRODUCTION box without a GPU, a pinned embedder (deploy/models/embedder and `python -m tools.pin_model --build e-embed-1 --endpoint embed`): the installer pins models only in GPU mode (deploy/install.sh:506), and §1 says nothing of it for --mode stub; or a line that a PRODUCTION box needs the GPU",
+   "happened": "every other service became healthy; embed-service restarted with 'EmbedderRefused: no pin for e-embed-1 in the site override (TB_REGISTRY_OVERRIDE): the embedder's weights cannot be checked; pin them with python -m tools.pin_model --build e-embed-1 --endpoint embed ...'; 'install: the stack did not become healthy', exit 1",
+   "static": false,
+   "step": "one-command",
+   "seen_on": [
+    "container"
+   ]
   }
  ]
 }
