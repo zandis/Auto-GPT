@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from tb_common import audit
 from tb_common.audit import GENESIS, AuditLog, canonical, line_hash, write_head
 from tb_common.crypto import ed25519_generate
 

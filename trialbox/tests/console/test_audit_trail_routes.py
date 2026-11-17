@@ -86,9 +86,9 @@ class Lines:
 
     def new(self) -> list[dict[str, Any]]:
         now, out = self._count(), []
-        for f, n in now.items():
+        for f in now:
             lines = f.read_text("utf-8").splitlines()
-            out += [json.loads(x) for x in lines[self.seen.get(f, 0):]]
+            out += [json.loads(x) for x in lines[self.seen.get(f, 0) :]]
         self.seen = now
         return out
 
@@ -190,7 +190,7 @@ def _sub(value: Any, text: str) -> Any:
 def call(b: dict[str, Any], cl: dict[str, Any], method: str, path: str, col: str, body: dict[str, Any],
          job_id: str, text: str) -> Any:  # fmt: skip
     page, csrf, api = cl[col]
-    path = path.split("#")[0]
+    path = path.partition("#")[0]
     url = _fill(path, body.get("params", {}), job_id)
     if path.startswith("/api/v1/"):
         return api.request(method, url, json=_sub(body.get("json", {}), text), follow_redirects=False)
@@ -199,8 +199,8 @@ def call(b: dict[str, Any], cl: dict[str, Any], method: str, path: str, col: str
 
 def success(resp: Any) -> bool:
     if resp.status_code == 303:
-        return "/login" not in resp.headers.get("location", "")
-    return 200 <= resp.status_code < 300
+        return "/login" not in str(resp.headers.get("location", ""))
+    return 200 <= int(resp.status_code) < 300
 
 
 def walk(b: dict[str, Any], text: str = "a plain note") -> list[dict[str, Any]]:
@@ -231,7 +231,20 @@ def judge(row: dict[str, Any]) -> dict[str, Any]:
     evs = [e for e in row["events"] if not str(e.get("event", "")).startswith("audit.")]
     who = all(re.fullmatch(r"console:[a-z0-9_.-]+", str(e.get("actor", ""))) for e in evs) and bool(evs)
     when = all(e.get("ts") for e in evs) and bool(evs)
-    which_keys = ("ruleset", "pid", "user", "batch", "bid", "grant", "gid", "username", "target", "job_id", "id", "study")
+    which_keys = (
+        "ruleset",
+        "pid",
+        "user",
+        "batch",
+        "bid",
+        "grant",
+        "gid",
+        "username",
+        "target",
+        "job_id",
+        "id",
+        "study",
+    )
     which = any(k in e or k in (e.get("detail") or {}) for e in evs for k in which_keys)
     return {"route": f"{row['method']} {row['path']}", "column": row["column"], "status": row["status"],
             "success": row["success"], "events": sorted({str(e.get("event")) for e in evs}),
@@ -258,8 +271,10 @@ ORDER: dict[str, tuple[str, str]] = {
     "POST /api/v1/data/batches/{bid}/decide": ("one transaction", "services/datacore/dataops.py:470-498"),
     "POST /site/opt-outs": ("one transaction", "D-273; shown by tests/console/test_d273_privacy_guards.py"),
     "POST /api/v1/site/opt-outs": ("one transaction", "D-273, the same register call as the page"),
-    "POST /studies/{rs}/patients/{pid}/mark": ("one transaction", "services/console/home.py:1218 (D-273), shown by "
-                                                                  "test_d273_privacy_guards.py"),
+    "POST /studies/{rs}/patients/{pid}/mark": (
+        "one transaction",
+        "services/console/home.py:1218 (D-273), shown by test_d273_privacy_guards.py",
+    ),
     "POST /api/v1/studies/{rs}/patients/{pid}/mark": ("one transaction", "services/console/home.py:1218 (D-273)"),
     "POST /ops/users": ("change first", "services/console/app.py:1257 us.create, then :1259 (shown here)"),
     "POST /ops/users#disable": ("change first", "services/console/app.py:1328 us.disable, then :1329"),

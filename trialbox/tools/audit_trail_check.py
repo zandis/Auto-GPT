@@ -28,8 +28,10 @@ PAGE = ROOT / "docs" / "plan" / "measurements" / f"audit-trail-{DAY}.md"
 DIR = ROOT / "docs" / "plan" / "measurements" / f"audit-trail-{DAY}"
 
 #: keyword names whose value is typed by a person or may name one
-FREE = re.compile(r"(?i)^(note|notes|reason|why|text|comment|comments|message|subject|body|free_text|label|title|"
-                  r"query|q|name|display_name|email|mail|phone|description|answer|remark|summary|request)$")  # fmt: skip
+FREE = re.compile(
+    r"(?i)^(note|notes|reason|why|text|comment|comments|message|subject|body|free_text|label|title|"
+    r"query|q|name|display_name|email|mail|phone|description|answer|remark|summary|request)$"
+)
 MASKS = ("mask_detail", "mask_ids", "clean_note", "mask_text", "masked", "redact")
 APPEND = re.compile(r"\b(?:au|audit|_audit|self\.audit|h\.au|self\._audit|log)\.append\(")
 
@@ -90,7 +92,7 @@ def sweep(root: Path = ROOT / "services") -> list[dict[str, Any]]:
                 if kw.arg:
                     keys.append(kw.arg)
                 if kw.arg == "detail" and isinstance(kw.value, ast.Dict):
-                    keys += [f"detail.{k.value}" for k in kw.value.keys if isinstance(k, ast.Constant)]
+                    keys += [f"detail.{k.value!s}" for k in kw.value.keys if isinstance(k, ast.Constant)]
             free = sorted({k for k in keys if FREE.match(k.split(".")[-1])})
             masked = bool(_names(node) & set(MASKS))
             rows.append({"place": f"{_rel(f)}:{node.lineno}", "event": _event(node), "fields": keys,
@@ -122,7 +124,10 @@ def _load(d: Path) -> dict[str, Any]:
 def render(data: dict[str, Any]) -> dict[str, str]:
     """The page's generated blocks, from the json."""
     t = data["tamper"]["cases"]
-    tamper = ["| case | `audit_verify --heads` | console Verify | without `--heads` | first error |", "|---|---|---|---|---|"]
+    tamper = [
+        "| case | `audit_verify --heads` | console Verify | without `--heads` | first error |",
+        "|---|---|---|---|---|",
+    ]
     for c in t:
         tamper.append(f"| {c['case']} | {_ok(c['cli_heads_ok'])} | {_ok(c['console_ok'])} | "
                       f"{_ok(c['cli_no_heads_ok'])} | {_cell(c['first_error'])} |")  # fmt: skip
