@@ -2075,7 +2075,7 @@ class SiteSchema(BaseModel):
 
 class TerminologyTable(BaseModel):
     """
-    One table loaded at install that a compile read (TERM-2 follow-up): its name, the code system it serves (a site list: the systems of its rows), its version and the sha256 of its manifest line. Codes and names only, never a patient value.
+    One table loaded at install that a compile read (TERM-2 follow-up): its name, the URI of the code system it serves (site for a site list, as lane E's terminology_refused entries name it), its version and the sha256 of its manifest line. Codes and names only, never a patient value.
     """
 
     model_config = ConfigDict(

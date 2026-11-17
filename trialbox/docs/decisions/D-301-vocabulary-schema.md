@@ -89,7 +89,8 @@ ICD-10-CM release; D-1113 to D-1116) were outside it, so two boxes could compile
 stamp. Now:
 
 - **The stamp names them.** A compiled manifest carries `terminology_tables` beside `terminology_release`: each loaded
-  table the compile read, with the code system it serves (a site list: its rows' systems), its version and the
+  table the compile read, with the URI of the code system it serves (`site` for a site list, the shape of lane E's
+  `terminology_refused`, E-TERM-3), its version and the
   sha256 of its manifest line (ruleset manifest 1.1.0, `TerminologyTable`, class D1: codes only). Absent: no loaded
   table was read, which is every committed ruleset; their files do not change. The release id itself is unchanged,
   so no committed pin moves.

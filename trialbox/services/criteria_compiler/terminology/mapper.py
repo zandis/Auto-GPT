@@ -561,13 +561,11 @@ class Terminology:
         self._merge(loose, True)  # a component or an ingredient: after every exact name, always for review
 
     def _read_installed(self, inst: Any, where: Path, table: str, rows: list[dict[str, Any]]) -> None:
-        """Record one loaded table as read: its system (a site list's own, from its rows), the version and the sha256
-        of its manifest line (the bytes :func:`installed.read_table` checked)."""
+        """Record one loaded table as read: its system's URI (``site`` for a site list), the version and the sha256 of
+        its manifest line (the bytes :func:`installed.read_table` checked)."""
         line = inst.manifest(where)["tables"][table]
-        if table.startswith(inst.SITE_PREFIX):
-            system = ",".join(sorted({str(r.get("system") or "") for r in rows} - {""}))
-        else:
-            system = TABLE_SYSTEMS.get(table, "")
+        # the shape lane E's refusals use too (E-TERM-3, D-1048): a system URI, or "site" for a site list
+        system = "site" if table.startswith(inst.SITE_PREFIX) else LOADED_SYSTEMS.get(TABLE_SYSTEMS.get(table, ""), "")
         self.installed_read[table] = {"table": table, "system": system, "version": str(line.get("version") or ""),
                                       "sha256": str(line.get("sha256") or "")}  # fmt: skip
 

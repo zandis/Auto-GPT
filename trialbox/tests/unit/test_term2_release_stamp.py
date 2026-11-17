@@ -20,7 +20,7 @@ import tb_contracts as c
 import yaml
 from criteria_compiler.service import stamp_differs
 from criteria_compiler.terminology import installed
-from criteria_compiler.terminology.mapper import Terminology
+from criteria_compiler.terminology.mapper import LOADED_SYSTEMS, Terminology
 
 from tests.unit.test_compiler_service import _approve, _compile, _decisions, env  # noqa: F401 (the fixture)
 
@@ -52,8 +52,8 @@ def test_the_terminology_names_each_loaded_table_it_read(tmp_path: Path) -> None
     lines = installed.manifest(where)["tables"]
     stamp = Terminology(installed=where).installed_stamp()
     assert stamp == [
-        {"table": "nhi_drug_list", "system": "nhi_drug", "version": "2099-02", "sha256": lines["nhi_drug_list"]["sha256"]},
-        {"table": "site_dx", "system": "icd10cm,loinc", "version": "2099-01", "sha256": lines["site_dx"]["sha256"]},
+        {"table": "nhi_drug_list", "system": LOADED_SYSTEMS["nhi_drug"], "version": "2099-02", "sha256": lines["nhi_drug_list"]["sha256"]},
+        {"table": "site_dx", "system": "site", "version": "2099-01", "sha256": lines["site_dx"]["sha256"]},
     ]  # fmt: skip
     assert Terminology(installed=tmp_path / "nothing").installed_stamp() == []
 
@@ -109,4 +109,4 @@ def test_a_compile_that_read_no_loaded_table_writes_no_stamp(env: dict[str, Any]
 def test_every_table_the_mapper_can_read_names_its_system(table: str) -> None:
     from criteria_compiler.terminology.mapper import TABLE_SYSTEMS
 
-    assert TABLE_SYSTEMS[table]
+    assert LOADED_SYSTEMS[TABLE_SYSTEMS[table]].startswith("http")
