@@ -95,6 +95,7 @@ sast:
   - {path: libs/tb_llm/prompt_registry.py, rule: B506, count: 1, reason: "the loader is a yaml.SafeLoader subclass"}
   - {path: tools/supply_chain/allowlist.py, rule: B506, count: 1, reason: "the loader is a yaml.SafeLoader subclass"}
   - {path: tools/complete_run.py, rule: B602, count: 2, reason: "shell=True runs the operator's own --after command"}
+  - {path: tools/text_keys.py, rule: B307, count: 2, reason: "evaluates expressions of the console's own catalogue modules (a ** unpack, a joined label table) in their own namespace to read their text keys; a lint, never in the box"}
   - {path: libs/tb_common/refdata_tw.py, rule: B610, count: 2, reason: "false positive: a local function named extra, not Django"}
   - {path: libs/tb_common/llm.py, rule: B701, count: 1, reason: "Jinja renders plain-text prompts, not HTML"}
   - path: services/criteria_compiler/compile_cql/generator.py
