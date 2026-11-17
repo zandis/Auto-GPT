@@ -78,6 +78,7 @@ lint: contracts-check
 	$(PY) -m ruff format --check .
 	$(PY) -m mypy libs services tools tests
 	$(PY) tools/doclint.py
+	$(PY) -m tools.findings_register --check
 
 FONTS := .cache/fonts/NotoSansTC-Regular.ttf
 
@@ -214,6 +215,7 @@ ci: venv-check
 	$(PY) -m mypy libs services tools tests
 	$(PY) tools/doclint.py
 	PYTHONPATH=libs:services:. $(PY) -m tools.decisions_index --check
+	$(PY) -m tools.findings_register --check
 	PYTHONPATH=libs:services:. $(PY) -m tools.licence_register --check
 	$(MAKE) contracts-check
 	TB_ENV=DEV TB_TZ=Asia/Taipei PYTHONPATH=libs:services:. $(PY) -m tools.build_rulesets --check

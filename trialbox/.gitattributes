@@ -52,3 +52,7 @@ services/sitesetup/dx_names.csv -tb-data
 # the hand-curated zh-TW clinical synonyms of the name matcher (D-172): terms and their English canonical names, no patient
 libs/tb_common/refdata_src/*.csv -tb-data
 *.cmd text eol=crlf
+
+# the findings register (D-1180): every card appends its own rows, so a merge keeps both sides; a row two branches
+# changed then shows twice and `python -m tools.findings_register --check` names its id
+docs/handover/findings-register.md merge=union
