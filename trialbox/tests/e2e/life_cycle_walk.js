@@ -237,8 +237,11 @@ async function act(p, a, tag) {
       await p.reload({ waitUntil: "load" });
       await settle(p);
       const cell = p.locator('main tr[data-event="optout.worker"] td[data-src=audit]').first();
-      const text = (await cell.innerText()).replace(/\s+/g, " ");
+      // textContent: the audit table may sit in a folded frame on a narrow page, where innerText is empty
+      const text = ((await cell.count()) ? await cell.textContent() : "").replace(/\s+/g, " ");
+      const counted = (text.match(/opted_out=(\d+)/) || [])[1] || "";
       check(need > 0, `${tag}: the register counted the opt-out (${need})`);
+      check(Number(counted) >= need, `${tag}: the newest run counts the opt-outs (${counted} of at least ${need})`);
       for (const name of value.split(",")) check(text.includes(`'${name}'`), `${tag}: the worker's run names the clear ${name}`);
       check(text.includes("failed=[]"), `${tag}: no clear failed`);
       check(text.includes("left={}"), `${tag}: no store still holds an opted-out patient`);
