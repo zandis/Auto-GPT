@@ -279,12 +279,14 @@ def summarise(runs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return {"table": table, "first_slow": slows, "slow_factor": SLOW_FACTOR, "slow_floor_s": SLOW_FLOOR_S}
 
 
-def _stage_order(stage: str) -> tuple[int, str]:
+def _stage_order(stage: str) -> tuple[int, int, str]:
+    """The night's order, and a job's study marks by number (x1, x5, x20)."""
     order = ("generate", "ingest", "rebuild+publish", "cascade", "FEAS", "SCREEN")
+    k = int(stage.rsplit(" x", 1)[1]) if " x" in stage and stage.rsplit(" x", 1)[1].isdigit() else 0
     for i, prefix in enumerate(order):
         if stage.startswith(prefix):
-            return i, stage
-    return len(order), stage
+            return i, k, stage
+    return len(order), k, stage
 
 
 def gib(n: float) -> str:

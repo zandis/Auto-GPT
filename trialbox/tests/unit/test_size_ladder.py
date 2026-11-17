@@ -180,3 +180,15 @@ def test_no_zone_no_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None
     with pytest.raises(SystemExit):
         sl.main(["--plan", "10", "--work", str(tmp_path / "w"), "--results", str(tmp_path / "r.json")])
     assert not (tmp_path / "w").exists()
+
+
+def test_the_marks_sort_by_number() -> None:
+    s = sl.summarise([_run(5000, 100.0, [8.0] * 20, [20.0] * 20)])
+    assert [t["stage"] for t in s["table"]][4:] == [
+        "FEAS x1",
+        "FEAS x5",
+        "FEAS x20",
+        "SCREEN x1",
+        "SCREEN x5",
+        "SCREEN x20",
+    ]
