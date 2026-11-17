@@ -105,12 +105,20 @@ def test_the_lake_service_tells_its_limit_and_the_client_reads_it(monkeypatch: p
         assert request.url.path == "/limits"
         return httpx.Response(200, json={"memory_limit": "6GB", "memory_limit_bytes": 6 * GB})
 
+    from lake.client import LakeBadAnswer
+    from matching.cascade.engine import patients_per_query
+
     lake = LakeHttp("http://lake")
     lake.client = httpx.Client(transport=httpx.MockTransport(answer))
-    assert lake.memory_limit_bytes() == 6 * GB
-    for bad in (httpx.Response(404), httpx.Response(200, json={"memory_limit_bytes": "6GB"}), httpx.Response(200)):
+    assert lake.memory_limit_bytes() == 6 * GB and patients_per_query(lake, 5000, 36) == 5000
+    lake.client = httpx.Client(transport=httpx.MockTransport(lambda _r: httpx.Response(404)))
+    assert lake.memory_limit_bytes() is None  # a lake from before the route: not known
+    assert patients_per_query(lake, 5000, 36) == 333  # so the batches
+    for bad in (httpx.Response(200, json={"memory_limit_bytes": "6GB"}), httpx.Response(200), httpx.Response(500)):
         lake.client = httpx.Client(transport=httpx.MockTransport(lambda _r, b=bad: b))
-        assert lake.memory_limit_bytes() is None  # an older lake, a wrong answer: not known, so the batches
+        with pytest.raises((LakeBadAnswer, httpx.HTTPStatusError)):  # the one reader's rule (D-673)
+            lake.memory_limit_bytes()
+        assert patients_per_query(lake, 5000, 36) == 333  # and the cascade keeps to the batches
 
 
 def test_the_lake_route_answers_its_own_limit(monkeypatch: pytest.MonkeyPatch) -> None:
