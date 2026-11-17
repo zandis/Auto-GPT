@@ -69,6 +69,17 @@ def take_code(code: str) -> str | None:
     return got.username if got is not None else None
 
 
+def redeem(code: str, client: str, redirect_uri: str) -> str | None:
+    """D-1045: the code's account when ``client`` and ``redirect_uri`` are the ones it was issued for; None otherwise.
+    The code is spent either way: a code is good for one attempt."""
+    got = door.default_store().take_code(code)
+    if got is None or not redirect_uri or not hmac.compare_digest(got.redirect_uri, redirect_uri):
+        return None
+    if not hmac.compare_digest(got.client_id, client):
+        return None
+    return got.username
+
+
 def _b64(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
 
