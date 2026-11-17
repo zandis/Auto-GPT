@@ -1936,11 +1936,16 @@ def check_terminology(inp: DoctorInputs) -> Check:
     where = installed.installed_dir(dict(inp.env))
     tables = installed.status(where)
     bad = [f"{t.name}: {t.problem}" for t in tables if t.problem]
+    # H-17 (D-1127): the NHI tables shipped in the image are checked too; a refused one answers nothing
+    bad += [f"shipped {p}" for p in installed.shipped_problems()]
     if bad:
         return Check("terminology", "FAIL", "; ".join(bad))
     # TERM-2 (D-1113 to D-1116): every install-time system is named, loaded or not; a licensed one with who accepted
     missing = installed.not_loaded(where)
     rest = f"; not loaded: {', '.join(missing)}" if missing else ""
+    shipped = installed.manifest(installed.SHIPPED_DIR)["tables"] if installed.shipped_tables() else {}
+    rest += "".join(f"; shipped: {n} {line.get('rows')} rows ({line.get('version')})"
+                    for n, line in sorted(shipped.items()))  # fmt: skip
     if not tables:
         return Check("terminology", "PASS", f"nothing loaded in {where}: the shipped tables answer (ICD-10-CM "
                      "FY2026 with its blocks and index); python -m tools.terminology_install loads more"

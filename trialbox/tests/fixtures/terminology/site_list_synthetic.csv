@@ -1,0 +1,51 @@
+local_code,local_name,system,code,display
+ZZ-DX-001,lactation,icd10cm,Z39.1,SYNTHETIC list row (no hospital's): ICD-10-CM Z39.1
+ZZ-DX-002,breastfeeding,icd10cm,Z39.1,SYNTHETIC list row (no hospital's): ICD-10-CM Z39.1
+ZZ-DX-003,chronic subdural hematoma,icd10cm,I62.03,SYNTHETIC list row (no hospital's): ICD-10-CM I62.03
+ZZ-DX-004,mixed episode,icd10cm,F31.6,SYNTHETIC list row (no hospital's): ICD-10-CM F31.6
+ZZ-DX-005,acute coronary syndrome,icd10cm,I24.9,SYNTHETIC list row (no hospital's): ICD-10-CM I24.9
+ZZ-DX-006,acute exacerbation of chronic obstructive pulmonary disease,icd10cm,J44.1,SYNTHETIC list row (no hospital's): ICD-10-CM J44.1
+ZZ-DX-007,AV block,icd10cm,I44.30,SYNTHETIC list row (no hospital's): ICD-10-CM I44.30
+ZZ-DX-008,bipolar I disorder,icd10cm,F31,SYNTHETIC list row (no hospital's): ICD-10-CM F31
+ZZ-DX-009,cardiac arrhythmia,icd10cm,I49.9,SYNTHETIC list row (no hospital's): ICD-10-CM I49.9
+ZZ-DX-010,chronic renal failure,icd10cm,N18.9,SYNTHETIC list row (no hospital's): ICD-10-CM N18.9
+ZZ-DX-011,coagulopathy,icd10cm,D68.9,SYNTHETIC list row (no hospital's): ICD-10-CM D68.9
+ZZ-DX-012,deep vein thrombosis,icd10cm,I82.40,SYNTHETIC list row (no hospital's): ICD-10-CM I82.40
+ZZ-DX-013,drug abuse,icd10cm,F19.10,SYNTHETIC list row (no hospital's): ICD-10-CM F19.10
+ZZ-DX-014,hepatic impairment,icd10cm,K76.9,SYNTHETIC list row (no hospital's): ICD-10-CM K76.9
+ZZ-DX-015,Kawasaki disease,icd10cm,M30.3,SYNTHETIC list row (no hospital's): ICD-10-CM M30.3
+ZZ-DX-016,peripheral vascular disease,icd10cm,I73.9,SYNTHETIC list row (no hospital's): ICD-10-CM I73.9
+ZZ-DX-017,pleural effusion,icd10cm,J90,SYNTHETIC list row (no hospital's): ICD-10-CM J90
+ZZ-DX-018,upper limb deep vein thrombosis,icd10cm,I82.62,SYNTHETIC list row (no hospital's): ICD-10-CM I82.62
+ZZ-DX-019,immune deficiency,icd10cm,D84.9,SYNTHETIC list row (no hospital's): ICD-10-CM D84.9
+ZZ-DX-020,heart disease,icd10cm,I51.9,SYNTHETIC list row (no hospital's): ICD-10-CM I51.9
+ZZ-LAB-001,BMI,loinc,9900001-0,SYNTHETIC list row (no hospital's): made-up LOINC-shaped code
+ZZ-LAB-002,hemoglobin,loinc,9900002-0,SYNTHETIC list row (no hospital's): made-up LOINC-shaped code
+ZZ-LAB-003,platelet count,loinc,9900003-0,SYNTHETIC list row (no hospital's): made-up LOINC-shaped code
+ZZ-LAB-004,serum creatinine,loinc,9900004-0,SYNTHETIC list row (no hospital's): made-up LOINC-shaped code
+ZZ-LAB-005,FEV1,loinc,9900005-0,SYNTHETIC list row (no hospital's): made-up LOINC-shaped code
+ZZ-LAB-006,TSH,loinc,9900006-0,SYNTHETIC list row (no hospital's): made-up LOINC-shaped code
+ZZ-LAB-007,absolute neutrophil count,loinc,9900007-0,SYNTHETIC list row (no hospital's): made-up LOINC-shaped code
+ZZ-LAB-008,AST,loinc,9900008-0,SYNTHETIC list row (no hospital's): made-up LOINC-shaped code
+ZZ-LAB-009,bilirubin,loinc,9900009-0,SYNTHETIC list row (no hospital's): made-up LOINC-shaped code
+ZZ-LAB-010,total bilirubin,loinc,9900010-0,SYNTHETIC list row (no hospital's): made-up LOINC-shaped code
+ZZ-LAB-011,creatinine clearance,loinc,9900011-0,SYNTHETIC list row (no hospital's): made-up LOINC-shaped code
+ZZ-LAB-012,eGFR,loinc,9900012-0,SYNTHETIC list row (no hospital's): made-up LOINC-shaped code
+ZZ-LAB-013,hematocrit,loinc,9900013-0,SYNTHETIC list row (no hospital's): made-up LOINC-shaped code
+ZZ-LAB-014,WBC count,loinc,9900014-0,SYNTHETIC list row (no hospital's): made-up LOINC-shaped code
+ZZ-LAB-015,FEV1/FVC ratio,loinc,9900015-0,SYNTHETIC list row (no hospital's): made-up LOINC-shaped code
+ZZ-RX-001,antibiotics,atc,Z99XA01,SYNTHETIC list row (no hospital's): made-up ATC-shaped code
+ZZ-RX-002,heparin,atc,Z99XA02,SYNTHETIC list row (no hospital's): made-up ATC-shaped code
+ZZ-RX-003,antibiotic,atc,Z99XA01,SYNTHETIC list row (no hospital's): made-up ATC-shaped code
+ZZ-RX-004,antipsychotic,atc,Z99XA03,SYNTHETIC list row (no hospital's): made-up ATC-shaped code
+ZZ-RX-005,clopidogrel,atc,Z99XA04,SYNTHETIC list row (no hospital's): made-up ATC-shaped code
+ZZ-RX-006,corticosteroid,atc,Z99XA05,SYNTHETIC list row (no hospital's): made-up ATC-shaped code
+ZZ-RX-007,everolimus,atc,Z99XA06,SYNTHETIC list row (no hospital's): made-up ATC-shaped code
+ZZ-RX-008,glibenclamide,atc,Z99XA07,SYNTHETIC list row (no hospital's): made-up ATC-shaped code
+ZZ-RX-009,immunosuppressant,atc,Z99XA08,SYNTHETIC list row (no hospital's): made-up ATC-shaped code
+ZZ-PX-001,dialysis,nhi_order,ZZ901C,SYNTHETIC list row (no hospital's): made-up NHI order code
+ZZ-PX-002,hemodialysis,nhi_order,ZZ902C,SYNTHETIC list row (no hospital's): made-up NHI order code
+ZZ-PX-003,mechanical ventilation,nhi_order,ZZ903C,SYNTHETIC list row (no hospital's): made-up NHI order code
+ZZ-PX-004,central vena catheterization,nhi_order,ZZ904C,SYNTHETIC list row (no hospital's): made-up NHI order code
+ZZ-PX-005,percutaneous coronary intervention,nhi_order,ZZ905C,SYNTHETIC list row (no hospital's): made-up NHI order code
+ZZ-PX-006,radiotherapy,nhi_order,ZZ906C,SYNTHETIC list row (no hospital's): made-up NHI order code

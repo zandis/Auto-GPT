@@ -994,6 +994,7 @@ def create_app(
             admin_mail=settings.admin_email,
             sso=settings.sso,
             oidc=ident.oidc_enabled,
+            box_roles=us.box_roles(),  # D-1151: the role drop-down (a test box with acting on), else empty
             **ctx,
         )
         resp.set_cookie(
@@ -1015,7 +1016,11 @@ def create_app(
 
     @app.post("/login")
     def login(
-        request: Request, username: str = Form(""), password: str = Form(""), login_csrf: str = Form("")
+        request: Request,
+        username: str = Form(""),
+        password: str = Form(""),
+        login_csrf: str = Form(""),
+        role: str = Form(""),
     ) -> Response:
         cookie = request.cookies.get(LOGIN_COOKIE, "")
         if not cookie or not secrets.compare_digest(cookie, login_csrf):
@@ -1042,7 +1047,8 @@ def create_app(
                 request, 401, failed=True, uninitialised=False, until=until.isoformat() if until else "", left=left
             )
         if ident.needs_code(user):  # D-192: local accounts give a TOTP code before a session exists
-            return ident.second_step(user)
+            return ident.second_step(user, role=role)  # D-1151: the chosen role waits for the code
+        acting.at_sign_in(us, au, user.username, role)  # D-1151: every factor is right
         token, _ = us.new_session(user, lang_of(request, None), "password")
         au.append("console.login", actor=f"console:{user.username}", detail={"role": user.role})
         landing = "/home" if settings.pilot else "/"  # S1: land on the work list
@@ -1405,6 +1411,9 @@ def create_app(
     # STEPS-ROLE (D-877): the role a session acts in, on a test box with the flag on; refused to start otherwise
     acting.check_at_start(raw_env, us)
     us.acting_on = lambda: acting.on(raw_env)
+    us.on_acting_start = lambda name, own, role: au.append(  # D-1151 (the review): a session that starts acting
+        acting.AUDIT, actor=f"console:{name}", detail={"user": name, "from": own, "to": role, "at": "session-start"}
+    )
     acting.register(app, helpers, us, raw_env)
     edc_pages.register(app, helpers)  # EDC prefill: switch, map, review, e-signature, send, ODM (D-160)
     from console import copy_assist_page
