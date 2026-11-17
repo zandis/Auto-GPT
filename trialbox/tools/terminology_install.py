@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd != "status":
         try:
             got = _load(args, where)
-        except (ValueError, OSError) as exc:
+        except (ValueError, OSError, installed.TerminologyRefused) as exc:
             print(f"terminology_install {args.cmd}: refused: {exc}", file=sys.stderr)
             return 2
         for name, n in got.items():

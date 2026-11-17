@@ -40,6 +40,7 @@ LOINC_CSV = """"LOINC_NUM","COMPONENT","PROPERTY","SYSTEM","SCALE_TYP","CLASS","
 CLAML = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE ClaML SYSTEM "ClaML.dtd">
 <ClaML version="2.0.0"><Title name="SYNTHETIC-ICD10" version="2099">SYNTHETIC</Title>
+<Class code="XXII" kind="chapter"><Rubric kind="preferred"><Label>SYNTHETIC chapter</Label></Rubric></Class>
 <Class code="U90-U99" kind="block"><Rubric kind="preferred"><Label>SYNTHETIC block of made-up disorders</Label></Rubric></Class>
 <Class code="U98" kind="category"><Rubric kind="preferred"><Label>SYNTHETIC who only disorder</Label></Rubric></Class>
 <Class code="U98.0" kind="category"><Rubric kind="preferred"><Label>SYNTHETIC who only disorder, first kind</Label></Rubric></Class>
@@ -117,13 +118,70 @@ def test_a_site_list_only_answers_for_its_systems_domain(term: Terminology) -> N
     assert term.map("medication", "hypertension").method != "site"
 
 
-def test_two_site_lists_the_first_by_name_keeps_a_name(tmp_path: Path) -> None:
+def test_two_site_lists_that_disagree_go_to_a_person(tmp_path: Path) -> None:
+    """TERM-2 review: the first list (by name) still answers, but no longer silently: two of the site's own lists that
+    give one name different codes are for review, and the note names both (this corrects the earlier expectation)."""
     where = tmp_path / "t"
     installed.install_site_list(_write(tmp_path, "a.tsv", "local_name\tcode\nhypertension\tI15\n"), where, "a",
                                 system="icd10cm")  # fmt: skip
     installed.install_site_list(_write(tmp_path, "b.csv", "local_name,code\nhypertension,I10\n"), where, "b",
                                 system="icd10cm")  # fmt: skip
-    assert _fams(Terminology(installed=where).map("condition", "hypertension")) == {"I15"}
+    r = Terminology(installed=where).map("condition", "hypertension")
+    assert _fams(r) == {"I15"} and r.method == "site" and r.needs_review
+    assert "lists site_a, site_b give this name different codes" in r.notes
+    other = tmp_path / "u"
+    for n in ("a", "c"):  # two lists that agree are no conflict
+        installed.install_site_list(_write(tmp_path, f"{n}.csv", "local_name,code\nhypertension,I15\n"), other, n,
+                                    system="icd10cm")  # fmt: skip
+    agree = Terminology(installed=other).map("condition", "hypertension")
+    assert not agree.needs_review and agree.notes == ["site list site_a"]
+
+
+def test_a_site_list_that_contradicts_itself_is_refused(tmp_path: Path) -> None:
+    text = "local_code,local_name,system,code\nZZ1,hypertension,icd10cm,I10\nZZ2,Hypertension,icd10cm,I15\n"
+    with pytest.raises(ValueError, match=r"line 3: local_name 'Hypertension' is I15 here and I10 on line 2"):
+        installed.install_site_list(_write(tmp_path, "x.csv", text), tmp_path / "t", "x")
+    same = "local_code,local_name,system,code\nZZ1,x,icd10cm,I10\nZZ1,y,icd10cm,E11\n"
+    with pytest.raises(ValueError, match="local_code 'ZZ1' is E11 here and I10 on line 2"):
+        installed.install_site_list(_write(tmp_path, "y.csv", same), tmp_path / "t", "y")
+
+
+@pytest.mark.parametrize(("code", "stored"), [("e11", "E11"), ("Ｅ１１", "E11"), (" i10 ", "I10"), ("E11.9", "E11.9")])
+def test_a_site_code_is_stored_as_the_tables_write_it(tmp_path: Path, code: str, stored: str) -> None:
+    p = _write(tmp_path, "s.csv", f"local_name,code\nSYNTHETIC name,{code}\n")
+    installed.install_site_list(p, tmp_path / "t", "s", system="icd10cm")
+    r = Terminology(installed=tmp_path / "t").map("condition", "SYNTHETIC name")
+    assert r.method == "site" and not r.needs_review and r.concepts[0].code.startswith(stored)
+
+
+@pytest.mark.parametrize(("system", "code"), [("icd10cm", "I109"), ("icd10cm", "hypertension"), ("loinc", "2160"),
+                                              ("atc", "Z99AA0"), ("icd10pcs", "0Z1"), ("icd10_who", "XXII")])  # fmt: skip
+def test_a_site_code_not_shaped_as_its_system_refuses_the_list(tmp_path: Path, system: str, code: str) -> None:
+    p = _write(tmp_path, "s.csv", f"local_name,system,code\nok,icd10cm,I10\nSYNTHETIC name,{system},{code}\n")
+    with pytest.raises(ValueError, match=f"line 3: '{code}' is not a {system} code"):
+        installed.install_site_list(p, tmp_path / "t", "s")
+    assert not (tmp_path / "t").exists()
+
+
+def test_a_site_code_no_table_holds_is_for_review(tmp_path: Path) -> None:
+    p = _write(tmp_path, "s.csv", "local_name,system,code\nSYNTHETIC one,icd10cm,I10.99\nSYNTHETIC two,loinc,99990-1\n")
+    installed.install_site_list(p, tmp_path / "t", "s")
+    t = Terminology(installed=tmp_path / "t")
+    for name, code in (("SYNTHETIC one", "I10.99"), ("SYNTHETIC two", "99990-1")):
+        r = t.map("condition" if code.startswith("I") else "observation", name)
+        assert r.method == "site" and r.needs_review and f"in no loaded or shipped table: {code}" in r.notes
+
+
+def test_cjk_and_bracketed_names_keep_their_own_keys(tmp_path: Path) -> None:
+    """TERM-2 review: a zh name is never reduced to its Latin letters, and words in brackets stay words."""
+    site = ("local_name,system,code\nB型肝炎,icd10cm,B18.1\n第2型糖尿病,icd10cm,E11\n"
+            "Hepatitis B (HBsAg),icd10cm,B18.1\n")  # fmt: skip
+    installed.install_site_list(_write(tmp_path, "s.csv", site), tmp_path / "t", "s")
+    t = Terminology(installed=tmp_path / "t")
+    assert t.map("condition", "B型肝炎").method == "site"
+    for other in ("B群鏈球菌感染", "第2期慢性腎病", "Hepatitis B (anti-HBs)", "hepatitis b"):
+        assert t.map("condition", other).method != "site", other
+    assert t.map("condition", "hepatitis-B (HBsAg)").method == "site"  # punctuation and case alone still match
 
 
 def test_a_big5_site_list_loads(tmp_path: Path) -> None:
@@ -148,12 +206,59 @@ def test_the_nhi_lists_load_with_their_attribution(loaded: Path, term: Terminolo
     lines = installed.manifest(loaded)["tables"]
     for t in ("nhi_drug_list", "nhi_service_list"):
         assert "Open Government Data License" in lines[t]["licence"] and "data.gov.tw" in lines[t]["attribution"]
-    r = term.map("medication", "flupentixol")  # the drug list's 成分, without salt or strength, to its ATC column
-    assert r.method == "loaded" and r.needs_review and [c.code for c in r.concepts] == ["N05AF01"]
-    assert r.concepts[0].system == SYSTEMS["atc"]
+    # the sample's only drug left the list on 2014-06-30 (有效迄日 1030630): an ended code answers nothing
+    assert term.map("medication", "flupentixol").method == "none"
     h = term.map("procedure", "hemodialysis")
     assert h.method == "loaded" and [(c.system, c.code) for c in h.concepts] == [(SYSTEMS["nhi_order"], "58001C")]
     assert term.map("procedure", "總膽固醇").concepts[0].code == "09001C"
+
+
+# NHIA's drug-list columns (as tests/fixtures/refdata/nhi_drugs_sample.csv has them), every row made up
+NHI_DRUG_HEAD = ("異動,藥品代號,藥品英文名稱,藥品中文名稱,成分,規格量,規格單位,單複方,支付價,有效起日,有效迄日,藥商,製造廠名稱,"
+                 "劑型,藥品分類,分類分組名稱,ATC代碼,給付規定章節,藥品代碼超連結,給付規定章節連結")  # fmt: skip
+
+
+def _nhi_drug(code: str, ingredient: str, atc: str, until: str = "1991231") -> str:
+    return f",{code},SYNTHETIC,合成,{ingredient},,,單方,1.00,1100101,{until},,,錠,,,{atc},,,"
+
+
+def test_an_nhi_ingredient_keeps_its_digits_and_ended_codes_are_left_out(tmp_path: Path) -> None:
+    text = "\n".join([NHI_DRUG_HEAD, _nhi_drug("ZZ00000100", "SYNTHETICOL B12 1 MG", "Z99AA01"),
+                      _nhi_drug("ZZ00000200", "SYNTHETICOL B6 (HCL) 5 MG", "Z99AA02"),
+                      _nhi_drug("ZZ00000300", "SYNTHETIC ENDED 1 MG", "Z99AA03", until="1030630")]) + "\n"  # fmt: skip
+    installed.install_nhi_drugs(_write(tmp_path, "d.csv", text), tmp_path / "t")
+    t = Terminology(installed=tmp_path / "t")
+    b12 = t.map("medication", "syntheticol b12")
+    assert b12.method == "loaded" and b12.needs_review and [c.code for c in b12.concepts] == ["Z99AA01"]
+    assert [c.code for c in t.map("medication", "syntheticol b6").concepts] == ["Z99AA02"]
+    assert t.map("medication", "synthetic ended").method == "none"
+
+
+def test_a_name_with_several_codes_in_one_table_answers_all_of_them_for_review(tmp_path: Path) -> None:
+    """TERM-2 review: never the first code alone. Two NHI items named the same, and one ATC substance under two codes."""
+    svc = ("診療項目代碼,健保支付點數,生效起日,生效迄日,英文項目名稱,中文項目名稱,備註\n"
+           "ZZ001C,1,20200101,29101231,SYNTHETIC dialysis,合成透析（門診）,\n"
+           "ZZ002B,1,20200101,29101231,SYNTHETIC dialysis,合成透析（住院）,\n")  # fmt: skip
+    installed.install_nhi_services(_write(tmp_path, "s.csv", svc), tmp_path / "t")
+    atc = "ATC code\tATC level name\nZ99AA01\tsynthetic twin\nZ99BB01\tsynthetic twin\nZ99CC01\tsynthetic single\n"
+    installed.install_atc(_write(tmp_path, "a.tsv", atc), tmp_path / "t", NAME, version="2099")
+    t = Terminology(installed=tmp_path / "t")
+    d = t.map("procedure", "SYNTHETIC dialysis")
+    assert d.needs_review and {c.code for c in d.concepts} == {"ZZ001C", "ZZ002B"}
+    assert "several codes share this name" in d.notes[0]
+    tw = t.map("medication", "synthetic twin")
+    assert tw.needs_review and {c.code for c in tw.concepts} == {"Z99AA01", "Z99BB01"}
+    single = t.map("medication", "synthetic single")
+    assert not single.needs_review and [c.code for c in single.concepts] == ["Z99CC01"]
+
+
+def test_a_name_in_two_tables_answers_from_the_first_for_review(tmp_path: Path) -> None:
+    svc = ("診療項目代碼,健保支付點數,生效起日,生效迄日,英文項目名稱,中文項目名稱,備註\n"
+           "ZZ003C,1,20200101,29101231,SYNTHETIC resection procedure,合成切除,\n")  # fmt: skip
+    installed.install_nhi_services(_write(tmp_path, "s.csv", svc), tmp_path / "t")
+    installed.install_icd10pcs(_write(tmp_path, "icd10pcs_order_2099.txt", PCS_ORDER), tmp_path / "t", "2099")
+    r = Terminology(installed=tmp_path / "t").map("procedure", "SYNTHETIC resection procedure")
+    assert r.needs_review and [c.code for c in r.concepts] == ["ZZ003C"] and "also in icd10pcs" in r.notes[0]
 
 
 # --------------------------------------------------------------------------------------------------- ICD-10-PCS
@@ -166,6 +271,9 @@ def test_icd10pcs_loads_from_the_order_or_the_codes_file(term: Terminology, tmp_
     assert installed.install_icd10pcs(codes, tmp_path / "t", "2099") == {"icd10pcs": 1}
     with pytest.raises(ValueError, match="not a line of CMS"):
         installed.install_icd10pcs(_write(tmp_path, "bad.txt", "hello world\n"), tmp_path / "u", "2099")
+    empty = f"{4:05d} {'0Z3ZZZZ':<7} 1 {'SYNTHETIC short only':<60}\n"  # an order line without its long description
+    with pytest.raises(ValueError, match="line 1: not a line of CMS"):
+        installed.install_icd10pcs(_write(tmp_path, "icd10pcs_order_2098.txt", empty), tmp_path / "v", "2098")
 
 
 # ----------------------------------------------------------------------------------- LOINC, WHO ICD-10 and ATC
@@ -181,7 +289,7 @@ def test_a_licensed_system_names_who_accepted_its_licence(loaded: Path) -> None:
     assert "site_dx" in lines and "licence_accepted_by" not in lines["site_dx"]
 
 
-@pytest.mark.parametrize("who", ["", "  ", "yes", "IT", "admin", "123"])
+@pytest.mark.parametrize("who", ["", "  ", "yes", "IT", "admin", "123", "A", "Ada", "A B"])
 def test_a_licensed_system_without_a_named_person_is_not_loaded(tmp_path: Path, who: str) -> None:
     p = _write(tmp_path, "Loinc.csv", LOINC_CSV)
     with pytest.raises(ValueError, match="must name the person"):
@@ -241,10 +349,75 @@ def test_atc_names_and_groups(term: Terminology, tmp_path: Path) -> None:
 
 
 # ------------------------------------------------------------------------------------------ nothing loaded, doctor
+NAMES = [("condition", "hypertension"), ("condition", "ischemic heart disease"), ("condition", "gout"),
+         ("condition", "高血壓"), ("condition", "qwerty zxcv syndrome"), ("medication", "allopurinol"),
+         ("medication", "urate-lowering therapy"), ("observation", "serum uric acid"), ("observation", "hba1c"),
+         ("procedure", "hemodialysis"), ("procedure", "chest x-ray"), ("encounter", "rheumatology"),
+         ("claim", "allopurinol"), ("report", "creatinine")]  # fmt: skip
+
+
+def _answer(t: Terminology, domain: str, name: str) -> tuple[object, ...]:
+    r = t.map(domain, name)
+    return r.method, r.needs_review, [(c.system, c.code) for c in r.concepts], r.families, r.notes
+
+
 def test_with_nothing_loaded_nothing_changes(tmp_path: Path) -> None:
-    t = Terminology(installed=tmp_path / "nothing")
-    assert not t.site_names and not t.loaded_names and not t.loaded_sources and not t.installed_problems
+    """D-1116: with no folder and with an empty folder the mapper gives the same answers, and none is TERM-2's."""
+    (tmp_path / "empty").mkdir()
+    none, empty = Terminology(installed=tmp_path / "nothing"), Terminology(installed=tmp_path / "empty")
+    for t in (none, empty):
+        assert not t.site_names and not t.loaded_names and not t.loaded_sources and not t.installed_problems
+    for domain, name in NAMES:
+        assert _answer(none, domain, name) == _answer(empty, domain, name), name
+        assert _answer(empty, domain, name)[0] not in ("site", "loaded"), name
     assert installed.not_loaded(tmp_path / "nothing") == [label for label, _ in installed.AT_INSTALL]
+
+
+def test_a_damaged_manifest_is_a_refusal_not_a_crash(loaded: Path, tmp_path: Path) -> None:
+    from tools.trialbox import doctor
+
+    copy = tmp_path / "copy"
+    copy.mkdir()
+    for p in loaded.glob("*.parquet"):
+        (copy / p.name).write_bytes(p.read_bytes())
+    (copy / "manifest.json").write_text('{"tables": {"site_dx": {"sha', encoding="utf-8")  # cut short
+    t = Terminology(installed=copy)
+    assert any("not readable JSON" in p for p in t.installed_problems) and not t.loaded_sources
+    assert t.map("condition", "hypertension").method != "site"
+    bad = doctor.check_terminology(doctor.DoctorInputs(env={"TB_TERMINOLOGY_DIR": str(copy)}))
+    assert bad.status == "FAIL" and "not readable JSON" in bad.detail
+
+
+def test_a_manifest_key_that_is_not_a_plain_name_is_refused(tmp_path: Path) -> None:
+    where = tmp_path / "t"
+    installed.install_site_list(_write(tmp_path, "s.csv", "local_name,code\nx,I10\n"), where, "s", system="icd10cm")
+    data = json.loads((where / "manifest.json").read_text(encoding="utf-8"))
+    data["tables"]["../outside"] = dict(data["tables"]["site_s"])
+    (where / "manifest.json").write_text(json.dumps(data), encoding="utf-8")
+    problems = {s.name: s.problem for s in installed.status(where)}
+    assert "not a plain table name" in problems["../outside"] and not problems["site_s"]
+
+
+def test_the_loader_leaves_no_temporary_file_and_a_whole_manifest(loaded: Path) -> None:
+    assert not list(loaded.glob("*.tmp")) and not list(loaded.glob(".*.tmp"))
+    assert set(installed.manifest(loaded)["tables"]) == {p.stem for p in loaded.glob("*.parquet")}
+
+
+def test_a_licensed_name_may_be_written_in_cjk(tmp_path: Path) -> None:
+    line = installed.licence_line("loinc_table", "王小明", "2099-01-02")
+    assert line["licence_accepted_by"] == "王小明"
+
+
+def test_a_who_category_in_a_site_list_stands_for_its_family(loaded: Path, tmp_path: Path) -> None:
+    where = tmp_path / "t"
+    for p in loaded.iterdir():
+        (where / p.name).parent.mkdir(exist_ok=True)
+        (where / p.name).write_bytes(p.read_bytes())
+    installed.install_site_list(_write(tmp_path, "w.csv", "local_name,code\nSYNTHETIC local disorder,U98\n"), where,
+                                "who", system="icd10_who")  # fmt: skip
+    r = Terminology(installed=where).map("condition", "SYNTHETIC local disorder")
+    assert r.method == "site" and not r.needs_review and {c.code for c in r.concepts} == {"U98", "U98.0", "U98.9"}
+    assert (ICD10_WHO, "U98") in r.families
 
 
 def test_doctor_names_each_system_and_who_accepted(loaded: Path, tmp_path: Path) -> None:

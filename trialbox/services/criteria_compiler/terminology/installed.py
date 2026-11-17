@@ -67,22 +67,36 @@ def manifest(directory: Path) -> dict[str, Any]:
     p = directory / MANIFEST
     if not p.is_file():
         return {"tables": {}}
-    data = json.loads(p.read_text(encoding="utf-8"))
+    try:  # TERM-2 review (D-1116): a damaged manifest is a refusal, never a crash of the mapper or the doctor
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise TerminologyRefused(f"{p}: not readable JSON ({type(exc).__name__}); load the tables again") from exc
     return data if isinstance(data, dict) and isinstance(data.get("tables"), dict) else {"tables": {}}
+
+
+_PLAIN = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$")
+
+
+def _plain_name(name: str) -> bool:
+    """A table name is a plain file name: no folder, no ``..`` (a manifest key ``../x`` names nothing here)."""
+    return bool(_PLAIN.match(name)) and ".." not in name
 
 
 def read_table(directory: Path, name: str) -> list[dict[str, Any]] | None:
     """The rows of a loaded table, or None when it is not loaded. Raises :class:`TerminologyRefused` for a table with
     no manifest line or whose sha256 differs from it (a hand-copied or changed file is never read)."""
+    if not _plain_name(name):
+        raise TerminologyRefused(f"{name!r}: not a plain table name; nothing outside {directory} is read")
     path = directory / f"{name}.parquet"
     if not path.is_file():
         return None
     line = manifest(directory)["tables"].get(name)
     if not line:
         raise TerminologyRefused(f"{path}: no line in {MANIFEST}; load it with tools.terminology_install")
-    if line.get("sha256") != _sha(path):
+    data = path.read_bytes()  # TERM-2 review: the bytes hashed are the bytes parsed (no swap between the two reads)
+    if line.get("sha256") != hashlib.sha256(data).hexdigest():
         raise TerminologyRefused(f"{path}: its sha256 differs from {MANIFEST}; load it again")
-    rows: list[dict[str, Any]] = pq.read_table(path).to_pylist()
+    rows: list[dict[str, Any]] = pq.read_table(pa.BufferReader(data)).to_pylist()
     return rows
 
 
@@ -97,12 +111,17 @@ class Loaded:
 
 def status(directory: Path) -> list[Loaded]:
     """Each table under the directory and each manifest line: what is loaded, and what is refused and why."""
-    lines = manifest(directory)["tables"]
+    try:
+        lines, damaged = manifest(directory)["tables"], ""
+    except TerminologyRefused as exc:
+        lines, damaged = {}, str(exc)
     names = sorted({p.stem for p in directory.glob("*.parquet")} | set(lines)) if directory.is_dir() else []
     out = []
     for n in names:
         line = lines.get(n) or {}
         try:
+            if damaged:
+                raise TerminologyRefused(damaged)
             rows = read_loaded(directory, n)
             problem = "" if rows is not None else "in the manifest but its file is missing"
         except TerminologyRefused as exc:
@@ -161,13 +180,25 @@ def icd10cm_index(index: bytes) -> list[dict[str, str]]:
 
 
 def _write(directory: Path, name: str, rows: list[dict[str, str]], cols: tuple[str, ...], line: dict[str, Any]) -> None:
+    import fcntl
+
     path = directory / f"{name}.parquet"
     tmp = path.with_suffix(".parquet.tmp")
-    pq.write_table(pa.table({c: pa.array([r[c] for r in rows], pa.string()) for c in cols}), tmp, compression="zstd")
-    tmp.replace(path)
-    data = manifest(directory)
-    data["tables"][name] = {**line, "sha256": _sha(path), "rows": len(rows)}
-    (directory / MANIFEST).write_text(json.dumps(data, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    # TERM-2 review (D-1116): one loader at a time (a lock around the table's replace and its manifest line), and the
+    # manifest is written whole or not at all (a temporary file, fsync, then rename)
+    with (directory / ".manifest.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        pq.write_table(pa.table({c: pa.array([r[c] for r in rows], pa.string()) for c in cols}), tmp,
+                       compression="zstd")  # fmt: skip
+        tmp.replace(path)
+        data = manifest(directory)
+        data["tables"][name] = {**line, "sha256": _sha(path), "rows": len(rows)}
+        mtmp = directory / f".{MANIFEST}.tmp"
+        with mtmp.open("w", encoding="utf-8") as f:
+            f.write(json.dumps(data, indent=1, sort_keys=True) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(mtmp, directory / MANIFEST)
 
 
 def install_icd10cm(zip_path: Path, directory: Path, year: str, now: datetime | None = None) -> dict[str, int]:
@@ -219,10 +250,34 @@ SITE_SYSTEMS = ("icd10cm", "icd10pcs", "icd10_who", "loinc", "atc", "nhi_drug", 
 _NOT_A_NAME = frozenset({"-", "accept", "accepted", "admin", "administrator", "agree", "hospital", "i agree", "it",
                          "me", "n/a", "na", "none", "ok", "root", "site", "the site", "test", "unknown", "user", "y",
                          "yes"})  # fmt: skip
+_WHO_CODE = re.compile(r"^[A-Z]\d{2}(\.\d+)?$")
+_WHO_BLOCK = re.compile(r"^[A-Z]\d{2}-[A-Z]\d{2}$")
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9_]{0,39}$")
 _PCS = re.compile(r"^[0-9A-HJ-NP-Z]{3,7}$")
 _ATC = re.compile(r"^[A-Z](\d{2}([A-Z]([A-Z](\d{2})?)?)?)?$")
 _LOINC = re.compile(r"^\d{1,7}-\d$")
+# TERM-2 review (D-1113): the shape of a code in each system a site list may name (after NFKC and upper case)
+SITE_CODE_SHAPES: dict[str, re.Pattern[str]] = {
+    "icd10cm": re.compile(r"^[A-Z][0-9][0-9A-Z](\.[0-9A-Z]{1,4})?$"),  # written dotted (D-808)
+    "icd10_who": re.compile(r"^[A-Z][0-9]{2}(\.[0-9]{1,2})?$"),
+    "icd10pcs": re.compile(r"^[0-9A-HJ-NP-Z]{7}$"),
+    "loinc": _LOINC,
+    "atc": _ATC,
+    "nhi_drug": re.compile(r"^[A-Z0-9]{10}$"),
+    "nhi_order": re.compile(r"^[0-9A-Z]{2,12}$"),
+    "department": re.compile(r"^[0-9A-Z][0-9A-Z._-]{0,19}$"),
+}
+
+
+def site_code(system: str, code: str) -> str:
+    """A site list's code as the tables write it (NFKC: full-width ``Ｅ１１`` is E11; upper case), or ValueError when
+    it is not shaped as a code of its system (``I109`` without its dot, a word)."""
+    import unicodedata
+
+    c = unicodedata.normalize("NFKC", code).strip().upper()
+    if not SITE_CODE_SHAPES[system].match(c):
+        raise ValueError(f"{code!r} is not a {system} code")
+    return c
 
 
 def is_licensed(name: str) -> bool:
@@ -233,7 +288,10 @@ def licence_line(name: str, accepted_by: str, accepted_on: str = "", now: dateti
     """The manifest fields of a licensed system (D-1114): its licence, the named person who accepted it, and the day.
     Refuses a missing name or a word that names nobody (``yes``, ``admin``, ``IT``)."""
     who = " ".join((accepted_by or "").split())
-    if not who or who.lower() in _NOT_A_NAME or not any(ch.isalpha() for ch in who):
+    letters = [ch for ch in who if ch.isalpha()]
+    cjk = any(not ch.isascii() for ch in letters)
+    plausible = (cjk and len(letters) >= 2) or (len(who.split()) >= 2 and len(letters) >= 3)
+    if not who or who.lower() in _NOT_A_NAME or not plausible:  # a full name: two words, or a CJK name
         raise ValueError(f"{name}: --accepted-by must name the person who accepted the licence ({LICENSED[name]}), "
                          f"not {accepted_by!r}")  # fmt: skip
     day = (accepted_on or "").strip() or (now or datetime.now(UTC)).date().isoformat()
@@ -343,14 +401,26 @@ def site_list_rows(text: str, system: str = "", what: str = "the site list") -> 
     code, sy = _col(rows, ("code",), what), _col(rows, ("system",), what, required=not system)
     disp = _col(rows, ("display",), what, required=False)
     out = []
+    seen: dict[tuple[str, str, str], tuple[str, int]] = {}  # (system, local code or name) -> (code, line)
     for i, r in enumerate(rows, start=2):
         s = (r.get(sy, "") if sy else "") or system
         if s not in SITE_SYSTEMS:
             raise ValueError(f"{what}, line {i}: system {s!r} is not one of {', '.join(SITE_SYSTEMS)}")
         if not r.get(code) or not (r.get(lc, "") or r.get(ln, "")):
             raise ValueError(f"{what}, line {i}: a row needs a code and a local code or a local name")
-        out.append({"local_code": r.get(lc, "") if lc else "", "local_name": r.get(ln, "") if ln else "",
-                    "system": s, "code": r[code], "display": r.get(disp, "") if disp else ""})  # fmt: skip
+        try:
+            c = site_code(s, r[code])
+        except ValueError as exc:
+            raise ValueError(f"{what}, line {i}: {exc}") from exc
+        local = {"local_code": r.get(lc, "") if lc else "", "local_name": r.get(ln, "") if ln else ""}
+        for kind, value in local.items():  # one local code or name, two standard codes: the list contradicts itself
+            key = (s, kind, " ".join(value.lower().split()))
+            if value and key in seen and seen[key][0] != c:
+                raise ValueError(f"{what}, line {i}: {kind} {value!r} is {c} here and {seen[key][0]} on line "
+                                 f"{seen[key][1]}")  # fmt: skip
+            if value:
+                seen.setdefault(key, (c, i))
+        out.append({**local, "system": s, "code": c, "display": r.get(disp, "") if disp else ""})
     return out
 
 
@@ -412,7 +482,7 @@ def icd10pcs_rows(text: str) -> list[dict[str, str]]:
         line = raw.rstrip()
         if not line.strip():
             continue
-        if len(line) > 77 and line[:5].strip().isdigit() and line[5] == " ":
+        if len(line) > 6 and line[:5].isdigit() and line[5] == " ":  # the order file: always its fixed columns
             code, valid, short, long = line[6:13].strip(), line[14:15], line[16:76].strip(), line[77:].strip()
         else:
             parts = line.split(None, 1)
@@ -490,13 +560,16 @@ def icd10_who_rows(data: bytes) -> tuple[list[dict[str, str]], str]:
         for cls in root.iter("Class"):
             label = next((" ".join("".join(lb.itertext()).split()) for rb in cls.findall("Rubric")
                           if rb.get("kind") == "preferred" for lb in rb.findall("Label")), "")  # fmt: skip
-            if cls.get("code") and label:
-                out.append({"code": str(cls.get("code")), "display": label, "kind": str(cls.get("kind") or "")})
+            code, kind = str(cls.get("code") or ""), str(cls.get("kind") or "")
+            # TERM-2 review: a chapter (``I``, ``XXII``) is no code; a block (``A00-A09``) is kept as a block
+            if label and (_WHO_CODE.match(code) or (kind == "block" and _WHO_BLOCK.match(code))):
+                out.append({"code": code, "display": label, "kind": "block" if "-" in code else "category"})
         return out, ver
     rows = table_rows(_text(data, "WHO ICD-10"), "WHO ICD-10")
     code, label = _col(rows, ("code",), "WHO ICD-10"), _col(rows, ("title", "display"), "WHO ICD-10")
     return [{"code": r[code], "display": r[label], "kind": "category" if "-" not in r[code] else "block"}
-            for r in rows if r.get(code) and r.get(label)], ""  # fmt: skip
+            for r in rows if r.get(label) and (_WHO_CODE.match(r.get(code, "")) or _WHO_BLOCK.match(r.get(code, "")))
+            ], ""  # fmt: skip
 
 
 def install_icd10_who(path: Path, directory: Path, accepted_by: str, accepted_on: str = "", version: str = "",
