@@ -115,7 +115,7 @@ def test_every_list_names_the_same_person_with_the_same_state_in_three_languages
             row = _cell(subs, f'data-testid="subject-{rec}"')
             assert _state_in(row) == [s] and translate(lang, ps.key(s)) in html.unescape(row), (lang, rec)
         log = crc.get("/studies/GZQO/screening-log").text
-        assert _state_in(_cell(log, f'data-testid="status-{study["no_a"]}"', "</td>")) == ["consented"]
+        assert re.search(rf'data-state="consented" data-testid="status-{study["no_a"]}">', log)  # the log page
         one = crc.get(f"/studies/GZQO/subjects/{study['gone']}").text
         assert _state_in(_cell(one, 'data-testid="life-now"', "</p>"))[0] == "withdrawn"
         # walk finding F-13: no contact step for a participant
