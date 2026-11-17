@@ -30,6 +30,13 @@ the repository. The tables below are written from the four plans (`tests/e2e/mod
 `tests/e2e/module_walk_common.py`), and a fast test keeps them equal; the same findings are in
 `module-walks-findings-2026-11-17.json` beside this page, in the findings register's `--add-from` form.
 
+One box for all four walks meets the coordinator's daily limit of heavy runs (D-146, D-775: 20 FEAS jobs per account
+in 24 hours by default): the walks start about 26 FEAS jobs from the one coordinator account, besides the seed's, and
+on the first run the 21st, the Japanese amendment's protocol, was refused with "Today's limit is reached". That is
+the product as documented, not a finding; the walks' own box is started with `TB_JOBS_PER_SENDER_PER_DAY=60`
+(a box given by `TB_WALK_BASE` keeps its own limit). A tester who walks every module on one box in one day meets the
+same page.
+
 ## Findings
 
 Clicks are counted from the previous step's page; signing in and choosing the language count on a role's first step.

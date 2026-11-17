@@ -32,6 +32,7 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -76,6 +77,23 @@ def log_dir(environ: dict[str, str] | os._Environ[str]) -> Path:
     if ROOT in out.resolve().parents or out.resolve() == ROOT:
         raise ValueError(f"the walk's logs stay outside the repository: {out}")
     return out
+
+
+#: the coordinator's daily limit of heavy runs on the box the walks start (D-146, D-775: 20 FEAS a day by default).
+#: The four walks on one box start about 26 FEAS jobs from one coordinator account (each new study's protocol and
+#: its FEAS, the amendments, the feasibility walk's runs, besides the seed's), so the 21st was refused "Today's limit
+#: is reached" on the first run. The box is the walks' own; a box given by TB_WALK_BASE keeps its own limit.
+JOBS_PER_DAY = "60"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _a_day_of_walks() -> Iterator[None]:
+    """Before the box starts (autouse fixtures come first): the daily limit the box reads from its environment."""
+    was = os.environ.get("TB_JOBS_PER_SENDER_PER_DAY")
+    os.environ["TB_JOBS_PER_SENDER_PER_DAY"] = was or JOBS_PER_DAY
+    yield
+    if was is None:
+        os.environ.pop("TB_JOBS_PER_SENDER_PER_DAY", None)
 
 
 # ------------------------------------------------------------------------------------------------- the browser walk
