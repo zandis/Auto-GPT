@@ -207,6 +207,18 @@ class ConceptCandidate(BaseModel):
     synonyms: list[str] | None = None
 
 
+class CriterionProvenance(BaseModel):
+    """
+    D-989: the model calls the criterion was extracted by (their llm.call call_id); a person's later edit keeps it and is recorded in review
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    calls: list[str]
+
+
 class CriterionReview(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3218,7 +3230,7 @@ class CompileResult(BaseModel):
 
 class CriterionIR(BaseModel):
     """
-    One eligibility criterion (SPEC 3.3). Schema version 1.2.0 (1.1.0: derived egfr_ckd_epi and egfr_jsn, D-149; 1.2.0: derived cdai and sdai, D-189).
+    One eligibility criterion (SPEC 3.3). Schema version 1.3.0 (1.1.0: derived egfr_ckd_epi and egfr_jsn, D-149; 1.2.0: derived cdai and sdai, D-189; 1.3.0: optional provenance, the model calls the criterion was extracted by, D-989).
     """
 
     model_config = ConfigDict(
@@ -3268,6 +3280,7 @@ class CriterionIR(BaseModel):
     e.g. needs_review, equivalence_fail, concept_unmapped
     """
     review: CriterionReview | None = None
+    provenance: CriterionProvenance | None = None
 
 
 class ReviewDecision(BaseModel):

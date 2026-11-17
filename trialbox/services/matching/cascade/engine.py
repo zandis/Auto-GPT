@@ -1191,6 +1191,7 @@ class _Run:
             "call_id": reply.call_id,
             "build_sha": reply.build_sha,
             "prompt": reply.prompt,
+            "prompt_sha": reply.prompt_sha,  # D-989: which prompt text, not only its id and version
             "confidence": reply.confidence,
         }
         if reply.opinions:

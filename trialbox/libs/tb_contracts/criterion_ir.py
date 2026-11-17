@@ -361,6 +361,7 @@ class Provenance(_Model):
     drafted_by: str | None = None
     model_route: str | None = None
     agreement: str | None = None
+    calls: list[str] | None = None  # D-989: the model calls the criterion was extracted by (v1 ``provenance.calls``)
 
 
 class FlipRule(_Model):
@@ -489,6 +490,8 @@ def upgrade_v1(ir: BaseModel | Mapping[str, Any]) -> CriterionIRv3:
     src = _as_dict(ir)
     out: dict[str, Any] = {k: src[k] for k in _V1_TOP_PASSTHROUGH if k in src}
     out["ir_version"] = IR_VERSION
+    if "provenance" in src:  # D-989
+        out["provenance"] = {"calls": list(src["provenance"]["calls"])}
     text: dict[str, Any] = {"source": src["text"]}
     if "source_ref" in src:
         text["source_ref"] = src["source_ref"]
@@ -547,10 +550,14 @@ def downgrade_to_v1(ir: CriterionIRv3) -> dict[str, Any]:
     silently."""
     d = ir.model_dump(mode="json", by_alias=True, exclude_unset=True)
     handled = {"ir_version", "text", "logic", "atoms", "note_question", "human", *_V1_TOP_PASSTHROUGH}
+    if set(d.get("provenance") or {}) == {"calls"}:  # D-989: v1 holds the extraction's calls, nothing else
+        handled.add("provenance")
     extra = sorted(set(d) - handled)
     if extra:
         raise NotV1Expressible(f"{ir.id}: {', '.join(extra)} have no v1 form")
     out: dict[str, Any] = {k: d[k] for k in _V1_TOP_PASSTHROUGH if k in d}
+    if "provenance" in handled and "provenance" in d:
+        out["provenance"] = {"calls": list(d["provenance"]["calls"])}
     if ir.text.lang is not None:
         raise NotV1Expressible(f"{ir.id}: text.lang has no v1 form")
     out["text"] = ir.text.source
