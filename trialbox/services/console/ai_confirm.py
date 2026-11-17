@@ -6,10 +6,10 @@ wrong, send to review" on the not-matched list. Each writes one ``ai.confirmed``
 list already uses, ``by`` is the person's user name.
 
 * Approach: ``confirmed`` (the investigator goes ahead on the list's answers).
-* Not suitable now: ``rejected``.
 * A review of an exclusion: ``rejected``; the named criterion's verdict, else every verdict that excluded the patient.
-* Need info, Not now, Withdraw, Undo: no event. They decide nothing about the model's answer, which stays
-  unconfirmed (D-989: never inferred confirmed).
+* Not suitable now, Need info, Not now, Withdraw, Undo: no event. They decide nothing about the model's answer (Not
+  suitable now's reasons are each site's own and may have nothing to do with it: the integrator's ruling), which
+  stays unconfirmed (D-989: never inferred). Nothing maps to ``changed``.
 
 A verdict no model answered (``prov`` empty: the coded records, a person; or absent: a list from before the field)
 writes nothing."""
@@ -22,7 +22,7 @@ from typing import Any
 from tb_common import provenance
 
 #: the mark -> the decision on the model's answers of the row (a mark not here decides nothing about them)
-MARK_DECISION = {"approach": "confirmed", "not_suitable": "rejected"}
+MARK_DECISION = {"approach": "confirmed"}
 REVIEW_DECISION = "rejected"
 
 

@@ -2,9 +2,9 @@
 
 A PI mark or a "this is wrong, send to review" on a patient with model evidence writes one ``ai.confirmed`` per verdict
 a model answered (its ``prov`` not empty): ``record_ref`` (ruleset, version, job, pid, crit), the patient by pseudonym,
-``by`` the person, and the decision: Approach ``confirmed``, Not suitable now ``rejected``, a review ``rejected``. Need
-info, Not now, Withdraw and Undo decide nothing about the model's answer: no event, so the answer stays unconfirmed
-(never inferred). A verdict no model answered (``prov`` empty or absent) writes nothing. Synthetic data only."""
+``by`` the person, and the decision: Approach ``confirmed``, a review ``rejected``. Not suitable now (a site's own
+reasons), Need info, Not now, Withdraw and Undo decide nothing about the model's answer: no event, so the answer stays
+unconfirmed (never inferred). A verdict no model answered (``prov`` empty or absent) writes nothing. Synthetic data only."""
 
 from __future__ import annotations
 
@@ -57,15 +57,20 @@ def test_an_approach_confirms_each_model_answer_of_the_row(box: dict[str, Any]) 
     assert d["calls"] == CALLS and ev["actor"] == "console:pi"  # the coded answer (prov empty) writes nothing
 
 
-def test_not_suitable_now_rejects_and_the_other_marks_decide_nothing(box: dict[str, Any]) -> None:  # noqa: F811
+def test_not_suitable_now_and_the_other_marks_decide_nothing(box: dict[str, Any]) -> None:  # noqa: F811
+    """The integrator's ruling: Not suitable now's reasons are the site's own and may have nothing to do with the
+    model, so the chain never reads it as a judgement on the model's answer."""
+    from console.sitestore import SiteStore
+
     pi, csrf, _job = _pi(box, [_row(A, "high", CALLS), _row(B, "review", CALLS)])
     for mark in ("need_info", "not_now", "withdraw"):
         pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": csrf, "mark": mark})
-    assert _events(box) == []  # the model's answer stays unconfirmed
     pi.post(f"/studies/GZQO/patients/{B}/mark", data={"csrf": csrf, "mark": "not_suitable", "reason": "comorbidity"})
-    (ev,) = _events(box)
-    assert ev["detail"]["decision"] == "rejected" and ev["detail"]["record_ref"]["pid"] == B
-    pi.post(f"/studies/GZQO/patients/{B}/mark", data={"csrf": csrf, "mark": "undo"})
+    assert SiteStore().latest_marks("GZQO")[B].mark == "not_suitable"  # the mark is kept
+    assert _events(box) == []  # the model's answer stays unconfirmed
+    pi.post(f"/studies/GZQO/patients/{B}/mark", data={"csrf": csrf, "mark": "approach"})
+    assert len(_events(box)) == 1
+    pi.post(f"/studies/GZQO/patients/{B}/mark", data={"csrf": csrf, "mark": "undo"})  # back to Not suitable now
     assert len(_events(box)) == 1  # an undo is no decision on the answer
 
 
