@@ -589,7 +589,16 @@ SES_CODE_HOURS=$(md tb-session-code-hours || echo 24)      # (setting) an unused
 SES="$TB/session"   # on the kept disk, across runs: the names of a session's accounts until they are disabled
 # a session's accounts named on the disk (56 writes the names before any code exists), its environment not put back,
 # or the console's and Caddy's restart policy still `no`: the close has work to do
-session_open_left() { [ -s "$SES/accounts" ] || [ -s "$SES/env-before" ] || [ -f "$SES/norestart" ]; }
+session_accounts_left() { [ -s "$SES/accounts" ] || [ -s "$SES/env-before" ] || [ -f "$SES/norestart" ]; }
+# ... or the box's own unit not put back yet (round 3's finding 1: it is put back once CLOSED is written)
+session_open_left() { session_accounts_left || [ -s "$SES/unit-before" ]; }
+# Round 3's finding 1: lane D's unit (deploy/install.sh installs and enables it when its egress check passes) runs
+# `docker compose up` at every boot, Caddy and 443 with it, whatever the containers' restart policy. While a session's
+# accounts are open it is disabled (step 56, its state before kept); a close at a boot stops it and waits for it first.
+TB_UNIT=trialbox.service
+unit_enabled() { systemctl is-enabled "$TB_UNIT" 2>/dev/null | head -n 1; }   # "" or not-found: not installed
+unit_active() { systemctl is-active "$TB_UNIT" 2>/dev/null | head -n 1; }
+d_port443() { ss -Htln 'sport = :443' 2>/dev/null; }   # what listens on tcp:443 now (the box's Caddy publishes it)
 # The re-review's C: every session run that booted on this disk gets its CLOSED marker beside its links once no
 # session account is open here, even a run that never opened one (a refusal, a stop before 56, a cut). The driver
 # (box-run.sh session_closed) keeps the door's deny-all and the tag until the marker of the run the deny names exists.
@@ -2505,11 +2514,19 @@ session_suffix() {  # a session's account names carry its run's stamp: the kept 
 step_session_accounts() {
   local people suffix host ip fp stop now cap_end stamp obj item name roles code expires
   mkdir -p "$SES"; chmod 700 "$SES"
+  # round 3's finding 4: this run began to open a session on this disk: any later boot of it closes and stops
+  grep -qxF "$RUN_ID" "$SES/opened" 2>/dev/null || printf '%s\n' "$RUN_ID" >> "$SES/opened"
   suffix=$(session_suffix)
   people=$(printf '%s' "$SES_PEOPLE" | tr ',' '\n' | sed "s/^\([^:]*\):/\1-$suffix:/" | paste -sd, -)
   # the review's finding 6: while the accounts are open, the console and Caddy do not start again by themselves at a
   # boot (compose's unless-stopped); the next boot closes the accounts with Caddy down before anything is served.
   # The re-review's E: a policy that cannot be set is no session (nothing is opened yet)
+  # Round 3's finding 1: the box's own unit cannot bring the stack up at a boot while the accounts are open
+  if ! session_unit_off >> "$STEP_LOG" 2>&1; then
+    STOP="the box's own unit $TB_UNIT could not be disabled (at a boot it brings Caddy up whatever the restart policy): no session is opened"
+    return 1
+  fi
+  note unit_before "\"$(cat "$SES/unit-before")\""
   touch "$SES/norestart"
   if ! d_restart_policy no >> "$STEP_LOG" 2>&1; then
     STOP="the console's and Caddy's restart policy could not be set to no (docker update): no session is opened"; return 1
@@ -2603,17 +2620,68 @@ step_session_open() {
 }
 # the console's and Caddy's restart policy (docker update; the compose files are not changed)
 d_restart_policy() { local c=(); mapfile -t c < <(cid console; cid caddy); [ ${#c[@]} -gt 0 ] && docker update --restart="$1" "${c[@]}"; }
-session_close() {  # $1 why: the accounts disabled, the box's environment as it was; 1 when the console cannot be asked
+session_unit_off() {  # step 56: lane D's unit disabled, what it was kept (as sshd's); 1 when it is not disabled after
+  local en act
+  if [ ! -s "$SES/unit-before" ]; then
+    en=$(unit_enabled); act=$(unit_active)
+    printf '%s %s\n' "${en:-not-found}" "${act:-unknown}" > "$SES/unit-before"
+  fi
+  echo "TB-SESSION $TB_UNIT before the session: $(cat "$SES/unit-before")"
+  case "$(unit_enabled)" in ""|not-found|disabled|masked|masked-runtime) return 0 ;; esac
+  # not stopped: its ExecStop stops the stack the session is about to serve; disabled, it is not started at a boot
+  systemctl disable "$TB_UNIT" || return 1
+  case "$(unit_enabled)" in ""|not-found|disabled|masked|masked-runtime) echo "TB-SESSION $TB_UNIT disabled"; return 0 ;; esac
+  echo "TB-SESSION $TB_UNIT is still $(unit_enabled) after the disable"; return 1
+}
+session_unit_back() {  # the unit as it was before step 56, once the accounts are disabled and every CLOSED is written
+  local en act
+  [ -s "$SES/unit-before" ] || return 0
+  read -r en act < "$SES/unit-before"
+  case "$en" in
+    enabled) systemctl enable "$TB_UNIT" >> "$LOG" 2>&1 || return 1 ;;
+    enabled-runtime) systemctl enable --runtime "$TB_UNIT" >> "$LOG" 2>&1 || return 1 ;;
+  esac
+  if [ "$act" = active ] && [ "$(unit_active)" != active ]; then
+    systemctl start --no-block "$TB_UNIT" >> "$LOG" 2>&1 || return 1
+  fi
+  echo "TB-SESSION $TB_UNIT put back as it was before the session ($en, $act)" | tee -a "$LOG"
+  rm -f "$SES/unit-before"
+}
+session_unit_quiet() {  # a close at a boot: the unit neither active nor activating (its `up` would bring Caddy back)
+  local s i
+  s=$(unit_active)
+  case "$s" in ""|inactive|failed|unknown) return 0 ;; esac
+  echo "TB-SESSION $TB_UNIT is $s at this boot: stopped first (its ExecStop stops the stack, Caddy with it)" | tee -a "$LOG"
+  systemctl stop "$TB_UNIT" >> "$LOG" 2>&1 || true
+  for i in $(seq 1 60); do   # systemctl stop waits for the job; this is the check of it, 5 "minutes" at most
+    case "$(unit_active)" in ""|inactive|failed|unknown) return 0 ;; esac
+    sleep "$(awk -v m="$MIN_S" 'BEGIN { print m / 12 }')"
+  done
+  echo "TB-SESSION $TB_UNIT is still $(unit_active) after its stop" | tee -a "$LOG"; return 1
+}
+d_door_open() { d_caddy_running || [ -n "$(d_port443)" ]; }   # the box's Caddy runs, or anything listens on tcp:443
+SES_SERVED=""
+session_close() {  # $1 why [$2 dark]: the accounts disabled, the box's environment as it was; 1 when the console cannot be asked
   local names="" before url restored=""
   rm -f "${SES:?}/people.tsv" "$SES/links.txt"   # the review's finding 10: no code left on the kept disk
   session_open_left || return 0
   if [ -s "$SES/accounts" ]; then
     names=$(paste -sd' ' "$SES/accounts")
+    # round 3's finding 1: a close at a boot checks tcp:443 right before and right after the disable. The accounts are
+    # disabled all the same (the sooner the better); a Caddy that served then stops the run (session_close_dark)
+    if [ "${2:-}" = dark ] && d_door_open; then
+      SES_SERVED="${SES_SERVED}before the disable; "
+      echo "TB-SESSION-SERVED: the box's Caddy runs or tcp:443 listens right before the accounts are disabled ($(d_port443 | head -n 1))" | tee -a "$LOG"
+    fi
     if ! d_session_disable "$names" >> "$LOG" 2>&1; then
       echo "TB-SESSION-ACCOUNTS-OPEN: the session's accounts ($names) could not be disabled ($1): the next boot tries again" | tee -a "$LOG"
       return 1
     fi
     rm -f "$SES/accounts"
+    if [ "${2:-}" = dark ] && d_door_open; then
+      SES_SERVED="${SES_SERVED}after the disable; "
+      echo "TB-SESSION-SERVED: the box's Caddy runs or tcp:443 listens right after the accounts were disabled" | tee -a "$LOG"
+    fi
   fi
   # the re-review's F: the box's settings put back first (its address, then its environment), then every service that
   # reads them recreated, always: a VALIDATION session on a VALIDATION box changed the address only. Not Caddy: it
@@ -2635,6 +2703,11 @@ session_close() {  # $1 why: the accounts disabled, the box's environment as it 
   if [ -f "$SES/norestart" ]; then d_restart_policy unless-stopped >> "$LOG" 2>&1 || true; rm -f "$SES/norestart"; fi
   rm -f "$SES/handoff" "$SES/env-before" "$SES/stop-epoch" "$SES/public-url-before"
   session_runs_closed "$1" || true   # the driver's proof that the accounts are closed (box-run.sh session_closed)
+  # round 3's finding 1: the box's own unit as it was, only now (the accounts disabled, every CLOSED written); kept
+  # disabled while a marker is not written (the next boot's close tries again)
+  if [ ! -s "$SES/unclosed" ]; then
+    session_unit_back || echo "TB-SESSION $TB_UNIT could not be put back ($(cat "$SES/unit-before" 2>/dev/null)): the next boot tries again" | tee -a "$LOG"
+  fi
   [ ! -d "$REC" ] || session_rec "closed_at=$(date -u +%FT%TZ)" "closed_by=$1" "accounts_disabled=$names"
   echo "TB-SESSION-END boot=$SBOOT at=$(date -u +%FT%TZ) why=$1 (accounts disabled: ${names:-none}; the box in ${before:-its environment})"
 }
@@ -2644,15 +2717,22 @@ session_close() {  # $1 why: the accounts disabled, the box's environment as it 
 d_caddy_running() { dc ps --format '{{.Service}} {{.State}}' 2>/dev/null | awk '$1 == "caddy" && $2 == "running" {f=1} END {exit !f}'; }
 session_close_dark() {  # $1 why
   echo "TB-SESSION $(date -u +%T): an earlier session's accounts are disabled first, the box's Caddy down" | tee -a "$LOG"
+  # round 3's finding 1: the box's own unit first (enabled again by hand, or a session cut before 56 disabled it): its
+  # `docker compose up` at this boot would bring Caddy back in the middle of the close
+  if ! session_unit_quiet; then
+    echo "TB-SESSION-ACCOUNTS-OPEN: $TB_UNIT cannot be stopped: the accounts are not opened to anyone by a close" | tee -a "$LOG"
+    return 1
+  fi
   dc stop caddy >> "$LOG" 2>&1 || true
-  if d_caddy_running; then
-    echo "TB-SESSION-ACCOUNTS-OPEN: the box's Caddy cannot be stopped: the accounts are not opened to anyone by a close" | tee -a "$LOG"
+  if d_door_open; then
+    echo "TB-SESSION-ACCOUNTS-OPEN: the box's Caddy cannot be stopped (or tcp:443 still listens): the accounts are not opened to anyone by a close" | tee -a "$LOG"
     return 1
   fi
   d_models_bind >> "$LOG" 2>&1 || true
   dc up -d --pull never --wait --wait-timeout 900 console >> "$LOG" 2>&1 \
     || echo "TB-SESSION the console did not come up healthy without Caddy (the close is tried all the same)" | tee -a "$LOG"
-  session_close "$1"
+  session_close "$1" dark || return 1
+  [ -z "$SES_SERVED" ]   # the accounts are disabled; a Caddy that served around the disable stops the run all the same
 }
 step_session_close() {
   session_close "the session's stop" || { STOP="the session's accounts could not be disabled (the next boot tries again)"; return 1; }
@@ -2665,8 +2745,15 @@ step_session_close() {
 # cannot be: nothing of this boot brings the stack (Caddy) up with them open.
 if session_open_left; then
   session_close_dark "the next boot (the session did not close itself)" || true
-  ! session_open_left \
+  ! session_accounts_left \
     || finish "TB-SESSION-ACCOUNTS-OPEN: a session's accounts are still open on this disk and could not be closed with the box's Caddy down: this run does not go on (nothing was served)" session-open
+  [ -z "$SES_SERVED" ] \
+    || finish "TB-SESSION-SERVED: the box's Caddy served on tcp:443 during the close at this boot (${SES_SERVED% }): the accounts are disabled now; this run does not go on" session-served
+fi
+# Round 3's finding 4: a later boot of a run that opened (or began to open) a session on this disk, with or without
+# tb-retry (a power cycle, a start by hand, a host restart): its accounts are closed above; it never runs 56 again
+if grep -qxF "$RUN_ID" "$SES/opened" 2>/dev/null; then
+  finish "TB-SESSION-AGAIN: run $RUN_ID opened a session on this disk before (this is a later boot of it); its accounts are closed and it is never opened again: more time is a new launch (D-1123 4.4)" session-again
 fi
 session_runs_closed "the next boot" || true   # the re-review's C: an earlier session run that opened no account
 has session && session_unclosed_add

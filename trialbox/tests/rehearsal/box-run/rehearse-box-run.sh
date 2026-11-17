@@ -98,6 +98,14 @@
 #                      box's Caddy never came up on that boot, no CLOSED marker is written (the deny stays)
 #   session-update-fails  the console's and Caddy's restart policy cannot be set to `no`: no account is opened (the
 #                      re-review's E), and the run's CLOSED marker is written all the same (C)
+#   session-cut-56     a power cut while 56 opens the accounts, then a later boot with no tb-retry (a power cycle, a
+#                      start by hand): its accounts are closed and it stops; 56 never runs again (round 3's finding 4)
+#   session-unit       lane D's trialbox.service enabled on the disk (`compose up` at every boot), a power cut while the
+#                      session is open: 56 disabled it first, the next boot's Caddy never serves the open accounts, the
+#                      unit is put back once the accounts are disabled and CLOSED is written (round 3's finding 1)
+#   session-unit-race  as session-unit, but the unit was enabled again by hand and its `compose up` lands in the middle
+#                      of the close: the close stops it and waits first; Caddy never serves the open accounts
+#   session-unit-fails the unit cannot be disabled: no account, no link, the run's CLOSED marker written
 #   session-wide       the driver refuses a range too wide (0.0.0.0/0, any, a /8) before anything: no VM booted
 #   session-egress     the box's egress table lets a container out (as a DEV box's opens a model host): the session
 #                      stops at 55-session-egress and no account or link is made
@@ -125,7 +133,8 @@ ALL=(build build-gate-fails build-refused build-preempt happy step-fails reboot 
      resume-after-stop acc-qualify-fails probe direct dev acc-cut qualify-timebox acc-gate acc-redo gate-closed gate-401 gate-never
      acc-cut-resume
      session session-stop session-cut session-wide session-egress session-dev-refused session-skip session-resume
-     session-ssh session-then-acc session-close-fails session-update-fails)
+     session-ssh session-then-acc session-close-fails session-update-fails session-cut-56 session-unit session-unit-race
+     session-unit-fails)
 # shellcheck disable=SC2206  # CASES=happy,cap: split on commas and spaces
 CASES=(${*//,/ }); [ "${#CASES[@]}" -gt 0 ] || CASES=("${ALL[@]}")
 # the harness's own ceiling for one wait (a declared setting): a case takes 5 to 40 seconds on the short clock, so
@@ -463,6 +472,18 @@ for CASE in "${CASES[@]}"; do
       "$HERE/standins/reboot.sh" "$S"
       to_the_end ;;
     session-update-fails) setup "$CASE" "dev session" update-fails; session_setup VALIDATION; boot; to_the_end ;;
+    session-cut-56)   # round 3's finding 4: a cut while 56 opens the accounts; a later boot without tb-retry
+      setup "$CASE" "dev session" dev-routes people-slow; session_setup DEV; m tb-session-minutes 600; m tb-max-minutes 900
+      boot; wait_for "56 to open the accounts" grep -q '^session-people-start$' "$S/calls.log"
+      "$HERE/standins/reboot.sh" "$S"            # a power cut (or a start by hand, a host restart): no tb-retry
+      to_the_end ;;
+    session-unit|session-unit-race)   # round 3's finding 1: lane D's trialbox.service enabled on the disk, a cut
+      k=(dev-routes unit-enabled); [ "$CASE" = session-unit ] || k+=(unit-late unit-reenabled)
+      setup "$CASE" "dev session" "${k[@]}"; session_setup DEV; m tb-session-minutes 600; m tb-max-minutes 900; boot
+      wait_for "the session to open" grep -aq 'TB-SESSION-READY' "$S/boot-1.out"
+      "$HERE/standins/reboot.sh" "$S"
+      to_the_end ;;
+    session-unit-fails) setup "$CASE" "dev session" unit-enabled unit-disable-fails; session_setup VALIDATION; boot; to_the_end ;;
     session-wide) S="$REH/$CASE"; rm -rf "$S"; mkdir -p "$S"; session_wide ;;
     session-egress) setup "$CASE" "dev session" dev-routes egress-open; session_setup DEV; boot; to_the_end ;;
     session-dev-refused) setup "$CASE" "dev session"; session_setup DEV; boot; to_the_end ;;

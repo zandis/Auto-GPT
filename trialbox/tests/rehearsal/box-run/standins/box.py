@@ -116,11 +116,90 @@ def caddy_up(new: bool | None = None, why: str = "") -> bool:
         policy = (BOX / "restart-caddy").read_text().strip() if (BOX / "restart-caddy").exists() else "unless-stopped"
         st = {"up": st["up"] and policy != "no", "boot": boot}
         called(f"vm-boot {boot} caddy {'up' if st['up'] else 'down'}")
+        # round 3's finding 1: lane D's trialbox.service, enabled, runs `docker compose up` at every boot whatever the
+        # containers' restart policy: Caddy up at the boot, or (knob unit-late) its `up` still to come mid-close
+        u = unit_load()
+        u["active"], u["pending"] = "inactive", False
+        if u["enabled"] == "enabled":
+            if flag("unit-late"):
+                u["active"], u["pending"] = "activating", True
+                called(f"unit trialbox.service activating at boot {boot} (its compose up still to come)")
+            else:
+                u["active"] = "active"
+                if not st["up"]:
+                    st["up"] = True
+                    called(f"caddy up (trialbox.service compose up at boot {boot})")
+        jsave(BOX / "unit.json", u)
     if new is not None and new != st["up"]:
         st["up"] = new
         called(f"caddy {'up' if new else 'down'} ({why})")
     jsave(BOX / "caddy.json", st)
     return bool(st["up"])
+
+
+def unit_load() -> dict[str, Any]:
+    """Lane D's trialbox.service on the "VM" (deploy/install.sh installs and enables it when its egress check passes):
+    knob unit-enabled says the disk's install left it enabled; absent, the unit is not installed (the direct route)."""
+    default = {"enabled": "enabled" if flag("unit-enabled") else "not-found", "active": "inactive", "pending": False}
+    return jload(BOX / "unit.json", default)
+
+
+def unit_late_up(why: str) -> None:
+    """The unit's `docker compose up`, started at the boot, lands now (the race of round 3's finding 1)."""
+    caddy_up()  # the boot's own state first
+    u = unit_load()
+    if u.get("pending"):
+        u["pending"], u["active"] = False, "active"
+        jsave(BOX / "unit.json", u)
+        caddy_up(True, f"trialbox.service compose up, late: {why}")
+
+
+def unit(argv: list[str]) -> int:
+    """systemctl <verb> [--no-block] trialbox.service, from the systemctl shim."""
+    verb = next(a for a in argv if not a.startswith("-"))
+    caddy_up()  # a boot of the "VM" is seen first
+    u = unit_load()
+    called(f"systemctl {verb} trialbox.service")
+    if verb == "is-enabled":
+        if u["enabled"] == "not-found":
+            print("Failed to get unit file state for trialbox.service: No such file or directory", file=sys.stderr)
+            return 1
+        print(u["enabled"])
+        return 0 if u["enabled"] == "enabled" else 1
+    if verb == "is-active":
+        print(u["active"])
+        return 0 if u["active"] == "active" else 3
+    if u["enabled"] == "not-found":
+        print("Failed: Unit file trialbox.service does not exist.", file=sys.stderr)
+        return 5
+    if verb == "disable":
+        if flag("unit-disable-fails"):
+            print("Failed to disable unit: Access denied", file=sys.stderr)
+            return 1
+        u["enabled"] = "disabled"
+    elif verb == "enable":
+        u["enabled"] = "enabled"
+    elif verb == "stop":  # the start job cancelled; ExecStop: `docker compose stop` (the stack, Caddy with it)
+        if u["active"] != "inactive" or u.get("pending"):
+            caddy_up(False, "trialbox.service stop: compose stop")
+        u["active"], u["pending"] = "inactive", False
+    elif verb == "start":
+        u["active"], u["pending"] = "active", False
+        jsave(BOX / "unit.json", u)
+        caddy_up(True, "trialbox.service start: compose up")
+        return 0
+    else:
+        print(f"box-run rehearsal systemctl: not rehearsed for trialbox.service: {verb}", file=sys.stderr)
+        return 1
+    jsave(BOX / "unit.json", u)
+    return 0
+
+
+def caddy_state() -> int:
+    """What listens on tcp:443 (the ss shim asks): the box's Caddy publishes it."""
+    if caddy_up():
+        print("LISTEN 0      4096         0.0.0.0:443       0.0.0.0:*    users:((\"docker-proxy\",pid=1,fd=4))")
+    return 0
 
 
 def ps(argv: list[str]) -> int:
@@ -295,6 +374,9 @@ def session_snippet(what: str, svc: str, text: str) -> int:
             print("box stand-in: session-people without its people or environment", file=sys.stderr)
             return 2
         rows = [x.split(":", 1) for x in people.group(1).split(",")]
+        called("session-people-start")
+        if flag("people-slow") and (S / "boots").read_text().strip() == "1":  # time for a cut in the middle of 56
+            time.sleep(120)
         if env.group(2) == "DEV" and _env_of_box() != "DEV":
             print("steps_roles: extra roles are for a test box only (TB_ENV DEV or TEST)", file=sys.stderr)
             return 1
@@ -356,6 +438,7 @@ def compose(argv: list[str]) -> int:
         called("compose-run " + " ".join(a for a in rest if not a.startswith("-")))
         return 0
     if cmd == "up":  # the stack recreated on new settings (the acc group's settings step)
+        unit_late_up("while compose up " + " ".join(a for a in rest if not a.startswith("-")))
         named = [a for a in rest if not a.startswith("-") and not a.isdigit() and a != "never"]
         called("compose-up " + " ".join(a for a in rest if not a.startswith("-")))
         if not named or "console" in named:  # the address the console's one-time links name (the session's F)
@@ -850,7 +933,16 @@ def main() -> int:
         return feed(a[1:])
     if a[:1] == ["interrupt"]:
         interrupt(a[1])
+        if flag("unit-reenabled"):  # someone enabled lane D's unit again by hand while the VM was off
+            u = unit_load()
+            u["enabled"] = "enabled"
+            jsave(BOX / "unit.json", u)
+            called("trialbox.service enabled again by hand")
         return 0
+    if a[:1] == ["unit"]:
+        return unit(a[1:])
+    if a[:1] == ["caddy-state"]:
+        return caddy_state()
     if a[:1] == ["wizard-done"]:  # the real installer applied the owner's answers (its compose stand-in says so)
         (BOX / "wizard-done").parent.mkdir(parents=True, exist_ok=True)
         (BOX / "wizard-done").write_text("1")

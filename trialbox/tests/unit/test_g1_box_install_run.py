@@ -61,6 +61,11 @@ CASES = [
     "session-then-acc",
     "session-close-fails",
     "session-update-fails",
+    # the re-review's round 3: findings 1 (lane D's trialbox.service) and 4 (a later boot without tb-retry)
+    "session-cut-56",
+    "session-unit",
+    "session-unit-race",
+    "session-unit-fails",
 ]
 
 pytestmark = pytest.mark.skipif(

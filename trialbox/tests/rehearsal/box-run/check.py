@@ -755,7 +755,8 @@ if case.startswith("session"):
     if case != "session-close-fails":  # the re-review's C: every session run ends with its marker, accounts or none
         ok(closed_marker.exists() and closed_marker.read_text().startswith("closed "),
            "the run's CLOSED marker is written once no session account is open (an account opened or not)")  # fmt: skip
-if case in ("session", "session-stop", "session-cut"):
+CUT = ("session-cut", "session-unit", "session-unit-race")  # a power cut while the session is open
+if case in ("session", "session-stop", *CUT):
     first_people = next((i for i, c in enumerate(seq) if c.startswith("session-people")), -1)
     ok(0 <= seq.index("network.sh apply") < seq.index("network.sh status") < first_people,
        "the box's own egress rules applied, then read back, before any account is opened")  # fmt: skip
@@ -768,7 +769,7 @@ if case in ("session", "session-stop", "session-cut"):
        and meta["stop"] != "none", "the links object names the boot id, the certificate's SHA-256 and the stop")  # fmt: skip
     ok(all(f"&c={c}" in text for c in session_codes), "each code is in the links object, as a one-time link")
     ok(f"boot={meta['boot_id']}" in out[0] and session_vm.boot_state(out[0], None, meta["boot_id"])[0]
-       == ("ready" if case == "session-cut" else "ended"),
+       == ("ready" if case in CUT else "ended"),
        "the ready line and the end carry the links' boot id (D-1120's rule reads it)")  # fmt: skip
     ok('add the line "34.80.0.10 trialbox.hospa.test"' in text, "the hosts line for the box's own name is given")
     ok(parts["55-session-egress"]["status"] == "done" and calls["network.sh apply"] == 1, "the egress rules applied")
@@ -796,16 +797,56 @@ if case == "session-stop":
     ok(rec["closed_by"] == "the session's stop" and "done, results in the bucket" in poweroff,
        "its accounts disabled before the cap: the VM went off on its own, not by the cap")  # fmt: skip
     ok(len(opened) == 4 and all("+" not in accounts[a]["roles"] for a in opened), "VALIDATION: one account per role")
-if case == "session-cut":
+if case in (*CUT, "session-cut-56"):
     b2 = out[1] if len(out) > 1 else ""
-    ok(len(out) == 2 and "TB-SESSION-READY" in out[0] and "TB-SESSION-READY" not in b2, "the session opened once")
-    first = b2.find("TB-SESSION-END")
-    ok(0 <= first < b2.find("TB-STEP 57-session-open start") if first >= 0 else False,
-       "the next boot disabled the accounts before any session step")  # fmt: skip
-    ok(parts["57-session-open"]["status"] == "stop" and "never opened again" in parts["57-session-open"]["stop"]["reason"],
-       "the session is never opened again after a cut (D-1123 4.4)")  # fmt: skip
-    ok(rec["closed_by"].startswith("the next boot"), "the record says the next boot closed it")
+    ok(len(out) == 2 and "TB-SESSION-READY" not in b2 and ("TB-SESSION-READY" in out[0]) is (case != "session-cut-56"),
+       "the session opened once at most")  # fmt: skip
+    ok(0 <= b2.find("TB-SESSION-END") < b2.find("TB-SESSION-AGAIN") and "TB-STEP" not in b2,
+       "the next boot disabled the accounts, then stopped: no step of the run ran again (round 3's finding 4)")  # fmt: skip
+    ok("TB-SESSION-AGAIN" in ended and "never opened again" in ended, "the session is never opened again (D-1123 4.4)")
+    ok(rec.get("closed_by", "").startswith("the next boot") or case == "session-cut-56",
+       "the record says the next boot closed it")  # fmt: skip
     ok("TB-SESSION-NOT-READY" in b2, "the second boot says it opened no session")
+    boot2 = next((i for i, c in enumerate(seq) if c.startswith("vm-boot 2 ")), len(seq))
+    ok(not any(c.startswith(("session-people", "session-marker open")) for c in seq[boot2:]),
+       "the later boot opened no account and never set the run's marker to open again")  # fmt: skip
+if case == "session-cut-56":  # round 3's finding 4: a cut while 56 opened the accounts, a later boot without tb-retry
+    ok(calls["session-people-start"] == 1 and not any(c.startswith("session-people ") for c in seq) and not links,
+       "56 was cut while it opened the accounts; no link was ever written")  # fmt: skip
+    ok("TB-SESSION-READY" not in "".join(out), "the session never opened")
+# ---------------------------------------------------------------- round 3's finding 1: lane D's trialbox.service
+UNIT = ("session-unit", "session-unit-race", "session-unit-fails")
+if case in UNIT:
+    unit = json.loads((S / "box" / "unit.json").read_text())
+    dis = next((i for i, c in enumerate(seq) if c == "systemctl disable trialbox.service"), -1)
+    if case == "session-unit-fails":
+        ok(parts["56-session-accounts"]["status"] == "stop"
+           and "could not be disabled" in parts["56-session-accounts"]["stop"]["reason"],
+           "the box's own unit cannot be disabled: step 56 stops")  # fmt: skip
+        ok(not links and not opened and not any(c.startswith("session-people") for c in seq)
+           and not any(c.startswith("docker-update") for c in seq), "no account, no link, no restart policy changed")  # fmt: skip
+        ok("TB-SESSION-READY" not in "".join(out), "the session never opened")
+        ok(unit["enabled"] == "enabled", "the unit is as it was (enabled)")
+    else:
+        first_people = next((i for i, c in enumerate(seq) if c.startswith("session-people")), len(seq))
+        ok(0 <= dis < first_people, "step 56 disabled the box's own unit before any account was opened")
+        boot2 = next((i for i, c in enumerate(seq) if c.startswith("vm-boot 2 ")), len(seq))
+        after = seq[boot2:]
+        dis2 = next((i for i, c in enumerate(after) if c.startswith("session-disable ")), len(after))
+        ok(dis2 < len(after) and not any(c.startswith("caddy up") for c in after[:dis2])
+           and "session-disable-caddy down" in after and "session-disable-caddy up" not in seq,
+           "at the next boot the box's Caddy never served while the accounts were open, unit or no unit")  # fmt: skip
+        marks = [i for i, c in enumerate(after) if c == "session-marker closed"]
+        back = [i for i, c in enumerate(after) if c == "systemctl enable trialbox.service"]
+        ok(bool(marks) and bool(back) and dis2 < marks[0] < back[0] and unit["enabled"] == "enabled",
+           "the unit was put back (enabled) only after the accounts were disabled and the CLOSED marker written")  # fmt: skip
+        if case == "session-unit-race":
+            stop = next((i for i, c in enumerate(after) if c == "systemctl stop trialbox.service"), len(after))
+            ok("trialbox.service enabled again by hand" in seq
+               and stop < after.index("compose-stop caddy") < dis2,
+               "the unit, enabled again by hand and starting at the boot, was stopped before Caddy and the close")  # fmt: skip
+            ok(any(c.startswith("unit trialbox.service activating at boot 2") for c in after),
+               "the race was rehearsed: the unit's compose up was still to come when the close began")  # fmt: skip
 if case in ("session", "session-stop"):  # the re-review's F: the address put back first, then the console recreated
     ups = [i for i, c in enumerate(seq) if c.startswith("compose-up-console ")]
     dis = max(i for i, c in enumerate(seq) if c.startswith("session-disable "))
