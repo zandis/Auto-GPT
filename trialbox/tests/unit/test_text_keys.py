@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 import os
+import re
 import subprocess
 import sys
 
@@ -171,10 +172,12 @@ def test_a_box_the_suite_starts_as_a_child_process_is_not_strict() -> None:
     """Strict mode never leaks into a box a test starts (a walk's demo box, an e2e console): the suite switches it on
     in process, not through the environment, so a child process started with the suite's environment keeps the
     fallback, and a missing text there is the key, never a 500 that fails another lane's walk."""
-    assert "TB_STRICT_TEXT" not in os.environ
+    conftest = (tk.ROOT / "tests" / "conftest.py").read_text(encoding="utf-8")
+    assert "TB_STRICT_TEXT" not in conftest  # the suite never adds it to the environment its children inherit
+    env = {k: v for k, v in os.environ.items() if k != "TB_STRICT_TEXT"}  # a developer may export it by hand
     child = subprocess.run(
         [sys.executable, "-c", "from console import i18n; print(i18n.STRICT, i18n.translate('en', 'no.such.key'))"],
-        env={**os.environ, "PYTHONPATH": os.pathsep.join(str(tk.ROOT / p) for p in ("libs", "services", "."))},
+        env={**env, "PYTHONPATH": os.pathsep.join(str(tk.ROOT / p) for p in ("libs", "services", "."))},
         capture_output=True,
         text=True,
         timeout=120,
@@ -193,3 +196,67 @@ def test_a_missing_key_raises_in_the_suite_and_shows_raw_on_a_box(monkeypatch: p
     assert i18n.lookup("ja", "nav.studies") == i18n.CATALOGUES["ja"]["nav.studies"]
     monkeypatch.setattr(i18n, "STRICT", False)
     assert i18n.translate("ja", "no.such.key") == "no.such.key"  # a box keeps the fallback: no page goes down
+    assert issubclass(i18n.MissingText, LookupError) and not issubclass(i18n.MissingText, KeyError)
+
+
+def _calls(node: ast.AST) -> str:
+    f = node.func if isinstance(node, ast.Call) else None
+    return f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else ""
+
+
+def _own_nodes(fn: ast.FunctionDef) -> list[ast.AST]:
+    """The nodes of one function, without those of the functions defined inside it (each is its own scope)."""
+    out: list[ast.AST] = []
+    todo: list[ast.AST] = list(fn.body)
+    while todo:
+        n = todo.pop()
+        out.append(n)
+        if not isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+            todo += list(ast.iter_child_nodes(n))
+    return out
+
+
+def test_no_page_tests_a_translation_against_its_key() -> None:
+    """Under strict mode ``translate`` raises on a missing key, so "the text equals the key" never tests whether a
+    text exists: ``lookup`` (Python) and ``t_or`` (templates) do. No console module compares a ``translate``/``t``
+    result (or a name bound to one) with anything, and no template writes ``t(k) != k``."""
+    found = []
+    for path in sorted(tk.CONSOLE.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for fn in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+            nodes = _own_nodes(fn)
+            bound = {  # names bound to a translate()/t() result in this function
+                t.id
+                for n in nodes
+                if isinstance(n, ast.Assign) and _calls(n.value) in ("translate", "t")
+                for t in n.targets
+                if isinstance(t, ast.Name)
+            }
+            for n in nodes:
+                if isinstance(n, ast.Compare) and any(isinstance(o, ast.Eq | ast.NotEq) for o in n.ops):
+                    for side in (n.left, *n.comparators):
+                        if _calls(side) in ("translate", "t") or (isinstance(side, ast.Name) and side.id in bound):
+                            found.append(f"{path.name}:{n.lineno}")
+    assert sorted(set(found)) == []
+    tpl = [p.name for p in tk.TEMPLATES.rglob("*.html") if re.search(r"\bt\((\w+)\) *!= *\1\b", p.read_text())]
+    assert tpl == []
+
+
+def test_the_late_fallbacks_read_through_lookup_in_strict_mode() -> None:
+    from console.copy_assist_page import source_line
+    from console.i18n import STRICT
+
+    assert STRICT
+    assert isinstance(source_line({"kind": "no_such_kind", "text": "x"}, {}, "ja"), str)  # edc.cite.<kind>
+
+
+def test_a_problem_pages_key_and_both_branches_of_a_conditional_are_uses() -> None:
+    py = {(u.key, u.where.split(":")[0].rsplit("/", 1)[-1]) for u in tk.python_uses() if not u.family}
+    assert ("forbidden", "reveal.py") in py and ("reveal.rate_limited", "reveal.py") in py  # refuse(…, 429, key)
+    assert ("csrf", "app.py") in py  # _Problem(400, "csrf")
+    assert not {k for k, _ in py} & set(tk.API_ONLY)  # JSON on /api/ only, never rendered
+    assert ("log.no", "screening_log.py") in py  # "log.no" if c == … else f"log.xlsx.col.{c}"
+    tpl = {u.key for u in tk.template_uses() if not u.family}
+    assert {"asof.stale", "asof.line", "pilot.banner.public", "pilot.banner", "site.help.remote.off"} <= tpl
+    fam = {u.key for u in tk.template_uses() if u.family}
+    assert {"verdict.exclusion.", "wb.list."} <= fam  # {% set k = '…' + … %}, then t(k)

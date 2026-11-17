@@ -48,8 +48,6 @@ LANG_OF = {"EN": "en", "JA": "ja", "ZH": "zh-TW"}
 LANGS = ("en", "ja", "zh-TW")
 #: a name that holds one language's words: ``EN``, ``_HOME_EN``, ``_CAP_JA`` ...
 CAT_NAME = re.compile(r"^(?:\w*_)?(EN|JA|ZH)$")
-#: the shape of a text key: lower-case words joined by dots (``life.vstate.due``, ``role.cro``)
-KEY = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z0-9_-]+)+$")
 #: keys the code computes into every catalogue (no literal): the key and where its words come from
 COMPUTED = {"footer.statement": "libs/tb_common/wording.py STATEMENT (joined in services/console/i18n.py)"}
 
@@ -351,6 +349,15 @@ _TPL_FAMILY = re.compile(r"""\bt\(\s*(['"])([^'"{}]*?)\1\s*[+~]""")  # t_or has 
 _TPL_MACRO = re.compile(r"""\bitem\(\s*(['"])[^'"]*\1\s*,\s*(['"])([^'"]+)\2""")
 
 
+#: ``t('a' if x else 'b')``: both branches are keys
+_TPL_IF = re.compile(r"""\bt\(\s*(['"])([^'"{}]+?)\1\s+if\s+[^()]*?\s+else\s+(['"])([^'"{}]+?)\3\s*[,)]""")
+#: ``{% set k = 'x.' + … %}`` later asked as ``t(k)``: a family of its own
+_TPL_SET = re.compile(r"""\{%-?\s*set\s+\w+\s*=\s*(['"])([a-z][a-z0-9_.]*\.)\1\s*[+~]""")
+_TPL_SET_IF = re.compile(
+    r"""\{%-?\s*set\s+\w+\s*=\s*(['"])([a-z][a-z0-9_.]*\.)\1\s*[+~][^%]*?\belse\s+(['"])([a-z][a-z0-9_.]*\.)\3\s*[+~]"""
+)
+
+
 def template_uses() -> list[Use]:
     out: list[Use] = []
     for path in sorted(TEMPLATES.rglob("*.html")):
@@ -359,7 +366,28 @@ def template_uses() -> list[Use]:
             out += [Use(m.group(2), f"{rel}:{n}") for m in _TPL_LITERAL.finditer(line)]
             out += [Use(m.group(3), f"{rel}:{n}") for m in _TPL_MACRO.finditer(line)]
             out += [Use(m.group(2), f"{rel}:{n}", family=True) for m in _TPL_FAMILY.finditer(line)]
+            for m in _TPL_IF.finditer(line):
+                out += [Use(m.group(2), f"{rel}:{n}"), Use(m.group(4), f"{rel}:{n}")]
+            out += [Use(m.group(2), f"{rel}:{n}", family=True) for m in _TPL_SET.finditer(line)]
+            out += [Use(m.group(4), f"{rel}:{n}", family=True) for m in _TPL_SET_IF.finditer(line)]
     return out
+
+
+#: a problem page's key: ``problem.html`` renders ``t(key)`` for ``h.problem(400, "key")``, ``_Problem(…)``,
+#: ``reveal.refuse(…, 403, "key")`` (the string right after the status)
+_PROBLEM_CALLS = {"problem", "_Problem", "refuse"}  # backend.Problem carries a service code (dc.err.<code>), not a key
+#: problem keys that only ever answer JSON on /api/: never rendered, never translated
+API_ONLY = {
+    "bad": "services/console/edc_door.py: the EDC door's API answers JSON on /api/, never translated",
+    "login.code": "services/console/home.py /api/v1/session: answers JSON on /api/, never translated",
+}
+
+
+def _branches(node: ast.expr) -> list[ast.expr]:
+    """Both branches of ``"a" if x else "b"`` (nested too); the node itself otherwise."""
+    if isinstance(node, ast.IfExp):
+        return _branches(node.body) + _branches(node.orelse)
+    return [node]
 
 
 #: the functions that take a text key: ``translate(lang, key)`` and the pages' ``t(key)``
@@ -386,6 +414,16 @@ def python_uses() -> list[Use]:
                 continue
             f = node.func
             name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else ""
+            where = f"{rel}:{node.lineno}"
+            if name in _PROBLEM_CALLS:
+                args = node.args
+                for i in range(len(args) - 1):
+                    st, k = args[i], args[i + 1]
+                    if isinstance(st, ast.Constant) and type(st.value) is int and 400 <= st.value < 600:
+                        if isinstance(k, ast.Constant) and isinstance(k.value, str) and k.value not in API_ONLY:
+                            out.append(Use(k.value, where))
+                        break
+                continue
             at = _CALLS.get(name)
             if at is None:
                 continue
@@ -393,13 +431,13 @@ def python_uses() -> list[Use]:
                 at = 1  # an orchestrator-style t(lang, key)
             if len(node.args) <= at:
                 continue
-            arg = node.args[at]
-            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                out.append(Use(arg.value, f"{rel}:{node.lineno}"))
-            else:
-                pre = _prefix(arg)
-                if pre:
-                    out.append(Use(pre, f"{rel}:{node.lineno}", family=True))
+            for arg in _branches(node.args[at]):
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    out.append(Use(arg.value, where))
+                else:
+                    pre = _prefix(arg)
+                    if pre:
+                        out.append(Use(pre, where, family=True))
     return out
 
 
@@ -460,19 +498,24 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "help.page.": _union(_values("console.step4", "HELP_SLUGS"), _guide_pages),
     "guide.page.": _guide_pages,
     "life.gloss.": _values("console.guides", "GLOSSARY"),
+    "log.xlsx.col.": lambda: [c for c in _values("datacore.sponsor", "LOG_COLUMNS")() if c != "screening_no"],
 }
 
 _RUN = "a value of stored data or of a service's answer (a state, a kind, a source): no one list in the code holds it"
 _ERR = "a refusal, error or failure code that a service or a form returns"
 _DONE = "the word a page is sent back with after an action (?done=...), set by the route that redirects"
+_OWN = "a problem page's heading or reason, asked with t_or after a set: a key with none has the general one"
 _AUDIT = "an audit kind: tests/console/test_audit_browser.py holds every one the code writes"
 #: a family not checked member by member, with the reason. What a test renders is still checked: under the suite a
 #: missing member raises (``console.i18n.STRICT``). A family asked with ``t_or`` has its own fallback and is not listed.
 UNCHECKED_FAMILIES: dict[str, str] = {
     "audit.kind.": _AUDIT,
+    **dict.fromkeys(("problem.h.", "problem.why."), _OWN),
     **dict.fromkeys(
         (
             "cmd.refused.",
+            "dc.err.",
+            "edc.err.",
             "conflicts.err.",
             "dataops.err.",
             "edc.why.",
@@ -534,7 +577,6 @@ UNCHECKED_FAMILIES: dict[str, str] = {
             "day.",
             "dc.dir.",
             "dc.kept.",
-            "dc.source.",
             "demo.ack.",
             "dev.kind.",
             "dev.state.",
@@ -659,6 +701,7 @@ UNCHECKED_FAMILIES: dict[str, str] = {
             "team.view.",
             "tier.",
             "verdict.",
+            "verdict.exclusion.",
             "wb.",
             "wb.list.",
             "wb.pipe.",

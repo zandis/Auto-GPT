@@ -42,7 +42,7 @@ from console.auth import Session
 from console.backend import Problem, Unavailable, service_and_status
 from console.edc_pages import err_of, item_words
 from console.home import Helpers
-from console.i18n import CATALOGUES, translate
+from console.i18n import CATALOGUES, lookup
 from console.studies import known_study
 
 for _lang, _cat in (("en", i18n_copyassist.EN), ("ja", i18n_copyassist.JA), ("zh-TW", i18n_copyassist.ZH)):
@@ -71,8 +71,7 @@ def source_line(c: Mapping[str, Any] | None, words: Mapping[str, Any], lang: str
     if not c:
         return ""
     kind = str(c.get("kind") or "")
-    head = translate(lang, f"edc.cite.{kind}")
-    head = "" if head == f"edc.cite.{kind}" else head
+    head = lookup(lang, f"edc.cite.{kind}") or ""
     if kind == "odm":
         body = " ".join(x for x in (str(c.get("name") or ""), str(c.get("path") or "")) if x)
     else:

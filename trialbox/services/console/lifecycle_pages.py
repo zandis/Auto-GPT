@@ -129,8 +129,8 @@ def _printable_report(data: bytes, lang: str) -> bytes:
         return translate(lang, key)
 
     def word(prefix: str, code: Any) -> Any:
-        text = t(prefix + str(code))
-        return text if text != prefix + str(code) else code
+        text = lookup(lang, prefix + str(code))
+        return text if text is not None else code
 
     def as_day(v: Any) -> Any:
         try:

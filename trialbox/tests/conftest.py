@@ -22,7 +22,7 @@ os.environ["TB_LAKE_BUILD"] = "thread"
 os.environ["TB_ADAPTER_RUN"] = "thread"
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(scope="session", autouse=True)
 def _strict_text() -> None:
     """D-1220: a text key no catalogue has is an error in the suite's own process (console.i18n.translate raises), so
     a page a test renders cannot show a raw key. Switched on here, in process, and never through the environment: a

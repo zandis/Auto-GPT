@@ -1134,7 +1134,7 @@ CATALOGUES: dict[str, dict[str, str]] = {"en": EN, "ja": JA, "zh-TW": ZH}
 STRICT = os.environ.get("TB_STRICT_TEXT") == "1"
 
 
-class MissingText(KeyError):
+class MissingText(LookupError):
     """A text key no catalogue has, asked for while ``STRICT`` is on."""
 
 
