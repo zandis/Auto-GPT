@@ -70,7 +70,7 @@ from lake.client import LakeHttp
 from tests.inproc_box import make_box
 
 work, lake_dir, lake_url, key = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4].encode()
-studies = sys.argv[5:]
+log, studies = Path(sys.argv[5]), sys.argv[6:]  # the stub writes its request lines to the log
 sec = work / "sec"
 sec.mkdir(parents=True, exist_ok=True)
 (sec / "site_hmac.key").write_bytes(key)
@@ -78,7 +78,6 @@ box = make_box(work, lake_dir, sec)
 # the box with no embed service (the scale gate's hash embedder), and the lake service over HTTP, as a box runs it
 box.orch.cfg = Config(env=dataclasses.replace(box.orch.cfg.env, embed_url=""), settings=box.orch.cfg.settings)
 box.orch.services.lake = LakeHttp(lake_url)
-log = Path(os.environ["TB_LADDER_STUB_LOG"])
 ms = re.compile(rb'"logger": "llm-stub", "msg": "request".*?"ms": ([0-9.]+)')
 
 def stub_ms(start):
@@ -279,7 +278,7 @@ def summarise(runs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     for run in runs:
         for row in stage_rows(run):
             by.setdefault((row["stage"], int(run["patients"])), []).append(row)
-    table = []
+    table: list[dict[str, Any]] = []
     for (stage, n), rows in sorted(by.items(), key=lambda kv: (kv[0][1], _stage_order(kv[0][0]))):
         secs = [r["seconds"] for r in rows]
         sp = spread(secs)
@@ -410,8 +409,18 @@ def run_jobs(work: Path, lake_dir: Path, studies: Sequence[str], enforce: str = 
             "jobs (FEAS, SCREEN)",
             "orchestrator",
             caps["orchestrator"],
-            [sys.executable, "-c", CHILD_JOBS, str(work / "box"), str(lake_dir), url, SITE_KEY.decode(), *studies],
-            _env(TB_SERVICE_TOKEN=token, TB_LADDER_STUB_LOG=str(stub_log)),
+            [
+                sys.executable,
+                "-c",
+                CHILD_JOBS,
+                str(work / "box"),
+                str(lake_dir),
+                url,
+                SITE_KEY.decode(),
+                str(stub_log),
+                *studies,
+            ],
+            _env(TB_SERVICE_TOKEN=token),
             ROOT,
             stub_log,
         )

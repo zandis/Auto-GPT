@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -13,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 GIB = 2**30
 
 
-def _run(patients: int, ingest_s: float, feas: list[float], screen: list[float], repeat: int = 1) -> dict:
+def _run(patients: int, ingest_s: float, feas: list[float], screen: list[float], repeat: int = 1) -> dict[str, Any]:
     """A measured run as ``measure`` + ``compact`` leave it."""
     lines = []
     for i, (f, s) in enumerate(zip(feas, screen, strict=True)):
