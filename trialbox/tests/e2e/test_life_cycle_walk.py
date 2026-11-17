@@ -98,7 +98,7 @@ def test_the_whole_life_of_a_study(box: tuple[str, str], lang: str) -> None:  # 
             st = next(lf for lf in lp.LIFE if lf.step.n == s["n"])
             assert any(n in out["stopped"] for n in st.after), s
         else:
-            assert (s["path"] and s["heading"]) or s["n"] == 21, s
+            assert (s["path"] and s["heading"]) or s["n"] == 22, s  # step 22 reads /metrics: no heading
     refused = [x for s in steps for x in s["refusals"]]
     assert refused and all(x["status"] == 403 for x in refused), refused
     assert out["checks"] >= 90, out
@@ -156,7 +156,8 @@ def test_every_text_is_a_key_of_the_console_catalogue() -> None:
 def test_the_findings_are_well_formed() -> None:
     steps = {st.n: st for st in lp.all_steps()}
     ids = [f.id for f in lp.FINDINGS]
-    assert ids == sorted(set(ids)) and ids == [f"F-{i:02d}" for i in range(1, len(ids) + 1)], ids
+    # ids stay as first given (F-20, the erase not running, was settled by H-25 and left the list)
+    assert ids == sorted(set(ids)) and all(re.fullmatch(r"F-\d\d", i) for i in ids), ids
     for f in lp.FINDINGS:
         assert f.step in steps and f.severity in lp.SEVERITIES and f.lane in lp.LANES, f
         assert f.role in nw.ROLES and f.path.startswith("/") and f.showed and f.expected and f.source, f

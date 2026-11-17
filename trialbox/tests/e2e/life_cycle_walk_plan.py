@@ -14,7 +14,9 @@ matrix (``libs/tb_common/authz_matrix.yaml``, row in :data:`OWNER_ROW`):
 18. the coordinator reads the patient's chart number on the patient sheet (audited, D-143), for the opt-out;
 19. the data steward records the patient's opt-out by that chart number (D-380, D-441);
 20. the coordinator looks for the patient on the study's lists after the opt-out;
-21. the administrator reads whether the erase ran (the opt-out worker's health check, D-441, D-465).
+21. the data steward reads, in the audit trail, the opt-out worker's run after the opt-out: every clear of the erasure
+    registry's §1 ran, none failed (D-441, D-465; H-25, D-1124);
+22. the administrator reads the worker's health check: green.
 
 Every text is a key of the console's own catalogue. Where the walk must find a thing another way than by a documented
 label, the act names the finding (``F-nn``) and the walk records it as a guess; :class:`Stop` is a reasoned stop read
@@ -63,8 +65,26 @@ OWNER_ROW = {
     18: "id.reveal",
     19: "optout.keep",
     20: "task.screen",
-    21: "ops.view",
+    21: "audit.browse",
+    22: "ops.view",
 }
+#: H-25 (D-1124): the audit event of one run of the opt-out worker (D-441), and the clears of the erasure registry's
+#: §1 that each run names (``docs/validation/erasure-registry.md``, written from ``tb_common.erasure``)
+WORKER_EVENT = "optout.worker"
+CLEARS = (
+    "candidate_pool",
+    "candidate_registry",
+    "held_mail",
+    "omop",
+    "owed_tables",
+    "pid_pending",
+    "profile",
+    "screening_log",
+    "setup_uploads",
+    "vec",
+)
+#: how long the walk waits for the worker's next run after the opt-out (it runs every minute on a demo box)
+WORKER_WAIT_S = 240
 #: the reason the coordinator types for the close (any text will do; a close takes one, D-386)
 CLOSE_REASON = "end of the life-cycle walk"
 #: the withdrawal reason the coordinator chooses: "1", the participant's decision (``life.reason.wd.1``)
@@ -450,6 +470,7 @@ LIFE: tuple[Life, ...] = (
                 Do("fill", label=T("team.optout.chart"), value="{chart}"),
                 Do("button", T("team.optout.save")),
                 See("says", T("team.optout.done.added")),
+                Act("remember", label="optouts", within="[data-testid=optout-n]"),
             ),
             (
                 _refuse(
@@ -521,10 +542,47 @@ LIFE: tuple[Life, ...] = (
     Life(
         LifeStep(
             21,
+            "steward",
+            (
+                Do("nav", T("nav.audit")),
+                See("h1", T("audit.title")),
+                Do("select", label=T("audit.filter.event"), value=WORKER_EVENT),
+                Do("button", T("audit.filter.go")),
+                Act("worker_ran", label="optouts", value=",".join(CLEARS), wait_s=WORKER_WAIT_S),
+            ),
+            (
+                _refuse(
+                    "coordinator",
+                    "GET",
+                    "/audit",
+                    (),
+                    _w(
+                        "the coordinator cannot read the site's audit trail",
+                        "研究協調員不能讀取全院稽核軌跡",
+                        "治験コーディネーターは院内の監査証跡を読めない",
+                    ),
+                ),
+            ),
+            _w(
+                "As the data steward: in the audit trail, read the opt-out worker's run after the opt-out.",
+                "以資料管理員身分：在稽核軌跡中查看登記後拒絕研究使用處理的執行。",
+                "データスチュワードとして：監査証跡で、登録後の利用拒否処理の実行を確認します。",
+            ),
+            _w(
+                "A run that counts the new opt-out and names every store of the erasure registry, none failed.",
+                "一次執行，計入新的拒絕，列出清除登記表的每個儲存區，沒有失敗。",
+                "新しいオプトアウトを数え、消去台帳のすべての保存先を挙げ、失敗のない実行。",
+            ),
+        ),
+        "B2",
+        after=(19,),
+    ),
+    Life(
+        LifeStep(
+            22,
             "operator",
             (
                 Act("goto", value="/metrics", finding="F-21"),
-                Stop("body", 'tb_health_check_level{check="optout_worker"} 2', "F-20"),
                 See("body", value='tb_health_check_level{check="optout_worker"} 0'),
             ),
             (
@@ -541,18 +599,18 @@ LIFE: tuple[Life, ...] = (
                 ),
             ),
             _w(
-                "As the administrator: read whether the opt-out worker erased the patient's data.",
-                "以管理者身分：確認拒絕研究使用的清除程序是否已執行。",
-                "管理者として：オプトアウトの消去処理が動いたかを確認します。",
+                "As the administrator: read the opt-out worker's health check.",
+                "以管理者身分：查看拒絕研究使用處理的健康檢查。",
+                "管理者として：利用拒否処理の健全性チェックを確認します。",
             ),
             _w(
-                "The opt-out worker's check is green (the erase ran).",
-                "拒絕研究使用清除程序的檢查為綠色（已執行）。",
-                "オプトアウト消去処理のチェックが緑（消去済み）。",
+                "The check is green (level 0).",
+                "檢查為綠色（等級 0）。",
+                "チェックは緑（レベル 0）。",
             ),
         ),
-        "B2",
-        after=(19,),
+        "C2",
+        after=(21,),
     ),
 )
 
@@ -814,24 +872,8 @@ FINDINGS: tuple[Finding, ...] = (
         "C2",
     ),
     Finding(
-        "F-20",
-        21,
-        "operator",
-        "/metrics",
-        "stop",
-        '`tb_health_check_level{check="optout_worker"} 2`: the opt-out worker never ran on this box (no '
-        "`optout.worker` audit event); the register and the lists withhold the patient, but none of the "
-        "erasure registry's clears runs",
-        "the worker's first tick at start, then every interval (D-441); the clears of "
-        "`docs/validation/erasure-registry.md` §1",
-        "D-441, D-465; `tools/feas_demo.py` (the in-process orchestrator is a test client: its start-up, which "
-        "starts the worker, never runs)",
-        "blocks the step",
-        "integrator",
-    ),
-    Finding(
         "F-21",
-        21,
+        22,
         "operator",
         "/admin?tab=health",
         "address",
@@ -846,12 +888,6 @@ FINDINGS: tuple[Finding, ...] = (
 
 #: the steps a steps-mode box cannot complete, and what the product needs that the box does not have
 NOT_COMPLETED: tuple[tuple[int, str, str], ...] = (
-    (
-        21,
-        "the erase: the opt-out worker's clears (D-441, D-465)",
-        "an orchestrator started with its own start-up (the opt-out worker's scheduler): `tools/demo.py` builds the "
-        "orchestrator in process as a test client, which never runs it; F-20",
-    ),
     (
         15,
         "consent recorded on TrialBox's consent form (D-399)",

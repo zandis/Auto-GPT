@@ -216,6 +216,35 @@ async function act(p, a, tag) {
       if (a.label === "pid" && vars.pid) vars.short = vars.pid.slice(0, 8);
       return check(vars[a.label], `${tag}: read the ${a.label} from the page`);
     }
+    case "worker_ran": {
+      // H-25 (D-1124): the opt-out worker's run after the opt-out, as the audit trail records it. Waits on the
+      // product's own page (fetched again every 2 s, up to wait_s) for the newest run that counts at least the
+      // opt-outs the register showed (``label``); then that run's detail names every clear of ``value`` (the
+      // erasure registry's §1) with nothing failed and nothing left.
+      const need = parseInt((String(vars[a.label] || "").match(/\d+/) || ["0"])[0], 10);
+      const url = new URL(p.url());
+      await p.waitForFunction(
+        async ([path, need]) => {
+          const html = await (await fetch(path)).text();
+          const d = new DOMParser().parseFromString(html, "text/html");
+          const cell = d.querySelector('tr[data-event="optout.worker"] td[data-src=audit]');
+          const m = cell ? cell.textContent.match(/opted_out=(\d+)/) : null;
+          return !!m && Number(m[1]) >= need;
+        },
+        [url.pathname + url.search, need],
+        { polling: 2000, timeout: a.wait_s * 1000 },
+      );
+      await p.reload({ waitUntil: "load" });
+      await settle(p);
+      const cell = p.locator('main tr[data-event="optout.worker"] td[data-src=audit]').first();
+      const text = (await cell.innerText()).replace(/\s+/g, " ");
+      check(need > 0, `${tag}: the register counted the opt-out (${need})`);
+      for (const name of value.split(",")) check(text.includes(`'${name}'`), `${tag}: the worker's run names the clear ${name}`);
+      check(text.includes("failed=[]"), `${tag}: no clear failed`);
+      check(text.includes("left={}"), `${tag}: no store still holds an opted-out patient`);
+      if (rec) rec.read.worker = masked(text.slice(0, 600));
+      return;
+    }
     case "read": {
       // a text the product shows, kept in the log (what a finding quotes)
       const els = p.locator(a.within);
