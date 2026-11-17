@@ -33,6 +33,7 @@ from rc_bridge.client import RcError, RedcapClient, api_url, check_token
 from rc_bridge.link import WRITE_FIELDS, LinkError, ProjectLink, read_back, validate
 from tb_common.actor_v3 import Claim
 from tb_common.audit import AuditLog
+from tb_common.erased import is_erased
 from tb_common.patient_reads import PHI as _PHI
 from tb_contracts import RegistryUpdate
 
@@ -277,6 +278,14 @@ class StudyService:
         for j in joined:
             assert j.pid is not None
             self.store.put_record(rs, asdict(j), at)
+            if is_erased(j.pid):  # D-878: an erased row is never put back on the registry
+                if j.status in ("consented", "enrolled", "withdrawn") or (j.consent_date or "").strip():
+                    # the review of D-878: REDCap shows consent for a number whose patient was erased as never
+                    # consented: said to the coordinator and the audit trail, without the token
+                    flag = {"link_value": j.link_value, "record_id": j.record_id, "code": "RC-ERASED-CONSENT"}
+                    conflicts.append(flag)
+                    self.audit.append("redcap.erased_consent", ruleset=rs, actor=by, detail=flag)
+                continue
             if j.status is None:
                 continue
             cur = current.get(j.pid)

@@ -164,7 +164,7 @@ def test_the_registry_no_longer_owes_the_cleared_tables() -> None:
     assert not cleared & owed
     assert all(erasure.entries()[k].clear == "owed_tables" for k in cleared)
     assert set(erasure.tables_of("owed_tables")) == cleared
-    assert "study.rc_record" in owed  # REDCap's read-back waits for its card (D-1032)
+    assert "study.rc_record" not in owed  # ERASE-A3 (D-878): REDCap's read-back takes the screening log's token
     for key in SCREENING_LOG:  # ERASE-A2 (D-875): the screening log's tables have their own clear
         assert key not in owed and erasure.entries()[key].clear == "screening_log"
 

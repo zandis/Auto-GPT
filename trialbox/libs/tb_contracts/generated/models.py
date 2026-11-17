@@ -1223,6 +1223,23 @@ class RebuildResult(BaseModel):
     """
 
 
+class RefusedTable(BaseModel):
+    """
+    One installed code table the compile could not read (E-TERM-3, D-1048): its table name (site_<name> for a site list) and the refusal's sentence, never a row of it.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    table: str = Field(..., pattern="^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$")
+    system: str | None = None
+    """
+    the code system's URI, or site for a site list (as terminology_tables names it)
+    """
+    reason: str = Field(..., max_length=600)
+
+
 class RegistryPromote(BaseModel):
     """
     Add the candidates of the ruleset's current SCREEN pool (tiers high and review) that are not yet in the registry.
@@ -3040,7 +3057,7 @@ class PatientProfile(BaseModel):
 
 class RulesetManifest(BaseModel):
     """
-    rulesets/<ID>/manifest.yaml (SPEC 3.4). Schema version 1.1.0 (1.1.0: optional terminology_tables, the TERM-2 follow-up).
+    rulesets/<ID>/manifest.yaml (SPEC 3.4). Schema version 1.2.0 (1.1.0: optional terminology_tables, the TERM-2 follow-up; 1.2.0: optional terminology_refused, E-TERM-3).
     """
 
     model_config = ConfigDict(
@@ -3117,6 +3134,10 @@ class RulesetManifest(BaseModel):
     the score definitions the approved ruleset's criteria follow, by engine score (D-442): a definition of another version or text on the box puts the study in approval needed, and until then screening reads those scores as unknown
     """
     source_last_update: str | None = None
+    terminology_refused: list[RefusedTable] | None = None
+    """
+    the installed code tables the compile could not read (E-TERM-3, D-1048): each by its table name and why; while one is a site list (site_*), approval is refused
+    """
 
 
 class CandidateList(BaseModel):

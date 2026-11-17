@@ -2,6 +2,13 @@
 {% block title %}{{ t('nav.admin') }}{% endblock %}
 {% block content %}
 <div class="headrow"><h1>{{ t('nav.admin') }}</h1><a class="button" href="/ops/users" data-testid="create-account">{{ t('admin.create') }}</a></div>
+{% if term_refused %}
+<section class="card attention" data-testid="term-refused">
+<h2>{{ t('term.refused.title') }}</h2>
+<ul>{% for r in term_refused %}<li data-testid="term-refused-{{ r.table }}">{{ t('term.refused.site', table=r.table, reason=r.reason) }}</li>{% endfor %}</ul>
+<p class="warn" data-testid="term-refused-admin">{{ t('term.refused.admin') }}</p>
+</section>
+{% endif %}
 <div class="tiles">
   <section class="card tile" data-testid="tile-accounts">
     <h2>{{ t('admin.accounts') }}</h2>
