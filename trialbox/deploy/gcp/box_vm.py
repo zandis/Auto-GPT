@@ -42,6 +42,19 @@ folder and calls one subcommand at a time:
       tripwire refused is counted as "refused_by_tripwire" (a product defect count), never dropped. Writes
       work/answers.json in the shape tools.public_accuracy.score reads, and work/pidmap.json
 
+The owner's live session (D-1123; D-1131, D-1132):
+
+  session-egress --table F --state F [--notes F]   D-1131: the box's egress table as the kernel holds it (the
+      product's own `deploy/network.sh status`, read back after `apply`) against the box's networks (the state file
+      `apply` wrote): the table is live, every network of the box sits under its default deny, and no rule lets a
+      box container open a connection out (no `tcp dport ... accept` to an outside address). What the table allows
+      and denies is the JSON; exit 3 when the pasted text could leave the box
+  session-requests       stdin: the box's Caddy access log lines (JSON, `docker compose logs caddy`); stdout: how many
+      requests came from an outside address (the owner's browser through the published port; the VM's own probes
+      and the box's own networks are not counted). The session's heartbeat (D-1132)
+  session-record --file F [--set key=value ...]   D-1132: the session's record (records/session.json) written or
+      updated; it always says "nothing from this session is evidence" and never holds a code or pasted text
+
 Every subcommand prints one JSON object on stdout (and ``--notes`` lines ``key<TAB>json`` where it takes them).
 Nothing here prints a secret: the answers file's values are sent, never echoed.
 """
@@ -1274,6 +1287,90 @@ def routes_verdict(gw: dict[str, Any], emb: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# ------------------------------------------------------------------------------------------------ the owner's session
+SESSION_EVIDENCE = "nothing from this session is evidence"
+_CIDR = re.compile(r"\b[0-9a-fA-F:.]+/[0-9]{1,3}\b")
+
+
+def session_egress(table: str, subnets: list[str]) -> dict[str, Any]:
+    """D-1131: the live egress table read back. Holds when the product's table is loaded, each of the box's networks
+    is under its default deny, and no accept rule lets a box container out (only intra-box traffic, replies,
+    published ports inbound). Each rule of the table is listed with what it does."""
+    problems: list[str] = []
+    rules: list[dict[str, str]] = []
+    denied: set[str] = set()
+    live = "table inet trialbox_egress" in table
+    if not live:
+        problems.append("the table inet trialbox_egress is not loaded (deploy/network.sh apply did not take)")
+    for raw in table.splitlines():
+        line = raw.strip()
+        if not line or line.startswith(("table ", "chain ", "type ", "}", "policy ")):
+            continue
+        m = re.search(r'comment "([^"]*)"', line)
+        why = m.group(1) if m else ""
+        if line.endswith("accept") or " accept" in line:
+            if line.startswith("ct state") or why in ("intra-box", "published ports"):
+                rules.append(
+                    {"rule": why or line, "does": "allows traffic inside the box, replies or a published port"}
+                )
+            else:
+                rules.append({"rule": why or line, "does": "ALLOWS a box container out"})
+                bad = f"an allow rule lets a box container out: {why or line}"
+                if bad not in problems:  # the same allow sits in the forward and the input chain
+                    problems.append(bad)
+        elif " drop" in line or line.endswith("drop"):
+            rules.append({"rule": why or line, "does": "drops"})
+            if why == "trialbox default deny":
+                denied.update(_CIDR.findall(line.split("daddr")[0]))
+    missing = sorted(s for s in subnets if s not in denied)
+    if not subnets:
+        problems.append("the state file names no network of the box (is the stack up?): nothing is filtered")
+    if missing:
+        problems.append(f"networks of the box with no default deny: {missing}")
+    return {"live": live, "box_networks": sorted(subnets), "under_default_deny": sorted(denied),
+            "rules": rules, "text_can_leave": bool(problems), "problems": problems}  # fmt: skip
+
+
+def session_requests(lines: list[str]) -> int:
+    """Requests in Caddy's JSON access log from an outside (global) address: the owner's browser. The VM's own
+    probes (loopback) and the box's networks (private) do not keep a session alive."""
+    import ipaddress
+
+    n = 0
+    for line in lines:
+        try:
+            d = json.loads(line[line.index("{") :])
+        except ValueError:
+            continue
+        req = d.get("request") if isinstance(d, dict) else None
+        if not isinstance(req, dict):
+            continue
+        ip = str(req.get("client_ip") or req.get("remote_ip") or "").split("%")[0]
+        try:
+            if ipaddress.ip_address(ip).is_global:
+                n += 1
+        except ValueError:
+            continue
+    return n
+
+
+def session_record(path: Path, sets: list[str]) -> dict[str, Any]:
+    """The session's record: merged key by key, written by rename; the evidence line always there."""
+    try:
+        rec = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        rec = {}
+    for item in sets:
+        k, _, v = item.partition("=")
+        rec[k] = v
+    rec["evidence"] = SESSION_EVIDENCE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(rec, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+    return rec
+
+
 def _notes(path: str | None, facts: dict[str, Any]) -> None:
     if path:
         with open(path, "a", encoding="utf-8") as fh:
@@ -1348,6 +1445,14 @@ def main(argv: list[str] | None = None) -> int:
     t = sub.add_parser("top-costs")
     t.add_argument("parts", type=Path)
     sub.add_parser("redact")
+    se = sub.add_parser("session-egress")
+    se.add_argument("--table", type=Path, required=True)
+    se.add_argument("--state", type=Path, required=True)
+    se.add_argument("--notes")
+    sub.add_parser("session-requests")
+    sr = sub.add_parser("session-record")
+    sr.add_argument("--file", type=Path, required=True)
+    sr.add_argument("--set", action="append", default=[])
     mf = sub.add_parser("acc-merge-feed")
     mf.add_argument("--into", type=Path, required=True)
     mf.add_argument("sites", type=Path, nargs="+")
@@ -1441,6 +1546,21 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if a.cmd == "redact":
         sys.stdout.writelines(redact(sys.stdin))
+        return 0
+    if a.cmd == "session-egress":
+        try:
+            subnets = [str(s) for s in json.loads(a.state.read_text(encoding="utf-8")).get("subnets") or []]
+        except (OSError, ValueError):
+            subnets = []
+        res = session_egress(a.table.read_text(encoding="utf-8", errors="replace"), subnets)
+        _notes(a.notes, {"egress": {k: res[k] for k in ("live", "box_networks", "text_can_leave", "problems")}})
+        print(json.dumps(res))
+        return 3 if res["text_can_leave"] else 0
+    if a.cmd == "session-requests":
+        print(session_requests(sys.stdin.read().splitlines()))
+        return 0
+    if a.cmd == "session-record":
+        print(json.dumps(session_record(a.file, a.set)))
         return 0
     if a.cmd == "acc-merge-feed":
         try:
