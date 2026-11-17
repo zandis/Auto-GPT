@@ -186,6 +186,36 @@ def extraction_parts(lines: list[dict[str, Any]], size: int) -> list[tuple[int, 
     return out
 
 
+def installed_stamp(term: Any) -> list[dict[str, str]]:
+    """TERM-2 follow-up: the loaded terminology tables ``term`` read (:meth:`Terminology.installed_stamp`); none for a
+    compiler with no terminology or one that loads none."""
+    fn = getattr(term, "installed_stamp", None)
+    return list(fn()) if callable(fn) else []
+
+
+def stamp_differs(manifest: RulesetManifest, term: Any) -> str:
+    """Why this box's terminology is not the one the draft was compiled against ("" when it is): the release, or a
+    loaded table added, gone or changed since the compile (by name, version and sha256 prefix). A draft compiled on
+    another box, or before its IT loaded or replaced a table, is compiled again before it is approved."""
+    if term is None:
+        return ""
+    then = {t.table: t for t in manifest.terminology_tables or []}
+    now = {t["table"]: t for t in installed_stamp(term)}
+    changed = [f"{n} added" for n in sorted(set(now) - set(then))]
+    changed += [f"{n} gone" for n in sorted(set(then) - set(now))]
+    changed += [
+        f"{n} {then[n].version or '?'} ({then[n].sha256[:12]}) -> {now[n]['version'] or '?'} ({now[n]['sha256'][:12]})"
+        for n in sorted(set(then) & set(now))
+        if then[n].sha256 != now[n]["sha256"]
+    ]
+    release = str(getattr(term, "release", "") or "")
+    if manifest.terminology_release and release and release != manifest.terminology_release:
+        changed.insert(0, f"release {manifest.terminology_release} -> {release}")
+    if not changed:
+        return ""
+    return "terminology differs from the compile (" + "; ".join(changed) + "): compile again before approval"
+
+
 def flag_unread(criteria: list[CriterionIR], unread: dict[int, str], warnings: list[str]) -> list[CriterionIR]:
     """The criteria of the lines the model gave no criterion of their own (D-912), flagged for the reviewer."""
     out = list(criteria)
@@ -640,6 +670,8 @@ class Compiler:
             if name != "FHIRHelpers":
                 files[f"cql/elm/{name}.json"] = text.encode("utf-8")
         files[f"sql/{manifest.id}.sql"] = art.sql.encode("utf-8")
+        # TERM-2 follow-up: the report names the loaded tables its compile read, as the manifest does
+        tests = tests.model_copy(update={"terminology_tables": manifest.terminology_tables})
         files["tests/equivalence.json"] = json_bytes(dump(without_pseudonyms(tests)))  # D-862: no pseudonym kept
         return files
 
@@ -705,6 +737,12 @@ class Compiler:
             m["terminology_release"] = release
         else:
             m.pop("terminology_release", None)
+        # TERM-2 follow-up: and each table loaded at install it read (absent: none, the shipped Parquet alone)
+        tables = installed_stamp(self.d.term)
+        if tables:
+            m["terminology_tables"] = tables
+        else:
+            m.pop("terminology_tables", None)
         m.pop("review", None)
         m.pop("equivalence", None)
         m.pop("prompt_pins", None)  # pinned again at approval (D-318)
@@ -1063,6 +1101,8 @@ class Compiler:
         )
         if not art.elm and compiled(active):
             blocking.append("ELM translation unavailable")
+        if differ := stamp_differs(rs.manifest, self.d.term):  # TERM-2 follow-up: said before anyone approves
+            blocking.append(differ)
         manifest = rs.manifest.model_copy(update={"criteria": [c.id for c in updated]})
         if edits or blocking:
             manifest = RulesetManifest.model_validate({**dump(manifest), "review": {"rounds": round_no}})

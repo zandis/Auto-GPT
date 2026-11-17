@@ -135,7 +135,7 @@ echo "kind-day2: 2. a backup file on the share claim: ok"
 k scale deployment --all --replicas=0
 k wait --for=delete pod -l trialbox.io/tier=app --timeout=300s || true
 k delete statefulset db --wait=true
-k delete pvc db-pg-db-0 lake-data objects-data audit-data rulesets-data orch-data mail-data tb-secrets console-data \
+k delete pvc db-pg-db-0 lake-data objects-data audit-data rulesets-data orch-data mail-data tb-secrets console-data tb-terminology \
   --wait=true
 kubectl apply -f "$D/rendered.yaml" >/dev/null   # the claims and the database again, empty
 k scale deployment --all --replicas=0             # nothing writes while the restore runs

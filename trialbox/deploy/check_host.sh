@@ -309,6 +309,10 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
   # the KEK the unseal writes (tb_common.kek, D-347), read-only, when this host has one
   KEK_DIR="${TB_KEK_HOST_DIR:-/run/trialbox}"; KEK_MOUNT=""
   [ -d "$KEK_DIR" ] && KEK_MOUNT="$KEK_DIR:/run/trialbox:ro"
+  # D-991: the code systems loaded at install (deploy/terminology.sh), read-only, so doctor's terminology line reports
+  # what criteria-compiler, orchestrator and console read
+  TERM_VOL="${COMPOSE_PROJECT_NAME:-trialbox}_tb-terminology"; TERM_MOUNT=""
+  docker volume inspect "$TERM_VOL" >/dev/null 2>&1 && TERM_MOUNT="${TERM_VOL}:/data/terminology:ro"
   # NEW-STD-2 (D-562): doctor's audit_heads check reads the secrets volume (the audit key) and the anchor folders
   # (the signed heads) at their host paths, read-only; without them a healthy box FAILed the check in the image
   AUDIT_MOUNTS=""
@@ -365,7 +369,7 @@ if command -v python3 >/dev/null 2>&1 && ! python3 -c "import pydantic, yaml" 2>
     # shellcheck disable=SC2086
     if docker run --rm --network none --env-file "$ENV_FILE" -i -e TB_HOST_TZ="$HOST_TZ" \
         -e TB_DOCTOR_RUNNING_INSPECT=stdin -e TB_DOCTOR_PIDMAP_ROW="$PIDMAP_ROW" -v "$ROOT_DIR/deploy:/app/deploy:ro" \
-        ${TREE_MOUNT:+-v "$TREE_MOUNT"} ${KEK_MOUNT:+-v "$KEK_MOUNT"} ${LDAP_MOUNT:+-v "$LDAP_MOUNT"} $AUDIT_MOUNTS --user 0:0 \
+        ${TREE_MOUNT:+-v "$TREE_MOUNT"} ${KEK_MOUNT:+-v "$KEK_MOUNT"} ${TERM_MOUNT:+-v "$TERM_MOUNT"} ${LDAP_MOUNT:+-v "$LDAP_MOUNT"} $AUDIT_MOUNTS --user 0:0 \
         "${TB_IMAGE:-trialbox-py:1.0.0}" python -m tools.trialbox doctor "$@"; then
       return 0
     fi

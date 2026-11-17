@@ -9,7 +9,9 @@
 ## Context
 
 The replay answers part of each target. Saying "met" where it only knows a part would let an offline figure stand in
-for the confirming launch.
+for the confirming launch. D-1064 item 4 (2026-11-17) goes further: a target is met only by a launch, so no figure of
+the replay is "met"; the replay says whether its figure is within the target, which decides whether a launch is worth
+its cost (D-1117).
 
 ## Decision
 
@@ -20,9 +22,10 @@ for the confirming launch.
    A budget cut is not attempted.
 2. **Eligible patients wrongly excluded (target 1).** The figure is given on both keys and both levels. Pair level is
    used where the set has eligibility labels; criterion level is used where it has none (JMED: a row "not excluded"
-   that the box blocked). It is met only when nothing was wrongly excluded and something was answered.
+   that the box blocked). It is within the target only when nothing was wrongly excluded and something was answered;
+   it is never met by a replay.
 3. **The pathology figure (target 2).** A run with no tcga set, or one the scorer cannot score, is "not scored" with
-   the reason, and the target is not met. A run kept as counts only (PoC-1's `sets-<commit>.json`) is read back with
+   the reason, and the figure is not within the target. A run kept as counts only (PoC-1's `sets-<commit>.json`) is read back with
    `--pathology-run` and compared with the claim. It is labelled "read, not re-scored", since its answers and gold were
    not kept, and it does not decide the target.
 

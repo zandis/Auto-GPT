@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from tb_common.config import Env, ethics_gate_on, load_settings, schedule_on_demand, tb_env
+
+pytestmark = [pytest.mark.guard, pytest.mark.nodb]  # D-1119: the guard step of `checks`; no database
 
 ROOT = Path(__file__).resolve().parents[2]
 

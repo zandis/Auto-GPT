@@ -19,6 +19,10 @@ standard input; a push or a run by hand has none.
 * Whatever ``CARD_TIER`` says: a draft and a docs-only card (D-969) run the fast tier unless labelled ``ci:full``.
 
 ``scenarios`` is true whenever ``full`` is, except in that one ``touched`` case.
+
+The tiers' jobs are unchanged by D-1119: the fast tier's `checks` job ends with the guard tests (the test files marked
+``guard``, static readers of the tree, no database) and the collection check of a pull request's changed test files,
+so every tier runs them (``make guard`` locally). The log says so under the tier's reason.
 """
 
 from __future__ import annotations
@@ -102,6 +106,8 @@ FULL_TIER: tuple[str, ...] = (
     "trialbox/tests/conftest.py",
     "trialbox/Makefile",
 )
+#: D-1119: wording only, the log's second line; the guard step is a step of `checks`, which every tier runs
+GUARD_NOTE = "every tier runs the guard tests and the collection check, the last steps of `checks` (D-1119)"
 #: D (CARD_TIER=touched): a card that changes only these skips the scenario jobs
 NO_SCENARIOS = ("trialbox/deploy/", "trialbox/tools/", ".github/")
 
@@ -154,6 +160,7 @@ def main() -> int:
     print(f"full={'true' if full else 'false'}")
     print(f"scenarios={'true' if scenarios else 'false'}")
     print(f"ci_tier: {why}", file=sys.stderr)
+    print(f"ci_tier: {GUARD_NOTE}", file=sys.stderr)
     return 0
 
 

@@ -180,6 +180,7 @@ spec:
             - {name: token-registry, mountPath: /etc/trialbox/service-tokens, readOnly: true}
             - {name: tmp, mountPath: /tmp}
             - {name: rulesets-data, mountPath: /data/rulesets}
+            - {name: tb-terminology, mountPath: /data/terminology, readOnly: true}  # D-991: read-only in the readers
             - {name: audit-data, mountPath: /data/audit}
             - {name: objects-data, mountPath: /data/objects}
       volumes:
@@ -188,6 +189,7 @@ spec:
         - {name: token-registry, configMap: {name: trialbox-service-tokens}}
         - {name: tmp, emptyDir: {}}
         - {name: rulesets-data, persistentVolumeClaim: {claimName: rulesets-data}}
+        - {name: tb-terminology, persistentVolumeClaim: {claimName: tb-terminology, readOnly: true}}
         - {name: audit-data, persistentVolumeClaim: {claimName: audit-data}}
         - {name: objects-data, persistentVolumeClaim: {claimName: objects-data}}
 ---
@@ -293,6 +295,7 @@ spec:
             - {name: orch-data, mountPath: /data/orchestrator}
             - {name: audit-data, mountPath: /data/audit}
             - {name: rulesets-data, mountPath: /data/rulesets, readOnly: true}
+            - {name: tb-terminology, mountPath: /data/terminology, readOnly: true}  # D-991: read-only in the readers
             - {name: objects-data, mountPath: /data/objects}
             - {name: tb-secrets, mountPath: /run/secrets/trialbox}
             - {name: actor, mountPath: /etc/trialbox/actor, readOnly: true}
@@ -304,6 +307,7 @@ spec:
         - {name: orch-data, persistentVolumeClaim: {claimName: orch-data}}
         - {name: audit-data, persistentVolumeClaim: {claimName: audit-data}}
         - {name: rulesets-data, persistentVolumeClaim: {claimName: rulesets-data}}
+        - {name: tb-terminology, persistentVolumeClaim: {claimName: tb-terminology, readOnly: true}}
         - {name: objects-data, persistentVolumeClaim: {claimName: objects-data}}
         - {name: tb-secrets, persistentVolumeClaim: {claimName: tb-secrets}}
         - {name: actor, secret: {secretName: trialbox-actor, defaultMode: 0440}}
@@ -465,6 +469,7 @@ spec:
             - {name: console-data, mountPath: /data/console}
             - {name: audit-data, mountPath: /data/audit}
             - {name: rulesets-data, mountPath: /data/rulesets, readOnly: true}
+            - {name: tb-terminology, mountPath: /data/terminology, readOnly: true}  # D-991: read-only in the readers
             - {name: objects-data, mountPath: /data/objects}
             - {name: actor-sign, mountPath: /etc/trialbox/actor-sign, readOnly: true}
       volumes:
@@ -476,4 +481,5 @@ spec:
         - {name: console-data, persistentVolumeClaim: {claimName: console-data}}
         - {name: audit-data, persistentVolumeClaim: {claimName: audit-data}}
         - {name: rulesets-data, persistentVolumeClaim: {claimName: rulesets-data}}
+        - {name: tb-terminology, persistentVolumeClaim: {claimName: tb-terminology, readOnly: true}}
         - {name: objects-data, persistentVolumeClaim: {claimName: objects-data}}

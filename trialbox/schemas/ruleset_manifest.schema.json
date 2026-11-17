@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trialbox.local/schemas/v1/ruleset_manifest.schema.json",
   "title": "RulesetManifest",
-  "description": "rulesets/<ID>/manifest.yaml (SPEC 3.4). Schema version 1.0.0.",
+  "description": "rulesets/<ID>/manifest.yaml (SPEC 3.4). Schema version 1.1.0 (1.1.0: optional terminology_tables, the TERM-2 follow-up).",
   "type": "object",
   "required": ["id", "kind", "title", "version", "index_date_rule", "scopes", "routing", "thresholds", "criteria"],
   "additionalProperties": false,
@@ -38,10 +38,24 @@
     "nct_id": {"type": "string"},
     "terminology_release": {"type": "string", "pattern": "^TR-[0-9a-f]{12}$", "description": "the terminology release the ruleset was compiled against (D-301): a run against another release is refused until it is recompiled"},
     "prompt_pins": {"type": "object", "additionalProperties": {"$ref": "#/$defs/prompt_pin"}, "description": "the prompts the approved ruleset runs with, by prompt id (D-318): SCREEN runs the pinned version and text until the investigator re-approves; a newer registered version puts the study in approval needed"},
+    "terminology_tables": {"type": "array", "items": {"$ref": "#/$defs/terminology_table"}, "description": "TERM-2 follow-up: each table loaded at install (a site list, the NHI lists, ICD-10-PCS, a licensed table, a later ICD-10-CM release) the compile read, beside terminology_release (the shipped Parquet). Absent: no loaded table was read. Approval is blocked while the box's loaded tables differ from these"},
     "derived_pins": {"type": "object", "additionalProperties": {"$ref": "#/$defs/derived_pin"}, "description": "the score definitions the approved ruleset's criteria follow, by engine score (D-442): a definition of another version or text on the box puts the study in approval needed, and until then screening reads those scores as unknown"},
     "source_last_update": {"type": "string"}
   },
   "$defs": {
+    "terminology_table": {
+      "title": "TerminologyTable",
+      "description": "One table loaded at install that a compile read (TERM-2 follow-up): its name, the URI of the code system it serves (site for a site list, as lane E's terminology_refused entries name it), its version and the sha256 of its manifest line. Codes and names only, never a patient value.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["table", "sha256"],
+      "properties": {
+        "table": {"type": "string"},
+        "system": {"type": "string"},
+        "version": {"type": "string"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
     "derived_pin": {
       "title": "DerivedPin",
       "description": "One score definition as the investigator approved it (D-442): the catalogue's def_version and the sha256 of its YAML.",

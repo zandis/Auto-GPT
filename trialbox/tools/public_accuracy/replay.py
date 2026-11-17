@@ -22,8 +22,20 @@ Two levels, each figure labelled with its own:
 
 The targets: (1) eligible patients wrongly excluded (none, on the corrected key); (2) the pathology figure of PoC-1
 reproduced (a run without tcga is "not scored", never a pass); (3) fewer than one protocol in ten of those attempted
-failing (before or in SCREEN, as the scorer counts it, D-1107; failing before SCREEN said beside it). Exit 0 when the
-tool ran, whatever the figures; ``--require-targets`` exits 3 when a target is not met at the replay's highest level.
+failing (before or in SCREEN, as the scorer counts it, D-1107; failing before SCREEN said beside it).
+
+A target is met only by a launch (D-1064 item 4): the replay's figures decide whether a launch is worth its cost and
+are never a result. Every target's ``met`` is false here, with ``met_only_by``; whether the figure lies within the
+target is ``within_target``. Exit 0 when the tool ran, whatever the figures; ``--require-targets`` exits 3 when a
+figure at the replay's highest level is not within its target.
+
+The key a set is scored on is the one its folder states (``gold/key.json``, D-1104; none: v1). A set built on key v1
+is scored on it and on the offline v2 of launch P1b (below); a set built on v2 natively is scored as it is, and has
+no v1 figure.
+
+The site's zone for the re-run (the compile and the age lines) is read from the run's own record where it stores one
+(:data:`ZONE_FIELDS`); else ``TB_TZ``; else UTC. ``--tz`` overrides all three. The report says which zone was used
+and where it came from.
 """
 
 from __future__ import annotations
@@ -46,7 +58,24 @@ for _p in (ROOT, ROOT / "libs", ROOT / "services"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-SCHEMA_VERSION = 1
+#: the report's layout: 2 adds ``within_target`` and ``met_only_by`` (D-1064 item 4: ``met`` is never true for a
+#: replay), each set's ``zone`` and ``key_stated``, and the target read without the conflicted pairs with
+#: ``with_conflicted``, ``conflicted`` and ``conflicted_excluded_on_another_line`` beside it (D-1064 items 1-2). Keys
+#: are only ever added.
+SCHEMA_VERSION = 2
+MET_ONLY_BY = (
+    "a launch (D-1064 item 4): a replay's figure decides whether a launch is worth its cost; it is not a result"
+)
+#: where a stored run may name its site's zone, in order: (file under ``work/``, path of keys); a screen report's is
+#: read from each ``work/screen/*.json``
+ZONE_FIELDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("set-clock.json", ("tz",)),
+    ("set-clock.json", ("site_tz",)),
+    ("acc-env.json", ("tz",)),
+    ("acc-env.json", ("TB_TZ",)),
+    ("screen/*.json", ("provenance", "tz")),
+    ("screen/*.json", ("provenance", "site_tz")),
+)
 MANIFEST = ROOT / "eval" / "public_accuracy_key" / "MANIFEST.json"
 POC1_CLAIM = {"commit": "b266f9b7", "reports": 500, "excluded": 384, "ineligible": 450, "wrong": 0, "lost": 0,
               "eligible": 50}  # fmt: skip
@@ -173,6 +202,69 @@ def collect(paths: list[Path], scratch: Path) -> dict[str, Path]:
     return found
 
 
+# ---------------------------------------------------------------- the run's zone (D-315)
+def _valid_zone(name: str) -> bool:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return False
+    return True
+
+
+def zone_of_record(d: Path) -> dict[str, Any]:
+    """The site's zone as the stored run records it: the first of :data:`ZONE_FIELDS` that names a valid IANA zone,
+    ``{"tz": ..., "from": "<file>: <keys>"}``; ``{"tz": None, ...}`` when the record names none (the places looked
+    in are listed). Two places naming different zones are said in ``disagrees``; the first is used."""
+    work = d / "work"
+    found: list[tuple[str, str]] = []
+    bad: list[str] = []
+    for pattern, path in ZONE_FIELDS:
+        for f in sorted(work.glob(pattern)):
+            try:
+                v: Any = json.loads(f.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            for k in path:
+                v = v.get(k) if isinstance(v, dict) else None
+            if not isinstance(v, str) or not v.strip():
+                continue
+            where = f"{f.relative_to(d).as_posix()}: {'.'.join(path)}"
+            if _valid_zone(v.strip()):
+                found.append((v.strip(), where))
+            else:
+                bad.append(f"{where} = {v.strip()!r} (not an IANA zone)")
+    looked = [f"work/{p}: {'.'.join(k)}" for p, k in ZONE_FIELDS]
+    if not found:
+        return {"tz": None, "from": None, "looked_in": looked, "unreadable": bad}
+    out: dict[str, Any] = {"tz": found[0][0], "from": found[0][1], "looked_in": looked, "unreadable": bad}
+    others = sorted({f"{w} = {z}" for z, w in found if z != found[0][0]})
+    if others:
+        out["disagrees"] = others
+    return out
+
+
+def choose_zone(record: dict[str, Any], given: str | None, environ: Any = None) -> dict[str, Any]:
+    """The zone the re-run uses and where it came from: ``--tz`` when given, else the run's record, else ``TB_TZ``,
+    else UTC (no zone of the code's own but UTC, D-315)."""
+    env = os.environ if environ is None else environ
+    rec = record.get("tz")
+    out: dict[str, Any]
+    if given:
+        out = {"tz": given, "from": "given with --tz"}
+    elif rec:
+        out = {"tz": rec, "from": f"the run's own record ({record['from']})"}
+    elif (env.get("TB_TZ") or "").strip():
+        out = {"tz": env["TB_TZ"].strip(), "from": "TB_TZ (the run's record names no zone)"}
+    else:
+        out = {"tz": "UTC", "from": "UTC (the run's record names no zone and TB_TZ is not set)"}
+    out["record"] = record
+    if rec and rec != out["tz"]:
+        out["differs_from_the_record"] = rec
+    return out
+
+
 # ---------------------------------------------------------------- level (a): the current scorer, both keys
 def _gold_sha(built: Path) -> dict[str, str]:
     g = built / "gold"
@@ -206,13 +298,14 @@ def v2_overlay(name: str, built: Path, out: Path, *, pinned: bool, require_pin: 
     rows = (((manifest().get("versions") or {}).get("v2") or {}).get("launch_p1b_rows_that_change") or {}).get(name)
     info: dict[str, Any] = {"key": "v2", "how": "the stored v1 gold with MANIFEST.json's listed changes applied",
                             "gold_matches_the_pins": pinned}  # fmt: skip
+    f = out / "gold" / "criteria.jsonl"
+    crits = [json.loads(x) for x in f.read_text(encoding="utf-8").splitlines() if x]
+    pairs = [json.loads(x) for x in (out / "gold" / "pairs.jsonl").read_text(encoding="utf-8").splitlines() if x]
     if not rows:
         info["applied"] = 0
         info["note"] = "MANIFEST.json lists no label row of this set that v2 changes"
-        return info
-    info["manifest_says"] = {k: v for k, v in rows.items() if k != "labels"}
-    f = out / "gold" / "criteria.jsonl"
-    crits = [json.loads(x) for x in f.read_text(encoding="utf-8").splitlines() if x]
+        return info | _mark_conflicted(out, pairs, crits, None)
+    info["manifest_says"] = {k: v for k, v in rows.items() if k not in ("labels", "conflicted")}
     applied, unmatched = 0, []
     for ch in rows.get("labels") or []:
         hit = [c for c in crits if c.get("patient") == ch.get("patient") and c.get("trial") == ch.get("trial")
@@ -224,7 +317,22 @@ def v2_overlay(name: str, built: Path, out: Path, *, pinned: bool, require_pin: 
         applied += 1
     f.write_text("".join(json.dumps(c, ensure_ascii=False, sort_keys=True) + "\n" for c in crits), encoding="utf-8")
     info |= {"applied": applied, "unmatched": unmatched}
-    return info
+    return info | _mark_conflicted(out, pairs, crits, rows.get("conflicted"))
+
+
+def _mark_conflicted(
+    out: Path, pairs: list[dict[str, Any]], crits: list[dict[str, Any]], listed: list[dict[str, Any]] | None
+) -> dict[str, Any]:
+    """D-1064 on the offline v2: the key's own rule (:func:`tools.public_accuracy.key.write_conflicted`) marks the
+    conflicted pairs of the overlaid gold; MANIFEST.json's list for the run, when it has one, is checked against it."""
+    from tools.public_accuracy import key as keys
+
+    marks = keys.write_conflicted(out / "gold", pairs, crits)
+    got = sorted((str(m["patient"]), str(m["trial"])) for m in marks)
+    res: dict[str, Any] = {"conflicted": len(marks), "conflicted_pairs": [f"{p} x {t}" for p, t in got]}
+    if listed is not None:
+        res["manifest_lists_the_same_conflicted"] = got == sorted((str(x["patient"]), str(x["trial"])) for x in listed)
+    return res
 
 
 def score_all(sets: dict[str, tuple[Path, Any, Path]], where: Path) -> dict[str, Any]:
@@ -263,21 +371,42 @@ def eligible_figure(name: str, sc: dict[str, Any], refused: str | None = None) -
         extra = {lang: {kk: s.get(kk) for kk in ("eligible_lost_where_the_criterion_labels_exclude",
                                                  "eligible_lost_on_the_line_the_criterion_labels_exclude")}
                  for lang, s in summ.items()}  # fmt: skip
-        return {"set": name, "scored": True, "what": "gold-eligible pairs the box excluded, of those it answered",
-                "numerator": k, "denominator": n, "s1_label_conflicts": extra}  # fmt: skip
+        out: dict[str, Any] = {"set": name, "scored": True, "s1_label_conflicts": extra,
+                               "what": "gold-eligible pairs the box excluded, of those it answered",
+                               "numerator": k, "denominator": n, "with_conflicted": {"numerator": k, "denominator": n},
+                               "conflicted": None, "conflicted_excluded_on_another_line": []}  # fmt: skip
+        con = (sc.get("pairs") or {}).get("conflicted")
+        if con is not None:
+            # D-1064: the target reads the key without its conflicted pairs; the figure with them is beside it
+            out["numerator"] = sum(int(s["eligible_lost_without_conflicted"]["k"]) for s in summ.values())
+            out["denominator"] = sum(int(s["eligible_lost_without_conflicted"]["n"]) for s in summ.values())
+            out["what"] += ", without the pairs the key marks conflicted (D-1064)"
+            out["conflicted"] = con["pairs"]
+            out["conflicted_excluded_on_another_line"] = sc["pairs"].get("conflicted_excluded_on_another_line") or []
+        return out
     cr = sc.get("criteria") or {}
     w = cr.get("wrong_exclusion") or {}
-    return {"set": name, "scored": True, "numerator": int(w.get("k") or 0), "denominator": int(w.get("n") or 0),
+    k, n = int(w.get("k") or 0), int(w.get("n") or 0)
+    return {"set": name, "scored": True, "numerator": k, "denominator": n,
             "what": "gold rows met or not applicable (JMED: not excluded) the box blocked, of those it answered",
-            "rows_with_no_verdict": cr.get("no_verdict")}  # fmt: skip
+            "with_conflicted": {"numerator": k, "denominator": n}, "conflicted": None,
+            "conflicted_excluded_on_another_line": [], "rows_with_no_verdict": cr.get("no_verdict")}  # fmt: skip
 
 
 def figure(level: str, key: str, per_set: list[dict[str, Any]]) -> dict[str, Any]:
     k = sum(int(x.get("numerator") or 0) for x in per_set)
     n = sum(int(x.get("denominator") or 0) for x in per_set)
     scored = all(x.get("scored", True) for x in per_set)
-    return {"level": level, "key": key, "numerator": k, "denominator": n, "met": scored and n > 0 and k == 0,
-            "all_sets_scored": scored, "per_set": per_set}  # fmt: skip
+    wk = sum(int((x.get("with_conflicted") or {}).get("numerator") or 0) for x in per_set)
+    wn = sum(int((x.get("with_conflicted") or {}).get("denominator") or 0) for x in per_set)
+    marks = [x for x in per_set if x.get("conflicted") is not None]
+    return {"level": level, "key": key, "numerator": k, "denominator": n, "met": False, "met_only_by": MET_ONLY_BY,
+            "within_target": scored and n > 0 and k == 0, "all_sets_scored": scored,
+            "with_conflicted": {"numerator": wk, "denominator": wn},
+            "conflicted": None if not marks else [{"set": x["set"], **r} for x in marks for r in x["conflicted"]],
+            "conflicted_excluded_on_another_line": [{"set": x["set"], **r} for x in per_set
+                                                    for r in x.get("conflicted_excluded_on_another_line") or []],
+            "per_set": per_set}  # fmt: skip
 
 
 def protocols_figure(level: str, scores: dict[str, Any], rerun: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -315,10 +444,13 @@ def protocols_figure(level: str, scores: dict[str, Any], rerun: dict[str, Any] |
         "share": round(failed / att, 4) if att else None,
         "failed_before_screen": before,
         "failed_before_screen_share": round(before / att, 4) if att else None,
-        "met": att > 0 and failed * 10 < att,
-        "met_before_screen_only": att > 0 and before * 10 < att,
-        "target": "fewer than one protocol in ten of those attempted fails (before or in SCREEN, D-1107); failing "
-        "before SCREEN alone is said beside it",
+        "met": False,
+        "met_before_screen_only": False,
+        "met_only_by": MET_ONLY_BY,
+        "within_target": att > 0 and failed * 10 < att,
+        "within_target_before_screen_only": att > 0 and before * 10 < att,
+        "target": "fewer than one protocol in ten of those attempted fails before or in SCREEN (D-1107); the "
+        "target reads this wider share, and the share failing before SCREEN is printed beside it",
     }
     return out
 
@@ -330,17 +462,20 @@ def pathology_from_run(scores: dict[str, Any], names: list[str]) -> dict[str, An
         if p.get("scored"):
             ie, we, el = p["ineligible_excluded"], p["wrong_exclusions"], p["eligible_lost"]
             fig |= {"numerator": ie["k"], "denominator": ie["n"], "wrong_exclusions": we["k"], "eligible_lost": el["k"],
-                    "eligible": el["n"], "reports": p.get("reports"),
-                    "met": (p.get("reports"), ie["k"], ie["n"], we["k"], el["k"], el["n"]) == (
+                    "eligible": el["n"], "reports": p.get("reports"), "met": False, "met_only_by": MET_ONLY_BY,
+                    "within_target": (p.get("reports"), ie["k"], ie["n"], we["k"], el["k"], el["n"]) == (
                         POC1_CLAIM["reports"], POC1_CLAIM["excluded"], POC1_CLAIM["ineligible"], POC1_CLAIM["wrong"],
                         POC1_CLAIM["lost"], POC1_CLAIM["eligible"])}  # fmt: skip
         else:
-            fig |= {"met": False, "not_scored_because": p.get("not_scored_because")}
+            fig |= {"met": False, "met_only_by": MET_ONLY_BY, "within_target": False,
+                    "not_scored_because": p.get("not_scored_because")}  # fmt: skip
         return fig
     return {
         "level": "a",
         "scored": False,
         "met": False,
+        "met_only_by": MET_ONLY_BY,
+        "within_target": False,
         "numerator": None,
         "denominator": None,
         "not_scored_because": f"the stored run holds no tcga set (sets given: {', '.join(names) or 'none'}); launch "
@@ -487,7 +622,7 @@ def replay(
     *,
     rerun: bool = True,
     pathology_run: Path | None = None,
-    tz: str = "UTC",
+    tz: str | None = None,
     index_day: date | None = None,
     build_day: date | None = None,
     require_pin: bool = True,
@@ -503,37 +638,51 @@ def replay(
     bday = build_day or next((date.fromisoformat(i["build_day"]) for i in ident.values() if i.get("build_day")), None)
     iday = index_day or bday
     v2dirs: dict[str, Path] = {}
+    stated = {n: keys.describe(found[n] / "built") for n in names}
+    zones = {n: choose_zone(zone_of_record(found[n]), tz) for n in names}
     for n in names:
-        v2dirs[n] = scratch / "key-v2" / n
-        v2dirs[n].mkdir(parents=True)
-        kv2 = v2_overlay(
-            n, found[n] / "built", v2dirs[n], pinned=ident[n]["launch_p1b_key_v1"], require_pin=require_pin
-        )
-        report["sets"][n] = {"folder": str(found[n]), "identified": ident[n], "key_v2": kv2}
+        if stated[n]["stamped"] and stated[n]["key"] == "v2":
+            # a set built on key v2 natively (a new launch): scored as it is, no overlay and no P1b pin to match
+            v2dirs[n] = found[n] / "built"
+            kv2: dict[str, Any] = {"key": "v2", "how": "the run's own stored gold, which states key v2 (gold/key.json)",
+                                   "applied": 0, "native": True}  # fmt: skip
+            k1: dict[str, Any] = {"key": "v1", "refused": "the run's gold states key v2 (gold/key.json): its key v1 "
+                                  "is not rebuilt offline"}  # fmt: skip
+        else:
+            v2dirs[n] = scratch / "key-v2" / n
+            v2dirs[n].mkdir(parents=True)
+            kv2 = v2_overlay(
+                n, found[n] / "built", v2dirs[n], pinned=ident[n]["launch_p1b_key_v1"], require_pin=require_pin
+            )
+            k1 = {"key": "v1", "how": "the run's own stored gold"}
+        report["sets"][n] = {"folder": str(found[n]), "identified": ident[n], "key_stated": stated[n],
+                             "zone": zones[n], "key_v1": k1, "key_v2": kv2}  # fmt: skip
     a1 = score_all({n: (found[n] / "built", found[n] / "work", found[n] / "work") for n in names}, scratch / "a-v1")
     a2 = score_all({n: (v2dirs[n], found[n] / "work", found[n] / "work") for n in names}, scratch / "a-v2")
+    refused = {n: report["sets"][n]["key_v2"].get("refused") for n in names}
+    refused1 = {n: report["sets"][n]["key_v1"].get("refused") for n in names}
     for n in names:
-        k1 = {"key": "v1", "how": "the run's own stored gold"}
-        report["sets"][n]["key_v1"] = k1
-        report["sets"][n]["level_a"] = {"v1": _brief(a1[n], k1), "v2": _brief(a2[n], report["sets"][n]["key_v2"])}
+        k1 = report["sets"][n]["key_v1"]
+        report["sets"][n]["level_a"] = {"v1": _brief(a1[n], k1, refused1[n]),
+                                        "v2": _brief(a2[n], report["sets"][n]["key_v2"])}  # fmt: skip
         if ident[n]["launch_p1b_key_v1"]:
             report["sets"][n]["p1b_record"] = _record(n, a1[n])
-    refused = {n: report["sets"][n]["key_v2"].get("refused") for n in names}
-    t1 = {"a": {"v1": figure("a", "v1", [eligible_figure(n, a1[n]) for n in names]),
+    t1 = {"a": {"v1": figure("a", "v1", [eligible_figure(n, a1[n], refused1[n]) for n in names]),
                 "v2": figure("a", "v2", [eligible_figure(n, a2[n], refused[n]) for n in names])}}  # fmt: skip
     t3 = {"a": protocols_figure("a", a1)}
     if rerun and iday is not None:
-        b_runs = {n: rerun_level(n, found[n], scratch, tz, iday, bday) for n in names}
+        b_runs = {n: rerun_level(n, found[n], scratch, zones[n]["tz"], iday, bday) for n in names}
         b1 = score_all(
             {n: (found[n] / "built", b_runs[n]["answers"]["v1"], found[n] / "work") for n in names}, scratch / "b-v1"
         )
         b2 = score_all({n: (v2dirs[n], b_runs[n]["answers"]["v2"], found[n] / "work") for n in names}, scratch / "b-v2")
         for n in names:
             report["sets"][n]["level_b"] = {
-                "v1": _brief(b1[n], report["sets"][n]["key_v1"]), "v2": _brief(b2[n], report["sets"][n]["key_v2"]),
+                "v1": _brief(b1[n], report["sets"][n]["key_v1"], refused1[n]),
+                "v2": _brief(b2[n], report["sets"][n]["key_v2"]),
                 "rescreen": b_runs[n]["rescreen"],
                 "failed_protocols": b_runs[n]["protocols"], "recompiled": b_runs[n]["recompiled"]}  # fmt: skip
-        t1["b"] = {"v1": figure("b", "v1", [eligible_figure(n, b1[n]) for n in names]),
+        t1["b"] = {"v1": figure("b", "v1", [eligible_figure(n, b1[n], refused1[n]) for n in names]),
                    "v2": figure("b", "v2", [eligible_figure(n, b2[n], refused[n]) for n in names])}  # fmt: skip
         allrr = {f"{n}:{rs}": r for n in names for rs, r in b_runs[n]["protocols"].items()}
         t3["b"] = protocols_figure("b", a1, allrr)
@@ -549,26 +698,40 @@ def replay(
         "pathology": {**t2, "target": "the pathology figure of PoC-1 reproduced: " + POC1_SENTENCE},
         "protocols_failing": {**t3},
     }
+    # D-1064 item 4: a target is met only by a launch; the replay says whether its figure is within the target
     report["met"] = {
-        "eligible_wrongly_excluded": t1.get("b", t1["a"])["v2"]["met"],
-        "pathology": t2["run"]["met"],
-        "protocols_failing": t3.get("b", t3["a"])["met"],
+        "eligible_wrongly_excluded": False,
+        "pathology": False,
+        "protocols_failing": False,
         "at_level": "b" if "b" in t1 else "a",
+    }
+    report["met_only_by"] = MET_ONLY_BY
+    report["within_target"] = {
+        "eligible_wrongly_excluded": t1.get("b", t1["a"])["v2"]["within_target"],
+        "pathology": t2["run"]["within_target"],
+        "protocols_failing": t3.get("b", t3["a"])["within_target"],
+        "at_level": report["met"]["at_level"],
     }
     report["limits"] += _limits(report, rerun)
     return report
 
 
-def _brief(sc: dict[str, Any], key: dict[str, Any]) -> dict[str, Any]:
+def _brief(sc: dict[str, Any], key: dict[str, Any], refused: str | None = None) -> dict[str, Any]:
     """The parts of a score the report keeps. ``answer_key`` is the replay's own label of the key it scored on; the
     scorer's reading of the folder (D-1104: a gold folder without ``key.json`` reads as v1, which the offline v2 of a
-    stored v1 gold is not) is kept beside it as ``scorer_read_the_folder_as``."""
+    stored v1 gold is not) is kept beside it as ``scorer_read_the_folder_as``. ``refused``: the key cannot be had for
+    this set (a run built on v2 has no v1), so nothing is kept but the reason."""
+    if refused:
+        return {"answer_key": key, "not_scored_because": refused}
     keep = ("not_scored_because", "protocols", "pathology", "unjudged_exclusions")
     out = {"answer_key": key, "scorer_read_the_folder_as": sc.get("answer_key"), **{k: sc[k] for k in keep if k in sc}}
     if "pairs" in sc:
         out["pairs"] = {lang: {k: v for k, v in s.items() if k != "denominators"}
                         for lang, s in sc["pairs"]["summary"].items()}  # fmt: skip
         out["label_conflicts"] = {k: v for k, v in sc["pairs"]["label_conflicts"].items() if k != "excluded"}
+        if "conflicted" in sc["pairs"]:  # D-1064
+            out["conflicted"] = sc["pairs"]["conflicted"]
+            out["conflicted_excluded_on_another_line"] = sc["pairs"]["conflicted_excluded_on_another_line"]
     if "criteria" in sc:
         keep_c = ("answered", "wrong_exclusion", "caught", "no_verdict", "not_compiled", "rows_in_gold")
         out["criteria"] = {k: sc["criteria"][k] for k in keep_c if k in sc["criteria"]}
@@ -595,11 +758,19 @@ def _record(name: str, sc: dict[str, Any]) -> dict[str, Any]:
 def _limits(r: dict[str, Any], rerun: bool) -> list[str]:
     out = [
         "Level (a) scores the verdicts as the run stored them; nothing there is re-run.",
-        "Key v2 is offline: v1's gold with the label rows MANIFEST.json lists for the run. For jmed those are the rows "
-        "whose note the run's judge read in full (319 of 594); the other rows' notes are not in the stored run. For "
-        "sigir v2 changes no label (B1 and B2 change the site's birth dates and age lines, which only level (b) "
-        "shows, for the coded age lines).",
+        "No figure here meets a target: a target is met only by a launch (D-1064 item 4). 'Within the target' says "
+        "whether a launch is worth its cost; it is not a result.",
     ]
+    native = sorted(n for n, s in r["sets"].items() if (s.get("key_v2") or {}).get("native"))
+    if native:
+        out.append(f"Built on key v2 (gold/key.json), scored as stored, with no v1 figure: {', '.join(native)}.")
+    if len(native) < len(r["sets"]):
+        out.append(
+            "Key v2 is offline: v1's gold with the label rows MANIFEST.json lists for the run. For jmed those are the "
+            "rows whose note the run's judge read in full (319 of 594); the other rows' notes are not in the stored "
+            "run. For sigir v2 changes no label (B1 and B2 change the site's birth dates and age lines, which only "
+            "level (b) shows, for the coded age lines)."
+        )
     if rerun and r["met"]["at_level"] == "b":
         out += [
             "Level (b) answers each model call only from the run's stored replies (ir_extract, concept_map, judge). "
@@ -629,28 +800,64 @@ def render(r: dict[str, Any]) -> str:
             rec = s["p1b_record"]
             w(f"    P1b record on key v1: {'reproduced' if rec['reproduced'] else 'NOT reproduced'} "
               f"({json.dumps(rec['replayed'])})")  # fmt: skip
+        ks = s.get("key_stated") or {}
+        w(f"    key the folder states: {ks.get('key')}" + ("" if ks.get("stamped") else " (no gold/key.json: v1)"))
+        z = s.get("zone") or {}
+        if z:
+            said = f"; the run's record says {z['differs_from_the_record']}" if z.get("differs_from_the_record") else ""
+            w(f"    zone for the re-run: {z['tz']}, from {z['from']}{said}")
         kv = s["key_v2"]
+        if kv.get("native"):
+            w("    key v2: the run's own gold (built on v2), scored as stored; key v1: not scored")
+            continue
         if kv.get("refused"):
             w(f"    key v2: refused: {kv['refused']}")
             continue
+        same = kv.get("manifest_lists_the_same_conflicted")
         w(f"    key v2: {kv.get('applied', 0)} label rows applied"
-          + (f", {len(kv['unmatched'])} unmatched" if kv.get("unmatched") else ""))  # fmt: skip
+          + (f", {len(kv['unmatched'])} unmatched" if kv.get("unmatched") else "")
+          + f"; {kv.get('conflicted', 0)} pairs marked conflicted by the rule (D-1064)"
+          + ("" if same is None else "; MANIFEST.json lists the same" if same
+             else "; MANIFEST.json lists OTHERS"))  # fmt: skip
     t = r["targets"]
     w("")
-    w("1. Eligible patients wrongly excluded (target: none, on the corrected key)")
-    w(f"   {'level':<6}{'key':<5}{'excluded':>10}{'of':>6}  met   per set")
+    w(f"Every target is met only by {MET_ONLY_BY}.")
+    w("1. Eligible patients wrongly excluded (target: none, on the corrected key; met only by a launch)")
+    w("   The target reads the key without the pairs it marks conflicted (D-1064); the figure with them is beside it.")
+    w(f"   {'level':<6}{'key':<5}{'excluded':>10}{'of':>6}  {'with conflicted':<16}within target  per set")
     for lvl, by in sorted((k, v) for k, v in t["eligible_wrongly_excluded"].items() if k in ("a", "b")):
         for key, f in sorted(by.items()):
             per = ", ".join(f"{x['set']} {x['numerator']}/{x['denominator']}" if x.get("scored", True)
                             else f"{x['set']} not scored" for x in f["per_set"])  # fmt: skip
-            w(f"   ({lvl})   {key:<5}{f['numerator']:>10}{f['denominator']:>6}  {_yes(f['met']):<4}  {per}")
-    w("2. Pathology figure (target: " + t["pathology"]["claim"] + ")")
+            wc = f.get("with_conflicted") or {}
+            withc = f"{wc.get('numerator')}/{wc.get('denominator')}" if f.get("conflicted") is not None else "-"
+            w(f"   ({lvl})   {key:<5}{f['numerator']:>10}{f['denominator']:>6}  {withc:<16}"
+              f"{_yes(f['within_target']):<13}  {per}")  # fmt: skip
+    levels = [lv for lv in ("a", "b") if (t["eligible_wrongly_excluded"].get(lv) or {}).get("v2", {}).get("conflicted")
+              is not None]  # fmt: skip
+    if levels:
+        by_lvl = {lv: {(c["set"], c["patient"], c["trial"]): c for c in t["eligible_wrongly_excluded"][lv]["v2"]
+                       ["conflicted"]} for lv in levels}  # fmt: skip
+        first = by_lvl[levels[0]]
+        w(f"   Conflicted pairs on key v2 ({len(first)}; set aside from the target, never relabelled):")
+        for k, c in first.items():
+            w(f"     {c['set']} {c['patient']} x {c['trial']}: the labels exclude on {'; '.join(c['excluding'])}")
+            for lv in levels:
+                x = by_lvl[lv].get(k) or {}
+                w(f"       the box at ({lv}): {_box_said(x)}")
+        for lv in levels:
+            other = t["eligible_wrongly_excluded"][lv]["v2"].get("conflicted_excluded_on_another_line") or []
+            w(f"   Findings to trace at ({lv}): conflicted pairs the box excluded on a line the physicians did not "
+              f"label as excluding: {len(other)}")  # fmt: skip
+            for c in other:
+                w(f"     {c['set']} {c['patient']} x {c['trial']}: excluded on {'; '.join(c['blocked_on'])}")
+    w("2. Pathology figure (target: " + t["pathology"]["claim"] + "; met only by a launch)")
     pr = t["pathology"]["run"]
     if pr.get("scored"):
         w(f"   (a) the run's tcga: excluded {pr['numerator']} of {pr['denominator']}, {pr['wrong_exclusions']} wrong, "
-          f"lost {pr['eligible_lost']} of {pr['eligible']}: {'met' if pr['met'] else 'not met'}")  # fmt: skip
+          f"lost {pr['eligible_lost']} of {pr['eligible']}: {_within(pr['within_target'])}")  # fmt: skip
     else:
-        w(f"   (a) not scored: {pr['not_scored_because']}  -> not met")
+        w(f"   (a) not scored: {pr['not_scored_because']}  -> not within the target")
     sc_ = t["pathology"].get("stored_counts")
     if sc_:
         for row in sc_["runs"]:
@@ -660,14 +867,17 @@ def render(r: dict[str, Any]) -> str:
                   f"{row['eligible']} over {row['answered']} answered: "
                   f"{'matches the claim' if row['matches_the_claim'] else 'differs from the claim'}")  # fmt: skip
         w(f"   could not: {sc_['could_not']}")
-    w("3. Protocols failing (target: fewer than one in ten of those attempted)")
+    w(
+        "3. Protocols failing (target: fewer than one in ten of those attempted fail before or in SCREEN; the share "
+        "before SCREEN alone is beside it; met only by a launch)"
+    )
     for lvl in ("a", "b"):
         f = t["protocols_failing"].get(lvl)
         if not f:
             continue
         w(f"   ({lvl}) failed {f['numerator']} of {f['denominator']} ({_pct(f['share'])}): "
-          f"{'met' if f['met'] else 'not met'}; before SCREEN {f['failed_before_screen']} of {f['denominator']} "
-          f"({_pct(f['failed_before_screen_share'])}): {_met(f['met_before_screen_only'])}")  # fmt: skip
+          f"{_within(f['within_target'])}; before SCREEN {f['failed_before_screen']} of {f['denominator']} "
+          f"({_pct(f['failed_before_screen_share'])}): {_within(f['within_target_before_screen_only'])}")  # fmt: skip
         if lvl == "a":
             w("       by class: " + ", ".join(f"{k} {v}" for k, v in sorted(f["failed_by_class"].items())))
         else:
@@ -679,11 +889,13 @@ def render(r: dict[str, Any]) -> str:
             w(f"   {n}, per failed protocol at level (b):")
             for rs, row in sorted(fp.items(), key=lambda kv: (kv[1]["class"], kv[0])):
                 w(f"     {rs:<18}{row['class']:<20}{row['outcome']:<12}{_why(row)}")
-    m = r["met"]
+    m = r["within_target"]
     w("")
+    w("Targets: met only by a launch (D-1064 item 4); none is met by this replay.")
     w(
-        f"Targets at level ({m['at_level']}): eligible {'met' if m['eligible_wrongly_excluded'] else 'not met'}; "
-        f"pathology {_met(m['pathology'])}; protocols {_met(m['protocols_failing'])}"
+        f"Within the target at level ({m['at_level']}), which decides whether a launch is worth its cost and is not a "
+        f"result: eligible {_within(m['eligible_wrongly_excluded'])}; pathology {_within(m['pathology'])}; "
+        f"protocols {_within(m['protocols_failing'])}"
     )
     w("Limits:")
     for x in r["limits"]:
@@ -691,8 +903,21 @@ def render(r: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _met(x: Any) -> str:
-    return "met" if x else "not met"
+def _box_said(c: dict[str, Any]) -> str:
+    if not c:
+        return "not scored"
+    if c.get("box") == "excluded":
+        where = "a line the labels exclude on" if c.get("on_an_excluding_line") else "another line (a finding to trace)"
+        return f"excluded on {'; '.join(c.get('blocked_on') or [])} ({where})"
+    if c.get("box") == "review":
+        on = c.get("left_open_on_an_excluding_line") or []
+        more = int(c.get("left_open_elsewhere") or 0)
+        return "review" + (f", open on {'; '.join(on)}" if on else "") + (f" (and {more} other open)" if more else "")
+    return str(c.get("box"))
+
+
+def _within(x: Any) -> str:
+    return "within the target" if x else "not within the target"
 
 
 def _yes(x: Any) -> str:
@@ -738,10 +963,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--scratch", type=Path, help="an empty folder outside the repository (default: a temporary one)")
     ap.add_argument("--pathology-run", type=Path, help="a run kept as counts (sets-<commit>.json), e.g. PoC-1's")
     ap.add_argument("--no-rerun", action="store_true", help="level (a) only")
-    ap.add_argument("--tz", default=os.environ.get("TB_TZ") or "UTC", help="the site's zone for the compile (TB_TZ)")
+    ap.add_argument("--tz", help="the site's zone for the re-run (default: the run's own record, else TB_TZ, else UTC)")
     ap.add_argument("--index-day", type=date.fromisoformat, help="SCREEN's day (default: the run's build day)")
     ap.add_argument("--build-day", type=date.fromisoformat, help="the key's build day (default: MANIFEST.json's)")
-    ap.add_argument("--require-targets", action="store_true", help="exit 3 when a target is not met")
+    ap.add_argument("--require-targets", action="store_true",
+                    help="exit 3 when a figure is not within its target (none is met by a replay)")  # fmt: skip
     a = ap.parse_args(argv)
     os.environ.setdefault("TB_ENV", "DEV")
     try:
@@ -760,7 +986,7 @@ def main(argv: list[str] | None = None) -> int:
     sys.stdout.write(render(res))
     if a.json:
         a.json.write_text(json.dumps(res, ensure_ascii=False, indent=1, default=str) + "\n", encoding="utf-8")
-    if a.require_targets and not all(v for k, v in res["met"].items() if k != "at_level"):
+    if a.require_targets and not all(v for k, v in res["within_target"].items() if k != "at_level"):
         return 3
     return 0
 
