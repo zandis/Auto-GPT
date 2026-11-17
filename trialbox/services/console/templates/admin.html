@@ -18,7 +18,9 @@
     <h2>{{ t('admin.system') }}</h2>
     {% set up = health|selectattr('ok')|list|length %}
     <p class="big"><span class="pill {{ 'ok' if up == health|length else 'bad' }}">{{ up }}/{{ health|length }} {{ t('health.ok') }}</span></p>
-    <ul class="plain">{% for hh in health %}<li>{{ hh.service }} · {% if hh.ok %}<span class="pill ok">{{ t('health.ok') }}</span>{% else %}<span class="pill bad">{{ t('health.down') }}</span> <a href="/help?back=/admin">{{ t('admin.what_to_do') }}</a>{% endif %}{% if hh.detail %} <span class="hint" data-src="service">{{ hh.detail }}</span>{% endif %}</li>{% endfor %}</ul>
+    <ul class="plain">{% for hh in health %}<li>{{ hh.service }} · {% if hh.ok %}<span class="pill ok">{{ t('health.ok') }}</span>{% else %}<span class="pill bad">{{ t('health.down') }}</span> <a href="/help?back=/admin">{{ t('admin.what_to_do') }}</a>{% endif %}{% if hh.detail %} <span class="hint" data-src="service">{{ hh.detail }}</span>{% endif %}</li>{% endfor %}
+    {# J-4 (D-1224, walk F-21): the opt-out worker's check of /metrics (D-441), red on a stale or failed run #}
+    {% if optout %}<li data-testid="health-optout" data-level="{{ optout.level }}">{{ t('adm.optout') }} · {% if optout.level == 'ok' %}<span class="pill ok">{{ t('adm.optout.ok', m=optout.min) }}</span>{% elif optout.level == 'warn' %}<span class="pill warn">{{ t('adm.optout.warn') }}</span>{% else %}<span class="pill bad">{{ t('adm.optout.red') }}</span> <a href="/help?back=/admin">{{ t('admin.what_to_do') }}</a>{% endif %}</li>{% endif %}</ul>
   </section>
   <section class="card tile" data-testid="tile-queue">
     <h2>{{ t('admin.queue') }}</h2>

@@ -6,8 +6,11 @@
 {% macro src(s) %}{% set k = s.split(':') %}{% if k[0] == 'form' %}{{ t('life.source.form', form=k[1]) }}{% else %}{{ t_or('life.source.' + k[0], k[0]) }}{% endif %}{% endmacro %}
 {% block content %}
 {% set sub = one.subject if one else none %}
-<div class="headrow"><h1><span class="mono">{{ record }}</span> · {{ t('life.subjects.title') }}</h1></div>
+{# J-4 (D-1224, walk F-09): one participant's page is headed by the participant, not the list's title #}
+<div class="headrow"><h1>{{ t('life.subject.title', r=record) }}</h1></div>
 {{ life_nav(rs) }}
+{# J-4 (walk F-18): the way back from the participant to the patient sheet (the pseudonym the screening number was given to) #}
+{% if sub and sub.pid %}<p class="hint chartlinks" data-testid="subject-patient"><a href="/studies/{{ rs }}/patients/{{ sub.pid|urlencode }}" data-testid="to-patient">{{ t('life.to.patient') }}</a> <span class="mono">{{ sub.pid[:8] }}</span></p>{% endif %}
 {% if err %}{% include "_data_err.html" %}{% endif %}
 {% if done == 'step' %}<p class="ok" role="status" data-testid="life-saved">{{ t('life.step.saved', state=t('life.state.' + sub.state)) if sub else '' }}</p>{% endif %}
 {% if done == 'entry' %}<p class="ok" role="status" data-testid="life-entry-saved">{{ t('life.entry.saved') }}</p>{% endif %}

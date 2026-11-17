@@ -268,6 +268,10 @@ class Orchestrator:
         self.rulesets_dir = rulesets_dir
         self.data_dir = data_dir
         self._today = today
+        #: J-4 (D-1224, walk F-10): a box's own clock (``tools.list_demo.Clock``, ``--day data``: frozen on the box's
+        #: day), so the steps TrialBox records itself carry the box's day as the steps a person records do; None: the
+        #: wall clock in the site's zone (``orchestrator.app._now``)
+        self.clock: Callable[[], datetime] | None = None
         self.n_workers = workers
         self._stop = threading.Event()
         self._wake = threading.Condition()

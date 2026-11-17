@@ -296,6 +296,7 @@ def run(work: Path, password: str, lang: str = "ja", trial: str = TRIAL, day: da
     else:
         box, client, repo, summary = fd.build_site(work, sc["profile"], sc["settings"])
     clock = Clock(box.today[0], site_tz_of(box))
+    box.orch.clock = clock  # J-4 (D-1224, walk F-10): one day for the box: the orchestrator's stamps take this clock
     live = day is None and is_live()
     if live and target == local_today(datetime.now(UTC), clock.zone):
         # T-513: seeding on the real day, the console's clock is the real one from the start, as the box's job times

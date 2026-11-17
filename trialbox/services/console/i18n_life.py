@@ -28,6 +28,7 @@ EN: dict[str, str] = {
     "life.go.withdrawn": "Withdraw",
     "life.go.screen_fail": "Screen failure",
     "life.subject.title": "Participant {r}",
+    "life.to.patient": "Open the patient sheet",  # J-4 (D-1224, walk F-18): the participant -> the patient sheet
     "life.subject.now": "Now: {state} since {day}",
     "life.subject.next": "Next step",
     "life.subject.next.help": "Choose what happened. Only the steps that can follow the current one are offered.",
@@ -242,6 +243,7 @@ JA: dict[str, str] = {
     "life.go.withdrawn": "中止する",
     "life.go.screen_fail": "スクリーニング不適格",
     "life.subject.title": "被験者 {r}",
+    "life.to.patient": "患者シートを開く",
     "life.subject.now": "現在：{state}（{day} から）",
     "life.subject.next": "次の段階",
     "life.subject.next.help": "起きたことを選んでください。今の段階の次に来るものだけが表示されます。",
@@ -456,6 +458,7 @@ ZH: dict[str, str] = {
     "life.go.withdrawn": "退出",
     "life.go.screen_fail": "篩選失敗",
     "life.subject.title": "受試者 {r}",
+    "life.to.patient": "開啟病人資料頁",
     "life.subject.now": "目前：{state}（自 {day}）",
     "life.subject.next": "下一個階段",
     "life.subject.next.help": "請選擇發生的事。只會列出可接在目前階段之後的選項。",

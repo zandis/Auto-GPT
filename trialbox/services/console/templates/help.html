@@ -5,7 +5,7 @@
 <h1>{{ t('help.title') }}</h1>
 <section class="card">
   <h2>{{ t('help.this_page') }}</h2>
-  <p data-testid="help-page">{{ t('help.page.' + slug) }}</p>
+  <p data-testid="help-page">{{ t(page_key) }}</p>{# J-4 (D-1224): the page's text for the role reading it #}
 </section>
 <section class="card">
   <h2>{{ t('help.your_role') }}</h2>

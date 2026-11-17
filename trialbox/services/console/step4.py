@@ -58,6 +58,9 @@ HELP_PAGES: tuple[tuple[str, str], ...] = (
     (r"^/studies/[^/]+/candidates", "candidates"),  # D-398 (UX-029): the PoC pages get their own text
     (r"^/studies/[^/]+/referrals", "referrals"),
     (r"^/studies/[^/]+/edc", "edc"),
+    # J-4 (D-1224, walk F-08): the participants (the list and one participant) and the study's state get their own text
+    (r"^/studies/[^/]+/subjects(/|$)", "subjects"),
+    (r"^/studies/[^/]+/state$", "state"),
     (r"^/reports", "reports"),
     (r"^/admin(/redcap)?$", "admin"),
     # T-317 (D-774): the pages of the steward, the privacy office and the administrator's accounts get their own text
@@ -88,6 +91,15 @@ def help_slug(path: str) -> str:
         if re.search(pat, path):
             return slug
     return "other"
+
+
+def help_key(slug: str, role: str) -> str:
+    """J-4 (D-1224, walk F-01): the help text of a page for the role reading it: ``help.page.<slug>.<role>`` where the
+    catalogue has one (the weekly page as the coordinator reads it), else the page's own ``help.page.<slug>``."""
+    from console.i18n import CATALOGUES
+
+    own = f"help.page.{slug}.{role}"
+    return own if own in CATALOGUES["en"] else f"help.page.{slug}"
 
 
 _STUDY_IN_PATH = re.compile(r"^/studies/([^/?#]+)")
@@ -273,6 +285,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             "help.html",
             sess,
             slug=help_slug(target.split("?")[0]),
+            page_key=help_key(help_slug(target.split("?")[0]), sess.user.role),
             back=target,
             studies=studies,
             mine=own_study(target, studies, logged),

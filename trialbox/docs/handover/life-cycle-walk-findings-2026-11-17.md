@@ -11,7 +11,8 @@ local steps-mode box (D-1062): `tools/demo.py` with demo mode off, the stub mode
 1. Steps 1 to 11 are H-10's, unchanged: protocol in, the PI named, approval, FEAS, who to screen, SCREEN and the
    candidates.
 2. Step 12: the coordinator opens the weekly page.
-3. Step 13: the PI marks Approach on the first patient.
+3. Step 13: the PI marks Approach on the first patient: the first row of the list the weekly page opens on, in the
+   page's own order (the walk's rule for "a patient", F-03); the later steps follow that patient by its pseudonym.
 4. Step 14: the coordinator records "reached, visit booked", and the patient gets a screening number.
 5. Step 15: the coordinator records consent and enrolment.
 6. Step 16: the coordinator records the withdrawal.

@@ -147,7 +147,8 @@ def register(app: FastAPI, h: Helpers) -> None:
     h.accounts_report = accounts_report
 
     def admin_extra(sess: Session) -> dict[str, Any]:
-        """The health tab's backup, update and account facts (the template's ``backup``, ``update``, ``acc``)."""
+        """The health tab's backup, opt-out worker, update and account facts (the template's ``backup``, ``optout``,
+        ``update``, ``acc``)."""
         st = h.ops_status() if h.ops_status is not None else None
         sm = h.ops_summary() if h.ops_summary is not None else None
         try:
@@ -179,8 +180,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         us = h.users
         locked = [u.username for u in us.users() if us.locked_until(u.username, None) is not None]
         rep = accounts_report()
+        ow = checks.get("optout_worker")  # J-4 (D-1224, walk F-21): /metrics' opt-out worker check, as a health line
         return {
             "backup": backup,
+            "optout": {"level": ow.level, "min": round(ow.value) if ow.value is not None else None} if ow else None,
             "update": update,
             "acc": {"locked": locked, "unused": rep["unused"], "ending": rep["ending"], "no_end": rep["no_end"]},
         }
