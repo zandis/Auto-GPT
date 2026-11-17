@@ -20,6 +20,8 @@ import pytest
 
 from tests.unit.test_orchestrator_callers import _token, box  # noqa: F401  (the fixture: the app, registry tokens)
 
+pytestmark = [pytest.mark.guard, pytest.mark.nodb]  # D-1119: the guard step of `checks`; no database
+
 ROOT = Path(__file__).resolve().parents[2]
 DRIVER = ROOT / "deploy" / "gcp" / "box-install-run.sh"
 VM = ROOT / "deploy" / "gcp" / "box_vm.py"
