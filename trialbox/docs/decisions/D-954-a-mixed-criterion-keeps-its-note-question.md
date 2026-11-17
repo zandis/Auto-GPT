@@ -25,3 +25,15 @@
   - 130 stay with a person, each flagged with its reason.
   - A note exclusion still needs both models to agree and the note-block policy (D-95 / D-97). F6 is the card for the models' inferred diagnoses.
 - **Test:** `tests/unit/test_mixed_keeps_its_note_question.py`.
+
+## A coded part that keeps only an age or a sex never excludes (P2b, 2026-11-17)
+
+Lane H's trace of the P2b launch: `Sm3NCT01227499-EXC-04` "women with pregnant or lactation" came out of ir_extract as
+mixed with the coded logic `sex: female` alone, its concept candidates naming pregnancy and lactation. A mixed
+exclusion present in the codes excludes (D-98), so every woman was excluded at S1 with no model asked, among them a
+patient the gold calls eligible. An exclusion whose coded logic is only an age or a sex while its line names more (a
+non-demographic concept candidate) has lost its qualifier: it is flagged `qualifier_dropped` and never compiled; as
+this card's rule for a coded part that cannot run, the notes decide a mixed one with its question, a person any other.
+An exclusion only about age or sex, and any inclusion (which can only be too permissive this way), are left as they
+are. Of the 1,156 criteria P2b extracted (sigir 1,151, jmed 4, tcga 1), two had this shape, both pregnancy or
+lactation lines in sigir (SM3NCT01227499, SM3NCT00997100).
