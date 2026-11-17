@@ -57,7 +57,7 @@ from console import acting, api_first, demo_guard, feedback, firstrun, i18n_role
 from console import actor as console_actor
 from console.account_rules import Hooks as AccountHooks
 from console.account_rules import Rules as AccountRules
-from console.account_rules import account_class, protected
+from console.account_rules import account_class, protected, protected_account
 from console.account_rules import register as register_accounts
 from console.admin_accounts import end_date
 from console.auth import (
@@ -1264,7 +1264,7 @@ def create_app(
                     return confirm_step(request, sess, text, "/ops/users", {"action": "reset", "username": name},
                                         "/ops/users")  # fmt: skip
                 role_now = us.role_of(name)  # disabled or past its end date too (the review of D-719)
-                if role_now and protected(role_now):  # D-719: one factor at a time, a second person
+                if role_now and protected_account(us, name):  # D-719: one factor at a time, a second person
                     held = account_rules.refuse_held(name, "password", me)
                     if held is not None:
                         return page(request, "factor_held.html", sess, 409, account=name, held=held[0],
@@ -1286,7 +1286,7 @@ def create_app(
                 if was is not None:  # D-406 (OPS-059): a local account's end date, at most 12 months ahead
                     expires = end_date(was.role, expires or None, us.today(), sso=us.is_sso(name)) or ""
                 role_now = us.role_of(name)  # disabled or past its end date too (the review of D-719)
-                if role_now and protected(role_now) and account_rules.second_person(me):  # D-719 (c)
+                if role_now and protected_account(us, name) and account_rules.second_person(me):  # D-719 (c)
                     scope_values(affiliation, studies, expires or None, role_now)
                     account_rules.request("scope", name, {"affiliation": affiliation, "studies": studies,
                                                           "expires": expires}, me, role_now)  # fmt: skip

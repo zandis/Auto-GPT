@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.console.test_console_app import box, login  # noqa: F401 - the fixture is used by name
+from tests.console.test_console_app import ADMIN_PW, box, login  # noqa: F401 - the fixture is used by name
 
 PW = "acting-role-password-01"
 
@@ -228,3 +228,45 @@ def test_the_delegation_logs_standing_follows_the_person_not_the_role(person: di
     kai.post("/role", data={"csrf": kcsrf, "role": "investigator"}, follow_redirects=False)
     assert mei.get(url, follow_redirects=False).status_code not in (401, 403)
     assert kai.get(url, follow_redirects=False).status_code == 403
+
+
+def test_an_account_that_may_act_in_a_protected_role_is_held_as_protected(person: dict[str, Any]) -> None:
+    """The review of D-877 (D-719): an account whose own role is a viewer's but that may act as an administrator or
+    an investigator is a protected account: one administrator alone cannot reset its password and sign in as it."""
+    from console.account_rules import protected, protected_account
+
+    users = person["users"]
+    assert not protected("viewer") and protected_account(users, "mei")
+    users.create("ann", "viewer", PW)
+    assert not protected_account(users, "ann")
+    c, csrf = login(person["app"], "admin", ADMIN_PW)
+    for name in ("mei", "ann"):  # the administrator resets each password alone (no second person on this box)
+        r = c.post("/ops/users", data={"csrf": csrf, "action": "reset", "username": name, "confirm": "yes"},
+                   follow_redirects=False)  # fmt: skip
+        assert r.status_code == 303
+    # one factor at a time (D-719): the authenticator of the account that may act as an administrator is now held for
+    # anyone but its holder, so the same administrator cannot also set it and sign in as the person
+    assert users.factor_held("mei", "totp") is not None
+    assert users.factor_held("ann", "totp") is None  # a viewer's account, as before
+
+
+def test_a_stale_acting_role_never_comes_back_unannounced(person: dict[str, Any]) -> None:
+    users = person["users"]
+    _flag(person, "on")
+    c, csrf = login(person["app"], "mei", PW)
+    c.post("/role", data={"csrf": csrf, "role": "admin"}, follow_redirects=False)
+    _flag(person, "off")
+    assert c.get("/ops/users", follow_redirects=False).status_code == 403  # read off: the acting role is ended
+    _flag(person, "on")
+    assert c.get("/ops/users", follow_redirects=False).status_code == 403  # not back without a new, audited switch
+    assert [e["detail"]["to"] for e in _events(person, "role.acting")] == ["admin"]
+    assert users.db.fetchval("SELECT count(*) FROM sessions WHERE acting_role IS NOT NULL") == 0
+
+
+def test_the_flags_page_says_a_test_box_flag_is_refused(person: dict[str, Any],
+                                                        monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    monkeypatch.setenv("TB_ENV", "PRODUCTION")
+    c, csrf = login(person["app"], "admin", ADMIN_PW)
+    r = c.post("/ops/flags", data={"csrf": csrf, "name": "steps.acting_role", "value": "on", "reason": "a reason",
+                                   "confirm": "yes", "old": ""}, follow_redirects=False)  # fmt: skip
+    assert r.status_code == 400 and "test box only" in r.text

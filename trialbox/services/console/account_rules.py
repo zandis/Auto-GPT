@@ -58,6 +58,13 @@ def protected(role: str) -> bool:
     return account_class(role) != "aggregate"
 
 
+def protected_account(users: Any, name: str) -> bool:
+    """D-719 for an account: protected when its own role is, or any role it may act in (STEPS-ROLE, D-877: an account
+    that may act as an investigator is held as an investigator's, whatever its own role; the review of D-877)."""
+    role = users.role_of(name)
+    return bool(role) and (protected(role) or any(protected(r) for r in users.extra_roles(name)))
+
+
 @dataclass
 class Rules:
     """The account rules over one user store; ``tell`` mails the steward and the account's PIs (subject, body)."""

@@ -29,6 +29,7 @@ from fastapi.responses import RedirectResponse, Response
 from tb_common.flags import read, test_box
 
 from console.i18n import CATALOGUES
+from console.local_path import local_path
 
 FLAG = "steps.acting_role"
 #: the top bar's words (en, zh-TW, ja)
@@ -92,5 +93,4 @@ def register(app: FastAPI, h: Any, users: Any, env: Mapping[str, str]) -> None:
         before, after = users.set_acting(sess, role)
         if before != after:
             h.au.append(AUDIT, actor=h.actor(sess), detail={"user": sess.user.username, "from": before, "to": after})
-        target = back if back.startswith("/") and not back.startswith("//") else "/"
-        return RedirectResponse(target, status_code=303)
+        return RedirectResponse(local_path(back, "/"), status_code=303)

@@ -793,9 +793,12 @@ class UserStore:
         and the account still holds that role, replaces the account's role on the session's user, so every permission
         check reads it as it reads an account's role. The user name stays (the delegation log, the audit trail and
         the erasure records name the person). Otherwise the account's own role."""
-        if not acting or acting == sess.user.role or acting not in self.extra_roles(sess.user.username):
+        if not acting:
             return sess
-        if not self.acting_on():
+        if acting == sess.user.role or acting not in self.extra_roles(sess.user.username) or not self.acting_on():
+            # the review of D-877: a role no longer held, or acting switched off, ends the acting role for good, so
+            # it never comes back unannounced when the flag goes on again (a new switch is audited)
+            self.db.execute("UPDATE sessions SET acting_role = NULL WHERE token_sha = ?", (sess.token_sha,))
             return sess
         return replace(sess, user=replace(sess.user, role=acting), acting_from=sess.user.role)  # type: ignore[arg-type]
 
