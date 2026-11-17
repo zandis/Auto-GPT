@@ -201,7 +201,7 @@ def test_a_patient_not_named_by_a_pseudonym_is_never_written(box: dict[str, Any]
     written: list[Any] = []
     audit = type("A", (), {"append": lambda self, *a, **k: written.append((a, k))})()
     crit = [{"id": "GZQO-INC-05", "verdict": "pass", "prov": CALLS}]
-    common = {"ruleset": "GZQO", "version": "1.0.0", "job": "01J0000000000000000000000A", "criteria": crit,
+    common: dict[str, Any] = {"ruleset": "GZQO", "version": "1.0.0", "job": "01J0000000000000000000000A", "criteria": crit,
               "by": "pi", "decision": "confirmed"}  # fmt: skip
     assert ai_confirm.on_verdicts(audit, pid="A123456789", **common) == 0 and written == []  # a chart-number shape
     assert ai_confirm.on_verdicts(audit, pid=A, **common) == 1
