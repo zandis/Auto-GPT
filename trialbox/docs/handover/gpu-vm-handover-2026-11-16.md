@@ -936,8 +936,10 @@ Run from `trialbox/` with the credentials of section 2. Each command, what it mu
    uploads, powers off. The collect then puts the VM back and removes the session's allow. It also removes the
    deny and the tag once the VM's `CLOSED` marker is in the bucket; until then it prints "accounts not confirmed
    closed" and keeps them. Early: `deploy/gcp/box-run.sh --stop <run id>`. The accounts are then disabled at the
-   next boot of any box run; run `--stop <run id>` again after it, to take the deny away. A session is never
-   resumed, skipped in part or redone: more time is a new launch.
+   next boot of any box run, with the box's Caddy down; run `--stop <run id>` again after it, to take the deny away.
+   Every launch first deletes an earlier session's allow; a new session launch is refused (exit 7) while an earlier
+   one's `CLOSED` marker is missing. A session is never resumed, skipped in part or redone: more time is a new
+   launch.
 
 **Healthy:**
 
@@ -947,5 +949,6 @@ Run from `trialbox/` with the credentials of section 2. Each command, what it mu
 - `parts/57-session-open.json` says `ended_by` "the session's stop";
 - the box's `deploy/.env` is back to `TB_ENV=VALIDATION`.
 
-Pre-empted (spot): the page stops answering. The next boot of any run disables the session's accounts before any
-step, and a session is never reopened: more time is a new launch (D-1123 4.4).
+Pre-empted (spot): the page stops answering. A collect's look at the stopped VM deletes the session's allow. The next
+boot of any run disables the session's accounts before any step and before the box's Caddy comes up, and a session is
+never reopened: more time is a new launch (D-1123 4.4).

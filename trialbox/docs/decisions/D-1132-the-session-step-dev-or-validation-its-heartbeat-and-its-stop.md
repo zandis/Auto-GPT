@@ -73,14 +73,25 @@
    `box-run.sh --session-status <run>` reads the whole serial buffer page by page. It counts only this boot's lines:
    the id with `--boot-id`, else the boot stamped after `lastStartTimestamp` (`session_vm.py boot-state`).
 7. **Closed at the end and at the next boot.** `58-session-close` closes the session. So does any way the run ends,
-   and the next boot of any run on the disk, before any step and again once its stack is up. The close:
+   and the next boot of any run on the disk, before any step and before anything is served (the re-review's A): the
+   box's Caddy, its only door (it alone publishes 443), is stopped, the console comes up without it, and the accounts
+   are disabled. Only then does any step bring the whole stack up. A run of any kind stops there
+   (`TB-SESSION-ACCOUNTS-OPEN`) when they cannot be closed so; there is no second try once the stack is up. The
+   close:
    - disables the accounts (`UserStore.disable`: off, sessions ended);
    - takes their extra roles back and switches the acting flag off while the box is still a test box. A VALIDATION
      console refuses to start with either on record (D-877);
-   - puts the box's environment back.
+   - puts the box's settings back, its address (`TB_CONSOLE_PUBLIC_URL`) and its environment, then recreates every
+     service that reads them but Caddy, always: a VALIDATION session on a VALIDATION box changed the address only
+     (the re-review's F).
 
    The names wait in a root-only file on the disk until they are disabled. A close that cannot reach the console
    says `TB-SESSION-ACCOUNTS-OPEN` and is tried again at the next boot.
+
+   Every session run that booted on the disk is listed there too. Once no session account is open on the disk, each
+   listed run gets its `CLOSED` marker, even one that never opened an account (a refusal, a stop before 56, a cut):
+   the driver keeps the door's deny until it (the re-review's C). Step 56 removes its own run's marker before it
+   opens any account.
 8. **The estimate** (`--estimate --steps dev,session [--session-hours N]`): the bring-up rows with their sources
    (D-1123 section 5), the owner's hours at the driver's constant, the cap, the worst case, spot and on demand. The
    running total is the integrator's figure, posted beside it (D-505).
@@ -98,7 +109,8 @@
 11. **What cannot close by itself** (finding 6).
     - While the accounts are open, the console's and Caddy's restart policy is `no` (`docker update`; no compose
       file is changed), so they do not come back by themselves at a boot before the close runs. The close puts
-      `unless-stopped` back.
+      `unless-stopped` back. A policy that cannot be set stops step 56 before any account is opened (the
+      re-review's E).
     - The close writes `CLOSED` beside the links. Until it exists, `--stop` keeps the deny-all and the tag
       (D-1130 item 7), and `--collect` and `--session-status` say "accounts not confirmed closed".
     - A run that is no session stops (`TB-SESSION-ACCOUNTS-OPEN`) when a session's accounts are still open after
@@ -128,7 +140,13 @@ The rehearsal cases (in `tests/unit/test_g1_box_install_run.py`):
 - `session-skip`, `session-resume`: refused at the VM's preflight, no account, no link;
 - `session-ssh`: something still on tcp:22, no session;
 - `session-then-acc`: a session, then an accuracy launch on the same disk: SSH back as it was, the address put back,
-  `CLOSED` written, the feed holding only the accuracy run's own sets.
+  `CLOSED` written, the feed holding only the accuracy run's own sets;
+- `session-close-fails`: a cut, then the console cannot be asked at the next boot: the run stops before any step, the
+  box's Caddy never came up on that boot, no `CLOSED` marker;
+- `session-update-fails`: the restart policy cannot be set: no account, no link, the run's `CLOSED` marker written.
+
+Every session case checks its `CLOSED` marker; `session-cut` checks that the next boot disabled the accounts with
+Caddy down; `session` and `session-stop` that the console was recreated on the box's own address after the close.
 
 ## Not verified
 

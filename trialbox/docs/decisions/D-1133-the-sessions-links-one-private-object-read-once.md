@@ -32,7 +32,8 @@
 4. **The address.** `TB_CONSOLE_PUBLIC_URL` is set to `https://<host>`: the box's own TLS name
    (`TB_TLS_HOSTNAME`), else the VM's external address. The links name the same host.
 5. **The bucket** (the security review's finding 4). Before the launch and before `--links`, the bucket must hold:
-   - no `allUsers` or `allAuthenticatedUsers` binding;
+   - no `allUsers` or `allAuthenticatedUsers` binding, and no `domain:` binding (a whole organisation's accounts).
+     A `group:` binding is named in the output, not refused;
    - uniform bucket-level access, or public access prevention enforced;
    - versioning off.
 
@@ -45,6 +46,18 @@
 
    What bounds both: each code works once, the holder sets the password at once, an unused code expires (24 h), and
    the accounts are disabled at the session's stop and at the next boot (D-1132).
+6. **Links nobody read.** If `--links` is never run, the object stays until the door comes down: once the run's
+   `CLOSED` marker exists, `--stop` (or the next launch) deletes every links object of that run with the deny. Its
+   codes are dead by then (the accounts disabled).
+
+## Known and not closed (the re-review's notes)
+
+- The egress read-back (D-1131) takes the box's networks from `deploy/network.sh apply`'s own state file, not from a
+  listing of docker's networks: a network made after `apply` would not be in the list it checks.
+- The synthetic hospital's patients ingested by a session stay in the box's lake for later runs on the same disk. A
+  later accuracy run's feed starts empty (D-1132 item 12), but the lake keeps the session's snapshot.
+- `serial-port-enable=FALSE` is set in a session's metadata (no interactive serial console); its output is still
+  read by `--session-status`. Whether the project allows the console at all is not read.
 
 ## A gap for the product: the TLS name
 

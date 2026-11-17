@@ -93,7 +93,8 @@ section 4.8), and no person signs in. Sources below are that hand-over ("GPU han
 7. **Removed at the end.** The 400 GiB disk is kept between launches (lane G README, section 1), so the accounts would
    outlive the session. The session's last step disables them (`UserStore.disable`: the account off, its sessions
    ended) before power-off, and the next boot of any box run on the disk disables any session account still open
-   before any step runs. An unused code expires after its hours (D-776).
+   before any step runs and before anything is served (the box's Caddy down, D-1132 item 7). An unused code expires
+   after its hours (D-776).
 
 ### 4. The hard stop
 

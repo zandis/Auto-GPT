@@ -29,18 +29,22 @@ only about the demo's tag. The GPU VM carries other tags, and a rule on one of t
 4. **The rules check** (`session_vm.py rules-check`) reads `gcloud compute firewall-rules list --format=json` and the
    VM's own tags. It holds only when:
    - the allow is tcp:443 alone, from exactly the given ranges, at priority 500, on the session tag alone;
-   - the deny is all protocols from 0.0.0.0/0 at priority 510 on the session tag;
+   - the deny is all protocols from 0.0.0.0/0 at priority 510 on the session tag, to every address of the VM: no
+     `destinationRanges`, 0.0.0.0/0, or ranges that hold the VM's internal and external addresses (the re-review's
+     B);
    - the VM carries the tag;
    - no other enabled allow rule reaches the VM at a priority below 510. The demo's `reaching_rules` is asked once
      for each tag the VM carries, so the old door on `tb-gpu-door` is seen;
-   - the allow names no `sourceTags` and no `sourceServiceAccounts` (other VMs of the project would reach 443). An
-     allow left by an earlier session is deleted and made again, never updated, so nothing added to it survives;
+   - the allow names no `sourceTags` and no `sourceServiceAccounts` (other VMs of the project would reach 443). Both
+     rules are deleted and made again at a launch, never kept or updated, so nothing added to them survives. The
+     deny's description names its run (`run=<id>`);
    - the VM has one network interface and no IPv6 address (`gcloud compute instances describe --format=json`):
      the deny names 0.0.0.0/0, and the rules of one network are read;
    - no firewall policy lets traffic in. Hierarchical and network firewall policies are evaluated before the VPC
      rules and are not in `firewall-rules list`, so the VM's effective firewalls are read
      (`gcloud compute instances network-interfaces get-effective-firewalls`): any ingress rule of a policy whose
-     action is `allow` fails the check (`deny` and `goto_next` do not).
+     action is not `deny` or `goto_next` fails the check (`allow`, `apply_security_profile_group`, or an action added
+     later: the re-review's B).
 
    Every rule that applies to the VM is listed with its verdict. `default-allow-ssh` and `tb-gpu-door` read "beaten
    by tb-session-deny". The check runs:
@@ -53,16 +57,33 @@ only about the demo's tag. The GPU VM carries other tags, and a rule on one of t
    bucket (`gcloud storage buckets describe`) and its IAM policy and refuse it unless: no binding names `allUsers`
    or `allAuthenticatedUsers`; uniform bucket-level access is on or public access prevention is enforced (no object
    ACL can make the links object public); versioning is off (a deleted links object leaves no readable version).
-7. **Taken away, in two steps.** `--stop` and the end of a collect delete the allow at once. The deny-all and the
-   tag stay until the VM has written its `CLOSED` marker beside the links (the session's accounts disabled,
-   D-1132 item 7): until then nothing, not the old door and not SSH, reaches the VM. A later `--stop <run>` then
-   removes them. The project's own rules are not touched.
+7. **Taken away, in two steps.** `--stop` and the end of a collect delete the allow at once, and so does a collect's
+   first look at a session VM found TERMINATED (a pre-emption). The deny-all and the tag stay until the run the
+   deny names has its `CLOSED` marker beside its links (D-1132 item 7), whichever run's `--stop` is asked (the
+   re-review's D): until then nothing, not the old door and not SSH, reaches the VM. A later `--stop` then removes
+   them, with any links object of that run nobody read (its codes are dead). The project's own rules are not
+   touched.
+8. **Nothing outlives a session into another launch** (the re-review's A). Before any launch or resume starts the
+   VM, an earlier session's allow is deleted. Its deny and tag go when the run the deny names has its `CLOSED`
+   marker; else they stay, and a launch that is no session goes on behind them (its boot closes those accounts
+   first, D-1132 item 7), while a new session launch is refused (exit 7). A launch refused after its door was made
+   (exit 7) takes the door away again.
+9. **Run ids.** A run id given to `--links`, `--session-status`, `--collect`, `--stop` or `--resume` must be of the
+   VM's own form (letters, digits, `.`, `_`, `-`; no `..`), checked before any cloud call. `--links` and
+   `--session-status` take `--session-allow` for the ranges when the run folder is not on this machine.
 
 ## The security review of 2026-11-17
 
 The lead's adversarial review found five blind spots of the first build, each reproduced: an allow carrying source
 tags or service accounts, an IPv6 allow-all, firewall policies, a second interface, and a bucket made public by an
 object ACL or kept by versioning. Items 4, 6 and 7 above close them; each has a test that failed before.
+
+## The re-review of 2026-11-17
+
+An independent re-review of the fixes found two more ways the door could fail: a deny narrowed by destination ranges
+(kept as it was), and an allow left by a session nobody stopped or by a refused launch (exit 7), which a later launch
+neither checked nor removed. A firewall policy's other actions counted as no way in. Items 4, 7, 8 and 9 close them;
+each has a test that failed before.
 
 ## Held by
 
