@@ -149,7 +149,7 @@ ALLOWED: tuple[Allowed, ...] = (
     Allowed("link.page.account", r"/account"),
     Allowed("link.page.help", r"/help"),
 )
-_HOME = ("/home", ALLOWED[1], {})
+_HOME: tuple[str, Allowed, dict[str, str]] = ("/home", ALLOWED[1], {})
 
 
 def _clean(text: str) -> bool:
