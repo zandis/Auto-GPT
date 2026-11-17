@@ -40,7 +40,12 @@ folder and calls one subcommand at a time:
       pseudonym of each chart number; resumable (work/progress.json: a protocol finished is never sent again, a
       job started is waited for, never started twice: the message id is the run's). A protocol the gateway's PHI
       tripwire refused is counted as "refused_by_tripwire" (a product defect count), never dropped. Writes
-      work/answers.json in the shape tools.public_accuracy.score reads, and work/pidmap.json
+      work/answers.json in the shape tools.public_accuracy.score reads, and work/pidmap.json. [--new-attempt TAG]
+      (D-1129): a set that ended on its own budget, taken up again by a resume with a new budget: the set's clock
+      starts a new attempt once per TAG, and only the protocols its budget cut (or never started) are run
+  acc-attempt --work DIR   the set's attempt and when it started ("<n>\t<UTC start>"; attempt 1: an empty start)
+  acc-merge-attempt --kind audit|traces --into F --new F --attempt N   one attempt's gateway audit or raw traces
+      added to the set's file (each attempt read with its own since, so nothing is counted twice)
 
 The owner's live session (D-1123; D-1131, D-1132):
 
@@ -925,6 +930,8 @@ def acc_set(
     earlier: list[Path] | None = None,
     streams: int = 1,
     min_start_s: float = 600.0,
+    new_attempt: str = "",
+    site_tz: str = "",
 ) -> dict[str, Any]:
     """One accuracy set on the installed box (see the module docstring). Resumable from ``work/progress.json``.
 
@@ -945,7 +952,19 @@ def acc_set(
     takes it up again and waits for them. ``answers.json`` is rewritten after every protocol: a stop keeps every
     finished protocol.
 
-    ``streams``: protocols in flight at once; the result says the most that were (``in_flight_max``)."""
+    ``streams``: protocols in flight at once; the result says the most that were (``in_flight_max``).
+
+    ``new_attempt`` (D-1129, card H-14): a set that ended on its own budget (protocols ``not_run_time_budget``) is
+    taken up again by a resume that gives it a new budget. The tag (the resume's tb-retry) starts a new attempt of the
+    set once: ``set-clock.json`` moves the attempt before into ``attempts`` (its seconds and budget, kept) and the
+    new attempt's clock starts at 0 against ``deadline_s``, which is the new attempt's own budget (a pre-emption
+    within the attempt keeps counting its boots, as before). Only the protocols the budget cut, or never started,
+    run: a protocol finished in an earlier attempt is never sent to FEAS, APPROVE or SCREEN again, and its answers,
+    job ids and screen JSON stay as they are. Each finished protocol says which attempt answered it (``attempt``);
+    the result says ``attempts`` (how many, finished in each, still cut) and ``budget_cut``.
+
+    ``site_tz``: the site's zone as the box reports it (onbox ``env``), kept in ``set-clock.json`` as ``tz`` so the
+    replay reads the zone the run used; none given keeps what the clock holds."""
     ids = json.loads((built / "gold" / "ids.json").read_text(encoding="utf-8"))
     protos = sorted((built / "site" / "protocols").glob("*.txt"))
     if protocols:  # D1 (P1b): a filter naming an id the set lacks stops the set, it is never a pass over nothing
@@ -969,6 +988,12 @@ def acc_set(
                     before[rs_] = a_
     clock_p = work / "set-clock.json"
     clock = json.loads(clock_p.read_text(encoding="utf-8")) if clock_p.exists() else {}
+    if new_attempt and clock.get("attempt_tag") != new_attempt:
+        _new_attempt(work, clock, new_attempt)  # D-1129: once per tag; a reboot within the attempt keeps its clock
+        clock = json.loads(clock_p.read_text(encoding="utf-8"))
+    attempt = int(clock.get("attempt") or 1)
+    if site_tz:  # the box's own zone (never a zone of this code's choosing), for the replay
+        clock["tz"] = site_tz
     used0 = float(clock.get("used_s") or 0.0)
     t_start = time.monotonic()
 
@@ -979,7 +1004,8 @@ def acc_set(
 
     def tick() -> None:
         with tick_lock:  # one writer at a time when protocols run side by side
-            _save(clock_p, {"used_s": round(used(), 1), "deadline_s": deadline_s})
+            # the attempts before (D-1129) are kept as they were: only this attempt's seconds and budget move
+            _save(clock_p, {**clock, "used_s": round(used(), 1), "deadline_s": deadline_s, "attempt": attempt})
 
     def left() -> float:
         return deadline_s - used() if deadline_s > 0 else float("inf")
@@ -1060,6 +1086,8 @@ def acc_set(
         if prog.get(rs, {}).get("finished"):
             answers()
             return
+        # D-1129: the attempt that runs it (and so answers it, if it ends here); one finished before keeps its own
+        a["attempt"] = attempt
         started = any(k in a for k in ("feas_job", "approve_job", "screen_job"))
         if not started and left() < need_s():  # D4: too little of the budget left to start a protocol
             cut(a)
@@ -1200,11 +1228,107 @@ def acc_set(
     counts.setdefault("refused_by_tripwire", 0)
     counts["patients_answered"] = sum(len(a.get("patients") or {}) for a in prog.values())
     want = "compiled" if compile_only else "screened"
+    att = attempts_of(prog, json.loads(clock_p.read_text(encoding="utf-8")) if clock_p.exists() else {})
     # D1: a set of no protocol never passes (acc_set refuses one above; this is the result's own rule)
     return {"set": name, "counts": counts, "pass": bool(protos) and counts.get(want, 0) == len(protos),
             "seconds": round(used(), 1), "deadline_s": deadline_s or None,
             "streams": max(1, streams), "in_flight_max": flight["max"],
-            "save_give_ups": len(gave_up)}  # fmt: skip
+            "save_give_ups": len(gave_up),
+            # D-1129: what a resume with a new budget would take up, and the attempts so far
+            "budget_cut": counts.get("not_run_time_budget", 0) + counts.get("unfinished", 0),
+            "attempts": att, "attempts_line": att["line"]}  # fmt: skip
+
+
+def _new_attempt(work: Path, clock: dict[str, Any], tag: str) -> None:
+    """D-1129: the set's clock starts a new attempt (the one before kept in ``attempts``), and the attempt before's
+    services lines are kept ahead of the new ones (``services.earlier.log``); box-calls.log says where it began."""
+    n = int(clock.get("attempt") or 1)
+    past = list(clock.get("attempts") or [])
+    past.append({"attempt": n, "tag": clock.get("attempt_tag") or "", "used_s": clock.get("used_s"),
+                 "deadline_s": clock.get("deadline_s")})  # fmt: skip
+    now = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
+    new = {**clock, "attempts": past, "attempt": n + 1, "attempt_tag": tag, "attempt_started": now, "used_s": 0.0}
+    new["earlier_s"] = round(sum(float(x.get("used_s") or 0) for x in past), 1)
+    svc = work / "services.log"
+    if svc.exists():
+        with (work / "services.earlier.log").open("a", encoding="utf-8") as fh:
+            fh.write(f"== attempt {n} of the set (its services' lines, as read at its end)\n")
+            fh.write(svc.read_text(encoding="utf-8", errors="replace"))
+        svc.unlink()
+    with suppress(OSError), (work / "box-calls.log").open("a", encoding="utf-8") as fh:
+        fh.write(f"== attempt {n + 1} of the set ({tag}) from {now}Z: only the protocols the budget cut\n")
+    _save(work / "set-clock.json", new)
+
+
+def attempts_of(prog: dict[str, Any], clock: dict[str, Any]) -> dict[str, Any]:
+    """D-1129: the set's attempts as one record: how many, the protocols finished in each (a protocol stored
+    before attempts were recorded is attempt 1's), and those still cut by a budget (or not started)."""
+    rows = [a for a in prog.values() if isinstance(a, dict)]
+    n = max([int(clock.get("attempt") or 1)] + [int(a.get("attempt") or 1) for a in rows if a.get("finished")])
+    fin = {str(i): 0 for i in range(1, n + 1)}
+    cut = 0
+    for a in rows:
+        if not a.get("finished") or a.get("outcome") == "not_run_time_budget":
+            cut += 1
+        else:
+            k = str(int(a.get("attempt") or 1))
+            fin[k] = fin.get(k, 0) + 1
+    said = "; ".join(f"in attempt {k}: {v}" if i else f"protocols finished in attempt {k}: {v}"
+                     for i, (k, v) in enumerate(sorted(fin.items(), key=lambda kv: int(kv[0]))))  # fmt: skip
+    return {"attempts": n, "finished_in": fin, "still_cut": cut, "line": f"attempts: {n}; {said}; still cut: {cut}"}
+
+
+def acc_attempt(work: Path) -> tuple[int, str]:
+    """(the set's attempt, when it started in UTC with no offset): attempt 1 has no start of its own (the step's)."""
+    try:
+        c = json.loads((work / "set-clock.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 1, ""
+    n = int(c.get("attempt") or 1)
+    return n, (str(c.get("attempt_started") or "") if n > 1 else "")
+
+
+def merge_attempt(kind: str, into: Path, new: Path, attempt: int) -> dict[str, Any]:
+    """D-1129: one attempt's gateway audit (counts) or raw traces (rows) added to the set's file. Each attempt was read
+    with its own ``since`` (the attempt's start, after the attempt before was read), so the totals are the sum and the
+    rows the union (a row stored twice is kept once); each attempt's own read is kept under ``attempts``. A file
+    written before attempts were recorded is attempt 1's."""
+    cur: dict[str, Any] = {}
+    with suppress(OSError, ValueError):
+        cur = json.loads(into.read_text(encoding="utf-8"))
+    one = json.loads(new.read_text(encoding="utf-8"))
+    per = dict(cur.get("attempts") or ({"1": {k: v for k, v in cur.items() if k != "attempts"}} if cur else {}))
+    per[str(attempt)] = one
+    order = sorted(per, key=int)
+    out: dict[str, Any] = {"since": per[order[0]].get("since"), "attempts": per}
+    if kind == "audit":
+        for k in ("calls_by_prompt", "refusals"):
+            tot: dict[str, int] = {}
+            for a in order:
+                for x, v in (per[a].get(k) or {}).items():
+                    tot[x] = tot.get(x, 0) + int(v or 0)
+            out[k] = tot
+        jobs: dict[str, dict[str, int]] = {}
+        for a in order:
+            for j, codes in (per[a].get("refusals_by_job") or {}).items():
+                for c, v in (codes or {}).items():
+                    jobs.setdefault(j, {})[c] = jobs.setdefault(j, {}).get(c, 0) + int(v or 0)
+        out["refusals_by_job"] = jobs
+        out["time_unreadable"] = sum(int(per[a].get("time_unreadable") or 0) for a in order)
+    else:
+        seen: set[str] = set()
+        rows: list[Any] = []
+        for a in order:
+            for r in per[a].get("traces") or []:
+                k = json.dumps(r, sort_keys=True, default=str)
+                if k not in seen:
+                    seen.add(k)
+                    rows.append(r)
+        ids = {r.get("call_id") for r in rows if isinstance(r, dict)}
+        out["traces"] = rows
+        out["calls"] = len(ids) if None not in ids else sum(int(per[a].get("calls") or 0) for a in order)
+    _save(into, out)
+    return {"kind": kind, "attempt": attempt, "attempts": len(per)}
 
 
 def _answers(work: Path, prog: dict[str, Any]) -> None:
@@ -1222,6 +1346,8 @@ def _answers(work: Path, prog: dict[str, Any]) -> None:
             "screen_error": a.get("screen_error"),
             "patients": a.get("patients") or {},
             "outcome": a.get("outcome"),
+            # D-1129: the attempt that answered it (a budget cut: the attempt that cut it); none stored: attempt 1
+            "attempt": int(a.get("attempt") or 1),
         }
         for rs, a in prog.items()
         if a.get("finished")
@@ -1257,7 +1383,8 @@ def acc_progress(work: Path, built: Path) -> dict[str, Any]:
     ]  # fmt: skip
     return {"protocols_done": done, "protocols": total, "patients_answered": pats, "used_s": clock.get("used_s"),
             "deadline_s": clock.get("deadline_s"), "compiled": compiled, "cut_by_time": cut,
-            "screen_jobs": jobs}  # fmt: skip
+            "screen_jobs": jobs, "attempt": int(clock.get("attempt") or 1),
+            "attempts_line": attempts_of(prog, clock)["line"]}  # fmt: skip
 
 
 def routes_verdict(gw: dict[str, Any], emb: dict[str, Any]) -> dict[str, Any]:
@@ -1559,8 +1686,17 @@ def main(argv: list[str] | None = None) -> int:
         default=600.0,
         help="D4: no protocol is started with less of the set's budget left (or its measured mean, if longer)",
     )
+    ac.add_argument("--new-attempt", default="", help="D-1129: a resume's tag: the set's next attempt, once per tag")
+    ac.add_argument("--site-tz", default="", help="the site's zone as the box reports it (onbox env), for the replay")
     ac.add_argument("--notes")
     ac.add_argument("--beat", type=Path)
+    at_ = sub.add_parser("acc-attempt")
+    at_.add_argument("--work", type=Path, required=True)
+    ma = sub.add_parser("acc-merge-attempt")
+    ma.add_argument("--kind", choices=("audit", "traces"), required=True)
+    ma.add_argument("--into", type=Path, required=True)
+    ma.add_argument("--new", type=Path, required=True)
+    ma.add_argument("--attempt", type=int, required=True)
     cl = sub.add_parser("acc-call")
     cl.add_argument("--dc", required=True)
     cl.add_argument("--onbox", type=Path, required=True)
@@ -1600,6 +1736,17 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if a.cmd == "acc-progress":
         print(json.dumps(acc_progress(a.work, a.built)))
+        return 0
+    if a.cmd == "acc-attempt":
+        n, since = acc_attempt(a.work)
+        print(f"{n}\t{since}")
+        return 0
+    if a.cmd == "acc-merge-attempt":
+        try:
+            print(json.dumps(merge_attempt(a.kind, a.into, a.new, a.attempt)))
+        except (OSError, ValueError) as exc:
+            print(f"acc-merge-attempt: {exc}", file=sys.stderr)
+            return 1
         return 0
     if a.cmd == "models-place":
         res = models_place(a.root, a.link, a.template, a.embed_list, a.embed_url)
@@ -1656,7 +1803,8 @@ def main(argv: list[str] | None = None) -> int:
                           compile_only=a.compile_only, job_s=a.job_minutes * 60, poll_s=a.poll,
                           deadline_s=a.deadline_s,
                           protocols=[x for x in a.protocols.split(",") if x] or None,
-                          earlier=a.earlier, streams=a.streams, min_start_s=a.min_start_s)  # fmt: skip
+                          earlier=a.earlier, streams=a.streams, min_start_s=a.min_start_s,
+                          new_attempt=a.new_attempt, site_tz=a.site_tz)  # fmt: skip
         except (RuntimeError, OSError, ValueError) as exc:
             print(f"acc-set {a.set}: {exc}", file=sys.stderr)
             return 1

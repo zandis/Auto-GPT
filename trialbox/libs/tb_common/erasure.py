@@ -189,12 +189,20 @@ TABLES: dict[str, Entry] = {
         "both columns, with the certificate not adding the patient again (the review of D-866)",
     ),
     **_each("study", ("rc_connection", "rc_project_link", "screen_scope", "study_settings"), _CONFIG),
-    "study.rc_read_log": _none("a REDCap read: when, who, ok, counts"),
-    "study.rc_record": _owed(
-        "the REDCap project's records linked to pseudonyms",
-        "the rows of a patient never consented (a consented subject's stay, OD-8)",
+    "study.rc_read_log": _erase(
+        "screening_log",
+        "a REDCap read: when, who, ok, and its result (the changes and conflicts name a number with its pseudonym): a "
+        "never-consented patient's pseudonym takes the screening log's token (the review of D-878)",
     ),
-    "study.rc_write": _owed("what was written to REDCap, by link value and record"),
+    "study.rc_record": _erase(
+        "screening_log",
+        "the REDCap project's records linked to pseudonyms: a never-consented patient's take the screening log's "
+        "token (D-878, D-1032); a trial subject's stay (OD-8)",
+    ),
+    "study.rc_write": _none(
+        "what was written to REDCap, by screening number and record, with the hash of the values: no pseudonym (the "
+        "screening log keeps the number, D-875; D-878)"
+    ),
     "orch.pool": _erase("candidate_pool", "MICROBATCH's candidate pool (a re-run's scratch copy is dropped with it)"),
     "orch.candidates": _erase(
         "candidate_registry",
@@ -373,9 +381,10 @@ TABLES: dict[str, Entry] = {
     "breakglass.grants": _keep("D-430", "the record of an emergency access to a patient, for the steward's review"),
     "breakglass.uses": _keep("D-430", "each use of a break-glass grant, for the steward's review"),
     "edc.draft": _owed(
-        "an EDC draft, by pseudonym",
-        "the drafts of a patient who never enrolled, told from a trial subject by the subject's whole history "
-        "(the review of D-866: the registry's status now is not enough)",
+        "an EDC draft, by pseudonym, with values read from the chart",
+        "the drafts of a patient who never consented: the EDC drafts for any numbered patient (consent is not "
+        "checked), and D-1032's definition counts a draft as a trial subject's, which keeps the patient's rows; "
+        "whether a draft alone makes a trial subject is the owner's question (the review of D-878)",
     ),
     **_each("edc", ("copy_tick", "decision", "sent", "signature", "signature_void"), _OD8),
     **_each(

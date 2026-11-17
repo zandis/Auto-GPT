@@ -463,3 +463,14 @@ def test_links_delete_every_version(tmp_path: Path) -> None:
     _links_object(tmp_path)
     assert _run(tmp_path, "--links", RUN).returncode == 0
     assert (tmp_path / "state" / "rm-flags").read_text().split() == ["all-versions"]
+
+
+def test_a_session_runs_resume_plan_is_refused_too(tmp_path: Path) -> None:
+    """H-14 (D-1129) made `--preflight --resume` a free resume plan; a session run's is refused like its resume."""
+    _door(tmp_path)
+    md = tmp_path / "runs" / RUN / "md"
+    md.mkdir(parents=True)
+    (md / "tb-steps").write_text("dev session")
+    r = _run(tmp_path, "--preflight", "--resume", RUN)
+    assert r.returncode == 2 and "never resumed" in r.stderr
+    assert _argv(tmp_path) == ""

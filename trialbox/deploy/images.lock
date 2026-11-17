@@ -25,7 +25,8 @@
         "postgresql-16-pgvector": "0.8.7-1.pgdg13+1",
         "postgresql-16-pgdg-pgroonga": "4.1.0-1",
         "libgroonga0": "16.1.5-1",
-        "pgbackrest": "2.60.0-1.pgdg13+1"
+        "pgbackrest": "2.60.0-1.pgdg13+1",
+        "zlib1g": "1:1.3.dfsg+really1.3.1-1+deb13u1"
       },
       "keys": {
         "groonga": {

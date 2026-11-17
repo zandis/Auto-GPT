@@ -156,6 +156,16 @@ and needs no `TB_BUCKET` or credentials, and it stops where the launch would fir
 A launch runs the same checks first and refuses before anything is uploaded or started: exit 2 for the filter,
 exit 6 for the preflight, exit 9 for a validation-check blocker.
 
+A resume has its own free look (D-1129):
+
+    deploy/gcp/box-run.sh --preflight --resume <run id> [--acc-deadline "set:SECONDS ..."] [--redo <step>]
+
+It reads the run's last `--collect` in `.cache/box-run/<run id>` (`tools.box_run resume-plan`). It says, per set,
+what the resume would do: run the protocols its budget cut in a new attempt, stay done, or run again from no work
+(`--redo`). It names the sets that need `--acc-deadline`. It refuses (exit 6) a budget that is not seconds or names
+a set the run does not have. When the run was never collected here, it says the state is only in the bucket; the VM
+then says the same first thing on its boot (`TB-RESUME-PLAN` lines).
+
 ### 4.1 Probe (the VM's facts, nothing built)
 
     deploy/gcp/box-run.sh --steps probe
@@ -311,7 +321,10 @@ A set writes, the moment it ends, `gs://.../boxruns/<run>/acc/<set>.tgz`. At eve
 `acc-partial/<set>.tgz`. On the VM: `/var/lib/tb/acc/<run>/<set>/{built,work}`.
 
 `work/` holds `answers.json`, the per-protocol progress, `set-clock.json`, `pidmap.json`, `gateway-audit.json`,
-`raw-traces.json`, `services.log`, `embed-mem.tsv` (each second) and each protocol's screen JSON (F32).
+`raw-traces.json`, `services.log`, `embed-mem.tsv` (each second) and each protocol's screen JSON (F32). A set taken
+up again after its budget (4.10) adds `services.earlier.log` (the attempts before), and `gateway-audit.json` and
+`raw-traces.json` keep each attempt's own read under `attempts`. `set-clock.json` records `tz`, the site's zone as
+the box reports it (onbox `env`), so the replay reads the zone the run used.
 
 The gold stays in `built/gold`. It never goes into the box.
 
@@ -336,6 +349,32 @@ The gold stays in `built/gold`. It never goes into the box.
 - `--redo` runs a finished step again. A set starts from no work: its earlier work is kept as
   `logs/<step>.work-<retry>`. It mails under new mail ids (F28). Its clock and any slowdown it measured are cleared.
 - `--redo`, `--acc-deadline`, `--acc-protocols` and `--site-env` hold for that launch only (F24).
+
+A set that ended on its own budget (D-1129, card H-14):
+
+    deploy/gcp/box-run.sh --preflight --resume <run id> --acc-deadline "sigir:5400"   # free: what it takes up
+    deploy/gcp/box-run.sh --resume <run id> --acc-deadline "sigir:5400" --no-wait
+
+- A set whose budget cut protocols (`not_run_time_budget`, or never started) ends its step `done`. Its part says how
+  many: `budget_cut`. A set with nothing cut has `budget_cut` 0.
+- A resume whose `--acc-deadline` gives that set a budget opens its step again. The part is kept as
+  `logs/<step>.budget-<retry>.json`. `79-acc-result` is read again.
+- The set then runs a new attempt. It runs only the cut protocols. A protocol cut while its job ran keeps that job
+  and waits for it; nothing is mailed twice. A finished protocol is never sent to FEAS, APPROVE or SCREEN again.
+  Its answers, job ids, screen JSON and traces stay as they are.
+- A resume without a budget for the set leaves it done. A plain resume of a run with nothing cut runs no set again.
+  The VM says which, first thing: `TB-RESUME-PLAN` lines in its log.
+- `--redo <step>` keeps its meaning: the set again from no work, under new mail ids.
+- **The clock.** `set-clock.json` keeps each earlier attempt's seconds and budget under `attempts`. The new attempt
+  starts at 0 and counts against the new `--acc-deadline` alone. That budget is the new attempt's own, not a total.
+  A pre-emption within the attempt keeps counting its boots, as before. A set run in two attempts measures no
+  slowdown (F22).
+- **One record.** `answers.json` holds each protocol once, with the attempt that answered it (`attempt`). The
+  audit and the raw traces of the new attempt are read since its own start and added to the earlier ones. Nothing
+  is counted twice. `services.log` starts with the earlier attempts' lines, and `box-calls.log` says where the new
+  attempt began. `acc/<set>.tgz` is uploaded again with the union, and `--collect` fetches it again (F24).
+- The part, the report and the score say `attempts: 2; protocols finished in attempt 1: a; in attempt 2: b; still
+  cut: c`. The scorer counts each protocol once (score layout 4, `protocols.attempts`).
 - The cloud cap is the launch's `cap-hours` again.
 - Each resume costs a boot and the stack's start: about 2.5 min to `TB-STACK up` on L9 resume 3, plus model loads.
 
@@ -444,7 +483,8 @@ Locally, `.cache/box-run/<run id>/` holds:
 - **Jobs.** `tb-acc-job-minutes` (60) is the longest single FEAS or SCREEN job.
 - **Set budget.** Each set's budget is `--acc-deadline` if given. Otherwise it is 1.5 x the plan's high bound x the
   measured slowdown (4 before it is measured), and at least 600 s (`tb-acc-min-deadline`). A set cut by its budget
-  keeps what it finished and says so.
+  keeps what it finished and says so (`budget_cut`). A resume with a new `--acc-deadline` for it runs only the cut
+  protocols, in a new attempt on that budget (D-1129, 4.10).
 - **The gate set (F22).** The first set must answer at least one patient (or, compile-only, compile one protocol).
   Otherwise the run stops. A later set that answers nothing is "not scored, because", and the run goes on.
 - **A stop.** A failed box command is the step's STOP: no repair on the VM. The part keeps the reason and the last
