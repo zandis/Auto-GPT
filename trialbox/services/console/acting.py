@@ -34,9 +34,30 @@ from console.local_path import local_path
 FLAG = "steps.acting_role"
 #: the top bar's words (en, zh-TW, ja)
 WORDS = {
-    "en": {"acting.as": "acting as {role}", "acting.label": "Act as", "acting.apply": "Switch role"},
-    "zh-TW": {"acting.as": "目前角色：{role}", "acting.label": "切換角色", "acting.apply": "切換"},
-    "ja": {"acting.as": "{role}として操作中", "acting.label": "役割の切替", "acting.apply": "切替"},
+    "en": {
+        "acting.as": "acting as {role}",
+        "acting.label": "Act as",
+        "acting.apply": "Switch role",
+        "acting.wrong": "This page is not open to the role {role}. Switch to another of your roles:",
+        "login.role": "Role",
+        "login.role.last": "The role I used last",
+    },
+    "zh-TW": {
+        "acting.as": "目前角色：{role}",
+        "acting.label": "切換角色",
+        "acting.apply": "切換",
+        "acting.wrong": "「{role}」角色無法開啟此頁。請切換到您的其他角色：",
+        "login.role": "角色",
+        "login.role.last": "上次使用的角色",
+    },
+    "ja": {
+        "acting.as": "{role}として操作中",
+        "acting.label": "役割の切替",
+        "acting.apply": "切替",
+        "acting.wrong": "このページは「{role}」の役割では開けません。ほかの役割に切り替えてください：",
+        "login.role": "役割",
+        "login.role.last": "前回使った役割",
+    },
 }
 AUDIT = "role.acting"
 
@@ -83,7 +104,7 @@ for _lang, _words in WORDS.items():
 
 def register(app: FastAPI, h: Any, users: Any, env: Mapping[str, str]) -> None:
     @app.post("/role")
-    def switch(request: Request, role: str = Form(""), csrf: str = Form(""), back: str = Form("/")) -> Response:
+    def switch(request: Request, role: str = Form(""), csrf: str = Form(""), back: str = Form("")) -> Response:
         sess = h.need(request)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
@@ -93,4 +114,6 @@ def register(app: FastAPI, h: Any, users: Any, env: Mapping[str, str]) -> None:
         before, after = users.set_acting(sess, role)
         if before != after:
             h.au.append(AUDIT, actor=h.actor(sess), detail={"user": sess.user.username, "from": before, "to": after})
-        return RedirectResponse(local_path(back, "/"), status_code=303)
+        # D-1151: the top bar's switch lands on the role's home page (the page's language is the session's); the
+        # switch a refused page offers returns to that page
+        return RedirectResponse(local_path(back, "/") if back else "/", status_code=303)

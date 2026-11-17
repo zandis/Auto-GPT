@@ -380,6 +380,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "cc898ef7e93cba0f79116b2e2ce6602150cf6e54b1535dddaf5f7d6d2d7054ca",
         # STEPS-ROLE (D-877): users.extra_roles, sessions.acting_role (a test box only)
         "4775e64bb8830064e1a8b965c60bb4cd34bf2e5fae88e5ca7136d3d892606a77",
+        # STEPS-ROLE-2 (D-1151): users.last_acting_role, the next sign-in's role
+        "1a8f79ebf6fa19f0f920227406a3a56c16bad69cc82c69fb587e389b9e823ce8",
     ),
     # D-301: migration 3, the one-million block and the vocabulary tables
     # T-106 (D-339): migration 4, the large clinical tables partitioned by year

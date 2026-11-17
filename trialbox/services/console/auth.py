@@ -195,7 +195,12 @@ SCHEMA_V7 = """
 ALTER TABLE users ADD COLUMN extra_roles TEXT;
 ALTER TABLE sessions ADD COLUMN acting_role TEXT
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7)
+# STEPS-ROLE-2 (D-1151, the owner's ruling of 2026-11-17): the role a person last acted in, the default of the next
+# sign-in (chosen on the sign-in page, or the last switch)
+SCHEMA_V8 = """
+ALTER TABLE users ADD COLUMN last_acting_role TEXT
+"""
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8)
 FACTORS = ("password", "totp")
 FACTOR_WINDOW = timedelta(days=30)  # D-719: the owner's rule, not a setting: one factor at a time for 30 days
 _COLS = "username, role, mailbox, affiliation, studies, expires"
@@ -757,7 +762,14 @@ class UserStore:
             (_sha(token), user.username, csrf, now, now, lang, via[:16]),
         )
         self.db.execute("UPDATE users SET last_login = ? WHERE username = ?", (now, user.username))  # D-406
-        return token, Session(user, csrf, lang, _sha(token))
+        sess = Session(user, csrf, lang, _sha(token))
+        # D-1151: a session starts in the role the person last acted in (chosen at sign-in, or the last switch), when
+        # acting is on and the account still holds it; else in the account's own role
+        last = self.last_role(user.username)
+        if last and last != user.role and self.acting_on() and last in self.extra_roles(user.username):
+            self.db.execute("UPDATE sessions SET acting_role = ? WHERE token_sha = ?", (last, sess.token_sha))
+            sess = self._acting(sess, last)
+        return token, sess
 
     def session(self, token: str | None, touch: bool = True, api: bool = False) -> Session | None:
         """The live session of ``token``. ``touch=False`` (a page's own auto-refresh, D-192 review H3) reads the
@@ -835,7 +847,32 @@ class UserStore:
             raise AuthError("this account may not act in that role")
         self.db.execute("UPDATE sessions SET acting_role = ? WHERE token_sha = ?",
                         (None if role == own else role, sess.token_sha))  # fmt: skip
+        self.db.execute("UPDATE users SET last_acting_role = ? WHERE username = ?", (role, sess.user.username))
         return before, role
+
+    def last_role(self, username: str) -> str:
+        """The role the person last acted in ("" when none was ever chosen)."""
+        return str(self.db.fetchval("SELECT last_acting_role FROM users WHERE username = ?", (username,)) or "")
+
+    def remember_role(self, username: str, role: str) -> bool:
+        """D-1151: the role chosen on the sign-in page becomes the person's starting role, when it is the account's
+        own or one of its extra roles while acting is on; any other value (a forged form) is ignored (False)."""
+        own = self.role_of(username)
+        if not own or (role != own and (not self.acting_on() or role not in self.extra_roles(username))):
+            return False
+        self.db.execute("UPDATE users SET last_acting_role = ? WHERE username = ?", (role, username))
+        return True
+
+    def box_roles(self) -> list[str]:
+        """The roles the sign-in page offers while acting is on: every role an account of this box may act in (its
+        own, and the extra roles of the accounts that hold some), in the matrix's order. The page cannot know who
+        signs in, so it never asks which roles a name holds (no lookup of an account before its password)."""
+        if not self.acting_on():
+            return []
+        held: set[str] = set()
+        for own, extra in self.db.fetchall("SELECT role, extra_roles FROM users WHERE coalesce(extra_roles, '') <> ''"):
+            held |= {str(own), *[r for r in str(extra).split(",") if r in ROLES]}
+        return [r for r in ROLES if r in held]
 
     def end_sessions(self, username: str) -> None:
         self.db.execute("DELETE FROM sessions WHERE username = ?", (username,))

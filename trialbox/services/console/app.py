@@ -986,6 +986,7 @@ def create_app(
             admin_mail=settings.admin_email,
             sso=settings.sso,
             oidc=ident.oidc_enabled,
+            box_roles=us.box_roles(),  # D-1151: the role drop-down (a test box with acting on), else empty
             **ctx,
         )
         resp.set_cookie(
@@ -1007,7 +1008,11 @@ def create_app(
 
     @app.post("/login")
     def login(
-        request: Request, username: str = Form(""), password: str = Form(""), login_csrf: str = Form("")
+        request: Request,
+        username: str = Form(""),
+        password: str = Form(""),
+        login_csrf: str = Form(""),
+        role: str = Form(""),
     ) -> Response:
         cookie = request.cookies.get(LOGIN_COOKIE, "")
         if not cookie or not secrets.compare_digest(cookie, login_csrf):
@@ -1033,6 +1038,11 @@ def create_app(
             return login_page(
                 request, 401, failed=True, uninitialised=False, until=until.isoformat() if until else "", left=left
             )
+        if role:  # D-1151: the role chosen on the sign-in page is the session's starting role (held roles only)
+            before = us.last_role(user.username) or user.role
+            if us.remember_role(user.username, role[:20]) and role != before:
+                au.append(acting.AUDIT, actor=f"console:{user.username}",
+                          detail={"user": user.username, "from": before, "to": role, "at": "sign-in"})  # fmt: skip
         if ident.needs_code(user):  # D-192: local accounts give a TOTP code before a session exists
             return ident.second_step(user)
         token, _ = us.new_session(user, lang_of(request, None), "password")

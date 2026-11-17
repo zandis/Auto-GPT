@@ -270,3 +270,73 @@ def test_the_flags_page_says_a_test_box_flag_is_refused(person: dict[str, Any],
     r = c.post("/ops/flags", data={"csrf": csrf, "name": "steps.acting_role", "value": "on", "reason": "a reason",
                                    "confirm": "yes", "old": ""}, follow_redirects=False)  # fmt: skip
     assert r.status_code == 400 and "test box only" in r.text
+
+
+# ---------------------------------------------------------------------------------- STEPS-ROLE-2 (D-1151)
+def _sign_in(app: Any, user: str, pw: str, role: str = "") -> tuple[TestClient, str, Any]:
+    import re
+
+    c = TestClient(app)
+    page = c.get("/login").text
+    token = re.search(r'name="login_csrf" value="([^"]+)"', page)
+    assert token
+    data = {"username": user, "password": pw, "login_csrf": token.group(1), **({"role": role} if role else {})}
+    r = c.post("/login", data=data, follow_redirects=False)
+    assert r.status_code == 303, r.text
+    home = c.get("/").text
+    csrf = re.search(r'name="csrf" value="([^"]+)"', home)
+    assert csrf
+    return c, csrf.group(1), page
+
+
+def test_the_sign_in_page_offers_the_boxs_roles_only_while_acting_is_on(person: dict[str, Any]) -> None:
+    import re
+
+    assert 'data-testid="login-role"' not in TestClient(person["app"]).get("/login").text  # the flag off: none
+    _flag(person, "on")
+    page = TestClient(person["app"]).get("/login").text
+    offered = re.findall(r'<option value="([a-z]+)">', page.split('data-testid="login-role"')[1].split("</select>")[0])
+    assert offered == ["admin", "coordinator", "investigator", "viewer", "steward"]  # the roles the box gave, in order
+
+
+def test_a_person_signs_in_already_acting_as_the_chosen_role(person: dict[str, Any]) -> None:
+    _flag(person, "on")
+    c, _csrf, _page = _sign_in(person["app"], "mei", PW, "admin")
+    assert c.get("/ops/users", follow_redirects=False).status_code == 200  # acting as the administrator
+    (ev,) = [e for e in _events(person, "role.acting") if e["detail"].get("at") == "sign-in"]
+    assert ev["actor"] == "console:mei" and ev["detail"]["from"] == "viewer" and ev["detail"]["to"] == "admin"
+    c2, _c2, _p = _sign_in(person["app"], "mei", PW)  # the next sign-in, no role chosen: the last one
+    assert c2.get("/ops/users", follow_redirects=False).status_code == 200
+
+
+def test_a_role_not_held_cannot_be_chosen_by_a_forged_form_value(person: dict[str, Any]) -> None:
+    _flag(person, "on")
+    users = person["users"]
+    c, _csrf, _page = _sign_in(person["app"], "mei", PW, "privacy")  # mei does not hold privacy
+    assert c.get("/ops/users", follow_redirects=False).status_code == 403  # her own role, a viewer's
+    assert users.last_role("mei") == "" and not _events(person, "role.acting")
+    c3, _c3, _p = _sign_in(person["app"], "mei", PW, "nonsense")
+    assert c3.get("/ops/users", follow_redirects=False).status_code == 403
+
+
+def test_a_switch_keeps_the_session_and_lands_on_the_roles_home_page(person: dict[str, Any]) -> None:
+    _flag(person, "on")
+    users = person["users"]
+    c, csrf, _page = _sign_in(person["app"], "mei", PW)
+    before = dict(c.cookies)
+    c.post("/lang", data={"csrf": csrf, "lang": "ja", "back": "/"}, follow_redirects=False)
+    r = c.post("/role", data={"csrf": csrf, "role": "coordinator"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/"  # the role's home page
+    assert dict(c.cookies) == before  # the same session: no new sign-in, no second factor
+    home = c.get("/", follow_redirects=True)
+    assert home.status_code == 200 and 'lang="ja"' in home.text  # in the same language
+    assert users.last_role("mei") == "coordinator"
+    assert [e["detail"]["to"] for e in _events(person, "role.acting")] == ["coordinator"]
+
+
+def test_a_page_the_acting_role_may_not_open_offers_the_switch(person: dict[str, Any]) -> None:
+    _flag(person, "on")
+    c, _csrf, _page = _sign_in(person["app"], "mei", PW)
+    r = c.get("/ops/flags")  # the administrator's page, refused to a viewer
+    assert r.status_code == 403 and 'data-testid="problem-role-switch"' in r.text
+    assert 'value="admin"' in r.text and 'name="back" value="/ops/flags"' in r.text
