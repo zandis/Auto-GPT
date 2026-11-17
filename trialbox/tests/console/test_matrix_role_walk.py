@@ -6,7 +6,7 @@ gate of each route is read from the running app (the actions it asks ``permit``)
 
 This file holds the box to the walk: no answer against the matrix but the ones a finding names (each with its own
 strict xfail test below), and no route without a gate but the pinned open ones, so a new route cannot go unwalked.
-With ``TB_ROLE_WALK_OUT`` set (``python -m tools.role_walk inproc``) the results are written for the report."""
+With ``ROLE_WALK_OUT`` set (``python -m tools.role_walk inproc``) the results are written for the report."""
 
 from __future__ import annotations
 

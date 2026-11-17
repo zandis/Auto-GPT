@@ -11,7 +11,7 @@ alone, such as a criteria approval, may be done by one person holding both roles
 
 Each: the same person is refused, a second person with the right role is allowed, a second person with the wrong
 role is refused, and one person who holds both roles and switches the acting role in one session (D-877) is refused.
-Synthetic accounts and pseudonyms only. With ``TB_ROLE_WALK_OUT`` set the results are written for the report."""
+Synthetic accounts and pseudonyms only. With ``ROLE_WALK_OUT`` set the results are written for the report."""
 
 from __future__ import annotations
 
@@ -26,10 +26,9 @@ from tb_common.service_auth import actor_header
 
 from tests import edc_kit as k
 from tests.actor3 import SignedClient
-from tests.console.test_console_app import _done_screen, _ulid, box, login  # noqa: F401 - the fixture by name
+from tests.console.test_console_app import ADMIN_PW, _done_screen, _ulid, box, login  # noqa: F401 - the fixture by name
 from tests.console.test_d280_breakglass import A, B, _events, _open, _shift
 from tests.console.test_no_one_holds_both_factors import (
-    ADMIN_PW,
     STEWARD_PW,
     _add,
     _box,
@@ -41,7 +40,7 @@ from tests.console.test_role_pages import PW, _csrf, _user
 from tools import role_walk as rw
 
 ROWS: list[dict[str, str]] = []
-TEST = "tests/console/test_role_walk_rules.py"
+TEST = "tests/console/test_matrix_role_walk_rules.py"
 
 
 def _row(rule: str, where: str, same: str, right: str, wrong: str, acting: str, test: str) -> None:

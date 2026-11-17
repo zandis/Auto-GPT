@@ -99,9 +99,9 @@ def _forged(kind: str, action: str, study: str, method: str, path: str, body: An
             m.setenv(sa.ACTOR_SIGN_KEY_ENV, str(other))
             return signed(action, study, method, path, body)
     if kind == "expired":
-        h = v3.mint(sub="console:crc", role="coordinator", action=action, method=method, path=path, body=body,
+        minted = v3.mint(sub="console:crc", role="coordinator", action=action, method=method, path=path, body=body,
                     study=study, standing=rw.standing(rw.BY_NAME["pi"]), now=time.time() - 600)  # fmt: skip
-        return {v3.HEADER: h}
+        return {v3.HEADER: minted}
     if kind == "v2 format":
         return sa.actor_header("console:crc", role="coordinator", scope=study)
     if kind == "unknown role":

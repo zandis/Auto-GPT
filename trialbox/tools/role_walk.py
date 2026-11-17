@@ -4,8 +4,9 @@
     python -m tools.role_walk report      # write the report again from the fragments the last run left
     python -m tools.role_walk live --base-url https://box.example   # walk a running box (accounts from the env)
 
-What it does, in-process (``tests/console/test_role_walk.py`` and ``tests/unit/test_role_walk_orchestrator.py`` call
-the functions here and leave their results in ``TB_ROLE_WALK_OUT``):
+What it does, in-process (``tests/console/test_matrix_role_walk*.py`` and
+``tests/unit/test_matrix_role_walk_orchestrator.py`` call the functions here and leave their results in
+``ROLE_WALK_OUT``):
 
 1. **The inventory from the code.** Every route of the console's app object (method, path, handler). For each, the
    matrix actions the route asks ``tb_common.authz.permit`` while it answers: the walk wraps ``permit`` and records
@@ -20,9 +21,9 @@ the functions here and leave their results in ``TB_ROLE_WALK_OUT``):
 3. **The report.** ``walk.json`` (every cell) and the page ``docs/plan/measurements/role-walk-<day>.md``.
 
 ``live`` mode walks a running box by base URL with the gates of the committed ``walk.json``: it signs in each column
-whose ``TB_WALK_<COLUMN>_USER`` and ``TB_WALK_<COLUMN>_PASSWORD`` are set (never printed) and writes
+whose ``ROLE_WALK_<COLUMN>_USER`` and ``ROLE_WALK_<COLUMN>_PASSWORD`` are set (never printed) and writes
 ``live-<host>.json`` beside the report. A box whose sign-in asks a second factor needs a bearer token instead:
-``TB_WALK_<COLUMN>_TOKEN`` (the ``/api/v1`` routes only).
+``ROLE_WALK_<COLUMN>_TOKEN`` (the ``/api/v1`` routes only).
 """
 
 from __future__ import annotations
@@ -49,7 +50,7 @@ DAY = "2026-11-17"
 MEASURE = ROOT / "docs" / "plan" / "measurements"
 OUT = MEASURE / f"role-walk-{DAY}"
 PAGE = MEASURE / f"role-walk-{DAY}.md"
-FRAGMENTS_ENV = "TB_ROLE_WALK_OUT"
+FRAGMENTS_ENV = "ROLE_WALK_OUT"
 STUDY = "GZQO"  # the synthetic study of the console's test box
 OTHER = "ZZQX"  # a study no column's data is in (the out-of-scope accounts are scoped to it)
 PID = "a" * 32
@@ -131,7 +132,7 @@ FORM_FIELDS: dict[str, dict[str, str]] = {"/pilot/request": {"ruleset": STUDY}, 
 CROSS_STUDY = re.compile(r"^/(jobs|audit|pilot/mailbox|pilot/cascade)(/|$)")
 
 
-def console_routes(app: Any) -> list[dict[str, str]]:
+def console_routes(app: Any) -> list[dict[str, Any]]:
     """Every route of the console's app object: method, path and handler (``module.function``)."""
     from fastapi.routing import APIRoute
 
@@ -179,7 +180,7 @@ class Tracer:
         self.patched: list[tuple[Any, Any]] = []
 
     def _site(self) -> tuple[str, bool]:
-        f = sys._getframe(2)
+        f: Any = sys._getframe(2)
         site, in_template = "", False
         while f is not None:
             fn = f.f_code.co_filename
@@ -356,12 +357,12 @@ def final(col: Column, cell: dict[str, Any], gate: Gate) -> str:
     was asked and said no; with no gate (an open route) it is allowed; else unclear. ``N`` and ``U`` are unclear."""
     cls = cell["class"]
     if cls in ("A", "R"):
-        return cls
+        return str(cls)
     if cls not in ("V", "N"):
         return "?"  # a 5xx is never counted, whatever the trace says
     if not gate.actions:
         return "A"
-    said = {}
+    said: dict[str, bool] = {}
     for a, ok, _ in cell["asked"]:
         said.setdefault(a, ok)
         said.setdefault(f"!{a}", not ok)
@@ -415,7 +416,7 @@ def console_walk(app: Any, clients: dict[str, tuple[Any, str, Any]], tracer: Tra
     ``test_role_route_matrix``, so a changing call of one column never runs before a read of another). A changing
     call sends the column's CSRF token and no other field; ``/api/v1`` its bearer token and ``{}``."""
     routes = console_routes(app)
-    raw = {(r["method"], r["path"]): {**r, "cells": {}} for r in routes}
+    raw: dict[tuple[str, str], dict[str, Any]] = {(r["method"], r["path"]): {**r, "cells": {}} for r in routes}
     for changing in (False, True):
         for col in COLUMNS:
             page, csrf, api = clients[col.name]
@@ -515,7 +516,7 @@ def fragment_dir() -> Path | None:
 
 
 def save_fragment(name: str, data: Any) -> None:
-    """A test leaves its result for the report when ``TB_ROLE_WALK_OUT`` names a folder (the tool sets it)."""
+    """A test leaves its result for the report when ``ROLE_WALK_OUT`` names a folder (the tool sets it)."""
     d = fragment_dir()
     if d is None:
         return
@@ -580,7 +581,7 @@ def _cell_mark(cell: dict[str, Any]) -> str:
     v = cell["verdict"]
     if v == "unclear":
         return "?"
-    return cell["got"] + ("!" if v.isupper() or v.startswith(("ALLOWED", "REFUSED")) else "")
+    return str(cell["got"]) + ("!" if v.isupper() or v.startswith(("ALLOWED", "REFUSED")) else "")
 
 
 def render(walk: dict[str, Any], findings: list[dict[str, Any]], verdict_text: str) -> str:
@@ -617,7 +618,7 @@ def render(walk: dict[str, Any], findings: list[dict[str, Any]], verdict_text: s
         "sessions.",
         "- **Not run: the compose box.** Plan 8 asks for the walk on the compose box. It was not stood up here. "
         "`python -m tools.role_walk live --base-url URL` walks a running box with the gates of `walk.json` and "
-        "accounts from the environment (`TB_WALK_<COLUMN>_USER`, `_PASSWORD` or `_TOKEN`); the nightly can run it.",
+        "accounts from the environment (`ROLE_WALK_<COLUMN>_USER`, `_PASSWORD` or `_TOKEN`); the nightly can run it.",
         "- **Not walked as roles:** the sign-in machinery (`/login`, `/logout`, `/lang`, `/role`, `/enrol`, "
         "`/api/v1/session`), `/static` and `/healthz`; the forged-session tests below take the session routes.",
         "",
@@ -756,7 +757,7 @@ def _table(rows: list[dict[str, Any]] | None, cols: list[str], none: str) -> lis
 
 def _section_two_person(rows: list[dict[str, Any]] | None) -> list[str]:
     return ["## Two-person rules", "",
-            "One test per rule that compares two people (`tests/console/test_role_walk_rules.py`, the "
+            "One test per rule that compares two people (`tests/console/test_matrix_role_walk_rules.py`, the "
             "`test_two_person_*` tests). Searched for: \"second person\", \"four eyes\", \"two-person\", \"same "
             "person\", \"one's own\" in `services/`, `libs/` and the decisions. A step split by role only (a "
             "criteria approval after a coordinator prepares it; the EDC switch-on) is no two-person rule: D-877 "
@@ -809,7 +810,7 @@ def live(base: str, walk_json: Path, out: Path) -> int:
     routes = [r for r in walk["console"]["routes"] if r.get("gate")]
     clients: dict[str, tuple[httpx.Client, str, httpx.Client]] = {}
     for col in COLUMNS:
-        key = f"TB_WALK_{col.name.upper()}"
+        key = f"ROLE_WALK_{col.name.upper()}"
         page = httpx.Client(base_url=base, follow_redirects=False, timeout=30)
         api = httpx.Client(base_url=base, follow_redirects=False, timeout=30)
         csrf = ""
@@ -852,8 +853,8 @@ def live(base: str, walk_json: Path, out: Path) -> int:
 
 
 # ---------------------------------------------------------------------------------------------- main
-TESTS = ("tests/console/test_role_walk.py", "tests/console/test_role_walk_rules.py",
-         "tests/unit/test_role_walk_orchestrator.py")  # fmt: skip
+TESTS = ("tests/console/test_matrix_role_walk.py", "tests/console/test_matrix_role_walk_rules.py",
+         "tests/unit/test_matrix_role_walk_orchestrator.py")  # fmt: skip
 
 
 def main(argv: list[str] | None = None) -> int:
