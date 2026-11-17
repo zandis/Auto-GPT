@@ -839,7 +839,7 @@ class SiteStore:
         rid = ruleset.upper()
         with self.db.transaction() as tx:
             tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"study_state:{rid}",))
-            if tx.fetchone("SELECT 1 FROM study_state WHERE ruleset = ? LIMIT 1", (rid,)) is not None:
+            if tx.fetchval("SELECT EXISTS (SELECT 1 FROM study_state WHERE ruleset = ?)", (rid,)):
                 return None
             reason = "a new study: set up, then opened"
             tx.execute("INSERT INTO study_state (ruleset, state, prev, reason, by, at) VALUES (?,?,?,?,?,?)",
