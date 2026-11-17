@@ -205,6 +205,7 @@ up() {
   say "after DEMO-VM-READY: deploy/gcp/demo-vm.sh links prints each person's one-time link once (then deletes it);"
   say "  each person opens their link (https://<address>/enrol#u=...&c=...: the page fills the two fields) and chooses a password"
   if [ "$OPEN_ANY" = 1 ]; then say "$OPEN_TEXT"; fi
+  [ -z "$MODE_TEXT" ] || say "$MODE_TEXT"
   say "it powers itself off $HOURS h after its start; stop it earlier with: deploy/gcp/demo-vm.sh down"
 }
 
