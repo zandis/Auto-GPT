@@ -826,3 +826,61 @@ def test_no_setting_of_the_demo_vm_reads_as_a_secret_that_reaches_a_container() 
     from tests.unit.test_compose_secret_reach import secret_names
 
     assert not {n for n in secret_names() if n.startswith(("TB_DEMO_VM_", "TB_G8_", "TB_DOOR_", "TB_BUCKET"))}
+
+
+# ---------------------------------------------------------------- steps mode (D-1062): a study from its first step
+
+
+def test_steps_mode_offers_admin_and_steward_and_says_so_in_the_metadata(tmp_path: Path) -> None:
+    people = "owner.admin:admin,owner.stw:steward,owner:investigator,wenn:coordinator"
+    rc, out = _run(tmp_path, "--dry-run", "up", env=_env(tmp_path, TB_DEMO_VM_MODE="steps", TB_DEMO_VM_PEOPLE=people))
+    assert rc == 0, out
+    assert "tb-demo-mode=steps" in out
+    assert "tb-demo-people=owner.admin:admin;owner.stw:steward;owner:investigator;wenn:coordinator" in out
+
+
+def test_demo_mode_is_the_default_and_keeps_admin_out(tmp_path: Path) -> None:
+    rc, out = _run(tmp_path, "--dry-run", "up", env=_env(tmp_path))
+    assert rc == 0 and "tb-demo-mode" not in out, out
+    rc, out = _run(tmp_path, "up", "--yes", env=_env(tmp_path, TB_DEMO_VM_PEOPLE="owner:steward"))
+    assert rc == 2 and "role must be one of investigator, coordinator, viewer" in out, out
+
+
+@pytest.mark.parametrize(
+    ("extra", "why"),
+    [
+        ({"TB_DEMO_VM_MODE": "open"}, "TB_DEMO_VM_MODE must be one of demo, steps"),
+        ({"TB_DEMO_VM_MODE": "steps", "TB_DEMO_VM_PEOPLE": "owner:privacy"}, "role must be one of"),
+        ({"TB_DEMO_VM_MODE": "steps", "TB_DEMO_VM_PEOPLE": "admin:admin"}, "one of the seed's own accounts"),
+    ],
+)
+def test_steps_mode_refuses_what_it_does_not_offer(tmp_path: Path, extra: dict[str, str], why: str) -> None:
+    rc, out = _run(tmp_path, "up", "--yes", env=_env(tmp_path, **extra))
+    assert rc == 2 and why in out, out
+    assert _argv(tmp_path) == []
+
+
+def test_the_boot_in_steps_mode_leaves_demo_mode_off_and_says_so(tmp_path: Path) -> None:
+    rc, out = _boot(
+        tmp_path, "--dry-run", TB_MD_TB_DEMO_MODE="steps", TB_MD_TB_DEMO_PEOPLE="owner.admin:admin;owner:investigator"
+    )
+    assert rc == 0, out
+    assert "steps mode (D-1062): demo mode stays OFF" in out
+    assert "--print-demo-switch" not in out and "demo mode on (D-328" not in out
+    assert "python - owner.admin:admin,owner:investigator 24 < (demo-vm-boot.sh --print-people)" in out
+    # everything else is as in demo mode: the stub model, the hard stop, no sshd, the console behind Caddy only
+    assert "TB_LLM_MODE=stub" in out and "+ shutdown -P +720" in out and "+ systemctl disable --now ssh.service" in out
+    assert "-p 127.0.0.1:8080:8080" in out
+
+
+@pytest.mark.parametrize(
+    ("md", "why"),
+    [
+        ({"TB_MD_TB_DEMO_MODE": "open"}, "tb-demo-mode"),
+        ({"TB_MD_TB_DEMO_PEOPLE": "owner:admin"}, "tb-demo-people"),  # demo mode (the default): admin is not offered
+        ({"TB_MD_TB_DEMO_MODE": "steps", "TB_MD_TB_DEMO_PEOPLE": "owner:privacy"}, "tb-demo-people"),
+    ],
+)
+def test_the_boot_refuses_a_mode_or_a_role_it_does_not_know(tmp_path: Path, md: dict[str, str], why: str) -> None:
+    rc, out = _boot(tmp_path, "--dry-run", **md)
+    assert rc != 0 and why in out, out

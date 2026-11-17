@@ -3,6 +3,17 @@
 {% block content %}
 <h1>{{ t('edc.title') }}</h1>
 <p class="hint">{{ t('edc.help') }}</p>
+<section class="card" data-testid="edc-status">
+  <h2>{{ t('edc.status') }}</h2>
+  {% if not conn.configured %}<p class="empty" data-testid="edc-status-unset">{{ t('edc.status.unset') }}</p>
+  {% elif not conn.reachable %}<p class="warn" data-testid="edc-status-down">{{ t('edc.status.down') }}</p>
+  {% else %}
+  <p class="ok" data-testid="edc-status-up">{{ t('edc.status.up') }}</p>
+  {% if conn.module %}<p data-testid="edc-status-module-on">{{ t('edc.status.module_on') }}</p>
+  {% else %}<p class="warn" data-testid="edc-status-module-off">{{ t('edc.status.module_off') }}</p>{% endif %}
+  {% endif %}
+  <p data-testid="edc-status-queue">{% if conn.pending is none or conn.dead_letter is none %}{{ t('edc.status.queue_unknown') }}{% else %}{{ t('edc.status.queue', pending=conn.pending, dead=conn.dead_letter) }}{% endif %}</p>
+</section>
 <section class="card" data-testid="edc-map">
   <h2>{{ t('edc.map') }}</h2>
   <p class="mono">{{ saved.studies|length }} {{ t('edc.studies') }}</p>

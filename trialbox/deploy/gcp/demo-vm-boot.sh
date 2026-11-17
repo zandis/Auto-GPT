@@ -256,8 +256,13 @@ SITE_LANG=$(md instance/attributes/tb-demo-site-lang "")
 [[ "$HOURS" =~ ^[1-9][0-9]*$ ]] || die "metadata tb-demo-hours must be a whole number of hours (got '$HOURS')"
 # name:role pairs, ';' between them (gcloud splits --metadata on commas); the seed's own names are taken; admin has no
 # patient-level page (D-280), so it is not offered
-[[ "$PEOPLE" =~ ^[a-z][a-z0-9._-]{1,31}:(investigator|coordinator|viewer)(\;[a-z][a-z0-9._-]{1,31}:(investigator|coordinator|viewer))*$ ]] \
-  || die "metadata tb-demo-people must be name:role pairs (investigator, coordinator or viewer), separated by ;"
+# tb-demo-mode=steps (D-1062): demo mode stays off, so a study can be walked from its first step, and a person may
+# hold the administrator's or the steward's account too
+MODE=$(md instance/attributes/tb-demo-mode demo)
+case "$MODE" in demo) ROLES_RE="investigator|coordinator|viewer" ;; steps) ROLES_RE="investigator|coordinator|viewer|admin|steward" ;;
+  *) die "metadata tb-demo-mode must be demo or steps (got '$MODE')" ;; esac
+[[ "$PEOPLE" =~ ^[a-z][a-z0-9._-]{1,31}:($ROLES_RE)(\;[a-z][a-z0-9._-]{1,31}:($ROLES_RE))*$ ]] \
+  || die "metadata tb-demo-people must be name:role pairs (${ROLES_RE//|/, }), separated by ;"
 PEOPLE=${PEOPLE//;/,}
 for _p in ${PEOPLE//,/ }; do
   case "${_p%%:*}" in admin | crc | pi | subpi | cra | viewer | stw) die "metadata tb-demo-people: ${_p%%:*} is a seeded account" ;; esac
@@ -345,8 +350,13 @@ else
   [ "$ok" = 1 ] || { say "the seed gave no answer on 127.0.0.1:8080 within $SEED_WAIT_S s: docker logs tb-demo (on the VM)"; echo DEMO-VM-NOT-READY; exit 3; }
 fi
 
+if [ "$MODE" = steps ]; then
+  say "steps mode (D-1062): demo mode stays OFF; uploads and pasted text are accepted (synthetic or public text only)"
+else
 say "demo mode on (D-328: banner, uploads and pasted text refused), before tcp:443 opens"
-if [ "$DRY" = 1 ]; then echo "+ docker exec -i tb-demo python - http://127.0.0.1:8080 < (demo-vm-boot.sh --print-demo-switch)"
+fi
+if [ "$MODE" = steps ]; then :
+elif [ "$DRY" = 1 ]; then echo "+ docker exec -i tb-demo python - http://127.0.0.1:8080 < (demo-vm-boot.sh --print-demo-switch)"
 elif ! demo_switch | docker exec -i tb-demo python - http://127.0.0.1:8080; then
   docker rm -f tb-demo >/dev/null 2>&1 || true
   say "demo mode could not be switched on: the demo was removed and tcp:443 stays closed"

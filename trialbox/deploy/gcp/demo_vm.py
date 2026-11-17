@@ -45,6 +45,9 @@ Every limit is a declared TB_* setting with its reason (OD-10; tb_common.config.
                                           roles/compute.networkAdmin), with the one tcp:443 rule and no other
     TB_DEMO_VM_IMAGE      (up)            REGISTRY/PATH@sha256:<64 hex>, or gs://BUCKET/trialbox-demo.tar.gz
                                           (`make demo-bundle`) with TB_DEMO_VM_IMAGE_SHA256, checked on the VM
+    TB_DEMO_VM_MODE       demo            demo: demo mode on before the door opens. steps (D-1062): demo mode stays
+                                          off and a person may be admin or steward too, to walk a study from its
+                                          first step
     TB_DEMO_VM_PEOPLE     owner:investigator,guest:coordinator
                                           one account per person, name:role. Each is opened at boot with the
                                           product's one-time enrolment code (D-719): the person chooses the password
@@ -103,6 +106,11 @@ OPEN_TEXT = "open to any address; the sign-in password is the only gate"
 NETWORKS = ("default", "own")
 DEFAULT_PEOPLE = "owner:investigator,guest:coordinator"
 PERSON_ROLES = ("investigator", "coordinator", "viewer")  # admin: no patient-level page (D-280)
+# TB_DEMO_VM_MODE=steps (D-1062): the owner and his testers walk a study from its first step, so demo mode stays off
+# (a protocol can be pasted) and a person may also hold the administrator's or the steward's account
+MODES = ("demo", "steps")
+STEPS_ROLES = (*PERSON_ROLES, "admin", "steward")
+STEPS_TEXT = "steps mode: demo mode stays off, uploads and pasted text are accepted (synthetic or public text only)"
 PERSON_RE = re.compile(r"[a-z][a-z0-9._-]{1,31}")
 SEEDED = ("admin", "crc", "pi", "subpi", "cra", "viewer", "stw")  # tools/demo.py SEEDED: the seed's own accounts
 HANDOFF_RE = re.compile(r"gs://[a-z0-9._-]{3,63}(/[A-Za-z0-9._-]+)*")
@@ -131,6 +139,7 @@ class Settings:
     image: str
     image_sha256: str
     people: str
+    mode: str
     enrol_hours: int
     handoff: str
     lang: str
@@ -161,7 +170,7 @@ def _price(env: Mapping[str, str], key: str, default: str) -> float:
     return v
 
 
-def parse_people(raw: str) -> str:
+def parse_people(raw: str, roles: tuple[str, ...] = PERSON_ROLES) -> str:
     """name:role pairs, comma separated: names as the console takes them, not a seeded account, each once."""
     out: list[str] = []
     for item in [x.strip() for x in raw.split(",") if x.strip()]:
@@ -171,8 +180,8 @@ def parse_people(raw: str) -> str:
             raise Refused(f"TB_DEMO_VM_PEOPLE: '{name}' is not a user name (a-z 0-9 . _ -, 2 to 32, a letter first)")
         if name in SEEDED:
             raise Refused(f"TB_DEMO_VM_PEOPLE: '{name}' is one of the seed's own accounts; choose another name")
-        if role not in PERSON_ROLES:
-            raise Refused(f"TB_DEMO_VM_PEOPLE: {name}'s role must be one of {', '.join(PERSON_ROLES)}")
+        if role not in roles:
+            raise Refused(f"TB_DEMO_VM_PEOPLE: {name}'s role must be one of {', '.join(roles)}")
         if any(x.split(":")[0] == name for x in out):
             raise Refused(f"TB_DEMO_VM_PEOPLE: '{name}' is listed twice")
         out.append(f"{name}:{role}")
@@ -278,7 +287,11 @@ def load(env: Mapping[str, str], cmd: str) -> Settings:
             raise Refused(f"TB_DEMO_VM_IMAGE must be an image by digest or a gs:// .tar.gz (got '{image}')")
         if image.startswith("gs://") and not SHA_RE.fullmatch(sha):
             raise Refused("TB_DEMO_VM_IMAGE is a gs:// tarball: set TB_DEMO_VM_IMAGE_SHA256 (sha256sum of the file)")
-    people = parse_people(env.get("TB_DEMO_VM_PEOPLE") or DEFAULT_PEOPLE)
+    mode = (env.get("TB_DEMO_VM_MODE") or "demo").strip()
+    if mode not in MODES:
+        raise Refused(f"TB_DEMO_VM_MODE must be one of {', '.join(MODES)} (got '{mode}')")
+    roles = STEPS_ROLES if mode == "steps" else PERSON_ROLES
+    people = parse_people(env.get("TB_DEMO_VM_PEOPLE") or DEFAULT_PEOPLE, roles)
     enrol_hours = _int(env, "TB_DEMO_VM_ENROL_HOURS", "24", 1)
     if enrol_hours > 72:
         raise Refused("TB_DEMO_VM_ENROL_HOURS must be from 1 to 72 (the product's range, TB_CONSOLE_ENROL_CODE_HOURS)")
@@ -312,6 +325,7 @@ def load(env: Mapping[str, str], cmd: str) -> Settings:
         image=image,
         image_sha256=sha,
         people=people,
+        mode=mode,
         enrol_hours=enrol_hours,
         handoff=handoff,
         lang=lang,
@@ -395,6 +409,8 @@ def shell_lines(s: Settings) -> str:
         "IMAGE": s.image,
         "IMAGE_SHA256": s.image_sha256,
         "PEOPLE": s.people,
+        "MODE": s.mode,
+        "MODE_TEXT": STEPS_TEXT if s.mode == "steps" else "",
         "ENROL_HOURS": str(s.enrol_hours),
         "HANDOFF": s.handoff,
         "DEMO_LANG": s.lang,

@@ -155,13 +155,18 @@ if case == "build-refused":
     ok(not (BKT / "r2" / "out").exists(), "nothing was uploaded")
 
 # ---------------------------------------------------------------- G-2 and the tests on the installed box
-full_start = case in ("happy", "reboot", "oom", "list-differs")
+full_start = case in ("happy", "reboot", "oom", "list-differs", "gate-closed")
 if full_start:
     ok(keys(START) and all(parts[n]["status"] == "done" for n in START), "G-2: the start steps, done")
     ok(
-        parts["07g-gate"].get("pass") is True and calls["canary-gate"] == 2,
-        "B2: the canary through the box's own gate holds a passing record",
+        parts["07g-gate"].get("pass") is True and calls["canary-gate once"] == 1,
+        "B2: the canary through the box's own gate holds a passing record, read with the service token",
     )
+    if case != "gate-closed":
+        ok(
+            calls["canary-gate wait"] == 0,
+            "D2: the gate was open at the first read (07's canary is its result): no restart, no wait",
+        )
     ok(calls["install"] == 1 and calls["hostcheck"] == 1, "the installer ran once (prepare), the first run once")
     w = parts["03-wizard"]["detail"]
     ok(w.get("wizard") == "done" and w.get("owner") == "owner", "the wizard was answered through the console's page")
@@ -229,8 +234,8 @@ if case == "happy":
         "G-9 power cycle: asked in one boot, finished in the next",
     )
     ok(
-        # 07g-gate restarts the orchestrator once too (its own startup canary), before G-9 begins
-        calls["compose-restart orchestrator"] == 1 + ("07g-gate" in parts)
+        # D2: 07g-gate found the gate open and restarted nothing; G-9 restarts the orchestrator once
+        calls["compose-restart orchestrator"] == 1
         and calls["compose-restart gateway"] == 1
         and calls["compose-stop llm-service"] == 1,
         "G-9: two restarts and the judge's outage, once each",
@@ -287,6 +292,25 @@ if case == "step-fails":
         any("schema failures 3 of 54" in line for line in p["stop"]["log_tail"]),
         "the stop's record has the step's last log lines",
     )
+
+if case == "gate-closed":
+    ok(
+        calls["canary-gate wait"] == 1 and calls["compose-restart orchestrator"] == 1,
+        "D2: the gate was closed at the first read: the orchestrator restarted once, the gate read until open",
+    )
+
+if case in ("gate-401", "gate-never"):
+    ok(list(parts) == START[:8], "D2: the run stopped at 07g-gate: no later part")
+    g = parts["07g-gate"]
+    want = "TB-GATE-REFUSED" if case == "gate-401" else "TB-GATE-CLOSED"
+    ok(g["status"] == "stop" and want in g["stop"]["reason"], f"D2: the stop says {want}")
+    if case == "gate-401":
+        ok(
+            calls["canary-gate wait"] == 0 and calls["compose-restart orchestrator"] == 0,
+            "D2: a 401 is a failure at once: no restart, no wait",
+        )
+    else:
+        ok(calls["canary-gate wait"] == 1, "D2: a closed gate is read once more after the restart, then stops the run")
 
 if case == "cap":
     ok("cost cap of 30 minutes reached" in poweroff, "the cap powered the VM off")
