@@ -138,3 +138,38 @@ again. A changed byte anywhere in the tree on the disk is refused at the signatu
 `python3 -m tools.host_tree status` names the current release and checks it against its `HOST-SHA256SUMS`. A box
 whose verifier is older than manifest 1.3.0 refuses kind `host`. Install the first such release with
 `deploy/install.sh`.
+
+**Code systems at install** (D-1028, D-1029; TERM-1 D-858, TERM-2 D-1113 to D-1116). The media carries ICD-10-CM
+FY2026 with its blocks and index inside the image. Everything else is loaded at install from files the site's IT
+brings: the NHI lists and ICD-10-PCS may ship one day (D-1028 point 3, D-1029) but do not yet; LOINC, WHO ICD-10, ATC
+and the site's own lists never enter the media or the repository (D-1116). The site's IT copies its files to `/opt/trialbox/deploy/site/terminology/` (git and the image
+ignore that folder), then loads them in this order. Each command writes one table into `TB_TERMINOLOGY_DIR` (default
+`/data/terminology`) with its line in `manifest.json`: source file and its sha256, version, licence, rows and the
+day it was loaded. The loader needs the `trialbox-py` image's Python (pyarrow), so the commands run in that image,
+with the staging folder mounted read-only at `T` and the terminology folder at `TB_TERMINOLOGY_DIR`. Open (TERM-2,
+for lanes D and E): the compose files do not mount `TB_TERMINOLOGY_DIR` into `criteria-compiler` or `orchestrator`
+yet, so until that volume is added a loaded table is not read by the box's services.
+
+```
+T=/stage    # /opt/trialbox/deploy/site/terminology, mounted read-only
+# 1. the site's own code lists: the primary source; a name in them wins over every other table (D-1113)
+python -m tools.terminology_install site-list $T/icd_local.csv --name icd_local --system icd10cm
+#    columns: local_code and/or local_name, code, system (or --system for the whole file), display (optional)
+# 2. the NHI open data (OGDL 1.0, attribution in the manifest line: docs/licences/nhi-open-data-attribution.md)
+python -m tools.terminology_install nhi-drugs $T/健保用藥品項查詢項目檔.csv        # data.gov.tw 23715, with ATC代碼
+python -m tools.terminology_install nhi-services $T/醫療服務給付項目.csv            # data.gov.tw 174450
+# 3. ICD-10-CM (a release later than the image's) and ICD-10-PCS, from CMS (US public domain)
+python -m tools.terminology_install icd10cm $T/2027-code-tables-tabular-and-index.zip --year 2027
+python -m tools.terminology_install icd10pcs $T/2026-icd-10-pcs-codes-file.zip --year 2026
+# 4. LOINC, WHO ICD-10, ATC: the site's own licensed copies; a named person accepts each licence (D-1114)
+python -m tools.terminology_install loinc $T/Loinc_2.81.zip --accepted-by "<name of the person>" --accepted-on <day>
+python -m tools.terminology_install icd10who $T/icd102019en.xml --accepted-by "<name of the person>"
+python -m tools.terminology_install atc $T/atc_index_2026.csv --accepted-by "<name of the person>" --version 2026
+python -m tools.terminology_install status         # then the doctor's line `terminology`
+```
+
+Each step is optional. A table the site does not load is named "not loaded" on the doctor's `terminology` line, and
+the shipped tables answer. A table copied by hand, changed after loading, or (for LOINC, WHO ICD-10 or ATC) whose line
+names nobody who accepted its licence is refused: it is never read, and the doctor's line is FAIL until it is loaded
+again. Run the same commands at an update to load a newer release. LOINC needs the named person's sign-up at
+loinc.org (Regenstrief's free licence); WHO ICD-10 and the ATC index are the site's own licensed copies.
