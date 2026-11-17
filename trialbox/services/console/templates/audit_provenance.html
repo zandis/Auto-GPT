@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{# D-989 (D-1155): which records a model, build or prompt touched (tb_common.provenance_index.search); the roles of
+   audit.provenance; a reader without audit.ids sees no pseudonym (D-280). #}
+{% block title %}{{ t('prov.title') }}{% endblock %}
+{% block content %}
+<div class="headrow"><h1>{{ t('prov.title') }}</h1><a href="/audit">{{ t('audit.title') }}</a></div>
+<p>{{ t('prov.help') }}</p>
+<form method="get" action="/audit/provenance" class="row" data-testid="prov-form">
+{% for name in ('model', 'build_sha', 'prompt_sha', 'prompt_id', 'prompt_version') %}
+<div><label for="prov-{{ name }}">{{ t('prov.f.' + name) }}</label>
+<input id="prov-{{ name }}" name="{{ name }}" value="{{ given.get(name, '') }}" class="mono" autocapitalize="none" spellcheck="false" data-testid="prov-{{ name }}"></div>
+{% endfor %}
+<button type="submit">{{ t('prov.go') }}</button>
+</form>
+{% if not ids %}<p class="hint" data-testid="prov-hidden">{{ t('prov.hidden') }}</p>{% endif %}
+{% if error %}<p class="error" role="alert" data-testid="prov-error">{{ t('prov.error') }}</p>
+{% elif rows is not none %}
+{% if rows %}<p data-testid="prov-count">{{ t('prov.count', n=rows|length, limit=limit) }}</p>
+<div class="scroll" tabindex="0"><table data-testid="prov-table">
+<thead><tr><th scope="col">{{ t('prov.col.record') }}</th><th scope="col">{{ t('prov.col.event') }}</th><th scope="col">{{ t('prov.col.decision') }}</th><th scope="col">{{ t('prov.col.by') }}</th><th scope="col">{{ t('prov.col.at') }}</th><th scope="col">{{ t('prov.col.call') }}</th></tr></thead>
+<tbody>{% for r in rows %}<tr data-testid="prov-row"><td class="mono">{{ r.record_kind }} · {% for k, v in r.record_ref.items() %}{{ k }}={{ v }}{% if not loop.last %} {% endif %}{% endfor %}</td>
+<td>{{ t('prov.event.' + r.event) }}</td><td>{{ r.decision or '' }}</td><td>{{ (r.by or '')|replace('console:', '') }}</td><td class="nowrap">{{ r.at }}</td>
+<td class="mono">{{ r.model }} · {{ (r.build_sha or '')[:12] }} · {{ r.prompt_id }} v{{ r.prompt_version }}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% else %}<p data-testid="prov-none">{{ t('prov.none') }}</p>{% endif %}
+{% endif %}
+{% endblock %}
