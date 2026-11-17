@@ -134,7 +134,7 @@ def _accounted(rel: str, rows: list[lr.Row]) -> bool:
     ("x/atc;.csv", b"ATC code;ATC level name\nZ99AA01;x\n", "atc-index"),  # semicolon-separated
     ("x/u16.csv", "local_name\tcode\nx\tI10\n".encode("utf-16"), "site-list"),  # UTF-16 with its BOM
     ("x/more.csv", b"local_code,local_name,code,unit,note\nZZ1,x,I10,,\n", "site-list"),  # extra columns too
-    ("x/claml.xml.gz", gzip.compress(b'<?xml version="1.0"?><ClaML version="2.0.0">'), "who-icd10"),
+    ("x/claml.xml.gz", gzip.compress(b'<?xml version="1.0"?><ClaML version="2.0.0">', mtime=0), "who-icd10"),
 ])  # fmt: skip
 def test_the_detector_knows_each_kind(name: str, head: bytes, kind: str) -> None:
     assert looks_like(name, head) == kind
