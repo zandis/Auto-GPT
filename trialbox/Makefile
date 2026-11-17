@@ -490,7 +490,8 @@ rehearse-box:
 # Ubuntu host image, a site bundle made the vendor's way, the box images cleared; records time, commands and findings
 # and compares them with docs/plan/measurements/runbook-install-2026-11-17/findings.json. Needs make images, trivy-db
 runbook-install:
-	PYTHONPATH=libs:services:. $(PY) -m tools.runbook_install run --py $(PY) $(RUNBOOK_INSTALL_ARGS)
+	PYTHONPATH=libs:services:. $(PY) -m tools.runbook_install run --py $(PY) \
+		$(if $(TB_EXTRA_CA),--extra-ca $(TB_EXTRA_CA),) $(RUNBOOK_INSTALL_ARGS)
 
 test-console:
 	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q tests/console

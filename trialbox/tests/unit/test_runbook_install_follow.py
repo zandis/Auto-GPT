@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -161,7 +163,7 @@ def _unit_machine(tmp: Path) -> tuple[ri.LocalMachine, Path, Path]:
 def test_the_follower_on_the_unit_machine_shows_the_committed_findings(tmp_path: Path) -> None:
     m, bundle, pub = _unit_machine(tmp_path)
     rec = ri.Follower(m, bundle=bundle, vendor_pub=pub, work=tmp_path / "work").follow()
-    run = json.loads(json.dumps(ri.asdict(rec)))
+    run = json.loads(json.dumps(asdict(rec)))
     # it ran and recorded: the one command as written first, every later attempt marked with the lifts before it
     assert rec.commands_run >= 4 and rec.steps
     first = next(s for s in rec.steps if s["step"] == "one-command")
@@ -180,7 +182,7 @@ def test_strict_follow_stops_at_the_verdict(tmp_path: Path) -> None:
 
 
 def test_compare_fails_on_a_vanished_and_on_a_new_finding() -> None:
-    committed = [
+    committed: list[dict[str, Any]] = [
         {"id": "a", "step": "one-command", "seen_on": ["unit"]},
         {"id": "b", "step": "7-first-ingest", "seen_on": ["unit"]},
         {"id": "c", "step": "one-command", "seen_on": ["container"]},

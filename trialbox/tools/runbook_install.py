@@ -67,6 +67,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, field
@@ -81,7 +82,7 @@ HEADS = ("sudo ", "python", "deploy/", "tools/", "make ", "docker ", "cd ", "TB_
 OPT = "/opt/trialbox"
 # the run's work folder (the bundle, the logs): outside the checkout, as the box rehearsal's, so no scan of the tree
 # reads the media; the same path is mounted in the machine container
-WORK_DEFAULT = os.path.join(os.environ.get("TMPDIR") or "/tmp", "tb-runbook-install")
+WORK_DEFAULT = os.path.join(tempfile.gettempdir(), "tb-runbook-install")
 # the rehearsal's documented synthetic answers and mapping (D-176): the values the runbook leaves to the hospital
 SYNTHETIC_ANSWERS = "tools/rehearse_box/site_answers.yaml"
 SYNTHETIC_MAPPING = "tools/rehearse_box/mapping"
@@ -1036,7 +1037,8 @@ def _fails(text: str) -> str:
 
 # ------------------------------------------------------------------------------------------------ compare
 def load_findings(root: Path = ROOT) -> list[dict[str, Any]]:
-    return json.loads((root / FINDINGS).read_text(encoding="utf-8"))["findings"]
+    findings: list[dict[str, Any]] = json.loads((root / FINDINGS).read_text(encoding="utf-8"))["findings"]
+    return findings
 
 
 def compare(run: dict[str, Any], committed: list[dict[str, Any]], static: list[str] | None = None) -> list[str]:
@@ -1165,7 +1167,7 @@ def _cmd_follow(a: argparse.Namespace) -> int:
         vendor_pub=Path(a.vendor_pub).resolve(),
         work=work,
         lifts=not a.strict,
-        kek_pass=os.environ.get("TB_RUNBOOK_KEK_PASSPHRASE", ""),
+        kek_pass="",  # a fresh throwaway passphrase per run (the machine lift no-tpm); never recorded
         sidecar_fix=sidecar_fix if sidecar.is_file() else None,
     )
     rec = f.follow()
@@ -1323,8 +1325,8 @@ def _cmd_run(a: argparse.Namespace) -> int:
     build = ["docker", "build", "-f", "tools/rehearse_box/host.Dockerfile", "-t", a.image, "tools/rehearse_box/shims"]
     if os.environ.get("HTTPS_PROXY"):
         build[2:2] = ["--network", "host", "--build-arg", f"https_proxy={os.environ['HTTPS_PROXY']}"]
-    if os.environ.get("TB_EXTRA_CA"):
-        build[2:2] = ["--secret", f"id=extra_ca,src={os.environ['TB_EXTRA_CA']}"]
+    if a.extra_ca:  # a PEM for apt behind a TLS proxy, as the rehearsal's TB_EXTRA_CA (a build secret only)
+        build[2:2] = ["--secret", f"id=extra_ca,src={a.extra_ca}"]
     _sh(build, log)
     if a.bundle:
         bundle, pub = Path(a.bundle).resolve(), Path(a.vendor_pub).resolve()
@@ -1438,6 +1440,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     r.add_argument("--py", default="")
     r.add_argument("--strict", action="store_true")
     r.add_argument("--keep", action="store_true", help="leave the box and the machine running")
+    r.add_argument("--extra-ca", default="", help="a PEM for apt behind a TLS proxy (the host image's build)")
     bu = sub.add_parser("bundle", help="only the vendor side of run: a site bundle made the vendor's way")
     bu.add_argument("--work", default=WORK_DEFAULT)
     bu.add_argument("--py", default="")
