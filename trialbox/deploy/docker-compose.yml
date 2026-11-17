@@ -270,6 +270,7 @@ services:
     # audit.journal table (tb_common.audit_writer.open_audit); this copies them, in order, into the hash chain. Its
     # role, tb_audit_writer, may only read the journal; it is the only container that mounts audit-data read-write.
     <<: *py
+    # T-697: the drain reads only a day file's tail: 20 MB peak at a 230 MB day file (it was 251 MB: the cap's edge)
     mem_limit: ${TB_MEM_AUDIT_WRITER:-256m}
     pids_limit: 64
     command: ["python", "-m", "tb_common.audit_writer", "drain"]
