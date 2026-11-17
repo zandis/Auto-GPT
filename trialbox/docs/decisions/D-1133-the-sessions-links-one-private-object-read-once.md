@@ -31,6 +31,20 @@
    session (the integrator's answer 5), never on a PR, in a comment or in a file.
 4. **The address.** `TB_CONSOLE_PUBLIC_URL` is set to `https://<host>`: the box's own TLS name
    (`TB_TLS_HOSTNAME`), else the VM's external address. The links name the same host.
+5. **The bucket** (the security review's finding 4). Before the launch and before `--links`, the bucket must hold:
+   - no `allUsers` or `allAuthenticatedUsers` binding;
+   - uniform bucket-level access, or public access prevention enforced;
+   - versioning off.
+
+   `--links` deletes with `--all-versions`. Two risks are bounded, not removed, and are questions for the
+   integrator:
+   - **Soft delete.** The hand-over says the bucket keeps deleted objects 7 days. A deleted links object stays
+     restorable by the project's storage administrators for that long. `--links` prints the bucket's retention.
+   - **A shared service account.** The VM writes the object as the Compute Engine default service account. The
+     hand-over says the internet-facing demo VM uses the same account, so a process on the demo VM could read it.
+
+   What bounds both: each code works once, the holder sets the password at once, an unused code expires (24 h), and
+   the accounts are disabled at the session's stop and at the next boot (D-1132).
 
 ## A gap for the product: the TLS name
 

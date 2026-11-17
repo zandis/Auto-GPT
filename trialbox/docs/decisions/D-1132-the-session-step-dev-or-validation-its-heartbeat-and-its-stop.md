@@ -85,6 +85,35 @@
    (D-1123 section 5), the owner's hours at the driver's constant, the cap, the worst case, spot and on demand. The
    running total is the integrator's figure, posted beside it (D-505).
 
+9. **Never in part, never resumed** (the security review's findings 1 and 2; the refusal was chosen over a resume
+   that would rebuild the door). A session's skip is its own (08 to 12), never the operator's, and nothing is redone:
+   `tools/box_run.py session_values` refuses any other `--skip`, any `--redo` and `--only` (exit 6), and the VM's
+   preflight refuses a skip of any step 50 to 58 and a `tb-redo`. A session run is never resumed: `--resume` of
+   it is refused (exit 2), and the VM refuses a `tb-retry` on a session run, or on any run that opened a session on
+   that disk. More time is a new launch (D-1123 4.4).
+10. **SSH as it was** (finding 5). Ubuntu 24.04 starts sshd from `ssh.socket`. A session boot stops and masks both
+    `ssh.socket` and `ssh.service`. It records what `systemctl is-enabled` and `is-active` said of each before
+    (`records/sshd-before.txt`), and checks that nothing listens on tcp:22; if something does, there is no session.
+    The next boot that is no session unmasks both and enables and starts what was enabled and active before.
+11. **What cannot close by itself** (finding 6).
+    - While the accounts are open, the console's and Caddy's restart policy is `no` (`docker update`; no compose
+      file is changed), so they do not come back by themselves at a boot before the close runs. The close puts
+      `unless-stopped` back.
+    - The close writes `CLOSED` beside the links. Until it exists, `--stop` keeps the deny-all and the tag
+      (D-1130 item 7), and `--collect` and `--session-status` say "accounts not confirmed closed".
+    - A run that is no session stops (`TB-SESSION-ACCOUNTS-OPEN`) when a session's accounts are still open after
+      its second try.
+    - What the driver cannot close: a manual start of the VM after the driver put the plain startup script back
+      (`gpu-sim-startup.sh`) runs no close. The deny-all keeps the VM unreachable from outside until a box run's
+      boot closes the accounts.
+12. **What a session leaves on the disk** (findings 10 and 11). The close removes any code file left by a cut, and
+    puts back the box's `TB_CONSOLE_PUBLIC_URL` (or removes it if there was none) along with `TB_ENV`. Every
+    ingest (54) starts from an empty `acc/` feed folder, so a later accuracy run never ingests a table of the
+    session's synthetic hospital. The rehearsal case `session-then-acc` holds both.
+13. **The settings validated** (finding 8): `tb-session-code-hours` 1 to 72, `tb-session-idle-minutes` 1 to 999, in
+    the VM's preflight. Names are at most 22 characters at the driver (finding 9: the VM adds a 10-character stamp).
+    Steps given in any order take the direct route.
+
 ## Held by
 
 `tests/unit/test_h13_session_driver.py`: the cap and the window, the launch's options, the session-check in both
@@ -95,7 +124,11 @@ The rehearsal cases (in `tests/unit/test_g1_box_install_run.py`):
 - `session`: DEV, the happy path;
 - `session-stop`: VALIDATION; asked 600 minutes, it closes before the cap fires;
 - `session-cut`: a power cut in the session; the next boot closes it and never opens it again;
-- `session-dev-refused`: the box refuses DEV at 52, before any data or account.
+- `session-dev-refused`: the box refuses DEV at 52, before any data or account;
+- `session-skip`, `session-resume`: refused at the VM's preflight, no account, no link;
+- `session-ssh`: something still on tcp:22, no session;
+- `session-then-acc`: a session, then an accuracy launch on the same disk: SSH back as it was, the address put back,
+  `CLOSED` written, the feed holding only the accuracy run's own sets.
 
 ## Not verified
 

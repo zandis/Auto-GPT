@@ -893,8 +893,11 @@ Run from `trialbox/` with the credentials of section 2. Each command, what it mu
    Give the owner his line in the integrator's own session (answer 5): the link, the hosts line it names, the stop
    time, and that nothing from the session is evidence.
 7. `deploy/gcp/box-run.sh --collect <run id> --follow`: the VM closes the session at its stop (`TB-SESSION-END`),
-   uploads, powers off. The collect then puts the VM back and removes the session's tag and rules. Early:
-   `deploy/gcp/box-run.sh --stop <run id>` (the accounts are disabled at the next boot of any run).
+   uploads, powers off. The collect then puts the VM back and removes the session's allow. It also removes the
+   deny and the tag once the VM's `CLOSED` marker is in the bucket; until then it prints "accounts not confirmed
+   closed" and keeps them. Early: `deploy/gcp/box-run.sh --stop <run id>`. The accounts are then disabled at the
+   next boot of any box run; run `--stop <run id>` again after it, to take the deny away. A session is never
+   resumed, skipped in part or redone: more time is a new launch.
 
 **Healthy:**
 
