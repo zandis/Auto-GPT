@@ -12,7 +12,8 @@
     alert is never folded away); the procedure, the delegation-log warning, the team's links and a waiting approval
     fold into one "Study" fold below the list (a checkbox and its label, no script). (E-4) Under 640 px the worklist's
     rows are cards (patient and criteria met, then the visit, the status and what is still needed, each labelled; the
-    whole card opens the patient). (E-M4) "More" folds in two levels: the same links, under the same rules, grouped
+    whole card opens the patient); so are the participant's visits and step trail (`life_subject.html`: at 390 px the
+    visit window was cut off and the step squeezed to one character a line). (E-M4) "More" folds in two levels: the same links, under the same rules, grouped
     (site, the study's pages, registers, administration, lists and requests, settings); on a phone each group is a
     44 px chip in the menu's own flow, so it no longer covers the language and Sign out; on a desktop each group shows
     its links under its name. (E-M5) On the week page's patient sheet and the full patient page the investigator reads
