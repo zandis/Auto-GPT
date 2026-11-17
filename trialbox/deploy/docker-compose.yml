@@ -238,6 +238,7 @@ services:
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
       - rulesets-data:/data/rulesets
+      - tb-terminology:/data/terminology:ro   # D-991: the code systems loaded at install (deploy/terminology.sh)
       - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - objects-data:/data/objects
       - ${TB_EXTRA_CA:-/dev/null}:/run/tb-extra-ca.pem:ro   # hospital TLS-inspection CA (tb_common.extra_ca)
@@ -308,6 +309,7 @@ services:
       - orch-data:/data/orchestrator
       - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - rulesets-data:/data/rulesets:ro
+      - tb-terminology:/data/terminology:ro   # D-991: the code systems loaded at install (deploy/terminology.sh)
       - objects-data:/data/objects
       - tb-secrets:/run/secrets/trialbox
       - ${TB_EXTRA_CA:-/dev/null}:/run/tb-extra-ca.pem:ro   # hospital TLS-inspection CA (tb_common.extra_ca)
@@ -378,6 +380,7 @@ services:
       - console-data:/data/console
       - audit-data:/data/audit:ro   # D-394: events go through the audit journal; only audit-writer writes here
       - rulesets-data:/data/rulesets:ro
+      - tb-terminology:/data/terminology:ro   # D-991: the code systems loaded at install (deploy/terminology.sh)
       - objects-data:/data/objects
       # D-178: the operations folder shared with the host's runner (python3 -m tools.trialbox ops run): requests in,
       # results and the status out; never a secret
@@ -519,4 +522,5 @@ volumes:
   rulesets-data:
   mail-data:
   tb-secrets:
+  tb-terminology:   # D-991: TB_TERMINOLOGY_DIR; written only by deploy/terminology.sh, read-only in the readers
   traces-data:

@@ -10,8 +10,17 @@ age and sex lines written into a protocol). It is built at run time from the pin
 * ``v2``: the corrections of the P1b review, B1 to B3 (the integrator's list on #649, 2026-11-16): B1 the birth date
   is the visit minus the age the note states, in its unit; B2 a placed age line keeps its unit and is left out when
   the protocol states that bound; B3 the JMED truth is read from the note the box reads, over the same patients as
-  v1. The physicians' labels (SIGIR, TREC) are the same in both: a pair label that conflicts with the physicians' own
-  criterion labels is the scorer's to report (S1), never relabelled here.
+  v1. The physicians' labels (SIGIR, TREC) are the same in both.
+* ``v2`` also marks a pair ``conflicted`` (D-1064), never relabelled: its pair label says ``eligible`` while the same
+  physicians' criterion labels for that patient in that trial exclude the patient (an inclusion ``not included``, or
+  an exclusion ``excluded``; :data:`EXCLUDING`, the one definition the scorer's S1 uses too). The rule is read from
+  the gold alone, so the mark is a property of the key, the same for every run. The marks are written to
+  ``gold/conflicted.json`` (:func:`write_conflicted`); a folder of key v2 without the file (built before it) has them
+  computed by the same rule. The target "no eligible patient excluded" is read without them, beside the figure with
+  them (D-1064 item 2). Only ``eligible`` pairs are marked: ``would consider`` (SIGIR's 1) does not claim every
+  criterion met, so a criterion label that excludes does not contradict it, and neither ``would consider`` nor
+  ``would not refer`` enters the eligible target. On launch P1b's sigir gold the rule marks 6 of the 46 eligible pairs
+  (and would touch 10 ``would consider`` pairs, which it leaves unmarked for that reason).
 
 A built folder names its version in ``gold/key.json``; a folder without one was built before keys had versions and is
 ``v1`` (P1b's stored folders). :func:`diff` lists what differs between two built folders, row by row, and why.
@@ -38,7 +47,8 @@ KEYS: dict[str, str] = {
     "v2": (
         "B1-B3 of the P1b review: B1 birth date the visit minus the stated age in its unit; B2 placed age lines keep "
         "their unit and a bound the protocol states is not written again; B3 JMED truth from the note the box reads, "
-        "over the same patients as v1"
+        "over the same patients as v1; D-1064: an eligible pair whose own criterion labels exclude the patient is "
+        "marked conflicted, not relabelled"
     ),
 }
 CURRENT = "v2"
@@ -49,9 +59,69 @@ WHY = {
     "protocol_line": "B2: placed age line keeps its unit; a bound the protocol states is not written again",
     "jmed_label": "B3: JMED truth from the note the box reads",
     "label": "a label no fix of B1-B3 changes (not expected)",
+    "conflicted": "D-1064: the pair label conflicts with the same physicians' criterion labels; set aside, not "
+    "relabelled",
     "only_old": "row only in the old key",
     "only_new": "row only in the new key",
 }
+
+
+#: a criterion label that excludes the patient (the physicians' criterion-level reading): S1's and D-1064's rule
+EXCLUDING = frozenset({("inclusion", "not included"), ("exclusion", "excluded")})
+#: the pair labels a conflict is read on (see the module's docstring)
+CONFLICT_LABELS = ("eligible",)
+CONFLICTED_FILE = "conflicted.json"
+#: the versions that mark conflicted pairs (D-1064); a version's entry never changes
+MARKS_CONFLICTED = {"v1": False, "v2": True}
+
+
+def criterion_says_excluded(crits: list[dict[str, Any]]) -> set[tuple[str, str]]:
+    """(mrn, ruleset) of every patient x trial whose own criterion labels exclude the patient (:data:`EXCLUDING`)."""
+    return {
+        (str(c["mrn"]), str(c["ruleset"]))
+        for c in crits
+        if c.get("mrn") and c.get("ruleset") and (c.get("kind"), c.get("label")) in EXCLUDING
+    }
+
+
+def conflicted(pairs: list[dict[str, Any]], crits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """D-1064: every pair whose label is in :data:`CONFLICT_LABELS` while its own criterion labels exclude the patient,
+    with the criterion rows that exclude, sorted by (patient, trial). Read from the gold alone."""
+    rows: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for c in crits:
+        if (c.get("kind"), c.get("label")) in EXCLUDING and c.get("mrn") and c.get("ruleset"):
+            rows.setdefault((str(c["mrn"]), str(c["ruleset"])), []).append(
+                {"kind": c["kind"], "label": c["label"], "text": c.get("text") or ""}
+            )
+    by = criterion_says_excluded(crits)
+    out = []
+    for p in pairs:
+        k = (str(p.get("mrn")), str(p.get("ruleset")))
+        if p.get("mrn") and p.get("ruleset") and p.get("label") in CONFLICT_LABELS and k in by:
+            out.append({"patient": p.get("patient"), "trial": p.get("trial"), "mrn": p["mrn"], "ruleset": p["ruleset"],
+                        "label": p["label"], "why": "D-1064", "excluding": rows[k]})  # fmt: skip
+    return sorted(out, key=lambda r: (str(r["patient"]), str(r["trial"])))
+
+
+def write_conflicted(gold: Path, pairs: list[dict[str, Any]], crits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Write ``gold/conflicted.json`` (a file of its own, so no file v1 wrote changes) and return the marks."""
+    marks = conflicted(pairs, crits)
+    (gold / CONFLICTED_FILE).write_text(json.dumps(marks, ensure_ascii=False, indent=1), encoding="utf-8")
+    return marks
+
+
+def conflicted_of(built: Path) -> dict[str, Any]:
+    """The conflicted marks of a built folder: ``{"marks": [...], "from": ...}``; ``marks`` is None for a key that
+    marks none (v1). ``gold/conflicted.json`` when present (a v2 build, or the replay's offline v2 of a stored v1);
+    else, for a folder that states v2, computed by the same rule from its gold."""
+    g = _gold(built)
+    f = g / CONFLICTED_FILE
+    if f.exists():
+        return {"marks": json.loads(f.read_text(encoding="utf-8")), "from": f"gold/{CONFLICTED_FILE}"}
+    if not MARKS_CONFLICTED[version_of(built)]:
+        return {"marks": None, "from": "key v1 marks no conflicted pair"}
+    return {"marks": conflicted(_jsonl(g / "pairs.jsonl"), _jsonl(g / "criteria.jsonl")),
+            "from": f"computed by the rule (key v2 folder without gold/{CONFLICTED_FILE})"}  # fmt: skip
 
 
 def check(key: str) -> str:
@@ -146,6 +216,14 @@ def diff(old: Path, new: Path) -> dict[str, Any]:
             elif a["label"] != b["label"]:
                 why = "jmed_label" if name == "jmed" and what == "criterion" else "label"
                 row(why, r["patient"], rs, label, a["label"], b["label"])
+    co = {(str(r["patient"]), str(r["trial"])): r for r in (conflicted_of(old)["marks"] or [])}
+    cn = {(str(r["patient"]), str(r["trial"])): r for r in (conflicted_of(new)["marks"] or [])}
+    for k in sorted(set(co) ^ set(cn)):
+        r = cn.get(k) or co[k]
+        mark = f"{r['label']}, conflicted"
+        excl = "; ".join(f"{e['kind']} {e['label']}: {e['text']}" for e in r["excluding"])
+        row("conflicted", str(r["patient"]), str(r["ruleset"]), f"pair (excluding: {excl})",
+            r["label"] if k in cn else mark, mark if k in cn else r["label"])  # fmt: skip
     not_compared = []
     bo, bn = _births(old), _births(new)
     if bo is None or bn is None:

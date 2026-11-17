@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = [pytest.mark.guard, pytest.mark.nodb]  # D-1119: the guard step of `checks`; no database
+
 ROOT = Path(__file__).resolve().parents[2]
 MODEL_PATH = re.compile(r"/(?:v1/)?(?:chat/)?completions\b|/(?:v1/)?embeddings\b")
 SKIP_DIRS = {".venv", ".git", ".cache", "node_modules", "__pycache__", "build", "dist", ".mypy_cache", ".ruff_cache"}

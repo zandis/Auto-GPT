@@ -78,6 +78,7 @@ BACKUP_VOLUMES = {
     "mail": "mail-data",
     "secrets": "tb-secrets",
     "console": "console-data",
+    "terminology": "tb-terminology",  # D-991: the code systems loaded at install
 }
 
 

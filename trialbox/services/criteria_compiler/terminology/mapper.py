@@ -169,6 +169,11 @@ def norm(text: str) -> str:
 # TERM-2 (D-1113 to D-1116): the systems of the tables loaded at install (``terminology.installed``) that the shipped
 # tables lack, beside ``SYSTEMS``; NHI's service and order codes are the shipped ``nhi_order`` system
 LOADED_SYSTEMS = {**SYSTEMS, "icd10pcs": "http://www.cms.gov/Medicare/Coding/ICD10", "icd10_who": ICD10_WHO}
+# the code system each table loaded at install serves (a site list names its own, row by row): the release stamp
+# (TERM-2 follow-up) says which loaded table of which system a compile read
+TABLE_SYSTEMS = {"icd10cm_blocks": "icd10cm", "icd10cm_index": "icd10cm", "atc_index": "atc",
+                 "nhi_drug_list": "nhi_drug", "nhi_service_list": "nhi_order", "icd10pcs": "icd10pcs",
+                 "loinc_table": "loinc", "icd10_who": "icd10_who"}  # fmt: skip
 # which systems of a site list answer which IR domain (the site's lists win over every other table, D-1113)
 SITE_DOMAIN_SYSTEMS: dict[str, tuple[str, ...]] = {
     "condition": ("icd10cm", "icd10_who"),
@@ -313,6 +318,8 @@ class Terminology:
         self.icd_display: dict[str, list[str]] = {}
         self.icd_sources: dict[str, str] = {}
         self.installed_problems: list[str] = []
+        # TERM-2 follow-up: each table loaded at install that these tables read, as the release stamp names it
+        self.installed_read: dict[str, dict[str, str]] = {}
         where = installed if installed is not None else inst.installed_dir()
         cats = sorted({str(r["code"]) for r in self.full.get("icd10cm", []) if len(str(r["code"])) == 3})
         for name in (inst.ICD_BLOCKS, inst.ICD_INDEX):
@@ -323,6 +330,7 @@ class Terminology:
                 rows = None
             if rows is not None:
                 self.icd_sources[name] = str(inst.manifest(where)["tables"][name].get("version") or "installed")
+                self._read_installed(inst, where, name, rows)
             else:
                 # beside the tables, else the shipped ones (a box's vocabulary-built tables hold codes, not these)
                 path = directory / f"{name}.parquet"
@@ -551,6 +559,7 @@ class Terminology:
             if rows is None:
                 continue
             self.loaded_sources[table] = str(inst.manifest(src)["tables"][table].get("version") or "installed")
+            self._read_installed(inst, src, table, rows)
             if table.startswith(inst.SITE_PREFIX):
                 self._index_site(table, rows)
             else:
@@ -562,6 +571,21 @@ class Terminology:
                 loose += lo
         self._merge(exact, False)
         self._merge(loose, True)  # a component or an ingredient: after every exact name, always for review
+
+    def _read_installed(self, inst: Any, where: Path, table: str, rows: list[dict[str, Any]]) -> None:
+        """Record one loaded table as read: its system's URI (``site`` for a site list), the version and the sha256 of
+        its manifest line (the bytes :func:`installed.read_table` checked)."""
+        line = inst.manifest(where)["tables"][table]
+        # the shape lane E's refusals use too (E-TERM-3, D-1048): a system URI, or "site" for a site list
+        system = "site" if table.startswith(inst.SITE_PREFIX) else LOADED_SYSTEMS.get(TABLE_SYSTEMS.get(table, ""), "")
+        self.installed_read[table] = {"table": table, "system": system, "version": str(line.get("version") or ""),
+                                      "sha256": str(line.get("sha256") or "")}  # fmt: skip
+
+    def installed_stamp(self) -> list[dict[str, str]]:
+        """TERM-2 follow-up: each table loaded at install these tables read, by name (system, version, the manifest's
+        sha256). Empty: the shipped Parquet alone, which ``release`` names. Two boxes whose loaded tables differ
+        compile under different stamps, never under one."""
+        return [self.installed_read[n] for n in sorted(self.installed_read)]
 
     def _merge(self, entries: list[_Entry], loose: bool) -> None:
         """TERM-2 review (D-1114, D-1115): every code a name has, never the first one alone. One table's rows that give
