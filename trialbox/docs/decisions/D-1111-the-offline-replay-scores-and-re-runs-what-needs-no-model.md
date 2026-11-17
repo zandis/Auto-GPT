@@ -24,9 +24,11 @@ checks that run after a model's verdict.
    the code it calls.
 2. Every figure carries its level:
    - **(a) re-score.** The stored verdicts scored by the current scorer through the driver's own path
-     (`tools.box_run.acc_score`), on key v1 (the run's own gold) and key v2. Key v2 offline is v1's gold with the
-     label rows `eval/public_accuracy_key/MANIFEST.json` lists for that run, applied where each matches one row; what
-     the list does not cover stays v1 and the report says so.
+     (`tools.box_run.acc_score`), on key v1 (the run's own gold) and key v2. Key v2 offline is the stored v1 gold
+     with the label rows `eval/public_accuracy_key/MANIFEST.json` lists for launch P1b, applied where each matches
+     one row; what the list does not cover stays v1 and the report says so. The rows are applied only when the stored
+     gold matches the sha256 MANIFEST.json pins for P1b's key v1, file for file; otherwise key v2 is refused for that
+     set and its v2 figure is "not scored".
    - **(b) re-run of the deterministic parts** (`tools/public_accuracy/rerun.py`). `Compiler.compile` runs on the
      protocol lines the run sent to `ir_extract`, with a model that answers only from the stored replies. A line the
      run asked about with no stored reply makes the protocol "not re-run". The CQL translator, the FHIR server and the

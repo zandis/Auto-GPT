@@ -193,13 +193,19 @@ def identify(name: str, built: Path) -> dict[str, Any]:
             "build_day": v1.get("build_day") if same else None}  # fmt: skip
 
 
-def v2_overlay(name: str, built: Path, out: Path) -> dict[str, Any]:
-    """Key v2 of a stored v1 set, offline: ``built`` copied with the label rows MANIFEST.json lists for the run
+def v2_overlay(name: str, built: Path, out: Path, *, pinned: bool, require_pin: bool = True) -> dict[str, Any]:
+    """Key v2 of a stored v1 set, offline: ``built`` copied with the label rows MANIFEST.json lists for launch P1b
     (``versions.v2.launch_p1b_rows_that_change``) applied where each matches exactly one gold row. What the list does
-    not cover stays v1, and is said."""
+    not cover stays v1, and is said. The rows are P1b's: unless the set's gold is P1b's key v1 file for file (the
+    sha256 MANIFEST.json pins, ``pinned``), key v2 is refused for the set and its v2 figures are "not scored"
+    (``require_pin=False`` is for a test's slice of P1b's gold, which cannot match the pins)."""
     shutil.copytree(built / "gold", out / "gold")
+    if require_pin and not pinned:
+        return {"key": "v2", "applied": 0, "refused": "the stored gold is not launch P1b's key v1 (its sha256 differs "
+                "from MANIFEST.json's pins), so MANIFEST.json's v2 rows cannot be applied to it"}  # fmt: skip
     rows = (((manifest().get("versions") or {}).get("v2") or {}).get("launch_p1b_rows_that_change") or {}).get(name)
-    info: dict[str, Any] = {"key": "v2", "how": "v1's gold with the rows MANIFEST.json lists for this run applied"}
+    info: dict[str, Any] = {"key": "v2", "how": "the stored v1 gold with MANIFEST.json's listed changes applied",
+                            "gold_matches_the_pins": pinned}  # fmt: skip
     if not rows:
         info["applied"] = 0
         info["note"] = "MANIFEST.json lists no label row of this set that v2 changes"
@@ -242,10 +248,12 @@ def score_all(sets: dict[str, tuple[Path, Any, Path]], where: Path) -> dict[str,
 
 
 # ---------------------------------------------------------------- the figures
-def eligible_figure(name: str, sc: dict[str, Any]) -> dict[str, Any]:
+def eligible_figure(name: str, sc: dict[str, Any], refused: str | None = None) -> dict[str, Any]:
     """Target 1 for one set: pair level where the set has eligibility labels (gold-eligible pairs the box excluded,
     of those it answered), else criterion level (gold met or not applicable rows the box blocked, of those answered:
-    JMED's "not excluded")."""
+    JMED's "not excluded"). ``refused``: the key could not be applied to the set (not scored, with the reason)."""
+    if refused:
+        return {"set": name, "scored": False, "why": refused, "numerator": 0, "denominator": 0}
     if sc.get("not_scored_because"):
         return {"set": name, "scored": False, "why": sc["not_scored_because"], "numerator": 0, "denominator": 0}
     summ = (sc.get("pairs") or {}).get("summary") or {}
@@ -267,8 +275,9 @@ def eligible_figure(name: str, sc: dict[str, Any]) -> dict[str, Any]:
 def figure(level: str, key: str, per_set: list[dict[str, Any]]) -> dict[str, Any]:
     k = sum(int(x.get("numerator") or 0) for x in per_set)
     n = sum(int(x.get("denominator") or 0) for x in per_set)
-    return {"level": level, "key": key, "numerator": k, "denominator": n, "met": n > 0 and k == 0,
-            "per_set": per_set}  # fmt: skip
+    scored = all(x.get("scored", True) for x in per_set)
+    return {"level": level, "key": key, "numerator": k, "denominator": n, "met": scored and n > 0 and k == 0,
+            "all_sets_scored": scored, "per_set": per_set}  # fmt: skip
 
 
 def protocols_figure(level: str, scores: dict[str, Any], rerun: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -481,6 +490,7 @@ def replay(
     tz: str = "Asia/Taipei",
     index_day: date | None = None,
     build_day: date | None = None,
+    require_pin: bool = True,
 ) -> dict[str, Any]:
     from tools.public_accuracy import key as keys
 
@@ -496,16 +506,19 @@ def replay(
     for n in names:
         v2dirs[n] = scratch / "key-v2" / n
         v2dirs[n].mkdir(parents=True)
-        report["sets"][n] = {"folder": str(found[n]), "identified": ident[n],
-                             "key_v2": v2_overlay(n, found[n] / "built", v2dirs[n])}  # fmt: skip
+        kv2 = v2_overlay(
+            n, found[n] / "built", v2dirs[n], pinned=ident[n]["launch_p1b_key_v1"], require_pin=require_pin
+        )
+        report["sets"][n] = {"folder": str(found[n]), "identified": ident[n], "key_v2": kv2}
     a1 = score_all({n: (found[n] / "built", found[n] / "work", found[n] / "work") for n in names}, scratch / "a-v1")
     a2 = score_all({n: (v2dirs[n], found[n] / "work", found[n] / "work") for n in names}, scratch / "a-v2")
     for n in names:
         report["sets"][n]["level_a"] = {"v1": _brief(a1[n]), "v2": _brief(a2[n])}
         if ident[n]["launch_p1b_key_v1"]:
             report["sets"][n]["p1b_record"] = _record(n, a1[n])
+    refused = {n: report["sets"][n]["key_v2"].get("refused") for n in names}
     t1 = {"a": {"v1": figure("a", "v1", [eligible_figure(n, a1[n]) for n in names]),
-                "v2": figure("a", "v2", [eligible_figure(n, a2[n]) for n in names])}}  # fmt: skip
+                "v2": figure("a", "v2", [eligible_figure(n, a2[n], refused[n]) for n in names])}}  # fmt: skip
     t3 = {"a": protocols_figure("a", a1)}
     if rerun and iday is not None:
         b_runs = {n: rerun_level(n, found[n], scratch, tz, iday, bday) for n in names}
@@ -518,7 +531,7 @@ def replay(
                 "v1": _brief(b1[n]), "v2": _brief(b2[n]), "rescreen": b_runs[n]["rescreen"],
                 "failed_protocols": b_runs[n]["protocols"], "recompiled": b_runs[n]["recompiled"]}  # fmt: skip
         t1["b"] = {"v1": figure("b", "v1", [eligible_figure(n, b1[n]) for n in names]),
-                   "v2": figure("b", "v2", [eligible_figure(n, b2[n]) for n in names])}  # fmt: skip
+                   "v2": figure("b", "v2", [eligible_figure(n, b2[n], refused[n]) for n in names])}  # fmt: skip
         allrr = {f"{n}:{rs}": r for n in names for rs, r in b_runs[n]["protocols"].items()}
         t3["b"] = protocols_figure("b", a1, allrr)
     elif rerun:
@@ -611,6 +624,9 @@ def render(r: dict[str, Any]) -> str:
             w(f"    P1b record on key v1: {'reproduced' if rec['reproduced'] else 'NOT reproduced'} "
               f"({json.dumps(rec['replayed'])})")  # fmt: skip
         kv = s["key_v2"]
+        if kv.get("refused"):
+            w(f"    key v2: refused: {kv['refused']}")
+            continue
         w(f"    key v2: {kv.get('applied', 0)} label rows applied"
           + (f", {len(kv['unmatched'])} unmatched" if kv.get("unmatched") else ""))  # fmt: skip
     t = r["targets"]
@@ -619,7 +635,8 @@ def render(r: dict[str, Any]) -> str:
     w(f"   {'level':<6}{'key':<5}{'excluded':>10}{'of':>6}  met   per set")
     for lvl, by in sorted((k, v) for k, v in t["eligible_wrongly_excluded"].items() if k in ("a", "b")):
         for key, f in sorted(by.items()):
-            per = ", ".join(f"{x['set']} {x['numerator']}/{x['denominator']}" for x in f["per_set"])
+            per = ", ".join(f"{x['set']} {x['numerator']}/{x['denominator']}" if x.get("scored", True)
+                            else f"{x['set']} not scored" for x in f["per_set"])  # fmt: skip
             w(f"   ({lvl})   {key:<5}{f['numerator']:>10}{f['denominator']:>6}  {_yes(f['met']):<4}  {per}")
     w("2. Pathology figure (target: " + t["pathology"]["claim"] + ")")
     pr = t["pathology"]["run"]

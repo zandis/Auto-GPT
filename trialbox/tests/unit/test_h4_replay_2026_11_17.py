@@ -65,7 +65,9 @@ def run(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     tgz.mkdir()
     for name, s in sl["sets"].items():
         _tgz(_write_set(tmp / "src" / name, name, s), tgz / f"{name}.tgz")
-    rep = replay.replay([tgz], tmp / "scratch", pathology_run=POC1, index_day=DAY, build_day=DAY)
+    # the slice is part of P1b's gold, so it cannot match MANIFEST.json's pins: key v2 is applied to it by leave of
+    # the test (require_pin=False); the command line never gives that leave
+    rep = replay.replay([tgz], tmp / "scratch", pathology_run=POC1, index_day=DAY, build_day=DAY, require_pin=False)
     return {"tmp": tmp, "tgz": tgz, "report": rep}
 
 
@@ -246,5 +248,9 @@ def test_the_command_line_writes_json_and_exits_by_the_flag(run: dict[str, Any],
     said = capsys.readouterr().out
     assert "1. Eligible patients wrongly excluded" in said and "not scored" in said
     assert replay.main([*args, "--require-targets"]) == 3
+    # key v2's rows are P1b's: a gold that is not P1b's pinned key v1 is refused, and its v2 figure is not scored
+    assert "refused" in rep["sets"]["sigir"]["key_v2"]
+    v2 = rep["targets"]["eligible_wrongly_excluded"]["a"]["v2"]
+    assert v2["all_sets_scored"] is False and v2["met"] is False and v2["per_set"][0]["scored"] is False
     bad = _tar([_member("../escape.txt")], tmp)
     assert replay.main([str(bad)]) == 2
