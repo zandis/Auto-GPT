@@ -10,7 +10,7 @@ printf 'POSTGRES_PASSWORD=made-by-install\nTB_SOURCE_DIR=%s\nTB_SOURCE_MOUNT=/da
 # install.sh pins the pair from deploy/models (pin_model --install ... --out deploy/site/registry.site.yaml)
 mkdir -p "$BR_S/box-root/deploy/site" && echo "builds: {}  # stand-in pins" > "$BR_S/box-root/deploy/site/registry.site.yaml"
 # the installer's record of the release (Updater._record, D-994): its commit beside dirty, read from the bundle's
-# release.json as the real one reads it (H-19, D-1134: the driver names the qualification record's code by it)
+# release.json as the real one reads it (H-19, D-1105: the driver names the qualification record's code by it)
 mkdir -p "$BR_S/box-root/deploy/updates" && python3 - "$1" "$BR_S/box-root/deploy/updates/installed.json" <<'PY'
 import json, re, sys, tarfile
 with tarfile.open(sys.argv[1]) as t:

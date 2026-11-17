@@ -733,7 +733,7 @@ except Exception:
     cuda = "see nvidia-smi"
 print(json.dumps({"driver": d, "cuda": cuda, "gpu": n.rstrip(",")}))'
 }
-# H-19 (D-1134): the record names its code by the commit the installer recorded in deploy/updates/installed.json
+# H-19 (D-1105): the record names its code by the commit the installer recorded in deploy/updates/installed.json
 # (D-994; the box has no git), beside the image id: the three evidence gates compare the evidence files' git commit
 # with it. Only 40 lowercase hex with dirty: false (box_vm.py installed-commit); dirty: true, a null, missing or
 # malformed commit is refused by name. A run whose record can be the product's (production mode, or evidence given)

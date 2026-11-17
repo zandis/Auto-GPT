@@ -5,7 +5,7 @@ box installed from a signed bundle has no git: its release folder (``/opt/trialb
 carries ``HOST-SHA256SUMS``, the sha256 of every file of the release, signed with the bundle. Its own sha256 names
 exactly that code (``release:<sha256>``); the tree is dirty when a file differs from the sums, is missing, or was
 added (``tools.host_tree.check_dir``). On the GPU driver's route (no tree mounted) the driver passes the commit the
-installer recorded (``TB_CODE_COMMIT``, H-19, D-1134; the driver refuses a dirty, null, missing or malformed one): a
+installer recorded (``TB_CODE_COMMIT``, H-19, D-1105; the driver refuses a dirty, null, missing or malformed one): a
 40-hex commit names the code as a checkout's does, anything else is ``unknown`` and dirty. Neither: ``unknown`` and
 dirty. Standard library only."""
 
@@ -43,7 +43,7 @@ def head(root: Path) -> tuple[str, bool]:
             from tools import host_tree
 
             return f"release:{hashlib.sha256(sums.read_bytes()).hexdigest()}", bool(host_tree.check_dir(tree))
-    # H-19 (D-1134): the installed release's commit, read by the driver from deploy/updates/installed.json
+    # H-19 (D-1105): the installed release's commit, read by the driver from deploy/updates/installed.json
     commit = os.environ.get("TB_CODE_COMMIT") or ""
     if commit:
         return (commit, False) if COMMIT.fullmatch(commit) else ("unknown", True)

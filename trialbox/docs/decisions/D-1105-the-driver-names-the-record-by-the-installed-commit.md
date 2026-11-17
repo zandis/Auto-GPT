@@ -1,4 +1,4 @@
-# D-1134 The GPU driver names the qualification record's code by the installed release's commit
+# D-1105 The GPU driver names the qualification record's code by the installed release's commit
 
 - **Task:** lane H, card H-19 (the integrator's ruling on H-15 finding F1: "evidence gates keep the git sha")
 - **Date:** 2026-11-17

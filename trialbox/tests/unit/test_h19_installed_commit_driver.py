@@ -1,4 +1,4 @@
-"""H-19 (D-1134): the GPU driver names the qualification record's code by the installed release's commit.
+"""H-19 (D-1105): the GPU driver names the qualification record's code by the installed release's commit.
 
 H-15's finding F1: on every driver route the record's code was ``image:<id>`` (the box has no git), while the three
 evidence gates (``n12``, ``public_e2e``, ``goldens``: ``tools.qualify.step_evidence``) compare the evidence files'

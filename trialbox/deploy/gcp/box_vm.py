@@ -28,7 +28,7 @@ folder and calls one subcommand at a time:
   identity --box F --lock F --template-sha S --images F --weights-exit N
       what the box serves against what the release pins: chat template, image digests, weights, prompt versions
 
-  installed-commit INSTALLED_JSON   (H-19, D-1134) the commit the installed box runs, from the installer's
+  installed-commit INSTALLED_JSON   (H-19, D-1105) the commit the installed box runs, from the installer's
       ``deploy/updates/installed.json`` (D-994): 40 lowercase hex with ``dirty: false``, printed alone; refused by
       name (exit 1, the reason on stderr) when the file is missing or unreadable, ``dirty`` is not false, or
       ``commit`` is missing, null or malformed. Qualify names the record's code by it (TB_CODE_COMMIT)
@@ -721,7 +721,7 @@ COMMIT_HEX = re.compile(r"[0-9a-f]{40}")
 
 
 def installed_commit(path: Path) -> tuple[str, str]:
-    """H-19 (D-1134): ``(commit, "")`` from the installed box's ``installed.json``, or ``("", why)``.
+    """H-19 (D-1105): ``(commit, "")`` from the installed box's ``installed.json``, or ``("", why)``.
 
     The evidence gates name the code by a git commit (the integrator's ruling on H-15 F1); a box installed from a
     bundle has no git, so its installer records the release's commit (D-994). Taken only as 40 lowercase hex with
