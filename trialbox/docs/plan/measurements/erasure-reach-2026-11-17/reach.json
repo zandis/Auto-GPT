@@ -1,15 +1,17 @@
 {
  "card": "V-1",
- "log_lines": 2,
+ "log_lines": 3,
+ "partitions_folded": 13,
  "second_tick_failed": [],
  "seeded_by": {
+  "derived": "run_batch on the trial database's store (0 failed), then P's recompute failed once",
+  "export_tables": "appointment, claim, diagnosis, encounter, lab, medication, note, patient, procedure, registry, report, vital",
   "lake": "tests.inproc_box.ingest_site (the csv source, the adapter, the lake rebuild, derive)",
-  "mail": "MailDB.claim_send and hold: a held mail of the patient's own file, and one of a list",
   "migrate:vec": "not made: UndefinedObject",
   "objects": "FsStore.put: a list, a per-patient file, an attached chart",
   "omop": "omop.load.load_batch of the night's NDJSON",
   "orch": "JobDB: pool_upsert, candidate_set, a CASE job naming the patient",
-  "planted": "{\"datacore.subject\": \"planted\", \"derived.conflict\": \"not planted: ForeignKeyViolation\", \"derived.score_row\": \"not planted: CheckViolation\", \"edc.draft\": \"planted\", \"orch.feedback\": \"planted\", \"orch.judged_pairs\": \"planted\", \"orch.submissions\": \"planted\", \"pidmap.pending\": \"planted\", \"recall.recall_observation\": \"planted\", \"site.contact_outcomes\": \"planted\", \"site.excluded_review\": \"planted\", \"site.pi_marks\": \"planted\", \"site.screening_no\": \"planted\", \"site.weekly_seen\": \"planted\", \"sitesetup.fact\": \"planted\", \"study.rc_record\": \"planted\", \"team.approach_overrides\": \"planted\", \"team.candidate_views\": \"planted\", \"team.referral_events\": \"planted\", \"team.referrals\": \"planted\", \"tuned.tuned_patients\": \"planted\"}",
+  "planted": "{\"datacore.subject\": \"planted\", \"derived.conflict\": \"not planted: ForeignKeyViolation\", \"edc.draft\": \"planted\", \"orch.feedback\": \"planted\", \"orch.judged_pairs\": \"planted\", \"pidmap.pending\": \"planted\", \"recall.recall_observation\": \"planted\", \"site.contact_outcomes\": \"planted\", \"site.excluded_review\": \"planted\", \"site.pi_marks\": \"planted\", \"site.screening_no\": \"planted\", \"site.weekly_seen\": \"planted\", \"sitesetup.fact\": \"planted\", \"study.rc_record\": \"planted\", \"team.approach_overrides\": \"planted\", \"team.candidate_views\": \"planted\", \"team.referral_events\": \"planted\", \"team.referrals\": \"planted\", \"tuned.tuned_patients\": \"planted\"}",
   "profile": "ProfileStore.put",
   "recall": "RecallLedger.add_known_positive",
   "trace": "TraceStore.write",
@@ -24,11 +26,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "app.flag",
    "searched": true,
    "seeded": false,
    "store": "app.flag",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -38,11 +39,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "app.flag_event",
    "searched": true,
    "seeded": false,
    "store": "app.flag_event",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -52,11 +52,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "auth.account_notices",
    "searched": true,
    "seeded": false,
    "store": "auth.account_notices",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -66,11 +65,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "auth.account_requests",
    "searched": true,
    "seeded": false,
    "store": "auth.account_requests",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -80,11 +78,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "auth.factor_resets",
    "searched": true,
    "seeded": false,
    "store": "auth.factor_resets",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -94,11 +91,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "auth.login_failures",
    "searched": true,
    "seeded": false,
    "store": "auth.login_failures",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -108,11 +104,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "auth.oidc_pending",
    "searched": true,
    "seeded": false,
    "store": "auth.oidc_pending",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -122,11 +117,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "auth.pending_logins",
    "searched": true,
    "seeded": false,
    "store": "auth.pending_logins",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -136,11 +130,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "auth.sessions",
    "searched": true,
    "seeded": false,
    "store": "auth.sessions",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -150,11 +143,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "auth.users",
    "searched": true,
    "seeded": false,
    "store": "auth.users",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -164,11 +156,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "breakglass.grants",
    "searched": true,
    "seeded": false,
    "store": "breakglass.grants",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -178,11 +169,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "breakglass.uses",
    "searched": true,
    "seeded": false,
    "store": "breakglass.uses",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -192,11 +182,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "datacore.ae_ack",
    "searched": true,
    "seeded": false,
    "store": "datacore.ae_ack",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -206,11 +195,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "datacore.conflict",
    "searched": true,
    "seeded": false,
    "store": "datacore.conflict",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -220,11 +208,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "datacore.contact_rule",
    "searched": true,
    "seeded": false,
    "store": "datacore.contact_rule",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -234,11 +221,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "datacore.deviation_call",
    "searched": true,
    "seeded": false,
    "store": "datacore.deviation_call",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -248,11 +234,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "datacore.form",
    "searched": true,
    "seeded": false,
    "store": "datacore.form",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -262,11 +247,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "datacore.history",
    "searched": true,
    "seeded": false,
    "store": "datacore.history",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -276,11 +260,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "datacore.owner",
    "searched": true,
    "seeded": false,
    "store": "datacore.owner",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -290,11 +273,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "datacore.sae_rule",
    "searched": true,
    "seeded": false,
    "store": "datacore.sae_rule",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -304,11 +286,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "datacore.schedule",
    "searched": true,
    "seeded": false,
    "store": "datacore.schedule",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -318,11 +299,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "datacore.schedule_version",
    "searched": true,
    "seeded": false,
    "store": "datacore.schedule_version",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -332,11 +312,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "datacore.source_cfg",
    "searched": true,
    "seeded": false,
    "store": "datacore.source_cfg",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -346,11 +325,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "datacore.sponsor_layout",
    "searched": true,
    "seeded": false,
    "store": "datacore.sponsor_layout",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -360,11 +338,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "datacore.src_record",
    "searched": true,
    "seeded": false,
    "store": "datacore.src_record",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "screening_log",
@@ -374,7 +351,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "datacore.subject",
    "searched": true,
    "seeded": true,
    "store": "datacore.subject",
@@ -388,11 +364,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "datacore.subject_step",
    "searched": true,
    "seeded": false,
    "store": "datacore.subject_step",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -402,11 +377,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "datacore.value",
    "searched": true,
    "seeded": false,
    "store": "datacore.value",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -416,11 +390,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "dataops.batch",
    "searched": true,
    "seeded": false,
    "store": "dataops.batch",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -430,11 +403,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "dataops.batch_step",
    "searched": true,
    "seeded": false,
    "store": "dataops.batch_step",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -444,11 +416,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "dataops.built",
    "searched": true,
    "seeded": false,
    "store": "dataops.built",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -458,11 +429,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "dataops.built_kept",
    "searched": true,
    "seeded": false,
    "store": "dataops.built_kept",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "owed_tables",
@@ -472,11 +442,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "derived.batch_run",
    "searched": true,
    "seeded": false,
    "store": "derived.batch_run",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "owed_tables",
@@ -486,11 +455,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "derived.conflict",
    "searched": true,
    "seeded": false,
    "store": "derived.conflict",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -500,11 +468,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "derived.definition",
    "searched": true,
    "seeded": false,
    "store": "derived.definition",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "owed_tables",
@@ -514,11 +481,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "derived.input_link",
    "searched": true,
    "seeded": false,
    "store": "derived.input_link",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "owed_tables",
@@ -528,11 +494,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "derived.score_row",
    "searched": true,
-   "seeded": false,
+   "seeded": true,
    "store": "derived.score_row",
-   "verdict": "not_seeded"
+   "verdict": "clean"
   },
   {
    "clear": null,
@@ -542,11 +507,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "edc.copy_tick",
    "searched": true,
    "seeded": false,
    "store": "edc.copy_tick",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -556,11 +520,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "edc.decision",
    "searched": true,
    "seeded": false,
    "store": "edc.decision",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -570,11 +533,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "edc.direct_source_event",
    "searched": true,
    "seeded": false,
    "store": "edc.direct_source_event",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -587,7 +549,6 @@
     "pid_prefix"
    ],
    "registry": "owed",
-   "registry_key": "edc.draft",
    "searched": true,
    "seeded": true,
    "store": "edc.draft",
@@ -601,11 +562,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "edc.item_map",
    "searched": true,
    "seeded": false,
    "store": "edc.item_map",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -615,11 +575,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "edc.map_event",
    "searched": true,
    "seeded": false,
    "store": "edc.map_event",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -629,11 +588,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "edc.reentry_record",
    "searched": true,
    "seeded": false,
    "store": "edc.reentry_record",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -643,11 +601,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "edc.sent",
    "searched": true,
    "seeded": false,
    "store": "edc.sent",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -657,11 +614,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "edc.signature",
    "searched": true,
    "seeded": false,
    "store": "edc.signature",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -671,11 +627,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "edc.signature_void",
    "searched": true,
    "seeded": false,
    "store": "edc.signature_void",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -685,11 +640,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "edc.switch",
    "searched": true,
    "seeded": false,
    "store": "edc.switch",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -699,11 +653,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "edc.switch_event",
    "searched": true,
    "seeded": false,
    "store": "edc.switch_event",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -713,11 +666,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "edc.target",
    "searched": true,
    "seeded": false,
    "store": "edc.target",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -727,11 +679,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "edcdoor.event",
    "searched": true,
    "seeded": false,
    "store": "edcdoor.event",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -741,11 +692,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "edcdoor.oidc_code",
    "searched": true,
    "seeded": false,
    "store": "edcdoor.oidc_code",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -755,11 +705,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "edcdoor.proposal",
    "searched": true,
    "seeded": false,
    "store": "edcdoor.proposal",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -769,11 +718,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "feedback.entry",
    "searched": true,
    "seeded": false,
    "store": "feedback.entry",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -783,11 +731,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "lake:.rebuild.lock",
    "searched": true,
    "seeded": false,
    "store": "lake:.rebuild.lock",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -797,11 +744,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "lake:CURRENT",
    "searched": true,
    "seeded": false,
    "store": "lake:CURRENT",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -811,7 +757,6 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "lake:CURRENT.tmp",
    "searched": false,
    "seeded": false,
    "store": "lake:CURRENT.tmp",
@@ -825,11 +770,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "lake:FEED",
    "searched": true,
    "seeded": false,
    "store": "lake:FEED",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -839,11 +783,10 @@
    "found": false,
    "kinds": [],
    "registry": "unlisted",
-   "registry_key": "lake:audit",
    "searched": true,
    "seeded": false,
    "store": "lake:audit",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -853,7 +796,6 @@
    "found": false,
    "kinds": [],
    "registry": "owed",
-   "registry_key": "lake:backfill",
    "searched": false,
    "seeded": false,
    "store": "lake:backfill",
@@ -864,13 +806,14 @@
    "decision": null,
    "error": null,
    "files": [
-    "db/.open/912556-1794924272050948711-4730880/2026-10-04.duckdb",
+    "db/.open/1196225-1794926703991093272-5517312/2026-10-04.duckdb",
     "db/2026-10-04.duckdb",
     "db/gen/2026-10-04.g1.duckdb"
    ],
    "found": true,
    "kinds": [
     "chart",
+    "chunk_sha",
     "dob",
     "name",
     "phone",
@@ -878,10 +821,26 @@
     "pid_prefix"
    ],
    "registry": "owed",
-   "registry_key": "lake:db",
    "searched": true,
    "seeded": true,
    "store": "lake:db",
+   "verdict": "owed"
+  },
+  {
+   "clear": null,
+   "decision": null,
+   "error": null,
+   "files": [
+    "embed_cache.duckdb"
+   ],
+   "found": true,
+   "kinds": [
+    "chunk_sha"
+   ],
+   "registry": "owed",
+   "searched": true,
+   "seeded": true,
+   "store": "lake:embed_cache.duckdb",
    "verdict": "owed"
   },
   {
@@ -892,21 +851,6 @@
    "found": false,
    "kinds": [],
    "registry": "owed",
-   "registry_key": "lake:embed_cache.duckdb",
-   "searched": true,
-   "seeded": false,
-   "store": "lake:embed_cache.duckdb",
-   "verdict": "not_seeded"
-  },
-  {
-   "clear": null,
-   "decision": null,
-   "error": null,
-   "files": [],
-   "found": false,
-   "kinds": [],
-   "registry": "owed",
-   "registry_key": "lake:fhir_ledger",
    "searched": false,
    "seeded": false,
    "store": "lake:fhir_ledger",
@@ -920,11 +864,10 @@
    "found": false,
    "kinds": [],
    "registry": "unlisted",
-   "registry_key": "lake:gates",
    "searched": true,
    "seeded": false,
    "store": "lake:gates",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -934,7 +877,6 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "lake:holds",
    "searched": false,
    "seeded": false,
    "store": "lake:holds",
@@ -948,31 +890,40 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "lake:locks",
    "searched": true,
    "seeded": false,
    "store": "lake:locks",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
    "decision": null,
    "error": null,
    "files": [
+    "ndjson/2026-10-04/Appointment.ndjson",
+    "ndjson/2026-10-04/Claim.ndjson",
+    "ndjson/2026-10-04/ClaimResponse.ndjson",
     "ndjson/2026-10-04/Condition.ndjson",
+    "ndjson/2026-10-04/Consent.ndjson",
     "ndjson/2026-10-04/Coverage.ndjson",
+    "ndjson/2026-10-04/DiagnosticReport.ndjson",
     "ndjson/2026-10-04/DocumentReference.ndjson",
     "ndjson/2026-10-04/Encounter.ndjson",
-    "ndjson/2026-10-04/Patient.ndjson"
+    "ndjson/2026-10-04/MedicationRequest.ndjson",
+    "ndjson/2026-10-04/Observation.ndjson",
+    "ndjson/2026-10-04/Patient.ndjson",
+    "ndjson/2026-10-04/Procedure.ndjson"
    ],
    "found": true,
    "kinds": [
+    "chart",
     "dob",
+    "name",
+    "phone",
     "pid",
     "pid_prefix"
    ],
    "registry": "owed",
-   "registry_key": "lake:ndjson",
    "searched": true,
    "seeded": true,
    "store": "lake:ndjson",
@@ -986,7 +937,6 @@
    "found": false,
    "kinds": [],
    "registry": "owed",
-   "registry_key": "lake:ndjson-rerun",
    "searched": false,
    "seeded": false,
    "store": "lake:ndjson-rerun",
@@ -1000,21 +950,27 @@
    "found": false,
    "kinds": [],
    "registry": "unlisted",
-   "registry_key": "lake:night_runs.json",
    "searched": true,
    "seeded": false,
    "store": "lake:night_runs.json",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
    "decision": null,
    "error": null,
    "files": [
+    "parquet/snapshot=2026-10-04/appointment.parquet",
+    "parquet/snapshot=2026-10-04/claim.parquet",
     "parquet/snapshot=2026-10-04/condition.parquet",
+    "parquet/snapshot=2026-10-04/consent.parquet",
     "parquet/snapshot=2026-10-04/document.parquet",
     "parquet/snapshot=2026-10-04/encounter.parquet",
-    "parquet/snapshot=2026-10-04/patient.parquet"
+    "parquet/snapshot=2026-10-04/medication.parquet",
+    "parquet/snapshot=2026-10-04/observation.parquet",
+    "parquet/snapshot=2026-10-04/patient.parquet",
+    "parquet/snapshot=2026-10-04/procedure.parquet",
+    "parquet/snapshot=2026-10-04/report.parquet"
    ],
    "found": true,
    "kinds": [
@@ -1026,7 +982,6 @@
     "pid_prefix"
    ],
    "registry": "owed",
-   "registry_key": "lake:parquet",
    "searched": true,
    "seeded": true,
    "store": "lake:parquet",
@@ -1040,7 +995,6 @@
    "found": false,
    "kinds": [],
    "registry": "owed",
-   "registry_key": "lake:site",
    "searched": false,
    "seeded": false,
    "store": "lake:site",
@@ -1054,11 +1008,10 @@
    "found": false,
    "kinds": [],
    "registry": "unlisted",
-   "registry_key": "lake:site_key.json",
    "searched": true,
    "seeded": false,
    "store": "lake:site_key.json",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -1068,11 +1021,10 @@
    "found": false,
    "kinds": [],
    "registry": "unlisted",
-   "registry_key": "lake:source.jsonl",
    "searched": true,
    "seeded": false,
    "store": "lake:source.jsonl",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -1082,7 +1034,6 @@
    "found": false,
    "kinds": [],
    "registry": "owed",
-   "registry_key": "lake:tmp",
    "searched": false,
    "seeded": false,
    "store": "lake:tmp",
@@ -1096,11 +1047,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "library.criterion_library",
    "searched": true,
    "seeded": false,
    "store": "library.criterion_library",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -1110,11 +1060,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "library.criterion_library_lexicon_key",
    "searched": true,
    "seeded": false,
    "store": "library.criterion_library_lexicon_key",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -1124,11 +1073,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "library.criterion_library_meta",
    "searched": true,
    "seeded": false,
    "store": "library.criterion_library_meta",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -1138,11 +1086,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "library.criterion_library_text",
    "searched": true,
    "seeded": false,
    "store": "library.criterion_library_text",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -1152,11 +1099,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "library.criterion_library_usage",
    "searched": true,
    "seeded": false,
    "store": "library.criterion_library_usage",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -1166,25 +1112,26 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "library.criterion_library_valueset",
    "searched": true,
    "seeded": false,
    "store": "library.criterion_library_valueset",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
    "decision": null,
    "error": null,
    "files": [],
-   "found": false,
-   "kinds": [],
+   "found": true,
+   "kinds": [
+    "pid",
+    "pid_prefix"
+   ],
    "registry": "unlisted",
-   "registry_key": "logs:captured",
    "searched": true,
-   "seeded": false,
+   "seeded": true,
    "store": "logs:captured",
-   "verdict": "not_seeded"
+   "verdict": "unlisted"
   },
   {
    "clear": null,
@@ -1194,25 +1141,26 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "mail.intake",
    "searched": true,
    "seeded": false,
    "store": "mail.intake",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "held_mail",
    "decision": null,
    "error": null,
    "files": [],
-   "found": false,
-   "kinds": [],
+   "found": true,
+   "kinds": [
+    "pid",
+    "pid_prefix"
+   ],
    "registry": "owed",
-   "registry_key": "mail.send_keys",
    "searched": true,
    "seeded": true,
    "store": "mail.send_keys",
-   "verdict": "clean"
+   "verdict": "owed"
   },
   {
    "clear": null,
@@ -1222,11 +1170,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "mail.sent",
    "searched": true,
    "seeded": false,
    "store": "mail.sent",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -1241,7 +1188,6 @@
     "pid_prefix"
    ],
    "registry": "owed",
-   "registry_key": "objects:attachments",
    "searched": true,
    "seeded": true,
    "store": "objects:attachments",
@@ -1255,7 +1201,6 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "objects:ctgov",
    "searched": false,
    "seeded": false,
    "store": "objects:ctgov",
@@ -1272,10 +1217,10 @@
    "found": true,
    "kinds": [
     "pid",
-    "pid_prefix"
+    "pid_prefix",
+    "twpas_id"
    ],
    "registry": "owed",
-   "registry_key": "objects:outputs",
    "searched": true,
    "seeded": true,
    "store": "objects:outputs",
@@ -1289,11 +1234,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "omop.care_site",
    "searched": true,
    "seeded": false,
    "store": "omop.care_site",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -1303,11 +1247,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "omop.cdm_source",
    "searched": true,
    "seeded": false,
    "store": "omop.cdm_source",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -1317,11 +1260,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.cohort",
    "searched": true,
    "seeded": false,
    "store": "omop.cohort",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -1331,11 +1273,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "omop.cohort_definition",
    "searched": true,
    "seeded": false,
    "store": "omop.cohort_definition",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -1345,11 +1286,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "omop.concept",
    "searched": true,
    "seeded": false,
    "store": "omop.concept",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -1359,11 +1299,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "omop.concept_ancestor",
    "searched": true,
    "seeded": false,
    "store": "omop.concept_ancestor",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -1373,11 +1312,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "omop.concept_class",
    "searched": true,
    "seeded": false,
    "store": "omop.concept_class",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -1387,11 +1325,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "omop.concept_relationship",
    "searched": true,
    "seeded": false,
    "store": "omop.concept_relationship",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -1401,11 +1338,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "omop.concept_synonym",
    "searched": true,
    "seeded": false,
    "store": "omop.concept_synonym",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -1415,11 +1351,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.condition_era",
    "searched": true,
    "seeded": false,
    "store": "omop.condition_era",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -1429,7 +1364,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.condition_occurrence",
    "searched": true,
    "seeded": true,
    "store": "omop.condition_occurrence",
@@ -1443,11 +1377,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.condition_occurrence",
    "searched": true,
    "seeded": false,
-   "store": "omop.condition_occurrence_y2021",
-   "verdict": "not_seeded"
+   "store": "omop.condition_occurrence_ydefault",
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -1457,11 +1390,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.condition_occurrence",
    "searched": true,
    "seeded": false,
-   "store": "omop.condition_occurrence_y2022",
-   "verdict": "not_seeded"
+   "store": "omop.cost",
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -1471,11 +1403,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.condition_occurrence",
    "searched": true,
    "seeded": false,
-   "store": "omop.condition_occurrence_y2024",
-   "verdict": "not_seeded"
+   "store": "omop.death",
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -1485,11 +1416,23 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.condition_occurrence",
    "searched": true,
    "seeded": false,
-   "store": "omop.condition_occurrence_y2025",
-   "verdict": "not_seeded"
+   "store": "omop.device_exposure",
+   "verdict": "not_reached"
+  },
+  {
+   "clear": null,
+   "decision": null,
+   "error": null,
+   "files": [],
+   "found": false,
+   "kinds": [],
+   "registry": "no_patient_data",
+   "searched": true,
+   "seeded": false,
+   "store": "omop.domain",
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -1499,10 +1442,35 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.condition_occurrence",
+   "searched": true,
+   "seeded": false,
+   "store": "omop.dose_era",
+   "verdict": "not_reached"
+  },
+  {
+   "clear": "omop",
+   "decision": null,
+   "error": null,
+   "files": [],
+   "found": false,
+   "kinds": [],
+   "registry": "erase",
+   "searched": true,
+   "seeded": false,
+   "store": "omop.drug_era",
+   "verdict": "not_reached"
+  },
+  {
+   "clear": "omop",
+   "decision": null,
+   "error": null,
+   "files": [],
+   "found": false,
+   "kinds": [],
+   "registry": "erase",
    "searched": true,
    "seeded": true,
-   "store": "omop.condition_occurrence_y2026",
+   "store": "omop.drug_exposure",
    "verdict": "clean"
   },
   {
@@ -1513,137 +1481,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.condition_occurrence_ydefault",
-   "searched": true,
-   "seeded": false,
-   "store": "omop.condition_occurrence_ydefault",
-   "verdict": "not_seeded"
-  },
-  {
-   "clear": "omop",
-   "decision": null,
-   "error": null,
-   "files": [],
-   "found": false,
-   "kinds": [],
-   "registry": "erase",
-   "registry_key": "omop.cost",
-   "searched": true,
-   "seeded": false,
-   "store": "omop.cost",
-   "verdict": "not_seeded"
-  },
-  {
-   "clear": "omop",
-   "decision": null,
-   "error": null,
-   "files": [],
-   "found": false,
-   "kinds": [],
-   "registry": "erase",
-   "registry_key": "omop.death",
-   "searched": true,
-   "seeded": false,
-   "store": "omop.death",
-   "verdict": "not_seeded"
-  },
-  {
-   "clear": "omop",
-   "decision": null,
-   "error": null,
-   "files": [],
-   "found": false,
-   "kinds": [],
-   "registry": "erase",
-   "registry_key": "omop.device_exposure",
-   "searched": true,
-   "seeded": false,
-   "store": "omop.device_exposure",
-   "verdict": "not_seeded"
-  },
-  {
-   "clear": null,
-   "decision": null,
-   "error": null,
-   "files": [],
-   "found": false,
-   "kinds": [],
-   "registry": "no_patient_data",
-   "registry_key": "omop.domain",
-   "searched": true,
-   "seeded": false,
-   "store": "omop.domain",
-   "verdict": "not_seeded"
-  },
-  {
-   "clear": "omop",
-   "decision": null,
-   "error": null,
-   "files": [],
-   "found": false,
-   "kinds": [],
-   "registry": "erase",
-   "registry_key": "omop.dose_era",
-   "searched": true,
-   "seeded": false,
-   "store": "omop.dose_era",
-   "verdict": "not_seeded"
-  },
-  {
-   "clear": "omop",
-   "decision": null,
-   "error": null,
-   "files": [],
-   "found": false,
-   "kinds": [],
-   "registry": "erase",
-   "registry_key": "omop.drug_era",
-   "searched": true,
-   "seeded": false,
-   "store": "omop.drug_era",
-   "verdict": "not_seeded"
-  },
-  {
-   "clear": "omop",
-   "decision": null,
-   "error": null,
-   "files": [],
-   "found": false,
-   "kinds": [],
-   "registry": "erase",
-   "registry_key": "omop.drug_exposure",
-   "searched": true,
-   "seeded": false,
-   "store": "omop.drug_exposure",
-   "verdict": "not_seeded"
-  },
-  {
-   "clear": "omop",
-   "decision": null,
-   "error": null,
-   "files": [],
-   "found": false,
-   "kinds": [],
-   "registry": "erase",
-   "registry_key": "omop.drug_exposure",
-   "searched": true,
-   "seeded": false,
-   "store": "omop.drug_exposure_y2026",
-   "verdict": "not_seeded"
-  },
-  {
-   "clear": "omop",
-   "decision": null,
-   "error": null,
-   "files": [],
-   "found": false,
-   "kinds": [],
-   "registry": "erase",
-   "registry_key": "omop.drug_exposure_ydefault",
    "searched": true,
    "seeded": false,
    "store": "omop.drug_exposure_ydefault",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -1653,11 +1494,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "omop.drug_strength",
    "searched": true,
    "seeded": false,
    "store": "omop.drug_strength",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -1667,11 +1507,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.episode",
    "searched": true,
    "seeded": false,
    "store": "omop.episode",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -1681,11 +1520,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.episode_event",
    "searched": true,
    "seeded": false,
    "store": "omop.episode_event",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -1695,11 +1533,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.fact_relationship",
    "searched": true,
    "seeded": false,
    "store": "omop.fact_relationship",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -1709,11 +1546,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.location",
    "searched": true,
    "seeded": false,
    "store": "omop.location",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -1723,11 +1559,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.measurement",
    "searched": true,
-   "seeded": false,
+   "seeded": true,
    "store": "omop.measurement",
-   "verdict": "not_seeded"
+   "verdict": "clean"
   },
   {
    "clear": "omop",
@@ -1737,11 +1572,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.measurement_ydefault",
    "searched": true,
    "seeded": false,
    "store": "omop.measurement_ydefault",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -1751,11 +1585,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "omop.metadata",
    "searched": true,
    "seeded": false,
    "store": "omop.metadata",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -1765,7 +1598,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.note",
    "searched": true,
    "seeded": true,
    "store": "omop.note",
@@ -1779,11 +1611,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.note_nlp",
    "searched": true,
    "seeded": false,
    "store": "omop.note_nlp",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -1793,25 +1624,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.note",
-   "searched": true,
-   "seeded": true,
-   "store": "omop.note_y2026",
-   "verdict": "clean"
-  },
-  {
-   "clear": "omop",
-   "decision": null,
-   "error": null,
-   "files": [],
-   "found": false,
-   "kinds": [],
-   "registry": "erase",
-   "registry_key": "omop.note_ydefault",
    "searched": true,
    "seeded": false,
    "store": "omop.note_ydefault",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -1821,11 +1637,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.observation",
    "searched": true,
    "seeded": false,
    "store": "omop.observation",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -1835,7 +1650,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.observation_period",
    "searched": true,
    "seeded": true,
    "store": "omop.observation_period",
@@ -1849,11 +1663,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.observation_ydefault",
    "searched": true,
    "seeded": false,
    "store": "omop.observation_ydefault",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -1863,11 +1676,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.payer_plan_period",
    "searched": true,
    "seeded": false,
    "store": "omop.payer_plan_period",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -1877,7 +1689,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.person",
    "searched": true,
    "seeded": true,
    "store": "omop.person",
@@ -1891,11 +1702,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.procedure_occurrence",
    "searched": true,
-   "seeded": false,
+   "seeded": true,
    "store": "omop.procedure_occurrence",
-   "verdict": "not_seeded"
+   "verdict": "clean"
   },
   {
    "clear": "omop",
@@ -1905,11 +1715,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.procedure_occurrence_ydefault",
    "searched": true,
    "seeded": false,
    "store": "omop.procedure_occurrence_ydefault",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -1919,11 +1728,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "omop.provider",
    "searched": true,
    "seeded": false,
    "store": "omop.provider",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -1933,11 +1741,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "omop.relationship",
    "searched": true,
    "seeded": false,
    "store": "omop.relationship",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -1947,11 +1754,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "omop.source_to_concept_map",
    "searched": true,
    "seeded": false,
    "store": "omop.source_to_concept_map",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -1961,11 +1767,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.specimen",
    "searched": true,
    "seeded": false,
    "store": "omop.specimen",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -1975,11 +1780,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.tb_appointment",
    "searched": true,
-   "seeded": false,
+   "seeded": true,
    "store": "omop.tb_appointment",
-   "verdict": "not_seeded"
+   "verdict": "clean"
   },
   {
    "clear": "omop",
@@ -1989,11 +1793,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.tb_claim",
    "searched": true,
-   "seeded": false,
+   "seeded": true,
    "store": "omop.tb_claim",
-   "verdict": "not_seeded"
+   "verdict": "clean"
   },
   {
    "clear": null,
@@ -2003,11 +1806,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "omop.tb_concept_attr",
    "searched": true,
    "seeded": false,
    "store": "omop.tb_concept_attr",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2017,25 +1819,25 @@
    "found": false,
    "kinds": [],
    "registry": "owed",
-   "registry_key": "omop.tb_conflict",
    "searched": true,
    "seeded": false,
    "store": "omop.tb_conflict",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
    "decision": "D-441",
    "error": null,
    "files": [],
-   "found": false,
-   "kinds": [],
+   "found": true,
+   "kinds": [
+    "person_id"
+   ],
    "registry": "keep",
-   "registry_key": "omop.tb_consent",
    "searched": true,
-   "seeded": false,
+   "seeded": true,
    "store": "omop.tb_consent",
-   "verdict": "not_seeded"
+   "verdict": "kept"
   },
   {
    "clear": null,
@@ -2048,7 +1850,6 @@
     "pid_prefix"
    ],
    "registry": "keep",
-   "registry_key": "omop.tb_id_map",
    "searched": true,
    "seeded": true,
    "store": "omop.tb_id_map",
@@ -2062,11 +1863,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "omop.tb_load",
    "searched": true,
    "seeded": false,
    "store": "omop.tb_load",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2076,11 +1876,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "omop.tb_map_relation",
    "searched": true,
    "seeded": false,
    "store": "omop.tb_map_relation",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2095,7 +1894,6 @@
     "pid_prefix"
    ],
    "registry": "keep",
-   "registry_key": "omop.tb_record",
    "searched": true,
    "seeded": true,
    "store": "omop.tb_record",
@@ -2116,7 +1914,6 @@
     "pid_prefix"
    ],
    "registry": "owed",
-   "registry_key": "omop.tb_record_event",
    "searched": true,
    "seeded": false,
    "store": "omop.tb_record_event",
@@ -2130,11 +1927,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "omop.tb_ruleset_release",
    "searched": true,
    "seeded": false,
    "store": "omop.tb_ruleset_release",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2144,11 +1940,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "omop.tb_term_grouper",
    "searched": true,
    "seeded": false,
    "store": "omop.tb_term_grouper",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2158,11 +1953,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "omop.tb_vocab_release",
    "searched": true,
    "seeded": false,
    "store": "omop.tb_vocab_release",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2175,7 +1969,6 @@
     "pid_prefix"
    ],
    "registry": "keep",
-   "registry_key": "omop.tb_withheld",
    "searched": true,
    "seeded": false,
    "store": "omop.tb_withheld",
@@ -2189,11 +1982,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.visit_detail",
    "searched": true,
    "seeded": false,
    "store": "omop.visit_detail",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "omop",
@@ -2203,7 +1995,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.visit_occurrence",
    "searched": true,
    "seeded": true,
    "store": "omop.visit_occurrence",
@@ -2217,81 +2008,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "omop.visit_occurrence",
-   "searched": true,
-   "seeded": false,
-   "store": "omop.visit_occurrence_y2021",
-   "verdict": "not_seeded"
-  },
-  {
-   "clear": "omop",
-   "decision": null,
-   "error": null,
-   "files": [],
-   "found": false,
-   "kinds": [],
-   "registry": "erase",
-   "registry_key": "omop.visit_occurrence",
-   "searched": true,
-   "seeded": false,
-   "store": "omop.visit_occurrence_y2022",
-   "verdict": "not_seeded"
-  },
-  {
-   "clear": "omop",
-   "decision": null,
-   "error": null,
-   "files": [],
-   "found": false,
-   "kinds": [],
-   "registry": "erase",
-   "registry_key": "omop.visit_occurrence",
-   "searched": true,
-   "seeded": false,
-   "store": "omop.visit_occurrence_y2024",
-   "verdict": "not_seeded"
-  },
-  {
-   "clear": "omop",
-   "decision": null,
-   "error": null,
-   "files": [],
-   "found": false,
-   "kinds": [],
-   "registry": "erase",
-   "registry_key": "omop.visit_occurrence",
-   "searched": true,
-   "seeded": false,
-   "store": "omop.visit_occurrence_y2025",
-   "verdict": "not_seeded"
-  },
-  {
-   "clear": "omop",
-   "decision": null,
-   "error": null,
-   "files": [],
-   "found": false,
-   "kinds": [],
-   "registry": "erase",
-   "registry_key": "omop.visit_occurrence",
-   "searched": true,
-   "seeded": true,
-   "store": "omop.visit_occurrence_y2026",
-   "verdict": "clean"
-  },
-  {
-   "clear": "omop",
-   "decision": null,
-   "error": null,
-   "files": [],
-   "found": false,
-   "kinds": [],
-   "registry": "erase",
-   "registry_key": "omop.visit_occurrence_ydefault",
    "searched": true,
    "seeded": false,
    "store": "omop.visit_occurrence_ydefault",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2301,11 +2021,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "omop.vocabulary",
    "searched": true,
    "seeded": false,
    "store": "omop.vocabulary",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2318,7 +2037,6 @@
     "pid_prefix"
    ],
    "registry": "keep",
-   "registry_key": "optout.optout_events",
    "searched": true,
    "seeded": false,
    "store": "optout.optout_events",
@@ -2332,7 +2050,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "orch.candidate_events",
    "searched": true,
    "seeded": true,
    "store": "orch.candidate_events",
@@ -2346,7 +2063,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "orch.candidates",
    "searched": true,
    "seeded": true,
    "store": "orch.candidates",
@@ -2360,11 +2076,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "orch.cohort_read",
    "searched": true,
    "seeded": false,
    "store": "orch.cohort_read",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2374,11 +2089,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "orch.cohort_stored",
    "searched": true,
    "seeded": false,
    "store": "orch.cohort_stored",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2388,11 +2102,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "orch.cohort_tables",
    "searched": true,
    "seeded": false,
    "store": "orch.cohort_tables",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2402,11 +2115,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "orch.cohort_tables_before",
    "searched": true,
    "seeded": false,
    "store": "orch.cohort_tables_before",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "owed_tables",
@@ -2416,7 +2128,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "orch.feedback",
    "searched": true,
    "seeded": true,
    "store": "orch.feedback",
@@ -2430,11 +2141,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "orch.id_limits",
    "searched": true,
    "seeded": false,
    "store": "orch.id_limits",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2447,7 +2157,6 @@
     "pid_prefix"
    ],
    "registry": "owed",
-   "registry_key": "orch.jobs",
    "searched": true,
    "seeded": true,
    "store": "orch.jobs",
@@ -2461,11 +2170,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "orch.judge_answers",
    "searched": true,
    "seeded": false,
    "store": "orch.judge_answers",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "owed_tables",
@@ -2475,7 +2183,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "orch.judged_pairs",
    "searched": true,
    "seeded": true,
    "store": "orch.judged_pairs",
@@ -2489,11 +2196,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "orch.mails",
    "searched": true,
    "seeded": false,
    "store": "orch.mails",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "candidate_pool",
@@ -2503,7 +2209,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "orch.pool",
    "searched": true,
    "seeded": true,
    "store": "orch.pool",
@@ -2514,14 +2219,16 @@
    "decision": null,
    "error": null,
    "files": [],
-   "found": false,
-   "kinds": [],
+   "found": true,
+   "kinds": [
+    "pid",
+    "pid_prefix"
+   ],
    "registry": "erase",
-   "registry_key": "orch.submissions",
    "searched": true,
    "seeded": true,
    "store": "orch.submissions",
-   "verdict": "clean"
+   "verdict": "leak"
   },
   {
    "clear": null,
@@ -2531,11 +2238,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "orch.trial_cache",
    "searched": true,
    "seeded": false,
    "store": "orch.trial_cache",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2545,11 +2251,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "outside:audit",
    "searched": true,
    "seeded": false,
    "store": "outside:audit",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2559,7 +2264,6 @@
    "found": false,
    "kinds": [],
    "registry": "owed",
-   "registry_key": "outside:backups",
    "searched": false,
    "seeded": false,
    "store": "outside:backups",
@@ -2573,7 +2277,6 @@
    "found": false,
    "kinds": [],
    "registry": "owed",
-   "registry_key": "outside:fhir_store",
    "searched": false,
    "seeded": false,
    "store": "outside:fhir_store",
@@ -2587,7 +2290,19 @@
    "found": false,
    "kinds": [],
    "registry": "owed",
-   "registry_key": "outside:sitesetup_space_omop",
+   "searched": false,
+   "seeded": false,
+   "store": "outside:provenance_index",
+   "verdict": "not_searched"
+  },
+  {
+   "clear": null,
+   "decision": null,
+   "error": null,
+   "files": [],
+   "found": false,
+   "kinds": [],
+   "registry": "owed",
    "searched": false,
    "seeded": false,
    "store": "outside:sitesetup_space_omop",
@@ -2604,7 +2319,6 @@
     "pid_prefix"
    ],
    "registry": "owed",
-   "registry_key": "pidmap.identity",
    "searched": true,
    "seeded": true,
    "store": "pidmap.identity",
@@ -2618,7 +2332,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "pidmap.pending",
    "searched": true,
    "seeded": true,
    "store": "pidmap.pending",
@@ -2632,11 +2345,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "pidmap.pid_alias",
    "searched": true,
    "seeded": false,
    "store": "pidmap.pid_alias",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2649,7 +2361,6 @@
     "pid_prefix"
    ],
    "registry": "keep",
-   "registry_key": "pidmap.pid_map",
    "searched": true,
    "seeded": true,
    "store": "pidmap.pid_map",
@@ -2663,11 +2374,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "pidmap.site_key",
    "searched": true,
    "seeded": false,
    "store": "pidmap.site_key",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "profile",
@@ -2677,7 +2387,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "profile.tb_patient_profile",
    "searched": true,
    "seeded": true,
    "store": "profile.tb_patient_profile",
@@ -2691,11 +2400,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "recall.recall_cell",
    "searched": true,
    "seeded": false,
    "store": "recall.recall_cell",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2707,7 +2415,6 @@
     "pid_hash"
    ],
    "registry": "owed",
-   "registry_key": "recall.recall_known_positive",
    "searched": true,
    "seeded": true,
    "store": "recall.recall_known_positive",
@@ -2723,7 +2430,6 @@
     "pid_hash"
    ],
    "registry": "owed",
-   "registry_key": "recall.recall_observation",
    "searched": true,
    "seeded": true,
    "store": "recall.recall_observation",
@@ -2737,11 +2443,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "recall.recall_registration",
    "searched": true,
    "seeded": false,
    "store": "recall.recall_registration",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2751,11 +2456,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "recall.recall_run_cell",
    "searched": true,
    "seeded": false,
    "store": "recall.recall_run_cell",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2765,11 +2469,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "recall.recall_sequence_state",
    "searched": true,
    "seeded": false,
    "store": "recall.recall_sequence_state",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2779,11 +2482,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "refdata.concept_map",
    "searched": true,
    "seeded": false,
    "store": "refdata.concept_map",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2793,11 +2495,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "refdata.ctgov_study",
    "searched": true,
    "seeded": false,
    "store": "refdata.ctgov_study",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2807,11 +2508,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "refdata.pack",
    "searched": true,
    "seeded": false,
    "store": "refdata.pack",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2821,11 +2521,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "refdata.source",
    "searched": true,
    "seeded": false,
    "store": "refdata.source",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2835,11 +2534,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "refdata.synonym",
    "searched": true,
    "seeded": false,
    "store": "refdata.synonym",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2849,11 +2547,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "refdata.term",
    "searched": true,
    "seeded": false,
    "store": "refdata.term",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2863,11 +2560,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "refdata.trial",
    "searched": true,
    "seeded": false,
    "store": "refdata.trial",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2877,11 +2573,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "refdata.withdrawn",
    "searched": true,
    "seeded": false,
    "store": "refdata.withdrawn",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2891,11 +2586,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "sae.sae_case",
    "searched": true,
    "seeded": false,
    "store": "sae.sae_case",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2905,11 +2599,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "sae.sae_report",
    "searched": true,
    "seeded": false,
    "store": "sae.sae_report",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2919,11 +2612,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "sae.sae_trail",
    "searched": true,
    "seeded": false,
    "store": "sae.sae_trail",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2933,11 +2625,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "site.approval_opened",
    "searched": true,
    "seeded": false,
    "store": "site.approval_opened",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -2947,11 +2638,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "site.code_ticks",
    "searched": true,
    "seeded": false,
    "store": "site.code_ticks",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "owed_tables",
@@ -2961,7 +2651,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "site.contact_outcomes",
    "searched": true,
    "seeded": true,
    "store": "site.contact_outcomes",
@@ -2975,11 +2664,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "site.criterion_labels",
    "searched": true,
    "seeded": false,
    "store": "site.criterion_labels",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "owed_tables",
@@ -2989,7 +2677,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "site.excluded_review",
    "searched": true,
    "seeded": true,
    "store": "site.excluded_review",
@@ -3003,11 +2690,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "site.notify_log",
    "searched": true,
    "seeded": false,
    "store": "site.notify_log",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3017,11 +2703,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "site.notify_people",
    "searched": true,
    "seeded": false,
    "store": "site.notify_people",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "screening_log",
@@ -3031,7 +2716,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "site.pi_marks",
    "searched": true,
    "seeded": true,
    "store": "site.pi_marks",
@@ -3045,7 +2729,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "site.screening_no",
    "searched": true,
    "seeded": true,
    "store": "site.screening_no",
@@ -3059,11 +2742,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "site.site_profile",
    "searched": true,
    "seeded": false,
    "store": "site.site_profile",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3073,11 +2755,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "site.study_identity",
    "searched": true,
    "seeded": false,
    "store": "site.study_identity",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3087,11 +2768,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "site.study_irb_text",
    "searched": true,
    "seeded": false,
    "store": "site.study_irb_text",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3101,11 +2781,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "site.study_settings",
    "searched": true,
    "seeded": false,
    "store": "site.study_settings",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3115,11 +2794,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "site.study_state",
    "searched": true,
    "seeded": false,
    "store": "site.study_state",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "screening_log",
@@ -3129,7 +2807,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "site.weekly_seen",
    "searched": true,
    "seeded": true,
    "store": "site.weekly_seen",
@@ -3140,14 +2817,15 @@
    "decision": null,
    "error": null,
    "files": [],
-   "found": false,
-   "kinds": [],
+   "found": true,
+   "kinds": [
+    "chart"
+   ],
    "registry": "owed",
-   "registry_key": "sitesetup.check_item",
    "searched": true,
-   "seeded": false,
+   "seeded": true,
    "store": "sitesetup.check_item",
-   "verdict": "not_seeded"
+   "verdict": "owed"
   },
   {
    "clear": "owed_tables",
@@ -3157,7 +2835,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "sitesetup.fact",
    "searched": true,
    "seeded": true,
    "store": "sitesetup.fact",
@@ -3168,28 +2845,34 @@
    "decision": null,
    "error": null,
    "files": [],
-   "found": false,
-   "kinds": [],
+   "found": true,
+   "kinds": [
+    "chart",
+    "name"
+   ],
    "registry": "owed",
-   "registry_key": "sitesetup.fix",
    "searched": true,
-   "seeded": false,
+   "seeded": true,
    "store": "sitesetup.fix",
-   "verdict": "not_seeded"
+   "verdict": "owed"
   },
   {
    "clear": "setup_uploads",
    "decision": null,
    "error": null,
-   "files": [],
-   "found": false,
-   "kinds": [],
+   "files": [
+    "space1/inputs/2.csv"
+   ],
+   "found": true,
+   "kinds": [
+    "chart",
+    "name"
+   ],
    "registry": "owed",
-   "registry_key": "sitesetup.input",
    "searched": true,
    "seeded": true,
    "store": "sitesetup.input",
-   "verdict": "clean"
+   "verdict": "owed"
   },
   {
    "clear": null,
@@ -3199,11 +2882,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "sitesetup.local_code",
    "searched": true,
    "seeded": false,
    "store": "sitesetup.local_code",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3213,11 +2895,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "sitesetup.published",
    "searched": true,
    "seeded": false,
    "store": "sitesetup.published",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3227,11 +2908,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "sitesetup.setting",
    "searched": true,
    "seeded": false,
    "store": "sitesetup.setting",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3241,11 +2921,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "study.rc_connection",
    "searched": true,
    "seeded": false,
    "store": "study.rc_connection",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3255,11 +2934,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "study.rc_project_link",
    "searched": true,
    "seeded": false,
    "store": "study.rc_project_link",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "screening_log",
@@ -3269,11 +2947,10 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "study.rc_read_log",
    "searched": true,
    "seeded": false,
    "store": "study.rc_read_log",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "screening_log",
@@ -3283,7 +2960,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "study.rc_record",
    "searched": true,
    "seeded": true,
    "store": "study.rc_record",
@@ -3297,11 +2973,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "study.rc_write",
    "searched": true,
    "seeded": false,
    "store": "study.rc_write",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3311,11 +2986,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "study.screen_scope",
    "searched": true,
    "seeded": false,
    "store": "study.screen_scope",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3325,11 +2999,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "study.study_settings",
    "searched": true,
    "seeded": false,
    "store": "study.study_settings",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "owed_tables",
@@ -3339,7 +3012,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "team.approach_overrides",
    "searched": true,
    "seeded": true,
    "store": "team.approach_overrides",
@@ -3353,7 +3025,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "team.candidate_views",
    "searched": true,
    "seeded": true,
    "store": "team.candidate_views",
@@ -3367,11 +3038,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "team.delegation",
    "searched": true,
    "seeded": false,
    "store": "team.delegation",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3381,11 +3051,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "team.delegation_checks",
    "searched": true,
    "seeded": false,
    "store": "team.delegation_checks",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3395,11 +3064,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "team.delegation_history",
    "searched": true,
    "seeded": false,
    "store": "team.delegation_history",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3409,11 +3077,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "team.dept_contacts",
    "searched": true,
    "seeded": false,
    "store": "team.dept_contacts",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3423,11 +3090,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "team.icf_versions",
    "searched": true,
    "seeded": false,
    "store": "team.icf_versions",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3437,11 +3103,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "team.irb",
    "searched": true,
    "seeded": false,
    "store": "team.irb",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3451,11 +3116,10 @@
    "found": false,
    "kinds": [],
    "registry": "keep",
-   "registry_key": "team.monitor_visits",
    "searched": true,
    "seeded": false,
    "store": "team.monitor_visits",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "owed_tables",
@@ -3465,7 +3129,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "team.referral_events",
    "searched": true,
    "seeded": true,
    "store": "team.referral_events",
@@ -3479,7 +3142,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "team.referrals",
    "searched": true,
    "seeded": true,
    "store": "team.referrals",
@@ -3493,11 +3155,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "team.staff",
    "searched": true,
    "seeded": false,
    "store": "team.staff",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3507,11 +3168,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "terminology.concept",
    "searched": true,
    "seeded": false,
    "store": "terminology.concept",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3521,11 +3181,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "terminology.release",
    "searched": true,
    "seeded": false,
    "store": "terminology.release",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3535,11 +3194,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "trace.access_log",
    "searched": true,
    "seeded": false,
    "store": "trace.access_log",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": null,
@@ -3553,7 +3211,6 @@
     "pid_prefix"
    ],
    "registry": "owed",
-   "registry_key": "trace.traces",
    "searched": true,
    "seeded": true,
    "store": "trace.traces",
@@ -3567,11 +3224,10 @@
    "found": false,
    "kinds": [],
    "registry": "no_patient_data",
-   "registry_key": "tuned.not_matched_check",
    "searched": true,
    "seeded": false,
    "store": "tuned.not_matched_check",
-   "verdict": "not_seeded"
+   "verdict": "not_reached"
   },
   {
    "clear": "owed_tables",
@@ -3581,7 +3237,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "tuned.tuned_patients",
    "searched": true,
    "seeded": true,
    "store": "tuned.tuned_patients",
@@ -3595,7 +3250,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "vec.embedding",
    "searched": false,
    "seeded": false,
    "store": "vec.embedding",
@@ -3609,7 +3263,6 @@
    "found": false,
    "kinds": [],
    "registry": "erase",
-   "registry_key": "vec.note_chunk",
    "searched": false,
    "seeded": false,
    "store": "vec.note_chunk",
@@ -3619,14 +3272,14 @@
  "tick": {
   "failed": [],
   "left": {},
-  "opted_out": 1
+  "opted_out": 2
  },
  "tick_stores": {
   "candidate_pool": {
    "removed": 1
   },
   "candidate_registry": {
-   "kept_consented_or_enrolled": 0,
+   "kept_consented_or_enrolled": 2,
    "withdrawn": 1
   },
   "held_mail": {
@@ -3636,14 +3289,14 @@
    "images_blanked": 0,
    "records_blanked": 0,
    "released": 0,
-   "tombstoned": 4,
-   "withheld": 1
+   "tombstoned": 22,
+   "withheld": 2
   },
   "owed_tables": {
    "derived.batch_run": 0,
    "derived.conflict": 0,
-   "derived.input_link": 0,
-   "derived.score_row": 0,
+   "derived.input_link": 4,
+   "derived.score_row": 4,
    "orch.feedback": 1,
    "orch.judged_pairs": 1,
    "orch.submissions": 1,
@@ -3663,7 +3316,7 @@
    "erased": 1
   },
   "screening_log": {
-   "kept_trial_subject": 0,
+   "kept_trial_subject": 2,
    "tokened": 8
   },
   "setup_uploads": {
@@ -3673,5 +3326,67 @@
    "skipped": 1
   }
  },
- "what": "tests/unit/test_erasure_reach.py: one synthetic patient seeded, opted out, one worker tick, searched"
+ "trial_subject_stores": [
+  "omop.tb_consent",
+  "omop.tb_id_map",
+  "omop.tb_record",
+  "omop.tb_record_event",
+  "omop.tb_withheld",
+  "optout.optout_events",
+  "orch.candidate_events",
+  "orch.candidates",
+  "pidmap.identity",
+  "pidmap.pid_map"
+ ],
+ "variants": {
+  "mail.send_keys: a held mail of the patient's own file": {
+   "after": "gone",
+   "expected": "gone"
+  },
+  "mail.send_keys: a queued mail of a list that names the patient": {
+   "after": "there",
+   "expected": "owed D-863"
+  },
+  "mail.send_keys: an uncertain mail of the patient's own file": {
+   "after": "there",
+   "expected": "owed D-874"
+  },
+  "orch.candidates: S consented in one study": {
+   "after": "there",
+   "expected": "kept OD-8"
+  },
+  "orch.candidates: S enrolled in another": {
+   "after": "there",
+   "expected": "kept OD-8"
+  },
+  "orch.candidates: a never-consented candidate": {
+   "after": "gone",
+   "expected": "gone"
+  },
+  "orch.submissions: a dry run": {
+   "after": "gone",
+   "expected": "gone"
+  },
+  "orch.submissions: a live submission": {
+   "after": "there",
+   "expected": "kept D-513"
+  },
+  "sitesetup.check_item: a sheet's row of the patient": {
+   "after": "there",
+   "expected": "owed D-869"
+  },
+  "sitesetup.fix: a sheet column's example of the patient": {
+   "after": "there",
+   "expected": "owed D-869"
+  },
+  "sitesetup.input: a sheet of many patients": {
+   "after": "there",
+   "expected": "owed D-869"
+  },
+  "sitesetup.input: the patient's own upload": {
+   "after": "gone",
+   "expected": "gone"
+  }
+ },
+ "what": "tests/unit/test_erasure_reach.py: two synthetic patients seeded, opted out, two worker ticks, searched before and after"
 }

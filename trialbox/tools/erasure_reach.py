@@ -2,31 +2,45 @@
 
 Card V-1 (plan 8, activity V7, release criterion 8). The erasure registry (``tb_common.erasure``) says which store
 an opt-out clears, keeps or still owes. This tool does not trust it. It looks for one synthetic patient's marker
-values (the pseudonym, the chart number, a national-ID-shaped number, the name, the phone, the date of birth, the
-recall hash of the pseudonym and the OMOP person id) in:
+values in:
 
-* every text-like column of every table of every schema of the database (an ``information_schema`` walk; a row is
-  read as text, so JSON and arrays are searched too), and every integer ``person_id`` column for the person id;
-* every file under a folder (the lake, the object store, the site set-up folder): DuckDB and Parquet files are opened
-  and every row read as text; a ``.gz`` file is read unpacked; every other file is searched as bytes, as UTF-8 and as
-  JSON's ``\\uXXXX`` escapes;
+* every table of every schema of the database: each row read as text, each ``bytea`` column as bytes, and each
+  integer or integer-array column whose name holds ``person`` compared with the OMOP person ids;
+* every file under a folder (the lake, the object store, the site set-up folder, a log folder): DuckDB and Parquet
+  files opened and every row read; ``.gz``, ``.bz2`` and ``.zip`` unpacked; every file also searched as bytes, in
+  chunks with an overlap, with base64 runs decoded;
 * captured log text;
-* the FHIR store over HTTP (live mode only).
+* the FHIR store over HTTP (live mode only), its history included.
+
+**The values** (:meth:`Marker.needles`): the pseudonym; its first 16 characters (a per-patient file's name); the
+hashes the product makes of a pseudonym (the recall ledger's ``sha256("recall|" + pid)``, a TWPAS bundle's resource
+ids ``<kind>-sha256(pid + kind)[:16]``, a plain ``sha256(pid)``); the chart number, a national-ID-shaped number, the
+name, the phone and the date of birth; and any extra value a caller adds (the lake's chunk hashes of the patient's
+notes). **The forms** of each value (:func:`variants`): as it is; JSON's ``\\u`` escapes; those with backslashes
+doubled; percent-encoded; base64 (standard and URL-safe) of the value alone; full-width digits; and, in files, UTF-16.
+**The person id rule**: OMOP person ids start at 1 on a box, so a person id is matched only as a whole value of a
+column (or a JSON key) whose name holds ``person``; anywhere else it would match every small number.
 
 Each hit is put under a store key as the registry names stores (``schema.table``, ``lake:<top folder>``,
-``objects:<prefix>``), and classed by the registry: ``erase`` (a clear exists), ``owed``, ``keep``,
-``no_patient_data`` or ``unlisted`` (a store the registry does not know).
+``objects:<prefix>``; an OMOP yearly partition under its parent), and classed by the registry: ``erase``, ``owed``,
+``keep``, ``no_patient_data`` or ``unlisted``. A store that could not be read is an ``error``, never clean.
 
 Commands::
 
-    python -m tools.erasure_reach live --marker marker.json --out reach.json
-        # against a running box: TB_DB_URL (and TB_OMOP_DB_URL), ERASURE_REACH_LAKE_DIR,
-        # ERASURE_REACH_OBJECTS_DIR, ERASURE_REACH_SETUP_DIR, ERASURE_REACH_LOG_DIR and ERASURE_REACH_FHIR_URL from
-        # the environment; any one may be unset and is then reported as not searched. ERASURE_REACH_FHIR_TOKEN, when
-        # set, is sent as a bearer token and never printed. The names are the tool's, not the box's settings.
-    python -m tools.erasure_reach owed            # print the owed table, costed (markdown)
-    python -m tools.erasure_reach owed --check PAGE
-        # exit 1 when the owed table in PAGE (between the two marker comments) is not what the registry gives now
+    python -m tools.erasure_reach live --marker m.json --before-out before.json
+        # before the opt-out: search a running box and keep what was found
+    python -m tools.erasure_reach live --marker m.json --before before.json --out reach.json [--allow-not-searched X]
+        # after the opt-out and a worker tick: "clean" only where the before-search found the patient. Exits 1 when
+        # the patient is found, or a place was not searched (database, omop_database, lake, objects, setup, logs,
+        # fhir) and is not named by --allow-not-searched.
+        # Places: TB_DB_URL (and TB_OMOP_DB_URL), ERASURE_REACH_LAKE_DIR, ERASURE_REACH_OBJECTS_DIR,
+        # ERASURE_REACH_SETUP_DIR, ERASURE_REACH_LOG_DIR, ERASURE_REACH_FHIR_URL (ERASURE_REACH_FHIR_TOKEN, when set, is
+        # sent as a bearer token and never printed). The names are the tool's, not the box's settings.
+    python -m tools.erasure_reach table reach.json     # the page's per-store table
+    python -m tools.erasure_reach summary reach.json   # the page's count sentences
+    python -m tools.erasure_reach owed                 # the owed table, costed
+    python -m tools.erasure_reach check PAGE --record reach.json
+        # exit 1 when a generated block of PAGE (the counts, the per-store table, the owed table) differs
 
 The marker file is JSON: ``{"pid": ..., "chart": ..., "national_id": ..., "name": ..., "phone": ..., "dob": ...,
 "person_ids": [..]}``. Only synthetic values belong in it. The tool prints counts and store names, never a value.
@@ -35,14 +49,18 @@ The marker file is JSON: ``{"pid": ..., "chart": ..., "national_id": ..., "name"
 from __future__ import annotations
 
 import argparse
-import contextlib
+import base64
+import binascii
+import bz2
 import gzip
 import hashlib
 import json
 import os
 import re
 import sys
-from collections.abc import Callable, Iterable, Mapping
+import urllib.parse
+import zipfile
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -54,17 +72,35 @@ for _p in (ROOT / "libs", ROOT / "services"):
 
 from tb_common import erasure  # noqa: E402
 
-OWED_BEGIN = "<!-- erasure-reach owed table: generated by python -m tools.erasure_reach owed; do not edit -->"
-OWED_END = "<!-- end of the generated owed table -->"
+BLOCKS = {
+    "summary": ("<!-- erasure-reach counts: generated by python -m tools.erasure_reach summary; do not edit -->",
+                "<!-- end of the generated counts -->"),
+    "table": ("<!-- erasure-reach per-store table: generated by python -m tools.erasure_reach table; do not edit -->",
+              "<!-- end of the generated per-store table -->"),
+    "owed": ("<!-- erasure-reach owed table: generated by python -m tools.erasure_reach owed; do not edit -->",
+             "<!-- end of the generated owed table -->"),
+}  # fmt: skip
 #: the tables whose rows are migration bookkeeping, never data (D-204)
 SKIP_TABLES = frozenset({"_schema_version"})
-MAX_FILE = 64 * 2**20  # a file larger than this is searched by bytes only
+CHUNK = 8 * 2**20  # a file is read in pieces of this size, each overlapping the last by the longest form
+B64_RUN = re.compile(rb"[A-Za-z0-9+/_-]{24,}={0,2}")
+TWPAS_KINDS = ("claim", "encounter", "patient", "practitioner", "org", "nhi", "coverage", "medapply", "gene",
+               "specimen", "genelab", "ecog", "bundle")  # fmt: skip
+#: the store a set-up folder's files are put under, in the test and in live mode alike
+SETUP_FILES = "sitesetup.input"
+_FULL = str.maketrans("0123456789-", "０１２３４５６７８９－")
+_DIGITS = ("chart", "phone", "national_id", "dob")
 
 
 def recall_hash(pid: str) -> str:
     """The recall ledger's hash of a pseudonym, as ``matching.cascade.certificate.pid_hash`` makes it (copied, not
     imported: the tool must run where the matching service's code is not installed)."""
     return "sha256:" + hashlib.sha256(f"recall|{pid}".encode()).hexdigest()
+
+
+def twpas_ids(pid: str) -> list[str]:
+    """The resource ids a TWPAS bundle gives a patient (``orchestrator.reports.twpas_bundle._id``)."""
+    return [f"{k}-{hashlib.sha256((pid + k).encode()).hexdigest()[:16]}" for k in TWPAS_KINDS]
 
 
 @dataclass(frozen=True)
@@ -78,12 +114,23 @@ class Marker:
     phone: str = ""
     dob: str = ""
     person_ids: tuple[int, ...] = ()
+    extra: tuple[tuple[str, str], ...] = ()
 
-    def needles(self) -> dict[str, str]:
-        out = {"pid": self.pid, "pid_prefix": self.pid[:16] if len(self.pid) > 16 else "",
-               "pid_hash": recall_hash(self.pid), "chart": self.chart,
-               "national_id": self.national_id, "name": self.name, "phone": self.phone, "dob": self.dob}  # fmt: skip
-        return {k: v for k, v in out.items() if v}
+    def needles(self) -> dict[str, list[str]]:
+        out: dict[str, list[str]] = {
+            "pid": [self.pid],
+            "pid_prefix": [self.pid[:16]] if len(self.pid) > 16 else [],
+            "pid_hash": [recall_hash(self.pid), hashlib.sha256(self.pid.encode()).hexdigest()],
+            "twpas_id": twpas_ids(self.pid),
+            "chart": [self.chart],
+            "national_id": [self.national_id],
+            "name": [self.name],
+            "phone": [self.phone],
+            "dob": [self.dob],
+        }
+        for kind, value in self.extra:
+            out.setdefault(kind, []).append(value)
+        return {k: [v for v in vs if v] for k, vs in out.items() if any(vs)}
 
     @classmethod
     def from_json(cls, data: Mapping[str, Any]) -> Marker:
@@ -135,54 +182,86 @@ class Found:
         self.errors.update(other.errors)
         return self
 
+    def to_json(self) -> dict[str, Any]:
+        return {"stores": self.stores, "searched": sorted(self.searched), "errors": self.errors}
+
+    @classmethod
+    def from_json(cls, data: Mapping[str, Any]) -> Found:
+        return cls(stores={k: dict(v) for k, v in data["stores"].items()}, searched=set(data["searched"]),
+                   errors=dict(data.get("errors") or {}))  # fmt: skip
+
 
 # ------------------------------------------------------------------------------------------------ text and bytes
-def variants(value: str) -> list[str]:
-    """The forms a value is written in: as it is, as JSON's ASCII escapes when it is not ASCII, and that again with
-    its backslashes doubled (a row of a table read as text quotes a backslash)."""
+def variants(value: str, kind: str = "") -> list[str]:
+    """The text forms a value is written in: as it is; JSON's ASCII escapes when it is not ASCII; those with the
+    backslashes doubled (a row of a table read as text quotes a backslash); percent-encoded; base64 (standard and
+    URL-safe, unpadded) of the value alone; and, for the number-like kinds, with full-width digits."""
     out = [value]
     escaped = json.dumps(value)[1:-1]
-    for v in (escaped, escaped.replace("\\", "\\\\")):
-        if v not in out:
+    b64 = base64.b64encode(value.encode()).decode().rstrip("=")
+    more = [escaped, escaped.replace("\\", "\\\\"), urllib.parse.quote(value, safe=""), b64,
+            base64.urlsafe_b64encode(value.encode()).decode().rstrip("=")]  # fmt: skip
+    if kind in _DIGITS:
+        more.append(value.translate(_FULL))
+    for v in more:
+        if len(v) >= 4 and v not in out:
             out.append(v)
     return out
 
 
-def _forms(value: str) -> list[bytes]:
-    return [v.encode("utf-8") for v in variants(value)]
+def _byte_forms(value: str, kind: str) -> list[bytes]:
+    forms = [v.encode("utf-8") for v in variants(value, kind)]
+    forms += [value.encode("utf-16-le"), value.encode("utf-16-be")]
+    return forms
 
 
-def search_bytes(data: bytes, marker: Marker) -> Hits:
-    return {k: 1 for k, v in marker.needles().items() if any(f in data for f in _forms(v))}
+def _all_forms(marker: Marker) -> dict[str, list[bytes]]:
+    return {k: [f for v in vs for f in _byte_forms(v, k)] for k, vs in marker.needles().items()}
+
+
+_PERSON_JSON = re.compile(rb'"[A-Za-z_]*person[A-Za-z_]*"\s*:\s*\[?\s*(\d+)')
+
+
+def search_bytes(data: bytes, marker: Marker, _depth: int = 0) -> Hits:
+    """Each needle kind found in ``data``: any byte form, in the data or in a base64 run of it decoded; a person id
+    as the whole value of a JSON key whose name holds ``person``."""
+    forms = _all_forms(marker)
+    out: Hits = {k: 1 for k, fs in forms.items() if any(f in data for f in fs)}
+    if marker.person_ids and any(int(m[1]) in marker.person_ids for m in _PERSON_JSON.finditer(data)):
+        out["person_id"] = 1
+    if _depth == 0:
+        for run in B64_RUN.findall(data):
+            try:
+                raw = base64.b64decode(run + b"=" * (-len(run) % 4), altchars=b"-_" if b"-" in run or b"_" in run
+                                       else None)  # fmt: skip
+            except (binascii.Error, ValueError):
+                continue
+            for k in search_bytes(raw, marker, 1):
+                out[k] = 1
+    return out
 
 
 def search_text(text: str, marker: Marker) -> Hits:
-    """Occurrences of each needle in ``text`` (log lines, a page, a response body)."""
-    return {k: n for k, v in marker.needles().items() if (n := text.count(v)) > 0}
+    """Each needle kind in ``text`` (log lines, a page, a response body), in the same forms as a file."""
+    return search_bytes(text.encode("utf-8"), marker)
 
 
 # ------------------------------------------------------------------------------------------------ the database
-def _ident(name: str) -> str:
-    return '"' + name.replace('"', '""') + '"'
-
-
 def search_db(url: str, marker: Marker, key: Callable[[str, str], str] | None = None) -> Found:
-    """Every base table of every schema of the run (those that start with the URL's ``tb_prefix``; all non-system
-    schemas when there is none). A row is cast to text; each needle is a ``LIKE``. An integer ``person_id`` column is
-    compared with the marker's person ids. ``key(schema, table)`` names the store (default: the schema less the
-    prefix, a dot, the table)."""
+    """Every base table of every schema of the run (those that start with the URL's ``tb_prefix``). A row is cast to
+    text and each text form is a substring test; a ``bytea`` column is searched for each byte form; an integer or
+    integer-array column whose name holds ``person`` is compared with the person ids as whole values.
+    ``key(schema, table)`` names the store (default: the schema less the prefix, a dot, the table). A table that
+    cannot be read is put in ``errors``."""
     import psycopg
     from psycopg import sql
     from tb_common.db import split_url
 
-    def _count_any(n: int) -> Any:
-        """``count(*)`` of the rows whose text holds any of ``n`` strings (a plain substring test, no LIKE)."""
-        test = sql.SQL(" OR ").join([sql.SQL("strpos(t::text, %s) > 0")] * n)
-        return sql.SQL("count(*) FILTER (WHERE {})").format(test)
-
     dsn, prefix = split_url(url)
     found = Found()
     needles = marker.needles()
+    texts = {k: [v2 for v in vs for v2 in variants(v, k)] for k, vs in needles.items()}
+    blobs = _all_forms(marker)
     with psycopg.connect(dsn, autocommit=True, connect_timeout=10) as con:
         rows = con.execute(
             "SELECT table_schema, table_name FROM information_schema.tables WHERE table_type = 'BASE TABLE' "
@@ -190,53 +269,81 @@ def search_db(url: str, marker: Marker, key: Callable[[str, str], str] | None = 
             "ORDER BY 1, 2",
             (len(prefix), prefix),
         ).fetchall()
-        cols = con.execute(
-            "SELECT table_schema, table_name, column_name FROM information_schema.columns WHERE column_name = "
-            "'person_id' AND data_type IN ('bigint', 'integer') AND left(table_schema, %s) = %s",
+        cols: dict[tuple[str, str], list[tuple[str, str]]] = {}
+        for s, t, c, typ in con.execute(
+            "SELECT c.table_schema, c.table_name, c.column_name, c.udt_name FROM information_schema.columns c "
+            "WHERE left(c.table_schema, %s) = %s",
             (len(prefix), prefix),
-        ).fetchall()
-        person = {(str(s), str(t)) for s, t, _c in cols}
+        ).fetchall():
+            cols.setdefault((str(s), str(t)), []).append((str(c), str(typ)))
         for schema, table in rows:
             schema, table = str(schema), str(table)
             if table in SKIP_TABLES:
                 continue
             name = key(schema[len(prefix) :], table) if key else f"{schema[len(prefix) :]}.{table}"
             found.seen(name)
-            try:
-                forms = [variants(v) for v in needles.values()]
-                parts = [_count_any(len(f)) for f in forms]
-                args: list[Any] = [x for f in forms for x in f]
-                if (schema, table) in person and marker.person_ids:
-                    parts.append(sql.SQL("count(*) FILTER (WHERE t.person_id = ANY(%s))"))
+            parts: list[Any] = []
+            args: list[Any] = []
+            kinds: list[str] = []
+            for kind, forms in texts.items():
+                test = sql.SQL(" OR ").join([sql.SQL("strpos(t::text, %s) > 0")] * len(forms))
+                parts.append(sql.SQL("count(*) FILTER (WHERE {})").format(test))
+                args += forms
+                kinds.append(kind)
+            for col, typ in cols.get((schema, table), []):
+                c = sql.Identifier(col)
+                if typ == "bytea":
+                    for kind, bforms in blobs.items():
+                        test = sql.SQL(" OR ").join([sql.SQL("position(%s::bytea in {}) > 0").format(c)] * len(bforms))
+                        parts.append(sql.SQL("count(*) FILTER (WHERE {})").format(test))
+                        args += bforms
+                        kinds.append(kind)
+                elif "person" in col and marker.person_ids and typ in ("int2", "int4", "int8"):
+                    parts.append(sql.SQL("count(*) FILTER (WHERE {} = ANY(%s))").format(c))
                     args.append(list(marker.person_ids))
-                query = sql.SQL("SELECT {} FROM {}.{} t").format(
-                    sql.SQL(", ").join(parts), sql.Identifier(schema), sql.Identifier(table)
-                )
+                    kinds.append("person_id")
+                elif "person" in col and marker.person_ids and typ in ("_int2", "_int4", "_int8"):
+                    parts.append(sql.SQL("count(*) FILTER (WHERE {}::bigint[] && %s::bigint[])").format(c))
+                    args.append(list(marker.person_ids))
+                    kinds.append("person_id")
+            query = sql.SQL("SELECT {} FROM {}.{} t").format(
+                sql.SQL(", ").join(parts), sql.Identifier(schema), sql.Identifier(table)
+            )
+            try:
                 got = con.execute(query, args).fetchone() or ()
-            except Exception as exc:  # a table this login may not read: said, never passed over as clean
+            except Exception as exc:  # a table this login may not read: an error, never passed over as clean
                 found.errors[name] = type(exc).__name__
                 continue
-            kinds = [*needles, "person_id"]
             for kind, n in zip(kinds, got, strict=False):
                 found.add(name, kind, int(n or 0))
     return found
 
 
 # ------------------------------------------------------------------------------------------------ folders
+def _ident(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
 def _rows_hits(rel: Any, marker: Marker, batch: int = 5000) -> Hits:
-    """Each row of a DuckDB relation read as text (each value's own text, nested values in their Python form),
-    counted per needle that any of its forms is in."""
-    forms = {k: variants(v) for k, v in marker.needles().items()}
+    """Each row of a DuckDB relation, each value as its own text (a date as 1937-07-27, nested values in their Python
+    form), counted per needle kind; a person id as the whole value of a column whose name holds ``person``."""
+    forms = {k: [v2 for v in vs for v2 in variants(v, k)] for k, vs in marker.needles().items()}
+    person = [i for i, c in enumerate(rel.columns) if "person" in c.lower()]
     out: Hits = {}
     while True:
         rows = rel.fetchmany(batch)
         if not rows:
             return out
         for row in rows:
-            text = "\x1f".join(map(str, row))  # each value as text: a date as 1937-07-27, a list as its repr
+            text = "\x1f".join(map(str, row))
             for k, fs in forms.items():
                 if any(f in text for f in fs):
                     out[k] = out.get(k, 0) + 1
+            for i in person:
+                v = row[i]
+                vals = v if isinstance(v, list) else [v]
+                if any(isinstance(x, int) and x in marker.person_ids for x in vals):
+                    out["person_id"] = out.get("person_id", 0) + 1
 
 
 def search_duckdb(path: Path, marker: Marker) -> Hits:
@@ -266,36 +373,60 @@ def search_parquet(path: Path, marker: Marker) -> Hits:
         con.close()
 
 
-def search_file(path: Path, marker: Marker) -> Hits:
-    """One file, by what it is. DuckDB and Parquet files are opened; anything that fails to open is searched as
-    bytes (and the bytes search also runs on them: a value in a page of the file that a query does not reach)."""
-    head = b""
-    try:
-        with path.open("rb") as fh:
-            head = fh.read(8)
-    except OSError:
-        return {}
+def _pieces(path: Path, overlap: int) -> Iterator[bytes]:
+    """The file in pieces of :data:`CHUNK` bytes, each starting ``overlap`` bytes before the last one ended."""
+    with path.open("rb") as fh:
+        tail = b""
+        while True:
+            piece = fh.read(CHUNK)
+            if not piece:
+                return
+            yield tail + piece
+            tail = piece[-overlap:] if overlap else b""
+
+
+def _merge(out: Hits, more: Hits) -> None:
+    for k, n in more.items():
+        out[k] = max(out.get(k, 0), n)
+
+
+def search_file(path: Path, marker: Marker) -> tuple[Hits, str | None]:
+    """One file, by what it is: ``(hits, error)``. A DuckDB or Parquet file that does not open is an error (its bytes
+    are still searched). Every file is searched as bytes in overlapping pieces; a compressed file is unpacked."""
+    with path.open("rb") as fh:
+        head = fh.read(8)
     out: Hits = {}
+    error: str | None = None
     try:
         if path.suffix == ".parquet" or head[:4] == b"PAR1":
             out = search_parquet(path, marker)
         elif path.suffix == ".duckdb" or head[4:8] == b"DUCK":
             out = search_duckdb(path, marker)
-    except Exception:
-        out = {}
-    if path.stat().st_size <= MAX_FILE:
-        data = path.read_bytes()
+    except Exception as exc:
+        error = f"{type(exc).__name__} opening {path.name}"
+    data: bytes | None = None
+    try:
         if path.suffix == ".gz" or head[:2] == b"\x1f\x8b":
-            with contextlib.suppress(OSError, EOFError):
-                data = gzip.decompress(data)
-        for k, n in search_bytes(data, marker).items():
-            out[k] = max(out.get(k, 0), n)
-    return out
+            data = gzip.decompress(path.read_bytes())
+        elif path.suffix == ".bz2" or head[:3] == b"BZh":
+            data = bz2.decompress(path.read_bytes())
+        elif zipfile.is_zipfile(path):
+            with zipfile.ZipFile(path) as z:
+                for info in z.infolist():
+                    _merge(out, search_bytes(z.read(info), marker))
+    except Exception as exc:
+        error = error or f"{type(exc).__name__} unpacking {path.name}"
+    if data is not None:
+        _merge(out, search_bytes(data, marker))
+    longest = max((len(f) for fs in _all_forms(marker).values() for f in fs), default=0)
+    for piece in _pieces(path, longest):
+        _merge(out, search_bytes(piece, marker))
+    return out, error
 
 
 def search_tree(root: Path, marker: Marker, key: Callable[[str], str]) -> Found:
     """Every file under ``root``; ``key(relative path)`` names its store. Every store key a file maps to is
-    counted as searched, with or without a hit."""
+    counted as searched; a file that could not be read or opened makes its store an error."""
     found = Found()
     if not root.is_dir():
         return found
@@ -305,7 +436,13 @@ def search_tree(root: Path, marker: Marker, key: Callable[[str], str]) -> Found:
         rel = f.relative_to(root).as_posix()
         name = key(rel)
         found.seen(name)
-        for kind, n in search_file(f, marker).items():
+        try:
+            hits, error = search_file(f, marker)
+        except OSError as exc:
+            hits, error = {}, f"{type(exc).__name__} reading"
+        if error:
+            found.errors[name] = f"{rel}: {error}"
+        for kind, n in hits.items():
             found.add(name, kind, n, rel)
     return found
 
@@ -338,6 +475,7 @@ def _http_fetch(token: str | None) -> Fetch:
 
 FHIR_QUERIES = (
     "Patient/{pid}",
+    "Patient/{pid}/_history",
     "Patient?_id={pid}",
     "Patient?identifier={chart}",
     "Patient?identifier={national_id}",
@@ -351,9 +489,10 @@ FHIR_QUERIES = (
 
 
 def search_fhir(base: str, marker: Marker, fetch: Fetch) -> Found:
-    """The FHIR store over its REST API: the marker's Patient by id and by identifier, and the patient's resources by
-    subject. A 404 or 410 is "gone"; a bundle with a total of 0 is "gone"; any other body that holds a needle is a hit
-    under ``outside:fhir_store``."""
+    """The FHIR store over its REST API: the marker's Patient by id, its history, by identifier, and the patient's
+    resources by subject. A 404 or 410 on a read is not "gone" by itself: the history is asked too, and a history
+    bundle with entries is a hit. A bundle with a total of 0 and no entry is "gone"; any other body that holds a
+    needle is a hit under ``outside:fhir_store``. A failed request is an error."""
     found = Found()
     key = "outside:fhir_store"
     found.seen(key)
@@ -366,8 +505,7 @@ def search_fhir(base: str, marker: Marker, fetch: Fetch) -> Found:
         try:
             status, body = fetch(url)
         except Exception as exc:
-            code = getattr(exc, "code", None)
-            if code in (404, 410):
+            if getattr(exc, "code", None) in (404, 410):
                 continue
             found.errors[key] = f"{type(exc).__name__} on {q.split('?')[0]}"
             continue
@@ -377,11 +515,14 @@ def search_fhir(base: str, marker: Marker, fetch: Fetch) -> Found:
             doc = json.loads(body)
         except ValueError:
             doc = None
-        if isinstance(doc, dict) and doc.get("resourceType") == "Bundle" and doc.get("total") == 0:
-            continue
-        if isinstance(doc, dict) and doc.get("resourceType") == "Bundle" and int(doc.get("total") or 0) > 0:
-            found.add(key, "pid", int(doc["total"]))
-            continue
+        if isinstance(doc, dict) and doc.get("resourceType") == "Bundle":
+            total = int(doc.get("total") or 0)
+            entries = len(doc.get("entry") or [])
+            if total or entries:
+                found.add(key, "pid", max(total, entries))
+                continue
+            if not search_bytes(body, marker):
+                continue
         for kind, n in search_bytes(body, marker).items():
             found.add(key, kind, n)
     return found
@@ -389,14 +530,19 @@ def search_fhir(base: str, marker: Marker, fetch: Fetch) -> Found:
 
 # ------------------------------------------------------------------------------------------------ the registry
 _YEAR_PART = re.compile(r"^(omop\.[a-z_]+)_y\d{4}$")
+#: stores a schema of its own holds that the registry names as one entry outside the database list
+_OUTSIDE_SCHEMAS = {"provenance": "outside:provenance_index"}
 
 
 def registry_key(key: str) -> str:
-    """The registry's name of a store: a yearly partition the OMOP loader makes at run time
-    (``omop.note_y2026``) is its parent's (``omop.note``); the registry lists the parent and its default partition."""
+    """The registry's name of a store: a yearly partition the OMOP loader makes at run time (``omop.note_y2026``) is
+    its parent's (``omop.note``); a table of the provenance index is ``outside:provenance_index``."""
     m = _YEAR_PART.match(key)
     if m and key not in erasure.entries() and m[1] in erasure.entries():
         return m[1]
+    schema = key.split(".", 1)[0]
+    if "." in key and schema in _OUTSIDE_SCHEMAS and key not in erasure.entries():
+        return _OUTSIDE_SCHEMAS[schema]
     return key
 
 
@@ -409,41 +555,61 @@ def registry_class(key: str) -> str:
     return str(e.kind)
 
 
+def _fold(f: Found | None) -> Found | None:
+    """The same search with every store under its registry name (a partition under its parent)."""
+    if f is None:
+        return None
+    out = Found()
+    for k in f.searched:
+        out.seen(registry_key(k))
+    for k, hits in f.stores.items():
+        for kind, n in hits.items():
+            out.add(registry_key(k), kind, n)
+    for k, fs in f.files.items():
+        out.files.setdefault(registry_key(k), []).extend(fs)
+    for k, e in f.errors.items():
+        out.errors[registry_key(k)] = e
+    return out
+
+
 def reach_rows(before: Found | None, after: Found, keys: Iterable[str] = ()) -> list[dict[str, Any]]:
-    """One row per store: searched, the marker there before the opt-out (seeded), there after, and the registry's
-    class. ``keys``: stores to list even when no search reached them (the registry's, so a store not searched is
-    said)."""
-    allk = set(keys) | after.searched | set(after.stores) | (before.searched if before else set())
+    """One row per store (partitions folded into their parent): searched, the marker there before the opt-out
+    (``seeded``, None when no before-search ran), there after, the registry's class, and the verdict."""
+    b, a = _fold(before), _fold(after)
+    assert a is not None
+    allk = set(keys) | a.searched | set(a.stores) | (b.searched if b else set())
     rows = []
     for k in sorted(allk):
-        e = erasure.entries().get(registry_key(k))
-        rows.append(
-            {
-                "store": k,
-                "searched": k in after.searched and k not in after.errors,
-                "error": after.errors.get(k),
-                "seeded": None if before is None else bool(before.stores.get(k)),
-                "found": bool(after.stores.get(k)),
-                "kinds": sorted(after.stores.get(k, {})),
-                "files": sorted(after.files.get(k, []))[:20],
-                "registry": registry_class(k),
-                "registry_key": registry_key(k),
-                "decision": e.decision if e else None,
-                "clear": e.clear if e else None,
-            }
-        )
+        e = erasure.entries().get(k)
+        row = {
+            "store": k,
+            "searched": k in a.searched,
+            "error": a.errors.get(k) or (b.errors.get(k) if b else None),
+            "seeded": None if b is None else bool(b.stores.get(k)),
+            "found": bool(a.stores.get(k)),
+            "kinds": sorted(a.stores.get(k, {})),
+            "files": sorted(set(a.files.get(k, [])))[:20],
+            "registry": registry_class(k),
+            "decision": e.decision if e else None,
+            "clear": e.clear if e else None,
+        }
+        row["verdict"] = verdict_of(row)
+        rows.append(row)
     return rows
 
 
 def verdict_of(row: Mapping[str, Any]) -> str:
-    """What a row means for criterion 8: ``clean`` (seeded and gone), ``kept`` (there, the registry keeps it with a
-    decision), ``owed`` (there, the registry owes it), ``leak`` (there, and the registry says erased or no patient
-    data), ``unlisted`` (there, and the registry does not know the store), ``not_seeded`` (searched, the marker was
-    never there: absence proves nothing), ``not_searched``."""
+    """What a row means for criterion 8: ``error`` (a table or file could not be read), ``not_searched``,
+    ``clean`` (the before-search found the patient and the after-search does not), ``not_reached`` (not found now and
+    not found before, or no before-search ran: absence proves nothing), ``kept`` (there, the registry keeps it with a
+    decision), ``owed`` (there, the registry owes it), ``leak`` (there, the registry says erased or no patient data),
+    ``unlisted`` (there, the registry does not know the store)."""
+    if row.get("error"):
+        return "error"
     if not row["searched"]:
         return "not_searched"
     if not row["found"]:
-        return "clean" if row["seeded"] in (True, None) else "not_seeded"
+        return "clean" if row["seeded"] is True else "not_reached"
     return {"keep": "kept", "owed": "owed", "unlisted": "unlisted"}.get(row["registry"], "leak")
 
 
@@ -500,6 +666,8 @@ COSTS: dict[str, Cost] = {
                                "ledger", "-", "B2", "large"),
     "outside:sitesetup_space_omop": Cost(True, "Run the omop clear and a lake clear in each practice space's own "
                                          "stores", "D-714 (Reset drops the space)", "C2, B2", "medium"),
+    "outside:provenance_index": Cost(True, "The worker's clear of the use rows, once the role script grants its "
+                                     "role DELETE", "D-989", "B2, D", "small"),
     "pidmap.identity": Cost(True, "Crypto-shred: delete the patient's identity row at the opt-out (the chart "
                             "number stays in pid_map for the door)", "-", "B2", "small"),
     "recall.recall_known_positive": Cost(True, "Replace pid_hash and draw_id by a token, and keep the certificate "
@@ -539,12 +707,15 @@ def owed_rows() -> list[dict[str, Any]]:
     ]
 
 
+def _block(name: str, body: str) -> str:
+    begin, end = BLOCKS[name]
+    return f"{begin}\n\n{body.rstrip()}\n\n{end}\n"
+
+
 def owed_markdown() -> str:
     rows = owed_rows()
     inside = sum(1 for r in rows if r["inside"])
     lines = [
-        OWED_BEGIN,
-        "",
         f"{len(rows)} owed entries; {inside} inside the box (criterion 8 counts these), {len(rows) - inside} outside.",
         "",
         "| Store | Inside | What closing it takes | Held open by | Lane | Size |",
@@ -555,18 +726,10 @@ def owed_markdown() -> str:
             f"| `{r['store']}` | {'yes' if r['inside'] else 'no'} | {r['takes']} | {r['held_by']} | {r['lane']} |"
             f" {r['size']} |"
         )
-    lines += ["", OWED_END]
-    return "\n".join(lines) + "\n"
+    return _block("owed", "\n".join(lines))
 
 
-def owed_block(page: str) -> str | None:
-    a, b = page.find(OWED_BEGIN), page.find(OWED_END)
-    if a < 0 or b < 0:
-        return None
-    return page[a : b + len(OWED_END)] + "\n"
-
-
-# ------------------------------------------------------------------------------------------------ the page's table
+# ------------------------------------------------------------------------------------------------ the page's tables
 GROUPS: tuple[tuple[str, Callable[[str], bool]], ...] = (
     ("The mail outbox", lambda k: k.startswith("mail.")),
     ("Logs", lambda k: k.startswith("logs:")),
@@ -578,6 +741,14 @@ GROUPS: tuple[tuple[str, Callable[[str], bool]], ...] = (
 )
 #: in these groups every store is a row; in the others a store the marker never reached is counted, not listed
 LIST_ALL = ("The mail outbox", "Logs", "Traces", "Lake files", "Object store", "Outside the database and folders")
+VERDICTS = ("clean", "kept", "owed", "leak", "unlisted", "error", "not_reached", "not_searched")
+
+
+def _count(rows: Iterable[Mapping[str, Any]]) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for r in rows:
+        out[r["verdict"]] = out.get(r["verdict"], 0) + 1
+    return out
 
 
 def store_table(record: Mapping[str, Any]) -> str:
@@ -588,59 +759,122 @@ def store_table(record: Mapping[str, Any]) -> str:
         groups[g].append(r)
     lines: list[str] = []
     for g, rows in groups.items():
-        counts: dict[str, int] = {}
-        for r in rows:
-            counts[r["verdict"]] = counts.get(r["verdict"], 0) + 1
-        said = ", ".join(f"{v} {n}" for v, n in sorted(counts.items()))
+        counts = _count(rows)
+        said = ", ".join(f"{v} {counts[v]}" for v in VERDICTS if v in counts)
         lines += [f"**{g}** ({len(rows)} stores: {said})", ""]
-        shown = [r for r in rows if g in LIST_ALL or r["verdict"] != "not_seeded"]
+        shown = [r for r in rows if g in LIST_ALL or r["verdict"] != "not_reached"]
         if shown:
-            lines += ["| Store | Registry | Searched | Seeded | Found after | Values found | Verdict |",
-                      "| --- | --- | --- | --- | --- | --- | --- |"]  # fmt: skip
+            lines += ["| Store | Registry | Reached before | Found after | Values found | Verdict |",
+                      "| --- | --- | --- | --- | --- | --- |"]  # fmt: skip
             for r in shown:
                 seeded = "-" if r["seeded"] is None else ("yes" if r["seeded"] else "no")
                 lines.append(
-                    f"| `{r['store']}` | {r['registry']} | {'yes' if r['searched'] else 'no'} | {seeded} |"
-                    f" {'yes' if r['found'] else 'no'} | {', '.join(r['kinds']) or '-'} | {r['verdict']} |"
+                    f"| `{r['store']}` | {r['registry']} | {seeded} | {'yes' if r['found'] else 'no'} |"
+                    f" {', '.join(r['kinds']) or '-'} | {r['verdict']} |"
                 )
             lines.append("")
-    return "\n".join(lines)
+    return _block("table", "\n".join(lines))
+
+
+def summary(record: Mapping[str, Any]) -> str:
+    """The page's count sentences, every number from the record."""
+    rows = record["stores"]
+    entries = erasure.entries()
+    counts = _count(rows)
+    listed = [r for r in rows if r["registry"] != "unlisted"]
+    unlisted = sorted(r["store"] for r in rows if r["registry"] == "unlisted")
+    with_clear = [r for r in rows if r["clear"] and r["registry"] != "owed" and r["seeded"]]
+    clean_clear = [r for r in with_clear if r["verdict"] == "clean"]
+    owed_reached = [r for r in rows if r["registry"] == "owed" and r["seeded"]]
+    owed_found = [r for r in rows if r["verdict"] == "owed"]
+    reached = [r for r in rows if r["seeded"]]
+    folded = record.get("partitions_folded", 0)
+    lines = [
+        f"The registry has {len(entries)} entries; the record has {len(rows)} stores: {len(listed)} of the "
+        f"registry's and {len(unlisted)} the walk found that the registry does not list "
+        f"({', '.join(unlisted) or '-'}). "
+        f"{folded} OMOP yearly partitions were counted with their parent table.",
+        "",
+        "Verdicts: " + ", ".join(f"{v} {counts.get(v, 0)}" for v in VERDICTS) + ".",
+        "",
+        f"Reached (the patient was there before the opt-out): {len(reached)} stores. Not reached: "
+        f"{counts.get('not_reached', 0)}. Not searched: {counts.get('not_searched', 0)}. Errors: "
+        f"{counts.get('error', 0)}.",
+        "",
+        f"Of the {len(with_clear)} reached stores that have a clear and are not owed, {len(clean_clear)} were clean "
+        f"after the tick. {len(owed_found)} owed stores held the patient after the tick; {len(owed_reached)} owed "
+        f"stores were reached before, and {len(owed_found) - len([r for r in owed_found if r['seeded']])} held the "
+        "patient only after it (written by the opt-out itself).",
+    ]  # fmt: skip
+    return _block("summary", "\n".join(lines))
+
+
+def page_block(page: str, name: str) -> str | None:
+    begin, end = BLOCKS[name]
+    a, b = page.find(begin), page.find(end)
+    if a < 0 or b < 0:
+        return None
+    return page[a : b + len(end)] + "\n"
+
+
+def check_page(page: str, record: Mapping[str, Any] | None) -> list[str]:
+    """The generated blocks of ``page`` that differ from what the tool prints now."""
+    want = {"owed": owed_markdown()}
+    if record is not None:
+        want |= {"summary": summary(record), "table": store_table(record)}
+    return [name for name, text in want.items() if page_block(page, name) != text]
 
 
 # ------------------------------------------------------------------------------------------------ live mode
-def live(marker: Marker, env: Mapping[str, str], fetch: Fetch | None = None) -> dict[str, Any]:
-    """Search a running box as the environment names it. Every place not named is reported as not searched."""
+#: the places live mode searches, by name: what each needs from the environment
+PLACES = ("database", "omop_database", "lake", "objects", "setup", "logs", "fhir")
+
+
+def live_found(marker: Marker, env: Mapping[str, str], fetch: Fetch | None = None) -> tuple[Found, dict[str, str]]:
+    """Search a running box as the environment names it; also says, per place, ``searched`` or why not."""
     found = Found()
     places: dict[str, str] = {}
-    for var in ("TB_DB_URL", "TB_OMOP_DB_URL"):
+    for place, var in (("database", "TB_DB_URL"), ("omop_database", "TB_OMOP_DB_URL")):
         url = env.get(var)
-        if url:
-            try:
-                found.merge(search_db(url, marker))
-                places[var] = "searched"
-            except Exception as exc:
-                places[var] = f"not searched: {type(exc).__name__}"
-        else:
-            places[var] = "not set"
-    for var, key in (("ERASURE_REACH_LAKE_DIR", lake_key), ("ERASURE_REACH_OBJECTS_DIR", objects_key),
-                     ("ERASURE_REACH_SETUP_DIR", lambda rel: "files:sitesetup"),
-                     ("ERASURE_REACH_LOG_DIR", lambda rel: "logs:files")):  # fmt: skip
+        if not url:
+            places[place] = f"not set ({var})"
+            continue
+        try:
+            found.merge(search_db(url, marker))
+            places[place] = "searched"
+        except Exception as exc:
+            places[place] = f"unreachable: {type(exc).__name__}"
+    for place, var, key in (("lake", "ERASURE_REACH_LAKE_DIR", lake_key),
+                            ("objects", "ERASURE_REACH_OBJECTS_DIR", objects_key),
+                            ("setup", "ERASURE_REACH_SETUP_DIR", lambda rel: SETUP_FILES),
+                            ("logs", "ERASURE_REACH_LOG_DIR", lambda rel: "logs:files")):  # fmt: skip
         d = env.get(var)
         if d and Path(d).is_dir():
             found.merge(search_tree(Path(d), marker, key))
-            places[var] = "searched"
+            places[place] = "searched"
         else:
-            places[var] = "not set" if not d else "not a folder"
+            places[place] = f"not set ({var})" if not d else "not a folder"
     base = env.get("ERASURE_REACH_FHIR_URL")
     if base:
-        found.merge(search_fhir(base, marker, fetch or _http_fetch(env.get("ERASURE_REACH_FHIR_TOKEN"))))
-        places["ERASURE_REACH_FHIR_URL"] = "searched"
+        f = search_fhir(base, marker, fetch or _http_fetch(env.get("ERASURE_REACH_FHIR_TOKEN")))
+        found.merge(f)
+        places["fhir"] = "searched" if not f.errors else "unreachable"
     else:
-        places["ERASURE_REACH_FHIR_URL"] = "not set"
-    rows = reach_rows(None, found, erasure.entries())
-    for r in rows:
-        r["verdict"] = verdict_of(r)
-    return {"mode": "live", "places": places, "stores": rows}
+        places["fhir"] = "not set (ERASURE_REACH_FHIR_URL)"
+    return found, places
+
+
+def live(marker: Marker, env: Mapping[str, str], before: Found | None = None, fetch: Fetch | None = None,
+         allow: Iterable[str] = ()) -> dict[str, Any]:  # fmt: skip
+    """Search a running box after an opt-out. ``before``: the same search before the opt-out (``clean`` only where it
+    found the patient). ``ok`` is False when the patient is found anywhere, a store could not be read, or a place
+    was not searched and ``allow`` does not name it."""
+    found, places = live_found(marker, env, fetch)
+    rows = reach_rows(before, found, erasure.entries())
+    missing = sorted(p for p, s in places.items() if s != "searched" and p not in set(allow))
+    bad = [r["store"] for r in rows if r["verdict"] in ("owed", "leak", "unlisted", "error")]
+    return {"mode": "live", "places": places, "not_searched_places": missing, "before": before is not None,
+            "ok": not missing and not bad, "stores": rows}  # fmt: skip
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -648,36 +882,46 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     lv = sub.add_parser("live", help="search a running box for one synthetic patient")
     lv.add_argument("--marker", type=Path, required=True)
+    lv.add_argument("--before-out", type=Path, help="search before the opt-out and keep what was found here")
+    lv.add_argument("--before", type=Path, help="the before-search to compare with")
     lv.add_argument("--out", type=Path)
-    tb = sub.add_parser("table", help="the per-store table of a reach.json record (markdown)")
-    tb.add_argument("record", type=Path)
-    ow = sub.add_parser("owed", help="the owed table, costed")
-    ow.add_argument("--check", type=Path, help="a page that holds the generated table")
+    lv.add_argument("--allow-not-searched", action="append", default=[], choices=PLACES)
+    for name in ("table", "summary"):
+        p = sub.add_parser(name, help=f"the page's {name} from a reach.json record")
+        p.add_argument("record", type=Path)
+    sub.add_parser("owed", help="the owed table, costed")
+    ck = sub.add_parser("check", help="the page's generated blocks against the tool")
+    ck.add_argument("page", type=Path)
+    ck.add_argument("--record", type=Path)
     a = ap.parse_args(argv)
-    if a.cmd == "table":
-        print(store_table(json.loads(a.record.read_text(encoding="utf-8"))), end="")
+    if a.cmd in ("table", "summary"):
+        record = json.loads(a.record.read_text(encoding="utf-8"))
+        print(store_table(record) if a.cmd == "table" else summary(record), end="")
         return 0
     if a.cmd == "owed":
-        table = owed_markdown()
-        if a.check is None:
-            print(table, end="")
-            return 0
-        block = owed_block(a.check.read_text(encoding="utf-8"))
-        if block != table:
-            print(f"{a.check}: the owed table differs from the registry: run python -m tools.erasure_reach owed")
+        print(owed_markdown(), end="")
+        return 0
+    if a.cmd == "check":
+        rec = json.loads(a.record.read_text(encoding="utf-8")) if a.record else None
+        stale = check_page(a.page.read_text(encoding="utf-8"), rec)
+        if stale:
+            print(f"{a.page}: generated blocks out of date: {', '.join(stale)} (python -m tools.erasure_reach)")
             return 1
         return 0
     marker = Marker.from_json(json.loads(a.marker.read_text(encoding="utf-8")))
-    out = live(marker, os.environ)
+    if a.before_out:
+        found, places = live_found(marker, os.environ)
+        a.before_out.write_text(json.dumps({"places": places, "found": found.to_json()}, indent=1) + "\n")
+        print(json.dumps({"places": places, "stores_reached": len(found.stores)}, sort_keys=True))
+        return 0
+    before = Found.from_json(json.loads(a.before.read_text(encoding="utf-8"))["found"]) if a.before else None
+    out = live(marker, os.environ, before, allow=a.allow_not_searched)
     text = json.dumps(out, indent=1, ensure_ascii=False, sort_keys=True) + "\n"
     if a.out:
         a.out.write_text(text, encoding="utf-8")
-    counts: dict[str, int] = {}
-    for r in out["stores"]:
-        counts[r["verdict"]] = counts.get(r["verdict"], 0) + 1
-    print(json.dumps({"places": out["places"], "verdicts": counts}, sort_keys=True))
-    bad = counts.get("leak", 0) + counts.get("unlisted", 0) + counts.get("owed", 0)
-    return 1 if bad else 0
+    print(json.dumps({"places": out["places"], "verdicts": _count(out["stores"]), "ok": out["ok"],
+                      "not_searched_places": out["not_searched_places"]}, sort_keys=True))  # fmt: skip
+    return 0 if out["ok"] else 1
 
 
 if __name__ == "__main__":  # pragma: no cover

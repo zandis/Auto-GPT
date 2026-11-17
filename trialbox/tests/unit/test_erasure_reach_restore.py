@@ -130,3 +130,30 @@ def test_after_the_restore_no_store_holds_the_opted_out_patient(restored: dict[s
     """Plan 8, criterion 8 and review J-2: "a restore re-applies the opt-out list". Shown on the stores this test
     seeds: the pool, the candidate registry, OMOP and the twin."""
     assert restored["after_restore"] == set(), sorted(restored["after_restore"])
+
+
+def test_the_database_search_reads_bytea_person_columns_and_json_escapes(db_url: str) -> None:
+    """Probes of ``tools.erasure_reach.search_db`` on a real PostgreSQL: a ``bytea`` value, an integer and an
+    integer-array person column (a whole value only), a JSON text with ``\\u`` escapes, and a column that is not a
+    person's holding the same number (not a hit)."""
+    from tb_common.db import Database
+
+    from tools import erasure_reach as er
+
+    name = "假名測試甲"
+    with Database.connect(db_url, "probe") as db:
+        db.execute("CREATE TABLE blob (b BYTEA)")
+        db.execute("INSERT INTO blob VALUES (?)", (f"x{P}y".encode(),))
+        db.execute("CREATE TABLE people (person_id BIGINT, person_ids BIGINT[], n BIGINT)")
+        db.execute("INSERT INTO people VALUES (7, ARRAY[1, 2], 4242)")
+        db.execute("INSERT INTO people VALUES (1, ARRAY[4242], 1)")
+        db.execute("CREATE TABLE doc (body TEXT)")
+        db.execute("INSERT INTO doc VALUES (?)", (json.dumps({"n": name}),))
+        db.execute("CREATE TABLE other (n BIGINT)")
+        db.execute("INSERT INTO other VALUES (4242)")
+    found = er.search_db(db_url, er.Marker(pid=P, name=name, person_ids=(4242,)))
+    assert found.stores["probe.blob"].get("pid") == 1
+    assert found.stores["probe.people"] == {"person_id": 1}  # the array, not the n column
+    assert "name" in found.stores["probe.doc"]
+    assert "probe.other" not in found.stores and "probe.other" in found.searched
+    assert not found.errors

@@ -3,191 +3,244 @@
 **Reader:** the integrator; lane B2 (erasure in the stores), lane C2 (site set-up, mail), lane D (backup and
 restore), lane A2 (the recall ledger), lane E (EDC drafts)
 
-**Verdict.** Criterion 8 of plan 8 does not hold today. The erasure registry owes erasure in 26 stores, and 25 of
-them are inside the box; criterion 8 allows none. In the unit box, after one opt-out and one worker tick, the
-synthetic patient was still found in 12 stores. These are the lake's snapshot, its Parquet copy and its NDJSON
-(with the name, chart number and phone of a note), OMOP's before-images (the same values), job outputs and an
-attached chart, a model call's trace, the encrypted identity, the two recall tables, a job's request and an EDC
-draft. All 12 are on the registry's owed list. The search found no store that the registry calls erased, or does
-not list, still holding the patient. All 31 stores with a clear that the marker reached were clean. Two more things
-fail. A restore brings the patient's rows back into the stores until the worker's next tick. Two log lines of the
-product write a pseudonym, and the log scrubber keeps it. The FHIR store, the backups and a practice space's stores
-were not searched, because they exist only under compose. The tool that searches them on a live box is built and
-tested on fakes, and was not run on a box.
+**Verdict.** Criterion 8 of plan 8 does not hold today. The erasure registry owes erasure in 27 stores, and 26 of
+them are inside the box; criterion 8 allows none. In the unit box, after the opt-out and two worker ticks, the
+never-consented marker patient was still found in 19 stores. 17 are on the registry's owed list. One
+(`orch.submissions`) holds a live submission that the owner's ruling D-513 keeps, while the registry calls the store
+erased. One is the box's log text, which the registry does not list. 31 of the 32 reached stores that have a clear
+and are not owed were clean; the 32nd is `orch.submissions`. A restore brings the patient's rows back into the
+stores until the worker's next tick. The FHIR store, the backups, the provenance index, a practice space's stores
+and the vector store were not searched. The live mode that would search them is built and tested on fakes, and was
+not run on a compose box.
 
 ## What ran, and what did not
 
 | What | How | Ran |
 | --- | --- | --- |
-| The reach test | `tests/unit/test_erasure_reach.py`. One box per module: every store's migrations in one throwaway PostgreSQL; the lake made by the night's ingest; the object store, the set-up folder, the mail outbox, the trace store, the recall ledger, the twin, the job queue and OMOP. One marker patient beside five of site A's synthetic patients. The opt-out is the register's `add`, which the console's opt-out route calls (the route itself was not driven). Then `datacore.optout_worker.run_once`, twice | yes |
-| The search | `tools/erasure_reach.py`. Every table of every schema, each row read as text, for each value as it is, JSON-escaped, and with its backslashes doubled; integer `person_id` columns against the OMOP person id. Every file of the lake, object, set-up and audit folders: DuckDB and Parquet files opened and read row by row, `.gz` unpacked, all else as bytes. The log records the run wrote. It does not ask the registry where to look | yes |
-| The restore | `tests/unit/test_erasure_reach_restore.py`: seed, `trialbox backup`, opt out, tick, `trialbox restore` (the real `pg_dump` and `pg_restore`), search, tick, search | yes |
-| The tool on fakes | `tests/unit/test_erasure_reach_tool.py`: files of each kind, the FHIR store's answers (gone, there, down), live mode with nothing set, no value printed, the owed table against the registry and this page | yes |
-| The FHIR store (HAPI), the backups on the NAS, a practice space's OMOP store and lake | `python -m tools.erasure_reach live --marker m.json` on a compose box | **not run**: compose only. No attempt was made to stand the compose stack up for this card |
-| The vector store | needs pgvector; the unit cluster here offers none | **not searched** (`vec.note_chunk`, `vec.embedding`) |
-| The lake's `site`, `fhir_ledger`, `backfill`, `ndjson-rerun`, `tmp` and `holds` | the unit ingest makes none of them (no set-up publish, no FHIR load, no back-fill, no re-run) | **not searched** |
+| The reach test | `tests/unit/test_erasure_reach.py`. One box per module: every store's migrations in one throwaway PostgreSQL (dropped at the end); the lake made by the night's ingest; the derive batch; the object store, the set-up folder, the mail outbox, the trace store, the recall ledger, the twin, the job queue and OMOP. Two marker patients beside five of site A's synthetic patients: P, never consented, and S, a trial subject. Both have a row in every table of the synthetic export that names a patient (`seeded_by.export_tables` in the record). Every store gets every variant it can hold (`variants` in the record). P's derive recompute is made to fail once, so the product writes its own failure line. Opt-out by the register's `add` (what the console's opt-out route calls; the route itself was not driven); then `run_once`, twice | yes |
+| The search | `tools/erasure_reach.py`, before the opt-out and after the ticks, without asking the registry where to look. The forms and places are in the tool's text and below | yes |
+| The restore | `tests/unit/test_erasure_reach_restore.py`: seed, `trialbox backup`, opt out, tick, `trialbox restore` (the real `pg_dump` and `pg_restore`), search, tick, search. Also a probe of the database search on a real PostgreSQL | yes |
+| The tool on fakes | `tests/unit/test_erasure_reach_tool.py`: one probe per form, the FHIR store's answers (gone, deleted with history, down), live mode with nothing searched, the before-search, no value printed, the generated blocks of this page | yes |
+| The FHIR store (HAPI), the backups on the NAS, a practice space's OMOP store and lake, the provenance index | `python -m tools.erasure_reach live` on a compose box | **not run**: compose only. No attempt was made to stand the compose stack up |
+| The vector store | needs pgvector; the unit cluster here offers none | **not searched** |
+| The lake's `site`, `fhir_ledger`, `backfill`, `ndjson-rerun`, `tmp`, `holds`, `CURRENT.tmp`; `objects:ctgov` | the unit ingest makes none of them (no set-up publish, no FHIR load, no back-fill, no re-run; the public registry cache is not fetched) | **not searched** |
 
-The three files take 31 seconds together on this machine (the module box takes 18 of them).
+The three files take about 55 seconds together on this machine; the module box is about 40 of them.
 
-The values searched for are the pseudonym, its first 16 characters (a per-patient file's name carries them), the
-recall hash of the pseudonym, the chart number, a national-ID-shaped number, the name, the phone, the date of birth
-and the OMOP person id. All are invented. The national-ID shape has no valid second digit.
+How each store was reached is in `reach.json` (`seeded_by`). The ingest, the OMOP load, the derive batch, the job
+queue, the twin, the recall ledger, the trace store, the mail outbox, the set-up store and the object store were
+written by their own code, or with the row shapes their code writes. Every other table with a `pid` or `pid_hash`
+column got one planted row (`planted`). A kept store got none: a planted row in the register or its copies would
+steer the opt-out. A planted row that a table refused (a check or a foreign key) is listed as "not planted".
 
-How each store was seeded is in `reach.json` (`seeded_by`). The ingest, the OMOP load, the job queue, the twin, the
-recall ledger, the trace store, the mail outbox and the object store were written by their own code. Every other
-table with a `pid` or `pid_hash` column got one planted row: 19 rows went in (`planted`), and `sitesetup.input`
-got one row with its file in the set-up folder. A kept store got none,
-because a planted row in the register or its copies would steer the opt-out. `derived.score_row` and
-`derived.conflict` refused the planted row (a check and a foreign key) and were not seeded.
+## The counts
 
-A store is **seeded** when the search found the marker there before the opt-out. Only a seeded store's absence after
-the tick means anything. The 190 stores the marker never reached are counted below, not listed; their test cases
-are skipped as "not seeded". Every count on this page comes from `erasure-reach-2026-11-17/reach.json`, which the
-module writes when `TB_REACH_OUT` names a folder, or from the owed table the tool generates.
+Every number in this block is printed by `python -m tools.erasure_reach summary erasure-reach-2026-11-17/reach.json`;
+`tests/unit/test_erasure_reach_tool.py` fails when the page and the tool differ. `clean`: reached before and gone
+after. `not_reached`: not found after and not found before, so its absence proves nothing. `kept`: still there, and
+the registry keeps it with a decision. `owed`: still there, and the registry owes it. `leak`: still there, and the
+registry says erased or no patient data. `unlisted`: still there, in a store the registry does not know. `error`: a
+table or file could not be read.
+
+<!-- erasure-reach counts: generated by python -m tools.erasure_reach summary; do not edit -->
+
+The registry has 234 entries; the record has 240 stores: 234 of the registry's and 6 the walk found that the registry does not list (lake:audit, lake:gates, lake:night_runs.json, lake:site_key.json, lake:source.jsonl, logs:captured). 13 OMOP yearly partitions were counted with their parent table.
+
+Verdicts: clean 31, kept 6, owed 17, leak 1, unlisted 1, error 0, not_reached 170, not_searched 14.
+
+Reached (the patient was there before the opt-out): 53 stores. Not reached: 170. Not searched: 14. Errors: 0.
+
+Of the 32 reached stores that have a clear and are not owed, 31 were clean after the tick. 17 owed stores held the patient after the tick; 16 owed stores were reached before, and 1 held the patient only after it (written by the opt-out itself).
+
+<!-- end of the generated counts -->
+
+## The variants
+
+What the product does with each variant a store can hold, from `reach.json` (`variants`). Each is a test case
+(`test_each_variant_does_what_the_registry_and_the_rulings_say`).
+
+| Variant | After the ticks | Expected (the registry or the ruling) |
+| --- | --- | --- |
+| `orch.submissions`: a dry run | gone | gone |
+| `orch.submissions`: a live submission | there | kept, D-513 (the owner's ruling) |
+| `orch.candidates`: a never-consented candidate | gone (the row takes a token) | gone |
+| `orch.candidates`: S consented in one study | there | kept, OD-8 |
+| `orch.candidates`: S enrolled in another | there | kept, OD-8 |
+| `mail.send_keys`: a held mail of the patient's own file | gone | gone |
+| `mail.send_keys`: an uncertain mail of the patient's own file | there | owed, D-874 |
+| `mail.send_keys`: a queued mail of a list whose body names the patient (a planted shape) | there | owed, D-863 |
+| `sitesetup.input`: the patient's own upload | gone, file included | gone |
+| `sitesetup.input`: a sheet of many patients | there, file included | owed, D-869 |
+| `sitesetup.check_item`: a sheet's row of the patient | there | owed, D-869 |
+| `sitesetup.fix`: a sheet column's example of the patient | there | owed, D-869 |
+
+The trial subject S was still found, after the ticks, in the stores listed in `trial_subject_stores`:
+`omop.tb_consent`, `omop.tb_id_map`, `omop.tb_record`, `omop.tb_record_event`, `omop.tb_withheld`,
+`optout.optout_events`, `orch.candidate_events`, `orch.candidates`, `pidmap.identity`, `pidmap.pid_map`. Each is a
+keep entry, kept for a trial subject by OD-8, or owed.
 
 ## The result per store
 
-`reach.json` holds 251 stores: the registry's 245 entries and 6 the walk found that the registry does not list.
-Verdicts: 31 clean, 5 kept, 12 owed, 0 leak, 190 not seeded, 13 not searched; no unlisted store held the patient.
-`clean`: seeded and gone. `kept`: still there, and the registry keeps it with a decision. `owed`: still there, and
-the registry owes it. `leak`: still there, and the registry says erased or no patient data. `unlisted`: a store the
-registry does not know.
+The table is printed by `python -m tools.erasure_reach table erasure-reach-2026-11-17/reach.json`.
 
-The table below is printed by `python -m tools.erasure_reach table erasure-reach-2026-11-17/reach.json`.
+<!-- erasure-reach per-store table: generated by python -m tools.erasure_reach table; do not edit -->
 
-**The mail outbox** (3 stores: clean 1, not_seeded 2)
+**The mail outbox** (3 stores: owed 1, not_reached 2)
 
-| Store | Registry | Searched | Seeded | Found after | Values found | Verdict |
-| --- | --- | --- | --- | --- | --- | --- |
-| `mail.intake` | no_patient_data | yes | no | no | - | not_seeded |
-| `mail.send_keys` | owed | yes | yes | no | - | clean |
-| `mail.sent` | no_patient_data | yes | no | no | - | not_seeded |
+| Store | Registry | Reached before | Found after | Values found | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| `mail.intake` | no_patient_data | no | no | - | not_reached |
+| `mail.send_keys` | owed | yes | yes | pid, pid_prefix | owed |
+| `mail.sent` | no_patient_data | no | no | - | not_reached |
 
-**Logs** (1 stores: not_seeded 1)
+**Logs** (1 stores: unlisted 1)
 
-| Store | Registry | Searched | Seeded | Found after | Values found | Verdict |
-| --- | --- | --- | --- | --- | --- | --- |
-| `logs:captured` | unlisted | yes | no | no | - | not_seeded |
+| Store | Registry | Reached before | Found after | Values found | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| `logs:captured` | unlisted | yes | yes | pid, pid_prefix | unlisted |
 
-**Traces** (2 stores: not_seeded 1, owed 1)
+**Traces** (2 stores: owed 1, not_reached 1)
 
-| Store | Registry | Searched | Seeded | Found after | Values found | Verdict |
-| --- | --- | --- | --- | --- | --- | --- |
-| `trace.access_log` | no_patient_data | yes | no | no | - | not_seeded |
-| `trace.traces` | owed | yes | yes | yes | name, pid, pid_prefix | owed |
+| Store | Registry | Reached before | Found after | Values found | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| `trace.access_log` | no_patient_data | no | no | - | not_reached |
+| `trace.traces` | owed | yes | yes | name, pid, pid_prefix | owed |
 
-**Lake files** (20 stores: not_searched 7, not_seeded 10, owed 3)
+**Lake files** (20 stores: owed 4, not_reached 9, not_searched 7)
 
-| Store | Registry | Searched | Seeded | Found after | Values found | Verdict |
-| --- | --- | --- | --- | --- | --- | --- |
-| `lake:.rebuild.lock` | no_patient_data | yes | no | no | - | not_seeded |
-| `lake:CURRENT` | no_patient_data | yes | no | no | - | not_seeded |
-| `lake:CURRENT.tmp` | no_patient_data | no | no | no | - | not_searched |
-| `lake:FEED` | no_patient_data | yes | no | no | - | not_seeded |
-| `lake:audit` | unlisted | yes | no | no | - | not_seeded |
-| `lake:backfill` | owed | no | no | no | - | not_searched |
-| `lake:db` | owed | yes | yes | yes | chart, dob, name, phone, pid, pid_prefix | owed |
-| `lake:embed_cache.duckdb` | owed | yes | no | no | - | not_seeded |
-| `lake:fhir_ledger` | owed | no | no | no | - | not_searched |
-| `lake:gates` | unlisted | yes | no | no | - | not_seeded |
-| `lake:holds` | no_patient_data | no | no | no | - | not_searched |
-| `lake:locks` | no_patient_data | yes | no | no | - | not_seeded |
-| `lake:ndjson` | owed | yes | yes | yes | dob, pid, pid_prefix | owed |
-| `lake:ndjson-rerun` | owed | no | no | no | - | not_searched |
-| `lake:night_runs.json` | unlisted | yes | no | no | - | not_seeded |
-| `lake:parquet` | owed | yes | yes | yes | chart, dob, name, phone, pid, pid_prefix | owed |
-| `lake:site` | owed | no | no | no | - | not_searched |
-| `lake:site_key.json` | unlisted | yes | no | no | - | not_seeded |
-| `lake:source.jsonl` | unlisted | yes | no | no | - | not_seeded |
-| `lake:tmp` | owed | no | no | no | - | not_searched |
+| Store | Registry | Reached before | Found after | Values found | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| `lake:.rebuild.lock` | no_patient_data | no | no | - | not_reached |
+| `lake:CURRENT` | no_patient_data | no | no | - | not_reached |
+| `lake:CURRENT.tmp` | no_patient_data | no | no | - | not_searched |
+| `lake:FEED` | no_patient_data | no | no | - | not_reached |
+| `lake:audit` | unlisted | no | no | - | not_reached |
+| `lake:backfill` | owed | no | no | - | not_searched |
+| `lake:db` | owed | yes | yes | chart, chunk_sha, dob, name, phone, pid, pid_prefix | owed |
+| `lake:embed_cache.duckdb` | owed | yes | yes | chunk_sha | owed |
+| `lake:fhir_ledger` | owed | no | no | - | not_searched |
+| `lake:gates` | unlisted | no | no | - | not_reached |
+| `lake:holds` | no_patient_data | no | no | - | not_searched |
+| `lake:locks` | no_patient_data | no | no | - | not_reached |
+| `lake:ndjson` | owed | yes | yes | chart, dob, name, phone, pid, pid_prefix | owed |
+| `lake:ndjson-rerun` | owed | no | no | - | not_searched |
+| `lake:night_runs.json` | unlisted | no | no | - | not_reached |
+| `lake:parquet` | owed | yes | yes | chart, dob, name, phone, pid, pid_prefix | owed |
+| `lake:site` | owed | no | no | - | not_searched |
+| `lake:site_key.json` | unlisted | no | no | - | not_reached |
+| `lake:source.jsonl` | unlisted | no | no | - | not_reached |
+| `lake:tmp` | owed | no | no | - | not_searched |
 
-**Object store** (3 stores: not_searched 1, owed 2)
+**Object store** (3 stores: owed 2, not_searched 1)
 
-| Store | Registry | Searched | Seeded | Found after | Values found | Verdict |
-| --- | --- | --- | --- | --- | --- | --- |
-| `objects:attachments` | owed | yes | yes | yes | pid, pid_prefix | owed |
-| `objects:ctgov` | no_patient_data | no | no | no | - | not_searched |
-| `objects:outputs` | owed | yes | yes | yes | pid, pid_prefix | owed |
+| Store | Registry | Reached before | Found after | Values found | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| `objects:attachments` | owed | yes | yes | pid, pid_prefix | owed |
+| `objects:ctgov` | no_patient_data | no | no | - | not_searched |
+| `objects:outputs` | owed | yes | yes | pid, pid_prefix, twpas_id | owed |
 
-**Outside the database and folders** (4 stores: not_searched 3, not_seeded 1)
+**Outside the database and folders** (5 stores: not_reached 1, not_searched 4)
 
-| Store | Registry | Searched | Seeded | Found after | Values found | Verdict |
-| --- | --- | --- | --- | --- | --- | --- |
-| `outside:audit` | keep | yes | no | no | - | not_seeded |
-| `outside:backups` | owed | no | no | no | - | not_searched |
-| `outside:fhir_store` | owed | no | no | no | - | not_searched |
-| `outside:sitesetup_space_omop` | owed | no | no | no | - | not_searched |
+| Store | Registry | Reached before | Found after | Values found | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| `outside:audit` | keep | no | no | - | not_reached |
+| `outside:backups` | owed | no | no | - | not_searched |
+| `outside:fhir_store` | owed | no | no | - | not_searched |
+| `outside:provenance_index` | owed | no | no | - | not_searched |
+| `outside:sitesetup_space_omop` | owed | no | no | - | not_searched |
 
-**Database tables** (218 stores: clean 30, kept 5, not_searched 2, not_seeded 175, owed 6)
+**Database tables** (206 stores: clean 31, kept 6, owed 9, leak 1, not_reached 157, not_searched 2)
 
-| Store | Registry | Searched | Seeded | Found after | Values found | Verdict |
-| --- | --- | --- | --- | --- | --- | --- |
-| `datacore.subject` | erase | yes | yes | no | - | clean |
-| `edc.draft` | owed | yes | yes | yes | pid, pid_prefix | owed |
-| `omop.condition_occurrence` | erase | yes | yes | no | - | clean |
-| `omop.condition_occurrence_y2026` | erase | yes | yes | no | - | clean |
-| `omop.note` | erase | yes | yes | no | - | clean |
-| `omop.note_y2026` | erase | yes | yes | no | - | clean |
-| `omop.observation_period` | erase | yes | yes | no | - | clean |
-| `omop.person` | erase | yes | yes | no | - | clean |
-| `omop.tb_id_map` | keep | yes | yes | yes | pid, pid_prefix | kept |
-| `omop.tb_record` | keep | yes | yes | yes | dob, person_id, pid, pid_prefix | kept |
-| `omop.tb_record_event` | owed | yes | no | yes | chart, dob, name, phone, pid, pid_prefix | owed |
-| `omop.tb_withheld` | keep | yes | no | yes | pid, pid_prefix | kept |
-| `omop.visit_occurrence` | erase | yes | yes | no | - | clean |
-| `omop.visit_occurrence_y2026` | erase | yes | yes | no | - | clean |
-| `optout.optout_events` | keep | yes | no | yes | pid, pid_prefix | kept |
-| `orch.candidate_events` | erase | yes | yes | no | - | clean |
-| `orch.candidates` | erase | yes | yes | no | - | clean |
-| `orch.feedback` | erase | yes | yes | no | - | clean |
-| `orch.jobs` | owed | yes | yes | yes | pid, pid_prefix | owed |
-| `orch.judged_pairs` | erase | yes | yes | no | - | clean |
-| `orch.pool` | erase | yes | yes | no | - | clean |
-| `orch.submissions` | erase | yes | yes | no | - | clean |
-| `pidmap.identity` | owed | yes | yes | yes | pid, pid_prefix | owed |
-| `pidmap.pending` | erase | yes | yes | no | - | clean |
-| `pidmap.pid_map` | keep | yes | yes | yes | pid, pid_prefix | kept |
-| `profile.tb_patient_profile` | erase | yes | yes | no | - | clean |
-| `recall.recall_known_positive` | owed | yes | yes | yes | pid_hash | owed |
-| `recall.recall_observation` | owed | yes | yes | yes | pid_hash | owed |
-| `site.contact_outcomes` | erase | yes | yes | no | - | clean |
-| `site.excluded_review` | erase | yes | yes | no | - | clean |
-| `site.pi_marks` | erase | yes | yes | no | - | clean |
-| `site.screening_no` | erase | yes | yes | no | - | clean |
-| `site.weekly_seen` | erase | yes | yes | no | - | clean |
-| `sitesetup.fact` | erase | yes | yes | no | - | clean |
-| `sitesetup.input` | owed | yes | yes | no | - | clean |
-| `study.rc_record` | erase | yes | yes | no | - | clean |
-| `team.approach_overrides` | erase | yes | yes | no | - | clean |
-| `team.candidate_views` | erase | yes | yes | no | - | clean |
-| `team.referral_events` | erase | yes | yes | no | - | clean |
-| `team.referrals` | erase | yes | yes | no | - | clean |
-| `tuned.tuned_patients` | erase | yes | yes | no | - | clean |
-| `vec.embedding` | erase | no | no | no | - | not_searched |
-| `vec.note_chunk` | erase | no | no | no | - | not_searched |
+| Store | Registry | Reached before | Found after | Values found | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| `datacore.subject` | erase | yes | no | - | clean |
+| `derived.score_row` | erase | yes | no | - | clean |
+| `edc.draft` | owed | yes | yes | pid, pid_prefix | owed |
+| `omop.condition_occurrence` | erase | yes | no | - | clean |
+| `omop.drug_exposure` | erase | yes | no | - | clean |
+| `omop.measurement` | erase | yes | no | - | clean |
+| `omop.note` | erase | yes | no | - | clean |
+| `omop.observation_period` | erase | yes | no | - | clean |
+| `omop.person` | erase | yes | no | - | clean |
+| `omop.procedure_occurrence` | erase | yes | no | - | clean |
+| `omop.tb_appointment` | erase | yes | no | - | clean |
+| `omop.tb_claim` | erase | yes | no | - | clean |
+| `omop.tb_consent` | keep | yes | yes | person_id | kept |
+| `omop.tb_id_map` | keep | yes | yes | pid, pid_prefix | kept |
+| `omop.tb_record` | keep | yes | yes | dob, person_id, pid, pid_prefix | kept |
+| `omop.tb_record_event` | owed | no | yes | chart, dob, name, phone, pid, pid_prefix | owed |
+| `omop.tb_withheld` | keep | no | yes | pid, pid_prefix | kept |
+| `omop.visit_occurrence` | erase | yes | no | - | clean |
+| `optout.optout_events` | keep | no | yes | pid, pid_prefix | kept |
+| `orch.candidate_events` | erase | yes | no | - | clean |
+| `orch.candidates` | erase | yes | no | - | clean |
+| `orch.feedback` | erase | yes | no | - | clean |
+| `orch.jobs` | owed | yes | yes | pid, pid_prefix | owed |
+| `orch.judged_pairs` | erase | yes | no | - | clean |
+| `orch.pool` | erase | yes | no | - | clean |
+| `orch.submissions` | erase | yes | yes | pid, pid_prefix | leak |
+| `pidmap.identity` | owed | yes | yes | pid, pid_prefix | owed |
+| `pidmap.pending` | erase | yes | no | - | clean |
+| `pidmap.pid_map` | keep | yes | yes | pid, pid_prefix | kept |
+| `profile.tb_patient_profile` | erase | yes | no | - | clean |
+| `recall.recall_known_positive` | owed | yes | yes | pid_hash | owed |
+| `recall.recall_observation` | owed | yes | yes | pid_hash | owed |
+| `site.contact_outcomes` | erase | yes | no | - | clean |
+| `site.excluded_review` | erase | yes | no | - | clean |
+| `site.pi_marks` | erase | yes | no | - | clean |
+| `site.screening_no` | erase | yes | no | - | clean |
+| `site.weekly_seen` | erase | yes | no | - | clean |
+| `sitesetup.check_item` | owed | yes | yes | chart | owed |
+| `sitesetup.fact` | erase | yes | no | - | clean |
+| `sitesetup.fix` | owed | yes | yes | chart, name | owed |
+| `sitesetup.input` | owed | yes | yes | chart, name | owed |
+| `study.rc_record` | erase | yes | no | - | clean |
+| `team.approach_overrides` | erase | yes | no | - | clean |
+| `team.candidate_views` | erase | yes | no | - | clean |
+| `team.referral_events` | erase | yes | no | - | clean |
+| `team.referrals` | erase | yes | no | - | clean |
+| `tuned.tuned_patients` | erase | yes | no | - | clean |
+| `vec.embedding` | erase | no | no | - | not_searched |
+| `vec.note_chunk` | erase | no | no | - | not_searched |
+
+<!-- end of the generated per-store table -->
 
 What the groups say:
 
-- **The mail outbox.** A held mail that carried the patient's own file was dropped by the worker (`mail.send_keys`
-  clean). A held mail of a list stays, and its row names no patient (only the file's key). `mail.sent` and
-  `mail.intake` hold subjects and senders; the marker never reached them.
-- **Logs.** The run wrote 2 log records, and neither held a marker value. Reading the logging code found two lines
-  that write a pseudonym when a step fails: `libs/tb_common/derived_store.py:731` and
-  `services/patient_profile/twin.py:440`. The box's JSON formatter (`libs/tb_common/logging.py:132`) scrubs chart
-  numbers and phones but keeps a pseudonym. The box keeps each service's log (json-file, 10 files of 100 MB,
-  `deploy/docker-compose.yml:13`), and nothing on the opt-out reaches it. Shown by
-  `test_no_log_line_names_an_opted_out_patient` (V1-09).
-- **Traces.** `trace.traces` kept the model call's body, with the pseudonym and the name, after the tick (owed;
-  the store prunes after 7 days).
-- **Lake files.** The kept snapshot (`db/`, its generation copy `db/gen/` and its reader copy `db/.open/`), the
-  Parquet copy and the NDJSON keep the patient (owed, D-513: withheld on read until retention). The snapshot's
-  `document` table keeps the note as the hospital wrote it, by design (`services/lake/store.py:1439`), so the name,
-  chart number and phone of the note stay with it. Five top-level entries are not in the registry: `gates`,
-  `night_runs.json`, `site_key.json`, `source.jsonl`, and `audit` (the test's own audit folder for the ingest). None
-  held a marker value.
-- **Database tables.** Every table with a clear that the marker reached was clean. OMOP's yearly partitions
-  (`omop.note_y2026` and the like) are made by the loader at run time; the registry names their parents, and the
-  tool reads them as their parent's.
+- **The mail outbox.** See the variants. `mail.sent` and `mail.intake` hold subjects and senders; the patient never
+  reached them.
+- **Logs.** The run's log records held P's pseudonym after the ticks: the derive batch's line "recompute failed for
+  <pid>" (`libs/tb_common/derived_store.py:731`). `services/patient_profile/twin.py:440` writes the same kind of
+  line (read from code). The box's JSON formatter (`libs/tb_common/logging.py:132`) scrubs chart numbers and phones
+  but keeps a pseudonym (`test_no_log_line_names_an_opted_out_patient`). Read from `deploy/docker-compose.yml:13`,
+  not run: the box keeps each service's log (json-file, 10 files of 100 MB), and nothing on the opt-out reaches it.
+- **Traces.** `trace.traces` kept the model call's body, with the pseudonym and the name.
+- **Lake files.** The kept snapshot (`db/`, its generation copy and its reader copy), the Parquet copy and the NDJSON
+  keep the patient. The NDJSON's notes are base64 in FHIR attachments, and the decoded text holds the name, chart
+  number and phone. The snapshot's `document` table keeps the note as written, by design
+  (`services/lake/store.py:1439`). The embed cache keeps the vectors of the patient's chunks, under the chunks'
+  hashes. Five top-level entries are not in the registry: `gates`, `night_runs.json`, `site_key.json`,
+  `source.jsonl`, and `audit`. The last is this test's layout (the box writes the adapter's audit elsewhere). None
+  held the patient.
+- **Database tables.** OMOP's yearly partitions (`omop.note_y2026` and the like) are made by the loader at run time;
+  they are counted with their parent table.
+
+## What this search cannot see
+
+- Encrypted data: `pidmap.identity`'s blob (found by its pseudonym column only), sealed object-store buckets,
+  encrypted backups.
+- Vectors themselves: the embed cache is found only through the chunk hashes of the patient's notes.
+- Hashes with a secret: the HMAC that makes the pseudonym from the chart number, and any salted hash.
+- Formats the tool does not unpack: 7z, xz, zstd, tar members, images and PDF text. DuckDB and Parquet are read
+  through the engine; their pages are also searched as bytes.
+- Base64 inside base64, and a base64 run split across two pieces of a file larger than 8 MB.
+- Values written otherwise: a chart number without its leading digits, a date in another form (an ROC year,
+  `19370727`), a name in another script or encoding than UTF-8 and UTF-16 (Big5, Shift-JIS).
+- A person id outside a column or JSON key whose name holds `person`. Person ids start at 1 on a box, so a wider
+  match would hit every small number.
+- PostgreSQL's own files (WAL, its logs, large objects) and anything printed past the logging module.
+- A database table that cannot be read is an error case; no probe makes one fail, because the test login reads every
+  table.
 
 ## The restore
 
@@ -195,7 +248,7 @@ What the groups say:
 
 1. Before the restore, the tick had cleared all four.
 2. The restore put the opt-out typed after the backup back into the register (`optouts_after_backup`: counted,
-   1 kept, 0 not kept). The register then holds the patient. Nothing of the patient is in the restore's answer.
+   1 kept, 0 not kept). Nothing of the patient is in the restore's answer.
 3. The restored databases hold the patient again in all four stores. The restore does not run the clears.
 4. The restore was complete, so it took its own hold off (`hold: released`, D-522) before any tick. The test runs as
    DEV, where the service-role step counts as done; on a real box that step is configured.
@@ -203,21 +256,18 @@ What the groups say:
    (`services/datacore/optout_worker.py:860`).
 
 So "a restore re-applies the opt-out list" holds for the register, not for the stores. Between the restore and the
-first tick, what keeps the patient off a list is each reader's own register check (D-441, D-860); the hold of
-D-522 applies only when the restore is not complete. That window is V1-10. What needs the compose box: the order in
-which the services start after a restore, and whether a list job can run before the orchestrator's first tick.
+first tick, what keeps the patient off a list is each reader's own register check (D-441, D-860). What needs the
+compose box: the order in which the services start after a restore.
 
 ## The owed list, costed
 
-Generated by `python -m tools.erasure_reach owed` from `tb_common.erasure.owed()`. The tool fails, and
-`tests/unit/test_erasure_reach_tool.py` with it, when the registry's owed set and the costed table differ, or when
-this page's table is not what the tool prints. "What closing it takes" and the size are read from the stores' code:
-a hypothesis, not a measured cost. The backups count as outside the box, because criterion 8 asks for them a
-written age-out rule instead.
+Printed by `python -m tools.erasure_reach owed` from `tb_common.erasure.owed()`; the tool fails when the registry's
+owed set and the costed table differ. "What closing it takes" and the size are read from code: a hypothesis. The
+backups count as outside the box: criterion 8 asks a written age-out rule of them.
 
 <!-- erasure-reach owed table: generated by python -m tools.erasure_reach owed; do not edit -->
 
-26 owed entries; 25 inside the box (criterion 8 counts these), 1 outside.
+27 owed entries; 26 inside the box (criterion 8 counts these), 1 outside.
 
 | Store | Inside | What closing it takes | Held open by | Lane | Size |
 | --- | --- | --- | --- | --- | --- |
@@ -239,6 +289,7 @@ written age-out rule instead.
 | `orch.jobs` | yes | Blank the pseudonym in a finished job's request (CASE, a reveal) at the opt-out | - | B2 | small |
 | `outside:backups` | no | A written age-out rule (backups older than N nights are deleted) and a restore that re-applies the register before any service reads | - | D | medium |
 | `outside:fhir_store` | yes | Delete and expunge the patient's resources in HAPI at the opt-out, then the ledger | - | B2 | large |
+| `outside:provenance_index` | yes | The worker's clear of the use rows, once the role script grants its role DELETE | D-989 | B2, D | small |
 | `outside:sitesetup_space_omop` | yes | Run the omop clear and a lake clear in each practice space's own stores | D-714 (Reset drops the space) | C2, B2 | medium |
 | `pidmap.identity` | yes | Crypto-shred: delete the patient's identity row at the opt-out (the chart number stays in pid_map for the door) | - | B2 | small |
 | `recall.recall_known_positive` | yes | Replace pid_hash and draw_id by a token, and keep the certificate from adding the patient again | the review of D-866 | A2 | medium |
@@ -252,39 +303,48 @@ written age-out rule instead.
 
 ## Findings
 
-| Id | Place (master `d7c91fc3`; the same lines at `3f6a02ec`) | Expected (where it is written) | What happened | Severity | Lane | Basis |
-| --- | --- | --- | --- | --- | --- | --- |
-| V1-01 | `libs/tb_common/erasure.py:581` (`owed()`) | No owed entry for a store inside the box (plan 8 §3, criterion 8) | 26 owed, 25 inside the box | High | B2 (C2, A2, E, D for their rows) | shown: `test_criterion_8_no_owed_entry_for_a_store_inside_the_box` |
-| V1-02 | `libs/tb_common/erasure.py:517` (`LAKE`) | The pseudonym in no store or snapshot (criterion 8) | After the tick the lake's snapshot, its generation and reader copies, the Parquet copy and the NDJSON hold the pseudonym and the date of birth; the snapshot and Parquet also the name, chart number and phone from the note | High | B2 | shown: the `lake:db`, `lake:parquet`, `lake:ndjson` cases |
-| V1-03 | `libs/tb_common/erasure.py:467` | The same | `omop.tb_record_event` keeps the before-images of the tombstoned records, the note with its name, chart number and phone among them (kept hidden until retention, D-1031) | High | B2 | shown: the `omop.tb_record_event` case |
-| V1-04 | `libs/tb_common/erasure.py:542` | The same | A job's list, a per-patient file and an attached chart of the patient stay in the object store (D-513) | High | B2 | shown: the `objects:outputs`, `objects:attachments` cases |
-| V1-05 | `libs/tb_common/erasure.py:295` | The same | `trace.traces` keeps a model call's body with the pseudonym and the name | High | B2, A2 | shown: the `trace.traces` case |
-| V1-06 | `libs/tb_common/erasure.py:293` | The identity's crypto-shred (review J-2) | `pidmap.identity` keeps the patient's encrypted identity row | High | B2 | shown: the `pidmap.identity` case |
-| V1-07 | `libs/tb_common/erasure.py:186` | The same as V1-02 | `recall.recall_known_positive` and `recall.recall_observation` keep the unsalted recall hash of the pseudonym | High | A2 | shown: the two `recall.*` cases |
-| V1-08 | `libs/tb_common/erasure.py:227`, `:383` | The same | A CASE job's request (`orch.jobs`) and an EDC draft (`edc.draft`) keep the pseudonym | High | B2, E | shown: the `orch.jobs`, `edc.draft` cases |
-| V1-09 | `libs/tb_common/derived_store.py:731`, `services/patient_profile/twin.py:440`, `libs/tb_common/logging.py:132` | No log line names a patient (`derived_store.py:730`: "no values in the log"); nothing of an opted-out patient stays | A failed recompute logs the pseudonym; the JSON formatter keeps it; the box keeps its logs and the registry has no entry for them | High | B2 | shown: `test_no_log_line_names_an_opted_out_patient` (the derive line); the twin line is read from code |
-| V1-10 | `tools/trialbox/backup.py:2367` and `:2372` | "A restore re-applies the opt-out list" (review J-2; plan 8 §5a, V7) | The register is re-applied; the restored stores hold the patient until the worker's next tick, and a complete restore releases its hold before that tick | Medium | D, B2 | shown: `test_after_the_restore_no_store_holds_the_opted_out_patient` |
-| V1-11 | `tests/unit/test_erasure_registry.py:77` (`_LAKE_PATH`) | Every store has one registry entry (D-465) | The walk found 4 top-level lake entries the registry does not list: `gates`, `night_runs.json`, `site_key.json`, `source.jsonl`. None held the patient | Low | B2 | shown: `reach.json` (registry `unlisted`) |
-| V1-12 | `libs/tb_common/erasure.py:558` to `:566` | A test finds the pseudonym in no FHIR resource (criterion 8) | The FHIR store, the backups, a practice space's stores and the vector store were not searched; the claim is unproven there. The live mode that would search them was not run | Medium | D, B2 | not_run |
+"Ruled" means the owner (or the integrator) ruled the behaviour; plan 8 criterion 8 now asks for more. The places
+are on master `3f6a02ec`, and on `15108f46` the same.
 
-The same findings are in `erasure-reach-2026-11-17/findings.json`.
+| Id | Place | Expected (where written) | What happened | Ruling | Sev. | Lane | Basis |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| V1-01 | `libs/tb_common/erasure.py:587` (`owed()`) | No owed entry for a store inside the box (plan 8 §3, criterion 8) | 27 owed, 26 inside | - | High | B2 (C2, A2, E, D) | shown |
+| V1-02 | `libs/tb_common/erasure.py:517` (`LAKE`) | The pseudonym in no store or snapshot (criterion 8) | The kept snapshot, Parquet and NDJSON keep the patient, with the note's name, chart number and phone; the embed cache keeps the vectors of the patient's chunks. Ruled by D-513 and D-862 (the owner's ruling); plan 8 criterion 8 now asks for more | D-513, D-862 | High | B2 | shown |
+| V1-03 | `libs/tb_common/erasure.py:467` | The same | `omop.tb_record_event` keeps the before-images, the note's identifiers among them. Ruled by D-1031 (the owner's ruling); plan 8 criterion 8 now asks for more | D-1031 | High | B2 | shown |
+| V1-04 | `libs/tb_common/erasure.py:542` | The same | A job's list, a per-patient file and an attached chart stay. Ruled by D-513 (the owner's ruling); plan 8 criterion 8 now asks for more | D-513 | High | B2 | shown |
+| V1-05 | `libs/tb_common/erasure.py:295` | The same | `trace.traces` keeps the pseudonym and the name | - | High | B2, A2 | shown |
+| V1-06 | `libs/tb_common/erasure.py:293` | The identity's crypto-shred (review J-2) | `pidmap.identity` keeps the encrypted identity | - | High | B2 | shown |
+| V1-07 | `libs/tb_common/erasure.py:186` | The same as V1-02 | Both recall tables keep the unsalted recall hash. Ruled by the review of D-866 (left owed); plan 8 criterion 8 now asks for more | the review of D-866 | High | A2 | shown |
+| V1-08 | `libs/tb_common/erasure.py:227`, `:383` | The same | A CASE job's request and an EDC draft keep the pseudonym. The draft is held by D-1032 (the owner's ruling) and its open question; plan 8 criterion 8 now asks for more | D-1032 (the draft) | High | B2, E | shown |
+| V1-09 | `libs/tb_common/derived_store.py:731`, `logging.py:132` | No log line names a patient (`derived_store.py:730`) | The derive batch's failure line names the pseudonym, through the box's own formatter; the run's log text held it after the ticks | - | High | B2 | shown |
+| V1-10 | `tools/trialbox/backup.py:2367`, `:2372` | "A restore re-applies the opt-out list" (review J-2; plan 8 V7) | The register is re-applied; the restored stores hold the patient until the next tick; a complete restore releases its hold first | - | Medium | D, B2 | shown |
+| V1-11 | `tests/unit/test_erasure_registry.py:77` | Every store has one registry entry (D-465) | 4 top-level lake entries are not in the registry: `gates`, `night_runs.json`, `site_key.json`, `source.jsonl` (none held the patient) | - | Low | B2 | shown |
+| V1-12 | `libs/tb_common/erasure.py:558` to `:573` | A test finds the pseudonym in no FHIR resource (criterion 8) | Not searched: the FHIR store, the backups, the provenance index, a practice space's stores, the vector store | - | Medium | D, B2 | not_run |
+| V1-13 | `libs/tb_common/erasure.py:228` | The registry says what an opt-out keeps (D-465) | `orch.submissions` is an `erase` entry with a clear, and the generated registry lists it under "Erased on opt-out today"; a live submission of the patient stays, as D-513 (the owner's ruling) keeps it. A mismatch of the registry and the decision, not a leak against a ruling | D-513 | Medium | B2 | shown |
+| V1-14 | `libs/tb_common/erasure.py:266` | The same as V1-02 | An uncertain mail of the patient's own file keeps its request; a queued mail of a list keeps its request (in the test its body names the patient). Ruled by D-863 and D-874 (the integrator's rulings); plan 8 criterion 8 now asks for more | D-863, D-874 | High | C2 | shown |
+| V1-15 | `libs/tb_common/erasure.py:246` to `:262` | The same | A set-up sheet of many patients keeps the patient: its file, its row, its check items, its column examples. Ruled by D-869 (left owed); plan 8 criterion 8 now asks for more | D-869 | High | C2 | shown |
+| V1-16 | `deploy/docker-compose.yml:13` | Nothing of an opted-out patient stays (criterion 8) | The box keeps each service's log, 10 files of 100 MB, and nothing on the opt-out reaches it; the registry has no entry for logs | - | Medium | D, B2 | hypothesis |
+
+The same findings are in `erasure-reach-2026-11-17/findings.json`, each with its `ruling` and `basis`.
 
 ## The tests, and which are xfail
 
-- `test_the_opted_out_patient_is_not_in_the_store[<store>]`: one case per store. 12 are `xfail(strict=True)` with
-  their finding (V1-02 to V1-08). A fix that clears a store turns its case red until its line in `KNOWN_LEFT` goes.
-- `test_criterion_8_no_owed_entry_for_a_store_inside_the_box`: strict xfail, V1-01.
-- `test_no_log_line_names_an_opted_out_patient`: strict xfail, V1-09.
-- `test_after_the_restore_no_store_holds_the_opted_out_patient`: strict xfail, V1-10.
-- Plain tests: the search sees the control patient; the tick reports no failure; no unlisted or "erased" store holds
-  the patient unseen; the restore keeps the opt-out and the next tick clears; the tool's own tests.
+- `test_the_opted_out_patient_is_not_in_the_store[<store>]`: one case per store; 19 are `xfail(strict=True)` with
+  their finding (`KNOWN_LEFT`). A case whose store could not be read fails; a case P never reached is skipped.
+- `test_each_variant_does_what_the_registry_and_the_rulings_say[<variant>]`: 12 plain cases.
+- `test_criterion_8_no_owed_entry_for_a_store_inside_the_box` (V1-01) and
+  `test_no_log_line_names_an_opted_out_patient` (V1-09): strict xfail.
+- `test_after_the_restore_no_store_holds_the_opted_out_patient` (V1-10): strict xfail.
+- Plain: the control patient is still found; the thicker seed reaches OMOP's drug, measurement and procedure tables,
+  the embed cache and the log text; the ticks report no failure; no unlisted, "erased" or unreadable store is
+  unseen; the restore keeps the opt-out and the next tick clears; the database probe; the tool's probes.
 
 ## Wiring
 
 The three files are ordinary unit test files. CI's unit shards choose a file by a hash of its path
 (`tools/test_shard.py`): `test_erasure_reach.py` and `test_erasure_reach_tool.py` fall in shard 3 of 6,
 `test_erasure_reach_restore.py` in shard 6. The tool's file is marked `nodb`. No CI job was added. "The test in a
-required job" (plan 8, V7) would take: the unit shards made required on the pull request; or a small job of its own
-for these three files (about 35 seconds) made required, plus a nightly step that runs the live mode against the
-compose box with a seeded marker patient, which needs the compose walk of V12 to seed one through the box's own
+required job" (plan 8, V7) would take: the unit shards made required on the pull request, or a small job of its own
+for these three files made required; and a nightly step that runs `live --before-out`, opts a seeded patient out,
+then `live --before` against the compose box, which needs the compose walk of V12 to seed one through the box's own
 doors.
