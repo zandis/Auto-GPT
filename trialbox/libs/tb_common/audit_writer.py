@@ -50,7 +50,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from tb_common.audit import AuditLog, _day_files
+from tb_common.audit import AuditLog, _day_files, lines_backward
 from tb_common.db import split_url
 
 log = logging.getLogger("tb.audit_writer")
@@ -238,10 +238,10 @@ class Cursor:
 def last_drained(directory: Path) -> Cursor | None:
     """The last journal row in the chain (newest day file first), or None when no event came from the journal."""
     for path in reversed(_day_files(directory)):
-        for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+        for line in lines_backward(path):  # T-697: from the end, never the whole day file
             try:
-                rec = json.loads(line)
-            except ValueError:
+                rec = json.loads(line.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
                 continue  # a torn last line: AuditLog repairs it on the next write
             j = rec.get("journal") if isinstance(rec, dict) else None
             if isinstance(j, dict) and "seq" in j:
@@ -457,8 +457,9 @@ class Drain:
             )
         return list(self.con.execute(q, args).fetchall())
 
-    def step(self) -> int:
-        """Write the next batch to the chain; the number written."""
+    def step(self, alive: Path | None = None) -> int:
+        """Write the next batch to the chain; the number written. ``alive``: the heartbeat, touched after each event
+        (T-697: a batch of slow writes must not read as a dead drain to the health check)."""
         rows = self._rows()
         for seq, at, role, event, ts, fields in rows:
             f, stamp, problem = _readable(at, ts, fields)
@@ -483,6 +484,9 @@ class Drain:
             self.chain.append(event, ts=stamp, journal=journal, **f)
             self.cursor = Cursor(int(seq), _iso(at))
             self._after = None
+            if alive is not None:
+                with contextlib.suppress(OSError):
+                    alive.touch()
         return len(rows)
 
     def wait(self, timeout: float) -> None:
@@ -496,7 +500,7 @@ class Drain:
         total = 0
         while True:
             try:
-                n = self.step()
+                n = self.step(alive)
             except OSError as exc:
                 if once:
                     raise
