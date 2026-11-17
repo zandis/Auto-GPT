@@ -37,7 +37,7 @@ from typing import Any
 from xml.etree import ElementTree as ET
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 # ``record`` is the export, or the import when ``data`` is sent
@@ -52,6 +52,11 @@ SUPPORTED = {
     "formEventMapping",
     "repeatingFormsEvents",
     "log",  # CGRD-B5c (D-845)
+    "instrument",
+    "user",
+    "report",
+    "surveyLink",
+    "file",
 }
 NO_PERMISSION = "You do not have permissions to use the API"
 
@@ -81,8 +86,123 @@ def _local_now() -> str:
     return datetime.now(site_zone()).replace(microsecond=0, tzinfo=None).isoformat()
 
 
+def _apply_schedule(proj: dict[str, Any], content: str, raw: str) -> Any:
+    """Import arms, events, the form-event map or repeating rows onto a project, including an empty classic one."""
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        return _err(400, "the import is not in a valid format")
+    if not isinstance(parsed, list):
+        return _err(400, "the import is not in a valid format")
+    rows = [dict(row) for row in parsed if isinstance(row, dict)]
+    if content == "arm":
+        proj["arms"] = [
+            {"arm_num": int(row.get("arm_num") or 1), "name": str(row.get("name") or "Arm")} for row in rows
+        ]
+        if rows:
+            proj["project"]["is_longitudinal"] = 1
+        return {"count": len(rows)}
+    if content == "event":
+        proj["events"] = [
+            {
+                "arm_num": int(row.get("arm_num") or 1),
+                "unique_event_name": str(row.get("unique_event_name") or ""),
+                "event_name": str(row.get("event_name") or ""),
+                "custom_event_label": str(row.get("custom_event_label") or ""),
+                "day_offset": int(row.get("day_offset") or 0),
+                "offset_min": int(row.get("offset_min") or 0),
+                "offset_max": int(row.get("offset_max") or 0),
+            }
+            for row in rows
+            if str(row.get("unique_event_name") or "")
+        ]
+        if proj["events"]:
+            proj["project"]["is_longitudinal"] = 1
+        return {"count": len(proj["events"])}
+    if content == "formEventMapping":
+        proj["form_event_mapping"] = [
+            {
+                "arm_num": int(row.get("arm_num") or 1),
+                "unique_event_name": str(row.get("unique_event_name") or ""),
+                "form": str(row.get("form") or ""),
+            }
+            for row in rows
+        ]
+        return {"count": len(proj["form_event_mapping"])}
+    proj["repeating"] = [
+        {
+            "event_name": str(row.get("event_name") or ""),
+            "form_name": str(row.get("form_name") or ""),
+            "custom_form_label": str(row.get("custom_form_label") or ""),
+        }
+        for row in rows
+    ]
+    if proj["repeating"]:
+        proj["project"]["has_repeating_instruments_or_events"] = 1
+    return {"count": len(proj["repeating"])}
+
+
 def _err(status: int, msg: str) -> JSONResponse:
     return JSONResponse({"error": msg}, status_code=status)
+
+
+def _version_ge(version: str, major: int, minor: int) -> bool:
+    parts = [int(p) for p in re.findall(r"\d+", version)[:2]]
+    if not parts:
+        return False
+    got = (parts[0], parts[1] if len(parts) > 1 else 0)
+    return got >= (major, minor)
+
+
+def _next_file_instance(proj: dict[str, Any], record: str, field: str, event: str) -> str:
+    have = [int(k[3]) for k in proj.get("files") or {}
+            if k[:3] == (record, field, event) and str(k[3]).isdigit()]  # fmt: skip
+    return str(max(have, default=0) + 1)
+
+
+async def _file_call(proj: dict[str, Any], form: Any, version: str) -> Any:
+    """``content=file``. A call with no ``action`` is refused, as a bare ``content=file`` post is."""
+    action = str(form.get("action") or "")
+    record = str(form.get("record") or "").strip()
+    field = str(form.get("field") or "").strip()
+    event = str(form.get("event") or "")
+    inst = str(form.get("repeat_instance") or "").strip()
+    if action not in ("export", "import", "delete"):
+        return _err(400, "the file action is missing or is not export, import or delete")
+    meta = next((m for m in proj["metadata"] if m["field_name"] == field), None)
+    if meta is None or str(meta.get("field_type")) != "file":
+        return _err(400, "the field is not a file upload field")
+    if not record:
+        return _err(400, "the record is missing")
+    if inst == "new":  # public API: the literal new arrives in REDCap 17.4.0
+        if not _version_ge(version, 17, 4):
+            return _err(400, "repeat_instance new is not recognized")
+        inst = _next_file_instance(proj, record, field, event)
+    key = (record, field, event, inst)
+    store: dict[tuple[str, str, str, str], dict[str, Any]] = proj.setdefault("files", {})
+    if action == "export":
+        item = store.get(key)
+        if not item:
+            return _err(400, "there is no file for this field")
+        name = str(item["name"]).replace('"', "")
+        return Response(content=item["body"], media_type="application/octet-stream",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"'})  # fmt: skip
+    if action == "delete":
+        store.pop(key, None)
+        return {}
+    upload = form.get("file")
+    read = getattr(upload, "read", None)
+    if read is None:
+        return _err(400, "the file is missing")
+    body = await read()
+    if isinstance(body, str):
+        body = body.encode()
+    if not isinstance(body, bytes | bytearray) or len(body) > 8 * 1024 * 1024:
+        return _err(400, "the file is missing or is too large")
+    raw_name = str(getattr(upload, "filename", "") or "upload.bin")
+    name = Path(raw_name).name.replace('"', "") or "upload.bin"
+    store[key] = {"name": name, "body": bytes(body)}
+    return {}
 
 
 class SimState:
@@ -593,8 +713,36 @@ def create_app(fixtures_dir: Path | None = None, version: str | None = None, rat
             return {**proj["project"], "has_repeating_instruments_or_events": 1 if _repeating(proj) else
                     int(proj["project"].get("has_repeating_instruments_or_events") or 0)}  # fmt: skip
         if content == "metadata":
+            if form.get("data") is not None:  # an import; the simulator does not replace a fixture dictionary
+                return _err(400, "This simulator does not import a data dictionary")
             fields = set(_form_list(form, "fields"))
             return [m for m in proj["metadata"] if not fields or m["field_name"] in fields]
+        if content == "instrument":
+            seen: list[str] = []
+            for row in proj["metadata"]:
+                form_name = str(row.get("form_name") or "")
+                if form_name and form_name not in seen:
+                    seen.append(form_name)
+            return [{"instrument_name": name, "instrument_label": name.replace("_", " ")} for name in seen]
+        if content == "user":
+            return list(proj.get("users") or [])
+        if content == "report":
+            report_id = str(form.get("report_id") or "").strip()
+            if not report_id:
+                return _err(400, "report_id is missing")
+            found = next((r for r in proj.get("reports") or [] if str(r.get("report_id")) == report_id), None)
+            if found is None:
+                return _err(400, "the report is not in the project")
+            return list(found.get("rows") or [])
+        if content == "surveyLink":
+            record = str(form.get("record") or "").strip()
+            instrument = str(form.get("instrument") or "").strip()
+            forms = {str(m.get("form_name") or "") for m in proj["metadata"]}
+            if not record or instrument not in forms:
+                return _err(400, "the record or the instrument is missing")
+            return PlainTextResponse("http://127.0.0.1/surveys/?s=sim")
+        if content == "file":
+            return await _file_call(proj, form, state.version)
         if content == "log":  # CGRD-B5c (D-845): the project's log, newest last; logtype=record: the writes only
             entries = list(proj.get("log") or [])
             if str(form.get("logtype") or "") == "record":
@@ -604,6 +752,8 @@ def create_app(fixtures_dir: Path | None = None, version: str | None = None, rat
             if proj.get("token_group"):  # RC13-D (D-849): REDCap 13.7 refuses it to a group user
                 return _err(403, "You may not export data access groups: you are in a data access group")
             return proj["dags"]
+        if content in ("arm", "event", "formEventMapping", "repeatingFormsEvents") and str(form.get("data") or ""):
+            return _apply_schedule(proj, content, str(form.get("data")))
         if content == "repeatingFormsEvents":  # REDCap answers it only for a project that repeats something
             if not _repeating(proj):
                 return _err(400, "There are no repeating instruments or events in this project")
@@ -619,6 +769,8 @@ def create_app(fixtures_dir: Path | None = None, version: str | None = None, rat
             events = [{"day_offset": 0, "offset_min": 0, "offset_max": 0, **e} for e in proj.get("events", [])]
             if content == "event":
                 return events
+            if proj.get("arms"):
+                return list(proj["arms"])
             arms = sorted({int(e.get("arm_num") or 1) for e in events})
             return [{"arm_num": a, "name": f"Arm {a}"} for a in arms]
         if str(form.get("type") or "flat") != "flat":
