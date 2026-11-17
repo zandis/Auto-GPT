@@ -1,0 +1,47 @@
+Offline replay (schema 2) on commit 3bdf51015374
+  set jmed: .cache/box-run/box-20261117T073759Z-57263236/acc/jmed
+    key the folder states: v2
+    zone for the re-run: UTC, from UTC (the run's record names no zone and TB_TZ is not set)
+    key v2: the run's own gold (built on v2), scored as stored; key v1: not scored
+  set sigir: .cache/box-run/box-20261117T073759Z-57263236/acc/sigir
+    key the folder states: v2
+    zone for the re-run: UTC, from UTC (the run's record names no zone and TB_TZ is not set)
+    key v2: the run's own gold (built on v2), scored as stored; key v1: not scored
+  set tcga: .cache/box-run/box-20261117T073759Z-57263236/acc/tcga
+    key the folder states: v2
+    zone for the re-run: UTC, from UTC (the run's record names no zone and TB_TZ is not set)
+    key v2: the run's own gold (built on v2), scored as stored; key v1: not scored
+
+Every target is met only by a launch (D-1064 item 4): a replay's figure decides whether a launch is worth its cost; it is not a result.
+1. Eligible patients wrongly excluded (target: none, on the corrected key; met only by a launch)
+   The target reads the key without the pairs it marks conflicted (D-1064); the figure with them is beside it.
+   level key    excluded    of  with conflicted within target  per set
+   (a)   v1            0     0  -               no             jmed not scored, sigir not scored, tcga not scored
+   (a)   v2            4   420  5/424           no             jmed 0/330, sigir 4/40, tcga 0/50
+   Conflicted pairs on key v2 (6; set aside from the target, never relabelled):
+     sigir sigir-201410 x NCT02097186: the labels exclude on inclusion not included: Patients undergoing elective carotid endarterectomy; inclusion not included: Patients undergoing open abdominal aortic aneurysm repair; inclusion not included: Patients undergoing endovascular abdominal aneurysm repair; inclusion not included: Patients undergoing surgical lower limb revascularisation (suprainguinal or infrainguinal)
+       the box at (a): review, open on Patients undergoing elective carotid endarterectomy or; Patients undergoing open abdominal aortic aneurysm repair or; Patients undergoing endovascular abdominal aneurysm repair or; Patients undergoing surgical lower limb revascularisation (suprainguinal or infrainguinal) (and 10 other open)
+     sigir sigir-201413 x NCT00163709: the labels exclude on inclusion not included: all patients presenting to the ED with shortness of breath that are over 40 years old and present with an emergency department triage category of 3 or higher
+       the box at (a): review, open on We plan to include all patients presenting to the ED with shortness of breath that are over 40 years old and present with an emergency department triage category of 3 or higher. (and 1 other open)
+     sigir sigir-201418 x NCT01260883: the labels exclude on exclusion excluded: Renal or hepatic disease assessed by history and by pre-drug blood tests
+       the box at (a): review, open on Renal or hepatic disease assessed by history and by pre-drug blood tests (and 6 other open)
+     sigir sigir-20142 x NCT00711399: the labels exclude on exclusion excluded: Respiratory distress
+       the box at (a): excluded on Respiratory distress (a line the labels exclude on)
+     sigir sigir-201425 x NCT00282269: the labels exclude on inclusion not included: have a severe traumatic brain injury as defined by either a GCS ≤ 8 and an abnormal CT scan (intracranial hemorrhage, cerebral edema or diffuse axonal injury) or a motor score ≤ 3 and normal CT scan; inclusion not included: are mechanically ventilated
+       the box at (a): not answered
+     sigir sigir-201429 x NCT00703417: the labels exclude on inclusion not included: Postmenopausal female, 55-75 years old
+       the box at (a): not answered
+   Findings to trace at (a): conflicted pairs the box excluded on a line the physicians did not label as excluding: 0
+2. Pathology figure (target: on 500 public pathology reports the pair excluded 384 of 450, with 0 wrong exclusions, and lost 0 of 50 eligible patients (PoC-1, commit b266f9b7); met only by a launch)
+   (a) the run's tcga: excluded 379 of 450, 0 wrong, lost 0 of 50: not within the target
+3. Protocols failing (target: fewer than one in ten of those attempted fail before or in SCREEN; the share before SCREEN alone is beside it; met only by a launch)
+   (a) failed 3 of 107 (2.8 %): within the target; before SCREEN 0 of 107 (0.0 %): within the target
+       by class: screen_judging 3
+
+Targets: met only by a launch (D-1064 item 4); none is met by this replay.
+Within the target at level (a), which decides whether a launch is worth its cost and is not a result: eligible not within the target; pathology not within the target; protocols within the target
+Limits:
+  - level (b) not run: no index day (give --index-day, or a run whose key MANIFEST.json pins, which names its build day)
+  - Level (a) scores the verdicts as the run stored them; nothing there is re-run.
+  - No figure here meets a target: a target is met only by a launch (D-1064 item 4). 'Within the target' says whether a launch is worth its cost; it is not a result.
+  - Built on key v2 (gold/key.json), scored as stored, with no v1 figure: jmed, sigir, tcga.

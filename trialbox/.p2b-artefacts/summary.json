@@ -1,0 +1,988 @@
+{
+ "ended": "TB-BOX-RUN-COMPLETE: every step ran; the parts say which test rules passed",
+ "steps": 25,
+ "stops": [],
+ "provenance": {
+  "mode": "production",
+  "not_a_release": false,
+  "commit": null,
+  "bundle_id": null,
+  "release_seq": null,
+  "signature_sha256": null,
+  "signing_key_id": null,
+  "bundle_sha256": null,
+  "image_digests": {
+   "llm-service": [
+    "sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34"
+   ],
+   "llm-verifier": [
+    "sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34"
+   ]
+  },
+  "weight_manifests": [
+   {
+    "build_id": "gemma-4-26b-a4b-it-rtxpro6000",
+    "manifest_sha256": "5e5bef7a61feffc04e388886d2f1996dbffd1fa10b1722e2fa2a832c39e28a76",
+    "revision": "a19cfe00be84568a6867111c9a68c9c44fdcffe6"
+   },
+   {
+    "build_id": "qwen3.5-9b-rtxpro6000",
+    "manifest_sha256": "869b525324626a867331f26126a5605aeb10ae40e9dfbc14fee9849ac3e15982",
+    "revision": "e4d2d39cede8c5d1716d824cd843e2889c648083"
+   },
+   {
+    "build_id": "gemma-4-26b-a4b-it-frontdesk-rtxpro6000",
+    "manifest_sha256": "5e5bef7a61feffc04e388886d2f1996dbffd1fa10b1722e2fa2a832c39e28a76",
+    "revision": "a19cfe00be84568a6867111c9a68c9c44fdcffe6"
+   }
+  ],
+  "chat_template_sha256": "ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4",
+  "served_prompts": [
+   {
+    "id": "assist",
+    "version": 2,
+    "sha256": "ffd1a30ee30b6e515e52aa657fd5219a4b8173f663db4a02cbac20c3d2d6fb44"
+   },
+   {
+    "id": "chart_facts",
+    "version": 2,
+    "sha256": "30b19ce6a92ef982de2f49c09c9c7c1ff67c0f5bd511168a413dd36ee8d4d5d5"
+   },
+   {
+    "id": "classify_intent",
+    "version": 3,
+    "sha256": "6b9ec1c30611d39e3ed299004084f06eba4ea8fa43bf3f8d5d2d2e5597c0b0fb"
+   },
+   {
+    "id": "concept_map",
+    "version": 2,
+    "sha256": "fbe1702ecd509568ab5fdb8a27da5eee7f29849eeadf9419c03ada09b4f09e0f"
+   },
+   {
+    "id": "consent_explain",
+    "version": 2,
+    "sha256": "accf05617b37eb96e0c05edf5a10e0df50677635becea30dc181a5db1074d2de"
+   },
+   {
+    "id": "consent_translate",
+    "version": 2,
+    "sha256": "8c052f389a82b582430132490e3c20b59c7c7f625ff3449d0d85da0abf0ff59a"
+   },
+   {
+    "id": "consent_verify",
+    "version": 2,
+    "sha256": "82ca56aff01cc4b326daf5f222828a30aeba607b11a37b85f3b14e0f74a63e4f"
+   },
+   {
+    "id": "crf_prefill",
+    "version": 2,
+    "sha256": "63c5ca594ea460c58ab549d7b0c955b1b623966dcb3c236c8ffab321d571d17b"
+   },
+   {
+    "id": "draft_doc",
+    "version": 2,
+    "sha256": "ede74c064dc4a71f5e4c89c4fd20f32304f7c8f1343b0e7ae7729c4507b8d213"
+   },
+   {
+    "id": "ie_locate",
+    "version": 2,
+    "sha256": "b8ae8b9ca20be76e7e277b705a9ff18ab488aecfc66b1facc594e870b922b249"
+   },
+   {
+    "id": "ir_extract",
+    "version": 4,
+    "sha256": "cfe46a5791d1f19c6b0b4f74a9e31e22483e592c58699c6a3e440bc6d5998200"
+   },
+   {
+    "id": "judge",
+    "version": 5,
+    "sha256": "e6ba5c3444aca038c93ce4bfd6a9fecfc0ecd228a74f998629e5e0e83a8f5d89"
+   },
+   {
+    "id": "profile_summary",
+    "version": 2,
+    "sha256": "cd0852e09a448f2b16cd977432860f5991e1b894a63c663bc3c324b8d807ae1f"
+   }
+  ],
+  "environment": "VALIDATION",
+  "served_prompts_in_environment": [
+   "assist@2",
+   "chart_facts@2",
+   "classify_intent@3",
+   "concept_map@2",
+   "consent_explain@2",
+   "consent_translate@2",
+   "consent_verify@2",
+   "crf_prefill@2",
+   "draft_doc@2",
+   "ie_locate@2",
+   "ir_extract@4",
+   "judge@5",
+   "profile_summary@2"
+  ],
+  "embedder_in_screen": "not the hash stand-in in screen_cascade (#589 or later): the embed service",
+  "tripwire": "set by the declared setting TB_GATEWAY_PHI_TRIPWIRE=off",
+  "limits": {
+   "after": {
+    "authserv": "mx.hospa.test",
+    "jobs_per_sender_per_day": "0",
+    "mail_per_recipient_per_day": "0",
+    "rate_limit_per_sender_per_day": 20,
+    "rate_limits_per_day": {}
+   },
+   "before": {
+    "authserv": "mx.hospa.test",
+    "jobs_per_sender_per_day": "0",
+    "mail_per_recipient_per_day": "0",
+    "rate_limit_per_sender_per_day": 20,
+    "rate_limits_per_day": {}
+   },
+   "environment": "VALIDATION"
+  }
+ },
+ "tests": {
+  "R2 build": [
+   {
+    "check": "every build step done",
+    "pass": false,
+    "detail": null
+   },
+   {
+    "check": "signature verified and the release record is one PRODUCTION takes",
+    "pass": false,
+    "detail": null
+   },
+   {
+    "check": "the key file was gone after signing",
+    "pass": false,
+    "detail": null
+   }
+  ],
+  "Public accuracy on the installed box (scores: acc-score, outside the box)": [
+   {
+    "check": "the box routes the compile and the screen in its environment (judge, verifier, compiler)",
+    "pass": true,
+    "detail": [
+     {
+      "role": "judge",
+      "class": "D3",
+      "route": "patient",
+      "builds": [
+       {
+        "alias": "j-workhorse",
+        "build": "gemma-4-26b-a4b-it-rtxpro6000",
+        "routes": true
+       },
+       {
+        "alias": "v-verifier",
+        "build": "qwen3.5-9b-rtxpro6000",
+        "routes": true
+       }
+      ],
+      "routes": true
+     },
+     {
+      "role": "extract_criteria",
+      "class": "D1",
+      "route": "protocol",
+      "builds": [
+       {
+        "alias": "j-workhorse",
+        "build": "gemma-4-26b-a4b-it-rtxpro6000",
+        "routes": true
+       },
+       {
+        "alias": "v-verifier",
+        "build": "qwen3.5-9b-rtxpro6000",
+        "routes": true
+       }
+      ],
+      "routes": true
+     },
+     {
+      "role": "concept_select",
+      "class": "D1",
+      "route": "protocol",
+      "builds": [
+       {
+        "alias": "j-workhorse",
+        "build": "gemma-4-26b-a4b-it-rtxpro6000",
+        "routes": true
+       },
+       {
+        "alias": "v-verifier",
+        "build": "qwen3.5-9b-rtxpro6000",
+        "routes": true
+       }
+      ],
+      "routes": true
+     }
+    ]
+   },
+   {
+    "check": "jmed: every protocol compiled, approved and screened (compiled only: a compile-only set); protocols in flight: 1 at most of 1",
+    "pass": true,
+    "detail": {
+     "counts": {
+      "patients_answered": 594,
+      "protocols": 2,
+      "refused_by_tripwire": 0,
+      "screened": 2
+     },
+     "streams": 1,
+     "in_flight_max": 1,
+     "refused_by_tripwire": 0,
+     "uploaded": true,
+     "score": {
+      "answer_key": {
+       "key": "v2",
+       "what": "B1-B3 of the P1b review: B1 birth date the visit minus the stated age in its unit; B2 placed age lines keep their unit and a bound the protocol states is not written again; B3 JMED truth from the note the box reads, over the same patients as v1",
+       "stamped": true
+      },
+      "protocols": {
+       "what": "each protocol of the set by what became of it; a failure is counted by class and stays in the denominator; a budget cut is not a failure and not attempted",
+       "in_set": 2,
+       "in_answers": 2,
+       "answers_not_in_the_set": [],
+       "screened": 2,
+       "compiled": 0,
+       "failed_before_screen": 0,
+       "failed_in_screen": 0,
+       "not_run_time_budget": 0,
+       "unfinished": 0,
+       "not_in_answers": 0,
+       "attempted": 2,
+       "failed": 0,
+       "patients_answered": 594,
+       "verdicts": 1118,
+       "patients_decided": 594,
+       "failed_by_class": {},
+       "classes": {},
+       "failed_share": {
+        "k": 0,
+        "n": 2,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.8419
+        ]
+       },
+       "failed_before_screen_share": {
+        "k": 0,
+        "n": 2,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.8419
+        ]
+       },
+       "fewer_than_one_in_ten_failed": true,
+       "target": "fewer than one protocol in ten of those attempted fails (before or in SCREEN); attempted = screened + compiled + failed + unfinished (budget cuts and protocols not in answers.json are not)",
+       "statuses": {
+        "screened": "screened",
+        "compiled": "compiled (a compile-only set)",
+        "failed_before_screen": "failed before SCREEN (FEAS or APPROVE)",
+        "failed_in_screen": "failed in SCREEN",
+        "not_run_time_budget": "not run: cut by the set's time budget (not a failure)",
+        "unfinished": "in answers.json with no end the scorer knows",
+        "not_in_answers": "not in answers.json (not run: filtered out, or the set stopped first)"
+       }
+      },
+      "criteria": {
+       "answered": 524,
+       "unanswered": 0,
+       "rows": [
+        {
+         "lang": "ja",
+         "stratum": "jmed-family-only",
+         "kind": "exclusion",
+         "gold": "not excluded",
+         "n": 18,
+         "no_verdict": 2,
+         "open": 16,
+         "block_is": "wrong exclusion"
+        },
+        {
+         "lang": "ja",
+         "stratum": "jmed-none",
+         "kind": "exclusion",
+         "gold": "not excluded",
+         "n": 381,
+         "open": 314,
+         "no_verdict": 67,
+         "block_is": "wrong exclusion"
+        },
+        {
+         "lang": "ja",
+         "stratum": "jmed-own",
+         "kind": "exclusion",
+         "gold": "excluded",
+         "n": 195,
+         "open": 194,
+         "no_verdict": 1,
+         "block_is": "catch"
+        }
+       ],
+       "wrong_exclusion": {
+        "k": 0,
+        "n": 330,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.0111
+        ]
+       },
+       "caught": {
+        "k": 0,
+        "n": 194,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.0188
+        ]
+       },
+       "not_compiled": 0,
+       "no_verdict": 70,
+       "evidence": {},
+       "rows_in_gold": 594,
+       "not_answered_by_protocol": {
+        "screened: no_verdict": 70
+       },
+       "denominators": {
+        "wrong_exclusion": "gold rows met or not applicable whose criterion compiled and whose patient the box answered with a verdict (block, open or no block)",
+        "caught": "gold rows not met whose criterion compiled and whose patient the box answered with a verdict",
+        "not_answered_by_protocol": "every other gold row, by the status of its protocol (and on a screened protocol, why: criterion not compiled, patient not in the SCREEN, no verdict)"
+       }
+      },
+      "written_lines": {
+       "ja": {
+        "lines": 2,
+        "blocked": 70,
+        "excluded": 70,
+        "not_compiled": 0
+       }
+      },
+      "unjudged_exclusions": {
+       "ja": {
+        "patients_excluded": 70,
+        "gold criterion exclusion not excluded": 69,
+        "on an age line": 70,
+        "gold criterion exclusion excluded": 1
+       }
+      },
+      "compiled": {
+       "protocols": 2,
+       "criteria": 4,
+       "class_split": {
+        "structured": 4
+       },
+       "screened": 2
+      }
+     }
+    }
+   },
+   {
+    "check": "tcga: every protocol compiled, approved and screened (compiled only: a compile-only set); protocols in flight: 1 at most of 1",
+    "pass": true,
+    "detail": {
+     "counts": {
+      "patients_answered": 500,
+      "protocols": 1,
+      "refused_by_tripwire": 0,
+      "screened": 1
+     },
+     "streams": 1,
+     "in_flight_max": 1,
+     "refused_by_tripwire": 0,
+     "uploaded": true,
+     "score": {
+      "answer_key": {
+       "key": "v2",
+       "what": "B1-B3 of the P1b review: B1 birth date the visit minus the stated age in its unit; B2 placed age lines keep their unit and a bound the protocol states is not written again; B3 JMED truth from the note the box reads, over the same patients as v1",
+       "stamped": true
+      },
+      "protocols": {
+       "what": "each protocol of the set by what became of it; a failure is counted by class and stays in the denominator; a budget cut is not a failure and not attempted",
+       "in_set": 10,
+       "in_answers": 1,
+       "answers_not_in_the_set": [],
+       "screened": 1,
+       "compiled": 0,
+       "failed_before_screen": 0,
+       "failed_in_screen": 0,
+       "not_run_time_budget": 0,
+       "unfinished": 0,
+       "not_in_answers": 9,
+       "attempted": 1,
+       "failed": 0,
+       "patients_answered": 500,
+       "verdicts": 500,
+       "patients_decided": 500,
+       "failed_by_class": {},
+       "classes": {},
+       "failed_share": {
+        "k": 0,
+        "n": 1,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.975
+        ]
+       },
+       "failed_before_screen_share": {
+        "k": 0,
+        "n": 1,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.975
+        ]
+       },
+       "fewer_than_one_in_ten_failed": true,
+       "target": "fewer than one protocol in ten of those attempted fails (before or in SCREEN); attempted = screened + compiled + failed + unfinished (budget cuts and protocols not in answers.json are not)",
+       "statuses": {
+        "screened": "screened",
+        "compiled": "compiled (a compile-only set)",
+        "failed_before_screen": "failed before SCREEN (FEAS or APPROVE)",
+        "failed_in_screen": "failed in SCREEN",
+        "not_run_time_budget": "not run: cut by the set's time budget (not a failure)",
+        "unfinished": "in answers.json with no end the scorer knows",
+        "not_in_answers": "not in answers.json (not run: filtered out, or the set stopped first)"
+       }
+      },
+      "pathology": {
+       "protocols_in_set": 10,
+       "protocols_screened": [
+        "Gm3TCGA-BRCA"
+       ],
+       "reports": 500,
+       "pairs_answered": 500,
+       "pairs_unanswered": 0,
+       "scored": true,
+       "ineligible_excluded": {
+        "k": 379,
+        "n": 450,
+        "rate": 0.8422,
+        "ci95": [
+         0.8052,
+         0.8747
+        ]
+       },
+       "wrong_exclusions": {
+        "k": 0,
+        "n": 379,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.0097
+        ]
+       },
+       "eligible_lost": {
+        "k": 0,
+        "n": 50,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.0711
+        ]
+       },
+       "left_open": {
+        "k": 73,
+        "n": 500,
+        "rate": 0.146,
+        "ci95": [
+         0.1162,
+         0.18
+        ]
+       },
+       "figure": "on 500 public pathology reports (1 of 10 protocols screened) the pair excluded 379 of 450, with 0 wrong exclusions, and lost 0 of 50 eligible patients"
+      },
+      "pairs": {
+       "en": {
+        "answered": 500,
+        "eligible_lost": {
+         "k": 0,
+         "n": 50,
+         "rate": 0.0,
+         "ci95": [
+          0.0,
+          0.0711
+         ]
+        },
+        "excluded_caught": {
+         "k": 379,
+         "n": 450,
+         "rate": 0.8422,
+         "ci95": [
+          0.8052,
+          0.8747
+         ]
+        },
+        "wrong_exclusions": {
+         "k": 0,
+         "n": 379,
+         "rate": 0.0,
+         "ci95": [
+          0.0,
+          0.0097
+         ]
+        },
+        "unanswered": {
+         "k": 4500,
+         "n": 5000,
+         "rate": 0.9,
+         "ci95": [
+          0.8913,
+          0.9082
+         ]
+        },
+        "left_open": {
+         "k": 73,
+         "n": 5000,
+         "rate": 0.0146,
+         "ci95": [
+          0.0115,
+          0.0183
+         ]
+        },
+        "other_strata": {},
+        "pairs_in_gold": 5000,
+        "unanswered_by_protocol": {
+         "not_in_answers": 4500
+        },
+        "denominators": {
+         "eligible_lost": "gold-eligible pairs the box answered (protocol screened and the patient in its SCREEN)",
+         "excluded_caught": "gold-excluded pairs the box answered",
+         "wrong_exclusions": "the box's exclusions of gold-eligible or gold-excluded pairs",
+         "unanswered": "every gold-eligible and gold-excluded pair (pairs_in_gold); unanswered_by_protocol splits it by the status of the pair's protocol",
+         "left_open": "every gold-eligible and gold-excluded pair (pairs_in_gold)"
+        }
+       }
+      },
+      "criteria": {
+       "answered": 500,
+       "unanswered": 0,
+       "rows": [
+        {
+         "lang": "en",
+         "stratum": "tcga-included",
+         "kind": "inclusion",
+         "gold": "included",
+         "n": 500,
+         "no_block": 48,
+         "open": 2,
+         "not_compiled": 450,
+         "block_is": "wrong exclusion"
+        },
+        {
+         "lang": "en",
+         "stratum": "tcga-not-included",
+         "kind": "inclusion",
+         "gold": "not included",
+         "n": 4500,
+         "not_compiled": 4050,
+         "block": 379,
+         "open": 71,
+         "block_is": "catch"
+        }
+       ],
+       "wrong_exclusion": {
+        "k": 0,
+        "n": 50,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.0711
+        ]
+       },
+       "caught": {
+        "k": 379,
+        "n": 450,
+        "rate": 0.8422,
+        "ci95": [
+         0.8052,
+         0.8747
+        ]
+       },
+       "not_compiled": 4500,
+       "no_verdict": 0,
+       "evidence": {},
+       "rows_in_gold": 5000,
+       "not_answered_by_protocol": {
+        "not_in_answers": 4500
+       },
+       "denominators": {
+        "wrong_exclusion": "gold rows met or not applicable whose criterion compiled and whose patient the box answered with a verdict (block, open or no block)",
+        "caught": "gold rows not met whose criterion compiled and whose patient the box answered with a verdict",
+        "not_answered_by_protocol": "every other gold row, by the status of its protocol (and on a screened protocol, why: criterion not compiled, patient not in the SCREEN, no verdict)"
+       }
+      },
+      "unjudged_exclusions": {},
+      "compiled": {
+       "protocols": 1,
+       "criteria": 1,
+       "class_split": {
+        "mixed": 1
+       },
+       "screened": 1
+      }
+     }
+    }
+   },
+   {
+    "check": "sigir: every protocol compiled, approved and screened (compiled only: a compile-only set); protocols in flight: 3 at most of 3",
+    "pass": false,
+    "detail": {
+     "counts": {
+      "failed": 3,
+      "patients_answered": 102,
+      "protocols": 104,
+      "refused_by_tripwire": 0,
+      "screened": 101
+     },
+     "streams": 3,
+     "in_flight_max": 3,
+     "refused_by_tripwire": 0,
+     "uploaded": true,
+     "score": {
+      "answer_key": {
+       "key": "v2",
+       "what": "B1-B3 of the P1b review: B1 birth date the visit minus the stated age in its unit; B2 placed age lines keep their unit and a bound the protocol states is not written again; B3 JMED truth from the note the box reads, over the same patients as v1",
+       "stamped": true
+      },
+      "protocols": {
+       "what": "each protocol of the set by what became of it; a failure is counted by class and stays in the denominator; a budget cut is not a failure and not attempted",
+       "in_set": 104,
+       "in_answers": 104,
+       "answers_not_in_the_set": [],
+       "screened": 101,
+       "compiled": 0,
+       "failed_before_screen": 0,
+       "failed_in_screen": 3,
+       "not_run_time_budget": 0,
+       "unfinished": 0,
+       "not_in_answers": 0,
+       "attempted": 104,
+       "failed": 3,
+       "patients_answered": 102,
+       "verdicts": 895,
+       "patients_decided": 102,
+       "failed_by_class": {
+        "screen_judging": 3
+       },
+       "classes": {
+        "screen_judging": {
+         "status": "failed_in_screen",
+         "protocols": 3,
+         "rulesets": [
+          "Sm3NCT00282269",
+          "Sm3NCT00703417",
+          "Sm3NCT00974064"
+         ],
+         "example": "The model did not answer 1 of 4 note checks, so the note-based criteria could not be judged. Nothing was sent; send the request again when the model is back."
+        }
+       },
+       "failed_share": {
+        "k": 3,
+        "n": 104,
+        "rate": 0.0288,
+        "ci95": [
+         0.006,
+         0.082
+        ]
+       },
+       "failed_before_screen_share": {
+        "k": 0,
+        "n": 104,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.0348
+        ]
+       },
+       "fewer_than_one_in_ten_failed": true,
+       "target": "fewer than one protocol in ten of those attempted fails (before or in SCREEN); attempted = screened + compiled + failed + unfinished (budget cuts and protocols not in answers.json are not)",
+       "statuses": {
+        "screened": "screened",
+        "compiled": "compiled (a compile-only set)",
+        "failed_before_screen": "failed before SCREEN (FEAS or APPROVE)",
+        "failed_in_screen": "failed in SCREEN",
+        "not_run_time_budget": "not run: cut by the set's time budget (not a failure)",
+        "unfinished": "in answers.json with no end the scorer knows",
+        "not_in_answers": "not in answers.json (not run: filtered out, or the set stopped first)"
+       }
+      },
+      "pairs": {
+       "en": {
+        "answered": 44,
+        "eligible_lost": {
+         "k": 5,
+         "n": 44,
+         "rate": 0.1136,
+         "ci95": [
+          0.0379,
+          0.2456
+         ]
+        },
+        "excluded_caught": {
+         "k": 0,
+         "n": 0,
+         "rate": null,
+         "ci95": [
+          0.0,
+          1.0
+         ]
+        },
+        "wrong_exclusions": {
+         "k": 5,
+         "n": 5,
+         "rate": 1.0,
+         "ci95": [
+          0.4782,
+          1.0
+         ]
+        },
+        "unanswered": {
+         "k": 2,
+         "n": 46,
+         "rate": 0.0435,
+         "ci95": [
+          0.0053,
+          0.1484
+         ]
+        },
+        "left_open": {
+         "k": 39,
+         "n": 46,
+         "rate": 0.8478,
+         "ci95": [
+          0.7113,
+          0.9366
+         ]
+        },
+        "other_strata": {
+         "sigir-not_refer:not_refer": {
+          "n": 17,
+          "excluded": 6,
+          "listed": 0,
+          "open": 10,
+          "unanswered": 1
+         },
+         "sigir-would_consider:would_consider": {
+          "n": 42,
+          "excluded": 8,
+          "listed": 0,
+          "open": 34,
+          "unanswered": 0
+         }
+        },
+        "eligible_lost_where_the_criterion_labels_exclude": 1,
+        "eligible_lost_on_the_line_the_criterion_labels_exclude": 1,
+        "pairs_in_gold": 46,
+        "unanswered_by_protocol": {
+         "failed_in_screen": 2
+        },
+        "denominators": {
+         "eligible_lost": "gold-eligible pairs the box answered (protocol screened and the patient in its SCREEN)",
+         "excluded_caught": "gold-excluded pairs the box answered",
+         "wrong_exclusions": "the box's exclusions of gold-eligible or gold-excluded pairs",
+         "unanswered": "every gold-eligible and gold-excluded pair (pairs_in_gold); unanswered_by_protocol splits it by the status of the pair's protocol",
+         "left_open": "every gold-eligible and gold-excluded pair (pairs_in_gold)"
+        }
+       }
+      },
+      "criteria": {
+       "answered": 404,
+       "unanswered": 27,
+       "rows": [
+        {
+         "lang": "en",
+         "stratum": "sigir-criterion",
+         "kind": "exclusion",
+         "gold": "excluded",
+         "n": 6,
+         "block": 1,
+         "open": 3,
+         "no_verdict": 2,
+         "block_is": "catch"
+        },
+        {
+         "lang": "en",
+         "stratum": "sigir-criterion",
+         "kind": "exclusion",
+         "gold": "not applicable",
+         "n": 13,
+         "open": 12,
+         "no_verdict": 1,
+         "block_is": "wrong exclusion"
+        },
+        {
+         "lang": "en",
+         "stratum": "sigir-criterion",
+         "kind": "exclusion",
+         "gold": "not enough information",
+         "n": 72,
+         "no_verdict": 24,
+         "open": 42,
+         "block": 2,
+         "unanswered": 4,
+         "block_is": "wrong exclusion"
+        },
+        {
+         "lang": "en",
+         "stratum": "sigir-criterion",
+         "kind": "exclusion",
+         "gold": "not excluded",
+         "n": 266,
+         "no_verdict": 51,
+         "open": 183,
+         "no_block": 17,
+         "unanswered": 15,
+         "block_is": "wrong exclusion"
+        },
+        {
+         "lang": "en",
+         "stratum": "sigir-criterion",
+         "kind": "inclusion",
+         "gold": "included",
+         "n": 83,
+         "block": 1,
+         "no_verdict": 14,
+         "open": 43,
+         "no_block": 23,
+         "not_compiled": 1,
+         "unanswered": 1,
+         "block_is": "wrong exclusion"
+        },
+        {
+         "lang": "en",
+         "stratum": "sigir-criterion",
+         "kind": "inclusion",
+         "gold": "not applicable",
+         "n": 3,
+         "no_verdict": 2,
+         "open": 1,
+         "block_is": "wrong exclusion"
+        },
+        {
+         "lang": "en",
+         "stratum": "sigir-criterion",
+         "kind": "inclusion",
+         "gold": "not enough information",
+         "n": 77,
+         "no_verdict": 8,
+         "open": 61,
+         "no_block": 3,
+         "not_compiled": 1,
+         "unanswered": 4,
+         "block_is": "wrong exclusion"
+        },
+        {
+         "lang": "en",
+         "stratum": "sigir-criterion",
+         "kind": "inclusion",
+         "gold": "not included",
+         "n": 15,
+         "block": 1,
+         "open": 11,
+         "unanswered": 3,
+         "block_is": "catch"
+        }
+       ],
+       "wrong_exclusion": {
+        "k": 3,
+        "n": 388,
+        "rate": 0.0077,
+        "ci95": [
+         0.0016,
+         0.0224
+        ]
+       },
+       "caught": {
+        "k": 2,
+        "n": 16,
+        "rate": 0.125,
+        "ci95": [
+         0.0155,
+         0.3835
+        ]
+       },
+       "not_compiled": 2,
+       "no_verdict": 102,
+       "evidence": {
+        "no quote or no ids": 391,
+        "in a deciding sentence": 13
+       },
+       "rows_in_gold": 535,
+       "not_answered_by_protocol": {
+        "failed_in_screen": 27,
+        "screened: no_verdict": 102,
+        "screened: not_compiled": 2
+       },
+       "denominators": {
+        "wrong_exclusion": "gold rows met or not applicable whose criterion compiled and whose patient the box answered with a verdict (block, open or no block)",
+        "caught": "gold rows not met whose criterion compiled and whose patient the box answered with a verdict",
+        "not_answered_by_protocol": "every other gold row, by the status of its protocol (and on a screened protocol, why: criterion not compiled, patient not in the SCREEN, no verdict)"
+       }
+      },
+      "written_lines": {
+       "en": {
+        "lines": 78,
+        "blocked": 6,
+        "excluded": 6,
+        "not_compiled": 0
+       }
+      },
+      "unjudged_exclusions": {
+       "en": {
+        "patients_excluded": 14,
+        "gold eligible": 4,
+        "on an age line": 8,
+        "gold would_consider": 4,
+        "gold not_refer": 6
+       }
+      },
+      "compiled": {
+       "protocols": 104,
+       "criteria": 1165,
+       "class_split": {
+        "mixed": 293,
+        "structured": 282,
+        "human": 497,
+        "note": 93
+       },
+       "screened": 101
+      }
+     }
+    }
+   }
+  ]
+ },
+ "minutes": {
+  "02-install": 2.36,
+  "03-wizard": 0.0,
+  "04-pin": 0.0,
+  "05-serving": 0.51,
+  "06-g1": 0.52,
+  "07-canary": 3.75,
+  "07g-gate": 0.09,
+  "08-qualify": 0.0,
+  "09-promote-judge": 0.0,
+  "10-promote-verifier": 0.0,
+  "11-resolve": 0.02,
+  "12-doctor": 0.0,
+  "50-acc-tools": 0.17,
+  "51-acc-settings": 0.61,
+  "52-acc-routes": 0.04,
+  "53-acc-data": 1.59,
+  "54-acc-ingest": 7.51,
+  "60-acc-jmed": 2.09,
+  "61-acc-tcga": 6.39,
+  "62-acc-sigir": 112.22,
+  "79-acc-result": 0.0,
+  "b01-source": 0.28,
+  "b02-venv": 0.34,
+  "b03-images": 3.09,
+  "d04-tree": 0.0
+ }
+}

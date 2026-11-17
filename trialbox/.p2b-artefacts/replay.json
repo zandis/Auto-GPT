@@ -1,0 +1,1618 @@
+{
+ "schema_version": 2,
+ "tool": "python -m tools.public_accuracy.replay",
+ "commit": "3bdf51015374675b76b725efa2a020946023ee97",
+ "working_tree_differs": false,
+ "sets": {
+  "jmed": {
+   "folder": "/tmp/claude-0/-home-user-Auto-GPT/cede7e14-e476-5d2e-ac6d-18557e745ae9/scratchpad/launch/trialbox/.cache/box-run/box-20261117T073759Z-57263236/acc/jmed",
+   "identified": {
+    "launch_p1b_key_v1": false,
+    "run": null,
+    "build_day": null
+   },
+   "key_stated": {
+    "key": "v2",
+    "what": "B1-B3 of the P1b review: B1 birth date the visit minus the stated age in its unit; B2 placed age lines keep their unit and a bound the protocol states is not written again; B3 JMED truth from the note the box reads, over the same patients as v1; D-1064: an eligible pair whose own criterion labels exclude the patient is marked conflicted, not relabelled",
+    "stamped": true
+   },
+   "zone": {
+    "tz": "UTC",
+    "from": "UTC (the run's record names no zone and TB_TZ is not set)",
+    "record": {
+     "tz": null,
+     "from": null,
+     "looked_in": [
+      "work/set-clock.json: tz",
+      "work/set-clock.json: site_tz",
+      "work/acc-env.json: tz",
+      "work/acc-env.json: TB_TZ",
+      "work/screen/*.json: provenance.tz",
+      "work/screen/*.json: provenance.site_tz"
+     ],
+     "unreadable": []
+    }
+   },
+   "key_v1": {
+    "key": "v1",
+    "refused": "the run's gold states key v2 (gold/key.json): its key v1 is not rebuilt offline"
+   },
+   "key_v2": {
+    "key": "v2",
+    "how": "the run's own stored gold, which states key v2 (gold/key.json)",
+    "applied": 0,
+    "native": true
+   },
+   "level_a": {
+    "v1": {
+     "answer_key": {
+      "key": "v1",
+      "refused": "the run's gold states key v2 (gold/key.json): its key v1 is not rebuilt offline"
+     },
+     "not_scored_because": "the run's gold states key v2 (gold/key.json): its key v1 is not rebuilt offline"
+    },
+    "v2": {
+     "answer_key": {
+      "key": "v2",
+      "how": "the run's own stored gold, which states key v2 (gold/key.json)",
+      "applied": 0,
+      "native": true
+     },
+     "scorer_read_the_folder_as": {
+      "key": "v2",
+      "what": "B1-B3 of the P1b review: B1 birth date the visit minus the stated age in its unit; B2 placed age lines keep their unit and a bound the protocol states is not written again; B3 JMED truth from the note the box reads, over the same patients as v1; D-1064: an eligible pair whose own criterion labels exclude the patient is marked conflicted, not relabelled",
+      "stamped": true
+     },
+     "protocols": {
+      "in_set": 2,
+      "in_answers": 2,
+      "answers_not_in_the_set": [],
+      "screened": 2,
+      "compiled": 0,
+      "failed_before_screen": 0,
+      "failed_in_screen": 0,
+      "not_run_time_budget": 0,
+      "unfinished": 0,
+      "not_in_answers": 0,
+      "attempted": 2,
+      "failed": 0,
+      "patients_answered": 594,
+      "verdicts": 1118,
+      "patients_decided": 594,
+      "failed_by_class": {},
+      "failed_share": {
+       "k": 0,
+       "n": 2,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.8419
+       ]
+      },
+      "failed_before_screen_share": {
+       "k": 0,
+       "n": 2,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.8419
+       ]
+      },
+      "fewer_than_one_in_ten_failed": true,
+      "target": "fewer than one protocol in ten of those attempted fails (before or in SCREEN; the target reads this wider share, and the share failed before SCREEN is printed beside it); attempted = screened + compiled + failed + unfinished (budget cuts and protocols not in answers.json are not)",
+      "attempts": {
+       "attempts": 1,
+       "finished_in": {
+        "1": 2
+       },
+       "still_cut": 0,
+       "line": "attempts: 1; protocols finished in attempt 1: 2; still cut: 0"
+      }
+     },
+     "unjudged_exclusions": {
+      "what": "gold patients the box excluded only on lines no gold row judges (placed age and sex lines, JMED's coded age line, protocol lines without a gold row), read from the answers",
+      "rows": [
+       {
+        "ruleset": "Mm3JMED-DM",
+        "lang": "ja",
+        "id": "MM3JMED-DM-INC-01",
+        "kind": "inclusion",
+        "class": "structured",
+        "line": "20歳以上",
+        "age_line": true,
+        "written_by_the_benchmark": true,
+        "excluded": 35,
+        "by_gold": {
+         "criterion exclusion not excluded": 34,
+         "criterion exclusion excluded": 1
+        }
+       },
+       {
+        "ruleset": "Mm3JMED-HT",
+        "lang": "ja",
+        "id": "MM3JMED-HT-INC-01",
+        "kind": "inclusion",
+        "class": "structured",
+        "line": "20歳以上",
+        "age_line": true,
+        "written_by_the_benchmark": true,
+        "excluded": 35,
+        "by_gold": {
+         "criterion exclusion not excluded": 35
+        }
+       }
+      ],
+      "summary": {
+       "ja": {
+        "patients_excluded": 70,
+        "gold criterion exclusion not excluded": 69,
+        "on an age line": 70,
+        "gold criterion exclusion excluded": 1
+       }
+      },
+      "patients_excluded": 70
+     },
+     "criteria": {
+      "answered": 524,
+      "wrong_exclusion": {
+       "k": 0,
+       "n": 330,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.0111
+       ]
+      },
+      "caught": {
+       "k": 0,
+       "n": 194,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.0188
+       ]
+      },
+      "no_verdict": 70,
+      "not_compiled": 0,
+      "rows_in_gold": 594
+     }
+    }
+   }
+  },
+  "sigir": {
+   "folder": "/tmp/claude-0/-home-user-Auto-GPT/cede7e14-e476-5d2e-ac6d-18557e745ae9/scratchpad/launch/trialbox/.cache/box-run/box-20261117T073759Z-57263236/acc/sigir",
+   "identified": {
+    "launch_p1b_key_v1": false,
+    "run": null,
+    "build_day": null
+   },
+   "key_stated": {
+    "key": "v2",
+    "what": "B1-B3 of the P1b review: B1 birth date the visit minus the stated age in its unit; B2 placed age lines keep their unit and a bound the protocol states is not written again; B3 JMED truth from the note the box reads, over the same patients as v1; D-1064: an eligible pair whose own criterion labels exclude the patient is marked conflicted, not relabelled",
+    "stamped": true
+   },
+   "zone": {
+    "tz": "UTC",
+    "from": "UTC (the run's record names no zone and TB_TZ is not set)",
+    "record": {
+     "tz": null,
+     "from": null,
+     "looked_in": [
+      "work/set-clock.json: tz",
+      "work/set-clock.json: site_tz",
+      "work/acc-env.json: tz",
+      "work/acc-env.json: TB_TZ",
+      "work/screen/*.json: provenance.tz",
+      "work/screen/*.json: provenance.site_tz"
+     ],
+     "unreadable": []
+    }
+   },
+   "key_v1": {
+    "key": "v1",
+    "refused": "the run's gold states key v2 (gold/key.json): its key v1 is not rebuilt offline"
+   },
+   "key_v2": {
+    "key": "v2",
+    "how": "the run's own stored gold, which states key v2 (gold/key.json)",
+    "applied": 0,
+    "native": true
+   },
+   "level_a": {
+    "v1": {
+     "answer_key": {
+      "key": "v1",
+      "refused": "the run's gold states key v2 (gold/key.json): its key v1 is not rebuilt offline"
+     },
+     "not_scored_because": "the run's gold states key v2 (gold/key.json): its key v1 is not rebuilt offline"
+    },
+    "v2": {
+     "answer_key": {
+      "key": "v2",
+      "how": "the run's own stored gold, which states key v2 (gold/key.json)",
+      "applied": 0,
+      "native": true
+     },
+     "scorer_read_the_folder_as": {
+      "key": "v2",
+      "what": "B1-B3 of the P1b review: B1 birth date the visit minus the stated age in its unit; B2 placed age lines keep their unit and a bound the protocol states is not written again; B3 JMED truth from the note the box reads, over the same patients as v1; D-1064: an eligible pair whose own criterion labels exclude the patient is marked conflicted, not relabelled",
+      "stamped": true
+     },
+     "protocols": {
+      "in_set": 104,
+      "in_answers": 104,
+      "answers_not_in_the_set": [],
+      "screened": 101,
+      "compiled": 0,
+      "failed_before_screen": 0,
+      "failed_in_screen": 3,
+      "not_run_time_budget": 0,
+      "unfinished": 0,
+      "not_in_answers": 0,
+      "attempted": 104,
+      "failed": 3,
+      "patients_answered": 102,
+      "verdicts": 895,
+      "patients_decided": 102,
+      "failed_by_class": {
+       "screen_judging": 3
+      },
+      "failed_share": {
+       "k": 3,
+       "n": 104,
+       "rate": 0.0288,
+       "ci95": [
+        0.006,
+        0.082
+       ]
+      },
+      "failed_before_screen_share": {
+       "k": 0,
+       "n": 104,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.0348
+       ]
+      },
+      "fewer_than_one_in_ten_failed": true,
+      "target": "fewer than one protocol in ten of those attempted fails (before or in SCREEN; the target reads this wider share, and the share failed before SCREEN is printed beside it); attempted = screened + compiled + failed + unfinished (budget cuts and protocols not in answers.json are not)",
+      "attempts": {
+       "attempts": 1,
+       "finished_in": {
+        "1": 104
+       },
+       "still_cut": 0,
+       "line": "attempts: 1; protocols finished in attempt 1: 104; still cut: 0"
+      }
+     },
+     "unjudged_exclusions": {
+      "what": "gold patients the box excluded only on lines no gold row judges (placed age and sex lines, JMED's coded age line, protocol lines without a gold row), read from the answers",
+      "rows": [
+       {
+        "ruleset": "Sm3NCT00236912",
+        "lang": "en",
+        "id": "SM3NCT00236912-INC-04",
+        "kind": "inclusion",
+        "class": "structured",
+        "line": "Aged 18 years or older",
+        "age_line": true,
+        "written_by_the_benchmark": true,
+        "excluded": 1,
+        "by_gold": {
+         "eligible": 1
+        }
+       },
+       {
+        "ruleset": "Sm3NCT00674726",
+        "lang": "en",
+        "id": "SM3NCT00674726-INC-03",
+        "kind": "inclusion",
+        "class": "structured",
+        "line": "Patients older than 15 years of age",
+        "age_line": true,
+        "written_by_the_benchmark": false,
+        "excluded": 1,
+        "by_gold": {
+         "eligible": 1
+        }
+       },
+       {
+        "ruleset": "Sm3NCT00792220",
+        "lang": "en",
+        "id": "SM3NCT00792220-INC-03",
+        "kind": "inclusion",
+        "class": "mixed",
+        "line": "Clinical signs of ischemic stroke with suddenly occurring, measurable neurological deficits defined as impairment of language, motor function, facial palsy or asymmetry",
+        "age_line": false,
+        "written_by_the_benchmark": false,
+        "excluded": 1,
+        "by_gold": {
+         "would_consider": 1
+        }
+       },
+       {
+        "ruleset": "Sm3NCT00910715",
+        "lang": "en",
+        "id": "SM3NCT00910715-INC-02",
+        "kind": "inclusion",
+        "class": "structured",
+        "line": "Aged 15 years or older",
+        "age_line": true,
+        "written_by_the_benchmark": true,
+        "excluded": 1,
+        "by_gold": {
+         "not_refer": 1
+        }
+       },
+       {
+        "ruleset": "Sm3NCT01227499",
+        "lang": "en",
+        "id": "SM3NCT01227499-EXC-04",
+        "kind": "exclusion",
+        "class": "mixed",
+        "line": "women with pregnant or lactation",
+        "age_line": false,
+        "written_by_the_benchmark": false,
+        "excluded": 1,
+        "by_gold": {
+         "eligible": 1
+        }
+       },
+       {
+        "ruleset": "Sm3NCT01335594",
+        "lang": "en",
+        "id": "SM3NCT01335594-INC-02",
+        "kind": "inclusion",
+        "class": "structured",
+        "line": "Aged 18 years or older",
+        "age_line": true,
+        "written_by_the_benchmark": true,
+        "excluded": 1,
+        "by_gold": {
+         "would_consider": 1
+        }
+       },
+       {
+        "ruleset": "Sm3NCT01701453",
+        "lang": "en",
+        "id": "SM3NCT01701453-INC-06",
+        "kind": "inclusion",
+        "class": "note",
+        "line": "Target lesion(s) must be amenable for percutaneous coronary intervention",
+        "age_line": false,
+        "written_by_the_benchmark": false,
+        "excluded": 1,
+        "by_gold": {
+         "eligible": 1
+        }
+       },
+       {
+        "ruleset": "Sm3NCT01790477",
+        "lang": "en",
+        "id": "SM3NCT01790477-INC-01",
+        "kind": "inclusion",
+        "class": "structured",
+        "line": "Any adult patient who meets criteria and is scheduled for tonsillectomy",
+        "age_line": true,
+        "written_by_the_benchmark": false,
+        "excluded": 1,
+        "by_gold": {
+         "not_refer": 1
+        }
+       },
+       {
+        "ruleset": "Sm3NCT01832753",
+        "lang": "en",
+        "id": "SM3NCT01832753-INC-01",
+        "kind": "inclusion",
+        "class": "structured",
+        "line": "Males and females, ages 8 - 20 years",
+        "age_line": true,
+        "written_by_the_benchmark": false,
+        "excluded": 1,
+        "by_gold": {
+         "not_refer": 1
+        }
+       },
+       {
+        "ruleset": "Sm3NCT02127866",
+        "lang": "en",
+        "id": "SM3NCT02127866-INC-01",
+        "kind": "inclusion",
+        "class": "structured",
+        "line": "Male or female patients aged >=18 years",
+        "age_line": true,
+        "written_by_the_benchmark": false,
+        "excluded": 1,
+        "by_gold": {
+         "not_refer": 1
+        }
+       },
+       {
+        "ruleset": "Sm3NCT02238756",
+        "lang": "en",
+        "id": "SM3NCT02238756-INC-07",
+        "kind": "inclusion",
+        "class": "structured",
+        "line": "Male participants only",
+        "age_line": false,
+        "written_by_the_benchmark": true,
+        "excluded": 1,
+        "by_gold": {
+         "would_consider": 1
+        }
+       },
+       {
+        "ruleset": "Sm3NCT02329366",
+        "lang": "en",
+        "id": "SM3NCT02329366-INC-03",
+        "kind": "inclusion",
+        "class": "note",
+        "line": "A break in the skin on the foot ≥ 0.5cm2 and is Grade 1 or 2 as defined by the Wagner grading system",
+        "age_line": false,
+        "written_by_the_benchmark": false,
+        "excluded": 1,
+        "by_gold": {
+         "would_consider": 1
+        }
+       },
+       {
+        "ruleset": "Sm3NCT02345564",
+        "lang": "en",
+        "id": "SM3NCT02345564-INC-02",
+        "kind": "inclusion",
+        "class": "structured",
+        "line": "Aged 16 years or older",
+        "age_line": true,
+        "written_by_the_benchmark": true,
+        "excluded": 1,
+        "by_gold": {
+         "not_refer": 1
+        }
+       },
+       {
+        "ruleset": "Sm3NCT02631668",
+        "lang": "en",
+        "id": "SM3NCT02631668-EXC-01",
+        "kind": "exclusion",
+        "class": "mixed",
+        "line": "Pregnant women; drug allergy; the patients with serious gastrorrhagia, other peptic ulcers, active bleeding, hepatic insufficiency, heart disease or renal insufficiency; those patients can't tolerate the medicine orally, or participate in other clinical study, or refuse to sign a Informed consent Form.",
+        "age_line": false,
+        "written_by_the_benchmark": false,
+        "excluded": 1,
+        "by_gold": {
+         "not_refer": 1
+        }
+       }
+      ],
+      "summary": {
+       "en": {
+        "patients_excluded": 14,
+        "gold eligible": 4,
+        "on an age line": 8,
+        "gold would_consider": 4,
+        "gold not_refer": 6
+       }
+      },
+      "patients_excluded": 14
+     },
+     "pairs": {
+      "en": {
+       "answered": 44,
+       "eligible_lost": {
+        "k": 5,
+        "n": 44,
+        "rate": 0.1136,
+        "ci95": [
+         0.0379,
+         0.2456
+        ]
+       },
+       "excluded_caught": {
+        "k": 0,
+        "n": 0,
+        "rate": null,
+        "ci95": [
+         0.0,
+         1.0
+        ]
+       },
+       "wrong_exclusions": {
+        "k": 5,
+        "n": 5,
+        "rate": 1.0,
+        "ci95": [
+         0.4782,
+         1.0
+        ]
+       },
+       "unanswered": {
+        "k": 2,
+        "n": 46,
+        "rate": 0.0435,
+        "ci95": [
+         0.0053,
+         0.1484
+        ]
+       },
+       "left_open": {
+        "k": 39,
+        "n": 46,
+        "rate": 0.8478,
+        "ci95": [
+         0.7113,
+         0.9366
+        ]
+       },
+       "other_strata": {
+        "sigir-not_refer:not_refer": {
+         "n": 17,
+         "excluded": 6,
+         "listed": 0,
+         "open": 10,
+         "unanswered": 1
+        },
+        "sigir-would_consider:would_consider": {
+         "n": 42,
+         "excluded": 8,
+         "listed": 0,
+         "open": 34,
+         "unanswered": 0
+        }
+       },
+       "eligible_lost_where_the_criterion_labels_exclude": 1,
+       "eligible_lost_on_the_line_the_criterion_labels_exclude": 1,
+       "eligible_lost_without_conflicted": {
+        "k": 4,
+        "n": 40,
+        "rate": 0.1,
+        "ci95": [
+         0.0279,
+         0.2366
+        ]
+       },
+       "conflicted_pairs": 6,
+       "pairs_in_gold": 46,
+       "unanswered_by_protocol": {
+        "failed_in_screen": 2
+       }
+      }
+     },
+     "label_conflicts": {
+      "what": "pairs labelled eligible whose own criterion labels exclude the patient (inclusion not included, or exclusion excluded): a conflict inside the gold, with the box's answer",
+      "by_lang": {
+       "en": {
+        "pairs": 6,
+        "open": 3,
+        "excluded": 1,
+        "unanswered": 2
+       }
+      },
+      "pairs": 6
+     },
+     "conflicted": {
+      "what": "D-1064: pairs the key marks conflicted (a pair label of eligible while the same physicians' criterion labels exclude the patient); set aside from the target, never relabelled",
+      "from": "computed by the rule (key v2 folder without gold/conflicted.json)",
+      "pairs": [
+       {
+        "patient": "sigir-201410",
+        "trial": "NCT02097186",
+        "ruleset": "Sm3NCT02097186",
+        "lang": "en",
+        "label": "eligible",
+        "why": "D-1064",
+        "excluding": [
+         "inclusion not included: Patients undergoing elective carotid endarterectomy",
+         "inclusion not included: Patients undergoing open abdominal aortic aneurysm repair",
+         "inclusion not included: Patients undergoing endovascular abdominal aneurysm repair",
+         "inclusion not included: Patients undergoing surgical lower limb revascularisation (suprainguinal or infrainguinal)"
+        ],
+        "box": "review",
+        "tier": "review",
+        "blocked_on": [],
+        "left_open_on": [
+         "Patient willing to give full informed consent for participation",
+         "Patients undergoing elective carotid endarterectomy or",
+         "Patients undergoing open abdominal aortic aneurysm repair or",
+         "Patients undergoing endovascular abdominal aneurysm repair or",
+         "Patients undergoing surgical lower limb revascularisation (suprainguinal or infrainguinal)",
+         "Pregnancy",
+         "Previous history of upper limb deep vein thrombosis",
+         "Patients on glibenclamide or nicorandil (these medications may interfere with RIPC) Patients with an estimated pre-operative glomerular filtration rate < 30mls/min/1.73m2",
+         "Patients with a known history of myocarditis, pericarditis or amyloidosis",
+         "Patients with an estimated pre-operative glomerular filtration rate < 30mls/min/1.73m2.",
+         "Patients with severe hepatic disease defined as an international normalised ratio >2 in the absence of systemic anticoagulation",
+         "Patients with severe respiratory disease (for the trial, defined as patients requiring home oxygen therapy)",
+         "Patients previously enrolled in the trial representing for a further procedure",
+         "Patients with previous axillary surgery"
+        ],
+        "left_open_on_an_excluding_line": [
+         "Patients undergoing elective carotid endarterectomy or",
+         "Patients undergoing open abdominal aortic aneurysm repair or",
+         "Patients undergoing endovascular abdominal aneurysm repair or",
+         "Patients undergoing surgical lower limb revascularisation (suprainguinal or infrainguinal)"
+        ],
+        "left_open_elsewhere": 10,
+        "on_an_excluding_line": null,
+        "on_another_line": false
+       },
+       {
+        "patient": "sigir-201413",
+        "trial": "NCT00163709",
+        "ruleset": "Sm3NCT00163709",
+        "lang": "en",
+        "label": "eligible",
+        "why": "D-1064",
+        "excluding": [
+         "inclusion not included: all patients presenting to the ED with shortness of breath that are over 40 years old and present with an emergency department triage category of 3 or higher"
+        ],
+        "box": "review",
+        "tier": "review",
+        "blocked_on": [],
+        "left_open_on": [
+         "We plan to include all patients presenting to the ED with shortness of breath that are over 40 years old and present with an emergency department triage category of 3 or higher.",
+         "Patients presenting with a traumatic cause of dyspnea, patients with severe renal disease (serum creatinine level of more than 250 micro mmol/L, patients with cardiogenic shock, and patients who have an early transfer to another hospital (within 24 hrs) will be excluded."
+        ],
+        "left_open_on_an_excluding_line": [
+         "We plan to include all patients presenting to the ED with shortness of breath that are over 40 years old and present with an emergency department triage category of 3 or higher."
+        ],
+        "left_open_elsewhere": 1,
+        "on_an_excluding_line": null,
+        "on_another_line": false
+       },
+       {
+        "patient": "sigir-201418",
+        "trial": "NCT01260883",
+        "ruleset": "Sm3NCT01260883",
+        "lang": "en",
+        "label": "eligible",
+        "why": "D-1064",
+        "excluding": [
+         "exclusion excluded: Renal or hepatic disease assessed by history and by pre-drug blood tests"
+        ],
+        "box": "review",
+        "tier": "review",
+        "blocked_on": [],
+        "left_open_on": [
+         "Non-prematurely-born infants admitted to hospital following surgery ages 2-18 months, studied by age group 12-18 months, 6-12 months, < 6 months",
+         "Aged 2 months or older",
+         "Bleeding history in infant or family",
+         "Coagulopathy",
+         "Gastrointestinal bleeding history",
+         "Renal or hepatic disease assessed by history and by pre-drug blood tests",
+         "Premature birth (<36 weeks gestation)"
+        ],
+        "left_open_on_an_excluding_line": [
+         "Renal or hepatic disease assessed by history and by pre-drug blood tests"
+        ],
+        "left_open_elsewhere": 6,
+        "on_an_excluding_line": null,
+        "on_another_line": false
+       },
+       {
+        "patient": "sigir-20142",
+        "trial": "NCT00711399",
+        "ruleset": "Sm3NCT00711399",
+        "lang": "en",
+        "label": "eligible",
+        "why": "D-1064",
+        "excluding": [
+         "exclusion excluded: Respiratory distress"
+        ],
+        "box": "excluded",
+        "tier": "excluded",
+        "blocked_on": [
+         "Respiratory distress"
+        ],
+        "left_open_on": [],
+        "left_open_on_an_excluding_line": [],
+        "left_open_elsewhere": 0,
+        "on_an_excluding_line": true,
+        "on_another_line": false
+       },
+       {
+        "patient": "sigir-201425",
+        "trial": "NCT00282269",
+        "ruleset": "Sm3NCT00282269",
+        "lang": "en",
+        "label": "eligible",
+        "why": "D-1064",
+        "excluding": [
+         "inclusion not included: have a severe traumatic brain injury as defined by either a GCS ≤ 8 and an abnormal CT scan (intracranial hemorrhage, cerebral edema or diffuse axonal injury) or a motor score ≤ 3 and normal CT scan",
+         "inclusion not included: are mechanically ventilated"
+        ],
+        "box": "not answered",
+        "tier": null,
+        "blocked_on": [],
+        "left_open_on": [],
+        "left_open_on_an_excluding_line": [],
+        "left_open_elsewhere": 0,
+        "on_an_excluding_line": null,
+        "on_another_line": false
+       },
+       {
+        "patient": "sigir-201429",
+        "trial": "NCT00703417",
+        "ruleset": "Sm3NCT00703417",
+        "lang": "en",
+        "label": "eligible",
+        "why": "D-1064",
+        "excluding": [
+         "inclusion not included: Postmenopausal female, 55-75 years old"
+        ],
+        "box": "not answered",
+        "tier": null,
+        "blocked_on": [],
+        "left_open_on": [],
+        "left_open_on_an_excluding_line": [],
+        "left_open_elsewhere": 0,
+        "on_an_excluding_line": null,
+        "on_another_line": false
+       }
+      ]
+     },
+     "conflicted_excluded_on_another_line": [],
+     "criteria": {
+      "answered": 404,
+      "wrong_exclusion": {
+       "k": 3,
+       "n": 388,
+       "rate": 0.0077,
+       "ci95": [
+        0.0016,
+        0.0224
+       ]
+      },
+      "caught": {
+       "k": 2,
+       "n": 16,
+       "rate": 0.125,
+       "ci95": [
+        0.0155,
+        0.3835
+       ]
+      },
+      "no_verdict": 102,
+      "not_compiled": 2,
+      "rows_in_gold": 535
+     }
+    }
+   }
+  },
+  "tcga": {
+   "folder": "/tmp/claude-0/-home-user-Auto-GPT/cede7e14-e476-5d2e-ac6d-18557e745ae9/scratchpad/launch/trialbox/.cache/box-run/box-20261117T073759Z-57263236/acc/tcga",
+   "identified": {
+    "launch_p1b_key_v1": false,
+    "run": null,
+    "build_day": null
+   },
+   "key_stated": {
+    "key": "v2",
+    "what": "B1-B3 of the P1b review: B1 birth date the visit minus the stated age in its unit; B2 placed age lines keep their unit and a bound the protocol states is not written again; B3 JMED truth from the note the box reads, over the same patients as v1; D-1064: an eligible pair whose own criterion labels exclude the patient is marked conflicted, not relabelled",
+    "stamped": true
+   },
+   "zone": {
+    "tz": "UTC",
+    "from": "UTC (the run's record names no zone and TB_TZ is not set)",
+    "record": {
+     "tz": null,
+     "from": null,
+     "looked_in": [
+      "work/set-clock.json: tz",
+      "work/set-clock.json: site_tz",
+      "work/acc-env.json: tz",
+      "work/acc-env.json: TB_TZ",
+      "work/screen/*.json: provenance.tz",
+      "work/screen/*.json: provenance.site_tz"
+     ],
+     "unreadable": []
+    }
+   },
+   "key_v1": {
+    "key": "v1",
+    "refused": "the run's gold states key v2 (gold/key.json): its key v1 is not rebuilt offline"
+   },
+   "key_v2": {
+    "key": "v2",
+    "how": "the run's own stored gold, which states key v2 (gold/key.json)",
+    "applied": 0,
+    "native": true
+   },
+   "level_a": {
+    "v1": {
+     "answer_key": {
+      "key": "v1",
+      "refused": "the run's gold states key v2 (gold/key.json): its key v1 is not rebuilt offline"
+     },
+     "not_scored_because": "the run's gold states key v2 (gold/key.json): its key v1 is not rebuilt offline"
+    },
+    "v2": {
+     "answer_key": {
+      "key": "v2",
+      "how": "the run's own stored gold, which states key v2 (gold/key.json)",
+      "applied": 0,
+      "native": true
+     },
+     "scorer_read_the_folder_as": {
+      "key": "v2",
+      "what": "B1-B3 of the P1b review: B1 birth date the visit minus the stated age in its unit; B2 placed age lines keep their unit and a bound the protocol states is not written again; B3 JMED truth from the note the box reads, over the same patients as v1; D-1064: an eligible pair whose own criterion labels exclude the patient is marked conflicted, not relabelled",
+      "stamped": true
+     },
+     "protocols": {
+      "in_set": 10,
+      "in_answers": 1,
+      "answers_not_in_the_set": [],
+      "screened": 1,
+      "compiled": 0,
+      "failed_before_screen": 0,
+      "failed_in_screen": 0,
+      "not_run_time_budget": 0,
+      "unfinished": 0,
+      "not_in_answers": 9,
+      "attempted": 1,
+      "failed": 0,
+      "patients_answered": 500,
+      "verdicts": 500,
+      "patients_decided": 500,
+      "failed_by_class": {},
+      "failed_share": {
+       "k": 0,
+       "n": 1,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.975
+       ]
+      },
+      "failed_before_screen_share": {
+       "k": 0,
+       "n": 1,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.975
+       ]
+      },
+      "fewer_than_one_in_ten_failed": true,
+      "target": "fewer than one protocol in ten of those attempted fails (before or in SCREEN; the target reads this wider share, and the share failed before SCREEN is printed beside it); attempted = screened + compiled + failed + unfinished (budget cuts and protocols not in answers.json are not)",
+      "attempts": {
+       "attempts": 1,
+       "finished_in": {
+        "1": 1
+       },
+       "still_cut": 0,
+       "line": "attempts: 1; protocols finished in attempt 1: 1; still cut: 0"
+      }
+     },
+     "pathology": {
+      "protocols_in_set": 10,
+      "protocols_screened": [
+       "Gm3TCGA-BRCA"
+      ],
+      "reports": 500,
+      "pairs_answered": 500,
+      "pairs_unanswered": 0,
+      "scored": true,
+      "ineligible_excluded": {
+       "k": 379,
+       "n": 450,
+       "rate": 0.8422,
+       "ci95": [
+        0.8052,
+        0.8747
+       ]
+      },
+      "wrong_exclusions": {
+       "k": 0,
+       "n": 379,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.0097
+       ]
+      },
+      "eligible_lost": {
+       "k": 0,
+       "n": 50,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.0711
+       ]
+      },
+      "left_open": {
+       "k": 73,
+       "n": 500,
+       "rate": 0.146,
+       "ci95": [
+        0.1162,
+        0.18
+       ]
+      },
+      "figure": "on 500 public pathology reports (1 of 10 protocols screened) the pair excluded 379 of 450, with 0 wrong exclusions, and lost 0 of 50 eligible patients"
+     },
+     "unjudged_exclusions": {
+      "what": "gold patients the box excluded only on lines no gold row judges (placed age and sex lines, JMED's coded age line, protocol lines without a gold row), read from the answers",
+      "rows": [],
+      "summary": {},
+      "patients_excluded": 0
+     },
+     "pairs": {
+      "en": {
+       "answered": 500,
+       "eligible_lost": {
+        "k": 0,
+        "n": 50,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.0711
+        ]
+       },
+       "excluded_caught": {
+        "k": 379,
+        "n": 450,
+        "rate": 0.8422,
+        "ci95": [
+         0.8052,
+         0.8747
+        ]
+       },
+       "wrong_exclusions": {
+        "k": 0,
+        "n": 379,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.0097
+        ]
+       },
+       "unanswered": {
+        "k": 4500,
+        "n": 5000,
+        "rate": 0.9,
+        "ci95": [
+         0.8913,
+         0.9082
+        ]
+       },
+       "left_open": {
+        "k": 73,
+        "n": 5000,
+        "rate": 0.0146,
+        "ci95": [
+         0.0115,
+         0.0183
+        ]
+       },
+       "other_strata": {},
+       "eligible_lost_without_conflicted": {
+        "k": 0,
+        "n": 50,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.0711
+        ]
+       },
+       "conflicted_pairs": 0,
+       "pairs_in_gold": 5000,
+       "unanswered_by_protocol": {
+        "not_in_answers": 4500
+       }
+      }
+     },
+     "label_conflicts": {
+      "what": "pairs labelled eligible whose own criterion labels exclude the patient (inclusion not included, or exclusion excluded): a conflict inside the gold, with the box's answer",
+      "by_lang": {},
+      "pairs": 0
+     },
+     "conflicted": {
+      "what": "D-1064: pairs the key marks conflicted (a pair label of eligible while the same physicians' criterion labels exclude the patient); set aside from the target, never relabelled",
+      "from": "computed by the rule (key v2 folder without gold/conflicted.json)",
+      "pairs": []
+     },
+     "conflicted_excluded_on_another_line": [],
+     "criteria": {
+      "answered": 500,
+      "wrong_exclusion": {
+       "k": 0,
+       "n": 50,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.0711
+       ]
+      },
+      "caught": {
+       "k": 379,
+       "n": 450,
+       "rate": 0.8422,
+       "ci95": [
+        0.8052,
+        0.8747
+       ]
+      },
+      "no_verdict": 0,
+      "not_compiled": 4500,
+      "rows_in_gold": 5000
+     }
+    }
+   }
+  }
+ },
+ "answer_keys": {
+  "v1": "as launch P1b used it (builder of master fa639b61): birth date 1 July of the visit's year minus the age; placed age lines in years, written even when the protocol states the bound; JMED truth from the structured 主病名/既往歴/現病歴",
+  "v2": "B1-B3 of the P1b review: B1 birth date the visit minus the stated age in its unit; B2 placed age lines keep their unit and a bound the protocol states is not written again; B3 JMED truth from the note the box reads, over the same patients as v1; D-1064: an eligible pair whose own criterion labels exclude the patient is marked conflicted, not relabelled"
+ },
+ "limits": [
+  "level (b) not run: no index day (give --index-day, or a run whose key MANIFEST.json pins, which names its build day)",
+  "Level (a) scores the verdicts as the run stored them; nothing there is re-run.",
+  "No figure here meets a target: a target is met only by a launch (D-1064 item 4). 'Within the target' says whether a launch is worth its cost; it is not a result.",
+  "Built on key v2 (gold/key.json), scored as stored, with no v1 figure: jmed, sigir, tcga."
+ ],
+ "targets": {
+  "eligible_wrongly_excluded": {
+   "a": {
+    "v1": {
+     "level": "a",
+     "key": "v1",
+     "numerator": 0,
+     "denominator": 0,
+     "met": false,
+     "met_only_by": "a launch (D-1064 item 4): a replay's figure decides whether a launch is worth its cost; it is not a result",
+     "within_target": false,
+     "all_sets_scored": false,
+     "with_conflicted": {
+      "numerator": 0,
+      "denominator": 0
+     },
+     "conflicted": null,
+     "conflicted_excluded_on_another_line": [],
+     "per_set": [
+      {
+       "set": "jmed",
+       "scored": false,
+       "why": "the run's gold states key v2 (gold/key.json): its key v1 is not rebuilt offline",
+       "numerator": 0,
+       "denominator": 0
+      },
+      {
+       "set": "sigir",
+       "scored": false,
+       "why": "the run's gold states key v2 (gold/key.json): its key v1 is not rebuilt offline",
+       "numerator": 0,
+       "denominator": 0
+      },
+      {
+       "set": "tcga",
+       "scored": false,
+       "why": "the run's gold states key v2 (gold/key.json): its key v1 is not rebuilt offline",
+       "numerator": 0,
+       "denominator": 0
+      }
+     ]
+    },
+    "v2": {
+     "level": "a",
+     "key": "v2",
+     "numerator": 4,
+     "denominator": 420,
+     "met": false,
+     "met_only_by": "a launch (D-1064 item 4): a replay's figure decides whether a launch is worth its cost; it is not a result",
+     "within_target": false,
+     "all_sets_scored": true,
+     "with_conflicted": {
+      "numerator": 5,
+      "denominator": 424
+     },
+     "conflicted": [
+      {
+       "set": "sigir",
+       "patient": "sigir-201410",
+       "trial": "NCT02097186",
+       "ruleset": "Sm3NCT02097186",
+       "lang": "en",
+       "label": "eligible",
+       "why": "D-1064",
+       "excluding": [
+        "inclusion not included: Patients undergoing elective carotid endarterectomy",
+        "inclusion not included: Patients undergoing open abdominal aortic aneurysm repair",
+        "inclusion not included: Patients undergoing endovascular abdominal aneurysm repair",
+        "inclusion not included: Patients undergoing surgical lower limb revascularisation (suprainguinal or infrainguinal)"
+       ],
+       "box": "review",
+       "tier": "review",
+       "blocked_on": [],
+       "left_open_on": [
+        "Patient willing to give full informed consent for participation",
+        "Patients undergoing elective carotid endarterectomy or",
+        "Patients undergoing open abdominal aortic aneurysm repair or",
+        "Patients undergoing endovascular abdominal aneurysm repair or",
+        "Patients undergoing surgical lower limb revascularisation (suprainguinal or infrainguinal)",
+        "Pregnancy",
+        "Previous history of upper limb deep vein thrombosis",
+        "Patients on glibenclamide or nicorandil (these medications may interfere with RIPC) Patients with an estimated pre-operative glomerular filtration rate < 30mls/min/1.73m2",
+        "Patients with a known history of myocarditis, pericarditis or amyloidosis",
+        "Patients with an estimated pre-operative glomerular filtration rate < 30mls/min/1.73m2.",
+        "Patients with severe hepatic disease defined as an international normalised ratio >2 in the absence of systemic anticoagulation",
+        "Patients with severe respiratory disease (for the trial, defined as patients requiring home oxygen therapy)",
+        "Patients previously enrolled in the trial representing for a further procedure",
+        "Patients with previous axillary surgery"
+       ],
+       "left_open_on_an_excluding_line": [
+        "Patients undergoing elective carotid endarterectomy or",
+        "Patients undergoing open abdominal aortic aneurysm repair or",
+        "Patients undergoing endovascular abdominal aneurysm repair or",
+        "Patients undergoing surgical lower limb revascularisation (suprainguinal or infrainguinal)"
+       ],
+       "left_open_elsewhere": 10,
+       "on_an_excluding_line": null,
+       "on_another_line": false
+      },
+      {
+       "set": "sigir",
+       "patient": "sigir-201413",
+       "trial": "NCT00163709",
+       "ruleset": "Sm3NCT00163709",
+       "lang": "en",
+       "label": "eligible",
+       "why": "D-1064",
+       "excluding": [
+        "inclusion not included: all patients presenting to the ED with shortness of breath that are over 40 years old and present with an emergency department triage category of 3 or higher"
+       ],
+       "box": "review",
+       "tier": "review",
+       "blocked_on": [],
+       "left_open_on": [
+        "We plan to include all patients presenting to the ED with shortness of breath that are over 40 years old and present with an emergency department triage category of 3 or higher.",
+        "Patients presenting with a traumatic cause of dyspnea, patients with severe renal disease (serum creatinine level of more than 250 micro mmol/L, patients with cardiogenic shock, and patients who have an early transfer to another hospital (within 24 hrs) will be excluded."
+       ],
+       "left_open_on_an_excluding_line": [
+        "We plan to include all patients presenting to the ED with shortness of breath that are over 40 years old and present with an emergency department triage category of 3 or higher."
+       ],
+       "left_open_elsewhere": 1,
+       "on_an_excluding_line": null,
+       "on_another_line": false
+      },
+      {
+       "set": "sigir",
+       "patient": "sigir-201418",
+       "trial": "NCT01260883",
+       "ruleset": "Sm3NCT01260883",
+       "lang": "en",
+       "label": "eligible",
+       "why": "D-1064",
+       "excluding": [
+        "exclusion excluded: Renal or hepatic disease assessed by history and by pre-drug blood tests"
+       ],
+       "box": "review",
+       "tier": "review",
+       "blocked_on": [],
+       "left_open_on": [
+        "Non-prematurely-born infants admitted to hospital following surgery ages 2-18 months, studied by age group 12-18 months, 6-12 months, < 6 months",
+        "Aged 2 months or older",
+        "Bleeding history in infant or family",
+        "Coagulopathy",
+        "Gastrointestinal bleeding history",
+        "Renal or hepatic disease assessed by history and by pre-drug blood tests",
+        "Premature birth (<36 weeks gestation)"
+       ],
+       "left_open_on_an_excluding_line": [
+        "Renal or hepatic disease assessed by history and by pre-drug blood tests"
+       ],
+       "left_open_elsewhere": 6,
+       "on_an_excluding_line": null,
+       "on_another_line": false
+      },
+      {
+       "set": "sigir",
+       "patient": "sigir-20142",
+       "trial": "NCT00711399",
+       "ruleset": "Sm3NCT00711399",
+       "lang": "en",
+       "label": "eligible",
+       "why": "D-1064",
+       "excluding": [
+        "exclusion excluded: Respiratory distress"
+       ],
+       "box": "excluded",
+       "tier": "excluded",
+       "blocked_on": [
+        "Respiratory distress"
+       ],
+       "left_open_on": [],
+       "left_open_on_an_excluding_line": [],
+       "left_open_elsewhere": 0,
+       "on_an_excluding_line": true,
+       "on_another_line": false
+      },
+      {
+       "set": "sigir",
+       "patient": "sigir-201425",
+       "trial": "NCT00282269",
+       "ruleset": "Sm3NCT00282269",
+       "lang": "en",
+       "label": "eligible",
+       "why": "D-1064",
+       "excluding": [
+        "inclusion not included: have a severe traumatic brain injury as defined by either a GCS ≤ 8 and an abnormal CT scan (intracranial hemorrhage, cerebral edema or diffuse axonal injury) or a motor score ≤ 3 and normal CT scan",
+        "inclusion not included: are mechanically ventilated"
+       ],
+       "box": "not answered",
+       "tier": null,
+       "blocked_on": [],
+       "left_open_on": [],
+       "left_open_on_an_excluding_line": [],
+       "left_open_elsewhere": 0,
+       "on_an_excluding_line": null,
+       "on_another_line": false
+      },
+      {
+       "set": "sigir",
+       "patient": "sigir-201429",
+       "trial": "NCT00703417",
+       "ruleset": "Sm3NCT00703417",
+       "lang": "en",
+       "label": "eligible",
+       "why": "D-1064",
+       "excluding": [
+        "inclusion not included: Postmenopausal female, 55-75 years old"
+       ],
+       "box": "not answered",
+       "tier": null,
+       "blocked_on": [],
+       "left_open_on": [],
+       "left_open_on_an_excluding_line": [],
+       "left_open_elsewhere": 0,
+       "on_an_excluding_line": null,
+       "on_another_line": false
+      }
+     ],
+     "conflicted_excluded_on_another_line": [],
+     "per_set": [
+      {
+       "set": "jmed",
+       "scored": true,
+       "numerator": 0,
+       "denominator": 330,
+       "what": "gold rows met or not applicable (JMED: not excluded) the box blocked, of those it answered",
+       "with_conflicted": {
+        "numerator": 0,
+        "denominator": 330
+       },
+       "conflicted": null,
+       "conflicted_excluded_on_another_line": [],
+       "rows_with_no_verdict": 70
+      },
+      {
+       "set": "sigir",
+       "scored": true,
+       "s1_label_conflicts": {
+        "en": {
+         "eligible_lost_where_the_criterion_labels_exclude": 1,
+         "eligible_lost_on_the_line_the_criterion_labels_exclude": 1
+        }
+       },
+       "what": "gold-eligible pairs the box excluded, of those it answered, without the pairs the key marks conflicted (D-1064)",
+       "numerator": 4,
+       "denominator": 40,
+       "with_conflicted": {
+        "numerator": 5,
+        "denominator": 44
+       },
+       "conflicted": [
+        {
+         "patient": "sigir-201410",
+         "trial": "NCT02097186",
+         "ruleset": "Sm3NCT02097186",
+         "lang": "en",
+         "label": "eligible",
+         "why": "D-1064",
+         "excluding": [
+          "inclusion not included: Patients undergoing elective carotid endarterectomy",
+          "inclusion not included: Patients undergoing open abdominal aortic aneurysm repair",
+          "inclusion not included: Patients undergoing endovascular abdominal aneurysm repair",
+          "inclusion not included: Patients undergoing surgical lower limb revascularisation (suprainguinal or infrainguinal)"
+         ],
+         "box": "review",
+         "tier": "review",
+         "blocked_on": [],
+         "left_open_on": [
+          "Patient willing to give full informed consent for participation",
+          "Patients undergoing elective carotid endarterectomy or",
+          "Patients undergoing open abdominal aortic aneurysm repair or",
+          "Patients undergoing endovascular abdominal aneurysm repair or",
+          "Patients undergoing surgical lower limb revascularisation (suprainguinal or infrainguinal)",
+          "Pregnancy",
+          "Previous history of upper limb deep vein thrombosis",
+          "Patients on glibenclamide or nicorandil (these medications may interfere with RIPC) Patients with an estimated pre-operative glomerular filtration rate < 30mls/min/1.73m2",
+          "Patients with a known history of myocarditis, pericarditis or amyloidosis",
+          "Patients with an estimated pre-operative glomerular filtration rate < 30mls/min/1.73m2.",
+          "Patients with severe hepatic disease defined as an international normalised ratio >2 in the absence of systemic anticoagulation",
+          "Patients with severe respiratory disease (for the trial, defined as patients requiring home oxygen therapy)",
+          "Patients previously enrolled in the trial representing for a further procedure",
+          "Patients with previous axillary surgery"
+         ],
+         "left_open_on_an_excluding_line": [
+          "Patients undergoing elective carotid endarterectomy or",
+          "Patients undergoing open abdominal aortic aneurysm repair or",
+          "Patients undergoing endovascular abdominal aneurysm repair or",
+          "Patients undergoing surgical lower limb revascularisation (suprainguinal or infrainguinal)"
+         ],
+         "left_open_elsewhere": 10,
+         "on_an_excluding_line": null,
+         "on_another_line": false
+        },
+        {
+         "patient": "sigir-201413",
+         "trial": "NCT00163709",
+         "ruleset": "Sm3NCT00163709",
+         "lang": "en",
+         "label": "eligible",
+         "why": "D-1064",
+         "excluding": [
+          "inclusion not included: all patients presenting to the ED with shortness of breath that are over 40 years old and present with an emergency department triage category of 3 or higher"
+         ],
+         "box": "review",
+         "tier": "review",
+         "blocked_on": [],
+         "left_open_on": [
+          "We plan to include all patients presenting to the ED with shortness of breath that are over 40 years old and present with an emergency department triage category of 3 or higher.",
+          "Patients presenting with a traumatic cause of dyspnea, patients with severe renal disease (serum creatinine level of more than 250 micro mmol/L, patients with cardiogenic shock, and patients who have an early transfer to another hospital (within 24 hrs) will be excluded."
+         ],
+         "left_open_on_an_excluding_line": [
+          "We plan to include all patients presenting to the ED with shortness of breath that are over 40 years old and present with an emergency department triage category of 3 or higher."
+         ],
+         "left_open_elsewhere": 1,
+         "on_an_excluding_line": null,
+         "on_another_line": false
+        },
+        {
+         "patient": "sigir-201418",
+         "trial": "NCT01260883",
+         "ruleset": "Sm3NCT01260883",
+         "lang": "en",
+         "label": "eligible",
+         "why": "D-1064",
+         "excluding": [
+          "exclusion excluded: Renal or hepatic disease assessed by history and by pre-drug blood tests"
+         ],
+         "box": "review",
+         "tier": "review",
+         "blocked_on": [],
+         "left_open_on": [
+          "Non-prematurely-born infants admitted to hospital following surgery ages 2-18 months, studied by age group 12-18 months, 6-12 months, < 6 months",
+          "Aged 2 months or older",
+          "Bleeding history in infant or family",
+          "Coagulopathy",
+          "Gastrointestinal bleeding history",
+          "Renal or hepatic disease assessed by history and by pre-drug blood tests",
+          "Premature birth (<36 weeks gestation)"
+         ],
+         "left_open_on_an_excluding_line": [
+          "Renal or hepatic disease assessed by history and by pre-drug blood tests"
+         ],
+         "left_open_elsewhere": 6,
+         "on_an_excluding_line": null,
+         "on_another_line": false
+        },
+        {
+         "patient": "sigir-20142",
+         "trial": "NCT00711399",
+         "ruleset": "Sm3NCT00711399",
+         "lang": "en",
+         "label": "eligible",
+         "why": "D-1064",
+         "excluding": [
+          "exclusion excluded: Respiratory distress"
+         ],
+         "box": "excluded",
+         "tier": "excluded",
+         "blocked_on": [
+          "Respiratory distress"
+         ],
+         "left_open_on": [],
+         "left_open_on_an_excluding_line": [],
+         "left_open_elsewhere": 0,
+         "on_an_excluding_line": true,
+         "on_another_line": false
+        },
+        {
+         "patient": "sigir-201425",
+         "trial": "NCT00282269",
+         "ruleset": "Sm3NCT00282269",
+         "lang": "en",
+         "label": "eligible",
+         "why": "D-1064",
+         "excluding": [
+          "inclusion not included: have a severe traumatic brain injury as defined by either a GCS ≤ 8 and an abnormal CT scan (intracranial hemorrhage, cerebral edema or diffuse axonal injury) or a motor score ≤ 3 and normal CT scan",
+          "inclusion not included: are mechanically ventilated"
+         ],
+         "box": "not answered",
+         "tier": null,
+         "blocked_on": [],
+         "left_open_on": [],
+         "left_open_on_an_excluding_line": [],
+         "left_open_elsewhere": 0,
+         "on_an_excluding_line": null,
+         "on_another_line": false
+        },
+        {
+         "patient": "sigir-201429",
+         "trial": "NCT00703417",
+         "ruleset": "Sm3NCT00703417",
+         "lang": "en",
+         "label": "eligible",
+         "why": "D-1064",
+         "excluding": [
+          "inclusion not included: Postmenopausal female, 55-75 years old"
+         ],
+         "box": "not answered",
+         "tier": null,
+         "blocked_on": [],
+         "left_open_on": [],
+         "left_open_on_an_excluding_line": [],
+         "left_open_elsewhere": 0,
+         "on_an_excluding_line": null,
+         "on_another_line": false
+        }
+       ],
+       "conflicted_excluded_on_another_line": []
+      },
+      {
+       "set": "tcga",
+       "scored": true,
+       "s1_label_conflicts": {
+        "en": {
+         "eligible_lost_where_the_criterion_labels_exclude": null,
+         "eligible_lost_on_the_line_the_criterion_labels_exclude": null
+        }
+       },
+       "what": "gold-eligible pairs the box excluded, of those it answered, without the pairs the key marks conflicted (D-1064)",
+       "numerator": 0,
+       "denominator": 50,
+       "with_conflicted": {
+        "numerator": 0,
+        "denominator": 50
+       },
+       "conflicted": [],
+       "conflicted_excluded_on_another_line": []
+      }
+     ]
+    }
+   },
+   "target": "no eligible patient excluded, on the corrected answer key"
+  },
+  "pathology": {
+   "run": {
+    "level": "a",
+    "scored": true,
+    "detail": {
+     "protocols_in_set": 10,
+     "protocols_screened": [
+      "Gm3TCGA-BRCA"
+     ],
+     "reports": 500,
+     "pairs_answered": 500,
+     "pairs_unanswered": 0,
+     "scored": true,
+     "ineligible_excluded": {
+      "k": 379,
+      "n": 450,
+      "rate": 0.8422,
+      "ci95": [
+       0.8052,
+       0.8747
+      ]
+     },
+     "wrong_exclusions": {
+      "k": 0,
+      "n": 379,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.0097
+      ]
+     },
+     "eligible_lost": {
+      "k": 0,
+      "n": 50,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.0711
+      ]
+     },
+     "left_open": {
+      "k": 73,
+      "n": 500,
+      "rate": 0.146,
+      "ci95": [
+       0.1162,
+       0.18
+      ]
+     },
+     "figure": "on 500 public pathology reports (1 of 10 protocols screened) the pair excluded 379 of 450, with 0 wrong exclusions, and lost 0 of 50 eligible patients"
+    },
+    "numerator": 379,
+    "denominator": 450,
+    "wrong_exclusions": 0,
+    "eligible_lost": 0,
+    "eligible": 50,
+    "reports": 500,
+    "met": false,
+    "met_only_by": "a launch (D-1064 item 4): a replay's figure decides whether a launch is worth its cost; it is not a result",
+    "within_target": false
+   },
+   "claim": "on 500 public pathology reports the pair excluded 384 of 450, with 0 wrong exclusions, and lost 0 of 50 eligible patients (PoC-1, commit b266f9b7)",
+   "target": "the pathology figure of PoC-1 reproduced: on 500 public pathology reports the pair excluded 384 of 450, with 0 wrong exclusions, and lost 0 of 50 eligible patients (PoC-1, commit b266f9b7)"
+  },
+  "protocols_failing": {
+   "a": {
+    "level": "a",
+    "attempted": 107,
+    "failed_by_class": {
+     "screen_judging": 3
+    },
+    "per_set": {
+     "jmed": {
+      "in_set": 2,
+      "screened": 2,
+      "not_run_time_budget": 0,
+      "attempted": 2,
+      "failed": 0,
+      "failed_before_screen": 0,
+      "failed_in_screen": 0,
+      "attempts": "attempts: 1; protocols finished in attempt 1: 2; still cut: 0"
+     },
+     "sigir": {
+      "in_set": 104,
+      "screened": 101,
+      "not_run_time_budget": 0,
+      "attempted": 104,
+      "failed": 3,
+      "failed_before_screen": 0,
+      "failed_in_screen": 3,
+      "attempts": "attempts: 1; protocols finished in attempt 1: 104; still cut: 0"
+     },
+     "tcga": {
+      "in_set": 10,
+      "screened": 1,
+      "not_run_time_budget": 0,
+      "attempted": 1,
+      "failed": 0,
+      "failed_before_screen": 0,
+      "failed_in_screen": 0,
+      "attempts": "attempts: 1; protocols finished in attempt 1: 1; still cut: 0"
+     }
+    },
+    "numerator": 3,
+    "denominator": 107,
+    "share": 0.028,
+    "failed_before_screen": 0,
+    "failed_before_screen_share": 0.0,
+    "met": false,
+    "met_before_screen_only": false,
+    "met_only_by": "a launch (D-1064 item 4): a replay's figure decides whether a launch is worth its cost; it is not a result",
+    "within_target": true,
+    "within_target_before_screen_only": true,
+    "target": "fewer than one protocol in ten of those attempted fails before or in SCREEN (D-1107); the target reads this wider share, and the share failing before SCREEN is printed beside it"
+   }
+  }
+ },
+ "met": {
+  "eligible_wrongly_excluded": false,
+  "pathology": false,
+  "protocols_failing": false,
+  "at_level": "a"
+ },
+ "met_only_by": "a launch (D-1064 item 4): a replay's figure decides whether a launch is worth its cost; it is not a result",
+ "within_target": {
+  "eligible_wrongly_excluded": false,
+  "pathology": false,
+  "protocols_failing": true,
+  "at_level": "a"
+ }
+}
