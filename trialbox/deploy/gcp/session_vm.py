@@ -169,9 +169,10 @@ def plan(ranges: Sequence[str], network: str = "default") -> str:
             f"  {DENY_RULE}: INGRESS DENY all from {WORLD}, priority {DENY_PRIORITY} (beats every rule of lower "
             "precedence: default-allow-ssh, the hand-over's old door)",
             f"  {ALLOW_RULE}: INGRESS ALLOW tcp:443 from {','.join(ranges)} only, priority {ALLOW_PRIORITY}",
-            "  no rule for port 80 or 22; block-project-ssh-keys=TRUE in the metadata; sshd stopped at every boot",
-            f"  the VM gets the tag {TAG} for the session; --stop and the end of a collect remove the tag and both "
-            "rules",
+            "  no rule for port 80 or 22; block-project-ssh-keys=TRUE and serial-port-enable=FALSE in the metadata; "
+            "sshd stopped at every boot",
+            f"  the VM gets the tag {TAG} for the session; --stop and the end of a collect remove the allow, and the "
+            "deny and the tag once the run's CLOSED marker says its accounts are disabled",
         ]
     )
 
@@ -208,6 +209,38 @@ def instance_problems(instance: Mapping[str, object]) -> list[str]:
     return out
 
 
+def instance_addresses(instance: Mapping[str, object]) -> list[str]:
+    """The VM's own IPv4 addresses (its internal address and any external one): what an ingress rule's destination
+    ranges are matched against."""
+    out: list[str] = []
+    for nic in instance.get("networkInterfaces") or []:  # type: ignore[attr-defined]
+        if not isinstance(nic, dict):
+            continue
+        if nic.get("networkIP"):
+            out.append(str(nic["networkIP"]))
+        for ac in nic.get("accessConfigs") or []:
+            if isinstance(ac, dict) and ac.get("natIP"):
+                out.append(str(ac["natIP"]))
+    return out
+
+
+def deny_destination_problems(deny: Mapping[str, object], instance: Mapping[str, object] | None) -> list[str]:
+    """The re-review's B: a deny with destination ranges denies only traffic to those addresses. It holds when it names
+    none, 0.0.0.0/0, or ranges that hold every address of the VM (the VM itself read)."""
+    dest = [str(x) for x in deny.get("destinationRanges") or []]  # type: ignore[attr-defined]
+    if not dest or WORLD in dest:
+        return []
+    addrs = instance_addresses(instance) if instance is not None else []
+    try:
+        nets = [ipaddress.ip_network(d, strict=False) for d in dest]
+        covered = bool(addrs) and all(any(ipaddress.ip_address(a) in n for n in nets) for a in addrs)
+    except ValueError:
+        covered = False
+    if covered:
+        return []
+    return [f"{DENY_RULE} denies only traffic to {dest}, not to every address of the VM ({addrs or 'not read'})"]
+
+
 def instance_tags(instance: Mapping[str, object]) -> list[str]:
     tags = instance.get("tags")
     items = tags.get("items") if isinstance(tags, dict) else None
@@ -217,7 +250,9 @@ def instance_tags(instance: Mapping[str, object]) -> list[str]:
 def policy_problems(effective: Mapping[str, object]) -> list[str]:
     """Firewall policies (hierarchical, global and regional network policies) are evaluated before the VPC rules and
     are not in `firewall-rules list`: from `gcloud compute instances network-interfaces get-effective-firewalls
-    --format=json`, any ingress rule of a policy that allows traffic is a way in the session's deny cannot beat."""
+    --format=json`, any ingress rule of a policy that allows traffic is a way in the session's deny cannot beat. Only
+    `deny` and `goto_next` (on to the VPC's rules) let the session's rules decide; every other action (`allow`,
+    `apply_security_profile_group`, one added later) is taken as an allow (the re-review's B)."""
     out = []
     for pol in effective.get("firewallPolicys") or effective.get("firewallPolicies") or []:  # type: ignore[attr-defined]
         if not isinstance(pol, dict):
@@ -225,11 +260,13 @@ def policy_problems(effective: Mapping[str, object]) -> list[str]:
         for r in pol.get("rules") or []:
             if not isinstance(r, dict):
                 continue
-            if str(r.get("direction") or "INGRESS").upper() == "INGRESS" and str(r.get("action")).lower() == "allow":
+            action = str(r.get("action") or "").lower()
+            if str(r.get("direction") or "INGRESS").upper() == "INGRESS" and action not in ("deny", "goto_next"):
                 match = r.get("match") if isinstance(r.get("match"), dict) else {}
                 out.append(f"firewall policy {pol.get('name') or pol.get('shortName')} ({pol.get('type')}) rule "
-                           f"{r.get('priority')} allows ingress from {match.get('srcIpRanges')} "
-                           f"{match.get('layer4Configs')}: it is evaluated before the session's deny")  # fmt: skip
+                           f"{r.get('priority')} ({action or 'no action'}) lets ingress in from "
+                           f"{match.get('srcIpRanges')} {match.get('layer4Configs')}: it is evaluated before the "
+                           "session's deny")  # fmt: skip
     return out
 
 
@@ -288,6 +325,7 @@ def rules_check(
             problems.append(f"{DENY_RULE} targets {deny.get('targetTags')}, not [{TAG}] only")
         if int(str(deny.get("priority", 1000))) != DENY_PRIORITY:
             problems.append(f"{DENY_RULE} has priority {deny.get('priority')}, not {DENY_PRIORITY}")
+        problems += deny_destination_problems(deny, instance)
     ours = (ALLOW_RULE, DENY_RULE)
     reaching = sorted({n for t in vm_tags for n in demo_vm.reaching_rules(on_net, network, "default", ours, t)})
     for name in reaching:
@@ -371,6 +409,12 @@ def bucket_check(describe: Mapping[str, object], iam: Mapping[str, object]) -> t
     public = sorted({m for m in members if m in ("allUsers", "allAuthenticatedUsers")})
     if public:
         problems.append(f"the bucket's IAM policy names {public}")
+    domains = sorted({str(m) for m in members if str(m).startswith("domain:")})
+    if domains:  # a whole organisation's accounts (the re-review's note); a group is named and reported, not refused
+        problems.append(f"the bucket's IAM policy names whole domains {domains}")
+    groups = sorted({str(m) for m in members if str(m).startswith("group:")})
+    if groups:
+        notes.append(f"the bucket's IAM policy names groups {groups}: each member can read the links object (D-1133)")
     ubla = describe.get("uniform_bucket_level_access")
     if isinstance(ubla, dict):
         ubla = ubla.get("enabled")

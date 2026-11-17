@@ -558,6 +558,7 @@ def metadata(
         # D-1130: the project's SSH keys kept off the VM for the session (sshd is also stopped at its boots);
         # D-1132: the public sets loaded as the acc group loads them, and the steps a session does not run
         vals["block-project-ssh-keys"] = "TRUE"
+        vals["serial-port-enable"] = "FALSE"  # no interactive serial console either (its output is still read)
         vals["tb-acc-sets"] = " ".join(f"{n}:{z}" for n, z in sets)
         vals["tb-skip"] = SESSION_SKIP  # session_values refused any other (the review's finding 1)
     if "acc" in groups:

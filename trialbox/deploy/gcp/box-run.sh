@@ -234,6 +234,12 @@ if [ "$DRY" = 0 ]; then
   : "${CLOUDSDK_CONFIG:?set a private CLOUDSDK_CONFIG and activate the service account in it}"
   case "$CLOUDSDK_CONFIG" in "$HOME/.config/gcloud"*) echo "CLOUDSDK_CONFIG must be private" >&2; exit 2 ;; esac
 fi
+# a run id names a folder here and a path in the bucket: the VM's own form only (its RUN_ID keeps letters, digits,
+# '.', '_' and '-'), never a wildcard or a parent folder; checked before any cloud call
+for _rid in "$COLLECT" "$RESUME" "$LINKS" "$SSTATUS" "${TB_RUN_ID:-}"; do
+  [ -z "$_rid" ] || { [[ "$_rid" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] && [[ "$_rid" != *..* ]]; } \
+    || { echo "box-run: '$_rid' is not a run id (letters, digits, '.', '_', '-'; as box-run.sh printed it)" >&2; exit 2; }
+done
 gc_start || exit 5
 RUN_ID="${COLLECT:-${RESUME:-${LINKS:-${SSTATUS:-${TB_RUN_ID:-box-$(date -u +%Y%m%dT%H%M%SZ)-$(git rev-parse --short HEAD)}}}}}"
 OUT="${TB_BOXRUN_DIR:-$ROOT/.cache/box-run/$RUN_ID}"
@@ -279,12 +285,14 @@ vm_network() {
 session_door() {  # a deny-all on the session's tag, the one allow (tcp:443 from the owner's ranges), the tag on the VM
   local net; net="$(vm_network)" || return 1
   [ -n "$net" ] || { echo "box-run: the VM's network cannot be read" >&2; return 1; }
-  rule_exists "$S_DENY" || gc compute firewall-rules create "$S_DENY" --network "$net" --direction INGRESS --action DENY \
-    --rules=all --source-ranges=0.0.0.0/0 --target-tags "$S_TAG" --priority "$SESSION_DENY_PRIORITY" \
-    --description="TrialBox session (D-1130): nothing but its tcp:443 rule reaches the VM (not SSH, not an old door)" || return 1
-  # an allow left by an earlier session is deleted and made again: an update would keep any source tag or
-  # service account someone added to it (the review's finding 7)
+  # both rules are deleted and made again, never kept or updated: an update would keep any source tag or service
+  # account someone added to the allow (the review's finding 7), or a destination that narrows the deny (the
+  # re-review's B). The deny names its run: the driver takes it away only once that run's CLOSED marker exists.
   if rule_exists "$S_ALLOW"; then gc compute firewall-rules delete "$S_ALLOW" --quiet || return 1; fi
+  if rule_exists "$S_DENY"; then gc compute firewall-rules delete "$S_DENY" --quiet || return 1; fi
+  gc compute firewall-rules create "$S_DENY" --network "$net" --direction INGRESS --action DENY \
+    --rules=all --source-ranges=0.0.0.0/0 --target-tags "$S_TAG" --priority "$SESSION_DENY_PRIORITY" \
+    --description="TrialBox session (D-1130) run=$RUN_ID: nothing but its tcp:443 rule reaches the VM (not SSH, not an old door)" || return 1
   gc compute firewall-rules create "$S_ALLOW" --network "$net" --direction INGRESS --action ALLOW --rules=tcp:443 \
     --source-ranges="$SESSION_ALLOW" --target-tags "$S_TAG" --priority "$SESSION_ALLOW_PRIORITY" \
     --description="TrialBox session (D-1130): https from the owner's own ranges only" || return 1
@@ -293,7 +301,7 @@ session_door() {  # a deny-all on the session's tag, the one allow (tcp:443 from
 }
 session_rules_check() {  # D-1130: only tcp:443 from the owner's ranges reaches the VM (every rule, every tag of the VM)
   local rules tags net rc=0 ranges
-  ranges="${SESSION_ALLOW:-$(cat "$OUT/session" 2>/dev/null)}"
+  ranges="${SESSION_ALLOW:-${SESSION_ALLOW_RAW:-$(cat "$OUT/session" 2>/dev/null)}}"
   [ -n "$ranges" ] || { echo "box-run: no session ranges for $RUN_ID here (--session-allow RANGES gives them)" >&2; return 1; }
   if [ "$DRY" = 1 ]; then
     echo "+ gcloud compute firewall-rules list --format=json   # only tcp:443 from $ranges may reach the VM"
@@ -340,17 +348,62 @@ session_closed() {  # the VM writes CLOSED beside the links once a session's acc
   gc storage ls "$HANDOFF/CLOSED" >/dev/null 2>&1
 }
 session_run() { [ "$SESSION" = 1 ] || [ -f "$OUT/session" ] || grep -qw session "$OUT/md/tb-steps" 2>/dev/null; }
-session_door_down() {  # --stop and the end of a collect: the allow goes; the deny and the tag go once the accounts did
-  session_run || vm_has_tag || return 0
-  if [ "$DRY" = 1 ] || rule_exists "$S_ALLOW"; then gc compute firewall-rules delete "$S_ALLOW" --quiet || true; fi
-  if session_run && ! session_closed; then   # the review's finding 6: nothing reaches the VM until they are disabled
-    echo "session: accounts not confirmed closed (no $HANDOFF/CLOSED): the deny-all and the tag $S_TAG stay on the VM;"
-    echo "  the next boot of any run on this disk disables them and writes CLOSED; then: $0 --stop $RUN_ID again"
-    return 0
-  fi
+deny_run() {  # the run the session's deny was made for (its description: run=<id>); nothing when there is no deny
+  [ "$DRY" = 0 ] || return 0
+  gc compute firewall-rules describe "$S_DENY" --format='value(description)' 2>/dev/null \
+    | sed -n 's/.*run=\([A-Za-z0-9][A-Za-z0-9._-]*\).*/\1/p' | head -n 1
+}
+run_closed() { [ "$DRY" = 0 ] && gc storage ls "$BUCKET/session/$1/CLOSED" >/dev/null 2>&1; }
+door_away() {  # $1 the run whose door it was: tag, deny, and any links object of that run nobody read (dead codes)
   gc compute instances remove-tags "$VM" --zone "$ZONE" --tags "$S_TAG" >/dev/null 2>&1 || true
   if [ "$DRY" = 1 ] || rule_exists "$S_DENY"; then gc compute firewall-rules delete "$S_DENY" --quiet || true; fi
-  rm -f "$OUT/session"
+  [ -z "$1" ] || [ "$DRY" = 1 ] || gc storage rm --all-versions "$BUCKET/session/$1/links-*.txt" >/dev/null 2>&1 || true
+}
+session_door_down() {  # --stop and the end of a collect: the allow goes; the deny and the tag go once the accounts did
+  local who=""
+  if [ "$DRY" = 1 ]; then session_run || return 0
+  else session_run || vm_has_tag || rule_exists "$S_ALLOW" || rule_exists "$S_DENY" || return 0; fi
+  if [ "$DRY" = 1 ] || rule_exists "$S_ALLOW"; then gc compute firewall-rules delete "$S_ALLOW" --quiet || true; fi
+  # the re-review's D: the deny-all and the tag stay until the run the deny names has its CLOSED marker, whichever
+  # run this is (an older run's --stop never takes away a later session's deny, nor an unclosed one's)
+  who="$(deny_run)"
+  [ -n "$who" ] || ! session_run || who="$RUN_ID"
+  if [ "$DRY" = 1 ] || { [ -n "$who" ] && run_closed "$who"; } || { [ -z "$who" ] && ! rule_exists "$S_DENY"; }; then
+    door_away "$who"; rm -f "$OUT/session"; return 0
+  fi
+  echo "session: accounts not confirmed closed (no $BUCKET/session/${who:-<the run the deny names>}/CLOSED): the deny-all and the tag $S_TAG stay on the VM;"
+  echo "  the next boot of any run on this disk disables them and writes CLOSED; then: $0 --stop ${who:-$RUN_ID} again"
+}
+session_leftover() {  # the re-review's A and D: before any launch starts the VM, what an earlier session left
+  if [ "$DRY" = 1 ]; then
+    echo "+ gcloud compute firewall-rules describe $S_ALLOW / $S_DENY   # an earlier session's: its allow deleted; its deny and tag kept until its CLOSED"
+    return 0
+  fi
+  if rule_exists "$S_ALLOW"; then
+    echo "session: an earlier session's $S_ALLOW is still there: deleted before the VM starts"
+    gc compute firewall-rules delete "$S_ALLOW" --quiet || return 1
+  fi
+  local who; who="$(deny_run)"
+  if rule_exists "$S_DENY"; then
+    if [ -n "$who" ] && run_closed "$who"; then
+      echo "session: run $who's accounts are closed (CLOSED): its deny-all and the tag $S_TAG are taken away"
+      door_away "$who"; return 0
+    fi
+    if [ "$SESSION" = 1 ]; then
+      echo "box-run: an earlier session (${who:-a run the deny does not name}) is not confirmed closed: no new session while" \
+           "its accounts may be open (a launch that is no session closes them at its boot, then $0 --stop ${who:-<run>})" >&2
+      return 1
+    fi
+    echo "session: an earlier session (${who:-a run the deny does not name}) is not confirmed closed: its deny-all and the" \
+         "tag $S_TAG stay (nothing from outside reaches the VM); this run's boot closes its accounts before anything is served"
+    return 0
+  fi
+  if vm_has_tag; then gc compute instances remove-tags "$VM" --zone "$ZONE" --tags "$S_TAG" >/dev/null 2>&1 || true; fi
+}
+session_door_abort() {  # the launch refused after its door was made (exit 7): the VM never started, nothing opened
+  echo "session: the launch is refused: its door is taken away (no account of run $RUN_ID was ever opened)"
+  if [ "$DRY" = 1 ] || rule_exists "$S_ALLOW"; then gc compute firewall-rules delete "$S_ALLOW" --quiet || true; fi
+  door_away "$RUN_ID"; rm -f "$OUT/session"
 }
 stop_vm() { gc compute instances stop "$VM" --zone "$ZONE" || true; [ "$DRY" = 1 ] || wait_terminated; reset_vm; }
 fetch() {  # results.tgz from the bucket into $OUT, the report; returns 1 when there is none yet
@@ -399,6 +452,10 @@ one_look() {  # one look: results, a power cycle asked for, the state; 0 = the r
   if session_run && ! session_closed; then echo "session: accounts not confirmed closed (no CLOSED marker yet)"; fi
   if power_cycle_asked; then power_cycle; return 1; fi
   s="$(status)"
+  if [ "$s" = TERMINATED ] && session_run && rule_exists "$S_ALLOW"; then   # the re-review's A: a session cut (a
+    echo "session: the VM is TERMINATED: the session's allow is taken away now"   # pre-emption) leaves no open door
+    gc compute firewall-rules delete "$S_ALLOW" --quiet || true
+  fi
   if [ "$s" = TERMINATED ]; then
     if ended; then echo "run $RUN_ID ended: $(sed -n 's/.*"ended": "\([^"]*\)".*/\1/p' "$OUT/summary.json" | head -1)"; reset_vm; return 0; fi
     echo "VM $VM is TERMINATED before the run ended (a pre-emption, or the cloud cap): --resume $RUN_ID goes on (finished steps kept), --stop puts it back"
@@ -472,6 +529,7 @@ if [ -n "$RESUME" ]; then
   br resume-plan "$OUT" --deadline "${V[tb-acc-deadline]:-}" --redo "${V[tb-redo]:-}" > "$OUT/resume-plan.json" \
     || { echo "box-run: refused (no VM started): the resume's options (above)" >&2; exit 6; }
   [ "$(status)" = TERMINATED ] || { echo "VM $VM is not TERMINATED" >&2; exit 2; }
+  session_leftover || { echo "box-run: refused (no VM started): an earlier session's door (above)" >&2; exit 7; }
   cap="$(cat "$OUT/cap-hours" 2>/dev/null || echo 4)"
   # this tree's startup script and helper, and a new tb-retry: a step that stopped runs again with the fix
   mkdir -p "$OUT/md"; date -u +%Y%m%dT%H%M%SZ > "$OUT/md/tb-retry"
@@ -608,6 +666,8 @@ case " $STEPS " in *" start "*) [ "$MODE" = validation ] && [ -z "${V[tb-answers
   && FILES="$FILES,tb-site-answers=$ROOT/deploy/gcp/validation-site-answers.yaml" ;; esac
 for k in $(cat "$OUT/metadata-keys"); do FILES="$FILES,$k=$OUT/md/$k"; done
 echo "startup-script tb-helper tb-site-answers $(cat "$OUT/metadata-keys")" > "$OUT/metadata-keys"
+# the re-review's A: an earlier session's allow never outlives it into another launch (this one's door is made below)
+session_leftover || { echo "box-run: refused (no VM started): an earlier session's door (above)" >&2; exit 7; }
 if [ "$STEPS" = build ] && [ "$MODE" = production ]; then  # validation: the VM's own account (no vendor key read)
   if [ "$DRY" = 0 ]; then
     gc compute instances describe "$VM" --zone "$ZONE" --format='value(serviceAccounts[0].email)' > "$OUT/default-sa"
@@ -616,10 +676,11 @@ if [ "$STEPS" = build ] && [ "$MODE" = production ]; then  # validation: the VM'
     --service-account "$SIGNER_SA@$(project).iam.gserviceaccount.com" --scopes cloud-platform
   touch "$OUT/signer"
 fi
-if [ "$SESSION" = 1 ]; then   # D-1130: the door before the start, proved; nothing starts while it is not
-  session_door || { echo "box-run: refused (no VM started): the session's firewall rules could not be made" >&2; exit 7; }
-  session_rules_check || { echo "box-run: refused (no VM started): the door is not proved (above; D-1130)" >&2; exit 7; }
-  bucket_private || { echo "box-run: refused (no VM started): the links' bucket is not private (above)" >&2; exit 7; }
+if [ "$SESSION" = 1 ]; then   # D-1130: the door before the start, proved; nothing starts while it is not. A refusal
+  # after the rules were made takes them away again (the re-review's A: exit 7 left them)
+  session_door || { session_door_abort; echo "box-run: refused (no VM started): the session's firewall rules could not be made" >&2; exit 7; }
+  session_rules_check || { session_door_abort; echo "box-run: refused (no VM started): the door is not proved (above; D-1130)" >&2; exit 7; }
+  bucket_private || { session_door_abort; echo "box-run: refused (no VM started): the links' bucket is not private (above)" >&2; exit 7; }
 fi
 trap 'echo "box-run: the launch did not finish: stopping the VM"; stop_vm' ERR
 gc compute instances set-scheduling "$VM" --zone "$ZONE" --provisioning-model="$PROVISIONING" \

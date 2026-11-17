@@ -285,3 +285,41 @@ def test_a_name_the_vm_would_make_too_long_is_refused_by_the_driver() -> None:
     assert sv.parse_people("a" * 22 + ":coordinator", "VALIDATION")
     with pytest.raises(sv.Refused, match="longer than 22"):
         sv.parse_people("a" * 23 + ":coordinator", "VALIDATION")
+
+
+# ---------------------------------------------------------------- the re-review of 2026-11-17: B and a note
+@pytest.mark.parametrize(
+    "dest, holds",
+    [(["192.0.2.1/32"], False),  # the review's case: a deny of traffic to another address only
+     (["10.128.0.0/9"], False),  # the internal range only: the VM's external address is not denied
+     (["34.80.0.10/32", "10.128.0.5/32"], True),  # every address of the VM
+     (["0.0.0.0/0"], True),
+     ([], True)],
+    ids=["another-address", "internal-only", "every-address", "world", "none"],
+)  # fmt: skip
+def test_the_deny_must_cover_every_address_of_the_vm(dest: list[str], holds: bool) -> None:
+    """The re-review's B: `destinationRanges` narrows a deny to traffic for those addresses; the check read none."""
+    inst = _instance(networkIP="10.128.0.5")
+    ok, report = _check(_rules(tb_session_deny={"destinationRanges": dest}), inst=inst)
+    assert ok is holds, report["problems"]
+    if not holds:
+        assert any("tb-session-deny denies only traffic to" in p for p in report["problems"])
+
+
+@pytest.mark.parametrize("action", ["apply_security_profile_group", "ALLOW", "", "some_action_added_later"])
+def test_a_policy_action_other_than_deny_or_goto_next_is_a_way_in(action: str) -> None:
+    """The re-review's B: only `deny` and `goto_next` leave the decision to the session's rules."""
+    eff = {"firewallPolicys": [{"name": "org", "type": "HIERARCHY", "rules": [
+        {"priority": 10, "direction": "INGRESS", "action": action, "match": {"srcIpRanges": ["0.0.0.0/0"]}}]}]}  # fmt: skip
+    ok, report = _check(_rules(), eff=eff)
+    assert not ok and any("firewall policy org" in p for p in report["problems"]), report
+
+
+def test_a_bucket_readable_by_a_whole_domain_is_refused_and_a_group_is_said() -> None:
+    """The re-review's note: a `domain:` binding lets every account of an organisation read the links object."""
+    dom = {"bindings": [{"role": "roles/storage.objectViewer", "members": ["domain:hospa.test"]}]}
+    ok, problems, _notes = sv.bucket_check(PRIVATE, dom)
+    assert not ok and "whole domains" in problems[0]
+    grp = {"bindings": [{"role": "roles/storage.objectViewer", "members": ["group:ops@hospa.test"]}]}
+    ok, problems, notes = sv.bucket_check(PRIVATE, grp)
+    assert ok and any("group:ops@hospa.test" in n for n in notes)

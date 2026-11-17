@@ -28,6 +28,7 @@ RUN = "box-20261117T060000Z-abcdef12"
 OWNER = "1.2.3.4/32"
 CODE = "SYNTHETIC-CODE-7F3A"
 FP = ":".join(["C3"] * 32)
+OLD = "box-20261116T060000Z-0ld0ld00"  # an earlier session run on the same VM
 NET = "https://www.googleapis.com/compute/v1/projects/p/global/networks/default"
 
 pytestmark = pytest.mark.nodb
@@ -58,7 +59,10 @@ case "$1 $2 $3" in
   "compute instances get-serial-port-output")
     start=0; prev=""; for a in "$@"; do [ "$prev" = --start ] && start=$a; prev=$a; done
     python3 -c 'import json,sys; d=open(sys.argv[1]).read(); s=int(sys.argv[2]); c=d[s:]; print(json.dumps({"contents": c, "start": str(s), "next": str(s+len(c))}))' "$S/serial" "$start" ;;
-  "compute firewall-rules describe") [ -f "$S/fw/$4.json" ] || exit 1; echo "$4" ;;
+  "compute firewall-rules describe")
+    [ -f "$S/fw/$4.json" ] || exit 1
+    case "$fmt" in *description*) python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("description", ""))' "$S/fw/$4.json" ;;
+      *) echo "$4" ;; esac ;;
   "compute firewall-rules create"|"compute firewall-rules update")
     python3 - "$S" "$@" <<'PY'
 import json, sys, os
@@ -80,6 +84,7 @@ for a in it:
     elif k == "--target-tags": r["targetTags"] = v.split(",")
     elif k == "--priority": r["priority"] = int(v)
     elif k == "--action": r["_action"] = v
+    elif k == "--description": r["description"] = v
 kind = "denied" if r.get("_action") == "DENY" or "denied" in r else "allowed"
 r[kind] = r.pop("_rules", r.get(kind)); r.pop("_action", None)
 json.dump(r, open(p, "w"))
@@ -96,7 +101,8 @@ PY
     [ "$found" = 1 ] || { echo "ERROR: One or more URLs matched no objects." >&2; exit 1; } ;;
   "storage cat "*) cat "$S/gcs/${3#gs://b-test/}" ;;
   "storage rm "*)
-    for a in "${@:3}"; do case "$a" in --all-versions) echo all-versions >> "$S/rm-flags" ;; gs://*) rm "$S/gcs/${a#gs://b-test/}" ;; esac; done ;;
+    for a in "${@:3}"; do case "$a" in --all-versions) echo all-versions >> "$S/rm-flags" ;;
+      gs://*) n=0; for f in $S/gcs/${a#gs://b-test/}; do [ -f "$f" ] && { rm "$f"; n=1; }; done; [ "$n" = 1 ] || exit 1 ;; esac; done ;;
   "storage cp "*)
     src="${@: -2:1}"; dst="${@: -1}"
     case "$src" in gs://*) src="$S/gcs/${src#gs://b-test/}" ;; esac
@@ -175,9 +181,9 @@ def _objects(tmp: Path) -> list[Path]:
     return [f for f in (tmp / "state" / "gcs").rglob("*") if f.is_file()]
 
 
-def _closed(tmp: Path) -> None:
+def _closed(tmp: Path, run: str = RUN) -> None:
     """The VM's CLOSED marker beside the links (it writes it once the session's accounts are disabled)."""
-    d = tmp / "state" / "gcs" / "session" / RUN
+    d = tmp / "state" / "gcs" / "session" / run
     d.mkdir(parents=True, exist_ok=True)
     (d / "CLOSED").write_text("closed 2026-11-17T09:41:00Z by the session's stop\n")
 
@@ -227,7 +233,7 @@ def test_no_link_is_given_unless_the_door_is_proved_and_the_bucket_private(tmp_p
     assert _objects(tmp_path)  # left for the integrator to look at, not read
 
 
-def _launch(tmp: Path, *extra: str) -> subprocess.CompletedProcess[str]:
+def _launch(tmp: Path, *extra: str, steps: str = "dev,session") -> subprocess.CompletedProcess[str]:
     r = tmp / "repo"
     r.mkdir()
     subprocess.run(["git", "init", "-q", str(r)], check=True)
@@ -238,7 +244,7 @@ def _launch(tmp: Path, *extra: str) -> subprocess.CompletedProcess[str]:
     sha = subprocess.run(["git", "-C", str(r), "rev-parse", "HEAD"], capture_output=True, text=True,
                          check=True).stdout.strip()  # fmt: skip
     assert box_run.src_bundle(sha, out=tmp / "src.bundle", root=r)["ok"]
-    return _run(tmp, "--mode", "validation", "--steps", "dev,session", "--release-id", "dev-x", "--commit", sha,
+    return _run(tmp, "--mode", "validation", "--steps", steps, "--release-id", "dev-x", "--commit", sha,
                 "--src-bundle", str(tmp / "src.bundle"), "--no-wait", *extra)  # fmt: skip
 
 
@@ -255,6 +261,9 @@ def test_the_launch_makes_the_door_and_proves_it_before_the_vm_starts(tmp_path: 
     assert "--max-run-duration=4h" in argv and "--instance-termination-action=STOP" in argv
     md = tmp_path / "runs" / RUN / "md"
     assert (md / "block-project-ssh-keys").read_text() == "TRUE"
+    assert (md / "serial-port-enable").read_text() == "FALSE"  # the re-review's note: no interactive serial console
+    deny = json.loads((tmp_path / "state" / "fw" / "tb-session-deny.json").read_text())
+    assert re.search(r"run=box-[0-9]{8}T[0-9]{6}Z-", deny["description"])  # its run: its CLOSED marker takes it away
     assert (md / "tb-session-env").read_text() == "VALIDATION" and (md / "tb-max-minutes").read_text() == str(
         4 * 60 - 5
     )
@@ -446,7 +455,10 @@ def test_the_launch_refuses_a_bucket_or_a_vm_the_door_cannot_hold(tmp_path: Path
         (s / "nics.json").write_text(json.dumps([{"network": NET, "stackType": "IPV4_IPV6",
                                                    "ipv6AccessConfigs": [{"externalIpv6": "2001:db8::5"}]}]))  # fmt: skip
     if case == "allow-source-tags":  # an allow left with a source tag is deleted and made again: the launch passes
-        _door(tmp_path, **{"tb-session-https": {"sourceTags": ["tb-other"]}})
+        # (left by an earlier session whose accounts are closed: its CLOSED marker is there)
+        _door(tmp_path, **{"tb-session-https": {"sourceTags": ["tb-other"]},
+                           "tb-session-deny": {"description": f"TrialBox session (D-1130) run={OLD}: ..."}})  # fmt: skip
+        _closed(tmp_path, OLD)
         (tmp_path / "runs" / RUN / "session").unlink()
         r = _launch(tmp_path, "--session-allow", OWNER, "--session-env", "validation")
         assert r.returncode == 0, r.stdout + r.stderr
@@ -474,3 +486,140 @@ def test_a_session_runs_resume_plan_is_refused_too(tmp_path: Path) -> None:
     r = _run(tmp_path, "--preflight", "--resume", RUN)
     assert r.returncode == 2 and "never resumed" in r.stderr
     assert _argv(tmp_path) == ""
+
+
+# ---------------------------------------------------------------- the re-review of 2026-11-17: A, B, D and notes
+def _old_door(tmp: Path, closed: bool, links: bool = False, **deny: Any) -> None:
+    """What an earlier session (run OLD) left when nobody ran --stop or --collect after a pre-emption: its allow, its
+    deny naming its run, the tag on the VM; its CLOSED marker if a boot closed its accounts, its unread links."""
+    _env(tmp)
+    fw = tmp / "state" / "fw"
+    (fw / "tb-session-https.json").write_text(json.dumps({"name": "tb-session-https", "network": NET, "direction":
+        "INGRESS", "priority": 500, "sourceRanges": ["5.6.7.8/32"], "targetTags": ["tb-session"],
+        "allowed": [{"IPProtocol": "tcp", "ports": ["443"]}]}))  # fmt: skip
+    (fw / "tb-session-deny.json").write_text(json.dumps({"name": "tb-session-deny", "network": NET, "direction":
+        "INGRESS", "priority": 510, "sourceRanges": ["0.0.0.0/0"], "targetTags": ["tb-session"],
+        "denied": [{"IPProtocol": "all"}], "description": f"TrialBox session (D-1130) run={OLD}: ...", **deny}))  # fmt: skip
+    (tmp / "state" / "tags").write_text("tb-gpu\ntb-gpu-door\ntb-session\n")
+    if closed:
+        _closed(tmp, OLD)
+    if links:
+        d = tmp / "state" / "gcs" / "session" / OLD
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "links-20261116T064000Z.txt").write_text(f"https://trialbox.hospa.test/enrol#u=owner&c={CODE}\n")
+
+
+def _fw(tmp: Path) -> set[str]:
+    return {f.stem for f in (tmp / "state" / "fw").glob("*.json")}
+
+
+def test_every_launch_takes_an_earlier_sessions_allow_away_before_the_vm_starts(tmp_path: Path) -> None:
+    """The re-review's A: a session cut under --no-wait with no --stop left tcp:443 open from the owner's range; a
+    later launch that is no session would serve the old accounts through it. Its deny and tag stay (D) until the
+    earlier run's CLOSED marker exists: nothing from outside reaches the VM while its boot closes them."""
+    _old_door(tmp_path, closed=False)
+    r = _launch(tmp_path, steps="dev")
+    assert r.returncode == 0, r.stdout + r.stderr
+    argv = _argv(tmp_path)
+    assert argv.index("firewall-rules delete tb-session-https") < argv.index("instances start")
+    assert _fw(tmp_path) >= {"tb-session-deny"} and "tb-session-https" not in _fw(tmp_path)
+    assert "tb-session" in (tmp_path / "state" / "tags").read_text().split()
+    assert "not confirmed closed" in r.stdout
+
+
+def test_a_session_launch_is_refused_while_an_earlier_session_is_not_closed(tmp_path: Path) -> None:
+    _old_door(tmp_path, closed=False)
+    r = _launch(tmp_path, "--session-allow", OWNER, "--session-env", "validation")
+    assert r.returncode == 7 and OLD in r.stderr and "not confirmed closed" in r.stderr
+    argv = _argv(tmp_path)
+    assert "instances start" not in argv and "firewall-rules create" not in argv
+    assert "tb-session-deny" in _fw(tmp_path)  # the earlier run's deny stays
+
+
+def test_an_earlier_closed_sessions_door_and_unread_links_go_before_a_launch(tmp_path: Path) -> None:
+    """The re-review's notes: links never read stay in the bucket (dead codes once the accounts are disabled); they go
+    with the door once the run's CLOSED marker is there."""
+    _old_door(tmp_path, closed=True, links=True)
+    r = _launch(tmp_path, steps="dev")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert not _fw(tmp_path) & {"tb-session-https", "tb-session-deny"}
+    assert "tb-session" not in (tmp_path / "state" / "tags").read_text().split()
+    assert not list((tmp_path / "state" / "gcs" / "session" / OLD).glob("links-*.txt"))
+
+
+def test_a_narrowed_deny_is_never_kept_by_a_launch(tmp_path: Path) -> None:
+    """The re-review's B: a deny left with destination ranges was kept as it was; the launch makes its own."""
+    _old_door(tmp_path, closed=True, destinationRanges=["192.0.2.1/32"])
+    r = _launch(tmp_path, "--session-allow", OWNER, "--session-env", "validation")
+    assert r.returncode == 0, r.stdout + r.stderr
+    deny = json.loads((tmp_path / "state" / "fw" / "tb-session-deny.json").read_text())
+    assert (
+        "destinationRanges" not in deny
+        and f"run={OLD}" not in deny["description"]
+        and "run=box-" in deny["description"]
+    )
+
+
+@pytest.mark.parametrize("case", ["bucket-public", "door-not-proved"])
+def test_a_refused_launch_takes_its_door_away(tmp_path: Path, case: str) -> None:
+    """The re-review's A: exit 7 came after the rules were made and left them (the ERR trap is set later)."""
+    _env(tmp_path)
+    if case == "bucket-public":
+        (tmp_path / "state" / "iam.json").write_text(json.dumps({"bindings": [{"role": "roles/storage.objectViewer",
+                                                                               "members": ["allUsers"]}]}))  # fmt: skip
+    else:
+        door = tmp_path / "state" / "fw" / "tb-gpu-door.json"
+        door.write_text(json.dumps({**json.loads(door.read_text()), "priority": 100}))
+    r = _launch(tmp_path, "--session-allow", OWNER, "--session-env", "validation")
+    assert r.returncode == 7, r.stdout + r.stderr
+    assert "instances start" not in _argv(tmp_path) and "firewall-rules create tb-session-https" in _argv(tmp_path)
+    assert not _fw(tmp_path) & {"tb-session-https", "tb-session-deny"}
+    assert "tb-session" not in (tmp_path / "state" / "tags").read_text().split()
+
+
+def test_a_collect_that_finds_a_session_cut_takes_its_allow_away(tmp_path: Path) -> None:
+    """The re-review's A: a pre-emption under --no-wait. The first look at the stopped VM deletes the allow."""
+    _door(tmp_path)
+    r = _run(tmp_path, "--collect", RUN)
+    assert r.returncode == 0, r.stderr
+    assert "tb-session-https" not in _fw(tmp_path) and "tb-session-deny" in _fw(tmp_path)
+
+
+def test_a_stop_keeps_a_deny_whose_own_run_is_not_closed(tmp_path: Path) -> None:
+    """The re-review's D: --stop of another run (no session here) took the deny and the tag away while the session the
+    deny was made for still had accounts open; a CLOSED marker of another run does not count."""
+    _old_door(tmp_path, closed=False)
+    _closed(tmp_path)  # this run's marker, not OLD's
+    (tmp_path / "state" / "status").write_text("RUNNING\n")
+    r = _run(tmp_path, "--stop", RUN)
+    assert r.returncode == 0, r.stderr
+    assert "tb-session-https" not in _fw(tmp_path) and "tb-session-deny" in _fw(tmp_path)
+    assert "tb-session" in (tmp_path / "state" / "tags").read_text().split()
+    assert f"--stop {OLD} again" in r.stdout
+    _closed(tmp_path, OLD)  # the next boot closed OLD's accounts
+    assert _run(tmp_path, "--stop", RUN).returncode == 0
+    assert (
+        "tb-session-deny" not in _fw(tmp_path) and "tb-session" not in (tmp_path / "state" / "tags").read_text().split()
+    )
+
+
+@pytest.mark.parametrize("rid", ["*", "../box-x", "box-1/../../x", "a b", "box-1..2"])
+@pytest.mark.parametrize("opt", ["--links", "--session-status", "--collect", "--stop"])
+def test_a_run_id_is_of_the_vms_form_before_any_cloud_call(tmp_path: Path, rid: str, opt: str) -> None:
+    """The re-review's note: --links and --session-status took the run id as typed (a wildcard, a parent folder)."""
+    args = ["--stop", rid] if opt == "--stop" else [opt, rid]
+    r = _run(tmp_path, *args)
+    assert r.returncode == 2 and "is not a run id" in r.stderr, r.stdout + r.stderr
+    assert _argv(tmp_path) == ""
+
+
+def test_links_take_the_ranges_given_on_the_command_line(tmp_path: Path) -> None:
+    """The re-review's note: the message said --session-allow gives the ranges, and --links ignored it."""
+    _door(tmp_path)
+    (tmp_path / "runs" / RUN / "session").unlink()
+    _links_object(tmp_path)
+    assert _run(tmp_path, "--links", RUN).returncode == 3
+    _links_object(tmp_path)
+    r = _run(tmp_path, "--links", RUN, "--session-allow", OWNER)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.count(f"&c={CODE}") == 1
