@@ -4,7 +4,8 @@
 # 1, the dark close's check): the stand-in box's Caddy, when it runs.
 echo "ss $*" >> "$BR_S/calls.log"
 case "$*" in
-  *:443*) exec python3 "$BR_HERE/standins/box.py" caddy-state ;;
+  *:443*) [ ! -f "$BR_S/knobs/ss-fails" ] || exit 1   # round 4's f: ss gives no answer
+    exec python3 "$BR_HERE/standins/box.py" caddy-state ;;
   *) [ -f "$BR_S/knobs/ssh-listens" ] && echo "LISTEN 0      4096         0.0.0.0:22        0.0.0.0:*" ;;
 esac
 exit 0

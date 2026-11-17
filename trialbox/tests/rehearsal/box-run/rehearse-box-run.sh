@@ -106,6 +106,15 @@
 #   session-unit-race  as session-unit, but the unit was enabled again by hand and its `compose up` lands in the middle
 #                      of the close: the close stops it and waits first; Caddy never serves the open accounts
 #   session-unit-fails the unit cannot be disabled: no account, no link, the run's CLOSED marker written
+#   session-unit-dbus  systemctl gives no answer for trialbox.service, whose unit file exists: no account (round 4's c)
+#   session-ops        lane D's Operations timer enabled again at the boot after a cut, an update's `compose up` queued:
+#                      the close stops the timers first; Caddy never serves the open accounts (round 4's b)
+#   session-quiet-fails  trialbox.service does not stop at the boot after a cut: Caddy is stopped all the same and
+#                      tcp:443 decides; never a close while Caddy may serve (round 4's a)
+#   session-ss-fails   ss gives no answer at the boot after a cut: what listens on tcp:443 cannot be told, no close
+#                      runs, the run stops and says so (round 4's f)
+#   session-ended-again  the run ends with its accounts open (the console cannot be asked), then the same run boots
+#                      again: it closes them before it hands the ended run over (round 4's g)
 #   session-wide       the driver refuses a range too wide (0.0.0.0/0, any, a /8) before anything: no VM booted
 #   session-egress     the box's egress table lets a container out (as a DEV box's opens a model host): the session
 #                      stops at 55-session-egress and no account or link is made
@@ -134,7 +143,7 @@ ALL=(build build-gate-fails build-refused build-preempt happy step-fails reboot 
      acc-cut-resume
      session session-stop session-cut session-wide session-egress session-dev-refused session-skip session-resume
      session-ssh session-then-acc session-close-fails session-update-fails session-cut-56 session-unit session-unit-race
-     session-unit-fails)
+     session-unit-fails session-unit-dbus session-ops session-quiet-fails session-ss-fails session-ended-again)
 # shellcheck disable=SC2206  # CASES=happy,cap: split on commas and spaces
 CASES=(${*//,/ }); [ "${#CASES[@]}" -gt 0 ] || CASES=("${ALL[@]}")
 # the harness's own ceiling for one wait (a declared setting): a case takes 5 to 40 seconds on the short clock, so
@@ -458,8 +467,9 @@ for CASE in "${CASES[@]}"; do
       to_the_end; acc_collect ;;
     acc-blocked) setup "$CASE" "start acc" acc-blocked; start_setup; acc_setup; boot; to_the_end ;;
     session) setup "$CASE" "dev session" dev-routes; session_setup DEV; boot; to_the_end ;;
-    session-stop)   # the session asks for more than the cap leaves: it ends at the cap less its margin, closed first
-      setup "$CASE" "dev session"; session_setup VALIDATION; m tb-session-minutes 600; m tb-max-minutes 60; boot; to_the_end ;;
+    session-stop)   # the session asks for more than the cap leaves: it ends at the cap less its margin, closed first;
+      # lane D's units enabled on the disk (rounds 3 and 4): off while the accounts are open, put back after the close
+      setup "$CASE" "dev session" unit-enabled ops-timer; session_setup VALIDATION; m tb-session-minutes 600; m tb-max-minutes 60; boot; to_the_end ;;
     session-cut)
       setup "$CASE" "dev session" dev-routes; session_setup DEV; m tb-session-minutes 600; m tb-max-minutes 900; boot
       wait_for "the session to open" grep -aq 'TB-SESSION-READY' "$S/boot-1.out"
@@ -484,6 +494,22 @@ for CASE in "${CASES[@]}"; do
       "$HERE/standins/reboot.sh" "$S"
       to_the_end ;;
     session-unit-fails) setup "$CASE" "dev session" unit-enabled unit-disable-fails; session_setup VALIDATION; boot; to_the_end ;;
+    session-unit-dbus) setup "$CASE" "dev session" unit-enabled unit-dbus-error; session_setup VALIDATION; boot; to_the_end ;;
+    session-ops|session-quiet-fails|session-ss-fails)   # round 4's b, a, f: a power cut while the session is open
+      case "$CASE" in session-ops) k=(ops-timer ops-late unit-reenabled) ;; session-quiet-fails) k=(unit-enabled unit-reenabled unit-stop-hangs) ;;
+        *) k=() ;; esac
+      setup "$CASE" "dev session" dev-routes ${k[@]+"${k[@]}"}; session_setup DEV; m tb-session-minutes 600; m tb-max-minutes 900
+      boot; wait_for "the session to open" grep -aq 'TB-SESSION-READY' "$S/boot-1.out"
+      [ "$CASE" != session-ss-fails ] || touch "$S/knobs/ss-fails"   # ss gives no answer at the next boot
+      "$HERE/standins/reboot.sh" "$S"
+      to_the_end ;;
+    session-ended-again)   # round 4's g: the run ends with its accounts open; a later boot of the same run closes them
+      setup "$CASE" "dev session" dev-routes; session_setup DEV; m tb-session-minutes 600; m tb-max-minutes 900; boot
+      wait_for "the session to open" grep -aq 'TB-SESSION-READY' "$S/boot-1.out"
+      touch "$S/knobs/disable-fails"; "$HERE/standins/reboot.sh" "$S"
+      wait_for "the done marker" is_done; wait_for "the power-off" is_off
+      rm -f "$S/knobs/disable-fails"; "$HERE/standins/boot.sh" "$S"   # started again (by hand, or a later launch's start)
+      to_the_end ;;
     session-wide) S="$REH/$CASE"; rm -rf "$S"; mkdir -p "$S"; session_wide ;;
     session-egress) setup "$CASE" "dev session" dev-routes egress-open; session_setup DEV; boot; to_the_end ;;
     session-dev-refused) setup "$CASE" "dev session"; session_setup DEV; boot; to_the_end ;;

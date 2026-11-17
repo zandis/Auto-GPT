@@ -395,7 +395,8 @@ finish() {  # $1 marker line, $2 phase: say why, keep it in the state, pack, DON
   if [ -n "${SBOOT:-}" ] && has session && [ ! -f "$SES/ready-$SBOOT" ]; then
     echo "TB-SESSION-NOT-READY boot=$SBOOT at=$(date -u +%FT%TZ) why=$(printf '%s' "$1" | tr -d '\n' | cut -c1-200)"
   fi
-  if declare -F session_close >/dev/null && session_open_left; then
+  # round 4's a: never a close of this kind while the box's Caddy may serve (the boot's close held them: SES_HOLD)
+  if declare -F session_close >/dev/null && [ -z "${SES_HOLD:-}" ] && session_open_left; then
     session_close "the run's end ($2)" || true
   fi
   # the re-review's C: a session run that ends with no account open (a refusal, a stop before 56) is closed too
@@ -592,13 +593,32 @@ SES="$TB/session"   # on the kept disk, across runs: the names of a session's ac
 session_accounts_left() { [ -s "$SES/accounts" ] || [ -s "$SES/env-before" ] || [ -f "$SES/norestart" ]; }
 # ... or the box's own unit not put back yet (round 3's finding 1: it is put back once CLOSED is written)
 session_open_left() { session_accounts_left || [ -s "$SES/unit-before" ]; }
-# Round 3's finding 1: lane D's unit (deploy/install.sh installs and enables it when its egress check passes) runs
-# `docker compose up` at every boot, Caddy and 443 with it, whatever the containers' restart policy. While a session's
-# accounts are open it is disabled (step 56, its state before kept); a close at a boot stops it and waits for it first.
+# Round 3's finding 1 and round 4's b: lane D's units that bring the stack up by themselves (deploy/install.sh installs
+# and enables them when its egress check passes): trialbox.service runs `docker compose up` at every boot, Caddy and
+# 443 with it, whatever the containers' restart policy; trialbox-ops.timer runs the Operations page's requests every
+# minute from a boot on (an update's `compose up -d` of every service, Caddy included); trialbox-watchdog.timer
+# restarts an unhealthy service. While a session's accounts are open they are disabled (the timers and what they start
+# also stopped), each one's state before kept (step 56); a close at a boot stops them and waits for them first.
 TB_UNIT=trialbox.service
-unit_enabled() { systemctl is-enabled "$TB_UNIT" 2>/dev/null | head -n 1; }   # "" or not-found: not installed
-unit_active() { systemctl is-active "$TB_UNIT" 2>/dev/null | head -n 1; }
-d_port443() { ss -Htln 'sport = :443' 2>/dev/null; }   # what listens on tcp:443 now (the box's Caddy publishes it)
+SES_UNITS="trialbox.service trialbox-ops.timer trialbox-watchdog.timer"   # kept off while the accounts are open
+SES_UNITS_RUN="trialbox-ops.service trialbox-watchdog.service"             # what the two timers start
+SYSTEMD_DIRS=${TB_BOXRUN_SYSTEMD_DIRS:-/etc/systemd/system /run/systemd/system /usr/lib/systemd/system /lib/systemd/system}
+unit_file() { local d; for d in $SYSTEMD_DIRS; do [ -e "$d/$1" ] && return 0; done; return 1; }
+# is-enabled / is-active of a unit: "absent" when no unit file exists, "?" when systemctl gives no answer for one that
+# does (a D-Bus error: round 4's c; never read as "not installed")
+unit_q() { local v; v=$(systemctl "$1" "$2" 2>/dev/null | head -n 1)
+  if [ -n "$v" ] && [ "$v" != not-found ]; then echo "$v"; elif unit_file "$2"; then echo "?"; else echo absent; fi; }
+unit_enabled() { unit_q is-enabled "$1"; }
+unit_active() { unit_q is-active "$1"; }
+unit_idle() { case "$(unit_active "$1")" in absent|inactive|failed) return 0 ;; *) return 1 ;; esac; }
+door_state() {  # tcp:443 now: open (the box's Caddy runs, or something listens), closed, or unknown (round 4's f: ss
+  # gives no answer: never read as "nothing listens")
+  local l rc=0
+  if d_caddy_running; then echo open; return 0; fi
+  l=$(ss -Htln 'sport = :443' 2>/dev/null) || rc=$?
+  if [ "$rc" != 0 ]; then echo unknown; elif [ -n "$l" ]; then echo open; else echo closed; fi
+}
+d_door_open() { [ "$(door_state)" != closed ]; }   # open or cannot tell
 # The re-review's C: every session run that booted on this disk gets its CLOSED marker beside its links once no
 # session account is open here, even a run that never opened one (a refusal, a stop before 56, a cut). The driver
 # (box-run.sh session_closed) keeps the door's deny-all and the tag until the marker of the run the deny names exists.
@@ -628,12 +648,30 @@ BUNDLE="$TB/bundle/$RUN_ID.tar"
 ANSWERS="$TB/wizard-answers"
 REC="$RUN/records"
 
-ENDED=$(st get _ended)
-if [ -n "$ENDED" ]; then  # this run already ended (a stop, or all steps): hand over its results, repeat nothing
-  echo "TB-RUN-ENDED-BEFORE: $ENDED" | tee -a "$LOG"; phase ended
+# Round 4's g: a boot that ends before the run's steps (the run ended before, the cap, its preflight, sshd) while a
+# session's accounts are still open on this disk ends only after the close below (a later boot of the same run closed
+# nothing before: only another run's boot did). EARLY_END holds the end: the marker line, the phase, the exit code.
+EARLY_END=()
+early_end() {
+  if [ "${#EARLY_END[@]}" -gt 0 ]; then return 0; fi
+  if session_open_left; then
+    EARLY_END=("$1" "$2" "${3:-1}")
+    echo "TB-SESSION the run ends ($(printf '%s' "$1" | cut -c1-120)), after the close of the session left open on this disk" | tee -a "$LOG"
+    return 0
+  fi
+  finish "$@"
+}
+early_ended() {  # the run ended before (a stop, or all steps): its results handed over again, nothing repeated
+  echo "TB-RUN-ENDED-BEFORE: $1" | tee -a "$LOG"; phase ended
   pack; touch "$DONE"; echo BOX-RUN-DONE; exit 0
+}
+ENDED=$(st get _ended)
+if [ -n "$ENDED" ]; then
+  if session_open_left; then EARLY_END=("ended" "$ENDED" 0)
+    echo "TB-SESSION run $RUN_ID ended before; it ends again after the close of the session left open on this disk" | tee -a "$LOG"
+  else early_ended "$ENDED"; fi
 fi
-[ "$CAP_LEFT" -gt 0 ] || finish "TB-CAP-REACHED: the $MAXM minutes of this run are used ($CAP_USED s over its boots)" cap-reached
+[ "$CAP_LEFT" -gt 0 ] || early_end "TB-CAP-REACHED: the $MAXM minutes of this run are used ($CAP_USED s over its boots)" cap-reached
 
 has() { case "$STEPS" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 pf=""
@@ -691,7 +729,7 @@ fi
 if [ -n "$RETRY" ] && [ "$(cat "$TB/session/run" 2>/dev/null)" = "$RUN_ID" ]; then
   pf="$pf; tb-retry: run $RUN_ID opened a session on this disk; a session run is never resumed (D-1123 4.4)"
 fi
-[ -z "$pf" ] || finish "TB-PREFLIGHT-FAILED${pf}" preflight-failed
+[ -z "$pf" ] || early_end "TB-PREFLIGHT-FAILED${pf}" preflight-failed
 echo "TB-PREFLIGHT ok: groups$STEPS"
 # D-1120 for the session: this boot's own id (8 random bytes, hex; derived from nothing, not a secret), on its first
 # line, its ready line and its end; box-run.sh --session-status counts a ready line only when it is this boot's
@@ -712,9 +750,9 @@ if has session; then
   cp "$SSHD_BEFORE" "$RUN/records/sshd-before.txt" 2>/dev/null || true
   systemctl stop ssh.socket ssh.service >/dev/null 2>&1 || true
   systemctl mask ssh.socket ssh.service >/dev/null 2>&1 || true
-  _l22=$(d_port22)
+  _l22=$(d_port22) || _l22="(ss gave no answer: what listens cannot be told)"   # round 4's f
   echo "TB-SESSION no SSH: ssh.socket and ssh.service stopped and masked (before: $(paste -sd';' "$SSHD_BEFORE")); listening on :22: ${_l22:-nothing}"
-  [ -z "$_l22" ] || finish "TB-SESSION-SSH: something still listens on tcp:22 after the stop ($_l22): no session" session-ssh
+  [ -z "$_l22" ] || early_end "TB-SESSION-SSH: something still listens on tcp:22 after the stop ($_l22): no session" session-ssh
 elif [ -s "$SSHD_BEFORE" ]; then   # the first boot after a session that is no session: SSH as it was
   systemctl unmask ssh.socket ssh.service >/dev/null 2>&1 || true
   while read -r _u _en _act; do
@@ -2516,17 +2554,18 @@ step_session_accounts() {
   mkdir -p "$SES"; chmod 700 "$SES"
   # round 3's finding 4: this run began to open a session on this disk: any later boot of it closes and stops
   grep -qxF "$RUN_ID" "$SES/opened" 2>/dev/null || printf '%s\n' "$RUN_ID" >> "$SES/opened"
+  SES_OPENED_HERE=1
   suffix=$(session_suffix)
   people=$(printf '%s' "$SES_PEOPLE" | tr ',' '\n' | sed "s/^\([^:]*\):/\1-$suffix:/" | paste -sd, -)
   # the review's finding 6: while the accounts are open, the console and Caddy do not start again by themselves at a
   # boot (compose's unless-stopped); the next boot closes the accounts with Caddy down before anything is served.
   # The re-review's E: a policy that cannot be set is no session (nothing is opened yet)
   # Round 3's finding 1: the box's own unit cannot bring the stack up at a boot while the accounts are open
-  if ! session_unit_off >> "$STEP_LOG" 2>&1; then
-    STOP="the box's own unit $TB_UNIT could not be disabled (at a boot it brings Caddy up whatever the restart policy): no session is opened"
+  if ! session_units_off >> "$STEP_LOG" 2>&1; then
+    STOP="the box's own units ($SES_UNITS) could not be read, disabled or stopped (they bring Caddy up whatever the restart policy): no session is opened"
     return 1
   fi
-  note unit_before "\"$(cat "$SES/unit-before")\""
+  note units_before "\"$(paste -sd';' "$SES/unit-before")\""
   touch "$SES/norestart"
   if ! d_restart_policy no >> "$STEP_LOG" 2>&1; then
     STOP="the console's and Caddy's restart policy could not be set to no (docker update): no session is opened"; return 1
@@ -2620,58 +2659,79 @@ step_session_open() {
 }
 # the console's and Caddy's restart policy (docker update; the compose files are not changed)
 d_restart_policy() { local c=(); mapfile -t c < <(cid console; cid caddy); [ ${#c[@]} -gt 0 ] && docker update --restart="$1" "${c[@]}"; }
-session_unit_off() {  # step 56: lane D's unit disabled, what it was kept (as sshd's); 1 when it is not disabled after
-  local en act
+session_units_off() {  # step 56: lane D's units disabled (the timers and what they start stopped), each one's state
+  # before kept (as sshd's); 1 when one cannot be read, disabled or stopped
+  local u
   if [ ! -s "$SES/unit-before" ]; then
-    en=$(unit_enabled); act=$(unit_active)
-    printf '%s %s\n' "${en:-not-found}" "${act:-unknown}" > "$SES/unit-before"
+    for u in $SES_UNITS; do printf '%s %s %s\n' "$u" "$(unit_enabled "$u")" "$(unit_active "$u")"; done > "$SES/unit-before"
   fi
-  echo "TB-SESSION $TB_UNIT before the session: $(cat "$SES/unit-before")"
-  case "$(unit_enabled)" in ""|not-found|disabled|masked|masked-runtime) return 0 ;; esac
-  # not stopped: its ExecStop stops the stack the session is about to serve; disabled, it is not started at a boot
-  systemctl disable "$TB_UNIT" || return 1
-  case "$(unit_enabled)" in ""|not-found|disabled|masked|masked-runtime) echo "TB-SESSION $TB_UNIT disabled"; return 0 ;; esac
-  echo "TB-SESSION $TB_UNIT is still $(unit_enabled) after the disable"; return 1
+  echo "TB-SESSION the box's own units before the session: $(paste -sd';' "$SES/unit-before")"
+  for u in $SES_UNITS; do
+    case "$(unit_enabled "$u")" in
+      absent|disabled|masked|masked-runtime) ;;
+      "?") echo "TB-SESSION $u: systemctl gives no answer for it (its unit file exists)"; return 1 ;;
+      # trialbox.service is not stopped: its ExecStop stops the stack the session is about to serve; disabled, it is
+      # not started at a boot. The timers are stopped too (they run from a boot and every minute)
+      *) systemctl disable "$u" || return 1 ;;
+    esac
+    case "$(unit_enabled "$u")" in absent|disabled|masked|masked-runtime) ;;
+      *) echo "TB-SESSION $u is still $(unit_enabled "$u") after the disable"; return 1 ;; esac
+  done
+  for u in trialbox-ops.timer trialbox-watchdog.timer $SES_UNITS_RUN; do
+    unit_idle "$u" || systemctl stop "$u" || return 1
+    unit_idle "$u" || { echo "TB-SESSION $u is still $(unit_active "$u") after its stop"; return 1; }
+  done
+  echo "TB-SESSION the box's own units disabled and their timers stopped while the accounts are open"
 }
-session_unit_back() {  # the unit as it was before step 56, once the accounts are disabled and every CLOSED is written
-  local en act
+session_units_back() {  # each unit as it was before step 56: only after a clean close (the accounts disabled, every
+  # CLOSED written, no Caddy served, not a later boot of the session's own run: round 4's d)
+  local u en act
   [ -s "$SES/unit-before" ] || return 0
-  read -r en act < "$SES/unit-before"
-  case "$en" in
-    enabled) systemctl enable "$TB_UNIT" >> "$LOG" 2>&1 || return 1 ;;
-    enabled-runtime) systemctl enable --runtime "$TB_UNIT" >> "$LOG" 2>&1 || return 1 ;;
-  esac
-  if [ "$act" = active ] && [ "$(unit_active)" != active ]; then
-    systemctl start --no-block "$TB_UNIT" >> "$LOG" 2>&1 || return 1
-  fi
-  echo "TB-SESSION $TB_UNIT put back as it was before the session ($en, $act)" | tee -a "$LOG"
+  while read -r u en act; do
+    case "$en" in
+      enabled) systemctl enable "$u" >> "$LOG" 2>&1 || return 1 ;;
+      enabled-runtime) systemctl enable --runtime "$u" >> "$LOG" 2>&1 || return 1 ;;
+    esac
+    if [ "$act" = active ] && [ "$(unit_active "$u")" != active ]; then
+      systemctl start --no-block "$u" >> "$LOG" 2>&1 || return 1
+    fi
+  done < "$SES/unit-before"
+  echo "TB-SESSION the box's own units put back as they were before the session ($(paste -sd';' "$SES/unit-before"))" | tee -a "$LOG"
   rm -f "$SES/unit-before"
 }
-session_unit_quiet() {  # a close at a boot: the unit neither active nor activating (its `up` would bring Caddy back)
-  local s i
-  s=$(unit_active)
-  case "$s" in ""|inactive|failed|unknown) return 0 ;; esac
-  echo "TB-SESSION $TB_UNIT is $s at this boot: stopped first (its ExecStop stops the stack, Caddy with it)" | tee -a "$LOG"
-  systemctl stop "$TB_UNIT" >> "$LOG" 2>&1 || true
+session_units_quiet() {  # a close at a boot: none of lane D's units active or activating (an `up` would bring Caddy
+  # back): the timers first, then what they start, then trialbox.service (its ExecStop stops the stack, Caddy with it)
+  local u i busy
+  for u in trialbox-ops.timer trialbox-watchdog.timer $SES_UNITS_RUN $TB_UNIT; do
+    unit_idle "$u" && continue
+    echo "TB-SESSION $u is $(unit_active "$u") at this boot: stopped first" | tee -a "$LOG"
+    systemctl stop "$u" >> "$LOG" 2>&1 || true
+  done
   for i in $(seq 1 60); do   # systemctl stop waits for the job; this is the check of it, 5 "minutes" at most
-    case "$(unit_active)" in ""|inactive|failed|unknown) return 0 ;; esac
+    busy=""
+    for u in trialbox-ops.timer trialbox-watchdog.timer $SES_UNITS_RUN $TB_UNIT; do
+      unit_idle "$u" || busy="$busy $u=$(unit_active "$u")"
+    done
+    [ -n "$busy" ] || return 0
     sleep "$(awk -v m="$MIN_S" 'BEGIN { print m / 12 }')"
   done
-  echo "TB-SESSION $TB_UNIT is still $(unit_active) after its stop" | tee -a "$LOG"; return 1
+  echo "TB-SESSION the box's own units are not all stopped:$busy" | tee -a "$LOG"; SES_BUSY="$busy"; return 1
 }
-d_door_open() { d_caddy_running || [ -n "$(d_port443)" ]; }   # the box's Caddy runs, or anything listens on tcp:443
-SES_SERVED=""
+SES_SERVED=""; SES_HOLD=""; SES_BUSY=""; SES_DOOR=""; SES_OPENED_HERE=""
+# a later boot of the run that opened the session on this disk (not the boot whose 56 opened it): round 4's d
+session_own_later_boot() { [ -z "$SES_OPENED_HERE" ] && grep -qxF "$RUN_ID" "$SES/opened" 2>/dev/null; }
 session_close() {  # $1 why [$2 dark]: the accounts disabled, the box's environment as it was; 1 when the console cannot be asked
   local names="" before url restored=""
   rm -f "${SES:?}/people.tsv" "$SES/links.txt"   # the review's finding 10: no code left on the kept disk
-  session_open_left || return 0
+  # nothing to do once the accounts are closed and the units may not be put back yet (round 4's d)
+  session_accounts_left || { [ -s "$SES/unit-before" ] && [ -z "$SES_SERVED" ] && ! session_own_later_boot; } || return 0
   if [ -s "$SES/accounts" ]; then
     names=$(paste -sd' ' "$SES/accounts")
     # round 3's finding 1: a close at a boot checks tcp:443 right before and right after the disable. The accounts are
     # disabled all the same (the sooner the better); a Caddy that served then stops the run (session_close_dark)
     if [ "${2:-}" = dark ] && d_door_open; then
       SES_SERVED="${SES_SERVED}before the disable; "
-      echo "TB-SESSION-SERVED: the box's Caddy runs or tcp:443 listens right before the accounts are disabled ($(d_port443 | head -n 1))" | tee -a "$LOG"
+      echo "TB-SESSION-SERVED: tcp:443 is $(door_state) right before the accounts are disabled (the box's Caddy runs, something listens, or ss gives no answer)" | tee -a "$LOG"
     fi
     if ! d_session_disable "$names" >> "$LOG" 2>&1; then
       echo "TB-SESSION-ACCOUNTS-OPEN: the session's accounts ($names) could not be disabled ($1): the next boot tries again" | tee -a "$LOG"
@@ -2680,7 +2740,7 @@ session_close() {  # $1 why [$2 dark]: the accounts disabled, the box's environm
     rm -f "$SES/accounts"
     if [ "${2:-}" = dark ] && d_door_open; then
       SES_SERVED="${SES_SERVED}after the disable; "
-      echo "TB-SESSION-SERVED: the box's Caddy runs or tcp:443 listens right after the accounts were disabled" | tee -a "$LOG"
+      echo "TB-SESSION-SERVED: tcp:443 is $(door_state) right after the accounts were disabled" | tee -a "$LOG"
     fi
   fi
   # the re-review's F: the box's settings put back first (its address, then its environment), then every service that
@@ -2705,8 +2765,16 @@ session_close() {  # $1 why [$2 dark]: the accounts disabled, the box's environm
   session_runs_closed "$1" || true   # the driver's proof that the accounts are closed (box-run.sh session_closed)
   # round 3's finding 1: the box's own unit as it was, only now (the accounts disabled, every CLOSED written); kept
   # disabled while a marker is not written (the next boot's close tries again)
-  if [ ! -s "$SES/unclosed" ]; then
-    session_unit_back || echo "TB-SESSION $TB_UNIT could not be put back ($(cat "$SES/unit-before" 2>/dev/null)): the next boot tries again" | tee -a "$LOG"
+  if [ -s "$SES/unit-before" ]; then
+    if [ -s "$SES/unclosed" ]; then
+      echo "TB-SESSION the box's own units are not put back (left as they are): a CLOSED marker is not written yet (the next boot's close tries again)" | tee -a "$LOG"
+    elif [ -n "$SES_SERVED" ]; then
+      echo "TB-SESSION the box's own units are not put back (left as they are): the box's Caddy served during this close (the next clean close puts them back)" | tee -a "$LOG"
+    elif session_own_later_boot; then
+      echo "TB-SESSION the box's own units are not put back (left as they are): this is a later boot of the session's own run (the next clean close puts them back)" | tee -a "$LOG"
+    else
+      session_units_back || echo "TB-SESSION the box's own units could not be put back ($(paste -sd';' "$SES/unit-before" 2>/dev/null)): the next boot tries again" | tee -a "$LOG"
+    fi
   fi
   [ ! -d "$REC" ] || session_rec "closed_at=$(date -u +%FT%TZ)" "closed_by=$1" "accounts_disabled=$names"
   echo "TB-SESSION-END boot=$SBOOT at=$(date -u +%FT%TZ) why=$1 (accounts disabled: ${names:-none}; the box in ${before:-its environment})"
@@ -2717,17 +2785,20 @@ session_close() {  # $1 why [$2 dark]: the accounts disabled, the box's environm
 d_caddy_running() { dc ps --format '{{.Service}} {{.State}}' 2>/dev/null | awk '$1 == "caddy" && $2 == "running" {f=1} END {exit !f}'; }
 session_close_dark() {  # $1 why
   echo "TB-SESSION $(date -u +%T): an earlier session's accounts are disabled first, the box's Caddy down" | tee -a "$LOG"
-  # round 3's finding 1: the box's own unit first (enabled again by hand, or a session cut before 56 disabled it): its
-  # `docker compose up` at this boot would bring Caddy back in the middle of the close
-  if ! session_unit_quiet; then
-    echo "TB-SESSION-ACCOUNTS-OPEN: $TB_UNIT cannot be stopped: the accounts are not opened to anyone by a close" | tee -a "$LOG"
-    return 1
-  fi
+  # round 3's finding 1, round 4's a and b: the box's own units first (enabled again by hand, a timer, a session cut
+  # before 56 disabled them): an `up` of theirs at this boot would bring Caddy back in the middle of the close. Caddy
+  # is stopped whatever they did, then tcp:443 decides: with Caddy possibly up, no close of any kind on this boot
+  local quiet=1
+  SES_BUSY=""; SES_DOOR=""
+  session_units_quiet || quiet=0
   dc stop caddy >> "$LOG" 2>&1 || true
-  if d_door_open; then
-    echo "TB-SESSION-ACCOUNTS-OPEN: the box's Caddy cannot be stopped (or tcp:443 still listens): the accounts are not opened to anyone by a close" | tee -a "$LOG"
+  SES_DOOR=$(door_state)
+  if [ "$SES_DOOR" != closed ]; then
+    SES_HOLD=1
+    echo "TB-SESSION-ACCOUNTS-OPEN: tcp:443 is $SES_DOOR after the box's Caddy was stopped (units not stopped:${SES_BUSY:- none}): no close runs while Caddy may serve" | tee -a "$LOG"
     return 1
   fi
+  [ "$quiet" = 1 ] || echo "TB-SESSION the box's own units are not all stopped (${SES_BUSY# }) but Caddy is down: the close goes on, tcp:443 checked right before and after the disable" | tee -a "$LOG"
   d_models_bind >> "$LOG" 2>&1 || true
   dc up -d --pull never --wait --wait-timeout 900 console >> "$LOG" 2>&1 \
     || echo "TB-SESSION the console did not come up healthy without Caddy (the close is tried all the same)" | tee -a "$LOG"
@@ -2745,10 +2816,17 @@ step_session_close() {
 # cannot be: nothing of this boot brings the stack (Caddy) up with them open.
 if session_open_left; then
   session_close_dark "the next boot (the session did not close itself)" || true
+  [ -z "${SES_HOLD:-}" ] \
+    || finish "TB-SESSION-ACCOUNTS-OPEN: a session's accounts are still open on this disk and tcp:443 is $SES_DOOR with the box's Caddy stopped: they were not closed on this boot (no close while Caddy may serve); this run does not go on" session-open
   ! session_accounts_left \
-    || finish "TB-SESSION-ACCOUNTS-OPEN: a session's accounts are still open on this disk and could not be closed with the box's Caddy down: this run does not go on (nothing was served)" session-open
+    || finish "TB-SESSION-ACCOUNTS-OPEN: a session's accounts are still open on this disk and could not be closed (the box's Caddy was down for the close): this run does not go on" session-open
   [ -z "$SES_SERVED" ] \
     || finish "TB-SESSION-SERVED: the box's Caddy served on tcp:443 during the close at this boot (${SES_SERVED% }): the accounts are disabled now; this run does not go on" session-served
+fi
+# round 4's g: an end found before the close (the run ended before, the cap, its preflight, sshd) comes now
+if [ "${#EARLY_END[@]}" -gt 0 ]; then
+  if [ "${EARLY_END[0]}" = ended ]; then early_ended "${EARLY_END[1]}"; fi
+  finish "${EARLY_END[@]}"
 fi
 # Round 3's finding 4: a later boot of a run that opened (or began to open) a session on this disk, with or without
 # tb-retry (a power cycle, a start by hand, a host restart): its accounts are closed above; it never runs 56 again

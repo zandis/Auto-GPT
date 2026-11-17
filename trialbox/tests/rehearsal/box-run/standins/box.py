@@ -116,20 +116,8 @@ def caddy_up(new: bool | None = None, why: str = "") -> bool:
         policy = (BOX / "restart-caddy").read_text().strip() if (BOX / "restart-caddy").exists() else "unless-stopped"
         st = {"up": st["up"] and policy != "no", "boot": boot}
         called(f"vm-boot {boot} caddy {'up' if st['up'] else 'down'}")
-        # round 3's finding 1: lane D's trialbox.service, enabled, runs `docker compose up` at every boot whatever the
-        # containers' restart policy: Caddy up at the boot, or (knob unit-late) its `up` still to come mid-close
-        u = unit_load()
-        u["active"], u["pending"] = "inactive", False
-        if u["enabled"] == "enabled":
-            if flag("unit-late"):
-                u["active"], u["pending"] = "activating", True
-                called(f"unit trialbox.service activating at boot {boot} (its compose up still to come)")
-            else:
-                u["active"] = "active"
-                if not st["up"]:
-                    st["up"] = True
-                    called(f"caddy up (trialbox.service compose up at boot {boot})")
-        jsave(BOX / "unit.json", u)
+        # round 3's finding 1, round 4's b: lane D's units at a boot, whatever the containers' restart policy
+        units_boot(st, boot)
     if new is not None and new != st["up"]:
         st["up"] = new
         called(f"caddy {'up' if new else 'down'} ({why})")
@@ -137,33 +125,81 @@ def caddy_up(new: bool | None = None, why: str = "") -> bool:
     return bool(st["up"])
 
 
-def unit_load() -> dict[str, Any]:
-    """Lane D's trialbox.service on the "VM" (deploy/install.sh installs and enables it when its egress check passes):
-    knob unit-enabled says the disk's install left it enabled; absent, the unit is not installed (the direct route)."""
-    default = {"enabled": "enabled" if flag("unit-enabled") else "not-found", "active": "inactive", "pending": False}
-    u: dict[str, Any] = jload(BOX / "unit.json", default)
+SVC, OPS, WD = "trialbox.service", "trialbox-ops.timer", "trialbox-watchdog.timer"
+RUNS = ("trialbox-ops.service", "trialbox-watchdog.service")
+
+
+def units_load() -> dict[str, dict[str, Any]]:
+    """Lane D's units on the "VM" (deploy/install.sh installs and enables them when its egress check passes). Knob
+    unit-enabled: trialbox.service installed and enabled; knob ops-timer: the Operations runner's and the watchdog's
+    timers (and the services they start) installed, the timers enabled. A unit not installed is "not-found" and has
+    no file in the "VM's" systemd folder ($BR_S/vm/systemd, the script's TB_BOXRUN_SYSTEMD_DIRS)."""
+    on = {SVC: flag("unit-enabled"), OPS: flag("ops-timer"), WD: flag("ops-timer"),
+          RUNS[0]: flag("ops-timer"), RUNS[1]: flag("ops-timer")}  # fmt: skip
+    default = {n: {"enabled": ("static" if n in RUNS else "enabled") if i else "not-found", "active": "inactive",
+                   "pending": False} for n, i in on.items()}  # fmt: skip
+    u: dict[str, dict[str, Any]] = jload(BOX / "units.json", default)
+    d = S / "vm" / "systemd"
+    d.mkdir(parents=True, exist_ok=True)
+    for n, x in u.items():
+        if x["enabled"] != "not-found" and not (d / n).exists():
+            (d / n).write_text("# lane D's unit (rehearsal stand-in)\n")
     return u
 
 
+def units_boot(st: dict[str, Any], boot: int) -> None:
+    """A boot of the "VM": trialbox.service, enabled, runs `docker compose up` (Caddy up; knob unit-late: its up still
+    to come, mid-close); an enabled timer starts (knob ops-late: an Operations request's `compose up -d` of every
+    service lands at the next compose up of this boot, Caddy included, unless the timer is stopped first)."""
+    u = units_load()
+    for x in u.values():
+        x["active"], x["pending"] = "inactive", False
+    if u[SVC]["enabled"] == "enabled":
+        if flag("unit-late"):
+            u[SVC]["active"], u[SVC]["pending"] = "activating", True
+            called(f"unit trialbox.service activating at boot {boot} (its compose up still to come)")
+        else:
+            u[SVC]["active"] = "active"
+            if not st["up"]:
+                st["up"] = True
+                called(f"caddy up (trialbox.service compose up at boot {boot})")
+    for t in (OPS, WD):
+        if u[t]["enabled"] == "enabled":
+            u[t]["active"] = "active"
+            if t == OPS and flag("ops-late") and boot > 1:
+                u[t]["pending"] = True
+                called(f"unit trialbox-ops.timer active at boot {boot} (an Operations request queued)")
+    jsave(BOX / "units.json", u)
+
+
 def unit_late_up(why: str) -> None:
-    """The unit's `docker compose up`, started at the boot, lands now (the race of round 3's finding 1)."""
+    """An `up` started at the boot lands now: trialbox.service's (round 3's finding 1), or the Operations runner's
+    update (round 4's b), while its timer still runs."""
     caddy_up()  # the boot's own state first
-    u = unit_load()
-    if u.get("pending"):
-        u["pending"], u["active"] = False, "active"
-        jsave(BOX / "unit.json", u)
-        caddy_up(True, f"trialbox.service compose up, late: {why}")
+    u = units_load()
+    for n, label in ((SVC, "trialbox.service compose up, late"), (OPS, "trialbox-ops: update_apply compose up -d")):
+        if u[n].get("pending"):
+            u[n]["pending"] = False
+            if n == SVC:
+                u[n]["active"] = "active"
+            jsave(BOX / "units.json", u)
+            caddy_up(True, f"{label}: {why}")
 
 
 def unit(argv: list[str]) -> int:
-    """systemctl <verb> [--no-block] trialbox.service, from the systemctl shim."""
+    """systemctl <verb> [--no-block] <one of lane D's units>, from the systemctl shim."""
     verb = next(a for a in argv if not a.startswith("-"))
+    name = next(a for a in argv[argv.index(verb) + 1 :] if not a.startswith("-"))
     caddy_up()  # a boot of the "VM" is seen first
-    u = unit_load()
-    called(f"systemctl {verb} trialbox.service")
+    allu = units_load()
+    u = allu.get(name) or {"enabled": "not-found", "active": "inactive", "pending": False}
+    called(f"systemctl {verb} {name}")
+    if verb in ("is-enabled", "is-active") and name == SVC and flag("unit-dbus-error"):
+        print("Failed to connect to bus: Connection timed out", file=sys.stderr)  # round 4's c: no answer
+        return 1
     if verb == "is-enabled":
         if u["enabled"] == "not-found":
-            print("Failed to get unit file state for trialbox.service: No such file or directory", file=sys.stderr)
+            print(f"Failed to get unit file state for {name}: No such file or directory", file=sys.stderr)
             return 1
         print(u["enabled"])
         return 0 if u["enabled"] == "enabled" else 1
@@ -171,7 +207,7 @@ def unit(argv: list[str]) -> int:
         print(u["active"])
         return 0 if u["active"] == "active" else 3
     if u["enabled"] == "not-found":
-        print("Failed: Unit file trialbox.service does not exist.", file=sys.stderr)
+        print(f"Failed: Unit file {name} does not exist.", file=sys.stderr)
         return 5
     if verb == "disable":
         if flag("unit-disable-fails"):
@@ -180,19 +216,25 @@ def unit(argv: list[str]) -> int:
         u["enabled"] = "disabled"
     elif verb == "enable":
         u["enabled"] = "enabled"
-    elif verb == "stop":  # the start job cancelled; ExecStop: `docker compose stop` (the stack, Caddy with it)
-        if u["active"] != "inactive" or u.get("pending"):
-            caddy_up(False, "trialbox.service stop: compose stop")
-        u["active"], u["pending"] = "inactive", False
+    elif verb == "stop":  # trialbox.service: the start job cancelled, ExecStop `docker compose stop` (Caddy with it)
+        if name == SVC and flag("unit-stop-hangs"):  # its stop job never ends (round 4's a): Caddy stays as it is
+            u["active"] = "deactivating"
+        else:
+            if name == SVC and (u["active"] != "inactive" or u.get("pending")):
+                caddy_up(False, "trialbox.service stop: compose stop")
+            u["active"], u["pending"] = "inactive", False
     elif verb == "start":
         u["active"], u["pending"] = "active", False
-        jsave(BOX / "unit.json", u)
-        caddy_up(True, "trialbox.service start: compose up")
+        allu[name] = u
+        jsave(BOX / "units.json", allu)
+        if name == SVC:
+            caddy_up(True, "trialbox.service start: compose up")
         return 0
     else:
-        print(f"box-run rehearsal systemctl: not rehearsed for trialbox.service: {verb}", file=sys.stderr)
+        print(f"box-run rehearsal systemctl: not rehearsed for {name}: {verb}", file=sys.stderr)
         return 1
-    jsave(BOX / "unit.json", u)
+    allu[name] = u
+    jsave(BOX / "units.json", allu)
     return 0
 
 
@@ -934,10 +976,12 @@ def main() -> int:
         return feed(a[1:])
     if a[:1] == ["interrupt"]:
         interrupt(a[1])
-        if flag("unit-reenabled"):  # someone enabled lane D's unit again by hand while the VM was off
-            u = unit_load()
-            u["enabled"] = "enabled"
-            jsave(BOX / "unit.json", u)
+        if flag("unit-reenabled"):  # someone enabled lane D's units again by hand while the VM was off
+            u = units_load()
+            for n in (SVC, OPS, WD):
+                if u[n]["enabled"] != "not-found":
+                    u[n]["enabled"] = "enabled"
+            jsave(BOX / "units.json", u)
             called("trialbox.service enabled again by hand")
         return 0
     if a[:1] == ["unit"]:
