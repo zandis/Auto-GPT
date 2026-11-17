@@ -101,7 +101,7 @@ COMPILE_BOUND_MIN_PROTOCOLS = 50
 # the parts of a set's score that acc-score's summary carries; protocols, pathology and unjudged_exclusions come
 # from H-3's scorer (#934) and are taken only when the score has them
 SCORE_SUMMARY_KEYS = ("pairs", "criteria", "compile_pairs", "chia", "compiled", "written_lines", "protocols",
-                      "pathology", "unjudged_exclusions")  # fmt: skip
+                      "pathology", "unjudged_exclusions", "answer_key")  # fmt: skip
 
 
 def compile_bound(name: str) -> bool:

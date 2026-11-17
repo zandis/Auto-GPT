@@ -47,6 +47,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
+from tools.public_accuracy import key as answer_keys
+
 #: the report's layout: 2 adds ``protocols``, ``pathology``, ``unjudged_exclusions`` and the denominators (card H-3);
 #: a report with no such field is layout 1. Keys are only ever added.
 SCHEMA_VERSION = 2
@@ -819,6 +821,7 @@ def score(built: Path, work: Path, key: bytes | None = None) -> dict[str, Any]:
         miss: dict[str, Any] = {"schema_version": SCHEMA_VERSION, "set": ids.get("set"),
                                 "not_scored_because": "no answers.json: the set did not run",
                                 "protocols": score_protocols(ids, {})}  # fmt: skip
+        miss["answer_key"] = answer_keys.describe(built)
         if ids.get("set") == "tcga":
             miss["pathology"] = score_pathology(ids, [], None, key)
         return miss
@@ -827,6 +830,7 @@ def score(built: Path, work: Path, key: bytes | None = None) -> dict[str, Any]:
         "schema_version": SCHEMA_VERSION,
         "set": ids.get("set"),
         "what": "joined by ids after the run; the gold was not in the box",
+        "answer_key": answer_keys.describe(built),  # D-1104: every score names the key it was scored on
     }
     out["protocols"] = score_protocols(ids, answers)
     if ids.get("set") == "tcga":
