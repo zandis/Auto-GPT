@@ -257,6 +257,17 @@ class LakeHttp:
         resp.raise_for_status()
         return bool(_key(resp, "released", (bool,)))
 
+    def memory_limit_bytes(self) -> int | None:
+        """NEW-B-58 (D-924): the lake service's memory limit (``GET /limits``); None when it cannot be told (an older
+        lake, an error): the caller then keeps to its smallest batches."""
+        try:
+            resp = self.client.get(f"{self.base}/limits")
+            resp.raise_for_status()
+            value = resp.json().get("memory_limit_bytes")
+        except Exception:
+            return None
+        return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
+
     def holds(self) -> dict[str, str]:
         resp = self.client.get(f"{self.base}/holds")
         resp.raise_for_status()
@@ -327,6 +338,12 @@ class LakeLocal:
 
     def snapshot(self) -> str | None:
         return self.lake.current()
+
+    def memory_limit_bytes(self) -> int | None:
+        """NEW-B-58 (D-924): the memory limit this process gives the lake (``lake.store.memory_limit``)."""
+        from lake.store import memory_limit_bytes
+
+        return memory_limit_bytes()
 
     def put_site(self, resources: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
         return self.lake.put_site(resources)

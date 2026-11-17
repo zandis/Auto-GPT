@@ -445,6 +445,11 @@ DECLARED: dict[str, Declared] = {
     # 10k lake at 1 GB (the smallest limit lake.store.memory_limit derives): 12,000 rows fit for GZQO and RA-BIO at 36,
     # 12 and 1 index dates, 24,000 failed (GZQO, 12 dates). A 500 MB lake sets it lower (RA-BIO fitted 2,000)
     "TB_CASCADE_S1_ROWS": Declared("int", "12000", "cascade: rows (patients x index dates) one S1 query may carry"),
+    # NEW-B-58 (D-924): within both, S1 is one query (the batches' fixed cost, 0.5 s a query, made perf-5k's S1
+    # 12.9 s against 5.0 s in one). Measured on the bench gate: 5,000 patients x 36 index dates in one query peaked at
+    # 1.9 GB (the baseline's own peak, before D-748); the memory floor is twice that. Outside either: D-748's batches
+    "TB_CASCADE_S1_WHOLE_ROWS": Declared("int", "180000", "cascade: S1 is one query at or below these rows (D-924)"),
+    "TB_CASCADE_S1_WHOLE_GB": Declared("int", "4", "cascade: ... and when the lake's memory limit is this many GB"),
     "TB_CLOCK_MAX_SKEW_S": Declared("float", "", "largest clock skew the audit accepts, seconds"),
     "TB_CLOUD_OPT_IN": Declared("bool", "", "gateway may use a cloud model (DEV only)"),
     "TB_COMPLETE_DIR": Declared("path", "", "complete-run tool: output folder"),
