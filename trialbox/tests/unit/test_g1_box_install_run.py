@@ -66,6 +66,12 @@ CASES = [
     "session-unit",
     "session-unit-race",
     "session-unit-fails",
+    # round 4: a, b, c, f, g (lane D's timers, a unit that gives no answer, ss, the same run booted again)
+    "session-unit-dbus",
+    "session-ops",
+    "session-quiet-fails",
+    "session-ss-fails",
+    "session-ended-again",
 ]
 
 pytestmark = pytest.mark.skipif(

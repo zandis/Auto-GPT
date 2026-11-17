@@ -274,13 +274,17 @@ reset_vm() {  # the VM as it is kept: spot, the usual startup script, the defaul
 }
 # ---------------------------------------------------------------- the session's door (D-1130), as demo-vm.sh `up`
 S_TAG=tb-session; S_ALLOW=tb-session-https; S_DENY=tb-session-deny   # session_vm.py TAG, ALLOW_RULE, DENY_RULE
+rule_not_found() {  # $1 the rule, $2 gcloud's error: it says THIS rule is not found (round 4's e: a wrong project's or
+  # another resource's "not found" is an error, never "the rule is gone")
+  grep -qE "/firewalls/$1' was not found" "$2"
+}
 rule_exists() {  # 0 the rule is there, 1 gcloud says it is not found, 2 it cannot be read (round 3's finding 2: an
   # error is never "not there"; each caller fails closed on 2). In a dry run nothing exists yet (the plan is printed)
   if [ "$DRY" = 1 ]; then echo "+ gcloud compute firewall-rules describe $1 --format=value(name)   # exists?"; return 1; fi
   local err rc=0; err="$(mktemp)"
   gc compute firewall-rules describe "$1" --format='value(name)' >/dev/null 2>"$err" || rc=$?
   if [ "$rc" = 0 ]; then rm -f "$err"; return 0; fi
-  if grep -qiE 'was not found|notFound|NOT_FOUND' "$err"; then rm -f "$err"; return 1; fi
+  if rule_not_found "$1" "$err"; then rm -f "$err"; return 1; fi
   echo "box-run: the firewall rule $1 cannot be read (not \"not found\": $(grep -v '^ *$' "$err" | head -n 1 | cut -c1-160))" >&2
   rm -f "$err"; return 2
 }
@@ -361,7 +365,7 @@ deny_run() {  # the run the session's deny was made for (its description: run=<i
   local err d rc=0; err="$(mktemp)"
   d="$(gc compute firewall-rules describe "$S_DENY" --format='value(description)' 2>"$err")" || rc=$?
   if [ "$rc" != 0 ]; then
-    if grep -qiE 'was not found|notFound|NOT_FOUND' "$err"; then rm -f "$err"; return 1; fi
+    if rule_not_found "$S_DENY" "$err"; then rm -f "$err"; return 1; fi
     echo "box-run: the firewall rule $S_DENY cannot be read: it and the tag $S_TAG are kept" >&2; rm -f "$err"; return 2
   fi
   rm -f "$err"

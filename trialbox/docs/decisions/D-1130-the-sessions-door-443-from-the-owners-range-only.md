@@ -70,7 +70,9 @@ only about the demo's tag. The GPU VM carries other tags, and a rule on one of t
    first, D-1132 item 7), while a new session launch is refused (exit 7). A launch refused after its door was made
    (exit 7) takes the door away again. A rule the driver cannot read is never taken for "not there" (round 3's
    finding 2): `rule_exists` tells gcloud's "not found" from any other error; on an error a start is refused (exit 7,
-   the VM left off) and a `--stop` keeps the deny and the tag.
+   the VM left off) and a `--stop` keeps the deny and the tag. Only a "not found" that names the rule itself
+   (`.../firewalls/<rule>' was not found`) counts as "not there": another resource's (a wrong project) is an error
+   (round 4's e).
 9. **Run ids.** A run id given to `--links`, `--session-status`, `--collect`, `--stop` or `--resume` must be of the
    VM's own form (letters, digits, `.`, `_`, `-`; no `..`), checked before any cloud call. `--links` and
    `--session-status` take `--session-allow` for the ranges when the run folder is not on this machine.
@@ -105,6 +107,16 @@ Its finding 1 (the box's own `trialbox.service` at a boot) and 4 (a later boot o
 - A start that goes around the driver (by hand, or after `reset_vm` put the plain `gpu-sim-startup.sh` back) runs no
   close: the session's accounts stay open on the disk. The kept deny-all bounds it: nothing from outside reaches the
   VM until a box run's boot closes them (D-1132 item 11).
+
+## Round 4 of the re-review (2026-11-17)
+
+Its e is item 8 above. Its a, b, c, d, f and g are the VM's (D-1132 items 7 and 9). Its note: `deploy/gcp/complete-run.sh`
+(lane G's complete-platform driver, TB-PLAN-04) starts the same GPU VM without this driver's look at an earlier
+session's allow, and its `complete-run-vm.sh` opens nginx on :443 and closes no session's accounts on the disk. This
+card does not change another lane's driver. Until it is guarded, the kept deny-all and tag of an unclosed session
+still bound such a start (nothing from outside reaches the VM); an allow left by a session nobody stopped would not
+be deleted by it. question: should lane G's `complete-run.sh` refuse a start while `tb-session-https` exists or the
+VM carries the `tb-session` tag, as `box-run.sh session_leftover` does?
 
 ## Held by
 

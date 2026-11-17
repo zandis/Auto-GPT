@@ -99,6 +99,22 @@
    it was only once the accounts are disabled and every `CLOSED` marker is written; until then it stays disabled and
    the next boot tries again.
 
+   **Round 4** of the re-review widened this:
+   - (b) The units kept off are `trialbox.service`, `trialbox-ops.timer` (the Operations runner: an update's
+     `compose up -d` of every service, Caddy included, from a minute after a boot) and `trialbox-watchdog.timer`.
+     Step 56 disables all three and stops the two timers and the services they start, each one's state kept; it
+     opens no account when one cannot be. The watchdog's maintenance flag is not used: it holds only while its
+     holder process lives.
+   - (c) An empty answer of `systemctl` for a unit whose file exists is "cannot be read", never "not installed".
+   - (a) A close at a boot stops the units, then Caddy, whatever the units did; then tcp:443 decides. While it is
+     not shown closed, no close of any kind runs on that boot, and the run stops (`TB-SESSION-ACCOUNTS-OPEN`, saying
+     what tcp:443 was).
+   - (f) `ss` giving no answer is "cannot be told", never "nothing listens" (tcp:443 and tcp:22).
+   - (d) The units are put back only after a clean close: not after a Caddy that served, not on a later boot of the
+     session's own run. Another run's later boot puts them back.
+   - (g) A boot that ends before the run's steps (the run ended before, the cap, its preflight, sshd) while session
+     accounts are open on the disk ends only after the close: a later boot of the same run closes them too.
+
    Every session run that booted on the disk is listed there too. Once no session account is open on the disk, each
    listed run gets its `CLOSED` marker, even one that never opened an account (a refusal, a stop before 56, a cut):
    the driver keeps the door's deny until it says "closed" (the re-review's C). Step 56 sets its own run's marker to
@@ -162,7 +178,11 @@ The rehearsal cases (in `tests/unit/test_g1_box_install_run.py`):
   stopped, 56 never run again, no link;
 - `session-unit`, `session-unit-race`, `session-unit-fails` (finding 1): `trialbox.service` enabled on the disk. A cut:
   its Caddy never serves the open accounts at the next boot, also when the unit was enabled again by hand and its
-  `up` lands mid-close. The unit is put back after `CLOSED`. A unit that cannot be disabled: no account, no link.
+  `up` lands mid-close. The unit is put back after `CLOSED`. A unit that cannot be disabled: no account, no link;
+- round 4: `session-ops` (the Operations timer enabled again, its update's `up` queued for the close),
+  `session-quiet-fails` (`trialbox.service` will not stop), `session-ss-fails` (no answer from `ss`: no close,
+  the run stops), `session-unit-dbus` (no answer from `systemctl`: no account), `session-ended-again` (the same
+  ended run booted again closes its accounts); `session-stop` puts the three units back after a clean close.
 
 Every session case checks its `CLOSED` marker; `session-cut` checks that the next boot disabled the accounts with
 Caddy down; `session` and `session-stop` that the console was recreated on the box's own address after the close.

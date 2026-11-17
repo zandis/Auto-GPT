@@ -60,6 +60,7 @@ case "$1 $2 $3" in
     python3 -c 'import json,sys; d=open(sys.argv[1]).read(); s=int(sys.argv[2]); c=d[s:]; print(json.dumps({"contents": c, "start": str(s), "next": str(s+len(c))}))' "$S/serial" "$start" ;;
   "compute firewall-rules describe")
     # round 3's finding 2: an error that is not "not found" (a knob per rule), as gcloud says each
+    if [ -f "$S/fw-other-project" ]; then echo "ERROR: (gcloud.compute.firewall-rules.describe) Could not fetch resource: - The resource 'projects/another-project' was not found" >&2; exit 1; fi
     if [ -f "$S/fw-error/$4" ]; then echo "ERROR: (gcloud.compute.firewall-rules.describe) Could not fetch resource: - Required 'compute.firewalls.get' permission" >&2; exit 1; fi
     [ -f "$S/fw/$4.json" ] || { echo "ERROR: (gcloud.compute.firewall-rules.describe) Could not fetch resource: - The resource 'projects/p/global/firewalls/$4' was not found" >&2; exit 1; }
     case "$fmt" in *description*) python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("description", ""))' "$S/fw/$4.json" ;;
@@ -732,3 +733,18 @@ def test_the_deny_stays_while_the_allow_cannot_be_deleted(tmp_path: Path) -> Non
     assert _run(tmp_path, "--stop", RUN).returncode == 0
     assert not _fw(tmp_path) & {"tb-session-https", "tb-session-deny"}
     assert "tb-session" not in (tmp_path / "state" / "tags").read_text().split()
+
+
+# ---------------------------------------------------------------- the re-review's round 4: e
+def test_a_not_found_of_another_resource_is_no_proof_the_rule_is_gone(tmp_path: Path) -> None:
+    """Round 4's e: "was not found" anywhere in gcloud's error (a wrong project) read as "the rule is gone"; only a
+    not-found naming the rule itself is."""
+    _old_door(tmp_path, closed=False)
+    _knob(tmp_path, "fw-other-project")
+    r = _launch(tmp_path, steps="dev")
+    assert r.returncode == 7, r.stdout + r.stderr
+    assert "cannot be read" in r.stderr and "instances start" not in _argv(tmp_path)
+    (tmp_path / "state" / "status").write_text("RUNNING\n")
+    s = _run(tmp_path, "--stop", RUN)
+    assert s.returncode == 0, s.stderr
+    assert "tb-session-deny" in _fw(tmp_path) and "tb-session" in (tmp_path / "state" / "tags").read_text().split()

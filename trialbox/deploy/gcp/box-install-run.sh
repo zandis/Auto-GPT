@@ -2701,18 +2701,20 @@ session_units_back() {  # each unit as it was before step 56: only after a clean
 }
 session_units_quiet() {  # a close at a boot: none of lane D's units active or activating (an `up` would bring Caddy
   # back): the timers first, then what they start, then trialbox.service (its ExecStop stops the stack, Caddy with it)
-  local u i busy
+  local u end busy
   for u in trialbox-ops.timer trialbox-watchdog.timer $SES_UNITS_RUN $TB_UNIT; do
     unit_idle "$u" && continue
     echo "TB-SESSION $u is $(unit_active "$u") at this boot: stopped first" | tee -a "$LOG"
     systemctl stop "$u" >> "$LOG" 2>&1 || true
   done
-  for i in $(seq 1 60); do   # systemctl stop waits for the job; this is the check of it, 5 "minutes" at most
+  end=$((SECONDS + 5 * MIN_S))   # systemctl stop waits for the job; this is the check of it, 5 "minutes" at most
+  while :; do
     busy=""
     for u in trialbox-ops.timer trialbox-watchdog.timer $SES_UNITS_RUN $TB_UNIT; do
       unit_idle "$u" || busy="$busy $u=$(unit_active "$u")"
     done
     [ -n "$busy" ] || return 0
+    [ "$SECONDS" -lt "$end" ] || break
     sleep "$(awk -v m="$MIN_S" 'BEGIN { print m / 12 }')"
   done
   echo "TB-SESSION the box's own units are not all stopped:$busy" | tee -a "$LOG"; SES_BUSY="$busy"; return 1

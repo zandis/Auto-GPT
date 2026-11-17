@@ -756,7 +756,13 @@ if case.startswith("session"):
     if case not in OPEN_LEFT:  # the re-review's C: every session run ends with its marker, accounts or none
         ok(closed_marker.exists() and closed_marker.read_text().startswith("closed "),
            "the run's CLOSED marker is written once no session account is open (an account opened or not)")  # fmt: skip
-CUT = ("session-cut", "session-unit", "session-unit-race", "session-ops", "session-quiet-fails")  # a power cut while the session is open
+CUT = (
+    "session-cut",
+    "session-unit",
+    "session-unit-race",
+    "session-ops",
+    "session-quiet-fails",
+)  # a power cut while the session is open
 if case in ("session", "session-stop", *CUT):
     first_people = next((i for i, c in enumerate(seq) if c.startswith("session-people")), -1)
     ok(0 <= seq.index("network.sh apply") < seq.index("network.sh status") < first_people,
@@ -839,13 +845,19 @@ if case in UNIT:
                   if units[n]["enabled"] != "not-found"]:  # fmt: skip
             dis = next((i for i, c in enumerate(seq) if c == f"systemctl disable {u}"), -1)
             ok(0 <= dis < first_people, f"step 56 disabled {u} before any account was opened")
-        for t in [n for n in ("trialbox-ops.timer", "trialbox-watchdog.timer") if units[n]["enabled"] != "not-found"]:
-            stop = next((i for i, c in enumerate(seq) if c == f"systemctl stop {t}"), -1)
-            ok(0 <= stop < first_people, f"step 56 stopped {t} before any account was opened")
-    if case in CUT:
+        for tm in [n for n in ("trialbox-ops.timer", "trialbox-watchdog.timer") if units[n]["enabled"] != "not-found"]:
+            stop = next((i for i, c in enumerate(seq) if c == f"systemctl stop {tm}"), -1)
+            ok(0 <= stop < first_people, f"step 56 stopped {tm} before any account was opened")
+    if case == "session-quiet-fails":  # the unit, enabled again by hand, brought Caddy up at the boot itself
+        cs = after.index("compose-stop caddy") if "compose-stop caddy" in after else len(after)
+        ok(cs < dis2 < len(after) and not any(c.startswith("caddy up") for c in after[cs:dis2])
+           and "session-disable-caddy down" in after and "session-disable-caddy up" not in seq,
+           "Caddy, up from the boot, was stopped before the close and stayed down through the disable")  # fmt: skip
+    elif case in CUT:
         ok(dis2 < len(after) and not any(c.startswith("caddy up") for c in after[:dis2])
            and "session-disable-caddy down" in after and "session-disable-caddy up" not in seq,
            "at the next boot the box's Caddy never served while the accounts were open, units or none")  # fmt: skip
+    if case in CUT:
         by_hand = "trialbox.service enabled again by hand" in seq
         ok(not any(c.startswith("systemctl enable") for c in after) and "are not put back" in out[1]
            and (by_hand or all(x["enabled"] in ("disabled", "not-found", "static") for x in units.values())),
