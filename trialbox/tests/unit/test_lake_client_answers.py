@@ -74,6 +74,13 @@ READERS: dict[str, tuple[str, Callable[[LakeHttp], Any], Any, Any]] = {
         {"state": "running", "job": "j"},
     ),
     "rebuild_state": ("/rebuild/", lambda c: c.rebuild_state(NIGHT), {"state": "done"}, {"state": "done"}),
+    # NEW-B-58 (D-924): the lake's memory limit, which sizes S1
+    "memory_limit_bytes": (
+        "/limits",
+        lambda c: c.memory_limit_bytes(),
+        {"memory_limit": "6GB", "memory_limit_bytes": 6_000_000_000},
+        6_000_000_000,
+    ),
 }
 
 WRONG: list[Any] = [{}, {"other": 1}, [], ["x"], "<html>a proxy's page</html>", "", "null", "7"]
@@ -115,6 +122,9 @@ def test_a_200_answer_without_the_readers_key_is_an_error_of_the_lake(reader: st
         ("site_in_sync", {"generation": None, "site_in_sync": "yes"}),
         ("put_site", {"counts": [3]}),
         ("chunks_search", {"hits": {"did": "d1"}}),
+        ("memory_limit_bytes", {"memory_limit_bytes": "6GB"}),
+        ("memory_limit_bytes", {"memory_limit_bytes": True}),
+        ("memory_limit_bytes", {"memory_limit_bytes": 0}),
     ],
 )
 def test_a_key_of_the_wrong_kind_is_an_error_too(reader: str, answer: Any) -> None:
