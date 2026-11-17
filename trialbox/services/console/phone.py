@@ -1,21 +1,23 @@
-"""J-3 (D-1222; the journey review's E-1, E-2/E-M2, E-4, E-M1, E-M4, E-M5): the console on a phone.
+"""J-3 (D-1222; the journey review's E-1, E-M1, E-M2, E-4, E-M4, E-M5): the console on a phone.
 
-* **The flag.** ``layout.phone_first`` (``tb_common.flags``, audited, off by default) is read for each page request by a
-  small middleware and kept in ``request.state.phone_first``. ``base.html`` then gives ``<body>`` the class
-  ``phone-first``, and the stylesheet's phone-first rules are scoped under it; the week page, the patient sheet, the
-  participant's page and the menu's "More" read the same value where the order of the page changes. With the flag
-  off every page is as before. It is switched on ``/ops/flags`` by the administrator, with a reason. The read runs in a
-  worker thread (never on the event loop), only for pages (not ``/static``, ``/api/``, ``/healthz``, ``/metrics``, the
-  manifest, the icons or ``/link``), and its answer, a failed read included (then "off"), is kept 5 seconds: a flag
-  store that is down costs at most one attempt per 5 seconds.
-* **A link from another site** (a mail, a chat). The session cookie is ``SameSite=Strict`` and stays so: a navigation
-  from another site arrives without it. Such a navigation (``Sec-Fetch-Site: cross-site``, ``Sec-Fetch-Mode:
-  navigate``) to a console page is answered with the console's own small page ``/link``: "You followed a link to
-  <page>. [Continue]". Continue is a tap on this site, so the cookie goes with it: with a live session the page opens,
-  without one the sign-in form leads back to it. Continue goes only to an HTML page of this console; a file or an
-  action (a name with a dot such as ``.xlsx`` or ``.csv``, an export, a print, a job's files, ``/cmd``, ``/api/``, and
-  whatever ``next_page.safe_next`` refuses) goes to the home page instead. So a page on another site can open the
-  console, but never download, export, search or act in the person's name, with or without a live session.
+* **The flag** ``layout.phone_first`` (``tb_common.flags``, audited, off by default) changes what a phone shows
+  first. A small middleware puts its value in ``request.state.phone_first`` for each page; ``base.html`` then gives
+  ``<body>`` the class ``phone-first``, and the stylesheet's phone-first rules are scoped under it; the week page, the
+  patient sheet, the participant's page and the menu's "More" read the same value where the order of the page
+  changes. Off, every page is as before. It is switched on ``/ops/flags`` by the administrator, with a reason. A page
+  never waits for the flag store: it gets the value last read (off before the first read, and off after a failed
+  one), and when that value is older than 5 seconds one background thread reads it again; a store that hangs or
+  refuses delays no page. Not read for ``/static``, ``/api/``, ``/healthz``, ``/metrics``, the manifest, the icons
+  or ``/link``.
+* **A link from another site** (a mail, a chat), with or without the flag. The session cookie is ``SameSite=Strict``
+  and stays so: a navigation from another site arrives without it. Such a navigation (``Sec-Fetch-Site:
+  cross-site``, ``Sec-Fetch-Mode: navigate``, a GET) to a console page is answered with the console's own page
+  ``/link``. Continue there is a tap on this site, so the cookie goes with it. It opens only one of the pages of
+  :data:`ALLOWED` (the pages the box's own mails link to, the home page, the week page, a participant's page, the SAE
+  register, the account and Help), with only the query parameters that page names, each value checked; the address is
+  rebuilt from the page's pattern, never echoed. Anything else, including a disguised or encoded address, opens the
+  home page. The page names the page from the catalogue, never by the address it was given. The sign-in and its
+  steps, ``/api/``, ``/static``, the manifest and the icons arrive as before.
 * **Add to home screen.** ``/manifest.webmanifest`` (name, colours, start page, two icons) and ``/favicon.ico``, served
   by the box itself from ``static/icons``; no offline mode and no service worker. Both are public, like ``/static``:
   the browser fetches a manifest without the session cookie. They are plain routes, not pages: no session, no audit.
@@ -24,16 +26,19 @@ Not here: the form guard and the kept long forms (``static/console.js``, ``data_
 
 from __future__ import annotations
 
-import asyncio
 import json
+import re
+import threading
 import time
+import unicodedata
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import parse_qsl, quote, unquote, urlencode
 
 import jinja2
 from fastapi import FastAPI
-from starlette.concurrency import run_in_threadpool
+from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -41,7 +46,7 @@ from tb_common.flags import Flags
 
 from console import i18n_phone
 from console.i18n import CATALOGUES, pick_language, translate
-from console.next_page import safe_next
+from console.studies import WORKLISTS
 
 FLAG = "layout.phone_first"
 HERE = Path(__file__).resolve().parent
@@ -50,22 +55,23 @@ THEME = "#253a5e"  # the banner's colour (console.css --banner)
 BACKGROUND = "#f6f7f9"  # the page's colour (console.css --bg)
 #: the browser may keep these a day; a new icon ships with a new box version anyway
 CACHE = "public, max-age=86400"
-#: how long a read of the flag, a failed one included, is kept (as tb_common.flags.CACHE_SECONDS)
+#: how old the value a page gets may be before one background read refreshes it (as tb_common.flags.CACHE_SECONDS)
 FLAG_SECONDS = 5.0
 #: paths that are not pages: the flag is not read for them, and a link from another site to them is not answered
 NOT_PAGES = ("/static/", "/api/", "/healthz", "/metrics", "/manifest.webmanifest", "/favicon.ico", "/link")
 #: paths a link from another site reaches as before: the sign-in and its steps, the one-time sign-in link (its code
 #: rides after "#"), the identity provider's return
 ARRIVALS = ("/login", "/logout", "/enrol", "/auth/")
-#: path segments of a file, an export or an action: Continue never goes there (a last segment with a dot is a file)
-NOT_CONTINUED = ("cmd", "export", "files", "view", "print", "download", "api")
 
 for _lang, _cat in (("en", i18n_phone.EN), ("ja", i18n_phone.JA), ("zh-TW", i18n_phone.ZH)):
     CATALOGUES[_lang].update(_cat)
 
+
+# ------------------------------------------------------------------------------------------------- the flag's read
 _clock = time.monotonic
 _kept: tuple[bool, float] | None = None
-_lock = asyncio.Lock()
+_guard = threading.Lock()  # guards _kept and _reading only, never held during a read
+_reading = False
 
 
 def _read() -> bool:
@@ -75,63 +81,113 @@ def _read() -> bool:
 
 def clear_cache() -> None:
     global _kept
-    _kept = None
+    with _guard:
+        _kept = None
 
 
-def _fresh() -> bool | None:
-    if _kept is not None and _clock() - _kept[1] < FLAG_SECONDS:
-        return _kept[0]
-    return None
-
-
-def _keep(read: Any) -> bool:
-    global _kept
+def _refresh() -> None:
+    global _kept, _reading
     try:
-        value = bool(read())
-    except Exception:  # the store is down, not installed, no URL: off, and not asked again for 5 s
+        value = bool(_read())
+    except Exception:  # the store is down, not installed, no URL: off until the next read
         value = False
-    _kept = (value, _clock())
-    return value
+    with _guard:
+        _kept = (value, _clock())
+        _reading = False
+
+
+def flag_now() -> bool:
+    """The value last read, at once (off before the first read); a value older than 5 s starts one background read."""
+    global _reading
+    with _guard:
+        kept = _kept
+        stale = kept is None or _clock() - kept[1] >= FLAG_SECONDS
+        start = stale and not _reading
+        if start:
+            _reading = True
+    if start:
+        threading.Thread(target=_refresh, name="phone-first-flag", daemon=True).start()
+    return kept[0] if kept is not None else False
 
 
 def flag_on() -> bool:
-    """The flag says ``on``. Off when it is unset, unreadable or there is no flag store (never raises)."""
-    got = _fresh()
-    return got if got is not None else _keep(_read)
+    """The flag read now, waiting for the store (a command line, a test); never raises."""
+    global _reading
+    with _guard:
+        _reading = True
+    _refresh()
+    return flag_now()
 
 
-async def flag_on_async() -> bool:
-    got = _fresh()
-    if got is not None:
-        return got
-    async with _lock:  # one read at a time; the others take its answer
-        got = _fresh()
-        if got is not None:
-            return got
-        value = await run_in_threadpool(_read_safe)
-        return _keep(lambda: value)
+# ------------------------------------------------------------------------------------------------- /link
+_RS = r"(?P<rs>[A-Z0-9][A-Z0-9_-]{0,15})"  # console.app._RULESET_ID
+_RECORD = r"(?P<record>[A-Za-z0-9][A-Za-z0-9_-]{0,63})"
 
 
-def _read_safe() -> bool:
-    try:
-        return _read()
-    except Exception:
+@dataclass(frozen=True)
+class Allowed:
+    """A page Continue may open: its path pattern, its name in the catalogue, the query parameters it keeps (name ->
+    pattern of the value)."""
+
+    name: str
+    path: str
+    keeps: tuple[tuple[str, str], ...] = ()
+
+
+#: the pages a link from another site may open after the tap on /link: those the box's own mails link to
+#: (``console.notify``: a study's week list, its participants, the home page, the mail settings) and the person's
+#: everyday pages; nothing that answers a file or acts
+ALLOWED: tuple[Allowed, ...] = (
+    Allowed("link.page.home", r"/"),
+    Allowed("link.page.home", r"/home"),
+    Allowed("link.page.week_pick", r"/week"),
+    Allowed("link.page.week", rf"/studies/{_RS}/week", (("list", "|".join(WORKLISTS)), ("pid", r"[0-9a-f]{32}"))),
+    Allowed("link.page.subjects", rf"/studies/{_RS}/subjects"),
+    Allowed("link.page.subject", rf"/studies/{_RS}/subjects/{_RECORD}"),
+    Allowed("link.page.sae", r"/sae"),
+    Allowed("link.page.notices", r"/settings/notices"),
+    Allowed("link.page.account", r"/account"),
+    Allowed("link.page.help", r"/help"),
+)
+_HOME = ("/home", ALLOWED[1], {})
+
+
+def _clean(text: str) -> bool:
+    """No control, format or separator character, no space, no DEL, no backslash, no percent sign, no "//"."""
+    if "//" in text or "\\" in text or "%" in text:
         return False
+    return all(ord(c) > 0x20 and ord(c) != 0x7F and unicodedata.category(c) not in ("Cc", "Cf", "Zl", "Zp", "Zs")
+               for c in text)  # fmt: skip
+
+
+def match(raw: str) -> tuple[str, Allowed, dict[str, str]]:
+    """``(address, page, its values)`` Continue opens for ``raw``: one of :data:`ALLOWED`, rebuilt from its pattern;
+    the home page for anything else."""
+    text = unquote(raw or "")  # once: an address that needs a second decoding is not one of these
+    if not text.startswith("/") or not _clean(text):
+        return _HOME
+    path, _, query = text.partition("?")
+    for page in ALLOWED:
+        m = re.fullmatch(page.path, path)
+        if m is None:
+            continue
+        values = {k: v for k, v in m.groupdict().items() if v is not None}
+        kept = []
+        for name, pattern in page.keeps:
+            got = [v for k, v in parse_qsl(query, keep_blank_values=False) if k == name]
+            if got and re.fullmatch(pattern, got[0]):
+                kept.append((name, got[0]))
+        address = "/".join(quote(seg, safe="") for seg in path.split("/"))
+        return address + (f"?{urlencode(kept)}" if kept else ""), page, values
+    return _HOME
+
+
+def continue_to(raw: str) -> str:
+    return match(raw)[0]
 
 
 def page_path(path: str) -> bool:
     return not any(path == p.rstrip("/") or path.startswith(p) for p in NOT_PAGES)
-
-
-def continue_to(raw: str) -> str:
-    """Where Continue on ``/link`` goes: ``raw`` when it is an HTML page of this console, else the home page."""
-    page = safe_next(raw)
-    if not page:
-        return "/home"
-    segments = [s for s in urlsplit(page).path.lower().split("/") if s]
-    if not segments or "." in segments[-1] or any(s in NOT_CONTINUED for s in segments):
-        return "/home"
-    return page
 
 
 def cross_site_page(scope: Scope) -> bool:
@@ -146,7 +202,8 @@ def cross_site_page(scope: Scope) -> bool:
 
 
 class PhoneFirst:
-    """For each page request: a link from another site goes to ``/link``; else the flag into the request's state."""
+    """For each page request: a link from another site goes to ``/link``; else the flag into the request's state.
+    Installed inside the console's headers middleware, so its answers carry the security headers."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -154,12 +211,15 @@ class PhoneFirst:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http":
             if cross_site_page(scope):
-                query = scope.get("query_string", b"").decode("latin-1")
-                asked = str(scope.get("path", "")) + (f"?{query}" if query else "")
-                await RedirectResponse("/link?to=" + quote(asked, safe=""), status_code=303)(scope, receive, send)
+                raw = scope.get("raw_path") or str(scope.get("path", "")).encode("utf-8")
+                query = scope.get("query_string", b"")
+                asked = raw.decode("latin-1") + (f"?{query.decode('latin-1')}" if query else "")
+                resp = RedirectResponse("/link?to=" + quote(asked, safe=""), status_code=303)
+                resp.headers["Cache-Control"] = "no-store"
+                await resp(scope, receive, send)
                 return
             if page_path(str(scope.get("path", ""))):
-                scope.setdefault("state", {})["phone_first"] = await flag_on_async()
+                scope.setdefault("state", {})["phone_first"] = flag_now()
         await self.app(scope, receive, send)
 
 
@@ -190,20 +250,23 @@ _pages = jinja2.Environment(loader=jinja2.FileSystemLoader(str(HERE / "templates
 
 
 def link_page(request: Request) -> Response:
-    """``/link``: the console's own page for a link that came from another site (no session is read here)."""
+    """``/link``: the console's own page for a link that came from another site (no session is read here). It names
+    the page from the catalogue; a link to anything else gets a fixed sentence and the home page."""
     lang = pick_language(request.headers.get("accept-language"))
     asked = request.query_params.get("to", "")
-    target = continue_to(asked)
-    shown = urlsplit(safe_next(asked)).path or "/"
+    target, page, values = match(asked)
+    known = (target, page, values) != _HOME or re.fullmatch(r"/(home)?", unquote(asked or "")) is not None
     html = _pages.get_template("link_continue.html").render(
-        lang=lang, t=lambda key, **v: translate(lang, key, **v), target=target, shown=shown,
-        is_file=target != safe_next(asked),
+        lang=lang, t=lambda key, **v: translate(lang, key, **v), target=target, known=known,
+        page_name=translate(lang, page.name, **values),
     )  # fmt: skip
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
 def register(app: FastAPI) -> None:
-    app.add_middleware(PhoneFirst)
+    # appended, not inserted at the front as add_middleware does: inside the console's headers middleware, so the
+    # 303 to /link and the /link page carry CSP, X-Frame-Options and Referrer-Policy (as demo_guard does)
+    app.user_middleware.append(Middleware(PhoneFirst))
 
     async def web_manifest(_request: Request) -> Response:
         body = json.dumps(manifest(), ensure_ascii=False, separators=(",", ":"))

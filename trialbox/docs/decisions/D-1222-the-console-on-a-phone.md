@@ -5,18 +5,20 @@
   fix round of its independent review · **Date:** 2026-11-17
 - **Decision:**
   - **One flag for what a phone shows first.** `layout.phone_first` (`tb_common.flags.DECLARED`, values off/on,
-    default off, no seed variable: changed only on `/ops/flags` with a reason, audited as every flag) is read for each
-    page request by a small middleware (`console.phone`) into `request.state.phone_first`: in a worker thread, never on
-    the event loop; not for `/static`, `/api/`, `/healthz`, `/metrics`, the manifest, the icons or `/link`; its answer,
-    a failed read included (then "off"), is kept 5 seconds, so a flag store that is down costs one attempt per 5
-    seconds and every page still renders. `base.html` gives `<body>` the class `phone-first`; every new rule of the
+    default off, no seed variable: changed only on `/ops/flags` with a reason, audited as every flag) reaches each page
+    through a small middleware (`console.phone`) as `request.state.phone_first`. A page never waits for the flag
+    store: it gets the value last read (off before the first read and after a failed one); when that value is older
+    than 5 seconds, one background thread reads it again. A store that refuses or hangs delays no page (tested with a
+    read that blocks 5 s and 20 pages at once). Not read for `/static`, `/api/`, `/healthz`, `/metrics`, the
+    manifest, the icons or `/link`. After a change on `/ops/flags`, pages follow within about 5 seconds. `base.html` gives `<body>` the class `phone-first`; every new rule of the
     stylesheet is scoped under it. Behind it, at every width unless said:
     - (E-1) On the week page the patient list comes right under the title; the serious-AE banners stay above it (a
       safety alert is never folded away). The procedure, the delegation-log warning, the team's links and a waiting
       criteria approval are written after the list, in one "Study" fold (a checkbox and its label, no script), so the
       order of the page is the order of the screen. The fold's label says, in a whole sentence, how many of its lines
-      need the person (a waiting approval, the delegation-log check), marked as a warning. On a desktop too, the fold
-      is below the list.
+      need the person (a waiting approval, the delegation-log check, a set-up not finished),
+      marked as a warning. On a desktop too the fold, with the set-up steps and the delegation warning, is below the
+      list: intended, so one page has one order at every width, and the count says when something there waits.
     - (E-4) Under 640 px the worklist's rows are cards (patient and criteria met, then the visit, the status and what
       is still needed, each labelled; the whole card opens the patient); so are the participant's visits and step
       trail (`life_subject.html`: at 390 px the visit window was cut off and the step squeezed to one character a
@@ -32,21 +34,29 @@
       patient page and the home page was compared byte for byte with master's templates on the same data (identical,
       apart from the head's new links and the inline script), and screenshots of master and of the flag-off branch at
       390 and 1280 px in three languages are pixel-identical but for a blinking caret.
-  - **A link from another site (E-M2), without the flag.** The session cookie stays `SameSite=Strict`, so a navigation
-    from another site (a mail, a chat) arrives without it. Such a navigation (`Sec-Fetch-Site: cross-site`,
-    `Sec-Fetch-Mode: navigate`, a GET) to any page of the console is answered with the console's own page `/link`,
-    in the page language: "You followed a link from another site to this page of TrialBox: <path>", why the tap is
-    asked, and Continue. **What such a link can do:** open the console's `/link` page, which reads no session and
-    shows nothing of the study; after the person's tap on Continue (a tap on this site, so the cookie goes with it),
-    open that HTML page of the console: with a live session at once, without one through the sign-in form, which
-    leads back to it. **What it cannot do:** download a file or start an action, with or without a live session.
-    Continue goes only to an HTML page path (`console.phone.continue_to`): a path `next_page.safe_next` refuses, a
-    last segment with a dot (`.xlsx`, `.csv`, `.zip`, `.pdf`, `.xml`, `.json`), an export, a print, a job's files or
-    view, `/cmd` and `/api/` go to the home page instead, and the page says so. The sign-in and its steps (`/login`,
-    `/logout`, `/enrol` with its code after "#", the identity provider's `/auth/` return), `/api/` (the EDC's sign-in
-    included), `/static`, the manifest and the icons arrive as before. A form post from another site is not a
-    navigation of this kind and is refused as before (CSRF, Strict cookie). The sign-in page itself is unchanged.
-    A browser that sends no `Sec-Fetch-Site` keeps today's behaviour (the sign-in form for a link from elsewhere).
+  - **A link from another site (E-M2), with or without the flag** (the interception does not depend on it). The
+    session cookie stays `SameSite=Strict`, so a navigation from another site (a mail, a chat) arrives without it.
+    Such a navigation (`Sec-Fetch-Site: cross-site`, `Sec-Fetch-Mode: navigate`, a GET) to any page of the console
+    is answered with a 303, carrying the console's security headers and `Cache-Control: no-store`, to the console's
+    own page `/link`, in the page language. That page reads no session and shows nothing of the study; it names the
+    asked page from the catalogue ("This week's patients · GZQO"), never by the address it was given, and offers
+    Continue. **What Continue can do:** open one page of a short allow-list (`console.phone.ALLOWED`): the pages the
+    box's own mails link to (a study's week list, its participants, the home page, the mail settings) and the home
+    page, the week page, a participant's page, the SAE register, the account and Help. Each keeps only the query
+    parameters it names, each value checked (the week list's `list` from the fixed set, `pid` as 32 hex
+    characters); every other parameter and any fragment are dropped, and the address is rebuilt from the page's
+    pattern, never echoed. The link's address is decoded once; one with a control, format, separator or space
+    character, a backslash, a percent sign left after that decoding, or `//` matches nothing. Continue is a tap on
+    this site, so the cookie goes with it: with a live session the page opens at once, and opening a patient-level
+    page (a participant's page, the week list with its sheet) then writes that page's ordinary view event in the
+    person's name, after their tap on the console's own page; without a session the sign-in form leads back to it.
+    **What it cannot do:** anything else. Every other page, a file, an export, a print, a job's files, the assistant
+    (`/ask`), `/cmd`, `/api/`, and a disguised or encoded address get a fixed sentence and Continue to the home page.
+    A test walks the app's route table: any GET route not on the list maps to the home page, so a new route is safe
+    by default. The sign-in and its steps (`/login`, `/logout`, `/enrol` with its code after "#", the identity
+    provider's `/auth/` return), `/api/` (the EDC's sign-in included), `/static`, the manifest and the icons arrive as
+    before; a form post from another site is refused as before. A site that signs people in by a header (SSO) gets
+    this one more tap too. A browser that sends no `Sec-Fetch-Site` keeps master's behaviour.
   - **Add to home screen (E-M1), without the flag.** `/manifest.webmanifest` (name, `lang` and `dir`, start page `/`,
     standalone, theme colour `#253a5e`, a 192 and a 512 px icon, the 512 also maskable) and `/favicon.ico`, served by
     the box from `static/icons` (an SVG drawn for the card and PNGs drawn from the same geometry); both are public, like

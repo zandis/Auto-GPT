@@ -21,8 +21,11 @@ import json
 import re
 import shutil
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import pytest
 from console import i18n_flags, i18n_phone, phone
@@ -55,6 +58,7 @@ def _flag(b: dict[str, Any], value: str) -> None:
     fl.Flags(audit=b["audit"]).set(phone.FLAG, value, actor="console:admin", reason="J-3 test (D-1222)")
     fl.clear_cache()
     phone.clear_cache()
+    phone.flag_on()  # read now: a page gets the value last read
 
 
 def _pi(b: dict[str, Any]) -> TestClient:
@@ -202,6 +206,7 @@ def test_with_the_flag_on_the_study_fold_comes_after_the_list_and_counts_what_ne
         bits = week[week.index('data-testid="study-bits"') :]
         assert 'data-testid="team-nav"' in bits and label < week.index('data-testid="study-bits"')
         n = bits.count('data-testid="approval-waiting"') + bits.count('data-testid="team-due"')
+        n += 1 if 'data-testid="steps"' in bits and 'data-testid="steps-fold"' not in bits else 0  # set-up not done
         text = week[label:].split(">", 1)[1].split("</label>", 1)[0]
         if n:
             assert (
@@ -211,7 +216,7 @@ def test_with_the_flag_on_the_study_fold_comes_after_the_list_and_counts_what_ne
         else:
             assert text == html.escape(CATALOGUES[lang]["pf.study"])
     tpl = (TEMPLATES / "week.html").read_text(encoding="utf-8")
-    assert "{% set attn = (approvals or [])|length + (1 if team_due else 0) %}" in tpl
+    assert "{% set attn = (approvals or [])|length + (1 if team_due else 0) + (1 if step < 2 else 0) %}" in tpl
     for lang in LANGS:  # a whole sentence with its number, in each language
         assert "{n}" in CATALOGUES[lang]["pf.study.attn"]
 
@@ -229,49 +234,119 @@ def test_the_menu_groups_open_in_every_browser() -> None:
 
 # ------------------------------------------------------------------------------------------- E-M2 a link from elsewhere
 CROSS = {"sec-fetch-site": "cross-site", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document"}
+WEEK = "/studies/GZQO/week"
 
 
 @pytest.mark.parametrize(
     ("asked", "goes"),
     [
-        ("/studies/GZQO/week?list=all", "/studies/GZQO/week?list=all"),
+        # the pages the box's own mails link to, and the everyday pages: rebuilt, with only their own parameters
+        ("/studies/GZQO/week?list=clinic", "/studies/GZQO/week?list=clinic"),
+        (f"/studies/GZQO/week?list=all&pid={A}&page=2&code=x", f"/studies/GZQO/week?list=all&pid={A}"),
+        ("/studies/GZQO/week?list=evil", WEEK),
+        ("/studies/GZQO/week?pid=../../x", WEEK),
+        ("/studies/GZQO/subjects", "/studies/GZQO/subjects"),
         ("/studies/GZQO/subjects/GZQO-0001", "/studies/GZQO/subjects/GZQO-0001"),
-        ("/studies/GZQO/screening-log.xlsx", "/home"),
-        ("/pilot/registry/GZQO/export.xlsx", "/home"),
-        ("/audit/patients/" + A + "/report.csv", "/home"),
-        ("/studies/GZQO/export.csv", "/home"),
-        ("/pilot/jobs/01J0/files/list.json", "/home"),
-        ("/pilot/jobs/01J0/sponsor-pack.zip", "/home"),
-        ("/studies/GZQO/referrals/1/print", "/home"),
-        ("/cmd?q=GZQO-0001", "/home"),
-        ("/api/v1/studies", "/home"),
+        ("/studies/GZQO/subjects/GZQO-0001#u=x", "/home"),
+        ("/home", "/home"),
+        ("/", "/"),
+        ("/week", "/week"),
+        ("/sae", "/sae"),
+        ("/settings/notices", "/settings/notices"),
+        ("/account", "/account"),
+        ("/help?back=/x", "/help"),
+        ("/studies/gzqo/week", "/home"),  # a study id is upper case
+        # the review's probes: disguised addresses, encodings, files, actions
+        ("/\t/evil.com/x", "/home"),
+        ("/\t/3232235777", "/home"),
+        ("/\n/evil.com/x", "/home"),
+        ("/\r/evil.com/x", "/home"),
+        ("/\x00/evil.com/x", "/home"),
+        ("/%2F/evil.com/x", "/home"),
+        ("/%09/evil.example/x", "/home"),
+        ("/%2509/evil.example/x", "/home"),
         ("//evil.example/x", "/home"),
         ("http://evil.example/x", "/home"),
+        ("/\\evil.example/x", "/home"),
+        ("/home\u202egnp.exe", "/home"),
+        ("/home\u200b", "/home"),
+        ("/home\u2028", "/home"),
+        ("/pilot/jobs/1/%66iles/report%2Ecsv", "/home"),
+        ("/pilot/jobs/1/sponsor-pack%2Ezip", "/home"),
+        ("/pilot/registry/R1/export%2Exlsx", "/home"),
+        ("/audit/patients/p1/report%2Ecsv", "/home"),
+        ("/studies/R/screening-log%2Exlsx", "/home"),
+        ("/studies/R/enrolment%2Ecsv", "/home"),
+        ("/ask?q=list+all+patients", "/home"),
+        (f"/ask?q=x&pid={A}", "/home"),
+        ("/studies/R/edc/sign/oidc/T?reauth=x", "/home"),
+        ("/javascript:alert(1)", "/home"),
+        ("/studies/R/export.xlsx/", "/home"),
+        ("/feedback/export%2Ecsv", "/home"),
+        ("/studies/R/edc/export%2Eodm%2Exml", "/home"),
+        ("/about/NOTICE%2Etxt", "/home"),
+        ("/site/templates/a%2Exlsx", "/home"),
+        ("/pilot/cascade/1/%66iles/a", "/home"),
+        ("/pilot/jobs/1/%76iew/a", "/home"),
+        ("/studies/R/referrals/1/%70rint", "/home"),
+        ("/cmd%3Fq", "/home"),
+        ("/%63md?q=x", "/home"),
+        ("/cmd?q=GZQO-0001", "/home"),
+        ("/API/v1/x", "/home"),
+        ("/Api/v1/x", "/home"),
+        ("/studies/R/patients/p1", "/home"),
         ("/login", "/home"),
+        ("", "/home"),
     ],
 )
-def test_continue_goes_only_to_a_page_of_this_console(asked: str, goes: str) -> None:
+def test_continue_opens_only_a_listed_page(asked: str, goes: str) -> None:
     assert phone.continue_to(asked) == goes
+    assert phone.continue_to(quote(asked, safe="/?&=")) in (goes, "/home")  # encoded once more: never anything else
 
 
-def test_a_link_from_another_site_gets_the_consoles_own_page_and_never_a_file(box: dict[str, Any]) -> None:
+ALLOWED_ROUTES = {"/", "/home", "/week", "/studies/{rs}/week", "/studies/{rs}/subjects",
+                  "/studies/{rs}/subjects/{record}", "/sae", "/settings/notices", "/account", "/help"}  # fmt: skip
+
+
+def test_every_other_route_of_the_console_goes_home(box: dict[str, Any]) -> None:
+    """From the app's route table: a route not on the allow-list (a file, an export, an action, any page) opens the
+    home page, so a new export route is safe by default; every listed page is a real route."""
+    from fastapi.routing import APIRoute
+
+    sample = {"rs": "GZQO", "ruleset": "GZQO", "pid": A, "record": "GZQO-0001"}
+    seen = set()
+    for r in box["app"].routes:
+        if not isinstance(r, APIRoute) or "GET" not in (r.methods or set()):
+            continue
+        path = re.sub(r"{(\w+)(?::\w+)?}", lambda m: sample.get(m.group(1), "x1"), r.path)
+        got = phone.continue_to(path)
+        if r.path in ALLOWED_ROUTES:
+            seen.add(r.path)
+            assert got.split("?")[0] == path, (r.path, got)
+        else:
+            assert got == "/home", (r.path, got)
+    assert seen == ALLOWED_ROUTES - {"/"} or seen == ALLOWED_ROUTES, ALLOWED_ROUTES - seen
+
+
+def test_a_link_from_another_site_gets_the_consoles_own_page_with_its_headers(box: dict[str, Any]) -> None:
     c, _ = login(box["app"])  # a live session: its cookie is in the jar, as a browser would hold it
-    for asked, goes in (("/studies/GZQO/week", "/studies/GZQO/week"), ("/studies/GZQO/screening-log.xlsx", "/home"),
-                        ("/feedback/export.csv", "/home"), ("/cmd?q=x", "/home")):  # fmt: skip
+    for asked, goes in (("/studies/GZQO/week?list=clinic", "/studies/GZQO/week?list=clinic"),
+                        ("/studies/GZQO/screening-log.xlsx", "/home"), ("/feedback/export.csv", "/home"),
+                        ("/cmd?q=x", "/home"), ("/pilot/jobs/1/sponsor-pack%2Ezip", "/home")):  # fmt: skip
         r = c.get(asked, headers=CROSS, follow_redirects=False)
         assert r.status_code == 303 and r.headers["location"].startswith("/link?to="), (
             asked
         )  # nothing read, nothing sent
+        for h in ("content-security-policy", "x-frame-options", "referrer-policy"):
+            assert r.headers.get(h), (asked, h)  # the console's own headers on the 303 too
+        assert r.headers["cache-control"] == "no-store"
         page = c.get(r.headers["location"], headers=CROSS)
         assert page.status_code == 200 and 'data-testid="link-page"' in page.text
+        assert page.headers.get("content-security-policy") and page.headers["cache-control"] == "no-store"
         assert f'href="{html.escape(goes)}" data-testid="link-continue"' in page.text, (asked, page.text[-800:])
-        assert ('data-testid="link-file"' in page.text) == (goes == "/home")
-    assert (
-        c.get(
-            "/studies/GZQO/week", headers={**CROSS, "sec-fetch-site": "same-origin"}, follow_redirects=False
-        ).status_code
-        != 303
-    )
+        assert ('data-testid="link-other"' in page.text) == (goes == "/home")
+    same = c.get("/studies/GZQO/week", headers={**CROSS, "sec-fetch-site": "same-origin"}, follow_redirects=False)
+    assert same.status_code != 303  # from this site: the page itself (here refused to the administrator)
     for arrival in (
         "/login",
         "/enrol",
@@ -286,14 +361,32 @@ def test_a_link_from_another_site_gets_the_consoles_own_page_and_never_a_file(bo
     assert not r.headers.get("location", "").startswith("/link")  # a form post is not a link
 
 
-def test_the_link_page_in_three_languages(box: dict[str, Any]) -> None:
+@pytest.mark.parametrize(
+    "to",
+    ["/\t/evil.com/x", "/Your account is locked. Call IT on 555-0100 now", "/home\u202e/stnemyap", '/a"><script>',
+     "/x?a=1&code=SECRET", "/pilot/jobs/1/sponsor-pack%2Ezip"],
+)  # fmt: skip
+def test_the_link_page_shows_no_text_from_the_link(box: dict[str, Any], to: str) -> None:
+    page = TestClient(box["app"]).get("/link?to=" + quote(to, safe=""), headers={"accept-language": "en"}).text
+    assert 'href="/home" data-testid="link-continue"' in page
+    assert html.escape(CATALOGUES["en"]["link.other"]) in page and 'data-testid="link-asked"' not in page
+    for bit in ("evil", "555-0100", "stnemyap", "<script>", "SECRET", "sponsor"):
+        assert bit not in page, bit
+
+
+def test_the_link_page_names_the_page_in_three_languages(box: dict[str, Any]) -> None:
     c = TestClient(box["app"])
     for lang, accept in (("en", "en"), ("ja", "ja"), ("zh-TW", "zh-TW,zh;q=0.9")):
-        page = c.get("/link?to=%2Fstudies%2FGZQO%2Fweek", headers={"accept-language": accept}).text
+        page = c.get(
+            "/link?to=" + quote("/studies/GZQO/week?list=clinic", safe=""), headers={"accept-language": accept}
+        ).text
         assert f'<html lang="{lang}">' in page
         for key in ("link.title", "link.why", "link.continue"):
             assert html.escape(CATALOGUES[lang][key]) in page, (lang, key)
-        assert html.escape(CATALOGUES[lang]["link.lead"].format(page="/studies/GZQO/week")) in page
+        name = CATALOGUES[lang]["link.page.week"].format(rs="GZQO")
+        assert CATALOGUES[lang]["link.lead"].format(page=name) in html.unescape(page)
+        assert "/studies/GZQO/week</" not in page and "list=clinic</" not in page  # the name, not the address
+    assert set(phone.ALLOWED[i].name for i in range(len(phone.ALLOWED))) <= set(i18n_phone.EN)
 
 
 # ------------------------------------------------------------------------------------------- the flag's read
@@ -312,12 +405,42 @@ def test_a_flag_store_that_is_down_costs_one_attempt_per_five_seconds(box: dict[
     for _ in range(3):
         r = pi.get("/home")
         assert r.status_code == 200 and "<body>" in r.text  # pages render, the flag reads off
+        time.sleep(0.05)
     for path in ("/static/console.css", "/manifest.webmanifest", "/favicon.ico", "/healthz", "/link"):
         pi.get(path)
-    assert len(tries) == 1, tries  # pages only, once
+    assert len(tries) == 1, tries  # pages only, one read
     now[0] += phone.FLAG_SECONDS + 0.1
     pi.get("/home")
+    time.sleep(0.05)
     assert len(tries) == 2
+
+
+def test_a_hanging_flag_store_delays_no_page(box: dict[str, Any], monkeypatch: Any) -> None:
+    """A read that blocks 5 s (a connect that hangs): 20 pages at once all answer at once, one read runs."""
+    tries: list[int] = []
+
+    def hangs() -> bool:
+        tries.append(1)
+        time.sleep(5)
+        return True
+
+    monkeypatch.setattr(phone, "_read", hangs)
+    phone.clear_cache()
+    pi = _pi(box)
+    took: list[float] = []
+
+    def one() -> None:
+        t0 = time.monotonic()
+        assert pi.get("/home").status_code == 200
+        took.append(time.monotonic() - t0)
+
+    workers = [threading.Thread(target=one) for _ in range(20)]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join()
+    assert len(took) == 20 and max(took) < 3, sorted(took)[-3:]
+    assert len(tries) == 1, tries
 
 
 # ------------------------------------------------------------------------------------------- E-M3 long forms

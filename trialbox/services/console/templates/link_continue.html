@@ -9,13 +9,14 @@
 <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
 </head>
 {# D-1222 (E-M2): a link from another site arrives here, without the session cookie (SameSite=Strict). Continue is a
-   tap on this site: the cookie goes with it. Only an HTML page of this console is continued to (console.phone). #}
+   tap on this site: the cookie goes with it. It opens only a page of console.phone.ALLOWED, named from the catalogue,
+   its address rebuilt from the page's pattern; anything else opens the home page with a fixed sentence. #}
 <body>
 <main id="main">
 <section class="card narrow" data-testid="link-page">
 <h1>{{ t('link.title') }}</h1>
-<p data-testid="link-asked">{{ t('link.lead', page=shown) }}</p>
-{% if is_file %}<p class="warn" data-testid="link-file">{{ t('link.file') }}</p>{% endif %}
+{% if known %}<p data-testid="link-asked">{{ t('link.lead', page=page_name) }}</p>
+{% else %}<p class="warn" data-testid="link-other">{{ t('link.other') }}</p>{% endif %}
 <p class="hint">{{ t('link.why') }}</p>
 <p><a class="button" href="{{ target }}" data-testid="link-continue">{{ t('link.continue') }}</a></p>
 </section>
