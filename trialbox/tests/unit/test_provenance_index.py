@@ -54,6 +54,13 @@ def _call(log: AuditLog, call_id: str, build: str = "b1", prompt: str = "judge_v
                       detail={"call_id": call_id, "build_sha": build, "prompt_sha": "p" * 64})  # fmt: skip
 
 
+def provenance_rec(log: AuditLog, crit: dict[str, str]) -> dict[str, Any]:
+    """A confirmation taken back (D-1152): its own line, the same record and calls; the search shows it as such."""
+    provenance.confirmed(log, "criterion", crit, ["c1"], "crc1@hospa.test", "withdrawn")
+    (rec,) = [r for r in idx.chain_records(log.directory) if (r.get("detail") or {}).get("decision") == "withdrawn"]
+    return rec
+
+
 def _chain(tmp_path: Path) -> AuditLog:
     log = AuditLog(tmp_path / "audit")
     _call(log, "c1")
@@ -92,6 +99,12 @@ def test_which_records_a_build_touched_is_one_search(con: Any, tmp_path: Path) -
     assert {(r["record_kind"], r["event"]) for r in by_prompt} == {
         ("verdict", "used"), ("criterion", "used"), ("criterion", "confirmed")}  # fmt: skip
     assert idx.search(con, build_sha="nobody") == []
+    crit = provenance.ref(ruleset="GZQO", version="1.0.0", crit="INC-01")
+    idx.add(con, provenance_rec(log, crit))
+    took_back = [r for r in idx.search(con, build_sha="b1") if r["decision"] == "withdrawn"]
+    assert [(r["record_kind"], r["event"], r["by"]) for r in took_back] == [
+        ("criterion", "confirmed", "crc1@hospa.test")
+    ]
     with pytest.raises(ValueError, match="name a model"):
         idx.search(con)
 

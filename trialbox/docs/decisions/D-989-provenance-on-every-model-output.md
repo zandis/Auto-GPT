@@ -27,7 +27,7 @@
 - **Pre-fill:** each EDC draft field from a model gains `prov`. Mapped, non-model fields carry none, which is itself the answer "no model".
 
 **3. Who confirmed it.** Every existing confirmation writes one audit event `ai.confirmed`, `{record_kind, record_ref, calls, by, decision}`. The confirmations are: a PI mark or excluded review on a patient with model evidence, a ruleset's approval of extracted criteria, and an EDC draft's decision.
-- `decision` is one of confirmed, changed or rejected.
+- `decision` is one of confirmed, changed, rejected or withdrawn. `withdrawn` (added for D-1152) takes back an earlier confirmation of the same record and calls, such as a Withdraw or the Undo of an Approach, so the index shows the confirmation as no longer standing without inferring it from a later mark.
 - A model answer nobody confirmed is reported as unconfirmed, never inferred as confirmed.
 
 **4. The query: an index derived from the chain, not a new store.** Two kinds of event feed it:
