@@ -1,0 +1,66 @@
+{
+ "card": "V-8",
+ "note": "Written by hand from the test runs; each shown finding is held by a strict xfail named in 'test'. Cited findings of sister cards are listed under 'cited' and are not filed again.",
+ "findings": [
+  {
+   "id": "V8-01",
+   "date": "2026-11-17",
+   "source": "docs/plan/measurements/audit-trail-2026-11-17.md",
+   "severity": "Medium",
+   "lane": "C2",
+   "basis": "shown",
+   "place": "libs/tb_common/audit.py:528",
+   "claim": "A torn last line (a write cut short) is reported as tampering: 'invalid JSON' and 'events dropped, a day file deleted, or the chain rewritten'; nothing names it a write cut short.",
+   "expected": "D-127: a torn last line is damage the next writer repairs, not an attack; the person reading the check must be told which it is.",
+   "happened": "tamper.json case torn_last_line: both verifiers fail with invalid JSON and the HEAD.json 'events dropped' message; after the next write the chain verifies (case torn_then_written).",
+   "test": "tests/unit/test_audit_tamper.py::test_a_torn_last_line_is_told_apart_from_tampering"
+  },
+  {
+   "id": "V8-02",
+   "date": "2026-11-17",
+   "source": "docs/plan/measurements/audit-trail-2026-11-17.md",
+   "severity": "Medium",
+   "lane": "C2 (D for the Makefile target)",
+   "basis": "shown",
+   "place": "tools/audit_verify.py:148",
+   "claim": "make audit-verify without ANCHOR (tools/audit_verify.py without --heads) prints PASS on a fully re-chained forgery, a prefix, a fresh chain and a rollback, and says nothing about the signed heads it did not read.",
+   "expected": "D-355: only the signed heads catch a chain rewritten with its HEAD.json; the console says so when no anchor folder is set (audit.verify.no_anchor), the tool should too.",
+   "happened": "tamper.json: cli_no_heads_ok is PASS for rechained_with_head, prefix_with_head, fresh_chain_from_genesis and rollback_to_backup, with no note.",
+   "test": "tests/unit/test_audit_tamper.py::test_a_check_without_signed_heads_says_so"
+  },
+  {
+   "id": "V8-03",
+   "date": "2026-11-17",
+   "source": "docs/plan/measurements/audit-trail-2026-11-17.md",
+   "severity": "High",
+   "lane": "C2 (audit); B2 (services/datacore/dataops.py)",
+   "basis": "shown",
+   "place": "services/datacore/dataops.py:497",
+   "claim": "The steward's typed reason for a data-ops decision (page and /api/v1) reaches the audit chain in clear: a chart number, a name, a phone and an e-mail typed there are all stored as typed, in a store that is never erased.",
+   "expected": "D-272 (CR-016): no chart number in clear in the audit; writers pass free text through mask_ids/mask_detail.",
+   "happened": "POST /data-ops/batches/{bid}/decide and POST /api/v1/data/batches/{bid}/decide: the dataops.decide event's detail.reason holds all four planted values (routes.json, driven rows, leaks).",
+   "test": "tests/console/test_audit_trail_routes.py::test_the_data_ops_reason_is_not_in_clear_in_the_audit"
+  },
+  {
+   "id": "V8-04",
+   "date": "2026-11-17",
+   "source": "docs/plan/measurements/audit-trail-2026-11-17.md",
+   "severity": "High",
+   "lane": "C2",
+   "basis": "shown",
+   "place": "services/console/app.py:1257",
+   "claim": "POST /ops/users (add) makes the account before its audit event; with the audit write failing (AuditFull) the request fails but the account stays, with no event. Reset (app.py:1293), scope (app.py:1308) and disable (app.py:1321) have the same order by reading.",
+   "expected": "The 13:30 rule: an audit trail that can be wrong is High; D-273 (DI-5) writes the event inside the change's transaction for marks and opt-outs. V3-18 found the same order for break-glass and five account-factor routes; this extends it to account creation.",
+   "happened": "With TB_AUDIT_MIN_FREE_MB set huge: 500, no console.user event, and users.get('atfull') returns the new account.",
+   "test": "tests/console/test_audit_trail_routes.py::test_an_account_is_not_made_when_its_audit_event_cannot_be_written",
+   "ruling": "extends V3-18"
+  }
+ ],
+ "cited": [
+  {"id": "V3-14", "what": "the break-glass opening note reaches the audit in clear; seen again here (POST /breakglass, all four planted values)", "basis": "shown"},
+  {"id": "V3-18", "what": "break-glass grant and five account-factor routes store the change before the audit event"},
+  {"id": "V2-02", "what": "46 refusals on 9 console routes write no audit record"},
+  {"id": "D-394", "what": "the audit chain is kept after an opt-out (erasure registry 'outside:audit', keep; the opt-out's own events carry counts only, D-147, D-441)"},
+  {"id": "D-562", "what": "the head is signed once a night; events after the newest signed head can be rolled back unseen until the next night (shown: rollback_after_last_signed_head)"}
+ ]
+}

@@ -216,7 +216,8 @@ def run_cli(d: Path, share: Path | None) -> dict[str, Any]:
     with contextlib.redirect_stdout(out):
         code = audit_verify.main(argv)
     rec = json.loads(out.getvalue())
-    return {"code": code, "ok": rec["ok"], "errors": rec["errors"], "notes": rec["notes"]}
+    return {"code": code, "ok": rec["ok"], "errors": rec["errors"], "notes": rec["notes"], "files": rec["files"],
+            "lines": rec["lines"]}  # fmt: skip
 
 
 def run_console(d: Path, share: Path) -> dict[str, Any]:

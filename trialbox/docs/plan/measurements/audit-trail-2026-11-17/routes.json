@@ -1,0 +1,2356 @@
+{
+ "inventory": [
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/account/password",
+   "handler": "register.<locals>.account_password",
+   "place": "services/console/step4.py:216",
+   "audit_call": "services/console/step4.py:244",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/admin/jobs/{job_id}/cancel",
+   "handler": "register.<locals>.job_cancel",
+   "place": "services/console/step4.py:480",
+   "audit_call": "services/console/step4.py:495",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/admin/jobs/{job_id}/retry",
+   "handler": "register.<locals>.job_retry",
+   "place": "services/console/step4.py:528",
+   "audit_call": "services/console/step4.py:556",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/admin/models/canary",
+   "handler": "register.<locals>.models_canary",
+   "place": "services/console/step4.py:565",
+   "audit_call": "services/console/step4.py:573",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/admin/ops/{action}",
+   "handler": "register.<locals>.ops_action",
+   "place": "services/console/ops_pages.py:167",
+   "audit_call": "services/console/ops_pages.py:197",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/admin/redcap",
+   "handler": "register.<locals>.s36_save",
+   "place": "services/console/study_setup.py:779",
+   "audit_call": "services/console/study_setup.py:791",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/admin/redcap/{ref}/test",
+   "handler": "register.<locals>.s36_test",
+   "place": "services/console/study_setup.py:806",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/edc/events/v1",
+   "handler": "register.<locals>.receive",
+   "place": "services/console/edc_door.py:36",
+   "audit_call": "services/console/edc_door.py:67",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "PUT",
+   "path": "/api/edc/map",
+   "handler": "register.<locals>.put_map",
+   "place": "services/console/edc_door.py:83",
+   "audit_call": "services/console/edc_door.py:96",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/edc/oidc/token",
+   "handler": "register.<locals>.token",
+   "place": "services/console/edc_door.py:198",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/edc/tools",
+   "handler": "register.<locals>.propose",
+   "place": "services/console/edc_door.py:99",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/edc/tools/{proposal_id}/confirm",
+   "handler": "register.<locals>.confirm",
+   "place": "services/console/edc_door.py:119",
+   "audit_call": "services/console/edc_door.py:134",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/audit/patients/by-chart",
+   "handler": "register_api.<locals>.api_audit_by_chart",
+   "place": "services/console/audit_page.py:584",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/audit/verify",
+   "handler": "register_api.<locals>.api_audit_verify",
+   "place": "services/console/audit_page.py:574",
+   "audit_call": "services/console/audit_page.py:581",
+   "driven": true
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/data/batches/{bid}/decide",
+   "handler": "register.<locals>.api_decide",
+   "place": "services/console/dataops_page.py:425",
+   "audit_call": null,
+   "driven": true
+  },
+  {
+   "service": "console",
+   "method": "DELETE",
+   "path": "/api/v1/session",
+   "handler": "register.<locals>.api_logout",
+   "place": "services/console/home.py:1528",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/session",
+   "handler": "register.<locals>.api_login",
+   "place": "services/console/home.py:1478",
+   "audit_call": "services/console/home.py:1485",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/site/charts",
+   "handler": "register.<locals>.api_chart",
+   "place": "services/console/site_pages.py:836",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/site/checks/{cid}",
+   "handler": "register.<locals>.api_check",
+   "place": "services/console/site_pages.py:874",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/site/codes",
+   "handler": "register.<locals>.api_code",
+   "place": "services/console/site_pages.py:856",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/site/facts/{fid}",
+   "handler": "register.<locals>.api_fact",
+   "place": "services/console/site_pages.py:827",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/site/opt-outs",
+   "handler": "register.<locals>.api_optout",
+   "place": "services/console/team.py:1317",
+   "audit_call": null,
+   "driven": true
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/aes/{record}/{event}/ack",
+   "handler": "register.<locals>.api_sae_ack",
+   "place": "services/console/lifecycle_pages.py:707",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/candidates/{pid}/referral",
+   "handler": "register.<locals>.api_referral",
+   "place": "services/console/team.py:1266",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/conflicts/{cid}",
+   "handler": "register.<locals>.api_resolve",
+   "place": "services/console/data_pages.py:505",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/edc/copy/{record}/tick",
+   "handler": "register.<locals>.api_tick",
+   "place": "services/console/copy_assist_page.py:270",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/edc/dictionary",
+   "handler": "register.<locals>.api_dictionary",
+   "place": "services/console/edc_pages.py:842",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/edc/drafts",
+   "handler": "register.<locals>.api_draft",
+   "place": "services/console/edc_pages.py:863",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/edc/drafts/{draft_id}/decide",
+   "handler": "register.<locals>.api_decide",
+   "place": "services/console/edc_pages.py:880",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/edc/import/odm",
+   "handler": "register.<locals>.api_import",
+   "place": "services/console/edc_pages.py:906",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "PUT",
+   "path": "/api/v1/studies/{rs}/edc/map",
+   "handler": "register.<locals>.api_put_map",
+   "place": "services/console/edc_pages.py:857",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/edc/send",
+   "handler": "register.<locals>.api_send",
+   "place": "services/console/edc_pages.py:913",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/edc/sign",
+   "handler": "register.<locals>.api_sign",
+   "place": "services/console/edc_pages.py:898",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/edc/switch",
+   "handler": "register.<locals>.api_switch",
+   "place": "services/console/edc_pages.py:836",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/forms/builtin",
+   "handler": "register.<locals>.api_builtin",
+   "place": "services/console/entry_pages.py:421",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/forms/dictionary",
+   "handler": "register.<locals>.api_dictionary",
+   "place": "services/console/data_pages.py:517",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/icf",
+   "handler": "register.<locals>.api_icf_save",
+   "place": "services/console/team.py:959",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/irb",
+   "handler": "register.<locals>.api_irb_save",
+   "place": "services/console/team.py:1300",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/monitor/visits",
+   "handler": "register.<locals>.api_visit",
+   "place": "services/console/sdv_page.py:357",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/not-matched/check",
+   "handler": "register.<locals>.api_check_record",
+   "place": "services/console/notmatched_pages.py:280",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/not-matched/sample/{pid}",
+   "handler": "register.<locals>.api_sample_answer",
+   "place": "services/console/notmatched_pages.py:249",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/not-matched/{pid}/review",
+   "handler": "register.<locals>.api_excluded_review",
+   "place": "services/console/home.py:1036",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/patients/{pid}/mark",
+   "handler": "register.<locals>.api_mark",
+   "place": "services/console/home.py:1586",
+   "audit_call": null,
+   "driven": true
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/patients/{pid}/outcome",
+   "handler": "register.<locals>.api_outcome",
+   "place": "services/console/home.py:1596",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/patients/{pid}/reveal",
+   "handler": "register.<locals>.api_reveal",
+   "place": "services/console/home.py:1603",
+   "audit_call": null,
+   "driven": true
+  },
+  {
+   "service": "console",
+   "method": "PUT",
+   "path": "/api/v1/studies/{rs}/records/{record}/forms/{form}",
+   "handler": "register.<locals>.api_save",
+   "place": "services/console/entry_pages.py:460",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/referrals/{ref_id}/answer",
+   "handler": "register.<locals>.api_answer",
+   "place": "services/console/team.py:1283",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "PUT",
+   "path": "/api/v1/studies/{rs}/schedule",
+   "handler": "register.<locals>.api_schedule_put",
+   "place": "services/console/lifecycle_pages.py:735",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "DELETE",
+   "path": "/api/v1/studies/{rs}/sources/redcap",
+   "handler": "register.<locals>.api_detach",
+   "place": "services/console/data_pages.py:488",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "PUT",
+   "path": "/api/v1/studies/{rs}/sources/redcap",
+   "handler": "register.<locals>.api_attach",
+   "place": "services/console/data_pages.py:482",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/sources/{name}/sync",
+   "handler": "register.<locals>.api_sync",
+   "place": "services/console/data_pages.py:494",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/state/take-back",
+   "handler": "register.<locals>.api_take_back",
+   "place": "services/console/study_setup.py:684",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/api/v1/studies/{rs}/subjects/{record}/step",
+   "handler": "register.<locals>.api_step",
+   "place": "services/console/lifecycle_pages.py:697",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/audit/patients/by-chart",
+   "handler": "register.<locals>.audit_patient_by_chart",
+   "place": "services/console/audit_page.py:510",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/audit/verify",
+   "handler": "register.<locals>.audit_verify",
+   "place": "services/console/audit_page.py:540",
+   "audit_call": "services/console/audit_page.py:548",
+   "driven": true
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/breakglass",
+   "handler": "register.<locals>.open_grant",
+   "place": "services/console/breakglass.py:189",
+   "audit_call": "services/console/breakglass.py:210",
+   "driven": true
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/breakglass/{gid}/end",
+   "handler": "register.<locals>.end_grant",
+   "place": "services/console/breakglass.py:217",
+   "audit_call": "services/console/breakglass.py:228",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/breakglass/{gid}/review",
+   "handler": "register.<locals>.review_grant",
+   "place": "services/console/breakglass.py:231",
+   "audit_call": "services/console/breakglass.py:242",
+   "driven": true
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/data-ops/batches/{bid}/decide",
+   "handler": "register.<locals>.dataops_decide",
+   "place": "services/console/dataops_page.py:370",
+   "audit_call": null,
+   "driven": true
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/data/conflicts/{cid}/resolve",
+   "handler": "register.<locals>.conflicts_resolve",
+   "place": "services/console/conflicts_page.py:111",
+   "audit_call": "services/console/conflicts_page.py:135",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/data/instruments/{iid}",
+   "handler": "register.<locals>.instruments_switch",
+   "place": "services/console/instruments_page.py:64",
+   "audit_call": "services/console/instruments_page.py:80",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/demo/ack",
+   "handler": "register.<locals>.ack_post",
+   "place": "services/console/demo_guard.py:247",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/enrol",
+   "handler": "register.<locals>.enrol_submit",
+   "place": "services/console/account_rules.py:233",
+   "audit_call": "services/console/account_rules.py:249",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/feedback",
+   "handler": "register.<locals>.feedback_post",
+   "place": "services/console/feedback.py:209",
+   "audit_call": "services/console/feedback.py:232",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/lang",
+   "handler": "create_app.<locals>.set_lang",
+   "place": "services/console/app.py:1125",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/login",
+   "handler": "create_app.<locals>.login",
+   "place": "services/console/app.py:1017",
+   "audit_call": "services/console/app.py:1031",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/login/first-run",
+   "handler": "register.<locals>.first_run_code",
+   "place": "services/console/firstrun.py:153",
+   "audit_call": "services/console/firstrun.py:158",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/login/first-run/answers",
+   "handler": "register.<locals>.first_run_submit",
+   "place": "services/console/firstrun.py:182",
+   "audit_call": "services/console/firstrun.py:237",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/login/totp",
+   "handler": "register.<locals>.totp_submit",
+   "place": "services/console/identity.py:457",
+   "audit_call": "services/console/identity.py:498",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/logout",
+   "handler": "create_app.<locals>.logout",
+   "place": "services/console/app.py:1065",
+   "audit_call": "services/console/app.py:1071",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/ops/accounts/requests",
+   "handler": "register.<locals>.requests_decide",
+   "place": "services/console/account_rules.py:313",
+   "audit_call": "services/console/account_rules.py:326",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/ops/flags",
+   "handler": "register.<locals>.flags_set",
+   "place": "services/console/admin_flags.py:91",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/ops/identity",
+   "handler": "register.<locals>.identity_edit",
+   "place": "services/console/identity.py:663",
+   "audit_call": "services/console/identity.py:676",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/ops/ingest",
+   "handler": "create_app.<locals>.ingest",
+   "place": "services/console/app.py:1152",
+   "audit_call": "services/console/app.py:1155",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/ops/notices",
+   "handler": "register.<locals>.send_now",
+   "place": "services/console/notify.py:462",
+   "audit_call": "services/console/notify.py:468",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/ops/users",
+   "handler": "create_app.<locals>.users_edit",
+   "place": "services/console/app.py:1211",
+   "audit_call": "services/console/app.py:1230",
+   "driven": true
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/pilot/cascade",
+   "handler": "create_app.<locals>.cascade_start",
+   "place": "services/console/app.py:2393",
+   "audit_call": "services/console/app.py:2399",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/pilot/case",
+   "handler": "create_app.<locals>.case_submit",
+   "place": "services/console/app.py:2138",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/pilot/consent",
+   "handler": "create_app.<locals>.consent_submit",
+   "place": "services/console/app.py:2079",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/pilot/jobs/{job_id}/approval/label",
+   "handler": "register.<locals>.label",
+   "place": "services/console/approval.py:225",
+   "audit_call": "services/console/approval.py:235",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/pilot/jobs/{job_id}/approval/tick",
+   "handler": "register.<locals>.tick",
+   "place": "services/console/approval.py:203",
+   "audit_call": "services/console/approval.py:209",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/pilot/jobs/{job_id}/approve",
+   "handler": "register.<locals>.approve",
+   "place": "services/console/approval.py:254",
+   "audit_call": "services/console/approval.py:268",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/pilot/jobs/{job_id}/release",
+   "handler": "create_app.<locals>.consent_release",
+   "place": "services/console/app.py:1583",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/pilot/jobs/{job_id}/reveal",
+   "handler": "create_app.<locals>.job_reveal",
+   "place": "services/console/app.py:1815",
+   "audit_call": null,
+   "driven": true
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/pilot/mailbox",
+   "handler": "create_app.<locals>.mailbox_send",
+   "place": "services/console/app.py:2462",
+   "audit_call": "services/console/app.py:2483",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/pilot/propose",
+   "handler": "create_app.<locals>.propose_view",
+   "place": "services/console/app.py:1984",
+   "audit_call": "services/console/app.py:1990",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/pilot/propose/{pid}/confirm",
+   "handler": "create_app.<locals>.propose_confirm",
+   "place": "services/console/app.py:2008",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/pilot/protocol",
+   "handler": "create_app.<locals>.protocol_submit",
+   "place": "services/console/app.py:2029",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/pilot/registry/{ruleset}",
+   "handler": "create_app.<locals>.registry_edit",
+   "place": "services/console/app.py:2235",
+   "audit_call": "services/console/app.py:2262",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/pilot/registry/{ruleset}/promote",
+   "handler": "create_app.<locals>.registry_promote",
+   "place": "services/console/app.py:2281",
+   "audit_call": "services/console/app.py:2297",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/pilot/request",
+   "handler": "create_app.<locals>.request_run",
+   "place": "services/console/app.py:1946",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/role",
+   "handler": "register.<locals>.switch",
+   "place": "services/console/acting.py:117",
+   "audit_call": "services/console/acting.py:123",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/settings/notices",
+   "handler": "register.<locals>.settings_save",
+   "place": "services/console/notify.py:439",
+   "audit_call": "services/console/notify.py:459",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/site/charts",
+   "handler": "register.<locals>.charts_post",
+   "place": "services/console/site_pages.py:430",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/site/checks/{cid}",
+   "handler": "register.<locals>.checks_post",
+   "place": "services/console/site_pages.py:581",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/site/codes",
+   "handler": "register.<locals>.codes_post",
+   "place": "services/console/site_pages.py:530",
+   "audit_call": "services/console/site_pages.py:544",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/site/facts/{fid}",
+   "handler": "register.<locals>.facts_post",
+   "place": "services/console/site_pages.py:483",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/site/opt-outs",
+   "handler": "register.<locals>.optout_add",
+   "place": "services/console/team.py:1177",
+   "audit_call": null,
+   "driven": true
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/site/people/resolve",
+   "handler": "register.<locals>.people_post",
+   "place": "services/console/site_pages.py:670",
+   "audit_call": "services/console/site_pages.py:681",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/site/practice",
+   "handler": "register.<locals>.practice_post",
+   "place": "services/console/site_pages.py:722",
+   "audit_call": "services/console/site_pages.py:735",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/site/remote",
+   "handler": "register.<locals>.remote_post",
+   "place": "services/console/site_pages.py:740",
+   "audit_call": "services/console/site_pages.py:747",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/site/sheets",
+   "handler": "register.<locals>.sheets_post",
+   "place": "services/console/site_pages.py:615",
+   "audit_call": "services/console/site_pages.py:645",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/site/staff",
+   "handler": "register.<locals>.staff_add",
+   "place": "services/console/team.py:999",
+   "audit_call": "services/console/team.py:1024",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/candidates/{pid}/referral",
+   "handler": "register.<locals>.referral_form",
+   "place": "services/console/team.py:538",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/candidates/{pid}/reveal",
+   "handler": "register.<locals>.candidate_reveal",
+   "place": "services/console/team.py:477",
+   "audit_call": null,
+   "driven": true
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/conflicts/{cid}",
+   "handler": "register.<locals>.resolve",
+   "place": "services/console/data_pages.py:381",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/deviations",
+   "handler": "register.<locals>.deviation_call",
+   "place": "services/console/lifecycle_pages.py:627",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/edc/copy/{record}/tick",
+   "handler": "register.<locals>.copy_tick",
+   "place": "services/console/copy_assist_page.py:207",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/edc/decide/{draft_id}",
+   "handler": "register.<locals>.edc_decide",
+   "place": "services/console/edc_pages.py:720",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/edc/dictionary",
+   "handler": "register.<locals>.edc_dictionary",
+   "place": "services/console/edc_pages.py:632",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/edc/drafts",
+   "handler": "register.<locals>.edc_draft",
+   "place": "services/console/edc_pages.py:541",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/edc/import",
+   "handler": "register.<locals>.edc_import",
+   "place": "services/console/edc_pages.py:572",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/edc/map",
+   "handler": "register.<locals>.edc_map_save",
+   "place": "services/console/edc_pages.py:650",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/edc/send",
+   "handler": "register.<locals>.edc_send",
+   "place": "services/console/edc_pages.py:554",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/edc/sign",
+   "handler": "register.<locals>.edc_sign",
+   "place": "services/console/edc_pages.py:738",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/edc/switch",
+   "handler": "register.<locals>.edc_switch",
+   "place": "services/console/edc_pages.py:519",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/entry",
+   "handler": "register.<locals>.save",
+   "place": "services/console/entry_pages.py:295",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/excluded/{pid}/review",
+   "handler": "register.<locals>.excluded_review",
+   "place": "services/console/home.py:1026",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/feasibility/refresh",
+   "handler": "register.<locals>.feasibility_refresh",
+   "place": "services/console/home.py:671",
+   "audit_call": "services/console/home.py:679",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/forms/builtin",
+   "handler": "register.<locals>.add_builtin",
+   "place": "services/console/entry_pages.py:386",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/forms/dictionary",
+   "handler": "register.<locals>.import_dictionary",
+   "place": "services/console/data_pages.py:421",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/identity",
+   "handler": "register.<locals>.save_identity",
+   "place": "services/console/study_setup.py:696",
+   "audit_call": "services/console/study_setup.py:718",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/irb",
+   "handler": "register.<locals>.irb_save",
+   "place": "services/console/team.py:846",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/irb-text",
+   "handler": "register.<locals>.record_irb_text",
+   "place": "services/console/study_setup.py:722",
+   "audit_call": "services/console/study_setup.py:733",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/irb/icf",
+   "handler": "register.<locals>.icf_save",
+   "place": "services/console/team.py:905",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/monitor/visits",
+   "handler": "register.<locals>.monitor_visit",
+   "place": "services/console/sdv_page.py:326",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/not-matched/check",
+   "handler": "register.<locals>.check_record",
+   "place": "services/console/notmatched_pages.py:265",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/not-matched/sample/{pid}",
+   "handler": "register.<locals>.sample_answer",
+   "place": "services/console/notmatched_pages.py:227",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/not-matched/{pid}/review",
+   "handler": "register.<locals>.excluded_review",
+   "place": "services/console/home.py:1026",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/patients/{pid}/mark",
+   "handler": "register.<locals>.patient_mark",
+   "place": "services/console/home.py:1275",
+   "audit_call": null,
+   "driven": true
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/patients/{pid}/outcome",
+   "handler": "register.<locals>.patient_outcome",
+   "place": "services/console/home.py:1429",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/patients/{pid}/reveal",
+   "handler": "register.<locals>.patient_reveal",
+   "place": "services/console/home.py:1107",
+   "audit_call": null,
+   "driven": true
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/profile",
+   "handler": "register.<locals>.profile_save",
+   "place": "services/console/home.py:686",
+   "audit_call": "services/console/home.py:694",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/redcap-read",
+   "handler": "register.<locals>.run_now",
+   "place": "services/console/study_setup.py:485",
+   "audit_call": "services/console/study_setup.py:492",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/referrals/{ref_id}/answer",
+   "handler": "register.<locals>.referral_answer",
+   "place": "services/console/team.py:670",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/referrals/{ref_id}/print",
+   "handler": "register.<locals>.referral_print_reveal",
+   "place": "services/console/team.py:631",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/sae/sync",
+   "handler": "register.<locals>.sync_now",
+   "place": "services/console/sae_pages.py:411",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/sae/{record}/{event}/ack",
+   "handler": "register.<locals>.ack",
+   "place": "services/console/sae_pages.py:385",
+   "audit_call": "services/console/sae_pages.py:406",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/sae/{record}/{event}/{what}",
+   "handler": "register.<locals>.record_it",
+   "place": "services/console/sae_pages.py:425",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/schedule",
+   "handler": "register.<locals>.schedule_save",
+   "place": "services/console/lifecycle_pages.py:523",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/setup",
+   "handler": "register.<locals>.save_all",
+   "place": "services/console/study_setup.py:378",
+   "audit_call": "services/console/study_setup.py:425",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/setup/contact",
+   "handler": "register.<locals>.save_contact_rule",
+   "place": "services/console/study_setup.py:307",
+   "audit_call": "services/console/study_setup.py:323",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/setup/log",
+   "handler": "register.<locals>.save_log",
+   "place": "services/console/study_setup.py:331",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/setup/redcap",
+   "handler": "register.<locals>.save_link",
+   "place": "services/console/study_setup.py:453",
+   "audit_call": "services/console/study_setup.py:464",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/setup/redcap/test",
+   "handler": "register.<locals>.test_link",
+   "place": "services/console/study_setup.py:467",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/setup/sae",
+   "handler": "register.<locals>.save_sae_rule",
+   "place": "services/console/study_setup.py:287",
+   "audit_call": "services/console/study_setup.py:304",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/setup/scope",
+   "handler": "register.<locals>.save_screen_scope",
+   "place": "services/console/study_setup.py:354",
+   "audit_call": "services/console/study_setup.py:373",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/setup/study",
+   "handler": "register.<locals>.save_study",
+   "place": "services/console/study_setup.py:266",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/sources/redcap",
+   "handler": "register.<locals>.attach",
+   "place": "services/console/data_pages.py:271",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/sources/redcap/detach",
+   "handler": "register.<locals>.detach",
+   "place": "services/console/data_pages.py:293",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/sources/redcap/undo",
+   "handler": "register.<locals>.detach_undo",
+   "place": "services/console/data_pages.py:315",
+   "audit_call": "services/console/data_pages.py:330",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/sources/{name}/sync",
+   "handler": "register.<locals>.sync_now",
+   "place": "services/console/data_pages.py:342",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/state",
+   "handler": "register.<locals>.change_state",
+   "place": "services/console/study_setup.py:599",
+   "audit_call": "services/console/study_setup.py:629",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/state/take-back",
+   "handler": "register.<locals>.take_back",
+   "place": "services/console/study_setup.py:640",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/subjects/{record}/aes/{event}/ack",
+   "handler": "register.<locals>.sae_ack",
+   "place": "services/console/lifecycle_pages.py:476",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/subjects/{record}/step",
+   "handler": "register.<locals>.subject_step",
+   "place": "services/console/lifecycle_pages.py:444",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/subjects/{record}/undo",
+   "handler": "register.<locals>.subject_undo",
+   "place": "services/console/lifecycle_pages.py:462",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/team",
+   "handler": "register.<locals>.team_add",
+   "place": "services/console/team.py:713",
+   "audit_call": "services/console/team.py:754",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/team/check",
+   "handler": "register.<locals>.team_check",
+   "place": "services/console/team.py:759",
+   "audit_call": "services/console/team.py:773",
+   "driven": false
+  },
+  {
+   "service": "console",
+   "method": "POST",
+   "path": "/studies/{rs}/team/{eid}",
+   "handler": "register.<locals>.team_edit",
+   "place": "services/console/team.py:776",
+   "audit_call": "services/console/team.py:792",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/assist",
+   "handler": "router.<locals>.assist",
+   "place": "services/orchestrator/setup_api.py:521",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/dataops/batches/{bid}/decide",
+   "handler": "router.<locals>.decide",
+   "place": "services/orchestrator/dataops_api.py:144",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/jobs",
+   "handler": "create_job",
+   "place": "services/orchestrator/app.py:371",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/jobs/{job_id}/cancel",
+   "handler": "cancel_job",
+   "place": "services/orchestrator/app.py:690",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/jobs/{job_id}/retry",
+   "handler": "retry_scheduled_job",
+   "place": "services/orchestrator/app.py:674",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/jobs/{job_id}/reveal",
+   "handler": "reveal",
+   "place": "services/orchestrator/app.py:517",
+   "audit_call": "services/orchestrator/app.py:543",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/models/canary",
+   "handler": "models_canary",
+   "place": "services/orchestrator/app.py:326",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/notices",
+   "handler": "notice",
+   "place": "services/orchestrator/app.py:623",
+   "audit_call": "services/orchestrator/app.py:650",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/omop/conflicts/{cid}/resolve",
+   "handler": "router.<locals>.conflicts_resolve",
+   "place": "services/orchestrator/conflicts_api.py:74",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/patients/deceased",
+   "handler": "patients_deceased",
+   "place": "services/orchestrator/app.py:917",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "PUT",
+   "path": "/redcap/connections/{ref}",
+   "handler": "router.<locals>.put_connection",
+   "place": "services/orchestrator/study_api.py:471",
+   "audit_call": "services/orchestrator/study_api.py:487",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/redcap/connections/{ref}/test",
+   "handler": "router.<locals>.test_connection",
+   "place": "services/orchestrator/study_api.py:493",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/registry/{ruleset}",
+   "handler": "registry_update",
+   "place": "services/orchestrator/app.py:973",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/registry/{ruleset}/promote",
+   "handler": "registry_promote",
+   "place": "services/orchestrator/app.py:1003",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "PUT",
+   "path": "/setup/instruments/{iid}",
+   "handler": "router.<locals>.put_instrument",
+   "place": "services/orchestrator/setup_api.py:500",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/setup/practice/load",
+   "handler": "router.<locals>.practice_load",
+   "place": "services/orchestrator/setup_api.py:435",
+   "audit_call": "services/orchestrator/setup_api.py:447",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/setup/practice/reset",
+   "handler": "router.<locals>.practice_reset",
+   "place": "services/orchestrator/setup_api.py:450",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/setup/pseudonym",
+   "handler": "router.<locals>.post_pseudonym",
+   "place": "services/orchestrator/setup_api.py:414",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "PUT",
+   "path": "/setup/remote",
+   "handler": "router.<locals>.put_remote",
+   "place": "services/orchestrator/setup_api.py:472",
+   "audit_call": "services/orchestrator/setup_api.py:486",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/setup/{ws}/charts",
+   "handler": "router.<locals>.post_chart",
+   "place": "services/orchestrator/setup_api.py:345",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/setup/{ws}/checks/{cid}",
+   "handler": "router.<locals>.post_check",
+   "place": "services/orchestrator/setup_api.py:400",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/setup/{ws}/codes",
+   "handler": "router.<locals>.post_code",
+   "place": "services/orchestrator/setup_api.py:377",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/setup/{ws}/codes/sheet",
+   "handler": "router.<locals>.post_code_sheet",
+   "place": "services/orchestrator/setup_api.py:383",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/setup/{ws}/facts/{fid}",
+   "handler": "router.<locals>.post_fact",
+   "place": "services/orchestrator/setup_api.py:368",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/setup/{ws}/people/resolve",
+   "handler": "router.<locals>.post_resolve",
+   "place": "services/orchestrator/setup_api.py:408",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/setup/{ws}/publish",
+   "handler": "router.<locals>.post_publish",
+   "place": "services/orchestrator/setup_api.py:431",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/setup/{ws}/sheets",
+   "handler": "router.<locals>.post_sheet",
+   "place": "services/orchestrator/setup_api.py:318",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/setup/{ws}/sheets/{iid}/roles",
+   "handler": "router.<locals>.post_roles",
+   "place": "services/orchestrator/setup_api.py:333",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/aes/{record}/{event}/ack",
+   "handler": "router.<locals>.post_ack",
+   "place": "services/orchestrator/lifecycle_api.py:684",
+   "audit_call": "services/orchestrator/lifecycle_api.py:693",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/conflicts/{cid}",
+   "handler": "router.<locals>.resolve_conflict",
+   "place": "services/orchestrator/datacore_api.py:367",
+   "audit_call": "services/orchestrator/datacore_api.py:378",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "PUT",
+   "path": "/studies/{rs}/contact-rule",
+   "handler": "router.<locals>.put_contact_rule",
+   "place": "services/orchestrator/lifecycle_api.py:643",
+   "audit_call": "services/orchestrator/lifecycle_api.py:652",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "PUT",
+   "path": "/studies/{rs}/data/{record}",
+   "handler": "router.<locals>.put_data",
+   "place": "services/orchestrator/datacore_api.py:254",
+   "audit_call": "services/orchestrator/datacore_api.py:267",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/deviations/possible",
+   "handler": "router.<locals>.post_deviation_call",
+   "place": "services/orchestrator/lifecycle_api.py:666",
+   "audit_call": "services/orchestrator/lifecycle_api.py:676",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/edc/copy/tick",
+   "handler": "router.<locals>.copy_tick",
+   "place": "services/orchestrator/edc_api.py:355",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/edc/dictionary",
+   "handler": "router.<locals>.dictionary",
+   "place": "services/orchestrator/edc_api.py:266",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "PUT",
+   "path": "/studies/{rs}/edc/direct_source",
+   "handler": "router.<locals>.direct_source",
+   "place": "services/orchestrator/edc_api.py:280",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/edc/drafts",
+   "handler": "router.<locals>.drafts",
+   "place": "services/orchestrator/edc_api.py:285",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/edc/drafts/{draft_id}/decide",
+   "handler": "router.<locals>.decide",
+   "place": "services/orchestrator/edc_api.py:311",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/edc/import/odm",
+   "handler": "router.<locals>.import_odm",
+   "place": "services/orchestrator/edc_api.py:336",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "PUT",
+   "path": "/studies/{rs}/edc/map",
+   "handler": "router.<locals>.put_map",
+   "place": "services/orchestrator/edc_api.py:275",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/edc/reconcile",
+   "handler": "router.<locals>.reconcile",
+   "place": "services/orchestrator/edc_api.py:366",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/edc/reentry",
+   "handler": "router.<locals>.reentry",
+   "place": "services/orchestrator/edc_api.py:257",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/edc/send/redcap",
+   "handler": "router.<locals>.send",
+   "place": "services/orchestrator/edc_api.py:361",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/edc/sign",
+   "handler": "router.<locals>.sign",
+   "place": "services/orchestrator/edc_api.py:321",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/edc/switch",
+   "handler": "router.<locals>.switch",
+   "place": "services/orchestrator/edc_api.py:248",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/entry/{record}",
+   "handler": "router.<locals>.save_form",
+   "place": "services/orchestrator/datacore_api.py:428",
+   "audit_call": "services/orchestrator/datacore_api.py:436",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/forms/builtin",
+   "handler": "router.<locals>.add_builtin",
+   "place": "services/orchestrator/datacore_api.py:382",
+   "audit_call": "services/orchestrator/datacore_api.py:403",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/forms/dictionary",
+   "handler": "router.<locals>.import_dictionary",
+   "place": "services/orchestrator/datacore_api.py:234",
+   "audit_call": "services/orchestrator/datacore_api.py:246",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/import/sheet",
+   "handler": "router.<locals>.import_sheet",
+   "place": "services/orchestrator/datacore_api.py:317",
+   "audit_call": "services/orchestrator/datacore_api.py:358",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "PUT",
+   "path": "/studies/{rs}/redcap-link",
+   "handler": "router.<locals>.put_link",
+   "place": "services/orchestrator/study_api.py:520",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/redcap-link/test",
+   "handler": "router.<locals>.test_link",
+   "place": "services/orchestrator/study_api.py:527",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/redcap-read",
+   "handler": "router.<locals>.run_read",
+   "place": "services/orchestrator/study_api.py:534",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "PUT",
+   "path": "/studies/{rs}/sae-rule",
+   "handler": "router.<locals>.put_sae_rule",
+   "place": "services/orchestrator/lifecycle_api.py:622",
+   "audit_call": "services/orchestrator/lifecycle_api.py:633",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "PUT",
+   "path": "/studies/{rs}/schedule",
+   "handler": "router.<locals>.put_schedule",
+   "place": "services/orchestrator/lifecycle_api.py:556",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/schedule/redcap",
+   "handler": "router.<locals>.schedule_from_redcap",
+   "place": "services/orchestrator/lifecycle_api.py:562",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "PUT",
+   "path": "/studies/{rs}/screen-scope",
+   "handler": "router.<locals>.put_screen_scope",
+   "place": "services/orchestrator/study_api.py:450",
+   "audit_call": "services/orchestrator/study_api.py:462",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "PUT",
+   "path": "/studies/{rs}/settings",
+   "handler": "router.<locals>.put_settings",
+   "place": "services/orchestrator/study_api.py:428",
+   "audit_call": "services/orchestrator/study_api.py:441",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "DELETE",
+   "path": "/studies/{rs}/sources/redcap",
+   "handler": "router.<locals>.drop_redcap",
+   "place": "services/orchestrator/datacore_api.py:300",
+   "audit_call": "services/orchestrator/datacore_api.py:307",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "PUT",
+   "path": "/studies/{rs}/sources/redcap",
+   "handler": "router.<locals>.put_redcap",
+   "place": "services/orchestrator/datacore_api.py:281",
+   "audit_call": "services/orchestrator/datacore_api.py:297",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "PUT",
+   "path": "/studies/{rs}/sponsor/layout",
+   "handler": "router.<locals>.put_layout",
+   "place": "services/orchestrator/sponsor_api.py:76",
+   "audit_call": "services/orchestrator/sponsor_api.py:82",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/sponsor/weekly",
+   "handler": "router.<locals>.weekly",
+   "place": "services/orchestrator/sponsor_api.py:89",
+   "audit_call": "services/orchestrator/sponsor_api.py:95",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/sponsor/weekly/confirm",
+   "handler": "router.<locals>.confirm",
+   "place": "services/orchestrator/sponsor_api.py:99",
+   "audit_call": "services/orchestrator/sponsor_api.py:111",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/subjects/refresh",
+   "handler": "router.<locals>.post_refresh",
+   "place": "services/orchestrator/lifecycle_api.py:463",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/subjects/{record}/step",
+   "handler": "router.<locals>.post_step",
+   "place": "services/orchestrator/lifecycle_api.py:500",
+   "audit_call": "services/orchestrator/lifecycle_api.py:510",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/subjects/{record}/undo",
+   "handler": "router.<locals>.post_undo",
+   "place": "services/orchestrator/lifecycle_api.py:521",
+   "audit_call": "services/orchestrator/lifecycle_api.py:531",
+   "driven": false
+  },
+  {
+   "service": "orchestrator",
+   "method": "POST",
+   "path": "/studies/{rs}/sync/{name}",
+   "handler": "router.<locals>.run_sync",
+   "place": "services/orchestrator/datacore_api.py:310",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "mail_gateway",
+   "method": "POST",
+   "path": "/poll",
+   "handler": "poll",
+   "place": "services/mail_gateway/app.py:133",
+   "audit_call": null,
+   "driven": false
+  },
+  {
+   "service": "mail_gateway",
+   "method": "POST",
+   "path": "/send",
+   "handler": "send",
+   "place": "services/mail_gateway/app.py:107",
+   "audit_call": null,
+   "driven": false
+  }
+ ],
+ "driven": [
+  {
+   "route": "POST /breakglass",
+   "column": "admin",
+   "status": 303,
+   "success": true,
+   "events": [
+    "console.breakglass_notice",
+    "console.breakglass_open"
+   ],
+   "who": true,
+   "what": true,
+   "when": true,
+   "which": true,
+   "leaks": [
+    "chart",
+    "name",
+    "phone",
+    "email"
+   ],
+   "order": "change first"
+  },
+  {
+   "route": "POST /breakglass/{gid}/review",
+   "column": "steward",
+   "status": 303,
+   "success": true,
+   "events": [
+    "console.breakglass_review"
+   ],
+   "who": true,
+   "what": true,
+   "when": true,
+   "which": true,
+   "leaks": [],
+   "order": "change first"
+  },
+  {
+   "route": "POST /data-ops/batches/{bid}/decide",
+   "column": "steward",
+   "status": 303,
+   "success": true,
+   "events": [
+    "dataops.decide"
+   ],
+   "who": true,
+   "what": true,
+   "when": true,
+   "which": true,
+   "leaks": [
+    "chart",
+    "name",
+    "phone",
+    "email"
+   ],
+   "order": "one transaction"
+  },
+  {
+   "route": "POST /api/v1/data/batches/{bid}/decide",
+   "column": "steward",
+   "status": 200,
+   "success": true,
+   "events": [
+    "dataops.decide"
+   ],
+   "who": true,
+   "what": true,
+   "when": true,
+   "which": true,
+   "leaks": [
+    "chart",
+    "name",
+    "phone",
+    "email"
+   ],
+   "order": "one transaction"
+  },
+  {
+   "route": "POST /site/opt-outs",
+   "column": "privacy",
+   "status": 303,
+   "success": true,
+   "events": [
+    "console.opt_out"
+   ],
+   "who": true,
+   "what": true,
+   "when": true,
+   "which": true,
+   "leaks": [],
+   "order": "one transaction"
+  },
+  {
+   "route": "POST /api/v1/site/opt-outs",
+   "column": "privacy",
+   "status": 200,
+   "success": true,
+   "events": [
+    "console.opt_out"
+   ],
+   "who": true,
+   "what": true,
+   "when": true,
+   "which": true,
+   "leaks": [],
+   "order": "one transaction"
+  },
+  {
+   "route": "POST /studies/{rs}/patients/{pid}/reveal",
+   "column": "crc",
+   "status": 200,
+   "success": true,
+   "events": [
+    "console.reveal_patient"
+   ],
+   "who": true,
+   "what": true,
+   "when": true,
+   "which": true,
+   "leaks": [],
+   "order": "no change of state"
+  },
+  {
+   "route": "POST /studies/{rs}/candidates/{pid}/reveal",
+   "column": "crc",
+   "status": 200,
+   "success": true,
+   "events": [
+    "console.reveal_patient"
+   ],
+   "who": true,
+   "what": true,
+   "when": true,
+   "which": true,
+   "leaks": [],
+   "order": "no change of state"
+  },
+  {
+   "route": "POST /pilot/jobs/{job_id}/reveal",
+   "column": "crc",
+   "status": 200,
+   "success": true,
+   "events": [
+    "console.reveal_patient"
+   ],
+   "who": true,
+   "what": true,
+   "when": true,
+   "which": true,
+   "leaks": [],
+   "order": "no change of state"
+  },
+  {
+   "route": "POST /api/v1/studies/{rs}/patients/{pid}/reveal",
+   "column": "crc",
+   "status": 200,
+   "success": true,
+   "events": [
+    "console.reveal_patient"
+   ],
+   "who": true,
+   "what": true,
+   "when": true,
+   "which": true,
+   "leaks": [],
+   "order": "no change of state"
+  },
+  {
+   "route": "POST /studies/{rs}/patients/{pid}/mark",
+   "column": "pi",
+   "status": 303,
+   "success": true,
+   "events": [
+    "console.pi_mark"
+   ],
+   "who": true,
+   "what": true,
+   "when": true,
+   "which": true,
+   "leaks": [],
+   "order": "one transaction"
+  },
+  {
+   "route": "POST /api/v1/studies/{rs}/patients/{pid}/mark",
+   "column": "pi",
+   "status": 200,
+   "success": true,
+   "events": [
+    "console.pi_mark"
+   ],
+   "who": true,
+   "what": true,
+   "when": true,
+   "which": true,
+   "leaks": [],
+   "order": "one transaction"
+  },
+  {
+   "route": "POST /ops/users",
+   "column": "admin",
+   "status": 303,
+   "success": true,
+   "events": [
+    "console.user"
+   ],
+   "who": true,
+   "what": true,
+   "when": true,
+   "which": true,
+   "leaks": [],
+   "order": "change first"
+  },
+  {
+   "route": "POST /ops/users#disable",
+   "column": "admin",
+   "status": 303,
+   "success": true,
+   "events": [
+    "console.user"
+   ],
+   "who": true,
+   "what": true,
+   "when": true,
+   "which": true,
+   "leaks": [],
+   "order": "change first"
+  },
+  {
+   "route": "POST /audit/verify",
+   "column": "privacy",
+   "status": 200,
+   "success": true,
+   "events": [
+    "console.audit_verify"
+   ],
+   "who": true,
+   "what": true,
+   "when": true,
+   "which": false,
+   "leaks": [],
+   "order": "no change of state"
+  },
+  {
+   "route": "POST /api/v1/audit/verify",
+   "column": "privacy",
+   "status": 200,
+   "success": true,
+   "events": [
+    "console.audit_verify"
+   ],
+   "who": true,
+   "what": true,
+   "when": true,
+   "which": false,
+   "leaks": [],
+   "order": "no change of state"
+  }
+ ],
+ "order": {
+  "POST /breakglass": [
+   "change first",
+   "services/console/breakglass.py:205 (V3-18, shown there)"
+  ],
+  "POST /breakglass/{gid}/review": [
+   "change first",
+   "services/console/breakglass.py:239 bg.review, then :242"
+  ],
+  "POST /data-ops/batches/{bid}/decide": [
+   "one transaction",
+   "services/datacore/dataops.py:470-498"
+  ],
+  "POST /api/v1/data/batches/{bid}/decide": [
+   "one transaction",
+   "services/datacore/dataops.py:470-498"
+  ],
+  "POST /site/opt-outs": [
+   "one transaction",
+   "D-273; shown by tests/console/test_d273_privacy_guards.py"
+  ],
+  "POST /api/v1/site/opt-outs": [
+   "one transaction",
+   "D-273, the same register call as the page"
+  ],
+  "POST /studies/{rs}/patients/{pid}/mark": [
+   "one transaction",
+   "services/console/home.py:1218 (D-273), shown by test_d273_privacy_guards.py"
+  ],
+  "POST /api/v1/studies/{rs}/patients/{pid}/mark": [
+   "one transaction",
+   "services/console/home.py:1218 (D-273)"
+  ],
+  "POST /ops/users": [
+   "change first",
+   "services/console/app.py:1257 us.create, then :1259 (shown here)"
+  ],
+  "POST /ops/users#disable": [
+   "change first",
+   "services/console/app.py:1328 us.disable, then :1329"
+  ]
+ }
+}

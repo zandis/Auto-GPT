@@ -1,0 +1,167 @@
+{
+ "events": {
+  "code": 0,
+  "ok": true,
+  "errors": [],
+  "notes": [
+   "signed heads: events 1 to 362 are covered by a valid signature; 1 after it are not yet",
+   "signed heads: the trusted keys were taken from the anchor folder (give --pubkey to pin them)"
+  ],
+  "files": 3,
+  "lines": 363
+ },
+ "cases": [
+  {
+   "case": "field_first",
+   "cli_heads_ok": false,
+   "console_ok": false,
+   "cli_no_heads_ok": false,
+   "where_expected": "2026-11-14.jsonl:1: hash mismatch",
+   "first_error": "2026-11-14.jsonl:1: hash mismatch"
+  },
+  {
+   "case": "field_middle",
+   "cli_heads_ok": false,
+   "console_ok": false,
+   "cli_no_heads_ok": false,
+   "where_expected": "2026-11-15.jsonl:61: hash mismatch",
+   "first_error": "2026-11-15.jsonl:61: hash mismatch"
+  },
+  {
+   "case": "field_last",
+   "cli_heads_ok": false,
+   "console_ok": false,
+   "cli_no_heads_ok": false,
+   "where_expected": "2026-11-16.jsonl:\\d+: hash mismatch",
+   "first_error": "2026-11-16.jsonl:121: hash mismatch"
+  },
+  {
+   "case": "own_hash_recomputed",
+   "cli_heads_ok": false,
+   "console_ok": false,
+   "cli_no_heads_ok": false,
+   "where_expected": "2026-11-15.jsonl:52: prev_hash",
+   "first_error": "2026-11-15.jsonl:52: prev_hash does not match previous line"
+  },
+  {
+   "case": "rechained_with_head",
+   "cli_heads_ok": false,
+   "console_ok": false,
+   "cli_no_heads_ok": true,
+   "where_expected": "event \\d+ does not have the signed hash",
+   "first_error": "signed head 2026-11-15T16:20:00+00:00 (event 241, key 8b18e25366c968aac0e78cde8bfa8019): event 241 does not have the signed hash: the chain was rewritten"
+  },
+  {
+   "case": "delete_middle",
+   "cli_heads_ok": false,
+   "console_ok": false,
+   "cli_no_heads_ok": false,
+   "where_expected": "2026-11-15.jsonl:51: prev_hash",
+   "first_error": "2026-11-15.jsonl:51: prev_hash does not match previous line"
+  },
+  {
+   "case": "delete_last",
+   "cli_heads_ok": false,
+   "console_ok": false,
+   "cli_no_heads_ok": false,
+   "where_expected": "HEAD\\.json: the chain ends at event",
+   "first_error": "HEAD.json: the chain ends at event 362 (85035bf5c2273b31), the head anchor says event 363 (a5ad5eba407075ba): events dropped, a day file deleted, or the chain rewritten"
+  },
+  {
+   "case": "reorder_two",
+   "cli_heads_ok": false,
+   "console_ok": false,
+   "cli_no_heads_ok": false,
+   "where_expected": "2026-11-15.jsonl:31: prev_hash",
+   "first_error": "2026-11-15.jsonl:31: prev_hash does not match previous line"
+  },
+  {
+   "case": "cut_tail_5",
+   "cli_heads_ok": false,
+   "console_ok": false,
+   "cli_no_heads_ok": false,
+   "where_expected": "HEAD\\.json: the chain ends at event",
+   "first_error": "HEAD.json: the chain ends at event 358 (444d28d2f8ebff65), the head anchor says event 363 (a5ad5eba407075ba): events dropped, a day file deleted, or the chain rewritten"
+  },
+  {
+   "case": "drop_last_file",
+   "cli_heads_ok": false,
+   "console_ok": false,
+   "cli_no_heads_ok": false,
+   "where_expected": "HEAD\\.json: the chain ends at event",
+   "first_error": "HEAD.json: the chain ends at event 242 (d9a9ef3e238ecc7b), the head anchor says event 363 (a5ad5eba407075ba): events dropped, a day file deleted, or the chain rewritten"
+  },
+  {
+   "case": "prefix_with_head",
+   "cli_heads_ok": false,
+   "console_ok": false,
+   "cli_no_heads_ok": true,
+   "where_expected": "the chain has only \\d+ events",
+   "first_error": "signed head 2026-11-15T16:20:00+00:00 (event 241, key 8b18e25366c968aac0e78cde8bfa8019): the chain has only 232 events: events were dropped after signing"
+  },
+  {
+   "case": "fresh_chain_from_genesis",
+   "cli_heads_ok": false,
+   "console_ok": false,
+   "cli_no_heads_ok": true,
+   "where_expected": "does not have the signed hash|the chain has only \\d+ events",
+   "first_error": "signed head 2026-11-14T16:20:00+00:00 (event 120, key 8b18e25366c968aac0e78cde8bfa8019): the chain has only 60 events: events were dropped after signing"
+  },
+  {
+   "case": "duplicate_event",
+   "cli_heads_ok": false,
+   "console_ok": false,
+   "cli_no_heads_ok": false,
+   "where_expected": "2026-11-15.jsonl:42: prev_hash",
+   "first_error": "2026-11-15.jsonl:42: prev_hash does not match previous line"
+  },
+  {
+   "case": "insert_forged",
+   "cli_heads_ok": false,
+   "console_ok": false,
+   "cli_no_heads_ok": false,
+   "where_expected": "2026-11-15.jsonl:43: prev_hash",
+   "first_error": "2026-11-15.jsonl:43: prev_hash does not match previous line"
+  },
+  {
+   "case": "swap_day_files",
+   "cli_heads_ok": false,
+   "console_ok": false,
+   "cli_no_heads_ok": false,
+   "where_expected": "2026-11-14.jsonl:1: prev_hash",
+   "first_error": "2026-11-14.jsonl:1: prev_hash does not match previous line"
+  },
+  {
+   "case": "torn_last_line",
+   "cli_heads_ok": false,
+   "console_ok": false,
+   "cli_no_heads_ok": false,
+   "where_expected": "2026-11-16.jsonl:\\d+: invalid JSON",
+   "first_error": "2026-11-16.jsonl:121: invalid JSON (Unterminated string starting at: line 1 column 299 (char 298))"
+  },
+  {
+   "case": "rollback_to_backup",
+   "cli_heads_ok": false,
+   "console_ok": false,
+   "cli_no_heads_ok": true,
+   "where_expected": "the chain has only \\d+ events",
+   "first_error": "signed head 2026-11-16T16:20:00+00:00 (event 362, key 8b18e25366c968aac0e78cde8bfa8019): the chain has only 242 events: events were dropped after signing"
+  },
+  {
+   "case": "rollback_after_last_signed_head",
+   "cli_heads_ok": true,
+   "console_ok": true,
+   "cli_no_heads_ok": true,
+   "where_expected": "",
+   "first_error": ""
+  },
+  {
+   "case": "torn_then_written",
+   "cli_heads_ok": true,
+   "console_ok": true,
+   "cli_no_heads_ok": null,
+   "where_expected": "",
+   "first_error": ""
+  }
+ ]
+}
