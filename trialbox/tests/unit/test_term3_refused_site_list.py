@@ -45,7 +45,7 @@ def test_a_changed_site_list_is_refused_by_name_and_every_mapping_says_so(tmp_pa
     _load(where, tmp_path)
     _tamper(where)
     term = Terminology(installed=where)
-    assert [r["table"] for r in term.terminology_refused] == ["site_dx"]
+    assert [(r["table"], r["system"]) for r in term.terminology_refused] == [("site_dx", "site")]
     assert "sha256 differs" in term.terminology_refused[0]["reason"]
     assert term.refused_site_lists() == term.terminology_refused
     res = term.map("condition", "hypertension")
@@ -68,6 +68,7 @@ def test_a_refused_table_that_is_not_a_site_list_is_recorded_but_is_no_site_refu
     (where / f"{installed.ICD_BLOCKS}.parquet").write_bytes(b"not a table")  # no manifest line
     term = Terminology(installed=where)
     assert [r["table"] for r in term.terminology_refused] == [installed.ICD_BLOCKS]
+    assert term.terminology_refused[0]["system"] == "http://hl7.org/fhir/sid/icd-10-cm"  # the stamp's URI
     assert term.refused_site_lists() == []
 
 
@@ -133,7 +134,7 @@ def test_the_compile_records_the_refusal_and_approval_is_refused(env: dict[str, 
     _tamper(where)
     env["deps"].term.refresh_installed()
     res = _compile(env)
-    assert [r.table for r in res.manifest.terminology_refused or []] == ["site_dx"]
+    assert [(r.table, r.system) for r in res.manifest.terminology_refused or []] == [("site_dx", "site")]
     out = _approve(env, _decisions(env["store"], res.review_xlsx_key))
     assert out.status == "needs_review"
     assert any("site list site_dx was not read at the compile" in b for b in out.blocking or []), out.blocking

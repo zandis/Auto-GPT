@@ -376,19 +376,6 @@ class EmbedResponse(BaseModel):
     dim: int
 
 
-class EquivalenceReport(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        populate_by_name=True,
-    )
-    overall_pct: float
-    per_criterion: dict[str, float]
-    failing: list[str]
-    sample_size: int
-    disagreements: list[Disagreement] | None = None
-    engine: str | None = None
-
-
 class EquivalenceSummary(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1246,6 +1233,10 @@ class RefusedTable(BaseModel):
         populate_by_name=True,
     )
     table: str = Field(..., pattern="^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$")
+    system: str | None = None
+    """
+    the code system's URI, or site for a site list (as terminology_tables names it)
+    """
     reason: str = Field(..., max_length=600)
 
 
@@ -1386,7 +1377,9 @@ class ReleaseRecord(BaseModel):
     )
     format: Literal["trialbox-release/1"]
     product: Literal["trialbox"]
-    version: str = Field(..., pattern="^[0-9]+\\.[0-9]+\\.[0-9]+([.+-][0-9A-Za-z.-]+)?$")
+    version: str = Field(
+        ..., pattern="^[0-9]+\\.[0-9]+\\.[0-9]+([.+-][0-9A-Za-z.-]+)?$"
+    )
     release_id: str = Field(..., pattern="^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
     release_seq: int = Field(..., ge=1)
     created_at: AwareDatetime
@@ -1816,7 +1809,9 @@ class Settings(BaseModel):
     """
     practitioners: dict[str, PractitionerInfo] | None = None
     retention: Retention | None = Field(None, title="Retention")
-    calibration_defaults: CalibrationDefaults | None = Field(None, title="CalibrationDefaults")
+    calibration_defaults: CalibrationDefaults | None = Field(
+        None, title="CalibrationDefaults"
+    )
     twpas: TwpasSettings | None = Field(None, title="TwpasSettings")
     ethics_gate: bool | None = None
     """
@@ -1965,7 +1960,9 @@ class SiteCodeLists(BaseModel):
         populate_by_name=True,
     )
     sex: SiteSexCodes | None = Field(None, title="SiteSexCodes")
-    encounter_type: SiteEncounterTypeCodes | None = Field(None, title="SiteEncounterTypeCodes")
+    encounter_type: SiteEncounterTypeCodes | None = Field(
+        None, title="SiteEncounterTypeCodes"
+    )
     department: list[SiteCode] | None = Field(None, min_length=1)
     lab: list[SiteLabItem] = Field(..., min_length=1)
     diagnosis: list[SiteDiagnosisCode] | None = None
@@ -1994,7 +1991,9 @@ class SiteNotes(BaseModel):
         extra="forbid",
         populate_by_name=True,
     )
-    types: list[Literal["progress", "admission", "discharge", "consult", "nursing"]] = Field(..., min_length=1)
+    types: list[Literal["progress", "admission", "discharge", "consult", "nursing"]] = (
+        Field(..., min_length=1)
+    )
 
 
 class SiteUnitMismatch(BaseModel):
@@ -2089,6 +2088,21 @@ class SiteSchema(BaseModel):
     """
     what the synthetic site plants for the mapping to find: lab codes the mapping does not know and results in a unit the lookup does not expect
     """
+
+
+class TerminologyTable(BaseModel):
+    """
+    One table loaded at install that a compile read (TERM-2 follow-up): its name, the URI of the code system it serves (site for a site list, as lane E's terminology_refused entries name it), its version and the sha256 of its manifest line. Codes and names only, never a patient value.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    table: str
+    system: str | None = None
+    version: str | None = None
+    sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
 
 
 class TierSummary(BaseModel):
@@ -2301,9 +2315,14 @@ class Atom(BaseModel):
     """
     computed observation; egfr_ckd_epi and egfr_jsn name the equation (D-149), a plain egfr is CKD-EPI 2021
     """
-    clinical_status: list[Literal["active", "recurrence", "relapse", "inactive", "remission", "resolved"]] | None = (
-        Field(None, min_length=1)
-    )
+    clinical_status: (
+        list[
+            Literal[
+                "active", "recurrence", "relapse", "inactive", "remission", "resolved"
+            ]
+        ]
+        | None
+    ) = Field(None, min_length=1)
     """
     condition atoms only (D-917): the clinical statuses that count; a row recorded with another status makes the answer unknown, a row with no status counts as before
     """
@@ -2315,7 +2334,9 @@ class B200Layout(BaseModel):
         populate_by_name=True,
     )
     name: str
-    mig_profile: str = Field(..., pattern="^judge=\\d+g\\.\\d+gb(\\+me)?,verifier=\\d+g\\.\\d+gb(\\+me)?$")
+    mig_profile: str = Field(
+        ..., pattern="^judge=\\d+g\\.\\d+gb(\\+me)?,verifier=\\d+g\\.\\d+gb(\\+me)?$"
+    )
     fingerprint: HostFingerprint
     serving_record: B200ServingRecordRef = Field(..., title="B200ServingRecordRef")
     qualification: B200QualificationRef = Field(..., title="B200QualificationRef")
@@ -2411,6 +2432,23 @@ class CtgovSearchResult(BaseModel):
     source: Literal["api", "cassette", "refdata"]
     fetched_at: AwareDatetime
     studies: list[CtgovStudy]
+
+
+class EquivalenceReport(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    overall_pct: float
+    per_criterion: dict[str, float]
+    failing: list[str]
+    sample_size: int
+    disagreements: list[Disagreement] | None = None
+    engine: str | None = None
+    terminology_tables: list[TerminologyTable] | None = None
+    """
+    TERM-2 follow-up: the loaded terminology tables the compared compile read, as its manifest names them (absent: none, the shipped Parquet alone)
+    """
 
 
 class ExtractedAtom(BaseModel):
@@ -2801,7 +2839,9 @@ class QualificationRecord(BaseModel):
     status: Literal["passed", "failed"]
     failed_steps: list[str]
     qualifies_production: bool
-    change_protocol: QualificationChangeProtocol = Field(..., title="QualificationChangeProtocol")
+    change_protocol: QualificationChangeProtocol = Field(
+        ..., title="QualificationChangeProtocol"
+    )
     """
     The model change protocol this record is evidence for (D-343): the document, the sha256 of its text and the change id of its table of foreseen changes.
     """
@@ -3017,7 +3057,7 @@ class PatientProfile(BaseModel):
 
 class RulesetManifest(BaseModel):
     """
-    rulesets/<ID>/manifest.yaml (SPEC 3.4). Schema version 1.0.0.
+    rulesets/<ID>/manifest.yaml (SPEC 3.4). Schema version 1.2.0 (1.1.0: optional terminology_tables, the TERM-2 follow-up; 1.2.0: optional terminology_refused, E-TERM-3).
     """
 
     model_config = ConfigDict(
@@ -3084,6 +3124,10 @@ class RulesetManifest(BaseModel):
     prompt_pins: dict[str, PromptPin] | None = None
     """
     the prompts the approved ruleset runs with, by prompt id (D-318): SCREEN runs the pinned version and text until the investigator re-approves; a newer registered version puts the study in approval needed
+    """
+    terminology_tables: list[TerminologyTable] | None = None
+    """
+    TERM-2 follow-up: each table loaded at install (a site list, the NHI lists, ICD-10-PCS, a licensed table, a later ICD-10-CM release) the compile read, beside terminology_release (the shipped Parquet). Absent: no loaded table was read. Approval is blocked while the box's loaded tables differ from these
     """
     derived_pins: dict[str, DerivedPin] | None = None
     """
@@ -3241,7 +3285,9 @@ class CriterionIR(BaseModel):
         extra="forbid",
         populate_by_name=True,
     )
-    id: str = Field(..., pattern="^[A-Z0-9]+(-[A-Z0-9]+)*-(INC|EXC|REN|DOC)-[0-9]{2,3}$")
+    id: str = Field(
+        ..., pattern="^[A-Z0-9]+(-[A-Z0-9]+)*-(INC|EXC|REN|DOC)-[0-9]{2,3}$"
+    )
     ruleset: str
     text: str
     label: str | None = None

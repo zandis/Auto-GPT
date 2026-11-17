@@ -133,6 +133,7 @@ _D1 = {
     "Window",
     "CriterionIR",
     "CriterionProvenance",  # the model calls a criterion was extracted by (ids, no content; D-989)
+    "TerminologyTable",  # a loaded code table a compile read: name, system, version, sha256 (codes only)
     "CompileRequest",
     "CompileResult",
     "ConceptCandidate",

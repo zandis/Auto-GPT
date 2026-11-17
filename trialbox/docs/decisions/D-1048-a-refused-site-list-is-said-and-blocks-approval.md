@@ -25,7 +25,7 @@ A list whose file was gone while its manifest line stayed was not refused at all
    - A site list whose file is gone while its manifest line stays is refused ("in manifest.json but its file is missing").
    - While a site list is refused, every mapping the compile makes carries the note "site list site_<name> was not read; the shipped tables answered".
 2. **The compile records them.**
-   - The ruleset manifest gains `terminology_refused`: a list of `RefusedTable`, each a table name and the refusal's sentence (at most 600 characters, never a row of the table).
+   - The ruleset manifest gains `terminology_refused`: a list of `RefusedTable`, each with its table name, the code system (`system`, as A2's stamp names it) and the refusal's sentence (at most 600 characters, never a row of the table). Schema version 1.2.0.
    - The review workbook gains a `terminology` sheet with the columns table, reason and whether it blocks approval.
    - The review notes say the same.
    - Each compile and each approval first re-reads the installed site lists and tables (`Terminology.refresh_installed`). A list loaded again, or removed, is seen without a restart of the compiler.
@@ -45,5 +45,7 @@ A list whose file was gone while its manifest line stayed was not refused at all
 
 ## Not in this card
 
-- **The release stamp** that names each loaded table read (system, version, manifest sha256) is lane A2's card. Its shape is to be agreed with this card's `terminology_refused` through the integrator: the same `table` key.
+- **The release stamp** is lane A2's card (#969, merged into this branch). It names each loaded table a compile read: `terminology_tables`, each `{table, system, version, sha256}`. Through the integrator it was agreed that this card's `terminology_refused` entries use the same shape, `{table, system, reason}`. `system` is the code system's URI, or `site` for a site list (`mapper.table_system`).
+  - A refused site list also reads as gone in A2's stamp. Approval then shows two blocking lines: the stamp's "compile again", and this card's line, which names the list and why.
+  - `Terminology.refresh_installed` reads the stamp's TERM-2 part again too, so the stamp and the refusals come from one read.
 - **Mounting `TB_TERMINOLOGY_DIR`** into the compose services is lane D's card. Until it lands, the console's admin banner is empty on a box where the folder is not mounted. The compiler's gate holds wherever the compiler reads the folder.
