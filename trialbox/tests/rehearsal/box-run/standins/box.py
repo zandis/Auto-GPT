@@ -141,7 +141,8 @@ def unit_load() -> dict[str, Any]:
     """Lane D's trialbox.service on the "VM" (deploy/install.sh installs and enables it when its egress check passes):
     knob unit-enabled says the disk's install left it enabled; absent, the unit is not installed (the direct route)."""
     default = {"enabled": "enabled" if flag("unit-enabled") else "not-found", "active": "inactive", "pending": False}
-    return jload(BOX / "unit.json", default)
+    u: dict[str, Any] = jload(BOX / "unit.json", default)
+    return u
 
 
 def unit_late_up(why: str) -> None:
@@ -198,7 +199,7 @@ def unit(argv: list[str]) -> int:
 def caddy_state() -> int:
     """What listens on tcp:443 (the ss shim asks): the box's Caddy publishes it."""
     if caddy_up():
-        print("LISTEN 0      4096         0.0.0.0:443       0.0.0.0:*    users:((\"docker-proxy\",pid=1,fd=4))")
+        print('LISTEN 0      4096         0.0.0.0:443       0.0.0.0:*    users:(("docker-proxy",pid=1,fd=4))')
     return 0
 
 
