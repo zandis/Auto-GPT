@@ -208,14 +208,24 @@ def test_d7_compile_bound_sets_run_three_at_once_and_the_report_says_how_many(tm
     res = box_vm.acc_set("sigir", _built(tmp_path, trials=4), tmp_path / "work", FakeBox(), streams=3, **KW)
     assert res["streams"] == 3 and 1 <= res["in_flight_max"] <= 3
     parts = {"60-acc-sigir": {"pass": True, "detail": {"counts": {}, "streams": 3, "in_flight_max": 3}}}
-    det = box_run.acc_checks(None, parts, {})[1]["detail"]
-    assert det["streams"] == 3 and det["in_flight_max"] == 3
+    chk = box_run.acc_checks(None, parts, {})[1]
+    assert chk["detail"]["streams"] == 3 and chk["detail"]["in_flight_max"] == 3
+    # the report says it in the check's own line (its detail is cut at 400 characters)
+    assert chk["check"].endswith("protocols in flight: 3 at most of 3")
+    report = box_run.render_results({"provenance": {}, "tests": {"acc": [chk]}})
+    assert "protocols in flight: 3 at most of 3" in report
 
 
-def test_d7_the_pair_budget_is_set_for_a_notes_only_ruleset() -> None:
+def test_d7_the_run_sets_no_pair_budget_a_notes_only_ruleset_gets_its_populations_pairs() -> None:
+    """Lane A2's D-953 (#866) is on master: a notes-only SCREEN with no budget set gets its population's pairs, so
+    the run no longer writes TB_SCREEN_MAX_PAIRS (it would cap every coded SCREEN too); it records the box's own."""
+    from orchestrator.scenarios import screen_cascade
+
     body = VM_SCRIPT[VM_SCRIPT.index("step_acc_settings() {") : VM_SCRIPT.index("step_acc_routes() {")]
-    assert 'envset_box TB_SCREEN_MAX_PAIRS "${ACC_MAX_PAIRS:-20000}"' in body and "D-788" in body
-    assert body.index("TB_SCREEN_MAX_PAIRS") < body.index("d_recreate")  # before the services read deploy/.env
+    assert "envset_box TB_SCREEN_MAX_PAIRS" not in body and "ACC_MAX_PAIRS" not in VM_SCRIPT
+    assert "note max_pairs" in body and "D-953" in body
+    assert "notes_only_budget(rs, pids)" in Path(screen_cascade.__file__).read_text(encoding="utf-8")
+    assert screen_cascade.max_pairs_of({}, {}) is None  # no budget set: the cascade takes notes_only_budget's
 
 
 # ---------------------------------------------------------------- D8: the source bundle proved
@@ -242,10 +252,81 @@ def test_d8_the_source_bundle_is_cloned_and_checked_out_before_upload(tmp_path: 
                    check=True)  # fmt: skip
     sh = box_run.src_bundle(sha, out=tmp_path / "s.bundle", root=tmp_path / "shallow")
     assert sh["ok"] is False and "shallow" in sh["why"]
-    assert not subprocess.run(["git", "-C", str(tmp_path / "r"), "for-each-ref", "refs/tb-release"],
+    assert not subprocess.run(["git", "-C", str(tmp_path / "r"), "for-each-ref", "refs/tb-release", "refs/heads/tb-release-*"],
                               capture_output=True, text=True, check=True).stdout  # fmt: skip
-    i = DRIVER.index("br src-bundle --commit")
+    i = DRIVER.index("br preflight --steps")
     assert i < DRIVER.index('gc storage cp "$SRC_BUNDLE"') < DRIVER.index('gc compute instances start "$VM"', i)
+
+
+def test_d8_the_bundle_made_here_clones_on_the_vm_and_the_proof_clones_as_the_vm_does(tmp_path: Path) -> None:
+    """H-1: #889's bundle named its commit by a ref outside refs/heads, which a plain ``git clone`` (the VM's
+    b01-source) does not take: the clone was empty and the checkout failed, while the proof, which fetched every
+    ref, said ok. The bundle is now a branch, and the proof clones exactly as the VM does."""
+    sha = _repo(tmp_path / "r")
+    assert box_run.src_bundle(sha, out=tmp_path / "src.bundle", root=tmp_path / "r")["ok"] is True
+    vm = tmp_path / "vm"  # b01-source's own three commands
+    subprocess.run(["git", "clone", "-q", str(tmp_path / "src.bundle"), str(vm)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(vm), "checkout", "-q", "--detach", sha], check=True)
+    assert subprocess.run(["git", "-C", str(vm), "rev-parse", "HEAD"], capture_output=True, text=True,
+                          check=True).stdout.strip() == sha  # fmt: skip
+    # a bundle of a ref a clone does not take (as #889 made it) is refused
+    subprocess.run(["git", "-C", str(tmp_path / "r"), "update-ref", f"refs/tb-release/{sha}", sha], check=True)
+    subprocess.run(["git", "-C", str(tmp_path / "r"), "bundle", "create", str(tmp_path / "old.bundle"),
+                    f"refs/tb-release/{sha}"], check=True, capture_output=True)  # fmt: skip
+    old = box_run.src_bundle(sha, check=tmp_path / "old.bundle", root=tmp_path / "r")
+    assert old["ok"] is False and "checkout" in old["why"]
+    short = box_run.src_bundle(sha[:12], check=tmp_path / "src.bundle", root=tmp_path / "r")
+    assert short["ok"] is False and "full 40-character commit" in short["why"]
+
+
+# ---------------------------------------------------------------- H-1: the preflight, every free check at once
+def _driver(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """``box-run.sh`` with no gcloud on the PATH, no TB_BUCKET and no credentials (a preflight needs none)."""
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "PY": sys.executable, "TMPDIR": str(tmp_path)}
+    return subprocess.run([str(ROOT / "deploy" / "gcp" / "box-run.sh"), *args], env=env, capture_output=True,
+                          text=True, check=False)  # fmt: skip
+
+
+def test_h1_the_preflight_refuses_each_option_that_would_fail_on_the_vm() -> None:
+    acc, tcga = ["acc"], "tcga"
+    assert box_run.launch_checks(acc, {"tb-acc-rs-tag": "m2", "tb-acc-protocols": "tcga:Gm2TCGA-BRCA"}, tcga) == []
+    assert any("G2TCGA-BRCA not among its ids (prefix 'Gm2'; ids Gm2TCGA-BRCA" in x
+               for x in box_run.launch_checks(acc, {"tb-acc-rs-tag": "m2", "tb-acc-protocols": "tcga:G2TCGA-BRCA"}, tcga))  # fmt: skip
+    assert "is empty" in box_run.launch_checks(acc, {"tb-acc-protocols": " "}, tcga)[0]
+    assert "letters, digits" in box_run.launch_checks(acc, {"tb-acc-rs-tag": "m 2"}, tcga)[0]
+    assert "from 1 to 3" in box_run.launch_checks(acc, {"tb-acc-streams": "tcga:4"}, tcga)[0]
+    assert box_run.launch_checks(acc, {"tb-acc-streams": "tcga:5", "tb-site-env": "TB_WORKERS=6"}, tcga) == []
+    assert "not in this launch" in box_run.launch_checks(acc, {"tb-acc-streams": "sigir:3"}, tcga)[0]
+    assert "seconds" in box_run.launch_checks(acc, {"tb-acc-deadline": "tcga:1h"}, tcga)[0]
+    assert box_run.launch_checks(acc, {"tb-acc-deadline": "tcga:900", "tb-acc-min-start": "300"}, tcga) == []
+    assert "full 40-character" in box_run.launch_checks(["dev"], {"tb-commit": "3b2f5e38"})[0]
+    assert box_run.streams_of("sigir,tcga") == {"sigir": 3, "tcga": 1}
+    assert box_run.streams_of("sigir,tcga", "sigir:2") == {"sigir": 2, "tcga": 1}
+
+
+def test_h1_the_driver_preflight_runs_every_free_check_and_starts_nothing(tmp_path: Path) -> None:
+    acc = ["--preflight", "--mode", "validation", "--steps", "start,acc", "--release-id", "val-x", "--only", "tcga",
+           "--acc-rs-tag", "m2"]  # fmt: skip
+    r = _driver(tmp_path, *acc, "--acc-protocols", "tcga:G2TCGA-BRCA")  # launch P1b's filter
+    assert r.returncode == 2 and "refused (no VM started)" in r.stderr and "Gm2TCGA-BRCA" in r.stderr
+    r = _driver(tmp_path, *acc, "--acc-protocols", "tcga:Gm2TCGA-BRCA", "--acc-streams", "tcga:9")
+    assert r.returncode == 6 and "FAILED" in r.stderr and "tcga:9" in r.stderr
+    r = _driver(tmp_path, *acc, "--acc-protocols", "tcga:Gm2TCGA-BRCA")
+    assert r.returncode == 0, r.stderr
+    assert "every free check passed" in r.stdout and "protocols in flight per set" in r.stderr
+    sha = _repo(tmp_path / "r")
+    dev = ["--preflight", "--steps", "dev", "--release-id", "dev-x", "--commit", sha]
+    r = _driver(tmp_path, *dev)  # the bucket's bundle is never taken unproved
+    assert r.returncode == 6 and "--src-bundle FILE is needed" in r.stderr
+    assert box_run.src_bundle(sha, out=tmp_path / "src.bundle", root=tmp_path / "r")["ok"]
+    r = _driver(tmp_path, *dev, "--src-bundle", str(tmp_path / "src.bundle"))
+    assert r.returncode == 0, r.stderr
+    (tmp_path / "junk.bundle").write_bytes(b"not a bundle")
+    assert _driver(tmp_path, *dev, "--src-bundle", str(tmp_path / "junk.bundle")).returncode == 6
+    for out in (r.stdout, r.stderr):  # nothing uploaded, nothing started: not even printed as a dry run would
+        assert "storage cp" not in out and "instances start" not in out and "add-metadata" not in out
+    assert _driver(tmp_path, "--preflight", "--resume", "box-r1").returncode == 2
+    assert "--preflight" in DRIVER[: DRIVER.index("set -euo pipefail")]
 
 
 # ---------------------------------------------------------------- B1: the birth date
@@ -356,3 +437,23 @@ def test_s3_s4_exclusions_by_a_line_the_benchmark_wrote_are_counted(tmp_path: Pa
         "tier": "excluded", "verdicts": [{"id": "inc-1", "verdict": "fail"}]}}, draft_j)))  # fmt: skip
     out = score.score(tmp_path / "built", tmp_path / "work")
     assert out["written_lines"]["patients_excluded"] == 1
+
+
+# ---------------------------------------------------------------- H-1: acc-score carries H-3's keys when present
+@pytest.mark.parametrize("extra", [{}, {"protocols": {"summary": {"n": 2}}, "pathology": {"excluded": 384},
+                                        "unjudged_exclusions": {"summary": {"n": 1}}}])  # fmt: skip
+def test_h1_acc_score_summary_takes_h3s_keys_only_when_the_score_has_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extra: dict[str, Any]
+) -> None:
+    sd = tmp_path / "acc" / "tcga"
+    (sd / "built" / "gold").mkdir(parents=True)
+    (sd / "built" / "gold" / "ids.json").write_text("{}")
+    (sd / "work").mkdir()
+    (sd / "work" / "answers.json").write_text("{}")
+    monkeypatch.setattr(score, "score", lambda built, work: {"pairs": {"summary": {"n": 3}}, **extra})
+    got = box_run.acc_score(tmp_path)["tcga"]["summary"]
+    assert got["pairs"] == {"n": 3}
+    for k in ("protocols", "pathology", "unjudged_exclusions"):
+        assert (k in got) == (k in extra)
+    if extra:
+        assert got["protocols"] == {"n": 2} and got["pathology"] == {"excluded": 384}
