@@ -10,8 +10,11 @@
    key v2 marks the pair `conflicted`. It is not relabelled.
 2. The target "no eligible patient excluded" is read on key v2 without the conflicted pairs. Every report prints,
    beside that figure, the figure on the key as published and the conflicted pairs by id with the reason.
-3. On launch P1b's artefacts the conflicted pairs are `sigir-201413` with `NCT00163709` and `sigir-20142` with
-   `NCT00711399`.
+3. The mark is a property of the key, the same for every run: the scorer's own gold rule (an inclusion the
+   physicians labelled "not included", or an exclusion they labelled "excluded", for that patient in that trial).
+   On launch P1b's sigir gold it marks six pairs (lane H's table on PR #639, 2026-11-17), not only the two the
+   replay first showed. For each conflicted pair the report also says what the box answered and on which
+   criterion; a box that excludes one on a line the physicians did not label is a finding to trace.
 4. A target is met only by a launch. The offline replay's cause-level figures decide whether a launch is worth its
    cost; they are never quoted as a result.
 

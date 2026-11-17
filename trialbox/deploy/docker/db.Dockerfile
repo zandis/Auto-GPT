@@ -17,7 +17,7 @@
 # them, which a restore as `trialbox` (pg_restore --clean --if-exists, tools/trialbox/backup.py, update.py) needs.
 # /usr/local/bin/tb-db-check (db.healthcheck.sh) is the readiness check: server up, trialbox_wf there, both extensions
 # installed; a compose healthcheck runs it (D-204 lists the wiring).
-ARG POSTGRES_BASE=postgres:16-trixie@sha256:f9a7b9ebf6f56201f949db745e47bc423c0f0f8294bafe991cc10bf74b029657
+ARG POSTGRES_BASE=postgres:16-trixie@sha256:dd2bf3ce2dc83a81674cf7f217fcfd8a5009a4b325dda5b843bfee82a06cff6f
 FROM ${POSTGRES_BASE}
 ARG PGVECTOR_VERSION=0.8.7-1.pgdg13+1
 ARG PGROONGA_VERSION=4.1.0-1

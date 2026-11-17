@@ -8,7 +8,9 @@
 #   deploy/gcp/demo-vm.sh --dry-run [CMD]  every gcloud command CMD (default up) would run; runs none
 #   deploy/gcp/demo-vm.sh up [--yes]       network, subnet, the tcp:443 rule, the VM (or start the stopped one);
 #                                          without --yes it only prints, as --dry-run
-#   deploy/gcp/demo-vm.sh status           the VM, its address, the rule's ranges, the hard stop, the boot log's end
+#   deploy/gcp/demo-vm.sh status [--boot-id ID]  the VM, its address, the rule's ranges, the hard stop, the boot
+#                                          log's end; DEMO-VM-READY only from this boot (D-1120: its id, or stamped
+#                                          after the VM's last start; ID, the one `links` printed, decides alone)
 #   deploy/gcp/demo-vm.sh links            the people's one-time links (D-776; written by the VM after the seed):
 #                                          prints them once and deletes the object; give each person their own line
 #   deploy/gcp/demo-vm.sh down             stop the VM and check that it shows TERMINATED (the disk stays)
@@ -43,24 +45,28 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 BOOT="$HERE/demo-vm-boot.sh"
 PY="${PY:-$ROOT/.venv/bin/python}"
 [ -x "$PY" ] || PY=python3
-DRY=0; YES=0; ESTIMATE=0; CMD=""
+DRY=0; YES=0; ESTIMATE=0; CMD=""; BOOT_ID=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1 ;;
     --yes) YES=1 ;;
     --estimate) ESTIMATE=1 ;;
-    -h | --help) sed -n 2,38p "$0"; exit 0 ;;
+    --boot-id)  # status only: this boot's id, as `links` printed it (D-1120)
+      [ $# -ge 2 ] && [[ "$2" =~ ^[0-9a-f]{16}$ ]] || { echo "--boot-id takes the 16 hex digits \`links\` printed" >&2; exit 2; }
+      BOOT_ID=$2; shift ;;
+    -h | --help) sed -n 2,40p "$0"; exit 0 ;;
     up | status | down | delete | links) [ -z "$CMD" ] || { echo "one command only" >&2; exit 2; }; CMD=$1 ;;
-    *) echo "unknown argument: $1" >&2; sed -n 2,38p "$0" >&2; exit 2 ;;
+    *) echo "unknown argument: $1" >&2; sed -n 2,40p "$0" >&2; exit 2 ;;
   esac
   shift
 done
 
 if [ "$ESTIMATE" = 1 ]; then exec "$PY" "$HERE/demo_vm.py" estimate; fi
 if [ -z "$CMD" ]; then
-  [ "$DRY" = 1 ] || { sed -n 2,38p "$0" >&2; exit 2; }
+  [ "$DRY" = 1 ] || { sed -n 2,40p "$0" >&2; exit 2; }
   CMD=up
 fi
+[ -z "$BOOT_ID" ] || [ "$CMD" = status ] || { echo "--boot-id is for status only" >&2; exit 2; }
 case "$CMD" in
   up | delete)
     if [ "$DRY" = 0 ] && [ "$YES" = 0 ]; then
@@ -217,7 +223,9 @@ status() {
   [ "$st" = NONE ] && return 0
   if [ "$DRY" = 1 ]; then
     echo "+ gcloud compute firewall-rules describe $RULE --format=yaml(sourceRanges,allowed,disabled)   # 0.0.0.0/0: $OPEN_TEXT"
-    echo "+ gcloud compute instances get-serial-port-output $N --zone $ZONE   # the boot's lines; DEMO-VM-READY or not"
+    echo "+ gcloud compute instances describe $N --zone $ZONE --format=value(lastStartTimestamp)   # this boot's start"
+    echo "+ gcloud compute instances get-serial-port-output $N --zone $ZONE --port 1 --start 0 --format=json   # then from each page's next, to the end"
+    echo "  # the boot's lines; DEMO-VM-READY only from this boot (D-1120)"
     return 0
   fi
   local rule
@@ -232,11 +240,39 @@ status() {
     --format='value(scheduling.maxRunDuration.seconds,scheduling.instanceTerminationAction)' 2>/dev/null) (seconds, action)"
   if [ "$st" = RUNNING ]; then
     echo "address: https://$(vm_ip)/"
+    # D-1120: the serial buffer outlives a stop and a start, so a marker counts only when it is this boot's: its id
+    # (--boot-id, or the id of the boot whose first line is stamped after lastStartTimestamp), else its own stamp
+    local last_start pages
+    last_start="$(gc compute instances describe "$N" --zone "$ZONE" --format='value(lastStartTimestamp)' 2>/dev/null || true)"
+    pages="$(mktemp -d)"
+    serial_pages "$pages"
     # the boot's own lines and its marker, wherever the script runner's prefix puts them (demo_vm.py boot-state)
     echo "boot log (serial console):"
-    { gc compute instances get-serial-port-output "$N" --zone "$ZONE" 2>/dev/null || true; } \
-      | "$PY" "$HERE/demo_vm.py" boot-state
+    local args=(--last-start "${last_start:-none}")
+    [ -z "$BOOT_ID" ] || args+=(--boot-id "$BOOT_ID")
+    local files=("$pages"/page-*)   # in order: page-001, page-002, ...
+    [ -e "${files[0]}" ] || files=()
+    "$PY" "$HERE/demo_vm.py" boot-state "${args[@]}" "${files[@]}"
+    rm -rf "$pages"
+  else
+    echo "boot: the VM is $st: no ready line is read (a marker in the serial buffer is an earlier boot's)"
   fi
+}
+
+# the whole serial buffer of port 1 (where the boot's tee and the script runner write), page by page: each call
+# starts at the previous page's next byte, so a buffer longer than one answer is read to its end and a line cut at a
+# page's edge is joined again. Ends when a page is empty or next does not move; 64 pages is far past the 1 MB the
+# console keeps (a guard against a VM that never stops writing, not a cut of a boot's output).
+serial_pages() {
+  local dir=$1 pos=0 i nxt f
+  for i in $(seq 1 64); do
+    f="$dir/page-$(printf '%03d' "$i")"
+    gc compute instances get-serial-port-output "$N" --zone "$ZONE" --port 1 --start "$pos" --format=json \
+      >"$f" 2>/dev/null || { rm -f "$f"; break; }
+    nxt="$("$PY" "$HERE/demo_vm.py" serial-next <"$f")" || break
+    [ "$nxt" -gt "$pos" ] || break
+    pos=$nxt
+  done
 }
 
 down() {
@@ -291,7 +327,13 @@ links() {  # the links' object(s) the VM wrote: the newest printed once, then ev
   objs="$(gc storage ls "$HANDOFF/enrol-*.txt" 2>/dev/null | sort || true)"
   [ -n "$objs" ] || die "no codes under $HANDOFF: the VM writes them after the seed (status shows DEMO-VM-READY), or they were read already (a new set needs down and up: a new seed)"
   newest="$(printf '%s\n' "$objs" | tail -1)"
-  gc storage cat "$newest"
+  local text id
+  text="$(gc storage cat "$newest")"
+  printf '%s\n' "$text"
+  # D-1120: the boot's id (random, not a secret): `status --boot-id` then reads that boot's lines only
+  id="$(printf '%s\n' "$text" | sed -n 's/.*boot id \([0-9a-f]\{16\}\).*/\1/p' | head -1)"
+  if [ -n "$id" ]; then echo "== boot id: $id (deploy/gcp/demo-vm.sh status --boot-id $id reads this boot only)"
+  else echo "== boot id: none in the object (an image before D-1120)"; fi
   for o in $objs; do
     gc storage rm "$o" >/dev/null 2>&1 || echo "demo-vm: could not delete $o: delete it by hand" >&2
   done
