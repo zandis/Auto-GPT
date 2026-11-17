@@ -441,6 +441,19 @@ home on the synthetic hospital (made-up patients, studies GZQO and GOUT-COH). Wi
 day). `deploy/gcp/demo-vm.sh delete --yes` deletes the VM and its disk and its rules (with `own`, the subnet and the
 network too; the project's `default` network stays). Check afterwards: `gcloud compute instances list` shows no `tb-demo-vm`, or shows it `TERMINATED`.
 
+**The owner's live session on the GPU VM** (D-1123; D-1130 to D-1133; lane H). The box from a master commit by the
+direct route, the served pair, the public sets tcga and jmed and the synthetic hospital, and the owner walking one
+public protocol in the console for up to three hours. **Nothing from a session is evidence.** One launch:
+`deploy/gcp/box-run.sh --mode validation --steps dev,session ... --session-allow <the owner's range>
+--session-env dev|validation`. The order of the commands and what each must print are in
+`docs/handover/gpu-vm-handover-2026-11-16.md` section 15. The door is tcp:443 from that range only, on a session tag
+with a deny-all before every other rule, and no SSH (D-1130). The box's own egress rules are applied by
+`deploy/network.sh` and read back before any link (D-1131). The accounts are opened by the console's own enrolment
+code: DEV gives one sign-in with the acting role, VALIDATION one account per role. They are disabled at the stop
+and at the next boot; while they are open the box's own `trialbox.service` is disabled, so no boot brings Caddy up
+before the close, and a later boot of the same run only closes and stops (D-1132). The one-time links go to one private object, printed once by `--links` and deleted
+(D-1133). A DEV session is refused for free today: this tree routes no served model in DEV (D-1132 item 2).
+
 **The box run: the shipped box on the GPU VM** (lane G's main paid line since 2026-11-14: R2, and plan v7 §7.1 G-2,
 G-6, G-9, G-10). The models are started only by the installed box's own compose: no private model-server start.
 `deploy/gcp/box-run.sh` is the driver; the work runs on the VM (`deploy/gcp/box-install-run.sh`, with
