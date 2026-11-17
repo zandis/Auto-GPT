@@ -52,7 +52,7 @@ class _Model:
 def _run(model: _Model) -> tuple[Any, dict[int, str]]:
     comp = object.__new__(service.Compiler)
     comp.d = type("D", (), {"llm": model, "mrn_regex": None})()
-    out, _guard, unread = comp._extract("J", "T", "en", LINES)
+    out, _guard, unread, _calls = comp._extract("J", "T", "en", LINES)
     return out, unread
 
 

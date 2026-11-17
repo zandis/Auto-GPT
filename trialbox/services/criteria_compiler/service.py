@@ -30,6 +30,7 @@ from tb_contracts import (
     CompileRequest,
     CompileResult,
     CriterionIR,
+    CriterionProvenance,
     CriterionReview,
     CtgovSearchRequest,
     CtgovSearchResult,
@@ -88,6 +89,11 @@ def align(lines: list[dict[str, Any]], answers: list[Any]) -> tuple[list[Any], s
     if unplaced and len(answers) == len(lines):  # reworded, not miscounted: by position
         return list(answers), set()
     return matched, {k for k, n in seen.items() if n > 1}
+
+
+def _calls_of(answers: Sequence[Any]) -> dict[int, str]:
+    """Each answer object's call (D-989), by identity: :func:`align` moves the objects, never copies them."""
+    return {id(a): c for a, c in zip(answers, getattr(answers, "calls", ()), strict=False) if c}
 
 
 def _for_a_person(line: dict[str, Any], why: str) -> dict[str, Any]:
@@ -188,6 +194,23 @@ def flag_unread(criteria: list[CriterionIR], unread: dict[int, str], warnings: l
         out[i] = c.model_copy(update={"flags": sorted(set(c.flags or []) | {why, "needs_review"})})
         warnings.append(f"{c.id}: {why.replace('_', ' ')}; kept for a person to check")
     return out
+
+
+def with_calls(criteria: list[CriterionIR], calls: dict[int, list[str]]) -> list[CriterionIR]:
+    """D-989: each extracted criterion names the model calls it came from (``provenance.calls``), by line."""
+    out = list(criteria)
+    for i, ids in calls.items():
+        if ids:
+            out[i] = out[i].model_copy(update={"provenance": CriterionProvenance(calls=ids)})
+    return out
+
+
+class _Answers(list[Any]):
+    """A part's answers and, beside them, the call each came from (D-989)."""
+
+    def __init__(self, items: Sequence[Any] = (), calls: Sequence[str] | None = None) -> None:
+        super().__init__(items)
+        self.calls = list(calls) if calls is not None else [""] * len(self)
 
 
 class CompileFailed(RuntimeError):
@@ -362,7 +385,7 @@ class Compiler:
 
     def _extract(
         self, job_id: str, ruleset: str, language: str, lines: list[dict[str, Any]]
-    ) -> tuple[LlmExtractOutput, PhiScan, dict[int, str]]:
+    ) -> tuple[LlmExtractOutput, PhiScan, dict[int, str], dict[int, list[str]]]:
         """The model's criteria for ``lines``, one per line in order, asked in parts (D-911): one call answered a whole
         protocol, and a long one ran past the prompt's answer cap (``max_tokens``), so its JSON was cut and the
         gateway refused it (``upstream_failed``). Each part holds at most :func:`lines_per_part` lines, split at a
@@ -372,21 +395,26 @@ class Compiler:
         answer is now matched to its line by the line's text (the prompt has the model copy it verbatim); the lines
         left without one are asked once more, alone; a line still without one, or one the
         model answered twice, is a person's check. Nothing is dropped or merged in silence: the third value names
-        those lines (index -> ``not_extracted`` or ``split_by_model``) for the caller to flag."""
+        those lines (index -> ``not_extracted`` or ``split_by_model``) for the caller to flag. The fourth names, by
+        line, the model call its criterion came from (D-989; none for a line left to a person)."""
         variables = {"ruleset": ruleset, "language": language, "criteria": lines}
         guard = scan(variables_text(variables), self.d.mrn_regex)  # exactly what the prompts carry (cloud routing)
         got: list[Any] = [None] * len(lines)
         notes: dict[int, str] = {}
+        calls: dict[int, list[str]] = {}
         parts = extraction_parts(lines, lines_per_part())
         for n, (start, part) in enumerate(parts, start=1):
             where = f" (part {n} of {len(parts)}, lines {start + 1}-{start + len(part)})" if len(parts) > 1 else ""
             answers = self._ask_in_halves(job_id, ruleset, language, part, guard, where)
+            call_of = _calls_of(answers)
             matched, twice = align(part, answers)
             missing = [k for k, c in enumerate(matched) if c is None and k not in twice]
             if missing:  # once more, the lines without an answer alone (naming the mismatch to the model would
                 # need a new prompt version: the template shows the lines only, and the lines are data to it)
                 retry = [{**part[k], "parent": None} for k in missing]
-                again, _ = align(retry, self._ask_extract(job_id, ruleset, language, retry, guard, where))
+                asked = self._ask_extract(job_id, ruleset, language, retry, guard, where)
+                call_of.update(_calls_of(asked))
+                again, _ = align(retry, asked)
                 for k, c in zip(missing, again, strict=True):
                     matched[k] = c
             for k, c in enumerate(matched):
@@ -396,8 +424,10 @@ class Compiler:
                 elif c is None:
                     notes[i] = "not_extracted"
                 got[i] = c if c is not None and k not in twice else _for_a_person(lines[i], notes[i])
+                if c is not None and k not in twice and call_of.get(id(c)):
+                    calls[i] = [call_of[id(c)]]
         out = LlmExtractOutput.model_validate({"criteria": [c if isinstance(c, dict) else dump(c) for c in got]})
-        return out, guard, notes
+        return out, guard, notes, calls
 
     def _ask_in_halves(
         self,
@@ -408,7 +438,7 @@ class Compiler:
         guard: PhiScan,
         where: str,
         depth: int = 0,
-    ) -> list[Any]:
+    ) -> _Answers:
         """G4 of the P1b review (D-981): a part the gateway gave up on (``LlmUpstreamFailed``) is asked again as two
         halves, each a smaller answer, at most :data:`MAX_HALVINGS` times deep; any other failure, or a single line,
         fails as before. The halves are cut where :func:`extraction_parts` would cut (a line never apart from the
@@ -422,9 +452,11 @@ class Compiler:
                 raise
             log.warning("ir_extract%s: the gateway gave up on the answer; asking it again in %d parts", where,
                         len(halves))  # fmt: skip
-            out: list[Any] = []
+            out = _Answers()
             for _, half in halves:
-                out.extend(self._ask_in_halves(job_id, ruleset, language, half, guard, where, depth + 1))
+                got = self._ask_in_halves(job_id, ruleset, language, half, guard, where, depth + 1)
+                out.extend(got)
+                out.calls.extend(getattr(got, "calls", [""] * len(got)))
             return out
 
     def _ask_extract(
@@ -435,7 +467,7 @@ class Compiler:
         part: list[dict[str, Any]],
         guard: PhiScan,
         where: str,
-    ) -> list[Any]:
+    ) -> _Answers:
         variables: dict[str, Any] = {"ruleset": ruleset, "language": language, "criteria": part}
         try:
             res = self.d.llm.chat_json(
@@ -446,7 +478,8 @@ class Compiler:
                 "ir_extract",
                 f"the model did not return usable criteria{where} ({str(exc)[:160]}); send the protocol again",
             ) from exc
-        return list(LlmExtractOutput.model_validate(res.data).criteria)
+        found = list(LlmExtractOutput.model_validate(res.data).criteria)
+        return _Answers(found, [getattr(res, "call_id", "")] * len(found))
 
     def demote_uncompilable(
         self, ruleset: str, version: str, criteria: list[CriterionIR], valuesets: dict[str, dict[str, Any]]
@@ -756,12 +789,12 @@ class Compiler:
         # the parser's warnings (hidden text, a planted instruction, masked contact lines; T-208, T-606): to the review
         warnings: list[str] = list(parsed.warnings or [])
         if todo:
-            extracted, guard, unread = self._extract(req.job_id, ruleset, parsed.language, todo)
+            extracted, guard, unread, calls = self._extract(req.job_id, ruleset, parsed.language, todo)
             guard_hit = guard.hit
             post = postprocess(
                 ruleset, extracted, self.d.term, version, self._concept_map(req.job_id), dict(offsets), self.d.egfr()
             )
-            criteria_new = flag_unread(post.criteria, unread, warnings)
+            criteria_new = with_calls(flag_unread(post.criteria, unread, warnings), calls)
             valuesets.update(post.valuesets)
             warnings.extend(post.warnings)
         # changed criteria keep the id of the approved criterion they replace (positional pairing per kind)
@@ -982,11 +1015,11 @@ class Compiler:
             updated.append(new)
         if to_extract:
             lines = [{"text": text, "kind": c.kind, "source_ref": c.source_ref or ""} for c, text in to_extract]
-            extracted, _, unread = self._extract(job_id, req.ruleset, rs.manifest.language or "en", lines)
+            extracted, _, unread, calls = self._extract(job_id, req.ruleset, rs.manifest.language or "en", lines)
             post = postprocess(
                 req.ruleset, extracted, self.d.term, req.version, self._concept_map(job_id), egfr=self.d.egfr()
             )
-            post.criteria = flag_unread(post.criteria, unread, [])
+            post.criteria = with_calls(flag_unread(post.criteria, unread, []), calls)
             valuesets.update(post.valuesets)
             replaced = {
                 orig.id: new.model_copy(update={"id": orig.id, "review": CriterionReview(status="draft")})
