@@ -5,6 +5,7 @@
 {% block content %}
 <div class="headrow"><h1>{{ t('team.optout.title') }}</h1><span class="hint" data-testid="optout-n">{{ t('team.optout.count', n=rows|length) }}</span></div>
 <p class="hint">{{ t('team.optout.help') }}</p>
+<p class="hint" data-testid="optout-where">{{ t('team.optout.where') }}</p>
 {% set done = request.query_params.get('done', '') %}
 {# NEW-JRN-2 (D-542): for a typed pseudonym the page says which studies listed the patient, or that nobody matched #}
 {% if done == 'added' and on == 'no' %}<p class="warn" role="status" data-testid="optout-done"><span data-testid="optout-nomatch">{{ t('team.optout.nomatch') }}</span></p>
