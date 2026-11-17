@@ -7,9 +7,10 @@ list already uses, ``by`` is the person's user name.
 
 * Approach: ``confirmed`` (the investigator goes ahead on the list's answers).
 * A review of an exclusion: ``rejected``; the named criterion's verdict, else every verdict that excluded the patient.
-* Not suitable now, Need info, Not now, Withdraw, Undo: no event. They decide nothing about the model's answer (Not
-  suitable now's reasons are each site's own and may have nothing to do with it: the integrator's ruling), which
-  stays unconfirmed (D-989: never inferred). Nothing maps to ``changed``.
+* An Approach taken back (Withdraw, Undo, or another mark in its place): ``withdrawn``, on the list it confirmed.
+* Not suitable now, Need info, Not now, and a Withdraw or Undo of any other mark: no event. They decide nothing
+  about the model's answer (Not suitable now's reasons are each site's own and may have nothing to do with it: the
+  integrator's ruling), which stays unconfirmed (D-989: never inferred). Nothing maps to ``changed``.
 
 A verdict no model answered (``prov`` empty: the coded records, a person; or absent: a list from before the field),
 an ``unknown`` answer, a repeated Approach and a review the store does not keep (only a patient's first on a run is)
@@ -26,6 +27,9 @@ from tb_common import provenance
 #: the mark -> the decision on the model's answers of the row (a mark not here decides nothing about them)
 MARK_DECISION = {"approach": "confirmed"}
 REVIEW_DECISION = "rejected"
+#: an Approach taken back (withdrawn, undone, replaced by another mark): the chain says so itself (the integrator's
+#: ruling (b) on D-1152), naming the record and calls of the confirmation it takes back
+WITHDRAWN = "withdrawn"
 #: the review of D-1152: the chain is never erased, so a patient is written only as the lists' pseudonym (never an id
 #: the console's looser page pattern would also take, such as a chart number)
 PSEUDONYM = re.compile(r"^[0-9a-f]{32}$")

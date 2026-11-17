@@ -2,9 +2,10 @@
 
 A PI mark or a "this is wrong, send to review" on a patient with model evidence writes one ``ai.confirmed`` per verdict
 a model answered (its ``prov`` not empty): ``record_ref`` (ruleset, version, job, pid, crit), the patient by pseudonym,
-``by`` the person, and the decision: Approach ``confirmed``, a review ``rejected``. Not suitable now (a site's own
-reasons), Need info, Not now, Withdraw and Undo decide nothing about the model's answer: no event, so the answer stays
-unconfirmed (never inferred). A verdict no model answered (``prov`` empty or absent) writes nothing. Synthetic data only."""
+``by`` the person, and the decision: Approach ``confirmed``, a review ``rejected``, and an Approach taken back
+(withdrawn, undone, or another mark in its place) ``withdrawn``, on the list it confirmed. Not suitable now (a site's
+own reasons), Need info and Not now decide nothing about the model's answer: no event, so the answer stays unconfirmed
+(never inferred). A verdict no model answered (``prov`` empty or absent) writes nothing. Synthetic data only."""
 
 from __future__ import annotations
 
@@ -75,7 +76,7 @@ def test_not_suitable_now_and_the_other_marks_decide_nothing(box: dict[str, Any]
     pi.post(f"/studies/GZQO/patients/{B}/mark", data={"csrf": csrf, "mark": "approach"})
     assert len(_events(box)) == 1
     pi.post(f"/studies/GZQO/patients/{B}/mark", data={"csrf": csrf, "mark": "undo"})  # back to Not suitable now
-    assert len(_events(box)) == 1  # an undo is no decision on the answer
+    assert [e["detail"]["decision"] for e in _events(box)] == ["confirmed", "withdrawn"]  # the Approach taken back
 
 
 def test_a_row_no_model_answered_writes_nothing(box: dict[str, Any]) -> None:  # noqa: F811
@@ -205,3 +206,37 @@ def test_a_patient_not_named_by_a_pseudonym_is_never_written(box: dict[str, Any]
               "by": "pi", "decision": "confirmed"}  # fmt: skip
     assert ai_confirm.on_verdicts(audit, pid="A123456789", **common) == 0 and written == []  # a chart-number shape
     assert ai_confirm.on_verdicts(audit, pid=A, **common) == 1
+
+
+def test_an_approach_taken_back_says_so_in_the_chain(box: dict[str, Any]) -> None:  # noqa: F811
+    """The integrator's ruling (b) on D-1152: a confirmation that is taken back says so in the chain itself, with the
+    same record and calls, whether the Approach is withdrawn, undone or replaced; an Approach put back is confirmed
+    again."""
+
+    def mark(pid: str, m: str) -> None:
+        assert pi.post(f"/studies/GZQO/patients/{pid}/mark", data={"csrf": csrf, "mark": m}).status_code == 200
+
+    pi, csrf, _job = _pi(box, [_row(A, "high", CALLS), _row(B, "review", CALLS)])
+    mark(A, "approach")
+    mark(A, "withdraw")
+    first, taken = _events(box)
+    assert taken["detail"]["decision"] == "withdrawn" and taken["detail"]["by"] == "pi"
+    assert taken["detail"]["record_ref"] == first["detail"]["record_ref"] and taken["detail"]["calls"] == CALLS
+    mark(A, "undo")  # the Approach is back: confirmed again
+    mark(B, "approach")
+    mark(B, "need_info")  # another mark in its place takes the Approach back
+    mark(B, "not_now")  # no Approach to take back: nothing
+    got = [(e["detail"]["record_ref"]["pid"], e["detail"]["decision"]) for e in _events(box)]
+    assert got == [(A, "confirmed"), (A, "withdrawn"), (A, "confirmed"), (B, "confirmed"), (B, "withdrawn")]
+
+
+def test_a_withdrawal_names_the_list_the_approach_was_made_on(box: dict[str, Any]) -> None:  # noqa: F811
+    """A newer run after the Approach: the withdrawal names the run and version the confirmation named."""
+    pi, csrf, job = _pi(box, [_row(A, "high", CALLS), _row(B, "review", CALLS)])
+    assert pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": csrf, "mark": "approach"}).status_code == 200
+    _screen(box, 9802, "1.0.0", [_row(A, "high", ["01JCALLNEWRUN000000000000A"]), _row(B, "review", CALLS)], 24)
+    csrf = _csrf(pi.get("/studies/GZQO/week").text)
+    assert pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": csrf, "mark": "withdraw"}).status_code == 200
+    first, taken = _events(box)
+    assert taken["detail"]["decision"] == "withdrawn" and taken["detail"]["record_ref"]["job"] == job
+    assert taken["detail"]["calls"] == CALLS == first["detail"]["calls"]
