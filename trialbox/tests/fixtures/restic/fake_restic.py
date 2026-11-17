@@ -103,16 +103,25 @@ def main(argv: list[str]) -> int:
                 shutil.copytree(src / "snapshots" / sid, repo / "snapshots" / sid)
         return 0
     if cmd == "forget":
-        keep = int(rest[rest.index("--keep-last") + 1])
-        tag = rest[rest.index("--tag") + 1]
-        mine = [s for s in snapshots(repo) if tag in s["tags"]]
-        for s in mine[: max(0, len(mine) - keep)]:
-            shutil.rmtree(repo / "snapshots" / s["id"])
+        if "--keep-last" in rest:
+            keep = int(rest[rest.index("--keep-last") + 1])
+            tag = rest[rest.index("--tag") + 1]
+            mine = [s for s in snapshots(repo) if tag in s["tags"]]
+            for s in mine[: max(0, len(mine) - keep)]:
+                shutil.rmtree(repo / "snapshots" / s["id"])
+            return 0
+        for sid in [a for a in rest if not a.startswith("-")]:
+            if not (repo / "snapshots" / sid).exists():
+                print(f"Ignoring {sid!r}: no matching ID found", file=sys.stderr)
+                return 1
+            shutil.rmtree(repo / "snapshots" / sid)
         return 0
     if cmd == "prune":
         return 0
     if cmd == "snapshots":
-        print(json.dumps([{"id": s["id"], "short_id": s["id"][:8], "tags": s["tags"]} for s in snapshots(repo)]))
+        want = rest[rest.index("--tag") + 1] if "--tag" in rest else None
+        rows = [s for s in snapshots(repo) if want is None or want in s["tags"]]
+        print(json.dumps([{"id": s["id"], "short_id": s["id"][:8], "tags": s["tags"]} for s in rows]))
         return 0
     if cmd == "restore":
         sid = rest[0]

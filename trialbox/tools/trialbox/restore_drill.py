@@ -133,7 +133,7 @@ def drill(
                            "drill": drill_id, "databases": {}}  # fmt: skip
     unpacked = Path(tempfile.mkdtemp(prefix="tb-drill-", dir=work))
     try:
-        manifest = bk.unpack(file, key, unpacked)
+        manifest = bk.unpack(file, key, unpacked, lake_from_restic=False)  # D-968: the drill reads the sealed part
         res.update(created_at=manifest["created_at"], site=manifest.get("site", ""), sha256=manifest["_sha256"],
                    files=len(manifest["files"]))  # fmt: skip
         for db, want in manifest["databases"].items():

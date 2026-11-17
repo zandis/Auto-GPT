@@ -57,6 +57,7 @@ import os
 import shlex
 import shutil
 import socket
+import stat
 import struct
 import subprocess
 import tarfile
@@ -75,9 +76,12 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from tb_common import kek as _K
+from tb_common.crypto import KeyMissingError
 
 # shared with the host-side schedule, which has only the standard library (re-exported: bk.prune, bk.read_sidecar ...)
 from tools.trialbox import backup_schedule as _sched
+from tools.trialbox import restic_repo as _rr
 
 SUFFIX = _sched.SUFFIX
 prune = _sched.prune
@@ -110,7 +114,8 @@ LAKE_LOCK = ".rebuild.lock"
 # D-971 (lane B2's answer on #639, 2026-11-16): the vector store is the one lake file written in place (a build adds
 # embeddings to it), by a build that holds its snapshot's build lock (locks/<snapshot>.build.lock) for the whole build,
 # not the lake lock. It is read only while the lake is quiet: under the lake lock (no build can start) with every build
-# lock taken (none runs), held for that read only; a running build is waited for, up to LAKE_QUIET_WAIT_S
+# lock taken (none runs), held for that read only; a running build is waited for, up to LAKE_QUIET_WAIT_S. With
+# restic (D-968) the store goes to restic with the served files, under the same quiet lake (_add_lake_restic)
 LAKE_STORE = ("embed_cache.duckdb", "embed_cache.duckdb.wal")
 LAKE_QUIET_WAIT_S = 3 * 3600
 LAKE_QUIET_POLL_S = 15
@@ -917,6 +922,72 @@ def _read_lake_files(
     return sides, len(locked)
 
 
+def _add_lake_restic(
+    tar: tarfile.TarFile,
+    root: Path,
+    manifest: dict[str, Any],
+    repo: _rr.Repo,
+) -> tuple[int, dict[str, int]]:
+    """PERF-010 (D-968): the lake's served files (``db/``, ``parquet/``) go to restic, the rest into the sealed
+    file. Under the lake's lock, held until restic has read them (a rebuild's swap waits for the whole read; the
+    vector store needs it, lane B2's answer on #639): the listing, each sidecar read into the sealed file, each served
+    file's sha256 (its sidecar's, else read once) and size recorded in ``manifest["restic"]``, and exactly those
+    files given to restic. A restore checks restic's files against that sealed record. The vector store
+    (``LAKE_STORE``, written in place by a build) goes to restic with them, so the lock is taken only while no build
+    runs (:func:`_quiet_lake`, lane B2's answer on #639). The rest of the lake is read after the lock, as before."""
+    with _quiet_lake(root, LAKE_QUIET_WAIT_S, LAKE_QUIET_POLL_S) as locked_ok:
+        rels, left = select_files("lake", root)
+        locked = [r for r in rels if Path(r).parts[0] in LAKE_LOCKED]
+        store = [r for r in rels if r in LAKE_STORE]  # lane B2: under the quiet lake, with the served files
+        problems = _lake_listing_problems(root, locked)
+        if problems:
+            raise BackupError(f"the lake fails its own check ({problems[:3]}): a person looks at it "
+                              "(trialbox doctor; the lake's /verify) before it can be backed up")  # fmt: skip
+        sides: dict[str, str] = {}
+        for rel in [r for r in locked if r.endswith(".sha256")]:
+            data = (root / rel).read_bytes()
+            arc = f"dirs/lake/{rel}"
+            manifest["files"][arc], manifest["sizes"][arc] = _add_bytes(tar, data, arc, (root / rel).stat().st_mtime)
+            sides[rel[: -len(".sha256")]] = _sidecar_sha(data)
+        served = [r for r in locked if not r.endswith(".sha256")] + store
+        # review of D-968: every served file is read and hashed here, under the lock, and must match its sidecar,
+        # as the path without restic requires: a rotted file or a wrong sidecar fails the backup tonight, not every
+        # restore later. The (size, mtime) seen here must still hold once restic has read the file.
+        files: dict[str, list[Any]] = {}
+        seen: dict[str, tuple[int, int]] = {}
+        for rel in served:
+            st = (root / rel).stat()
+            files[rel] = [_sha_file(root / rel), st.st_size]
+            seen[rel] = (st.st_size, st.st_mtime_ns)
+        bad = [f"dirs/lake/{r}" for r, (sha, _) in files.items() if r in sides and sides[r] != sha]
+        if bad:
+            raise BackupError(f"the lake fails its own check: {len(bad)} file(s) differ from their sidecar"
+                              + _named("changed", bad) + "; a person looks at it (trialbox doctor)")  # fmt: skip
+        try:
+            snapshot = repo.backup(root, served, tag=_rr.LAKE_TAG) if served else ""
+        except _rr.ResticError as e:
+            raise BackupError(str(e)) from e
+        after = [r for r in select_files("lake", root)[0] if Path(r).parts[0] in LAKE_LOCKED]
+        moved = [r for r in served if _stat_key(root / r) != seen[r]]
+    if after != locked or moved:
+        _forget_quietly(repo, snapshot)
+        raise BackupError("the lake changed while restic read it "
+                          f"({'under its lock' if locked_ok else 'no lake lock'}){_named('changed', moved)}; run the "
+                          "backup again")  # fmt: skip
+    manifest["restic"] = {"repository": repo.path.name, "snapshot": snapshot, "root": str(root.resolve()),
+                          "files": files}  # fmt: skip
+    n = len(locked) + len(store)
+    for rel in [r for r in rels if Path(r).parts[0] not in LAKE_LOCKED and r not in store]:
+        arc = f"dirs/lake/{rel}"
+        try:
+            manifest["files"][arc], manifest["sizes"][arc] = _add(tar, root / rel, arc)
+        except FileNotFoundError:  # removed since the listing (a retention prune): not in the backup
+            left["removed while the backup ran"] = left.get("removed while the backup ran", 0) + 1
+            continue
+        n += 1
+    return n, left
+
+
 @contextlib.contextmanager
 def _build_locks(root: Path) -> Iterator[list[str]]:
     """Every ``locks/*.build.lock`` of the lake taken without waiting (``lake.store.BuildLock``'s lock), held for the
@@ -965,6 +1036,88 @@ def _quiet_lake(root: Path, wait_s: float, poll_s: float) -> Iterator[bool]:
         time.sleep(poll_s)
 
 
+def _stat_key(path: Path) -> tuple[int, int] | None:
+    try:
+        st = path.stat()
+    except FileNotFoundError:
+        return None
+    return st.st_size, st.st_mtime_ns
+
+
+def _forget_quietly(repo: _rr.Repo, snapshot: str) -> None:
+    """A snapshot no sealed file will name (the run failed after restic made it): forgotten now, so it is never
+    counted as a night's (review of D-968). A failure here is left to the next night's forget."""
+    if snapshot:
+        with contextlib.suppress(_rr.ResticError):
+            repo.forget_ids([snapshot])
+
+
+SNAPSHOT_SUFFIX = ".restic"  # beside a .tbbak: the id of the restic snapshot it needs (no secret); D-968
+
+
+def _same_file(path: Path, sha: str, size: int) -> bool:
+    """A regular file (never a link), of this size and sha256."""
+    try:
+        st = path.lstat()
+    except FileNotFoundError:
+        return False
+    return stat.S_ISREG(st.st_mode) and st.st_size == size and _sha_file(path) == sha
+
+
+def _manifest_rel_ok(rel: str) -> bool:
+    """A lake file's path as a restic record may name it: relative, plain, under ``db/`` or ``parquet/``, or exactly
+    the vector store (``LAKE_STORE``)."""
+    from pathlib import PurePosixPath
+
+    if rel in LAKE_STORE:
+        return True
+    p = PurePosixPath(rel)
+    return (not p.is_absolute() and bool(p.parts) and p.parts[0] in LAKE_LOCKED and "\\" not in rel
+            and all(x not in ("", ".", "..") for x in rel.split("/")))  # fmt: skip
+
+
+def _restore_lake_from_restic(file: Path, into: Path, manifest: dict[str, Any], pw: str | None) -> None:
+    """The lake's served files of a restic backup (PERF-010, D-968), from the repository beside ``file``, each
+    checked against the sealed manifest (sha256 and size) before it is put where the tar would have put it."""
+    rec = manifest["restic"]
+    if not rec.get("files"):
+        return
+    repo_name = str(rec.get("repository") or "")
+    bad_names = [r for r in rec["files"] if not _manifest_rel_ok(r)]
+    if "/" in repo_name or repo_name in ("", ".", "..") or bad_names:
+        raise BackupError("this backup's restic record names paths outside the lake's served files: refused, nothing "
+                          "written" + _named("refused", bad_names))  # fmt: skip
+    where = file.parent / repo_name
+    if pw is None:
+        raise BackupError(
+            f"this backup's lake is in the restic repository beside it ({where}): open it with the box's KEK "
+            "(--restic-from-box) or with the custodians' shares (--restic-share FILE, one per share)"
+        )
+    stage = into / ".restic-restore"
+    try:
+        _rr.Repo(where, pw).restore(rec["snapshot"], stage)
+        src = _rr.restored_root(stage, str(rec["root"]))
+        bad = [f"dirs/lake/{rel}" for rel, (sha, size) in sorted(rec["files"].items())
+               if not _same_file(src / rel, sha, size)]  # fmt: skip
+        got = {p.relative_to(src).as_posix() for p in src.rglob("*")
+               if p.is_symlink() or not p.is_dir()} if src.is_dir() else set()  # fmt: skip
+        extra = [f"dirs/lake/{rel}" for rel in got - set(rec["files"])]
+        if bad or extra:
+            raise BackupError(
+                f"the lake restored from restic does not match the backup's sealed manifest: {len(bad)} changed, "
+                f"{len(extra)} unlisted" + _named("changed", bad) + _named("unlisted", extra)
+            )
+        for rel, (sha, size) in rec["files"].items():
+            dst = into / "dirs" / "lake" / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(src / rel, dst)
+            manifest["files"][f"dirs/lake/{rel}"], manifest["sizes"][f"dirs/lake/{rel}"] = sha, size
+    except _rr.ResticError as e:
+        raise BackupError(str(e)) from e
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+
+
 def _add_lake_store(tar: tarfile.TarFile, root: Path, rels: list[str], manifest: dict[str, Any]) -> int:
     """D-971: the vector store (``LAKE_STORE``), read while the lake is quiet (:func:`_quiet_lake`), the locks held
     for this read only. ``manifest["lake_store"]`` records the files, how long the backup waited for a running build
@@ -990,15 +1143,19 @@ def _add_lake_store(tar: tarfile.TarFile, root: Path, rels: list[str], manifest:
     return n
 
 
-def _add_lake(tar: tarfile.TarFile, root: Path, manifest: dict[str, Any]) -> tuple[int, dict[str, int]]:
+def _add_lake(
+    tar: tarfile.TarFile, root: Path, manifest: dict[str, Any], repo: _rr.Repo | None = None
+) -> tuple[int, dict[str, int]]:
     """The lake (D-455, H1). Its served files (``db/``, ``parquet/``) are listed and opened under the lake's lock and
     read through the open files after it (PERF-011, D-755), so a rebuild's swap waits for the listing only: never
     half the old snapshot and half the new. A listing that is not one state
     is listed again, up to ``READ_TRIES``; after the read every file taken with its sidecar must hash to it and the
     files must still be the ones listed, or the backup fails (nothing vanished, nothing new). The rest of the lake
     (NDJSON, the site inputs) is read after, without the lock; the vector store last, while no build runs
-    (D-971). Returns the files taken and the
-    count left out per reason."""
+    (D-971). Returns the files taken and the count left out per reason. With ``repo``, the served files and the
+    vector store go to restic instead (:func:`_add_lake_restic`, D-968)."""
+    if repo is not None:
+        return _add_lake_restic(tar, root, manifest, repo)
     left: dict[str, int] = {}
     n = 0
     for attempt in range(1, READ_TRIES + 1):
@@ -1217,8 +1374,13 @@ def backup(
     site: str = "",
     now: datetime | None = None,
     compression: str = "zstd",
+    restic_secrets: Path | None = None,
 ) -> list[Path]:
-    """Write one encrypted backup to every target directory; return the files written."""
+    """Write one encrypted backup to every target directory; return the files written. With ``restic_secrets`` (the
+    secrets folder holding ``restic.key`` under the unsealed KEK; PERF-010, D-968), the lake's served files go to a
+    restic repository on each target (``trialbox-restic``, with the escrow file beside it) and the sealed file keeps
+    their manifest; the other targets' repositories are filled by ``restic copy``, and ``keep`` applies to the
+    snapshots as to the files."""
     env = dict(os.environ if env is None else env)
     if not targets:
         raise BackupError("no --to target")
@@ -1235,114 +1397,161 @@ def backup(
     name = f"{prefix}{stamp}{SUFFIX}"
     recipient = load_public(public_key)
     srcs = db_sources(env)
+    repos: list[_rr.Repo] = []
+    if restic_secrets is not None:
+        try:  # before anything is written: a KEK the custodians' shares do not cover writes nothing (D-968)
+            pw = _rr.password(restic_secrets, env)
+            for t in targets:
+                Path(t).mkdir(parents=True, exist_ok=True)
+                _rr.escrow_copy(restic_secrets, Path(t), _rr.escrow_name(site))
+            repos = [_rr.Repo(Path(t) / _rr.repo_dir(site), pw, env) for t in targets]
+            repos[0].ensure()
+            for r in repos[1:]:
+                r.ensure(like=repos[0])
+        except (_rr.ResticError, _K.KekError, KeyMissingError, OSError) as e:  # named, never with a key in it
+            raise BackupError(f"incremental backup: {e}") from e
     manifest: dict[str, Any] = {"layout": LAYOUT, "hashing": "stream", "created_at": when.isoformat(timespec="seconds"),
                                 "site": site, "compression": f"{compression}-{ZSTD_LEVEL}" if compression == "zstd"
                                 else compression, "databases": {}, "dirs": {}, "files": {}, "sizes": {},
                                 "excluded": {}, "refdata_packs": []}  # fmt: skip
-    with tempfile.TemporaryDirectory(prefix="tb-backup-") as tmp:
-        work = Path(tmp)
-        os.chmod(work, 0o700)
-        snaps = {}
-        for src in srcs:
-            snap = take_snapshot(src, work, env)
-            snaps[src.name] = snap
-            manifest["databases"][src.name] = {
-                "schemas": list(src.schemas), "rows_from": snap["rows_from"], "rows": snap["rows"],
-                "excluded_tables": snap["excluded_tables"], "refdata_schema": snap["refdata_schema"],
-                "site_rows": snap["site_rows"], "row_hash": snap.get("row_hash", _sched.ROW_HASH),
-                "snapshot_at": snap.get("snapshot_at"),
-            }  # fmt: skip
-            if snap["refdata_schema"]:
-                manifest["refdata_packs"] = snap["packs"]
-        first = Path(targets[0])
-        first.mkdir(parents=True, exist_ok=True)
-        part = first / (name + ".part")
-        meta = {"site": site, "created_at": manifest["created_at"], "layout": LAYOUT, "compression": compression}
-        checks: list[_StreamCheck] = []
-        with part.open("wb") as raw:
-            hw = _HashWriter(raw)
-            enc = _Encryptor(hw, recipient, meta)
-            with _tar_writer(enc, compression, checks) as tar:
-                for src in srcs:
-                    arc = f"db/{src.name}.dump"
-                    manifest["files"][arc], manifest["sizes"][arc] = _add(tar, work / f"{src.name}.dump", arc)
-                    if snaps[src.name]["refdata_schema"]:
-                        for t, f in sorted(snaps[src.name]["site_files"].items()):
-                            arc = f"db/{src.name}.site.{t}.copy"
-                            manifest["files"][arc], manifest["sizes"][arc] = _add(tar, f, arc)
-                for dname, root in sorted(dirs.items()):
-                    if dname == "lake":
-                        n, left = _add_lake(tar, root, manifest)
+    first_done = False
+    try:
+        with tempfile.TemporaryDirectory(prefix="tb-backup-") as tmp:
+            work = Path(tmp)
+            os.chmod(work, 0o700)
+            snaps = {}
+            for src in srcs:
+                snap = take_snapshot(src, work, env)
+                snaps[src.name] = snap
+                manifest["databases"][src.name] = {
+                    "schemas": list(src.schemas), "rows_from": snap["rows_from"], "rows": snap["rows"],
+                    "excluded_tables": snap["excluded_tables"], "refdata_schema": snap["refdata_schema"],
+                    "site_rows": snap["site_rows"], "row_hash": snap.get("row_hash", _sched.ROW_HASH),
+                    "snapshot_at": snap.get("snapshot_at"),
+                }  # fmt: skip
+                if snap["refdata_schema"]:
+                    manifest["refdata_packs"] = snap["packs"]
+            first = Path(targets[0])
+            first.mkdir(parents=True, exist_ok=True)
+            part = first / (name + ".part")
+            meta = {"site": site, "created_at": manifest["created_at"], "layout": LAYOUT, "compression": compression}
+            checks: list[_StreamCheck] = []
+            with part.open("wb") as raw:
+                hw = _HashWriter(raw)
+                enc = _Encryptor(hw, recipient, meta)
+                with _tar_writer(enc, compression, checks) as tar:
+                    for src in srcs:
+                        arc = f"db/{src.name}.dump"
+                        manifest["files"][arc], manifest["sizes"][arc] = _add(tar, work / f"{src.name}.dump", arc)
+                        if snaps[src.name]["refdata_schema"]:
+                            for t, f in sorted(snaps[src.name]["site_files"].items()):
+                                arc = f"db/{src.name}.site.{t}.copy"
+                                manifest["files"][arc], manifest["sizes"][arc] = _add(tar, f, arc)
+                    for dname, root in sorted(dirs.items()):
+                        if dname == "lake":
+                            n, left = _add_lake(tar, root, manifest, repos[0] if repos else None)
+                            manifest["dirs"][dname] = {"path": str(root), "files": n}
+                            if left:
+                                manifest["excluded"][dname] = left
+                            continue
+                        rels, left = select_files(dname, root)
+                        head, lengths = _audit_moment(root) if dname == "audit" else (None, {})
+                        if dname == "audit":  # what the moment saw, even what the listing before it did not
+                            rels = sorted({*rels, *lengths, *(["HEAD.json"] if head is not None else [])})
+                        n = 0
+                        upto = _UPTO.set({f"dirs/{dname}/{rel}": end for rel, end in lengths.items()})
+                        for rel in rels:
+                            arc = f"dirs/{dname}/{rel}"
+                            try:
+                                if dname == "audit" and rel == "HEAD.json" and head is not None:
+                                    got = _add_read(tar, root / rel, arc, head)
+                                else:
+                                    got = _add(tar, root / rel, arc)
+                                manifest["files"][arc], manifest["sizes"][arc] = got
+                            except (
+                                FileNotFoundError
+                            ):  # removed since the listing (a retention prune): not in the backup
+                                left["removed while the backup ran"] = left.get("removed while the backup ran", 0) + 1
+                                continue
+                            n += 1
+                        _UPTO.reset(upto)
                         manifest["dirs"][dname] = {"path": str(root), "files": n}
                         if left:
                             manifest["excluded"][dname] = left
-                        continue
-                    rels, left = select_files(dname, root)
-                    head, lengths = _audit_moment(root) if dname == "audit" else (None, {})
-                    if dname == "audit":  # what the moment saw, even what the listing before it did not
-                        rels = sorted({*rels, *lengths, *(["HEAD.json"] if head is not None else [])})
-                    n = 0
-                    upto = _UPTO.set({f"dirs/{dname}/{rel}": end for rel, end in lengths.items()})
-                    for rel in rels:
-                        arc = f"dirs/{dname}/{rel}"
-                        try:
-                            if dname == "audit" and rel == "HEAD.json" and head is not None:
-                                got = _add_read(tar, root / rel, arc, head)
-                            else:
-                                got = _add(tar, root / rel, arc)
-                            manifest["files"][arc], manifest["sizes"][arc] = got
-                        except FileNotFoundError:  # removed since the listing (a retention prune): not in the backup
-                            left["removed while the backup ran"] = left.get("removed while the backup ran", 0) + 1
-                            continue
-                        n += 1
-                    _UPTO.reset(upto)
-                    manifest["dirs"][dname] = {"path": str(root), "files": n}
-                    if left:
-                        manifest["excluded"][dname] = left
-                data = json.dumps(manifest, indent=1, sort_keys=True, ensure_ascii=False).encode()
-                info = tarfile.TarInfo("manifest.json")
-                info.size = len(data)
-                info.mtime = int(when.timestamp())
-                tar.addfile(info, io.BytesIO(data))
-            enc.finish()
-            raw.flush()
-            os.fsync(raw.fileno())
-        for check in checks:
-            # NEW-B-21 (D-662): what a restore would get, against the manifest, before the file gets its name. The
-            # nightly has no private key and never opened what it wrote: a wrong manifest was recorded as good
-            try:
-                bad, extra = check.problems(manifest)
-            except BackupError:
-                part.unlink(missing_ok=True)
-                raise
-            if bad or extra:
-                part.unlink(missing_ok=True)
-                # the names first, the verdict and the counts last: what records an error keeps its end (the nightly
-                # its last 400 characters), and the verdict must never be the part that is cut off
-                names = (_named("changed", bad) + _named("unlisted", extra)).removeprefix("; ")
-                raise BackupError(
-                    f"{names}; the backup was not written: its content does not match its manifest "
-                    f"({len(bad)} changed, {len(extra)} unlisted)"
-                )
-        sha = hw.sha.hexdigest()
-        final = first / name
-        part.rename(final)
-        if _sha_file(final) != sha:  # read back from the first target too, as from every other one
-            raise BackupError(f"{final} does not read back as written")
-        _write_sidecar(final, sha)
-        written = [final]
-        for t in targets[1:]:
-            t = Path(t)
-            t.mkdir(parents=True, exist_ok=True)
-            tpart = t / (name + ".part")
-            if _copy_hashed(final, tpart) != sha or _sha_file(tpart) != sha:  # written, then read back from t
-                tpart.unlink(missing_ok=True)
-                raise BackupError(f"copy to {t} does not match")
-            tpart.rename(t / name)
-            _write_sidecar(t / name, sha)
-            written.append(t / name)
+                    data = json.dumps(manifest, indent=1, sort_keys=True, ensure_ascii=False).encode()
+                    info = tarfile.TarInfo("manifest.json")
+                    info.size = len(data)
+                    info.mtime = int(when.timestamp())
+                    tar.addfile(info, io.BytesIO(data))
+                enc.finish()
+                raw.flush()
+                os.fsync(raw.fileno())
+            for check in checks:
+                # NEW-B-21 (D-662): what a restore would get, against the manifest, before the file gets its name. The
+                # nightly has no private key and never opened what it wrote: a wrong manifest was recorded as good
+                try:
+                    bad, extra = check.problems(manifest)
+                except BackupError:
+                    part.unlink(missing_ok=True)
+                    raise
+                if bad or extra:
+                    part.unlink(missing_ok=True)
+                    # the names first, the verdict and the counts last: what records an error keeps its end (the nightly
+                    # its last 400 characters), and the verdict must never be the part that is cut off
+                    names = (_named("changed", bad) + _named("unlisted", extra)).removeprefix("; ")
+                    raise BackupError(
+                        f"{names}; the backup was not written: its content does not match its manifest "
+                        f"({len(bad)} changed, {len(extra)} unlisted)"
+                    )
+            snapshot = str((manifest.get("restic") or {}).get("snapshot") or "")
+            sha = hw.sha.hexdigest()
+            final = first / name
+            part.rename(final)
+            if _sha_file(final) != sha:  # read back from the first target too, as from every other one
+                raise BackupError(f"{final} does not read back as written")
+            if snapshot:  # D-968: which snapshot this file needs, written before the sidecar marks it complete
+                (first / (name + SNAPSHOT_SUFFIX)).write_text(snapshot + "\n", encoding="utf-8")
+            _write_sidecar(final, sha)
+            first_done = True
+            written = [final]
+            for i, t in enumerate(targets[1:], start=1):
+                t = Path(t)
+                t.mkdir(parents=True, exist_ok=True)
+                if snapshot:  # review of D-968: the target's repository holds the snapshot before its file is complete
+                    try:
+                        repos[i].copy_from(repos[0], snapshot)
+                    except _rr.ResticError as e:
+                        raise BackupError(f"incremental backup: {e}; {t} got no copy tonight (the first target's "
+                                          f"{final.name} is whole)") from e  # fmt: skip
+                    (t / (name + SNAPSHOT_SUFFIX)).write_text(snapshot + "\n", encoding="utf-8")
+                tpart = t / (name + ".part")
+                if _copy_hashed(final, tpart) != sha or _sha_file(tpart) != sha:  # written, then read back from t
+                    tpart.unlink(missing_ok=True)
+                    raise BackupError(f"copy to {t} does not match")
+                tpart.rename(t / name)
+                _write_sidecar(t / name, sha)
+                written.append(t / name)
+    except BaseException:
+        if repos and not first_done:  # review of D-968: no sealed file names tonight's snapshot: forget it now
+            _forget_quietly(repos[0], str((manifest.get("restic") or {}).get("snapshot") or ""))
+        raise
     for t in targets:
         prune(Path(t), keep, prefix)
+    problems = []
+    for t, r in zip(targets, repos, strict=False):  # D-968: keep exactly the snapshots the kept files name
+        keep_ids = set()
+        for f in Path(t).glob(f"{prefix}*{SUFFIX}{SNAPSHOT_SUFFIX}"):
+            if (f.parent / f.name[: -len(SNAPSHOT_SUFFIX)]).is_file():
+                keep_ids.add(f.read_text(encoding="utf-8").strip())
+            else:
+                f.unlink(missing_ok=True)  # its file was pruned
+        try:
+            r.forget_except(keep_ids, tag=_rr.LAKE_TAG)
+        except _rr.ResticError as e:
+            problems.append(f"{t}: {e}")
+    if problems:
+        raise BackupError("incremental backup: the sealed files were written, but old snapshots were not forgotten: "
+                          + "; ".join(problems))  # fmt: skip
     return written
 
 
@@ -1395,8 +1604,12 @@ def _second_names(into: Path, manifest: dict[str, Any], bad: list[str]) -> list[
     return [rel for rel in bad if rel in wrong]
 
 
-def unpack(file: Path, key: Path, into: Path) -> dict[str, Any]:
-    """Decrypt and extract ``file`` into ``into``; check every hash against the manifest; return the manifest.
+def unpack(
+    file: Path, key: Path, into: Path, *, restic_pw: str | None = None, lake_from_restic: bool = True
+) -> dict[str, Any]:
+    """Decrypt and extract ``file`` into ``into``; check every hash against the manifest; return the manifest. A
+    restic backup's lake comes from the repository beside ``file`` with ``restic_pw`` (D-968), checked against the
+    sealed manifest; ``lake_from_restic=False`` gives the sealed file's content only.
 
     The whole file is read and authenticated to its final chunk, and its sha256, taken on the way, must equal the
     ``.sha256`` sidecar when there is one."""
@@ -1436,14 +1649,16 @@ def unpack(file: Path, key: Path, into: Path) -> dict[str, Any]:
             + _named("changed", bad)
             + _named("unlisted", extra)
         )
+    if "restic" in manifest and lake_from_restic:
+        _restore_lake_from_restic(file, into, manifest, restic_pw)
     manifest["_sha256"] = hr.sha.hexdigest()
     manifest["_owners"] = owners  # not in the signed manifest: read from the tar members, as the files are
     return manifest
 
 
-def verify(file: Path, key: Path) -> dict[str, Any]:
+def verify(file: Path, key: Path, *, restic_pw: str | None = None) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="tb-verify-") as tmp:
-        m = unpack(file, key, Path(tmp))
+        m = unpack(file, key, Path(tmp), restic_pw=restic_pw)
     return {"ok": True, "site": m["site"], "created_at": m["created_at"], "layout": m.get("layout", 1),
             "files": len(m["files"]), "sha256": m["_sha256"], "excluded": m.get("excluded", {}),
             "refdata_packs": m.get("refdata_packs", []),
@@ -1885,6 +2100,7 @@ def restore(
     other_site: bool = False,
     max_age_days: float | None = RESTORE_MAX_AGE_DAYS,
     running: Callable[[], list[str] | None] | None = None,
+    restic_pw: str | None = None,
 ) -> dict[str, Any]:
     """Restore the databases and directories of ``file``, the hospital's own reference rows and, from the pack files
     in ``refdata_dir``, the vendor packs a layout-2 backup leaves out; return what was restored, with rows checked.
@@ -1915,7 +2131,7 @@ def restore(
     refdata: dict[str, list[str]] = {"reloaded": [], "missing": []}
     with tempfile.TemporaryDirectory(prefix="tb-restore-") as tmp:
         work = Path(tmp)
-        manifest = unpack(file, key, work)
+        manifest = unpack(file, key, work, restic_pw=restic_pw)
         sha = manifest["_sha256"]
         targets = dict(dirs if dirs is not None else layout(env))
         missing = set(manifest["dirs"]) - set(targets) - {HOST}
