@@ -720,7 +720,7 @@ JA: dict[str, str] = {
     "registry.steps": "このページでは状態を設定しません。医師の判断、連絡結果、同意書、参加者の手順に従います。",
     "registry.updated": "最終更新",
     "registry.add": "患者さんを追加",
-    "registry.add.help": "スクリーニング実行で見つからなかった患者さん（来院・紹介）：患者 ID を入力してください。TrialBox 内で仮名に"
+    "registry.add.help": "スクリーニング実行で見つからなかった患者さん：患者 ID を入力してください。TrialBox 内で仮名に"
     "変換し、番号は保存しません。「リスト掲載」として追加します。",
     "registry.add.submit": "レジストリに追加",
     "registry.status": "状況",
@@ -1081,7 +1081,7 @@ ZH: dict[str, str] = {
     "registry.steps": "此頁不設定狀態：狀態依主持人的標記、聯絡結果、同意書與受試者的步驟而定。",
     "registry.updated": "最後變更",
     "registry.add": "加入病人",
-    "registry.add.help": "篩選執行未找到的病人（自行就診、轉介）：輸入病歷號。TrialBox 內轉為假名，不儲存病歷號。以「在名單上」加入。",
+    "registry.add.help": "篩選執行未找到的病人：輸入病歷號。TrialBox 內轉為假名，不儲存病歷號。以「在名單上」加入。",
     "registry.add.submit": "加入登錄",
     "registry.status": "狀態",
     "registry.reason": "註記（原因）",
