@@ -3,6 +3,9 @@
 # is 404 (curl -f: exit 22), as on GCE. Every other URL goes to the real curl (here: only the VM's own door, 127.0.0.1).
 for a in "$@"; do
   case "$a" in
+    http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip)
+      [ -f "$BR_S/external-ip" ] || exit 22   # the VM's external address (the session's links name it)
+      cat "$BR_S/external-ip"; exit 0 ;;
     http://metadata.google.internal/computeMetadata/v1/instance/attributes/*)
       f=$BR_S/metadata/${a##*/attributes/}
       [ -f "$f" ] || exit 22
