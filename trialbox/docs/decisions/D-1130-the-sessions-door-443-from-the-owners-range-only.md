@@ -32,7 +32,15 @@ only about the demo's tag. The GPU VM carries other tags, and a rule on one of t
    - the deny is all protocols from 0.0.0.0/0 at priority 510 on the session tag;
    - the VM carries the tag;
    - no other enabled allow rule reaches the VM at a priority below 510. The demo's `reaching_rules` is asked once
-     for each tag the VM carries, so the old door on `tb-gpu-door` is seen.
+     for each tag the VM carries, so the old door on `tb-gpu-door` is seen;
+   - the allow names no `sourceTags` and no `sourceServiceAccounts` (other VMs of the project would reach 443). An
+     allow left by an earlier session is deleted and made again, never updated, so nothing added to it survives;
+   - the VM has one network interface and no IPv6 address (`gcloud compute instances describe --format=json`):
+     the deny names 0.0.0.0/0, and the rules of one network are read;
+   - no firewall policy lets traffic in. Hierarchical and network firewall policies are evaluated before the VPC
+     rules and are not in `firewall-rules list`, so the VM's effective firewalls are read
+     (`gcloud compute instances network-interfaces get-effective-firewalls`): any ingress rule of a policy whose
+     action is `allow` fails the check (`deny` and `goto_next` do not).
 
    Every rule that applies to the VM is listed with its verdict. `default-allow-ssh` and `tb-gpu-door` read "beaten
    by tb-session-deny". The check runs:
@@ -41,10 +49,20 @@ only about the demo's tag. The GPU VM carries other tags, and a rule on one of t
    - in `--links`, before any link is printed (exit 3, the object left unread).
 5. **Free.** `--preflight` and `--dry-run` print the two rules the launch would make (`session_vm.py plan`) and refuse
    a range that is too wide. They make no cloud call.
-6. **The bucket is private.** The launch and `--links` read the bucket's IAM policy and refuse it when it names
-   `allUsers` or `allAuthenticatedUsers` (D-1123 section 6, "a public bucket").
-7. **Taken away.** `--stop` and the end of a collect remove the tag from the VM and delete both rules
-   (`session_door_down`). The project's own rules are not touched.
+6. **The bucket is private** (D-1123 section 6, "a public bucket"; D-1133 item 5). The launch and `--links` read the
+   bucket (`gcloud storage buckets describe`) and its IAM policy and refuse it unless: no binding names `allUsers`
+   or `allAuthenticatedUsers`; uniform bucket-level access is on or public access prevention is enforced (no object
+   ACL can make the links object public); versioning is off (a deleted links object leaves no readable version).
+7. **Taken away, in two steps.** `--stop` and the end of a collect delete the allow at once. The deny-all and the
+   tag stay until the VM has written its `CLOSED` marker beside the links (the session's accounts disabled,
+   D-1132 item 7): until then nothing, not the old door and not SSH, reaches the VM. A later `--stop <run>` then
+   removes them. The project's own rules are not touched.
+
+## The security review of 2026-11-17
+
+The lead's adversarial review found five blind spots of the first build, each reproduced: an allow carrying source
+tags or service accounts, an IPv6 allow-all, firewall policies, a second interface, and a bucket made public by an
+object ACL or kept by versioning. Items 4, 6 and 7 above close them; each has a test that failed before.
 
 ## Held by
 

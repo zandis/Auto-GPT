@@ -110,9 +110,17 @@ def env_name(opt: str) -> str:
     return ENVS[key]
 
 
+MAX_NAME = 22  # the VM adds "-s<MMDDHHMM>" (10 characters) to each name; the console takes at most 32
+
+
 def parse_people(raw: str, env: str) -> str:
     """name:role[+role] pairs: in DEV a person may act in several roles (D-1063); in VALIDATION one role each."""
     key = env.lower()
+    for item in (raw or "").split(","):
+        name = item.split(":", 1)[0].strip()
+        if len(name) > MAX_NAME:
+            raise Refused(f"--session-people: '{name}' is longer than {MAX_NAME} characters (the VM adds the run's "
+                          "10-character stamp; the console takes 32)")  # fmt: skip
     try:
         return demo_vm.parse_people(raw or DEFAULT_PEOPLE[key], ROLES, plus=key == "dev")
     except demo_vm.Refused as exc:
@@ -183,13 +191,68 @@ def _applies(rule: Mapping[str, object], vm_tags: Sequence[str]) -> bool:
     return (not tags and not accounts) or bool(accounts) or any(t in listed for t in vm_tags)
 
 
+def instance_problems(instance: Mapping[str, object]) -> list[str]:
+    """The VM itself (``gcloud compute instances describe --format=json``): one network interface, IPv4 only. The
+    session's deny names 0.0.0.0/0, and the check reads the rules of one network: a second interface or an IPv6
+    address would be a way in no rule here sees."""
+    nics = instance.get("networkInterfaces")
+    if not isinstance(nics, list) or len(nics) != 1:
+        n = len(nics) if isinstance(nics, list) else 0
+        return [f"the VM has {n} network interfaces, not one: the session's rules guard one network only"]
+    nic = nics[0] if isinstance(nics[0], dict) else {}
+    out = []
+    if nic.get("ipv6AccessConfigs") or nic.get("ipv6Address") or nic.get("externalIpv6"):
+        out.append("the VM has an IPv6 address: the session's deny names 0.0.0.0/0 (IPv4) only")
+    if str(nic.get("stackType") or "IPV4_ONLY") != "IPV4_ONLY":
+        out.append(f"the VM's interface is {nic.get('stackType')}, not IPV4_ONLY")
+    return out
+
+
+def instance_tags(instance: Mapping[str, object]) -> list[str]:
+    tags = instance.get("tags")
+    items = tags.get("items") if isinstance(tags, dict) else None
+    return [str(x) for x in items] if isinstance(items, list) else []
+
+
+def policy_problems(effective: Mapping[str, object]) -> list[str]:
+    """Firewall policies (hierarchical, global and regional network policies) are evaluated before the VPC rules and
+    are not in `firewall-rules list`: from `gcloud compute instances network-interfaces get-effective-firewalls
+    --format=json`, any ingress rule of a policy that allows traffic is a way in the session's deny cannot beat."""
+    out = []
+    for pol in effective.get("firewallPolicys") or effective.get("firewallPolicies") or []:  # type: ignore[attr-defined]
+        if not isinstance(pol, dict):
+            continue
+        for r in pol.get("rules") or []:
+            if not isinstance(r, dict):
+                continue
+            if str(r.get("direction") or "INGRESS").upper() == "INGRESS" and str(r.get("action")).lower() == "allow":
+                match = r.get("match") if isinstance(r.get("match"), dict) else {}
+                out.append(f"firewall policy {pol.get('name') or pol.get('shortName')} ({pol.get('type')}) rule "
+                           f"{r.get('priority')} allows ingress from {match.get('srcIpRanges')} "
+                           f"{match.get('layer4Configs')}: it is evaluated before the session's deny")  # fmt: skip
+    return out
+
+
 def rules_check(
-    rules: list[dict[str, object]], network: str, vm_tags: Sequence[str], ranges: Sequence[str]
+    rules: list[dict[str, object]],
+    network: str,
+    vm_tags: Sequence[str],
+    ranges: Sequence[str],
+    instance: Mapping[str, object] | None = None,
+    effective: Mapping[str, object] | None = None,
 ) -> tuple[bool, dict[str, object]]:
     """Only tcp:443 from ``ranges`` reaches the VM: the session's allow exactly as made, its deny-all, the VM carrying
     the session's tag, and every other enabled ingress rule that applies to the VM beaten by the deny (demo_vm's
     reaching_rules, asked once per tag of the VM). Every rule that applies to the VM is in the report with why."""
     problems: list[str] = []
+    if instance is None:
+        problems.append("the VM itself was not read (its interfaces): nothing is proved")
+    else:
+        problems += instance_problems(instance)
+    if effective is None:
+        problems.append("the VM's effective firewalls were not read (firewall policies): nothing is proved")
+    else:
+        problems += policy_problems(effective)
     want = sorted(str(ipaddress.ip_network(r)) for r in ranges)
     on_net = [r for r in rules if str(r.get("network") or "").rstrip("/").endswith(f"/{network}")]
     by_name = {str(r.get("name")): r for r in on_net}
@@ -207,6 +270,9 @@ def rules_check(
             problems.append(f"{ALLOW_RULE} is open from {allow.get('sourceRanges')}, not from {want} only")
         if list(allow.get("targetTags") or []) != [TAG]:  # type: ignore[call-overload]
             problems.append(f"{ALLOW_RULE} targets {allow.get('targetTags')}, not [{TAG}] only")
+        if allow.get("sourceTags") or allow.get("sourceServiceAccounts"):
+            problems.append(f"{ALLOW_RULE} also lets in other VMs (sourceTags {allow.get('sourceTags')}, "
+                            f"sourceServiceAccounts {allow.get('sourceServiceAccounts')})")  # fmt: skip
         if int(str(allow.get("priority", 1000))) != ALLOW_PRIORITY:
             problems.append(f"{ALLOW_RULE} has priority {allow.get('priority')}, not {ALLOW_PRIORITY}")
     if deny is None:
@@ -294,6 +360,34 @@ def boot_state(serial: str, last_start: datetime | None = None, boot_id: str = "
     return {"READY": "ready", "NOT-READY": "not-ready", "END": "ended"}[last], lines
 
 
+def bucket_check(describe: Mapping[str, object], iam: Mapping[str, object]) -> tuple[bool, list[str], list[str]]:
+    """D-1123 section 6, "a public bucket": the links object's bucket (``gcloud storage buckets describe
+    --format=json`` and its IAM policy). Holds when no binding names allUsers or allAuthenticatedUsers, object ACLs
+    cannot apply (uniform bucket-level access on, or public access prevention enforced), and versioning is off (a
+    deleted links object leaves no readable noncurrent version). Soft delete is reported, not refused: a soft-deleted
+    object is restorable by the project's storage administrators only, for the retention the bucket states."""
+    problems, notes = [], []
+    members = [m for b in iam.get("bindings") or [] if isinstance(b, dict) for m in b.get("members") or []]  # type: ignore[attr-defined]
+    public = sorted({m for m in members if m in ("allUsers", "allAuthenticatedUsers")})
+    if public:
+        problems.append(f"the bucket's IAM policy names {public}")
+    ubla = describe.get("uniform_bucket_level_access")
+    if isinstance(ubla, dict):
+        ubla = ubla.get("enabled")
+    pap = str(describe.get("public_access_prevention") or "").lower()
+    if ubla is not True and pap != "enforced":
+        problems.append("neither uniform bucket-level access nor public access prevention (enforced) is on: an "
+                        "object ACL could make the links object public")  # fmt: skip
+    if describe.get("versioning_enabled") is True:
+        problems.append("versioning is on: a deleted links object would leave a readable noncurrent version")
+    soft = describe.get("soft_delete_policy")
+    secs = soft.get("retentionDurationSeconds") if isinstance(soft, dict) else None
+    if secs and str(secs) != "0":
+        notes.append(f"soft delete keeps a deleted object {int(str(secs)) // 86400} day(s), restorable by the "
+                     "project's storage administrators only (D-1133)")  # fmt: skip
+    return not problems, problems, notes
+
+
 def links_meta(text: str) -> dict[str, str]:
     """What the links object says besides the links: its boot id, the root certificate's SHA-256, the stop time."""
     out = {}
@@ -348,11 +442,21 @@ def main(argv: list[str]) -> int:
         if argv[:1] == ["plan"] and len(argv) in (2, 3):
             print(plan(parse_allow(argv[1]), argv[2] if len(argv) == 3 else "default"))
             return 0
-        if argv[:1] == ["rules-check"] and len(argv) == 4:
-            ok, report = rules_check(
-                json.load(sys.stdin), argv[1], argv[2].replace(",", " ").split(), parse_allow(argv[3])
-            )
+        if argv[:1] == ["rules-check"] and len(argv) in (4, 6, 8):
+            opts = dict(zip(argv[4::2], argv[5::2], strict=False))
+            inst = json.loads(Path(opts["--instance"]).read_text()) if "--instance" in opts else None
+            eff = json.loads(Path(opts["--effective"]).read_text()) if "--effective" in opts else None
+            tags = instance_tags(inst) if inst is not None else argv[2].replace(",", " ").split()
+            ok, report = rules_check(json.load(sys.stdin), argv[1], tags, parse_allow(argv[3]), inst, eff)
             print(json.dumps(report, indent=1))
+            return 0 if ok else 3
+        if argv[:1] == ["bucket-check"] and len(argv) == 3:
+            ok, problems, notes = bucket_check(json.loads(Path(argv[1]).read_text() or "{}"),
+                                               json.loads(Path(argv[2]).read_text() or "{}"))  # fmt: skip
+            for n in notes:
+                print(f"bucket: note: {n}")
+            for pr in problems:
+                print(f"bucket: PROBLEM: {pr}")
             return 0 if ok else 3
         if argv[:1] == ["boot-state"]:
             return _boot_state_main(argv[1:])

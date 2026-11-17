@@ -37,6 +37,22 @@ NET = "https://www.googleapis.com/compute/v1/projects/p/global/networks/default"
 VM_TAGS = ["tb-gpu", "tb-gpu-door", "tb-session"]
 
 
+def _instance(tags: list[str] | None = None, **nic: Any) -> dict[str, Any]:
+    """`gcloud compute instances describe --format=json` of the GPU VM: one IPv4 interface on default."""
+    return {"tags": {"items": tags if tags is not None else VM_TAGS},
+            "networkInterfaces": [{"network": NET, "stackType": "IPV4_ONLY",
+                                   "accessConfigs": [{"type": "ONE_TO_ONE_NAT", "natIP": "34.80.0.10"}], **nic}]}  # fmt: skip
+
+
+NO_POLICY: dict[str, Any] = {"firewalls": [], "firewallPolicys": []}
+
+
+def _check(rules: list[dict[str, Any]], tags: list[str] | None = None, inst: dict[str, Any] | None = None,
+           eff: dict[str, Any] | None = None) -> tuple[bool, dict[str, Any]]:  # fmt: skip
+    i = inst if inst is not None else _instance(tags)
+    return sv.rules_check(rules, "default", sv.instance_tags(i), [OWNER], i, eff if eff is not None else NO_POLICY)
+
+
 def _rules(**over: dict[str, Any] | None) -> list[dict[str, Any]]:
     """The project's network as the hand-over describes it, with the session's two rules as box-run.sh makes them."""
     rules = {
@@ -86,7 +102,7 @@ def test_the_plan_names_two_rules_and_no_port_but_443() -> None:
 
 
 def test_only_443_from_the_owners_range_reaches_the_vm() -> None:
-    ok, report = sv.rules_check(_rules(), "default", VM_TAGS, [OWNER])
+    ok, report = _check(_rules())
     assert ok, report["problems"]
     assert report["reaches_the_vm"] == "tcp:443 from 1.2.3.4/32 only"
     verdict = {r["rule"]: r["verdict"] for r in report["other_rules_that_apply_to_the_vm"]}
@@ -118,25 +134,31 @@ def test_any_other_way_in_is_refused(case: str) -> None:
     }[case]
     if case == "vm-lacks-tag":
         tags = ["tb-gpu", "tb-gpu-door"]
-    ok, report = sv.rules_check(rules, "default", tags, [OWNER])
+    ok, report = _check(rules, tags)
     assert not ok and report["problems"] and report["reaches_the_vm"] is None, report
 
 
 def test_a_rule_on_another_network_does_not_count() -> None:
     other = _rules(default_allow_ssh={"priority": 100, "network": NET.replace("/default", "/other")})
-    ok, report = sv.rules_check(other, "default", VM_TAGS, [OWNER])
+    ok, report = _check(other)
     assert ok, report["problems"]
 
 
-def test_the_rules_check_runs_from_the_command_line() -> None:
-    """box-run.sh pipes `gcloud compute firewall-rules list --format=json` in; exit 3 names the rule that reaches."""
-    good = subprocess.run([sys.executable, str(SV), "rules-check", "default", " ".join(VM_TAGS), OWNER],
-                          input=json.dumps(_rules()), capture_output=True, text=True, check=False)  # fmt: skip
-    assert good.returncode == 0, good.stderr
-    bad = subprocess.run([sys.executable, str(SV), "rules-check", "default", " ".join(VM_TAGS), OWNER],
-                         input=json.dumps(_rules(tb_gpu_door={"priority": 100})), capture_output=True, text=True,
+def test_the_rules_check_runs_from_the_command_line(tmp_path: Path) -> None:
+    """box-run.sh pipes `gcloud compute firewall-rules list --format=json` in, with the VM's own description and its
+    effective firewalls in files; exit 3 names the rule that reaches. Without them nothing is proved."""
+    (tmp_path / "i.json").write_text(json.dumps(_instance()))
+    (tmp_path / "e.json").write_text(json.dumps(NO_POLICY))
+    cmd = [sys.executable, str(SV), "rules-check", "default", "-", OWNER, "--instance", str(tmp_path / "i.json"),
+           "--effective", str(tmp_path / "e.json")]  # fmt: skip
+    good = subprocess.run(cmd, input=json.dumps(_rules()), capture_output=True, text=True, check=False)
+    assert good.returncode == 0, good.stdout + good.stderr
+    bad = subprocess.run(cmd, input=json.dumps(_rules(tb_gpu_door={"priority": 100})), capture_output=True, text=True,
                          check=False)  # fmt: skip
     assert bad.returncode == 3 and "tb-gpu-door reaches the VM" in bad.stdout
+    blind = subprocess.run([sys.executable, str(SV), "rules-check", "default", " ".join(VM_TAGS), OWNER],
+                           input=json.dumps(_rules()), capture_output=True, text=True, check=False)  # fmt: skip
+    assert blind.returncode == 3 and "was not read" in blind.stdout
     wide = subprocess.run([sys.executable, str(SV), "rules-check", "default", "tb-session", "0.0.0.0/0"],
                           input="[]", capture_output=True, text=True, check=False)  # fmt: skip
     assert wide.returncode == 2 and "whole internet" in wide.stderr
@@ -191,3 +213,72 @@ def test_links_meta_reads_the_id_the_certificate_and_the_stop_and_never_a_code()
     meta = sv.links_meta(text)
     assert meta == {"boot_id": ID_A, "certificate_sha256": fp, "stop": "2026-11-17T09:40:00Z"}
     assert "SYNTHETIC-CODE" not in json.dumps(meta)
+
+
+# ---------------------------------------------------------------- the security review's finding 7: what VPC rules miss
+@pytest.mark.parametrize(
+    "case",
+    ["allow-source-tags", "allow-source-accounts", "ipv6-access", "dual-stack", "two-nics", "policy-allow"],
+)
+def test_ways_in_the_vpc_rules_do_not_show_are_refused(case: str) -> None:
+    rules, inst, eff = _rules(), _instance(), NO_POLICY
+    if case == "allow-source-tags":  # other VMs of the project reach 443 by their tag
+        rules = _rules(tb_session_https={"sourceTags": ["tb-other"]})
+    elif case == "allow-source-accounts":
+        rules = _rules(tb_session_https={"sourceServiceAccounts": ["x@p.iam.gserviceaccount.com"]})
+    elif case == "ipv6-access":  # the deny names 0.0.0.0/0 only
+        inst = _instance(ipv6AccessConfigs=[{"type": "DIRECT_IPV6", "externalIpv6": "2001:db8::5"}])
+    elif case == "dual-stack":
+        inst = _instance(stackType="IPV4_IPV6")
+    elif case == "two-nics":
+        inst = _instance()
+        inst["networkInterfaces"].append({"network": NET.replace("/default", "/other"), "stackType": "IPV4_ONLY"})
+    else:  # a hierarchical policy rule is evaluated before every VPC rule, and firewall-rules list does not show it
+        eff = {"firewalls": [], "firewallPolicys": [{"name": "org-policy", "type": "HIERARCHY", "rules": [
+            {"priority": 100, "direction": "INGRESS", "action": "allow",
+             "match": {"srcIpRanges": ["0.0.0.0/0"], "layer4Configs": [{"ipProtocol": "tcp", "ports": ["22"]}]}}]}]}  # fmt: skip
+    ok, report = _check(rules, inst=inst, eff=eff)
+    assert not ok and report["reaches_the_vm"] is None, report
+
+
+def test_a_policy_that_denies_or_hands_on_is_no_way_in() -> None:
+    eff = {"firewallPolicys": [{"name": "org", "type": "HIERARCHY", "rules": [
+        {"priority": 10, "direction": "INGRESS", "action": "deny", "match": {"srcIpRanges": ["0.0.0.0/0"]}},
+        {"priority": 20, "direction": "INGRESS", "action": "goto_next", "match": {"srcIpRanges": ["0.0.0.0/0"]}},
+        {"priority": 30, "direction": "EGRESS", "action": "allow", "match": {"destIpRanges": ["0.0.0.0/0"]}}]}]}  # fmt: skip
+    ok, report = _check(_rules(), eff=eff)
+    assert ok, report["problems"]
+
+
+# ---------------------------------------------------------------- finding 4: the links object's bucket
+PRIVATE = {"uniform_bucket_level_access": True, "public_access_prevention": "enforced", "versioning_enabled": False,
+           "soft_delete_policy": {"retentionDurationSeconds": "604800"}}  # fmt: skip
+IAM = {"bindings": [{"role": "roles/storage.objectAdmin", "members": ["serviceAccount:x@p.iam.gserviceaccount.com"]}]}
+
+
+@pytest.mark.parametrize(
+    "case, describe, iam",
+    [("allUsers", PRIVATE, {"bindings": [{"role": "roles/storage.objectViewer", "members": ["allUsers"]}]}),
+     ("allAuthenticated", PRIVATE, {"bindings": [{"role": "r", "members": ["allAuthenticatedUsers"]}]}),
+     ("object-acls-can-apply", {**PRIVATE, "uniform_bucket_level_access": False,
+                                "public_access_prevention": "inherited"}, IAM),
+     ("versioning", {**PRIVATE, "versioning_enabled": True}, IAM)],
+)  # fmt: skip
+def test_a_bucket_that_could_show_the_links_is_refused(
+    case: str, describe: dict[str, Any], iam: dict[str, Any]
+) -> None:
+    ok, problems, _notes = sv.bucket_check(describe, iam)
+    assert not ok and problems, case
+
+
+def test_a_private_bucket_passes_and_its_soft_delete_is_said() -> None:
+    ok, problems, notes = sv.bucket_check(PRIVATE, IAM)
+    assert ok and problems == [] and "soft delete keeps a deleted object 7 day(s)" in notes[0]
+    assert sv.bucket_check({**PRIVATE, "uniform_bucket_level_access": False}, IAM)[0]  # enforced prevention suffices
+
+
+def test_a_name_the_vm_would_make_too_long_is_refused_by_the_driver() -> None:
+    """Finding 9: the VM adds the run's 10-character stamp; the console takes 32."""
+    assert sv.parse_people("a" * 22 + ":coordinator", "VALIDATION")
+    with pytest.raises(sv.Refused, match="longer than 22"):
+        sv.parse_people("a" * 23 + ":coordinator", "VALIDATION")
