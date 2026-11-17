@@ -16,7 +16,8 @@
 
 ``<out>/gold/`` is never given to the box: ``pairs.jsonl``, ``criteria.jsonl``, ``compile_gold.json`` and
 ``ids.json`` (source ids -> chart numbers and ruleset ids), ``written.json`` (the lines the benchmark wrote) and
-``key.json`` (the answer key's version, :mod:`.key`, D-1104: ``v1`` as launch P1b, ``v2`` with B1-B3). The scorer
+``key.json`` (the answer key's version, :mod:`.key`, D-1104: ``v1`` as launch P1b, ``v2`` with B1-B3), and with key v2
+``conflicted.json`` (the pairs whose label conflicts with their own criterion labels, D-1064). The scorer
 joins the box's answers to it by ids only, after the run. Placed values (chart numbers, visit and appointment dates,
 birth month, staff) are listed in ``site/PROVENANCE.md`` as public_site does.
 """
@@ -216,14 +217,12 @@ def build(
         "patient_lang": {mrns[k]: p.lang for k, p in bundle.patients.items()},
     }
     (gold / "ids.json").write_text(json.dumps(ids, ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8")
-    _jsonl(
-        gold / "pairs.jsonl",
-        [{**asdict(p), "mrn": mrns.get(p.patient), "ruleset": rs.get(p.trial)} for p in bundle.pairs],
-    )
-    _jsonl(
-        gold / "criteria.jsonl",
-        [{**asdict(c), "mrn": mrns.get(c.patient), "ruleset": rs.get(c.trial)} for c in bundle.criteria],
-    )
+    pair_rows = [{**asdict(p), "mrn": mrns.get(p.patient), "ruleset": rs.get(p.trial)} for p in bundle.pairs]
+    crit_rows = [{**asdict(c), "mrn": mrns.get(c.patient), "ruleset": rs.get(c.trial)} for c in bundle.criteria]
+    _jsonl(gold / "pairs.jsonl", pair_rows)
+    _jsonl(gold / "criteria.jsonl", crit_rows)
+    if keys.MARKS_CONFLICTED[version]:  # D-1064: a file of its own, by key v2 only (v1's files keep their bytes)
+        keys.write_conflicted(gold, pair_rows, crit_rows)
     # S3, S4: the lines the benchmark wrote that no gold row judges (the placed age and sex lines, JMED's "20歳以上"):
     # the scorer counts the patients each of them excludes on its own row
     (gold / "written.json").write_text(
