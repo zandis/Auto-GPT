@@ -422,7 +422,7 @@ if [ "$MODE" = steps ]; then
   elif ! demo_switch | docker exec -i tb-demo python - http://127.0.0.1:8080 steps.acting_role; then
     docker rm -f tb-demo >/dev/null 2>&1 || true
     say "steps.acting_role could not be switched on: the demo was removed and tcp:443 stays closed"
-    echo DEMO-VM-NOT-READY; exit 3
+    marker NOT-READY; exit 3
   fi
 elif [ "$DRY" = 1 ]; then echo "+ docker exec -i tb-demo python - http://127.0.0.1:8080 < (demo-vm-boot.sh --print-demo-switch)"
 elif ! demo_switch | docker exec -i tb-demo python - http://127.0.0.1:8080; then
