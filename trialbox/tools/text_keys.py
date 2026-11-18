@@ -480,6 +480,12 @@ def _guide_pages() -> Iterable[str]:
     return {slug for pages in ROLE_PAGES.values() for slug, _ in pages}
 
 
+def _view_keys() -> Iterable[str]:
+    from console.people_lists import VIEWS
+
+    return sorted({v.key for v in VIEWS})
+
+
 #: a family checked member by member: its prefix and every suffix the code can produce
 FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "life.vstate.": _union(
@@ -507,6 +513,9 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "nav.grp.": _values("console.phone", "MENU_GROUPS"),  # J-3 (D-1222): the groups of "More" behind the flag
     # J-2 (D-1221): a person's one state, every name and the state of facts that could not be read
     "person.state.": _union(_values("console.person_state", "STATES"), lambda: ["unknown"]),
+    # J-5 (D-1223): the two lists of people and the views of each, behind the flag layout.people_lists
+    "people.": _values("console.people_lists", "LISTS"),
+    "people.view.": _view_keys,
 }
 
 _RUN = "a value of stored data or of a service's answer (a state, a kind, a source): no one list in the code holds it"

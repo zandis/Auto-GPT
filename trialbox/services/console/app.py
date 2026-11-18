@@ -1416,6 +1416,7 @@ def create_app(
         entry_pages,
         lifecycle_pages,
         notify,
+        people_lists,
         recorded_opinions,
         screening_log,
         sdv_page,
@@ -1518,6 +1519,7 @@ def create_app(
     from console import twin_api
 
     twin_api.register(app, helpers)  # T-204 (D-440): the patient twin's read route, after break-glass (it uses grants)
+    people_lists.register(app, helpers, templates.env)  # J-5 (D-1223): Candidates and Participants, behind a flag
     from console import timers
 
     timers.plan(raw_env)  # a bad HH:MM fails at start, not at 07:00

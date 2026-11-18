@@ -427,8 +427,15 @@ def register(app: FastAPI, h: Helpers) -> None:
         for s in subs:
             s["person"] = people.of(str(s.get("pid") or "") or f"#{s.get('record')}")
         counts = ps.counts(s["person"] for s in subs)  # one per row: a kept record of an opted-out person too
-        return h.page(request, "life_subjects.html", sess, rs=rid, subjects=subs, err=err,
-                      shown=ps.shown_counts(counts, ps.STATES), readable=people.readable or not subs)  # fmt: skip
+        # J-5 (D-1223, flag layout.people_lists): the view Participants filters by the one state (the withdrawals, the
+        # enrolled ...); the counts stay the whole study's. Off, the page is as before
+        only = request.query_params.get("state", "") if getattr(request.state, "people", None) else ""
+        only = only if only in ps.STATES else ""
+        readable = people.readable or not subs
+        if only:
+            subs = [s for s in subs if s["person"].name == only]
+        return h.page(request, "life_subjects.html", sess, rs=rid, subjects=subs, err=err, only=only,
+                      shown=ps.shown_counts(counts, ps.STATES), readable=readable)  # fmt: skip
 
     def subject_page(request: Request, sess: Session, rid: str, rec: str, status: int = 200,
                      refused: str = "", done: str = "") -> Response:  # fmt: skip

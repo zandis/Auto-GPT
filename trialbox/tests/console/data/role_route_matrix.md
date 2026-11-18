@@ -92,6 +92,8 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/ops/flags` | Y | - | - | - | - | - | - | Y | - |
 | GET | `/ops/identity` | Y | - | - | - | - | - | - | - | - |
 | GET | `/ops/users` | Y | - | - | - | - | - | - | - | - |
+| GET | `/people/candidates` | Y | Y | Y | Y | Y | - | Y | Y | Y |
+| GET | `/people/participants` | Y | Y | Y | Y | Y | - | Y | Y | Y |
 | GET | `/pilot/cascade` | Y | Y | Y | Y | - | - | - | Y | Y |
 | GET | `/pilot/cascade/{run_id}` | n | n | n | n | - | - | - | n | n |
 | GET | `/pilot/cascade/{run_id}/files/{name}` | n | n | n | n | - | - | - | n | n |

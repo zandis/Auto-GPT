@@ -9,7 +9,8 @@
 <p class="hint">{{ t('life.subjects.help') }}</p>
 {% if err %}{% include "_data_err.html" %}{% endif %}
 <section class="card" data-testid="life-counts">
-{{ count_strip(shown, readable, '#subjects', 'count') }}
+{% set by_state = request.state.people is defined and request.state.people %}{{ count_strip(shown, readable, '#subjects', 'count', by_state) }}
+{% if by_state and only %}<p data-testid="state-filter">{{ t('people.filter.lead') }} {{ person_pill(only, 'state-only') }} <a href="?#subjects" data-testid="state-filter-all">{{ t('people.filter.all') }}</a></p>{% endif %}
 </section>
 <section class="card" data-testid="subjects" id="subjects">
 {% if not subjects %}<p class="empty" data-testid="subjects-none">{{ t('life.subjects.none') }}</p>{% else %}
