@@ -107,7 +107,7 @@ for i, rs in enumerate(studies):
 
 
 # H-23b: the gate's cascade (``scale_gate.CHILD_SCREEN``, unchanged) with each top-level stage of ``run_cascade`` timed
-# and its memory read: the process's resident peak within the stage (``VmHWM``, reset at the stage's start) and, with
+# (and the marks of :data:`TRACED_MARKS` inside one) and its memory read: the process's resident peak within the stage (``VmHWM``, reset at the stage's start) and, with
 # ``TB_LADDER_TRACE_FRAMES`` above 0, Python's own tracer (``tracemalloc``): the stage's traced peak and the largest
 # allocation sites still held at its end. A JSON line per stage goes to ``TB_LADDER_TRACE_OUT``. It patches the class
 # in this process only; the product file is not changed.
@@ -132,7 +132,7 @@ def _status(key):
 def _short(path):
     return path.split("/trialbox/", 1)[-1]
 
-def _wrap(name):
+def _wrap(name, inner_mark=False):
     fn = getattr(_eng._Run, name)
     def inner(self, *a, **k):
         _depth[0] += 1
@@ -150,7 +150,7 @@ def _wrap(name):
             return fn(self, *a, **k)
         finally:
             _depth[0] -= 1
-            if outer:
+            if outer or inner_mark:
                 rec = {"stage": name, "start_s": round(t - _t0, 1), "seconds": round(_time.perf_counter() - t, 1),
                        "rss_end": _status("VmRSS:"), "rss_peak": _status("VmHWM:")}
                 if _frames:
@@ -167,9 +167,12 @@ def _wrap(name):
 
 for _n in ("s0", "s1", "note_stage", "sample", "s3", "s4", "tiers", "s5"):
     _wrap(_n)
+_wrap("_s1_rows", inner_mark=True)  # inside S1, not reset: what S1's rows hold when they are all read
 """
 #: the stages ``TRACE_PREFIX`` reads, in ``run_cascade``'s order
 TRACED_STAGES = ("s0", "s1", "note_stage", "sample", "s3", "s4", "tiers", "s5")
+#: a mark inside a stage, read at its return without resetting the stage's peak (S1's rows, all read)
+TRACED_MARKS = ("_s1_rows",)
 
 
 # ------------------------------------------------------------------------------------------------ the arithmetic

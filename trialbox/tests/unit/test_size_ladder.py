@@ -260,7 +260,7 @@ def test_the_trace_child_is_python_and_wraps_the_cascade_stages() -> None:
     from tools import scale_gate as sg
 
     compile(sl.TRACE_PREFIX + sg.CHILD_SCREEN, "<size_ladder trace>", "exec")
-    for name in sl.TRACED_STAGES:
+    for name in (*sl.TRACED_STAGES, *sl.TRACED_MARKS):
         assert callable(getattr(engine._Run, name)), name
         assert f'"{name}"' in sl.TRACE_PREFIX
 
