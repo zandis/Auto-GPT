@@ -272,7 +272,7 @@ demo:
 
 # the same as one image file for the demo VM (docs/RUNBOOK.md §11): dist/trialbox-demo.tar.gz
 # T-501: the jar the compiler reads FHIRHelpers from comes from jvm-deps (the Dockerfile fetches it on a fresh clone)
-demo-bundle: jvm-deps
+demo-bundle: jvm-deps vocab-bundle-check
 	docker build $(CA_SECRET) -f demo/Dockerfile -t trialbox-demo:step5 .
 	mkdir -p dist && docker save trialbox-demo:step5 | gzip > dist/trialbox-demo.tar.gz
 	@ls -l dist/trialbox-demo.tar.gz
@@ -677,7 +677,8 @@ sc-images: deploy/.env
 		*) echo "sc-images: no third-party images (docker compose config gave none)" >&2; exit 1 ;; esac
 
 # card 22-4 (root review 22): no row of a vocabulary the licence register classes c (must not ship) in a shipped
-# terminology artefact (tables, maps, value sets) or in VOCAB_BUNDLE_PATHS (e.g. the --rulesets folder of BUNDLE_ARGS)
+# terminology artefact (tables, maps, value sets) or in VOCAB_BUNDLE_PATHS; make_bundle.sh checks what it stages
+# beside the images itself (rule-set zips, reference data packs, the models folder)
 VOCAB_BUNDLE_PATHS ?=
 vocab-bundle-check:
 	PYTHONPATH=libs:services:. $(PY) -m tools.vocab_bundle_check --tree $(VOCAB_BUNDLE_PATHS)
