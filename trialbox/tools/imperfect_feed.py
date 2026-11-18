@@ -199,18 +199,27 @@ def write_csv(t: Tables, folder: Path) -> str:
 
 def write_sql(t: Tables, folder: Path, twice: bool = False, drop_column: tuple[str, str] | None = None) -> str:
     """A CGRD-style database: one table per landing table, every column TEXT (SQLite in place of the replica)."""
+    from sqlalchemy import Column, MetaData, Table, Text, create_engine, insert
+
     folder.mkdir(parents=True, exist_ok=True)
-    db = folder / "cgrd.sqlite"
-    con = sqlite3.connect(db)
-    for table in TABLES:
-        cols = [c for c in COLUMNS[table] if (table, c) != drop_column]
-        con.execute(f"CREATE TABLE {table} ({', '.join(f'{c} TEXT' for c in cols)})")
-        rows = [tuple(r.get(c) for c in cols) for r in t[table]]
-        for _ in range(2 if twice else 1):
-            con.executemany(f"INSERT INTO {table} VALUES ({', '.join('?' for _ in cols)})", rows)
-    con.commit()
-    con.close()
-    return f"sqlite:///{db}"
+    dsn = f"sqlite:///{folder / 'cgrd.sqlite'}"
+    meta = MetaData()
+    tables = {
+        name: Table(name, meta, *(Column(c, Text) for c in COLUMNS[name] if (name, c) != drop_column))
+        for name in TABLES
+    }
+    engine = create_engine(dsn)
+    try:
+        meta.create_all(engine)
+        with engine.begin() as con:
+            for name, table in tables.items():
+                rows = [{c.name: r.get(c.name) for c in table.columns} for r in t[name]]
+                for _ in range(2 if twice else 1):
+                    if rows:
+                        con.execute(insert(table), rows)
+    finally:
+        engine.dispose()
+    return dsn
 
 
 def _ref(m: str) -> dict[str, str]:
