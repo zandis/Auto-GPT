@@ -57,6 +57,7 @@ SLOW_FACTOR = 1.5
 SLOW_FLOOR_S = 5.0
 #: the results file's shape; a change of keys moves it
 SCHEMA = "size-ladder/1"
+TRACE_SCHEMA = "size-ladder-trace/1"
 SITE_KEY = b"trialbox-scale-gate-site-key-0123456789"  # the scale gate's own synthetic site key
 
 # the jobs, as the orchestrator runs them: one process, each study's FEAS then its SCREEN, a JSON line per job
@@ -103,6 +104,75 @@ for i, rs in enumerate(studies):
                           "stub_s": round(spent / 1000, 2),
                           "rss_peak": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024}), flush=True)
 """
+
+
+# H-23b: the gate's cascade (``scale_gate.CHILD_SCREEN``, unchanged) with each top-level stage of ``run_cascade`` timed
+# (and the marks of :data:`TRACED_MARKS` inside one) and its memory read: the process's resident peak within the stage
+# (``VmHWM``, reset at the stage's start) and, with a tracer depth above 0, Python's own tracer (``tracemalloc``): the
+# stage's traced peak and the largest allocation sites still held at its end. The depth and the output file are the
+# child's 8th and 9th arguments, after the gate's own seven; a JSON line per stage goes to the file. It patches the
+# class in this process only; the product file is not changed.
+TRACE_PREFIX = r"""
+import json as _json, os as _os, time as _time, tracemalloc as _tm
+from pathlib import Path as _Path
+from matching.cascade import engine as _eng
+import sys as _sys
+_frames, _out, _top = int(_sys.argv[8]), _Path(_sys.argv[9]), 15
+_t0, _depth = _time.perf_counter(), [0]
+if _frames:
+    _tm.start(_frames)
+
+def _status(key):
+    with open("/proc/self/status") as fh:
+        for ln in fh:
+            if ln.startswith(key):
+                return int(ln.split()[1]) * 1024
+    return 0
+
+def _short(path):
+    return path.split("/trialbox/", 1)[-1]
+
+def _wrap(name, inner_mark=False):
+    fn = getattr(_eng._Run, name)
+    def inner(self, *a, **k):
+        _depth[0] += 1
+        outer = _depth[0] == 1
+        if outer:
+            try:
+                with open("/proc/self/clear_refs", "w") as fh:
+                    fh.write("5")  # VmHWM from here
+            except OSError:
+                pass
+            if _frames:
+                _tm.reset_peak()
+        t = _time.perf_counter()
+        try:
+            return fn(self, *a, **k)
+        finally:
+            _depth[0] -= 1
+            if outer or inner_mark:
+                rec = {"stage": name, "start_s": round(t - _t0, 1), "seconds": round(_time.perf_counter() - t, 1),
+                       "rss_end": _status("VmRSS:"), "rss_peak": _status("VmHWM:")}
+                if _frames:
+                    cur, peak = _tm.get_traced_memory()
+                    snap = _tm.take_snapshot().filter_traces([_tm.Filter(False, _tm.__file__)])
+                    rec.update(traced_end=cur, traced_peak=peak, top=[
+                        {"bytes": st.size, "count": st.count,
+                         "where": [f"{_short(f.filename)}:{f.lineno}" for f in st.traceback]}
+                        for st in snap.statistics("traceback")[:_top]])
+                    del snap
+                with _out.open("a") as fh:
+                    fh.write(_json.dumps(rec) + "\n")
+    setattr(_eng._Run, name, inner)
+
+for _n in ("s0", "s1", "note_stage", "sample", "s3", "s4", "tiers", "s5"):
+    _wrap(_n)
+_wrap("_s1_rows", inner_mark=True)  # inside S1, not reset: what S1's rows hold when they are all read
+"""
+#: the stages ``TRACE_PREFIX`` reads, in ``run_cascade``'s order
+TRACED_STAGES = ("s0", "s1", "note_stage", "sample", "s3", "s4", "tiers", "s5")
+#: a mark inside a stage, read at its return without resetting the stage's peak (S1's rows, all read)
+TRACED_MARKS = ("_s1_rows",)
 
 
 # ------------------------------------------------------------------------------------------------ the arithmetic
@@ -175,6 +245,7 @@ def stage_rows(run: Mapping[str, Any]) -> list[dict[str, Any]]:
     ms per unit, and the stage's own counts."""
     n = int(run["patients"])
     rows: list[dict[str, Any]] = []
+    moved = lifted_services(run)
     gate = run.get("gate") or {}
     procs = {p["name"]: p for p in gate.get("runs", [])}
     nums = gate.get("numbers") or {}
@@ -213,7 +284,18 @@ def stage_rows(run: Mapping[str, Any]) -> list[dict[str, Any]]:
     cut = cut_job(jobs)
     if cut is not None:
         rows.append(cut | {"units": n, "ms_per_unit": per_unit_ms(cut["seconds"], n)})
+    for row in rows:
+        row["lifted"] = row["service"] in moved
     return rows
+
+
+#: the compose memory setting of each service the ladder caps (``deploy/docker-compose.yml``)
+CAP_SERVICE = {"TB_MEM_ADAPTER": "adapter", "TB_MEM_LAKE": "lake", "TB_MEM_ORCH": "orchestrator"}
+
+
+def lifted_services(run: Mapping[str, Any]) -> set[str]:
+    """H-23b: the services whose cap a run was given from the environment (``cap_env``), not the shipped default."""
+    return {CAP_SERVICE[k] for k in (run.get("cap_env") or {}) if k in CAP_SERVICE}
 
 
 def cut_job(jobs: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -274,12 +356,12 @@ def _job_row(kind: str, done: list[dict[str, Any]], n: int, jobs: Mapping[str, A
 
 def summarise(runs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """The ladder's table (stage x size, with the repeats' spread) and where each stage first slows."""
-    by: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    by: dict[tuple[str, int, bool], list[dict[str, Any]]] = {}
     for run in runs:
         for row in stage_rows(run):
-            by.setdefault((row["stage"], int(run["patients"])), []).append(row)
+            by.setdefault((row["stage"], int(run["patients"]), row["lifted"]), []).append(row)
     table: list[dict[str, Any]] = []
-    for (stage, n), rows in sorted(by.items(), key=lambda kv: (kv[0][1], _stage_order(kv[0][0]))):
+    for (stage, n, lifted), rows in sorted(by.items(), key=lambda kv: (kv[0][1], _stage_order(kv[0][0]), kv[0][2])):
         secs = [r["seconds"] for r in rows]
         sp = spread(secs)
         first = rows[0]
@@ -295,6 +377,7 @@ def summarise(runs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
                 "unit": first["unit"],
                 "ms_per_unit": per_unit_ms(sp["median"], first["units"]),
                 "ok": all(r["ok"] for r in rows),
+                "lifted": lifted,
                 **{
                     k: first[k]
                     for k in ("records", "model_calls", "stub_s", "studies", "scoped", "lake_peak", "cut")
@@ -304,11 +387,21 @@ def summarise(runs: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         )
     slows = {}
     for stage in sorted({t["stage"] for t in table}, key=_stage_order):
-        # a stage killed at its cap did not finish: its time is not a rate, and its row says FAILED instead
-        pts = {
-            t["patients"]: (t["seconds"]["median"], t["ms_per_unit"]) for t in table if t["stage"] == stage and t["ok"]
-        }
-        slows[stage] = first_slow(pts)
+        # a stage killed at its cap did not finish: its time is not a rate, and its row says FAILED instead. H-23b: at
+        # each size the shipped cap's row when it finished, else a lifted cap's; the sizes judged on a lifted cap are
+        # named
+        pts: dict[int, tuple[float, float]] = {}
+        on_lifted: set[int] = set()
+        for t in sorted((t for t in table if t["stage"] == stage and t["ok"]), key=lambda t: not t["lifted"]):
+            pts[t["patients"]] = (t["seconds"]["median"], t["ms_per_unit"])  # the shipped row, last, wins
+            if t["lifted"]:
+                on_lifted.add(t["patients"])
+            else:
+                on_lifted.discard(t["patients"])
+        slow = first_slow(pts)
+        if slow is not None and on_lifted:
+            slow["lifted_sizes"] = sorted(on_lifted)
+        slows[stage] = slow
     return {"table": table, "first_slow": slows, "slow_factor": SLOW_FACTOR, "slow_floor_s": SLOW_FLOOR_S}
 
 
@@ -343,7 +436,8 @@ def markdown_table(summary: Mapping[str, Any]) -> str:
             for k in ("records", "model_calls", "stub_s", "scoped", "cut")
             if k in t
         )
-        cap = f"{t['service']} ({gib(t['cap'])})" if t["cap"] else t["service"]
+        lifted = ", lifted" if t.get("lifted") else ""
+        cap = f"{t['service']} ({gib(t['cap'])}{lifted})" if t["cap"] else t["service"]
         bad = "" if t["ok"] else " **FAILED**"
         lines.append(
             f"| {t['patients']:,} | {t['stage']}{bad} | {cap} | {span} | {gib(t['peak'])} | "
@@ -433,6 +527,99 @@ def run_jobs(work: Path, lake_dir: Path, studies: Sequence[str], enforce: str = 
     return out
 
 
+def trace_cascade(kept: Path, frames: int = 0, enforce: str = "") -> dict[str, Any]:
+    """H-23b: the gate's cascade of one study again, over the lake a kept size left (``measure(..., keep=True)``), with
+    :data:`TRACE_PREFIX`: each stage's time and memory, and with ``frames`` above 0 Python's tracer (which slows the
+    run several times and adds its own memory: its times are not the ladder's). Under the ``orchestrator`` cap, read
+    from the environment as compose reads it (``TB_MEM_ORCH``), over the lake service under its cap and the stub."""
+    import secrets as _secrets
+
+    from tb_testkit.scale import Enforcer, SlowModel, compose_caps, free_port, wait_http
+
+    from tools import scale_gate as sg
+
+    lake_dir = kept / "work" / "lake"
+    if not (lake_dir / "CURRENT").exists():
+        raise ValueError(f"{kept}: no built lake (run the size with --keep first)")
+    caps = compose_caps()
+    enf = Enforcer.detect(enforce)
+    work = kept / "trace"
+    shutil.rmtree(work, ignore_errors=True)
+    logs = work / "logs"
+    logs.mkdir(parents=True)
+    stages = work / "stages.jsonl"
+    port = free_port()
+    url = f"http://127.0.0.1:{port}"
+    token = _secrets.token_hex(16)
+    lake_env = _env(TB_LAKE_DIR=str(lake_dir), TB_LAKE_EMBEDDER="hash", TB_LAKE_BUILD="process",
+                    TB_SERVICE_TOKEN=token, TB_SCALE_CAP_BYTES=str(caps["lake"]))  # fmt: skip
+    model = SlowModel(work / "stub")
+    model.start()
+    try:
+        with enf.start("lake (trace)", "lake", caps["lake"], [sys.executable, "-c", sg.CHILD_LAKE, str(port)],
+                       lake_env, ROOT, logs / "lake.log") as (proc, lake_run):  # fmt: skip
+            if not wait_http(f"{url}/healthz", 120, lambda: proc.poll() is None):
+                raise RuntimeError(f"the lake service did not start: {lake_run.tail[-400:]}")
+            sc = enf.run(
+                "cascade (traced)",
+                "orchestrator",
+                caps["orchestrator"],
+                [
+                    sys.executable,
+                    "-c",
+                    TRACE_PREFIX + sg.CHILD_SCREEN,
+                    url,
+                    model.url,
+                    sg.TRIAL,
+                    sg.SNAPSHOT,
+                    sg.REF_DATE.isoformat(),
+                    str(work / "screen"),
+                    "auto",
+                    str(frames),
+                    str(stages),
+                ],
+                _env(TB_SERVICE_TOKEN=token),
+                ROOT,
+                logs / "cascade.log",
+            )
+    finally:
+        model.stop()
+    got: list[dict[str, Any]] = []
+    with contextlib.suppress(OSError):
+        got = [json.loads(ln) for ln in stages.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    return {
+        "patients_dir": kept.name,
+        "frames": frames,
+        "cap": caps["orchestrator"],
+        "mode": enf.mode,
+        "seconds": round(sc.seconds, 1),
+        "peak": sc.peak,
+        "rc": sc.rc,
+        "oom": sc.oom,
+        "lake_peak": lake_run.peak,
+        "stages": got,
+        **({"tail": sc.tail[-600:]} if sc.rc else {}),
+    }
+
+
+def stage_memory_table(trace: Mapping[str, Any]) -> str:
+    """A traced cascade's stages as the measurement page shows them: seconds, the resident peak within the stage and
+    at its end, and (traced) the tracer's peak within the stage and what is held at its end."""
+    traced = int(trace.get("frames", 0)) > 0
+    head = "| Stage | Seconds | Resident peak GiB | Resident at end GiB |"
+    rule = "| --- | ---: | ---: | ---: |"
+    if traced:
+        head += " Traced peak GiB | Traced at end GiB |"
+        rule += " ---: | ---: |"
+    lines = [head, rule]
+    for st in trace.get("stages", []):
+        row = f"| {st['stage']} | {st['seconds']:,.1f} | {gib(st['rss_peak'])} | {gib(st['rss_end'])} |"
+        if traced:
+            row += f" {gib(st.get('traced_peak', 0))} | {gib(st.get('traced_end', 0))} |"
+        lines.append(row)
+    return "\n".join(lines) + "\n"
+
+
 def _json_lines(log: Path) -> list[str]:
     try:
         text = log.read_text(encoding="utf-8", errors="replace")
@@ -448,7 +635,7 @@ def measure(rung: Rung, repeat: int, work: Path, enforce: str = "", keep: bool =
     out = work / f"n{rung.patients}-r{repeat}"
     shutil.rmtree(out, ignore_errors=True)
     t0 = time.monotonic()
-    rec: dict[str, Any] = {"patients": rung.patients, "studies": rung.studies, "repeat": repeat}
+    rec: dict[str, Any] = {"patients": rung.patients, "studies": rung.studies, "repeat": repeat, **conditions()}
     try:
         p = sg.Params(patients=rung.patients, out=out, enforce=enforce, stall_s=sg.STALL_S)
         try:
@@ -474,6 +661,29 @@ def measure(rung: Rung, repeat: int, work: Path, enforce: str = "", keep: bool =
         if not keep:
             shutil.rmtree(out, ignore_errors=True)
     return rec
+
+
+#: the compose memory settings a run may be given from the environment (``deploy/.env`` moves them on a box)
+CAP_VARS = ("TB_MEM_ADAPTER", "TB_MEM_LAKE", "TB_MEM_ORCH")
+
+
+def conditions(environ: Mapping[str, str] | None = None) -> dict[str, Any]:
+    """H-23b: what a run was measured under, kept in its record: the caps in force (bytes, by service), the compose
+    settings given from the environment that moved them (empty: the shipped defaults), and whether the night's ingest
+    ran the HL7 validator (the JVM, when ``TB_HL7_VALIDATOR_JAR`` and the packages are there) or the structural check
+    alone. A run with a lifted cap is reported as such, never as the shipped shape."""
+    from tb_testkit.scale import compose_caps
+
+    env = os.environ if environ is None else environ
+    caps = compose_caps(environ=env)
+    jar = Path(env.get("TB_HL7_VALIDATOR_JAR", "/opt/hl7/validator_cli.jar"))
+    home = Path(env.get("TB_FHIR_PACKAGE_HOME", "/opt/hl7/home"))
+    hl7 = jar.exists() and (home / ".fhir" / "packages").exists() and shutil.which(env.get("TB_JAVA", "java"))
+    return {
+        "caps": {k: caps[k] for k in ("adapter", "lake", "orchestrator") if k in caps},
+        "cap_env": {k: env[k] for k in CAP_VARS if env.get(k)},
+        "validator": "hl7" if hl7 else "structural",
+    }
 
 
 def _du(path: Path) -> int:
@@ -521,15 +731,29 @@ def write_results(path: Path, runs: list[dict[str, Any]], started: str) -> dict[
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--plan", nargs="+", required=True, help="PATIENTS:STUDIES:REPEATS, smallest first")
+    ap.add_argument("--plan", nargs="+", default=[], help="PATIENTS:STUDIES:REPEATS, smallest first")
     ap.add_argument("--work", type=Path, required=True, help="where the raw runs go (removed after each size)")
     ap.add_argument("--results", type=Path, required=True, help="the summary JSON file")
     ap.add_argument("--enforce", default="", choices=("", "cgroup", "measure"))
     ap.add_argument("--keep", action="store_true", help="keep each size's raw run in --work")
     ap.add_argument("--resume", action="store_true", help="keep the runs already in --results and skip them")
+    ap.add_argument("--trace-cascade", type=Path, metavar="KEPT",
+                    help="H-23b: no ladder; the gate's cascade again over a size kept in --work (n<patients>-r<repeat>)"
+                    ", each stage timed with its memory; the record goes to --results")  # fmt: skip
+    ap.add_argument("--trace-frames", type=int, default=0, help="with --trace-cascade: the tracer's frames (0: off)")
     a = ap.parse_args(argv)
     if not os.environ.get("TB_TZ"):
         ap.error("TB_TZ is not set: the product has no default site zone (D-315); give the zone the box would have")
+    if a.trace_cascade is not None:
+        kept = a.trace_cascade if a.trace_cascade.is_absolute() else a.work / a.trace_cascade
+        tr = {**conditions(), **trace_cascade(kept, a.trace_frames, a.enforce)}
+        a.results.parent.mkdir(parents=True, exist_ok=True)
+        a.results.write_text(json.dumps({"schema": TRACE_SCHEMA, "decision": "D-1137", "machine": machine(),
+                                         "trace": tr}, indent=1) + "\n", encoding="utf-8")  # fmt: skip
+        sys.stdout.write(stage_memory_table(tr))
+        return 0 if not tr["rc"] else 1
+    if not a.plan:
+        ap.error("give --plan (the ladder) or --trace-cascade (one kept size's cascade)")
     plan = parse_plan(a.plan)
     runs: list[dict[str, Any]] = []
     started = datetime.now(UTC).isoformat(timespec="seconds")
