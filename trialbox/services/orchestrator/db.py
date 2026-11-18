@@ -215,7 +215,23 @@ CREATE TABLE IF NOT EXISTS judged_pairs (
 CREATE INDEX IF NOT EXISTS judged_pairs_pid ON judged_pairs (pid);
 CREATE INDEX IF NOT EXISTS judged_pairs_snapshot ON judged_pairs (snapshot);
 """
-MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5)
+# D-1320: a member site's alliance table is stored only when its Ed25519 signature holds for the key registered for
+# the site (``tb_common.alliance``). ``verified_by``: the signing key's fingerprint, ``own`` for the root's own table
+# (made in the box, never mailed), NULL for a table stored before signatures were required: kept, marked unverified,
+# and left out of every merge until its site sends it signed. ``signed_seq`` and ``signed_sha256``: the signed
+# table's sequence and hash, so an older table is not taken over a newer one. The record (``cohort_stored``) keeps
+# the same three, so a replay rebuilds them.
+SCHEMA_V6 = """
+ALTER TABLE cohort_tables ADD COLUMN IF NOT EXISTS verified_by TEXT;
+ALTER TABLE cohort_tables ADD COLUMN IF NOT EXISTS signed_seq BIGINT;
+ALTER TABLE cohort_tables ADD COLUMN IF NOT EXISTS signed_sha256 TEXT;
+ALTER TABLE cohort_stored ADD COLUMN IF NOT EXISTS verified_by TEXT;
+ALTER TABLE cohort_stored ADD COLUMN IF NOT EXISTS signed_seq BIGINT;
+ALTER TABLE cohort_stored ADD COLUMN IF NOT EXISTS signed_sha256 TEXT;
+UPDATE cohort_tables SET verified_by = 'own' WHERE received_from LIKE 'self:%';
+UPDATE cohort_stored SET verified_by = 'own' WHERE received_from LIKE 'self:%'
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6)
 SCHEMA_NAME = "orch"
 
 TERMINAL = ("done", "failed")
@@ -892,6 +908,11 @@ class JobDB:
         job_id: str,
         received_from: str,
         refuse: Callable[[set[str]], str | None] | None = None,
+        *,
+        verified_by: str | None = None,
+        signed_seq: int | None = None,
+        signed_sha256: str | None = None,
+        stale: Callable[[dict[tuple[str, str, str, str], tuple[int | None, str | None]]], str | None] | None = None,
     ) -> str | None:
         """Replace a site's table for each (disease, quarter, definition) it contains, then insert the rows, and
         record what was stored (D-648): one ``cohort_stored`` row per site in ``rows``, in this transaction, so the
@@ -902,7 +923,12 @@ class JobDB:
         with the addresses whose tables of the rows' sites stand in the store now (all the sites in ``rows``
         together: a caller with a rule per site passes one site's rows). A sentence back: nothing is stored
         and the sentence is returned. A check made before the call can be overtaken by another store (two senders
-        of one site, both let in). None is returned when the rows were stored."""
+        of one site, both let in). None is returned when the rows were stored.
+
+        ``verified_by``, ``signed_seq``, ``signed_sha256`` (D-1320): how the table was verified (the signing key's
+        fingerprint, ``own``, or None: unverified), and the signed table's sequence and hash. ``stale``: asked in the
+        same transaction with each group's stored sequence and hash (by (site, disease, quarter, definition), of
+        the groups ``rows`` replace); a sentence back refuses the store as ``refuse`` does."""
         if not rows:
             return None
         with self.tx() as con:
@@ -915,6 +941,21 @@ class JobDB:
                 said = refuse(senders)
                 if said:
                     return said
+            if stale is not None:
+                held: dict[tuple[str, str, str, str], tuple[int | None, str | None]] = {}
+                for group in sorted(
+                    {(r["site_id"], r["disease"], r["quarter"], r["definition_version"]) for r in rows}
+                ):
+                    got = con.fetchall(
+                        "SELECT MAX(signed_seq), MAX(signed_sha256) FROM cohort_tables WHERE site_id=? AND disease=? "
+                        "AND quarter=? AND definition_version=? AND signed_seq IS NOT NULL",
+                        group,
+                    )
+                    if got and got[0][0] is not None:
+                        held[group] = (int(got[0][0]), str(got[0][1]))
+                said = stale(held)
+                if said:
+                    return said
             for site, disease, quarter, version in {
                 (r["site_id"], r["disease"], r["quarter"], r["definition_version"]) for r in rows
             }:
@@ -925,7 +966,8 @@ class JobDB:
             for r in rows:
                 con.execute(
                     """INSERT INTO cohort_tables (site_id, disease, quarter, criterion_id, definition_version,
-                         criterion_label, n, n_contactable, received_from, job_id) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                         criterion_label, n, n_contactable, received_from, job_id, verified_by, signed_seq,
+                         signed_sha256) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         r["site_id"],
                         r["disease"],
@@ -937,17 +979,40 @@ class JobDB:
                         json.dumps(r["n_contactable"]),
                         received_from,
                         job_id,
+                        verified_by,
+                        signed_seq,
+                        signed_sha256,
                     ),
                 )
             for site in sorted({r["site_id"] for r in rows}):
                 table = [{c: r[c] for c in self._COHORT_COLS} for r in rows if r["site_id"] == site]
                 con.execute(
-                    "INSERT INTO cohort_stored (job_id, site_id, received_from, table_sha256, rows) VALUES (?,?,?,?,?)",
-                    (job_id, site, received_from, cohort_table_hash(table), json.dumps(table, ensure_ascii=False)),
+                    "INSERT INTO cohort_stored (job_id, site_id, received_from, table_sha256, rows, verified_by, "
+                    "signed_seq, signed_sha256) VALUES (?,?,?,?,?,?,?,?)",
+                    (
+                        job_id,
+                        site,
+                        received_from,
+                        cohort_table_hash(table),
+                        json.dumps(table, ensure_ascii=False),
+                        verified_by,
+                        signed_seq,
+                        signed_sha256,
+                    ),
                 )
         return None
 
-    _STORED_COLS = ("seq", "job_id", "site_id", "received_from", "table_sha256", "rows")
+    _STORED_COLS = (
+        "seq",
+        "job_id",
+        "site_id",
+        "received_from",
+        "table_sha256",
+        "rows",
+        "verified_by",
+        "signed_seq",
+        "signed_sha256",
+    )
 
     def _stored(self, where: str, args: tuple[Any, ...]) -> list[dict[str, Any]]:
         got = self._db.fetchall(f"SELECT {', '.join(self._STORED_COLS)} FROM cohort_stored {where} ORDER BY seq", args)
@@ -972,7 +1037,7 @@ class JobDB:
             for disease, quarter in keys:
                 got = con.fetchall(
                     f"SELECT {', '.join(self._COHORT_COLS)} FROM cohort_tables WHERE disease=? AND quarter=? "
-                    "ORDER BY site_id, seq",
+                    "AND verified_by IS NOT NULL ORDER BY site_id, seq",  # D-1320: unverified is kept, not merged
                     (disease, quarter),
                 )
                 for r in got:
@@ -1001,6 +1066,18 @@ class JobDB:
             d = dict(zip(cols, r, strict=True))
             d["n"], d["n_contactable"] = json.loads(d["n"]), json.loads(d["n_contactable"])
             out.append(d)
+        return out
+
+    def cohort_unverified(self, keys: list[tuple[str, str]]) -> set[str]:
+        """The sites with a table stored before signatures were required in a (disease, quarter) of ``keys``: kept,
+        marked unverified, and left out of the merge until the site sends it signed (D-1320)."""
+        out: set[str] = set()
+        for disease, quarter in keys:
+            got = self._db.fetchall(
+                "SELECT DISTINCT site_id FROM cohort_tables WHERE disease=? AND quarter=? AND verified_by IS NULL",
+                (disease, quarter),
+            )
+            out |= {str(r[0]) for r in got}
         return out
 
     def cohort_senders(self, site_id: str) -> set[str]:

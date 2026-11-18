@@ -116,7 +116,7 @@ File: [runbook/22-disaster-recovery-with-measured-rpo-and-rto.md](runbook/22-dis
 
 ## 23. Key inventory and the lost-box list
 
-File: [runbook/23-key-inventory-and-the-lost-box-list.md](runbook/23-key-inventory-and-the-lost-box-list.md). In it: [The inventory on the box](runbook/23-key-inventory-and-the-lost-box-list.md#the-inventory-on-the-box), [The lost-box list](runbook/23-key-inventory-and-the-lost-box-list.md#the-lost-box-list).
+File: [runbook/23-key-inventory-and-the-lost-box-list.md](runbook/23-key-inventory-and-the-lost-box-list.md). In it: [The inventory on the box](runbook/23-key-inventory-and-the-lost-box-list.md#the-inventory-on-the-box), [The lost-box list](runbook/23-key-inventory-and-the-lost-box-list.md#the-lost-box-list), [Alliance site keys](runbook/23-key-inventory-and-the-lost-box-list.md#alliance-site-keys).
 
 ## 24. Patch policy
 

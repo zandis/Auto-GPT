@@ -8,7 +8,7 @@ from __future__ import annotations
 import copy
 import csv
 import io
-from datetime import date
+from datetime import UTC, date, datetime
 from email import policy
 from pathlib import Path
 from typing import Any
@@ -17,8 +17,10 @@ import pytest
 from openpyxl import load_workbook
 from orchestrator.scenarios import cohort
 from pypdf import PdfReader
+from tb_common import alliance
 from tb_common.subject import is_job_mail
 
+from tests import alliance_keys
 from tests.inproc_box import SITE_B, Box, Sent, ingest_site, make_box
 
 RUN = date(2026, 10, 5)
@@ -29,16 +31,29 @@ AUTH_A_FROM_B = "mx.hospa.test; spf=pass smtp.mailfrom=hospb.test; dkim=pass hea
 
 @pytest.fixture
 def boxes(synth_dir: Path, tmp_path: Path) -> dict[str, Box]:
-    """Fresh boxes A (root) and B (member) per test, so every test runs alone and in any order."""
+    """Fresh boxes A (root) and B (member) per test, so every test runs alone and in any order. B signs its alliance
+    table with its site key; A's register holds that key for DEMO-B (D-1320)."""
     tmp = tmp_path
     out: dict[str, Box] = {}
+    key_b = tmp / "sec-b-alliance" / "alliance.key"
+    key_b.parent.mkdir()
+    key_b.write_bytes(alliance_keys.key("DEMO-B"))
+    extra = {
+        "a": alliance_keys.env(tmp / "register-a", ["DEMO-B"]),
+        "b": {"TB_ALLIANCE_SIGNING_KEY_FILE": str(key_b)},
+    }
     for site in ("a", "b"):
         sec = tmp / f"sec-{site}"
         sec.mkdir()
         (sec / "site_hmac.key").write_bytes(KEYS[site])
         ingest_site(synth_dir / f"site-{site}", tmp / f"lake-{site}", sec, "2026-10-04", f"DEMO-{site.upper()}")
         out[site] = make_box(
-            tmp / f"box-{site}", tmp / f"lake-{site}", sec, RUN, settings_update=SITE_B if site == "b" else None
+            tmp / f"box-{site}",
+            tmp / f"lake-{site}",
+            sec,
+            RUN,
+            settings_update=SITE_B if site == "b" else None,
+            extra_env=extra[site],
         )
     return out
 
@@ -148,7 +163,7 @@ def test_member_shares_and_root_merges(boxes: dict[str, Box], synth_dir: Path) -
     share, _merge, out = _share_and_merge(boxes["a"], boxes["b"])
     assert share.to == ["trialbox@hospa.test"]
     shared = share.attachments()
-    assert list(shared) == ["cohort_table_GOUT-COH_DEMO-B_2026Q3.csv"]
+    assert list(shared) == ["cohort_table_GOUT-COH_DEMO-B_2026Q3.csv", "cohort_table_GOUT-COH_DEMO-B_2026Q3.sig.json"]
     b_rows = _csv_rows(shared["cohort_table_GOUT-COH_DEMO-B_2026Q3.csv"])
     pop_b, _ = _oracle(synth_dir / "site-b", date(2026, 9, 30))
     assert int(next(r for r in b_rows if r["criterion_id"] == "GOUT-COH-INC-01")["n"]) == len(pop_b)
@@ -171,9 +186,13 @@ def test_merge_rerun_uses_the_tables_as_they_were(boxes: dict[str, Box]) -> None
     _share, first, _out = _share_and_merge(a, boxes["b"])
     rows = [r for r in a.orch.db.cohort_rows("gout", "2026Q3") if r["site_id"] == "DEMO-B"]
     fixed = [{**r, "n": r["n"] + 1} if r["criterion_id"] == "GOUT-COH-INC-01" else r for r in rows]
+    later = alliance.seq_of(datetime.now(UTC)) + 60_000  # signed after B's first table (D-1320)
     a.mail(
         "COHORT MERGE",
-        attachments=(("cohort_table_GOUT-COH_DEMO-B_2026Q3.csv", to_csv(fixed)),),
+        attachments=(
+            ("cohort_table_GOUT-COH_DEMO-B_2026Q3.csv", to_csv(fixed)),
+            ("cohort_table_GOUT-COH_DEMO-B_2026Q3.sig.json", alliance_keys.signature(fixed, seq=later)),
+        ),
         sender="trialbox@hospb.test",
         auth=AUTH_A_FROM_B,
     )
@@ -188,7 +207,8 @@ def test_merge_rerun_uses_the_tables_as_they_were(boxes: dict[str, Box]) -> None
 
 def test_merge_refuses_tables_for_other_sites(boxes: dict[str, Box]) -> None:
     """A merged table replaces its site's rows: nobody may send the root's own site, and a site's tables come only
-    from the address that first contributed them (DEMO-B: B's box)."""
+    from the address that first contributed them (DEMO-B: B's box), even signed with the site's key (D-1320 keeps
+    the address check beside the signature, D-648 item 7); unsigned, a table is refused before that."""
     from orchestrator.scenarios.cohort import to_csv
 
     a = boxes["a"]
@@ -199,8 +219,15 @@ def test_merge_refuses_tables_for_other_sites(boxes: dict[str, Box]) -> None:
     assert b_rows and a_rows
     forged_a = [{**r, "n": 0} for r in a_rows]
     forged_b = [{**r, "n": 0} for r in b_rows]
-    for rows, needle in ((forged_a, "this box's own table"), (forged_b, "sends its table from another address")):
-        a.mail("COHORT MERGE", attachments=(("cohort_table_x.csv", to_csv(rows)),), sender="crc1@hospa.test")
+    later = alliance.seq_of(datetime.now(UTC)) + 60_000
+    signed_b = alliance_keys.signature(forged_b, seq=later)
+    for rows, sig, needle in (
+        (forged_a, None, "this box's own table"),
+        (forged_b, None, "is not signed"),
+        (forged_b, signed_b, "sends its table from another address"),
+    ):
+        files = [("cohort_table_x.csv", to_csv(rows))] + ([("cohort_table_x.sig.json", sig)] if sig else [])
+        a.mail("COHORT MERGE", attachments=tuple(files), sender="crc1@hospa.test")
         a.orch.drain()
         job = a.orch.db.find(type_="COHORT", ruleset="MERGE")[0]
         assert job.state == "failed" and job.error is not None and needle in job.error.message, job.error

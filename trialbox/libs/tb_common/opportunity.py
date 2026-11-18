@@ -583,9 +583,10 @@ def verify(feed: Mapping[str, Any], public_pem: bytes) -> bool:
 VERIFIED, UNVERIFIED, OUT_OF_DATE = "verified", "unverified", "out_of_date"
 
 
-def load_register(path: Path) -> dict[str, dict[str, str]]:
+def load_register(path: Path, site_id: re.Pattern[str] = _SITE_ID) -> dict[str, dict[str, str]]:
     """The hub's site key register: ``{"sites": {site_id: {"name": registered name, "key_sha256": fingerprint}}}``
-    (the full hub store and accounts are T-743's)."""
+    (the full hub store and accounts are T-743's). The alliance root reads its register of member sites in the same
+    form (``tb_common.alliance``, D-1320), with the site ids of ``settings.yaml`` (``site_id``)."""
     raw = json.loads(path.read_text(encoding="utf-8"))
     sites = raw.get("sites") if isinstance(raw, Mapping) else None
     if not isinstance(sites, Mapping):
@@ -594,7 +595,7 @@ def load_register(path: Path) -> dict[str, dict[str, str]]:
     for sid, ent in sites.items():
         if not (
             isinstance(ent, Mapping)
-            and _SITE_ID.match(str(sid))
+            and site_id.match(str(sid))
             and _HEX64.match(str(ent.get("key_sha256", "")))
             and _str(ent.get("name"), LEN["site_label"])
         ):

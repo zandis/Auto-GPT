@@ -40,6 +40,7 @@ incident plan's (T-318). Change each secret at its source, not on the lost box.
 | the KEK (steward shares, passphrase) | `python -m tools.keys rotate-kek` on the restored box; old shares stop working | key stewards | at the restore |
 | `pid_map.key` | `python -m tools.keys rotate pid_map` on the restored box | site administrator | at the restore |
 | vendor update key | not on the box (public key only): nothing to do | | |
+| the alliance signing key (a member box of a COHORT alliance, D-1320) | the alliance root's register: the root's operator removes the site's line; the new box makes a new key and its line is added ("Alliance site keys" below) | the root's operator, the site administrator | 1 working day |
 | share credentials for the backup target (NAS, SMB) | the hospital file server | hospital IT | 4 hours |
 
 **Not rotated:** `site_hmac.key`. A new key gives every patient a new pseudonym and loses the opt-outs (T-612). If it
@@ -49,3 +50,41 @@ may have been read, it is a breach under the incident plan, not a rotation.
 a stolen disk without the shares, the passphrase or the TPM does not open the pid map. The disk opens only with the TPM and a hospital Tang server (D-408), so a box carried out of the hospital stops at
 the passphrase prompt. `deploy/.env` is still readable by anyone who gets into the running system: assume a stolen
 box that was running exposes every password in it, and every row above applies.
+
+## Alliance site keys
+
+*D-1320 (card 10D-1). In a COHORT alliance each member box signs the count table it mails to the alliance root, and
+the root merges a member's table only when the signature holds for the key its register holds for that site. The
+register has the form of the opportunity feed's site key register (D-467) and its key is made the same way.*
+
+On the member box, once (the site administrator):
+
+```sh
+python -m tools.opportunity_feed keygen --out /data/secrets/alliance   # writes site.key (mode 600) and site.pub
+```
+
+The command prints one register line: `"<site_id>": {"name": "<registered name>", "key_sha256": "<64 hex>"}`. Put the
+box's `site.id` from `settings.yaml` for `<site_id>` and the site's name for `<registered name>`. Set
+`TB_ALLIANCE_SIGNING_KEY_FILE=/data/secrets/alliance/site.key` in `deploy/.env` and restart the orchestrator. Keep
+`site.key` on the box: it is never mailed, printed or copied to the root. (`band.secret`, also written, is the
+opportunity feed's and is not used here.)
+
+Give the register line to the root's operator by a channel both sites trust (in person, or read out on the telephone
+and compared): the line is not secret, but a wrong line lets someone else's key speak for the site. On the alliance
+root (the root's operator):
+
+1. Add the line under `"sites"` in the register file, for example `/data/secrets/alliance-site-keys.json`:
+   `{"sites": {"HOSP-B": {"name": "Hospital B", "key_sha256": "…"}}}`.
+2. Set `TB_ALLIANCE_SITE_KEYS_FILE` to that file in `deploy/.env` and restart the orchestrator. The file is read at
+   each merge, so later edits need no restart.
+3. Check: the next `COHORT MERGE` from that site ends done; a refusal names the site and says why (not signed, no key
+   in the register, a key not registered for the site, signed for another study or time window, changed, not newer
+   than the table already stored).
+
+A member box without `TB_ALLIANCE_SIGNING_KEY_FILE` still runs COHORT for itself and says in its summary that nothing
+was sent to the root. Tables a root stored before this version are kept, marked unverified, and left out of every
+merge until their site sends them signed; the merge's summary names those sites.
+
+**A new key** (a new box, a lost box, a key that may have been read): the site runs `keygen` again; the root's
+operator replaces the site's line. Tables signed with the old key and already stored stay merged; the old key can
+sign nothing that is taken after its line is gone.

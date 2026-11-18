@@ -483,6 +483,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "8333ee74b006be58803a9a2b9d78ab736096234963c149ec1549165e70ccf5b4",
         "7dc9328a293c68018db4b8292e95bfb0e905cbf680987d7f3b90c6488020e610",
         "4f2b17e86f1c9432f09f2c7559696a3a312d5f965b6c15e2a367db9268f6487f",
+        # D-1320: how an alliance table was verified (its key, its signed sequence and hash)
+        "885e09aba43f78d4d69e16a0f210ccbc9e9442c25e8e60cc6ef704856c7c34c7",
     ),
     # T-310a (D-446): the weekly PI sample of criteria not matched and the site's check, new after the baseline
     "tuned": ("e8565a9e2288df90d120272ab2956fafe4595465ecd7c58c2e2debb35ee934a1",),
