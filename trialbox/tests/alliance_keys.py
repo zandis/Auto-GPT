@@ -1,9 +1,10 @@
-"""Alliance site keys for tests (D-1320): a key pair per synthetic site, made inside the test run and never written
+"""Alliance site keys for tests (D-1223): a key pair per synthetic site, made inside the test run and never written
 anywhere but the test's own folder; the root's register of them; a site's table signed as its box signs it."""
 
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,15 @@ def key(site: str) -> bytes:
     if site not in _KEYS:
         _KEYS[site] = ed25519_generate()[0]
     return _KEYS[site]
+
+
+def key_file(path: Path, site: str) -> Path:
+    """The site's key as its box keeps it: a file of mode 600 (D-1223 refuses one others may read)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(key(site))
+    return path
 
 
 def register(folder: Path, sites: tuple[str, ...] | list[str]) -> Path:

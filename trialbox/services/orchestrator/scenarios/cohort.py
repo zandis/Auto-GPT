@@ -8,7 +8,7 @@ merges member tables.
   D-72). Small cells are suppressed before anything leaves the box (§10.1).
 * A member box sends its table to ``settings.cohort.root_address`` with the subject ``COHORT MERGE``; the root stores
   every accepted table (its own included) and returns the merged table (D-73).
-* The table travels signed (D-144, D-1320): the member box signs it with its site key
+* The table travels signed (D-144, D-1223): the member box signs it with its site key
   (``TB_ALLIANCE_SIGNING_KEY_FILE``) and sends the signature file beside the CSV; the root stores a member's table
   only when the signature holds for the key its register holds for that site (``TB_ALLIANCE_SITE_KEYS_FILE``), and
   only over an older table of the site (:mod:`tb_common.alliance`). A table stored before this is kept, marked
@@ -337,7 +337,7 @@ def run_cohort(ctx: Ctx) -> Outcome:
     )
     cs = ctx.cfg.settings.cohort
     share = bool(cs and cs.root_address and not cs.alliance_root)
-    if share and signature is None:  # D-1320: the root takes only signed tables; nothing unsigned is mailed to it
+    if share and signature is None:  # D-1223: the root takes only signed tables; nothing unsigned is mailed to it
         text += (
             " Not sent to the alliance root: this box has no alliance signing key, and the root takes only signed "
             "tables."
@@ -359,10 +359,18 @@ def run_cohort(ctx: Ctx) -> Outcome:
 
 
 def sign_table(ctx: Ctx, csv_bytes: bytes) -> bytes | None:
-    """The signature file of the table this box publishes (D-1320), or None when the box has no alliance signing
+    """The signature file of the table this box publishes (D-1223), or None when the box has no alliance signing
     key. It covers the table as the root will read it (the CSV through :func:`parse_csv`), and its sequence is the
-    time the job was received, so a re-run signs the same bytes and a later run a higher number."""
-    key = alliance.signing_key(ctx.cfg.env.extra)
+    time the job was received, so a re-run signs the same bytes and a later run a higher number. A setting that
+    names a missing key file, or one others may read, stops the job: never read as "no key"."""
+    try:
+        key = alliance.signing_key(ctx.cfg.env.extra)
+    except alliance.KeyFileRefused:
+        raise StepFailed(
+            "reporting",
+            "The alliance signing key cannot be used: TB_ALLIANCE_SIGNING_KEY_FILE names a file that is not there, "
+            "or one its group or others may read (it must be mode 600).",
+        ) from None
     if key is None:
         return None
     rows, errors = parse_csv(csv_bytes)
@@ -431,7 +439,7 @@ def replay_until(record: JobDB, into: JobDB, upto: int | None = None) -> None:
     before: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
     for r in record.cohort_before():  # a store replaced a whole (site, disease, quarter, definition): one group each
         before.setdefault((r["site_id"], r["disease"], r["quarter"], r["definition_version"]), []).append(r)
-    for group in before.values():  # stored before signatures (D-1320): unverified, but the root's own
+    for group in before.values():  # stored before signatures (D-1223): unverified, but the root's own
         sender = str(group[0]["received_from"])
         own = alliance.OWN if sender.startswith("self:") else None
         into.cohort_store(group, group[0]["job_id"], sender, verified_by=own)
@@ -495,11 +503,11 @@ def run_merge(ctx: Ctx) -> Outcome:
     for f in files:
         rows, errors = parse_csv(ctx.input_bytes(f))
         if not errors and rows:
-            # D-1320: the signature, by the key registered for the site, before anything is stored; the root's own
+            # D-1223: the signature, by the key registered for the site, before anything is stored; the root's own
             # site is refused first (asked again in the store), so its sentence comes before the signature's
             own = rows[0]["site_id"] == ctx.cfg.settings.site.id
             said = sender_refusal(rows[0]["site_id"], rows[0]["site_id"], set(), "") if own else None
-            ok = said or alliance.checked(rows, _signature_for(rows, signatures), register)
+            ok = said or alliance.checked(rows, _signatures_for(rows, signatures), register)
             if isinstance(ok, str):
                 errors = [ok]
             else:
@@ -525,8 +533,11 @@ def run_merge(ctx: Ctx) -> Outcome:
     if not accepted:
         raise StepFailed("running", "No valid alliance table:\n" + "\n".join(f"- {p}" for p in problems[:20]))
     keys = sorted({(r["disease"], r["quarter"]) for r in accepted})
-    stored = ctx.orch.db.cohort_read(job.job_id, keys)  # D-648: with the record of the point they are read at
-    unverified = ctx.orch.db.cohort_unverified(keys)  # D-1320: kept in the store, left out of the merge
+    # D-648: with the record of the point they are read at. D-1223: a member's rows only when signed by the key the
+    # register holds for the site now; the others are kept in the store and left out, and the summary names them
+    registered = {site: e["key_sha256"] for site, e in (register or {}).items()}
+    stored = ctx.orch.db.cohort_read(job.job_id, keys, registered)
+    unverified, revoked = ctx.orch.db.cohort_left_out(keys, registered)
     sc = int((ctx.cfg.settings.thresholds.small_cell if ctx.cfg.settings.thresholds else None) or 5)
     table = merged(stored, sc)
     ctx.state("reporting")
@@ -542,6 +553,7 @@ def run_merge(ctx: Ctx) -> Outcome:
         f"({', '.join(sites)}); definitions {', '.join(versions)}."
         + ("\n\nRejected:\n" + "\n".join(f"- {p}" for p in problems[:20]) if problems else "")
         + (f"\n\n{alliance.unverified_note(unverified)}" if unverified else "")
+        + (f"\n\n{alliance.revoked_note(revoked)}" if revoked else "")
     )
     return Outcome(summary_md=text, deliveries=[Delivery(to=to, outputs=[out], body_md=text)])
 
@@ -558,15 +570,13 @@ def _signatures(ctx: Ctx) -> list[dict[str, Any]]:
     return out
 
 
-def _signature_for(rows: list[dict[str, Any]], signatures: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """The signature that covers this table (by the table's hash), else a signature of its site, which then tells
-    the sender what does not match; None: the site sent no signature."""
+def _signatures_for(rows: list[dict[str, Any]], signatures: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The candidate signatures of this table: those that cover it (by the table's hash), else those of its site,
+    which then tell the sender what does not match; none: the site sent no signature. Each is tried in turn
+    (:func:`tb_common.alliance.checked`), so a forged one cannot push out the good one."""
     digest = alliance.table_sha256(rows)
     same = [d for d in signatures if d["table_sha256"] == digest]
-    if same:
-        return max(same, key=lambda d: int(d["seq"]))
-    site = [d for d in signatures if d["site_id"] == rows[0]["site_id"]]
-    return site[0] if site else None
+    return same or [d for d in signatures if d["site_id"] == rows[0]["site_id"]]
 
 
 def load_draft(store_bytes: bytes) -> Ruleset:

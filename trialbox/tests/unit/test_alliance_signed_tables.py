@@ -1,4 +1,4 @@
-"""10D-1 (D-1320): a site's alliance count table is signed, and the merge verifies the signature.
+"""10D-1 (D-1223): a site's alliance count table is signed, and the merge verifies the signature.
 
 D-144 says counts travel as signed files; the merge checked no signature and took a site's table from the mail
 address that first sent one. Now the member box signs its table with its site key and the root stores a member's
@@ -152,8 +152,7 @@ def test_an_older_table_is_not_taken_over_a_newer_one() -> None:
 
 
 def test_the_member_box_signs_what_the_root_reads_and_a_re_run_signs_the_same_bytes(tmp_path: Path) -> None:
-    key = tmp_path / "alliance.key"
-    key.write_bytes(alliance_keys.key("HOSP-B"))
+    key = alliance_keys.key_file(tmp_path / "alliance.key", "HOSP-B")
     at = datetime(2026, 10, 5, 4, 0, tzinfo=UTC)
     ctx: Any = SimpleNamespace(
         cfg=SimpleNamespace(env=SimpleNamespace(extra={alliance.KEY_FILE: str(key)})),
@@ -405,3 +404,138 @@ def test_a_re_run_of_a_signed_merge_gives_what_its_first_run_gave(root: Callable
         ]
     finally:
         again.db.drop()
+
+
+# ------------------------------------------------------------------------------- the review of the first version
+def _resigned(doc: dict[str, Any], private: bytes) -> dict[str, Any]:
+    """``doc`` signed again with ``private``, every field as it is (what an attacker with their own key can do)."""
+    from tb_common.crypto import ed25519_sign
+
+    body = {k: v for k, v in doc.items() if k != "signature"}
+    sig = base64.b64encode(ed25519_sign(private, alliance.canonical(body))).decode("ascii")
+    return {**body, "signature": {"alg": "ed25519", "sig": sig}}
+
+
+def test_a_key_that_claims_the_registered_fingerprint_is_refused(register: dict[str, dict[str, str]]) -> None:
+    """The attacker signs with their own key and writes the registered fingerprint in the file: the signature holds
+    for the key in the file, but that key's fingerprint is not the registered one."""
+    from tb_common.crypto import ed25519_public_of
+
+    attacker = ed25519_generate()[0]
+    doc = _doc(_table())
+    doc["public_key"] = ed25519_public_of(attacker).decode("ascii")
+    forged = _resigned(doc, attacker)
+    assert forged["key_sha256"] == register["HOSP-B"]["key_sha256"]
+    assert "not the one registered" in _refused(_table(), forged, register)
+
+
+def test_freshness_is_per_site_and_rule_set_across_versions_and_quarters(root: Callable[..., _Root]) -> None:
+    """After a seq-20 table stood, an older table never delivered before (seq 5) of an older version of the rule
+    set, or of an older quarter, is refused: it would otherwise be merged beside the newer one."""
+    r = root()
+    assert r.merge(_signed(_table("HOSP-B", version="1.1.0"), seq=20)).state == "done"
+    for older in (_table("HOSP-B", version="1.0.0"), _table("HOSP-B", quarter="2026Q2", version="1.1.0")):
+        job = r.merge(_signed(older, seq=5))
+        assert job.state == "failed" and "not newer" in job.error.message, job.error
+    with r.db.tx() as tx:
+        got = tx.fetchall("SELECT DISTINCT definition_version, quarter FROM cohort_tables WHERE site_id='HOSP-B'")
+    assert [tuple(x) for x in got] == [("GOUT-COH@1.1.0", "2026Q3")]
+    # another rule set of the site has its own sequence; a newer table of the same rule set is taken
+    other = [{**x, "definition_version": "RA-COH@1.0.0", "disease": "gout"} for x in _table("HOSP-B")]
+    assert r.merge(_signed(other, seq=6, name="ra")).state == "done"
+    assert r.merge(_signed(_table("HOSP-B", quarter="2026Q2", version="1.1.0"), seq=21)).state == "done"
+
+
+def test_a_table_signed_by_a_key_no_longer_registered_is_kept_and_left_out(
+    root: Callable[..., _Root], tmp_path: Path
+) -> None:
+    """Revocation reaches what is stored: after the site's register line is replaced, its tables signed with the
+    old key are kept, not merged, and named in the summary; its next table under the new key is merged."""
+    r = root()
+    assert r.merge(_signed(_table("HOSP-B"), seq=1) + _signed(_table("HOSP-C"), seq=1, name="c")).state == "done"
+    path = Path(r.orch.cfg.env.extra[alliance.REGISTER_FILE])
+    reg = json.loads(path.read_text(encoding="utf-8"))
+    new_key = ed25519_generate()[0]
+    from tb_common.crypto import ed25519_public_of
+    from tb_common.opportunity import key_fingerprint
+
+    reg["sites"]["HOSP-B"]["key_sha256"] = key_fingerprint(ed25519_public_of(new_key))
+    path.write_text(json.dumps(reg), encoding="utf-8")
+    job = r.merge(_signed(_table("HOSP-C", n=30), seq=2, name="c"))
+    assert job.state == "done", job.error
+    assert "HOSP-B" not in r.merged_csv(job) and "HOSP-C" in r.merged_csv(job)
+    assert len(r.held("HOSP-B")) == 2  # kept in the store
+    body = r.body(job)
+    assert "Not merged: the tables of HOSP-B" in body and "no longer the one registered" in body
+    again = r.merge(_signed(_table("HOSP-B", n=40), seq=3, private=new_key))
+    assert again.state == "done", again.error
+    assert "HOSP-B" in r.merged_csv(again) and "no longer" not in r.body(again)
+
+
+def test_the_signing_key_file_must_be_there_and_private(tmp_path: Path) -> None:
+    key = alliance_keys.key_file(tmp_path / "k" / "site.key", "HOSP-B")
+    assert alliance.signing_key({alliance.KEY_FILE: str(key)}) == alliance_keys.key("HOSP-B")
+    assert alliance.signing_key({}) is None and alliance.signing_key({alliance.KEY_FILE: " "}) is None
+    with pytest.raises(alliance.KeyFileRefused, match="not there"):
+        alliance.signing_key({alliance.KEY_FILE: str(tmp_path / "missing.key")})
+    for mode in (0o640, 0o604, 0o644):
+        key.chmod(mode)
+        with pytest.raises(alliance.KeyFileRefused, match="mode 600"):
+            alliance.signing_key({alliance.KEY_FILE: str(key)})
+    ctx: Any = SimpleNamespace(
+        cfg=SimpleNamespace(env=SimpleNamespace(extra={alliance.KEY_FILE: str(tmp_path / "missing.key")})),
+        job=SimpleNamespace(received_at=datetime(2026, 10, 5, tzinfo=UTC)),
+    )
+    from orchestrator.clients import StepFailed
+
+    with pytest.raises(StepFailed, match="cannot be used"):  # a named file that is missing stops the job
+        cohort.sign_table(ctx, cohort.to_csv(_table()))
+
+
+def test_keygen_makes_its_secret_files_mode_600_from_the_start(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+
+    from tools import opportunity_feed
+
+    made: list[tuple[str, int]] = []
+    real_open = os.open
+
+    def watch(path: Any, flags: int, mode: int = 0o777, *a: Any, **kw: Any) -> int:
+        made.append((Path(path).name, mode))
+        return real_open(path, flags, mode, *a, **kw)
+
+    out = tmp_path / "keys"
+    out.mkdir()
+    (out / "site.key").write_bytes(b"old")
+    (out / "site.key").chmod(0o644)  # a file already there, readable by others
+    monkeypatch.setattr(os, "open", watch)
+    assert opportunity_feed.main(["keygen", "--out", str(out)]) == 0
+    assert ("site.key", 0o600) in made and ("band.secret", 0o600) in made  # created with the mode, not chmod after
+    for name in ("site.key", "band.secret"):
+        assert (out / name).stat().st_mode & 0o777 == 0o600
+
+
+def test_a_forged_second_signature_does_not_push_out_the_good_one(root: Callable[..., _Root]) -> None:
+    """A second ``.sig.json`` with the same table hash and a higher sequence, by another key, is tried and fails;
+    the good one still verifies and the table is taken with its own sequence."""
+    r = root()
+    rows = _table("HOSP-B")
+    good = alliance_keys.signature(rows, seq=7)
+    forged = json.loads(good)
+    forged["seq"] = 9
+    forged = _resigned(forged, ed25519_generate()[0])
+    files = [("t.csv", cohort.to_csv(rows)), ("t.sig.json", good), ("x.sig.json", json.dumps(forged).encode())]
+    job = r.merge(files)
+    assert job.state == "done", job.error
+    with r.db.tx() as tx:
+        assert [tuple(x) for x in tx.fetchall("SELECT DISTINCT signed_seq FROM cohort_tables")] == [(7,)]
+
+
+def test_a_signature_file_with_a_member_twice_or_an_unknown_member_is_not_one() -> None:
+    good = alliance_keys.signature(_table()).decode("utf-8")
+    assert alliance.read(good.encode()) is not None
+    twice = good.replace('"seq":', '"seq": 1,\n "seq":', 1)
+    assert twice != good and alliance.read(twice.encode()) is None
+    doc = json.loads(good)
+    doc["signature"]["kid"] = "x"
+    assert alliance.read(json.dumps(doc).encode()) is None

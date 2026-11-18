@@ -1,4 +1,4 @@
-"""The signature of a site's alliance count table (D-1320; D-144: "counts travel as signed files").
+"""The signature of a site's alliance count table (D-1223; D-144: "counts travel as signed files").
 
 A member box signs the table it sends to the alliance root with its Ed25519 site key; the root verifies the
 signature against the key registered for that site before the table is stored or merged. The signature is a small
@@ -137,16 +137,23 @@ def to_bytes(doc: Mapping[str, Any]) -> bytes:
     return (json.dumps(doc, ensure_ascii=False, indent=1, sort_keys=True) + "\n").encode("utf-8")
 
 
+def _no_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    keys = [k for k, _ in pairs]
+    if len(keys) != len(set(keys)):
+        raise ValueError("a member is written twice")
+    return dict(pairs)
+
+
 def read(data: bytes) -> dict[str, Any] | None:
     """A signature file as a dict, or None when the bytes are not one (the caller says so for the site)."""
     if len(data) > MAX_SIG_BYTES:
         return None
     try:
-        doc = json.loads(data.decode("utf-8-sig"))
+        doc = json.loads(data.decode("utf-8-sig"), object_pairs_hook=_no_duplicates)
     except (UnicodeDecodeError, ValueError):
-        return None
+        return None  # not JSON, or a member written twice (two readers could take different ones)
     if not isinstance(doc, dict) or set(doc) != _KEYS or doc.get("schema") != SCHEMA:
-        return None
+        return None  # a member unknown or missing
     sig = doc.get("signature")
     ok = (
         isinstance(doc["site_id"], str)
@@ -164,6 +171,7 @@ def read(data: bytes) -> dict[str, Any] | None:
         and not isinstance(doc["seq"], bool)
         and 0 < doc["seq"] < MAX_SEQ
         and isinstance(sig, dict)
+        and set(sig) == {"alg", "sig"}
         and sig.get("alg") == "ed25519"
         and isinstance(sig.get("sig"), str)
     )
@@ -231,23 +239,33 @@ def verify(
 
 def checked(
     rows: Sequence[Mapping[str, Any]],
-    doc: Mapping[str, Any] | None,
+    docs: Sequence[Mapping[str, Any]],
     register: Mapping[str, Mapping[str, str]] | None,
 ) -> Verified | str:
-    """:func:`verify`, with a refusal returned as its sentence (written in this module; it names the site only)."""
-    try:
-        return verify(rows, doc, register)
-    except TableRefused as exc:
-        return str(exc.args[0])
+    """:func:`verify` against each candidate signature in turn, the first that holds; else the refusal of the first
+    candidate, as its sentence (written in this module; it names the site only). No candidate: unsigned. Trying each
+    one means a forged second signature file (the same hash, a higher sequence) cannot push out the good one."""
+    candidates: list[Mapping[str, Any] | None] = list(docs) if docs else [None]
+    first: str | None = None
+    for doc in candidates:
+        try:
+            return verify(rows, doc, register)
+        except TableRefused as exc:
+            first = first or str(exc.args[0])
+    return str(first)
 
 
-def stale_refusal(
-    site: str, seq: int, table: str, held: Mapping[tuple[str, str, str, str], tuple[int | None, str | None]]
-) -> str | None:
-    """Whether a verified table may replace what the store holds for its groups (site, disease, quarter,
-    definition). ``held``: each group's stored sequence and table hash (None, None: a table stored unsigned, or no
-    table). Newer replaces; the same table sent again (same sequence, same hash) is taken as it is; anything else is
-    an older table, or a second table under one sequence, and is refused."""
+def ruleset_of(definition_version: str) -> str:
+    """The rule set of a definition (``GOUT-COH@1.0.0`` -> ``GOUT-COH``): freshness is kept per site and rule set,
+    so an older table of an older version or an older quarter cannot come in beside a newer one."""
+    return definition_version.split("@", 1)[0]
+
+
+def stale_refusal(site: str, seq: int, table: str, held: Mapping[Any, tuple[int | None, str | None]]) -> str | None:
+    """Whether a verified table may be stored. ``held``: for each (site, rule set) of the table, the highest signed
+    sequence the store holds and that table's hash (None, None: nothing signed stored). Newer is taken; the same
+    table sent again (same sequence, same hash) is taken as it is; anything else is an older table, or a second
+    table under one sequence, and is refused."""
     for old_seq, old_sha in held.values():
         if old_seq is None or seq > old_seq:
             continue
@@ -269,13 +287,37 @@ def unverified_note(sites: Iterable[str]) -> str:
     )
 
 
+def revoked_note(sites: Iterable[str]) -> str:
+    """The sentence of the merge's summary for tables signed by a key the register no longer holds for the site."""
+    names = ", ".join(sorted(set(sites)))
+    return (
+        f"Not merged: the tables of {names} were signed by a key that is no longer the one registered for the site; "
+        "they are kept, and each is merged again once its site sends it signed with its registered key."
+    )
+
+
+class KeyFileRefused(RuntimeError):
+    """The signing key setting names a file that is missing or readable by others; nothing is signed."""
+
+
 # ---------------------------------------------------------------------------------------------- settings
 def signing_key(extra: Mapping[str, str]) -> bytes | None:
-    """The member box's site key (``TB_ALLIANCE_SIGNING_KEY_FILE``); None without one. Never printed."""
-    path = (extra.get(KEY_FILE) or "").strip()
-    if not path or not Path(path).is_file():
+    """The member box's site key (``TB_ALLIANCE_SIGNING_KEY_FILE``); None when the setting is not set. A setting
+    that names a missing file, or a file its group or others may read, is :class:`KeyFileRefused` (never read as
+    "no key"). The key is never printed."""
+    named = (extra.get(KEY_FILE) or "").strip()
+    if not named:
         return None
-    return Path(path).read_bytes()
+    path = Path(named)
+    try:
+        mode = path.stat().st_mode
+    except OSError:
+        raise KeyFileRefused(f"{KEY_FILE} names a key file that is not there") from None
+    if not path.is_file():
+        raise KeyFileRefused(f"{KEY_FILE} names something that is not a file")
+    if mode & 0o077:
+        raise KeyFileRefused(f"the file {KEY_FILE} names may be read by its group or others: make it mode 600")
+    return path.read_bytes()
 
 
 def register_of(extra: Mapping[str, str]) -> dict[str, dict[str, str]] | None:

@@ -32,12 +32,10 @@ AUTH_A_FROM_B = "mx.hospa.test; spf=pass smtp.mailfrom=hospb.test; dkim=pass hea
 @pytest.fixture
 def boxes(synth_dir: Path, tmp_path: Path) -> dict[str, Box]:
     """Fresh boxes A (root) and B (member) per test, so every test runs alone and in any order. B signs its alliance
-    table with its site key; A's register holds that key for DEMO-B (D-1320)."""
+    table with its site key; A's register holds that key for DEMO-B (D-1223)."""
     tmp = tmp_path
     out: dict[str, Box] = {}
-    key_b = tmp / "sec-b-alliance" / "alliance.key"
-    key_b.parent.mkdir()
-    key_b.write_bytes(alliance_keys.key("DEMO-B"))
+    key_b = alliance_keys.key_file(tmp / "sec-b-alliance" / "alliance.key", "DEMO-B")
     extra = {
         "a": alliance_keys.env(tmp / "register-a", ["DEMO-B"]),
         "b": {"TB_ALLIANCE_SIGNING_KEY_FILE": str(key_b)},
@@ -186,7 +184,7 @@ def test_merge_rerun_uses_the_tables_as_they_were(boxes: dict[str, Box]) -> None
     _share, first, _out = _share_and_merge(a, boxes["b"])
     rows = [r for r in a.orch.db.cohort_rows("gout", "2026Q3") if r["site_id"] == "DEMO-B"]
     fixed = [{**r, "n": r["n"] + 1} if r["criterion_id"] == "GOUT-COH-INC-01" else r for r in rows]
-    later = alliance.seq_of(datetime.now(UTC)) + 60_000  # signed after B's first table (D-1320)
+    later = alliance.seq_of(datetime.now(UTC)) + 60_000  # signed after B's first table (D-1223)
     a.mail(
         "COHORT MERGE",
         attachments=(
@@ -207,7 +205,7 @@ def test_merge_rerun_uses_the_tables_as_they_were(boxes: dict[str, Box]) -> None
 
 def test_merge_refuses_tables_for_other_sites(boxes: dict[str, Box]) -> None:
     """A merged table replaces its site's rows: nobody may send the root's own site, and a site's tables come only
-    from the address that first contributed them (DEMO-B: B's box), even signed with the site's key (D-1320 keeps
+    from the address that first contributed them (DEMO-B: B's box), even signed with the site's key (D-1223 keeps
     the address check beside the signature, D-648 item 7); unsigned, a table is refused before that."""
     from orchestrator.scenarios.cohort import to_csv
 
@@ -246,3 +244,20 @@ def test_merge_rejects_bad_tables_and_non_root(boxes: dict[str, Box]) -> None:
     b.orch.drain()
     job = b.orch.db.find(type_="COHORT", ruleset="MERGE")[0]
     assert job.state == "failed" and job.error is not None and "not the alliance root" in job.error.message
+
+
+def test_a_member_without_a_key_mails_nothing_to_the_root(boxes: dict[str, Box]) -> None:
+    """D-1223: the root takes only signed tables, so a member box with no signing key sends it nothing (not the
+    unsigned table) and says so; its own outputs are made as before."""
+    b = boxes["b"]
+    b.orch.cfg.env.extra.pop("TB_ALLIANCE_SIGNING_KEY_FILE")
+    b.mail("COHORT GOUT-COH lookback=1", sender="crc1@hospb.test", auth=AUTH_B)
+    b.orch.drain()
+    job = b.orch.db.find(type_="COHORT")[0]
+    assert job.state == "done", job.error
+    assert not [s for s in b.sent if s.subject.startswith("COHORT MERGE")]
+    assert not [s for s in b.sent if "trialbox@hospa.test" in s.to]
+    names = [o.filename for o in job.outputs or []]
+    assert any(n.endswith(".csv") for n in names) and not any(n.endswith(".sig.json") for n in names)
+    done = next(s for s in b.sent if is_job_mail(s.subject, "done", job.job_id))
+    assert "Not sent to the alliance root" in done.text()

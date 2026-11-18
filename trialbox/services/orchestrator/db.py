@@ -8,7 +8,7 @@ import contextlib
 import hashlib
 import json
 import os
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any
 
@@ -215,7 +215,7 @@ CREATE TABLE IF NOT EXISTS judged_pairs (
 CREATE INDEX IF NOT EXISTS judged_pairs_pid ON judged_pairs (pid);
 CREATE INDEX IF NOT EXISTS judged_pairs_snapshot ON judged_pairs (snapshot);
 """
-# D-1320: a member site's alliance table is stored only when its Ed25519 signature holds for the key registered for
+# D-1223: a member site's alliance table is stored only when its Ed25519 signature holds for the key registered for
 # the site (``tb_common.alliance``). ``verified_by``: the signing key's fingerprint, ``own`` for the root's own table
 # (made in the box, never mailed), NULL for a table stored before signatures were required: kept, marked unverified,
 # and left out of every merge until its site sends it signed. ``signed_seq`` and ``signed_sha256``: the signed
@@ -235,6 +235,17 @@ MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6)
 SCHEMA_NAME = "orch"
 
 TERMINAL = ("done", "failed")
+
+
+def _ruleset_of(definition_version: str) -> str:
+    """``tb_common.alliance.ruleset_of``: the rule set of a definition (``GOUT-COH@1.0.0`` -> ``GOUT-COH``)."""
+    return definition_version.split("@", 1)[0]
+
+
+def _counts(site: str, verified_by: str, registered: Mapping[str, str] | None) -> bool:
+    """Whether a verified row is merged (D-1223): the root's own, or signed by the key registered for its site now
+    (any verified row when the caller gives no register)."""
+    return verified_by == "own" or registered is None or registered.get(site) == verified_by
 
 
 def cohort_table_hash(rows: list[dict[str, Any]]) -> str:
@@ -912,7 +923,7 @@ class JobDB:
         verified_by: str | None = None,
         signed_seq: int | None = None,
         signed_sha256: str | None = None,
-        stale: Callable[[dict[tuple[str, str, str, str], tuple[int | None, str | None]]], str | None] | None = None,
+        stale: Callable[[dict[tuple[str, str], tuple[int | None, str | None]]], str | None] | None = None,
     ) -> str | None:
         """Replace a site's table for each (disease, quarter, definition) it contains, then insert the rows, and
         record what was stored (D-648): one ``cohort_stored`` row per site in ``rows``, in this transaction, so the
@@ -925,10 +936,10 @@ class JobDB:
         and the sentence is returned. A check made before the call can be overtaken by another store (two senders
         of one site, both let in). None is returned when the rows were stored.
 
-        ``verified_by``, ``signed_seq``, ``signed_sha256`` (D-1320): how the table was verified (the signing key's
+        ``verified_by``, ``signed_seq``, ``signed_sha256`` (D-1223): how the table was verified (the signing key's
         fingerprint, ``own``, or None: unverified), and the signed table's sequence and hash. ``stale``: asked in the
-        same transaction with each group's stored sequence and hash (by (site, disease, quarter, definition), of
-        the groups ``rows`` replace); a sentence back refuses the store as ``refuse`` does."""
+        same transaction with, for each (site, rule set) of ``rows``, the highest signed sequence stored and that
+        table's hash; a sentence back refuses the store as ``refuse`` does."""
         if not rows:
             return None
         with self.tx() as con:
@@ -942,17 +953,18 @@ class JobDB:
                 if said:
                     return said
             if stale is not None:
-                held: dict[tuple[str, str, str, str], tuple[int | None, str | None]] = {}
-                for group in sorted(
-                    {(r["site_id"], r["disease"], r["quarter"], r["definition_version"]) for r in rows}
-                ):
+                # D-1223: freshness per (site, rule set), across its versions and quarters: the highest signed
+                # sequence stored and that table's hash
+                held: dict[tuple[str, str], tuple[int | None, str | None]] = {}
+                for site, ruleset in sorted({(r["site_id"], _ruleset_of(r["definition_version"])) for r in rows}):
                     got = con.fetchall(
-                        "SELECT MAX(signed_seq), MAX(signed_sha256) FROM cohort_tables WHERE site_id=? AND disease=? "
-                        "AND quarter=? AND definition_version=? AND signed_seq IS NOT NULL",
-                        group,
+                        "SELECT definition_version, signed_seq, signed_sha256 FROM cohort_tables WHERE site_id=? "
+                        "AND signed_seq IS NOT NULL",
+                        (site,),
                     )
-                    if got and got[0][0] is not None:
-                        held[group] = (int(got[0][0]), str(got[0][1]))
+                    mine = [(int(g[1]), str(g[2])) for g in got if _ruleset_of(str(g[0])) == ruleset]
+                    if mine:
+                        held[(site, ruleset)] = max(mine)
                 said = stale(held)
                 if said:
                     return said
@@ -1027,20 +1039,29 @@ class JobDB:
         """Every recorded store of a table, in order (D-648); up to and with the store ``upto`` when given."""
         return self._stored("" if upto is None else "WHERE seq <= ?", () if upto is None else (upto,))
 
-    def cohort_read(self, job_id: str, keys: list[tuple[str, str]]) -> list[dict[str, Any]]:
+    def cohort_read(
+        self, job_id: str, keys: list[tuple[str, str]], registered: Mapping[str, str] | None = None
+    ) -> list[dict[str, Any]]:
         """The rows of each (disease, quarter) of ``keys`` for the merge ``job_id``'s output, and the record of the
         point it read them at (D-648): the last store before the read, written in the transaction that reads,
-        while no store runs. A re-run rebuilds the tables up to that point."""
+        while no store runs. A re-run rebuilds the tables up to that point.
+
+        D-1223: only verified rows: the root's own (``own``), and, with ``registered`` (site -> the key fingerprint
+        the register holds now), only a member's rows signed by that key; without it, any verified row. An
+        unverified table, or one whose key the register no longer holds, is kept and left out
+        (:meth:`cohort_left_out`)."""
         out: list[dict[str, Any]] = []
         with self.tx() as con:
             con.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"{self.schema}:cohort_store",))
             for disease, quarter in keys:
                 got = con.fetchall(
-                    f"SELECT {', '.join(self._COHORT_COLS)} FROM cohort_tables WHERE disease=? AND quarter=? "
-                    "AND verified_by IS NOT NULL ORDER BY site_id, seq",  # D-1320: unverified is kept, not merged
+                    f"SELECT {', '.join(self._COHORT_COLS)}, verified_by FROM cohort_tables WHERE disease=? "
+                    "AND quarter=? AND verified_by IS NOT NULL ORDER BY site_id, seq",
                     (disease, quarter),
                 )
-                for r in got:
+                for *r, by in got:
+                    if not _counts(str(r[0]), str(by), registered):
+                        continue
                     d = dict(zip(self._COHORT_COLS, r, strict=True))
                     d["n"], d["n_contactable"] = json.loads(d["n"]), json.loads(d["n_contactable"])
                     out.append(d)
@@ -1068,17 +1089,24 @@ class JobDB:
             out.append(d)
         return out
 
-    def cohort_unverified(self, keys: list[tuple[str, str]]) -> set[str]:
-        """The sites with a table stored before signatures were required in a (disease, quarter) of ``keys``: kept,
-        marked unverified, and left out of the merge until the site sends it signed (D-1320)."""
-        out: set[str] = set()
+    def cohort_left_out(
+        self, keys: list[tuple[str, str]], registered: Mapping[str, str] | None = None
+    ) -> tuple[set[str], set[str]]:
+        """The sites with a table in a (disease, quarter) of ``keys`` that :meth:`cohort_read` leaves out (D-1223):
+        (stored before signatures were required, signed by a key the register no longer holds for the site)."""
+        unverified: set[str] = set()
+        revoked: set[str] = set()
         for disease, quarter in keys:
             got = self._db.fetchall(
-                "SELECT DISTINCT site_id FROM cohort_tables WHERE disease=? AND quarter=? AND verified_by IS NULL",
+                "SELECT DISTINCT site_id, verified_by FROM cohort_tables WHERE disease=? AND quarter=?",
                 (disease, quarter),
             )
-            out |= {str(r[0]) for r in got}
-        return out
+            for site, by in got:
+                if by is None:
+                    unverified.add(str(site))
+                elif not _counts(str(site), str(by), registered):
+                    revoked.add(str(site))
+        return unverified, revoked
 
     def cohort_senders(self, site_id: str) -> set[str]:
         """Who has contributed tables for ``site_id`` (``self:<site>`` for the root's own runs)."""
