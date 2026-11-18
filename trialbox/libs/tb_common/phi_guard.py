@@ -402,7 +402,8 @@ def scan(text: str, mrn_regex: str | None = None) -> PhiScan:
     for kind, rx, gate in _SCAN_RULES:
         if gate(facts):
             findings.extend(
-                (f"ja_{kind}", _mask(m.group("v") if "v" in rx.groupindex else m.group(0))) for m in _finditer(rx, text)
+                (_SCAN_KIND.get(kind, kind), _mask(m.group("v") if "v" in rx.groupindex else m.group(0)))
+                for m in _finditer(rx, text)
             )
     if findings:
         return PhiScan(True, findings, None)
@@ -911,6 +912,8 @@ _JA_RULES: tuple[tuple[str, re.Pattern[str], Callable[[Any], bool]], ...] = (
 )
 #: the 10C-1 rules as (kind, pattern): also run by :func:`scan`, the check before a model call
 JA_NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple((k, rx) for k, rx, _g in _JA_RULES)
+#: a finding's kind as the guard names it (``guard.recognisers.NOTE_KINDS``, lower case: the tripwire upper-cases them)
+_SCAN_KIND = {"id": "id_number"}
 #: what :func:`scan` runs besides its own v1 rules: the shared labelled values, then the 10C-1 rules
 _SCAN_RULES: tuple[tuple[str, re.Pattern[str], Callable[[Any], bool]], ...] = (
     ("mrn", MRN_LABELLED, lambda f: f.digit),
