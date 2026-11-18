@@ -1,0 +1,107 @@
+{
+ "legacy_ja_answers.yaml": {
+  "data_source": {
+   "mapping": "mapping/jp_core/ssmix2_site.yaml",
+   "nightly_at": "02:00",
+   "path": "/data/source/site",
+   "type": "ssmix2"
+  },
+  "env": {
+   "TB_SOURCE_DIR": "/srv/ssmix2",
+   "TB_SOURCE_MOUNT": "/data/source/site",
+   "TB_SSMIX2_ORDER_NUMBERS": null,
+   "TB_TZ": "Asia/Tokyo"
+  },
+  "retention": {
+   "attachments_days": 90,
+   "audit_years": 10,
+   "logs_days": 365,
+   "mail_log_days": 1825,
+   "month_end_snapshots_months": 36,
+   "nightly_snapshots": 3,
+   "outputs_days": 365,
+   "pool_months_after_ruleset": 24
+  },
+  "site": {
+   "contact": "it-ops@hospj.test",
+   "id": "DEMO-J",
+   "locale": "ja",
+   "name": "架空病院J (synthetic)",
+   "tz": "Asia/Tokyo"
+  },
+  "twpas": {
+   "dry_run": true,
+   "enabled": false
+  }
+ },
+ "legacy_minimal_answers.yaml": {
+  "data_source": {
+   "mapping": "mapping/tw_core/demo_his.yaml",
+   "nightly_at": "02:00",
+   "path": "/data/source/site",
+   "type": "csv"
+  },
+  "env": {
+   "TB_SOURCE_DIR": "./site/feed",
+   "TB_SOURCE_MOUNT": "/data/source/site",
+   "TB_SSMIX2_ORDER_NUMBERS": null,
+   "TB_TZ": "Asia/Taipei"
+  },
+  "retention": {
+   "attachments_days": 90,
+   "audit_years": 10,
+   "logs_days": 365,
+   "mail_log_days": 2555,
+   "month_end_snapshots_months": 36,
+   "nightly_snapshots": 3,
+   "outputs_days": 365,
+   "pool_months_after_ruleset": 24
+  },
+  "site": {
+   "contact": "crc1@hospa.test",
+   "id": "DEMO-M",
+   "locale": "zh-TW",
+   "name": "Demo M (synthetic)",
+   "tz": "Asia/Taipei"
+  },
+  "twpas": {
+   "dry_run": true,
+   "enabled": false
+  }
+ },
+ "site_c_answers.yaml": {
+  "data_source": {
+   "mapping": "mapping/tw_core/site_c.yaml",
+   "nightly_at": "02:00",
+   "path": "/data/source/site-c",
+   "type": "csv"
+  },
+  "env": {
+   "TB_SOURCE_DIR": "/srv/hospc/his-export",
+   "TB_SOURCE_MOUNT": "/data/source/site-c",
+   "TB_SSMIX2_ORDER_NUMBERS": null,
+   "TB_TZ": "Asia/Taipei"
+  },
+  "retention": {
+   "attachments_days": 90,
+   "audit_years": 10,
+   "logs_days": 365,
+   "mail_log_days": 2555,
+   "month_end_snapshots_months": 36,
+   "nightly_snapshots": 3,
+   "outputs_days": 365,
+   "pool_months_after_ruleset": 24
+  },
+  "site": {
+   "contact": "it-ops@hospc.test",
+   "id": "DEMO-C",
+   "locale": "zh-TW",
+   "name": "示範醫院C (synthetic)",
+   "tz": "Asia/Taipei"
+  },
+  "twpas": {
+   "dry_run": true,
+   "enabled": false
+  }
+ }
+}

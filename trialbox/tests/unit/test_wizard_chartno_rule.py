@@ -103,7 +103,8 @@ def test_review_no_answer_is_never_turned_into_a_rule(regex: str) -> None:
 
 
 def test_review_h1_pressing_enter_at_every_question_gives_asis() -> None:
-    answers = settings_wizard.ask({}, prompt=lambda _q: "")
+    # 10K-1: the country is the one question with no default; Enter everywhere else
+    answers = settings_wizard.ask({}, prompt=lambda q: "tw" if q.startswith("Country") else "")
     assert answers["mrn_regex"] and not answers["chartno_rule"]
     errors: list[str] = []
     warnings: list[str] = []
