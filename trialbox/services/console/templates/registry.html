@@ -4,15 +4,17 @@
 <h1>{{ t('registry.title') }}</h1>
 <p>{{ t('registry.help') }}</p>
 <p class="warn" role="note">{{ t('registry.notice') }}</p>
+{# D-1221 (review R10): each study's people by their one state, the same counts as its home card and its own page #}
 <section class="card">
 <div class="scroll" tabindex="0"><table data-testid="registry-summary">
-<thead><tr><th>{{ t('col.ruleset') }}</th>{% for s in statuses %}<th>{{ t('registry.status.' + s) }}</th>{% endfor %}<th>{{ t('registry.updated') }}</th></tr></thead>
+<thead><tr><th>{{ t('col.ruleset') }}</th>{% for s in cols %}<th>{{ t('person.state.' + s) }}</th>{% endfor %}<th>{{ t('registry.updated') }}</th></tr></thead>
 <tbody>
-{% for r in rulesets %}{% set s = summaries.get(r.id) %}
-<tr><td><a href="/pilot/registry/{{ r.id }}">{{ r.id }}</a></td>
-{% for st in statuses %}<td class="num">{{ s.counts.get(st, 0) if s else 0 }}</td>{% endfor %}
-<td class="mono">{{ s.updated_at if s and s.updated_at else '–' }}</td></tr>
+{% for r in rulesets %}{% set s = summaries.get(r.id) %}{% set c = counts.get(r.id) %}
+<tr data-testid="summary-{{ r.id }}"><td><a href="/pilot/registry/{{ r.id }}">{{ r.id }}</a></td>
+{% for st in cols %}<td class="num" data-state="{{ st }}">{{ c[st] if c and readable.get(r.id) else '–' }}</td>{% endfor %}
+<td class="mono">{{ s.updated_at|local if s and s.updated_at else '–' }}</td></tr>
 {% endfor %}
 </tbody></table></div>
+{% if not cols %}<p class="hint" data-testid="registry-summary-none">{{ t('person.counts.none') }}</p>{% endif %}
 </section>
 {% endblock %}

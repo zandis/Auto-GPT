@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_steps.html" import steps_bar with context %}
+{% from "_person.html" import person_pill with context %}
 {% from "_life.html" import sae_banner, sae_failed, report_banner, visit_row with context %}
 {% block title %}{{ t('home.studies') }}{% endblock %}
 {% block content %}
@@ -36,7 +37,7 @@
     {% if not clinic %}<p class="empty hint">{{ t('wb.clinic.none') }}</p>{% endif %}
     <ul class="tasks">{% for v in clinic[:5] %}<li>
       <a href="{{ v.href }}">{{ v.visit_text }} · {{ t('week.patient', p=v.short) }}</a>
-      <span class="pill stt-{{ v.status }}">{{ t('wstatus.' + v.status) }}</span>
+      {{ person_pill(v.person) }}
       <span class="hint">{{ v.rs }} · {{ given(v.practitioner) }}{% if v.open_items %} · {{ t('wb.prepare') }} {{ v.open_items }}{% endif %}</span>
     </li>{% endfor %}</ul>
     {% if clinic|length > 5 %}<p class="chartlinks"><a class="button secondary" href="/studies/{{ clinic[0].rs }}/week?list=clinic" data-testid="clinic-all">{{ t('home.clinic.all', n=clinic|length) }}</a></p>{% endif %}
@@ -47,7 +48,7 @@
 <section class="card study" data-testid="study-{{ c.id }}">
   <div class="headrow"><h2>{{ c.id }}</h2><span class="hint">v{{ c.version }}</span></div>
   {{ steps_bar(steps, c.step) }}
-  <div class="pipe" data-testid="pipeline-{{ c.id }}">{% for k in pipeline_keys %}<a href="{{ '/pilot/registry/' + c.id if k != 'found' and k != 'reviewed' else '/studies/' + c.id + '/week?list=all' }}"><b>{{ c.pipeline[k] }}</b><span>{{ t('wb.pipe.' + k) }}</span></a>{% endfor %}</div>
+  <div class="pipe" data-testid="pipeline-{{ c.id }}">{% for k in pipeline_keys %}<a href="{{ '/pilot/registry/' + c.id if k != 'found' and k != 'reviewed' else '/studies/' + c.id + '/week?list=all' }}" data-testid="pipeline-{{ c.id }}-{{ k }}"><b>{{ c.pipeline[k] if c.people_readable else '–' }}</b><span>{{ t('wb.pipe.' + k) }}</span></a>{% endfor %}</div>
   <dl class="facts">
     <dt>{{ t('home.feas') }}</dt>
     <dd>{% if c.feas %}

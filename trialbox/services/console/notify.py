@@ -48,6 +48,7 @@ from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 
 from console import actor
+from console import person_state as ps
 from console.auth import Session, User
 from console.backend import Unavailable
 from console.home import Helpers
@@ -97,7 +98,10 @@ def _line(lang: str, r: dict[str, Any], rs: str) -> str:
         met=met,
         total=total,
         open=open_n,
-        status=translate(lang, "wstatus." + str(r["status"])),
+        # D-1221: the person's one state, as on the pages (a row built without one: its list status in those words)
+        status=translate(
+            lang, r["person"].key if r.get("person") else ps.key(ps.FROM_WEEK.get(str(r["status"]), "listed"))
+        ),
     )
 
 

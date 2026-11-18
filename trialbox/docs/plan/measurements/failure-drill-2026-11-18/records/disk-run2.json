@@ -1,0 +1,60 @@
+{
+ "target": "disk",
+ "kind": "disk",
+ "service": "db",
+ "stage": "ingest",
+ "when": "the adapter's ingest run is running",
+ "killed": "the disk that holds the database's volume, filled from the host by a file beside the database's folder until no space was left: 558891008 bytes (559 MB, 533 MiB) copied, 0.844702 s, 662 MB/s; /dev/loop0 974M 957M 0 100% /root/.cache/tb-drill-pg",
+ "killed_at_s": 284.8893737599999,
+ "recovered_by": "a person's step (the drill freed the space); the database's restarts: 10",
+ "recover_s": 147.19148642400023,
+ "finished": true,
+ "jobs": {
+  "ok": true,
+  "counts": {
+   "units": 6,
+   "done_once": 4,
+   "visibly_failed": 1,
+   "missing": 0,
+   "stuck": 0,
+   "failed_no_reason": 0,
+   "done_twice": 0,
+   "behind_failed_ingest": 1,
+   "lost": 0
+  },
+  "lines": [
+   "INGEST:-:timer: failed with a reason: DiskFull (the error's text is not kept, it can hold a row's value; the adapter's log has where it failed; run 66432240d3da3bcd)",
+   "RETENTION:-:timer: no job: the chain waits behind the night's ingest, which failed with a reason"
+  ]
+ },
+ "mail": {
+  "ok": true,
+  "counts": {
+   "messages": 19,
+   "double": 0,
+   "missing": 0,
+   "held": 0,
+   "sending": 0,
+   "queued": 0
+  },
+  "lines": []
+ },
+ "audit": {
+  "ok": true,
+  "counts": {
+   "verify_rc": 0,
+   "lines_at_kill": 176,
+   "lines_at_end": 180,
+   "journal_left": 0,
+   "work_after": 1
+  },
+  "lines": []
+ },
+ "notes": [
+  "the data volume: a 1024 MB ext4 file, loop-mounted on the host and bound as the volume",
+  "the disk was freed 90 s after it filled (the drill's own step, as a person would)",
+  "console.notify: exit 0: ",
+  "the night took 435 s"
+ ],
+ "run": 2
+}
