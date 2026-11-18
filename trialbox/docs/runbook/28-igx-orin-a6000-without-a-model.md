@@ -64,7 +64,7 @@ Not verified on any Arm machine. Page 29 (step 4) runs it after the engine probe
 
 The choice is kept in `deploy/.env` (`TB_POC_EMBED=model`): a later plain `deploy/poc.sh` keeps the real embedder. To
 go back, `deploy/poc.sh reset` and then `TB_POC_EMBED=hash deploy/poc.sh`. This manual download is replaced by the
-weights command of card W-1 (pull request #1085) once it is on master.
+the repository's weights command (`tools/fetch_weights.py`) once it has an embedder target: today it fetches a GPU profile's pair only, from the file list of a measured serving record, and the embedder has no such record.
 
 ## Only when we ask: the engine probe (no model)
 

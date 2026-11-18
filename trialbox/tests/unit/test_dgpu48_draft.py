@@ -680,7 +680,9 @@ def test_the_page_puts_the_unknowns_first_and_asks_for_nothing_identifying() -> 
     step4 = next(ln for ln in page.splitlines() if ln.startswith("| 4 |"))
     assert "~/tb-embedder.txt" in step4 and "embedder check" not in step4
     weights = page[page.index("## The weights (step 5)") : page.index("## Freeing the disk")]
-    for build in dgpu48.PIN_BUILD.values():
-        assert build[0] in weights
-    assert "12 files" in weights and "17 files" in weights and "sha256sum -c" in weights
+    assert "python3 -m tools.fetch_weights --profile rtxpro6000 --dry-run" in weights
+    assert "python3 -m tools.fetch_weights --profile rtxpro6000" in weights.replace(" --dry-run", "")
+    from tools import pin_model
+
+    assert {b[0] for b in pin_model.PROFILE_PAIRS["rtxpro6000"]} == {b[0] for b in dgpu48.PIN_BUILD.values()}
     assert "the command sent with the tag" not in page

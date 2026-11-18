@@ -85,30 +85,23 @@ policy: they do not come back after a reboot.
 
 ## The weights (step 5)
 
-The release pins each folder; step 6 checks them against those pins before anything else. The commands read the
-source and revision from `models/registry.yaml`, so nothing is typed by hand. They use the download tool of page 28
-row E1 (`~/hf`), and were checked here with its dry run only (file lists, no weights).
+The repository's weights command (`tools/fetch_weights.py`) fetches exactly the files the release pins, checks each
+against its pinned size and sha256, and only then moves the folders into place; it resumes after a network error.
+It names the pair by a profile: use `rtxpro6000`, whose folders and builds are the ones the measuring run uses (the
+same weights serve every profile; the measuring run checks them against the pin again before it starts anything).
+It needs no other tool than the host's `python3` with `python3-yaml` (page 28 step 3).
 
-1. The judge's and the verifier's sources:
-   `read JREPO JREV <<< "$(python3 -c "import yaml; b = next(b for b in yaml.safe_load(open('models/registry.yaml'))['builds'] if b['build_id'] == 'gemma-4-26b-a4b-it-rtxpro6000'); print(b['provenance']['source'], b['expected']['revision'])")"`
-   and
-   `read VREPO VREV <<< "$(python3 -c "import yaml; b = next(b for b in yaml.safe_load(open('models/registry.yaml'))['builds'] if b['build_id'] == 'qwen3.5-9b-rtxpro6000'); print(b['provenance']['source'], b['expected']['revision'])")"`;
-   `echo $JREPO $JREV $VREPO $VREV` prints two repository names and the revisions `a19cfe00…` and `e4d2d39c…`.
-2. See what will come: `~/hf/bin/hf download "$JREPO" --revision "$JREV" --local-dir deploy/models/gemma-4-26b-a4b-it-4bit --dry-run`
-   should say "12 files … 18.8G"; `~/hf/bin/hf download "$VREPO" --revision "$VREV" --local-dir deploy/models/qwen3.5-9b-4bit --dry-run`
-   should say "17 files … 9.1G". Anything else: send it and stop.
-3. Download: the same two commands without `--dry-run` (1 to 3 hours; run again after a network error, it
-   continues); then `rm -rf deploy/models/gemma-4-26b-a4b-it-4bit/.cache deploy/models/qwen3.5-9b-4bit/.cache`.
-4. The judge's chat template (one small file, checked against its pinned hash):
-   `read TSRC TREV TFILE TSHA <<< "$(python3 -c "import yaml; b = next(b for b in yaml.safe_load(open('models/registry.yaml'))['builds'] if b['build_id'] == 'gemma-4-26b-a4b-it-rtxpro6000')['chat_template']; print(b['source'], b['revision'], b['file'], b['sha256'])")"`;
-   `mkdir -p "deploy/models/$(dirname "$TFILE")"`;
-   `curl -fL -o "deploy/models/$TFILE" "https://huggingface.co/$TSRC/resolve/$TREV/chat_template.jinja"`;
-   `echo "$TSHA  deploy/models/$TFILE" | sha256sum -c` should print `OK`. If the download asks you to sign in, the
-   model's page needs its terms accepted with a (free) Hugging Face account, and `~/hf/bin/hf auth login` once; the
-   sign-in code stays on this machine and is never sent to us.
+1. See what will come, without downloading: `python3 -m tools.fetch_weights --profile rtxpro6000 --dry-run`. It
+   prints the models folder, the two folders (11 and 16 files, about 27.9 GB) and the template, the free disk, and
+   whether the real run would go ahead. If it says the disk is short, free it (step 1) or point `TB_MODELS_DIR` at a
+   larger disk.
+2. Download: `python3 -m tools.fetch_weights --profile rtxpro6000` (1 to 3 hours). After a network error, run it
+   again: it continues where it stopped. Exit 0 means every folder is the pinned build.
+3. Check what is there at any time, without the network: `python3 -m tools.fetch_weights --profile rtxpro6000 --verify-only`.
 
-This is the manual way until the weights command of card W-1 (pull request #1085) is on master; then the page will
-use it.
+If a download asks for a sign-in, the model's page needs its terms accepted with a (free) Hugging Face account; then
+`export HF_TOKEN=<your token>` in the same window before step 2 (the tool sends it to the hub only and never prints
+it; do not send it to us).
 
 ## Freeing the disk (step 1)
 
