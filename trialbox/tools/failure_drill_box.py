@@ -75,7 +75,8 @@ def compose(*args: str, disk: bool = False) -> list[str]:
 
 
 def compose_env() -> dict[str, str]:
-    return {"TB_HOST_OBJECTS_DIR": str(ROOT / "deploy" / ".objects"), "TB_SETTINGS_FILE": str(SETTINGS)}
+    # the test file's object folder defaults to ${PWD}/deploy/.objects, as `make up-test` binds it
+    return {"PWD": str(ROOT), "TB_SETTINGS_FILE": str(SETTINGS)}
 
 
 def dc(*args: str, disk: bool = False, timeout: float = 900, check: bool = False) -> str:
@@ -151,7 +152,10 @@ def release_disk() -> None:
 def site_tz() -> ZoneInfo:
     from tb_common.config import _read_dotenv
 
-    return ZoneInfo(os.environ.get("TB_TZ") or _read_dotenv(ROOT / "deploy" / ".env").get("TB_TZ") or "Asia/Taipei")
+    zone = os.environ.get("TB_TZ") or _read_dotenv(ROOT / "deploy" / ".env").get("TB_TZ")
+    if not zone:  # the site's zone is a setting (D-315), never a default in code
+        raise RuntimeError("TB_TZ is not set (the environment or deploy/.env): the timer's clock time needs it")
+    return ZoneInfo(zone)
 
 
 def fresh_stack(disk: bool) -> None:
