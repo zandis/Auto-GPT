@@ -13,7 +13,7 @@ Sections whose audience is `team` (the table at the end) are for the people who 
 [Developing](DEVELOPING.md) (T-635, D-390). Support, recovery, keys, patches and leavers are §21 to §25.
 
 **Other install forms** (T-735): §8 (a DGX Spark by hand, and two devices), §9 (a proof of concept on any Docker
-host), §10 (one RTX 5090), §17 (on a hospital platform) and §26 (platform day 2). A box set up by its owner
+host), §10 (one RTX 5090), §17 (on a hospital platform), §26 (platform day 2), §27 (the owner's workstation with an RTX PRO 6000-class card) and §28 (an IGX Orin developer kit with an RTX A6000, without a model). A box set up by its owner
 (`deploy/box-install.sh`, the owner's pages) needs none of them; they are kept for Aimedics and for a hospital that
 runs TrialBox on its own platform.
 
@@ -130,9 +130,9 @@ File: [runbook/25-leavers.md](runbook/25-leavers.md). In it: [A member of the tr
 
 File: [runbook/26-platform-day-2.md](runbook/26-platform-day-2.md). In it: [What runs](runbook/26-platform-day-2.md#what-runs), [Where patient data lives and who can read it](runbook/26-platform-day-2.md#where-patient-data-lives-and-who-can-read-it), [Backup](runbook/26-platform-day-2.md#backup), [Restore (and the drill)](runbook/26-platform-day-2.md#restore-and-the-drill), [Logs and the audit archive](runbook/26-platform-day-2.md#logs-and-the-audit-archive), [Updates and rollback](runbook/26-platform-day-2.md#updates-and-rollback), [Noisy neighbours](runbook/26-platform-day-2.md#noisy-neighbours), [Moving the database to block storage](runbook/26-platform-day-2.md#moving-the-database-to-block-storage), [On kind](runbook/26-platform-day-2.md#on-kind).
 
-## 27. Installing on a workstation with an RTX PRO 6000-class card (reserved for B25)
+## 27. Installing on a workstation with an RTX PRO 6000-class card
 
-Not written yet: the number is held in the table below.
+File: [runbook/27-workstation-rtx-pro-6000.md](runbook/27-workstation-rtx-pro-6000.md). In it: [The weights (step 10)](runbook/27-workstation-rtx-pro-6000.md#the-weights-step-10), [On Windows instead (not verified anywhere)](runbook/27-workstation-rtx-pro-6000.md#on-windows-instead-not-verified-anywhere), [Every day after](runbook/27-workstation-rtx-pro-6000.md#every-day-after).
 
 ## 28. An IGX Orin developer kit with an RTX A6000: the product without a model
 
@@ -178,5 +178,5 @@ build TrialBox; OPS-073: [Developing](DEVELOPING.md) lists them, D-390).
 | 24 | Patch policy | on master | IT, Aimedics |
 | 25 | Leavers | on master | owner |
 | 26 | Platform day 2 | on master | IT (other install form) |
-| 27 | Installing on a workstation with an RTX PRO 6000-class card | B25 | owner (other install form) |
+| 27 | Installing on a workstation with an RTX PRO 6000-class card | on master | owner (other install form) |
 | 28 | An IGX Orin developer kit with an RTX A6000: the product without a model | on master | owner (other install form) |

@@ -1,0 +1,3030 @@
+{
+ "schema": "limits-edge/1",
+ "stated": [
+  {
+   "id": "L01",
+   "what": "heavy jobs one account may start a day, each kind on its own (console)",
+   "value": "20",
+   "unit": "jobs / 24 h",
+   "source": "docs/user-guide/03-the-everyday-work.md",
+   "anchor": "at most 20 runs of each kind",
+   "enforced": "services/orchestrator/core.py:Orchestrator.create",
+   "who": "a coordinator on New request; the console",
+   "driver": "jobs_per_day",
+   "not_driven": "",
+   "constants": [],
+   "lane": "C2",
+   "line": 12
+  },
+  {
+   "id": "L02",
+   "what": "heavy job requests one mailbox may send a day (mail)",
+   "value": "20",
+   "unit": "requests / 24 h",
+   "source": "docs/DECISIONS.md",
+   "anchor": "`rate_limit_per_sender_per_day` (default 20)",
+   "enforced": "services/mail_gateway/intake.py:decide",
+   "who": "a requester by mail",
+   "driver": "mail_jobs_per_day",
+   "not_driven": "",
+   "constants": [],
+   "lane": "C2",
+   "line": 3145
+  },
+  {
+   "id": "L03",
+   "what": "a daily limit of 0 is no limit",
+   "value": "0",
+   "unit": "jobs / 24 h (0 = none)",
+   "source": "libs/tb_common/config.py",
+   "anchor": "0: no limit (D-146, D-775)",
+   "enforced": "libs/tb_common/authz.py:daily_limit",
+   "who": "an operator (settings.yaml)",
+   "driver": "zero_is_no_limit",
+   "not_driven": "",
+   "constants": [],
+   "lane": "C2",
+   "line": 765
+  },
+  {
+   "id": "L04",
+   "what": "an uploaded protocol, consent form, chart or attachment on the console",
+   "value": "50",
+   "unit": "MB",
+   "source": "docs/plan/design/08-interface-control.md",
+   "anchor": "UP-SIZE",
+   "enforced": "services/console/app.py:protocol_submit",
+   "who": "a coordinator on New study (protocol)",
+   "driver": "console_upload",
+   "not_driven": "",
+   "constants": [
+    "services/console/app.py:MAX_UPLOAD"
+   ],
+   "lane": "C2",
+   "line": 91
+  },
+  {
+   "id": "L05",
+   "what": "an ODM file imported into the EDC",
+   "value": "5000000",
+   "unit": "bytes",
+   "source": "docs/decisions/D-435-odm-import-sponsor-readers.md",
+   "anchor": "TB_EDC_ODM_MAX_BYTES",
+   "enforced": "services/edc/odm_import.py:read",
+   "who": "a data manager on EDC import; the orchestrator",
+   "driver": "odm_size",
+   "not_driven": "",
+   "constants": [
+    "services/edc/odm_import.py:MAX_BYTES",
+    "services/console/edc_pages.py:ODM_MAX"
+   ],
+   "lane": "E",
+   "line": 35
+  },
+  {
+   "id": "L06",
+   "what": "the sponsor's weekly sheet",
+   "value": "2000000",
+   "unit": "bytes",
+   "source": "docs/decisions/D-435-odm-import-sponsor-readers.md",
+   "anchor": "TB_SPONSOR_WEEKLY_MAX_BYTES",
+   "enforced": "services/datacore/sponsor.py:read_weekly",
+   "who": "an API caller (orchestrator POST /studies/{rs}/sponsor/weekly; no console page found)",
+   "driver": "sponsor_size",
+   "not_driven": "",
+   "constants": [
+    "services/datacore/sponsor.py:MAX_BYTES"
+   ],
+   "lane": "E",
+   "line": 64
+  },
+  {
+   "id": "L07",
+   "what": "a file through the REDCap connector",
+   "value": "26214400",
+   "unit": "bytes",
+   "source": "docs/data/13-redcap-and-the-edc-backend.md",
+   "anchor": "TB_REDCAP_FILE_MAX_BYTES",
+   "enforced": "services/edc_backend/connection.py:EdcConnection.import_file / export_file",
+   "who": "the EDC backend",
+   "driver": "redcap_file",
+   "not_driven": "",
+   "constants": [],
+   "lane": "E",
+   "line": 45
+  },
+  {
+   "id": "L08",
+   "what": "the reason for a feature-flag change",
+   "value": "500",
+   "unit": "characters",
+   "source": "docs/decisions/D-207-feature-flags.md",
+   "anchor": "500 characters",
+   "enforced": "services/console/admin_flags.py:flags_set",
+   "who": "an administrator on Flags",
+   "driver": "flag_reason",
+   "not_driven": "",
+   "constants": [
+    "libs/tb_common/flags.py:MAX_REASON"
+   ],
+   "lane": "C2",
+   "line": 56
+  },
+  {
+   "id": "L09",
+   "what": "an EDC reason or citation text (refused, never cut)",
+   "value": "300",
+   "unit": "characters",
+   "source": "docs/decisions/D-854-a-long-reason-is-refused-never-cut.md",
+   "anchor": "300 characters",
+   "enforced": "services/edc/store.py:said",
+   "who": "a coordinator entering data",
+   "driver": "edc_text",
+   "not_driven": "",
+   "constants": [
+    "services/edc/store.py:TEXT_MAX"
+   ],
+   "lane": "E",
+   "line": 1
+  },
+  {
+   "id": "L10",
+   "what": "a monitoring visit's findings",
+   "value": "2000",
+   "unit": "characters",
+   "source": "docs/decisions/D-436-monitor-sdv.md",
+   "anchor": "2,000 characters",
+   "enforced": "services/console/teamstore.py:TeamStore.add_monitor_visit",
+   "who": "a monitor (CRA) on Monitoring",
+   "driver": "monitor_findings",
+   "not_driven": "",
+   "constants": [
+    "services/console/teamstore.py:FINDINGS_MAX"
+   ],
+   "lane": "C2",
+   "line": 45
+  },
+  {
+   "id": "L11",
+   "what": "a break-glass note",
+   "value": "10 to 300",
+   "unit": "characters",
+   "source": "docs/decisions/D-280-steward-and-break-glass.md",
+   "anchor": "10 to 300 characters",
+   "enforced": "services/console/breakglass_store.py:BreakGlassStore.open",
+   "who": "a coordinator or PI on Break glass",
+   "driver": "breakglass_note",
+   "not_driven": "",
+   "constants": [
+    "services/console/breakglass_store.py:NOTE_MAX"
+   ],
+   "lane": "C2",
+   "line": 25
+  },
+  {
+   "id": "L12",
+   "what": "a local account's end date",
+   "value": "365",
+   "unit": "days ahead",
+   "source": "docs/runbook/25-leavers.md",
+   "anchor": "at most 365",
+   "enforced": "services/console/admin_accounts.py:end_date",
+   "who": "an administrator on Users",
+   "driver": "account_end",
+   "not_driven": "",
+   "constants": [
+    "services/console/admin_accounts.py:MAX_END_DAYS"
+   ],
+   "lane": "C2",
+   "line": 21
+  },
+  {
+   "id": "L13",
+   "what": "failed sign-ins before an account is locked for 15 minutes",
+   "value": "5",
+   "unit": "failures",
+   "source": "docs/security/03-who-may-call-what.md",
+   "anchor": "lockout after 5 failures",
+   "enforced": "services/console/auth.py:UserStore.locked_until",
+   "who": "anyone at sign-in",
+   "driver": "signin_lockout",
+   "not_driven": "",
+   "constants": [
+    "services/console/auth.py:MAX_FAILURES"
+   ],
+   "lane": "C2",
+   "line": 73
+  },
+  {
+   "id": "L14",
+   "what": "a password's least length",
+   "value": "12",
+   "unit": "characters (a floor)",
+   "source": "docs/runbook/12-identity-and-tls.md",
+   "anchor": "at least 12 characters",
+   "enforced": "services/console/auth.py:check_password_policy",
+   "who": "anyone setting a password",
+   "driver": "password_min",
+   "not_driven": "",
+   "constants": [],
+   "lane": "C2",
+   "line": 59
+  },
+  {
+   "id": "L15",
+   "what": "minutes idle before a console session ends (setting range)",
+   "value": "1 to 60",
+   "unit": "minutes",
+   "source": "docs/runbook/12-identity-and-tls.md",
+   "anchor": "at most 60",
+   "enforced": "services/console/identity.py:_int_in",
+   "who": "an operator (TB_CONSOLE_IDLE_MINUTES)",
+   "driver": "idle_minutes",
+   "not_driven": "",
+   "constants": [],
+   "lane": "D",
+   "line": 54
+  },
+  {
+   "id": "L16",
+   "what": "hours a console session lasts in all (setting range)",
+   "value": "1 to 12",
+   "unit": "hours",
+   "source": "docs/security/03-who-may-call-what.md",
+   "anchor": "1 to 12",
+   "enforced": "services/console/identity.py:_int_in",
+   "who": "an operator (TB_CONSOLE_SESSION_HOURS)",
+   "driver": "session_hours",
+   "not_driven": "",
+   "constants": [],
+   "lane": "D",
+   "line": 86
+  },
+  {
+   "id": "L17",
+   "what": "a reveal for purpose 'other' needs a written why",
+   "value": "10",
+   "unit": "characters (a floor)",
+   "source": "docs/security/03-who-may-call-what.md",
+   "anchor": "10 characters",
+   "enforced": "services/console/reveal.py:_reason_ok",
+   "who": "a coordinator revealing a chart number",
+   "driver": "reveal_note",
+   "not_driven": "",
+   "constants": [],
+   "lane": "C2",
+   "line": 99
+  },
+  {
+   "id": "L18",
+   "what": "a model call's prompt plus answer budget",
+   "value": "32768",
+   "unit": "tokens (the RTX PRO 6000 builds)",
+   "source": "docs/decisions/D-357-context-aware-budgets.md",
+   "anchor": "32,768 tokens",
+   "enforced": "services/gateway/core.py:Gateway._try (tb_llm.budget.over_context)",
+   "who": "another service (every model caller)",
+   "driver": "prompt_context",
+   "not_driven": "",
+   "constants": [],
+   "lane": "A2",
+   "line": 12
+  },
+  {
+   "id": "L19",
+   "what": "chart numbers one person may reveal an hour",
+   "value": "60",
+   "unit": "reveals / hour",
+   "source": "docs/security/03-who-may-call-what.md",
+   "anchor": "TB_REVEAL_MAX_PER_HOUR",
+   "enforced": "services/console/reveal.py:cap; services/orchestrator/app.py:reveal",
+   "who": "a coordinator",
+   "driver": "",
+   "not_driven": "needs listed candidates on the real orchestrator (the orch_box of the console tests, an ingested lake) and 61 reveals; not built in this card's time",
+   "constants": [],
+   "lane": "C2",
+   "line": 55
+  },
+  {
+   "id": "L20",
+   "what": "screening-log exports with chart numbers an hour",
+   "value": "10",
+   "unit": "exports / hour",
+   "source": "docs/security/03-who-may-call-what.md",
+   "anchor": "TB_EXPORT_MAX_PER_HOUR",
+   "enforced": "services/orchestrator/app.py:registry_export",
+   "who": "a coordinator",
+   "driver": "",
+   "not_driven": "needs the real orchestrator with a finished SCREEN (orch_box); not built in this card's time",
+   "constants": [],
+   "lane": "C2",
+   "line": 111
+  },
+  {
+   "id": "L21",
+   "what": "pseudonym lookups by chart number an hour",
+   "value": "TB_REVEAL_MAX_PER_HOUR",
+   "unit": "lookups / hour",
+   "source": "docs/decisions/D-487-identifiers-one-door.md",
+   "anchor": "TB_TO_PID_MAX_PER_HOUR",
+   "enforced": "services/orchestrator/identifiers.py:admit",
+   "who": "a coordinator (opt-out, to-pid)",
+   "driver": "",
+   "not_driven": "needs the real orchestrator with a site key and a lake (orch_box); not built in this card's time",
+   "constants": [],
+   "lane": "B2",
+   "line": 36
+  },
+  {
+   "id": "L22",
+   "what": "model calls on threads at once in the gateway",
+   "value": "64",
+   "unit": "calls",
+   "source": "docs/decisions/D-445-gateway-under-load.md",
+   "anchor": "TB_GATEWAY_MAX_INFLIGHT",
+   "enforced": "services/gateway/app.py:chat",
+   "who": "another service",
+   "driver": "",
+   "not_driven": "needs 64 model calls held open at once; the stub answers at once, so a stand-in would test a counter, not the box",
+   "constants": [
+    "services/gateway/app.py:MAX_INFLIGHT"
+   ],
+   "lane": "A2",
+   "line": 32
+  },
+  {
+   "id": "L23",
+   "what": "refusal replies one sender gets a day",
+   "value": "10",
+   "unit": "replies / day",
+   "source": "docs/runbook/04-morning-mail-missing.md",
+   "anchor": "at most 10 refusal replies a day",
+   "enforced": "services/mail_gateway/gateway.py:Gateway._reject",
+   "who": "a requester by mail",
+   "driver": "",
+   "not_driven": "needs the mail gateway's outbox over a day of refused mail; not built in this card's time",
+   "constants": [],
+   "lane": "C2",
+   "line": 40
+  },
+  {
+   "id": "L24",
+   "what": "mails to one address in 24 hours",
+   "value": "200",
+   "unit": "mails / 24 h",
+   "source": "docs/decisions/D-401-mail-outbox.md",
+   "anchor": "default 200",
+   "enforced": "services/mail_gateway/gateway.py:Gateway._over_limit",
+   "who": "the mail gateway",
+   "driver": "",
+   "not_driven": "the limit waits (the mail stays queued an hour), it does not refuse; needs 201 queued mails and the outbox's clock; not built in this card's time",
+   "constants": [],
+   "lane": "C2",
+   "line": 37
+  },
+  {
+   "id": "L25",
+   "what": "restarts a job survives before it is failed",
+   "value": "3",
+   "unit": "restarts",
+   "source": "docs/runbook/04-troubleshooting.md",
+   "anchor": "TB_JOB_MAX_RESTARTS",
+   "enforced": "services/orchestrator/core.py:Orchestrator._recover",
+   "who": "an operator",
+   "driver": "",
+   "not_driven": "needs the box restarted under a running job: the failure drills (tools/failure_drill*.py) are another lane H card's",
+   "constants": [
+    "services/orchestrator/jobs.py:MAX_RESTARTS"
+   ],
+   "lane": "B2",
+   "line": 36
+  },
+  {
+   "id": "L26",
+   "what": "patients screened a night by the microbatch",
+   "value": "2000",
+   "unit": "patients / night",
+   "source": "docs/runbook/04-troubleshooting.md",
+   "anchor": "TB_MICROBATCH_NIGHT_BUDGET",
+   "enforced": "services/orchestrator/scenarios/microbatch.py:reserve",
+   "who": "the scheduler",
+   "driver": "",
+   "not_driven": "not a refusal: the rest is carried to the next night; needs a night of 2,001 changed patients (scale: H-23)",
+   "constants": [],
+   "lane": "B2",
+   "line": 24
+  },
+  {
+   "id": "L27",
+   "what": "a break-glass grant's length",
+   "value": "60",
+   "unit": "minutes",
+   "source": "docs/user-guide/02-roles.md",
+   "anchor": "it ends after 60",
+   "enforced": "libs/tb_common/authz.py; services/console/breakglass_store.py:open",
+   "who": "a coordinator or PI",
+   "driver": "",
+   "not_driven": "a time limit, not a size: needs the clock moved past the grant; no refusal at the start",
+   "constants": [],
+   "lane": "C2",
+   "line": 15
+  },
+  {
+   "id": "L28",
+   "what": "the lake's spill to disk",
+   "value": "50",
+   "unit": "GB at most",
+   "source": "docs/runbook/04-troubleshooting.md",
+   "anchor": "at most 50 GB",
+   "enforced": "services/lake/store.py (TB_LAKE_MAX_TEMP)",
+   "who": "a job (LAKE-LIMIT)",
+   "driver": "",
+   "not_driven": "needs a query that spills 50 GB: hours of data on a large disk",
+   "constants": [],
+   "lane": "B2",
+   "line": 14
+  },
+  {
+   "id": "L29",
+   "what": "container log files per service",
+   "value": "100m x 10",
+   "unit": "size x files",
+   "source": "docs/runbook/02-daily-operation.md",
+   "anchor": "TB_LOG_MAX_SIZE",
+   "enforced": "deploy compose logging (TB_LOG_MAX_SIZE, TB_LOG_MAX_FILE)",
+   "who": "an operator",
+   "driver": "",
+   "not_driven": "compose's own log rotation; compose was not run (a box under Docker was not started)",
+   "constants": [],
+   "lane": "D",
+   "line": 44
+  },
+  {
+   "id": "L30",
+   "what": "studies per standard site",
+   "value": "20",
+   "unit": "studies (CGMH 50)",
+   "source": "docs/plan/design/01-SRS.md",
+   "anchor": "Up to 20, CGMH 50",
+   "enforced": "not found (a capacity target, not a cap)",
+   "who": "a site",
+   "driver": "",
+   "not_driven": "a capacity target (NFR-CAP-02), not a refusal; enforced nowhere",
+   "constants": [],
+   "lane": "H",
+   "line": 1177
+  },
+  {
+   "id": "L31",
+   "what": "a site's rule book for the judge",
+   "value": "2000",
+   "unit": "characters",
+   "source": "docs/plan/design/01-SRS.md",
+   "anchor": "at most 2,000 characters",
+   "enforced": "not found (FR-JP-09 is not built: status N)",
+   "who": "a site's steward",
+   "driver": "",
+   "not_driven": "the feature is not built (FR-JP-09, status N); nothing to drive",
+   "constants": [],
+   "lane": "A2",
+   "line": 809
+  },
+  {
+   "id": "L32",
+   "what": "a CASE answer within 60 s for at most 200 notes and 20 note criteria",
+   "value": "200 / 20",
+   "unit": "notes / note criteria",
+   "source": "docs/plan/design/01-SRS.md",
+   "anchor": "at most 200 notes",
+   "enforced": "not found (a performance condition, not a cap)",
+   "who": "a coordinator (CASE)",
+   "driver": "",
+   "not_driven": "a performance target with the judge loaded: needs a GPU and the real model",
+   "constants": [],
+   "lane": "A2",
+   "line": 434
+  },
+  {
+   "id": "L33",
+   "what": "raw extracts kept in the landing area",
+   "value": "7",
+   "unit": "days at most",
+   "source": "docs/plan/design/01-SRS.md",
+   "anchor": "at most 7 days",
+   "enforced": "not checked here (retention)",
+   "who": "the adapter",
+   "driver": "",
+   "not_driven": "a retention time: needs a week of the clock; not a refusal",
+   "constants": [],
+   "lane": "B2",
+   "line": 307
+  },
+  {
+   "id": "L34",
+   "what": "a feed load's largest row drop",
+   "value": "20",
+   "unit": "percent (default)",
+   "source": "docs/decisions/D-271-data-pipeline-integrity.md",
+   "anchor": "TB_FEED_MAX_DROP_PCT",
+   "enforced": "libs/tb_common/feedguard.py",
+   "who": "the nightly load",
+   "driver": "",
+   "not_driven": "a night's guard on a second load of the hospital's feed; the bad-file card H-34 owns bad feeds",
+   "constants": [],
+   "lane": "B2",
+   "line": 5
+  },
+  {
+   "id": "L35",
+   "what": "mail retries before a mail is failed",
+   "value": "12",
+   "unit": "tries, at most an hour apart",
+   "source": "docs/runbook/04-morning-mail-missing.md",
+   "anchor": "at most an hour apart, 12 tries",
+   "enforced": "services/mail_gateway/gateway.py (MAX_ATTEMPTS, RETRY_MAX_S)",
+   "who": "the mail gateway",
+   "driver": "",
+   "not_driven": "needs twelve hours of a refusing mail server",
+   "constants": [
+    "services/mail_gateway/gateway.py:MAX_ATTEMPTS",
+    "services/mail_gateway/gateway.py:RETRY_MAX_S"
+   ],
+   "lane": "C2",
+   "line": 32
+  }
+ ],
+ "register": [
+  {
+   "source": "tools/limits_allow.yaml:10",
+   "path": "services/lake/client.py",
+   "kind": "timeout",
+   "value": "330",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:12",
+   "path": "services/adapter/validate/validator.py",
+   "kind": "timeout",
+   "value": "1800",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:14",
+   "path": "services/orchestrator/twophase.py",
+   "kind": "timeout",
+   "value": "600",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:16",
+   "path": "services/gateway/swap.py",
+   "kind": "timeout",
+   "value": "120",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:18",
+   "path": "services/embed_service/embedder.py",
+   "kind": "timeout",
+   "value": "300",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:20",
+   "path": "services/orchestrator/clients.py",
+   "kind": "timeout",
+   "value": "3600",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:23",
+   "path": "services/adapter/load_fhir.py",
+   "kind": "timeout",
+   "value": "600",
+   "count": 2
+  },
+  {
+   "source": "tools/limits_allow.yaml:25",
+   "path": "services/console/app.py",
+   "kind": "timeout",
+   "value": "10",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:27",
+   "path": "services/datacore/optout_worker.py",
+   "kind": "timeout",
+   "value": "10",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:29",
+   "path": "services/criteria_compiler/compile_cql/translator.py",
+   "kind": "timeout",
+   "value": "600",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:31",
+   "path": "services/model_guard/__init__.py",
+   "kind": "timeout",
+   "value": "900",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:33",
+   "path": "services/orchestrator/clients.py",
+   "kind": "timeout",
+   "value": "900",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:35",
+   "path": "services/orchestrator/clients.py",
+   "kind": "timeout",
+   "value": "300",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:37",
+   "path": "services/orchestrator/scenarios/submit.py",
+   "kind": "timeout",
+   "value": "120",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:40",
+   "path": "services/console/home.py",
+   "kind": "limit",
+   "value": "500",
+   "count": 9
+  },
+  {
+   "source": "tools/limits_allow.yaml:42",
+   "path": "services/console/home.py",
+   "kind": "limit",
+   "value": "200",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:44",
+   "path": "services/console/screening_log.py",
+   "kind": "limit",
+   "value": "500",
+   "count": 2
+  },
+  {
+   "source": "tools/limits_allow.yaml:46",
+   "path": "services/console/step4.py",
+   "kind": "limit",
+   "value": "200",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:48",
+   "path": "services/console/step4.py",
+   "kind": "limit",
+   "value": "300",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:50",
+   "path": "services/console/app.py",
+   "kind": "limit",
+   "value": "100",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:52",
+   "path": "services/console/backend.py",
+   "kind": "limit",
+   "value": "100",
+   "count": 2
+  },
+  {
+   "source": "tools/limits_allow.yaml:54",
+   "path": "services/console/backend.py",
+   "kind": "limit",
+   "value": "200",
+   "count": 3
+  },
+  {
+   "source": "tools/limits_allow.yaml:56",
+   "path": "services/console/breakglass_store.py",
+   "kind": "limit",
+   "value": "200",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:58",
+   "path": "services/orchestrator/notmatched_sample.py",
+   "kind": "limit",
+   "value": "500",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:60",
+   "path": "services/orchestrator/scenarios/microbatch.py",
+   "kind": "limit",
+   "value": "1000",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:62",
+   "path": "services/orchestrator/scenarios/microbatch.py",
+   "kind": "limit",
+   "value": "100",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:64",
+   "path": "services/orchestrator/db.py",
+   "kind": "limit",
+   "value": "100",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:66",
+   "path": "services/orchestrator/app.py",
+   "kind": "limit",
+   "value": "50",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:68",
+   "path": "services/orchestrator/app.py",
+   "kind": "limit",
+   "value": "500",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:70",
+   "path": "services/orchestrator/app.py",
+   "kind": "limit",
+   "value": "20",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:73",
+   "path": "services/orchestrator/rerun.py",
+   "kind": "limit",
+   "value": "1000000",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:75",
+   "path": "services/console/app.py",
+   "kind": "limit",
+   "value": "8",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:77",
+   "path": "services/console/admin_flags.py",
+   "kind": "limit",
+   "value": "50",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:79",
+   "path": "services/console/breakglass_store.py",
+   "kind": "limit",
+   "value": "50",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:81",
+   "path": "services/console/sitestore.py",
+   "kind": "limit",
+   "value": "50",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:83",
+   "path": "services/datacore/dataops.py",
+   "kind": "limit",
+   "value": "50",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:85",
+   "path": "services/mail_gateway/gateway.py",
+   "kind": "limit",
+   "value": "50",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:87",
+   "path": "services/mail_gateway/store.py",
+   "kind": "limit",
+   "value": "50",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:89",
+   "path": "services/adapter/validate/jpcore.py",
+   "kind": "limit",
+   "value": "200",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:91",
+   "path": "services/matching/cascade/engine.py",
+   "kind": "limit",
+   "value": "24",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:93",
+   "path": "services/orchestrator/scenarios/terms.py",
+   "kind": "limit",
+   "value": "12",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:96",
+   "path": "services/console/sitestore.py",
+   "kind": "limit",
+   "value": "1",
+   "count": 4
+  },
+  {
+   "source": "tools/limits_allow.yaml:97",
+   "path": "services/datacore/dataops.py",
+   "kind": "limit",
+   "value": "1",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:98",
+   "path": "services/datacore/sponsor.py",
+   "kind": "limit",
+   "value": "1",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:99",
+   "path": "services/edc/store.py",
+   "kind": "limit",
+   "value": "1",
+   "count": 8
+  },
+  {
+   "source": "tools/limits_allow.yaml:100",
+   "path": "services/omop/export.py",
+   "kind": "limit",
+   "value": "1",
+   "count": 2
+  },
+  {
+   "source": "tools/limits_allow.yaml:101",
+   "path": "services/omop/load.py",
+   "kind": "limit",
+   "value": "1",
+   "count": 2
+  },
+  {
+   "source": "tools/limits_allow.yaml:102",
+   "path": "services/omop/vocab.py",
+   "kind": "limit",
+   "value": "1",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:103",
+   "path": "services/orchestrator/app.py",
+   "kind": "limit",
+   "value": "1",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:104",
+   "path": "services/orchestrator/db.py",
+   "kind": "limit",
+   "value": "1",
+   "count": 2
+  },
+  {
+   "source": "tools/limits_allow.yaml:105",
+   "path": "services/orchestrator/scenarios/approve.py",
+   "kind": "limit",
+   "value": "1",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:106",
+   "path": "services/orchestrator/scenarios/facts.py",
+   "kind": "limit",
+   "value": "1",
+   "count": 3
+  },
+  {
+   "source": "tools/limits_allow.yaml:107",
+   "path": "services/orchestrator/scenarios/microbatch.py",
+   "kind": "limit",
+   "value": "1",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:108",
+   "path": "services/orchestrator/scenarios/twpas.py",
+   "kind": "limit",
+   "value": "1",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:109",
+   "path": "services/orchestrator/scheduler.py",
+   "kind": "limit",
+   "value": "1",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:110",
+   "path": "services/vec/store.py",
+   "kind": "limit",
+   "value": "1",
+   "count": 2
+  },
+  {
+   "source": "tools/limits_allow.yaml:114",
+   "path": "services/adapter/cli.py",
+   "kind": "timeout",
+   "value": "60",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:115",
+   "path": "services/console/backend.py",
+   "kind": "timeout",
+   "value": "60",
+   "count": 3
+  },
+  {
+   "source": "tools/limits_allow.yaml:116",
+   "path": "services/console/backend.py",
+   "kind": "timeout",
+   "value": "15",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:117",
+   "path": "services/console/backend.py",
+   "kind": "timeout",
+   "value": "10",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:118",
+   "path": "services/console/backend.py",
+   "kind": "timeout",
+   "value": "4",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:119",
+   "path": "services/console/backend.py",
+   "kind": "timeout",
+   "value": "30",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:120",
+   "path": "services/console/demo_guard.py",
+   "kind": "timeout",
+   "value": "10",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:121",
+   "path": "services/console/oidc.py",
+   "kind": "timeout",
+   "value": "10",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:122",
+   "path": "services/console/proposals.py",
+   "kind": "timeout",
+   "value": "45",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:123",
+   "path": "services/criteria_compiler/ctgov.py",
+   "kind": "timeout",
+   "value": "60",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:124",
+   "path": "services/gateway/app.py",
+   "kind": "timeout",
+   "value": "10",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:125",
+   "path": "services/mail_gateway/app.py",
+   "kind": "timeout",
+   "value": "10",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:126",
+   "path": "services/mail_gateway/gateway.py",
+   "kind": "timeout",
+   "value": "60",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:127",
+   "path": "services/mail_gateway/outbound.py",
+   "kind": "timeout",
+   "value": "60",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:128",
+   "path": "services/orchestrator/clients.py",
+   "kind": "timeout",
+   "value": "60",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:129",
+   "path": "services/orchestrator/core.py",
+   "kind": "timeout",
+   "value": "2",
+   "count": 2
+  },
+  {
+   "source": "tools/limits_allow.yaml:130",
+   "path": "services/orchestrator/core.py",
+   "kind": "timeout",
+   "value": "5",
+   "count": 1
+  },
+  {
+   "source": "tools/limits_allow.yaml:131",
+   "path": "services/sitesetup/ocr.py",
+   "kind": "timeout",
+   "value": "30",
+   "count": 1
+  }
+ ],
+ "settings": [
+  {
+   "source": "libs/tb_common/config.py:382",
+   "setting": "TB_AUDIT_HEAD_MAX_AGE_H",
+   "type": "float",
+   "default": "36"
+  },
+  {
+   "source": "libs/tb_common/config.py:385",
+   "setting": "TB_AUDIT_TS_MAX_SKEW_S",
+   "type": "float",
+   "default": "300"
+  },
+  {
+   "source": "libs/tb_common/config.py:407",
+   "setting": "TB_BACKUP_MAX_AGE_HOURS",
+   "type": "float",
+   "default": ""
+  },
+  {
+   "source": "libs/tb_common/config.py:431",
+   "setting": "TB_CANARY_MAX_AGE_H",
+   "type": "float",
+   "default": ""
+  },
+  {
+   "source": "libs/tb_common/config.py:433",
+   "setting": "TB_CANARY_RETRY_MAX_S",
+   "type": "float",
+   "default": "600"
+  },
+  {
+   "source": "libs/tb_common/config.py:441",
+   "setting": "TB_CANDIDATE_VIEWS_PER_HOUR",
+   "type": "int",
+   "default": ""
+  },
+  {
+   "source": "libs/tb_common/config.py:456",
+   "setting": "TB_CLOCK_MAX_SKEW_S",
+   "type": "float",
+   "default": ""
+  },
+  {
+   "source": "libs/tb_common/config.py:601",
+   "setting": "TB_EMBED_BATCH_BUDGET",
+   "type": "int",
+   "default": "8192"
+  },
+  {
+   "source": "libs/tb_common/config.py:615",
+   "setting": "TB_EVAL_LIMIT",
+   "type": "int",
+   "default": ""
+  },
+  {
+   "source": "libs/tb_common/config.py:617",
+   "setting": "TB_EXPORT_MAX_PER_HOUR_PER_SERVICE",
+   "type": "int",
+   "default": "60"
+  },
+  {
+   "source": "libs/tb_common/config.py:639",
+   "setting": "TB_GATEWAY_CALL_BUDGET_S",
+   "type": "float",
+   "default": "210"
+  },
+  {
+   "source": "libs/tb_common/config.py:729",
+   "setting": "TB_LAKE_BUDGET_MB",
+   "type": "int",
+   "default": ""
+  },
+  {
+   "source": "libs/tb_common/config.py:735",
+   "setting": "TB_LAKE_MAX_TEMP",
+   "type": "str",
+   "default": ""
+  },
+  {
+   "source": "libs/tb_common/config.py:736",
+   "setting": "TB_LAKE_MAX_SNAPSHOT_AGE_DAYS",
+   "type": "int",
+   "default": "0"
+  },
+  {
+   "source": "libs/tb_common/config.py:737",
+   "setting": "TB_LAKE_MEMORY_LIMIT",
+   "type": "str",
+   "default": ""
+  },
+  {
+   "source": "libs/tb_common/config.py:740",
+   "setting": "TB_LAKE_QUERY_LIMITS",
+   "type": "str",
+   "default": "FEAS=1800,COHORT=1800"
+  },
+  {
+   "source": "libs/tb_common/config.py:801",
+   "setting": "TB_NTP_MAX_OFFSET_S",
+   "type": "float",
+   "default": ""
+  },
+  {
+   "source": "libs/tb_common/config.py:835",
+   "setting": "TB_OPTOUT_LOOKUPS_PER_HOUR",
+   "type": "int",
+   "default": ""
+  },
+  {
+   "source": "libs/tb_common/config.py:848",
+   "setting": "TB_PG_MAX_WAL_SIZE",
+   "type": "str",
+   "default": "1GB"
+  },
+  {
+   "source": "libs/tb_common/config.py:897",
+   "setting": "TB_REDCAP_MAX_PER_MINUTE",
+   "type": "int",
+   "default": "0"
+  },
+  {
+   "source": "libs/tb_common/config.py:928",
+   "setting": "TB_REVEAL_MAX_PER_HOUR_PER_SERVICE",
+   "type": "int",
+   "default": "600"
+  },
+  {
+   "source": "libs/tb_common/config.py:966",
+   "setting": "TB_SCALE_LIMIT_S",
+   "type": "float",
+   "default": ""
+  },
+  {
+   "source": "libs/tb_common/config.py:993",
+   "setting": "TB_SCREEN_MAX_PAIRS",
+   "type": "int",
+   "default": ""
+  }
+ ],
+ "unstated": [
+  {
+   "where": "services/adapter/mapping/engine.py:249",
+   "name": "CODE_MAX",
+   "value": 40
+  },
+  {
+   "where": "services/adapter/mapping/sharereport.py:31",
+   "name": "DIGITS_MAX",
+   "value": 5
+  },
+  {
+   "where": "services/adapter/mapping/sharereport.py:39",
+   "name": "SHAPE_MAX",
+   "value": 40
+  },
+  {
+   "where": "services/adapter/mapping/sharereport.py:42",
+   "name": "UNIT_MAX",
+   "value": 20
+  },
+  {
+   "where": "services/adapter/pipeline.py:1510",
+   "name": "REJECT_MAX_PCT",
+   "value": 1.0
+  },
+  {
+   "where": "services/adapter/sources/ssmix2/source.py:144",
+   "name": "QUARANTINE_MAX_PCT",
+   "value": 1.0
+  },
+  {
+   "where": "services/console/conflicts_page.py:39",
+   "name": "MAX_REASON",
+   "value": 500
+  },
+  {
+   "where": "services/console/data_pages.py:50",
+   "name": "MAX_DICTIONARY",
+   "value": 2097152
+  },
+  {
+   "where": "services/console/dataops_page.py:57",
+   "name": "MAX_REASON",
+   "value": 500
+  },
+  {
+   "where": "services/console/feedback.py:47",
+   "name": "COMMENT_MAX",
+   "value": 1000
+  },
+  {
+   "where": "services/console/feedback.py:48",
+   "name": "PATH_MAX",
+   "value": 200
+  },
+  {
+   "where": "services/console/next_page.py:18",
+   "name": "MAX_AGE",
+   "value": 900
+  },
+  {
+   "where": "services/console/notify.py:57",
+   "name": "MAX_ROWS",
+   "value": 10
+  },
+  {
+   "where": "services/console/saerecord.py:62",
+   "name": "REF_MAX",
+   "value": 60
+  },
+  {
+   "where": "services/console/site_pages.py:52",
+   "name": "MAX_UPLOAD",
+   "value": 20971520
+  },
+  {
+   "where": "services/console/sitestore.py:263",
+   "name": "SPONSOR_MAX",
+   "value": 120
+  },
+  {
+   "where": "services/console/sitestore.py:288",
+   "name": "NOTE_MAX",
+   "value": 200
+  },
+  {
+   "where": "services/criteria_compiler/service.py:62",
+   "name": "MAX_ROUNDS",
+   "value": 3
+  },
+  {
+   "where": "services/criteria_compiler/service.py:145",
+   "name": "MAX_HALVINGS",
+   "value": 2
+  },
+  {
+   "where": "services/criteria_compiler/service.py:324",
+   "name": "REFUSED_REASON_MAX",
+   "value": 600
+  },
+  {
+   "where": "services/criteria_compiler/terminology/mapper.py:270",
+   "name": "FHIR_ID_MAX",
+   "value": 64
+  },
+  {
+   "where": "services/datacore/dataops.py:86",
+   "name": "MAX_PAGE",
+   "value": 200
+  },
+  {
+   "where": "services/datacore/sponsor.py:63",
+   "name": "MAX_ROWS",
+   "value": 20000
+  },
+  {
+   "where": "services/edc/logic.py:37",
+   "name": "MAX_TEXT",
+   "value": 4000
+  },
+  {
+   "where": "services/edc/logic.py:38",
+   "name": "MAX_TOKENS",
+   "value": 1000
+  },
+  {
+   "where": "services/edc/logic.py:39",
+   "name": "MAX_DEPTH",
+   "value": 40
+  },
+  {
+   "where": "services/edc/mapping.py:64",
+   "name": "MAX_WINDOW",
+   "value": 3650
+  },
+  {
+   "where": "services/edc/odm_import.py:39",
+   "name": "MAX_DEPTH",
+   "value": 16
+  },
+  {
+   "where": "services/edc/odm_import.py:40",
+   "name": "MAX_ELEMENTS",
+   "value": 500000
+  },
+  {
+   "where": "services/edc/odm_import.py:41",
+   "name": "MAX_VALUE",
+   "value": 4000
+  },
+  {
+   "where": "services/edc/store.py:143",
+   "name": "DETAIL_MAX",
+   "value": 300
+  },
+  {
+   "where": "services/embed_service/embedder.py:120",
+   "name": "MAX_TOKENS",
+   "value": 512
+  },
+  {
+   "where": "services/lake/store.py:754",
+   "name": "MAX_QUERY_LIMIT_S",
+   "value": 86400
+  },
+  {
+   "where": "services/mail_gateway/intake.py:23",
+   "name": "MAX_ATTACHMENTS",
+   "value": 20
+  },
+  {
+   "where": "services/mail_gateway/intake.py:24",
+   "name": "MAX_ATTACHMENT_BYTES",
+   "value": 52428800
+  },
+  {
+   "where": "services/mail_gateway/intake.py:25",
+   "name": "MAX_SUBJECT_CHARS",
+   "value": 998
+  },
+  {
+   "where": "services/matching/stored_scores.py:46",
+   "name": "MAX_FREE",
+   "value": 8
+  },
+  {
+   "where": "services/model_guard/__init__.py:50",
+   "name": "MAX_BODY",
+   "value": 16777216
+  },
+  {
+   "where": "services/omop/conflicts.py:31",
+   "name": "MAX_ROWS",
+   "value": 500
+  },
+  {
+   "where": "services/omop/schema.py:125",
+   "name": "INT4_MAX",
+   "value": 2147483647
+  },
+  {
+   "where": "services/orchestrator/canary_gate.py:46",
+   "name": "MAX_AGE_H",
+   "value": 36.0
+  },
+  {
+   "where": "services/orchestrator/canary_gate.py:316",
+   "name": "RETRY_MAX_S",
+   "value": 600.0
+  },
+  {
+   "where": "services/orchestrator/conflicts_api.py:35",
+   "name": "MAX_REASON",
+   "value": 500
+  },
+  {
+   "where": "services/orchestrator/core.py:819",
+   "name": "WORKER_RETRY_MAX",
+   "value": 30.0
+  },
+  {
+   "where": "services/orchestrator/scenarios/case.py:74",
+   "name": "MAX_CHART_CHARS",
+   "value": 200000
+  },
+  {
+   "where": "services/orchestrator/scenarios/case.py:75",
+   "name": "MAX_EXCERPT_CHARS",
+   "value": 1800
+  },
+  {
+   "where": "services/orchestrator/scenarios/consent.py:59",
+   "name": "MAX_ICF_CHARS",
+   "value": 60000
+  },
+  {
+   "where": "services/orchestrator/scenarios/evaluate.py:496",
+   "name": "MAX_JUDGE_FAILURE_SHARE",
+   "value": 0.1
+  },
+  {
+   "where": "services/orchestrator/scenarios/submit.py:31",
+   "name": "MAX_AGE_DAYS",
+   "value": 14
+  },
+  {
+   "where": "services/orchestrator/selftest.py:47",
+   "name": "MAX_FLIPS",
+   "value": 1
+  },
+  {
+   "where": "services/orchestrator/selftest.py:52",
+   "name": "MAX_PAIR_WRONG",
+   "value": 0
+  },
+  {
+   "where": "services/orchestrator/twophase.py:48",
+   "name": "MAX_ROUNDS",
+   "value": 3
+  },
+  {
+   "where": "services/rc_bridge/client.py:30",
+   "name": "MAX_WAIT_S",
+   "value": 30.0
+  },
+  {
+   "where": "services/rc_bridge/client.py:86",
+   "name": "_MAX_NAMES",
+   "value": 20
+  },
+  {
+   "where": "services/sitesetup/charts.py:40",
+   "name": "MAX_CHART_BYTES",
+   "value": 20971520
+  },
+  {
+   "where": "services/sitesetup/charts.py:41",
+   "name": "MAX_CHART_CHARS",
+   "value": 60000
+  },
+  {
+   "where": "services/vec/store.py:32",
+   "name": "MAX_HNSW_DIM",
+   "value": 4000
+  },
+  {
+   "where": "libs/tb_common/actor_v3.py:57",
+   "name": "MAX_LEN",
+   "value": 8192
+  },
+  {
+   "where": "libs/tb_common/audit.py:815",
+   "name": "DEFAULT_MAX_SKEW_S",
+   "value": 60.0
+  },
+  {
+   "where": "libs/tb_common/firstrun.py:36",
+   "name": "MAX_TRIES",
+   "value": 5
+  },
+  {
+   "where": "libs/tb_common/instruments.py:29",
+   "name": "MAX_REF",
+   "value": 200
+  },
+  {
+   "where": "libs/tb_common/labunit.py:156",
+   "name": "MAX_SCALE",
+   "value": 1000.0
+  },
+  {
+   "where": "libs/tb_common/notmatched.py:43",
+   "name": "NOTE_MAX",
+   "value": 300
+  },
+  {
+   "where": "libs/tb_common/notmatched.py:44",
+   "name": "RECORD_MAX",
+   "value": 80
+  },
+  {
+   "where": "libs/tb_common/opportunity.py:67",
+   "name": "MAX_COUNT",
+   "value": 10000000
+  },
+  {
+   "where": "libs/tb_common/opportunity.py:68",
+   "name": "MAX_ROWS",
+   "value": 2000
+  },
+  {
+   "where": "libs/tb_common/opportunity.py:69",
+   "name": "MAX_CONDITIONS",
+   "value": 50
+  },
+  {
+   "where": "libs/tb_common/opportunity.py:70",
+   "name": "MAX_CAP",
+   "value": 200
+  },
+  {
+   "where": "libs/tb_common/retention.py:47",
+   "name": "STUDY_YEARS_MAX",
+   "value": 30
+  }
+ ],
+ "problems": [],
+ "results": {
+  "L01": {
+   "where": "the real orchestrator's create (orchestrator.core.Orchestrator.create, tests.inproc_box) and the console's words for its refusal (the console's own mapping of the orchestrator's sentence)",
+   "cases": [
+    {
+     "case": "at",
+     "size": "attempt 20 of the day (attempts 20 to 20)",
+     "accepted": true,
+     "status": "",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [
+      "job.state",
+      "mail.sent"
+     ],
+     "healthy": true,
+     "seconds": 0.01,
+     "rss_mb": 0.0,
+     "note": "20 jobs of this sender stored"
+    },
+    {
+     "case": "one_over",
+     "size": "attempt 21 of the day (attempts 21 to 21)",
+     "accepted": false,
+     "status": "403 Rejected",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "Today's limit is reached 20 FEAS runs were started from this account's mailbox in the last 24 hours, the most this box allows. Case questions, consent drafts and approvals are not counted. Try again tomorrow, or ask the administrator to raise the limit.",
+      "zh-TW": "已達今日上限 過去 24 小時內，此帳號的電子郵件已啟動 20 次 FEAS，已達本系統的上限。個案確認、同意說明草稿與核准不計入。請明天再試，或請管理員提高上限。",
+      "ja": "本日の上限に達しました このアカウントのメールアドレスから過去24時間に FEAS の実行が 20 件あり、この TrialBox の上限です。個別の患者の確認・同意説明の下書き・承認は数えません。明日もう一度実行するか、上限の引き上げを管理者に依頼してください。"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": true,
+      "ja": true
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": true,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "1 attempt(s) refused: rate limit reached (20 FEAS jobs per sender per day)"
+    },
+    {
+     "case": "far_over",
+     "size": "attempt 200 of the day (attempts 22 to 200)",
+     "accepted": false,
+     "status": "403 Rejected",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "Today's limit is reached 20 FEAS runs were started from this account's mailbox in the last 24 hours, the most this box allows. Case questions, consent drafts and approvals are not counted. Try again tomorrow, or ask the administrator to raise the limit.",
+      "zh-TW": "已達今日上限 過去 24 小時內，此帳號的電子郵件已啟動 20 次 FEAS，已達本系統的上限。個案確認、同意說明草稿與核准不計入。請明天再試，或請管理員提高上限。",
+      "ja": "本日の上限に達しました このアカウントのメールアドレスから過去24時間に FEAS の実行が 20 件あり、この TrialBox の上限です。個別の患者の確認・同意説明の下書き・承認は数えません。明日もう一度実行するか、上限の引き上げを管理者に依頼してください。"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": true,
+      "ja": true
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": true,
+     "seconds": 0.035,
+     "rss_mb": 0.0,
+     "note": "179 attempt(s) refused: rate limit reached (20 FEAS jobs per sender per day)"
+    }
+   ]
+  },
+  "L02": {
+   "where": "function: mail_gateway.intake.decide, the day's count from a stand-in of MailDB",
+   "cases": [
+    {
+     "case": "at",
+     "size": "request 20 of the day",
+     "accepted": true,
+     "status": "job",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": ""
+    },
+    {
+     "case": "one_over",
+     "size": "request 21 of the day",
+     "accepted": false,
+     "status": "reject",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "daily limit of 20 FEAS requests reached; try again tomorrow"
+     },
+     "names_limit": {
+      "en": true
+     },
+     "plain": {
+      "en": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "a mail reply is in English only (the reply's language is not the sender's choice)"
+    },
+    {
+     "case": "far_over",
+     "size": "request 201 of the day",
+     "accepted": false,
+     "status": "reject",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "daily limit of 20 FEAS requests reached; try again tomorrow"
+     },
+     "names_limit": {
+      "en": true
+     },
+     "plain": {
+      "en": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "a mail reply is in English only (the reply's language is not the sender's choice)"
+    }
+   ]
+  },
+  "L03": {
+   "where": "function: tb_common.authz.daily_limit with settings.yaml's limit set to 0",
+   "cases": [
+    {
+     "case": "at",
+     "size": "rate_limits_per_day FEAS: 0 (D-146)",
+     "accepted": true,
+     "status": "daily_limit = None",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "None is no limit; a number is a limit"
+    },
+    {
+     "case": "at",
+     "size": "TB_JOBS_PER_SENDER_PER_DAY=0 (config.py)",
+     "accepted": true,
+     "status": "daily_limit = None",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "None is no limit; a number is a limit"
+    }
+   ]
+  },
+  "L04": {
+   "where": "console page: POST /pilot/protocol on the in-process console (stand-in orchestrator)",
+   "cases": [
+    {
+     "case": "at",
+     "size": "52428800 bytes",
+     "accepted": true,
+     "status": "303",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [
+      "console.request",
+      "console.study_state"
+     ],
+     "healthy": true,
+     "seconds": 0.262,
+     "rss_mb": 50.1,
+     "note": ""
+    },
+    {
+     "case": "one_over",
+     "size": "52428801 bytes",
+     "accepted": false,
+     "status": "400",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "This could not be done Refused: protocols are PDF, DOCX, TXT or MD, at most 50 MB My home page Go back Help Need help? Ask your TrialBox administrator: admin@hospa.test",
+      "zh-TW": "無法完成 已拒絕：計畫書須為 PDF、DOCX、TXT 或 MD，最大 50 MB 回到首頁 回上一頁 說明 需要協助？請聯絡 TrialBox 管理者：admin@hospa.test",
+      "ja": "実行できませんでした 拒否されました：プロトコルはPDF・DOCX・TXT・MDで、50 MBまでです ホームへ 前のページへ ヘルプ 困ったときは TrialBox の管理者に連絡してください：admin@hospa.test"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": true,
+      "ja": true
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": true,
+     "seconds": 0.229,
+     "rss_mb": 0.0,
+     "note": ""
+    },
+    {
+     "case": "far_over",
+     "size": "209715200 bytes",
+     "accepted": false,
+     "status": "400",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "This could not be done Refused: protocols are PDF, DOCX, TXT or MD, at most 50 MB My home page Go back Help Need help? Ask your TrialBox administrator: admin@hospa.test",
+      "zh-TW": "無法完成 已拒絕：計畫書須為 PDF、DOCX、TXT 或 MD，最大 50 MB 回到首頁 回上一頁 說明 需要協助？請聯絡 TrialBox 管理者：admin@hospa.test",
+      "ja": "実行できませんでした 拒否されました：プロトコルはPDF・DOCX・TXT・MDで、50 MBまでです ホームへ 前のページへ ヘルプ 困ったときは TrialBox の管理者に連絡してください：admin@hospa.test"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": true,
+      "ja": true
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": true,
+     "seconds": 0.759,
+     "rss_mb": 0.3,
+     "note": "far over is 4x (200 MiB), not 10x: the test client holds the whole body in memory"
+    }
+   ]
+  },
+  "L05": {
+   "where": "function: edc.odm_import.read (the orchestrator's bound; the page's own 6 MiB cap is above it)",
+   "cases": [
+    {
+     "case": "at",
+     "size": "5000000 bytes",
+     "accepted": true,
+     "status": "",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.142,
+     "rss_mb": 0.0,
+     "note": ""
+    },
+    {
+     "case": "one_over",
+     "size": "5000001 bytes",
+     "accepted": false,
+     "status": "odm.size",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "Choose an ODM file of at most 5 MB.",
+      "zh-TW": "請選擇 5 MB 以下的 ODM 檔。",
+      "ja": "5 MB 以下の ODM ファイルを選んでください。"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": true,
+      "ja": true
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "odm.size: the file is larger than 5000000 bytes"
+    },
+    {
+     "case": "far_over",
+     "size": "50000000 bytes",
+     "accepted": false,
+     "status": "odm.size",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "Choose an ODM file of at most 5 MB.",
+      "zh-TW": "請選擇 5 MB 以下的 ODM 檔。",
+      "ja": "5 MB 以下の ODM ファイルを選んでください。"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": true,
+      "ja": true
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "odm.size: the file is larger than 5000000 bytes"
+    }
+   ]
+  },
+  "L06": {
+   "where": "function: datacore.sponsor.read_weekly",
+   "cases": [
+    {
+     "case": "at",
+     "size": "2000000 bytes",
+     "accepted": true,
+     "status": "",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.218,
+     "rss_mb": 0.0,
+     "note": "19000 rows read"
+    },
+    {
+     "case": "one_over",
+     "size": "2000001 bytes",
+     "accepted": false,
+     "status": "sponsor.size",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "the sheet is larger than 2000000 bytes"
+     },
+     "names_limit": {
+      "en": true
+     },
+     "plain": {
+      "en": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "the sheet is larger than 2000000 bytes"
+    },
+    {
+     "case": "far_over",
+     "size": "20000000 bytes",
+     "accepted": false,
+     "status": "sponsor.size",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "the sheet is larger than 2000000 bytes"
+     },
+     "names_limit": {
+      "en": true
+     },
+     "plain": {
+      "en": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "the sheet is larger than 2000000 bytes"
+    }
+   ]
+  },
+  "L07": {
+   "where": "function: edc_backend.connection.EdcConnection.import_file / export_file, a stand-in REDCap",
+   "cases": [
+    {
+     "case": "at",
+     "size": "import 26214400 bytes",
+     "accepted": true,
+     "status": "",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "calls to REDCap: ['import_file']"
+    },
+    {
+     "case": "one_over",
+     "size": "import 26214401 bytes",
+     "accepted": false,
+     "status": "RC-UPSTREAM",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "REDCap answered with an error (). Check the address and the access key with the administrator, then try again.",
+      "zh-TW": "REDCap 回傳錯誤（）。請與管理者確認網址與 API 金鑰後再試。",
+      "ja": "REDCap がエラーを返しました（）。アドレスと API キーを管理者と確認してから、もう一度お試しください。"
+     },
+     "names_limit": {
+      "en": false,
+      "zh-TW": false,
+      "ja": false
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "calls to REDCap: []"
+    },
+    {
+     "case": "far_over",
+     "size": "import 262144000 bytes",
+     "accepted": false,
+     "status": "RC-UPSTREAM",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "REDCap answered with an error (). Check the address and the access key with the administrator, then try again.",
+      "zh-TW": "REDCap 回傳錯誤（）。請與管理者確認網址與 API 金鑰後再試。",
+      "ja": "REDCap がエラーを返しました（）。アドレスと API キーを管理者と確認してから、もう一度お試しください。"
+     },
+     "names_limit": {
+      "en": false,
+      "zh-TW": false,
+      "ja": false
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "calls to REDCap: []"
+    },
+    {
+     "case": "at",
+     "size": "export 26214400 bytes",
+     "accepted": true,
+     "status": "",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "calls to REDCap: ['export_file']"
+    },
+    {
+     "case": "one_over",
+     "size": "export 26214401 bytes",
+     "accepted": false,
+     "status": "RC-UPSTREAM",
+     "before_work": false,
+     "left_behind": "the whole file was exported first",
+     "words": {
+      "en": "REDCap answered with an error (). Check the address and the access key with the administrator, then try again.",
+      "zh-TW": "REDCap 回傳錯誤（）。請與管理者確認網址與 API 金鑰後再試。",
+      "ja": "REDCap がエラーを返しました（）。アドレスと API キーを管理者と確認してから、もう一度お試しください。"
+     },
+     "names_limit": {
+      "en": false,
+      "zh-TW": false,
+      "ja": false
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "calls to REDCap: ['export_file']"
+    },
+    {
+     "case": "far_over",
+     "size": "export 104857600 bytes",
+     "accepted": false,
+     "status": "RC-UPSTREAM",
+     "before_work": false,
+     "left_behind": "the whole file was exported first",
+     "words": {
+      "en": "REDCap answered with an error (). Check the address and the access key with the administrator, then try again.",
+      "zh-TW": "REDCap 回傳錯誤（）。請與管理者確認網址與 API 金鑰後再試。",
+      "ja": "REDCap がエラーを返しました（）。アドレスと API キーを管理者と確認してから、もう一度お試しください。"
+     },
+     "names_limit": {
+      "en": false,
+      "zh-TW": false,
+      "ja": false
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "calls to REDCap: ['export_file']"
+    }
+   ]
+  },
+  "L08": {
+   "where": "console page: POST /ops/flags on the in-process console",
+   "cases": [
+    {
+     "case": "at",
+     "size": "500 characters",
+     "accepted": true,
+     "status": "200",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [],
+     "healthy": true,
+     "seconds": 0.016,
+     "rss_mb": 0.0,
+     "note": "accepted: the confirm sheet was shown"
+    },
+    {
+     "case": "one_over",
+     "size": "501 characters",
+     "accepted": false,
+     "status": "400",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "This could not be done Keep the reason to 500 characters. My home page Go back Help Need help? Ask your TrialBox administrator: admin@hospa.test",
+      "zh-TW": "無法完成 理由請在 500 個字以內。 回到首頁 回上一頁 說明 需要協助？請聯絡 TrialBox 管理者：admin@hospa.test",
+      "ja": "実行できませんでした 理由は 500 文字以内にしてください。 ホームへ 前のページへ ヘルプ 困ったときは TrialBox の管理者に連絡してください：admin@hospa.test"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": true,
+      "ja": true
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": true,
+     "seconds": 0.012,
+     "rss_mb": 0.0,
+     "note": ""
+    },
+    {
+     "case": "far_over",
+     "size": "5000 characters",
+     "accepted": false,
+     "status": "400",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "This could not be done Keep the reason to 500 characters. My home page Go back Help Need help? Ask your TrialBox administrator: admin@hospa.test",
+      "zh-TW": "無法完成 理由請在 500 個字以內。 回到首頁 回上一頁 說明 需要協助？請聯絡 TrialBox 管理者：admin@hospa.test",
+      "ja": "実行できませんでした 理由は 500 文字以内にしてください。 ホームへ 前のページへ ヘルプ 困ったときは TrialBox の管理者に連絡してください：admin@hospa.test"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": true,
+      "ja": true
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": true,
+     "seconds": 0.011,
+     "rss_mb": 0.0,
+     "note": ""
+    }
+   ]
+  },
+  "L09": {
+   "where": "function: edc.store.said (EDC-022)",
+   "cases": [
+    {
+     "case": "at",
+     "size": "300 characters",
+     "accepted": true,
+     "status": "",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": ""
+    },
+    {
+     "case": "one_over",
+     "size": "301 characters",
+     "accepted": false,
+     "status": "400 edc.too_long",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "TrialBox refused this.",
+      "zh-TW": "TrialBox 拒絕了此操作。",
+      "ja": "TrialBox がこの操作を受け付けませんでした。"
+     },
+     "names_limit": {
+      "en": false,
+      "zh-TW": false,
+      "ja": false
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "the service says: the reason is 301 characters; at most 300 are kept: shorten it (nothing was stored)"
+    },
+    {
+     "case": "far_over",
+     "size": "3000 characters",
+     "accepted": false,
+     "status": "400 edc.too_long",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "TrialBox refused this.",
+      "zh-TW": "TrialBox 拒絕了此操作。",
+      "ja": "TrialBox がこの操作を受け付けませんでした。"
+     },
+     "names_limit": {
+      "en": false,
+      "zh-TW": false,
+      "ja": false
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "the service says: the reason is 3000 characters; at most 300 are kept: shorten it (nothing was stored)"
+    }
+   ]
+  },
+  "L10": {
+   "where": "store: console.teamstore.TeamStore.add_monitor_visit on PostgreSQL; words through the monitoring page's refusal path (request.refused with the store's sentence)",
+   "cases": [
+    {
+     "case": "at",
+     "size": "2000 characters",
+     "accepted": true,
+     "status": "",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [],
+     "healthy": true,
+     "seconds": 0.001,
+     "rss_mb": 0.0,
+     "note": ""
+    },
+    {
+     "case": "one_over",
+     "size": "2001 characters",
+     "accepted": false,
+     "status": "400 request.refused",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "Refused: the findings are at most 2000 characters",
+      "zh-TW": "已拒絕：無法執行此請求；若持續發生，請聯絡管理員",
+      "ja": "拒否されました：この依頼は実行できませんでした。続く場合は管理者に連絡してください"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": false,
+      "ja": false
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": true,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "the findings are at most 2000 characters"
+    },
+    {
+     "case": "far_over",
+     "size": "20000 characters",
+     "accepted": false,
+     "status": "400 request.refused",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "Refused: the findings are at most 2000 characters",
+      "zh-TW": "已拒絕：無法執行此請求；若持續發生，請聯絡管理員",
+      "ja": "拒否されました：この依頼は実行できませんでした。続く場合は管理者に連絡してください"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": false,
+      "ja": false
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": true,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "the findings are at most 2000 characters"
+    }
+   ]
+  },
+  "L11": {
+   "where": "store: console.breakglass_store.BreakGlassStore.open on PostgreSQL; words by the page's keys (bg.err.long, bg.err.note)",
+   "cases": [
+    {
+     "case": "at",
+     "size": "300 characters",
+     "accepted": true,
+     "status": "",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.002,
+     "rss_mb": 0.0,
+     "note": ""
+    },
+    {
+     "case": "one_over",
+     "size": "301 characters",
+     "accepted": false,
+     "status": "bg.err.long",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "Keep the note to 300 characters.",
+      "zh-TW": "備註請在 300 個字元以內。",
+      "ja": "メモは300文字以内にしてください。"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": true,
+      "ja": true
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": ""
+    },
+    {
+     "case": "far_over",
+     "size": "3000 characters",
+     "accepted": false,
+     "status": "bg.err.long",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "Keep the note to 300 characters.",
+      "zh-TW": "備註請在 300 個字元以內。",
+      "ja": "メモは300文字以内にしてください。"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": true,
+      "ja": true
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": ""
+    },
+    {
+     "case": "at (floor)",
+     "size": "10 characters",
+     "accepted": true,
+     "status": "",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.001,
+     "rss_mb": 0.0,
+     "note": ""
+    },
+    {
+     "case": "one_over (floor)",
+     "size": "9 characters",
+     "accepted": false,
+     "status": "bg.err.note",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "Write why, in 10 characters or more.",
+      "zh-TW": "請寫明原因，至少 10 個字元。",
+      "ja": "目的を10文字以上で書いてください。"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": true,
+      "ja": true
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": ""
+    },
+    {
+     "case": "far_over (floor)",
+     "size": "0 characters",
+     "accepted": false,
+     "status": "bg.err.note",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "Write why, in 10 characters or more.",
+      "zh-TW": "請寫明原因，至少 10 個字元。",
+      "ja": "目的を10文字以上で書いてください。"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": true,
+      "ja": true
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": ""
+    }
+   ]
+  },
+  "L12": {
+   "where": "function: console.admin_accounts.end_date; words through the console's refusal path",
+   "cases": [
+    {
+     "case": "at",
+     "size": "365 days ahead",
+     "accepted": true,
+     "status": "",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": ""
+    },
+    {
+     "case": "one_over",
+     "size": "366 days ahead",
+     "accepted": false,
+     "status": "AuthError",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "Refused: the end date is at most 365 days ahead (2027-11-18 at the latest)",
+      "zh-TW": "已拒絕：無法執行此請求；若持續發生，請聯絡管理員",
+      "ja": "拒否されました：この依頼は実行できませんでした。続く場合は管理者に連絡してください"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": false,
+      "ja": false
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "the end date is at most 365 days ahead (2027-11-18 at the latest)"
+    },
+    {
+     "case": "far_over",
+     "size": "3650 days ahead",
+     "accepted": false,
+     "status": "AuthError",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "Refused: the end date is at most 365 days ahead (2027-11-18 at the latest)",
+      "zh-TW": "已拒絕：無法執行此請求；若持續發生，請聯絡管理員",
+      "ja": "拒否されました：この依頼は実行できませんでした。続く場合は管理者に連絡してください"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": false,
+      "ja": false
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "the end date is at most 365 days ahead (2027-11-18 at the latest)"
+    }
+   ]
+  },
+  "L13": {
+   "where": "console page: POST /login on the in-process console",
+   "cases": [
+    {
+     "case": "at",
+     "size": "4 wrong passwords, then the right one",
+     "accepted": true,
+     "status": "303",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [
+      "console.login",
+      "console.login_failed"
+     ],
+     "healthy": true,
+     "seconds": 0.454,
+     "rss_mb": 0.0,
+     "note": "the right password after the failures: [303, 303, 303] (en, zh-TW, ja)"
+    },
+    {
+     "case": "one_over",
+     "size": "5 wrong passwords, then the right one",
+     "accepted": false,
+     "status": "401",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "Sign in This account is locked for 15 more minute(s), until 2026-11-18 15:48, after 5 failed tries in a row. Wait until then and try again, checking Caps Lock. If you have forgotten the password, ask the administrator to reset it. First sign-in with an enrolment code Cannot sign in? Ask your TrialBox administrator: admin@hospa.test",
+      "zh-TW": "登入 連續失敗 5 次，此帳號還要鎖定 15 分鐘（至 2026-11-18 15:48）。 請等到那時，確認 Caps Lock 後再試。若忘記密碼，請請管理者重設。 以註冊碼首次登入 無法登入？請聯絡 TrialBox 管理者：admin@hospa.test",
+      "ja": "ログイン 5 回続けて失敗したため、このアカウントはあと 15 分（2026-11-18 15:48 まで）ロックされています。 時間が過ぎてから Caps Lock を確認して再度お試しください。パスワードを忘れた場合は管理者に再発行を依頼してください。 登録コードで初めてログイン ログインできない場合は、TrialBox の管理者に連絡してください：admin@hospa.test"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": true,
+      "ja": true
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [
+      "console.lockout",
+      "console.login_failed"
+     ],
+     "healthy": true,
+     "seconds": 0.508,
+     "rss_mb": 0.0,
+     "note": "the right password after the failures: [401, 401, 401] (en, zh-TW, ja)"
+    },
+    {
+     "case": "far_over",
+     "size": "50 wrong passwords, then the right one",
+     "accepted": false,
+     "status": "429",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "Sign in Too many failed sign-ins from this computer's address. Wait 1 second(s) and try again. No account was locked by this. First sign-in with an enrolment code Cannot sign in? Ask your TrialBox administrator: admin@hospa.test",
+      "zh-TW": "登入 此電腦位址的登入失敗次數過多。請等待 1 秒後再試。沒有任何帳號因此被鎖定。 以註冊碼首次登入 無法登入？請聯絡 TrialBox 管理者：admin@hospa.test",
+      "ja": "ログイン このコンピューターのアドレスからのログイン失敗が多すぎます。1 秒待ってからもう一度お試しください。これによってロックされたアカウントはありません。 登録コードで初めてログイン ログインできない場合は、TrialBox の管理者に連絡してください：admin@hospa.test"
+     },
+     "names_limit": {
+      "en": false,
+      "zh-TW": false,
+      "ja": false
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [
+      "console.login_failed"
+     ],
+     "healthy": true,
+     "seconds": 1.004,
+     "rss_mb": 0.0,
+     "note": "the right password after the failures: [429, 429, 429] (en, zh-TW, ja)"
+    }
+   ]
+  },
+  "L14": {
+   "where": "function: console.auth.check_password_policy; words through the console's refusal path",
+   "cases": [
+    {
+     "case": "at",
+     "size": "12 characters",
+     "accepted": true,
+     "status": "",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": ""
+    },
+    {
+     "case": "one_over",
+     "size": "11 characters",
+     "accepted": false,
+     "status": "400 account.err.policy",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "The new password does not meet the rules: at least 12 characters, no space at either end.",
+      "zh-TW": "新密碼不符規則：至少 12 個字元，前後不可有空白。",
+      "ja": "新しいパスワードが規則を満たしていません：12文字以上、前後に空白なし。"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": true,
+      "ja": true
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "passwords must be at least 12 characters"
+    },
+    {
+     "case": "far_over",
+     "size": "1 characters",
+     "accepted": false,
+     "status": "400 account.err.policy",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "The new password does not meet the rules: at least 12 characters, no space at either end.",
+      "zh-TW": "新密碼不符規則：至少 12 個字元，前後不可有空白。",
+      "ja": "新しいパスワードが規則を満たしていません：12文字以上、前後に空白なし。"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": true,
+      "ja": true
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "passwords must be at least 12 characters"
+    }
+   ]
+  },
+  "L15": {
+   "where": "function: console.identity.IdentitySettings.from_env (the console's start)",
+   "cases": [
+    {
+     "case": "at",
+     "size": "TB_CONSOLE_IDLE_MINUTES=60",
+     "accepted": true,
+     "status": "",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": "unset, the idle limit is 10 minutes"
+    },
+    {
+     "case": "one_over",
+     "size": "TB_CONSOLE_IDLE_MINUTES=61",
+     "accepted": false,
+     "status": "IdentityConfigError (the console does not start)",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "TB_CONSOLE_IDLE_MINUTES must be between 1 and 60"
+     },
+     "names_limit": {
+      "en": true
+     },
+     "plain": {
+      "en": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": ""
+    },
+    {
+     "case": "far_over",
+     "size": "TB_CONSOLE_IDLE_MINUTES=600",
+     "accepted": false,
+     "status": "IdentityConfigError (the console does not start)",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "TB_CONSOLE_IDLE_MINUTES must be between 1 and 60"
+     },
+     "names_limit": {
+      "en": true
+     },
+     "plain": {
+      "en": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": ""
+    }
+   ]
+  },
+  "L16": {
+   "where": "function: console.identity.IdentitySettings.from_env (the console's start)",
+   "cases": [
+    {
+     "case": "at",
+     "size": "TB_CONSOLE_SESSION_HOURS=12",
+     "accepted": true,
+     "status": "",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": ""
+    },
+    {
+     "case": "one_over",
+     "size": "TB_CONSOLE_SESSION_HOURS=13",
+     "accepted": false,
+     "status": "IdentityConfigError (the console does not start)",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "TB_CONSOLE_SESSION_HOURS must be between 1 and 12"
+     },
+     "names_limit": {
+      "en": true
+     },
+     "plain": {
+      "en": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": ""
+    },
+    {
+     "case": "far_over",
+     "size": "TB_CONSOLE_SESSION_HOURS=120",
+     "accepted": false,
+     "status": "IdentityConfigError (the console does not start)",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "TB_CONSOLE_SESSION_HOURS must be between 1 and 12"
+     },
+     "names_limit": {
+      "en": true
+     },
+     "plain": {
+      "en": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": ""
+    }
+   ]
+  },
+  "L17": {
+   "where": "method: console.reveal.Reveal._reason_ok with a stand-in for its refusal (the audit write); words by the page's key reveal.note_needed",
+   "cases": [
+    {
+     "case": "at",
+     "size": "10 characters",
+     "accepted": true,
+     "status": "",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": ""
+    },
+    {
+     "case": "one_over",
+     "size": "9 characters",
+     "accepted": false,
+     "status": "400 reveal.note_needed",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "For “other”, write why you need the chart number (10 characters or more). It is kept in the audit trail.",
+      "zh-TW": "選「其他」時，請寫下需要病歷號的原因（至少 10 個字）。會保存在稽核紀錄中。",
+      "ja": "「その他」のときは、カルテ番号が必要な理由を 10 文字以上で書いてください。監査記録に残ります。"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": true,
+      "ja": true
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": ""
+    },
+    {
+     "case": "far_over",
+     "size": "0 characters",
+     "accepted": false,
+     "status": "400 reveal.note_needed",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "For “other”, write why you need the chart number (10 characters or more). It is kept in the audit trail.",
+      "zh-TW": "選「其他」時，請寫下需要病歷號的原因（至少 10 個字）。會保存在稽核紀錄中。",
+      "ja": "「その他」のときは、カルテ番号が必要な理由を 10 文字以上で書いてください。監査記録に残ります。"
+     },
+     "names_limit": {
+      "en": true,
+      "zh-TW": true,
+      "ja": true
+     },
+     "plain": {
+      "en": "",
+      "zh-TW": "",
+      "ja": ""
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": ""
+    }
+   ]
+  },
+  "L18": {
+   "where": "function: tb_llm.budget.over_context, the gateway's check before dispatch (stand-in for the gateway's call: a true test of the comparison, not of the token estimate)",
+   "cases": [
+    {
+     "case": "at",
+     "size": "32768 prompt tokens + 0 max_tokens",
+     "accepted": true,
+     "status": "",
+     "before_work": null,
+     "left_behind": "",
+     "words": {},
+     "names_limit": {},
+     "plain": {},
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": ""
+    },
+    {
+     "case": "one_over",
+     "size": "32769 prompt tokens + 0 max_tokens",
+     "accepted": false,
+     "status": "413 prompt_too_long (raised before dispatch)",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "about 32769 prompt tokens + max_tokens 0 is over <alias>'s context of 32768 tokens; size the prompt from GET /v1/models"
+     },
+     "names_limit": {
+      "en": true
+     },
+     "plain": {
+      "en": "code-like: 'max_tokens'"
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": ""
+    },
+    {
+     "case": "far_over",
+     "size": "327680 prompt tokens + 0 max_tokens",
+     "accepted": false,
+     "status": "413 prompt_too_long (raised before dispatch)",
+     "before_work": true,
+     "left_behind": "",
+     "words": {
+      "en": "about 327680 prompt tokens + max_tokens 0 is over <alias>'s context of 32768 tokens; size the prompt from GET /v1/models"
+     },
+     "names_limit": {
+      "en": true
+     },
+     "plain": {
+      "en": "code-like: 'max_tokens'"
+     },
+     "audit": [],
+     "healthy": null,
+     "seconds": 0.0,
+     "rss_mb": 0.0,
+     "note": ""
+    }
+   ]
+  }
+ },
+ "verdicts": {
+  "L01": "holds",
+  "L02": "holds",
+  "L03": "holds",
+  "L04": "holds",
+  "L05": "holds",
+  "L06": "holds",
+  "L07": "one_over refused after work; far_over refused after work",
+  "L08": "holds",
+  "L09": "holds",
+  "L10": "holds",
+  "L11": "holds",
+  "L12": "holds",
+  "L13": "holds",
+  "L14": "holds",
+  "L15": "holds",
+  "L16": "holds",
+  "L17": "holds",
+  "L18": "holds"
+ }
+}

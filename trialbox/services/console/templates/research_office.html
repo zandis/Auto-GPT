@@ -8,6 +8,9 @@
 <section class="card">{% if not rows %}<p class="empty">{{ t('office.empty') }}</p>{% else %}
 <div class="scroll" tabindex="0"><table class="candidates" data-testid="office">
 <thead><tr><th>{{ t('office.study') }}</th>{% for k in keys %}<th>{{ t('office.' + k) }}</th>{% endfor %}</tr></thead>
-<tbody>{% for r in rows %}<tr><td>{{ r.study }}</td>{% for k in keys %}<td class="num">{{ r[k] }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div>{% endif %}
+<tbody>{% for r in rows %}<tr><td>{{ r.study }}</td>{% for k in keys %}<td class="num">{{ r[k] }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div>
+{# D-1221: say what the figures are when a reader may not read the rows, or the rows could not be read #}
+{% if rows|selectattr('how', 'equalto', 'aggregate')|list %}<p class="hint" data-testid="office-aggregate">{{ t('registry.office.aggregate') }}</p>{% endif %}
+{% if rows|selectattr('how', 'equalto', 'unread')|list %}<p class="hint" data-testid="office-unread">{{ t('person.counts.unread') }}</p>{% endif %}{% endif %}
 </section>
 {% endblock %}

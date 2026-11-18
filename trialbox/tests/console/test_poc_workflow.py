@@ -130,7 +130,8 @@ def test_the_participant_page_raises_consent_record_missing(lb: dict[str, Any]) 
     c, csrf = login(lb["app"], "crc", LPW)
     c.post("/studies/GZQO/forms/builtin", data={"csrf": csrf})
     r = _save(c, csrf, no, "tb_enrolment", {"en_date": "2026-11-04", "en_eligible": "1"}, back="subject")
-    assert 'data-state="approached"' in r.text and 'data-testid="consent-missing"' in r.text
+    # D-1221: the participant's one state, as every list names it (the record's "approached" is "Contacted")
+    assert 'data-state="contacted"' in r.text and 'data-testid="consent-missing"' in r.text
     for lang in LANGS:
         _lang(c, lang)
         page = c.get(f"/studies/GZQO/subjects/{no}").text

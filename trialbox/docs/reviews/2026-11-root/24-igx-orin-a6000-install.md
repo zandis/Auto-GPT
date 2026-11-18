@@ -3,8 +3,7 @@
 **Reader:** the owner, who will sit at the machine next week (section 0 is for him); then whoever cuts the version he
 installs and whoever takes the head-box card (plan 10, 10E-31).
 
-**What changed since review 23.** Review 23 and runbook page 27 (both on branch `agent/B25-root-first-install`, not
-yet on master when this was written) assumed a 96 GB RTX PRO 6000 in an x86-64 workstation. The owner's `nvidia-smi`
+**What changed since review 23.** Review 23 and runbook page 27 (merged to master while this was written) assumed a 96 GB RTX PRO 6000 in an x86-64 workstation. The owner's `nvidia-smi`
 screen shows something else: an **NVIDIA IGX Orin Development Kit** (an Arm 64-bit system-on-module with a PCIe slot),
 an **RTX A6000** (49,140 MiB, Ampere, 300 W cap), **driver 535.183.01, CUDA 12.2**, an Ubuntu desktop and a conda
 "(base)" shell. **The owner's answers, relayed by the coordinator the same day** [owner]: `uname -m` → `aarch64`;
@@ -12,7 +11,7 @@ an **RTX A6000** (49,140 MiB, Ampere, 300 W cap), **driver 535.183.01, CUDA 12.2
 of 879 GB, 744 GB used, **91 GB free (90 % used)**. Still not known: Docker and its GPU runtime, the `nvidia-smi`
 query line, internet, whether a second disk can go in.
 
-**Marks.** [read `file:line`] in this repository at master `312eca7c` plus this branch; [source: link, opened
+**Marks.** [read `file:line`] in this repository at master `312eca7c` (merged up to `1f70d207` before the final checks) plus this branch; [source: link, opened
 2026-11-18]; [measured: an output file under `/var/tmp/trialbox-0/b26/`, section 9]; [opinion]; [rNN] a review's own
 marked claim. "Not verified" where not checked. Nothing was installed beyond `make venv`; no model was downloaded or
 run; no Docker image was pulled (only registry metadata was read); nothing ran in a cloud.
