@@ -60,6 +60,12 @@ TEMPLATE = ("JUDGE_CHAT_TEMPLATE", "chat-templates/gemma-4-26b-a4b-it/chat_templ
 BACKEND_NET = "trialbox-model-backend"  # deploy/docker-compose.yml model-backend-net (internal, fixed name)
 PROJECT = "trialbox"  # deploy/docker-compose.yml name:
 COMPAT_DIR = "/usr/local/cuda/compat"
+# the pinned builds whose weights every profile serves (models/registry.yaml: the same expected manifest in each
+# profile's build); the measuring run checks the weights folders against them before it downloads anything
+PIN_BUILD = {"judge": ("gemma-4-26b-a4b-it-rtxpro6000", "serving", "local/gemma-4-26b-a4b-nvfp4"),
+             "verifier": ("qwen3.5-9b-rtxpro6000", "verifier", "local/qwen3.5-9b-awq")}  # fmt: skip
+WAIT_S = 2160  # 36 minutes: the overlay's health check gives up after 5 + 60 x 0.5 = 35 minutes
+MIN_FREE_GB = 30  # one engine image unpacked (about 25 GB) and room to work
 COMPOSE_VARS = {
     "VLLM_IMAGE",
     "VLLM_ENABLE_CUDA_COMPATIBILITY",
@@ -325,7 +331,7 @@ def run_override(engine: dict[str, Any], workdir: Path) -> Path:
 
 
 def plan_commands(o: dict[str, Any], engine: dict[str, Any], files: list[str], models: Path,
-                  key: str = "") -> dict[str, Any]:  # fmt: skip
+                  key: str = "", root: Path = ROOT) -> dict[str, Any]:  # fmt: skip
     """The run's commands and the environment compose reads: pure, so the dry run and the tests see them."""
     env = {**{k: str(v) for k, v in (o.get("env") or {}).items()},
            **{k: v for k, v in engine["env"].items() if k in COMPOSE_VARS}, "TB_MODELS_DIR": str(models)}  # fmt: skip
@@ -333,12 +339,14 @@ def plan_commands(o: dict[str, Any], engine: dict[str, Any], files: list[str], m
         env["VLLM_IMAGE"] = engine["image"]
     services = [SERVICE[r] for r in o["serves"]]
     base = compose(files)
-    up = [*base, "up", "-d", "--wait", "--wait-timeout", "2400"]
+    up = [*base, "up", "-d", "--wait", "--wait-timeout", str(WAIT_S)]
     if o["serves"] == ["verifier"]:
         up.append("--no-deps")  # the verifier waits for a judge in the overlay; alone it has none
     canary = None
     if "judge" in o["serves"]:
-        canary = ["docker", "run", "--rm", "--network", BACKEND_NET, "-e", "TB_GPU_KEY", "trialbox-py:1.0.0",
+        # the checkout's canary.py over the image's: the image was built at page 28, before the judge-alone form
+        canary = ["docker", "run", "--rm", "--network", BACKEND_NET, "-e", "TB_GPU_KEY",
+                  "-v", f"{root / 'tools' / 'canary.py'}:/app/tools/canary.py:ro", "trialbox-py:1.0.0",
                   "python", "-m", "tools.canary", "--judge-url", f"http://{ALIAS['judge']}:8000/v1"]  # fmt: skip
         if "verifier" in o["serves"]:
             canary += ["--verifier-url", f"http://{ALIAS['verifier']}:8000/v1"]
@@ -501,8 +509,9 @@ def measure(run: Runner, oid: str, out_dir: Path, probe_file: Path | None, force
         say(f"NOTE: the card already holds {facts['baseline_used_mib']:,} MiB before anything starts (display "
             f"{facts['display_active']}): it comes off the predicted spare, now "
             f"{summary['predicted']['spare_mib']:,} MiB; RUNBOOK §29 'Two limits' says how to free it")  # fmt: skip
+    check_weights(run, o, models, environ, root, say)
     run_override(engine, out_dir)
-    cmds = plan_commands(o, engine, files, models, _vllm_key(root))
+    cmds = plan_commands(o, engine, files, models, _vllm_key(root), root)
     if not engine["pinned_engine"]:
         say("NOTE: the engine is the CUDA 12.9 build, NOT the pinned one: this run is evidence for a model change only")
     sampler = Sampler(run, say)
@@ -511,6 +520,10 @@ def measure(run: Runner, oid: str, out_dir: Path, probe_file: Path | None, force
     try:
         rc, _, _ = run(["docker", "image", "inspect", engine["image"]], 60, None)
         if rc != 0:
+            free = free_gb(run)
+            if free is not None and free < MIN_FREE_GB:
+                summary["disk_free_gb"] = free
+                return summary
             say("downloading the engine image (10 to 12 GB; often 20 to 40 minutes; progress below)")
             t0 = time.monotonic()
             prc, _, perr = run(cmds["pull"], 7200, None, stream=True)
@@ -521,7 +534,7 @@ def measure(run: Runner, oid: str, out_dir: Path, probe_file: Path | None, force
         say(f"starting {', '.join(SERVICE[r] for r in o['serves'])} (option {oid}); loading takes 5 to 35 minutes")
         servers_started = True
         t0 = time.monotonic()
-        rc, _, err = run(cmds["up"], 2700, cmds["env"])
+        rc, _, err = run(cmds["up"], WAIT_S + 240, cmds["env"])
         summary["start_seconds"] = round(time.monotonic() - t0)
         summary["started"] = rc == 0
         containers: dict[str, str] = {}
@@ -595,7 +608,7 @@ def record_and_canary(run: Runner, summary: dict[str, Any], oid: str, engine: di
     if cmds["canary"]:
         say("the pair canary (54 stored cases; tools/canary.py in trialbox-py; 10 to 30 minutes)")
         krc, kout, kerr = run(cmds["canary"], 3600, cmds["canary_env"])
-        (out_dir / f"canary.{oid}.json").write_text(kout, encoding="utf-8")
+        (out_dir / f"canary.{oid}.json").write_text(scrub_json_text(kout), encoding="utf-8")
         summary["canary"] = canary_summary(krc, kout, kerr)
         summary["canary"]["stored_control"] = STORED_CANARY
     else:
@@ -620,10 +633,13 @@ def outcome(s: dict[str, Any]) -> str:
     nxt = "send the files, then the next option of RUNBOOK §29 step 7"
     if s.get("dry_run"):
         return "dry run"
+    if s.get("interrupted"):
+        return "INTERRUPTED: the servers were stopped; send the files (what was measured so far), then run this again"
+    if "disk_free_gb" in s:
+        return (f"NOT ENOUGH DISK: {s['disk_free_gb']} GB free under Docker's folder, {MIN_FREE_GB} GB needed for the "
+                "engine image; free the disk (RUNBOOK §29 step 1), then run this again")  # fmt: skip
     if s.get("pull_error"):
         return "ENGINE IMAGE NOT DOWNLOADED: check the network and the disk, then run this again"
-    if s.get("interrupted") and not s.get("started"):
-        return "INTERRUPTED: the servers were stopped; run this again"
     states = (s.get("state") or {}).values()
     logs = (s.get("engine_log") or {}).values()
     if not s.get("started"):
@@ -633,7 +649,7 @@ def outcome(s: dict[str, Any]) -> str:
             return f"OUT OF CARD MEMORY: a model did not fit the card with this option; {nxt}"
         if any(st.get("status") in ("exited", "dead") for st in states):
             return f"FAILED TO LOAD: a model server stopped while loading (its log's end is in the file); {nxt}"
-        return f"DID NOT START IN TIME: still loading after 45 minutes, no error seen; {nxt}"
+        return f"DID NOT START IN TIME: still loading after 35 minutes, no error seen; {nxt}"
     if any((st.get("restarts") or 0) > 0 for st in states):
         return "STARTED AFTER A RESTART: a server failed once; send the files"
     if not s.get("record_complete"):
@@ -641,9 +657,58 @@ def outcome(s: dict[str, Any]) -> str:
     can = s.get("canary") or {}
     if can.get("run") and not can.get("ok"):
         return "STARTED, CANARY FAILED: the servers run but the answers differ; send the files"
-    if s.get("interrupted"):
-        return "STARTED, INTERRUPTED before the end: send the files"
     return "STARTED, RECORD TAKEN" + (", CANARY PASSED" if can.get("ok") else "") + ": send the files"
+
+
+def check_weights(run: Runner, o: dict[str, Any], models: Path, environ: dict[str, str], root: Path,
+                  say: Callable[[str], None]) -> None:  # fmt: skip
+    """Each served role's folder against the release's pinned manifest (and the judge's chat template against its
+    pinned hash), with the repository's own pin tool in trialbox-py, into a throwaway file: Refused names what
+    differs, before anything is downloaded or started."""
+    say("checking the weights against the release (hashes about 28 GB: a few minutes)")
+    for role in o["serves"]:
+        build, endpoint, served = PIN_BUILD[role]
+        var, default = DIR_VAR[role]
+        folder = environ.get(var) or default
+        cmd = ["docker", "run", "--rm", "-v", f"{models}:/m:ro", "-v", f"{root / 'tools'}:/app/tools:ro",
+               "-v", f"{root / 'models'}:/app/models:ro", "trialbox-py:1.0.0", "python", "-m", "tools.pin_model",
+               "--build", build, "--model-dir", f"/m/{folder}", "--endpoint", endpoint, "--served-name", served,
+               "--out", "/tmp/dgpu48-check.yaml"]  # fmt: skip
+        if role == "judge":
+            cmd[-2:-2] = ["--chat-template", f"/m/{environ.get(TEMPLATE[0]) or TEMPLATE[1]}"]
+        rc, out, err = run(cmd, 3600, None)
+        if rc != 0:
+            raise Refused(f"the {role} weights in {models / folder} are not the pinned build {build}: "
+                          f"{_tail(err or out, 300)} (RUNBOOK §29 step 5 fetches them)")  # fmt: skip
+
+
+def free_gb(run: Runner) -> float | None:
+    """Free disk under Docker's folder, in GB (None when it cannot be read)."""
+    rc, where, _ = run(["docker", "info", "--format", "{{.DockerRootDir}}"], 60, None)
+    rc, out, _ = run(["df", "-Pk", where.strip() if rc == 0 and where.strip() else "/var/lib/docker"], 60, None)
+    try:
+        return round(int(out.strip().splitlines()[-1].split()[3]) / 1048576, 1) if rc == 0 else None
+    except (IndexError, ValueError):
+        return None
+
+
+def scrub_json_text(text: str) -> str:
+    """A tool's JSON output with every text in it scrubbed (the canary's answers and problems), or the scrubbed text."""
+    from tools import engine_probe as ep
+
+    def walk(v: Any) -> Any:
+        if isinstance(v, str):
+            return ep.scrub(v, 4000)
+        if isinstance(v, list):
+            return [walk(x) for x in v]
+        if isinstance(v, dict):
+            return {k: walk(x) for k, x in v.items()}
+        return v
+
+    try:
+        return json.dumps(walk(json.loads(text)), ensure_ascii=False, indent=1) + "\n"
+    except ValueError:
+        return ep.scrub(text, 20000) + "\n"
 
 
 def _tail(text: str, n: int = 600) -> str:
@@ -692,12 +757,17 @@ def main(argv: list[str] | None = None) -> int:
     except (Refused, KeyError) as exc:
         print(f"dgpu48: refused: {exc}", file=sys.stderr)
         return 2
+    except KeyboardInterrupt:  # before any server started (the checks): nothing to stop, nothing measured
+        print("dgpu48: interrupted before anything started", file=sys.stderr)
+        return 130
     if not a.dry_run:
         shown = ("option", "engine", "started", "start_seconds", "card_peak_mib", "host_peak_mib", "engine_log",
                  "canary", "outcome")  # fmt: skip
         print(json.dumps({k: s.get(k) for k in shown}, indent=1))
         print(f"\nfiles in {out_dir}: send measure.{a.option}.json, serving_config.dgpu48.{a.option}.json and "
               f"canary.{a.option}.json (no host name, no serial or UUID, no address, no key)")  # fmt: skip
+    if s.get("interrupted"):
+        return 130
     return 0 if (a.dry_run or s.get("started")) else 1
 
 

@@ -96,8 +96,11 @@ print("TBPROBE " + json.dumps(r, sort_keys=True))
 """
 TESTS: list[dict[str, Any]] = [
     {"name": "pinned", "image": "pinned", "env": {}, "prefix": ""},
-    {"name": "pinned+compat", "image": "pinned", "env": {"VLLM_ENABLE_CUDA_COMPATIBILITY": "1"}, "prefix": ""},
-    {"name": "pinned+libs", "image": "pinned", "env": {},
+    # NVIDIA_DISABLE_REQUIRE: the image declares cuda>=13.0, and the container toolkit refuses to create the container
+    # on an older driver before the engine starts; the compatibility forms only make sense past that check
+    {"name": "pinned+compat", "image": "pinned", "prefix": "",
+     "env": {"NVIDIA_DISABLE_REQUIRE": "1", "VLLM_ENABLE_CUDA_COMPATIBILITY": "1"}},
+    {"name": "pinned+libs", "image": "pinned", "env": {"NVIDIA_DISABLE_REQUIRE": "1"},
      "prefix": f"LD_LIBRARY_PATH={COMPAT_DIR}:${{LD_LIBRARY_PATH:-}}"},
     {"name": "cu129", "image": "cu129", "env": {}, "prefix": ""},
 ]  # fmt: skip
@@ -106,18 +109,28 @@ TESTS: list[dict[str, Any]] = [
 MEANING = {
     "PASS": "the engine imports, sees the card, runs a kernel and loads its compiled kernels",
     "PARTIAL": "the card is seen but a kernel or the engine's compiled kernels fail",
-    "DRIVER": "the CUDA runtime in the image refuses this driver",
-    "NO-GPU": "Docker gave the container no GPU",
+    "DRIVER": "the engine started and its CUDA refused this driver",
+    "REQUIRE": "the container toolkit refused the image's CUDA requirement before the engine started",
+    "NO-BUILD": "the image has no build for this machine's architecture",
+    "BUSY": "the card is busy or full (another program is using it)",
+    "NO-GPU": "Docker gave the container no GPU (the NVIDIA runtime is not set up)",
+    "TOOLKIT": "the NVIDIA container toolkit could not reach the driver",
     "PULL-FAILED": "the image could not be downloaded",
     "DISK": "not enough free disk to download the image",
     "ERROR": "the check did not finish",
     "SKIPPED": "not needed: an earlier form passed",
     "NOT-RUN": "not tried",
 }
-REACHED = {"PASS", "PARTIAL", "DRIVER"}
+# an answer about this form on this machine (it reached the card, or was refused for good before it); the rest say
+# nothing about the card, and the verdict is then inconclusive
+REACHED = {"PASS", "PARTIAL", "DRIVER", "REQUIRE", "NO-BUILD"}
+STOPS = {"NO-GPU", "TOOLKIT", "BUSY"}  # the same for every later form: stop, pull nothing more
 EXIT = {"pass": 0, "none": 1, "inconclusive": 3}
 RERUN = "python3 tools/engine_probe.py run --out ~/tb-engine-probe.json"
 FIX_RUNTIME = "sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker"
+FIX_TOOLKIT = ("send the output of nvidia-container-cli info; do not reinstall or change the driver (the toolkit is "
+               "set up but cannot reach it)")  # fmt: skip
+FIX_BUSY = "close the program using the card (nvidia-smi lists it at the bottom), then run step 2 again"
 Runner = Callable[..., tuple[int, str, str]]  # (cmd, timeout, stream=False) -> (exit code, stdout, stderr)
 
 
@@ -130,6 +143,7 @@ _SCRUB = [
     (re.compile(r"(?i)\b(bus[ -]?id|pci)(\s*[:=]?\s*)[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]\b"), r"\1\2<pci>"),
     (re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"), "<address>"),
     (re.compile(r"\b(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}\b"), "<mac>"),
+    (re.compile(r"\b(?:[0-9a-fA-F]{2}-){5}[0-9a-fA-F]{2}\b"), "<mac>"),
     (re.compile(rf"(?<![0-9A-Za-z:])(?:{_H}:){{7}}{_H}(?![0-9A-Za-z:])"), "<address>"),
     (
         re.compile(rf"(?<![0-9A-Za-z:])(?:{_H}(?::{_H}){{0,6}})?::(?:{_H}(?::{_H}){{0,6}})?(?![0-9A-Za-z:])"),
@@ -189,14 +203,24 @@ def parse_probe(stdout: str) -> dict[str, Any] | None:
     return None
 
 
+_REQUIRE_WORDS = re.compile(r"(?i)(unsatisfied condition: cuda|requirement error)")
 _DRIVER_WORDS = re.compile(
     r"(?i)(driver version is insufficient|forward compatibility|cuda driver version|too old|older than|"
-    r"\b804\b|\b803\b|unsatisfied condition: cuda|requires newer driver|system has unsupported display driver)"
+    r"\b804\b|\b803\b|requires newer driver|system has unsupported display driver)"
 )
 _NO_GPU_WORDS = re.compile(
-    r"(?i)(could not select device driver|unknown or invalid runtime name|no devices were found|"
-    r"nvidia-container-cli: initialization error|failed to discover gpu)"
+    r"(?i)(could not select device driver|unknown or invalid runtime name|failed to discover gpu)"
 )
+_TOOLKIT_WORDS = re.compile(
+    r"(?i)(nvidia-container-cli: (?:initialization|mount|detection) error|load library failed|libnvidia-ml\.so|"
+    r"nvml error|no devices were found)"
+)
+_BUSY_WORDS = re.compile(
+    r"(?i)(busy or unavailable|cudaErrorDevicesUnavailable|devices? (?:is|are) busy|out of memory|"
+    r"cudaErrorMemoryAllocation)"
+)
+_NO_BUILD_WORDS = re.compile(r"(?i)(no matching manifest|does not provide the specified platform)")
+_RATE_WORDS = re.compile(r"(?i)(toomanyrequests|rate limit|429 too many)")
 
 
 def classify(rc: int, stdout: str, stderr: str) -> tuple[str, dict[str, Any] | None, str]:
@@ -204,8 +228,14 @@ def classify(rc: int, stdout: str, stderr: str) -> tuple[str, dict[str, Any] | N
     probe = parse_probe(stdout)
     if probe is None:
         err = stderr or stdout or f"exit {rc}"
+        if _REQUIRE_WORDS.search(err):
+            return "REQUIRE", None, err
         if _NO_GPU_WORDS.search(err):
             return "NO-GPU", None, err
+        if _TOOLKIT_WORDS.search(err):
+            return "TOOLKIT", None, err
+        if _BUSY_WORDS.search(err):
+            return "BUSY", None, err
         if _DRIVER_WORDS.search(err):
             return "DRIVER", None, err
         if re.search(r"(?i)no space left on device", err):
@@ -217,6 +247,8 @@ def classify(rc: int, stdout: str, stderr: str) -> tuple[str, dict[str, Any] | N
     ops = probe.get("vllm_ops") is True and probe.get("vllm_moe_ops") is True
     if seen and ran and ops and "vllm" in probe:
         return "PASS", probe, ""
+    if _BUSY_WORDS.search(errors):  # a busy or full card says nothing about this engine on this card
+        return "BUSY", probe, errors
     if seen:
         return "PARTIAL", probe, errors or "a kernel gave a wrong result"
     if _DRIVER_WORDS.search(errors) or _DRIVER_WORDS.search(stderr or ""):
@@ -231,13 +263,20 @@ def fix_for(status: str, error: str) -> tuple[str, str]:
     e = error or ""
     if status == "NO-GPU":
         return "Docker gave the container no card (the NVIDIA container runtime)", FIX_RUNTIME
+    if status == "TOOLKIT":
+        return "the NVIDIA container toolkit could not reach the driver", FIX_TOOLKIT
+    if status == "BUSY":
+        return "the card is busy or full", FIX_BUSY
     if status == "DISK":
-        return "too little free disk under Docker's folder", "free the disk as runbook §29 step 1 says, then df -h /"
+        return ("too little free disk under Docker's folder",
+                f"free at least {MIN_FREE_GB} GB under Docker's folder (runbook §29 step 1), then df -h /")  # fmt: skip
     if status == "PULL-FAILED":
-        if re.search(r"(?i)no matching manifest", e):
-            return "the image has no build for this machine's architecture", "nothing to fix here: send the file"
         if re.search(r"(?i)permission denied", e):
             return "this user may not use Docker", "sudo usermod -aG docker $USER, then sign out and back in"
+        if _RATE_WORDS.search(e):
+            return ("the registry's download limit was reached",
+                    "wait an hour, or sign in with a free Docker Hub account (docker login), then run step 2 "
+                    "again")  # fmt: skip
         return (
             "the download failed (network)",
             "curl -sI https://registry-1.docker.io/v2/ (it should print an HTTP/ line)",
@@ -245,7 +284,9 @@ def fix_for(status: str, error: str) -> tuple[str, str]:
     if status == "ERROR" and re.search(r"(?i)timed out", e):
         return "a check took longer than 15 minutes", "send the file; then run step 2 again once"
     if status == "NOT-RUN":
-        return "a form was not tried (--only, or the probe was interrupted)", "run step 2 again without --only"
+        if re.search(r"(?i)interrupted", e):
+            return "the probe was interrupted", "run step 2 again"
+        return "a form was not tried (--only)", "run step 2 again without --only"
     return "a check stopped before it reached the card", "send the file; then run step 2 again once"
 
 
@@ -275,7 +316,8 @@ def verdict(results: list[dict[str, Any]], blocked: tuple[str, str] | None = Non
                 "image": test["image"],
                 "env": env,
                 "pinned_engine": test["image"] == "pinned",
-                "next": f"{text} Next: runbook §29 step 4, then step 6 (the measuring run reads this file).",
+                "next": f"{text} Next: runbook §29 step 4, then step 5 (the weights) and step 6 (the measuring run, "
+                "which reads this file).",
             }
     if blocked is not None:
         what, fix = blocked
@@ -283,7 +325,11 @@ def verdict(results: list[dict[str, Any]], blocked: tuple[str, str] | None = Non
                 "problem": what, "fix": fix,
                 "next": f"Inconclusive: {what}; the card was not reached. Fix: {fix}. Then run step 2 again: "
                         f"{RERUN}"}  # fmt: skip
-    unreached = [r for r in results if r["status"] not in REACHED and r["status"] != "SKIPPED"]
+    # the cause before what it stopped (a NOT-RUN after a NO-GPU)
+    unreached = sorted(
+        (r for r in results if r["status"] not in REACHED and r["status"] != "SKIPPED"),
+        key=lambda r: r["status"] == "NOT-RUN",
+    )
     if unreached:
         what, fix = fix_for(unreached[0]["status"], unreached[0].get("error") or "")
         return {"answer": "inconclusive", "use": None, "image": None, "env": {}, "pinned_engine": False,
@@ -316,6 +362,9 @@ def preflight(run: Runner, need_disk_gb: float, min_free: float) -> tuple[str, s
     rc, out, _ = run(["docker", "info", "--format", "{{json .Runtimes}}"], 60)
     if rc != 0 or "nvidia" not in out:
         return "Docker has no NVIDIA runtime", FIX_RUNTIME
+    rc, _, _ = run(["nvidia-container-cli", "info"], 60)
+    if rc not in (0, 127):  # 127: not on this host's path; the first check then says what is wrong
+        return "the NVIDIA container toolkit could not reach the driver (nvidia-container-cli info)", FIX_TOOLKIT
     if need_disk_gb > 0:
         free = free_gb(run)
         if free is not None and free < min_free:
@@ -440,11 +489,10 @@ def probe(
     rec: dict[str, Any] = {
         "schema": SCHEMA,
         "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),  # noqa: UP017 (the host's Python 3.9+)
-        "host": host_facts(run),
+        "host": {},
         "images": {},
         "tests": [],
     }
-    rec["host"]["free_gb_before"] = free_gb(run)
     wanted = [t for t in TESTS if not only or t["name"] in only]
 
     def done(status: str, t: dict[str, Any], error: str = "") -> None:
@@ -455,21 +503,26 @@ def probe(
         if keep or info.get("was_present") or not info.get("pulled"):
             return
         rc, _, err = run(["docker", "image", "rm", info["ref"]], 600)
-        info["removed"] = rc == 0
-        if rc != 0:
+        gone = rc != 0 and re.search(r"(?i)no such image", err or "")  # nothing there to remove: not a failure
+        info["removed"] = rc == 0 or bool(gone)
+        if rc != 0 and not gone:
             info["remove_failed"] = scrub(err, 200, hostname, names)
             say(f"  could not remove the {image} image: docker image rm {info['ref']}")
 
-    blocked = preflight(run, 1.0, min_free)
-    if blocked is not None:
-        say(f"  stopped before any download: {blocked[0]}")
-        for t in wanted:
-            done("NOT-RUN", t, blocked[0])
     current: dict[str, Any] = {}
     passed = False
+    stopped = ""  # a status every later form would meet the same way (no card given, the card busy)
+    blocked: tuple[str, str] | None = None
     try:
+        rec["host"] = host_facts(run)
+        rec["host"]["free_gb_before"] = free_gb(run)
+        blocked = preflight(run, 1.0, min_free)
+        if blocked is not None:
+            say(f"  stopped before any download: {blocked[0]}")
+            for t in wanted:
+                done("NOT-RUN", t, blocked[0])
         for image in ("pinned", "cu129"):
-            if blocked is not None:
+            if blocked is not None or stopped:
                 break
             tests = [t for t in wanted if t["image"] == image]
             if not tests:
@@ -495,8 +548,13 @@ def probe(
                 rc, _, err = run(["docker", "pull", ref], 7200, stream=True)
                 info["pulled"] = rc == 0
                 if rc != 0:
+                    status = "PULL-FAILED"
+                    if _NO_BUILD_WORDS.search(err or ""):
+                        status = "NO-BUILD"  # final for this form: no Arm build of it exists
+                    elif re.search(r"(?i)no space left on device", err or ""):
+                        status = "DISK"
                     for t in tests:
-                        done("PULL-FAILED", t, scrub(err, hostname=hostname, names=names))
+                        done(status, t, scrub(err, hostname=hostname, names=names))
                     continue
             rc, out, _ = run(["docker", "image", "inspect", "--format", "{{json .RepoDigests}}|{{.Size}}", ref], 60)
             if rc == 0 and "|" in out:
@@ -511,6 +569,9 @@ def probe(
                 if passed:
                     done("SKIPPED", t)
                     continue
+                if stopped:
+                    done("NOT-RUN", t, f"not tried after {stopped}")
+                    continue
                 say(f"  checking {t['name']}")
                 current["container"] = container_name(t)
                 run(["docker", "rm", "-f", container_name(t)], 60)  # a leftover of an earlier, interrupted run
@@ -523,6 +584,9 @@ def probe(
                                      "env": t["env"], "libs_first": bool(t["prefix"]),
                                      "error": scrub(why, hostname=hostname, names=names) if why else ""})  # fmt: skip
                 passed = passed or status == "PASS"
+                if status in STOPS:
+                    stopped = status
+                    say(f"  {status}: {MEANING[status]}; nothing more is tried")
             remove(image, info)
             current = {}
     except KeyboardInterrupt:
@@ -536,11 +600,8 @@ def probe(
     seen = {r["name"] for r in rec["tests"]}
     for t in TESTS:
         if t["name"] not in seen:
-            done(
-                "SKIPPED" if passed else "NOT-RUN",
-                t,
-                "" if passed else ("interrupted" if rec.get("interrupted") else ""),
-            )
+            why = "interrupted" if rec.get("interrupted") else (f"not tried after {stopped}" if stopped else "")
+            done("SKIPPED" if passed else "NOT-RUN", t, "" if passed else why)
     rec["tests"].sort(key=lambda r: [t["name"] for t in TESTS].index(r["name"]))
     rec["verdict"] = verdict(rec["tests"], blocked)
     return rec

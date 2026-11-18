@@ -59,7 +59,10 @@ def test_the_check_line_is_found_after_other_output() -> None:
         (0, line({"available": False, "vllm": "0.32.0", "compat_dir": False, "compat_libs": []}), "", "DRIVER"),
         (0, line({"available_error": ERR_804, "vllm": "0.32.0"}), "", "DRIVER"),
         (125, "", NO_RUNTIME, "NO-GPU"),
-        (125, "", REQUIRE_CUDA, "DRIVER"),
+        (125, "", REQUIRE_CUDA, "REQUIRE"),
+        (125, "", "nvidia-container-cli: initialization error: load library failed: libnvidia-ml.so.1", "TOOLKIT"),
+        (1, "", "RuntimeError: CUDA error: all CUDA-capable devices are busy or unavailable", "BUSY"),
+        (0, line({**GOOD, "matmul": None, "matmul_error": "OutOfMemoryError: CUDA out of memory"}), "", "BUSY"),
         (1, "", "write /var/lib/docker/tmp: no space left on device", "DISK"),
         (137, "", "Killed", "ERROR"),
     ],
@@ -96,7 +99,7 @@ def test_the_verdict_takes_the_first_form_that_runs(statuses: dict[str, str], us
     if use == "cu129":
         assert "not the pinned engine" in v["next"] and "not a profile" in v["next"]
     if use == "pinned+compat":
-        assert v["env"] == {"VLLM_ENABLE_CUDA_COMPATIBILITY": "1"}
+        assert v["env"] == {"NVIDIA_DISABLE_REQUIRE": "1", "VLLM_ENABLE_CUDA_COMPATIBILITY": "1"}
 
 
 def test_a_partial_result_is_said_in_the_verdict() -> None:
@@ -108,8 +111,10 @@ def test_a_partial_result_is_said_in_the_verdict() -> None:
     [
         ("NO-GPU", "", "nvidia-ctk runtime configure"),
         ("PULL-FAILED", "dial tcp: i/o timeout", "curl -sI https://registry-1.docker.io/v2/"),
-        ("PULL-FAILED", "no matching manifest for linux/arm64/v8", "send the file"),
-        ("DISK", "12 GB free", "runbook §29 step 1"),
+        ("PULL-FAILED", "toomanyrequests: You have reached your pull rate limit", "docker login"),
+        ("BUSY", "all CUDA-capable devices are busy or unavailable", "close the program using the card"),
+        ("TOOLKIT", "nvidia-container-cli: initialization error", "nvidia-container-cli info"),
+        ("DISK", "12 GB free", "free at least 30 GB"),
         ("ERROR", "timed out after 900 s", "run step 2 again once"),
         ("NOT-RUN", "", "without --only"),
     ],
@@ -135,7 +140,10 @@ def test_the_libs_variant_records_the_library_path_it_ran_with() -> None:
     results = _results(pinned_libs="PASS")
     results[2]["probe"] = {**GOOD, "ld_library_path": "/usr/local/cuda/compat:/usr/local/nvidia/lib64:"}
     v = ep.verdict(results)
-    assert v["env"] == {"LD_LIBRARY_PATH": "/usr/local/cuda/compat:/usr/local/nvidia/lib64"}
+    assert v["env"] == {
+        "NVIDIA_DISABLE_REQUIRE": "1",
+        "LD_LIBRARY_PATH": "/usr/local/cuda/compat:/usr/local/nvidia/lib64",
+    }
 
 
 # ------------------------------------------------------------------------------------------------ the run
@@ -149,18 +157,23 @@ class Fake:
     def __init__(self, outcomes: dict[str, tuple[int, str, str]], free_kb: int = 200 * 1048576,
                  present: tuple[str, ...] = (), pull_rc: int = 0, docker_rc: int = 0, docker_err: str = "",
                  runtimes: str = '{"nvidia":{"path":"nvidia-container-runtime"},"runc":{}}', rm_rc: int = 0,
-                 interrupt_on: str = "") -> None:  # fmt: skip
+                 interrupt_on: str = "", cli_rc: int = 0, pull_err: str = PULL_ERR,
+                 rm_err: str = "Error: image is being used by a stopped container") -> None:  # fmt: skip
         self.calls: list[list[str]] = []
         self.streamed: list[list[str]] = []
         self.outcomes, self.free_kb, self.present, self.pull_rc = outcomes, free_kb, set(present), pull_rc
         self.docker_rc, self.docker_err, self.runtimes, self.rm_rc = docker_rc, docker_err, runtimes, rm_rc
-        self.interrupt_on = interrupt_on
+        self.interrupt_on, self.cli_rc, self.pull_err, self.rm_err = interrupt_on, cli_rc, pull_err, rm_err
         self.pulled: set[str] = set()
 
     def __call__(self, cmd: list[str], timeout: int, stream: bool = False) -> tuple[int, str, str]:
         self.calls.append(cmd)
         if stream:
             self.streamed.append(cmd)
+        if cmd[0] == "nvidia-container-cli":
+            return self.cli_rc, "", "" if self.cli_rc == 0 else "nvidia-container-cli: initialization error: nvml error"
+        if self.interrupt_on == "preflight" and cmd[0] == "nvidia-smi":
+            raise KeyboardInterrupt
         if cmd[0] == "nvidia-smi":
             if cmd[1] == "-L":
                 return 0, "GPU 0: NVIDIA RTX A6000 (UUID: GPU-5f3c2a1b-77aa-4d2e-9b10-0123456789ab)\n", ""
@@ -176,19 +189,21 @@ class Fake:
             return 0, (self.runtimes if "Runtimes" in cmd[3] else "/var/lib/docker\n"), ""
         if cmd[1] == "pull":
             self.pulled.add(cmd[2])
-            return self.pull_rc, "", "" if self.pull_rc == 0 else PULL_ERR
+            return self.pull_rc, "", "" if self.pull_rc == 0 else self.pull_err
         if sub == ["image", "inspect"]:
             ref = cmd[-1]
             if "--format" in cmd:
                 return 0, json.dumps([ref.replace(":v0.32.0", "").replace(":v0.32.0-cu129", "")]) + "|24500000000\n", ""
             return (0 if ref in self.present or ref in self.pulled else 1), "", ""
         if sub == ["image", "rm"]:
-            return self.rm_rc, "", "" if self.rm_rc == 0 else "Error: image is being used by a stopped container"
+            return self.rm_rc, "", "" if self.rm_rc == 0 else self.rm_err
         if sub == ["rm", "-f"]:
             return 0, "", ""
         if cmd[1] == "run":
             env = " ".join(cmd)
             ref = cmd[cmd.index("--entrypoint") + 2]
+            assert ("NVIDIA_DISABLE_REQUIRE=1" in env) == (ref != ep.CU129 and ("VLLM_ENABLE_CUDA_COMPATIBILITY=1" in env
+                                                                             or "LD_LIBRARY_PATH=" in cmd[-1]))  # fmt: skip
             name = ("cu129" if ref == ep.CU129 else
                     "pinned+compat" if "VLLM_ENABLE_CUDA_COMPATIBILITY=1" in env else
                     "pinned+libs" if "LD_LIBRARY_PATH=" in cmd[-1] else "pinned")  # fmt: skip
@@ -365,3 +380,81 @@ def test_dry_run_and_show_run_with_a_bare_host_python(tmp_path: Path) -> None:
                              capture_output=True, text=True, check=False)  # fmt: skip
         assert res.returncode == code, res.stdout
     assert ep.main(["run", "--only", "nonsense"]) == 2
+
+
+# ------------------------------------------------------------------------------------------------ second review of #1100
+def test_the_compatibility_forms_get_past_the_toolkits_cuda_requirement() -> None:
+    """Item 1: the image declares cuda>=13.0; on driver 535 the toolkit refuses every plain form before the engine
+    starts. The compatibility forms carry NVIDIA_DISABLE_REQUIRE (asserted by the fake on every run), and the
+    winning form's environment carries it to the measuring run."""
+    fake = Fake({"pinned": (125, "", REQUIRE_CUDA), "pinned+compat": (0, line(GOOD), "")})
+    rec = _probe(fake)
+    assert [t["status"] for t in rec["tests"]][:2] == ["REQUIRE", "PASS"]
+    assert rec["verdict"]["env"] == {"NVIDIA_DISABLE_REQUIRE": "1", "VLLM_ENABLE_CUDA_COMPATIBILITY": "1"}
+    assert ep.MEANING["REQUIRE"] != ep.MEANING["DRIVER"]  # the toolkit's refusal is told apart from CUDA's
+
+
+def test_a_requirement_refusal_on_every_form_is_a_real_answer() -> None:
+    rec = _probe(Fake({"pinned": (125, "", REQUIRE_CUDA), "cu129": (125, "", REQUIRE_CUDA)}))
+    assert rec["verdict"]["answer"] == "none"
+
+
+def test_a_busy_or_full_card_is_inconclusive_and_stops_the_probe() -> None:
+    """Item 2: another program on the card says nothing about the engine."""
+    fake = Fake({"pinned": (1, "", "RuntimeError: CUDA error: all CUDA-capable devices are busy or unavailable")})
+    rec = _probe(fake)
+    assert rec["verdict"]["answer"] == "inconclusive" and ep.FIX_BUSY in rec["verdict"]["next"]
+    assert _pulls(fake) == [PINNED]  # no second image
+    assert [t["status"] for t in rec["tests"]] == ["BUSY", "NOT-RUN", "NOT-RUN", "NOT-RUN"]
+
+
+def test_no_card_given_stops_after_the_first_check() -> None:
+    """Item 3: a NO-GPU is the same for every later form; the second image is not pulled."""
+    fake = Fake({"pinned": (125, "", NO_RUNTIME)})
+    rec = _probe(fake)
+    assert _pulls(fake) == [PINNED] and len([c for c in fake.calls if c[1] == "run"]) == 1
+    assert rec["verdict"]["answer"] == "inconclusive" and ep.FIX_RUNTIME in rec["verdict"]["fix"]
+
+
+def test_a_toolkit_that_cannot_reach_the_driver_pulls_nothing_and_does_not_say_reconfigure() -> None:
+    """Item 3: the runtime is registered but nvidia-container-cli fails: nothing to download, and `nvidia-ctk runtime
+    configure` would not help."""
+    fake = Fake({}, cli_rc=1)
+    rec = _probe(fake)
+    assert _pulls(fake) == []
+    assert rec["verdict"]["fix"] == ep.FIX_TOOLKIT and "nvidia-ctk" not in rec["verdict"]["next"]
+
+
+@pytest.mark.parametrize(
+    ("err", "status", "answer", "says"),
+    [
+        ("no matching manifest for linux/arm64/v8 in the manifest list entries", "NO-BUILD", "none", "Stop here"),
+        ("toomanyrequests: You have reached your pull rate limit", "PULL-FAILED", "inconclusive", "docker login"),
+        ("write /var/lib/docker/tmp/x: no space left on device", "DISK", "inconclusive", "free at least 30 GB"),
+    ],
+)
+def test_a_failed_download_is_told_apart(err: str, status: str, answer: str, says: str) -> None:
+    """Item 3: an image with no Arm build is final for its forms; a rate limit and a full disk are fixable."""
+    rec = _probe(Fake({}, pull_rc=1, pull_err=err))
+    assert {t["status"] for t in rec["tests"]} == {status}
+    assert rec["verdict"]["answer"] == answer and says in rec["verdict"]["next"]
+
+
+def test_ctrl_c_during_the_pre_checks_is_a_record_not_a_traceback() -> None:
+    rec = _probe(Fake({}, interrupt_on="preflight"))
+    assert rec["interrupted"] is True and rec["verdict"]["answer"] == "inconclusive"
+    assert {t["status"] for t in rec["tests"]} == {"NOT-RUN"}
+
+
+def test_an_image_already_gone_is_not_a_failed_removal() -> None:
+    rec = _probe(Fake({"pinned": (0, line(GOOD), "")}, rm_rc=1, rm_err="Error: No such image: vllm/vllm-openai"))
+    assert rec["images"]["pinned"]["removed"] is True and "could not be removed" not in ep.table(rec)
+
+
+def test_a_dashed_mac_is_scrubbed() -> None:
+    assert "00-1b-44-11-3a-b7" not in ep.scrub("eth0 00-1b-44-11-3a-b7 down", names=[])
+
+
+def test_the_next_step_after_a_pass_names_the_weights() -> None:
+    v = ep.verdict(_results(pinned="PASS"))
+    assert "step 4, then step 5 (the weights) and step 6" in v["next"]

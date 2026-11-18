@@ -86,14 +86,31 @@ def test_it_is_not_a_profile_anywhere() -> None:
 
 
 # ------------------------------------------------------------------------------------------------ refusals
-def test_install_refuses_it_whatever_is_set() -> None:
-    install = (ROOT / "deploy/install.sh").read_text(encoding="utf-8")
-    line = next(ln for ln in install.splitlines() if ln.strip().startswith("dgpu48)"))
-    assert "die " in line and "no install serves it" in line and dgpu48.SWITCH in line
-    # the refusal comes before the list of words install.sh accepts, which does not name it
-    assert install.index('  dgpu48) die "dgpu48 is a DRAFT') < install.index('case "$GPU" in auto|default|')
-    accepted = next(ln for ln in install.splitlines() if ln.startswith('case "$GPU" in auto|default|'))
-    assert "dgpu48" not in accepted
+@pytest.mark.parametrize("switch", ["", "1"])
+def test_install_refuses_it_whatever_is_set(tmp_path: Path, switch: str) -> None:
+    """install.sh itself, run with stand-ins for docker and nvidia-smi: `--gpu dgpu48` stops at the profile step with
+    its reason, switch or not, before anything is written."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "docker").write_text('#!/bin/sh\necho "$*" >> "$TB_TEST_LOG"\nexit 0\n', encoding="utf-8")
+    (bindir / "nvidia-smi").write_text('#!/bin/sh\necho "GPU 0: NVIDIA RTX A6000 (UUID: GPU-0)"\n', encoding="utf-8")
+    for f in bindir.iterdir():
+        f.chmod(0o755)
+    bundle = tmp_path / "trialbox-x.tar"
+    bundle.write_bytes(b"")
+    state = [ROOT / "deploy" / n for n in (".env", "settings.yaml", "updates", "secrets", "site")]
+    before = [q.exists() for q in state]
+    env = {k: v for k, v in os.environ.items() if not k.startswith("TB_")}
+    env.update(PATH=f"{bindir}:{os.environ['PATH']}", TB_TEST_LOG=str(tmp_path / "docker.log"),
+               TB_UNMEASURED_DGPU48_MEASURING_RUN=switch)  # fmt: skip
+    res = subprocess.run(["bash", str(ROOT / "deploy/install.sh"), str(bundle), "--mode", "gpu", "--gpu", "dgpu48"],
+                         capture_output=True, text=True, env=env, timeout=120, check=False)  # fmt: skip
+    assert res.returncode == 1, res.stdout + res.stderr
+    assert "install: dgpu48 is a DRAFT, UNMEASURED 48 GB profile: no install serves it" in res.stderr
+    assert dgpu48.SWITCH in res.stderr
+    assert [q.exists() for q in state] == before
+    log = (tmp_path / "docker.log").read_text(encoding="utf-8") if (tmp_path / "docker.log").exists() else ""
+    assert " up " not in f" {log} " and "load" not in log.split()
 
 
 def _poc(tmp: Path, **env: str) -> subprocess.CompletedProcess[str]:
@@ -325,10 +342,12 @@ class Box:
 
     def __init__(self, root: Path, card_mib: int = 49140, running: str = "", up_rc: int = 0, present: bool = False,
                  state: str = "running|0|healthy|false", log: str = "", baseline: int = 0,
-                 interrupt_at: str = "", pull_rc: int = 0) -> None:  # fmt: skip
+                 interrupt_at: str = "", pull_rc: int = 0, weights_rc: int = 0, free_kb: int = 200 * 1048576,
+                 canary_out: str = "") -> None:  # fmt: skip
         self.root, self.card_mib, self.running, self.up_rc, self.present = root, card_mib, running, up_rc, present
         self.state, self.log, self.baseline = state, log, baseline
         self.interrupt_at, self.pull_rc = interrupt_at, pull_rc
+        self.weights_rc, self.free_kb, self.canary_out = weights_rc, free_kb, canary_out
         self.calls: list[tuple[list[str], dict[str, str] | None]] = []
         self.streamed: list[list[str]] = []
         self.up = False
@@ -346,6 +365,14 @@ class Box:
             if "display_active" in cmd[1]:
                 return 0, f"Enabled, {self.baseline}\n", ""
             return 0, f"NVIDIA RTX A6000, {self.card_mib}, 535.183.01\n", ""
+        if cmd[:2] == ["docker", "info"]:
+            return 0, "/var/lib/docker\n", ""
+        if cmd[0] == "df":
+            return 0, f"Filesystem 1024-blocks Used Available Capacity Mounted\n/dev/x 9 9 {self.free_kb} 90% /\n", ""
+        if cmd[:3] == ["docker", "run", "--rm"] and "tools.pin_model" in cmd:  # the weights check
+            if self.weights_rc:
+                return 2, "", "pin_model: manifest 1a2b3c4d5e6f differs from the expected 5e5bef7a61fe (19 files)"
+            return 0, "pinned: sha256 ...", ""
         if cmd[:2] == ["docker", "ps"]:
             if not self.up:  # the preflight's question: is the box running
                 return 0, self.running, ""
@@ -370,6 +397,8 @@ class Box:
         if cmd[:2] == ["docker", "stats"]:
             return 0, "trialbox-llm-service-1 14.2GiB / 32GiB\ntrialbox-llm-verifier-1 6.5GiB / 32GiB\n", ""
         if cmd[:3] == ["docker", "run", "--rm"]:  # the canary
+            if self.canary_out:
+                return 0, self.canary_out, ""
             rep = {"ok": True, "cases": 54, "models": [{"role": "judge", "model": "local/j", "cases": 54,
                    "answered": 54, "correct": 53, "flips": 0, "seconds": 300.0}], "pair": {"decided_wrong": 0},
                    "problems": [], "seconds": 600.0}  # fmt: skip
@@ -416,7 +445,7 @@ def test_a_faked_measuring_run_end_to_end(tmp_path: Path) -> None:
     _, up_env = next((c, e) for c, e in box.calls if c[:2] == ["docker", "compose"] and "up" in c)
     assert up_env is not None and up_env["VLLM_ENABLE_CUDA_COMPATIBILITY"] == "1"
     assert up_env["JUDGE_GPU_MEM_UTIL"] == "0.57" and up_env["TB_MODELS_DIR"] == str(root / "deploy/models")
-    canary_cmd, canary_env = next((c, e) for c, e in box.calls if c[:3] == ["docker", "run", "--rm"])
+    canary_cmd, canary_env = next((c, e) for c, e in box.calls if "tools.canary" in c)
     assert "--network" in canary_cmd and dgpu48.BACKEND_NET in canary_cmd
     assert canary_env == {"TB_GPU_KEY": "key-that-must-not-show-0123"}
     assert "key-that-must-not-show-0123" not in " ".join(canary_cmd)
@@ -554,3 +583,104 @@ def test_the_canary_runs_the_judge_alone() -> None:
 
     judge, verifier = canary.direct_clients("http://j/v1", "", "k")
     assert judge is not None and verifier is None
+
+
+# ------------------------------------------------------------------------------------------------ second review of #1100
+def test_the_canary_uses_the_checkouts_canary_and_runs_the_judge_alone(tmp_path: Path) -> None:
+    """Item 5: the image built at page 28 has an older canary.py that cannot run the judge alone."""
+    root, probe = _machine(tmp_path)
+    box = Box(root)
+    s = _measure(box, root, probe, tmp_path / "out", "judge-alone")
+    cmd = next(c for c, _ in box.calls if c[:3] == ["docker", "run", "--rm"] and "tools.canary" in c)
+    assert f"{root / 'tools' / 'canary.py'}:/app/tools/canary.py:ro" in cmd
+    assert "--verifier-url" not in cmd and s["canary"]["ok"]
+
+
+def test_the_canary_file_is_written_through_the_scrubber(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Item 4."""
+    monkeypatch.setattr("platform.node", lambda: "igx-lab-07")
+    root, probe = _machine(tmp_path)
+    leaky = json.dumps({"ok": False, "models": [], "problems": ["judge at host igx-lab-07 mac 00-1b-44-11-3a-b7"]})
+    _measure(Box(root, canary_out=leaky), root, probe, tmp_path / "out")
+    text = (tmp_path / "out/canary.pair-32k.json").read_text(encoding="utf-8")
+    assert "igx-lab-07" not in text and "00-1b-44-11-3a-b7" not in text and json.loads(text)["ok"] is False
+
+
+def test_the_weights_are_checked_against_the_pin_before_anything_is_downloaded(tmp_path: Path) -> None:
+    """Item 6: a wrong or half-downloaded folder is named before a 10-12 GB pull and a 35-minute load."""
+    root, probe = _machine(tmp_path)
+    box = Box(root, weights_rc=2)
+    with pytest.raises(
+        dgpu48.Refused, match="judge weights in .* are not the pinned build gemma-4-26b-a4b-it-rtxpro6000"
+    ):
+        _measure(box, root, probe, tmp_path / "out")
+    assert not box.streamed and not box.composed("up")
+    box = Box(root)
+    _measure(box, root, probe, tmp_path / "out2")
+    checks = [c for c, _ in box.calls if "tools.pin_model" in c]
+    assert (
+        len(checks) == 2
+        and "--chat-template" in checks[0]
+        and box.index("tools.pin_model") < box.index("docker", "pull")
+    )
+
+
+def test_the_check_builds_are_the_ones_every_profile_pins() -> None:
+    from tools import pin_model
+
+    pairs = {b[1]: b[0] for b in pin_model.PROFILE_PAIRS["rtxpro6000"]}
+    assert {dgpu48.PIN_BUILD["judge"][0], dgpu48.PIN_BUILD["verifier"][0]} == set(pairs.values())
+    reg = yaml.safe_load((ROOT / "models/registry.yaml").read_text(encoding="utf-8"))
+    expected = {b["build_id"]: (b.get("expected") or {}).get("manifest_sha256") for b in reg["builds"]}
+    for profile in ("gb10", "rtx5090"):
+        for build, *_ in pin_model.PROFILE_PAIRS[profile]:
+            kind = "judge" if build.startswith("gemma") else "verifier"
+            assert expected[build] == expected[dgpu48.PIN_BUILD[kind][0]]
+
+
+def test_too_little_disk_downloads_nothing(tmp_path: Path) -> None:
+    root, probe = _machine(tmp_path)
+    box = Box(root, free_kb=12 * 1048576)
+    s = _measure(box, root, probe, tmp_path / "out")
+    assert s["outcome"].startswith("NOT ENOUGH DISK: 12.0 GB free") and not box.streamed and not box.composed("up")
+
+
+def test_ctrl_c_says_interrupted_and_exits_130(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root, probe = _machine(tmp_path)
+    s = _measure(Box(root, interrupt_at="capture"), root, probe, tmp_path / "out")
+    assert s["outcome"].startswith("INTERRUPTED") and "RECORD INCOMPLETE" not in s["outcome"]
+    calls: list[list[str]] = []
+
+    def stop(*a: Any, **k: Any) -> dict[str, Any]:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(dgpu48, "measure", stop)
+    monkeypatch.setenv(dgpu48.SWITCH, "1")
+    assert dgpu48.main(["measure", "--option", "pair-32k", "--probe", str(probe), "--out-dir", str(tmp_path)]) == 130
+    monkeypatch.setattr(dgpu48, "measure", lambda *a, **k: {"interrupted": True, "outcome": "INTERRUPTED"})
+    assert dgpu48.main(["measure", "--option", "pair-32k", "--probe", str(probe), "--out-dir", str(tmp_path)]) == 130
+    assert calls == []
+
+
+def test_the_times_agree_with_the_health_check() -> None:
+    svc = yaml.safe_load(OVERLAY.read_text(encoding="utf-8"))["services"]["llm-service"]["healthcheck"]
+    gives_up = int(svc["start_period"].rstrip("s")) + svc["retries"] * int(svc["interval"].rstrip("s"))
+    assert gives_up == 35 * 60 and gives_up <= dgpu48.WAIT_S
+    page = (ROOT / "docs/runbook/29-igx-orin-a6000-real-models.md").read_text(encoding="utf-8")
+    assert "45 minutes" not in page and "still loading after 35 minutes" in dgpu48.outcome({"started": False})
+
+
+def test_the_page_puts_the_unknowns_first_and_asks_for_nothing_identifying() -> None:
+    """Items 4 and 6: the list of what only the machine can tell comes first under "What we do not know yet"; step 4
+    asks for the report file only; step 5 gives the exact commands for this machine."""
+    page = (ROOT / "docs/runbook/29-igx-orin-a6000-real-models.md").read_text(encoding="utf-8")
+    unknown = page.index("## What we do not know yet")
+    assert unknown < page.index("## The page") and unknown < page.index("**What it decides.**")
+    assert page[unknown:].split("\n", 2)[2].startswith("**Only the machine can tell**")
+    step4 = next(ln for ln in page.splitlines() if ln.startswith("| 4 |"))
+    assert "~/tb-embedder.txt" in step4 and "embedder check" not in step4
+    weights = page[page.index("## The weights (step 5)") : page.index("## Freeing the disk")]
+    for build in dgpu48.PIN_BUILD.values():
+        assert build[0] in weights
+    assert "12 files" in weights and "17 files" in weights and "sha256sum -c" in weights
+    assert "the command sent with the tag" not in page

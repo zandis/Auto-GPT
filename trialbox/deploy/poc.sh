@@ -12,6 +12,8 @@
 #                                          #   RUNBOOK §28 and §29); kept in deploy/.env for later starts
 #   deploy/poc.sh down                     # stop (volumes kept);  deploy/poc.sh reset  # stop and delete volumes
 #   deploy/poc.sh status                   # URLs and container states
+#   deploy/poc.sh report                   # what to send back: states, memory, the embedder's mode and pin (no
+#                                          #   address, password, folder or host name)
 #
 # Steps: Docker check -> deploy/.env with random secrets (first run only) -> images (built when missing, or always with
 # TB_POC_BUILD=1) -> POC settings with the administrator's mailbox -> compose up (box + GreenMail + MailHog + console)
@@ -193,8 +195,20 @@ case "$ACTION" in
   down) "${COMPOSE[@]}" down; exit 0 ;;
   reset) "${COMPOSE[@]}" down -v; exit 0 ;;
   status) "${COMPOSE[@]}" ps --format 'table {{.Service}}\t{{.Status}}'; urls; exit 0 ;;
+  # card 24-7 (review of #1100): what to send back after the real-embedder start, and nothing else: no address, no
+  # password, no folder name, no host name. The services' states and memory, the embedder's mode and its pin.
+  report)
+    echo "TrialBox PoC report ($(date -u +%Y-%m-%dT%H:%MZ)): $MODE model, $EMBED embedder choice"
+    echo "embed-service TB_EMBED_MODE: $("${COMPOSE[@]}" exec -T embed-service printenv TB_EMBED_MODE 2>/dev/null || echo '?')"
+    pinned="$(python3 -c "import sys, yaml; d = yaml.safe_load(open(sys.argv[1])) or {}; print(((d.get('builds') or {}).get('e-embed-1') or {}).get('sha256') or 'none')" "deploy/${TB_SITE_DIR#./}/registry.site.yaml" 2>/dev/null || echo none)"
+    echo "e-embed-1 pin: ${pinned:0:12}"
+    "${COMPOSE[@]}" ps --format '{{.Service}} {{.Status}}'
+    ids="$("${COMPOSE[@]}" ps -q)"
+    # shellcheck disable=SC2086 # one word per container id
+    [ -z "$ids" ] || docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' $ids
+    exit 0 ;;
   up) ;;
-  *) die "usage: deploy/poc.sh [up|down|reset|status]" ;;
+  *) die "usage: deploy/poc.sh [up|down|reset|status|report]" ;;
 esac
 
 # ------------------------------------------------------------------------------------------------ secrets

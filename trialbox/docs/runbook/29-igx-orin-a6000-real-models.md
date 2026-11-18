@@ -9,6 +9,22 @@ can run on this machine, and if they can, leaves a measured record. Why each ste
 with stand-ins for Docker and the card. Expect a surprise or two, and send every output. Synthetic data only: no
 patient record goes on this machine. Nothing here changes the NVIDIA driver; never install another driver on it.
 
+## What we do not know yet
+
+**Only the machine can tell** (nobody has run any of it, on this or any machine):
+
+1. whether the model engine computes on this card with driver 535 at all, and in which form;
+2. whether the judge's 4-bit format loads on this card (it was built for newer cards, and runs a slower path here);
+3. how much card memory the judge needs on that path (every figure below is the 96 GB card's);
+4. whether the judge gives the same answers on that path (the canary's 54 cases are the first comparison);
+5. how much of the machine's 53 GiB the two model servers need, and whether 12 + 10 GiB is enough;
+6. whether the card also drives your screen, and how much memory that takes;
+7. whether the real embedder runs on this processor, and how fast;
+8. whether the CUDA 12.9 build's tag and digest are still what the registry said on 2026-11-18.
+
+Everything else on this page is arithmetic from that one 96 GB run, or the scripts' own logic, tested against
+stand-ins for Docker and the card.
+
 **What it decides.** Three questions, in this order:
 
 1. Does the model engine compute on this card with driver 535 at all (step 2, about 1 hour, no model)?
@@ -57,8 +73,8 @@ then `sudo systemctl isolate graphical.target` to get the desktop back.
 | 1 | Free the disk (below) | `df -h /` | – | at least **35 GB** free for steps 2 to 4, at least **70 GB** for step 6 | less: free more first (below) |
 | 2 | The engine probe | `python3 tools/engine_probe.py run --out ~/tb-engine-probe.json` | up to about 1 hour (one or two downloads of 10 to 12 GB, one at a time, progress shown; each removed after) | a table, a `verdict:` line and one `next:` line | send `~/tb-engine-probe.json`; do what the `next:` line says |
 | 3 | Read it again any time | `python3 tools/engine_probe.py show ~/tb-engine-probe.json` | – | see "Reading the probe" below | – |
-| 4 | Stub judge, real embedder | page 28, "Optional: the real embedder", rows E1 to E8 (E7 deletes the synthetic data once: read it first) | 30 to 60 minutes; 2.3 GB of weights, about 2 GB of image | at the end "TrialBox POC (stub model, model embedder)" | send the lines from "embedder check" to the addresses, and `docker stats --no-stream` |
-| 5 | Only if the verdict is a form (not `none`, not `inconclusive`): the two models' weights | page 27, "The weights": the judge's and the verifier's folders and the template, into `deploy/models` | 1 to 3 hours (about 28 GB) | the two folders and the template file | – |
+| 4 | Stub judge, real embedder | page 28, "Optional: the real embedder", rows E1 to E9 (E7 deletes the synthetic data once: read it first) | 30 to 60 minutes; 2.3 GB of weights, about 2 GB of image | at the end "TrialBox POC (stub model, model embedder)" | send `~/tb-embedder.txt` (row E9) only: the start's own output shows the admin password and your folder names |
+| 5 | Only if the verdict is a form (not `none`, not `inconclusive`): the two models' weights | "The weights (step 5)" below | 1 to 3 hours (about 28 GB) | the two folders and the template file; step 6 checks them against the release before it downloads or starts anything | – |
 | 6 | The same condition: the measuring run, first option | check the screen (above); `deploy/poc.sh down`; then `TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure --option pair-32k --dry-run` (shows what it will do, starts nothing); then the same without `--dry-run` | 1 to 2 hours: the engine image download first (10 to 12 GB, about 25 GB on disk, progress shown), then 5 to 35 minutes of loading (a line a minute with the memory in use), a few minutes to hash the weights, 10 to 30 minutes of canary | an `outcome` line (below) | send the three files in `~/tb-dgpu48-pair-32k/` |
 | 7 | If step 6 started: the 53 GiB question. If it did not: the next option | started: the same command with `--option pair-32k-host53`. Did not start: `--option pair-16k`, then `judge-alone`, then `verifier-alone`, stopping at the first that starts | about 1 hour each (the engine image is already there) | an `outcome` line | send each folder `~/tb-dgpu48-<option>/` |
 | 8 | Give the disk back | `docker image rm $(python3 -c "import json; e=json.load(open('deploy/images.lock'))['third_party']['vllm']; print(e['image'] + '@' + e['digest'])")`; if the verdict was `cu129`, also `docker image rm $(python3 -c "import tools.engine_probe as p; print(p.CU129)")`; then `df -h /` | – | about 25 GB free again | then `deploy/poc.sh` for the stub box |
@@ -66,6 +82,33 @@ then `sudo systemctl isolate graphical.target` to get the desktop back.
 Every script stops cleanly on Ctrl-C: the probe removes its running check and the image it downloaded; the measuring
 run stops the model servers and writes what it measured so far. The model servers of a measuring run have no restart
 policy: they do not come back after a reboot.
+
+## The weights (step 5)
+
+The release pins each folder; step 6 checks them against those pins before anything else. The commands read the
+source and revision from `models/registry.yaml`, so nothing is typed by hand. They use the download tool of page 28
+row E1 (`~/hf`), and were checked here with its dry run only (file lists, no weights).
+
+1. The judge's and the verifier's sources:
+   `read JREPO JREV <<< "$(python3 -c "import yaml; b = next(b for b in yaml.safe_load(open('models/registry.yaml'))['builds'] if b['build_id'] == 'gemma-4-26b-a4b-it-rtxpro6000'); print(b['provenance']['source'], b['expected']['revision'])")"`
+   and
+   `read VREPO VREV <<< "$(python3 -c "import yaml; b = next(b for b in yaml.safe_load(open('models/registry.yaml'))['builds'] if b['build_id'] == 'qwen3.5-9b-rtxpro6000'); print(b['provenance']['source'], b['expected']['revision'])")"`;
+   `echo $JREPO $JREV $VREPO $VREV` prints two repository names and the revisions `a19cfe00…` and `e4d2d39c…`.
+2. See what will come: `~/hf/bin/hf download "$JREPO" --revision "$JREV" --local-dir deploy/models/gemma-4-26b-a4b-it-4bit --dry-run`
+   should say "12 files … 18.8G"; `~/hf/bin/hf download "$VREPO" --revision "$VREV" --local-dir deploy/models/qwen3.5-9b-4bit --dry-run`
+   should say "17 files … 9.1G". Anything else: send it and stop.
+3. Download: the same two commands without `--dry-run` (1 to 3 hours; run again after a network error, it
+   continues); then `rm -rf deploy/models/gemma-4-26b-a4b-it-4bit/.cache deploy/models/qwen3.5-9b-4bit/.cache`.
+4. The judge's chat template (one small file, checked against its pinned hash):
+   `read TSRC TREV TFILE TSHA <<< "$(python3 -c "import yaml; b = next(b for b in yaml.safe_load(open('models/registry.yaml'))['builds'] if b['build_id'] == 'gemma-4-26b-a4b-it-rtxpro6000')['chat_template']; print(b['source'], b['revision'], b['file'], b['sha256'])")"`;
+   `mkdir -p "deploy/models/$(dirname "$TFILE")"`;
+   `curl -fL -o "deploy/models/$TFILE" "https://huggingface.co/$TSRC/resolve/$TREV/chat_template.jinja"`;
+   `echo "$TSHA  deploy/models/$TFILE" | sha256sum -c` should print `OK`. If the download asks you to sign in, the
+   model's page needs its terms accepted with a (free) Hugging Face account, and `~/hf/bin/hf auth login` once; the
+   sign-in code stays on this machine and is never sent to us.
+
+This is the manual way until the weights command of card W-1 (pull request #1085) is on master; then the page will
+use it.
 
 ## Freeing the disk (step 1)
 
@@ -131,7 +174,9 @@ downloads the engine image first, with its progress shown; records card memory a
 moment they start loading (also when they fail); takes the serving record with the same tool that took the 96 GB
 card's record; runs the pair canary (54 stored cases) when the judge is up; and stops the servers, also on a failure
 or Ctrl-C. It refuses, before anything starts, without `TB_UNMEASURED_DGPU48_MEASURING_RUN=1`, on a card that is not
-about 48 GB, while the box runs, without the weights, or when the probe's verdict was not a form.
+about 48 GB, while the box runs, when a weights folder is not the release's (it checks each against the pinned
+manifest first, which takes a few minutes), or when the probe's verdict was not a form; and it downloads nothing
+with less than 30 GB free.
 
 The options, in the order to try them (`python3 tools/dgpu48.py arith` prints the arithmetic, from the 96 GB card's
 figures; nobody knows yet how much more the judge needs on this card; "judge room" is its cache past one
@@ -155,9 +200,10 @@ full-length request):
   the answer to the 53 GiB question. Send the files.
 - "FAILED TO LOAD": a server stopped while loading; the end of its log is in the file. Send the files; then the next
   option.
-- "DID NOT START IN TIME": still loading after 45 minutes with no error. Send the files; then the next option.
-- "ENGINE IMAGE NOT DOWNLOADED": check the network and the disk, then run the same command again.
-- "STARTED, RECORD INCOMPLETE", "STARTED AFTER A RESTART", "INTERRUPTED": send the files.
+- "DID NOT START IN TIME": still loading after 35 minutes with no error. Send the files; then the next option.
+- "ENGINE IMAGE NOT DOWNLOADED" or "NOT ENOUGH DISK": the line says what to fix; then run the same command again.
+- "INTERRUPTED": you pressed Ctrl-C; the servers were stopped and what was measured is in the file.
+- "STARTED, RECORD INCOMPLETE", "STARTED AFTER A RESTART": send the files.
 
 **What to send** from each `~/tb-dgpu48-<option>/`: `measure.<option>.json` (the summary: settings, engine form, what
 the card held before, start time, memory peaks on the card and in the host, the engine's own cache figures, the

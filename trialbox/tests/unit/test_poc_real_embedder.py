@@ -198,3 +198,22 @@ def test_the_manual_download_excludes_each_pickle_file_with_its_own_flag() -> No
         assert not re.search(r"--exclude [^ -][^ ]* [^ -]", ln.replace("`", " ")), ln
     assert 'pip install "huggingface_hub==2.4.0"' in page
     assert "--dry-run" in page and "18" in page
+
+
+def test_the_report_to_send_back_holds_no_address_password_or_folder(tmp_path: Path) -> None:
+    """Review of #1100, item 4: the start's own output shows the admin password and the folder names; the page asks
+    for `deploy/poc.sh report` instead: the services' states and memory, the embedder's mode and its pin."""
+    root = _root(tmp_path)
+    res, _ = _run(tmp_path, root, TB_POC_EMBED="model")
+    assert res.returncode == 0, res.stderr
+    site = root / "deploy/poc/site"
+    site.mkdir(parents=True, exist_ok=True)
+    (site / "registry.site.yaml").write_text(
+        "builds:\n  e-embed-1:\n    sha256: " + "e131f320" * 8 + "\n", encoding="utf-8"
+    )
+    res, log = _run(tmp_path, root, "report")
+    assert res.returncode == 0, res.stderr
+    assert "model embedder choice" in res.stdout and "e-embed-1 pin: e131f320e131" in res.stdout
+    assert any("exec -T embed-service printenv TB_EMBED_MODE" in line for line in log)
+    for leak in (str(root), "127.0.0.1", "admin@", "password", "http://"):
+        assert leak not in res.stdout, leak
