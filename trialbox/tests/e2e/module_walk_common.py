@@ -36,8 +36,8 @@ from typing import Any
 
 from tests.e2e import life_cycle_walk_plan as lp
 from tests.e2e import new_study_walk_plan as nw
-from tests.e2e.life_cycle_walk_plan import Finding, K
-from tests.e2e.new_study_walk_plan import Do, Refuse, See, T
+from tests.e2e.life_cycle_walk_plan import Finding
+from tests.e2e.new_study_walk_plan import Do, K, Refuse, See, T
 
 ROOT = nw.ROOT
 LANGS = nw.LANGS
