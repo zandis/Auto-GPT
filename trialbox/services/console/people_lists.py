@@ -4,7 +4,7 @@
   as before, and the new addresses send a person to the old ones (303). On:
 
   - **Candidates** (people before consent) is ``/studies/{rs}/people/candidates`` and its views; **Participants**
-    (people from consent on) is ``/studies/{rs}/people/participants`` and its views (:data:`VIEWS`). Each view *is*
+    (people who have consented) is ``/studies/{rs}/people/participants`` and its views (:data:`VIEWS`). Each view *is*
     one of the old list pages, served by its own route: the same guard, the same reads, the same audit event, the same
     actions and the same filters. Nothing a role may read or do changes; a role refused an old list is refused its
     view with the same answer.
