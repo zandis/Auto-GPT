@@ -1,0 +1,62 @@
+{
+ "target": "disk",
+ "kind": "disk",
+ "service": "db",
+ "stage": "ingest",
+ "when": "the adapter's ingest run is running",
+ "killed": "the disk that holds the database's volume, filled from the host by a file beside the database's folder until no space was left: 559939584 bytes (560 MB, 534 MiB) copied, 0.881723 s, 635 MB/s; /dev/loop0 974M 958M 0 100% /root/.cache/tb-drill-pg",
+ "killed_at_s": 269.597871236,
+ "recovered_by": "a person's step (the drill freed the space); the database's restarts: 10",
+ "recover_s": 149.52141960600005,
+ "finished": false,
+ "jobs": {
+  "ok": false,
+  "counts": {
+   "units": 6,
+   "done_once": 4,
+   "visibly_failed": 0,
+   "missing": 1,
+   "stuck": 1,
+   "failed_no_reason": 0,
+   "done_twice": 0,
+   "behind_failed_ingest": 0,
+   "lost": 2
+  },
+  "lines": [
+   "INGEST:-:timer: stuck in running",
+   "RETENTION:-:timer: no job"
+  ]
+ },
+ "mail": {
+  "ok": true,
+  "counts": {
+   "messages": 18,
+   "double": 0,
+   "missing": 0,
+   "held": 0,
+   "sending": 0,
+   "queued": 0
+  },
+  "lines": []
+ },
+ "audit": {
+  "ok": true,
+  "counts": {
+   "verify_rc": 0,
+   "lines_at_kill": 177,
+   "lines_at_end": 180,
+   "journal_left": 0,
+   "work_after": 0
+  },
+  "lines": []
+ },
+ "notes": [
+  "the data volume: a 1024 MB ext4 file, loop-mounted on the host and bound as the volume",
+  "the disk was freed 90 s after it filled (the drill's own step, as a person would)",
+  "the night's jobs had not settled within 900 s of the ingest stage",
+  "console.notify: exit 0: ",
+  "the night took 1323 s",
+  "after the check, a person's step (docker compose restart orchestrator): the stuck jobs ended within 46 s: {'01M7PRBVN0CA9RGAB626QM22AC': 'done'}"
+ ],
+ "run": 1
+}
