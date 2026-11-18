@@ -423,7 +423,8 @@ def _write_ssmix2(schema: dict[str, Any], data: dict[str, list[dict[str, Any]]],
         orc = ["ORC", "NW", e(r["rx_no"]), "", "1", "IP", "", "", "", ts(r["order_date"])]
         rxe = ["RXE", "", f"{e(r['nhi_drug_code'])}^{e(r['drug_name'])}^99YJ{alt}", e(r["daily_dose"]), "",
                e(r["dose_unit"])]  # fmt: skip
-        tq1 = ["TQ1", "", "", "&1日1回&99XYZ", "", "", "", ts(r["start_date"]), ts(r["end_date"])]  # one dose a day (10B-4)
+        # RXE-3 is one dose: the CSV's daily dose is written as one dose once a day (10B-4)
+        tq1 = ["TQ1", "", "", "&1日1回&99XYZ", "", "", "", ts(r["start_date"]), ts(r["end_date"])]
         segs = ["|".join(orc), "|".join(rxe), "|".join(tq1)]
         write(r["mrn"], ts(r["order_date"])[:8], "OMP-01", r["rx_no"], r["dept_code"], "RDE^O11", segs)
     for r in data["lab"]:

@@ -168,11 +168,28 @@ def _diagnoses(st: Storage) -> None:
         # deleted at the hospital: PRB-1 DE (HL7 table 0287)
         _prb("DE", "99990002", "２型糖尿病", icd10="E119", established="20260601", rank="2"),
         # cured: 転帰 F (HL7 table 0241, fully recovered: 治癒) on 2026-03-01, which is also its end day
-        _prb("UP", "99990003", "急性上気道炎", icd10="J069", established="20260220", end="20260301",
-             outcome="F^治癒^HL70241", outcome_date="20260301", rank="2"),  # fmt: skip
+        _prb(
+            "UP",
+            "99990003",
+            "急性上気道炎",
+            icd10="J069",
+            established="20260220",
+            end="20260301",
+            outcome="F^治癒^HL70241",
+            outcome_date="20260301",
+            rank="2",
+        ),
         # in remission: 転帰 M (JHSD0006 寛解)
-        _prb("AD", "99990004", "関節リウマチ", icd10="M069", established="20200501", outcome="M^寛解^JHSD0006",
-             outcome_date="20260801", rank="2"),  # fmt: skip
+        _prb(
+            "AD",
+            "99990004",
+            "関節リウマチ",
+            icd10="M069",
+            established="20200501",
+            outcome="M^寛解^JHSD0006",
+            outcome_date="20260801",
+            rank="2",
+        ),
         # suspected only through its 修飾語: the base name in PRB-3 is 肺炎, the written name in PRB-17 carries
         # "の疑い", PRB-13 is empty; the ZPR segment after it holds the suffix 修飾語. ZPR's field layout is not
         # recorded in review 12 (it names "prefix and suffix 修飾語 (the 疑い suffix included)"): here field 1 is a
@@ -180,11 +197,27 @@ def _diagnoses(st: Storage) -> None:
         _prb("AD", "99990005", "肺炎", icd10="J189", established="20261001", written="肺炎の疑い", rank="2"),
         "ZPR|1|9999^の疑い^99XYZ",
         # the patient died of it: 転帰 D (HL7 table 0241, dead)
-        _prb("UP", "99990006", "脳梗塞", icd10="I639", established="20250101", outcome="D^死亡^HL70241",
-             outcome_date="20251201", rank="2"),  # fmt: skip
+        _prb(
+            "UP",
+            "99990006",
+            "脳梗塞",
+            icd10="I639",
+            established="20250101",
+            outcome="D^死亡^HL70241",
+            outcome_date="20251201",
+            rank="2",
+        ),
         # follow-up stopped: 転帰 I (JHSD0006 中止): neither cured nor known to be current
-        _prb("UP", "99990007", "腰痛症", icd10="M545", established="20240101", outcome="I^中止^JHSD0006",
-             outcome_date="20240401", rank="2"),  # fmt: skip
+        _prb(
+            "UP",
+            "99990007",
+            "腰痛症",
+            icd10="M545",
+            established="20240101",
+            outcome="I^中止^JHSD0006",
+            outcome_date="20240401",
+            rank="2",
+        ),
     ]
     _write(st, P1, "-", "PPR-01", "ALL9", _stamp("20261001"), segs)
 
@@ -244,25 +277,49 @@ DOCS = [
     # a discharge summary: a local code with the LOINC document code 18842-5 (退院時サマリ, S25 as review 12 §3 row 15
     # records it); the content folder holds the text and the index file ``_contents.xml`` (its schema is not
     # recorded in review 12, so it holds only a root element here and the reader does not read it)
-    Document(P1, "20261015", "L000101^退院時サマリ^99XYZ^18842-5^退院時サマリー^LN",
-             f"{P1}_20261015_18842-5_S0001_{_stamp('20261015', '170000')}_{DEPT}_1",
-             {"summary.txt": "【入院経過】肺炎の疑いで入院し、抗菌薬で軽快した。".encode(),
-              "_contents.xml": b'<?xml version="1.0" encoding="UTF-8"?><contents/>'}),  # fmt: skip
+    Document(
+        P1,
+        "20261015",
+        "L000101^退院時サマリ^99XYZ^18842-5^退院時サマリー^LN",
+        f"{P1}_20261015_18842-5_S0001_{_stamp('20261015', '170000')}_{DEPT}_1",
+        {
+            "summary.txt": "【入院経過】肺炎の疑いで入院し、抗菌薬で軽快した。".encode(),
+            "_contents.xml": b'<?xml version="1.0" encoding="UTF-8"?><contents/>',
+        },
+    ),
     # a pathology report under a month day (YYYYMM), folder named with no local code: "^" first, the LOINC code
     # 11526-1 (病理検査報告書, S25 as review 12 §3 row 8 records it)
-    Document(P1, "202610", "^^^11526-1^病理検査報告書^LN",
-             f"{P1}_202610_11526-1_P0001_{_stamp('20261020', '120000')}_{DEPT}_1",
-             {"report.txt": "病理診断：悪性所見を認めない。".encode()}),  # fmt: skip
+    Document(
+        P1,
+        "202610",
+        "^^^11526-1^病理検査報告書^LN",
+        f"{P1}_202610_11526-1_P0001_{_stamp('20261020', '120000')}_{DEPT}_1",
+        {"report.txt": "病理診断：悪性所見を認めない。".encode()},
+    ),
     # a local-only data-type folder (S24: readers must accept local-only names) under the day "-"
-    Document(P2, "-", "L000301^看護記録^99XYZ", f"{P2}_-_L000301_N0001_{_stamp('20261002')}_{DEPT}_1",
-             {"note.txt": "夜間良眠。".encode()}),  # fmt: skip
+    Document(
+        P2,
+        "-",
+        "L000301^看護記録^99XYZ",
+        f"{P2}_-_L000301_N0001_{_stamp('20261002')}_{DEPT}_1",
+        {"note.txt": "夜間良眠。".encode()},
+    ),
     # a discharge summary written and then deleted: the newer content folder carries flag 0 (S24 2.2 (5)④: the flags
     # are on the content folder, review 12 §4.4)
-    Document(P2, "20261002", "^^^18842-5^退院時サマリー^LN",
-             f"{P2}_20261002_18842-5_S0002_{_stamp('20261002', '150000')}_{DEPT}_1",
-             {"summary.txt": "記載誤り。".encode()}),  # fmt: skip
-    Document(P2, "20261002", "^^^18842-5^退院時サマリー^LN",
-             f"{P2}_20261002_18842-5_S0002_{_stamp('20261002', '160000')}_{DEPT}_0", {}),
+    Document(
+        P2,
+        "20261002",
+        "^^^18842-5^退院時サマリー^LN",
+        f"{P2}_20261002_18842-5_S0002_{_stamp('20261002', '150000')}_{DEPT}_1",
+        {"summary.txt": "記載誤り。".encode()},
+    ),
+    Document(
+        P2,
+        "20261002",
+        "^^^18842-5^退院時サマリー^LN",
+        f"{P2}_20261002_18842-5_S0002_{_stamp('20261002', '160000')}_{DEPT}_0",
+        {},
+    ),
 ]
 
 

@@ -50,7 +50,8 @@ where it is (the storage is the hospital's), counted by type and reason in ``sta
 :attr:`Ssmix2Source.quarantined` for the steward, and the patient's other files still load. The table's night is held
 (``quarantine_reason``) only when more than ``quarantine_max_pct`` % of its files could not be read.
 
-ICD-10 comes from PRB-10, else PRB-3's alternate coding; when a vendor sends only the 標準病名 code it is looked up in the site's
+ICD-10 comes from PRB-10, else PRB-3's alternate coding; when a vendor sends only the 標準病名 code it is looked up
+in the site's
 licensed MEDIS release (``adapter.licensed``) and then in ``byomei_to_icd10.csv`` (``code,icd10``). Japan codes in
 WHO ICD-10 (2013), not ICD-10-CM (D-314): ``icd10`` is the WHO code as the site wrote it (written ``E14.9``: upper
 case, the dot after the category, a dagger or asterisk mark dropped), kept even when ICD-10-CM has no such code
@@ -113,7 +114,8 @@ _RECORD_TYPES = frozenset(t for types in TYPES.values() for t in types)
 ORDER_KEY_ENV = "TB_SSMIX2_ORDER_NUMBERS"
 ORDER_KEYS = ("unique", "per_day")  # D-594
 DEFAULT_ORDER_KEY = "per_day"  # the specification's key (D-1000, amends D-594's default "unique")
-ALL9 = "ALL9"  # the order number of data no order manages (患者基本, 病名, アレルギー): 構築ガイドライン 3.1 (review 12 §4.2)
+# the order number of data no order manages (患者基本, 病名, アレルギー): 構築ガイドライン 3.1 (review 12 §4.2)
+ALL9 = "ALL9"
 CHANGES = {"encounter": ("ADT-52",), "medication": ("OMP-11", "OMP-12")}  # read after the table's own types
 INJECTION = ("OMP-02", "OMP-12")
 JP_CORE = Path(__file__).resolve().parents[2] / "mapping" / "jp_core"
@@ -249,11 +251,12 @@ def _suspected(prb: hl7.Segment) -> bool:
 
 
 _ICD10_SYS = ("I10", "ICD10")  # the HL7 table 0396 name and the spelling vendors write
-# PRB-14 転帰 (10B-3, review 12 F2) -> the canonical diagnosis ``status``: A active, R resolved, I inactive, M remission,
-# U an outcome that says neither (D-587: no clinical status and unconfirmed, never active). HL7 table 0241 as HL7 v2.5
-# publishes it (D dead, F fully recovered, N not recovering or unchanged, P improving, R recovered with sequelae, S
-# deteriorated, U unknown, W worsening); JHSD0006 as review 12 §4.10 F2 records it (I 中止, M 寛解, C 継続, O その他),
-# not re-verified. The two tables share no code, so a PRB-14 that names no table is read against both.
+# PRB-14 転帰 (10B-3, review 12 F2) -> the canonical diagnosis ``status``: A active, R resolved,
+# I inactive, M remission, U an outcome that says neither (D-587: no clinical status and unconfirmed,
+# never active). HL7 table 0241 as HL7 v2.5 publishes it (D dead, F fully recovered, N not recovering or
+# unchanged, P improving, R recovered with sequelae, S deteriorated, U unknown, W worsening); JHSD0006 as
+# review 12 §4.10 F2 records it (I 中止, M 寛解, C 継続, O その他), not re-verified. The two tables share
+# no code, so a PRB-14 that names no table is read against both.
 _OUTCOME = {
     "HL70241": {"D": "I", "F": "R", "N": "A", "P": "A", "R": "R", "S": "A", "U": "U", "W": "A"},
     "JHSD0006": {"C": "A", "M": "M", "I": "U", "O": "U"},
@@ -499,13 +502,11 @@ class Ssmix2Source:
                     sf = parse_name(f)
                     if sf is None or not f.is_file():
                         continue
-                    # D-1000 (amends D-594): the specification's key (patient, 診療日, データ種別, オーダNo; 構築ガイドライン
-                    # 3.1.4, review 12 F1) is the default; ``unique`` is a site's declared exception, and even then
-                    # "ALL9" (data not managed by an order) and the ADT types (a per-day sequence, not an order
-                    # number) keep their day
-                    by_day = (
-                        sf.order in ("-", ALL9) or self.order_key == "per_day" or sf.type.startswith("ADT-")
-                    )
+                    # D-1000 (amends D-594): the specification's key (patient, 診療日, データ種別,
+                    # オーダNo; 構築ガイドライン 3.1.4, review 12 F1) is the default; ``unique`` is a site's
+                    # declared exception, and even then "ALL9" (data not managed by an order) and the ADT
+                    # types (a per-day sequence, not an order number) keep their day
+                    by_day = sf.order in ("-", ALL9) or self.order_key == "per_day" or sf.type.startswith("ADT-")
                     key = (sf.patient, sf.type, sf.order, sf.day if by_day else "")
                     cur = latest.get(key)
                     if cur is None or sf.stamp > cur.stamp:
@@ -890,7 +891,8 @@ class Ssmix2Source:
             per_day, how = doses_from_text(text), "usage text"
         daily = times(dose, per_day)
         if dose and not daily:
-            self.stats[f"{sf.type}:daily dose unknown ({'no frequency' if per_day is None else 'dose not a number'})"] += 1
+            why = "no frequency" if per_day is None else "dose not a number"
+            self.stats[f"{sf.type}:daily dose unknown ({why})"] += 1
             if code and per_day is None:
                 self.missed[f"usage:{code}"] += 1
         row.update(
@@ -1061,7 +1063,8 @@ class Ssmix2Source:
                 continue
             if f.is_dir():
                 self.stats["document:content folder"] += 1
-                texts, hows = [], []
+                texts: list[str] = []
+                hows: list[str] = []
                 for part in sorted(x for x in f.iterdir() if x.is_file()):
                     if part.name == CONTENTS_INDEX:
                         self.stats["document:_contents.xml not read"] += 1

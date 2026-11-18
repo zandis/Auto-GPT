@@ -116,7 +116,12 @@ def test_f2_every_outcome_is_read_none_reads_as_active_by_mistake(storage: kit.S
 def test_f2_a_suspicion_written_only_as_a_modifier_is_suspected(storage: kit.Storage) -> None:
     rows, _, _ = _diagnoses(storage)
     p = rows[kit.DX["pneumonia"]]
-    assert (p["byomei_name"], p["written_name"], p["modifiers"], p["suspected"]) == ("肺炎", "肺炎の疑い", "の疑い", "Y")
+    assert (p["byomei_name"], p["written_name"], p["modifiers"], p["suspected"]) == (
+        "肺炎",
+        "肺炎の疑い",
+        "の疑い",
+        "Y",
+    )
 
 
 def test_f2_the_japan_mapping_gives_each_status_its_fhir_word(storage: kit.Storage) -> None:
@@ -184,7 +189,12 @@ def test_f3_a_missing_or_unreadable_frequency_leaves_the_daily_dose_unknown(stor
 def test_f3_the_sites_usage_table_gives_the_doses_a_day_and_without_it_nothing_is_guessed(storage: kit.Storage) -> None:
     rows, _ = _medicines(storage)
     r = rows[kit.RX["coded"]]
-    assert (r["usage_code"], r["doses_per_day"], r["doses_per_day_from"], r["daily_dose"]) == ("U02", "2", "usage table", "2")
+    assert (r["usage_code"], r["doses_per_day"], r["doses_per_day_from"], r["daily_dose"]) == (
+        "U02",
+        "2",
+        "usage table",
+        "2",
+    )
     rows, _ = _medicines(storage, table=False)
     assert (rows[kit.RX["coded"]]["doses_per_day"], rows[kit.RX["coded"]]["daily_dose"]) == ("", "")
 
