@@ -24,7 +24,9 @@ measurement aid for a VALIDATION or DEV box), ``driver-tool-missing`` / ``driver
 more memory in use than ``--expect-used``), ``docker-missing``, ``image-not-local`` (it never pulls),
 ``ballast-already-running``. After allocating: ``allocation-failed``, ``off-target`` (released at once), and
 ``ballast-lost`` when the holder dies while the servers may still be running (records after that are not "by
-ballast"). Exit 0 on a clean release, 2 on a refusal, 1 on a lost ballast.
+ballast"). Every wait has a deadline (60 s for nvidia-smi and docker, 30 s for the holder to end): a release
+that cannot finish says what it left behind. Exit 0 on a clean release, 2 on a refusal, 1 on a lost ballast or
+something left behind.
 
 It is never started by the installer, compose or any service; it needs no network. Arithmetic and process control
 only: nothing here was run on a card (see docs/plan/measurements/ballast-stand-in-2026-11-18.md).
@@ -33,7 +35,7 @@ only: nothing here was run on a card (see docs/plan/measurements/ballast-stand-i
 from __future__ import annotations
 
 import argparse
-import contextlib
+import io
 import math
 import os
 import queue
@@ -58,6 +60,7 @@ CAPPED_TO = "RTX 5090 (32 GB), by ballast"
 CONTAINER = "tb-ballast"
 UTIL_KEYS = ("JUDGE_GPU_MEM_UTIL", "VERIFIER_GPU_MEM_UTIL")
 MARK = "# tb-ballast:"
+CMD_TIMEOUT_S = 60.0  # nvidia-smi or docker that has not answered by then is not going to: refuse, or release anyway
 
 Run = Callable[[Sequence[str]], str]
 
@@ -99,12 +102,16 @@ class Plan:
 # ------------------------------------------------------------------------------------------------ reading the card
 
 
-def run_cmd(cmd: Sequence[str]) -> str:
-    """Run a local tool and return its stdout; a missing or failing driver tool is a named refusal."""
+def run_cmd(cmd: Sequence[str], timeout: float = CMD_TIMEOUT_S) -> str:
+    """Run a local tool and return its stdout; a missing, failing or silent driver tool is a named refusal."""
     if shutil.which(cmd[0]) is None:
         code = "driver-tool-missing" if cmd[0] == "nvidia-smi" else f"{cmd[0]}-missing"
         raise Refused(code, f"{cmd[0]} is not on PATH")
-    p = subprocess.run(list(cmd), capture_output=True, text=True, check=False)
+    try:
+        p = subprocess.run(list(cmd), capture_output=True, text=True, check=False, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        code = "driver-tool-failed" if cmd[0] == "nvidia-smi" else f"{cmd[0]}-failed"
+        raise Refused(code, f"{' '.join(cmd[:2])} did not answer in {timeout:.0f} s") from None
     if p.returncode != 0:
         first = (p.stderr or p.stdout).strip().splitlines()[:1]
         code = "driver-tool-failed" if cmd[0] == "nvidia-smi" else f"{cmd[0]}-failed"
@@ -286,7 +293,7 @@ class Allocator(Protocol):
     def preflight(self) -> None: ...
     def start(self, target_free: int, index: int) -> tuple[int, int]: ...  # (MiB held, MiB free as the holder sees it)
     def alive(self) -> bool: ...
-    def release(self) -> None: ...
+    def release(self) -> str: ...  # what is left behind, "" when nothing
 
 
 # Runs inside the vLLM image: allocate until the device reports the target free, print what it holds, then wait.
@@ -370,15 +377,24 @@ class DockerAllocator:
     def alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
 
-    def release(self) -> None:
-        with contextlib.suppress(Refused):  # not there: nothing to release
+    def release(self) -> str:
+        """Remove the container and end the ``docker run`` client, each within a deadline; never waits for ever."""
+        left = ""
+        try:
             self.run(["docker", "rm", "-f", CONTAINER])
-        if self.proc is not None:
+        except Refused as e:
+            if e.code != "docker-failed" or "did not answer" in e.text:  # "no such container" is a clean release
+                left = f"the {CONTAINER} container may remain ({e.text}): `python3 -m tools.ballast release`"
+        if self.proc is not None and self.proc.poll() is None:
             try:
                 self.proc.wait(timeout=30)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
-                self.proc.wait()
+                try:
+                    self.proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    left += f"{'; ' if left else ''}the docker client (pid {self.proc.pid}) did not end"
+        return left
 
 
 # ------------------------------------------------------------------------------------------------ hold
@@ -450,7 +466,10 @@ def hold(
     finally:
         for s in old:
             signal.signal(s, signal.SIG_IGN)  # a second Ctrl-C does not cut the release short
-        allocator.release()
+        left = allocator.release()
+        if left:
+            say(f"left behind: {left}")
+            code = code or 1
         if env_file is not None and env_set:
             restore_env(env_file)
         for s, h in old.items():
@@ -468,6 +487,8 @@ def _wait_alive(allocator: Allocator, poll: float = 2.0) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(line_buffering=True)  # "ready" must reach a pipe at once, not when the buffer fills
     ap = argparse.ArgumentParser(prog="python3 -m tools.ballast", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name in ("plan", "hold", "release"):

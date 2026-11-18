@@ -6,9 +6,11 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import signal
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -63,10 +65,11 @@ class FakeHolder:
     def alive(self) -> bool:
         return self.up
 
-    def release(self) -> None:
+    def release(self) -> str:
         self.calls.append("release")
         self.card.used = 300
         self.up = False
+        return ""
 
 
 # ------------------------------------------------------------------------------------------------ arithmetic
@@ -294,7 +297,8 @@ def _fakes(tmp_path: Path) -> tuple[dict[str, str], Path]:
         f.chmod(0o755)
     state = tmp_path / "gpu.json"
     state.write_text(json.dumps({"used": 300}))
-    env = {k: v for k, v in os.environ.items() if k not in ("TB_ENV", "VLLM_IMAGE")}
+    # PYTHONUNBUFFERED out: a CI runner does not set it, and the CLI's "ready" must reach a pipe without it
+    env = {k: v for k, v in os.environ.items() if k not in ("TB_ENV", "VLLM_IMAGE", "PYTHONUNBUFFERED")}
     env.update(PATH=str(bindir), BALLAST_FAKE_STATE=str(state), PYTHONPATH=str(ROOT))
     return env, state
 
@@ -306,25 +310,65 @@ def test_the_cli_holds_until_a_signal_and_releases_everything(sig: signal.Signal
     dotenv.write_text("TB_ENV=VALIDATION\n")
     p = subprocess.Popen(
         [sys.executable, "-m", "tools.ballast", "hold", "--env-file", str(dotenv)],
-        cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        start_new_session=True,  # its own process group: the finally below ends the CLI and the fake holder together
     )  # fmt: skip
-    assert p.stdout is not None
-    lines = []
-    for line in p.stdout:
-        lines.append(line)
-        if line.startswith("ready"):
-            break
-    else:
-        pytest.fail("".join(lines))
-    assert "VERIFIER_GPU_MEM_UTIL=0.537" in dotenv.read_text()
-    assert json.loads(state.read_text())["used"] == 49140 - 32607 + 40
-    p.send_signal(sig)
-    rest, _ = p.communicate(timeout=30)
-    assert p.returncode == 0, "".join(lines) + rest
+    lines: queue.Queue[str | None] = queue.Queue()
+
+    def pump() -> None:
+        assert p.stdout is not None
+        for line in p.stdout:
+            lines.put(line)
+        lines.put(None)
+
+    def until(stop: str | None, deadline: float) -> list[str]:
+        got: list[str] = []
+        while True:
+            try:
+                line = lines.get(timeout=max(0.1, deadline - time.monotonic()))
+            except queue.Empty:
+                pytest.fail(f"no {stop or 'end of output'} in time: {''.join(got)}")
+            if line is None:
+                if stop is None:
+                    return got
+                pytest.fail(f"the CLI ended before {stop}: {''.join(got)}")
+            got.append(line)
+            if stop is not None and line.startswith(stop):
+                return got
+
+    threading.Thread(target=pump, daemon=True).start()
+    try:
+        head = until("ready", time.monotonic() + 60)
+        assert "VERIFIER_GPU_MEM_UTIL=0.537" in dotenv.read_text()
+        assert json.loads(state.read_text())["used"] == 49140 - 32607 + 40
+        p.send_signal(sig)
+        rest = "".join(until(None, time.monotonic() + 60))
+        assert p.wait(timeout=30) == 0, "".join(head) + rest
+    finally:
+        if p.poll() is None:
+            os.killpg(p.pid, signal.SIGKILL)
+            p.wait(timeout=30)
     assert rest.rstrip().endswith("released")
     assert json.loads(state.read_text()) == {"used": 300}  # the holder is gone, its memory free
     assert "rm -f tb-ballast" in Path(f"{state}.calls").read_text()
     assert dotenv.read_text() == "TB_ENV=VALIDATION\n"
+
+
+def test_a_docker_that_does_not_answer_is_released_within_a_deadline_and_said() -> None:
+    def run(cmd: Sequence[str]) -> str:
+        raise b.Refused("docker-failed", "docker rm did not answer in 60 s")
+
+    left = b.DockerAllocator("img", run=run).release()
+    assert "tb-ballast container may remain" in left and "tools.ballast release" in left
+    assert b.DockerAllocator("img", run=lambda _c: "").release() == ""
+
+
+def test_a_release_that_leaves_something_behind_exits_1() -> None:
+    card, out = FakeCard(), list[str]()
+    holder = FakeHolder(card)
+    holder.release = lambda: "the tb-ballast container may remain"  # type: ignore[method-assign]
+    rc = b.hold(index=0, allocator=holder, run=card, profile=PROFILE, say=out.append, wait=lambda _a: None)
+    assert rc == 1 and "left behind: the tb-ballast container may remain" in out
 
 
 def test_the_cli_without_the_driver_tool_refuses(tmp_path: Path) -> None:

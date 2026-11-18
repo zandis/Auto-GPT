@@ -27,6 +27,8 @@ confirmed in O-1.
   The 0.81 is read from the profile's compose file, not repeated in the script.
 - Ctrl-C, SIGTERM or SIGHUP release everything: `docker rm -f tb-ballast`, the env file put back, "released" printed.
   If the holder dies while held, it says `ballast-lost` and exits 1: records taken after that are not "by ballast".
+  Every wait has a deadline (60 s for `nvidia-smi` and `docker`, 30 s for the holder to end), so a hung docker never
+  keeps it from exiting; a release that cannot finish prints `left behind:` with what remains and exits 1.
   If the script itself is killed with SIGKILL, `python3 -m tools.ballast release --env-file deploy/.env` removes the
   container and puts the values back from the marked lines.
 - Every record taken under it is captured with `--capped-to "RTX 5090 (32 GB), by ballast"`, which
