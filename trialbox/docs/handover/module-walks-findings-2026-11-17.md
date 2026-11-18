@@ -47,7 +47,7 @@ on master: the sheet reads the box's day throughout. The term finding that follo
 Clicks are counted from the previous step's page; signing in and choosing the language count on a role's first step,
 and the sign-ins of a step's refusals (each refused role signs in first) are counted in that step too. Page, clicks
 and median seconds are from three runs of `make walk-modules` in a row on fresh boxes (2026-11-17, a 4-core
-container, master `7da6edd3` merged; 21 m 46 s, 21 m 30 s, 20 m 54 s), the page and the clicks in en.
+container, master `a4aa0be1`; 28 m 11 s, 26 m 3 s, 26 m 40 s), the page and the clicks in en.
 Severity is the walk's: blocks the step, slows the tester, cosmetic. The register's scale is in the JSON file
 (blocks and slows map to Medium, cosmetic to Low).
 
@@ -61,12 +61,12 @@ Roles: coordinator, investigator, viewer, cro, steward. Study: the seeded study 
 
 | Step | Role | Matrix row | What the step does | Page reached (en) | Clicks | The clicks (en) | Median s | Refused (403) | Guesses |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | coordinator | `–` | Sign in and choose the page language. | `/home` · My work | 3 | Sign in → Change → Change | 3.5 | – | – |
-| 2 | coordinator | `command.FEAS` | Open New request (More) and count eligible patients for the approved study. | `/pilot/jobs/{job}` · FEAS AD-MAB v1.0.0 done | 9 | More → New request → Count eligible patients → Sign in → Change → Sign in → Change → Sign in → Change | 6.2 | steward: `POST /pilot/request`; viewer: `POST /pilot/request`; cro: `POST /pilot/request` | – |
-| 3 | coordinator | `phi.view` | Open Reports and the study's feasibility report. | `/studies/AD-MAB/feasibility` · AD-MAB · Feasibility report | 2 | Reports → Open report | 0.5 | – | – |
-| 4 | investigator | `task.screen` | As the investigator (the study's PI): open Reports and the study's feasibility report. | `/studies/AD-MAB/feasibility` · AD-MAB · Feasibility report | 5 | Sign in → Change → Change → Reports → Open report | 3.4 | – | – |
-| 5 | viewer | `report.office` | As the viewer: open Reports and the study's report. | `/studies/AD-MAB/feasibility` · AD-MAB · Feasibility report | 3 | Change → Reports → Open report | 0.6 | viewer: `GET /studies/{rs}/candidates` | – |
-| 6 | cro | `report.sponsor_form` | As the CRO account: open Reports and the sponsor copy of its study's report. | `/studies/GZQO/feasibility` · GZQO · Feasibility report | 3 | Change → Reports → Open report | 0.9 | cro: `GET /studies/GZQO/candidates` | – |
+| 1 | coordinator | `–` | Sign in and choose the page language. | `/home` · My work | 3 | Sign in → Change → Change | 4.2 | – | – |
+| 2 | coordinator | `command.FEAS` | Open New request (More) and count eligible patients for the approved study. | `/pilot/jobs/{job}` · FEAS AD-MAB v1.0.0 done | 9 | More → New request → Count eligible patients → Sign in → Change → Sign in → Change → Sign in → Change | 8.3 | steward: `POST /pilot/request`; viewer: `POST /pilot/request`; cro: `POST /pilot/request` | – |
+| 3 | coordinator | `phi.view` | Open Reports and the study's feasibility report. | `/studies/AD-MAB/feasibility` · AD-MAB · Feasibility report | 2 | Reports → Open report | 0.6 | – | – |
+| 4 | investigator | `task.screen` | As the investigator (the study's PI): open Reports and the study's feasibility report. | `/studies/AD-MAB/feasibility` · AD-MAB · Feasibility report | 5 | Sign in → Change → Change → Reports → Open report | 4.5 | – | – |
+| 5 | viewer | `report.office` | As the viewer: open Reports and the study's report. | `/studies/AD-MAB/feasibility` · AD-MAB · Feasibility report | 3 | Change → Reports → Open report | 0.8 | viewer: `GET /studies/{rs}/candidates` | – |
+| 6 | cro | `report.sponsor_form` | As the CRO account: open Reports and the sponsor copy of its study's report. | `/studies/GZQO/feasibility` · GZQO · Feasibility report | 3 | Change → Reports → Open report | 1.2 | cro: `GET /studies/GZQO/candidates` | – |
 | 7 | coordinator | `command.FEAS` | On New request: read what this box does not do without a GPU (note criteria, screening). | `/pilot/request` · New request (stops: FEA-01) | 2 | More → New request | 0.2 | – | – |
 
 #### Feasibility: the findings by step
@@ -90,14 +90,14 @@ Roles: coordinator, investigator, steward, operator. Study: a new study per lang
 | Step | Role | Matrix row | What the step does | Page reached (en) | Clicks | The clicks (en) | Median s | Refused (403) | Guesses |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1–15 | (H-10, H-20) | – | H-10's new study and H-20's steps 12 to 15, unchanged: protocol in, PI named, approval, FEAS, SCREEN, candidates; weekly page, Approach, contact outcome, consent and enrolment | – | – | – | – | as H-10 and H-20 | – |
-| 16 | coordinator | `task.enter_data` | On the participant's page: Add an adverse event. | `/studies/{rs}/entry` · {rs} · Data entry (stops: SAF-01) | 1 | Add an adverse event | 0.2 | – | – |
-| 17 | coordinator | `task.enter_data` | Add the built-in forms on the study's Forms page; back on the participant's page, Add an adverse event, fill the AE form for a serious event (hospital stay) and save. | `/studies/{rs}/subjects/{rs}-0001` · Participant {rs}-0001 | 15 | Forms → Add the built-in forms → My studies → Participants → {rs}-0001 → Add an adverse event → Serious: Yes → Why serious: Hospital stay or a longer stay → Severity: Moderate → Outcome: Recovering → Related to the study treatment or procedure: Unknown → Related in the sponsor's assessment: Not yet assessed → Expected per the reference safety information: Not yet assessed → Treatment unblinded for this event: Open-label study → Save | 4.3 | steward: `POST /studies/{rs}/entry`; operator: `POST /studies/{rs}/entry` | SAF-03 |
-| 18 | coordinator | `sae.record` | Open the SAE register (More), then the case of the new SAE. | `/studies/{rs}/sae/{rs}-0001/ae1` · Serious adverse event {rs}-0001 · ae1 (stops: SAF-02) | 3 | More → SAE register → Open | 0.9 | steward: `GET /sae`; operator: `GET /sae` | – |
-| 19 | coordinator | `study.state` | Open the study's state: it counts as open with no state recorded. Pause it (with a reason), then try to open it again. | `/studies/{rs}/state` · {rs} · Study state and identifiers | 5 | More → {rs} · Study set-up → Study state and identifiers → Change state → Change state | 1.1 | steward: `POST /studies/{rs}/state` | – |
-| 20 | coordinator | `study.setup` | On the study's set-up: choose the SAE rule set (Taiwan, trial) and confirm it; then open the study. | `/studies/{rs}/state` · {rs} · Study state and identifiers | 5 | More → {rs} · Study set-up → Save and confirm → Study state and identifiers → Change state | 1.3 | investigator: `POST /studies/{rs}/setup/sae` | – |
-| 21 | investigator | `sae.ack` | As the investigator: open the SAE register, the case, and acknowledge it. | `/studies/{rs}/sae/{rs}-0001/ae1` · Serious adverse event {rs}-0001 · ae1 | 4 | More → SAE register → Open → Acknowledge | 1.3 | coordinator: `POST /studies/{rs}/sae/{record}/ae1/ack` | – |
-| 22 | coordinator | `sae.record` | Open the case again and record the first report as sent today. | `/studies/{rs}/sae/{rs}-0001/ae1` · Serious adverse event {rs}-0001 · ae1 | 4 | More → SAE register → Open → Record the report sent | 1.3 | investigator: `POST /studies/{rs}/sae/{record}/ae1/sent` | – |
-| 23 | steward | `audit.browse` | As the data steward: open the audit trail and filter on the event "SAE record changed". | `/audit` · Audit trail | 2 | Audit trail → Show | 0.3 | coordinator: `GET /audit` | – |
+| 16 | coordinator | `task.enter_data` | On the participant's page: Add an adverse event. | `/studies/{rs}/entry` · {rs} · Data entry (stops: SAF-01) | 1 | Add an adverse event | 0.3 | – | – |
+| 17 | coordinator | `task.enter_data` | Add the built-in forms on the study's Forms page; back on the participant's page, Add an adverse event, fill the AE form for a serious event (hospital stay) and save. | `/studies/{rs}/subjects/{rs}-0001` · Participant {rs}-0001 | 15 | Forms → Add the built-in forms → My studies → Participants → {rs}-0001 → Add an adverse event → Serious: Yes → Why serious: Hospital stay or a longer stay → Severity: Moderate → Outcome: Recovering → Related to the study treatment or procedure: Unknown → Related in the sponsor's assessment: Not yet assessed → Expected per the reference safety information: Not yet assessed → Treatment unblinded for this event: Open-label study → Save | 6.0 | steward: `POST /studies/{rs}/entry`; operator: `POST /studies/{rs}/entry` | SAF-03 |
+| 18 | coordinator | `sae.record` | Open the SAE register (More), then the case of the new SAE. | `/studies/{rs}/sae/{rs}-0001/ae1` · Serious adverse event {rs}-0001 · ae1 | 3 | More → SAE register → Open | 1.3 | steward: `GET /sae`; operator: `GET /sae` | – |
+| 19 | coordinator | `study.state` | Open the study's state: open since the imported steps, which chose its type for SAE reporting before it opened (D-1153). | `/studies/{rs}/state` · {rs} · Study state and identifiers | 3 | More → {rs} · Study set-up → Study state and identifiers | 0.8 | steward: `POST /studies/{rs}/state` | – |
+| 20 | coordinator | `study.setup` | On the study's set-up: read the SAE rule set chosen when the study opened (Taiwan, trial). | `/studies/{rs}/setup` · {rs} · Study set-up | 2 | More → {rs} · Study set-up | 0.5 | investigator: `POST /studies/{rs}/setup/sae` | – |
+| 21 | investigator | `sae.ack` | As the investigator: open the SAE register, the case, and acknowledge it. | `/studies/{rs}/sae/{rs}-0001/ae1` · Serious adverse event {rs}-0001 · ae1 | 4 | More → SAE register → Open → Acknowledge | 1.7 | coordinator: `POST /studies/{rs}/sae/{record}/ae1/ack` | – |
+| 22 | coordinator | `sae.record` | Open the case again and record the first report as sent today. | `/studies/{rs}/sae/{rs}-0001/ae1` · Serious adverse event {rs}-0001 · ae1 | 4 | More → SAE register → Open → Record the report sent | 1.7 | investigator: `POST /studies/{rs}/sae/{record}/ae1/sent` | – |
+| 23 | steward | `audit.browse` | As the data steward: open the audit trail and filter on the event "SAE record changed". | `/audit` · Audit trail | 2 | Audit trail → Show | 0.4 | coordinator: `GET /audit` | – |
 | 24 | investigator | `–` | As the investigator: open Notices received and find the notice of the new SAE. | `/notices/received` · Notices received (stops: SAF-07) | 2 | More → Notices received | 0.1 | – | – |
 
 #### Safety: the findings by step
@@ -106,12 +106,18 @@ Roles: coordinator, investigator, steward, operator. Study: a new study per lang
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | SAF-01 | 16 | coordinator | `/studies/{rs}/entry` | 1 | the participant's page offers "Add an adverse event" in a new study that has no forms; the link opens the data-entry page, which says "This study has no forms yet. Add the built-in forms or import a REDCap data dictionary on the page: Forms" | the AE form opens from the participant's page, or the page says the study's forms are to be added first (D-129 (the built-in forms), D-134; `life.ae.add`) | blocks the step | C2 |
 | SAF-03 | 17 | coordinator | `/studies/{rs}/forms` | 15 | after adding the forms, no link leads back to the participant; the walk goes to My studies and the study card's "Participants" (as H-20 F-07) | a way back to the page the coordinator came from (the participant) (D-133 (three ways on), D-134) | slows the tester | C2 |
-| SAF-04 | 17 | coordinator | `/studies/{rs}/subjects/{record}` | 15 | the AE line says "Reporting clock: no due date yet: enter the onset or the day the site learned of it" though both days were entered; the cause is the study's missing SAE rule set | the clock names its cause: the study's rule set is not chosen (`sae.flag.unconfirmed`) (`life.clock.nostart`, D-277) | slows the tester | C2 |
-| SAF-02 | 18 | coordinator | `/studies/{rs}/sae/{record}/ae1` | 3 | the new SAE has no report and no deadline: "TrialBox tracks no report for this kind of SAE", "The study has not chosen its SAE rule set". The new study counts as open with no state recorded, so its type for SAE reporting was never asked (as H-20 F-14) | a trial does not open until its type for SAE reporting is chosen, so a serious AE of an open trial always has its deadlines (D-415 rule 3, D-277, D-386) | blocks the step | C2 |
+| SAF-09 | 17 | coordinator | `/studies/{rs}/subjects/{record}` | 15 | the AE line's reporting clock names the regulator "Regulator (PMDA / TFDA)" in en and "規制当局（PMDA）" in ja for a study whose SAE rule set is Taiwan's (TFDA); the case page (step 18) says "Regulator (TFDA)", and zh-TW says TFDA on both | the clock names the regulator of the study's rule set, as the case page does (`life.clock.party.regulator`; D-277) | slows the tester | C2 |
 | SAF-08 | 18 | coordinator | `/sae` | 3 | the steps-mode box has no trial office mailbox: the register says "This box has no trial office mailbox (TB_SAE_OFFICE_MAILBOX): a new serious adverse event is mailed to the study's PI only" | the steps-mode box set up as a site is (a test mailbox for the trial office), so the office's copy can be walked (FIT-025, D-764; `tools/demo.py`) | cosmetic | integrator |
-| SAF-05 | 19 | coordinator | `/studies/{rs}/state` | 5 | the type check of D-415 is reached only by pausing the study (its lists and list mails stop) and opening it again: a study with no state recorded offers no "Open" | the type is asked when the study is first opened (or the set-up says it is missing) (D-415 rule 3, D-386) | slows the tester | C2 |
 | SAF-06 | 23 | steward | `/audit` | 2 | the notice the box recorded reads "page=office_copy to=<the PI's mailbox> event=ae1": the action is labelled "page" and given as a code, in every language | the audit row says in words that the new SAE was notified, and to whom (D-764, FIT-025; `console.sae`) | cosmetic | C2 |
 | SAF-07 | 24 | investigator | `/notices/received` | 2 | Notices received lists the morning lists only: the SAE notice the box recorded as mailed to the PI (audit `office_copy`, step 23) is not there | "The notices TrialBox mailed you, newest first": the SAE notice among them (`received.help`, D-764) | blocks the step | C2 |
+
+#### Safety: no longer seen
+
+| Id | Step | What an earlier run saw | What the walk sees now | Changed by |
+| --- | --- | --- | --- | --- |
+| SAF-02 | 18 | the new SAE had no report and no deadline ("TrialBox tracks no report for this kind of SAE", "The study has not chosen its SAE rule set"): the new study counted as open, so its SAE type was never asked | the case lists its three first reports with their due days (sponsor, IRB, regulator) | D-1153 (WALK-1): a new study starts in start-up and opens only through D-415's SAE-type check |
+| SAF-04 | 17 | the AE line said "Reporting clock: no due date yet: enter the onset or the day the site learned of it" though both days were entered (no SAE rule set) | the AE line gives each party's due day | D-1153 (WALK-1): the rule set is chosen before the study opens |
+| SAF-05 | 19 | D-415's type check was reached only by pausing the study and opening it again: a study with no state recorded offered no "Open" | the study opens from start-up and the type is asked then (the imported steps); the state page reads open | D-1153 (WALK-1) |
 
 #### Safety: cannot complete on a steps-mode box
 
@@ -127,13 +133,13 @@ Roles: cro, operator, steward, coordinator, investigator. Study: the seeded stud
 
 | Step | Role | Matrix row | What the step does | Page reached (en) | Clicks | The clicks (en) | Median s | Refused (403) | Guesses |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | cro | `monitor.read` | As the CRO account: open the monitoring page of a study it is named for, before any grant. | `/studies/GOUT-COH/monitor` · This page needs another role (stops: MON-01) | 4 | Sign in → Change → Change → (typed) /studies/GOUT-COH/monitor | 1.3 | – | – |
-| 2 | operator | `account.create.aggregate` | As the administrator: open Users and find the CRO account and its studies. | `/ops/users` · Users | 6 | Sign in → Change → Change → Users → Sign in → Change | 1.5 | steward: `POST /ops/users` | – |
-| 3 | steward | `monitor.grant` | As the data steward: on the study's delegation log, add the CRO account as monitor for one visit (its id, its last day). | `/studies/GZQO/team` · GZQO · Delegation log | 5 | Change → (typed) /studies/GZQO/team → Add and sign → Sign in → Change | 7.6 | coordinator: `POST /studies/{rs}/team`; cro: `POST /studies/{rs}/team`; operator: `POST /studies/{rs}/team` | MON-02 |
-| 4 | cro | `monitor.read` | As the CRO account: open Reports (its monitoring line is there now), then Monitoring from the menu. | `/studies/GZQO/monitor` · GZQO · Monitoring | 2 | Reports → Monitoring · GZQO | 1.1 | cro: `GET /studies/{rs}/week`; cro: `GET /studies/{rs}/candidates`; cro: `GET /studies/{rs}/subjects/GZQO-0001`; cro: `GET /studies/{rs}/monitor/GZQO-0002`; cro: `GET /sae` | – |
-| 5 | cro | `monitor.read` | Open the enrolled subject's source-reference sheet. | `/studies/GZQO/monitor/GZQO-0001` · GZQO · Source references · GZQO-0001 | 1 | GZQO-0001 | 0.3 | – | – |
-| 6 | cro | `monitor.visit` | Record the monitoring visit: its day, the subject verified, the findings. | `/studies/GZQO/monitor` · GZQO · Monitoring | 3 | Monitoring · GZQO → GZQO-0001 → Save the visit record | 0.8 | coordinator: `POST /studies/{rs}/monitor/visits` | – |
-| 7 | investigator | `monitor.grant` | As the investigator (the study's PI): read the monitoring visits. | `/studies/GZQO/monitor` · GZQO · Monitoring | 4 | Sign in → Change → Change → (typed) /studies/GZQO/monitor | 2.3 | – | MON-03 |
+| 1 | cro | `monitor.read` | As the CRO account: open the monitoring page of a study it is named for, before any grant. | `/studies/GOUT-COH/monitor` · This page needs another role (stops: MON-01) | 4 | Sign in → Change → Change → (typed) /studies/GOUT-COH/monitor | 1.6 | – | – |
+| 2 | operator | `account.create.aggregate` | As the administrator: open Users and find the CRO account and its studies. | `/ops/users` · Users | 6 | Sign in → Change → Change → Users → Sign in → Change | 1.8 | steward: `POST /ops/users` | – |
+| 3 | steward | `monitor.grant` | As the data steward: on the study's delegation log, add the CRO account as monitor for one visit (its id, its last day). | `/studies/GZQO/team` · GZQO · Delegation log | 5 | Change → (typed) /studies/GZQO/team → Add and sign → Sign in → Change | 9.7 | coordinator: `POST /studies/{rs}/team`; cro: `POST /studies/{rs}/team`; operator: `POST /studies/{rs}/team` | MON-02 |
+| 4 | cro | `monitor.read` | As the CRO account: open Reports (its monitoring line is there now), then Monitoring from the menu. | `/studies/GZQO/monitor` · GZQO · Monitoring | 2 | Reports → Monitoring · GZQO | 1.4 | cro: `GET /studies/{rs}/week`; cro: `GET /studies/{rs}/candidates`; cro: `GET /studies/{rs}/subjects/GZQO-0001`; cro: `GET /studies/{rs}/monitor/GZQO-0002`; cro: `GET /sae` | – |
+| 5 | cro | `monitor.read` | Open the enrolled subject's source-reference sheet. | `/studies/GZQO/monitor/GZQO-0001` · GZQO · Source references · GZQO-0001 | 1 | GZQO-0001 | 0.4 | – | – |
+| 6 | cro | `monitor.visit` | Record the monitoring visit: its day, the subject verified, the findings. | `/studies/GZQO/monitor` · GZQO · Monitoring | 3 | Monitoring · GZQO → GZQO-0001 → Save the visit record | 1.0 | coordinator: `POST /studies/{rs}/monitor/visits` | – |
+| 7 | investigator | `monitor.grant` | As the investigator (the study's PI): read the monitoring visits. | `/studies/GZQO/monitor` · GZQO · Monitoring | 4 | Sign in → Change → Change → (typed) /studies/GZQO/monitor | 2.8 | – | MON-03 |
 
 #### Monitoring: the findings by step
 
@@ -157,12 +163,12 @@ Roles: coordinator, investigator, steward. Study: a new study per language (AMEN
 | Step | Role | Matrix row | What the step does | Page reached (en) | Clicks | The clicks (en) | Median s | Refused (403) | Guesses |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1–15 | (H-10, H-20) | – | H-10's new study and H-20's steps 12 to 15, unchanged: protocol in, PI named, approval, FEAS, SCREEN, candidates; weekly page, Approach, contact outcome, consent and enrolment | – | – | – | – | as H-10 and H-20 | – |
-| 16 | investigator | `task.approach` | As the investigator: open the first patient of the weekly page and mark Approach. | `/studies/{rs}/week` · This week's patients · {rs} | 4 | This week's patients → {rs} → patient {short} → Approach | 6.5 | coordinator: `POST /studies/{rs}/patients/{pid}/mark` | AMD-01 |
-| 17 | coordinator | `request.prepare` | Read the candidates; then on the protocol page type the study's own id, paste the amended criteria (age 20 or older) and send them. | `/pilot/jobs/{job}` · FEAS {rs} v1.1.0 waiting for approval | 6 | This week's patients → {rs} → Candidates → More → Protocol → Compile | 3.7 | coordinator: `POST /pilot/jobs/{job}/approve`; steward: `POST /pilot/protocol` | – |
-| 18 | investigator | `criteria.approve` | As the investigator: open the criteria waiting for approval (v1.1.0), check each row, give the amendment record (IRB approval number and day) and approve all. | `/pilot/jobs/{job}` · APPROVE {rs} v1.1.0 done | 8 | This week's patients → Criteria waiting for your approval: {rs} v1.1.0 → Open → Open → Open → Open → Approve all → Yes, do it | 7.1 | – | – |
-| 19 | coordinator | `command.SCREEN` | Read the weekly page (the list of 1.0.0), then run SCREEN on the study: it runs on version 1.1.0. | `/pilot/jobs/{job}` · SCREEN {rs} v1.1.0 done | 5 | This week's patients → {rs} → More → New request → Find candidates for the next visits | 41.5 | – | – |
-| 20 | coordinator | `task.screen` | From the weekly page, open Re-screen after amendment. | `/studies/{rs}/rescreen` · {rs} · Re-screen after amendment | 6 | This week's patients → {rs} → Candidates → This week's patients → {rs} → Re-screen after amendment | 7.2 | steward: `GET /studies/{rs}/rescreen` | – |
-| 21 | investigator | `task.screen` | As the investigator: open the weekly page's list of approached patients after the amendment. | `/studies/{rs}/week` · This week's patients · {rs} | 3 | This week's patients → {rs} → Approved and contacted | 3.8 | – | AMD-05 |
+| 16 | investigator | `task.approach` | As the investigator: open the first patient of the weekly page and mark Approach. | `/studies/{rs}/week` · This week's patients · {rs} | 4 | This week's patients → {rs} → patient {short} → Approach | 8.7 | coordinator: `POST /studies/{rs}/patients/{pid}/mark` | AMD-01 |
+| 17 | coordinator | `request.prepare` | Read the candidates; then on the protocol page type the study's own id, paste the amended criteria (age 20 or older) and send them. | `/pilot/jobs/{job}` · FEAS {rs} v1.1.0 waiting for approval | 6 | This week's patients → {rs} → Candidates → More → Protocol → Compile | 5.1 | coordinator: `POST /pilot/jobs/{job}/approve`; steward: `POST /pilot/protocol` | – |
+| 18 | investigator | `criteria.approve` | As the investigator: open the criteria waiting for approval (v1.1.0), check each row, give the amendment record (IRB approval number and day) and approve all. | `/pilot/jobs/{job}` · APPROVE {rs} v1.1.0 done | 8 | This week's patients → Criteria waiting for your approval: {rs} v1.1.0 → Open → Open → Open → Open → Approve all → Yes, do it | 9.9 | – | – |
+| 19 | coordinator | `command.SCREEN` | Read the weekly page (the list of 1.0.0), then run SCREEN on the study: it runs on version 1.1.0. | `/pilot/jobs/{job}` · SCREEN {rs} v1.1.0 done | 5 | This week's patients → {rs} → More → New request → Find candidates for the next visits | 46.5 | – | – |
+| 20 | coordinator | `task.screen` | From the weekly page, open Re-screen after amendment. | `/studies/{rs}/rescreen` · {rs} · Re-screen after amendment | 6 | This week's patients → {rs} → Candidates → This week's patients → {rs} → Re-screen after amendment | 9.3 | steward: `GET /studies/{rs}/rescreen` | – |
+| 21 | investigator | `task.screen` | As the investigator: open the weekly page's list of approached patients after the amendment. | `/studies/{rs}/week` · This week's patients · {rs} | 3 | This week's patients → {rs} → Approved and contacted | 5.1 | – | AMD-05 |
 
 #### Amendment: the findings by step
 
@@ -187,25 +193,27 @@ Roles: coordinator, investigator, steward. Study: a new study per language (AMEN
 | Module | Steps | Refusals | blocks the step | slows the tester | cosmetic | Lanes |
 | --- | --- | --- | --- | --- | --- | --- |
 | feasibility | 7 | 5 | 1 | 0 | 0 | D 1 |
-| safety | 9 | 9 | 3 | 3 | 2 | C2 7, integrator 1 |
+| safety | 9 | 9 | 2 | 2 | 2 | C2 5, integrator 1 |
 | monitoring | 7 | 10 | 1 | 2 | 1 | C2 4 |
 | amendment | 6 | 4 | 0 | 2 | 4 | C2 6 |
 
 <!-- module-walks: end of findings -->
 
-## When lane C2's WALK-1 is on master
+## After lane C2's WALK-1 (D-1153)
 
-WALK-1 (D-1153, lane C2's #1013) was not on master when these walks ran (master `7da6edd3`). Once it lands, a study
-the box does not know starts in start-up, opens only through "Study state and identifiers" → Open after its type for
-SAE reporting is chosen, SCREEN is refused until it is open, and Withdraw, Screen fail and Close ask for confirmation.
-These steps change then:
+WALK-1 is on master since train 83 (`a4aa0be1`): a study the box does not know starts in start-up and opens only
+through "Study state and identifiers" → Open after its type for SAE reporting is chosen; SCREEN is refused until it
+is open; Withdraw, Screen fail and Close ask for confirmation. The first runs of these walks (master `7da6edd3`) were
+before it. What changed (card H-29b):
 
-- **Safety and amendment, steps 1 to 15** (H-20's, imported): H-10's SCREEN (step 10) needs the study opened first;
-  the walks follow whatever H-30 makes of H-20's plan, since they import it.
-- **Safety, steps 19 and 20**: the walk pauses the study to reach D-415's check (SAF-05) and then chooses the type and
-  opens it. With WALK-1 the type is chosen and the study opened before SCREEN, so steps 19 and 20 become a read of
-  the open state, and SAF-02 and SAF-05 are to be walked again (they should close).
-- **Feasibility and monitoring** walk seeded studies and do not change.
+- **Safety and amendment, steps 1 to 15** are H-20's as H-30 made them, imported: the study is opened through the SAE
+  type before H-10's SCREEN.
+- **Safety, steps 19 and 20** no longer pause the study and open it again to reach D-415's check: step 19 reads the
+  open state, step 20 the SAE rule set chosen at opening; step 18 expects the case's reports.
+- **SAF-02, SAF-04 and SAF-05 are no longer seen** (the safety walk's "no longer seen" table): the case has its
+  reports and due days, the AE line its due days, and the type is asked when the study opens. Their ids are not
+  given again. With the clock running, the walk sees a new one, SAF-09 (the regulator the clock names).
+- **Feasibility, monitoring and the amendment's own steps** are unchanged.
 
 ## The findings register
 
