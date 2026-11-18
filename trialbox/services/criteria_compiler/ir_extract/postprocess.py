@@ -28,7 +28,7 @@ from tb_contracts import Atom, BoolExpr, CriterionIR, CriterionReview, LlmExtrac
 from tb_contracts.criterion_ir import ACTIVE_STATUSES
 
 from criteria_compiler import unit_check
-from criteria_compiler.ir_extract.polarity import is_negated, positive
+from criteria_compiler.ir_extract.polarity import is_negated, line_is_negated, positive
 from criteria_compiler.semantics import FILTERED, JUDGED, CompileError, atoms, check_bool, kind
 from criteria_compiler.terminology.mapper import (
     Concept,
@@ -482,6 +482,17 @@ def strip_stray(node: Any, text: str = "", kind_: str = "inclusion") -> tuple[An
     return walk(node), sorted(set(flags))
 
 
+def asks_presence(logic: Any, negated: bool = False) -> bool:
+    """Whether a logic asks for some concept's presence (card 10A-1): an atom other than an age or a sex whose
+    quantifier is not ``none``, under an even number of ``not``. An atom ``none of`` under a ``not`` asks it too."""
+    if isinstance(logic, BoolExpr):
+        flip = negated != (logic.op == "not")
+        return any(asks_presence(a, flip) for a in logic.args)
+    if isinstance(logic, Atom) and logic.domain != "demographic":
+        return (logic.quantifier == "none") == negated
+    return False
+
+
 def demographic_alone(logic: Any) -> bool:
     """Whether a criterion's coded logic is an age or a sex and nothing else: every atom demographic, none naming a
     ValueSet or a derived value (P2b: an exclusion that compiled to this while its line named more lost its
@@ -616,6 +627,15 @@ def postprocess(
             ir = ir.model_copy(update={"logic": pos})
             flags.append("negated_logic_rewritten")
             warnings.append(f"{cid}: exclusion logic was negated; rewritten to the positive form (check it)")
+        # card 10A-1 (review 15, P2b): "No prior chemotherapy" (inclusion) compiled to "any of chemotherapy", which
+        # meets the line only for the patients it should exclude. An inclusion whose line is a negation and whose
+        # logic asks a concept's presence is never run: a person checks it (rewriting it could be wrong as well)
+        if ir.kind == "inclusion" and ir.class_ in FILTERED and line_is_negated(ir.text) and asks_presence(ir.logic):
+            flags.append("negated_inclusion_presence")
+            ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
+                                       "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
+            warnings.append(f"{cid}: its line is a negation but its logic asks the presence of what it negates; kept "
+                            "for a person to check")  # fmt: skip
         if ir.class_ in FILTERED and ir.logic is not None and says_active(ir.text):
             active, changed = _active_only(ir.logic)
             if changed:
