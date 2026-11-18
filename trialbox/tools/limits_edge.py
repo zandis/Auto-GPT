@@ -586,6 +586,26 @@ def bound_settings(covered: set[str], path: Path = CONFIG) -> list[dict[str, Any
     return out
 
 
+_OPS: dict[type, Callable[[float, float], float]] = {
+    ast.Mult: lambda a, b: a * b,
+    ast.Add: lambda a, b: a + b,
+    ast.Sub: lambda a, b: a - b,
+    ast.Pow: lambda a, b: a**b,
+}
+
+
+def _number(node: ast.expr | None) -> int | float | None:
+    """The value of a number written as a literal or as plain arithmetic of literals (``50 * 1024 * 1024``)."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, int | float) and not isinstance(node.value, bool):
+        return node.value
+    if isinstance(node, ast.BinOp) and type(node.op) in _OPS:
+        a, b = _number(node.left), _number(node.right)
+        if a is not None and b is not None:
+            v = _OPS[type(node.op)](a, b)
+            return int(v) if isinstance(a, int) and isinstance(b, int) else v
+    return None
+
+
 def unstated(claimed: set[str]) -> list[dict[str, Any]]:
     """Module-level ``*MAX*`` constants with a number in services/ and libs/ that no catalogue row claims
     (``claimed``: ``path:NAME``)."""
@@ -609,17 +629,9 @@ def unstated(claimed: set[str]) -> list[dict[str, Any]]:
                 for t in targets:
                     if not isinstance(t, ast.Name) or not _CONST.match(t.id) or f"{rel}:{t.id}" in claimed:
                         continue
-                    val = node.value
-                    with contextlib.suppress(Exception):
-                        v = ast.literal_eval(val) if val is not None else None
-                        if isinstance(v, int | float) and not isinstance(v, bool):
-                            out.append({"where": f"{rel}:{node.lineno}", "name": t.id, "value": v})
-                            continue
-                    if isinstance(val, ast.BinOp):  # 50 * 1024 * 1024
-                        with contextlib.suppress(Exception):
-                            v = eval(compile(ast.Expression(val), rel, "eval"), {"__builtins__": {}})
-                            if isinstance(v, int | float):
-                                out.append({"where": f"{rel}:{node.lineno}", "name": t.id, "value": v})
+                    v = _number(node.value)
+                    if v is not None:
+                        out.append({"where": f"{rel}:{node.lineno}", "name": t.id, "value": v})
     return out
 
 
