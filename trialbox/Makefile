@@ -395,8 +395,7 @@ images: jvm-deps $(FONTS)
 	docker build $(PLATFORM_ARG) $(OCI_LABELS) -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .
 	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/embed.Dockerfile \
 		-t trialbox-embed:1.0.0 .
-	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/db.Dockerfile \
-		-t trialbox-postgres:16-1 deploy/docker
+	deploy/build_db_image.sh $(PLATFORM_ARG) $(OCI_LABELS)  # the db build of deploy/poc.sh too (card 24-2)
 
 # ENG-003 (D-563): a PRODUCTION box starts its embed service. The box's compose file, the trialbox-embed image,
 # TB_ENV=PRODUCTION, a tiny model made on the spot (no download), pinned by the installer's own call; one

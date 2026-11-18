@@ -26,6 +26,7 @@ POC="$ROOT/deploy/poc"
 ADMIN_EMAIL="${TB_POC_ADMIN_EMAIL:-admin@hospa.test}"
 IMAGE_PY="${TB_IMAGE:-trialbox-py:1.0.0}"
 IMAGE_JVM="${TB_JVM_IMAGE:-trialbox-jvm:1.0.0}"
+IMAGE_DB=trialbox-postgres:16-1  # deploy/build_db_image.sh builds it; compose's db service runs it (card 24-2)
 OPENROUTER_MODEL="${TB_OPENROUTER_MODEL:-nvidia/nemotron-3-nano-30b-a3b}"
 
 say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
@@ -206,7 +207,7 @@ build_images() {
     if [ -x "$cand" ] && "$cand" -c 'import fontTools' 2>/dev/null; then py="$cand"; break; fi
   done
   if command -v mvn >/dev/null && [ -n "$py" ] && command -v curl >/dev/null; then
-    make images PY="$py"
+    make images PY="$py"; DB_BUILT=1  # its last build is the database image's (deploy/build_db_image.sh)
   else  # no build tools on the host: fetch the build inputs in a throwaway builder container
     say "fetching fonts and JVM build inputs in a builder container"
     docker run --rm -v "$ROOT:/src" -w /src "${TB_BUILDER_IMAGE:-maven:3.9.9-eclipse-temurin-17}" bash -c \
@@ -215,11 +216,26 @@ build_images() {
     docker build -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .
   fi
 }
+# card 24-2 (root review 24): the database image has no build: entry in compose and is on no registry, so a host
+# without it stopped at compose up. Built by the one command `make images` also runs, when missing or TB_POC_BUILD=1
+# (`make images` above already built it); only the box's own image: a POSTGRES_IMAGE of the site's is left alone
+build_db_image() {
+  say "building the database image $IMAGE_DB (deploy/docker/db.Dockerfile, pinned base and packages; ~5-15 min)"
+  deploy/build_db_image.sh || die "the database image $IMAGE_DB did not build (the lines above say why; most often a \
+download that failed). Check that this machine reaches the internet (deb.debian.org, apt.postgresql.org, \
+packages.groonga.org), then run deploy/poc.sh again: it starts nothing until the image is built"
+}
+DB_BUILT=0
 if [ "${TB_POC_BUILD:-0}" = 1 ] || ! docker image inspect "$IMAGE_PY" "$IMAGE_JVM" >/dev/null 2>&1; then
   say "building images (first run: ~10-20 min)"
   build_images
 else
   say "using images $IMAGE_PY and $IMAGE_JVM (TB_POC_BUILD=1 rebuilds)"
+fi
+DB_WANTED="${POSTGRES_IMAGE:-$(envfile_get POSTGRES_IMAGE)}"
+if [ "$DB_BUILT" = 0 ] && [ "${DB_WANTED:-$IMAGE_DB}" = "$IMAGE_DB" ] \
+   && { [ "${TB_POC_BUILD:-0}" = 1 ] || ! docker image inspect "$IMAGE_DB" >/dev/null 2>&1; }; then
+  build_db_image
 fi
 
 # ------------------------------------------------------------------------------------------------ settings, model pin
