@@ -16,10 +16,11 @@ serving record was taken on a capped card.
 | file | box | measured | declared | not measured |
 | --- | --- | ---: | ---: | ---: |
 | `rtx5090.json` | the 32 GB site box (tier `small`) | 0 | 18 | 10 |
+| `rtxpro6000.json` | the RTX PRO 6000 box (tier `large`), measured from `deploy/measured/serving_config.rtxpro6000.json` | 7 | 13 | 8 |
 
 No other profile has a record yet. The owner's own workstation (Ubuntu on Arm, IGX Orin, RTX A6000 48 GB) is not a
-measured tier and has no record; release candidate 1 installs only on an x86 box with the measured RTX PRO 6000 card,
-whose tier record is not written by this card.
+measured tier and has no record. Release candidate 1 installs only on an x86 box with the measured RTX PRO 6000 card;
+that profile's record takes its measured values from its serving record alone (no qualification record is on file).
 
 ## What each waiting row reads
 
