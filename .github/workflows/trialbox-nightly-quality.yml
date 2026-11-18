@@ -168,7 +168,9 @@ jobs:
       - name: pytest -n auto with branch coverage, one shard
         env:
           TB_DATA_DIR: ${{ runner.temp }}/tb-data
-          PYTEST_ADDOPTS: --cov --cov-branch --cov-report= --durations=30
+          # D-1001: the tracer doubles a test's time, so the hang guard doubles too (pyproject's 900 s elsewhere);
+          # test_e2e_simple took 816 s here on 2026-11-17 and passed 900 s on 2026-11-18, working all along
+          PYTEST_ADDOPTS: --cov --cov-branch --cov-report= --durations=30 --timeout 1800
         run: |
           mkdir -p "$RUNNER_TEMP/shard"
           make test PYTEST_N=auto SHARD=${{ matrix.shard }}/${{ strategy.job-total }} SHARD_RECORD="$RUNNER_TEMP/shard/shard.json" 2>&1 | tee "$RUNNER_TEMP/unit.log"
