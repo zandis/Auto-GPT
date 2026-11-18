@@ -113,10 +113,11 @@ After each run under ballast: Ctrl-C in terminal A, and check it printed "releas
 The integrator states the owner's machine is Ubuntu on Arm, an IGX Orin with an RTX A6000 (48 GB) and driver 535;
 lane D states the x86 rc1 bundle cannot install there. Not checked by this card, and unknown:
 
-- whether the pinned vLLM image has an arm64 build under the pinned digest; if not, `hold` refuses with
-  `image-not-local` or `allocation-failed`, and the runs need another holder image;
-- whether that image's CUDA runs on driver 535 (a CUDA 13 build needs a newer driver); if not, the holder cannot
-  start, and neither can the model servers;
+- the pinned vLLM image: review 24 (`docs/reviews/2026-11-root/24-igx-orin-a6000-install.md`) reads that an arm64
+  build exists under the pinned digest, built for CUDA 13 and needing driver R580 or newer, while the owner's IGX
+  Orin stays on 535. With that image the holder most likely cannot allocate (`allocation-failed`), and neither can
+  the model servers start; running the ballast there needs a holder image whose CUDA runs on 535 (`VLLM_IMAGE`
+  names it). Not verified on the machine;
 - whether `nvidia-smi` on the IGX lists the A6000 alone, at which index, and what it reports as used with the display
   (`--gpu`, `--expect-process`, `--expect-used` exist for this);
 - whether the NVIDIA container toolkit is installed there;
