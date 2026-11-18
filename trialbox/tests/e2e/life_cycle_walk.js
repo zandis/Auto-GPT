@@ -30,16 +30,13 @@ const vars = { job: "" }; // values read from the product on the way ({job}, {pi
 const stopped = new Set(); // steps stopped with a recorded finding
 let current = "";
 let rec = null; // the record of the step being walked
-<<<<<<< HEAD
 // H-29 (D-1103): act and expectation kinds a caller adds through ``extend`` (tests/e2e/module_walk.js); the kinds
 // below are unchanged. Each is called with the page, the act, the step's tag and the driver's own helpers.
 const extra = { acts: {}, holds: {} };
 const helpers = { fill: (s) => fill(s), masked: (s) => masked(s), clicked: (t) => clicked(t), check: (ok, w) => check(ok, w), get rec() { return rec; } };
-=======
 // H-21 (D-1138): a plan with a "viewport" walks on a phone; tests/e2e/life_cycle_walk_phone.js measures its pages
 const phone = plan.viewport ? require("./life_cycle_walk_phone.js").phoneWalk(plan, { rec: () => rec, masked, clicked }) : null;
 let phoneStop = 0; // H-21: the step where the phone could not go on
->>>>>>> pr/1064
 
 function check(ok, what) {
   checks.push({ ok: !!ok, what });
