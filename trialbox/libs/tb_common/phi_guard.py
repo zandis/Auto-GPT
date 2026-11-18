@@ -395,16 +395,9 @@ def scan(text: str, mrn_regex: str | None = None) -> PhiScan:
         window = text[max(0, m.start() - 30) : m.end() + 30]
         if _cjk_names(window) or EN_NAME.search(window) or re.search(r"生日|出生|DOB|born", window, re.I):
             findings.append(("dob_near_name", _mask(m.group(0))))
-    # 10C-1: the Japanese rules of the note masker and the labelled values they share with it (a chart, insurance or
-    # ID number after its label, an address after its label or from its prefecture), so a Japanese identifier never
-    # reaches a model either
-    facts = _Facts(text)
-    for kind, rx, gate in _SCAN_RULES:
-        if gate(facts):
-            findings.extend(
-                (_SCAN_KIND.get(kind, kind), _mask(m.group("v") if "v" in rx.groupindex else m.group(0)))
-                for m in _finditer(rx, text)
-            )
+    # 10C-1: every span the note masker masks (note_spans), so what would be masked in a note never reaches a model
+    # unmasked either: a Japanese name, insurance number or address, a phone in full-width figures, a My Number
+    findings.extend((_SCAN_KIND.get(kind, kind), _mask(text[s:e])) for kind, s, e in note_spans(text))
     if findings:
         return PhiScan(True, findings, None)
     return PhiScan(False, [], PhiClearance(sha256_text(text)))
@@ -462,11 +455,15 @@ def _finditer(rx: re.Pattern[str], text: str) -> Iterator[re.Match[str]]:
         return
     anchor, before, after, to_line_end = win
     spans: list[list[int]] = []
+    line_end = -1  # the end of the line the last window ran to: each line's end is looked for once (10C-1: a line of
+    # a hundred thousand anchors looked for it once per anchor, quadratic time)
     for a in anchor.finditer(text):
         lo, hi = max(0, a.start() - before), min(len(text), a.end() + after)
         if to_line_end:
-            end = text.find("\n", hi)
-            hi = len(text) if end < 0 else end
+            if hi > line_end:
+                end = text.find("\n", hi)
+                line_end = len(text) if end < 0 else end
+            hi = line_end
         if spans and lo <= spans[-1][1]:
             spans[-1][1] = max(spans[-1][1], hi)
         else:
@@ -614,7 +611,7 @@ _JA_NAME_TOKEN = (
     rf"(?:{_JA_NAME_KANJI}{{1,4}}(?:[{_JA_HIRA}ァ-ヺー]{{1,3}}{_JA_NAME_END})?"
     rf"|{_JA_KANA_WORD}{_JA_NAME_END}?)"
 )
-_JA_NAME = rf"{_JA_NAME_TOKEN}(?:{_JS}{{1,2}}{_JA_NAME_TOKEN})?"
+_JA_NAME = rf"{_JA_NAME_TOKEN}(?:(?:{_JS}{{1,2}}|[・･]){_JA_NAME_TOKEN})?"  # 山田 花子, ヤマダ・ハナコ
 #: the forms a listed surname is written in with old-form (旧字体) or variant kanji: each character's variants
 JA_KANJI_VARIANTS = {
     "高": "髙",
@@ -688,21 +685,33 @@ _JA_NOT_A_NAME_KANA = (
     rf"|ボランティア|ワーカー|ソーシャルワーカー|ケースワーカー|リハ|オペ|クライアント|ゲスト|メンバー|チーム|ﾅｰｽ|ﾍﾙﾊﾟｰ|{_JA_LIKE})"
     rf"{_JS}?{_JA_HON})"
 )
-JA_NAME_KANA_HONORIFIC = re.compile(rf"(?<![{_JA_KATA}・･]){_JA_NOT_A_NAME_KANA}(?P<v>{_JA_KANA_NAME}){_JS}?{_JA_HON}")
+# one katakana word before 様の, 様な or 様に means "-like" (ゼラチン様の結節, ネフローゼ様の浮腫), unless it is a
+# listed surname (ヤマダ様のご家族)
+_JA_KANA_LIKE = rf"(?!(?!(?:{_JP_KANA_LISTED})様){_JA_KANA_WORD}様[のなに])"
+JA_NAME_KANA_HONORIFIC = re.compile(
+    rf"(?<![{_JA_KATA}・･]){_JA_NOT_A_NAME_KANA}{_JA_KANA_LIKE}(?P<v>{_JA_KANA_NAME}){_JS}?{_JA_HON}"
+)
 JA_NAME_LISTED_HONORIFIC = re.compile(
     rf"(?P<v>(?:{_JP_FOLDED})"
     rf"(?:{_JS}?(?:(?!さん|さま|様|くん|ちゃん|殿|先生)[{_JA_KANJI}{_JA_HIRA}ァ-ヺー]){{1,4}})?){_JS}?{_JA_HON}"
 )
-# a name of four kanji before 先生 (吉川花子先生): the Chinese rule (NAME_HONORIFIC) reads one to three
-JA_NAME_KANJI4_SENSEI = re.compile(rf"{_BOUNDARY}{_NOT_A_NAME}(?P<v>{_JA_NAME_KANJI}{{4}})先生")
+# a name of four kanji before 先生, a space between them or not (吉川花子先生, 架空一郎 先生): the Chinese rule
+# (NAME_HONORIFIC) reads one to three
+JA_NAME_KANJI4_SENSEI = re.compile(rf"{_BOUNDARY}{_NOT_A_NAME}(?P<v>{_JA_NAME_KANJI}{{4}}){_JS}?先生")
 JA_NAME_KANJI_HONORIFIC = re.compile(
     rf"(?m:{_JA_BOUNDARY}){_JA_NOT_A_NAME_KANJI}"
-    rf"(?P<v>{_JA_NAME_KANJI}{{1,4}}(?:{_JS}{_JA_NAME_KANJI}{{1,4}}|{_JA_NAME_KANJI}{{0,3}})){_JS}?{_JA_HON_KANJI}"
+    rf"(?P<v>{_JA_NAME_KANJI}{{1,4}}(?:{_JS}{_JA_NAME_KANJI}{{1,4}}|{_JA_NAME_KANJI}{{0,3}}))(?<![病症])"
+    rf"{_JS}?{_JA_HON_KANJI}"
+)
+# a kanji of a given name after a listed surname: never the start of a word of a place, a firm, a department or a
+# crop variety (松本市, 小林製薬, 松本 歯科, 中野 区役所, 佐藤錦, 山田錦)
+_JA_GIVEN_KANJI = (
+    rf"(?:(?!医師|看護師|薬剤師|技師|先生|[病症市県区町村郡製薬科医院出在住勤大学会社店屋乳業錦])[{_JA_KANJI}])"
 )
 # a listed surname with a space and a given name (髙橋 一郎, 佐藤 花子), a two-character surname or longer; and the
 # katakana form of one (サトウ ミホコ)
 JA_NAME_LISTED_SPACED = re.compile(
-    rf"(?P<v>(?:{_JP_FOLDED_2}){_JS}(?:{_JA_NAME_KANJI}{{1,3}}|{_JA_KANA_WORD}))"
+    rf"(?P<v>(?:{_JP_FOLDED_2}){_JS}(?:(?:(?!様|殿|氏|君|宛){_JA_GIVEN_KANJI}){{1,3}}|{_JA_KANA_WORD}))"
     rf"(?![{_JA_HIRA}{_JA_KATA}]|{_JA_NAME_KANJI})"
 )
 JA_NAME_KANA_LISTED = re.compile(
@@ -738,17 +747,26 @@ JA_NAME_LABELLED_OTHER_SCRIPT = re.compile(
     rf"(?P<v>[{_JA_HIRA}]{{1,8}}{_JS}{{1,2}}[{_JA_HIRA}]{{1,8}}"
     rf"|[A-Z][A-Za-z'\-]{{1,20}}(?:{_JS}{{1,2}}[A-Z][A-Za-z'\-]{{1,20}}){{1,2}})"
 )
-JA_NAME_ROLE_COLON = re.compile(
-    rf"(?:患者|主治医|担当医|担当看護師|担当者|カナ|ｶﾅ){_JS}{{0,3}}[:：]{_JS}{{0,3}}{_JA_RELATIVE}{_JA_NOT_A_NAME_VALUE}"
-    rf"(?P<v>(?:{_JP_FOLDED})(?:{_JS}?{_JA_NAME_TOKEN})?|{_JA_NAME_TOKEN}{_JS}{{1,2}}{_JA_NAME_TOKEN}){_JA_END}"
+# Also one word of three or four kanji, when an age or a sex follows it (患者：見本太郎 68歳 男性) or, after a staff
+# word, the line ends with it (主治医：架空次郎); never a word that ends as a disease or a state does (患者：認知症)
+_JA_AGE_OR_SEX = (
+    rf"{_JS}{{0,3}}[、,，]?{_JS}{{0,3}}(?:[0-9０-９]{{1,3}}{_JS}?(?:歳|才)|男性|女性|[男女](?![{_JA_KANJI}]))"
 )
+JA_NAME_ROLE_COLON = re.compile(
+    rf"(?:(?P<staff>主治医|担当医|担当看護師|担当者)|患者|カナ|ｶﾅ){_JS}{{0,3}}[:：]{_JS}{{0,3}}{_JA_RELATIVE}"
+    rf"{_JA_NOT_A_NAME_VALUE}"
+    rf"(?P<v>(?:{_JP_FOLDED})(?:{_JS}?{_JA_NAME_TOKEN})?|{_JA_NAME_TOKEN}{_JS}{{1,2}}{_JA_NAME_TOKEN}"
+    rf"|{_JA_NAME_KANJI}{{3,4}}(?<![症病炎癌痛熱感中後前済])(?=(?![{_JA_KANJI}])(?:{_JA_AGE_OR_SEX}"
+    rf"|(?(staff){_JS}{{0,3}}(?:\n|\Z)|(?!)))))"
+    rf"{_JA_END}"
+)
+# a Japanese name after an English title (Mr. 見本, Ms. 架空 花子); never Dr., which nurses write before an order
+# (Dr. 指示, Dr. コール)
+JA_NAME_EN_TITLE = re.compile(rf"\b(?:Mr|Mrs|Ms|Miss)\.?{_JS}{{1,2}}{_JA_NOT_A_NAME_VALUE}(?P<v>{_JA_NAME}){_JA_END}")
 # a listed surname after a staff or relative word (主治医の佐藤が実施, 長女 田中美咲) or before a staff word
 # (佐藤医師より). The name ends there: a given name never starts with a word of a place, a firm or a department
 # (長女 松本市在住, 看護師 小林製薬), and a surname alone is followed by a particle or punctuation (母 福田 心療内科)
 _JA_STAFF = r"(?:主治医|担当医|執刀医|担当看護師|看護師|医師|薬剤師|技師|担当)"
-_JA_GIVEN_KANJI = (
-    rf"(?:(?!医師|看護師|薬剤師|技師|先生|[病症市県区町村郡製薬科医院出在住勤大学会社店屋乳業])[{_JA_KANJI}])"
-)
 _JA_SURNAME_THEN = rf"(?:{_JP_FOLDED_2})(?![病症])(?:{_JS}?{_JA_GIVEN_KANJI}{{1,3}}(?![{_JA_KANJI}])"
 JA_NAME_LISTED_AFTER_ROLE = re.compile(
     rf"(?:{_JA_RELATIVES}|{_JA_STAFF}){_JS}?の?{_JS}?"
@@ -790,7 +808,7 @@ JA_NUMBER_LABELLED = re.compile(
 # code in brackets, after it or before it, a mobile number without separators, the country code +81. A landline has
 # ten figures (the area code and the exchange six together), a mobile eleven: a ratio or a date in brackets has fewer
 _JA_Z = "[0０]"
-_JA_DASH = "[-－‐‑–—ー―−]"
+_JA_DASH = "[-－‐‑–—ー―−･・]"  # the dashes of Japanese text, and a middle dot (03･1234･5678)
 _JA_AREA_EXCHANGE = ((1, 4), (2, 3), (3, 2), (4, 1))
 JA_PHONE = re.compile(
     rf"(?<![\d+＋])(?:{_JA_Z}[5-9５-９]{_JA_Z}{_JA_DASH}?\d{{4}}{_JA_DASH}?\d{{4}}"
@@ -882,7 +900,7 @@ _JA_RULES: tuple[tuple[str, re.Pattern[str], Callable[[Any], bool]], ...] = (
         _windowed(JA_NAME_KANJI_HONORIFIC, _JA_HONORIFIC_ANCHOR, 12, 3),
         lambda f: f.has("さ", "様", "くん", "ちゃん", "殿"),
     ),
-    ("name", _windowed(JA_NAME_KANJI4_SENSEI, re.compile("先生"), 8, 2), lambda f: f.has("先生")),
+    ("name", _windowed(JA_NAME_KANJI4_SENSEI, re.compile("先生"), 9, 2), lambda f: f.has("先生")),
     ("name", JA_NAME_LISTED_SPACED, lambda f: f.has(" ", "　")),
     ("name", JA_NAME_KANA_LISTED, lambda f: f.has(" ", "　") and _kata(f)),
     ("name", JA_NAME_READING, lambda f: f.has("（", "(") and f.has(" ", "　")),
@@ -890,6 +908,7 @@ _JA_RULES: tuple[tuple[str, re.Pattern[str], Callable[[Any], bool]], ...] = (
     ("name", JA_NAME_READING_LABELLED, lambda f: f.has("ふりがな", "フリガナ", "ﾌﾘｶﾞﾅ")),
     ("name", JA_NAME_LABELLED_OTHER_SCRIPT, lambda f: f.has("氏名", "患者名", "名前")),
     ("name", JA_NAME_ROLE_COLON, lambda f: f.has(":", "：") and f.has(*_JA_ROLE_LABELS)),
+    ("name", JA_NAME_EN_TITLE, lambda f: f.says("mr", "ms", "miss")),
     ("name", JA_NAME_LISTED_AFTER_ROLE, lambda f: f.has(*_JA_RELATIVE_WORDS, "医", "看護師", "薬剤師", "技師", "担当")),
     ("name", JA_NAME_LISTED_BEFORE_STAFF, lambda f: f.has("医師", "看護師", "薬剤師", "技師")),
     ("id", JA_INSURANCE_SYMBOL, lambda f: f.digit and f.has("記号")),
@@ -910,18 +929,10 @@ _JA_RULES: tuple[tuple[str, re.Pattern[str], Callable[[Any], bool]], ...] = (
     ("address", JA_ADDRESS_CITY, lambda f: f.has("市")),
     ("address", JA_ADDRESS_ROOM, lambda f: f.digit and f.has("号室")),
 )
-#: the 10C-1 rules as (kind, pattern): also run by :func:`scan`, the check before a model call
+#: the 10C-1 rules as (kind, pattern)
 JA_NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple((k, rx) for k, rx, _g in _JA_RULES)
 #: a finding's kind as the guard names it (``guard.recognisers.NOTE_KINDS``, lower case: the tripwire upper-cases them)
 _SCAN_KIND = {"id": "id_number"}
-#: what :func:`scan` runs besides its own v1 rules: the shared labelled values, then the 10C-1 rules
-_SCAN_RULES: tuple[tuple[str, re.Pattern[str], Callable[[Any], bool]], ...] = (
-    ("mrn", MRN_LABELLED, lambda f: f.digit),
-    ("id", ID_LABELLED, lambda f: f.digit),
-    ("address", ADDRESS_JA, lambda f: f.digit and f.has("東京都", "北海道", "大阪府", "京都府", "県")),
-    ("address", ADDRESS_LABELLED, lambda f: f.has("地址", "住", "戶籍地", "居所") or f.says("addr")),
-    *_JA_RULES,
-)
 
 _NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     # chart numbers after their label (the site pattern, unlabelled, is added per call)

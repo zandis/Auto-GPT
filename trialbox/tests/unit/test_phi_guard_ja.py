@@ -23,7 +23,10 @@ from tb_common.phi_guard import MASK_CHAR, mask_note, scan
 
 pytestmark = [pytest.mark.guard, pytest.mark.nodb]  # D-1119: no database, in `make guard` and `make test-pure`
 
-PROBES = json.loads((Path(__file__).resolve().parents[2] / "eval" / "phi_synth" / "ja_guard_probes.json").read_text())
+SYNTH = Path(__file__).resolve().parents[2] / "eval" / "phi_synth"
+PROBES = json.loads((SYNTH / "ja_guard_probes.json").read_text())
+NOTES = [json.loads(line)["text"] for line in (SYNTH / "notes.jsonl").read_text().splitlines() if line.strip()]
+GAPS = PROBES["known_gaps"]
 G = Guard(None)
 
 
@@ -86,6 +89,46 @@ def test_the_check_before_a_model_call_sees_every_probe(probe: dict[str, Any]) -
     assert scan(str(probe["text"])).hit
 
 
+def _probe_texts() -> list[str]:
+    """Every line of both committed probe files: this card's lines and the synthetic notes, whole and line by line."""
+    lines = [str(p["text"]) for p in PROBES["masked"]] + [str(t) for t in PROBES["unchanged"]]
+    lines += [str(p["text"]) for p in GAPS["missed"]] + [str(t) for t in GAPS["overmasked"]]
+    lines += [x["text"] for x in PROBES["overmasked_before"]["lines"]]
+    for note in NOTES:
+        lines += [note, *(line for line in note.splitlines() if line.strip())]
+    return lines
+
+
+@pytest.mark.req("PRIV-29")
+def test_the_check_before_a_model_call_sees_whatever_the_masker_masks() -> None:
+    """Lane J's review: a phone in full-width figures, a My Number, a plain e-mail passed ``scan`` (the model-call
+    clearance) though the masker masked them. ``scan`` now holds every span of ``note_spans``."""
+    texts = _probe_texts()
+    assert len(texts) > 1000
+    assert [t for t in texts if mask_note(t) != t and not scan(t).hit] == []
+
+
+@pytest.mark.req("PRIV-29")
+@pytest.mark.parametrize(
+    "probe",
+    [pytest.param(p, marks=pytest.mark.xfail(strict=True, reason="known gap: " + p["kind"])) for p in GAPS["missed"]],
+    ids=lambda p: p["text"],
+)
+def test_known_gap_identifiers_are_masked(probe: dict[str, Any]) -> None:
+    """What the rules still miss (names with no label or honorific, romaji, a line break, an address without 市, a
+    pension or passport number): the next card's target. A line that starts to pass fails here and moves to ``masked``."""
+    assert _unmasked(str(probe["text"]), [str(v) for v in probe["ids"]]) == []
+
+
+@pytest.mark.req("PRIV-29")
+@pytest.mark.parametrize(
+    "text",
+    [pytest.param(t, marks=pytest.mark.xfail(strict=True, reason="known over-mask")) for t in GAPS["overmasked"]],
+)
+def test_known_gap_ordinary_lines_pass_unchanged(text: str) -> None:
+    assert mask_note(text) == text and G.detect(text) == []
+
+
 @pytest.mark.req("PRIV-29")
 @pytest.mark.parametrize("index", range(len(pg.JA_NOTE_PATTERNS)))
 def test_every_japanese_rule_is_needed_by_a_probe(monkeypatch: pytest.MonkeyPatch, index: int) -> None:
@@ -130,3 +173,11 @@ def test_the_japanese_rules_keep_a_long_line_fast() -> None:
             start = time.monotonic()
             f(text)
             assert time.monotonic() - start < 2.0, (f, text[:6])
+    # lane J: 400 kB of one anchor repeated (様 took 7.5 s, twice master's time: each anchor looked for its line's end
+    # again; the guard's v1 names ran out of memory on 山田様 repeated): linear now, about 2 s at most on this box
+    for unit in ("様", "山田様", "ア様", "さん", "氏名：", "記号１"):
+        text = (unit * (400_000 // len(unit) + 1))[:400_000]
+        for f in (mask_note, G.redact, scan):
+            start = time.monotonic()
+            f(text)
+            assert time.monotonic() - start < 5.0, (f, unit)

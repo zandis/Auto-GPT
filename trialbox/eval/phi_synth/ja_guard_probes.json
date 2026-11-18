@@ -108,7 +108,19 @@
     {"kind": "kanji_name", "text": "氏名\n見本 次郎", "ids": ["見本 次郎"]},
     {"kind": "email", "text": "連絡先 mihon.taro＠example.jp", "ids": ["mihon.taro＠example.jp"]},
     {"kind": "patient_number", "text": "入院番号：20269999", "ids": ["20269999"]},
-    {"kind": "patient_number", "text": "検体番号 A-99999", "ids": ["A-99999"]}
+    {"kind": "patient_number", "text": "検体番号 A-99999", "ids": ["A-99999"]},
+    {"kind": "kanji_name", "text": "患者：見本太郎 68歳 男性", "ids": ["見本太郎"]},
+    {"kind": "kanji_name", "text": "患者：架空花子、72歳、女性", "ids": ["架空花子"]},
+    {"kind": "kanji_name", "text": "主治医：架空次郎", "ids": ["架空次郎"]},
+    {"kind": "kanji_name", "text": "架空一郎 先生より説明", "ids": ["架空一郎"]},
+    {"kind": "kanji_name", "text": "Mr. 見本 来院", "ids": ["見本"]},
+    {"kind": "kanji_name", "text": "Ms. 架空 花子 来院", "ids": ["架空 花子"]},
+    {"kind": "kana_name", "text": "患者氏名：ヤマダ・ハナコ", "ids": ["ヤマダ・ハナコ"]},
+    {"kind": "kana_name", "text": "ヤマダ様のご家族へ説明", "ids": ["ヤマダ"]},
+    {"kind": "phone", "text": "自宅 03･0000･1234", "ids": ["03･0000･1234"]},
+    {"kind": "phone", "text": "携帯 ０９０ ９９９９ ００１２", "ids": ["０９０ ９９９９ ００１２"]},
+    {"kind": "my_number", "text": "マイナンバー：１２３４ ５６７８ ９０１８", "ids": ["１２３４ ５６７８ ９０１８"]},
+    {"kind": "email", "text": "連絡先 mihon.taro@example.com", "ids": ["mihon.taro@example.com"]}
   ],
   "unchanged": [
     "アムロジピン 5mg 1日1回 朝食後",
@@ -252,7 +264,26 @@
     "ratio 05(10)2024",
     "(06)12-2024",
     "ratio 03(12)2025",
-    "(04)11-2025"
+    "(04)11-2025",
+    "ゼラチン様の結節",
+    "ネフローゼ様の浮腫",
+    "リンパ腫様の腫大",
+    "クッシング様な顔貌",
+    "ポリープ様に隆起",
+    "患者：認知症",
+    "患者：要介護",
+    "患者：独居老人",
+    "主治医：変更なし",
+    "主治医：休診中",
+    "担当医：研修医",
+    "差し入れ：佐藤 錦 1パック",
+    "長女 山田錦の酒を持参",
+    "中野 区役所へ申請",
+    "紹介先：松本 歯科",
+    "佐藤錦医師より受領",
+    "川崎病さんかく印",
+    "Dr. 指示により点滴",
+    "Dr. コール済み"
   ],
   "overmasked_before": {
     "about": "Ordinary lines the guard already over-masked before card 10C-1 (a Chinese rule reads 院長, 孫 and 高 as a name); 10C-1 does not change them. Pinned so they cannot get worse: the guard's redaction and the masker's output as they are.",
@@ -260,6 +291,24 @@
       {"text": "院長先生の回診", "redact": "[NAME]先生の回診", "mask": "○○先生の回診"},
       {"text": "お孫さんが面会", "redact": "お[NAME]さんが面会", "mask": "お○さんが面会"},
       {"text": "患者：高齢女性、独居", "redact": "患者：[NAME]性、独居", "mask": "患者：高齢女性、独居"}
+    ]
+  },
+  "known_gaps": {
+    "about": "What the rules still get wrong, for the next card (the morphological-analyser card): lane J's independent review of 10C-1 found these classes. `missed`: each string in `ids` keeps a character after the masker or the guard. `overmasked`: an ordinary line the masker or the guard changes. The test marks every line as a strict expected failure, so a line that starts to pass fails it and must move to `masked` or `unchanged`.",
+    "missed": [
+      {"kind": "free_name", "text": "見本太郎は本日来院", "ids": ["見本太郎"]},
+      {"kind": "free_name", "text": "68歳男性 ミホン タロウ", "ids": ["ミホン タロウ"]},
+      {"kind": "free_name", "text": "患者：見本太郎", "ids": ["見本太郎"]},
+      {"kind": "romaji_name", "text": "外来 Mihon Taro 来院", "ids": ["Mihon Taro"]},
+      {"kind": "line_break", "text": "氏名：見本\n太郎", "ids": ["太郎"]},
+      {"kind": "address", "text": "架空村大字見本123番地に住む", "ids": ["架空村大字見本123番地"]},
+      {"kind": "address", "text": "自宅は見本町1-2-3", "ids": ["見本町1-2-3"]},
+      {"kind": "pension", "text": "基礎年金番号 1234-567890", "ids": ["1234-567890"]},
+      {"kind": "passport", "text": "旅券番号 TR1234567", "ids": ["TR1234567"]}
+    ],
+    "overmasked": [
+      "レボドパ先生",
+      "患者：高齢女性"
     ]
   }
 }
