@@ -1,0 +1,59 @@
+{
+ "jobs": [
+  {
+   "type": "RETENTION",
+   "ruleset": null,
+   "state": "done",
+   "requested_by": "scheduler",
+   "step": "retention"
+  },
+  {
+   "type": "INGEST",
+   "ruleset": null,
+   "state": "done",
+   "requested_by": "scheduler",
+   "step": null
+  },
+  {
+   "type": "SCREEN",
+   "ruleset": "RA-JAK",
+   "state": "done",
+   "requested_by": "crc1@hospa.test",
+   "step": null
+  },
+  {
+   "type": "FEAS",
+   "ruleset": "RA-JAK",
+   "state": "done",
+   "requested_by": "crc1@hospa.test",
+   "step": null
+  },
+  {
+   "type": "SCREEN",
+   "ruleset": "GZQO",
+   "state": "done",
+   "requested_by": "crc1@hospa.test",
+   "step": null
+  },
+  {
+   "type": "FEAS",
+   "ruleset": "GZQO",
+   "state": "done",
+   "requested_by": "crc1@hospa.test",
+   "step": null
+  }
+ ],
+ "messages": 16,
+ "recipients_events": [
+  "crc1@hospa.test",
+  "meta-head@hospa.test",
+  "pi@hospa.test"
+ ],
+ "verify_rc": 0,
+ "chain_lines": 299,
+ "journal_rows": 299,
+ "notes": [
+  "console.notify: exit 0: ",
+  "the night took 337 s"
+ ]
+}

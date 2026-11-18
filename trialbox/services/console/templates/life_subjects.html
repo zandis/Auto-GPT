@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {# TB-PLAN-04 step 5 (D-134): every participant of the study and where they are now. #}
-{% from "_life.html" import life_nav, state_pill with context %}
+{% from "_life.html" import life_nav with context %}
+{% from "_person.html" import person_pill, count_strip with context %}
 {% block title %}{{ t('life.subjects.title') }} · {{ rs }}{% endblock %}
 {% block content %}
 <div class="headrow"><h1>{{ rs }} · {{ t('life.subjects.title') }}</h1></div>
@@ -8,15 +9,15 @@
 <p class="hint">{{ t('life.subjects.help') }}</p>
 {% if err %}{% include "_data_err.html" %}{% endif %}
 <section class="card" data-testid="life-counts">
-<ul class="lifecounts">{% for s in states %}<li data-testid="count-{{ s }}">{{ state_pill(s) }} <b>{{ counts.get(s, 0) }}</b></li>{% endfor %}</ul>
+{{ count_strip(shown, readable, '#subjects', 'count') }}
 </section>
-<section class="card" data-testid="subjects">
+<section class="card" data-testid="subjects" id="subjects">
 {% if not subjects %}<p class="empty" data-testid="subjects-none">{{ t('life.subjects.none') }}</p>{% else %}
 <div class="scroll" tabindex="0"><table class="candidates">
 <thead><tr><th>{{ t('life.col.record') }}</th><th>{{ t('life.col.state') }}</th><th>{{ t('life.col.since') }}</th><th>{{ t('life.col.visits') }}</th></tr></thead>
 <tbody>{% for s in subjects %}<tr data-testid="subject-{{ s.record }}">
 <td><a href="/studies/{{ rs }}/subjects/{{ s.record|urlencode }}" class="mono">{{ s.record }}</a></td>
-<td>{{ state_pill(s.state) }}</td>
+<td>{{ person_pill(s.person, 'state-' + s.record) }}</td>
 <td class="nowrap">{{ s.since }}</td>
 <td>{% for k in ('overdue', 'open', 'done') %}{% if s.visits[k] %}<span class="pill v-{{ k }}">{{ t('life.vstate.' + k) }} {{ s.visits[k] }}</span> {% endif %}{% endfor %}</td>
 </tr>{% endfor %}</tbody></table></div>{% endif %}

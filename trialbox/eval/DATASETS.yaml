@@ -5,12 +5,12 @@ datasets:
     path: eval/criterion_ml
     data_class: D0
     kind: open
-    licence: NCBI TrialGPT data (public domain notice in LICENSE.NCBI); translations by TrialBox
+    licence: notes (notes_en.json) SIGIR 2016, CC BY-SA 4.0 (Koopman and Zuccon, CSIRO, https://researchdata.edu.au/a-test-collection-clinical-trials/664508); their zh-TW, ja and mixed translations by TrialBox are adaptations, CC BY-SA 4.0; criterion labels (annotations.jsonl) NCBI TrialGPT, U.S. Government work, public domain notice (LICENSE.NCBI); trial titles and criteria ClinicalTrials.gov terms; attribution in eval/criterion_ml/NOTICE.md (read 2026-11-18, H-37)
   public_accuracy_key:
     path: eval/public_accuracy_key
     data_class: D0
     kind: open
-    licence: ids and sha256 only, of SIGIR 2016 (NCBI TrialGPT copy, LICENSE.NCBI) and JMED-Personas (Sociocom (NAIST), CC BY 4.0)
+    licence: ids and sha256 only, of SIGIR 2016 (CC BY-SA 4.0, CSIRO; NCBI TrialGPT copy, LICENSE.NCBI) and JMED-Personas (Sociocom (NAIST), CC BY 4.0)
   trialgpt_compare:
     path: eval/trialgpt_compare
     data_class: D0
@@ -35,7 +35,7 @@ datasets:
     path: eval/match_registry
     data_class: D0
     kind: open
-    licence: NCBI TrialGPT benchmark (US government work, public domain notice kept)
+    licence: NCBI TrialGPT benchmark (US government work, public domain notice kept); its SIGIR 2016 cohort CC BY-SA 4.0 (CSIRO), fetched at run time, never committed
   recall_cert:
     path: eval/suites/recall_cert
     data_class: D0
@@ -50,7 +50,7 @@ datasets:
     path: eval/suites/judge_public
     data_class: D0
     kind: open
-    licence: NCBI TrialGPT data (public domain); recorded GPT-4 labels from the same dataset
+    licence: as criterion_ml, notes SIGIR 2016, CC BY-SA 4.0 (CSIRO); criterion labels and the recorded GPT-4 labels NCBI TrialGPT, public domain notice
   ingest_fhir_demo:
     path: eval/suites/ingest_fhir_demo
     data_class: D0
@@ -100,7 +100,7 @@ datasets:
     path: eval/phi_second_opinion (Presidio beside the note masker, D-1037; counts and span shapes, no values; tools/phi_second_opinion.py)
     data_class: D0
     kind: synthetic
-    licence: generated for TrialBox (fictional) and the SIGIR notes (public domain, NCBI)
+    licence: generated for TrialBox (fictional) and the SIGIR notes (CC BY-SA 4.0, CSIRO; as criterion_ml)
   medtxt:
     path: eval/medtxt (model answers and scores; MedTxt-CR/RR XML in .cache, never committed)
     data_class: D0
@@ -110,7 +110,7 @@ datasets:
     path: eval/public_site (site profiles of the two test protocols; the hospital is built at run time by tools/public_site.py from criterion_ml and medtxt, never committed)
     data_class: D0
     kind: open
-    licence: SIGIR notes public domain (NCBI); MedTxt CC BY 4.0 (Sociocom NAIST); derived fields and test protocols are TrialBox's own
+    licence: SIGIR notes CC BY-SA 4.0 (CSIRO; as criterion_ml); MedTxt CC BY 4.0 (Sociocom NAIST); derived fields and test protocols are TrialBox's own
   complete_run:
     path: eval/complete_run (reports of tools/complete_run.py, D-139; screenshots are never committed)
     data_class: D0
@@ -140,7 +140,7 @@ datasets:
     path: eval/open_cohorts (model answers and scores; SIGIR/TREC 2023 topics, qrels and trial texts in .cache, never committed)
     data_class: D0
     kind: open
-    licence: SIGIR 2016 cohort as redistributed by NCBI TrialGPT (public domain, US Government work); TREC Clinical Trials 2023 topics and qrels (NIST); trial criteria from the ClinicalTrials.gov public API
+    licence: SIGIR 2016 cohort, CC BY-SA 4.0 (CSIRO), as redistributed by NCBI TrialGPT (public domain notice); TREC Clinical Trials 2023 topics and qrels (NIST); trial criteria from the ClinicalTrials.gov public API
   chia:
     path: eval/chia (route shares only; the Chia corpus is fetched to .cache at run time, never committed)
     data_class: D0

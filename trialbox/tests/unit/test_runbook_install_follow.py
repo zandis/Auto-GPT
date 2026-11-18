@@ -239,6 +239,89 @@ def test_a_site_bundle_is_asked_for_the_embedder(tmp_path: Path) -> None:
     assert not (tmp_path / "work").exists()
 
 
+def _stick(tmp: Path, commit: str | None) -> tuple[Path, Path]:
+    """A stick folder with the four files, the bundle signed with a release.json naming ``commit``."""
+    priv, pub = keygen(tmp / "vendor")
+    stick = tmp / "usb"
+    stick.mkdir()
+    payload = tmp / "x.bin"
+    payload.write_bytes(b"x")
+    bundle = stick / "trialbox-2026.11-9.tar"
+    build(
+        priv, "2026.11-9", [("other", payload, "x.bin")], bundle, release=None if commit is None else {"commit": commit}
+    )
+    for n in (f"{bundle.name}.sha256", *ri.STICK_FILES):
+        (stick / n).write_text("x\n", encoding="utf-8")
+    return bundle, pub
+
+
+def test_the_vm_preflight_refuses_before_anything_slow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    head = "a" * 40
+    bundle, pub = _stick(tmp_path, head)
+    ok: dict[str, Any] = dict(rerun=False, is_root=True, exists=lambda p: False, free_root=lambda: 1 << 50, head=head)
+    # the stick must be at the runbook's /media/usb: a bundle anywhere else is refused by name
+    assert ri.vm_preflight(bundle, pub, **ok) == [
+        f"the bundle must be on the stick at /media/usb (the one command starts `cd /media/usb`), not {bundle}"
+    ]
+    monkeypatch.setattr(ri, "STICK", str(bundle.parent))  # the test's folder stands for /media/usb from here on
+    assert ri.vm_preflight(bundle, pub, **ok) == []
+    assert ri.vm_preflight(bundle, pub, **{**ok, "is_root": False}) == [
+        "run it as root: the hub's commands run as root"
+    ]
+    (bundle.parent / "trialbox-bootstrap.sh.sig").unlink()
+    assert ri.vm_preflight(bundle, pub, **ok) == [
+        "the stick has no trialbox-bootstrap.sh.sig (the vendor hands over four files: D-996)"
+    ]
+    (bundle.parent / "trialbox-bootstrap.sh.sig").write_text("x\n", encoding="utf-8")
+    assert ri.vm_preflight(bundle, tmp_path / "nokey.pub", **ok) == [
+        f"no vendor key at {tmp_path / 'nokey.pub'} (given apart from the stick)"
+    ]
+    taken = ri.vm_preflight(bundle, pub, **{**ok, "exists": lambda p: p == ri.OPT})
+    assert taken == [f"{ri.OPT} exists: a first follow needs a machine without it (--rerun runs the one command again)"]
+    assert ri.vm_preflight(bundle, pub, **{**ok, "exists": lambda p: True, "rerun": True}) == []
+    small = ri.vm_preflight(bundle, pub, **{**ok, "free_root": lambda: 0})
+    assert len(small) == 1 and small[0].startswith("/ has 0.0 GiB free; a first install of this bundle needs about")
+    assert ri.vm_preflight(bundle, pub, **{**ok, "head": "b" * 40}) == [
+        "the bundle was built from aaaaaaaaaaaa; this checkout is bbbbbbbbbbbb: follow that commit's §1"
+    ]
+
+
+def test_a_bundle_without_a_release_commit_is_named(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    bundle, pub = _stick(tmp_path, None)
+    assert ri.release_commit(bundle) is None
+    monkeypatch.setattr(ri, "STICK", str(bundle.parent))
+    got = ri.vm_preflight(bundle, pub, rerun=False, is_root=True, exists=lambda p: False, free_root=lambda: 1 << 50,
+                          head="a" * 40)  # fmt: skip
+    assert got == ["the bundle names no release commit (a site bundle from make_bundle.sh carries release.json)"]
+
+
+def test_the_raw_output_stays_out_of_the_record(tmp_path: Path) -> None:
+    """--raw-dir keeps each command's own output (the administrator's one-time password would be there) in files of
+    mode 0600 beside the record, never in it."""
+    m, bundle, pub = _unit_machine(tmp_path)
+    raw = tmp_path / "raw"
+    rec = ri.Follower(m, bundle=bundle, vendor_pub=pub, work=tmp_path / "work", raw_dir=raw).follow()
+    files = sorted(raw.iterdir())
+    assert len(files) == rec.commands_run >= 1
+    assert all(f.stat().st_mode & 0o777 == 0o600 for f in files) and raw.stat().st_mode & 0o777 == 0o700
+    assert "Signature Verified Successfully" in files[0].read_text(encoding="utf-8")
+    assert str(raw) not in json.dumps(asdict(rec))
+
+
+def test_the_timings_sum_each_step_in_order() -> None:
+    rec = ri.Record("vm", "t", "c")
+    rec.steps = [
+        {"step": "1-host", "note": "x"},
+        {"step": "one-command", "rc": 1, "seconds": 80.3},
+        {"step": "one-command", "rc": 0, "seconds": 112.2},
+        {"step": "4-mapping-check", "rc": 0, "seconds": 3.0},
+    ]
+    assert ri.timings(rec) == [
+        {"step": "one-command", "commands": 2, "seconds": 192.5, "rc": 0},
+        {"step": "4-mapping-check", "commands": 1, "seconds": 3.0, "rc": 0},
+    ]
+
+
 def test_compare_fails_on_a_vanished_and_on_a_new_finding() -> None:
     committed: list[dict[str, Any]] = [
         {"id": "a", "step": "one-command", "seen_on": ["unit"]},
