@@ -18,7 +18,7 @@ no runbook page.
 ## How it ran
 
 - **Tool:** `tools/planted_faults.py` (`python -m tools.planted_faults run --out <file>`), the drill test
-  `tests/e2e/test_planted_faults.py` (`make planted-faults`), the fast test `tests/unit/test_planted_faults.py`.
+  `tests/e2e/test_planted_faults.py` (`make planted-faults`), the fast test `tests/unit/test_planted_faults_fast.py`.
 - **The box:** the console's own app (`console.app.create_app`) with `TB_OPS_RUNNER=inline` (the operations runner,
   the host facts and the health checks of `tb_common.metrics` run in this process), a throwaway PostgreSQL
   (`tools.pglocal`), the orchestrator's in-memory stand-in of the console tests (`FakeBackend`), which is also the
