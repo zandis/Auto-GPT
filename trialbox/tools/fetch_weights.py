@@ -13,50 +13,68 @@ the measured serving record), and that record lists every file of the release wi
 ``expected.manifest_sha256``: a record that disagrees with the registry is a broken pin record and nothing is
 fetched. The judge's chat template is the row's ``chat_template`` (source, revision, file, sha256).
 
+**Where it goes.** The models root and the folder names are resolved as the start resolves them (``deploy/poc.sh``
+and compose): ``TB_MODELS_DIR`` from the environment (relative to ``trialbox/``), else from ``deploy/.env``
+(relative to ``deploy/``), else ``deploy/models``; ``JUDGE_MODEL_DIR``, ``VERIFIER_MODEL_DIR`` and
+``JUDGE_CHAT_TEMPLATE`` from the environment, else ``deploy/.env``, else the default in the profile's compose file.
+The resolved root is printed first. Every name must stay under the root (no ``..``, no absolute path, no hidden
+part), and the template may not lie inside a model folder.
+
 **What is fetched.** Exactly the visible files of that list (hidden files such as ``.gitattributes`` are outside the
-pin's manifest), from ``https://huggingface.co/<repository>/resolve/<revision>/<path>``, and the template file. A list
-that names a refused type (``.bin``, ``.py`` and the other pickle or code suffixes of ``pin_model``) is refused before
-anything is asked for. Each file is written under ``<models>/.fetch-weights/`` (hidden, on the same disk), resumed
-with an HTTP range after an interruption, and checked against its size and pinned sha256; a file with another sha256
-is deleted and the run fails (it is not asked for again: that is not the network's fault). Only when the staged
-folder's manifest is the expected one is it moved into place, by one rename; a staged folder holding any file not in
-the list is refused. A folder already in place is never changed: if it holds the pinned build it is reported present,
-otherwise the run stops and says to move it aside.
+pin's manifest), from ``https://huggingface.co/<repository>/resolve/<revision>/<path>``, and the template file (at
+most 1 MB: the pin gives no size for it). A list that names a refused type (``.bin``, ``.py`` and the other pickle or
+code suffixes of ``pin_model``) or an unsafe path is refused before anything is asked for. One run at a time: a run
+holds a lock on ``<models>/.fetch-weights/.lock`` and a second run stops at once. Each file is written under
+``<models>/.fetch-weights/`` (hidden, on the same disk; part files opened without following links), resumed with an
+HTTP range after an interruption, and checked against its size and pinned sha256; a file with another sha256 is
+deleted and the run fails (it is not asked for again: that is not the network's fault). A full or unwritable disk
+is said as such and not retried. Before a staged folder is moved it must hold the pinned files and nothing else: no
+extra, hidden, linked or special entry, no empty folder; a staged folder that fails this is removed, so the next run
+starts it clean. What arrived intact is kept for the next run; staged leftovers of folders no longer asked for are
+removed. A folder already in place is never changed: if it holds the pinned build it is reported present, otherwise
+the run stops and says to move it aside (also when one appears, even empty, during the run).
 
 **What is sent.** Only the GET requests for those files (the hub may redirect them to its content store, over https
-only). ``HF_TOKEN`` from the environment is sent to the hub's own host when it is set (a gated repository) and never to
-the host a download is redirected to; it is never printed. ``HF_ENDPOINT`` replaces the hub's address (a mirror),
-https only. Standard library and PyYAML only (``python3-yaml``, runbook §27 step 3): the publisher's tool is not
-needed. Nothing runs this at install or start: it runs only when asked.
+only). ``HF_TOKEN`` from the environment is sent only when the endpoint is the public hub itself, only to the hub's
+own origin (scheme, host and port) and never to the origin a download is redirected to; it is never printed (a
+token with spaces or control characters is refused without being shown). ``HF_ENDPOINT`` replaces the hub's address
+(a mirror), https only, and never receives the token. Standard library and PyYAML only (``python3-yaml``, runbook §27
+step 3): the publisher's tool is not needed. Nothing runs this at install or start: it runs only when asked.
 
-Exit 0: every folder is the pinned build. 1: a download failed, a hash differed, a folder is in the way, or (with
-``--verify-only``) something is missing or differs. 2: a usage error or a pin record that cannot be used.
+Exit 0: every folder is the pinned build (``--dry-run``: the run could go ahead). 1: a download failed, a hash
+differed, a folder is in the way, the disk is short or another run holds the lock, or (``--verify-only``) something
+is missing or differs. 2: a usage error, an endpoint that is not https, or a pin record that cannot be used.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
+import errno
+import fcntl
 import hashlib
 import http.client
 import io
 import json
 import os
+import re
 import shutil
 import ssl
+import stat
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any
 
 import yaml
 
-from tools.pin_model import PROFILE_PAIRS, REFUSED_SUFFIXES, manifest_sha256_of_files
+from tools.pin_model import PROFILE_PAIRS, REFUSED_SUFFIXES, _env_file, manifest_sha256_of_files
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "models" / "registry.yaml"
@@ -64,11 +82,15 @@ LICENCE_REGISTER = ROOT / "docs" / "licences" / "register.csv"
 HUB = "https://huggingface.co"
 STAGE = ".fetch-weights"  # under the models root: hidden (outside every manifest), same disk (one rename)
 PARTS = ".parts"  # inside a staged folder: the files still being written
+LOCK = ".lock"  # in STAGE: one run at a time
 MARGIN = 1 << 30  # free space kept beyond the download (1 GiB)
+TEMPLATE_MAX = 1 << 20  # the template has no pinned size: a body above this is refused
 CHUNK = 8 << 20
 WAITS = (2, 5, 15)  # seconds before each further ask after a transfer fault; four asks per file in all
-TRANSFER_FAULTS = (urllib.error.URLError, OSError, http.client.HTTPException, TimeoutError)
+# network faults only: a local OSError (disk full, permission) is not retried
+TRANSFER_FAULTS = (urllib.error.URLError, http.client.HTTPException, ConnectionError, TimeoutError, ssl.SSLError)
 TEMPLATE_VAR = "JUDGE_CHAT_TEMPLATE"
+TOKEN_RE = re.compile(r"[\x21-\x7e]+")  # visible ASCII, no space or control character
 
 
 class RecordError(RuntimeError):
@@ -76,16 +98,16 @@ class RecordError(RuntimeError):
 
 
 class FetchError(RuntimeError):
-    """A download, a hash or a folder in the way (exit 1)."""
+    """A download, a hash, the disk or a folder in the way (exit 1)."""
 
 
 class HubRefused(FetchError):
-    """The hub answered with an HTTP error that asking again will not change."""
+    """The hub answered with an HTTP error that asking again will not change, or an address is not https."""
 
 
 @dataclass(frozen=True)
 class PinnedFile:
-    path: str  # relative to the folder (or, for the template, to the models root)
+    path: str  # relative to the folder (for the template: its file name)
     sha256: str
     size: int | None  # None: the pin record gives no size (the template)
 
@@ -109,6 +131,47 @@ class Target:
         return None if any(s is None for s in sizes) else sum(s for s in sizes if s is not None)
 
 
+# ---------------------------------------------------------------------------------------------------- where
+
+
+def _safe_rel(rel: str) -> bool:
+    """A relative path under a root: no absolute path, no empty, ``.`` or ``..`` part, no hidden part."""
+    parts = rel.split("/")
+    return bool(rel) and not rel.startswith("/") and all(p and not p.startswith(".") for p in parts)
+
+
+def _compose_default(var: str, compose: Path) -> str:
+    """The default compose gives ``var`` (``${VAR:-default}``), as ``deploy/poc.sh``'s ``compose_default`` reads it."""
+    if not compose.is_file():
+        return ""
+    m = re.search(r"\$\{" + re.escape(var) + r":-([^}]*)\}", compose.read_text(encoding="utf-8"))
+    return m.group(1) if m else ""
+
+
+def resolve_env(profile: str, env: dict[str, str], root: Path = ROOT) -> dict[str, str]:
+    """The folder names the start would use: the environment, else ``deploy/.env``, else the profile's compose
+    default (a value compose reads from ``deploy/.env`` is the one it serves)."""
+    kept = _env_file(root / "deploy" / ".env")
+    compose = root / "deploy" / f"docker-compose.{profile}.yml"
+    out: dict[str, str] = {}
+    for var in ("JUDGE_MODEL_DIR", "VERIFIER_MODEL_DIR", TEMPLATE_VAR):
+        value = env.get(var) or kept.get(var) or _compose_default(var, compose)
+        if value:
+            out[var] = value
+    return out
+
+
+def models_root(env: dict[str, str], root: Path = ROOT) -> tuple[Path, str]:
+    """(the models root, where it came from), as ``deploy/poc.sh``'s ``models_dir`` resolves it."""
+    m = env.get("TB_MODELS_DIR") or ""
+    if m:
+        return (Path(m) if m.startswith("/") else root / m.removeprefix("./")), "TB_MODELS_DIR (environment)"
+    m = _env_file(root / "deploy" / ".env").get("TB_MODELS_DIR") or ""
+    if m:
+        return (Path(m) if m.startswith("/") else root / "deploy" / m.removeprefix("./")), "TB_MODELS_DIR (deploy/.env)"
+    return root / "deploy" / "models", "the default"
+
+
 # ---------------------------------------------------------------------------------------------------- the plan
 
 
@@ -128,7 +191,6 @@ def _licence_of(row: dict[str, Any], register: dict[str, dict[str, str]]) -> dic
         "status": str(reg.get("status") or ("verified" if lic.get("verified") else "not verified")),
         "obligation": str(reg.get("obligation") or ""),
         "register": str(lic.get("register") or ""),
-        "evidence": str(reg.get("evidence") or ""),
     }
 
 
@@ -170,10 +232,11 @@ def _record_files(row: dict[str, Any], root: Path) -> tuple[str, str, list[Pinne
     out: list[PinnedFile] = []
     for f in files:
         rel = str(f.get("path") or "")
-        if any(part.startswith(".") for part in rel.split("/")):
-            continue  # outside the pin's manifest (.gitattributes)
-        if rel.startswith("/") or ".." in rel.split("/") or not rel:
+        parts = rel.split("/")
+        if rel.startswith("/") or any(p in ("", ".", "..") for p in parts):
             raise RecordError(f"{build}: {rec} names an unsafe path {rel!r}")
+        if any(p.startswith(".") for p in parts):
+            continue  # outside the pin's manifest (.gitattributes)
         if Path(rel).suffix.lower() in REFUSED_SUFFIXES:
             raise RecordError(f"{build}: {rec} lists {rel}, a refused file type (pickle weights or code)")
         out.append(PinnedFile(rel, str(f["sha256"]), int(f["bytes"]) if f.get("bytes") is not None else None))
@@ -189,7 +252,7 @@ def plan(
     root: Path = ROOT,
 ) -> list[Target]:
     """What the profile needs under the models root, every file with its pinned sha256; :class:`RecordError` when
-    the pin record cannot give that without a guess."""
+    the pin record cannot give that without a guess. ``env`` holds the resolved folder names (:func:`resolve_env`)."""
     e = env if env is not None else {}
     pairs = PROFILE_PAIRS.get(profile)
     if pairs is None:
@@ -202,15 +265,16 @@ def plan(
         row = rows.get(build)
         if row is None:
             raise RecordError(f"{build}: not in models/registry.yaml")
-        folder = e.get(dir_var) or dir_default
-        if not folder or folder.startswith((".", "/")) or ".." in folder.split("/"):
-            raise RecordError(f"{dir_var}={folder!r} is not a folder name under the models root")
+        raw = e.get(dir_var) or dir_default
+        folder = raw.rstrip("/")
+        if not _safe_rel(folder):
+            raise RecordError(f"{dir_var}={raw!r} is not a folder name under the models root")
         source, revision, files = _record_files(row, root)
         exp = str((row.get("expected") or {}).get("manifest_sha256"))
         have = targets.get(folder)
         if have is not None:
-            if have.manifest_sha256 != exp:
-                raise RecordError(f"{build} and {have.builds[0]} want different weights in the one folder {folder}")
+            if have.kind != "folder" or have.manifest_sha256 != exp:
+                raise RecordError(f"{build} and {have.builds[0]} want different things at {folder}")
             have.builds.append(build)
         else:
             targets[folder] = Target(
@@ -221,9 +285,11 @@ def plan(
             if not (tpl.get("sha256") and tpl.get("source") and tpl.get("revision")):
                 raise RecordError(f"{build}: chat_template has no sha256, source or revision: it cannot be fetched")
             dest = e.get(TEMPLATE_VAR) or str(tpl["file"])
+            if not _safe_rel(dest):
+                raise RecordError(f"{TEMPLATE_VAR}={dest!r} is not a file path under the models root")
             if dest in targets:
-                if targets[dest].files[0].sha256 != tpl["sha256"]:
-                    raise RecordError(f"two builds want different chat templates at {dest}")
+                if targets[dest].kind != "template" or targets[dest].files[0].sha256 != tpl["sha256"]:
+                    raise RecordError(f"two builds want different things at {dest}")
                 targets[dest].builds.append(build)
                 continue
             targets[dest] = Target(
@@ -235,20 +301,30 @@ def plan(
                 [build],
                 _licence_of(row, licences),
             )
+    dests = list(targets)
+    for a in dests:
+        for b in dests:
+            if a != b and b.startswith(a + "/"):
+                raise RecordError(f"{b} lies inside {a}: each folder must hold only its pinned files")
     return list(targets.values())
 
 
 # ---------------------------------------------------------------------------------------------------- transport
 
 
+def origin(url: str) -> tuple[str, str, int]:
+    """(scheme, host, port) of an address, the port made explicit."""
+    u = urllib.parse.urlsplit(url)
+    return u.scheme, (u.hostname or "").lower(), u.port or {"https": 443, "http": 80}.get(u.scheme, 0)
+
+
 class Transport:
-    """HTTPS GETs with an optional range. ``open`` returns (status, total size or None, response stream)."""
+    """HTTPS GETs with an optional range. ``open`` returns (status, total size or None, response stream).
+    ``token`` goes only to ``token_origin`` (the hub's scheme, host and port), never after a redirect elsewhere."""
 
-    allowed: tuple[str, ...] = ("https",)
-
-    def __init__(self, token: str | None = None, hub_host: str | None = None) -> None:
+    def __init__(self, token: str | None = None, token_origin: tuple[str, str, int] | None = None) -> None:
         self._token = token
-        self._hub_host = hub_host
+        self._token_origin = token_origin
         ctx = ssl.create_default_context(cafile=os.environ.get("SSL_CERT_FILE") or None)
         transport = self
 
@@ -256,7 +332,7 @@ class Transport:
             def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
                 transport.check_url(newurl)
                 new = super().redirect_request(req, fp, code, msg, headers, newurl)
-                if new is not None and urllib.parse.urlsplit(newurl).hostname != transport._hub_host:
+                if new is not None and origin(newurl) != transport._token_origin:
                     new.remove_header("Authorization")  # the token goes to the hub alone, never to its CDN
                 return new
 
@@ -272,8 +348,12 @@ class Transport:
             opener.add_handler(handler)
         self._opener = opener
 
+    @classmethod
+    def url_ok(cls, url: str) -> bool:
+        return urllib.parse.urlsplit(url).scheme == "https"
+
     def check_url(self, url: str) -> None:
-        if urllib.parse.urlsplit(url).scheme not in self.allowed:
+        if not self.url_ok(url):
             raise HubRefused(f"{urllib.parse.urlsplit(url).hostname}: only https is fetched (asked for {url[:8]}…)")
 
     def open(self, url: str, start: int = 0) -> tuple[int, int | None, IO[bytes]]:
@@ -281,7 +361,7 @@ class Transport:
         req = urllib.request.Request(url, headers={"User-Agent": "trialbox-fetch-weights"})
         if start:
             req.add_header("Range", f"bytes={start}-")
-        if self._token and urllib.parse.urlsplit(url).hostname == self._hub_host:
+        if self._token and origin(url) == self._token_origin:
             req.add_header("Authorization", f"Bearer {self._token}")
         try:
             resp = self._opener.open(req, timeout=60)
@@ -298,7 +378,9 @@ class Transport:
                 raise HubRefused(f"not on the hub at the pinned revision (HTTP 404): {url}") from None
             raise
         final = resp.geturl()
-        self.check_url(final)
+        if not self.url_ok(final):
+            resp.close()
+            self.check_url(final)
         total: int | None = None
         crange = resp.headers.get("Content-Range") or ""
         if resp.status == 206 and "/" in crange and crange.rsplit("/", 1)[1].isdigit():
@@ -308,11 +390,30 @@ class Transport:
         return resp.status, total, resp
 
 
+def token_for(env: dict[str, str], hub: str) -> str | None:
+    """The token to send: ``HF_TOKEN`` stripped, only for the public hub; :class:`FetchError` (never naming the
+    token) when it holds spaces or control characters."""
+    raw = env.get("HF_TOKEN") or ""
+    tok = raw.strip()
+    if not tok:
+        return None
+    if not TOKEN_RE.fullmatch(tok):
+        raise FetchError(
+            "HF_TOKEN holds a space or a control character: it is not sent (it is not shown either); set it again "
+            "with the token alone"
+        )
+    return tok if hub.rstrip("/") == HUB else None
+
+
 # ---------------------------------------------------------------------------------------------------- fetching
 
 
 def _say(msg: str) -> None:
     print(msg, flush=True)
+
+
+def _err(msg: str) -> None:
+    print(f"fetch-weights: {msg}", file=sys.stderr, flush=True)
 
 
 def _human(n: int | None) -> str:
@@ -324,16 +425,52 @@ def _human(n: int | None) -> str:
     return f"{n} bytes"
 
 
+def _local(exc: OSError, what: Path) -> FetchError:
+    """A local file error in plain words; the disk being full is said as such."""
+    if exc.errno in (errno.ENOSPC, errno.EDQUOT):
+        return FetchError(f"the disk is full at {what}: free some space (or set TB_MODELS_DIR to a larger disk)")
+    if exc.errno in (errno.EACCES, errno.EPERM, errno.EROFS):
+        return FetchError(f"no permission to write {what} ({exc.strerror})")
+    if exc.errno == errno.ELOOP:
+        return FetchError(f"{what} is a symbolic link: refused")
+    return FetchError(f"{what}: {exc.strerror or exc}")
+
+
+@contextlib.contextmanager
+def _on_disk(what: Path) -> Iterator[None]:
+    try:
+        yield
+    except FetchError:
+        raise
+    except OSError as exc:
+        if isinstance(exc, TRANSFER_FAULTS):
+            raise
+        raise _local(exc, what) from None
+
+
 def _sha256(path: Path) -> str:
     h = hashlib.sha256()
-    with path.open("rb") as fh:
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as fh:
         while chunk := fh.read(CHUNK):
             h.update(chunk)
     return h.hexdigest()
 
 
+def _regular(path: Path) -> bool:
+    try:
+        return stat.S_ISREG(os.lstat(path).st_mode)
+    except FileNotFoundError:
+        return False
+
+
 def url_of(hub: str, source: str, revision: str, path: str) -> str:
     return f"{hub.rstrip('/')}/{source}/resolve/{revision}/{urllib.parse.quote(path)}"
+
+
+def _open_part(part: Path, append: bool) -> IO[bytes]:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | (os.O_APPEND if append else os.O_TRUNC)
+    return os.fdopen(os.open(part, flags, 0o644), "ab" if append else "wb")
 
 
 def fetch_file(
@@ -345,29 +482,49 @@ def fetch_file(
     sleep: Callable[[float], None] = time.sleep,
 ) -> None:
     """Write ``url`` to ``part``, resuming what is already there, until it holds the pinned bytes; the file is
-    deleted and :class:`FetchError` raised when its size or sha256 is not the pinned one."""
-    part.parent.mkdir(parents=True, exist_ok=True)
+    deleted and :class:`FetchError` raised when its size or sha256 is not the pinned one. A network fault is asked
+    again (``WAITS``); a local error (disk full, permission) is not."""
+    cap = pinned.size if pinned.size is not None else TEMPLATE_MAX
+    with _on_disk(part):
+        part.parent.mkdir(parents=True, exist_ok=True)
+        if part.is_symlink() or (part.exists() and not _regular(part)):
+            raise FetchError(f"{part} is not a regular file: refused")
     asks = 0
     while True:
-        have = part.stat().st_size if part.exists() else 0
-        if pinned.size is not None and have > pinned.size:
-            part.unlink()
-            have = 0
+        with _on_disk(part):
+            have = part.stat().st_size if part.exists() else 0
+            if have > cap:
+                part.unlink()
+                have = 0
         if pinned.size is not None and have == pinned.size:
             break
         try:
             status, _total, stream = transport.open(url, have)
             if status == 416:  # nothing after `have`: the server holds no more bytes; the hash decides
                 break
-            mode = "ab" if status == 206 and have else "wb"
-            with stream, part.open(mode) as out:
-                while chunk := stream.read(CHUNK):
-                    out.write(chunk)
-                    if pinned.size is not None and out.tell() > pinned.size:
-                        raise FetchError(f"{pinned.path}: the hub sent more than the pinned {pinned.size} bytes")
-            if pinned.size is None or part.stat().st_size >= pinned.size:
+            append = status == 206 and have > 0
+            with stream:
+                with _on_disk(part):
+                    out = _open_part(part, append)
+                with out:
+                    while chunk := stream.read(CHUNK):
+                        with _on_disk(part):
+                            out.write(chunk)
+                            written = out.tell()
+                        if written > cap:
+                            with _on_disk(part):
+                                out.close()
+                                part.unlink()
+                            raise FetchError(
+                                f"{pinned.path}: the hub sent more than the "
+                                + (f"pinned {pinned.size} bytes" if pinned.size is not None else f"{cap} bytes allowed")
+                                + ": refused and deleted"
+                            )
+            with _on_disk(part):
+                size = part.stat().st_size
+            if pinned.size is None or size >= pinned.size:
                 break
-            raise http.client.IncompleteRead(b"", pinned.size - part.stat().st_size)
+            raise http.client.IncompleteRead(b"", pinned.size - size)
         except FetchError:
             raise
         except TRANSFER_FAULTS as exc:
@@ -378,36 +535,58 @@ def fetch_file(
                 ) from None
             sleep(WAITS[asks])
             asks += 1
-    got = _sha256(part)
-    size = part.stat().st_size
-    if (pinned.size is not None and size != pinned.size) or got != pinned.sha256:
-        part.unlink()
-        raise FetchError(
-            f"{pinned.path}: sha256 {got[:12]} ({size} bytes) is not the pinned {pinned.sha256[:12]}"
-            + (f" ({pinned.size} bytes)" if pinned.size is not None else "")
-            + ": refused and deleted; nothing was moved into place"
-        )
+    with _on_disk(part):
+        got = _sha256(part)
+        size = part.stat().st_size
+        if got != pinned.sha256:
+            part.unlink()
+            raise FetchError(
+                f"{pinned.path}: sha256 {got[:12]} ({size} bytes) is not the pinned {pinned.sha256[:12]}"
+                + (f" ({pinned.size} bytes)" if pinned.size is not None else "")
+                + ": refused and deleted; nothing was moved into place"
+            )
 
 
-def _visible_files(folder: Path) -> list[str]:
-    return sorted(
-        p.relative_to(folder).as_posix()
-        for p in folder.rglob("*")
-        if p.is_file() and not any(part.startswith(".") for part in p.relative_to(folder).parts)
-    )
+def _entries(folder: Path) -> tuple[list[str], list[str]]:
+    """(the visible regular files, what may not be there: links, special files, hidden entries, empty folders)."""
+    files: list[str] = []
+    bad: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(folder, followlinks=False):
+        d = Path(dirpath)
+        rel_d = d.relative_to(folder)
+        for name in dirnames + filenames:
+            p = d / name
+            rel = (rel_d / name).as_posix()
+            mode = os.lstat(p).st_mode
+            if name.startswith("."):
+                bad.append(f"{p}: a hidden entry")
+            elif stat.S_ISLNK(mode):
+                bad.append(f"{p}: a symbolic link")
+            elif stat.S_ISDIR(mode):
+                if not any(p.iterdir()):
+                    bad.append(f"{p}: an empty folder")
+            elif stat.S_ISREG(mode):
+                files.append(rel)
+            else:
+                bad.append(f"{p}: not a regular file")
+        dirnames[:] = [n for n in dirnames if not n.startswith(".") and not (d / n).is_symlink()]
+    return sorted(files), bad
 
 
-def check_folder(folder: Path, target: Target) -> list[str]:
-    """What differs between ``folder`` and the target's pinned files (empty: it is the pinned build)."""
-    if not folder.is_dir():
-        return [f"{folder} is missing"]
+def check_folder(folder: Path, target: Target, *, strict: bool = False) -> list[str]:
+    """What differs between ``folder`` and the target's pinned files (empty: it is the pinned build). ``strict``
+    (a staged folder before its move) also refuses hidden entries, links, special files and empty folders."""
+    if folder.is_symlink() or not folder.is_dir():
+        return [f"{folder} is missing" if not folder.exists() else f"{folder} is not a folder"]
     want = {f.path: f for f in target.files}
-    have = _visible_files(folder)
-    problems = [f"{folder / p}: not in the pin (an extra file)" for p in have if p not in want]
+    have, bad = _entries(folder)
+    problems = list(bad) if strict else [b for b in bad if "hidden" not in b and "empty" not in b]
+    problems += [f"{folder / p}: not in the pin (an extra file)" for p in have if p not in want]
     for rel, f in want.items():
         p = folder / rel
-        if not p.is_file():
-            problems.append(f"{p}: missing")
+        if rel not in have:
+            if not any(b.startswith(f"{p}:") for b in bad):
+                problems.append(f"{p}: missing")
         elif f.size is not None and p.stat().st_size != f.size:
             problems.append(f"{p}: {p.stat().st_size} bytes, pinned {f.size}")
         elif _sha256(p) != f.sha256:
@@ -420,18 +599,25 @@ def check_folder(folder: Path, target: Target) -> list[str]:
 
 
 def check_template(path: Path, target: Target) -> list[str]:
-    if not path.is_file():
+    if not path.exists() and not path.is_symlink():
         return [f"{path} is missing"]
+    if not _regular(path):
+        return [f"{path} is not a regular file"]
     if _sha256(path) != target.files[0].sha256:
         return [f"{path}: sha256 is not the pinned {target.files[0].sha256[:12]}"]
     return []
 
 
-def _present(models: Path, t: Target) -> bool:
-    dest = models / t.dest
-    if t.kind == "folder":
-        return dest.exists() and not check_folder(dest, t)
-    return dest.exists() and not check_template(dest, t)
+def _check(models: Path, t: Target) -> list[str]:
+    return (check_folder if t.kind == "folder" else check_template)(models / t.dest, t)
+
+
+def _exists(p: Path) -> bool:
+    return p.exists() or p.is_symlink()
+
+
+def _done_path(stage: Path, t: Target, f: PinnedFile) -> Path:
+    return stage / f.path if t.kind == "folder" else stage / Path(t.dest).name
 
 
 def _missing_bytes(models: Path, t: Target) -> int:
@@ -439,11 +625,10 @@ def _missing_bytes(models: Path, t: Target) -> int:
     stage = models / STAGE / t.dest
     total = 0
     for f in t.files:
-        done = stage / f.path if t.kind == "folder" else stage / Path(t.dest).name
-        if done.is_file():
+        if _regular(_done_path(stage, t, f)):
             continue
         part = stage / PARTS / f.path
-        total += max(0, (f.size or 0) - (part.stat().st_size if part.exists() else 0))
+        total += max(0, (f.size or 0) - (part.stat().st_size if _regular(part) else 0))
     return total
 
 
@@ -451,6 +636,13 @@ def _existing(path: Path) -> Path:
     while not path.exists() and path != path.parent:
         path = path.parent
     return path
+
+
+def _discard(stage: Path) -> None:
+    if stage.is_symlink() or stage.is_file():
+        stage.unlink()
+    elif stage.exists():
+        shutil.rmtree(stage)
 
 
 def fetch_target(
@@ -463,41 +655,99 @@ def fetch_target(
 ) -> None:
     stage = models / STAGE / t.dest
     parts = stage / PARTS
+    with _on_disk(stage):
+        if stage.is_symlink() or (stage.exists() and not stage.is_dir()):
+            _discard(stage)
     for i, f in enumerate(t.files, 1):
-        done = stage / f.path if t.kind == "folder" else stage / Path(t.dest).name
-        if done.is_file() and _sha256(done) == f.sha256:
-            continue
+        done = _done_path(stage, t, f)
+        with _on_disk(done):
+            if _regular(done) and _sha256(done) == f.sha256:
+                continue
+            if _exists(done):
+                _discard(done)
         _say(f"  [{i}/{len(t.files)}] {f.path} ({_human(f.size)})")
         part = parts / f.path
         fetch_file(transport, url_of(hub, t.source, t.revision, f.path), part, f, sleep=sleep)
-        done.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(part, done)
-    shutil.rmtree(parts, ignore_errors=True)
+        with _on_disk(done):
+            done.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(part, done)
+    with _on_disk(parts):
+        if _exists(parts):
+            _discard(parts)
     dest = models / t.dest
     if t.kind == "folder":
-        problems = check_folder(stage, t)
+        problems = check_folder(stage, t, strict=True)
         if problems:
-            raise FetchError(f"{t.dest}: the staged folder is not the pinned build: " + "; ".join(problems[:5]))
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(stage, dest)
+            with _on_disk(stage):
+                _discard(stage)
+            raise FetchError(
+                f"{t.dest}: the staged folder is not the pinned build, so it was removed (the next run starts it "
+                "again): " + "; ".join(problems[:5])
+            )
+        with _on_disk(dest):
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if _exists(dest):
+                raise FetchError(f"{dest} appeared during the run (it is left as it is); move it aside and run again")
+            os.rename(stage, dest)
     else:
         staged = stage / Path(t.dest).name
         problems = check_template(staged, t)
         if problems:
+            with _on_disk(stage):
+                _discard(stage)
             raise FetchError("; ".join(problems))
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(staged, dest)
-        shutil.rmtree(stage, ignore_errors=True)
+        with _on_disk(dest):
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.link(staged, dest)  # never replaces: fails when something is there
+            except FileExistsError:
+                raise FetchError(
+                    f"{dest} appeared during the run (it is left as it is); move it aside and run again"
+                ) from None
+            _discard(stage)
 
 
-def _cleanup_stage(models: Path) -> None:
+def _tidy_stage(models: Path, targets: list[Target]) -> None:
+    """Remove staged leftovers no current target can reuse, and empty folders; the lock file stays."""
     root = models / STAGE
-    if root.is_dir():
-        for p in sorted(root.rglob("*"), key=lambda p: len(p.parts), reverse=True):
-            if p.is_dir() and not any(p.iterdir()):
-                p.rmdir()
-        if not any(root.iterdir()):
-            root.rmdir()
+    if not root.is_dir():
+        return
+    keep = [Path(t.dest) for t in targets]
+    for dirpath, dirnames, filenames in os.walk(root, topdown=True, followlinks=False):
+        rel = Path(dirpath).relative_to(root)
+        descend = []
+        for name in list(dirnames) + filenames:
+            r = rel / name
+            if r == Path(LOCK) or any(r == k or r.is_relative_to(k) for k in keep):
+                continue  # the lock, or a current target's stage (reused)
+            if name in dirnames and not (root / r).is_symlink() and any(k.is_relative_to(r) for k in keep):
+                descend.append(name)
+                continue
+            _discard(root / r)
+        dirnames[:] = descend
+    for p in sorted(root.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+        r = p.relative_to(root)
+        if any(r == k or r.is_relative_to(k) for k in keep):
+            continue  # inside a target's stage: the strict check before the move judges it
+        if p.is_dir() and not p.is_symlink() and not any(p.iterdir()):
+            p.rmdir()
+
+
+@contextlib.contextmanager
+def _lock(models: Path) -> Iterator[bool]:
+    """An exclusive lock for the run (True), or False when another run holds it."""
+    path = models / STAGE / LOCK
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o644)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        yield True
+    finally:
+        os.close(fd)
 
 
 # ---------------------------------------------------------------------------------------------------- the command
@@ -514,12 +764,12 @@ def _describe(targets: list[Target]) -> None:
 
 def run(
     profile: str,
-    models: Path,
+    models: Path | None = None,
     *,
     dry_run: bool = False,
     verify_only: bool = False,
     env: dict[str, str] | None = None,
-    transport: Transport | None = None,
+    transport_cls: type[Transport] = Transport,
     free_bytes: Callable[[Path], int] | None = None,
     sleep: Callable[[float], None] = time.sleep,
     registry: Path = REGISTRY,
@@ -527,12 +777,17 @@ def run(
     root: Path = ROOT,
 ) -> int:
     e = dict(os.environ) if env is None else env
+    if models is None:
+        models, came_from = models_root(e, root)
+    else:
+        came_from = "--models-dir"
+    models = models.absolute()
+    _say(f"fetch-weights: models root {models} (from {came_from}); profile {profile}")
     try:
-        targets = plan(profile, e, registry=registry, register=register, root=root)
+        targets = plan(profile, resolve_env(profile, e, root), registry=registry, register=register, root=root)
     except (RecordError, OSError, ValueError, KeyError, yaml.YAMLError) as exc:
-        print(f"fetch-weights: the pin record cannot be used: {exc}", file=sys.stderr)
+        _err(f"the pin record cannot be used: {exc}")
         return 2
-    _say(f"fetch-weights: profile {profile}, models folder {models}")
     _say("The pin record (models/registry.yaml and the measured record it names) asks for:")
     _describe(targets)
     known = [t.size for t in targets]
@@ -542,7 +797,7 @@ def run(
     if verify_only:
         bad = 0
         for t in targets:
-            problems = (check_folder if t.kind == "folder" else check_template)(models / t.dest, t)
+            problems = _check(models, t)
             _say(f"{'ok' if not problems else 'NOT OK'}: {t.dest}")
             for p in problems[:10]:
                 _say(f"    {p}")
@@ -550,71 +805,118 @@ def run(
         _say("All present and pinned." if not bad else f"{bad} of {len(targets)} not as pinned.")
         return 1 if bad else 0
 
-    present = [t for t in targets if _present(models, t)]
+    hub = (e.get("HF_ENDPOINT") or HUB).rstrip("/")
+    if not transport_cls.url_ok(hub):
+        _err(f"HF_ENDPOINT {hub[:8]}…: only an https address is fetched")
+        return 2
+    try:
+        token = token_for(e, hub)
+    except FetchError as exc:
+        _err(str(exc))
+        return 2
+    if e.get("HF_TOKEN", "").strip() and token is None:
+        _say("HF_TOKEN is set but not sent: the endpoint is not the public hub (HF_ENDPOINT).")
+    if dry_run:
+        return _dry_run(models, targets, hub, free_bytes)
+    try:
+        with _lock(models) as got:
+            if not got:
+                _err(f"another fetch-weights run holds {models / STAGE / LOCK}: wait for it to end, then run again")
+                return 1
+            return _fetch(models, targets, profile, hub, transport_cls(token, origin(hub)), free_bytes, sleep)
+    except FetchError as exc:
+        _err(str(exc))
+        return 1
+    except OSError as exc:
+        if isinstance(exc, TRANSFER_FAULTS):
+            raise
+        _err(str(_local(exc, models / STAGE)))
+        return 1
+
+
+def _in_the_way(models: Path, todo: list[Target]) -> int:
+    for t in todo:
+        _err(f"{models / t.dest} exists and is not the pinned build:")
+        for p in _check(models, t)[:5]:
+            print(f"    {p}", file=sys.stderr)
+    _err(
+        "nothing is changed in a folder already there; move it aside (for example `mv <folder> <folder>.old`) and "
+        "run again"
+    )
+    return 1
+
+
+def _need_and_free(models: Path, todo: list[Target], free_bytes: Callable[[Path], int] | None) -> tuple[int, int]:
+    need = sum(_missing_bytes(models, t) for t in todo)
+    free = (free_bytes or (lambda p: shutil.disk_usage(p).free))(_existing(models))
+    _say(f"To download: about {_human(need)}; free under {models}: {_human(free)}.")
+    return need, free
+
+
+def _short(models: Path, need: int, free: int) -> str:
+    return (
+        f"not enough free disk under {models}: {_human(free)} free, {_human(need + MARGIN)} needed (the download and "
+        "1 GB to spare); free some space or set TB_MODELS_DIR to a larger disk"
+    )
+
+
+def _dry_run(models: Path, targets: list[Target], hub: str, free_bytes: Callable[[Path], int] | None) -> int:
+    present = [t for t in targets if _exists(models / t.dest) and not _check(models, t)]
     todo = [t for t in targets if t not in present]
     for t in present:
         _say(f"already present and pinned: {t.dest}")
-    in_the_way = [t for t in todo if (models / t.dest).exists()]
+    rc = 0
+    in_the_way = [t for t in todo if _exists(models / t.dest)]
     if in_the_way:
-        for t in in_the_way:
-            problems = (check_folder if t.kind == "folder" else check_template)(models / t.dest, t)
-            print(f"fetch-weights: {models / t.dest} exists and is not the pinned build:", file=sys.stderr)
-            for p in problems[:5]:
-                print(f"    {p}", file=sys.stderr)
-        print(
-            "fetch-weights: nothing is changed in a folder already there; move it aside "
-            "(for example `mv <folder> <folder>.old`) and run again",
-            file=sys.stderr,
-        )
-        return 1
+        rc = _in_the_way(models, in_the_way)
+    need, free = _need_and_free(models, todo, free_bytes)
+    if todo and free < need + MARGIN:
+        _err(_short(models, need, free))
+        rc = 1
+    for t in todo:
+        for f in t.files:
+            _say(f"  would fetch {url_of(hub, t.source, t.revision, f.path)}  ({_human(f.size)})")
+    _say("Dry run: nothing was downloaded or written." + (" The real run would stop (see above)." if rc else ""))
+    return rc
+
+
+def _fetch(
+    models: Path,
+    targets: list[Target],
+    profile: str,
+    hub: str,
+    transport: Transport,
+    free_bytes: Callable[[Path], int] | None,
+    sleep: Callable[[float], None],
+) -> int:
+    present = [t for t in targets if _exists(models / t.dest) and not _check(models, t)]
+    todo = [t for t in targets if t not in present]
+    for t in present:
+        _say(f"already present and pinned: {t.dest}")
+    in_the_way = [t for t in todo if _exists(models / t.dest)]
+    if in_the_way:
+        return _in_the_way(models, in_the_way)
+    with _on_disk(models / STAGE):
+        _tidy_stage(models, todo)
     if not todo:
         _say("Nothing to fetch: every folder is the pinned build.")
         _next_step(targets, profile)
         return 0
-
-    need = sum(_missing_bytes(models, t) for t in todo)
-    free = (free_bytes or (lambda p: shutil.disk_usage(p).free))(_existing(models))
-    _say(f"To download: about {_human(need)}; free under {models}: {_human(free)}.")
-    short = free < need + MARGIN
-    if dry_run:
-        if short:
-            _say(f"Not enough free disk: {_human(need + MARGIN)} needed (the download and 1 GB to spare).")
-        hub = (e.get("HF_ENDPOINT") or HUB).rstrip("/")
-        for t in todo:
-            for f in t.files:
-                _say(f"  would fetch {url_of(hub, t.source, t.revision, f.path)}  ({_human(f.size)})")
-        _say("Dry run: nothing was downloaded or written.")
-        return 0
-    if short:
-        print(
-            f"fetch-weights: not enough free disk under {models}: {_human(free)} free, {_human(need + MARGIN)} needed "
-            "(the download and 1 GB to spare); free some space or set TB_MODELS_DIR to a larger disk",
-            file=sys.stderr,
-        )
+    need, free = _need_and_free(models, todo, free_bytes)
+    if free < need + MARGIN:
+        _err(_short(models, need, free))
         return 1
-
-    hub = (e.get("HF_ENDPOINT") or HUB).rstrip("/")
-    tr = transport or Transport(e.get("HF_TOKEN") or None, urllib.parse.urlsplit(hub).hostname)
-    try:
-        tr.check_url(hub)
-    except HubRefused as exc:
-        print(f"fetch-weights: HF_ENDPOINT: {exc}", file=sys.stderr)
-        return 2
-    models.mkdir(parents=True, exist_ok=True)
     for t in todo:
         _say(f"Fetching {t.dest} from {t.source} at {t.revision[:12]}")
         try:
-            fetch_target(models, t, tr, hub, sleep=sleep)
+            fetch_target(models, t, transport, hub, sleep=sleep)
         except FetchError as exc:
-            print(f"fetch-weights: {exc}", file=sys.stderr)
-            print(
-                f"fetch-weights: {t.dest} was not put in place; what arrived intact stays under {models / STAGE} "
-                "and the next run resumes it",
-                file=sys.stderr,
-            )
+            _err(str(exc))
+            _err(f"{t.dest} was not put in place; what arrived intact stays under {models / STAGE} for the next run")
             return 1
         _say(f"ok: {t.dest} is the pinned build")
-    _cleanup_stage(models)
+    with _on_disk(models / STAGE):
+        _tidy_stage(models, [])
     _next_step(targets, profile)
     return 0
 
@@ -641,14 +943,21 @@ def main(argv: list[str] | None = None) -> int:
         "--models-dir",
         type=Path,
         default=None,
-        help="the models root (default: TB_MODELS_DIR, else deploy/models)",
+        help="the models root (default: as the start resolves it: TB_MODELS_DIR, deploy/.env, deploy/models)",
     )
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="list what would be fetched; no network, no writes")
     mode.add_argument("--verify-only", action="store_true", help="check the folders against the pin; no network")
     a = ap.parse_args(argv)
-    models = a.models_dir or Path(os.environ.get("TB_MODELS_DIR") or ROOT / "deploy" / "models")
-    return run(a.profile, models.resolve(), dry_run=a.dry_run, verify_only=a.verify_only)
+    token = (os.environ.get("HF_TOKEN") or "").strip()
+    try:
+        return run(a.profile, a.models_dir, dry_run=a.dry_run, verify_only=a.verify_only)
+    except Exception as exc:  # a last guard: no traceback, and never the token
+        text = f"{type(exc).__name__}: {exc}"
+        if token:
+            text = text.replace(token, "<HF_TOKEN>")
+        _err(f"stopped on an unexpected error: {text}")
+        return 1
 
 
 if __name__ == "__main__":

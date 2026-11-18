@@ -47,21 +47,26 @@ its size and sha256). It names no model itself, so the version tag decides what 
 What it puts in place: `deploy/models/gemma-4-26b-a4b-it-4bit` (the judge, from `nvidia/Gemma-4-26B-A4B-NVFP4`),
 `deploy/models/qwen3.5-9b-4bit` (the verifier, from `cyankiwi/Qwen3.5-9B-AWQ-4bit`) and
 `deploy/models/chat-templates/gemma-4-26b-a4b-it/chat_template.jinja` (the judge's template, from
-`google/gemma-4-26B-A4B-it`), each at the revision the registry names. `TB_MODELS_DIR` moves the models root to
-another disk, as for the start.
+`google/gemma-4-26B-A4B-it`), each at the revision the registry names. The models root and the folder names are found as the start finds them:
+`TB_MODELS_DIR` (and `JUDGE_MODEL_DIR`, `VERIFIER_MODEL_DIR`, `JUDGE_CHAT_TEMPLATE`) from the environment, else from
+`deploy/.env`, else the defaults above. The first line it prints is the models root it will fill: check it.
 
 - It needs only `python3` and `python3-yaml` (step 3); the publisher's own download tool is not needed.
 - Files arrive under `deploy/models/.fetch-weights` first. A folder is moved into place only when every file has
-  its pinned sha256 and nothing else is in it; a file with another hash is deleted and the run stops.
+  its pinned sha256 and nothing else is in it (no extra, hidden or linked file); a file with another hash is
+  deleted and the run stops.
+- One run at a time: a second run started while one is fetching stops at once and says so.
 - An interrupted download (network, power) resumes where it stopped: run the same command again.
 - A folder already in place is never changed. If it is the pinned build it is reported present; if not, the run
   stops and names the differing files: move the folder aside (`mv <folder> <folder>.old`) and run again.
-- It checks the free disk before downloading (the download plus 1 GB).
+- It checks the free disk before downloading (the download plus 1 GB); if the disk fills anyway, it says "the disk
+  is full" and stops.
 - It sends only the download requests, over https, to the hub and the content store it redirects to. If the hub
   answers "refused" (HTTP 401 or 403) for a gated repository: sign in on the hub, accept the terms on the model's
   page, make a read token under the hub's settings (Access Tokens), and run again with it in the environment:
   `read -rs HF_TOKEN && export HF_TOKEN` (type or paste the token; it is not shown and not saved), then the
-  command. The token goes to the hub only and is never printed.
+  command. The token goes only to the hub itself (never to the content store it redirects to, and never when
+  `HF_ENDPOINT` names a mirror), and is never printed.
 - At the end it prints each model's licence as `docs/licences/register.csv` records it, with the obligation (for
   the judge: the Apache 2.0 text beside the weights, outside the pinned folder), and the next step (step 11).
 
