@@ -24,6 +24,7 @@ import base64
 import contextlib
 import logging
 import re
+from collections.abc import Collection
 from datetime import date
 from typing import Any
 from urllib.parse import quote, urlencode
@@ -48,6 +49,8 @@ from console.screening_log import criteria_choices
 from console.studies import known_study
 from console.timefmt import local_today, site_zone
 
+#: who reads a study's participants besides its PI: a sub-investigator ticked for one of these (D-273, PV-3)
+PARTICIPANT_TASKS = ("screen", "enter_data")
 ENTER = "study.setup"  # the matrix row of who records the participants (T-715, D-483: signed with every call)
 
 _RS = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
@@ -202,8 +205,15 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(403, "forbidden")
         # D-273 (PV-3): an investigator reads a study's participants only as its PI or as a sub-investigator ticked
         # for screening or data entry, once the delegation log names a PI
-        h.delegated(sess, rid, f"participants {rid}", ("screen", "enter_data"))
+        h.delegated(sess, rid, f"participants {rid}", PARTICIPANT_TASKS)
         return rid
+
+    def reads_participants(user: Any, rid: str) -> bool:
+        """The rule of :func:`study_or_404` as a yes or no, with nothing audited (no page is refused): the account sees
+        the study, is not a sponsor copy, reads patient rows and passes the same delegation check. The opening page
+        reads a study's visits and serious AEs only where this holds (J-6, D-1225)."""
+        return (user.sees_study(rid) and not user.sponsor_form and bool(user.can_view_phi)
+                and h.delegated_ok(user, rid, PARTICIPANT_TASKS))  # fmt: skip
 
     def need_enter(sess: Session, path: str) -> None:
         if not can_enter(sess.user):
@@ -339,13 +349,17 @@ def register(app: FastAPI, h: Helpers) -> None:
         return rows + [{**a, "party": "no_clock", "due": ""} for a in got.get("aes") or []
                        if a.get("serious") and a.get("noclock")]  # fmt: skip
 
-    def life_home(sess: Session) -> dict[str, Any]:
-        """The home page's visit block and serious-AE alert, across the studies this account sees."""
+    def life_home(sess: Session, only: Collection[str] | None = None) -> dict[str, Any]:
+        """The home page's visit block and serious-AE alert, across the studies this account sees; with ``only``, in
+        those studies alone (J-6, D-1225: the opening page passes the studies whose participants the account reads,
+        so no read is made that the participant pages would refuse)."""
         if not sess.user.can_view_phi or h.trials is None:
             return {"studies": [], "sae": [], "reports": []}
         day = today()
         studies, sae, reports, failed = [], [], [], []
         for r in h.trials(sess):  # read only: the lifecycle pages and the mail bring the participants up to date
+            if only is not None and r.id not in only:
+                continue
             v = visits_of(r.id, day)
             if v is not None and v["rows"]:
                 lst = v["list"]
@@ -389,6 +403,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             "sae": len(serious(rid)), "reports": reports}  # fmt: skip
 
     h.life_home = life_home
+    h.reads_participants = reads_participants
     h.life_mail = life_mail
     h.life_sae = serious
     h.life_reports = reports_due

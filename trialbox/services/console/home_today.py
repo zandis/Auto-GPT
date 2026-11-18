@@ -2,11 +2,12 @@
 the whole life of a study, and "Needs you today".
 
 * **The flag** ``layout.home_today`` (``tb_common.flags``, audited, off by default) changes what the opening page
-  shows first. Off, ``/home`` is as before. On, ``/home`` gives the coordinator, the investigator, the CRO and the
-  viewer one page: a "Needs you today" block of at most :data:`LIMIT` lines, then one "Next" line per study the
-  person is on. The steward, the privacy office and the administrator are on no study: their opening pages (their
-  review queues, the health page) are unchanged. The flag is read like ``layout.phone_first`` (``console.phone``):
-  a page gets the value last read, never waits for the store, and a value older than 5 s starts one background read.
+  shows first. Off, ``/home`` is as before, byte for byte. On, ``/home`` gives the coordinator, the investigator,
+  the CRO and the viewer one page: a "Needs you today" block of at most :data:`LIMIT` lines, then one "Next" line
+  per study the person is on. The steward, the privacy office and the administrator are on no study: their opening
+  pages (their review queues, the health page) are unchanged. The flag is read with ``layout.phone_first`` in one
+  background read (``console.phone``: at the console's start, then at most every 5 s); ``/home`` takes it from the
+  request.
 * **Next** is one sentence per study with one link, from :func:`life_step`. It does not compute a second step: it
   starts from the step the study's week page shows (``studies.procedure_step``, through ``home.study_step``) and goes
   on past enrolment with the study's recorded state (``SiteStore.study_state``: start-up, open, paused, closed) and
@@ -17,25 +18,23 @@ the whole life of a study, and "Needs you today".
   line per event however many reasons it has), then what is overdue, then what is due today, each with the page
   where it is done; more than five says how many more and links to the whole list (``/home?today=all``); none says
   so. What is not due yet is not on it.
-* **Only what the role may read.** Each source a line draws on is asked for only when the permission matrix lets the
-  role read it in that study (``home.today_home``); a role without patient-level rows gets lines from the
-  aggregate reads it already has (the feasibility report, a CRO's monitor grant)."""
+* **Only what the role may read.** A study's patient-level sources are read only where the participant pages would
+  let the account read them (``lifecycle_pages.reads_participants``; ``home.today_home``), so no read is made that a
+  page would refuse; any other study gets its Next from the aggregate reads the account already has (the feasibility
+  report, a CRO's monitor grant)."""
 
 from __future__ import annotations
 
-import threading
-import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
-from tb_common.flags import Flags
-
 from console import i18n_today
 from console.i18n import CATALOGUES
+from console.phone import HOME_FLAG
 
-FLAG = "layout.home_today"
+FLAG = HOME_FLAG  # read with the other layout flag by console.phone's middleware (request.state.home_today)
 #: the lines of "Needs you today" shown before "N more"
 LIMIT = 5
 #: the roles whose opening page is this one with the flag on (the others are on no study)
@@ -58,6 +57,10 @@ STEPS: tuple[str, ...] = (
     "report_none",
     "monitor",
 )
+#: the participants still on study, and the candidates still in progress (``console.person_state``'s states that
+#: are neither a participant's nor ended): the study is not proposed for closing while any of them is non-zero
+ACTIVE: tuple[str, ...] = ("consented", "enrolled", "on_study")
+OPEN: tuple[str, ...] = ("listed", "need_info", "set_aside", "to_contact", "contacted")
 #: whose step it is (the role named on another person's home); "" = nobody in the product
 OWNER: dict[str, str] = {
     "startup": "coordinator",
@@ -100,58 +103,6 @@ for _lang, _cat in (("en", i18n_today.EN), ("ja", i18n_today.JA), ("zh-TW", i18n
     CATALOGUES[_lang].update(_cat)
 
 
-# ------------------------------------------------------------------------------------------------- the flag's read
-_clock = time.monotonic
-_kept: tuple[bool, float] | None = None
-_guard = threading.Lock()  # guards _kept and _reading only, never held during a read
-_reading = False
-FLAG_SECONDS = 5.0
-
-
-def _read() -> bool:
-    return Flags().row(FLAG) == "on"
-
-
-def clear_cache() -> None:
-    global _kept
-    with _guard:
-        _kept = None
-
-
-def _refresh() -> None:
-    global _kept, _reading
-    try:
-        value = bool(_read())
-    except Exception:  # the store is down, not installed, no URL: off until the next read
-        value = False
-    with _guard:
-        _kept = (value, _clock())
-        _reading = False
-
-
-def flag_now() -> bool:
-    """The value last read, at once (off before the first read); a value older than 5 s starts one background read."""
-    global _reading
-    with _guard:
-        kept = _kept
-        stale = kept is None or _clock() - kept[1] >= FLAG_SECONDS
-        start = stale and not _reading
-        if start:
-            _reading = True
-    if start:
-        threading.Thread(target=_refresh, name="home-today-flag", daemon=True).start()
-    return kept[0] if kept is not None else False
-
-
-def flag_on() -> bool:
-    """The flag read now, waiting for the store (a command line, a test); never raises."""
-    global _reading
-    with _guard:
-        _reading = True
-    _refresh()
-    return flag_now()
-
-
 # ------------------------------------------------------------------------------------------------- Next
 def life_step(
     *,
@@ -179,12 +130,18 @@ def life_step(
         return "screen"
     if counts is None:
         return "unknown"
-    active = sum(int(counts.get(s, 0)) for s in ("consented", "enrolled", "on_study"))
+
+    def some(states: Iterable[str]) -> bool:
+        return any(int(counts.get(x, 0)) for x in states)
+
     if step >= 5:
-        return "conduct" if active else "close"
-    if step == 4:
+        if some(ACTIVE):
+            return "conduct"
+        if not some(OPEN):
+            return "close"  # someone was enrolled, nobody is on study and no candidate is still in progress
+    if some(("contacted", "consented")):  # reached and booked, or consented and not yet enrolled
         return "consent"
-    return "contact" if counts.get("to_contact") else "review"
+    return "contact" if some(("to_contact",)) else "review"
 
 
 def report_step(*, report: bool, grant: tuple[str, str, str] | None) -> str:
@@ -319,12 +276,19 @@ def task_lines(tasks: Iterable[Mapping[str, Any]], today: date) -> list[TodayLin
     return out
 
 
+def _order(x: TodayLine) -> tuple[int, str, str, int, str]:
+    """An overdue line with no due day of its own (the visits overdue, each with its own window) comes first among
+    the overdue lines; a safety line or a line due today with no day comes last in its group."""
+    undated = "" if x.rank == OVERDUE else "9999-12-31"
+    return (x.rank, x.due or undated, x.rs, KINDS.index(x.kind), x.what)
+
+
 def ordered(lines: Iterable[TodayLine]) -> list[TodayLine]:
-    """Safety clocks first, then overdue, then due today; within one, the oldest due day first, then the study and
-    the line; each thing once (the first of two lines about the same thing is kept)."""
+    """Safety clocks first, then overdue, then due today; within one, the oldest due day first (an overdue line with
+    no due day first of all), then the study and the line; each thing once (the first of two about one thing kept)."""
     seen: set[tuple[str, str, str]] = set()
     out = []
-    for ln in sorted(lines, key=lambda x: (x.rank, x.due or "9999-12-31", x.rs, KINDS.index(x.kind), x.what)):
+    for ln in sorted(lines, key=_order):
         if ln.ident in seen:
             continue
         seen.add(ln.ident)
@@ -351,8 +315,6 @@ __all__ = [
     "STEPS",
     "NextLine",
     "TodayLine",
-    "flag_now",
-    "flag_on",
     "href_of",
     "life_step",
     "mark_in_today",

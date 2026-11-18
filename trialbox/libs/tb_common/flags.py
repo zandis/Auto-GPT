@@ -43,7 +43,7 @@ import os
 import re
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -117,7 +117,8 @@ DECLARED: dict[str, Declared] = {
         help="The console's phone-first layout (J-3, D-1222): on a phone the week list comes first under the title "
         "and the study's links fold into one 'Study' fold below it, the list's rows are cards, the menu's 'More' folds "
         "in two levels, and the patient sheet shows the evidence before the mark's note and reason. Off: the pages "
-        "as before. Read once per request; no restart.",
+        "as before. A page uses the value last read: the console reads the layout flags at its start and then in "
+        "the background at most every 5 seconds, so a change shows within about 5 seconds; no restart.",
     ),
     "layout.home_today": Declared(
         values=("off", "on"),
@@ -126,7 +127,8 @@ DECLARED: dict[str, Declared] = {
         help="The opening page's 'Needs you today' and 'Next' (J-6, D-1225): on, /home gives the coordinator, the "
         "investigator, the CRO and the viewer at most five lines of what needs them today (safety first, then "
         "overdue, then due today), then one 'Next' line per study, from start-up to archive. Off: the opening pages "
-        "as before. Read once per request; no restart.",
+        "as before. A page uses the value last read: the console reads the layout flags at its start and then in "
+        "the background at most every 5 seconds, so a change shows within about 5 seconds; no restart.",
     ),
     "lake.source": Declared(
         values=("legacy", "omop"),
@@ -290,6 +292,36 @@ class Flags:
                 return None
             r = con.execute(f"SELECT value FROM {table} WHERE name = %s", (name,)).fetchone()
         return None if r is None or r[0] is None else str(r[0])
+
+    def rows(self, names: Sequence[str]) -> dict[str, str]:
+        """The stored values of ``names`` in one read (a flag with no row is left out; an empty dict when the store is
+        not installed). Raises on errors, as :meth:`row` does. The console's layout flags (D-1222, D-1225) are read
+        together this way, so reading two costs what reading one did."""
+        wanted = list(names)
+        for n in wanted:
+            declared(n)
+        if self._db is not None:
+            with self._db.transaction() as tx:
+                if tx.fetchval("SELECT to_regclass('flag')") is None:
+                    return {}
+                got = tx.fetchall("SELECT name, value FROM flag WHERE name = ANY(?)", (wanted,))
+            return {str(r[0]): str(r[1]) for r in got if r[1] is not None}
+        if not self._url:
+            raise LookupError(f"{DB_URL_ENV} is not set: no flag store")
+        import psycopg
+        from psycopg import sql as pgsql
+
+        dsn, prefix = split_url(self._url)
+        schema = prefix + SCHEMA
+        if not _NAME_RE.match(schema):
+            raise DatabaseError(f"bad schema name {schema!r}")
+        query = pgsql.SQL("SELECT name, value FROM {} WHERE name = ANY(%s)").format(pgsql.Identifier(schema, "flag"))
+        with psycopg.connect(dsn, autocommit=True, connect_timeout=10) as con:
+            reg = con.execute("SELECT to_regclass(%s)", (f'"{schema}".flag',)).fetchone()
+            if not reg or reg[0] is None:
+                return {}
+            got = con.execute(query, (wanted,)).fetchall()
+        return {str(r[0]): str(r[1]) for r in got if r[1] is not None}
 
     def get(self, name: str, default: str | None = None) -> str | None:
         """The flag's value; ``default`` when it has no row, when the store is unreachable or on any error (logged).

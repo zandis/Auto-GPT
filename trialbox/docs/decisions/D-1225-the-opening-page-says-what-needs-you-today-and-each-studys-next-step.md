@@ -5,9 +5,12 @@
   and DS-13) · **Date:** 2026-11-18
 - **Decision:**
   - **One flag.** `layout.home_today` (`tb_common.flags.DECLARED`, values off/on, default off, no seed variable:
-    changed only on `/ops/flags` with a reason, audited as every flag). Read as `layout.phone_first` is (D-1222): a
-    page gets the value last read and never waits for the store; a value older than 5 seconds starts one background
-    read (`console.home_today.flag_now`). Off, `/home` is as before for every role.
+    changed only on `/ops/flags` with a reason, audited as every flag). Read together with `layout.phone_first`
+    (D-1222) in one background read of both (`Flags.rows`, one statement) by `console.phone`'s middleware: first at
+    the console's start, then when the value a page got is older than 5 seconds; a page never waits for the store
+    and `/home` takes the value from the request, so the opening page adds no read of its own. Off, `/home` is as
+    before for every role, byte for byte: every J-6 part of `home_crc.html` sits between `{#J6#}` and `{#/J6#}` and
+    writes nothing with the flag off (a test renders the page with and without those parts).
   - **Who gets the page.** With the flag on, `/home` gives the coordinator, the investigator, the CRO and the viewer
     one opening page: "Needs you today", then one "Next" line per study the person is on. The investigator, the CRO
     and the viewer are no longer sent on to `/week` or `/reports`; the page links there. The steward, the privacy
@@ -19,9 +22,10 @@
     page's `studies.procedure_step`; the line starts from the week page's (`home.study_step`) and goes on with the
     study's recorded state (`SiteStore.study_state`) and the one state of each person (D-1221). The steps, in order:
     start-up (state `startup`), criteria to approve, feasibility count, first screening, review of the week's list,
-    contact of the candidates marked Approach (someone `to_contact`), consent and enrolment (someone contacted),
-    conduct (someone consented, enrolled or on study: the visits), close (participants were enrolled and none is on
-    study any more), paused, closed. A closed study's archive is kept outside TrialBox: the line says so ("its files
+    contact of the candidates marked Approach (someone `to_contact`), consent and enrolment (someone contacted, or
+    consented and not yet enrolled), conduct (someone consented, enrolled or on study: the visits), close (someone was
+    enrolled, nobody is on study and no candidate is still in progress: on the list, needing information, set aside,
+    to contact or contacted; otherwise the consent, contact or review step), paused, closed. A closed study's archive is kept outside TrialBox: the line says so ("its files
     are kept for N years in the site's archive, outside TrialBox", N from the close or the default five) and has no
     link. The site fields of the feasibility report are a task of "Needs you today", no longer the study's Next
     (review card R8). When the step is another role's the line says whose and that nothing is needed from this
@@ -36,19 +40,32 @@
     reporting deadline yet" (one cause, review B-4), else the PI's acknowledgement awaited. One line per study for its
     overdue visits and one for today's. The coordinator's study tasks due today or before (site fields, a call after
     Approach, information to find, a clinic visit to prepare, a doctor to ask, the monthly delegation-log comparison);
-    a task not due yet is not today's (it stays on the week page's lists). More than five: "N more", linked to
+    a task not due yet is not today's (it stays on the week page's lists). Among the overdue lines, one with no due
+    day of its own (a study's overdue visits, each with its window) comes first. "Today" is the site's day. More than five: "N more", linked to
     `/home?today=all`, the whole list. None: "Nothing needs you today." A study's Next whose page is already a line
     of the block keeps its sentence and says so, so a page is linked once.
-  - **Only what the role may read.** Each line asks for its source only where the matrix lets the role read it in that
-    study: patient-level rows with `phi.view` and the study task `screen` (as the week, participant and visit pages
-    ask); serious AEs with `sae.view` (the acknowledgement line with `sae.ack`); visits with `task.enter_data`; the
-    coordinator's tasks with `request.prepare`; "mine" for each step by the row its page asks (`criteria.approve`,
-    `command.FEAS`, `command.SCREEN`, `list.mark`, `task.enter_data`, `study.state`). No change to any permission.
+  - **Only what the role may read.** A study's patient-level sources (its people, visits and serious AEs) are read
+    only where the participant pages would let the account read them: `lifecycle_pages.reads_participants`, the rule
+    of their `study_or_404` (sees the study, not a sponsor copy, `phi.view`, and the delegation log's PI or a
+    sub-investigator ticked for screening or data entry). `life_home` is asked for those studies only, so no read is
+    made that a page would refuse. Within them: serious AEs with `sae.view` (the acknowledgement line with `sae.ack`,
+    as the acknowledgement route asks), visits with `task.enter_data`, the study card's tasks with `request.prepare`.
+    "Mine" is asked only for the step shown, by the row its page asks (`criteria.approve` and the logged PI,
+    `command.FEAS`, `command.SCREEN`, `list.mark` or `request.prepare` with the log's `screen`, `task.enter_data`,
+    `study.state`). The account's standing in a study's log is read once per page view (`Helpers.permit`, through
+    `person_state.per_view`), which also spares the other pages repeated reads within one view. No change to any
+    permission.
 - **Why:** the opening page's guide stopped at enrolment and pointed back to feasibility; the coordinator's home showed
   the same SAE twice and buried the PI's hand-over under chores; the review asked for "what needs you today" in at most
   five lines and a "Next" for the whole life. A flag because it changes what every clinical role sees first.
 - **Not done here:** the eight-phase strip and the study switcher (R15), the start-up checklist (R9), "Remind PI"
   buttons; the line's words for a monitor's queries (they live in the EDC).
+- **Kept on purpose:** the coordinator's study cards keep their fixed links (set-up, participants, visits, enrolment
+  report, criteria not matched) even where a line above links the same page: they are the study's menu, there whatever
+  is due, so the card does not change shape from day to day.
 - **Proved by:** `tests/console/test_home_today.py` (the flag; the step table; the order; each role's Next through the
   life of a study on the real pages, with each link; the block's lines and links in three languages; never more than
-  five; nothing twice; a viewer's page with no patient read; the role walk with the flag on).
+  five; nothing twice; no data-core or screening-log read for an investigator the participant pages refuse, nor in a
+  second study where the PI of the first is on no log; the participant pages' rule for a data-entry sub-investigator;
+  the `sae.view` row; the site's day ahead of UTC; the flag-off page byte for byte; a statement budget per study;
+  the role walk with the flag on).

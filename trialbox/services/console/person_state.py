@@ -458,6 +458,12 @@ def _kept(name: str, rs: str, make: Callable[[], Any]) -> Any:
     return cache[k]
 
 
+def per_view(name: str, rs: str, make: Callable[[], Any]) -> Any:
+    """``make()`` once per page view (a GET) for ``(name, rs)``; afresh outside one. For a read that every part of one
+    page asks again for the same study, such as an account's standing in its delegation log (J-6, D-1225)."""
+    return _kept(name, rs, make)
+
+
 def registry_rows(h: Any, rs: str) -> list[Any]:
     """The screening log's rows of ``rs``, read once per page view (signed for the reader, D-717)."""
     return list(_kept("registry", rs, lambda: list(h.bk.registry_rows(rs))))
@@ -567,6 +573,7 @@ __all__ = [
     "gather",
     "key",
     "latest_marks",
+    "per_view",
     "reached",
     "read",
     "registry_rows",

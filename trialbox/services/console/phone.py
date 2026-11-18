@@ -1,14 +1,15 @@
 """J-3 (D-1222; the journey review's E-1, E-M1, E-M2, E-4, E-M4, E-M5): the console on a phone.
 
 * **The flag** ``layout.phone_first`` (``tb_common.flags``, audited, off by default) changes what a phone shows
-  first. A small middleware puts its value in ``request.state.phone_first`` for each page; ``base.html`` then gives
+  first. A small middleware puts its value in ``request.state.phone_first`` for each page (J-6's
+  ``layout.home_today`` goes in ``request.state.home_today``: the two are read together, D-1225); ``base.html`` gives
   ``<body>`` the class ``phone-first``, and the stylesheet's phone-first rules are scoped under it; the week page, the
   patient sheet, the participant's page and the menu's "More" read the same value where the order of the page
   changes. Off, every page is as before. It is switched on ``/ops/flags`` by the administrator, with a reason. A page
-  never waits for the flag store: it gets the value last read (off before the first read, and off after a failed
-  one), and when that value is older than 5 seconds one background thread reads it again; a store that hangs or
-  refuses delays no page. Not read for ``/static``, ``/api/``, ``/healthz``, ``/metrics``, the manifest, the icons
-  or ``/link``.
+  never waits for the flag store: it gets the value last read (read first at the console's start; off until the
+  store has answered, and off after a failed read), and when that value is older than 5 seconds one background
+  thread reads it again; a store that hangs or refuses delays no page. Not read for ``/static``, ``/api/``,
+  ``/healthz``, ``/metrics``, the manifest, the icons or ``/link``.
 * **A link from another site** (a mail, a chat), with or without the flag. The session cookie is ``SameSite=Strict``
   and stays so: a navigation from another site arrives without it. Such a navigation (``Sec-Fetch-Site:
   cross-site``, ``Sec-Fetch-Mode: navigate``, a GET) to a console page is answered with the console's own page
@@ -31,6 +32,7 @@ import re
 import threading
 import time
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -69,16 +71,20 @@ for _lang, _cat in (("en", i18n_phone.EN), ("ja", i18n_phone.JA), ("zh-TW", i18n
     CATALOGUES[_lang].update(_cat)
 
 
-# ------------------------------------------------------------------------------------------------- the flag's read
+# ------------------------------------------------------------------------------------------------- the flags' read
+#: the console's layout flags, read together in one background read: this card's and J-6's (D-1225)
+HOME_FLAG = "layout.home_today"
+LAYOUT_FLAGS = (FLAG, HOME_FLAG)
 _clock = time.monotonic
-_kept: tuple[bool, float] | None = None
+_kept: tuple[dict[str, bool], float] | None = None
 _guard = threading.Lock()  # guards _kept and _reading only, never held during a read
 _reading = False
 
 
-def _read() -> bool:
-    """One read of the flag store; raises when it does not answer."""
-    return Flags().row(FLAG) == "on"
+def _read() -> dict[str, bool]:
+    """One read of the flag store for every layout flag (one statement); raises when it does not answer."""
+    rows = Flags().rows(LAYOUT_FLAGS)
+    return {name: rows.get(name) == "on" for name in LAYOUT_FLAGS}
 
 
 def clear_cache() -> None:
@@ -90,16 +96,17 @@ def clear_cache() -> None:
 def _refresh() -> None:
     global _kept, _reading
     try:
-        value = bool(_read())
+        got = _read()
+        values = {name: bool(got.get(name)) for name in LAYOUT_FLAGS}
     except Exception:  # the store is down, not installed, no URL: off until the next read
-        value = False
+        values = dict.fromkeys(LAYOUT_FLAGS, False)
     with _guard:
-        _kept = (value, _clock())
+        _kept = (values, _clock())
         _reading = False
 
 
-def flag_now() -> bool:
-    """The value last read, at once (off before the first read); a value older than 5 s starts one background read."""
+def layout_now() -> dict[str, bool]:
+    """The values last read, at once (off before the first read); values older than 5 s start one background read."""
     global _reading
     with _guard:
         kept = _kept
@@ -108,17 +115,35 @@ def flag_now() -> bool:
         if start:
             _reading = True
     if start:
-        threading.Thread(target=_refresh, name="phone-first-flag", daemon=True).start()
-    return kept[0] if kept is not None else False
+        threading.Thread(target=_refresh, name="layout-flags", daemon=True).start()
+    return dict(kept[0]) if kept is not None else dict.fromkeys(LAYOUT_FLAGS, False)
 
 
-def flag_on() -> bool:
-    """The flag read now, waiting for the store (a command line, a test); never raises."""
+def flag_now() -> bool:
+    """``layout.phone_first`` as last read (see :func:`layout_now`)."""
+    return layout_now()[FLAG]
+
+
+def home_today_now() -> bool:
+    """``layout.home_today`` as last read (see :func:`layout_now`)."""
+    return layout_now()[HOME_FLAG]
+
+
+def read_now() -> dict[str, bool]:
+    """The layout flags read now, waiting for the store (the console's start, a command line, a test); never raises."""
     global _reading
     with _guard:
         _reading = True
     _refresh()
-    return flag_now()
+    return layout_now()
+
+
+def flag_on() -> bool:
+    return read_now()[FLAG]
+
+
+def home_today_on() -> bool:
+    return read_now()[HOME_FLAG]
 
 
 # ------------------------------------------------------------------------------------------------- /link
@@ -221,7 +246,10 @@ class PhoneFirst:
                 await resp(scope, receive, send)
                 return
             if page_path(str(scope.get("path", ""))):
-                scope.setdefault("state", {})["phone_first"] = flag_now()
+                layout = layout_now()
+                state = scope.setdefault("state", {})
+                state["phone_first"] = layout[FLAG]
+                state["home_today"] = layout[HOME_FLAG]  # J-6 (D-1225): the opening page reads it from here
         await self.app(scope, receive, send)
 
 
@@ -265,7 +293,15 @@ def link_page(request: Request) -> Response:
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
-def register(app: FastAPI) -> None:
+def start() -> None:
+    """At the console's start (its lifespan): the first read of the layout flags, in the background, so after a
+    restart a page meets the stored values, not "off", unless it comes before the store has answered (D-1225)."""
+    threading.Thread(target=read_now, name="layout-flags-start", daemon=True).start()
+
+
+def register(app: FastAPI, boot: list[Callable[[], Any]] | None = None) -> None:
+    if boot is not None:
+        boot.append(start)
     # appended, not inserted at the front as add_middleware does: inside the console's headers middleware, so the
     # 303 to /link and the /link page carry CSP, X-Frame-Options and Referrer-Policy (as demo_guard does)
     app.user_middleware.append(Middleware(PhoneFirst))

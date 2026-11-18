@@ -24,7 +24,7 @@ from typing import Any
 
 import pytest
 from console import home_today as ht
-from console import i18n_flags, i18n_today
+from console import i18n_flags, i18n_today, phone
 from console.i18n import CATALOGUES
 from fastapi.testclient import TestClient
 from tb_common import flags as fl
@@ -38,18 +38,18 @@ LANGS = ("en", "ja", "zh-TW")
 @pytest.fixture(autouse=True)
 def _fresh_cache() -> Iterator[None]:
     fl.clear_cache()
-    ht.clear_cache()
+    phone.clear_cache()
     yield
     fl.clear_cache()
-    ht.clear_cache()
+    phone.clear_cache()
 
 
 def _flag(b: dict[str, Any], value: str) -> None:
     """The administrator's change on /ops/flags: audited, with a reason."""
     fl.Flags(audit=b["audit"]).set(ht.FLAG, value, actor="console:admin", reason="J-6 test (D-1225)")
     fl.clear_cache()
-    ht.clear_cache()
-    ht.flag_on()  # read now: a page gets the value last read
+    phone.clear_cache()
+    phone.read_now()  # read now: a page gets the value last read
 
 
 def _region(page: str) -> str:
@@ -78,9 +78,26 @@ def _next(page: str, rs: str = "GZQO") -> tuple[str, str]:
 def test_the_flag_is_declared_off_and_described_in_three_languages(box: dict[str, Any]) -> None:
     d = fl.DECLARED[ht.FLAG]
     assert d.default == "off" and d.values == ("off", "on") and d.seed_env is None
-    assert fl.Flags().row(ht.FLAG) == "off" and not ht.flag_on()  # seeded off at create_app
+    assert fl.Flags().row(ht.FLAG) == "off" and not phone.home_today_on()  # seeded off at create_app
     for cat in (i18n_flags.EN, i18n_flags.JA, i18n_flags.ZH):
         assert cat[f"flags.desc.{ht.FLAG}"]
+
+
+def test_the_two_layout_flags_are_read_together_in_one_read(box: dict[str, Any], monkeypatch: Any) -> None:
+    """One background read answers both layout flags (``Flags.rows``), and ``/home`` takes its value from the request,
+    so the opening page adds no read of its own to the store (the review of D-1225)."""
+    reads: list[tuple[str, ...]] = []
+    real = fl.Flags.rows
+
+    def rows(self: Any, names: Any) -> dict[str, str]:
+        reads.append(tuple(names))
+        return real(self, names)
+
+    monkeypatch.setattr(fl.Flags, "rows", rows)
+    fl.Flags(audit=box["audit"]).set(ht.FLAG, "on", actor="console:admin", reason="J-6 test (D-1225)")
+    assert phone.read_now() == {phone.FLAG: False, ht.FLAG: True}
+    assert reads == [(phone.FLAG, ht.FLAG)]
+    assert fl.Flags().rows([ht.FLAG]) == {ht.FLAG: "on"}
 
 
 def test_every_line_and_every_next_has_its_words_in_three_languages() -> None:
@@ -109,6 +126,14 @@ def test_every_line_and_every_next_has_its_words_in_three_languages() -> None:
         ("open", 5, True, {"enrolled": 1}, "conduct"),
         ("open", 5, True, {"on_study": 1, "withdrawn": 1}, "conduct"),
         ("open", 5, True, {"completed": 1, "withdrawn": 1}, "close"),
+        ("open", 5, True, {"completed": 1, "declined": 2, "screen_fail": 1}, "close"),
+        # the review of D-1225: a withdrawn participant is no reason to close while candidates are in progress
+        ("open", 5, True, {"withdrawn": 1, "contacted": 2, "to_contact": 1}, "consent"),
+        ("open", 5, True, {"completed": 1, "to_contact": 1}, "contact"),
+        ("open", 5, True, {"completed": 1, "listed": 3}, "review"),
+        ("open", 5, True, {"completed": 1, "set_aside": 1}, "review"),
+        ("open", 4, True, {"consented": 1}, "consent"),
+        ("open", 4, True, {"screen_fail": 1, "listed": 2}, "review"),
         ("paused", 5, True, {"on_study": 1}, "paused"),
         ("closed", 5, True, {"completed": 1}, "closed"),
     ],
@@ -132,8 +157,8 @@ def test_the_order_is_safety_then_overdue_then_today_and_each_thing_once() -> No
     got = ht.ordered(ht.task_lines(tasks, d) + ht.visit_lines("A1", 2, 1, d) + sae + sae)
     assert [(x.kind, x.what) for x in got] == [
         ("sae_overdue", "A1-0001/ae1"),  # one line for the event, its three reasons and its copy
+        ("visits_overdue", "overdue"),  # overdue with no day of its own: first among the overdue
         ("call", "p2"),
-        ("visits_overdue", "overdue"),
         ("visits_today", "today"),
         ("call", "p1"),
     ]
@@ -221,10 +246,15 @@ def test_the_next_line_follows_the_life_of_the_study_for_each_role(lb: dict[str,
     assert r.status_code == 303, r.text[-300:]
     assert _next(mon.get("/home").text) == ("monitor", "/studies/GZQO/monitor")
     assert mon.get("/studies/GZQO/monitor").status_code == 200  # the link opens for this account
-    for to in ("on_study", "completed"):  # the last participant ends the study; nobody else is in the pipeline
+    for to in ("on_study", "completed"):  # the last participant ends the study
         r = crc.post(f"/studies/GZQO/subjects/{no_a}/step", data={"csrf": csrf, "to": to, "on_day": "2026-11-07",
                                                                   "confirm": "yes"})  # fmt: skip
         assert f'data-state="{to}"' in r.text, r.text[-500:]
+    assert nexts()["crc"] == ("review", "")  # two candidates still on the list: not yet "close"; the PI's step
+    for other in lb["nos"]:  # the two other candidates end: nobody is in progress any more
+        r = crc.post(f"/studies/GZQO/subjects/{other}/step", data={"csrf": csrf, "to": "screen_fail",
+                     "reason": "other", "on_day": "2026-11-07", "confirm": "yes"})  # fmt: skip
+        assert 'data-state="screen_fail"' in r.text, r.text[-500:]
     assert nexts()["crc"] == ("close", "/studies/GZQO/state")
     h.store.set_study_state("GZQO", "paused", "J-6 test", "crc", "2026-11-08T02:00:00+00:00")
     assert nexts()["crc"] == ("paused", "/studies/GZQO/state")
@@ -349,5 +379,182 @@ def test_the_role_walk_with_the_flag_on_answers_every_route_as_its_row(box: dict
 
     _flag(box, "on")
     rows = rw.judge_declared(mw.run_walk(box, tmp_path), rw.load_declared())
-    assert ht.flag_now()  # still on at the end of the walk
+    assert phone.home_today_now()  # still on at the end of the walk
     mw.test_every_console_route_answers_every_column_as_its_declared_row(rows)
+
+
+# ------------------------------------------------------------------------------------------- what the home reads
+def _count_reads(b: dict[str, Any]) -> list[str]:
+    """Every call the console makes to the data core (participants, visits, serious AEs) and every screening-log read,
+    by path: the reads a page makes for patient-level rows."""
+    calls: list[str] = []
+    api, rows = b["backend"].study_api, b["backend"].registry_rows
+
+    def study_api(method: str, path: str, *a: Any, **kw: Any) -> Any:
+        calls.append(f"{method} {path}")
+        return api(method, path, *a, **kw)
+
+    def registry_rows(rs: str, *a: Any, **kw: Any) -> Any:
+        calls.append(f"registry {rs}")
+        return rows(rs, *a, **kw)
+
+    b["backend"].study_api, b["backend"].registry_rows = study_api, registry_rows
+    return calls
+
+
+def test_a_refused_investigator_s_home_reads_no_patient_level_row(lb: dict[str, Any]) -> None:
+    """The review of D-1225 (blocker): an investigator the study's log does not name, and a sub-investigator ticked
+    for nothing that opens the participant pages, make no read of the study's participants, visits, serious AEs or
+    screening log on the opening page, with the flag on as with it off; the participant page refuses them (403)."""
+    from tests.console.test_console_app import name_pi, sub_investigator
+
+    _participant_with_saes(lb, 1)  # a study with participants, visits and a serious AE; its PI is "pi"
+    lb["users"].create("other", "investigator", PW, "other@hospa.test")  # on no log
+    lb["users"].create("refer", "investigator", PW, "refer@hospa.test")
+    sub_investigator(lb, "refer", tasks=("refer",))  # ticked, but for nothing that reads participants
+    name_pi(lb, "pi")
+    for flag in ("off", "on"):
+        if flag == "on":
+            _flag(lb, "on")
+        for who in ("other", "refer"):
+            c, _ = login(lb["app"], who, PW)
+            assert c.get("/studies/GZQO/subjects").status_code == 403  # the participant pages refuse them
+            calls = _count_reads(lb)
+            page = c.get("/home", follow_redirects=False)  # off: sent on to /week, as on master
+            assert page.status_code == (200 if flag == "on" else 303), (flag, who)
+            assert calls == [], (flag, who, calls)
+            if flag == "on":
+                assert _next(page.text) in (("report", "/studies/GZQO/feasibility"), ("report_none", ""))
+                assert _lines(page.text) == []
+    # the PI of GZQO reads GZQO (so the counter does see reads), and nothing of a second study whose log names no one
+    from console.backend import RulesetInfo
+
+    real = lb["backend"].rulesets
+    lb["backend"].rulesets = lambda: [*real(), RulesetInfo("OTHER1", "1.0.0", "approved", "trial")]
+    pi, _ = login(lb["app"], "pi", PW)
+    assert pi.get("/studies/OTHER1/subjects").status_code in (403, 404)
+    calls = _count_reads(lb)
+    page = pi.get("/home").text
+    assert any(c.startswith("GET /studies/GZQO/") for c in calls), calls
+    assert not [c for c in calls if "OTHER1" in c], calls
+    assert _next(page, "OTHER1")[0] in ("report", "report_none")
+
+
+def test_a_sub_investigator_ticked_for_data_entry_gets_the_participant_pages_lines(lb: dict[str, Any]) -> None:
+    """The review of D-1225: the home uses the participant pages' own rule (screen or enter_data), so a
+    sub-investigator ticked for data entry, who opens the participants and the visits, gets their lines too."""
+    from tests.console.test_console_app import sub_investigator
+
+    _crc, _pi, _no = _participant_with_saes(lb, 1)
+    lb["users"].create("entry", "investigator", PW, "entry@hospa.test")
+    sub_investigator(lb, "entry", tasks=("enter_data",))
+    _flag(lb, "on")
+    c, _ = login(lb["app"], "entry", PW)
+    assert c.get("/studies/GZQO/subjects").status_code == 200 and c.get("/studies/GZQO/visits").status_code == 200
+    page = c.get("/home").text
+    kinds = [k for k, _ in _lines(page)]
+    assert "visits_overdue" in kinds and "visits_today" in kinds, kinds
+    assert kinds.count("sae_ack") == 1, kinds  # the acknowledgement route asks study_or_404 and sae.ack, as here
+    assert _next(page)[0] == "conduct"
+    for _k, href in _lines(page):
+        assert c.get(href).status_code == 200, href
+
+
+def test_without_sae_view_no_serious_adverse_event_is_read_into_a_line(lb: dict[str, Any], monkeypatch: Any) -> None:
+    """The ``sae.view`` row decides the safety lines: refused (a matrix change), the block keeps the visits and shows
+    no serious AE."""
+    _participant_with_saes(lb, 1)
+    _flag(lb, "on")
+    crc, _ = login(lb["app"], "crc", PW)
+    assert any(k.startswith("sae_") for k, _ in _lines(crc.get("/home").text))
+    h = lb["app"].state.helpers
+    real = h.permit
+
+    def no_sae(user: Any, action: str, rid: str | None = None) -> Any:
+        return real(user, "sae.view.refused-in-this-test" if action == "sae.view" else action, rid)
+
+    monkeypatch.setattr(h, "permit", no_sae)
+    kinds = [k for k, _ in _lines(crc.get("/home").text)]
+    assert not any(k.startswith("sae_") for k in kinds) and "visits_today" in kinds, kinds
+
+
+def test_today_is_the_site_s_day_not_utc_s(lb: dict[str, Any]) -> None:
+    """The site is ahead of UTC (tests run in Asia/Taipei, UTC+8): at 20:00 UTC it is already tomorrow there, and
+    what is due on the site's day is today's line; with the UTC date it would wait a day."""
+    _participant_with_saes(lb, 1)
+    lb["clock"]["now"] = datetime(2026, 11, 9, 20, 0, tzinfo=UTC)  # 2026-11-10 04:00 at the site
+    _flag(lb, "on")
+    crc, _ = login(lb["app"], "crc", PW)
+    page = crc.get("/home?today=all").text
+    dated = re.findall(r'data-testid="today-(site|delegation)"[^>]*>.*?<span class="due">([^<]+)<', page, re.S)
+    assert dated and all(d == "due 2026-11-10" for _k, d in dated), dated
+
+
+# ------------------------------------------------------------------------------------------- flag off: as master
+def test_with_the_flag_off_the_home_is_byte_for_byte_the_page_without_this_card(lb: dict[str, Any],
+                                                                               monkeypatch: Any) -> None:  # fmt: skip
+    """Every J-6 part of ``home_crc.html`` sits between ``{#J6#}`` and ``{#/J6#}``. With the flag off the page is the
+    same, byte for byte, as the page from the template with those parts taken out (the template as it was before),
+    for each role whose home it is, in three languages."""
+    import jinja2
+
+    form = ["with"]
+    real = jinja2.FileSystemLoader.get_source
+
+    def source(self: Any, env: Any, name: str) -> Any:
+        text, path, _uptodate = real(self, env, name)
+        if name == "home_crc.html" and form[0] == "without":
+            text = re.sub(r"\{#J6#\}.*?\{#/J6#\}", "", text, flags=re.S)
+        return text, path, lambda: False  # never kept: each render reads the form asked for
+
+    monkeypatch.setattr(jinja2.FileSystemLoader, "get_source", source)  # before any page is rendered
+    _participant_with_saes(lb, 1)
+    pages: dict[str, list[str]] = {"with": [], "without": []}
+    for f in ("with", "without"):
+        form[0] = f
+        for lang in LANGS:
+            crc, _ = login(lb["app"], "crc", PW)
+            _lang(crc, lang)
+            pages[f].append(re.sub(r'name="csrf" value="[^"]+"', "", crc.get("/home").text))
+    assert all('data-testid="study-GZQO"' in p for p in pages["with"])  # the cards are rendered
+    assert pages["with"] == pages["without"]
+    assert "{#J6#}" in (Path(__file__).parents[2] / "services/console/templates/home_crc.html").read_text("utf-8")
+
+
+# ------------------------------------------------------------------------------------------- a statement budget
+def _statements(monkeypatch: Any) -> list[str]:
+    import psycopg
+
+    seen: list[str] = []
+    real = psycopg.Cursor.execute
+
+    def execute(self: Any, query: Any, *a: Any, **kw: Any) -> Any:
+        seen.append(str(query)[:60])
+        return real(self, query, *a, **kw)
+
+    monkeypatch.setattr(psycopg.Cursor, "execute", execute)
+    return seen
+
+
+def test_the_flag_adds_a_bounded_number_of_statements_per_study(lb: dict[str, Any], monkeypatch: Any) -> None:
+    """The review of D-1225 (12 extra statements a study): the account's standing is read once per page view and
+    study, and only the shown step's row is asked. With the flag on, each more study costs at most 3 statements more
+    than it costs with the flag off (its state; its log, once)."""
+    from console.backend import RulesetInfo
+
+    _participant_with_saes(lb, 1)
+    crc, _ = login(lb["app"], "crc", PW)
+    real = lb["backend"].rulesets
+
+    def count(n: int) -> int:
+        extra = [RulesetInfo(f"S{i:02d}", "1.0.0", "approved", "trial") for i in range(n)]
+        monkeypatch.setattr(lb["backend"], "rulesets", lambda: [*real(), *extra])
+        seen = _statements(monkeypatch)
+        assert crc.get("/home").status_code == 200
+        return len(seen)
+
+    off = {n: count(n) for n in (0, 8)}
+    _flag(lb, "on")
+    on = {n: count(n) for n in (0, 8)}
+    per_study_off, per_study_on = (off[8] - off[0]) / 8, (on[8] - on[0]) / 8
+    assert per_study_on <= per_study_off + 3, (off, on)

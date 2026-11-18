@@ -110,7 +110,9 @@ class Helpers:
     settings_of: Callable[[str], StudySettings] | None = None
     api_session: Callable[[Request], Session] | None = None  # set by register(): bearer sign-in for /api/v1
     # set by console.lifecycle_pages (D-134): the home page's visits and serious AEs; the visits for N1/N2
-    life_home: Callable[[Session], dict[str, Any]] | None = None
+    life_home: Callable[..., dict[str, Any]] | None = None
+    #: set by console.lifecycle_pages (J-6, D-1225): the participant pages' rule of who reads a study's participants
+    reads_participants: Callable[[Any, str], bool] | None = None
     life_mail: Callable[[str, date], dict[str, Any]] | None = None
     life_sae: Callable[[str], list[dict[str, Any]]] | None = None  # one study's unacknowledged SAEs (the week page)
     life_reports: Callable[[str], list[dict[str, Any]]] | None = None  # one study's overdue SAE reports (P-03)
@@ -228,7 +230,9 @@ class Helpers:
         not see, or no log store: no standing, so no condition holds (fails closed; the team fallback is gone)."""
         standing = NO_STANDING
         if rid and self.stand is not None and user.sees_study(rid):
-            standing = self.stand(user, rid).grant()
+            stand = self.stand
+            # once per page view and study (J-6, D-1225): a page that asks several rows reads the log once
+            standing = ps.per_view(f"standing:{user.username}:{user.role}", rid, lambda: stand(user, rid).grant())
         return permit_row(user.role, action, standing)
 
     def may_run(self, user: Any, rid: str | None, command: str) -> bool:
@@ -557,7 +561,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     @app.get("/home")
     def home(request: Request, view: str = "", today: str = "") -> Response:
         sess = h.need(request)
-        if home_today.flag_now() and sess.user.role in home_today.ROLES:  # J-6 (D-1225): behind its flag
+        if getattr(request.state, "home_today", False) and sess.user.role in home_today.ROLES:  # J-6 (D-1225)
             return today_home(request, sess, every=today == "all")
         # T-102c (D-425): each role starts on the page of its first right in this order (the matrix's rows)
         for action, start in HOME_STARTS:
@@ -577,10 +581,14 @@ def register(app: FastAPI, h: Helpers) -> None:
         )  # fmt: skip
 
     def today_home(request: Request, sess: Session, every: bool) -> Response:
-        """J-6 (D-1225): "Needs you today" and one "Next" line per study (``console.home_today``). Each source is read
-        only where the matrix lets this role read it in that study: patient-level rows with ``phi.view`` and the study
-        task ``screen`` (as the week, participant and visit pages ask); serious AEs with ``sae.view``; visits with the
-        task ``enter_data``; a role without patient-level rows reads the feasibility report and its monitor grant."""
+        """J-6 (D-1225): "Needs you today" and one "Next" line per study (``console.home_today``). A study's
+        patient-level sources (its people, visits and serious AEs) are read only where the participant pages would let
+        this account read them (``lifecycle_pages.reads_participants``, the rule of their ``study_or_404``); within
+        those, serious AEs with ``sae.view``, visits with the task ``enter_data``, the card's tasks with
+        ``request.prepare``. Every
+        other study gets its Next from the reads the account already has (the feasibility report, a monitor grant), so
+        no read is made that a page would refuse. The account's standing in each study's log is read once per page
+        view (``Helpers.permit``)."""
         user = sess.user
         jobs = recent_jobs()
         day = h.today()
@@ -588,23 +596,38 @@ def register(app: FastAPI, h: Helpers) -> None:
         def allow(action: str, rid: str | None = None) -> bool:
             return bool(h.permit(user, action, rid).allowed)
 
-        phi = allow("phi.view")
-        life = h.life_home(sess) if h.life_home and phi else None
+        def mine_of(step: str, rid: str) -> bool:
+            """Whether this account does ``step`` itself: the row its page asks (asked for the step shown only)."""
+            if step == "approve":
+                return bool(h.may_approve(user, rid)) if h.may_approve else allow("criteria.approve", rid)
+            if step in ("feas", "screen"):
+                return h.may_run(user, rid, "FEAS" if step == "feas" else "SCREEN")
+            if step in ("review", "contact"):  # the week page: its row, then the study's log (task "screen")
+                row = "list.mark" if step == "review" else "request.prepare"
+                return allow(row, rid) and h.delegated_ok(user, rid)
+            if step in ("consent", "conduct"):
+                return allow("task.enter_data", rid)
+            return step in ("startup", "close", "paused") and allow("study.state", rid)
+
+        studies = trials(sess)
+        readable = [r.id for r in studies if h.reads_participants is not None and h.reads_participants(user, r.id)]
+        life = h.life_home(sess, only=readable) if h.life_home and readable else None
+        coordinator_card = allow("request.prepare")  # the study card with its tasks and funnel, as on today's home
         cards: list[dict[str, Any]] = []
         lines: list[home_today.TodayLine] = []
         nexts: list[home_today.NextLine] = []
         failed: list[str] = []
         grants = {g[0]: g for g in (h.monitor_grants(user) if h.monitor_grants else [])}
-        for r in trials(sess):
+        for r in studies:
             rs = r.id
-            if not (phi and h.delegated_ok(user, rs)):  # no patient-level row of this study: the aggregate reads
+            if rs not in readable:  # no patient-level read in this study: the aggregate reads only
                 step = home_today.report_step(report=st.latest_job(jobs, rs, ("FEAS",)) is not None,
                                               grant=grants.get(rs))  # fmt: skip
                 g = grants.get(rs) or ("", "", "")
                 nexts.append(home_today.next_line(rs, step, step != "report_none", home_today.href_of(step, rs),
                                                   visit=g[1] or "–", end=g[2] or "–"))  # fmt: skip
                 continue
-            if allow("request.prepare"):  # the coordinator's card: its tasks, its funnel, the week's rows
+            if coordinator_card:
                 card = study_card(sess, r, jobs)
                 cards.append(card)
                 people = card["people"]
@@ -618,20 +641,9 @@ def register(app: FastAPI, h: Helpers) -> None:
             step = home_today.life_step(state=state.state, step=step_no, screen_done=screen_done,
                                         counts=people.counts() if people.readable else None)  # fmt: skip
             waiting = st.latest_job(jobs, rs, ("FEAS", "SCREEN", "COMPILE"), state="awaiting_approval")
-            mine = {
-                "approve": bool(h.may_approve(user, rs)) if h.may_approve else allow("criteria.approve", rs),
-                "feas": h.may_run(user, rs, "FEAS"),
-                "screen": h.may_run(user, rs, "SCREEN"),
-                "review": allow("list.mark", rs),
-                "contact": allow("request.prepare"),
-                "consent": allow("task.enter_data", rs),
-                "conduct": allow("task.enter_data", rs),
-                "startup": allow("study.state", rs),
-                "close": allow("study.state", rs),
-                "paused": allow("study.state", rs),
-            }.get(step, False)
             href = home_today.href_of(step, rs, approval=f"/pilot/jobs/{waiting.job_id}/approval" if waiting else "")
-            nexts.append(home_today.next_line(rs, step, mine and bool(href), href,
+            mine = bool(href) and mine_of(step, rs)
+            nexts.append(home_today.next_line(rs, step, mine, href,
                                               years=state.keep_years or STUDY_YEARS_AFTER_CLOSE))  # fmt: skip
             if life is not None and allow("sae.view", rs):
                 lines += home_today.sae_lines(rs, [a for a in life["sae"] if a["rs"] == rs],
@@ -645,7 +657,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         lines = home_today.ordered(lines)
         shown = lines if every else lines[: home_today.LIMIT]
         home_today.mark_in_today(nexts, shown)
-        template = "home_crc.html" if allow("request.prepare") else "home_today.html"
+        template = "home_crc.html" if coordinator_card else "home_today.html"
         return h.page(
             request, template, sess, today=True, every=every, lines=shown, more=len(lines) - len(shown),
             total=len(lines), nexts=nexts, today_failed=failed, cards=cards, tasks=[], clinic=[], steps=st.STEPS,
