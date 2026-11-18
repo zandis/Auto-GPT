@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Document ID | TB-IU-01 |
-| Version | 0.2, draft (2026-11-09; review TB-REV-SA-01 answered) |
+| Version | 0.3, draft (2026-11-18; the Japan part added, card 10C-5) |
 | Replaces | the draft in TB-PLAN-05 §1.2 and TB-DS-16 §2 (`docs/plan/design/16-regulatory-position.md`), which stay as history |
 | Decided by | owner decisions of 2026-11-09 ("Profile" SaMD row, "Regulatory and commercial"); D-144; TB-PLAN-05 §1.2, PR-12 |
 | Status | **Not legal advice.** Aimedics's reasoned position. Two kinds of written view are named apart below. A **consultant's opinion** is a regulatory consultant's letter; every row marked **[Consultant]** needs one before it is relied on outside Aimedics. An **authority's written answer** is the regulator's own reply (MHLW in Japan, TFDA in Taiwan); the clinician switch of C6 needs this, in both countries, and a consultant's opinion is not enough for it. |
@@ -24,7 +24,7 @@ It appears in the console footer, every PDF, XLSX and mail, the 開示書, the I
 | Rule | Where it bites |
 | --- | --- |
 | A patient is "not matched on criterion X by record Y", never "excluded". The list is **"Criteria not matched"** (ja 基準に合致しない患者, zh-TW 未符合條件之病人) in every language, the API and the reports (PR-12) | console, `/api/v1`, PDFs, XLSX, mail |
-| "除外", "排除", "excluded", 診断, 判定, 対象外, 見逃し, 診斷, "diagnosis", "abnormal", "risk score", "AI decides" are forbidden words, checked by the browser walk (WS-13.7). Only the risk file names the hazard plainly. The list in force is `FORBIDDEN` in `libs/tb_common/wording.py`, with the statement's own words as allowed negations (`ALLOWED`); D-351 says how a record's own field is named | every page in three languages, every role; console, mail and report catalogues; PDFs, XLSX and mail |
+| "除外", "排除", "excluded", 診断, 判定, 対象外, 見逃し, 診斷, "diagnosis", "abnormal", "risk score", "AI decides" are forbidden words, checked by the browser walk (WS-13.7). Only the risk file names the hazard plainly. The list in force is `FORBIDDEN` in `libs/tb_common/wording.py`, with the statement's own words as allowed negations (`ALLOWED`); D-351 says how a record's own field is named. Japanese device claims (疑い患者 outright; 発見, 予測, リスク, 未診断, スコア and their forms in a claiming context, `CLAIMS_JA`) and the case-database reasoning behind them: [intended-use-jp.md](intended-use-jp.md) (10C-5) | every page in three languages, every role; console, mail and report catalogues; PDFs, XLSX and mail |
 | A drafted eCRF value is a **draft**, shown beside its source, until a person confirms it. It is never called a finding or a result | the EDC prefill screens (D-160) |
 | Setpoints are numbers with a "check" mark, never an alert, colour or the word "abnormal" | profile pages |
 | The clinician (treating physician) role sees setpoint and gap layers **only inside a study-referral context, as numbers without a disease name, behind a switch that is off by default** (owner decision, "Profile" SaMD row). PIs and stewards see them labelled research use. No forecast layer | profile pages, referral pages |
@@ -72,3 +72,4 @@ Any of these makes TrialBox, or the module, a likely device in both countries an
 | --- | --- | --- |
 | 0.1 | 2026-11-09 | First draft: statement from TB-PLAN-05 §1.2 kept, ja and zh-TW extended; conditions C1 to C12 mapped to the Japan and Taiwan questions; consultant items R1 to R5 |
 | 0.2 | 2026-11-09 | Review TB-REV-SA-01: C2 describes the clinician own-patient view as planned (S-07); "consultant's opinion" and "authority's written answer" named apart, C6 needs the authority's answer in both countries, MHLW route written as checked (S-08); C9 and §5 cover a clinician narrative |
+| 0.3 | 2026-11-18 | Card 10C-5: the Japan part, why TrialBox is not a device under the Japanese rules and what it must never say, in `docs/plan/intended-use-jp.md`; §2 names the Japanese claim words |

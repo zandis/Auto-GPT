@@ -86,6 +86,7 @@ FORBIDDEN: tuple[str, ...] = (
     "AI decides",
     "AIが判定",
     "建議治療",
+    "疑い患者",  # 10C-5 (JP-4): a "suspected" patient is a diagnosis-side label (case database No.243)
 )
 # Not on the list: 不符合 (zh-TW "not met") names a criterion's answer against a record, the counterpart of "not met"
 # and 非該当; the patient-level name is 未符合條件 ("criteria not matched"). D-351 records why.
@@ -114,6 +115,103 @@ ALLOWED: tuple[str, ...] = tuple(
     )
 )
 
+# Japanese device claims (JP-4, card 10C-5; reasoning in docs/plan/intended-use-jp.md). Under the MHLW guideline a
+# program becomes a device by what it says it does for a patient: finding (発見), predicting (予測), scoring (スコア) a
+# patient, or listing "suspected" or "undiagnosed" ones (case database No.74 and No.243). Most of these are ordinary
+# words the product needs (バイアスのリスク, ECOG スコア, 検出限界, 登録の予測), so the rule refuses the claim, not the
+# word: a term in CLAIMS_JA is a hit only in a claiming context, i.e. in the same sentence as
+#   * an actor doing it: the product, the system, the AI or a model as subject (CLAIM_ACTORS_JA + が, は, による ...)
+#     anywhere before the term, or
+#   * a patient: a word of CLAIM_PATIENTS_JA within CLAIM_WINDOW characters of the term (患者のリスク, 患者を発見).
+# Before that, the term's allowed contexts are masked (each a regular expression), and so is a negation straight
+# after the term (予測しません, 発見は行いません): a sentence that says what the product does not do is not a claim.
+# 疑い患者 is refused outright (in FORBIDDEN); 診断 (so 診断する, 診断支援) and 判定 were already refused
+# outright in FORBIDDEN and stay so. Protocol and chart text the product quotes is not checked here (D-351).
+
+
+@dataclass(frozen=True)
+class ClaimTerm:
+    """A Japanese word that is a device claim only in a claiming context. ``actor_only``: only an actor as subject
+    makes it a claim (判断: 治験責任医師が患者の参加の可否を判断します is the product's own rule, not a claim)."""
+
+    term: str
+    allowed: tuple[str, ...] = ()
+    actor_only: bool = False
+
+
+CLAIMS_JA: tuple[ClaimTerm, ...] = (
+    ClaimTerm("発見"),
+    ClaimTerm("見つけ出"),
+    # a study's enrolment forecast (feasibility) is a count, not a patient's outcome
+    ClaimTerm(
+        "予測",
+        allowed=(r"(登録|組み入れ|無作為化|同意取得)(数の|の)?予測", r"予測(期間|される(登録|無作為化|同意取得))"),
+    ),
+    ClaimTerm("予後"),
+    ClaimTerm("リスク", allowed=(r"バイアスのリスク", r"リスク・?オブ・?バイアス")),
+    ClaimTerm("危険度"),
+    ClaimTerm("未診断"),
+    ClaimTerm(
+        "スコア",
+        # a named clinical scale (ECOG, DAS28, eGFR, NIHSS ...) entered by a person or computed by its published
+        # formula for a criterion; and the character "_"
+        allowed=(r"[A-Za-z][A-Za-z0-9-]*\s*(の)?スコア", r"アンダースコア", r"スコア定義"),
+    ),
+    ClaimTerm("検出", allowed=(r"検出(限界|下限|感度|日時)", r"未検出", r"検出され(ず|ない|なかった|ません)")),
+    ClaimTerm("判断", actor_only=True),
+)
+
+CLAIM_ACTORS_JA: tuple[str, ...] = (
+    "TrialBox",
+    "本ソフトウェア",
+    "本システム",
+    "システム",
+    "本製品",
+    "本ツール",
+    "AI",
+    "ＡＩ",
+    "人工知能",
+    "モデル",
+    "アルゴリズム",
+)
+CLAIM_PATIENTS_JA: tuple[str, ...] = ("患者", "被験者", "候補者", "対象者", "受診者", "症例")
+CLAIM_WINDOW = 10
+
+_SUBJECT = r"(?:が|は|により|による|によって|で|を用いて|を使って|を使い)"
+_ACTOR = re.compile(r"(?<![A-Za-z])(?:" + "|".join(re.escape(a) for a in CLAIM_ACTORS_JA) + r")\s*" + _SUBJECT)
+_PATIENT = re.compile("|".join(re.escape(p) for p in CLAIM_PATIENTS_JA))
+_NEGATION = (
+    r"(?:(?:は|を|も)?(?:行(?:いません|わず|わない|っていません)|しません|せず|しない|できません|できない|できなかった|さない|さず)"
+    r"|ではありません|ではない|はしません)"
+)
+_SENTENCE = re.compile(r"[^。！？!?\n]+[。！？!?]?")
+
+
+def check_claims_ja(text: str, terms: Iterable[ClaimTerm] = CLAIMS_JA) -> list[Hit]:
+    """Every Japanese device claim in ``text``: a term of :data:`CLAIMS_JA` in a claiming context. An empty list
+    means no claim."""
+    terms = tuple(terms)
+    alt = "|".join(re.escape(t.term) for t in terms)
+    # a negated term, with the terms that are its object (リスクを予測しません): what the product does not do
+    negated = re.compile(r"(?:(?:" + alt + r")(?:を|は|も|の))*(?:" + alt + r")" + _NEGATION)
+    hits: list[Hit] = []
+    for sentence in _SENTENCE.findall(text):
+        unnegated = negated.sub(lambda m: "　" * len(m.group(0)), sentence)
+        for t in terms:
+            if t.term not in unnegated:
+                continue
+            masked = unnegated
+            for rx in t.allowed:
+                masked = re.sub(rx, lambda m: "　" * len(m.group(0)), masked)
+            for m in re.finditer(re.escape(t.term), masked):
+                actor = any(a.end() <= m.start() for a in _ACTOR.finditer(masked))
+                near = masked[max(0, m.start() - CLAIM_WINDOW) : m.end() + CLAIM_WINDOW]
+                patient = not t.actor_only and _PATIENT.search(near) is not None
+                if actor or patient:
+                    hits.append(Hit(word=t.term, context=sentence.strip()))
+    return hits
+
+
 _TAG = re.compile(r"<(script|style)\b.*?</\1>|<[^>]+>", re.S | re.I)
 
 
@@ -136,8 +234,11 @@ def visible_text(page: str) -> str:
     return html.unescape(_TAG.sub(" ", page))
 
 
-def check(text: str, words: Iterable[str] = FORBIDDEN, allowed: Iterable[str] = ALLOWED) -> list[Hit]:
-    """Every forbidden word in ``text`` after the allowed phrases are masked. An empty list means the text is clean."""
+def check(
+    text: str, words: Iterable[str] = FORBIDDEN, allowed: Iterable[str] = ALLOWED, *, claims: bool = True
+) -> list[Hit]:
+    """Every forbidden word in ``text`` after the allowed phrases are masked, and every Japanese device claim
+    (:func:`check_claims_ja`; ``claims=False`` leaves them out). An empty list means the text is clean."""
     masked = text
     for phrase in allowed:
         masked = masked.replace(phrase, " ")
@@ -146,7 +247,7 @@ def check(text: str, words: Iterable[str] = FORBIDDEN, allowed: Iterable[str] = 
         for m in _pattern(word).finditer(masked):
             ctx = masked[max(0, m.start() - 30) : m.end() + 30].replace("\n", " ")
             hits.append(Hit(word=word, context=ctx.strip()))
-    return hits
+    return hits + (check_claims_ja(masked) if claims else [])
 
 
 def check_page(page: str, words: Iterable[str] = FORBIDDEN) -> list[Hit]:

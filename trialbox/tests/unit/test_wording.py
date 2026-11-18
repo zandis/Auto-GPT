@@ -16,6 +16,7 @@ from orchestrator import i18n as orch_i18n
 from orchestrator.reports import case_html, consent_html
 from tb_common.wording import (
     ALLOWED,
+    CLAIMS_JA,
     EXEMPT_PATHS,
     FORBIDDEN,
     LATER,
@@ -243,3 +244,60 @@ def test_check_page_reads_only_what_a_reader_sees() -> None:
     page = '<a href="/studies/X/excluded" data-testid="to-excluded">Criteria not matched</a><script>"除外"</script>'
     assert check_page(page) == []
     assert [h.word for h in check_page("<p>Excluded &amp; why</p>")] == ["excluded"]
+
+
+# 10C-5 (JP-4): the Japanese device-claims guard. Each term in a sentence that claims the product finds, predicts or
+# scores a patient fails; each ordinary use the product needs passes; the rule refuses the claim, not the word.
+CLAIMING_JA = [
+    ("AIが適格患者を発見します。", "発見"),
+    ("TrialBox は見逃されている患者を見つけ出します。", "見つけ出"),
+    ("システムが患者の参加可能性を予測します。", "予測"),
+    ("患者の予後を表示します。", "予後"),
+    ("本ソフトウェアは患者ごとのリスクを示します。", "リスク"),
+    ("患者の危険度を一覧にします。", "危険度"),
+    ("未診断の患者を一覧にします。", "未診断"),
+    ("AIによる患者スコアで並べ替えます。", "スコア"),
+    ("モデルで疾患を検出し、候補者を示します。", "検出"),
+    ("AIが参加の可否を判断します。", "判断"),
+    ("疑い患者の一覧", "疑い患者"),
+    ("診断支援のためのソフトウェアです。", "診断"),  # 診断 was refused outright before 10C-5 and still is
+]
+LEGITIMATE_JA = [
+    "バイアスのリスクを評価します。",  # risk of bias
+    "ECOG スコアは担当者が入力します。",  # a named scale entered by a clinician
+    "保存済みスコア（eGFR、DAS28、CDAI、SDAI）を照合します。",  # named scores by their published formula
+    "ユーザー名にはアンダースコアが使えます。",
+    "検出限界の外です",  # a lab's detection limit
+    "患者の検体ではウイルスは検出されず。",
+    "月ごとの新規患者と登録予測",  # a study's enrolment forecast, a count
+    "予測される無作為化数",
+    "参加の可否は治験責任医師が判断します。",  # a person decides: the product's own rule
+    "TrialBox は患者を発見しません。",  # a negation says what the product does not do
+    "TrialBox が判断できなかった基準",
+    "AIは患者のリスクを予測しません。",
+]
+
+
+@pytest.mark.parametrize(("text", "word"), CLAIMING_JA)
+def test_a_japanese_device_claim_fails(text: str, word: str) -> None:
+    assert word in [h.word for h in check(text)]
+    assert word in [h.word for h in check_page(f"<p>{text}</p>")]  # the page walk calls the same check
+
+
+@pytest.mark.parametrize("text", LEGITIMATE_JA)
+def test_a_legitimate_japanese_use_passes(text: str) -> None:
+    assert check(text) == []
+
+
+def test_a_mixed_japanese_sentence_fails_only_on_the_claim() -> None:
+    hits = check("ECOG スコアは担当者が入力しますが、AIが患者のリスクを予測します。")
+    assert sorted(h.word for h in hits) == ["リスク", "予測"]
+    # the claim is judged per sentence: a claim in one sentence does not spill into the next
+    assert [h.word for h in check("AIが記録を読みます。バイアスのリスクは別に評価します。")] == []
+    # a negation elsewhere in the sentence does not excuse the claim
+    assert [h.word for h in check("AIが患者のリスクを示し、治療は推奨しません。")] == ["リスク"]
+
+
+def test_the_claim_terms_are_data_beside_the_list() -> None:
+    assert {"発見", "予測", "リスク", "未診断", "スコア"} <= {t.term for t in CLAIMS_JA} and "疑い患者" in FORBIDDEN
+    assert check("AIが患者を発見", claims=False) == []  # the claims can be left out explicitly, never by default
