@@ -199,8 +199,6 @@ def test_the_scorer_carries_the_ladder(tmp_path: Path) -> None:
 def test_the_replay_prints_the_decided_share_beside_every_figure() -> None:
     lad = ladder.ladder(*_p2b()["sigir"])
     r = {"ladder": {"a": {"sigir": lad, "tcga": {"not_scored_because": "x"}}}}
-    assert replay._decided_beside(r, "a", ["sigir", "tcga"]) == (
-        "sigir 138 of 895 (15.4 %, 95 % CI 13.1 to 17.9 %)"
-    )
+    assert replay._decided_beside(r, "a", ["sigir", "tcga"]) == ("sigir 138 of 895 (15.4 %, 95 % CI 13.1 to 17.9 %)")
     assert replay._decided_beside(r, "b", ["sigir"]) == ""
     assert replay.SCHEMA_VERSION == 3

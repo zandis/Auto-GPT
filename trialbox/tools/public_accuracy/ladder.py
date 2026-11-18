@@ -111,7 +111,7 @@ def _lang_of_patients(ids: dict[str, Any], work: Path | None, key: bytes | None)
 
             for mrn, lang in by_mrn.items():
                 out.setdefault(pid_of(mrn, key), str(lang))
-        except Exception:  # noqa: BLE001 - no site key here: the protocol's language is the fallback
+        except Exception:  # no site key here: the protocol's language is the fallback
             pass
     return out
 
@@ -131,7 +131,7 @@ def ladder(ids: dict[str, Any], answers: dict[str, Any], *, work: Path | None = 
     """The ladder of one set: cells by rung, kind, note language and site, each with its decided share."""
     set_name = str(ids.get("set") or "?")
     lang_of_ruleset = ids.get("lang") or {}
-    site_of_ruleset = ids.get("site") if isinstance(ids.get("site"), dict) else {}
+    site_of_ruleset: dict[str, Any] = ids["site"] if isinstance(ids.get("site"), dict) else {}
     the_site = site or (ids.get("site") if isinstance(ids.get("site"), str) else None) or set_name
     lang_of_patient = _lang_of_patients(ids, work, key)
     text: dict[str, str] = {}
@@ -262,7 +262,7 @@ def render(ladders: dict[str, dict[str, Any]], indent: str = "") -> list[str]:
         for lang, t in sorted(langs.items()):
             row(f"  {lang}", _close(t))
         w(f"{indent}By site, all sets:")
-        for n, x in sets.items():
+        for x in sets.values():
             for st, t in x["by_site"].items():
                 row(f"  {st}", t)
     for n, x in sets.items():
