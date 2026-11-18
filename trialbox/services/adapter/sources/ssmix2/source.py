@@ -156,16 +156,8 @@ _DOC_KINDS = (("DSC", "discharge"), ("SUM", "discharge"), ("RPT", "report"), ("R
               ("NRS", "nursing"))  # fmt: skip
 # 10B-5: a guideline data-type folder is named like a CWE, ``[local code]^local name^[local system]^LOINC document
 # code^standard name^LN`` (拡張ストレージ 構築ガイドライン 2.2, review 12 §4.5); its LOINC document code gives the note
-# type. The codes are those review 12 §3 records from the 標準文書コード表 (S25), not re-verified; any other code is a
-# ``document`` that keeps its LOINC code (``doc_code``)
-_LOINC_NOTE = {
-    "18842-5": "discharge",  # 退院時サマリ
-    "34108-1": "progress", "34112-3": "progress", "11506-3": "progress",  # 外来 / 入院診療録, 経過記録
-    "28623-7": "nursing",  # 看護記録
-    "11526-1": "report", "47526-9": "report", "18725-2": "report",  # 病理, 細胞診, 微生物学的検査報告書
-    "18748-4": "report", "18747-6": "report", "18755-9": "report", "18758-3": "report",  # 画像, CT, MRI, PET
-    "28010-7": "report", "12132-7": "report", "59281-6": "report",  # 生理検査の報告書
-}  # fmt: skip
+# type through ``jp_core/document_loinc.csv`` (the codes review 12 §3 records from the 標準文書コード表, each row
+# marked ``verify``); any other code is a ``document`` that keeps its LOINC code (``doc_code``)
 CONTENTS_INDEX = "_contents.xml"  # the content folder's index file: its schema is not in review 12, not read
 
 
@@ -235,32 +227,55 @@ def _triples_by_rep(seg: hl7.Segment, n: int) -> list[list[tuple[str, str, str]]
     return out
 
 
+_NOT_SUSPECTED = ("疑いなし", "疑い無し", "疑いナシ")
+
+
+def suspicion_in(text: str) -> bool:
+    """A 疑 in a 病名 or flag text: "の疑い", "疑", "(疑)", "疑い" (review of PR #1095 item 3); not "疑いなし"."""
+    t = unicodedata.normalize("NFKC", text or "")
+    for word in _NOT_SUSPECTED:
+        t = t.replace(word, "")
+    return "疑" in t
+
+
 def _suspected(prb: hl7.Segment) -> bool:
     """A suspected diagnosis: PRB-13 ``1^疑いあり^JHSD0005`` (any coding system name, as vendors vary), or a 病名
-    whose text carries the 修飾語 "の疑い" / "疑い" when the vendor sends no flag. The flag is read from whichever
-    triple names table JHSD0005 (a hospital's own code may stand first), and such a triple alone decides: a named
-    ``0`` is not overruled by a ``1`` of another table or of none. With no triple naming the table, the first triple
-    is read as it always was."""
+    whose text (PRB-3, or the written name in PRB-17) carries a 疑 (``の疑い``, ``疑``, ``(疑)``) when the vendor
+    sends no flag. The flag is read from whichever triple names table JHSD0005 (a hospital's own code may stand
+    first), and such a triple alone decides: a named ``0`` is not overruled by a ``1`` of another table or of none.
+    With no triple naming the table, a triple whose code is ``1`` with a 疑 in its text is the flag whatever its
+    coding system (``1^疑い^99ZZZ``), and the first triple is read as it always was."""
     named = [(flag, text) for flag, text, system in _triples(prb, 13) if system == "JHSD0005"]
     if not named:
+        if any(flag.strip() == "1" and suspicion_in(text) for flag, text, _s in _triples(prb, 13)):
+            return True
         first = prb.comp(13, 3).strip() == ""
         named = [(prb.comp(13, 1) if first else "", prb.comp(13, 2))]
     if any(flag.strip() == "1" or "疑いあり" in text for flag, text in named):
         return True
-    return "疑い" in prb.comp(3, 2)
+    if any(flag.strip() == "0" for flag, _t in named):  # a named "no suspicion" decides (its own earlier review)
+        return False
+    return suspicion_in(prb.comp(3, 2)) or suspicion_in(prb.comp(17, 1))
 
 
 _ICD10_SYS = ("I10", "ICD10")  # the HL7 table 0396 name and the spelling vendors write
+
+
 # PRB-14 転帰 (10B-3, review 12 F2) -> the canonical diagnosis ``status``: A active, R resolved,
-# I inactive, M remission, U an outcome that says neither (D-587: no clinical status and unconfirmed,
-# never active). HL7 table 0241 as HL7 v2.5 publishes it (D dead, F fully recovered, N not recovering or
-# unchanged, P improving, R recovered with sequelae, S deteriorated, U unknown, W worsening); JHSD0006 as
-# review 12 §4.10 F2 records it (I 中止, M 寛解, C 継続, O その他), not re-verified. The two tables share
-# no code, so a PRB-14 that names no table is read against both.
-_OUTCOME = {
-    "HL70241": {"D": "I", "F": "R", "N": "A", "P": "A", "R": "R", "S": "A", "U": "U", "W": "A"},
-    "JHSD0006": {"C": "A", "M": "M", "I": "U", "O": "U"},
-}
+# I inactive, M remission, U an outcome that says neither or that is not verified (D-587: no clinical
+# status and unconfirmed, never active). The table is ``jp_core/prb14_outcome.csv``: only the codes a document
+# in this repository records (review 12 §4.10 F2: HL7 table 0241 F 治癒 and D died; JHSD0006 I, M, C, O), each
+# row marked ``verify``. Every other code of a named table (0241's N, P, R, S, U, W ...) is U until verified
+# (review of PR #1095 item 4: R may mean "recovering", not resolved). The two tables share no code.
+def _table_rows(name: str) -> list[dict[str, str]]:
+    with (JP_CORE / name).open(encoding="utf-8-sig", newline="") as fh:
+        return list(csv.DictReader(fh))
+
+
+_OUTCOME: dict[str, dict[str, str]] = {}
+for _r in _table_rows("prb14_outcome.csv"):
+    _OUTCOME.setdefault(_r["system"].strip().upper(), {})[_r["code"].strip().upper()] = _r["status"].strip()
+_LOINC_NOTE = {r["loinc"].strip(): r["note_type"].strip() for r in _table_rows("document_loinc.csv")}
 _OUTCOME_ANY = {**_OUTCOME["HL70241"], **_OUTCOME["JHSD0006"]}
 _OUTCOME_WORDS = (("治癒", "R"), ("resolved", "R"), ("死亡", "I"), ("寛解", "M"), ("中止", "U"), ("継続", "A"))
 _DELETED = ("DE",)  # PRB-1 (HL7 table 0287): DE deletes the diagnosis (review 12 §4.4)
@@ -269,8 +284,8 @@ _RANK = {"1": "Y", "2": "N"}  # PRB-18 (JHSD0007): 1 主診断, 2 副診断
 
 def outcome_status(prb: hl7.Segment) -> tuple[str, str]:
     """``(status, outcome code)`` of PRB-14: the 転帰 read through :data:`_OUTCOME`. No 転帰 is active, as before; a
-    code no table lists is ``U`` (never active, D-587); ``R`` and ``resolved`` stay resolved, and ``A`` with no table
-    named stays active (the shape TrialBox's exporter and older tests write)."""
+    code no table lists, or one not verified, is ``U`` (never active, D-587); ``resolved``, and ``A`` or ``R`` with
+    no table named, read as they always did (the shape TrialBox's exporter and older tests write)."""
     code, text, system = prb.comp(14, 1).strip(), prb.comp(14, 2), prb.comp(14, 3).strip().upper()
     if not code and not text:
         return "A", ""
@@ -279,8 +294,12 @@ def outcome_status(prb: hl7.Segment) -> tuple[str, str]:
         return table[code.upper()], code
     if code.lower() == "resolved":
         return "R", code
-    if code.upper() == "A" and system not in _OUTCOME:  # the reader's own legacy word (TrialBox's exporter writes
-        return "A", code  # it): active, as it always was; it is no code of either table
+    # the reader's own legacy words, A and R with no table named (TrialBox's exporter and older tests write them):
+    # read as they always were; a code R that names table 0241 is not verified and is U
+    if code.upper() in ("A", "R") and system not in _OUTCOME:
+        return code.upper(), code
+    if system in _OUTCOME:  # a code of a named table that is not mapped: not verified, never active
+        return "U", code
     word = next((st for w, st in _OUTCOME_WORDS if w in text or w == code), "")
     return word or "U", code
 
@@ -343,11 +362,24 @@ _KANJI_DIGIT = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七
 _TIMES_A_DAY = re.compile(r"(?<![0-9一-十])(?:1|一)日\s*([0-9]{1,2}|[一二三四五六七八九十])\s*回")
 
 
+# what a 用法 text may hold beside "1日N回" for the reader to trust it: the times of the day around meals and
+# bed, the route; anything else (週, 隔日, 頓用, 疼痛時 and every "...時", まで, 限度, 月N回, 分N, a weekday) is a
+# wording the reader does not fully understand, so no daily dose is given (review of PR #1095 item 1)
+_USAGE_TIMING = re.compile(r"(毎食後|毎食前|毎食間|朝|昼|夕|食後|食前|食間|就寝前|寝る前|内服|経口|[・、，,()（）\s])")
+
+
 def doses_from_text(text: str) -> int | None:
-    """The number of doses a day a 用法 text states as "1日N回" (full-width or kanji digits too); None for any other
-    wording (頓用, 疼痛時, 隔日, 週1回, 分3 ...): the reader does not guess."""
-    m = _TIMES_A_DAY.search(unicodedata.normalize("NFKC", text or ""))
-    if not m:
+    """The number of doses a day a 用法 text states as "1日N回" (full-width or kanji digits too), only when that is
+    the whole of what it says besides meal and bed times and the route; None for anything else (週1回, 隔日, 頓用,
+    疼痛時, "1日3回まで", "1日2回を限度", 分3, two "1日N回"): the reader does not guess, and a wrong dose is worse
+    than none."""
+    t = unicodedata.normalize("NFKC", text or "")
+    found = list(_TIMES_A_DAY.finditer(t))
+    if len(found) != 1:
+        return None
+    m = found[0]
+    rest = _USAGE_TIMING.sub("", t[: m.start()] + t[m.end() :])
+    if rest:
         return None
     n = int(m.group(1)) if m.group(1).isdigit() else _KANJI_DIGIT[m.group(1)]
     return n or None
@@ -792,7 +824,20 @@ class Ssmix2Source:
             status, outcome = outcome_status(prb)
             if outcome and outcome.upper() != "A":
                 self.stats[f"PPR-01:outcome {outcome} as {status}"] += 1
-            modifiers = [t for z in zprs for n in range(1, len(z.fields)) for _c, t, _s in _triples(z, n) if t]
+            # a modifier keeps its text, else its code; one with only a code cannot be read: a doubt, so the
+            # diagnosis is suspected (never confirmed when in doubt, review of PR #1095 item 3)
+            # (a first field of digits alone is taken for a set id, as HL7 segments begin)
+            triples = [
+                t
+                for z in zprs
+                for n in range(1, len(z.fields))
+                if not (n == 1 and z.field(1).strip().isdigit())
+                for t in _triples(z, n)
+            ]
+            modifiers = [t or c for c, t, _s in triples if t or c]
+            unread = [c for c, t, _s in triples if c and not t]
+            if unread:
+                self.stats["PPR-01:modifier code without text (read as suspected)"] += 1
             written = prb.comp(17, 1).strip()
             row: Row = {
                 "diag_no": prb.comp(4, 1),
@@ -811,7 +856,7 @@ class Ssmix2Source:
                 "outcome": outcome,
                 "outcome_date": hl7.ts(prb.field(15)) or "",
                 "main_diagnosis": _RANK.get(prb.comp(18, 1).strip(), ""),
-                "suspected": "Y" if _suspected(prb) or any("疑い" in t for t in (written, *modifiers)) else "",
+                "suspected": "Y" if _suspected(prb) or unread or any(map(suspicion_in, (written, *modifiers))) else "",
             }
             if prb.field(1).strip().upper() in _DELETED:  # deleted at the hospital: a tombstone, never a record
                 self.stats["PPR-01:deleted diagnosis"] += 1

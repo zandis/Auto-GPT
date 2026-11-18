@@ -254,3 +254,71 @@ def test_f4_the_japan_mapping_carries_the_documents_own_loinc_code(storage: kit.
     assert [c.get("code") for c in path["type"]["coding"]] == ["47045-0", "11526-1"]
     local = mp.map_row(spec, rows[""])
     assert local is not None and [c.get("code") for c in local["type"]["coding"]] == ["34133-9"]
+
+
+# ------------------------------------------------------------------------------------------------ review of PR #1095
+@pytest.mark.parametrize(
+    "text",
+    ["週1回 1日1回 月曜", "疼痛時 1日3回まで", "頓用 1日2回を限度", "隔日 1日1回", "1日3回 分3", "月2回 1日1回",
+     "1日1回 1日2回"],
+)  # fmt: skip
+def test_review_1_a_usage_the_reader_does_not_fully_understand_gives_no_daily_dose(text: str) -> None:
+    from adapter.sources.ssmix2.source import doses_from_text
+
+    assert doses_from_text(text) is None
+
+
+@pytest.mark.parametrize(
+    ("text", "n"), [("１日３回毎食後", 3), ("内服・経口・1日3回朝昼夕食後", 3), ("1日1回 就寝前", 1)]
+)
+def test_review_1_a_plain_times_a_day_with_meal_times_is_still_read(text: str, n: int) -> None:
+    from adapter.sources.ssmix2.source import doses_from_text
+
+    assert doses_from_text(text) == n
+
+
+def _prb_row(tmp_path: Path, prb: str, extra: tuple[str, ...] = ()) -> dict[str, object]:
+    st = kit.Storage(tmp_path / "ss", tmp_path / "ss" / "extended_storage")
+    segs = [kit._msh("20261001090000", "PPR^ZD1^PPR_ZD1", "P1"), kit._pid(kit.P1), prb, *extra]
+    kit._write(st, kit.P1, "-", "PPR-01", "ALL9", kit._stamp("20261001"), segs)
+    (row,) = list(_source(st).rows("diagnosis", "diagnosis", None, None))
+    return row
+
+
+@pytest.mark.parametrize(
+    ("name", "flag", "zpr"),
+    [("肺癌疑", "", ()), ("肺癌(疑)", "", ()), ("肺癌", "1^疑い^99ZZZ", ()), ("肺癌", "", ("ZPR|1|8002",))],
+)
+def test_review_3_every_way_of_writing_a_suspicion_reads_as_suspected(
+    tmp_path: Path, name: str, flag: str, zpr: tuple[str, ...]
+) -> None:
+    prb = ["PRB", "AD", "20261001", f"99990009^{name}^MDCDX2", "DX0009"] + [""] * 14
+    prb[13], prb[10] = flag, "C349^^I10"
+    assert _prb_row(tmp_path, "|".join(prb), zpr)["suspected"] == "Y"
+
+
+@pytest.mark.parametrize(
+    ("outcome", "status"),
+    [("R^x^HL70241", "U"), ("N^x^HL70241", "U"), ("W^x^HL70241", "U"), ("Z^x^JHSD0006", "U"), ("Q", "U"),
+     ("F^治癒^HL70241", "R"), ("D^死亡^HL70241", "I"), ("R", "R"), ("A", "A")],
+)  # fmt: skip
+def test_review_4_only_cited_outcome_codes_are_mapped_and_an_unlisted_one_is_never_active(
+    tmp_path: Path, outcome: str, status: str
+) -> None:
+    prb = ["PRB", "AD", "20261001", "99990009^胃炎^MDCDX2", "DX0009"] + [""] * 14
+    prb[10], prb[14] = "K297^^I10", outcome
+    assert _prb_row(tmp_path, "|".join(prb))["status"] == status
+
+
+def test_review_all9_keeps_its_day_under_unique_for_a_type_that_is_not_adt(tmp_path: Path) -> None:
+    """A mutant survived: "ALL9 keeps its day" was only proved through ADT types. Two PPR-01 snapshots under ALL9
+    on two day folders stay two records under ``unique`` too (each read, and not counted as a repeat)."""
+    st = kit.Storage(tmp_path / "ss", tmp_path / "ss" / "extended_storage")
+    for day, dx in (("20261001", "DX0001"), ("20261002", "DX0002")):
+        prb = ["PRB", "AD", "20261001", "99990001^胃炎^MDCDX2", dx] + [""] * 14
+        prb[10] = "K297^^I10"
+        segs = [kit._msh(f"{day}090000", "PPR^ZD1^PPR_ZD1", dx), kit._pid(kit.P1), "|".join(prb)]
+        kit._write(st, kit.P1, day, "PPR-01", "ALL9", kit._stamp(day), segs)
+    src = _source(st, order_key="unique")
+    assert sorted(r["diag_no"] for r in src.rows("diagnosis", "diagnosis", None, None)) == ["DX0001", "DX0002"]
+    assert not [k for k in src.stats if "several days" in k]
