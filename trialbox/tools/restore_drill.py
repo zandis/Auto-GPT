@@ -686,6 +686,8 @@ ROLES = (
 )
 FOUR = ("drill-admin", "drill-crc", "drill-pi", "drill-viewer")  # the card's four roles; the steward keeps opt-outs
 CONSOLE = "http://127.0.0.1:8090"
+KEY = Path("/media/usb/trialbox-backup.key")  # where §5's backup-keygen line writes the private key
+RELEASE = Path("/opt/trialbox")  # the hub: commands run on the box from /opt/trialbox as root
 MAIL_AUTH = "mx.hospa.test; spf=pass smtp.mailfrom=hospa.test; dkim=pass header.d=hospa.test; dmarc=pass"
 SCREEN_VERSION = "1.0.0"  # the shipped example rule set a TEST box seeds approved (D-640)
 
@@ -704,7 +706,7 @@ class ComposeDrill:
         self.log = log
         self.deploy = ROOT / "deploy"
         self.env = env_file(self.deploy / ".env")
-        self.objects = Path(os.environ.get("TB_HOST_OBJECTS_DIR") or self.deploy / ".objects")
+        self.objects = Path(self.env.get(objects_var()) or self.deploy / ".objects")
         self.passwords = {u: secrets.token_urlsafe(18) for u, _ in ROLES}
         self.totp: dict[str, str] = {}
         self._step: dict[str, int] = {}
@@ -1182,7 +1184,7 @@ def _clean(obj: Any) -> Any:
     return obj
 
 
-def run(work: Path, out: Path, *, fresh: bool = True) -> dict[str, Any]:
+def run(work: Path, out: Path, *, fresh: bool = True, key: Path = KEY, release: Path = RELEASE) -> dict[str, Any]:
     """The whole drill on the compose test stack; the record is written to ``out`` (no secret, no row)."""
     work.mkdir(parents=True, exist_ok=True)
     box = ComposeDrill(work)
@@ -1195,7 +1197,6 @@ def run(work: Path, out: Path, *, fresh: bool = True) -> dict[str, Any]:
         "started": datetime.now(UTC).isoformat(timespec="seconds"),
         "steps": steps,
     }
-    key = Path(os.environ.get("TB_DRILL_KEY") or "/media/usb/trialbox-backup.key")
     nas, usb = work / "nas", work / "usbt"
     # -- a fresh box and its night
     from tools.trialbox.backup_schedule import set_env as _set
@@ -1247,7 +1248,7 @@ def run(work: Path, out: Path, *, fresh: bool = True) -> dict[str, Any]:
     rec["wipe"] = _t(steps, "wipe every volume (down --volumes, objects folder emptied)", box.wipe)
     # -- restore by the page alone
     packs = ROOT / "deploy" / "refdata" / "loaded"
-    opt = release_folder()
+    opt = release_folder(release)
     fol = Follower(
         lambda c, e, t: shell(c, e, t or 3600, cwd=opt),
         hide=[*box.passwords.values(), *box.totp.values(), *box.db_env().values(), str(key)],
@@ -1334,7 +1335,7 @@ def prepare(set_env: Callable[[Path, str, str], None]) -> list[str]:
         "TB_CONSOLE_MFA": "totp",
         "COMPOSE_FILE": f"{d / 'docker-compose.yml'}:{d / 'docker-compose.test.yml'}",
         "COMPOSE_PROFILES": "stub,test",
-        "TB_HOST_OBJECTS_DIR": str(d / ".objects"),
+        objects_var(): str(d / ".objects"),
         "TB_SETTINGS_FILE": "../.cache/test-settings.yaml",
         "TB_STUB_LATENCY_S": "",
     }
@@ -1343,15 +1344,23 @@ def prepare(set_env: Callable[[Path, str, str], None]) -> list[str]:
     return sorted(values)
 
 
-def release_folder() -> Path:
-    """The hub's release folder (``/opt/trialbox``, or ``TB_DRILL_RELEASE``): a link to this checkout, made when
-    missing, so the page's commands run where a box runs them (and ``docker compose`` finds no other project's file
-    in a parent folder). Anything else at that path is refused."""
-    opt = Path(os.environ.get("TB_DRILL_RELEASE") or "/opt/trialbox")
+def objects_var() -> str:
+    """The variable the test stack's compose file names for its bind-mounted object folder (read from the file)."""
+    text = (ROOT / "deploy" / "docker-compose.test.yml").read_text(encoding="utf-8")
+    m = re.search(r'device: "\$\{(\w+):-', text)
+    if not m:
+        raise RuntimeError("docker-compose.test.yml names no folder for its object volume")
+    return m.group(1)
+
+
+def release_folder(opt: Path = RELEASE) -> Path:
+    """The hub's release folder (``/opt/trialbox``, or ``--release``): a link to this checkout, made when missing, so
+    the page's commands run where a box runs them (and ``docker compose`` finds no other project's file in a parent
+    folder). Anything else at that path is refused."""
     if not opt.exists() and not opt.is_symlink():
         opt.symlink_to(ROOT)
     if opt.resolve() != ROOT.resolve():
-        raise RuntimeError(f"{opt} is not this checkout: set TB_DRILL_RELEASE to a free path")
+        raise RuntimeError(f"{opt} is not this checkout: give --release a free path")
     return opt
 
 
@@ -1472,7 +1481,9 @@ def main(argv: Iterable[str] | None = None) -> int:
     e.add_argument("--json", action="store_true")
     sub.add_parser("plan")
     r = sub.add_parser("run")
-    r.add_argument("--work", type=Path, default=Path(os.environ.get("TB_DRILL_WORK") or Path.home() / "h33-drill"))
+    r.add_argument("--work", type=Path, default=Path.home() / "h33-drill")
+    r.add_argument("--key", type=Path, default=KEY, help="the backup's private key (made there once when missing)")
+    r.add_argument("--release", type=Path, default=RELEASE, help="the hub's release folder (a link to this checkout)")
     r.add_argument("--out", type=Path, required=True)
     r.add_argument("--keep", action="store_true", help="the box as it is: no wipe before the night")
     c = sub.add_parser("compare")
@@ -1497,7 +1508,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             print(f"lift {lf.key} ({lf.kind}): {lf.remedy} [from {lf.source}]")
         return 0
     if a.cmd == "run":
-        rec = run(a.work, a.out, fresh=not a.keep)
+        rec = run(a.work, a.out, fresh=not a.keep, key=a.key, release=a.release)
         bad = [row["store"] for row in rec.get("comparison", []) if not row["equal"]]
         print(
             f"restore-drill: page alone: {rec['follow']['page_alone']}; restore {rec['restore_total_s']} s; "
