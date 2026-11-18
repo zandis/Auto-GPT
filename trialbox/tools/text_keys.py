@@ -505,6 +505,11 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "life.gloss.": _values("console.guides", "GLOSSARY"),
     "log.xlsx.col.": lambda: [c for c in _values("datacore.sponsor", "LOG_COLUMNS")() if c != "screening_no"],
     "nav.grp.": _values("console.phone", "MENU_GROUPS"),  # J-3 (D-1222): the groups of "More" behind the flag
+    # the box's first-run page (10K-1): the countries, the retention days asked where TrialBox has no rules, and the
+    # SS-MIX2 order-number keys
+    "firstrun.country.": _values("tb_common.site_country", "COUNTRIES"),
+    "firstrun.retention.": _values("tb_common.retention", "OVERRIDABLE"),
+    "firstrun.ssmix2_order_numbers.": _values("tb_common.site_country", "SSMIX2_ORDER_NUMBERS"),
 }
 
 _RUN = "a value of stored data or of a service's answer (a state, a kind, a source): no one list in the code holds it"

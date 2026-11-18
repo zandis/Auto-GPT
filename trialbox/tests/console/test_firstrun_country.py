@@ -19,7 +19,6 @@ from tests.console.test_cjk_layout import PHONE, SCRIPT, _node_playwright
 from tests.console.test_firstrun import _answers, _box, _with_code
 
 ROOT = Path(__file__).resolve().parents[2]
-ON = {"TB_FIRSTRUN_COUNTRY": "1"}
 
 
 def _answered(c: Any, country: str, **over: str) -> Any:
@@ -46,7 +45,7 @@ def test_with_the_flag_off_the_page_is_as_before_and_offers_ssmix2(tmp_path: Pat
 
 
 def test_the_country_is_the_first_question_and_fills_in_its_defaults(tmp_path: Path) -> None:
-    b = _box(tmp_path, **ON)
+    b = _box(tmp_path, TB_FIRSTRUN_COUNTRY="1")
     c = _with_code(b)
     first = c.get("/login/first-run/answers?lang=ja").text
     assert 'data-testid="firstrun-country"' in first and 'name="site_name"' not in first  # nothing else yet
@@ -66,7 +65,7 @@ def test_the_country_is_the_first_question_and_fills_in_its_defaults(tmp_path: P
 
 
 def test_a_japanese_box_with_ssmix2_hands_its_answers_to_the_installer(tmp_path: Path) -> None:
-    b = _box(tmp_path, **ON)
+    b = _box(tmp_path, TB_FIRSTRUN_COUNTRY="1")
     c = _with_code(b)
     r = _answered(c, "jp", source="ssmix2", ssmix2_root="relative")
     assert r.status_code == 422 and 'data-testid="err-ssmix2_root"' in r.text and 'name="country" value="jp"' in r.text
@@ -79,7 +78,7 @@ def test_a_japanese_box_with_ssmix2_hands_its_answers_to_the_installer(tmp_path:
 
 
 def test_a_country_without_rules_asks_the_days(tmp_path: Path) -> None:
-    b = _box(tmp_path, **ON)
+    b = _box(tmp_path, TB_FIRSTRUN_COUNTRY="1")
     c = _with_code(b)
     r = _answered(c, "other", tz="Europe/Paris", language="en")
     assert r.status_code == 422
@@ -96,7 +95,7 @@ def test_the_new_steps_fit_a_phone_in_three_languages(tmp_path: Path) -> None:
     out = tmp_path / "pages"
     out.mkdir()
     pages: list[dict[str, Any]] = []
-    b = _box(tmp_path, **ON)
+    b = _box(tmp_path, TB_FIRSTRUN_COUNTRY="1")
     c = _with_code(b)
     for lang in ("en", "ja", "zh-TW"):
         for name, path in (("country", f"?lang={lang}"), ("jp", f"?lang={lang}&country=jp"),
