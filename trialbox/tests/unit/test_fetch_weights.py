@@ -9,6 +9,7 @@ import http.server
 import io
 import json
 import os
+import subprocess
 import threading
 import urllib.parse
 from collections.abc import Callable, Iterator
@@ -513,17 +514,20 @@ def test_destinations_outside_the_root_or_inside_a_folder_are_refused(
 
 
 def test_folders_resolve_as_the_start_does(record: Path, hub: Hub, capsys: pytest.CaptureFixture[str]) -> None:
-    """TB_MODELS_DIR and JUDGE_MODEL_DIR from deploy/.env, VERIFIER_MODEL_DIR from the profile's compose file."""
+    """TB_MODELS_DIR from deploy/.env; the folder names from the compose default, never from deploy/.env (second
+    review, 1: the start's GPU check does not read them there)."""
     (record / "deploy" / ".env").write_text(
-        "# kept by poc.sh\nTB_MODELS_DIR=./kept-models\nJUDGE_MODEL_DIR='judge-from-env-file'\n", encoding="utf-8"
+        "# kept by poc.sh\nTB_MODELS_DIR=./kept-models\nJUDGE_MODEL_DIR=judge-from-env-file\n", encoding="utf-8"
     )
     (record / "deploy" / "docker-compose.rtxpro6000.yml").write_text(
-        "services:\n  v:\n    command: [--model=/models/${VERIFIER_MODEL_DIR:-verifier-from-compose}]\n",
+        "services:\n  j:\n    command: [--model=/models/${JUDGE_MODEL_DIR:-judge-from-compose}]\n"
+        "  v:\n    command: [--model=/models/${VERIFIER_MODEL_DIR:-verifier-from-compose}]\n",
         encoding="utf-8",
     )
     assert _run(record, hub, None) == 0
     models = record / "deploy" / "kept-models"
-    _assert_pinned(models, record, judge="judge-from-env-file", verifier="verifier-from-compose")
+    _assert_pinned(models, record, judge="judge-from-compose", verifier="verifier-from-compose")
+    assert not (models / "judge-from-env-file").exists()
     assert capsys.readouterr().out.startswith(f"fetch-weights: models root {models} (from TB_MODELS_DIR (deploy/.env))")
 
 
@@ -534,6 +538,77 @@ def test_the_environment_wins_over_deploy_env(record: Path, tmp_path: Path) -> N
     assert fw.models_root({}, record)[0] == record / "deploy" / "kept"
     assert fw.models_root({"TB_MODELS_DIR": str(tmp_path / "abs")}, record)[0] == tmp_path / "abs"
     assert fw.resolve_env("rtxpro6000", env, record)["JUDGE_MODEL_DIR"] == "from-env"
+    assert "JUDGE_MODEL_DIR" not in fw.resolve_env("rtxpro6000", {}, record)  # not from deploy/.env
+
+
+POC_FUNCTIONS = r"""
+set -u
+cd "$1"
+eval "$(sed -n '/^envfile_get()/p' "$2")"
+eval "$(sed -n '/^models_dir() {/,/^}/p' "$2")"
+eval "$(sed -n '/^compose_default()/p' "$2")"
+ROOT="$1"
+OVR="deploy/docker-compose.rtxpro6000.yml"
+printf '%s
+' "$(models_dir)"
+for v in JUDGE_MODEL_DIR VERIFIER_MODEL_DIR; do printf '%s
+' "${!v:-$(compose_default "$v" "$OVR")}"; done
+printf '%s
+' "${JUDGE_CHAT_TEMPLATE:-$(compose_default JUDGE_CHAT_TEMPLATE "$OVR")}"
+"""
+
+COMPOSE = (
+    "x: ${JUDGE_MODEL_DIR:-j-first} and ${JUDGE_MODEL_DIR:-j-last-on-line}\n"
+    "y: ${JUDGE_MODEL_DIR:-j-second-line}\n"
+    "z: --model=/models/${VERIFIER_MODEL_DIR:-v-default}\n"
+    "t: --chat-template=/models/${JUDGE_CHAT_TEMPLATE:-chat-templates/d/chat_template.jinja}\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("dotenv", "env"),
+    [
+        (None, {}),
+        ("TB_MODELS_DIR=./kept\nJUDGE_MODEL_DIR=only-in-dotenv\n", {}),
+        ("TB_MODELS_DIR = spaced\n", {}),  # spaces round '=': not a match for poc.sh
+        ("  TB_MODELS_DIR=indented\n", {}),  # space before the key: not a match
+        ('TB_MODELS_DIR="/abs/quoted"\n', {}),
+        ("TB_MODELS_DIR='single'/q\n", {}),
+        ("TB_MODELS_DIR=  lead\n", {}),  # leading spaces kept
+        ("TB_MODELS_DIR=trail  \n", {}),  # trailing spaces kept
+        ("TB_MODELS_DIR=first\nTB_MODELS_DIR=last\n", {}),  # the last line wins
+        ("TB_MODELS_DIR=with-slash/\n", {}),
+        ("TB_MODELS_DIR=\n", {}),
+        ("TB_MODELS_DIR=./kept\n", {"TB_MODELS_DIR": ""}),  # empty in the environment: deploy/.env
+        ("TB_MODELS_DIR=./kept\n", {"TB_MODELS_DIR": "rel/"}),
+        (None, {"TB_MODELS_DIR": "./dot-rel"}),
+        (None, {"TB_MODELS_DIR": "/abs/env/"}),
+        (None, {"JUDGE_MODEL_DIR": "env-judge", "VERIFIER_MODEL_DIR": "env-verifier"}),
+        (None, {"JUDGE_MODEL_DIR": ""}),  # empty: the compose default
+        (None, {"JUDGE_CHAT_TEMPLATE": "t/x.jinja"}),
+    ],
+)
+def test_resolution_is_poc_sh_s_own(tmp_path: Path, dotenv: str | None, env: dict[str, str]) -> None:
+    """The tool's resolution against deploy/poc.sh's own envfile_get, models_dir and compose_default, run by bash."""
+    root = tmp_path / "root"
+    (root / "deploy").mkdir(parents=True)
+    (root / "deploy" / "docker-compose.rtxpro6000.yml").write_text(COMPOSE, encoding="utf-8")
+    if dotenv is not None:
+        (root / "deploy" / ".env").write_text(dotenv, encoding="utf-8")
+    shell_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), **env}
+    r = subprocess.run(  # bash with the repository's own functions
+        ["bash", "-c", POC_FUNCTIONS, "poc", str(root), str(ROOT / "deploy" / "poc.sh")],
+        env=shell_env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    want_root, want_judge, want_verifier, want_template = r.stdout.split("\n")[:4]
+    got = fw.resolve_env("rtxpro6000", env, root)
+    assert os.path.normpath(str(fw.models_root(env, root)[0])) == os.path.normpath(want_root)
+    assert got["JUDGE_MODEL_DIR"] == want_judge == (env.get("JUDGE_MODEL_DIR") or "j-last-on-line")
+    assert got["VERIFIER_MODEL_DIR"] == want_verifier
+    assert got["JUDGE_CHAT_TEMPLATE"] == want_template
 
 
 # ------------------------------------------------------------------------------------------- review 7: errors
@@ -578,11 +653,11 @@ def test_a_template_appearing_mid_run_is_not_replaced(record: Path, hub: Hub, tm
 def test_a_full_disk_is_said_and_not_retried(
     record: Path, hub: Hub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    class Full(io.BytesIO):
+    class Full(io.FileIO):
         def write(self, _b: Any) -> int:
             raise OSError(errno.ENOSPC, "No space left on device")
 
-    monkeypatch.setattr(fw, "_open_part", lambda _p, _a: Full())
+    monkeypatch.setattr(fw, "_open_part", lambda p, _a: Full(str(p), "ab"))
     waits: list[float] = []
     assert _run(record, hub, tmp_path / "models", sleep=waits.append) == 1
     assert "disk is full" in capsys.readouterr().err
@@ -798,3 +873,128 @@ def test_a_part_is_opened_without_following_a_link(tmp_path: Path) -> None:
             fw._open_part(link, append)
         assert exc.value.errno == errno.ELOOP
     assert victim.read_text(encoding="utf-8") == "keep me\n"
+
+
+# ------------------------------------------------------------------------------------------- second review, 2-4
+
+
+@pytest.mark.parametrize("where", ["template-parent", "folder-parent", "parts", "stage"])
+def test_a_link_out_of_the_models_root_is_refused(
+    record: Path, hub: Hub, tmp_path: Path, where: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    models = tmp_path / "models"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    models.mkdir()
+    env: dict[str, str] = {}
+    if where == "template-parent":
+        (models / "chat-templates").symlink_to(outside)
+    elif where == "folder-parent":
+        (models / "link").symlink_to(outside)
+        env["JUDGE_MODEL_DIR"] = "link/judge"
+    elif where == "parts":
+        (models / fw.STAGE / VERIFIER_DIR).mkdir(parents=True)
+        (models / fw.STAGE / VERIFIER_DIR / fw.PARTS).symlink_to(outside)
+    else:
+        (models / fw.STAGE).symlink_to(outside)
+    for mode in ({}, {"dry_run": True}, {"verify_only": True}):
+        assert _run(record, hub, models, env=env, **mode) == 2
+    assert "outside the models root" in capsys.readouterr().err
+    assert hub.asks == [] and list(outside.iterdir()) == []
+
+
+def test_a_link_appearing_mid_run_is_refused(record: Path, hub: Hub, tmp_path: Path) -> None:
+    models = tmp_path / "models"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    def appear(rel: str) -> None:
+        if rel == "chat_template.jinja" and not (models / "chat-templates").exists():
+            (models / "chat-templates").symlink_to(outside)
+
+    hub.on_get = appear
+    assert _run(record, hub, models) == 2
+    assert list(outside.iterdir()) == []
+
+
+def test_a_part_file_with_another_hard_link_is_refused(
+    record: Path, hub: Hub, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    models = tmp_path / "models"
+    part = models / fw.STAGE / VERIFIER_DIR / fw.PARTS / "model.safetensors"
+    part.parent.mkdir(parents=True)
+    victim = tmp_path / "victim.bin"
+    victim.write_bytes(b"\x02" * 10)
+    os.link(victim, part)
+    assert _run(record, hub, models) == 1
+    assert victim.read_bytes() == b"\x02" * 10
+    assert "another hard link: refused (nothing was written to it)" in capsys.readouterr().err
+
+
+def test_a_hard_link_made_after_the_check_is_never_truncated(
+    record: Path, hub: Hub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The check after opening: a full answer (no range) truncates only a part with no other hard link."""
+    models = tmp_path / "models"
+    victim = tmp_path / "victim.bin"
+    victim.write_bytes(b"keep")
+    real_open = fw._open_part
+
+    def link_then_open(p: Path, append: bool) -> Any:
+        if p.name == "model.safetensors" and not p.exists():
+            os.link(victim, p)
+        return real_open(p, append)
+
+    monkeypatch.setattr(fw, "_open_part", link_then_open)
+    assert _run(record, hub, models) == 1
+    assert victim.read_bytes() == b"keep"
+
+
+def test_a_network_fault_while_reading_the_body_is_retried(
+    record: Path, hub: Hub, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A raw OSError from the socket mid-body (ENETUNREACH) is a network fault: asked again, not said as a disk error."""
+    faults = {"n": 0}
+
+    class Flaky(LoopbackTransport):
+        def open(self, url: str, start: int = 0) -> tuple[int, int | None, Any]:
+            status, total, stream = super().open(url, start)
+            if url.endswith("/model.safetensors") and faults["n"] == 0:
+                faults["n"] += 1
+                inner = stream
+
+                class Broken(io.RawIOBase):
+                    def read(self, _n: int = -1) -> bytes:
+                        inner.read(100)
+                        raise OSError(errno.ENETUNREACH, "Network is unreachable")
+
+                    def close(self) -> None:
+                        inner.close()
+
+                return status, total, Broken()
+            return status, total, stream
+
+    waits: list[float] = []
+    assert _run(record, hub, tmp_path / "models", transport_cls=Flaky, sleep=waits.append) == 0
+    assert faults["n"] == 1 and waits == [fw.WAITS[0]]
+    assert "Network is unreachable" not in capsys.readouterr().err
+    _assert_pinned(tmp_path / "models", record)
+
+
+def test_a_replaced_lock_file_stops_the_run(
+    record: Path, hub: Hub, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The lock taken on a file that is no longer the one at the path is no lock: stop as for another run."""
+    models = tmp_path / "models"
+    real_flock = fcntl.flock
+
+    def flock_then_replace(fd: int, op: int) -> None:
+        real_flock(fd, op)
+        lock = models / fw.STAGE / fw.LOCK
+        lock.unlink()
+        lock.write_text("", encoding="utf-8")  # another run removed and re-made it
+
+    monkeypatch.setattr(fcntl, "flock", flock_then_replace)
+    assert _run(record, hub, models) == 1
+    assert "another fetch-weights run" in capsys.readouterr().err
+    assert hub.asks == []

@@ -48,8 +48,11 @@ What it puts in place: `deploy/models/gemma-4-26b-a4b-it-4bit` (the judge, from 
 `deploy/models/qwen3.5-9b-4bit` (the verifier, from `cyankiwi/Qwen3.5-9B-AWQ-4bit`) and
 `deploy/models/chat-templates/gemma-4-26b-a4b-it/chat_template.jinja` (the judge's template, from
 `google/gemma-4-26B-A4B-it`), each at the revision the registry names. The models root and the folder names are found as the start finds them:
-`TB_MODELS_DIR` (and `JUDGE_MODEL_DIR`, `VERIFIER_MODEL_DIR`, `JUDGE_CHAT_TEMPLATE`) from the environment, else from
-`deploy/.env`, else the defaults above. The first line it prints is the models root it will fill: check it.
+`TB_MODELS_DIR` from the environment, else from `deploy/.env` (a line `TB_MODELS_DIR=...` with no spaces round
+`=`), else `deploy/models`; `JUDGE_MODEL_DIR`, `VERIFIER_MODEL_DIR` and `JUDGE_CHAT_TEMPLATE` from the environment,
+else the defaults above (not from `deploy/.env`, which the start does not read for them). The first line it prints
+is the models root it will fill: check it. Every folder must lie inside that root: a symbolic link on the way out
+of it is refused (to use another disk, set `TB_MODELS_DIR` to a folder there).
 
 - It needs only `python3` and `python3-yaml` (step 3); the publisher's own download tool is not needed.
 - Files arrive under `deploy/models/.fetch-weights` first. A folder is moved into place only when every file has

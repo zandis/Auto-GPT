@@ -16,17 +16,21 @@ fetched. The judge's chat template is the row's ``chat_template`` (source, revis
 **Where it goes.** The models root and the folder names are resolved as the start resolves them (``deploy/poc.sh``
 and compose): ``TB_MODELS_DIR`` from the environment (relative to ``trialbox/``), else from ``deploy/.env``
 (relative to ``deploy/``), else ``deploy/models``; ``JUDGE_MODEL_DIR``, ``VERIFIER_MODEL_DIR`` and
-``JUDGE_CHAT_TEMPLATE`` from the environment, else ``deploy/.env``, else the default in the profile's compose file.
-The resolved root is printed first. Every name must stay under the root (no ``..``, no absolute path, no hidden
-part), and the template may not lie inside a model folder.
+``JUDGE_CHAT_TEMPLATE`` from the environment, else the default in the profile's compose file (the start's check does
+not read them from ``deploy/.env``, so neither does this). ``deploy/.env`` is read as ``envfile_get`` reads it: a line
+``KEY=value`` exactly, the last one wins, quotes removed. The resolved root is printed first. Every name must stay
+under the root (no ``..``, no absolute path, no hidden part), the template may not lie inside a model folder, and
+every destination, the stage and each part folder must resolve inside the real models root (no symbolic link on the
+way; a part file with another hard link is refused).
 
 **What is fetched.** Exactly the visible files of that list (hidden files such as ``.gitattributes`` are outside the
 pin's manifest), from ``https://huggingface.co/<repository>/resolve/<revision>/<path>``, and the template file (at
 most 1 MB: the pin gives no size for it). A list that names a refused type (``.bin``, ``.py`` and the other pickle or
 code suffixes of ``pin_model``) or an unsafe path is refused before anything is asked for. One run at a time: a run
-holds a lock on ``<models>/.fetch-weights/.lock`` and a second run stops at once. Each file is written under
-``<models>/.fetch-weights/`` (hidden, on the same disk; part files opened without following links), resumed with an
-HTTP range after an interruption, and checked against its size and pinned sha256; a file with another sha256 is
+holds a lock on ``<models>/.fetch-weights/.lock`` (and checks it holds the file still at that path) and a second
+run stops at once. Each file is written under ``<models>/.fetch-weights/`` (hidden, on the same disk; part files
+opened without following links), resumed with an HTTP range after an interruption (a fault while asking or reading
+is retried; one while writing is not), and checked against its size and pinned sha256; a file with another sha256 is
 deleted and the run fails (it is not asked for again: that is not the network's fault). A full or unwritable disk
 is said as such and not retried. Before a staged folder is moved it must hold the pinned files and nothing else: no
 extra, hidden, linked or special entry, no empty folder; a staged folder that fails this is removed, so the next run
@@ -43,7 +47,8 @@ step 3): the publisher's tool is not needed. Nothing runs this at install or sta
 
 Exit 0: every folder is the pinned build (``--dry-run``: the run could go ahead). 1: a download failed, a hash
 differed, a folder is in the way, the disk is short or another run holds the lock, or (``--verify-only``) something
-is missing or differs. 2: a usage error, an endpoint that is not https, or a pin record that cannot be used.
+is missing or differs. 2: a usage error, an endpoint that is not https, a destination outside the
+models root, or a pin record that cannot be used.
 """
 
 from __future__ import annotations
@@ -74,7 +79,7 @@ from typing import IO, Any
 
 import yaml
 
-from tools.pin_model import PROFILE_PAIRS, REFUSED_SUFFIXES, _env_file, manifest_sha256_of_files
+from tools.pin_model import PROFILE_PAIRS, REFUSED_SUFFIXES, manifest_sha256_of_files
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "models" / "registry.yaml"
@@ -87,8 +92,8 @@ MARGIN = 1 << 30  # free space kept beyond the download (1 GiB)
 TEMPLATE_MAX = 1 << 20  # the template has no pinned size: a body above this is refused
 CHUNK = 8 << 20
 WAITS = (2, 5, 15)  # seconds before each further ask after a transfer fault; four asks per file in all
-# network faults only: a local OSError (disk full, permission) is not retried
-TRANSFER_FAULTS = (urllib.error.URLError, http.client.HTTPException, ConnectionError, TimeoutError, ssl.SSLError)
+# what asking the hub or reading its answer may raise: retried. A fault while writing the file is local, not retried.
+NET_FAULTS = (urllib.error.URLError, http.client.HTTPException, OSError)
 TEMPLATE_VAR = "JUDGE_CHAT_TEMPLATE"
 TOKEN_RE = re.compile(r"[\x21-\x7e]+")  # visible ASCII, no space or control character
 
@@ -103,6 +108,14 @@ class FetchError(RuntimeError):
 
 class HubRefused(FetchError):
     """The hub answered with an HTTP error that asking again will not change, or an address is not https."""
+
+
+class Outside(RecordError):
+    """A destination, the stage or a part folder resolves outside the models root (exit 2)."""
+
+
+class _NetFault(Exception):
+    """A network fault while asking or reading: retried."""
 
 
 @dataclass(frozen=True)
@@ -140,36 +153,80 @@ def _safe_rel(rel: str) -> bool:
     return bool(rel) and not rel.startswith("/") and all(p and not p.startswith(".") for p in parts)
 
 
-def _compose_default(var: str, compose: Path) -> str:
-    """The default compose gives ``var`` (``${VAR:-default}``), as ``deploy/poc.sh``'s ``compose_default`` reads it."""
+def envfile_get(key: str, root: Path = ROOT) -> str:
+    """``deploy/poc.sh``'s ``envfile_get``: the last line of ``deploy/.env`` that starts with ``KEY=`` exactly (no
+    space before the key or round ``=``), every quote character removed, spaces kept."""
+    path = root / "deploy" / ".env"
+    if not path.is_file():
+        return ""
+    value = ""
+    for line in path.read_text(encoding="utf-8").split("\n"):
+        if line.startswith(key + "="):
+            value = line[len(key) + 1 :]
+    return value.replace('"', "").replace("'", "")
+
+
+def compose_default(var: str, compose: Path) -> str:
+    """``deploy/poc.sh``'s ``compose_default``: on the first line holding ``${VAR:-default}``, the last such default."""
     if not compose.is_file():
         return ""
-    m = re.search(r"\$\{" + re.escape(var) + r":-([^}]*)\}", compose.read_text(encoding="utf-8"))
-    return m.group(1) if m else ""
+    pattern = re.compile(r".*\$\{" + re.escape(var) + r":-([^}]*)\}")
+    for line in compose.read_text(encoding="utf-8").split("\n"):
+        m = pattern.match(line)
+        if m:
+            return m.group(1)
+    return ""
 
 
 def resolve_env(profile: str, env: dict[str, str], root: Path = ROOT) -> dict[str, str]:
-    """The folder names the start would use: the environment, else ``deploy/.env``, else the profile's compose
-    default (a value compose reads from ``deploy/.env`` is the one it serves)."""
-    kept = _env_file(root / "deploy" / ".env")
+    """The folder names the start checks (``deploy/poc.sh``, GPU preflight): the environment, else the profile's
+    compose default; ``deploy/.env`` is not read for them, as the start does not read it."""
     compose = root / "deploy" / f"docker-compose.{profile}.yml"
     out: dict[str, str] = {}
     for var in ("JUDGE_MODEL_DIR", "VERIFIER_MODEL_DIR", TEMPLATE_VAR):
-        value = env.get(var) or kept.get(var) or _compose_default(var, compose)
+        value = env.get(var) or compose_default(var, compose)
         if value:
             out[var] = value
     return out
 
 
 def models_root(env: dict[str, str], root: Path = ROOT) -> tuple[Path, str]:
-    """(the models root, where it came from), as ``deploy/poc.sh``'s ``models_dir`` resolves it."""
+    """(the models root, where it came from), as ``deploy/poc.sh``'s ``models_dir`` resolves it: ``TB_MODELS_DIR``
+    from the environment (relative to ``trialbox/``), else from ``deploy/.env`` (relative to ``deploy/``), else
+    ``deploy/models``."""
     m = env.get("TB_MODELS_DIR") or ""
     if m:
-        return (Path(m) if m.startswith("/") else root / m.removeprefix("./")), "TB_MODELS_DIR (environment)"
-    m = _env_file(root / "deploy" / ".env").get("TB_MODELS_DIR") or ""
-    if m:
-        return (Path(m) if m.startswith("/") else root / "deploy" / m.removeprefix("./")), "TB_MODELS_DIR (deploy/.env)"
-    return root / "deploy" / "models", "the default"
+        came = "TB_MODELS_DIR (environment)"
+        m = m if m.startswith("/") else f"{root}/{m.removeprefix('./')}"
+    else:
+        m = envfile_get("TB_MODELS_DIR", root)
+        came = "TB_MODELS_DIR (deploy/.env)" if m else "the default"
+        m = m or "./models"
+        m = m if m.startswith("/") else f"{root}/deploy/{m.removeprefix('./')}"
+    return Path(m.removesuffix("/") if m != "/" else m), came
+
+
+def _inside(models: Path, path: Path) -> bool:
+    """``path`` (under ``models``) resolves to the same place under the real models root: no link on the way."""
+    real_root = os.path.realpath(models)
+    return os.path.realpath(path) == os.path.join(real_root, os.path.relpath(path, models))
+
+
+def _guard(models: Path, *paths: Path) -> None:
+    for p in paths:
+        if not _inside(models, p):
+            raise Outside(
+                f"{p} resolves to {os.path.realpath(p)}, outside the models root {os.path.realpath(models)} (a "
+                "symbolic link on the way): refused; to keep the weights on another disk, point TB_MODELS_DIR there"
+            )
+
+
+def guard_targets(models: Path, targets: list[Target]) -> None:
+    """Every destination, the stage and each part folder inside the real models root; :class:`Outside` if not."""
+    stage = models / STAGE
+    _guard(models, stage, stage / LOCK)
+    for t in targets:
+        _guard(models, models / t.dest, stage / t.dest, stage / t.dest / PARTS)
 
 
 # ---------------------------------------------------------------------------------------------------- the plan
@@ -443,8 +500,6 @@ def _on_disk(what: Path) -> Iterator[None]:
     except FetchError:
         raise
     except OSError as exc:
-        if isinstance(exc, TRANSFER_FAULTS):
-            raise
         raise _local(exc, what) from None
 
 
@@ -469,7 +524,9 @@ def url_of(hub: str, source: str, revision: str, path: str) -> str:
 
 
 def _open_part(part: Path, append: bool) -> IO[bytes]:
-    flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | (os.O_APPEND if append else os.O_TRUNC)
+    """The part file, never through a link and never truncated here: the caller truncates it (a fresh start) only
+    after checking it has no other hard link."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | (os.O_APPEND if append else 0)
     return os.fdopen(os.open(part, flags, 0o644), "ab" if append else "wb")
 
 
@@ -489,6 +546,8 @@ def fetch_file(
         part.parent.mkdir(parents=True, exist_ok=True)
         if part.is_symlink() or (part.exists() and not _regular(part)):
             raise FetchError(f"{part} is not a regular file: refused")
+        if part.exists() and os.lstat(part).st_nlink > 1:
+            raise FetchError(f"{part} has another hard link: refused (nothing was written to it)")
     asks = 0
     while True:
         with _on_disk(part):
@@ -499,15 +558,32 @@ def fetch_file(
         if pinned.size is not None and have == pinned.size:
             break
         try:
-            status, _total, stream = transport.open(url, have)
+            try:
+                status, _total, stream = transport.open(url, have)
+            except FetchError:
+                raise
+            except NET_FAULTS as exc:
+                raise _NetFault(type(exc).__name__) from None
             if status == 416:  # nothing after `have`: the server holds no more bytes; the hash decides
+                stream.close()
                 break
             append = status == 206 and have > 0
             with stream:
                 with _on_disk(part):
                     out = _open_part(part, append)
+                    if os.fstat(out.fileno()).st_nlink > 1:
+                        out.close()
+                        raise FetchError(f"{part} has another hard link: refused")
+                    if not append:
+                        out.truncate(0)
                 with out:
-                    while chunk := stream.read(CHUNK):
+                    while True:
+                        try:
+                            chunk = stream.read(CHUNK)
+                        except NET_FAULTS as exc:
+                            raise _NetFault(type(exc).__name__) from None
+                        if not chunk:
+                            break
                         with _on_disk(part):
                             out.write(chunk)
                             written = out.tell()
@@ -524,14 +600,12 @@ def fetch_file(
                 size = part.stat().st_size
             if pinned.size is None or size >= pinned.size:
                 break
-            raise http.client.IncompleteRead(b"", pinned.size - size)
-        except FetchError:
-            raise
-        except TRANSFER_FAULTS as exc:
+            raise _NetFault("IncompleteRead")
+        except _NetFault as fault:
             if asks >= len(WAITS):
                 raise FetchError(
-                    f"{pinned.path}: the transfer failed {asks + 1} times ({type(exc).__name__}); what arrived is "
-                    f"kept and the next run resumes it"
+                    f"{pinned.path}: the transfer failed {asks + 1} times ({fault}); what arrived is kept and the "
+                    "next run resumes it"
                 ) from None
             sleep(WAITS[asks])
             asks += 1
@@ -655,20 +729,23 @@ def fetch_target(
 ) -> None:
     stage = models / STAGE / t.dest
     parts = stage / PARTS
+    _guard(models, models / t.dest, stage, parts)
     with _on_disk(stage):
         if stage.is_symlink() or (stage.exists() and not stage.is_dir()):
             _discard(stage)
     for i, f in enumerate(t.files, 1):
         done = _done_path(stage, t, f)
         with _on_disk(done):
-            if _regular(done) and _sha256(done) == f.sha256:
+            if _regular(done) and os.lstat(done).st_nlink == 1 and _sha256(done) == f.sha256:
                 continue
             if _exists(done):
                 _discard(done)
         _say(f"  [{i}/{len(t.files)}] {f.path} ({_human(f.size)})")
         part = parts / f.path
+        _guard(models, part.parent, done.parent)
         fetch_file(transport, url_of(hub, t.source, t.revision, f.path), part, f, sleep=sleep)
         with _on_disk(done):
+            _guard(models, done.parent)
             done.parent.mkdir(parents=True, exist_ok=True)
             os.replace(part, done)
     with _on_disk(parts):
@@ -685,7 +762,9 @@ def fetch_target(
                 "again): " + "; ".join(problems[:5])
             )
         with _on_disk(dest):
+            _guard(models, dest)  # before anything is made on the way to it
             dest.parent.mkdir(parents=True, exist_ok=True)
+            _guard(models, dest)
             if _exists(dest):
                 raise FetchError(f"{dest} appeared during the run (it is left as it is); move it aside and run again")
             os.rename(stage, dest)
@@ -697,7 +776,9 @@ def fetch_target(
                 _discard(stage)
             raise FetchError("; ".join(problems))
         with _on_disk(dest):
+            _guard(models, dest)  # before anything is made on the way to it
             dest.parent.mkdir(parents=True, exist_ok=True)
+            _guard(models, dest)
             try:
                 os.link(staged, dest)  # never replaces: fails when something is there
             except FileExistsError:
@@ -745,7 +826,13 @@ def _lock(models: Path) -> Iterator[bool]:
         except BlockingIOError:
             yield False
             return
-        yield True
+        held = os.fstat(fd)
+        try:
+            now = os.lstat(path)
+        except FileNotFoundError:
+            yield False  # the lock file was replaced: another run may hold the new one
+            return
+        yield (held.st_dev, held.st_ino) == (now.st_dev, now.st_ino)
     finally:
         os.close(fd)
 
@@ -788,6 +875,11 @@ def run(
     except (RecordError, OSError, ValueError, KeyError, yaml.YAMLError) as exc:
         _err(f"the pin record cannot be used: {exc}")
         return 2
+    try:
+        guard_targets(models, targets)
+    except Outside as exc:
+        _err(str(exc))
+        return 2
     _say("The pin record (models/registry.yaml and the measured record it names) asks for:")
     _describe(targets)
     known = [t.size for t in targets]
@@ -824,12 +916,13 @@ def run(
                 _err(f"another fetch-weights run holds {models / STAGE / LOCK}: wait for it to end, then run again")
                 return 1
             return _fetch(models, targets, profile, hub, transport_cls(token, origin(hub)), free_bytes, sleep)
+    except Outside as exc:
+        _err(str(exc))
+        return 2
     except FetchError as exc:
         _err(str(exc))
         return 1
     except OSError as exc:
-        if isinstance(exc, TRANSFER_FAULTS):
-            raise
         _err(str(_local(exc, models / STAGE)))
         return 1
 
