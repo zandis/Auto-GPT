@@ -1,0 +1,61 @@
+# TrialGPT cloud stack: Caddy (HTTPS + login) -> TrialGPT interface -> Ollama (local open-weight model).
+# Only Caddy publishes ports. GPU: add -f docker-compose.gpu.yml.
+#   cp .env.example .env   (fill it in)
+#   docker compose up -d --build
+name: trialgpt
+
+services:
+  ollama:
+    image: ollama/ollama:${OLLAMA_VERSION:-0.40.3}
+    restart: unless-stopped
+    environment:
+      OLLAMA_KEEP_ALIVE: 24h
+    volumes: [ollama:/root/.ollama]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+
+  model:   # one-shot: pull the model (skipped when already present), then exit
+    image: ollama/ollama:${OLLAMA_VERSION:-0.40.3}
+    depends_on: {ollama: {condition: service_healthy}}
+    environment: {OLLAMA_HOST: "ollama:11434"}
+    entrypoint: ["ollama", "pull", "${TG_LLM_MODEL:-gemma4:12b}"]
+    restart: "no"
+
+  trialgpt:
+    build: {context: .., dockerfile: deploy/Dockerfile}
+    image: trialgpt-local:${TG_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      ollama: {condition: service_healthy}
+      model: {condition: service_completed_successfully}
+    environment:
+      TG_LLM_BASE_URL: http://ollama:11434
+      TG_LLM_MODEL: ${TG_LLM_MODEL:-gemma4:12b}
+      TG_LLM_NUM_CTX: ${TG_LLM_NUM_CTX:-16384}
+      TG_LLM_THINK: "false"
+      TG_LLM_TIMEOUT: ${TG_LLM_TIMEOUT:-3600}
+    volumes: [tgdata:/data]
+
+  caddy:
+    image: caddy:${CADDY_VERSION:-2.10}
+    restart: unless-stopped
+    depends_on: [trialgpt]
+    ports: ["80:80", "443:443"]
+    environment:
+      TG_DOMAIN: ${TG_DOMAIN:?set TG_DOMAIN in .env}
+      TG_USER: ${TG_USER:?set TG_USER in .env}
+      TG_PASSWORD_HASH: ${TG_PASSWORD_HASH:?set TG_PASSWORD_HASH in .env}
+      TG_UPSTREAM: ${TG_UPSTREAM:-trialgpt:8090}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  ollama:
+  tgdata:
+  caddy-data:
+  caddy-config:

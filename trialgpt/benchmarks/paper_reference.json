@@ -1,0 +1,18 @@
+{
+ "source": "Jin Q, et al. Matching patients to clinical trials with large language models. Nat Commun 15, 9074 (2024). https://doi.org/10.1038/s41467-024-53081-z (Table 2; Source Data MOESM4 for retrieval recall)",
+ "ranking_note": "Table 2 reports averages over SIGIR, TREC 2021 and TREC 2022 only (no per-cohort ranking values). Ranked set: labelled trials among the top-500 retrieved per patient. NDCG@10 uses linear gain (r in {0,1,2}); P@10 = sum r / (2*10); AUROC 'excluding' with sklearn (positive class not stated in the paper).",
+ "ranking_avg_3_cohorts": {
+  "TrialGPT-Ranking (GPT-4) Feature combination": {"ndcg@10": 0.7275, "p@10": 0.6688, "auroc": 0.7979},
+  "TrialGPT-Ranking (GPT-4) LLM Sign(Eligibility)": {"ndcg@10": 0.7252, "p@10": 0.6724, "auroc": 0.7895},
+  "TrialGPT-Ranking (GPT-4) LLM Sign(Relevance)": {"ndcg@10": 0.7281, "p@10": 0.6700, "auroc": 0.7402},
+  "TrialGPT-Ranking (GPT-4) Linear Sign(% Included)": {"ndcg@10": 0.6097, "p@10": 0.5653, "auroc": 0.6765},
+  "TrialGPT-Ranking (GPT-3.5) Feature combination": {"ndcg@10": 0.5395, "p@10": 0.5115, "auroc": 0.6582},
+  "BioLinkBERT cross-encoder (best baseline)": {"ndcg@10": 0.4797, "p@10": 0.4281, "auroc": 0.6176}
+ },
+ "retrieval_recall_hybrid": {
+  "sigir": {"raw": {"100": 0.2965, "500": 0.5330}, "gpt-35-turbo": {"100": 0.6755, "500": 0.9257}, "gpt-4-turbo": {"100": 0.7215, "500": 0.9337}},
+  "trec_2021": {"raw": {"100": 0.2192, "500": 0.5104, "1000": 0.6311}, "gpt-35-turbo": {"100": 0.4158, "500": 0.8070, "1000": 0.9097}, "gpt-4-turbo": {"100": 0.4336, "500": 0.8360, "1000": 0.9226}},
+  "trec_2022": {"raw": {"100": 0.2027, "500": 0.4479, "1000": 0.5512}, "gpt-35-turbo": {"100": 0.4045, "500": 0.7660, "1000": 0.8571}, "gpt-4-turbo": {"100": 0.4841, "500": 0.8152, "1000": 0.8842}}
+ },
+ "criterion_matching_gpt4": {"accuracy": 0.873, "experts": "0.887-0.900", "inclusion": 0.899, "exclusion": 0.859, "n_pairs": 1015, "note": "physician annotations are not published; not reproducible here"}
+}

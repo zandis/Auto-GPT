@@ -1,0 +1,18 @@
+# HTTPS (automatic Let's Encrypt certificate for TG_DOMAIN) and a login in front of TrialGPT.
+{$TG_DOMAIN} {
+	encode gzip
+	basic_auth {
+		{$TG_USER} {$TG_PASSWORD_HASH}
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+	reverse_proxy {$TG_UPSTREAM:trialgpt:8090} {
+		transport http {
+			read_timeout 0
+		}
+	}
+}

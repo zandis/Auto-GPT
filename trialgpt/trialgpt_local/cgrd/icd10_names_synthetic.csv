@@ -1,0 +1,60 @@
+code,display,display_zh
+M10.00,Idiopathic gout unspecified site,痛風，未明示部位
+M10.071,Idiopathic gout right ankle and foot,右側踝及足痛風
+M10.072,Idiopathic gout left ankle and foot,左側踝及足痛風
+M10.9,Gout unspecified,痛風
+M1A.00X0,Idiopathic chronic gout unspecified site without tophus,慢性痛風，無痛風石
+M1A.9XX0,Chronic gout unspecified without tophus,慢性痛風，未明示，無痛風石
+M1A.9XX1,Chronic gout unspecified with tophus,慢性痛風，未明示，有痛風石
+M05.79,Rheumatoid arthritis with rheumatoid factor of multiple sites,類風濕性關節炎，類風濕因子陽性，多處
+M05.9,Rheumatoid arthritis with rheumatoid factor unspecified,類風濕性關節炎，類風濕因子陽性
+M06.00,Rheumatoid arthritis without rheumatoid factor unspecified site,類風濕性關節炎，類風濕因子陰性
+M06.4,Inflammatory polyarthropathy,發炎性多關節病變
+M06.9,Rheumatoid arthritis unspecified,類風濕性關節炎
+E10.9,Type 1 diabetes mellitus without complications,第一型糖尿病
+E10.65,Type 1 diabetes mellitus with hyperglycemia,第一型糖尿病伴高血糖
+E10.10,Type 1 diabetes mellitus with ketoacidosis without coma,第一型糖尿病伴酮酸中毒
+E11.9,Type 2 diabetes mellitus without complications,第二型糖尿病
+E11.65,Type 2 diabetes mellitus with hyperglycemia,第二型糖尿病伴高血糖
+E66.01,Morbid (severe) obesity due to excess calories,病態肥胖
+E66.9,Obesity unspecified,肥胖
+I10,Essential (primary) hypertension,原發性高血壓
+E78.5,Hyperlipidemia unspecified,高血脂症
+N18.30,Chronic kidney disease stage 3 unspecified,慢性腎臟病第三期
+N18.4,Chronic kidney disease stage 4,慢性腎臟病第四期
+N18.5,Chronic kidney disease stage 5,慢性腎臟病第五期
+K85.20,Alcohol induced acute pancreatitis without necrosis or infection,酒精性急性胰臟炎
+K85.90,Acute pancreatitis without necrosis or infection unspecified,急性胰臟炎
+K86.0,Alcohol-induced chronic pancreatitis,酒精性慢性胰臟炎
+K86.1,Other chronic pancreatitis,其他慢性胰臟炎
+C73,Malignant neoplasm of thyroid gland,甲狀腺惡性腫瘤
+E31.22,Multiple endocrine neoplasia type IIA,多發性內分泌腫瘤第二A型
+E31.23,Multiple endocrine neoplasia type IIB,多發性內分泌腫瘤第二B型
+C16.9,Malignant neoplasm of stomach unspecified,胃惡性腫瘤
+C18.9,Malignant neoplasm of colon unspecified,結腸惡性腫瘤
+C22.0,Liver cell carcinoma,肝細胞癌
+C34.11,Malignant neoplasm of upper lobe right bronchus or lung,右上肺葉惡性腫瘤
+C34.90,Malignant neoplasm of unspecified part of unspecified bronchus or lung,肺惡性腫瘤
+C50.911,Malignant neoplasm of unspecified site of right female breast,右側乳房惡性腫瘤
+C61,Malignant neoplasm of prostate,攝護腺惡性腫瘤
+C44.91,Basal cell carcinoma of skin unspecified,皮膚基底細胞癌
+Z33.1,Pregnant state incidental,懷孕狀態
+I21.4,Non-ST elevation myocardial infarction,非ST段上升型心肌梗塞
+I21.9,Acute myocardial infarction unspecified,急性心肌梗塞
+I63.50,Cerebral infarction due to unspecified occlusion of cerebral artery,腦梗塞
+I63.9,Cerebral infarction unspecified,腦梗塞
+A15.0,Tuberculosis of lung,肺結核
+A15.9,Respiratory tuberculosis unspecified,呼吸道結核
+A19.9,Miliary tuberculosis unspecified,粟粒性結核
+R76.11,Nonspecific reaction to tuberculin skin test without active tuberculosis,結核菌素測試非特異反應
+Z22.7,Latent tuberculosis,潛伏結核感染
+B18.0,Chronic viral hepatitis B with delta-agent,慢性B型肝炎合併D型肝炎
+B18.1,Chronic viral hepatitis B without delta-agent,慢性B型肝炎
+A41.9,Sepsis unspecified organism,敗血症
+J18.9,Pneumonia unspecified organism,肺炎
+I50.22,Chronic systolic (congestive) heart failure,慢性收縮性心衰竭
+I50.9,Heart failure unspecified,心衰竭
+M17.11,Unilateral primary osteoarthritis right knee,右膝原發性骨關節炎
+M54.50,Low back pain unspecified,下背痛
+K21.9,Gastro-esophageal reflux disease without esophagitis,胃食道逆流
+M81.0,Age-related osteoporosis without current pathological fracture,老年性骨質疏鬆
