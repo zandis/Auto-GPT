@@ -213,3 +213,69 @@ def test_a_stage_killed_at_its_cap_is_not_judged_slow() -> None:
     s = sl.summarise([fast, killed])
     assert not next(t for t in s["table"] if t["stage"] == "cascade (gate, GZQO)" and t["patients"] == 50000)["ok"]
     assert s["first_slow"]["cascade (gate, GZQO)"] is None
+
+
+# --- H-23b: the conditions a run was measured under, a lifted cap, and the cascade's stages traced
+
+
+def test_the_conditions_name_the_caps_and_what_moved_them(tmp_path: Path) -> None:
+    shipped = sl.conditions({})
+    assert shipped["cap_env"] == {} and shipped["caps"]["orchestrator"] == 4 * GIB
+    assert set(shipped["caps"]) == {"adapter", "lake", "orchestrator"}
+    assert shipped["validator"] == "structural" or Path("/opt/hl7/validator_cli.jar").exists()
+    moved = sl.conditions({"TB_MEM_ORCH": "10g", "TB_HL7_VALIDATOR_JAR": str(tmp_path / "none.jar")})
+    assert moved["cap_env"] == {"TB_MEM_ORCH": "10g"} and moved["caps"]["orchestrator"] == 10 * GIB
+    assert moved["caps"]["lake"] == shipped["caps"]["lake"] and moved["validator"] == "structural"
+
+
+def test_a_lifted_cap_is_its_own_row_and_says_so() -> None:
+    shipped = _run(50000, 800.0, [312.0], [1.0])
+    shipped["jobs"]["lines"] = shipped["jobs"]["lines"][:1]  # SCREEN killed at the shipped cap
+    shipped["jobs"].update(orchestrator_oom=True, orchestrator_rc=-9, orchestrator_s=544.6, orchestrator_peak=4 * GIB)
+    lifted = _run(50000, 800.0, [312.0], [260.0], repeat=2) | {"cap_env": {"TB_MEM_ORCH": "10g"}}
+    lifted["jobs"]["orchestrator_cap"] = 10 * GIB
+    assert sl.lifted_services(lifted) == {"orchestrator"} and sl.lifted_services(shipped) == set()
+    s = sl.summarise([shipped, lifted])
+    screen = [t for t in s["table"] if t["stage"] == "SCREEN x1"]
+    assert [(t["ok"], t["lifted"]) for t in screen] == [(False, False), (True, True)]
+    ingest = [t for t in s["table"] if t["stage"] == "ingest"]
+    assert len(ingest) == 1 and ingest[0]["seconds"]["n"] == 2 and not ingest[0]["lifted"]  # the adapter was not moved
+    md = sl.markdown_table(s)
+    assert "| SCREEN x1 | orchestrator (10.00, lifted) |" in md
+    assert "| SCREEN x1 **FAILED** | orchestrator (4.00) |" in md
+
+
+def test_the_first_slow_names_the_sizes_judged_on_a_lifted_cap() -> None:
+    small = _run(5000, 100.0, [8.0], [20.0])
+    big = _run(50000, 1000.0, [80.0], [600.0]) | {"cap_env": {"TB_MEM_ORCH": "10g"}}  # SCREEN 12 ms against 4
+    s = sl.summarise([small, big])
+    assert s["first_slow"]["SCREEN x1"] == {"patients": 50000, "ms_per_unit": 12.0, "lowest_smaller": 4.0,
+                                            "ratio": 3.0, "lifted_sizes": [50000]}  # fmt: skip
+    assert "lifted_sizes" not in (s["first_slow"]["ingest"] or {})
+
+
+def test_the_trace_child_is_python_and_wraps_the_cascade_stages() -> None:
+    from matching.cascade import engine
+
+    from tools import scale_gate as sg
+
+    compile(sl.TRACE_PREFIX + sg.CHILD_SCREEN, "<size_ladder trace>", "exec")
+    for name in sl.TRACED_STAGES:
+        assert callable(getattr(engine._Run, name)), name
+        assert f'"{name}"' in sl.TRACE_PREFIX
+
+
+def test_the_stage_memory_table() -> None:
+    plain = {"frames": 0, "stages": [{"stage": "s1", "seconds": 12.04, "rss_peak": 3 * GIB, "rss_end": 2 * GIB}]}
+    assert sl.stage_memory_table(plain).splitlines()[2] == "| s1 | 12.0 | 3.00 | 2.00 |"
+    traced = {"frames": 8, "stages": [{"stage": "s1", "seconds": 1.0, "rss_peak": GIB, "rss_end": GIB,
+                                       "traced_peak": GIB // 2, "traced_end": GIB // 4}]}  # fmt: skip
+    assert sl.stage_memory_table(traced).splitlines()[2] == "| s1 | 1.0 | 1.00 | 1.00 | 0.50 | 0.25 |"
+
+
+def test_no_plan_and_no_trace_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("TB_TZ", "UTC")
+    with pytest.raises(SystemExit):
+        sl.main(["--work", str(tmp_path / "w"), "--results", str(tmp_path / "r.json")])
+    with pytest.raises(ValueError, match="no built lake"):
+        sl.trace_cascade(tmp_path / "n10-r1")
