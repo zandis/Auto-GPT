@@ -115,6 +115,22 @@ def recorded_study_state(ruleset: str, url: str | None = None) -> str | None:
     return row[0] if row is not None and row[0] else None
 
 
+def only_begun(ruleset: str, url: str | None = None) -> bool:
+    """WALK-1 (the review of D-1153): whether the study's one recorded state is the start-up the console records when
+    a protocol is sent for a study it does not know (no state before it, no move after it): a study only begun, as a
+    feasibility of a trial the site may decline. RETENTION reads it as before that row existed (D-765: not a running
+    study). A database error is raised."""
+    from tb_common.db import Database
+
+    url = url or os.environ.get("TB_DB_URL")
+    if not url:
+        return False
+    # asked after recorded_study_state found a row, so the table is there (no second to_regclass, D-683)
+    with Database.connect(url, "site") as site:
+        rows = site.fetchall("SELECT state, prev FROM study_state WHERE ruleset = ?", ((ruleset or "").upper(),))
+    return len(rows) == 1 and str(rows[0][0]) == "startup" and rows[0][1] is None
+
+
 def recorded_close(ruleset: str, url: str | None = None) -> tuple[str, str, int | None] | None:
     """D-779 (T-305c): the study's latest recorded state row as (state, at, keep_years), or None when nothing is
     recorded (as :func:`recorded_study_state`). A database error is raised. A box whose console predates the period

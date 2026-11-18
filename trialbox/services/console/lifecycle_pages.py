@@ -54,6 +54,7 @@ _REC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _VISIT = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 _DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 STATES = ("candidate", "approached", "consented", "enrolled", "on_study", "completed", "withdrawn", "screen_fail")
+FINAL_STEPS = ("withdrawn", "screen_fail")  # WALK-1 (F-11): the final steps that take a reason, confirmed first
 SF_REASONS = ("not_eligible", "declined", "lost_contact", "other")
 WD_REASONS = ("1", "2", "3", "4", "5", "6")
 SCHEDULE_ROWS = 4  # empty rows on the schedule page for new visits
@@ -236,6 +237,17 @@ def register(app: FastAPI, h: Helpers) -> None:
     # ------------------------------------------------------------------ actions (one per page and /api/v1)
     def apply_step(sess: Session, path: str, rs: str, record: str, to: str, on_day: str, reason: str,
                    note: str, criterion: str = "") -> dict[str, Any]:  # fmt: skip
+        rid, rec, body, criterion = check_step(sess, path, rs, record, to, on_day, reason, note, criterion)
+        out = dict(actor.call(h, sess, ENTER, rid, "POST", f"/studies/{rid}/subjects/{quote(rec)}/step", body))
+        au.append("console.life_step", ruleset=rid, actor=h.actor(sess),
+                  detail={"record": rec, "to": to, **({"criterion": criterion} if criterion else {})})  # fmt: skip
+        return out
+
+    def check_step(sess: Session, path: str, rs: str, record: str, to: str, on_day: str, reason: str,
+                   note: str, criterion: str = "") -> tuple[str, str, dict[str, Any], str]:  # fmt: skip
+        """Every check of a step before it is sent (who, the closed study, the record, the day, the criterion): the
+        page runs them before its confirmation sheet too (WALK-1, the review of D-1153), so a sheet is never shown for
+        a step that would be refused. Returns (study, record, body, criterion)."""
         rid = study_or_404(sess, rs)
         need_enter(sess, path)
         rec = record_key(record)
@@ -257,10 +269,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                               detail={"why": "criterion"})  # fmt: skip
             if criterion:
                 body.update({"criterion": criterion, "criteria_version": version})
-        out = dict(actor.call(h, sess, ENTER, rid, "POST", f"/studies/{rid}/subjects/{quote(rec)}/step", body))
-        au.append("console.life_step", ruleset=rid, actor=h.actor(sess),
-                  detail={"record": rec, "to": to, **({"criterion": criterion} if criterion else {})})  # fmt: skip
-        return out
+        return rid, rec, body, criterion
 
     def apply_undo(sess: Session, path: str, rs: str, record: str, note: str = "") -> dict[str, Any]:
         rid = study_or_404(sess, rs)
@@ -457,6 +466,22 @@ def register(app: FastAPI, h: Helpers) -> None:
         rec = record_key(record[:64])
         to, on_day, reason, note = (str(data.get(k) or "").strip()[:300] for k in ("to", "on_day", "reason", "note"))
         criterion = str(data.get("criterion") or "").strip()[:48] if reason == "not_eligible" else ""
+        reasons = WD_REASONS if to == "withdrawn" else SF_REASONS
+        if (to in FINAL_STEPS and reason in reasons and str(data.get("confirm") or "") != "yes"
+                and h.confirm is not None):  # fmt: skip
+            try:  # the review of D-1153: every check first, so no sheet is shown for a step that would be refused
+                check_step(sess, request.url.path, rid, rec, to, on_day, reason, note, criterion)
+            except Problem as exc:
+                return subject_page(request, sess, rid, rec, status=409, refused=why_text(lang_of(sess), exc))
+            # WALK-1 (F-11, D-178): a final step is named before it is recorded (no reason: refused as before)
+            lang = lang_of(sess)
+            key = f"life.reason.{'wd' if to == 'withdrawn' else 'sf'}.{reason}"
+            words = translate(lang, key)
+            text = translate(lang, "life.confirm.final", step=translate(lang, f"life.state.{to}"), record=rec,
+                             reason=reason if words == key else words)  # fmt: skip
+            fields = {k: v for k, v in (("to", to), ("on_day", on_day), ("reason", reason), ("note", note),
+                                        ("criterion", criterion)) if v}  # fmt: skip
+            return h.confirm(request, sess, text, request.url.path, fields, f"/studies/{rid}/subjects/{quote(rec)}")
         try:
             apply_step(sess, request.url.path, rid, rec, to, on_day, reason, note, criterion)
         except Problem as exc:
