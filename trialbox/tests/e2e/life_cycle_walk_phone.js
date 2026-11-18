@@ -95,6 +95,19 @@ function phoneWalk(plan, api) {
   // before a click on a phone: the control on the screen and not covered (what the finger would hit)
   async function reachable(p, locator, text) {
     if (!phone) return;
+    // a control inside a closed group of the menu (layout.phone_first folds More in two levels, D-1222): its group
+    // opened first, as a person would, and logged as its own measure
+    // (a role locator does not see a link in a closed group, so the group is found by the link's text)
+    const quoted = JSON.stringify(text).replace(/^"|"$/g, "").includes("'") ? `"${text}"` : `'${text}'`;
+    // the menu's closed group (<details>), or the week page's study fold (a check box and its label, D-1222)
+    const fold = p.locator(`xpath=//details[not(@open)][.//a[normalize-space()=${quoted}]]/summary | `
+      + `//div[contains(@class,"pf-fold")][.//a[normalize-space()=${quoted}]]/preceding-sibling::label[1]`).last();
+    if (!(await locator.isVisible().catch(() => false)) && (await fold.count())) {
+      const label = ((await fold.innerText()) || "").replace(/\s+/g, " ").trim();
+      await fold.click();
+      clicked(label);
+      await note(p, "behind a second fold", `"${text}" sits in the closed group "${label}"`);
+    }
     await locator.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
     const hit = await locator.evaluate((e) => {
       const r = e.getBoundingClientRect();

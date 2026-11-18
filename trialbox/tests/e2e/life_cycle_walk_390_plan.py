@@ -57,6 +57,7 @@ KINDS = (
     "text cut",
     "table wider than the screen",
     "not shown on the phone",
+    "behind a second fold",
 )
 SPEC = "`docs/plan/design/09-ui-ux-spec.md`"
 

@@ -84,6 +84,54 @@ names went away, and every finding is still seen at its steps. Since then:
 The console has no `layout.phone_first` flag on this master: J-1 as merged adds none. The walk measured the box as
 it starts.
 
+## Beside lane J's phone walk
+
+Lane J's phone walk (J-3, D-1222: `tests/e2e/phone_walk.js`, `phone_walk_plan.py`, `test_phone_walk.py`) does the
+phone tasks of the journey review (section E) on a 390 x 844 phone with the flag `layout.phone_first` switched on.
+It walks the seeded study GZQO as the PI and the coordinator, in each of the three languages:
+
+- the morning mail's link, with and without a live session;
+- a candidate's evidence;
+- Need info and Not suitable, each undone after;
+- a contact outcome after Approach, undone after;
+- the task list;
+- a participant looked up;
+- an SAE form half filled when the session ends.
+
+It records each task's taps, checks that no page or card list scrolls sideways, and keeps a screenshot per task.
+
+This walk (H-21) does the whole life of a new study at 390 px: H-20's 22 steps by four roles, from the protocol to the
+erase, in three languages, with the ten refusals. It runs on the box's default layout, the flag off. On every page and
+click it measures more than sideways scroll:
+
+- controls off the screen or covered;
+- targets under 24 or 44 px;
+- text cut;
+- tables wider than the screen, even inside their own frame;
+- what the phone does not show;
+- the menu's folds.
+
+The two overlap on two pages: the PI's mark on the weekly page (step 13) and the coordinator's contact outcome (step
+14). Both find that the page does not scroll sideways there. They do not duplicate each other otherwise: lane J's walk
+measures the flag's layout and taps on seeded data, this one every step of a study's life on the default layout. Each
+is kept as its own walk; neither is changed by the other.
+
+## With the flag `layout.phone_first` on
+
+Train 80 brings the flag `layout.phone_first` (D-1222): audited, off by default, switched by the administrator on
+`/ops/flags` with a reason. The findings above are the default's. The same walk was run once more against a box with
+the flag switched on (by the administrator, as lane J's walk does). That run is shown here, not as findings: the
+default does not show it. It also does not pass the e2e test, which holds the default's findings.
+
+| Finding or measure | Flag on |
+| --- | --- |
+| P-08 (the weekly worklist is a table wider than the screen) | gone: the list's rows are cards |
+| P-16 (the Participants list is a table wider than the screen) | gone: cards |
+| P-01 to P-07, P-09 to P-15 | the same, at the same steps |
+| a link behind a second fold (new measure "behind a second fold") | steps 2, 8, 9, 10, 17: More folds in groups ("Lists and requests", "<study> · study pages"); steps 11, 20: the weekly page folds the study's links ("Candidates") below the list, behind "⚠ Study: steps, team and links" |
+
+With the flag on, every step was still done, the walk opening each fold first as a person would.
+
 ## Steps the phone cannot complete
 
 None. Every step was done on the phone. The erase completes on a steps-mode box since H-25 (D-1124), on the phone as on

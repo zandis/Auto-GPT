@@ -33,6 +33,11 @@ No walk had opened the console at that width.
      logged as its own kind);
    - text cut;
    - a table wider than the screen (with whether it scrolls in its own frame).
+   - a link that sits in a closed group, which it opens first as a person would ("behind a second fold"; the flag
+     `layout.phone_first`, D-1222, folds More and the weekly page's study links).
+
+   It measures the box's default layout: the flag is off by default, and a run with it on is shown on the findings
+   page beside the findings, not as findings.
 
    Each measure goes to the step's log with a screenshot, both outside the repository (`TB_WALK_LOG_DIR`). A control
    the phone cannot reach stops the walk there, with what the browser saw.
