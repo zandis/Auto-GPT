@@ -99,6 +99,9 @@ mapped by the rule above from what the finding says; the source's own word is no
 | H20-F-20 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | High (mapped) | The opt-out worker never ran on the steps-mode box, so none of the erasure registry's clears ran after an opt-out | Int | shown | fixed 09b26e8ca |
 | H20-F-21 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | The red opt-out worker check is on the metrics page only; the administrator's Health tab shows no line for it | C2 | shown | open |
 | H20-F-22 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | The audit trail shows each run of the opt-out worker with an empty detail, so a steward cannot see on any page that an erase completed | C2 | shown | open |
+| H20-F-23 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | SCREEN of a study in start-up fails with the orchestrator's English on every page, the state named by its code | C2 | shown | open |
+| H20-F-24 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | The failed SCREEN job sends the coordinator to the study's set-up page but has no link to it, and the state is changed one page further | C2 | shown | open |
+| H20-F-25 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Low (mapped) | Open is refused for want of the type for serious adverse event reporting, a field set-up names "SAE reporting rules" and "Rule set" | C2 | shown | open |
 
 ## H22: the install runbook followed alone (lane H, 2026-11-17)
 

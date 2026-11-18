@@ -26,7 +26,7 @@ const base = plan.base;
 const acc = plan.accounts;
 const checks = [];
 const ctx = {}; // role (or "person") -> page
-const vars = { job: "" }; // values read from the product on the way ({job}, {pid}, {short}, {record}, {chart})
+const vars = { job: "" }; // values read from the product on the way ({job}, {pid}, {short}, {record}, {chart}, {kept}, {since})
 const stopped = new Set(); // steps stopped with a recorded finding
 let current = "";
 let rec = null; // the record of the step being walked
@@ -45,7 +45,7 @@ function check(ok, what) {
 }
 
 function fill(s) {
-  return String(s || "").replace(/\{(job|pid|record|short|chart)\}/g, (_, k) => vars[k] || "");
+  return String(s || "").replace(/\{(job|pid|record|short|chart|kept|since)\}/g, (_, k) => vars[k] || "");
 }
 
 // what the log may hold: never a pseudonym in full or a chart number, only their names
@@ -207,11 +207,13 @@ async function act(p, a, tag) {
     }
     case "remember": {
       // a value the product shows, kept for a later step: from the address (``value``: a regular expression with
-      // one group) or from the element ``within`` (a CSS selector)
+      // one group) or from the element ``within`` (a CSS selector; with ``value``, its one group in the element's text)
       guess(a);
       if (a.within) {
         const el = p.locator(a.within).first();
-        vars[a.label] = ((await el.count()) ? await el.innerText() : "").replace(/\s+/g, " ").trim();
+        const t = ((await el.count()) ? await el.innerText() : "").replace(/\s+/g, " ").trim();
+        const m = a.value ? t.match(new RegExp(a.value)) : null;
+        vars[a.label] = a.value ? (m ? m[1] : "") : t;
       } else {
         const u = new URL(p.url());
         const m = (u.pathname + u.search).match(new RegExp(a.value));
@@ -311,6 +313,15 @@ async function holds(p, a) {
     }
     case "path":
       return [new RegExp(value).test(path), `path ${value} (${path})`];
+    case "years": {
+      // "A+N=B": day B is day A plus N years (D-779: a close on 29 February ends on the 28th in a year with none)
+      const m = value.match(/^(\d{4})-(\d{2})-(\d{2})\+(\d+)=(\d{4}-\d{2}-\d{2})$/);
+      if (!m) return [false, `two days to compare (${value}) at ${path}`];
+      const y = Number(m[1]) + Number(m[4]);
+      const last = new Date(Date.UTC(y, Number(m[2]), 0)).getUTCDate();
+      const day = `${y}-${m[2]}-${String(Math.min(Number(m[3]), last)).padStart(2, "0")}`;
+      return [day === m[5], `${m[5]} is ${m[4]} years after ${m[1]}-${m[2]}-${m[3]} (${day}) at ${path}`];
+    }
     case "body": {
       // the response's own text (a page with no main part, such as /metrics)
       const t = await p.evaluate(() => document.body.innerText);
