@@ -41,6 +41,7 @@ from tb_common.encoding import EncodingRefused
 from tb_common.opportunity import FeedRefused
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
+from tb_common.zipcap import ZipRefused, check_ruleset_zip
 from tb_contracts import CohortTable, schema_errors
 
 from orchestrator.clients import StepFailed
@@ -581,9 +582,13 @@ def _signatures_for(rows: list[dict[str, Any]], signatures: list[dict[str, Any]]
 
 def load_draft(store_bytes: bytes) -> Ruleset:
     """A compiler draft zip (manifest, IR, SQL, ...) as a Ruleset (trial simulation only; never approved)."""
-    tmp = Path(tempfile.mkdtemp(prefix="tb-trial-"))
     with zipfile.ZipFile(io.BytesIO(store_bytes)) as z:
-        for name in z.namelist():
+        try:  # 10G-6, D-1102: refused before anything is written
+            names = check_ruleset_zip(z)
+        except ZipRefused as exc:
+            raise StepFailed("running", "draft package refused by the rule-set zip caps (D-1102)") from exc
+        tmp = Path(tempfile.mkdtemp(prefix="tb-trial-"))
+        for name in names:
             if name.endswith("/") or ".." in name or name.startswith("/"):
                 continue
             target = tmp / name
