@@ -80,6 +80,13 @@ INVENTORY: tuple[dict[str, Any], ...] = (
      "holder": "the orchestrator", "rotation": "on compromise (no command yet)", "code": None,
      "breaks": "every signature made under it stops verifying: its values are not sent until signed again",
      "compromise": "rotate-kek; a new key means the open signatures are signed again (a later card)"},
+    {"key": "alliance signing key", "where": "a member box of a COHORT alliance only: the file "
+     "TB_ALLIANCE_SIGNING_KEY_FILE names (made by tools.opportunity_feed keygen); its fingerprint in the alliance "
+     "root's register (TB_ALLIANCE_SITE_KEYS_FILE)", "protects": "that the root takes the site's count tables as the "
+     "site's (D-1320)", "holder": "the box; the root's operator holds the fingerprint", "rotation": "on compromise "
+     "or a new box (runbook 23, Alliance site keys)", "code": None,
+     "breaks": "nothing stored: tables already merged stay; the next table is signed with the new key",
+     "compromise": "the root's operator removes the site's register line; keygen on the box; the new line added"},
     {"key": "restic.key", "where": "secrets volume, wrapped (restic.key.wrapped); beside each restic repository on "
      "the backup targets, trialbox-restic.key.json: the wrapped key and the KEK's share set (no salt, no names), "
      "written only for a shamir KEK or a TPM KEK with current escrow shares", "protects": "the "
