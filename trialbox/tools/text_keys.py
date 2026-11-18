@@ -510,6 +510,8 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "firstrun.country.": _values("tb_common.site_country", "COUNTRIES"),
     "firstrun.retention.": _values("tb_common.retention", "OVERRIDABLE"),
     "firstrun.ssmix2_order_numbers.": _values("tb_common.site_country", "SSMIX2_ORDER_NUMBERS"),
+    # J-2 (D-1221): a person's one state, every name and the state of facts that could not be read
+    "person.state.": _union(_values("console.person_state", "STATES"), lambda: ["unknown"]),
 }
 
 _RUN = "a value of stored data or of a service's answer (a state, a kind, a source): no one list in the code holds it"
@@ -717,7 +719,6 @@ UNCHECKED_FAMILIES: dict[str, str] = {
             "wb.list.",
             "wb.pipe.",
             "wb.task.",
-            "wstatus.",
         ),
         _RUN,
     ),

@@ -1,0 +1,55 @@
+{
+ "target": "audit-writer",
+ "kind": "service",
+ "service": "audit-writer",
+ "stage": "mailed",
+ "when": "a mailed job is running",
+ "killed": "kill -9 of pid 20399 on the host: the first process (init) of container audit-writer (6af7b8a00ac3)",
+ "killed_at_s": 6.0716678890003095,
+ "recovered_by": "Docker's restart policy (restarts: 1)",
+ "recover_s": 12.7814370039996,
+ "finished": true,
+ "jobs": {
+  "ok": true,
+  "counts": {
+   "units": 6,
+   "done_once": 6,
+   "visibly_failed": 0,
+   "missing": 0,
+   "stuck": 0,
+   "failed_no_reason": 0,
+   "done_twice": 0,
+   "behind_failed_ingest": 0,
+   "lost": 0
+  },
+  "lines": []
+ },
+ "mail": {
+  "ok": true,
+  "counts": {
+   "messages": 18,
+   "double": 0,
+   "missing": 0,
+   "held": 0,
+   "sending": 0,
+   "queued": 0
+  },
+  "lines": []
+ },
+ "audit": {
+  "ok": true,
+  "counts": {
+   "verify_rc": 0,
+   "lines_at_kill": 28,
+   "lines_at_end": 299,
+   "journal_left": 0,
+   "work_after": 1
+  },
+  "lines": []
+ },
+ "notes": [
+  "console.notify: exit 0: ",
+  "the night took 294 s"
+ ],
+ "run": 1
+}
