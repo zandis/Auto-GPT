@@ -53,7 +53,7 @@ from tb_common.ulid import new_ulid
 from tb_common.verdict_word import shown_of
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
-from console import acting, api_first, demo_guard, feedback, firstrun, i18n_roles, next_page
+from console import acting, api_first, demo_guard, feedback, firstrun, i18n_roles, next_page, phone
 from console import actor as console_actor
 from console.account_rules import Hooks as AccountHooks
 from console.account_rules import Rules as AccountRules
@@ -1367,6 +1367,7 @@ def create_app(
         audit_hooks.doors["provenance"] = prov_db
     app.state.audit_hooks = audit_hooks
     audit_page.register(app, audit_hooks)
+    phone.register(app)  # J-3 (D-1222): the phone-first flag per request, the web manifest and the icons
 
     # ------------------------------------------------------------------ pilot workspace
     if not settings.pilot:
