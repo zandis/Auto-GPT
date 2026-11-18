@@ -199,17 +199,24 @@ def run_apply_update(tmp: Path) -> None:
 
 
 def run_wizard_questions(tmp: Path) -> None:
-    from tools.settings_wizard import QUESTIONS
+    from tb_common import site_country
 
-    # OPS-060: Enter on tls_mode keeps the hospital certificate, the first choice
-    replies = {"tz": "Asia/Taipei", "tls_hostname": "trialbox.hospa.test", "tls_cert_file": "/etc/tb/site.crt",
+    from tools.settings_wizard import QUESTIONS, _asked
+
+    # OPS-060: Enter on tls_mode keeps the hospital certificate, the first choice. 10K-1: the country first (no
+    # default); a Taiwan site's zone is then the default, and only the questions asked for it take a line
+    replies = {"country": "tw", "tls_hostname": "trialbox.hospa.test", "tls_cert_file": "/etc/tb/site.crt",
                "tls_key_file": "/etc/tb/site.key"}  # fmt: skip
-    stdin = "".join(replies.get(k, "") + "\n" for k, *_ in QUESTIONS)
+    tw = site_country.TABLE["tw"]
+    stdin = "".join(
+        replies.get(k, "") + "\n" for k, *_ in QUESTIONS if k == "country" or _asked(k, tw, {"data_source_type": "csv"})
+    )
     out = _run([sys.executable, "-m", "tools.settings_wizard", "--out", str(tmp / "deploy/settings.yaml"),
                 "--env-out", str(tmp / "deploy/.env")], stdin=stdin, TB_CTGOV_MODE="")  # fmt: skip
     assert out.returncode == 0, out.stderr
     env = (tmp / "deploy/.env").read_text(encoding="utf-8")
     assert "TB_TLS_HOSTNAME=trialbox.hospa.test" in env and "TB_TLS_MODE=hospital" in env
+    assert "TB_TZ=Asia/Taipei" in env
 
 
 def run_wizard_answers(tmp: Path) -> None:
