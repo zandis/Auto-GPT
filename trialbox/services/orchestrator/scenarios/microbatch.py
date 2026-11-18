@@ -59,12 +59,13 @@ snapshot (T-305a, D-383) through ``ctx.services.lake``.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from matching import coded_values
-from tb_common import provenance
+from tb_common import provenance, tier_value
 from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
@@ -141,8 +142,13 @@ def _not_asked(v: CriterionVerdict) -> bool:
 
 
 def night_budget(ctx: Ctx) -> int:
-    """The configured night budget in patients (0: no limit)."""
-    return int(getattr(ctx.cfg.env, "microbatch_night_budget", DEFAULT_NIGHT_BUDGET))
+    """The configured night budget in patients (0: no limit). Left at its default, it is this box's tier record's
+    ``night_budget_patients`` when the record measured it (10E-1c, D-1322); a setting always wins."""
+    configured = int(getattr(ctx.cfg.env, "microbatch_night_budget", DEFAULT_NIGHT_BUDGET))
+    if configured != DEFAULT_NIGHT_BUDGET or (os.environ.get("TB_MICROBATCH_NIGHT_BUDGET") or "").strip():
+        return configured
+    measured = tier_value.positive_int(tier_value.measured("night_budget_patients"))
+    return configured if measured is None else measured
 
 
 TERMINAL = ("done", "failed")
