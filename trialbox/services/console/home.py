@@ -35,6 +35,7 @@ from tb_contracts import Job
 
 from console import actor as console_actor
 from console import ai_confirm, coded_view, s28, terminology_refused
+from console import person_state as ps
 from console import studies as st
 from console.api_first import before_body, page_twin
 from console.auth import Session, source_of
@@ -122,6 +123,8 @@ class Helpers:
     # set by register(): read again by console.team (D-147)
     crit_of: Callable[..., dict[str, Any]] | None = None
     registry_map: Callable[[str], dict[str, str]] | None = None
+    #: set by register() (D-1221): the people of one study and their one state each (``console.person_state.read``)
+    people: Callable[[str], ps.People] | None = None
     patient_ctx: Callable[..., dict[str, Any]] | None = None
     # set by console.team (D-147): the study team store, the opt-out register and the one permission function
     team: Any = None
@@ -336,18 +339,14 @@ def register(app: FastAPI, h: Helpers) -> None:
         return data if isinstance(data, dict) else None
 
     def registry_map(rs: str) -> dict[str, str]:
+        if not console_actor.may_read_any():
+            return {}  # D-1221: an account without patient rows anywhere makes no read it would be refused
         try:
-            return {e.pid: e.status for e in bk.registry_rows(rs)}
+            return {e.pid: e.status for e in ps.registry_rows(h, rs)}  # once per page view (D-1221)
         except Exception:  # a page's account without the right (refused and audited) or a service down: none shown;
             if console_actor.reading_for_a_person():  # the D-717 review: in a mail round a failed read is an error,
                 return {}  # never "no status"
             raise
-
-    def registry_counts(rs: str) -> dict[str, int]:
-        out: dict[str, int] = {}
-        for s in registry_map(rs).values():
-            out[s] = out.get(s, 0) + 1
-        return out
 
     def feas_bundle(sess: Session, rs: str, sponsor: bool) -> dict[str, Any] | None:
         jobs = bk.list_jobs(limit=500)
@@ -398,11 +397,14 @@ def register(app: FastAPI, h: Helpers) -> None:
             today=h.today(),
         )
         others_of(sess, rs, rows)
+        people = ps.read(h, rs)  # D-1221: the one state of each person, the same on every list
         for r in rows:
             r["sent_back"] = sent_back.get(str(r["pid"]))
+            r["person"] = people.of(str(r["pid"]))
         asof = {**data_as_of(job, h.today()), "dead": len(dead), "dead_unchecked": unchecked}
         return {"job": job, "rows": rows, "counts": st.week_counts(rows), "summary": summary or {}, "cl": cl,
-                "removed": removed, "asof": asof, "deceased": dead, "dead_unchecked": unchecked}  # fmt: skip
+                "removed": removed, "asof": asof, "deceased": dead, "dead_unchecked": unchecked,
+                "people": people}  # fmt: skip
 
     def deceased_now(cl: dict[str, Any] | None) -> tuple[set[str], bool]:
         """FIT-U04 (T-629, D-415): the listed patients whose record in the lake now says they died (T-616's
@@ -455,7 +457,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                 feas = rep["summary"]
         # the same rows as the weekly page, so "new" and "marked" agree with what the PI sees
         week: dict[str, Any] | None = week_bundle(sess, rs) if screen_job is not None else None
-        regc = registry_counts(rs)
+        people = week["people"] if week else ps.read(h, rs)  # D-1221: the counts of the registry and the office
         if waiting is not None:
             nxt = ("approve", f"/pilot/jobs/{waiting.job_id}/approval")
         elif feas_job is None:
@@ -512,14 +514,16 @@ def register(app: FastAPI, h: Helpers) -> None:
         return {
             "id": rs,
             "version": r.version,
-            "step": study_step(rs),
-            "pipeline": st.pipeline_counts(rows, reg),
+            "step": study_step(rs, people),
+            # D-1221: master's funnel (found, PI reviewed, contacted, consented, enrolled; cumulative), fed by the one
+            # state of each person; the opening page's layout changes only behind card J-7's flag
+            "pipeline": ps.funnel(people, [str(w["pid"]) for w in rows]),
+            "people_readable": people.readable,
             "tasks": tasks,
             "clinic": clinic,
             "feas": feas,
             "feas_job": feas_job,
             "week": week,
-            "registry": regc,
             "site_missing": site.missing,
             "next": nxt,
         }
@@ -536,6 +540,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     h.settings_of = settings_of
     h.crit_of = crit_of
     h.registry_map = registry_map
+    h.people = lambda rs: ps.read(h, rs)
 
     def screen_or_403(sess: Session, rid: str, path: str) -> None:
         """D-147: once a study's delegation log names a PI, an investigator sees its patients only as the PI or a
@@ -792,7 +797,10 @@ def register(app: FastAPI, h: Helpers) -> None:
             page_no=page_no,
             pages=pages,
             # D-120: the coordinator records a call from the list in two taps (open, then the outcome)
-            quick_outcomes=tuple(OUTCOMES) if sess.user.can_request and not sess.user.can_mark else (),
+            # D-1221: no quick outcome in a closed study (the outcome route refuses it)
+            quick_outcomes=tuple(OUTCOMES)
+            if sess.user.can_request and not sess.user.can_mark and store.study_state(rid).state != "closed"
+            else (),
             sel=sel,
             opened=opened and sel is not None,
             marks=MARKS,
@@ -809,15 +817,15 @@ def register(app: FastAPI, h: Helpers) -> None:
             team_due=bool(h.team_due and h.team_due(rid)),
         )
 
-    def study_step(rid: str) -> int:
+    def study_step(rid: str, people: ps.People | None = None) -> int:
         jobs = bk.list_jobs(limit=500)
-        regc = registry_counts(rid)
+        n = (people or ps.read(h, rid)).counts()  # D-1221: the step follows the same states as the funnel
         return st.procedure_step(
             approved=any(r.id == rid and r.status == "approved" for r in bk.rulesets()),
             feas_done=st.latest_job(jobs, rid, ("FEAS",)) is not None,
             screen_done=st.latest_job(jobs, rid, SCREEN_TYPES) is not None,
-            contacted=sum(v for k, v in regc.items() if k != "candidate"),
-            enrolled=regc.get("enrolled", 0),
+            contacted=ps.reached(n, "contacted"),
+            enrolled=ps.reached(n, "enrolled"),
             waiting=st.latest_job(jobs, rid, ("FEAS", "SCREEN", "COMPILE"), state="awaiting_approval") is not None,
         )
 
@@ -869,6 +877,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             "practitioner": names.get(row.get("practitioner_id") or "", row.get("practitioner_id") or ""),
             "history": store.mark_history(rid, pid),
             "registry": registry_map(rid).get(pid),
+            "person": (listed or {}).get("person") or wk["people"].of(pid),  # D-1221
+            "study_closed": store.study_state(rid).state == "closed",
             "judging": (wk["cl"] or {}).get("judging") or {},
             "marks": MARKS,
             "reasons": settings_of(rid).reasons,
@@ -1337,6 +1347,24 @@ def register(app: FastAPI, h: Helpers) -> None:
             raise h.problem(404, "notfound")
         if outcome == "undo":
             return undo_outcome(sess, rid, pid, wk["job"].job_id)
+        # D-1221 (walk finding F-13): no contact step in a closed study, nor for a participant, as on the page
+        if store.study_state(rid).state == "closed":
+            au.append("console.refused", ruleset=rid, actor=h.actor(sess),
+                      detail={"pid": pid, "action": outcome, "reason": "study closed"})  # fmt: skip
+            raise h.problem(409, "outcome.closed")
+        who: ps.PersonState | None = wk["people"].of(pid)
+        if who is not None and who.name == ps.UNKNOWN:
+            # the participant records could not be read: before consent the screening log decides, as on master;
+            # with the log unread too, nothing is recorded (503: try again)
+            who = wk["people"].log_state(pid)
+        if who is None:
+            au.append("console.refused", ruleset=rid, actor=h.actor(sess),
+                      detail={"pid": pid, "action": outcome, "reason": "state unavailable"})  # fmt: skip
+            raise h.problem(503, "outcome.state_unknown")
+        if who.phase == "participant":
+            au.append("console.refused", ruleset=rid, actor=h.actor(sess),
+                      detail={"pid": pid, "action": outcome, "reason": f"state {who.name}"})  # fmt: skip
+            raise h.problem(409, "outcome.participant")
         mk = store.latest_marks(rid).get(pid)
         if mk is None or mk.mark != "approach":
             # D-133 (review F-36): the coordinator calls a patient only after the investigator's "OK to contact";

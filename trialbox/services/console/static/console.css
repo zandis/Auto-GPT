@@ -103,9 +103,11 @@ details > summary { cursor: pointer; color: var(--accent); margin-bottom: 8px; }
 }
 ol.stages { padding-left: 20px; } ol.stages li { margin: 4px 0; }
 table.compact td, table.compact th { padding: 3px 8px; }
-.pill.st-enrolled, .pill.st-consented { background: var(--ok-bg); color: var(--ok); }
-.pill.st-screen_fail, .pill.st-declined, .pill.st-withdrawn { background: var(--bad-bg); color: var(--bad); }
-.pill.st-contacted { background: var(--warn-bg); color: var(--warn); }
+/* D-1221: a person's one state (console.person_state), the same colour on every list */
+.pill.ps-consented, .pill.ps-enrolled, .pill.ps-on_study, .pill.ps-completed { background: var(--ok-bg); color: var(--ok); }
+.pill.ps-need_info, .pill.ps-to_contact, .pill.ps-contacted { background: var(--warn-bg); color: var(--warn); }
+.pill.ps-set_aside, .pill.ps-not_approached, .pill.ps-declined, .pill.ps-screen_fail, .pill.ps-withdrawn { background: var(--bad-bg); color: var(--bad); }
+.pill.ps-listed { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
 .pill.ref-agreed { background: var(--ok-bg); color: var(--ok); }  /* D-147: referral states */
 .pill.ref-declined { background: var(--bad-bg); color: var(--bad); }
 .pill.ref-asked, .pill.ref-discuss { background: var(--warn-bg); color: var(--warn); }
@@ -171,10 +173,9 @@ svg .axis { stroke: var(--line); stroke-width: 1; }
 .visit { font-variant-numeric: tabular-nums; }
 .markrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .markrow form.inline select { width: auto; max-width: 180px; min-height: 28px; padding: 2px 6px; }
-.pill.mk-approach, .pill.stt-contacted, .pill.stt-screened, .pill.stt-enrolled { background: var(--ok-bg); color: var(--ok); }
+.pill.mk-approach { background: var(--ok-bg); color: var(--ok); }
 .pill.mk-need_info, .pill.stt-new { background: var(--warn-bg); color: var(--warn); }
-.pill.mk-not_suitable, .pill.mk-not_now, .pill.stt-set_aside, .pill.stt-closed { background: var(--bad-bg); color: var(--bad); }
-.pill.stt-pending { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.pill.mk-not_suitable, .pill.mk-not_now { background: var(--bad-bg); color: var(--bad); }
 .pill.vd-pass { background: var(--ok-bg); color: var(--ok); }
 .pill.vd-fail { background: var(--bad-bg); color: var(--bad); }
 .pill.vd-unknown { background: var(--warn-bg); color: var(--warn); }
@@ -444,8 +445,6 @@ ol.steps-list { padding-left: 22px; } ol.steps-list li { margin: 6px 0; }
 .pill.life-consented, .pill.life-enrolled, .pill.life-on_study, .pill.v-done, .pill.life-completed { background: var(--ok-bg); color: var(--ok); }
 .pill.life-withdrawn, .pill.life-screen_fail, .pill.v-overdue, .pill.v-missed { background: var(--bad-bg); color: var(--bad); }
 .pill.v-open { background: var(--warn-bg); color: var(--warn); }
-ul.lifecounts { list-style: none; display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 0; margin: 0; }
-ul.lifecounts li { display: flex; align-items: center; gap: 6px; }
 ul.vlist { list-style: none; padding: 0; margin: 0; }
 ul.vlist li.vrow { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--line); }
 ul.vlist li.vrow:first-child { border-top: 0; }

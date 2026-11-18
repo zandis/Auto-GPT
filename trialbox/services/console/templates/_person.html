@@ -1,0 +1,6 @@
+{# D-1221 (review R10): a person's one state (console.person_state) and the number of people in each state, read the
+   same way on every list and count: the weekly page, Candidates, the registry, Participants, the home card and the
+   research office. #}
+{% macro person_pill(s, tid='') %}{% set name = s.name if s.name is defined else s %}<span class="pill ps-{{ name }}" data-state="{{ name }}"{% if tid %} data-testid="{{ tid }}"{% endif %}>{{ t('person.state.' + name) }}</span>{% endmacro %}
+
+{% macro count_strip(shown, readable, href, tid) %}<div class="pipe" data-testid="{{ tid }}">{% if not readable %}<p class="hint" data-testid="{{ tid }}-unread">{{ t('person.counts.unread') }}</p>{% else %}{% for k, n in shown %}<a href="{{ href }}" data-testid="{{ tid }}-{{ k }}" data-state="{{ k }}"><b>{{ n }}</b><span>{{ t('person.state.' + k) }}</span></a>{% else %}<p class="hint" data-testid="{{ tid }}-none">{{ t('person.counts.none') }}</p>{% endfor %}{% endif %}</div>{% endmacro %}
