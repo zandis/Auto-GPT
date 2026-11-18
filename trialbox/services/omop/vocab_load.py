@@ -1104,7 +1104,7 @@ def load_athena(
     try:
         concepts = [_concept_row(r) for r in tables["CONCEPT"]]
     except (KeyError, ValueError) as exc:
-        raise OmopError(f"Athena bundle refused: CONCEPT.csv: a malformed value ({exc})") from None
+        raise OmopError(f"Athena bundle refused: CONCEPT.csv: a malformed value ({type(exc).__name__})") from None
     high = [c[0] for c in concepts if c[0] >= LOCAL_MIN or c[0] < 0]
     if high:
         raise OmopError(f"Athena bundle refused: concept ids outside the OHDSI range (e.g. {high[0]}); "
@@ -1117,7 +1117,7 @@ def load_athena(
     try:
         return _load_athena_rows(db, directory, tables, concepts, selection, res, allow, version, sha, by, source)
     except (KeyError, ValueError) as exc:
-        msg = f"Athena bundle refused: {directory}: a malformed value ({type(exc).__name__}: {exc})"
+        msg = f"Athena bundle refused: {directory}: a malformed value ({type(exc).__name__})"
         raise OmopError(msg) from None
 
 
