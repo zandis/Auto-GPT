@@ -489,7 +489,7 @@ def load_draft(store_bytes: bytes) -> Ruleset:
         try:  # 10G-6, D-1102: refused before anything is written
             names = check_ruleset_zip(z)
         except ZipRefused as exc:
-            raise StepFailed("running", f"draft package refused: {exc}") from exc
+            raise StepFailed("running", "draft package refused by the rule-set zip caps (D-1102)") from exc
         tmp = Path(tempfile.mkdtemp(prefix="tb-trial-"))
         for name in names:
             if name.endswith("/") or ".." in name or name.startswith("/"):

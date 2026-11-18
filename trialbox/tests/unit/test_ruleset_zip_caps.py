@@ -151,8 +151,15 @@ def test_the_offline_install_still_reads_a_good_zip() -> None:
 
 
 def test_a_draft_package_is_refused_before_anything_is_written(monkeypatch: pytest.MonkeyPatch) -> None:
+    import tempfile
+
     made: list[str] = []
-    monkeypatch.setattr(cohort.tempfile, "mkdtemp", lambda **_k: made.append("dir") or "/nonexistent")
+
+    def mkdtemp(**_k: object) -> str:
+        made.append("dir")
+        return "/nonexistent"
+
+    monkeypatch.setattr(tempfile, "mkdtemp", mkdtemp)
     with pytest.raises(StepFailed, match="draft package refused"):
         cohort.load_draft(declared_zip([(f"X/{i}", 0, 0) for i in range(2001)]))
     assert made == []

@@ -28,9 +28,11 @@ few kB can declare gigabytes.
    largest value-set files a rule set carries today (well under 1 MB each).
 3. Names: an absolute path (`/x`, `\x`, `C:x`), a `..` part, a backslash or NUL, a symbolic link or a name given
    twice is refused.
-4. A refusal names its reason (`zip.members`, `zip.member_size`, `zip.total_size`, `zip.ratio`, `zip.name`,
-   `zip.symlink`, `zip.duplicate`) and the value of the cap, and nothing is written: the install raises its
-   `ImportRefused` before the repository is touched; the draft read raises `StepFailed` before its folder is made.
+4. A refusal carries its reason as a code (`zip.members`, `zip.member_size`, `zip.total_size`, `zip.ratio`,
+   `zip.name`, `zip.symlink`, `zip.duplicate`), and nothing is written. The install raises its `ImportRefused`, whose
+   text names the cap's value, before the repository is touched; the draft read fails its job with a fixed sentence
+   ("draft package refused by the rule-set zip caps (D-1102)": the orchestrator's answers repeat no error's text,
+   `tests/unit/test_error_answers.py`) before its folder is made.
 5. Not settings: a site has no reason to raise them; a vendor rule set larger than this is a change to this decision.
 
 ## Consequences
