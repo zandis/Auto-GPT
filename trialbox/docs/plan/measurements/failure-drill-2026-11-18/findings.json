@@ -15,7 +15,7 @@
    "basis": "shown",
    "place": "services/orchestrator/core.py:566 (self.db.get in the except branch of _run), core.py:791-793 (_worker logs 'worker error' and goes on)",
    "expected": "No lost job: an interrupted job is queued again or failed with a reason (T-689, D-456, D-532; plan 8 V12; D-1109)",
-   "happened": "In 2 of 3 database nights (the first full run and run 1 of the final) the mailed SCREEN GZQO stayed running past the 900 s window while the database and the orchestrator were healthy, and its 7 result mails were never sent; in full-disk run 1 the timer's INGEST stayed running the same way, so RETENTION never started. A restart of the orchestrator requeued each and it ended done (11 s, 46 s)"
+   "happened": "In 3 of 4 database nights (the first full run, run 1 of the final and the final head's run, where a FEAS stuck too) the mailed SCREEN GZQO stayed running past the 900 s window while the database and the orchestrator were healthy, and its 7 result mails were never sent; in full-disk run 1 the timer's INGEST stayed running the same way, so RETENTION never started. A restart of the orchestrator requeued each and it ended done (11 s, 46 s)"
   },
   {
    "id": "H31-02",

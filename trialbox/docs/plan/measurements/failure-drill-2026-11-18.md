@@ -8,8 +8,8 @@ each killed during a night's work, then the database, then the disk that holds t
 killed service came back by Docker's restart policy in 12 to 55 seconds, and no mail went twice in any night. The
 audit chain verified after every kill, with no journal row missing from it. Jobs were lost when **the database went
 away while a job was in its run step**: that job stays `running` with the orchestrator healthy, nobody is told, and it
-ends only when the orchestrator is restarted (H31-01, High, B2). It happened in 2 of 3 database nights (a mailed
-SCREEN) and in 1 of 2 full-disk nights (the night's own INGEST, so the night's RETENTION never ran). No runbook page
+ends only when the orchestrator is restarted (H31-01, High, B2). It happened in 3 of 4 database nights (mailed
+jobs) and in 1 of 3 full-disk nights (the night's own INGEST, so the night's RETENTION never ran). No runbook page
 says to restart the orchestrator (H31-02, Medium, D). In a full-disk night the adapter's `ingest.failed` event could
 not be audited and is not in the chain (H31-03, High, C2b). A kill of the adapter or the lake during the night's
 ingest makes the INGEST fail with a reason, and the night's chain then waits for a person's retry, as the runbook says.
@@ -62,11 +62,19 @@ healthy again. The database and the disk were run twice each: their results diff
 | disk | the disk that holds the database's volume, filled from the host by a file beside the database's folder until no space was left: 559939584 bytes (560 MB, 534 MiB) copied, 0.881723 s, 635 MB/s; /dev/loop0 974M 958M 0 100% /root/.cache/tb-drill-pg | ingest, the adapter's ingest run is running | a person's step (the drill freed the space); the database's restarts: 10 | 150 | no | FAIL: 2 lost, 0 failed with a reason, 0 twice | pass: 0 double, 0 missing, 0 held | pass: verify exit 0 |
 | disk (run 2) | the disk that holds the database's volume, filled from the host by a file beside the database's folder until no space was left: 558891008 bytes (559 MB, 533 MiB) copied, 0.844702 s, 662 MB/s; /dev/loop0 974M 957M 0 100% /root/.cache/tb-drill-pg | ingest, the adapter's ingest run is running | a person's step (the drill freed the space); the database's restarts: 10 | 147 | yes | pass: 0 lost, 1 failed with a reason, 0 twice | pass: 0 double, 0 missing, 0 held | pass: verify exit 0 |
 
+**On the final head** (`3c48c65c`, after the merge of master and the last fixes of the drill's own code), the
+database and the disk were run once more (records in `failure-drill-2026-11-18/records-final-head/`, with their own
+control night). Database: back in 19 s; two mailed jobs (FEAS RA-JAK and SCREEN GZQO) stayed `running` (H31-01
+again), 8 of their mails were never sent, the chain verified; restarting the orchestrator ended both `done` in 11 s.
+Disk: PostgreSQL stayed up this time (no restart); the INGEST failed with `DiskFull` and a reason, the chain waits,
+the chain verified. The other targets were not run again on this head: the tool's changes after their runs touch
+only the disk's set-up, the source of the site's zone and the name of the object folder's variable.
+
 ## The findings
 
 | Id | Target | What happened | Expected, and its source | Severity | Lane |
 | --- | --- | --- | --- | --- | --- |
-| H31-01 | db, disk | Killed while the mailed SCREEN GZQO was in its run step: the database was back in 19 s, but the job stayed `running` for the rest of the night (past the 900 s window) with the orchestrator healthy; its 7 result mails were never sent and its requester was not told. The orchestrator's log has one `worker error on <job>`: in `_run`'s failure branch `self.db.get(job_id)` (`services/orchestrator/core.py:566`) raised `DatabaseError` because the database was down, the error left `_run`, and `_worker` (`core.py:791-793`) logged it and went on; nothing looks at the job again until the orchestrator starts. Seen in 2 of 3 database nights (the first full run and run 1 of the final; run 2 killed at 2 s, before a job was in its run step, and recovered), and in full-disk run 1 on the timer's INGEST (so RETENTION never started) | No lost job: an interrupted job is queued again or failed with a reason (T-689, D-456, D-532; plan 8 V12; D-1109) | High | B2 |
+| H31-01 | db, disk | Killed while the mailed SCREEN GZQO was in its run step: the database was back in 19 s, but the job stayed `running` for the rest of the night (past the 900 s window) with the orchestrator healthy; its 7 result mails were never sent and its requester was not told. The orchestrator's log has one `worker error on <job>`: in `_run`'s failure branch `self.db.get(job_id)` (`services/orchestrator/core.py:566`) raised `DatabaseError` because the database was down, the error left `_run`, and `_worker` (`core.py:791-793`) logged it and went on; nothing looks at the job again until the orchestrator starts. Seen in 3 of 4 database nights (the first full run, run 1 of the final and the final head's run; run 2 killed at 2 s, before a job was in its run step, and recovered), and in full-disk run 1 on the timer's INGEST (so RETENTION never started) | No lost job: an interrupted job is queued again or failed with a reason (T-689, D-456, D-532; plan 8 V12; D-1109) | High | B2 |
 | H31-02 | db, disk | The step that ends the stuck job is a restart of the orchestrator (the drill took it after its checks: the job ended `done` 11 s later), and no page says so. `docs/runbook/04-troubleshooting.md` names restarts only for a job "interrupted by a restart of the box N times" | A recovery that needs a person has a runbook row (card H-31): the row belongs in `docs/runbook/04-troubleshooting.md` | Medium | D |
 | H31-03 | disk | The adapter's ingest run ended while the database was down; its log says "ingest.failed could not be audited" (`AuditUnavailable`). The event is in no journal and no chain: the audit trail of that night has no record of the ingest's failure, though the chain verifies | Every state change of a night is audited (SPEC §10.2; D-394: events go through the audit journal); the register's rule: an audit trail that can be wrong is High | High | C2b |
 
