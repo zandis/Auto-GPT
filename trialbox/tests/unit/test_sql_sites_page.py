@@ -6,8 +6,9 @@ The sites are found by one command, run from ``trialbox/`` (the command of revie
 
 The page ``docs/handover/sql-sites-classified-2026-11-18.md`` classifies each site in a table row that starts with
 the site's place in backticks (``| `services/x.py:12` | ...``). The test compares the number of rows per file with the
-number of sites ruff finds per file, so a moved line does not fail it but a new or removed site does: the page is
-then out of date and the new site must be classified. The findings file holds the page's class 3 sites only.
+number of sites ruff finds per file, so a moved line changes nothing and a new or removed site is reported as a
+warning (not a failure, until 10G-42 (a)'s per-file counts land): the page is then out of date.
+The findings file holds the page's class 3 sites only.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import json
 import re
 import subprocess
 import sys
+import warnings
 from collections import Counter
 from pathlib import Path
 
@@ -65,8 +67,13 @@ def test_the_page_has_one_row_per_site_file_by_file() -> None:
     sites = _ruff_sites()
     rows = _page_rows()
     assert sites, "ruff found no S608 site: the command or the tree changed"
-    assert len(rows) == len(sites)
-    assert Counter(f for f, _, _ in rows) == Counter(f for f, _ in sites)
+    assert len(rows) == 164, "the page is a dated record of 164 sites"
+    # The integrator's ruling of 2026-11-18 16:15 UTC: until 10G-42 (a)'s per-file counts land, a card that adds or
+    # removes a site is reported here, not failed: this page must not stop another lane's pull request.
+    page, tree = Counter(f for f, _, _ in rows), Counter(f for f, _ in sites)
+    if page != tree:
+        moved = {f: (page[f], tree[f]) for f in sorted(set(page) | set(tree)) if page[f] != tree[f]}
+        warnings.warn(f"SQL sites differ from the page (file: page rows, ruff sites): {moved}", stacklevel=1)
 
 
 def test_every_row_has_a_class_and_every_class_3_row_a_finding() -> None:
