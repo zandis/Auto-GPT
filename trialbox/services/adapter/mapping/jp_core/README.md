@@ -7,7 +7,10 @@
   `usage.csv` here, `code,doses_per_day`, else "1日N回" in its text; YJ from RXE-31) and OMP-11/12 (their 実施, folded
   into the order or on their own), with YJ, HOT and ATC kept, OML-11 (JLAC10 results) and the documents of the
   extended storage (`<root>/extended_storage/`, the guideline's content folders and the older layout: text, HTML,
-  Word and PDF). What of the specification is read and what is not: `docs/data/01-what-the-box-reads.md`. Vitals, reports, claims and the
+  Word and PDF). What of the specification is read and what is not: `docs/data/01-what-the-box-reads.md`.
+* `prb14_outcome.csv` (PRB-14 転帰 code to the diagnosis status) and `document_loinc.csv` (an extended-storage
+  LOINC document code to the note type): only codes a document in this repository records (review 12), every
+  row `verify`; a code that is not listed is unknown, never active. Vitals, reports, claims and the
   registry come from the extended CSVs under `<root>/extended/`.
 * The mapping puts JP Core 1.1.0 profiles on the shared resource set (`profiles`) and adds what JP Core asks for
   (`overlay`: the lab specimen and code text, the Rp identifiers of a MedicationRequest, the 標準病名 coding, the

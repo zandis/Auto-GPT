@@ -29,24 +29,26 @@ What of the specification the reader reads, after plan 10 cards 10B-2 to 10B-5 (
 types: 1 parsed, 8 partly, 17 not). It is tested against a storage written from the specification
 (`tests/ssmix2_spec_kit.py`, `tests/unit/test_ssmix2_to_specification.py`), not yet against a vendor's storage.
 
-| Type or part | State | What is still not read |
-| --- | --- | --- |
-| Tree, names, flags 0/1/2, record key | Parsed | Flag 2 is read as "an older version" (newest wins) |
-| Multi-volume manifest | Not | One root only (10B-11) |
-| ADT-00 | Partly | IN1; A23 is read only as flag 0 (10B-8) |
-| ADT-12 | Parsed | – |
-| ADT-22 | Partly | A11 cancellation only through flag 0 (10B-8) |
-| ADT-52 | Partly | A13 (cancel discharge) not undone (10B-8) |
-| ADT-01, 21, 31, 32, 41, 42, 51, 61 | Not | 10B-7, 10B-8 |
-| PPR-01 | Parsed | ZPR's field layout is read loosely (every coded value a 修飾語); a diagnosis missing from a newer snapshot without PRB-1 `DE` is kept; 主診断 is not yet carried to the lake (no `diagnosis_role` reader) |
-| OMP-01, 02 | Partly | JAMI 標準用法 codes are not decoded (the site's `usage.csv` gives doses a day, else "1日N回" in the text); RXE-12 refills |
-| OMP-11, 12 | Parsed | – |
-| OML-11 | Parsed | Microbiology shape untested (10B-9) |
-| OML-01, OMG-01/02/03/11/12/13, OMD | Not | 10B-9, 10B-10 |
-| Extended storage | Partly | `_contents.xml`, CDA sections (HS032, HS008) |
+Each row says what is read and what is not; "Partly" means only what the row lists. No type is read in full.
 
-Count: of the 26 types, **5 parsed** (ADT-12, PPR-01, OMP-11, OMP-12, OML-11), **5 partly** (ADT-00, ADT-22,
-ADT-52, OMP-01, OMP-02), **16 not**.
+| Type or part | State | What is read | What is not read |
+| --- | --- | --- | --- |
+| Tree, file names, flags | Partly | `<pid 1-3>/<pid 4-6>/<pid>/<day>/<type>/<file>`, seven-part names, flags 0/1/2, the key (patient, 診療日, type, order no; `unique` by declaration); other depths, extensions, other part counts and flags counted, not read; symbolic links not followed | Flag 2 is read only as "an older version"; a delete filed under another day is counted, not applied; multi-volume manifest (10B-11) |
+| ADT-00 | Partly | PID-3 (PI), PID-5 (漢字), PID-7, PID-8, PID-13, PID-29, PID-30 | IN1; A23 only as flag 0 (10B-8) |
+| ADT-12 | Partly | PV1-2, PV1-7, PV1-10, PV1-19, PV1-44 | Other PV1 fields |
+| ADT-22 | Partly | As ADT-12, PV1-45 | A11 cancellation only through flag 0 (10B-8) |
+| ADT-52 | Partly | A03 discharge (PV1-45), a class change (PV1-2) | A13 (cancel discharge) not undone (10B-8) |
+| ADT-01, 21, 31, 32, 41, 42, 51, 61 | Not | – | 10B-7, 10B-8 |
+| PPR-01 | Partly | PRB-1 `DE`, PRB-2, PRB-3, PRB-4, PRB-7, PRB-9, PRB-10, PRB-13, PRB-14 (only the outcome codes of `jp_core/prb14_outcome.csv`, each `verify`; any other is unknown), PRB-15, PRB-16, PRB-17, PRB-18, ZPR coded values | ZPR's field layout (read loosely: every coded value a 修飾語; one with no text makes the diagnosis suspected); a diagnosis missing from a newer snapshot without `DE` is kept; 主診断 not yet read by the lake |
+| OMP-01, 02 | Partly | Every RXE of the message: ORC-2, 4, 5, 9; RXE-2, RXE-3 (one dose), RXE-5, RXE-31 (YJ); TQ1-3 (用法), TQ1-7/8; the daily dose only from the site's `usage.csv` or a text that is exactly "1日N回" with meal times | JAMI 標準用法 codes are not decoded; RXE-12 refills; any other usage wording gives no daily dose |
+| OMP-11, 12 | Partly | ORC-2, 5, 9; RXA-3/4, RXA-5, RXA-6/7 (the amount given) | Other RXA fields |
+| OML-11 | Partly | OBX-2, 3, 5, 6, 7, 8, 11, 14, 21; OBR-2/3, 7; SPM-4, 17 | Microbiology shape untested (10B-9) |
+| OML-01, OMG-01/02/03/11/12/13, OMD | Not | – | 10B-9, 10B-10 |
+| Extended storage | Partly | Content folders (versioned and flagged by name), the LOINC code of a CWE data-type folder (`jp_core/document_loinc.csv`, each `verify`), the older layout; text, HTML/XML (tags dropped), Word, PDF with text | `_contents.xml`; CDA sections (HS032, HS008) |
+| Character sets, dates | Partly | ISO-2022-JP (reset at each segment end, SO/SI katakana), UTF-8, Shift_JIS, EUC-JP when MSH-18 names it; declared separators, `\.br\`, `\Xhh\`; `""` read as empty; impossible and era dates counted | A time-zone offset is counted and dropped, not converted |
+
+Count: of the 26 types, **0 read in full**, **10 partly** (ADT-00, 12, 22, 52, PPR-01, OMP-01, 02, 11, 12, OML-11),
+**16 not**.
 
 **Code lists.** ICD-10-CM 2026 in full (98,186 codes, public domain) for lookups and family groupers. The licensed
 Japanese lists (MEDIS 標準病名, JLAC10, YJ) are loaded by the site from its own licensed files
