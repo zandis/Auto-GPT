@@ -67,7 +67,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 5.1,
+   "seconds": 5.0,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -146,7 +146,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 3.8,
+   "seconds": 3.9,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -212,7 +212,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 3.2,
+   "seconds": 3.3,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -305,10 +305,10 @@
    "served": true,
    "good_kept": "all",
    "wrong": [
-    "document of 87 characters (0 not from the file's script)",
-    "document of 87 characters (0 not from the file's script)",
     "document of 84 characters (0 not from the file's script)",
-    "document of 84 characters (0 not from the file's script)"
+    "document of 84 characters (0 not from the file's script)",
+    "document of 87 characters (0 not from the file's script)",
+    "document of 87 characters (0 not from the file's script)"
    ],
    "doubled": 0,
    "lost": 0,
@@ -320,7 +320,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.1,
+   "seconds": 4.0,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -405,7 +405,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.5,
+   "seconds": 4.6,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -571,7 +571,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 5.2,
+   "seconds": 5.5,
    "verdict": {
     "exit": "0 published",
     "counted": "reader.json: OML-11:sample time from folder 1",
@@ -656,7 +656,7 @@
    "garbled": 0,
    "lake_rebuilt": false,
    "feas": "no night served: FEAS has no lake to read",
-   "seconds": 3.1,
+   "seconds": 3.0,
    "verdict": {
     "exit": "1 held",
     "counted": "note: file set aside",
@@ -715,7 +715,7 @@
    "garbled": 0,
    "lake_rebuilt": false,
    "feas": "no night served: FEAS has no lake to read",
-   "seconds": 1.8,
+   "seconds": 2.1,
    "verdict": {
     "exit": "crash (traceback)",
     "counted": "nothing counted",
@@ -820,7 +820,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 5.1,
+   "seconds": 5.3,
    "verdict": {
     "exit": "0 published",
     "counted": "reader.json: PPR-01:quarantined (unreadable bytes) 1",
@@ -896,7 +896,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 5.2,
+   "seconds": 5.0,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -970,7 +970,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 7.6,
+   "seconds": 7.3,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -1044,7 +1044,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 8.1,
+   "seconds": 8.2,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -1277,7 +1277,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.4,
+   "seconds": 4.7,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -1338,7 +1338,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 3.9,
+   "seconds": 4.1,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -1436,7 +1436,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.9,
+   "seconds": 5.2,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -1530,7 +1530,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.5,
+   "seconds": 4.2,
    "verdict": {
     "exit": "0 published",
     "counted": "lab: duplicate_keys 200, unmapped 2",
@@ -1656,7 +1656,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.8,
+   "seconds": 5.2,
    "verdict": {
     "exit": "0 published",
     "counted": "appointment: duplicate_keys 50; claim: duplicate_keys 5; diagnosis: duplicate_keys 150; encounter: duplicate_keys 150; lab: duplicate_keys 200; medication: duplicate_keys 100; note: duplicate_keys 150; patient: duplicate_keys 50; practitioner: duplicate_keys 3; procedure: duplicate_keys 10; report: duplicate_keys 50; vital: duplicate_keys 50",
@@ -1717,7 +1717,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 3.7,
+   "seconds": 4.0,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -1793,7 +1793,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.3,
+   "seconds": 4.7,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -1875,7 +1875,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.7,
+   "seconds": 4.3,
    "verdict": {
     "exit": "0 published",
     "counted": "lab: rejected 1 \"MappingError: unparseable datetime <value>\"",
@@ -1939,14 +1939,14 @@
    "served": true,
    "good_kept": "200 of 800 lost",
    "wrong": [
-    "lab 1742-6 at 2026-08-27T10:30 value=None",
-    "lab 2160-0 at 2026-04-27T10:30 value=None",
-    "lab 3084-1 at 2026-02-27T10:30 value=None",
-    "lab 4548-4 at 2026-06-27T10:30 value=None",
-    "lab 1742-6 at 2026-08-15T10:30 value=None",
-    "lab 2160-0 at 2026-04-15T10:30 value=None",
-    "lab 3084-1 at 2026-02-15T10:30 value=None",
-    "lab 4548-4 at 2026-06-15T10:30 value=None"
+    "lab 1742-6 at 2026-08-13T10:30 value=None",
+    "lab 2160-0 at 2026-04-13T10:30 value=None",
+    "lab 3084-1 at 2026-02-13T10:30 value=None",
+    "lab 4548-4 at 2026-06-13T10:30 value=None",
+    "lab 1742-6 at 2026-08-05T10:30 value=None",
+    "lab 2160-0 at 2026-04-05T10:30 value=None",
+    "lab 3084-1 at 2026-02-05T10:30 value=None",
+    "lab 4548-4 at 2026-06-05T10:30 value=None"
    ],
    "doubled": 0,
    "lost": 200,
@@ -1958,7 +1958,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.7,
+   "seconds": 4.4,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -2110,7 +2110,7 @@
    "garbled": 0,
    "lake_rebuilt": false,
    "feas": "no night served: FEAS has no lake to read",
-   "seconds": 3.1,
+   "seconds": 2.8,
    "verdict": {
     "exit": "1 held",
     "counted": "nothing counted",
@@ -2184,7 +2184,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.4,
+   "seconds": 4.1,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -2243,7 +2243,7 @@
    "garbled": 0,
    "lake_rebuilt": false,
    "feas": "no night served: FEAS has no lake to read",
-   "seconds": 1.9,
+   "seconds": 1.7,
    "verdict": {
     "exit": "crash (traceback)",
     "counted": "nothing counted",
@@ -2348,7 +2348,7 @@
    "garbled": 2,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.8,
+   "seconds": 4.6,
    "verdict": {
     "exit": "0 published",
     "counted": "reader.json: PPR-01:read as cp932 1",
@@ -2422,7 +2422,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.5,
+   "seconds": 5.3,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -2496,7 +2496,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.3,
+   "seconds": 4.9,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -2555,7 +2555,7 @@
    "garbled": 0,
    "lake_rebuilt": false,
    "feas": "no night served: FEAS has no lake to read",
-   "seconds": 2.0,
+   "seconds": 2.3,
    "verdict": {
     "exit": "crash (traceback)",
     "counted": "nothing counted",
@@ -2653,7 +2653,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.6,
+   "seconds": 5.3,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -2738,7 +2738,7 @@
    "garbled": 0,
    "lake_rebuilt": false,
    "feas": "no night served: FEAS has no lake to read",
-   "seconds": 2.4,
+   "seconds": 3.0,
    "verdict": {
     "exit": "1 held",
     "counted": "note: file set aside",
@@ -2797,7 +2797,7 @@
    "garbled": 0,
    "lake_rebuilt": false,
    "feas": "no night served: FEAS has no lake to read",
-   "seconds": 1.9,
+   "seconds": 1.6,
    "verdict": {
     "exit": "crash (traceback)",
     "counted": "nothing counted",
@@ -2902,7 +2902,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 5.2,
+   "seconds": 4.9,
    "verdict": {
     "exit": "0 published",
     "counted": "reader.json: PPR-01:quarantined (unreadable bytes) 1",
@@ -2987,7 +2987,7 @@
    "garbled": 0,
    "lake_rebuilt": false,
    "feas": "no night served: FEAS has no lake to read",
-   "seconds": 2.6,
+   "seconds": 2.9,
    "verdict": {
     "exit": "1 held",
     "counted": "note: file set aside",
@@ -3069,7 +3069,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.5,
+   "seconds": 4.6,
    "verdict": {
     "exit": "0 published",
     "counted": "diagnosis: rejected 1 \"MappingError: unparseable date <value>\"",
@@ -3151,7 +3151,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.6,
+   "seconds": 4.8,
    "verdict": {
     "exit": "0 published",
     "counted": "diagnosis: rejected 1 \"MappingError: unparseable date <value>\"",
@@ -3213,7 +3213,7 @@
    "garbled": 0,
    "lake_rebuilt": false,
    "feas": "no night served: FEAS has no lake to read",
-   "seconds": 2.5,
+   "seconds": 3.1,
    "verdict": {
     "exit": "1 failed",
     "counted": "nothing counted",
@@ -3295,7 +3295,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.6,
+   "seconds": 4.5,
    "verdict": {
     "exit": "0 published",
     "counted": "diagnosis: rejected 1 \"MappingError: unparseable date <value>\"",
@@ -3377,7 +3377,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.4,
+   "seconds": 4.7,
    "verdict": {
     "exit": "0 published",
     "counted": "diagnosis: rejected 1 \"MappingError: unparseable date <value>\"",
@@ -3392,88 +3392,6 @@
    "case": "date-roc-compact",
    "family": "dates",
    "fmt": "csv",
-   "exit": 0,
-   "traceback": false,
-   "exception": "",
-   "passed": true,
-   "held": false,
-   "errors": [],
-   "read": {
-    "appointment": 50,
-    "claim": 5,
-    "diagnosis": 150,
-    "encounter": 150,
-    "lab": 200,
-    "medication": 100,
-    "note": 150,
-    "patient": 50,
-    "practitioner": 3,
-    "procedure": 10,
-    "report": 50,
-    "vital": 50
-   },
-   "counted": {
-    "diagnosis": {
-     "rejected": {
-      "MappingError: unparseable date <value>": 1
-     }
-    }
-   },
-   "told": {
-    "report_errors": 0,
-    "counts_file": [
-     "diagnosis"
-    ],
-    "unmapped_codes_file": [],
-    "steward": {
-     "state": "PUBLISHED",
-     "detail": [
-      "gate",
-      "publish"
-     ]
-    },
-    "quarantine_folder": [],
-    "audit": {
-     "event": "ingest.done",
-     "detail": [
-      "batch",
-      "counts",
-      "gate",
-      "lake_budget",
-      "publish",
-      "source"
-     ]
-    },
-    "reader": {}
-   },
-   "served": true,
-   "good_kept": "all",
-   "wrong": [],
-   "doubled": 0,
-   "lost": 0,
-   "bad_rows": 1,
-   "bad_in_lake": 0,
-   "bad_as_written": 0,
-   "bad_absent": 1,
-   "wrong_total": 0,
-   "garbled": 0,
-   "lake_rebuilt": true,
-   "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.8,
-   "verdict": {
-    "exit": "0 published",
-    "counted": "diagnosis: rejected 1 \"MappingError: unparseable date <value>\"",
-    "reason": "none (no error line)",
-    "good_kept": "all",
-    "wrong": "no",
-    "goes_on": "yes",
-    "feas": "ran: 50 patients in the funnel's start"
-   }
-  },
-  {
-   "case": "date-roc-compact",
-   "family": "dates",
-   "fmt": "cgrd_sql",
    "exit": 0,
    "traceback": false,
    "exception": "",
@@ -3553,9 +3471,173 @@
    }
   },
   {
+   "case": "date-roc-compact",
+   "family": "dates",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "diagnosis": {
+     "rejected": {
+      "MappingError: unparseable date <value>": 1
+     }
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "diagnosis"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 1,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.6,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "diagnosis: rejected 1 \"MappingError: unparseable date <value>\"",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
    "case": "date-roc-words",
    "family": "dates",
    "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "diagnosis": {
+     "rejected": {
+      "MappingError: unparseable date <value>": 1
+     }
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "diagnosis"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 1,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.2,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "diagnosis: rejected 1 \"MappingError: unparseable date <value>\"",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "date-roc-words",
+   "family": "dates",
+   "fmt": "cgrd_sql",
    "exit": 0,
    "traceback": false,
    "exception": "",
@@ -3635,7 +3717,89 @@
    }
   },
   {
-   "case": "date-roc-words",
+   "case": "date-9999",
+   "family": "dates",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "diagnosis": {
+     "rejected": {
+      "DateRangeError: date <value>": 1
+     }
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "diagnosis"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 1,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.8,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "diagnosis: rejected 1 \"DateRangeError: date <value>\"",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "date-9999",
    "family": "dates",
    "fmt": "cgrd_sql",
    "exit": 0,
@@ -3661,7 +3825,7 @@
    "counted": {
     "diagnosis": {
      "rejected": {
-      "MappingError: unparseable date <value>": 1
+      "DateRangeError: date <value>": 1
      }
     }
    },
@@ -3708,170 +3872,6 @@
    "seconds": 5.0,
    "verdict": {
     "exit": "0 published",
-    "counted": "diagnosis: rejected 1 \"MappingError: unparseable date <value>\"",
-    "reason": "none (no error line)",
-    "good_kept": "all",
-    "wrong": "no",
-    "goes_on": "yes",
-    "feas": "ran: 50 patients in the funnel's start"
-   }
-  },
-  {
-   "case": "date-9999",
-   "family": "dates",
-   "fmt": "csv",
-   "exit": 0,
-   "traceback": false,
-   "exception": "",
-   "passed": true,
-   "held": false,
-   "errors": [],
-   "read": {
-    "appointment": 50,
-    "claim": 5,
-    "diagnosis": 150,
-    "encounter": 150,
-    "lab": 200,
-    "medication": 100,
-    "note": 150,
-    "patient": 50,
-    "practitioner": 3,
-    "procedure": 10,
-    "report": 50,
-    "vital": 50
-   },
-   "counted": {
-    "diagnosis": {
-     "rejected": {
-      "DateRangeError: date <value>": 1
-     }
-    }
-   },
-   "told": {
-    "report_errors": 0,
-    "counts_file": [
-     "diagnosis"
-    ],
-    "unmapped_codes_file": [],
-    "steward": {
-     "state": "PUBLISHED",
-     "detail": [
-      "gate",
-      "publish"
-     ]
-    },
-    "quarantine_folder": [],
-    "audit": {
-     "event": "ingest.done",
-     "detail": [
-      "batch",
-      "counts",
-      "gate",
-      "lake_budget",
-      "publish",
-      "source"
-     ]
-    },
-    "reader": {}
-   },
-   "served": true,
-   "good_kept": "all",
-   "wrong": [],
-   "doubled": 0,
-   "lost": 0,
-   "bad_rows": 1,
-   "bad_in_lake": 0,
-   "bad_as_written": 0,
-   "bad_absent": 1,
-   "wrong_total": 0,
-   "garbled": 0,
-   "lake_rebuilt": true,
-   "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.9,
-   "verdict": {
-    "exit": "0 published",
-    "counted": "diagnosis: rejected 1 \"DateRangeError: date <value>\"",
-    "reason": "none (no error line)",
-    "good_kept": "all",
-    "wrong": "no",
-    "goes_on": "yes",
-    "feas": "ran: 50 patients in the funnel's start"
-   }
-  },
-  {
-   "case": "date-9999",
-   "family": "dates",
-   "fmt": "cgrd_sql",
-   "exit": 0,
-   "traceback": false,
-   "exception": "",
-   "passed": true,
-   "held": false,
-   "errors": [],
-   "read": {
-    "appointment": 50,
-    "claim": 5,
-    "diagnosis": 150,
-    "encounter": 150,
-    "lab": 200,
-    "medication": 100,
-    "note": 150,
-    "patient": 50,
-    "practitioner": 3,
-    "procedure": 10,
-    "report": 50,
-    "vital": 50
-   },
-   "counted": {
-    "diagnosis": {
-     "rejected": {
-      "DateRangeError: date <value>": 1
-     }
-    }
-   },
-   "told": {
-    "report_errors": 0,
-    "counts_file": [
-     "diagnosis"
-    ],
-    "unmapped_codes_file": [],
-    "steward": {
-     "state": "PUBLISHED",
-     "detail": [
-      "gate",
-      "publish"
-     ]
-    },
-    "quarantine_folder": [],
-    "audit": {
-     "event": "ingest.done",
-     "detail": [
-      "batch",
-      "counts",
-      "gate",
-      "lake_budget",
-      "publish",
-      "source"
-     ]
-    },
-    "reader": {}
-   },
-   "served": true,
-   "good_kept": "all",
-   "wrong": [],
-   "doubled": 0,
-   "lost": 0,
-   "bad_rows": 1,
-   "bad_in_lake": 0,
-   "bad_as_written": 0,
-   "bad_absent": 1,
-   "wrong_total": 0,
-   "garbled": 0,
-   "lake_rebuilt": true,
-   "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.9,
-   "verdict": {
-    "exit": "0 published",
     "counted": "diagnosis: rejected 1 \"DateRangeError: date <value>\"",
     "reason": "none (no error line)",
     "good_kept": "all",
@@ -3930,7 +3930,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.0,
+   "seconds": 3.7,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -4004,7 +4004,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.6,
+   "seconds": 4.3,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -4078,7 +4078,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.9,
+   "seconds": 4.7,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -4139,7 +4139,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 3.9,
+   "seconds": 4.3,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -4224,7 +4224,7 @@
    "garbled": 0,
    "lake_rebuilt": false,
    "feas": "no night served: FEAS has no lake to read",
-   "seconds": 3.1,
+   "seconds": 2.8,
    "verdict": {
     "exit": "1 held",
     "counted": "patient: rejected 1 \"MappingError: unparseable date <value>\"",
@@ -4309,7 +4309,7 @@
    "garbled": 0,
    "lake_rebuilt": false,
    "feas": "no night served: FEAS has no lake to read",
-   "seconds": 2.7,
+   "seconds": 3.0,
    "verdict": {
     "exit": "1 held",
     "counted": "patient: rejected 1 \"MappingError: unparseable date <value>\"",
@@ -4371,7 +4371,7 @@
    "garbled": 0,
    "lake_rebuilt": false,
    "feas": "no night served: FEAS has no lake to read",
-   "seconds": 2.4,
+   "seconds": 2.5,
    "verdict": {
     "exit": "1 failed",
     "counted": "nothing counted",
@@ -4495,12 +4495,15 @@
    "case": "ssmix2-birth-9999",
    "family": "dates",
    "fmt": "ssmix2",
-   "exit": 0,
+   "exit": 1,
    "traceback": false,
    "exception": "",
-   "passed": true,
-   "held": false,
-   "errors": [],
+   "passed": false,
+   "held": true,
+   "errors": [
+    "validation error rate 2.38% exceeds 0.5%",
+    "night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot"
+   ],
    "read": {
     "appointment": 50,
     "claim": 5,
@@ -4523,29 +4526,28 @@
     }
    },
    "told": {
-    "report_errors": 0,
+    "report_errors": 2,
     "counts_file": [
      "patient"
     ],
     "unmapped_codes_file": [],
     "steward": {
-     "state": "PUBLISHED",
+     "state": "HELD",
      "detail": [
-      "gate",
-      "publish"
+      "gate"
      ]
     },
     "quarantine_folder": [],
     "audit": {
-     "event": "ingest.done",
+     "event": "ingest.held",
      "detail": [
       "batch",
       "counts",
       "gate",
+      "held",
       "jp_core",
-      "lake_budget",
-      "publish",
-      "source"
+      "source",
+      "validation_error_pct"
      ]
     },
     "reader": {
@@ -4573,28 +4575,28 @@
      }
     }
    },
-   "served": true,
-   "good_kept": "all",
+   "served": false,
+   "good_kept": "held: nothing served",
    "wrong": [],
    "doubled": 0,
    "lost": 0,
    "bad_rows": 1,
-   "bad_in_lake": 1,
+   "bad_in_lake": 0,
    "bad_as_written": 0,
    "bad_absent": 0,
    "wrong_total": 0,
    "garbled": 0,
-   "lake_rebuilt": true,
-   "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 5.1,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 3.6,
    "verdict": {
-    "exit": "0 published",
+    "exit": "1 held",
     "counted": "patient: implausible_dates 1",
-    "reason": "none (no error line)",
-    "good_kept": "all",
-    "wrong": "no",
-    "goes_on": "yes",
-    "feas": "ran: 50 patients in the funnel's start"
+    "reason": "validation error rate 2.38% exceeds 0.5%",
+    "good_kept": "held: nothing served",
+    "wrong": "not served",
+    "goes_on": "held (lake keeps the previous night)",
+    "feas": "no night served: FEAS has no lake to read"
    }
   },
   {
@@ -4684,7 +4686,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.8,
+   "seconds": 5.1,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -4769,7 +4771,7 @@
    "garbled": 0,
    "lake_rebuilt": false,
    "feas": "no night served: FEAS has no lake to read",
-   "seconds": 2.8,
+   "seconds": 2.9,
    "verdict": {
     "exit": "1 held",
     "counted": "note: file set aside",
@@ -4843,7 +4845,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 6.3,
+   "seconds": 7.5,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -4978,7 +4980,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 5.3,
+   "seconds": 5.7,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -5052,7 +5054,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 5.3,
+   "seconds": 4.9,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -5113,7 +5115,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 3.8,
+   "seconds": 4.1,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -5187,7 +5189,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.6,
+   "seconds": 5.2,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -5322,7 +5324,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.1,
+   "seconds": 4.0,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -5396,7 +5398,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.5,
+   "seconds": 4.3,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -5470,7 +5472,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.9,
+   "seconds": 6.0,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -5622,7 +5624,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.9,
+   "seconds": 5.8,
    "verdict": {
     "exit": "0 published",
     "counted": "lab: unmapped 2",
@@ -5713,7 +5715,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 5.3,
+   "seconds": 6.6,
    "verdict": {
     "exit": "0 published",
     "counted": "lab: unmapped 2",
@@ -5787,7 +5789,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 5.0,
+   "seconds": 6.7,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -5861,7 +5863,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 5.7,
+   "seconds": 6.8,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -5935,7 +5937,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 5.7,
+   "seconds": 6.8,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -6009,7 +6011,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 5.2,
+   "seconds": 5.8,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -6083,7 +6085,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 5.2,
+   "seconds": 5.6,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -6157,7 +6159,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 5.4,
+   "seconds": 5.1,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -6218,7 +6220,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.8,
+   "seconds": 4.9,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -6309,7 +6311,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 5.0,
+   "seconds": 4.9,
    "verdict": {
     "exit": "0 published",
     "counted": "medication: unmapped 2",
@@ -6400,7 +6402,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.9,
+   "seconds": 5.1,
    "verdict": {
     "exit": "0 published",
     "counted": "medication: unmapped 2",
@@ -6461,7 +6463,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.5,
+   "seconds": 4.6,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -6535,7 +6537,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 51 patients in the funnel's start",
-   "seconds": 4.7,
+   "seconds": 4.6,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -6609,7 +6611,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 51 patients in the funnel's start",
-   "seconds": 5.0,
+   "seconds": 5.5,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -6670,7 +6672,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 51 patients in the funnel's start",
-   "seconds": 4.0,
+   "seconds": 4.5,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -6768,7 +6770,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 51 patients in the funnel's start",
-   "seconds": 5.0,
+   "seconds": 5.5,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -6853,7 +6855,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.9,
+   "seconds": 4.6,
    "verdict": {
     "exit": "0 published",
     "counted": "patient: duplicate_keys 1",
@@ -6938,7 +6940,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.8,
+   "seconds": 5.1,
    "verdict": {
     "exit": "0 published",
     "counted": "patient: duplicate_keys 1",
@@ -7002,7 +7004,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 3.6,
+   "seconds": 4.4,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -7102,7 +7104,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 5.1,
+   "seconds": 5.4,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -7179,7 +7181,7 @@
    "garbled": 0,
    "lake_rebuilt": false,
    "feas": "no night served: FEAS has no lake to read",
-   "seconds": 2.8,
+   "seconds": 2.5,
    "verdict": {
     "exit": "1 held",
     "counted": "nothing counted",
@@ -7240,7 +7242,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 3.9,
+   "seconds": 3.8,
    "verdict": {
     "exit": "0 published",
     "counted": "UNCOUNTED: 200 bad rows absent, nothing counted",
@@ -7352,7 +7354,7 @@
    "garbled": 0,
    "lake_rebuilt": false,
    "feas": "no night served: FEAS has no lake to read",
-   "seconds": 3.3,
+   "seconds": 3.4,
    "verdict": {
     "exit": "1 held",
     "counted": "lab: file set aside; reader.json: OML-11:quarantined (not an HL7 message) 4",
@@ -7506,7 +7508,7 @@
    "garbled": 0,
    "lake_rebuilt": false,
    "feas": "no night served: FEAS has no lake to read",
-   "seconds": 2.2,
+   "seconds": 1.8,
    "verdict": {
     "exit": "1 held",
     "counted": "nothing counted",
@@ -7583,7 +7585,7 @@
    "garbled": 0,
    "lake_rebuilt": false,
    "feas": "no night served: FEAS has no lake to read",
-   "seconds": 2.1,
+   "seconds": 2.3,
    "verdict": {
     "exit": "1 held",
     "counted": "nothing counted",
@@ -7724,7 +7726,7 @@
    "garbled": 0,
    "lake_rebuilt": false,
    "feas": "no night served: FEAS has no lake to read",
-   "seconds": 2.2,
+   "seconds": 2.1,
    "verdict": {
     "exit": "1 held",
     "counted": "nothing counted",
@@ -7798,7 +7800,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.7,
+   "seconds": 4.9,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -7859,7 +7861,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.6,
+   "seconds": 3.9,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -7957,7 +7959,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 5.9,
+   "seconds": 5.7,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -8031,7 +8033,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 5.1,
+   "seconds": 4.5,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -8092,7 +8094,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.3,
+   "seconds": 4.0,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -8190,7 +8192,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 5.5,
+   "seconds": 5.2,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -8264,7 +8266,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.9,
+   "seconds": 4.6,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -8338,7 +8340,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 4.8,
+   "seconds": 4.5,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -8399,7 +8401,7 @@
    "garbled": 0,
    "lake_rebuilt": true,
    "feas": "ran: 50 patients in the funnel's start",
-   "seconds": 3.9,
+   "seconds": 3.6,
    "verdict": {
     "exit": "0 published",
     "counted": "nothing counted",
@@ -8600,47 +8602,47 @@
   {
    "case": "ssmix2-birth-zero",
    "format": "csv",
-   "why": "not built for this format"
+   "why": "the same case for them: birth-zero"
   },
   {
    "case": "ssmix2-birth-zero",
    "format": "cgrd_sql",
-   "why": "not built for this format"
+   "why": "the same case for them: birth-zero"
   },
   {
    "case": "ssmix2-birth-zero",
    "format": "fhir_bulk",
-   "why": "not built for this format"
+   "why": "the same case for them: birth-zero"
   },
   {
    "case": "ssmix2-birth-9999",
    "format": "csv",
-   "why": "not built for this format"
+   "why": "the same case for them: date-9999"
   },
   {
    "case": "ssmix2-birth-9999",
    "format": "cgrd_sql",
-   "why": "not built for this format"
+   "why": "the same case for them: date-9999"
   },
   {
    "case": "ssmix2-birth-9999",
    "format": "fhir_bulk",
-   "why": "not built for this format"
+   "why": "the same case for them: date-9999"
   },
   {
    "case": "ssmix2-birth-after-visit",
    "format": "csv",
-   "why": "not built for this format"
+   "why": "the same case for them: birth-after-visit"
   },
   {
    "case": "ssmix2-birth-after-visit",
    "format": "cgrd_sql",
-   "why": "not built for this format"
+   "why": "the same case for them: birth-after-visit"
   },
   {
    "case": "ssmix2-birth-after-visit",
    "format": "fhir_bulk",
-   "why": "not built for this format"
+   "why": "the same case for them: birth-after-visit"
   },
   {
    "case": "note-2mb",
@@ -8710,17 +8712,17 @@
   {
    "case": "code-unknown-loinc",
    "format": "csv",
-   "why": "not built for this format"
+   "why": "the same case for it: code-unknown-lab"
   },
   {
    "case": "code-unknown-loinc",
    "format": "cgrd_sql",
-   "why": "not built for this format"
+   "why": "code-unknown-lab"
   },
   {
    "case": "code-unknown-loinc",
    "format": "ssmix2",
-   "why": "not built for this format"
+   "why": "the exporter writes only codes it knows"
   },
   {
    "case": "empty-zero-bytes",

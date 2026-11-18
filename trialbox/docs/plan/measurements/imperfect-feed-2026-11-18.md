@@ -26,7 +26,7 @@ them to the register.
   an impossible value or a split patient is served as the hospital wrote it, counted nowhere.
 - **Uncounted:** a zero-byte FHIR file loses 200 results with no count; rejected rows under 1 % are counted only in
   `completeness.json`, which no surface a person reads shows.
-- 22 findings: 9 High, 8 Medium, 5 Low; lane E 18, lane B2 4.
+- 23 findings: 9 High, 9 Medium, 5 Low; lane E 18, lane B2 5.
 
 ## How it was run
 
@@ -122,7 +122,7 @@ as the hospital wrote it. Night goes on: the lake rebuilt and served, and FEAS r
 | birth-zero | cgrd_sql | 1 held | patient: rejected 1 "MappingError: unparseable date <value>" | patient: 1 of 50 rows rejected (over 1 %): MappingError: unparseable date <value> (1) | held: nothing served | not served | held (lake keeps the previous night) |
 | birth-zero | fhir_bulk | 1 failed | nothing counted | lake rebuild failed: ValueError: LAKE-BUILD: the lake could not build the snapshot. The error's own message can hold a value of a row and is not sent; the lake's log says where the build failed | no night served | not served | no: the night did not end |
 | ssmix2-birth-zero | ssmix2 | 1 held | patient: rejected 1 "MappingError: unparseable date <value>" | patient: 1 of 50 rows rejected (over 1 %): MappingError: unparseable date <value> (1) | held: nothing served | not served | held (lake keeps the previous night) |
-| ssmix2-birth-9999 | ssmix2 | 0 published | patient: implausible_dates 1 | none (no error line) | all | no | yes |
+| ssmix2-birth-9999 | ssmix2 | 1 held | patient: implausible_dates 1 | validation error rate 2.38% exceeds 0.5% | held: nothing served | not served | held (lake keeps the previous night) |
 | ssmix2-birth-after-visit | ssmix2 | 0 published | nothing counted | none (no error line) | all | kept as written: 1, not counted | yes |
 | note-2mb | csv | 1 held | note: file set aside | note: note.csv quarantined: not a readable CSV (field larger than field limit (131072)); moved to quarantine/note.csv | held: nothing served | not served | held (lake keeps the previous night) |
 | note-2mb | cgrd_sql | 0 published | nothing counted | none (no error line) | all | no | yes |
@@ -210,15 +210,15 @@ as the hospital wrote it. Night goes on: the lake rebuilt and served, and FEAS r
 | date-9999 | ssmix2 | not applicable: see ssmix2-birth-9999 | | | | | |
 | birth-after-visit | ssmix2 | not applicable: see ssmix2-birth-after-visit | | | | | |
 | birth-zero | ssmix2 | not applicable: see ssmix2-birth-zero | | | | | |
-| ssmix2-birth-zero | csv | not applicable: not built for this format | | | | | |
-| ssmix2-birth-zero | cgrd_sql | not applicable: not built for this format | | | | | |
-| ssmix2-birth-zero | fhir_bulk | not applicable: not built for this format | | | | | |
-| ssmix2-birth-9999 | csv | not applicable: not built for this format | | | | | |
-| ssmix2-birth-9999 | cgrd_sql | not applicable: not built for this format | | | | | |
-| ssmix2-birth-9999 | fhir_bulk | not applicable: not built for this format | | | | | |
-| ssmix2-birth-after-visit | csv | not applicable: not built for this format | | | | | |
-| ssmix2-birth-after-visit | cgrd_sql | not applicable: not built for this format | | | | | |
-| ssmix2-birth-after-visit | fhir_bulk | not applicable: not built for this format | | | | | |
+| ssmix2-birth-zero | csv | not applicable: the same case for them: birth-zero | | | | | |
+| ssmix2-birth-zero | cgrd_sql | not applicable: the same case for them: birth-zero | | | | | |
+| ssmix2-birth-zero | fhir_bulk | not applicable: the same case for them: birth-zero | | | | | |
+| ssmix2-birth-9999 | csv | not applicable: the same case for them: date-9999 | | | | | |
+| ssmix2-birth-9999 | cgrd_sql | not applicable: the same case for them: date-9999 | | | | | |
+| ssmix2-birth-9999 | fhir_bulk | not applicable: the same case for them: date-9999 | | | | | |
+| ssmix2-birth-after-visit | csv | not applicable: the same case for them: birth-after-visit | | | | | |
+| ssmix2-birth-after-visit | cgrd_sql | not applicable: the same case for them: birth-after-visit | | | | | |
+| ssmix2-birth-after-visit | fhir_bulk | not applicable: the same case for them: birth-after-visit | | | | | |
 | note-2mb | ssmix2 | not applicable: notes are extended storage (a CSV source): see the csv row | | | | | |
 | note-nul | ssmix2 | not applicable: see the csv row | | | | | |
 | note-blank | ssmix2 | not applicable: see the csv row | | | | | |
@@ -232,9 +232,9 @@ as the hospital wrote it. Night goes on: the lake rebuilt and served, and FEAS r
 | code-unknown-dx | ssmix2 | not applicable: the exporter writes only codes it knows | | | | | |
 | code-unknown-drug | fhir_bulk | not applicable: typed codes | | | | | |
 | code-unknown-drug | ssmix2 | not applicable: the exporter writes only codes it knows | | | | | |
-| code-unknown-loinc | csv | not applicable: not built for this format | | | | | |
-| code-unknown-loinc | cgrd_sql | not applicable: not built for this format | | | | | |
-| code-unknown-loinc | ssmix2 | not applicable: not built for this format | | | | | |
+| code-unknown-loinc | csv | not applicable: the same case for it: code-unknown-lab | | | | | |
+| code-unknown-loinc | cgrd_sql | not applicable: code-unknown-lab | | | | | |
+| code-unknown-loinc | ssmix2 | not applicable: the exporter writes only codes it knows | | | | | |
 | empty-zero-bytes | cgrd_sql | not applicable: the CGRD source is a database read through its driver: no file to cut, no bytes to decode, no line ending (the driver gives typed values) | | | | | |
 | empty-header-only | cgrd_sql | not applicable: the CGRD source is a database read through its driver: no file to cut, no bytes to decode, no line ending (the driver gives typed values) | | | | | |
 | empty-header-only | fhir_bulk | not applicable: a FHIR export has no columns | | | | | |
@@ -277,6 +277,7 @@ the steward's row carry) and, by plan 10's cards 10B-1 to 10B-5, the SS-MIX2 rea
 | H34-20 | utf16/csv | a UTF-16 CSV with its byte-order mark is set aside as 'the file reads as UTF-16 without a byte order mark' | the reason says UTF-16 (with its mark) is not read (T-615b; D-215) | Low | E |
 | H34-21 | twice-other-name/csv | a second copy of a table under another name (lab (1).csv) is ignored with no word: a corrected file sent under a new name would be lost unseen | a file in the export folder that no table reads named in the night's report (T-611 (what the export holds is said)) | Low | E |
 | H34-22 | code-unknown-loinc/fhir_bulk | a FHIR Observation with a code the box does not know is served and counted nowhere; the mapped sources count such codes in unmapped_codes.json | unknown codes of a bulk export counted as a mapped source's are (NEW-DIN-6 (D-580)) | Low | E |
+| H34-23 | ssmix2-birth-9999/ssmix2 | a patient whose birth date the mapping left out (counted as implausible_dates) fails the night's structural validation when the random sample takes that patient (a Patient needs birthDate): the same SS-MIX2 storage was published on one run and held on the next with 'validation error rate 2.38% exceeds 0.5%' | a value the mapping left out and counted does not also hold the night by chance; the same export gives the same night (F9 (D-811: the patient is kept); D-457 (the sample); D-668) | Medium | B2 |
 
 H34-09 is High by the card's rule (wrong data served without a word on a surface); its harm is the name a page
 shows, since the code a criterion reads is right. H34-15 is Medium, not High: the hospital's own records hold two
@@ -303,16 +304,18 @@ charts, and the box serves them as written; what is missing is a word that they 
   (lane H) found that an empty feed shows on no surface; that is not repeated here.
 - **SS-MIX2:** a UTF-8 byte-order mark, CRLF after each segment, LF only: read as the clean storage. A message cut
   inside a character, or in UTF-16, is set aside and counted in `reader.json` (but see H34-11). PID-7 99991231 is
-  left out and counted (`implausible_dates`).
+  left out and counted (`implausible_dates`), the patient kept (but see H34-23).
 - **The night goes on** wherever it was published: the lake was rebuilt and served, and FEAS ran (50 patients; 51
   where one person has two charts).
 
 ## Not the same twice
 
-The night's validation takes a random sample (D-457). Two cases depend on it: the hold of `header-dropped` gives a
-different percentage on each run (2.38 % to 9.52 % seen), and a FHIR birth date 0000-00-00 is held by validation
-when the sample holds that patient and fails the lake build otherwise (both seen; H34-10). Every other cell was the
-same on the runs made for this page.
+The night's validation takes a random sample (D-457). Three cases depend on it. The hold of `header-dropped` gives a
+different percentage on each run (2.38 % to 9.52 % seen). A FHIR birth date 0000-00-00 is held by validation when
+the sample holds that patient and fails the lake build otherwise (both seen; H34-10). An SS-MIX2 birth date 99991231
+is left out and the patient kept, and the night is then published, or held when the sample takes that patient
+(both seen on the final head; H34-23). The table is the first of the two runs on the final head; the second differed
+in those cells only.
 
 ## Cited, not repeated
 

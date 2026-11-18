@@ -354,6 +354,21 @@
    ],
    "expected": "unknown codes of a bulk export counted as a mapped source's are",
    "from": "NEW-DIN-6 (D-580)"
+  },
+  {
+   "id": "H34-23",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "Medium",
+   "claim": "a patient whose birth date the mapping left out (counted as implausible_dates) fails the night's structural validation when the random sample takes that patient (a Patient needs birthDate): the same SS-MIX2 storage was published on one run and held on the next with 'validation error rate 2.38% exceeds 0.5%'",
+   "lane": "B2",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "ssmix2-birth-9999/ssmix2"
+   ],
+   "expected": "a value the mapping left out and counted does not also hold the night by chance; the same export gives the same night",
+   "from": "F9 (D-811: the patient is kept); D-457 (the sample); D-668"
   }
  ]
 }

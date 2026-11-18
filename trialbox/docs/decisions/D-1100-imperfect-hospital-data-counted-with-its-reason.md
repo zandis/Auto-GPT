@@ -52,6 +52,6 @@ for a person to see it, and when data in the lake is "silently wrong" rather tha
 
 ## Consequences
 
-The page `docs/plan/measurements/imperfect-feed-2026-11-18.md` and its `findings.json` (22 findings: 9 High, 8
-Medium, 5 Low; lane E 18, lane B2 4). No product file changes. A fix in the adapter changes the page when the
+The page `docs/plan/measurements/imperfect-feed-2026-11-18.md` and its `findings.json` (23 findings: 9 High, 9
+Medium, 5 Low; lane E 18, lane B2 5). No product file changes. A fix in the adapter changes the page when the
 harness is run again; the tests hold the harness, not the findings.
