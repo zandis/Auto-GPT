@@ -42,18 +42,20 @@ LANGS = ("en", "ja", "zh-TW")
 RS = "GZQO"
 REG, WEEK, SUBJ = f"/pilot/registry/{RS}", f"/studies/{RS}/week", f"/studies/{RS}/subjects"
 CAND, PART = f"/studies/{RS}/people/candidates", f"/studies/{RS}/people/participants"
-#: each view walked: (the old address serving it, the view's address, its key); an old address goes to the first
+#: each view walked: (the old address whose route serves it, the view's address, its key)
 WALK: tuple[tuple[str, str, str], ...] = (
     (REG, CAND, "before"),
     (WEEK, f"{CAND}/week", "week"),
     (f"/studies/{RS}/cohort", f"{CAND}/cohort", "cohort"),
     (f"/studies/{RS}/candidates", f"{CAND}/referrals", "referrals"),
     (f"/studies/{RS}/screening-log", f"{CAND}/log", "log"),
+    (REG, f"{CAND}/everyone", "everyone"),
     (SUBJ, PART, "from"),
     (SUBJ, f"{PART}/records", "records"),
     (f"/studies/{RS}/enrolment", f"{PART}/enrolment", "enrolment"),
 )
-OLD_TO = {old: new for old, new, _ in reversed(WALK)}  # the first view of each old address
+#: where each old address goes: the working view that is the old page as it was (a default is a new page)
+OLD_TO = {old: new for old, new, key in WALK if key not in ("before", "from")}
 DEFAULTS = ("before", "from")
 #: the columns that read the study registry page's counts without patient rows (D-280, D-380)
 AGGREGATE_REGISTRY = ("steward", "privacy")
@@ -418,7 +420,7 @@ def test_every_role_gets_the_same_answer_and_the_same_actions_and_two_steps_at_m
                 assert all(NEW_IDS.match(i) or i.startswith("people-") for i in extra), (col, new, extra)
             else:
                 assert _main(r.text) == body, (col, new)  # every form, link and filter of the old list, unchanged
-            if not (col in AGGREGATE_REGISTRY and key == "before"):
+            if not (col in AGGREGATE_REGISTRY and key in ("before", "everyone")):
                 reached.setdefault(col, set()).add(key)
     for col, (page, _, _) in clients.items():
         for old, new in OLD_TO.items():

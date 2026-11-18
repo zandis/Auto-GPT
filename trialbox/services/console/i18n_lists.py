@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 EN: dict[str, str] = {
+    "people.view.everyone": "Every person",
     "people.candidates": "Candidates",
     "people.participants": "Participants",
     "people.lists": "Lists of people · {rs}",
@@ -30,6 +31,7 @@ EN: dict[str, str] = {
 }
 
 JA: dict[str, str] = {
+    "people.view.everyone": "全員",
     "people.candidates": "候補者",
     "people.participants": "被験者",
     "people.lists": "人の一覧 · {rs}",
@@ -54,6 +56,7 @@ JA: dict[str, str] = {
 }
 
 ZH: dict[str, str] = {
+    "people.view.everyone": "所有人",
     "people.candidates": "候選者",
     "people.participants": "受試者",
     "people.lists": "人員清單 · {rs}",
@@ -72,7 +75,7 @@ ZH: dict[str, str] = {
     "people.view.from": "已同意",
     "people.view.records": "所有紀錄",
     "people.week_all": "本週（所有試驗）",
-    "people.working": "工作檢視：可能包含同意前與同意後的人。",
+    "people.working": "作業用的檢視：可能包含同意前與同意後的人。",
     "people.side.candidates": "本試驗所有已記錄同意前步驟的人（標記、聯絡、篩選紀錄或紀錄）；每個人只會出現在這裡或「受試者」其中之一。篩選找到但尚無人處理的病人在「本週」。",
     "people.side.participants": "本試驗所有已同意的人；每個人只會出現在這裡或「候選者」其中之一。",
 }

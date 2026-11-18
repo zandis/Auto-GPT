@@ -8,7 +8,8 @@
     one state (:func:`side`): each person is in exactly one, nobody opted out or erased in either. It is built on an
     old page's route, guard and reads (the study registry page, the participants page), which only leaves rows out.
     The other views are **working views**: the old page as it was, which can show people from both sides of consent.
-  - **An old address redirects** (a GET, 303) to its view with its query kept, for a reader its route lets in. Any
+  - **An old address redirects** (a GET, 303) to its working view (the page as it was) with its query kept, for a
+    reader its route lets in. Any
     other request (no session, an ended one, a role the route refuses) reaches the old route and gets its answer and
     its audit event there: the gate peeks at the session (no activity, no sign-in, no audit) and asks the strip's
     questions. A form posts to the address it posted to before.
@@ -66,6 +67,7 @@ class View:
     name: str  # "" for the list's first view
     old: str  # the old address, with {rs}
     key: str  # its tab's words: people.view.<key>
+    is_old_page: bool = True  # the old page as it was: its old address goes here (a default is not)
 
     def path(self, rs: str) -> str:
         return f"/studies/{quote(rs, safe='')}/people/{self.list}" + (f"/{self.name}" if self.name else "")
@@ -75,18 +77,19 @@ class View:
 
 
 #: the views, in the order of their tabs. The first view of each list is its **default** and divides the study's
-#: people at consent by J-2's one state (``person_state.CANDIDATE`` / ``PARTICIPANT``): each person who is on no
-#: opt-out or erasure is in exactly one of the two defaults. The other views are **working views**: the old page as
-#: it was, which can show people from both sides of consent (the strip says so). An old address goes to the first
-#: view served by its route (the study registry's to Candidates' default, Participants' to Participants' default).
-#: The weekly page and the cohort list are one view each for a trial and a registry study.
+#: people at consent by J-2's one state (``person_state.CANDIDATE`` / ``PARTICIPANT``): each of J-2's people who is on
+#: no opt-out or erasure is in exactly one of the two defaults. A default is built on an old page's route and only
+#: leaves rows out. The other views are **working views**: the old page as it was, which can show people from both
+#: sides of consent (the strip says so); an old address goes to its working view. The weekly page and the cohort list
+#: are one view each for a trial and a registry study.
 VIEWS: tuple[View, ...] = (
-    View("candidates", "", "/pilot/registry/{rs}", "before"),
+    View("candidates", "", "/pilot/registry/{rs}", "before", is_old_page=False),
     View("candidates", "week", "/studies/{rs}/week", "week"),
     View("candidates", "cohort", "/studies/{rs}/cohort", "cohort"),
     View("candidates", "referrals", "/studies/{rs}/candidates", "referrals"),
     View("candidates", "log", "/studies/{rs}/screening-log", "log"),
-    View("participants", "", "/studies/{rs}/subjects", "from"),
+    View("candidates", "everyone", "/pilot/registry/{rs}", "everyone"),
+    View("participants", "", "/studies/{rs}/subjects", "from", is_old_page=False),
     View("participants", "records", "/studies/{rs}/subjects", "records"),
     View("participants", "enrolment", "/studies/{rs}/enrolment", "enrolment"),
 )
@@ -108,7 +111,11 @@ def side(people: ps.People, lst: str) -> dict[str, ps.PersonState]:
 
 
 _NEW = re.compile(rf"^/studies/(?P<rs>{_RS})/people/(?P<list>candidates|participants)(?:/(?P<view>[a-z]+))?$")
-_OLD = tuple((re.compile("^" + re.escape(v.old).replace(re.escape("{rs}"), f"(?P<rs>{_RS})") + "$"), v) for v in VIEWS)
+_OLD = tuple(
+    (re.compile("^" + re.escape(v.old).replace(re.escape("{rs}"), f"(?P<rs>{_RS})") + "$"), v)
+    for v in VIEWS
+    if v.is_old_page
+)
 
 
 def view_of(lst: str, name: str) -> View | None:
@@ -259,8 +266,9 @@ def register(app: FastAPI, h: Any, env: Any) -> None:
             return rows
         if view.key == "referrals":  # team.need_task(screen)
             return h.stand is not None and "screen" in h.stand(user, rid).tasks
-        if view.key == "before":  # the study registry's route; route_actions: phi.view and task.screen (D-280,
-            return rows and not user.is_admin and not user.aggregate_only  # D-273); never aggregate-only (D-146)
+        if view.key in ("before", "everyone"):  # the study registry's route; route_actions: phi.view and the
+            # screen task (D-280, D-273); never an aggregate-only account (D-146)
+            return rows and not user.is_admin and not user.aggregate_only
         return False
 
     def gate(scope: Scope, view: View, rs: str) -> bool:

@@ -22,22 +22,22 @@
     none).
   - **The other views are working views**: the old page as it was, which can show people from both sides of consent,
     and the strip says so on each. Candidates: "This week" (`/week`, its `list=` filters, the contact outcomes),
-    "New members" (`/cohort`, a registry study), "Doctors and referrals" (`/candidates`, `show=`), "Screening log".
-    Participants: "Every record" (the participants page as it was, with the one state's filter), "Enrolment and
+    "New members" (`/cohort`, a registry study), "Doctors and referrals" (`/candidates`, `show=`), "Screening log",
+    "Every person" (the study registry page as it was). Participants: "Every record" (the participants page as it was, with the one state's filter), "Enrolment and
     withdrawals" (`/enrolment`). The old pages' templates and guards are not changed.
 
     | Old list | Old address | Now |
     | --- | --- | --- |
-    | Candidate registry of one study | `/pilot/registry/{rs}` | Candidates' default "Before consent" (the people after consent are under Participants) |
+    | Candidate registry of one study | `/pilot/registry/{rs}` | Candidates · Every person (working view); the default "Before consent" is built on its route |
     | This week's patients | `/studies/{rs}/week` | Candidates · This week (working view) |
     | Cohort list | `/studies/{rs}/cohort` | Candidates · New members (working view, a registry study) |
     | Candidates (doctor and referral) | `/studies/{rs}/candidates` | Candidates · Doctors and referrals (working view) |
     | Screening log | `/studies/{rs}/screening-log` | Candidates · Screening log (working view) |
-    | Participants | `/studies/{rs}/subjects` | Participants' default "Consented"; the page as it was is the working view "Every record" |
+    | Participants | `/studies/{rs}/subjects` | Participants · Every record (working view); the default "Consented" is built on its route |
     | Enrolment report | `/studies/{rs}/enrolment` | Participants · Enrolment and withdrawals (working view) |
 
-  - **Redirects.** With the flag on, an old address answers 303 to its view, query kept, **for a reader its route lets
-    in**; anyone else (no session, an ended one, a password to change, a role the route refuses) reaches the old route
+  - **Redirects.** With the flag on, an old address answers 303 to the working view that is that page as it was
+    (never to a default, which is a new page), query kept, **for a reader its route lets in**; anyone else (no session, an ended one, a password to change, a role the route refuses) reaches the old route
     and gets its answer and its audit event there, as before. The gate reads the session without counting it as
     activity, makes no sign-in, audits nothing, and asks the strip's questions. Files, actions (every POST), a
     person's own page, `/pilot/registry`, `/site/patients` keep their addresses. The view is in the path, so a page's
