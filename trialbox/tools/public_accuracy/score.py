@@ -56,8 +56,10 @@ from tools.public_accuracy import key as answer_keys
 
 #: the report's layout: 2 adds ``protocols``, ``pathology``, ``unjudged_exclusions`` and the denominators (card H-3);
 #: 3 adds ``pairs.conflicted`` and, per language, ``eligible_lost_without_conflicted`` (D-1064, card H-6); 4 adds
-#: ``protocols.attempts`` (D-1129, card H-14); a report with no such field is layout 1. Keys are only ever added.
-SCHEMA_VERSION = 4
+#: ``protocols.attempts`` (D-1129, card H-14); 5 adds ``ladder`` (card 10A-3: cells by rung, criterion kind, note
+#: language and site, and the decided share printed beside every figure); a report with no such field is layout 1.
+#: Keys are only ever added.
+SCHEMA_VERSION = 5
 
 OPEN_VERDICTS = ("pending_human", "unknown", "not_evaluated", "not evaluated", "data_gap", "uncertain")
 
@@ -981,6 +983,9 @@ def score(built: Path, work: Path, key: bytes | None = None) -> dict[str, Any]:
         (built / "gold" / "compile_gold.json").read_text(encoding="utf-8")
     ):
         out["chia"] = score_chia(built, answers)
+    from tools.public_accuracy.ladder import ladder  # card 10A-3: the decided share beside every figure
+
+    out["ladder"] = ladder(ids, answers, work=work, key=key)
     drafts = [c for a in answers.values() for c in a.get("draft") or []]
     out["compiled"] = {
         "protocols": len(answers),
