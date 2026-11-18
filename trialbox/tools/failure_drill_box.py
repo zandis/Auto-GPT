@@ -116,13 +116,20 @@ def write_disk_override(size_mb: int) -> str:
     product). Returns what was used."""
     release_disk()
     DISK_MOUNT.mkdir(parents=True, exist_ok=True)
-    made = subprocess.run(
-        f"truncate -s {size_mb}M {shlex.quote(str(DISK_IMAGE))} && mkfs.ext4 -q -F {shlex.quote(str(DISK_IMAGE))} "
-        f"&& mount -o loop {shlex.quote(str(DISK_IMAGE))} {shlex.quote(str(DISK_MOUNT))} "
-        f"&& mkdir {shlex.quote(str(DISK_MOUNT / 'pg'))} && chown 999:999 {shlex.quote(str(DISK_MOUNT / 'pg'))} "
-        f"&& chmod 700 {shlex.quote(str(DISK_MOUNT / 'pg'))}",  # a subfolder: initdb refuses ext4's lost+found
-        shell=True, capture_output=True, text=True, check=False,
-    )  # fmt: skip
+    img, pg = str(DISK_IMAGE), str(DISK_MOUNT / "pg")  # a subfolder: initdb refuses ext4's lost+found
+    steps = (
+        ["truncate", "-s", f"{size_mb}M", img],
+        ["mkfs.ext4", "-q", "-F", img],
+        ["mount", "-o", "loop", img, str(DISK_MOUNT)],
+        ["mkdir", pg],
+        ["chown", "999:999", pg],
+        ["chmod", "700", pg],
+    )
+    made = subprocess.CompletedProcess([], 0, "", "")
+    for step in steps:
+        made = subprocess.run(step, capture_output=True, text=True, check=False)
+        if made.returncode != 0:
+            break
     if made.returncode == 0:
         opts = f'{{type: none, o: bind, device: "{DISK_MOUNT / "pg"}"}}'
         used = f"a {size_mb} MB ext4 file, loop-mounted on the host and bound as the volume"
