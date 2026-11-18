@@ -1,4 +1,4 @@
-"""The signature of a site's alliance count table (D-1223; D-144: "counts travel as signed files").
+"""The signature of a site's alliance count table (D-1226; D-144: "counts travel as signed files").
 
 A member box signs the table it sends to the alliance root with its Ed25519 site key; the root verifies the
 signature against the key registered for that site before the table is stored or merged. The signature is a small

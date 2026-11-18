@@ -41,7 +41,7 @@ SAMPLE_SITES: tuple[dict[str, str], ...] = (
 
 def _write_private(path: Path, data: bytes) -> None:
     """A secret file made with mode 600 from the start (never readable by others, not even for a moment); an old
-    file of that name is replaced, and its mode made 600 too (D-1223)."""
+    file of that name is replaced, and its mode made 600 too (D-1226)."""
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "wb") as fh:
         os.fchmod(fh.fileno(), 0o600)  # the mode of a file that was already there

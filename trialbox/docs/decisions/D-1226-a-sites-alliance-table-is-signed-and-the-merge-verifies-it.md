@@ -1,10 +1,11 @@
-# D-1223 A site's alliance count table is signed, and the merge verifies the signature against the site's registered key
+# D-1226 A site's alliance count table is signed, and the merge verifies the signature against the site's registered key
 
 - **Task:** card 10D-1 of plan 10 (`docs/plan/47-plan-10-2026-11-18.md`, Track D; review card M14-20, defect (d) of
   root review 14, `docs/reviews/2026-11-root/14-multicentre-lifecycle.md` section 1)
 - **Date:** 2026-11-18
-- **Status:** accepted (a number of lane J's block D-1220 to D-1319, which reviews this card; first written as
-  D-1320, outside that block, and renumbered in the review)
+- **Status:** accepted; the number is reserved for PR #1092 (lane J's block D-1220 to D-1319, which reviews this
+  card). First written as D-1320, outside that block, then as D-1223, which J-5 (#1099) holds; renumbered in the
+  review
 - **Builds on:** D-73 (the alliance exchange and merge), D-144 (owner: "counts travel as signed files"), D-467 (the
   opportunity feed's signature and site key register), D-555 (an answer names no value of the request), D-648 (the
   store's record; item 7, the address check), D-666 and D-670 (a re-run gives what the first run gave)

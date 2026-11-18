@@ -63,7 +63,7 @@ class _Box:
     def __init__(self, tmp_path: Path, schema: str | None = None) -> None:
         _Box.n += 1
         self.dir = tmp_path / f"box{_Box.n}"
-        # D-1223: the root verifies every member table against its register of site keys
+        # D-1226: the root verifies every member table against its register of site keys
         environ = alliance_keys.env(tmp_path / "keys", [*SITES, "DEMO-A"])
         cfg = Config(
             env=load_env(dotenv=tmp_path / "x.env", environ=environ),
@@ -184,7 +184,7 @@ def _fault(b: _Box, mp: pytest.MonkeyPatch, where: str, k: int, exc: BaseExcepti
 
         return wrapped
 
-    if where == "read":  # the reads of the tables; their signature files are read before them (D-1223)
+    if where == "read":  # the reads of the tables; their signature files are read before them (D-1226)
         real_get, fault_get = b.store.get, at(b.store.get)
         mp.setattr(b.store, "get", lambda key: real_get(key) if key.endswith(".sig.json") else fault_get(key))
     elif where == "parse":

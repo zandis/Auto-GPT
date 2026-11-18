@@ -40,7 +40,7 @@ incident plan's (T-318). Change each secret at its source, not on the lost box.
 | the KEK (steward shares, passphrase) | `python -m tools.keys rotate-kek` on the restored box; old shares stop working | key stewards | at the restore |
 | `pid_map.key` | `python -m tools.keys rotate pid_map` on the restored box | site administrator | at the restore |
 | vendor update key | not on the box (public key only): nothing to do | | |
-| the alliance signing key (a member box of a COHORT alliance, D-1223) | the alliance root's register: the root's operator replaces the site's line, which also leaves the tables signed with the old key out of every merge; the new box makes a new key and sends its line ("Alliance site keys" below) | the root's operator, the site administrator | 1 working day |
+| the alliance signing key (a member box of a COHORT alliance, D-1226) | the alliance root's register: the root's operator replaces the site's line, which also leaves the tables signed with the old key out of every merge; the new box makes a new key and sends its line ("Alliance site keys" below) | the root's operator, the site administrator | 1 working day |
 | share credentials for the backup target (NAS, SMB) | the hospital file server | hospital IT | 4 hours |
 
 **Not rotated:** `site_hmac.key`. A new key gives every patient a new pseudonym and loses the opt-outs (T-612). If it
@@ -53,7 +53,7 @@ box that was running exposes every password in it, and every row above applies.
 
 ## Alliance site keys
 
-*D-1223 (card 10D-1). In a COHORT alliance each member box signs the count table it mails to the alliance root, and
+*D-1226 (card 10D-1). In a COHORT alliance each member box signs the count table it mails to the alliance root, and
 the root merges a member's table only when the signature holds for the key its register holds for that site. The
 register has the form of the opportunity feed's site key register (D-467) and its key is made the same way.*
 
@@ -71,7 +71,7 @@ owner of the other files in that volume and keep its mode 600. Set
 `TB_ALLIANCE_SIGNING_KEY_FILE=/run/secrets/trialbox/alliance/site.key` in `deploy/.env` and restart the orchestrator.
 A setting that names a missing file, or a file its group or others may read, stops the COHORT job with a sentence
 saying so. Keep `site.key` on the box: it is never mailed, printed or copied to the root. (`band.secret`, also
-written, is the opportunity feed's and is not used here.) The key is not wrapped under the KEK (D-1223, "What is not
+written, is the opportunity feed's and is not used here.) The key is not wrapped under the KEK (D-1226, "What is not
 done here").
 
 Give the register line to the root's operator by a channel both sites trust (in person, or read out on the telephone

@@ -1,4 +1,4 @@
-"""10D-1 (D-1223): a site's alliance count table is signed, and the merge verifies the signature.
+"""10D-1 (D-1226): a site's alliance count table is signed, and the merge verifies the signature.
 
 D-144 says counts travel as signed files; the merge checked no signature and took a site's table from the mail
 address that first sent one. Now the member box signs its table with its site key and the root stores a member's

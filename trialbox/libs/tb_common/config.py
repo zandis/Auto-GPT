@@ -377,10 +377,10 @@ DECLARED: dict[str, Declared] = {
     "TB_ADAPTER_RUN": Declared("str", "process", "adapter: the ingest runs as a process of its own, or thread (D-663)"),
     "TB_ADAPTER_LAKE": Declared("str", "http", "adapter CLI: write to the lake over http or in process"),
     "TB_ALLIANCE_SIGNING_KEY_FILE": Declared(
-        "path", "", "COHORT member: the site's Ed25519 key that signs the alliance table it sends (D-1223; secret)"
+        "path", "", "COHORT member: the site's Ed25519 key that signs the alliance table it sends (D-1226; secret)"
     ),
     "TB_ALLIANCE_SITE_KEYS_FILE": Declared(
-        "path", "", "COHORT MERGE root: the register of member site keys a table is verified against (D-1223)"
+        "path", "", "COHORT MERGE root: the register of member site keys a table is verified against (D-1226)"
     ),
     "TB_AUDIT_ANCHOR_TARGETS": Declared("str", "", "where the audit chain's head anchor is also written"),
     "TB_AUDIT_ARCHIVE_DIR": Declared("path", "", "host folder of the audit archive (logs archive-audit)"),

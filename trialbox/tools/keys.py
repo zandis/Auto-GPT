@@ -83,7 +83,7 @@ INVENTORY: tuple[dict[str, Any], ...] = (
     {"key": "alliance signing key", "where": "a member box of a COHORT alliance only: the file "
      "TB_ALLIANCE_SIGNING_KEY_FILE names, mode 600, plain (not under the KEK); its fingerprint in the alliance "
      "root's register (TB_ALLIANCE_SITE_KEYS_FILE)", "protects": "that the root takes the site's count tables as the "
-     "site's (D-1223)", "holder": "the box; the root's operator holds the fingerprint", "rotation": "on compromise "
+     "site's (D-1226)", "holder": "the box; the root's operator holds the fingerprint", "rotation": "on compromise "
      "or a new box (runbook 23, Alliance site keys)", "code": None,
      "breaks": "the site's tables signed with the old key are left out of merges until it sends them again",
      "compromise": "the root's operator removes the site's register line; keygen on the box; the new line added"},

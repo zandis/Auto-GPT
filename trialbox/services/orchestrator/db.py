@@ -215,7 +215,7 @@ CREATE TABLE IF NOT EXISTS judged_pairs (
 CREATE INDEX IF NOT EXISTS judged_pairs_pid ON judged_pairs (pid);
 CREATE INDEX IF NOT EXISTS judged_pairs_snapshot ON judged_pairs (snapshot);
 """
-# D-1223: a member site's alliance table is stored only when its Ed25519 signature holds for the key registered for
+# D-1226: a member site's alliance table is stored only when its Ed25519 signature holds for the key registered for
 # the site (``tb_common.alliance``). ``verified_by``: the signing key's fingerprint, ``own`` for the root's own table
 # (made in the box, never mailed), NULL for a table stored before signatures were required: kept, marked unverified,
 # and left out of every merge until its site sends it signed. ``signed_seq`` and ``signed_sha256``: the signed
@@ -243,7 +243,7 @@ def _ruleset_of(definition_version: str) -> str:
 
 
 def _counts(site: str, verified_by: str, registered: Mapping[str, str] | None) -> bool:
-    """Whether a verified row is merged (D-1223): the root's own, or signed by the key registered for its site now
+    """Whether a verified row is merged (D-1226): the root's own, or signed by the key registered for its site now
     (any verified row when the caller gives no register)."""
     return verified_by == "own" or registered is None or registered.get(site) == verified_by
 
@@ -936,7 +936,7 @@ class JobDB:
         and the sentence is returned. A check made before the call can be overtaken by another store (two senders
         of one site, both let in). None is returned when the rows were stored.
 
-        ``verified_by``, ``signed_seq``, ``signed_sha256`` (D-1223): how the table was verified (the signing key's
+        ``verified_by``, ``signed_seq``, ``signed_sha256`` (D-1226): how the table was verified (the signing key's
         fingerprint, ``own``, or None: unverified), and the signed table's sequence and hash. ``stale``: asked in the
         same transaction with, for each (site, rule set) of ``rows``, the highest signed sequence stored and that
         table's hash; a sentence back refuses the store as ``refuse`` does."""
@@ -953,7 +953,7 @@ class JobDB:
                 if said:
                     return said
             if stale is not None:
-                # D-1223: freshness per (site, rule set), across its versions and quarters: the highest signed
+                # D-1226: freshness per (site, rule set), across its versions and quarters: the highest signed
                 # sequence stored and that table's hash
                 held: dict[tuple[str, str], tuple[int | None, str | None]] = {}
                 for site, ruleset in sorted({(r["site_id"], _ruleset_of(r["definition_version"])) for r in rows}):
@@ -1046,7 +1046,7 @@ class JobDB:
         point it read them at (D-648): the last store before the read, written in the transaction that reads,
         while no store runs. A re-run rebuilds the tables up to that point.
 
-        D-1223: only verified rows: the root's own (``own``), and, with ``registered`` (site -> the key fingerprint
+        D-1226: only verified rows: the root's own (``own``), and, with ``registered`` (site -> the key fingerprint
         the register holds now), only a member's rows signed by that key; without it, any verified row. An
         unverified table, or one whose key the register no longer holds, is kept and left out
         (:meth:`cohort_left_out`)."""
@@ -1092,7 +1092,7 @@ class JobDB:
     def cohort_left_out(
         self, keys: list[tuple[str, str]], registered: Mapping[str, str] | None = None
     ) -> tuple[set[str], set[str]]:
-        """The sites with a table in a (disease, quarter) of ``keys`` that :meth:`cohort_read` leaves out (D-1223):
+        """The sites with a table in a (disease, quarter) of ``keys`` that :meth:`cohort_read` leaves out (D-1226):
         (stored before signatures were required, signed by a key the register no longer holds for the site)."""
         unverified: set[str] = set()
         revoked: set[str] = set()

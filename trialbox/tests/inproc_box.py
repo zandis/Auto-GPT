@@ -169,7 +169,7 @@ def make_box(
             "MAIL_INTAKE_ADDR": f"trialbox@{domain}",
             "TB_SECRETS_DIR": str(secrets_dir),
             "TB_CONSOLE_URL": f"https://trialbox.{domain}",  # link mode (D-369) points here
-            **(extra_env or {}),  # e.g. the alliance key settings of D-1223
+            **(extra_env or {}),  # e.g. the alliance key settings of D-1226
         },
     )
     settings = load_settings(ROOT / "deploy/settings.example.yaml")
