@@ -32,11 +32,11 @@
 <p>{{ t('firstrun.form.intro') }}</p>
 {% if errors %}<p class="error" role="alert" data-testid="firstrun-errors">{{ t('firstrun.errors') }}</p>{% endif %}
 {% macro err(name) %}{% if errors.get(name) %}<span class="error" data-testid="err-{{ name }}">{{ t('firstrun.err.' + errors[name]) }}</span>{% endif %}{% endmacro %}
-<form id="fr-form" method="post" action="/login/first-run/answers" autocomplete="off">
+<form{% if ask_country %} id="fr-form"{% endif %} method="post" action="/login/first-run/answers" autocomplete="off">
   <input type="hidden" name="fr_csrf" value="{{ fr_csrf }}">
   <input type="hidden" name="lang" value="{{ lang }}">
-  <fieldset><legend>{{ t('firstrun.site') }}</legend>
-    {% if country %}<input type="hidden" name="country" value="{{ country }}">
+  <fieldset><legend>{{ t('firstrun.site') }}</legend>{% if country %}
+    <input type="hidden" name="country" value="{{ country }}">{% for k, v in kept.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
     <p data-testid="firstrun-country-chosen">{{ t('firstrun.country.chosen', country=t('firstrun.country.' + country)) }} <button type="submit" class="button secondary" formaction="/login/first-run/answers/keep" formnovalidate name="pick_country" value="" data-testid="country-change">{{ t('firstrun.country.change') }}</button></p>{% endif %}
     <label for="site_name">{{ t('firstrun.site_name') }}</label>
     <input id="site_name" name="site_name" required maxlength="200" value="{{ values.get('site_name', '') }}">{{ err('site_name') }}
@@ -46,8 +46,8 @@
     <p class="hint" id="tz-help">{{ t('firstrun.tz.help') }}</p>
     <label for="language">{{ t('firstrun.language') }}</label>
     <select id="language" name="language">{% for l in languages %}<option value="{{ l }}"{% if values.get('language', lang) == l %} selected{% endif %}>{{ t('lang.name.' + l) }}</option>{% endfor %}</select>{{ err('language') }}
-  </fieldset>
-  {% if ask_retention %}<fieldset data-testid="firstrun-retention"><legend>{{ t('firstrun.retention') }}</legend>
+  </fieldset>{% if ask_retention %}
+  <fieldset data-testid="firstrun-retention"><legend>{{ t('firstrun.retention') }}</legend>
     <p class="hint">{{ t('firstrun.retention.help') }}</p>
     {% for k in retention_keys %}<label for="{{ k }}">{{ t('firstrun.retention.' + k) }}</label>
     <input id="{{ k }}" name="{{ k }}" required inputmode="numeric" maxlength="6" value="{{ values.get(k, '') }}">{{ err(k) }}
@@ -92,11 +92,12 @@
   </fieldset>
   <fieldset><legend>{{ t('firstrun.source') }}</legend>{{ err('source') }}
     <p class="hint">{{ t('firstrun.source.help') }}</p>
-    {% for s in sources %}<label><input type="radio" name="source" value="{{ s }}"{% if values.get('source', 'later') == s %} checked{% endif %}> {{ t('firstrun.source.' + s) }}</label>{% endfor %}
-  </fieldset>
-  {# 10K-1: the questions an SS-MIX2 source needs, where SS-MIX2 is offered; read only when it is chosen above #}
-  {% if 'ssmix2' in sources %}<fieldset data-testid="firstrun-ssmix2"><legend>{{ t('firstrun.ssmix2') }}</legend>
+    {% for s in sources %}<label><input type="radio" name="source" value="{{ s }}"{% if values.get('source', 'later') == s %} checked{% endif %}> {{ t('firstrun.source.' + s) }}</label>{% endfor %}{% if mapped_later %}
+    <p class="hint" data-testid="firstrun-mapped-later">{{ t('firstrun.source.mapped_later') }}</p>{% endif %}
+  </fieldset>{% if 'ssmix2' in sources %}{# 10K-1: SS-MIX2's questions, where it is offered; read when it is chosen #}
+  <fieldset data-testid="firstrun-ssmix2"><legend>{{ t('firstrun.ssmix2') }}</legend>
     <p class="hint">{{ t('firstrun.ssmix2.help') }}</p>
+    <p class="hint" data-testid="firstrun-ssmix2-verify">{{ t('firstrun.ssmix2.verify') }}</p>
     <label for="ssmix2_root">{{ t('firstrun.ssmix2_root') }}</label>
     <input id="ssmix2_root" name="ssmix2_root" maxlength="255" autocapitalize="none" spellcheck="false" value="{{ values.get('ssmix2_root', '') }}">{{ err('ssmix2_root') }}
     <p>{{ t('firstrun.ssmix2_order_numbers') }}</p>

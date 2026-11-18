@@ -175,3 +175,47 @@ def test_the_new_steps_fit_a_phone_in_three_languages(tmp_path: Path) -> None:
     )  # fmt: skip
     res = json.loads(r.stdout.strip().splitlines()[-1])
     assert r.returncode == 0 and res["failed"] == 0, (res.get("results"), r.stderr[-2000:])
+
+
+def test_only_the_forms_own_fields_are_carried(tmp_path: Path) -> None:
+    """Second review, item 2: an unknown posted field is never sent back (an allowlist from the form)."""
+    b = _box(tmp_path, TB_FIRSTRUN_COUNTRY="1")
+    c = _with_code(b)
+    first = c.get("/login/first-run/answers").text
+    back = _keep(c, first, site_name="S (synthetic)", password3="not-a-field-0001", evil="x").text
+    assert (
+        "S (synthetic)" in back and "password3" not in back and "not-a-field" not in back and 'name="evil"' not in back
+    )
+
+
+def test_jp_to_us_and_back_keeps_the_ssmix2_folder(tmp_path: Path) -> None:
+    """Second review, item 6."""
+    b = _box(tmp_path, TB_FIRSTRUN_COUNTRY="1")
+    c = _with_code(b)
+    jp = _keep(c, c.get("/login/first-run/answers").text, pick_country="jp").text
+    us = _keep(c, jp, country="jp", source="ssmix2", ssmix2_root="/mnt/ssmix2", ssmix2_order_numbers="per_day",
+               pick_country="us").text  # fmt: skip
+    back = _keep(c, us, **dict(re.findall(r'<input type="hidden" name="([^"]+)" value="([^"]*)"', us)),
+                 pick_country="jp").text  # fmt: skip
+    assert 'value="/mnt/ssmix2"' in back and re.search(r'value="per_day" checked', back)
+
+
+def test_the_page_says_what_is_still_to_do(tmp_path: Path) -> None:
+    """Second review, item 3: in three languages, through the catalogue."""
+    b = _box(tmp_path, TB_FIRSTRUN_COUNTRY="1")
+    c = _with_code(b)
+    first = c.get("/login/first-run/answers").text
+    for lang in ("en", "ja", "zh-TW"):
+        jp = _keep(c, first, lang=lang, switch_lang=lang, pick_country="jp").text
+        assert 'data-testid="firstrun-ssmix2-verify"' in jp, lang
+        for country in ("us", "other"):
+            page = _keep(c, first, lang=lang, switch_lang=lang, pick_country=country).text
+            assert 'data-testid="firstrun-mapped-later"' in page, (lang, country)
+        assert 'data-testid="firstrun-mapped-later"' not in jp
+
+
+def test_with_the_flag_off_the_route_table_is_masters(tmp_path: Path) -> None:
+    """Second review: the keep route exists only with the flag on."""
+    off = {getattr(r, "path", "") for r in _box(tmp_path / "off")["app"].routes}
+    on = {getattr(r, "path", "") for r in _box(tmp_path / "on", TB_FIRSTRUN_COUNTRY="1")["app"].routes}
+    assert "/login/first-run/answers/keep" not in off and on - off == {"/login/first-run/answers/keep"}

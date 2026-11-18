@@ -266,6 +266,14 @@ def _asked(key: str, cd: site_country.CountryDefaults, out: dict[str, Any]) -> b
     return True
 
 
+def _reply(prompt: Callable[[str], str], text: str, key: str) -> str:
+    """One answer; a closed standard input is a refusal that names the question, not a traceback."""
+    try:
+        return prompt(text).strip()
+    except EOFError:
+        raise WizardError(f"{key}: no answer (the input ended)") from None
+
+
 def ask(answers: dict[str, Any], prompt: Callable[[str], str] = input) -> dict[str, Any]:
     base = defaults()
     out: dict[str, Any] = {}
@@ -275,7 +283,7 @@ def ask(answers: dict[str, Any], prompt: Callable[[str], str] = input) -> dict[s
         if kind == "country":
             print("\n".join(site_country.QUESTION[lang] for lang in ("en", "ja", "zh-TW")))
             for _ in range(5):  # no default: the answer decides every default after it (10K-1)
-                reply = prompt(f"{question}: ").strip().lower()
+                reply = _reply(prompt, f"{question}: ", key).lower()
                 if reply in site_country.COUNTRIES:
                     break
             else:
@@ -303,7 +311,7 @@ def ask(answers: dict[str, Any], prompt: Callable[[str], str] = input) -> dict[s
         if required:
             shown = NO_DEFAULT
         for _ in range(5):
-            reply = prompt(f"{question} [{shown}]: ").strip()
+            reply = _reply(prompt, f"{question} [{shown}]: ", key)
             if reply or not required:
                 break
         else:
@@ -426,9 +434,8 @@ def build(
     # answers read exactly as before (site_country.LEGACY, and the code paths marked "legacy")
     try:
         cd = site_country.defaults(a.get("country"))
-    except ValueError as exc:
-        errors.append(str(exc))
-        cd = site_country.LEGACY
+    except ValueError as exc:  # the one message: every default after it would follow a country that is not there
+        raise WizardError(str(exc)) from None
     legacy = cd is site_country.LEGACY
 
     def by_country(k: str) -> Any:
@@ -790,7 +797,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"OK: {args.check} — site {s.site.id}, {len(s.allowlist.senders)} senders")
         return 0
     answers = yaml.safe_load(args.answers.read_text(encoding="utf-8")) if args.answers else {}
-    a = answers if args.answers else ask({})
+    try:
+        a = answers if args.answers else ask({})
+    except WizardError as exc:  # 10K-1: a refused or missing answer, said as every other refusal
+        print(f"not written: {exc}", file=sys.stderr)
+        return 1
     try:
         dirs = list(args.mapping_dir) + ([args.answers.parent / "mapping"] if args.answers else [])
         settings, env, warnings = build(a, dirs)

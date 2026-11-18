@@ -419,8 +419,11 @@ def box_mapping(a: OwnerAnswers) -> tuple[str, str | None]:
     shipped mapping itself extends the shared one (Japan's ``jp_core/ssmix2_site.yaml``): that mapping by name and no
     file, since the adapter's loader takes one level of ``extends`` only; its zone is the country's one zone, which
     the owner's answers must state (``tb_common.box_answers.parse``)."""
-    shipped = site_country.defaults(a.country).mapping if a.country else None
-    if not shipped:
+    cd = site_country.defaults(a.country) if a.country else site_country.LEGACY
+    shipped = cd.mapping if a.country else None
+    # a shipped mapping that reads one kind of source (Japan's: an SS-MIX2 storage) is not a mapping of another
+    # source's export (second review of #1088, item 4): that source gets the placeholder, mapped on the box (T-731)
+    if not shipped or (cd.data_source_type == "ssmix2" and a.source is not SourceKind.SSMIX2):
         return BOX_MAPPING, "../tw_core/demo_his.yaml"
     if site_country.extends_another(shipped):
         return shipped, None
@@ -485,6 +488,16 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         warnings.append(
             f"country {a.country}: TrialBox ships no mapping for it; the box starts from the shared one until the "
             "data source's mapping step on the box (T-731)"
+        )
+    elif mapping == BOX_MAPPING and a.country:
+        warnings.append(
+            f"country {a.country}: its shipped mapping reads another kind of source; this one starts from the shared "
+            "mapping until the data source's mapping step on the box (T-731)"
+        )
+    if a.source is SourceKind.SSMIX2:
+        warnings.append(
+            "SS-MIX2: the shipped Japanese code tables (JLAC10, byomei, YJ) are sample rows marked verify: check them "
+            "and load the site's licensed releases (services/adapter/mapping/jp_core/ssmix2_site.yaml)"
         )
     ds: dict[str, Any] = {"data_source_host_dir": "./site/feed", "mapping": mapping}
     if a.source is SourceKind.SSMIX2:

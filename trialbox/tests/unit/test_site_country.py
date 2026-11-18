@@ -253,6 +253,7 @@ def test_a_japanese_box_with_ssmix2_is_planned_from_the_table(tmp_path: Path) ->
     assert env["TB_SOURCE_DIR"] == "/mnt/ssmix2" and env["TB_SSMIX2_ORDER_NUMBERS"] == "unique"
     assert s["retention"] == DEFAULTS["jp"] and s["site"]["locale"] == "ja"
     assert not any("T-731" in w and "ssmix2" in w for w in p.warnings)  # SS-MIX2 is no longer "set up later"
+    assert any("sample rows marked verify" in w for w in p.warnings)  # second review, item 3: said instead
 
 
 def test_a_box_in_the_united_states_takes_the_owners_retention_days(tmp_path: Path) -> None:
@@ -339,3 +340,48 @@ def test_a_question_with_no_default_is_refused_where_it_is_asked() -> None:
         _build(
             country="us", tz="America/Chicago", data_source_type="csv", mapping="x.yaml", **DAYS | {"logs_days": "0"}
         )
+
+
+# ------------------------------------------------------------------------------------------- second review of #1088
+@pytest.mark.parametrize(("stdin", "said"), [("\n" * 6, "country"), ("fr\n" * 6, "country"), ("", "country")])
+def test_a_refused_interactive_answer_says_not_written_and_exits_1(
+    stdin: str, said: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Item 1: as on master, a refusal is one line "not written: ..." and exit code 1, never a traceback; a closed
+    standard input too."""
+    import io
+
+    monkeypatch.setattr("sys.stdin", io.StringIO(stdin))
+    assert settings_wizard.main(["--out", str(tmp_path / "s.yaml")]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("not written: ") and said in err and "Traceback" not in err
+    assert not (tmp_path / "s.yaml").exists()
+
+
+def test_a_bad_number_of_days_names_its_key_and_a_bad_country_stops_there() -> None:
+    """Item 5: "1.5" or "abc" names the key; a country no list offers is the only message."""
+    for bad in ("1.5", "abc"):
+        with pytest.raises(settings_wizard.WizardError, match=f"logs_days must be a whole number of days, not '{bad}'"):
+            _build(country="jp", data_source_host_dir="/mnt/s", logs_days=bad)
+    with pytest.raises(settings_wizard.WizardError) as exc:
+        _build(country="fr")
+    assert str(exc.value) == "country 'fr': one of jp, tw, us, other"
+
+
+def test_a_japanese_box_with_another_source_gets_the_placeholder_mapping(tmp_path: Path) -> None:
+    """Item 4: the SS-MIX2 mapping reads an SS-MIX2 storage, not a CSV export (its tables have no column names of
+    an export): a Japanese box with another source gets the shared placeholder, mapped on the box (T-731)."""
+    for source in ("spreadsheet", "emr_feed", "later", "research_db"):
+        p, s, _ = _box(tmp_path / source, country="jp", source=source)
+        assert s["data_source"]["mapping"] == bp.BOX_MAPPING, source
+        assert p.files[f"site/{bp.BOX_MAPPING}"] == bp.mapping_text("Asia/Tokyo")
+        assert any("T-731" in w for w in p.warnings), source
+
+
+def test_the_plan_says_what_is_still_to_do_for_ssmix2_and_for_a_country_without_a_mapping(tmp_path: Path) -> None:
+    """Item 3: Japan's shipped code tables are sample rows marked verify; a country with no shipped mapping is
+    connected and mapped on the box."""
+    p, _, _ = _box(tmp_path / "jp", country="jp", source="ssmix2", ssmix2_root="/mnt/ssmix2")
+    assert any("sample rows marked verify" in w for w in p.warnings)
+    p, _, _ = _box(tmp_path / "us", country="us", tz="America/Chicago", language="en", **DAYS)
+    assert any("ships no mapping" in w and "T-731" in w for w in p.warnings)

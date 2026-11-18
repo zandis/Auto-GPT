@@ -111,7 +111,8 @@ QUESTION = {
     "en": "Country or region of this site: jp = Japan, tw = Taiwan, us = United States, other = another.\n"
     "  The report language, time zone, retention periods, data source and mapping offered next follow this answer.",
     "ja": "この施設の国・地域：jp = 日本、tw = 台湾、us = 米国、other = その他。\n"
-    "  この後に示すレポートの言語、タイムゾーン、保存期間、データ取得元、マッピングの既定値はこの答えに従います。",
+    "  この後に示すレポートの言語、タイムゾーン、保存期間、患者データの取得元、対応表の既定値は、"
+    "この答えをもとに設定されます。",
     "zh-TW": "本院所在的國家或地區：jp = 日本、tw = 臺灣、us = 美國、other = 其他。\n"
     "  接下來提供的報告語言、時區、保存期限、資料來源與對應檔預設值，都依此答案而定。",
 }

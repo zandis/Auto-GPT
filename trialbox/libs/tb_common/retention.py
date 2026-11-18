@@ -66,6 +66,14 @@ def held_after_close(closed_at: str, years: int | None, now: datetime) -> bool:
     return now.date() < kept_until(closed_at, years, now.tzinfo)
 
 
+def _days(k: str, v: object) -> int:
+    """A number of days as a site gives it; a value that is not a whole number names its key (10K-1)."""
+    text = str(v).strip()
+    if not (text.isascii() and text.lstrip("-").isdigit()):
+        raise ValueError(f"{k} must be a whole number of days, not {text!r}")
+    return int(text)
+
+
 def defaults_for(country: str, overrides: dict[str, object] | None = None) -> dict[str, int]:
     """The retention block for ``jp`` or ``tw``, with the site's own numbers where given (days, at least 1)."""
     if country not in DEFAULTS:
@@ -74,7 +82,7 @@ def defaults_for(country: str, overrides: dict[str, object] | None = None) -> di
     for k in OVERRIDABLE:
         v = (overrides or {}).get(k)
         if v not in (None, ""):
-            n = int(str(v))
+            n = _days(k, v)
             if n < 1:
                 raise ValueError(f"{k} must be at least 1 day")
             out[k] = n
@@ -93,7 +101,7 @@ def site_own(overrides: dict[str, object] | None) -> dict[str, int]:
         )
     out = dict(_COMMON)
     for k in OVERRIDABLE:
-        n = int(str((overrides or {})[k]))
+        n = _days(k, (overrides or {})[k])
         if not 1 <= n <= MAX_DAYS:
             raise ValueError(f"{k} must be 1 to {MAX_DAYS} days")
         out[k] = n
