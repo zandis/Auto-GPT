@@ -598,7 +598,7 @@ C2b trust and operations, E EDC and terminology, B2 data, D installer, J this la
 
 | n | Command | Result |
 | --- | --- | --- |
-| 1 | A 40-line Python script (`/tmp/claude-0/…/scratchpad/b15/tables.py`, not committed) that finds every `CREATE TABLE` in `services/**/*.py` and `libs/**/*.py` (OMOP DDL, tests and generated models excluded), and checks the body for a column named `site`, `site_id`, `site_code`, `centre`, `center`, and for `study`, `study_id`, `ruleset`, `protocol`, `project` | 157 tables; with a site column 4 (`site_key`, `cohort_tables`, `cohort_stored`, `cohort_tables_before`); with a study column 74 |
+| 1 | A 40-line Python script in the scratch folder (not committed) that finds every `CREATE TABLE` in `services/**/*.py` and `libs/**/*.py` (OMOP DDL, tests and generated models excluded), and checks the body for a column named `site`, `site_id`, `site_code`, `centre`, `center`, and for `study`, `study_id`, `ruleset`, `protocol`, `project` | 157 tables; with a site column 4 (`site_key`, `cohort_tables`, `cohort_stored`, `cohort_tables_before`); with a study column 74 |
 | 2 | `grep -rli` / `grep -rhi` for alliance, federat, multi-site, multicent, coordinating, over `services libs tools` (`--include=*.py`) and over `docs spec` | Section 1.2 table |
 | 3 | `grep -c "^    what:" libs/tb_common/authz_matrix.yaml`; `roles:` line | 89 actions; 7 roles; the conditions list names no site |
 | 4 | Rows of the step tables of `docs/handover/new-study-walk.en.md` between its markers (`grep "^| [A-Z]"` minus headers); "Sign in with" rows; the life-cycle walk's table for steps 12 and 13 | Steps 1 to 11: 35 actions, 3 sign-ins; step 1: 2 actions; steps 12 and 13: 2 and 4 clicks. Steps 2 to 13: 33 + 6 = 39 actions, 3 roles, 5 role changes |
