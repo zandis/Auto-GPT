@@ -1,184 +1,177 @@
-"""T-730d (D-892): ``trialbox restore-drill`` proves a backup restores, typed by hospital IT with the key in hand. It
-restores into scratch databases, never the live one; cleans up after a failure too; refuses up front when space is
-short; and its result is the key-check record the health check reads (red after the interval, or on a failed drill)
-and a backup problem that goes through the alert route (D-735)."""
+"""H-33 (D-1122): the restore follower, the comparison rules and the findings file, on stand-ins (no Docker).
+
+The compose run itself is ``make restore-drill`` (tools/restore_drill.py); this test holds what can be held without a
+box: the restore page's commands are found by H-22's rule, the follower lifts only by ``LIFTS`` and records each, the
+comparison calls a store equal only by D-1122's rules, and the committed findings quote the page and fit the
+register's ``--add-from`` form.
+"""
 
 from __future__ import annotations
 
 import json
-import shutil
-from datetime import UTC, datetime, timedelta
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
 
-import psycopg
 import pytest
-from tb_common import metrics
-from tb_common.db import Database, split_url
 
-from tools.trialbox import backup as bk
-from tools.trialbox import backup_schedule as bsch
-from tools.trialbox import restore_drill as rd
-from tools.trialbox.__main__ import main as cli
+from tools import restore_drill as rd
+from tools import runbook_install as ri
 
+pytestmark = pytest.mark.nodb
 
-@pytest.fixture
-def box(tmp_path: Path, db_url: str) -> dict[str, Any]:
-    db = Database.connect(db_url, "site")
-    db.migrate(["CREATE TABLE marks (pid TEXT PRIMARY KEY, mark TEXT NOT NULL)"])
-    db.execute("INSERT INTO marks VALUES (?, ?)", ("P1", "approach"))
-    db.execute("INSERT INTO marks VALUES (?, ?)", ("P2", "not_now"))
-    dirs = {"audit": tmp_path / "audit", "lake": tmp_path / "lake"}
-    dirs["audit"].mkdir()
-    dirs["lake"].mkdir()
-    (dirs["lake"] / "patient.parquet").write_bytes(b"PAR1" + bytes(range(256)) * 50)
-    priv, pub = tmp_path / "usb" / "backup.key", tmp_path / "box" / "backup.pub"
-    bk.keygen(priv, pub)
-    env = {"TB_DB_URL": db_url, "TB_SITE_ID": "CGMH"}
-    (f, *_) = bk.backup([tmp_path / "nas"], pub, env=env, dirs=dirs)
-    return {"db": db, "dirs": dirs, "priv": priv, "file": f, "env": env, "url": db_url}
+ROOT = Path(__file__).resolve().parents[2]
+FINDINGS = ROOT / rd.RECORD_DIR / "findings.json"
+RECORD = ROOT / rd.RECORD_DIR / "run.json"
 
 
-def _scratch_dbs(url: str) -> list[str]:
-    dsn, _ = split_url(url)
-    with psycopg.connect(dsn, autocommit=True) as con:
-        return [n for (n,) in con.execute("SELECT datname FROM pg_database WHERE datname LIKE 'tb\\_drill\\_%'")]
+def test_the_restore_pages_commands_by_h22s_rule_plus_trialbox() -> None:
+    cmds = rd.restore_commands()
+    texts = [c.text for c in cmds]
+    first, last = rd.section_lines()
+    assert all(first <= c.line <= last and c.file == rd.PAGE for c in cmds)
+    # the path's commands are all there, in the page's order
+    order = [rd.find(cmds, s.starts).line for s in rd.PATH if s.starts]
+    assert order == sorted(order)
+    assert any(t.startswith("TB_DB_ROLES_CMD=") for t in texts)
+    # H-22's rule alone does not see `trialbox restore`: the card's one added head does
+    assert not ri.is_command("trialbox restore <file>")
+    with rd._heads(rd.HEADS):
+        assert ri.is_command("trialbox restore <file>")
+    assert rd.HEADS[:-1] == ri.HEADS  # the module's heads are put back
 
 
-def _plenty(_p: Path) -> int:
-    return 10**12
+class Box:
+    """A stand-in host: what a host installed as §1 says answers, until a lift supplies what the page did not."""
+
+    def __init__(self, page_right: bool = False) -> None:
+        self.page_right = page_right
+        self.ran: list[tuple[str, dict[str, str]]] = []
+
+    def __call__(self, cmd: str, env: Mapping[str, str], timeout: float | None) -> tuple[int, str]:
+        self.ran.append((cmd, dict(env)))
+        if self.page_right:
+            return 0, "{}"
+        if cmd.startswith("trialbox "):
+            return 127, "bash: line 1: trialbox: command not found"
+        if cmd.startswith("python3 -m tools.trialbox") and "venv" not in env.get("PATH", ""):
+            return 1, "ModuleNotFoundError: No module named 'zstandard'"
+        if cmd.startswith("docker compose ") and "--project-directory deploy" not in cmd:
+            return 1, "no configuration file provided: not found"
+        if " restore " in cmd and "TB_DB_URL" not in env:
+            return 1, "restore: TB_DB_URL is not set: nothing to back up from the database"
+        if " restore " in cmd:
+            return 0, '{"complete": true, "password": "postgresql://trialbox:s3cret@127.0.0.1:5433/trialbox_wf"}'
+        return 0, "ok"
 
 
-def test_a_drill_restores_into_scratch_compares_and_leaves_the_live_database_alone(
-    box: dict[str, Any], tmp_path: Path
-) -> None:
-    box["db"].execute("UPDATE marks SET mark = ? WHERE pid = ?", ("withdrawn", "P1"))  # the box moved on
-    res = rd.drill(box["file"], box["priv"], box["env"], work=tmp_path, free=_plenty)
-    assert res["ok"], res
-    assert res["databases"]["trialbox_wf"]["differ_count"] == 0 and res["databases"]["trialbox_wf"]["rows"] > 0
-    assert res["scratch_dropped"] and all(n.startswith("tb_drill_") for n in res["scratch_dropped"])
-    assert res["unpacked_removed"] and not list(tmp_path.glob("tb-drill-*")) and _scratch_dbs(box["url"]) == []
-    # the live database is as the box left it, not as the backup had it
-    assert box["db"].fetchall("SELECT mark FROM marks WHERE pid = ?", ("P1",)) == [("withdrawn",)]
+def _follow(box: Box, tmp_path: Path) -> tuple[rd.Follower, dict[str, object]]:
+    clock = iter(range(1000))
+    fol = rd.Follower(box, hide=["s3cret"], clock=lambda: float(next(clock)))
+    fol.machine = {"TB_BACKUP_DIRS": "objects=/x"}
+
+    def reinstall() -> rd.Ran:
+        return rd.Ran("reinstall", "Reinstall (§1)", "make up-test", 0, 1.0, "", list(fol.lifted))
+
+    db = {"TB_DB_URL": "postgresql://trialbox:s3cret@127.0.0.1:5433/trialbox_wf"}
+    res = fol.follow(tmp_path / "b.tbbak", tmp_path / "k.key", tmp_path / "packs", lambda: db, reinstall,
+                     venv_bin="/release/.venv/bin")  # fmt: skip
+    return fol, res
 
 
-def test_the_scratch_database_is_never_the_live_one(box: dict[str, Any], tmp_path: Path) -> None:
-    live = rd._dbname(split_url(box["url"])[0])
-    src = bk.db_sources(box["env"])[0]
-    for bad in (live, "postgres_backup", f"x{rd.SCRATCH_PREFIX}1"):
-        with pytest.raises(rd.DrillError, match="scratch"):
-            rd.scratch_source(src, src.dsn, bad)
-    with pytest.raises(rd.DrillError):
-        rd._drop(src.dsn, live)  # the last guard before DROP DATABASE
-    # a drill whose scratch name would be the live database fails, and changes nothing
-    res = rd.drill(box["file"], box["priv"], box["env"], work=tmp_path, free=_plenty, name=lambda _db: live)
-    assert not res["ok"] and "scratch" in res["error"]
-    assert box["db"].fetchall("SELECT count(*) FROM marks") == [(2,)]
+def test_the_follower_lifts_only_by_name_and_records_each(tmp_path: Path) -> None:
+    box = Box()
+    fol, res = _follow(box, tmp_path)
+    assert res["page_alone"] is False
+    assert str(res["stopped_at"]).startswith("trialbox-command")
+    assert res["lifts"] == ["trialbox-command", "host-python", "reinstall-test-stack", "compose-project",
+                            "objects-bind", "restore-db-url"]  # fmt: skip
+    assert set(res["lifts"]) <= set(rd.LIFTS)
+    keys = [r.key for r in fol.steps]
+    assert keys[:3] == ["verify", "verify", "verify"] and keys[-3:] == ["restore", "migrate", "start"]
+    restore = [r for r in fol.steps if r.key == "restore"]
+    assert restore[-1].rc == 0 and "TB_DB_ROLES_CMD" in box.ran[-3][1]
+    # what the page names is supplied; nothing secret is kept in the record
+    assert all("s3cret" not in r.run + r.out for r in fol.steps)
+    assert "--refdata" in restore[-1].run and "[" not in restore[-1].run
+    # every lift is ``page`` (a finding) or ``machine`` (this machine), never another kind
+    assert {rd.LIFTS[k].kind for k in res["lifts"]} <= {"page", "machine"}
 
 
-def test_a_failure_part_way_still_drops_the_scratch_database_and_the_unpacked_files(
-    box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def broken(*_a: Any, **_k: Any) -> None:
-        raise bk.BackupError("pg_restore of trialbox_wf failed: synthetic")
-
-    monkeypatch.setattr(bk, "restore_db", broken)
-    res = rd.drill(box["file"], box["priv"], box["env"], work=tmp_path, free=_plenty)
-    assert not res["ok"] and "synthetic" in res["error"]
-    assert res["scratch_dropped"] and _scratch_dbs(box["url"]) == []
-    assert res["unpacked_removed"] and not list(tmp_path.glob("tb-drill-*"))
+def test_a_page_that_is_right_needs_no_page_lift(tmp_path: Path) -> None:
+    fol, res = _follow(Box(page_right=True), tmp_path)
+    assert res["page_alone"] is True and res["stopped_at"] is None
+    assert all(rd.LIFTS[k].kind == "machine" for k in fol.lifted)
 
 
-def test_rows_that_differ_from_the_manifest_fail_the_drill(
-    box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    real = rd.compare
-    monkeypatch.setattr(rd, "compare", lambda src, want: [*real(src, want), "site.marks"])
-    res = rd.drill(box["file"], box["priv"], box["env"], work=tmp_path, free=_plenty)
-    assert not res["ok"] and "differ" in res["error"] and _scratch_dbs(box["url"]) == []
+def test_every_lift_names_words_the_restore_page_holds() -> None:
+    text = ri._fold((ROOT / rd.PAGE).read_text(encoding="utf-8"))
+    for lift in rd.LIFTS.values():
+        assert ri._fold(lift.needle) in text, lift.key
 
 
-def test_short_space_refuses_before_anything_starts(box: dict[str, Any], tmp_path: Path) -> None:
-    with pytest.raises(rd.DrillError, match=r"needs [0-9.]+ GB free"):
-        rd.drill(box["file"], box["priv"], box["env"], work=tmp_path, free=lambda _p: 0)
-    assert _scratch_dbs(box["url"]) == [] and not list(tmp_path.glob("tb-drill-*"))
+def test_equal_means_d1122() -> None:
+    before = {"a.t": [2, "h1"], "audit.journal": [3, "x"], "orch.pool": [3, "p"]}
+    after = {"a.t": [2, "h1"], "audit.journal": [5, "y"], "edc.draft": [0, ""], "orch.pool": [2, "q"]}
+    allowed = rd.EXPECTED_CHANGES["db:trialbox_wf"]
+    c = rd.compare_tables(before, after, allowed)
+    assert c["ok"] and c["unequal"] == [] and set(c["expected"]) == {"audit.journal", "edc.draft", "orch.pool"}
+    # a table the restore lost is never "expected", and a new edc table only when it was not there before
+    assert not rd.compare_tables({**before, "x.y": [1, "z"]}, after, allowed)["ok"]
+    assert not rd.compare_tables({**before, "edc.draft": [4, "d"]}, after, allowed)["ok"]
+    files = rd.compare_files({"a": "1", "tmp/s": "2", "db/gen/g1.duckdb": "3"}, {"a": "1"},
+                             rd.EXPECTED_CHANGES["volume:lake-data"])  # fmt: skip
+    assert files["ok"] and files["missing"] == ["db/gen/g1.duckdb", "tmp/s"]
+    assert not rd.compare_files({"a": "1"}, {"a": "2"}, {})["ok"]
+    assert not rd.compare_files({"a": "1"}, {}, {})["ok"]
 
 
-def test_a_wrong_key_is_a_failed_drill_with_nothing_left(box: dict[str, Any], tmp_path: Path) -> None:
-    other, _ = tmp_path / "other.key", tmp_path / "other.pub"
-    bk.keygen(other, tmp_path / "other.pub")
-    res = rd.drill(box["file"], other, box["env"], work=tmp_path, free=_plenty)
-    assert not res["ok"] and _scratch_dbs(box["url"]) == [] and res["unpacked_removed"]
+def test_the_comparison_table_has_a_row_per_store() -> None:
+    fp = {"db": {"trialbox_wf": {"a.t": [1, "h"]}}, "volumes": {"console-data": {"f": "1"}},
+          "audit_head": {"lines": 3, "hash": "abc"}, "optouts": ["p|opt_out"], "rulesets": {"GZQO": {"version": "1"}},
+          "accounts": ["u|admin|h"]}  # fmt: skip
+    after = json.loads(json.dumps(fp))
+    after["audit_head"] = {"lines": 4, "hash": "abd", "verified": True, "prefix_of_after": True}
+    rows = rd.compare(fp, after)
+    assert [r["store"] for r in rows] == ["database trialbox_wf", "volume console-data", "the audit chain's head",
+                                          "the opt-out list", "the approved rule sets", "the accounts"]  # fmt: skip
+    assert all(r["equal"] for r in rows)
+    after["optouts"] = []
+    assert not next(r for r in rd.compare(fp, after) if r["store"] == "the opt-out list")["equal"]
+    after["audit_head"]["prefix_of_after"] = False
+    assert not next(r for r in rd.compare(fp, after) if r["store"] == "the audit chain's head")["equal"]
 
 
-# ------------------------------------------------------------------------- the record, the health check, the alert
-def _ok(at: datetime) -> dict[str, Any]:
-    return {"ok": True, "at": at.isoformat(timespec="seconds"), "file": "trialbox-CGMH-x.tbbak", "sha256": "ab",
-            "created_at": "2026-11-15T01:00:00+00:00", "databases": {"trialbox_wf": {"tables": 3, "rows": 5}}}  # fmt: skip
+def test_scrub_keeps_no_password() -> None:
+    assert "pw" not in rd.scrub("postgresql://trialbox:pw@127.0.0.1:5433/x")
+    assert "TOKEN" not in rd.scrub("a TOKEN b", ["TOKEN"])
 
 
-def test_a_pass_is_the_key_check_record_and_a_fail_is_red_until_the_next_pass(tmp_path: Path) -> None:
-    th = metrics.Thresholds()
-    now = datetime(2026, 11, 16, tzinfo=UTC)
-    metrics.record_drill(tmp_path, _ok(now - timedelta(days=1)))
-    rec = metrics.read_verified(tmp_path)
-    assert rec and rec["drill"] == {"trialbox_wf": {"tables": 3, "rows": 5}}
-    assert metrics.check_verified(rec, now, th).level == metrics.OK
-    assert "restore drill passed" in metrics.check_verified(rec, now, th).text
-    metrics.record_drill(tmp_path, {"ok": False, "at": now.isoformat(), "file": "f", "error": "pg_restore failed"})
-    rec = metrics.read_verified(tmp_path)
-    red = metrics.check_verified(rec, now, th)
-    assert red.level == metrics.RED and "restore drill" in red.text and "pg_restore failed" in red.text
-    assert rec is not None and rec["at"] == (now - timedelta(days=1)).isoformat(
-        timespec="seconds"
-    )  # the last good check is kept
-    metrics.record_drill(tmp_path, _ok(now + timedelta(hours=1)))
-    assert metrics.check_verified(metrics.read_verified(tmp_path), now + timedelta(hours=2), th).level == metrics.OK
+def test_the_committed_findings_fit_the_register_and_quote_the_page() -> None:
+    doc = json.loads(FINDINGS.read_text(encoding="utf-8"))
+    assert rd.check_findings(doc) == []
+    assert doc["card"] == rd.CARD and doc["source"] == rd.PAGE_OUT and doc["decision"] == rd.DECISION
+    for f in doc["findings"]:
+        place, _, line = str(f["place"]).rpartition(":")
+        text = (ROOT / place).read_text(encoding="utf-8").split("\n")
+        near = ri._fold(" ".join(text[max(0, int(line) - 3) : int(line) + 3]))
+        assert ri._fold(str(f["page_says"])) in near, f["id"]
+    # the register would take them as they are: each row passes the register's own row rules (nothing is written:
+    # only lane V writes the register)
+    from tools import findings_register as fr
+
+    card, _title, cells = fr.rows_from(doc, fr.REGISTER, ROOT)
+    for i, c in enumerate(cells):
+        assert c["Id"].startswith(f"{card}-"), c["Id"]
+        assert fr.row_problems(fr.Row(i + 1, card, c), fr.REGISTER.parent, ROOT) == [], c["Id"]
 
 
-def test_red_after_the_interval_without_a_new_drill(tmp_path: Path) -> None:
-    th = metrics.Thresholds()
-    then = datetime(2026, 1, 1, tzinfo=UTC)
-    metrics.record_drill(tmp_path, _ok(then))
-    rec = metrics.read_verified(tmp_path)
-    assert metrics.check_verified(rec, then + timedelta(days=th.verified_red_days + 1), th).level == metrics.RED
-    assert metrics.check_verified(rec, then + timedelta(days=th.verified_warn_days + 1), th).level == metrics.WARN
-
-
-def test_a_failed_drill_is_a_backup_problem_for_the_alert_route(tmp_path: Path) -> None:
-    metrics.record_drill(tmp_path, {"ok": False, "at": "2026-11-16T00:00:00+00:00", "file": "f", "error": "boom"})
-    said = bsch.drill_failure(tmp_path)
-    assert "restore drill" in said and "boom" in said and "RUNBOOK §5" in said
-    metrics.record_drill(tmp_path, _ok(datetime(2026, 11, 16, 1, tzinfo=UTC)))
-    assert bsch.drill_failure(tmp_path) == ""
-    cfg = bsch.Config(deploy=tmp_path, targets=[], public_key=tmp_path / "pub", production=False)
-    metrics.record_drill(tmp_path, {"ok": False, "at": "2026-11-16T02:00:00+00:00", "file": "f", "error": "boom"})
-    assert any("restore drill" in p for p in bsch.status(cfg)["problems"])
-
-
-def test_neither_the_key_nor_its_path_is_kept(box: dict[str, Any], tmp_path: Path) -> None:
-    deploy = tmp_path / "deploy"
-    res = rd.drill(box["file"], box["priv"], box["env"], work=tmp_path, free=_plenty)
-    rd.record(deploy, res, box["env"], box["dirs"])
-    key = box["priv"].read_text(encoding="utf-8")
-    for f in [deploy / "site" / metrics.VERIFIED_FILE, *box["dirs"]["audit"].rglob("*.jsonl")]:
-        text = f.read_text(encoding="utf-8")
-        assert str(box["priv"]) not in text and "usb" not in text and key.strip()[-20:] not in text
-    events = [json.loads(x) for f in box["dirs"]["audit"].rglob("*.jsonl") for x in f.read_text().splitlines()]
-    assert any(e.get("event") == rd.EVENT and e["detail"]["ok"] for e in events)
-
-
-def test_the_command_prints_the_result_and_exits_by_it(
-    box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
-) -> None:
-    for k, v in box["env"].items():
-        monkeypatch.setenv(k, v)
-    monkeypatch.setattr(shutil, "disk_usage", lambda _p: type("U", (), {"free": 10**12})())
-    deploy = tmp_path / "deploy"
-    args = ["restore-drill", str(box["file"]), "--key", str(box["priv"]), "--work", str(tmp_path),
-            "--db-dir", str(tmp_path), "--deploy", str(deploy), "--dir", f"audit={box['dirs']['audit']}"]  # fmt: skip
-    assert cli(args) == 0
-    out = json.loads(capsys.readouterr().out)
-    assert out["ok"] and (deploy / "site" / metrics.VERIFIED_FILE).is_file()
-    monkeypatch.setattr(shutil, "disk_usage", lambda _p: type("U", (), {"free": 0})())
-    assert cli(args) == 2 and "GB free" in capsys.readouterr().err
+@pytest.mark.skipif(not RECORD.is_file(), reason="no committed run record yet")
+def test_the_committed_record_holds_no_secret_and_backs_the_findings() -> None:
+    text = RECORD.read_text(encoding="utf-8")
+    assert "_cookie" not in text and "postgresql://trialbox:" + "change-me" not in text
+    rec = json.loads(text)
+    doc = json.loads(FINDINGS.read_text(encoding="utf-8"))
+    lifted = set(rec["follow"]["lifts"])
+    for f in doc["findings"]:
+        if f.get("lift"):
+            assert f["lift"] in lifted, f["id"]
