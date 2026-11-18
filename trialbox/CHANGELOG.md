@@ -12,10 +12,10 @@ new heading with the version and date, in the same pull request that sets the ve
 
 - Set-up follows the site's country (10K-1): the settings wizard asks the country first (Japan, Taiwan, United
   States, other) and takes the report language, time zone, retention rules, source type, mapping and the TWPAS
-  questions from one table; a Japan site gets Japanese reports, Japan's retention and an SS-MIX2 source. SS-MIX2 is
-  a source in both wizards (the storage's root folder, read-only, and its order-number key). The box's first-run
-  page asks the country first only with `TB_FIRSTRUN_COUNTRY=1` (off by default). An answers file without a
-  country, and an installed box, read exactly as before.
+  questions from one table; a Japan site gets Japanese reports, Japan's retention and an SS-MIX2 source (the
+  storage's root folder, read-only, and its order-number key). The box's first-run page asks the country first, and
+  offers SS-MIX2 for a site in Japan, only with `TB_FIRSTRUN_COUNTRY=1` (off by default: the page is as before). An
+  answers file without a country, and an installed box, read exactly as before.
 - Exports and typed text (NEW-CSV-1, D-549): a comment or a reason that begins with `=`, `+`, `-` or `@` is no
   longer a formula in the feedback export, the screening log's workbooks or the registry export.
 - The candidate registry and the acting person (T-715b, D-550): a status change or a promotion is recorded under
