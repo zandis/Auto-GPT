@@ -13,12 +13,15 @@ working, not what the real models would decide. **What you do not get:** the rea
 fixed by NVIDIA's IGX OS) is older than the model engine needs (580), and no TrialBox profile fits this card yet
 (review 24, section 4). Never start it with `TB_LLM_MODE=gpu`, and never install another NVIDIA driver on it.
 
-**You need:** wired internet for the install (images and packages, perhaps 10 to 15 GB); about 40 GB free disk; two
-to three hours, most of it waiting.
+**You need:** wired internet for the install (images and packages, perhaps 5 to 10 GB to download); about 12 GB of
+disk for this page, **but your root disk is 90 % full (91 GB free): free at least 30 GB more first** (step 0b); two to
+three hours, most of it waiting. Ubuntu 22.04 (yours) is accepted: nothing on this page checks the version. The real
+models need about 125 GB free and more memory than this machine has (review 24, section 3).
 
 | # | Step | Type or click | You should see | If not |
 | --- | --- | --- | --- | --- |
-| 0 | Send us the machine's facts first | `uname -m`; `lsb_release -a`; `free -g`; `df -h /`; `nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv`; `docker --version`; `docker info \| grep -i runtime` | `aarch64`; Ubuntu 22.04; about 60 GB total memory; the A6000 and 535.183.01; a Docker version; a line naming `nvidia` | copy every line to us before going on; a "command not found" is an answer too |
+| 0 | Send us the facts we still lack (you already sent `uname -m`, `lsb_release -a`, `free -g`, `df -h /`) | `docker --version`; `docker info \| grep -i runtime`; `nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv`; `curl -sI https://hub.docker.com \| head -1`; and in words: can a second disk go in? | a Docker version; a line naming `nvidia`; the A6000 and 535.183.01; an `HTTP/` line | copy every line to us before going on; a "command not found" is an answer too |
+| 0b | Make room on the disk | move or delete files you do not need (large downloads, old conda environments: `conda env list`, then `conda env remove -n <name>` for one you no longer use); then `df -h /` | at least 120 GB free (Avail) | less: tell us; the no-model look still fits with about 30 GB free, but keep the disk below 90 % |
 | 1 | Leave conda | `conda deactivate` (repeat until the prompt no longer starts with `(base)`); `which python3` | `/usr/bin/python3` | a path under `conda` or `miniconda`: `conda deactivate` once more |
 | 2 | Docker ready | `docker compose version`; `docker info` | `Docker Compose version v2…` or later; no error | no Docker: follow "Install Docker Engine on Ubuntu" on docs.docker.com, then `sudo usermod -aG docker $USER`, sign out and in |
 | 3 | Base packages | `sudo apt update && sudo apt install -y git make curl python3-venv python3-yaml` | no "E:" line | send the "E:" line |

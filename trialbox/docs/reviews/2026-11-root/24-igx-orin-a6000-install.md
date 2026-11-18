@@ -7,7 +7,10 @@ installs and whoever takes the head-box card (plan 10, 10E-31).
 yet on master when this was written) assumed a 96 GB RTX PRO 6000 in an x86-64 workstation. The owner's `nvidia-smi`
 screen shows something else: an **NVIDIA IGX Orin Development Kit** (an Arm 64-bit system-on-module with a PCIe slot),
 an **RTX A6000** (49,140 MiB, Ampere, 300 W cap), **driver 535.183.01, CUDA 12.2**, an Ubuntu desktop and a conda
-"(base)" shell. Not known: the Ubuntu version, `uname -m`, host memory, free disk, internet.
+"(base)" shell. **The owner's answers, relayed by the coordinator the same day** [owner]: `uname -m` → `aarch64`;
+`lsb_release -a` → Ubuntu 22.04.5 LTS; `free -g` → 53 GB total, 49 available, 26 GB swap; `df -h /` → one NVMe root
+of 879 GB, 744 GB used, **91 GB free (90 % used)**. Still not known: Docker and its GPU runtime, the `nvidia-smi`
+query line, internet, whether a second disk can go in.
 
 **Marks.** [read `file:line`] in this repository at master `312eca7c` plus this branch; [source: link, opened
 2026-11-18]; [measured: an output file under `/var/tmp/trialbox-0/b26/`, section 9]; [opinion]; [rNN] a review's own
@@ -43,8 +46,11 @@ models.** [opinion, from sections 1 to 3]
   remove reason 1, but not reasons 2 and 3: those are the head-box measurement and profile already planned (10E-29,
   about 13 hours of the card, then 10E-31), not next week.
 
-**Before anything, send us the output of seven commands** (runbook 28, step 0): they tell us the operating-system
-version, the processor type, the memory, the free disk and whether Docker and its GPU runtime are there.
+**Your disk is the first thing to fix:** 91 GB free on a 90 % full disk is enough for the no-model look (about 15
+GB), not for the real models on any machine of this kind (about 120 GB with room to work; section 3). Free about 60 GB,
+or add a second disk, before any model work. **Your memory (53 GB)** is enough for the no-model look and too little
+for the two models by TrialBox's own rule (79 GB). **Before anything, send us three more command outputs and two
+answers** (runbook 28, step 0): Docker, its GPU runtime, the card line; internet; a second disk.
 
 ---
 
@@ -180,22 +186,47 @@ Blackwell's native FP4 kernels; Marlin's repacked weights and workspace on Amper
 
 ## 3. The host
 
-- **Memory.** The developer kit has "64 GB 256-bit LPDDR5" and a "12-core Arm Cortex-A78AE v8.2" at up to 1.971 GHz,
-  500 GB NVMe [source 11] (his own figures: step 0). In dGPU mode the module's memory is the host's [opinion].
+- **The system.** Ubuntu 22.04.5 on aarch64 [owner]. The one-command start checks no OS version [read
+  `deploy/poc.sh:52-54,72-108`]; the installer's host check only **warns** on anything but 24.04 ("D-408 names Ubuntu
+  24.04 LTS") [read `deploy/check_host.sh:97-106`]; nothing refuses 22.04 on Arm. 22.04 is what IGX OS 1.1.x is
+  built on [source 2], so this fits the driver's evidence that the machine runs IGX OS.
+- **Memory.** The developer kit is sold with "64 GB 256-bit LPDDR5" and a "12-core Arm Cortex-A78AE v8.2" at up to
+  1.971 GHz [source 11]; his `free -g` shows **53 GB** (the rest is presumably reserved by the module's firmware
+  [opinion; not verified]) with 49 available and 26 GB of swap [owner].
 - **Beside the model server.** Idle memory per service has never been measured anywhere [r13 line 466]; what was
   measured is each Python service's import, 66 to 148 MB [r13 line 464]. The caps are the evidence: the stub stack's
   caps sum to 45.5 GiB [measured: `stub-config-summary.txt`] and are ceilings, not reservations. The repository's own
-  box planner, on 64 GiB, sizes the stub box's caps at 1.23 of the defaults (6.4 GiB kept for the system), and
-  **refuses the pair profile: "TrialBox needs at least 80 GiB with this GPU profile"** [measured:
-  `memory-caps-64.txt`, `tools/box/plan.py memory_caps`]. So 64 GB is enough for the stub box [opinion], and too
-  little for the box with the pair by the repository's own rule.
+  box planner, on **53 GiB**, gives the stub box exactly its default caps (44.2 GiB, 5.3 GiB kept for the system),
+  **refuses the pair profile ("TrialBox needs at least 79 GiB with this GPU profile")** and even the one-model
+  `default` profile ("at least 55 GiB") [measured: `memory-caps-53.txt`; the 64 GiB run for comparison:
+  `memory-caps-64.txt`]. So: the stub box fits, with nothing to switch off beyond what is already off in stub mode
+  (no model server, the hash embedder instead of the real one) [opinion; idle use not measured]; keep the desktop
+  light while it runs (close the browser tabs and the conda tools you are not using) and watch step 11's figures.
+  With any model, 53 GB does not fit by the repository's own rule, and lowering the caps below that rule's floor is
+  exactly what the rule forbids (services never measured there) [read `tools/box/plan.py:330-365`].
 - **CPU.** Twelve embedded-class Arm cores: enough for the services on synthetic data [opinion]; the image build in
   step 5 of runbook 28 is slower than on a desktop (perhaps 20 to 40 minutes) [opinion]; the real embedder's speed on
   Arm is unmeasured [r13 line 446] and not used in stub mode.
-- **Disk.** Stub path: the six images, the builder image and the build cache: about 30 to 40 GB [opinion; not
-  measured]. Model path, if it ever runs here: plus the engine image (10.3 GB compressed for the pinned arm64 build,
-  12.0 GB for the CUDA 12.9 one [measured: `vllm-tags.txt`]) and about 50 GB of weights [r23 §1.1]. The start checks
-  free disk only in GPU mode [read `deploy/poc.sh:101-107`].
+- **Disk: the first hard obstacle.** 91 GB free, 90 % used [owner]. The budget (the six third-party and base images
+  are 1.1 GB compressed for arm64 [measured: `image-sizes-arm64.txt`]; everything else is [opinion], not measured):
+
+  | Item | Stub path | Model path (if it ever runs) |
+  | --- | ---: | ---: |
+  | Third-party and base images, unpacked (about 2 to 3 × compressed) | 3 GB | 3 GB |
+  | Own images (`trialbox-py`, `-jvm`, `-postgres`) and the build cache | 6 GB | 8 GB (with `-embed`) |
+  | The checkout and the project's Python environment | 1 GB | 1 GB |
+  | Database, lake, FHIR store and mail for the 600-patient synthetic hospital | 2 GB | 2 GB |
+  | The engine image (10.3 GB compressed arm64 [measured: `vllm-tags.txt`], unpacked and layers in flight) | – | 25 GB |
+  | The two models' weights and the template (about 48 GB of model cache [r23 §1.1]) | – | 50 GB |
+  | Working space: a download verified in a folder of its own, then moved on the same disk (a move needs no copy) | – | 5 GB |
+  | Free space the start itself demands in GPU mode [read `deploy/poc.sh:101-107`] | – | 30 GB |
+  | **Total** | **about 12 GB** | **about 125 GB** |
+
+  **91 GB is enough for the stub path, not for the model path.** A disk at 90 % is also near the point where Docker
+  and the database misbehave when a write fills it [opinion]; free at least 30 GB more even for the stub path, and
+  about 60 GB more, or add a second disk, before any model work. The developer kit lists "4x SATA 6 Gbps expansion
+  ports" [source 11], so a second disk is possible in principle (which bays his unit has: not verified). Point
+  Docker's data folder and `TB_MODELS_DIR` at it, not the root disk [opinion].
 
 ---
 
@@ -208,7 +239,8 @@ machine; the real models elsewhere.** [opinion, from sections 1 to 3]
   screen; note criteria answered by the stub. Runbook 28. It has never been started on Arm by anyone: CI builds and
   scans the Arm images daily but never starts the stack there (1.1).
 - The real pair on this machine is (c), **does not work next week**: driver 535 is fixed by the platform (1.3), the
-  judge's format is not native on Ampere (2), and no profile fits 48 GB (2) or 64 GB of host memory (3).
+  judge's format is not native on Ampere (2), no profile fits 48 GB of card memory (2), 53 GB of host memory is
+  below the planner's 79 GB for the pair (3), and 91 GB of free disk is below the model path's about 125 GB (3).
 - **The smallest alternatives for real models:** (1) an x86-64 machine with the 96 GB RTX PRO 6000, the one card
   measured, with review 23's page 27; (2) a rented cloud machine with that card, the route that has actually worked
   [r23 §1.2] (costs money: the owner's decision); (3) later, his A6000 in an x86-64 PC with Ubuntu 24.04 and a 580
@@ -234,17 +266,17 @@ driver in compatibility mode; any vLLM build on an IGX; the judge on any Ampere 
 
 ## 5. Questions for the owner (exact commands; runbook 28 step 0)
 
+Answered already [owner]: `uname -m`, `lsb_release -a`, `free -g`, `df -h /` (see the top). Still to send:
+
 ```
-uname -m
-lsb_release -a
-free -g
-df -h /
-nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv
 docker --version
 docker info | grep -i runtime
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv
+curl -sI https://hub.docker.com | head -1
 ```
 
-And in words: is this the machine that should go to the site in January (review 23 section 5 then needs an Arm and
+(the last prints an `HTTP/` line when the machine reaches the internet). And in words: can a second disk go in (a
+SATA or NVMe bay, and its size)? What on the 744 GB in use can be moved off? And: is this the machine that should go to the site in January (review 23 section 5 then needs an Arm and
 Ampere column), and does the A6000 drive the desktop's screen?
 
 ## 6. Sources (opened 2026-11-18)
@@ -268,7 +300,8 @@ API on 2026-11-18 (section 9); CI's result from the repository's Actions API.
 
 ## 7. What this review did not verify
 
-- Anything on the owner's machine: its OS version, `uname -m`, memory, disk, Docker, the container runtime.
+- Anything on the owner's machine beyond his four answers: Docker, the container runtime, internet, a second bay.
+- The disk budget's own-image, data and unpacked sizes (estimates); the reason for 53 GB rather than 64 GB.
 - That IGX OS is what runs (inferred from the driver version alone).
 - The stub stack starting on Arm; the start without Maven failing at the database image (read, not run).
 - vLLM 0.32.0 on driver 535 in either build; compatibility mode on an A6000; Marlin's NVFP4 MoE path in 0.32.0.
@@ -292,6 +325,8 @@ any word but `rtxpro6000` and `gb10` [read `deploy/poc.sh:79-83`]. Tests: `tests
 | `tiers.txt`, `tiers-after.txt` | `python3 tools/tiers.py check --tier large/medium --arch … --card "NVIDIA RTX A6000"` | before: "this card is tier medium"; after: "not one of the three measured boxes"; exit 3 |
 | `images-lock-host.txt` | `python3 -m tools.images_lock host --arch {aarch64,x86_64} --driver {535.183.01,580.95.05} --compute-cap 8.6 --image <pin>` | 535: FAIL driver; 580: all PASS |
 | `memory-caps-64.txt` | `tools.box.plan.memory_caps(64 and 61 GiB, stub / rtxpro6000 / default)` | stub fits (×1.23); pair refused: needs 80 GiB |
+| `memory-caps-53.txt` | the same at 53 GiB (the owner's figure) | stub fits (×1.00); pair refused (79 GiB); one model refused (55 GiB) |
+| `image-sizes-arm64.txt` | Docker Hub tag API, arm64 compressed sizes | HAPI 0.44, Maven 0.23, Postgres 0.16, GreenMail 0.11, JRE 0.11, Python 0.04, Mailpit 0.01 GB |
 | `stub-config-summary.txt` | `docker compose … --profile stub --profile test config` (the start's files; a throwaway `deploy/.env` from the example, removed) | 15 services, 6 images, no platform pin, no GPU, caps 45.5 GiB |
 | `arm-wheels.txt` | a script over `uv.lock` and the two pip locks | 33 native packages, all with aarch64 wheels and hashes |
 | `base-arches.txt`, `vllm-tags.txt`, `vllm-image-config.txt`, `vllm-index-digests.txt` | Docker Hub registry API (metadata only) | the architectures, sizes and CUDA settings quoted above |
