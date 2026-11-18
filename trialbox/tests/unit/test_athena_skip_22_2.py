@@ -280,3 +280,102 @@ def test_the_never_column_keeps_what_review_22_classes_c() -> None:
     reg = vocab_load.athena_register()
     assert {v for v, c in reg.items() if not c.loadable} >= NEVER_22
     assert reg["SNOMED"].aliases and "http://snomed.info/sct" in reg["SNOMED"].aliases
+
+
+# ------------------------------------------------------------------------------------------------ second review
+def _register(tmp_path: Path, *rows: dict[str, str]) -> Path:
+    reg = tmp_path / "register.csv"
+    base = {c: "x" for c in lr.COLUMNS}
+    lines = [",".join(lr.COLUMNS)]
+    for r in rows:
+        full = {**base, "athena": "", "athena_never": "", "class": "", "paths": "", "text_sha256": "", **r}
+        lines.append(",".join(full[c] for c in lr.COLUMNS))
+    reg.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return reg
+
+
+def test_never_wins_over_case_spaces_aliases_and_look_alike_letters(tmp_path: Path) -> None:
+    from omop import vocab_load
+
+    reg = _register(
+        tmp_path,
+        {"id": "r1", "status": "cleared", "athena": "SNOMED;SNOMED CT;ＣＰＴ４;Gender", "class": "a"},
+        {"id": "r2", "status": "removed", "athena_never": "snomed|SNOMED CT;CPT4", "class": "c"},
+    )
+    got = vocab_load.athena_register(reg)
+    assert {v for v, c in got.items() if c.loadable} == {"Gender"}
+    for name in ("SNOMED", "SNOMED CT", "ＣＰＴ４"):
+        assert not got[name].loadable, name
+    reasons = {}
+    tables = {"VOCABULARY": [], "CONCEPT": [
+        {"concept_id": "4000001", "vocabulary_id": "SNОMED"},  # a Cyrillic O
+        {"concept_id": "4000002", "vocabulary_id": "Ｓｎｏｍｅｄ"},  # full-width
+    ]}  # fmt: skip
+    sel = vocab_load.select_athena(tables, frozenset({"Gender"}), got)
+    reasons = sel.skipped
+    assert all(r.startswith("licence class must not ship") for r in reasons.values()), reasons
+
+
+def test_the_register_check_sees_folded_names_twice() -> None:
+    raw = {c: "x" for c in lr.COLUMNS}
+    a = lr.Row("ra", "code-system", "cleared", "s", "x", ("SNOMED CT",), (), raw, "a", ())
+    b = lr.Row("rb", "code-system", "removed", "s", "x", (), (), {**raw, "athena_never": "SNOMED|SNOMED CT"}, "c",
+               ("SNOMED",))  # fmt: skip
+    c = lr.Row("rc", "code-system", "cleared", "s", "x", ("snomed",), (), raw, "a", ())
+    got = lr.row_problems([a, b, c])
+    assert any("'SNOMED CT'" in p and "ra" in p and "rb" in p for p in got), got
+    assert any("'snomed'" in p and "rb" in p and "rc" in p for p in got), got
+
+
+def test_a_clean_load_removes_what_an_earlier_load_left_of_a_never_vocabulary(db: Any) -> None:  # noqa: F811
+    from omop import vocab_load
+
+    with db.transaction() as tx:  # as if an older loader had let CPT4 in; the new download has none
+        tx.execute("INSERT INTO vocabulary (vocabulary_id, vocabulary_name, vocabulary_reference, vocabulary_version, "
+                   "vocabulary_concept_id) VALUES ('CPT4', 'invented', 'invented', 'v0', 0)")  # fmt: skip
+        tx.execute("INSERT INTO concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, "
+                   "standard_concept, concept_code, valid_start_date, valid_end_date) VALUES (4000005, 'Invented', "
+                   "'Procedure', 'CPT4', 'CPT4', NULL, 'NOT-A-CODE-5', '1970-01-01', '2099-12-31')")  # fmt: skip
+    res = vocab_load.load_athena(db, ATHENA, by="test")
+    assert db.fetchval("SELECT count(*) FROM concept WHERE vocabulary_id = 'CPT4'") == 0
+    assert res.as_dict()["athena"]["removed_from_the_box"] == {"CPT4": 1}
+    assert res.as_dict()["athena"]["skipped"] == []
+
+
+def test_an_explicit_allow_never_lets_a_never_vocabulary_in(db: Any, tmp_path: Path) -> None:  # noqa: F811
+    from omop import vocab_load
+
+    allow = vocab_load.ATHENA_ALLOW | {"CPT4", "snomed"}
+    res = vocab_load.load_athena(db, _download(tmp_path, "CPT4", "SNOMED"), allow=allow, by="test")
+    assert db.fetchval("SELECT count(*) FROM concept WHERE concept_id IN (4000001, 4000005)") == 0
+    reasons = {s["vocabulary"]: s["reason"] for s in res.as_dict()["athena"]["skipped"]}
+    assert set(reasons) == {"CPT4", "SNOMED"} and all(
+        r.startswith("licence class must not ship") for r in reasons.values()
+    )
+
+
+def test_a_concept_file_that_is_not_utf8_is_refused_with_its_name(db: Any, tmp_path: Path) -> None:  # noqa: F811
+    from omop import vocab_load
+    from omop.schema import OmopError
+
+    d = _download(tmp_path)
+    with (d / "CONCEPT.csv").open("ab") as f:
+        f.write(b"4000009\t\xff\xfe invented\tDrug\tRxNorm\tIngredient\tS\tNOT-A-CODE-9\t19700101\t20991231\t\n")
+    with pytest.raises(OmopError, match=r"CONCEPT\.csv.*not UTF-8"):
+        vocab_load.load_athena(db, d)
+
+
+# every athena_never id of the register: taking ANY one out, or adding one, fails here (a licence matter)
+NEVER_ALL = frozenset({
+    "SNOMED", "SNOMED Veterinary", "Nebraska Lexicon", "ICD10", "CPT4", "HemOnc", "ICDO3", "SMQ", "EORTC QLQ",
+    "GCN_SEQNO", "Multum", "SUS", "MMI", "JMDC", "Read", "OXMIS", "NUCC", "OncoKB", "JAX", "EphMRA ATC", "NFC",
+    "CIM10", "ICD10GM", "ICD10CN", "KCD7", "ICD9ProcCN", "CMS Place of Service", "UB04 Typ bill",
+    "UB04 Point of Origin", "UB04 Pt dis status", "UB04 Pri Typ of Adm", "Revenue Code",
+})  # fmt: skip
+
+
+def test_every_never_entry_of_the_register_is_pinned() -> None:
+    from omop import vocab_load
+
+    assert {v for v, c in vocab_load.athena_register().items() if not c.loadable} == NEVER_ALL
+    assert {v for r in lr.load() for v in r.never} == NEVER_ALL

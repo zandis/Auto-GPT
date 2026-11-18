@@ -56,6 +56,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from tb_common.vocabfold import fold
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTER = ROOT / "docs/licences/register.csv"
@@ -257,12 +258,15 @@ def row_problems(rows: list[Row]) -> list[str]:
         if sha and not re.fullmatch(r"[0-9a-f]{64}", sha):
             out.append(f"{where}: text_sha256 is not a sha256")
         out += _class_problems(r, where)
-    named: dict[str, str] = {}
+    named: dict[str, str] = {}  # folded name (ids and aliases) -> the row that names it
     for r in rows:
-        for v in (*r.athena, *r.never):
-            if v in named:
-                out.append(f"Athena vocabulary {v!r} named by rows {named[v]} and {r.id}")
-            named.setdefault(v, r.id)
+        aliases = (n.strip() for e in _split(r.raw.get("athena_never", "")) for n in e.split("|"))
+        names = [*r.athena, *r.never, *aliases]
+        for v in dict.fromkeys(n for n in names if n):
+            key = fold(v)
+            if key in named and named[key] != r.id:
+                out.append(f"Athena vocabulary {v!r} named by rows {named[key]} and {r.id}")
+            named.setdefault(key, r.id)
     return out
 
 
