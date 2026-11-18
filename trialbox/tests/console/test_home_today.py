@@ -474,8 +474,10 @@ def test_without_sae_view_no_serious_adverse_event_is_read_into_a_line(lb: dict[
         return real(user, "sae.view.refused-in-this-test" if action == "sae.view" else action, rid)
 
     monkeypatch.setattr(h, "permit", no_sae)
+    calls = _count_reads(lb)
     kinds = [k for k, _ in _lines(crc.get("/home").text)]
     assert not any(k.startswith("sae_") for k in kinds) and "visits_today" in kinds, kinds
+    assert not any("/aes" in x for x in calls), calls  # not read either
 
 
 def test_today_is_the_site_s_day_not_utc_s(lb: dict[str, Any]) -> None:
@@ -558,3 +560,19 @@ def test_the_flag_adds_a_bounded_number_of_statements_per_study(lb: dict[str, An
     on = {n: count(n) for n in (0, 8)}
     per_study_off, per_study_on = (off[8] - off[0]) / 8, (on[8] - on[0]) / 8
     assert per_study_on <= per_study_off + 3, (off, on)
+
+
+def test_what_is_read_is_shown_a_screening_sub_investigator_reads_no_visit(lb: dict[str, Any]) -> None:
+    """Nothing is read that the page does not show: a sub-investigator ticked for screening only reads the study's
+    participants and serious AEs (both on the page) but not its visits, whose lines are the data-entry task's."""
+    from tests.console.test_console_app import sub_investigator
+
+    _participant_with_saes(lb, 1)
+    lb["users"].create("screener", "investigator", PW, "screener@hospa.test")
+    sub_investigator(lb, "screener", tasks=("screen",))
+    _flag(lb, "on")
+    c, _ = login(lb["app"], "screener", PW)
+    calls = _count_reads(lb)
+    page = c.get("/home").text
+    assert [k for k, _ in _lines(page)] == ["sae_ack"]
+    assert any("/aes" in x for x in calls) and not any("/visits" in x for x in calls), calls

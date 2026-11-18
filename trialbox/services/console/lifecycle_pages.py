@@ -349,10 +349,13 @@ def register(app: FastAPI, h: Helpers) -> None:
         return rows + [{**a, "party": "no_clock", "due": ""} for a in got.get("aes") or []
                        if a.get("serious") and a.get("noclock")]  # fmt: skip
 
-    def life_home(sess: Session, only: Collection[str] | None = None) -> dict[str, Any]:
+    def life_home(sess: Session, only: Collection[str] | None = None, visits: Collection[str] | None = None,
+                  saes: Collection[str] | None = None) -> dict[str, Any]:  # fmt: skip
         """The home page's visit block and serious-AE alert, across the studies this account sees; with ``only``, in
-        those studies alone (J-6, D-1225: the opening page passes the studies whose participants the account reads,
-        so no read is made that the participant pages would refuse)."""
+        those studies alone, and with ``visits`` and ``saes``, the visits and the serious AEs of those studies alone
+        (J-6, D-1225: the opening page passes the studies whose participants the account reads, and of those the
+        ones whose visits and serious AEs it shows, so no read is made that the participant pages would refuse and
+        none that the page would not show)."""
         if not sess.user.can_view_phi or h.trials is None:
             return {"studies": [], "sae": [], "reports": []}
         day = today()
@@ -360,10 +363,12 @@ def register(app: FastAPI, h: Helpers) -> None:
         for r in h.trials(sess):  # read only: the lifecycle pages and the mail bring the participants up to date
             if only is not None and r.id not in only:
                 continue
-            v = visits_of(r.id, day)
+            v = visits_of(r.id, day) if visits is None or r.id in visits else None
             if v is not None and v["rows"]:
                 lst = v["list"]
                 studies.append({"rs": r.id, "today": lst["today"], "week": lst["week"], "overdue": lst["overdue"]})
+            if saes is not None and r.id not in saes:
+                continue
             got = aes(r.id)
             sae += [{**a, "rs": r.id} for a in got.get("unacked") or []]
             reports += [{**a, "rs": r.id} for a in (h.life_reports or reports_due)(r.id)]

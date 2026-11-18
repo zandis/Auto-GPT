@@ -47,8 +47,9 @@
   - **Only what the role may read.** A study's patient-level sources (its people, visits and serious AEs) are read
     only where the participant pages would let the account read them: `lifecycle_pages.reads_participants`, the rule
     of their `study_or_404` (sees the study, not a sponsor copy, `phi.view`, and the delegation log's PI or a
-    sub-investigator ticked for screening or data entry). `life_home` is asked for those studies only, so no read is
-    made that a page would refuse. Within them: serious AEs with `sae.view` (the acknowledgement line with `sae.ack`,
+    sub-investigator ticked for screening or data entry). `life_home` is asked for those studies only, and of them
+    for the visits and the serious AEs this page shows (`task.enter_data`, `sae.view`), so no read is made that a page
+    would refuse and none that this page would not show. Within them: serious AEs with `sae.view` (the acknowledgement line with `sae.ack`,
     as the acknowledgement route asks), visits with `task.enter_data`, the study card's tasks with `request.prepare`.
     "Mine" is asked only for the step shown, by the row its page asks (`criteria.approve` and the logged PI,
     `command.FEAS`, `command.SCREEN`, `list.mark` or `request.prepare` with the log's `screen`, `task.enter_data`,

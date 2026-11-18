@@ -611,7 +611,11 @@ def register(app: FastAPI, h: Helpers) -> None:
 
         studies = trials(sess)
         readable = [r.id for r in studies if h.reads_participants is not None and h.reads_participants(user, r.id)]
-        life = h.life_home(sess, only=readable) if h.life_home and readable else None
+        visit_studies = [rs for rs in readable if allow("task.enter_data", rs)]  # the visit lines' row
+        sae_studies = [rs for rs in readable if allow("sae.view", rs)]  # the safety lines' row
+        asked = [rs for rs in readable if rs in visit_studies or rs in sae_studies]
+        life = (h.life_home(sess, only=asked, visits=visit_studies, saes=sae_studies)
+                if h.life_home and asked else None)  # fmt: skip
         coordinator_card = allow("request.prepare")  # the study card with its tasks and funnel, as on today's home
         cards: list[dict[str, Any]] = []
         lines: list[home_today.TodayLine] = []
@@ -645,12 +649,12 @@ def register(app: FastAPI, h: Helpers) -> None:
             mine = bool(href) and mine_of(step, rs)
             nexts.append(home_today.next_line(rs, step, mine, href,
                                               years=state.keep_years or STUDY_YEARS_AFTER_CLOSE))  # fmt: skip
-            if life is not None and allow("sae.view", rs):
+            if life is not None and rs in sae_studies:
                 lines += home_today.sae_lines(rs, [a for a in life["sae"] if a["rs"] == rs],
                                               [a for a in life["reports"] if a["rs"] == rs],
                                               acknowledges=allow("sae.ack", rs))  # fmt: skip
                 failed += [x for x in life.get("sae_failed") or [] if x == rs]
-            if life is not None and allow("task.enter_data", rs):
+            if life is not None and rs in visit_studies:
                 for v in life["studies"]:
                     if v["rs"] == rs:
                         lines += home_today.visit_lines(rs, len(v["overdue"]), len(v["today"]), day)
