@@ -54,7 +54,9 @@ def _root(tmp: Path) -> Path:
     return root
 
 
-def _run(tmp: Path, root: Path, *, build_tools: bool = False, **env: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+def _run(
+    tmp: Path, root: Path, *, build_tools: bool = False, **env: str
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     bindir = tmp / "bin"
     bindir.mkdir(exist_ok=True)
     tools = {"docker": DOCKER, "uname": UNAME}
@@ -69,7 +71,9 @@ def _run(tmp: Path, root: Path, *, build_tools: bool = False, **env: str) -> tup
         (bindir / name).chmod(0o755)
     log = tmp / "docker.log"
     log.unlink(missing_ok=True)
-    full = {k: v for k, v in os.environ.items() if not k.startswith("TB_") and k not in ("HTTPS_PROXY", "POSTGRES_IMAGE")}
+    full = {
+        k: v for k, v in os.environ.items() if not k.startswith("TB_") and k not in ("HTTPS_PROXY", "POSTGRES_IMAGE")
+    }
     full.update(PATH=f"{bindir}:/usr/bin:/bin", TB_LLM_MODE="stub", TB_TEST_LOG=str(log), TB_POC_SKIP_INGEST="1",
                 TB_TEST_ARCH="x86_64", TB_TEST_PRESENT="")  # fmt: skip
     full.update(env)
@@ -200,7 +204,15 @@ def test_the_script_runs_the_command_the_makefile_ran(tmp_path: Path) -> None:
              "--build-arg", "https_proxy=http://proxy.invalid:3128"]  # fmt: skip
     ca = ["--secret", "id=extra_ca,src=/etc/ca.pem"]
     tail = ["-f", "deploy/docker/db.Dockerfile", "-t", DB, "deploy/docker"]
-    assert log.read_text(encoding="utf-8").split() == ["build", "--platform", "linux/arm64", *labels, *proxy, *ca, *tail]
+    assert log.read_text(encoding="utf-8").split() == [
+        "build",
+        "--platform",
+        "linux/arm64",
+        *labels,
+        *proxy,
+        *ca,
+        *tail,
+    ]
 
 
 def test_the_script_fetches_nothing_itself_and_names_no_host() -> None:
