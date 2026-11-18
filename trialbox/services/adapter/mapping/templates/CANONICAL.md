@@ -36,7 +36,8 @@ line carried, when the site's drug master turned a HOT or local code into `nhi_d
 amount given), `usage_code` and `usage_text` (TQ1-3 用法), `doses_per_day` with `doses_per_day_from` (`usage table`:
 the site's `usage.csv`, `usage text`: "1日N回"); from SS-MIX2 `daily_dose` is one dose times the doses a day, and empty
 when the frequency is unknown (never a guess); note_type
-`report` and `document` (extended-storage documents).
+`report` and `document` (extended-storage documents), and note `doc_code` (10B-5: the LOINC document code of a
+guideline data-type folder, which also chooses the note type).
 
 `identity: {name: name, national_id: id_no}` on the patient table keeps the name and national id encrypted in the
 pid map (TWPAS only); they never reach the lake.

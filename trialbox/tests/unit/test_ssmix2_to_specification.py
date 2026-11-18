@@ -201,3 +201,46 @@ def test_f3_the_yj_code_of_rxe31_resolves_the_atc_of_a_hot9_line(storage: kit.St
     )
     assert all(rows[k]["atc"] for k in rows) and not [k for k in src.missed if k.startswith("medication:")]
     assert src.stats["medication:YJ from RXE-31"] == 4
+
+
+# ------------------------------------------------------------------------------------------------ F4 (10B-5)
+def test_f4_a_guideline_layout_storage_reads_every_document_typed(storage: kit.Storage) -> None:
+    """Review 12's probe M5 (0 of 1 read): content folders under CWE+LOINC data-type folders. Card 12-4's proof:
+    the discharge summary and the pathology report read, typed; the local-only folder reads as a document; the
+    index file is not taken as text."""
+    src = _source(storage)
+    notes = {(r["mrn"], r["doc_code"], r["note_type"]): r for r in src.rows("note", "note", None, None)}
+    assert sorted(notes) == [
+        (kit.P1, "11526-1", "report"),
+        (kit.P1, "18842-5", "discharge"),
+        (kit.P2, "", "document"),
+    ]
+    summary = notes[(kit.P1, "18842-5", "discharge")]
+    assert "抗菌薬" in summary["text"] and "contents" not in summary["text"]
+    assert summary["note_datetime"] == "2026-10-15 00:00:00"
+    # a month day (YYYYMM) takes the content folder's 発生日時; a "-" day too
+    assert notes[(kit.P1, "11526-1", "report")]["note_datetime"] == "2026-10-20 12:00:00"
+    assert notes[(kit.P2, "", "document")]["note_datetime"] == "2026-10-02 09:00:00"
+    assert src.stats["document:_contents.xml not read"] == 1
+
+
+def test_f4_a_content_folder_flagged_0_is_a_tombstone(storage: kit.Storage) -> None:
+    src = _source(storage)
+    rows = list(src.rows("note", "note", None, None))
+    dead = list(src.deleted_rows("note", "note", None, None))
+    assert not [r for r in rows if r["mrn"] == kit.P2 and r["doc_code"] == "18842-5"]
+    assert [d["mrn"] for d in dead] == [kit.P2]
+
+
+def test_f4_the_japan_mapping_carries_the_documents_own_loinc_code(storage: kit.Storage) -> None:
+    from adapter.mapping.engine import Mapper, Mapping
+
+    m = Mapping.load(JP_MAPPING)
+    spec = next(r for r in m.resources if r.type == "DocumentReference")
+    mp = Mapper(m, b"k" * 32, "S")
+    rows = {r["doc_code"]: r for r in _source(storage).rows("note", "note", None, None)}
+    path = mp.map_row(spec, rows["11526-1"])
+    assert path is not None
+    assert [c.get("code") for c in path["type"]["coding"]] == ["47045-0", "11526-1"]
+    local = mp.map_row(spec, rows[""])
+    assert local is not None and [c.get("code") for c in local["type"]["coding"]] == ["34133-9"]

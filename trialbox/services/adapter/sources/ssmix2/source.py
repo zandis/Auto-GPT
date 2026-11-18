@@ -67,7 +67,9 @@ lab look-up or the licensed JLAC10 release is counted too (STD-043). Codes that 
 
 Extended storage (拡張ストレージ, D-137): documents (reports, discharge summaries, PDFs, text) under
 ``<root>/extended_storage/`` (or ``extended_storage=``), in the same patient folders:
-``<id[0:3]>/<id[3:6]>/<id>/<YYYYMMDD>/<kind>/<file>``. File names in the standardized form (with any extension) are
+``<id[0:3]>/<id[3:6]>/<id>/<診療日>/<kind>/<file>``, or as the guideline lays it out (10B-5) with a content folder
+between, ``<kind>/<content folder>/<files>``, the kind named like a CWE that carries the LOINC document code
+(``doc_code``, which types the note). File and content-folder names in the standardized form (with any extension) are
 versioned the same way; other names are one document each. Each becomes a ``note`` row (DocumentReference and note
 text for the two models); a file whose text cannot be read is kept as a document without text and counted.
 
@@ -150,6 +152,31 @@ _MATERIAL = {"001": "尿", "004": "蓄尿", "018": "全血", "019": "全血", "0
 _DOC_KINDS = (("DSC", "discharge"), ("SUM", "discharge"), ("RPT", "report"), ("REP", "report"),
               ("PRG", "progress"), ("NOTE", "progress"), ("ADM", "admission"), ("CON", "consult"),
               ("NRS", "nursing"))  # fmt: skip
+# 10B-5: a guideline data-type folder is named like a CWE, ``[local code]^local name^[local system]^LOINC document
+# code^standard name^LN`` (拡張ストレージ 構築ガイドライン 2.2, review 12 §4.5); its LOINC document code gives the note
+# type. The codes are those review 12 §3 records from the 標準文書コード表 (S25), not re-verified; any other code is a
+# ``document`` that keeps its LOINC code (``doc_code``)
+_LOINC_NOTE = {
+    "18842-5": "discharge",  # 退院時サマリ
+    "34108-1": "progress", "34112-3": "progress", "11506-3": "progress",  # 外来 / 入院診療録, 経過記録
+    "28623-7": "nursing",  # 看護記録
+    "11526-1": "report", "47526-9": "report", "18725-2": "report",  # 病理, 細胞診, 微生物学的検査報告書
+    "18748-4": "report", "18747-6": "report", "18755-9": "report", "18758-3": "report",  # 画像, CT, MRI, PET
+    "28010-7": "report", "12132-7": "report", "59281-6": "report",  # 生理検査の報告書
+}  # fmt: skip
+CONTENTS_INDEX = "_contents.xml"  # the content folder's index file: its schema is not in review 12, not read
+
+
+def document_code(kind: str) -> str:
+    """The LOINC document code of a data-type folder named like a CWE: the triple whose system is ``LN`` (the
+    alternate, components 4 to 6, or the first); empty for a local-only name or an old-style folder (``DSC-01``)."""
+    parts = kind.split("^")
+    for at in (3, 0):
+        if len(parts) > at + 2 and parts[at + 2].strip().upper() == "LN" and parts[at].strip():
+            return parts[at].strip()
+    return ""
+
+
 _TEXT_EXT = (".txt", ".text", ".csv", ".tsv")
 _CODED = ("CWE", "CE", "CNE", "CF")
 QUARANTINE_MAX_PCT = 1.0  # a table whose unreadable files pass this share of its files holds the night
@@ -1000,40 +1027,66 @@ class Ssmix2Source:
 
     # ------------------------------------------------------------------ extended storage
     def _documents(self) -> Iterator[Row]:
-        """Documents of the extended storage as ``note`` rows (the newest version of a standardized name wins)."""
+        """Documents of the extended storage as ``note`` rows. Under each data-type folder (``<pid 1-3>/<pid 4-6>/
+        <pid>/<診療日>/<データ種別>``) a file is one document (the layout read before), and a folder is the guideline's
+        content folder (10B-5, review 12 F4): one document whose files are read together (``_contents.xml`` left
+        out), versioned and flagged by the folder's own name. The newest version of a standardized name wins, flag 0
+        deletes. The 診療日 may be ``YYYYMMDD``, ``YYYYMM``, ``YYYY`` or ``-``: the document's time is the day when it
+        is a whole date, else the content folder's 発生日時, else unknown."""
         root = self.ext_storage
         if not root.is_dir():
             return
         latest: dict[tuple[str, ...], tuple[str, Path, str, str, str, bool]] = {}
-        for f in sorted(root.glob("*/*/*/*/*/*")):
-            if not f.is_file():
+        for kind_dir in sorted(root.glob("*/*/*/*/*")):
+            if not kind_dir.is_dir():
                 continue
-            patient, day, kind = f.parts[-4], f.parts[-3], f.parts[-2]
-            stem = f.name.rsplit(".", 1)[0] if "." in f.name else f.name
-            sf = parse_name(Path(stem))
-            if sf is not None and sf.patient == patient:
-                key: tuple[str, ...] = (patient, day, kind, sf.order)
-                stamp, deleted = sf.stamp, sf.deleted
-            else:
-                key, stamp, deleted = (patient, day, kind, f.name), "", False
-            cur = latest.get(key)
-            if cur is None or stamp > cur[0]:
-                latest[key] = (stamp, f, patient, day, kind, deleted)
-        for key, (_stamp, f, patient, day, kind, deleted) in sorted(latest.items()):
+            patient, day, kind = kind_dir.parts[-3], kind_dir.parts[-2], kind_dir.name
+            for f in sorted(kind_dir.iterdir()):
+                stem = f.name.rsplit(".", 1)[0] if f.is_file() and "." in f.name else f.name
+                sf = parse_name(Path(stem))
+                if sf is not None and sf.patient == patient:
+                    key: tuple[str, ...] = (patient, day, kind, sf.order)
+                    stamp, deleted = sf.stamp, sf.deleted
+                else:
+                    key, stamp, deleted = (patient, day, kind, f.name), "", False
+                    if f.is_dir():
+                        self.stats["document:content folder without a standardized name"] += 1
+                cur = latest.get(key)
+                if cur is None or stamp > cur[0]:
+                    latest[key] = (stamp, f, patient, day, kind, deleted)
+        for key, (stamp, f, patient, day, kind, deleted) in sorted(latest.items()):
             if deleted:
                 self.stats["document:deleted"] += 1
                 self._deleted_docs.append({"note_no": "ext/" + "/".join(key), "mrn": patient})
                 continue
-            text, how = document_text(f.name, f.read_bytes())
+            if f.is_dir():
+                self.stats["document:content folder"] += 1
+                texts, hows = [], []
+                for part in sorted(x for x in f.iterdir() if x.is_file()):
+                    if part.name == CONTENTS_INDEX:
+                        self.stats["document:_contents.xml not read"] += 1
+                        continue
+                    t, h = document_text(part.name, part.read_bytes())
+                    (texts if t else hows).append(t or h)
+                text, how = "\n\n".join(texts), "; ".join(hows) or "no file"
+            else:
+                text, how = document_text(f.name, f.read_bytes())
             self.stats["document" if text else f"document without text ({how})"] += 1
             when = hl7.ts(day) or ""
-            note_type = next((t for p, t in _DOC_KINDS if kind.upper().startswith(p)), "document")
+            if not when and stamp:
+                when = hl7.ts(stamp) or ""
+            code = document_code(kind)
+            if code:
+                note_type = _LOINC_NOTE.get(code, "document")
+            else:
+                note_type = next((t for p, t in _DOC_KINDS if kind.upper().startswith(p)), "document")
             yield {
                 "note_no": "ext/" + "/".join(key),  # becomes a keyed hash: the path never leaves the adapter
                 "mrn": patient,
                 "enc_no": "",
                 "note_datetime": when if len(when) > 10 else (f"{when} 00:00:00" if when else ""),
                 "note_type": note_type,
+                "doc_code": code,
                 "text": text,
             }
 

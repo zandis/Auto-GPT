@@ -141,3 +141,6 @@ overlay:
     table: note
     elements:
       type.coding[0].code: {column: note_type, map: {progress: 11506-3, admission: 34117-2, discharge: 18842-5, consult: 11488-4, nursing: 34746-8, report: 47045-0, document: 34133-9}, default: 11506-3}
+      # 10B-5: the document's own LOINC code, from the guideline's data-type folder name
+      type.coding[1].system: {template: "{sys.loinc}", when: {column: doc_code, not_empty: true}}
+      type.coding[1].code: {column: doc_code, when: {column: doc_code, not_empty: true}}
