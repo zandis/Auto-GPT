@@ -4,15 +4,16 @@ steps mode, each step by the role that owns it in the permission matrix.
 It begins as H-20's walk begins (H-10's steps 1 to 11, H-20's 12 to 15, imported): a new study, a participant
 enrolled. Then:
 
-16. the coordinator adds an adverse event on the participant's page: serious, hospital stay (the AE form);
-17. the coordinator opens the SAE register and the case: the reporting clock and the study's rule set;
-18. the coordinator meets D-415's gate: the study counts as open with no SAE type; paused, it does not open again
-    until its type is chosen;
-19. the coordinator chooses the study's SAE rule set on its set-up page and opens the study;
-20. the investigator (the study's PI) acknowledges the SAE on the case page;
-21. the coordinator records the first report sent;
-22. the data steward reads the notice the box recorded (the audit trail: the notice to the PI and the office);
-23. the investigator looks for the notice under "Notices received".
+16. the coordinator looks for "Add an adverse event" on the participant's page of the new study (no forms yet);
+17. the coordinator adds the built-in forms and an adverse event: serious, hospital stay (the AE form);
+18. the coordinator opens the SAE register and the case: its reports and their deadlines from the rule set;
+19. the coordinator reads the study's state: open, from start-up through D-415's SAE-type check, which the imported
+    steps passed when they opened the study (WALK-1, D-1153);
+20. the coordinator reads the SAE rule set chosen at opening on the study's set-up page;
+21. the investigator (the study's PI) acknowledges the SAE on the case page;
+22. the coordinator records the first report sent;
+23. the data steward reads the notice the box recorded (the audit trail: the notice to the PI and the office);
+24. the investigator looks for the notice under "Notices received".
 
 The box's mail is in process (no outside mail): the walk asserts the notice the product records, not a mail.
 """
@@ -24,7 +25,7 @@ from typing import Any
 from tests.e2e.module_walk_common import Act, F, Finding, K, M, Module, See, Step, Stop, T, refuse
 from tests.e2e.new_study_walk_plan import Do
 
-#: the reason the coordinator gives for the pause that meets D-415's gate (any text will do)
+#: the reason in the steward's refused pause (step 19's refusal; any text will do)
 PAUSE_REASON = "the safety walk meets the SAE type check"
 #: the AE term the coordinator types: words of the walk, nothing a patient record would hold
 AE_TERM = "walk event"
@@ -116,6 +117,7 @@ STEPS: tuple[Step, ...] = (
             Do("row_link", T("sae.open"), within=REC),
             See("h1", T(None, prefix=REC)),
             Stop("says", "SAF-02", T("sae.flag.unconfirmed")),
+            Act("read", label="reports", within="[data-testid=sae-reports]"),
         ),
         (
             refuse("steward", "GET", "/sae", "the steward cannot read the SAE register"),
@@ -132,14 +134,8 @@ STEPS: tuple[Step, ...] = (
             Do("more", T("setup.title", prefix="{rs} · ")),
             Do("link", T("sstate.link")),
             See("h1", T("sstate.title", prefix="{rs} · ")),
-            See("says", T("sstate.default")),
-            Do("select", label=T("sstate.move"), value="paused"),
-            Do("fill", label=T("sstate.reason"), value=PAUSE_REASON),
-            Do("button", T("sstate.save")),
-            See("says", K("sstate.changed", (("state", "@sstate.paused"),))),
-            Do("select", label=T("sstate.move"), value="open"),
-            Do("button", T("sstate.save")),
-            See("says", T("sstate.sae_type")),
+            See("says", K("sstate.now", (("state", "@sstate.open"),))),
+            Act("read", label="state", within="[data-testid=study-state] h2"),
         ),
         (
             refuse(
@@ -150,9 +146,9 @@ STEPS: tuple[Step, ...] = (
                 (("state", "paused"), ("reason", PAUSE_REASON)),
             ),
         ),
-        "Open the study's state: it counts as open with no state recorded. Pause it (with a reason), then try to "
-        "open it again.",
-        "The study does not open: its type for SAE reporting is chosen first (D-415, `sstate.sae_type`).",
+        "Open the study's state: open since the imported steps, which chose its type for SAE reporting before it "
+        "opened (D-1153).",
+        "Open, from start-up, through the SAE-type check (D-415, D-1153, `sstate.now`).",
     ),
     Step(
         20,
@@ -160,13 +156,8 @@ STEPS: tuple[Step, ...] = (
         "study.setup",
         (
             Do("more", T("setup.title", prefix="{rs} · ")),
-            Do("select", label=T("sae.setup.field"), value=RULE_SET),
-            Do("button", T("sae.setup.save")),
-            See("says", T("setup.saved")),
-            Do("link", T("sstate.link")),
-            Do("select", label=T("sstate.move"), value="open"),
-            Do("button", T("sstate.save")),
-            See("says", K("sstate.changed", (("state", "@sstate.open"),))),
+            See("says", T("sae.setup.title")),
+            Act("read", label="SAE rule set", within="[data-testid=setup-sae-set] option[selected]"),
         ),
         (
             refuse(
@@ -177,8 +168,8 @@ STEPS: tuple[Step, ...] = (
                 (("rule_set", RULE_SET),),
             ),
         ),
-        "On the study's set-up: choose the SAE rule set (Taiwan, trial) and confirm it; then open the study.",
-        "The rule set is saved with the coordinator's name; the study is open again (D-277, D-415).",
+        "On the study's set-up: read the SAE rule set chosen when the study opened (Taiwan, trial).",
+        "The rule set the coordinator chose and confirmed at opening (D-277, D-415).",
     ),
     Step(
         21,
