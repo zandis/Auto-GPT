@@ -116,6 +116,14 @@ MHLW drug price list (薬価基準収載品目リスト) sample
     https://www.digital.go.jp/resources/open_data/public_data_license_v1.0
   Attribution: 出典：厚生労働省「薬価基準収載品目リスト及び後発医薬品に関する情報について」(加工して作成)
 
+Japan's national holidays (国民の祝日), Cabinet Office
+  Version: 2025 to 2027 as published in syukujitsu.csv (1955 to 2027), read 2026-11-18, in
+    libs/tb_common/refdata_src/holidays_jp.csv (the dates and names unchanged; a column kind added, which tells the
+    two kinds the source calls 休日 apart: substitute holidays and citizens' holidays).
+  Licence: Public Data License 1.0 (PDL 1.0), the Cabinet Office website terms (内閣府ホームページ利用規約),
+    https://www.cao.go.jp/notice/rule.html, https://www.digital.go.jp/resources/open_data/public_data_license_v1.0
+  Attribution: 出典：内閣府「国民の祝日について」(https://www8.cao.go.jp/chosei/shukujitsu/gaiyou.html)(加工して作成)
+
 Taiwan NHI drug codes, NHI order codes, department codes
   Version: the NHI drug and order rows of services/criteria_compiler/terminology/src are synthetic demo rows
     (column synthetic = yes); tests/fixtures/refdata/nhi_drugs_sample.csv holds a few rows of the public list.
@@ -427,7 +435,7 @@ Every folder of the image that holds code lists, code maps or value sets, and th
   rulesets/*/valuesets/                         ICD-10-CM, LOINC, ATC value sets of the shipped rulesets
   catalogue/                                    LOINC, UCUM, CDISC, ATC, OHDSI references (sections 1 to 3)
   catalogue/verification/                       verified LOINC, JLAC10, ICD-10-CM decisions behind the catalogue (sections 1, 3)
-  libs/tb_common/refdata_src/                   ICD-10 bridge, YJ to ATC, synonyms (section 1)
+  libs/tb_common/refdata_src/                   ICD-10 bridge, YJ to ATC, synonyms, Japan's holidays (section 1)
   services/adapter/mapping/jp_core/             demo maps to ICD-10, LOINC, ATC (section 1)
   services/adapter/mapping/tw_core/             local lab to LOINC (section 1)
   services/adapter/mapping/mimic/tables/        MIMIC items to LOINC, ATC, ICD-10-CM, ICD-10-PCS (section 1)

@@ -9,6 +9,7 @@
 <td><label class="sr" for="before-{{ i }}">{{ t('life.schedule.before') }}</label><input id="before-{{ i }}" name="before" value="{{ v.before if v else '' }}" inputmode="numeric" class="short"{% if not editable %} disabled{% endif %}></td>
 <td><label class="sr" for="after-{{ i }}">{{ t('life.schedule.after') }}</label><input id="after-{{ i }}" name="after" value="{{ v.after if v else '' }}" inputmode="numeric" class="short"{% if not editable %} disabled{% endif %}></td>
 <td><label class="sr" for="anchor-{{ i }}">{{ t('life.schedule.anchor') }}</label><select id="anchor-{{ i }}" name="anchor"{% if not editable %} disabled{% endif %}>{% for a in ('enrolment', 'consent') %}<option value="{{ a }}"{% if v and v.anchor == a %} selected{% endif %}>{{ t('life.anchor.' + a) }}</option>{% endfor %}</select></td>
+<td><label class="sr" for="unit-{{ i }}">{{ t('life.schedule.unit') }}</label><select id="unit-{{ i }}" name="unit" data-testid="sched-unit-{{ i }}"{% if not editable %} disabled{% endif %}>{% for u in ('days', 'working') %}<option value="{{ u }}"{% if (u == 'working') == (true if v and v.get('working_days') else false) %} selected{% endif %}>{{ t('life.unit.' + u) }}</option>{% endfor %}</select></td>
 </tr>{% endmacro %}
 {% block content %}
 <div class="headrow"><h1>{{ rs }} · {{ t('life.schedule.title') }}</h1></div>
@@ -21,13 +22,22 @@
 <form method="post" action="/studies/{{ rs }}/schedule">
 <input type="hidden" name="csrf" value="{{ csrf }}">
 <div class="scroll" tabindex="0"><table class="candidates sched">
-<thead><tr><th>{{ t('life.schedule.visit') }}</th><th>{{ t('life.schedule.label') }}</th><th>{{ t('life.schedule.day') }}</th><th>{{ t('life.schedule.before') }}</th><th>{{ t('life.schedule.after') }}</th><th>{{ t('life.schedule.anchor') }}</th></tr></thead>
+<thead><tr><th>{{ t('life.schedule.visit') }}</th><th>{{ t('life.schedule.label') }}</th><th>{{ t('life.schedule.day') }}</th><th>{{ t('life.schedule.before') }}</th><th>{{ t('life.schedule.after') }}</th><th>{{ t('life.schedule.anchor') }}</th><th>{{ t('life.schedule.unit') }}</th></tr></thead>
 <tbody>{% for v in schedule %}{{ row(loop.index0, v) }}{% endfor %}{% if editable %}{% for i in range(blank) %}{{ row(schedule|length + i, none) }}{% endfor %}{% endif %}</tbody>
 </table></div>
 {% if not schedule %}<p class="empty hint">{{ t('life.schedule.none') }}</p>{% endif %}
 {% if editable %}<button type="submit" name="action" value="save" data-testid="schedule-save">{{ t('life.schedule.save') }}</button>{% endif %}
 </form>
 </section>
+{% if days_off is not none %}
+<section class="card" data-testid="days-off">
+<h2>{{ t('life.daysoff.title') }}</h2>
+<p class="hint">{{ t('life.daysoff.help', until=days_off_until) }}</p>
+{% if days_off_problems %}<p class="error" role="alert" data-testid="days-off-problems">{{ t('life.daysoff.problem', what=days_off_problems|join(', ')) }}</p>{% endif %}
+{% if days_off %}<ul class="plain">{% for d, why, name in days_off %}<li data-testid="day-off">{{ d.isoformat() }} · {{ t('life.daysoff.why.' + why) }}{% if name %} · {{ name }}{% endif %}</li>{% endfor %}</ul>
+{% else %}<p class="empty hint">{{ t('life.daysoff.none') }}</p>{% endif %}
+</section>
+{% endif %}
 {% if editable and conns %}
 <section class="card" data-testid="schedule-redcap">
 <h2>{{ t('life.schedule.redcap') }}</h2>

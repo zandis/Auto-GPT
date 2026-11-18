@@ -44,13 +44,14 @@ from datacore.store import DataCore
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from rc_bridge.client import RedcapClient
-from tb_common import sheets
+from tb_common import sheets, workdays
 from tb_common.actor_v3 import Claim
 from tb_common.audit import AuditLog
 from tb_common.deterministic import normalize_ooxml
 from tb_common.erased import is_erased
 from tb_common.patient_reads import MONITOR as _MONITOR
 from tb_common.patient_reads import PHI as _PHI
+from tb_common.workdays import Calendar
 
 from orchestrator.actor import require_actor
 from orchestrator.candidates import RegistryError
@@ -137,6 +138,7 @@ class VisitBody(BaseModel):
     after: int = 0
     anchor: str = "enrolment"
     labels: dict[str, str] = Field(default_factory=dict)
+    working_days: bool = False  # 10C-14: the protocol counts this visit's window in working days
 
 
 class ScheduleBody(BaseModel):
@@ -321,9 +323,14 @@ def derive_record(svc: Host, rs: str, record: str, by: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------------------------- views
+def site_calendar(svc: Host) -> Calendar:
+    """The site's working days (10C-14): the country of the site's zone, as :func:`sae_rules` reads it."""
+    return workdays.for_zone(str(getattr(svc.now().tzinfo, "key", "") or os.environ.get("TB_TZ", "")))
+
+
 def subject_view(life: Lifecycle, rs: str, sub: dict[str, Any], today: date,
-                 sched: list[Visit]) -> dict[str, Any]:  # fmt: skip
-    visits = life.visits(rs, str(sub["record"]), today, sched, sub)
+                 sched: list[Visit], cal: Calendar = workdays.WEEKDAYS_ONLY) -> dict[str, Any]:  # fmt: skip
+    visits = life.visits(rs, str(sub["record"]), today, sched, sub, cal)
     n = {k: sum(1 for v in visits if v["status"] == k) for k in lc.VISIT_STATES}
     # T-516 (LIFE-019): an enrolment or a visit recorded without a consent form; the subject is held before consent
     missing = life.consent_missing(rs, str(sub["record"]), str(sub["state"]))
@@ -333,11 +340,11 @@ def subject_view(life: Lifecycle, rs: str, sub: dict[str, Any], today: date,
             "consent": consent}  # fmt: skip
 
 
-def visit_rows(life: Lifecycle, rs: str, today: date) -> list[dict[str, Any]]:
+def visit_rows(life: Lifecycle, rs: str, today: date, cal: Calendar = workdays.WEEKDAYS_ONLY) -> list[dict[str, Any]]:
     sched = life.schedule_on(rs, today)
     rows = []
     for sub in life.subjects(rs):
-        for v in life.visits(rs, str(sub["record"]), today, sched, sub):
+        for v in life.visits(rs, str(sub["record"]), today, sched, sub, cal):
             if v["status"] == "unplanned":
                 continue
             rows.append({**v, "record": sub["record"], "pid": sub["pid"], "state": sub["state"]})
@@ -482,7 +489,8 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         life, day = Lifecycle(svc.dc), _today(svc, today)
         sched = life.schedule_on(rid, day)
         detail = life.screen_detail(rid)  # D-387: consent, enrolment and the criterion not met, for the screening log
-        subs = [{**subject_view(life, rid, s, day, sched), **detail.get(str(s["record"]), {})}
+        cal = site_calendar(svc)
+        subs = [{**subject_view(life, rid, s, day, sched, cal), **detail.get(str(s["record"]), {})}
                 for s in life.subjects(rid)]  # fmt: skip
         return {"study": rid, "today": day.isoformat(), "subjects": subs,
                 "counts": {s: sum(1 for x in subs if x["state"] == s) for s in lc.STATES}}  # fmt: skip
@@ -494,13 +502,13 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         sub = life.subject(rid, rec)
         if sub is None:
             raise HTTPException(status_code=404, detail={"code": "LIFE-NONE", "message": "no such subject"})
-        sched = life.schedule_on(rid, day)
+        sched, cal = life.schedule_on(rid, day), site_calendar(svc)
         return {
             "study": rid,
             "today": day.isoformat(),
-            "subject": subject_view(life, rid, sub, day, sched),
+            "subject": subject_view(life, rid, sub, day, sched, cal),
             "steps": life.steps(rid, rec),
-            "visits": life.visits(rid, rec, day, sched, sub),
+            "visits": life.visits(rid, rec, day, sched, sub, cal),
             "aes": aes_of(svc, rid, rec, day),
             "deviations": life.entries(rid, rec, DV_EVENT),
             "next_ae": life.next_event(rid, rec, "ae"),
@@ -565,7 +573,7 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
 
     @r.put("/studies/{rs}/schedule")
     def put_schedule(rs: str, body: ScheduleBody, who: Claim = AS_ENTER) -> dict[str, Any]:
-        visits = [Visit(v.visit.strip().lower(), v.day, v.before, v.after, v.anchor, dict(v.labels))
+        visits = [Visit(v.visit.strip().lower(), v.day, v.before, v.after, v.anchor, dict(v.labels), v.working_days)
                   for v in body.visits]  # fmt: skip
         return put(_rs(rs), visits, "trialbox", who.name, body.effective_from)
 
@@ -602,7 +610,7 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
     def get_visits(rs: str, today: str = "") -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
         day = _today(svc, today)
-        rows = visit_rows(Lifecycle(svc.dc), rid, day)
+        rows = visit_rows(Lifecycle(svc.dc), rid, day, site_calendar(svc))
         return {"study": rid, "today": day.isoformat(), "rows": rows, "list": lc.worklist(rows, day)}
 
     @r.get("/studies/{rs}/aes", dependencies=[NOTIFY_READ])
@@ -669,7 +677,7 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         """D-407 (LIFE-025): the possible deviations the box's facts show, each open, confirmed or dismissed."""
         svc, rid = get(), _rs(rs)
         day = _today(svc, today)
-        rows = Lifecycle(svc.dc).possible_deviations(rid, day, icf[:40])
+        rows = Lifecycle(svc.dc).possible_deviations(rid, day, icf[:40], site_calendar(svc))
         return {"study": rid, "today": day.isoformat(), "rows": rows,
                 "open": sum(1 for x in rows if x["state"] == "open")}  # fmt: skip
 
@@ -681,7 +689,7 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         try:
             out = Lifecycle(svc.dc).decide_deviation(rid, rec, body.key, body.decision, reason=body.reason,
                                                      by=who.name, at=svc.stamp(), today=_today(svc, body.today),
-                                                     icf_version=body.icf)  # fmt: skip
+                                                     icf_version=body.icf, cal=site_calendar(svc))  # fmt: skip
         except LifeError as exc:
             svc.audit.append("life.refused", ruleset=rid, actor=who.name,
                              detail={"record": rec, "deviation": body.key[:80], "why": exc.why})  # fmt: skip

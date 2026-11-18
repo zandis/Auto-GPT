@@ -31,6 +31,12 @@ callers add the audit record.
 **Visit windows** (``visit_status``) are computed for a given day (the site's local date), so a test can step through
 them: *due* (the window has not opened), *open* (today is in the window), *overdue* (the window has closed), *done*,
 *missed* (the visit form says so), *stopped* (the subject left the study before it).
+
+**Working days** (10C-14, JP-15): a visit whose protocol counts its window in working days (``working_days``) has
+its days before and after counted in the site's working days (``tb_common.workdays``: Monday to Friday less the
+public holidays and New Year break of a country with a holiday list), so a window of 3 working days after a Friday
+in Golden Week runs past the holidays. The due day is still the protocol's day number in calendar days. A visit
+without the flag counts calendar days, as before.
 """
 
 from __future__ import annotations
@@ -44,6 +50,7 @@ from typing import Any
 
 from datacore.forms import XML_ILLEGAL
 from datacore.store import DataCore
+from tb_common.workdays import WEEKDAYS_ONLY, Calendar
 
 STATES = ("candidate", "approached", "consented", "enrolled", "on_study", "completed", "withdrawn", "screen_fail")
 LINE = ("candidate", "approached", "consented", "enrolled", "on_study", "completed")  # the main line, in order
@@ -121,6 +128,9 @@ CREATE TABLE IF NOT EXISTS deviation_call (study TEXT NOT NULL, record TEXT NOT 
   decision TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', event TEXT NOT NULL DEFAULT '', who TEXT NOT NULL,
   at TEXT NOT NULL, PRIMARY KEY (study, record, key))
 """
+# 10C-14 (JP-15): a visit whose window the protocol counts in working days (the data core's version 10, after
+# ``datacore.store.HISTORY_REASON``; additive: every schedule saved before counts calendar days)
+SCHEDULE_WORKING_DAYS = "ALTER TABLE schedule ADD COLUMN IF NOT EXISTS working_days BOOLEAN NOT NULL DEFAULT FALSE"
 # the lifecycle's migrations after its base schema, in order (the name is from the first two; never edit an applied one)
 SAE_MIGRATIONS = (SAE_SCHEMA, SAE_SCHEMA_V2, SCHEDULE_VERSIONS, SCREEN_FAIL_DETAIL, CONTACT_AND_DEVIATIONS)
 
@@ -369,10 +379,14 @@ class Visit:
     after: int = 0
     anchor: str = "enrolment"
     labels: dict[str, str] = field(default_factory=dict)
+    working_days: bool = False  # 10C-14: the window (before, after) counts the site's working days
 
     def as_dict(self) -> dict[str, Any]:
-        return {"visit": self.name, "day": self.day, "before": self.before, "after": self.after,
-                "anchor": self.anchor, "labels": dict(self.labels)}  # fmt: skip
+        out = {"visit": self.name, "day": self.day, "before": self.before, "after": self.after,
+               "anchor": self.anchor, "labels": dict(self.labels)}  # fmt: skip
+        if self.working_days:  # only when set: a schedule saved before reads and writes as it did
+            out["working_days"] = True
+        return out
 
 
 def check_visit(v: Visit) -> None:
@@ -703,7 +717,8 @@ class Lifecycle:
     def schedule(self, study: str) -> list[Visit]:
         rows = self.db.fetchdicts("SELECT * FROM schedule WHERE study = ? ORDER BY seq, visit", (study,))
         return [Visit(str(r["visit"]), int(r["day"]), int(r["win_before"]), int(r["win_after"]), str(r["anchor"]),
-                      dict(json.loads(r["labels"] or "{}"))) for r in rows]  # fmt: skip
+                      dict(json.loads(r["labels"] or "{}")), bool(r.get("working_days")))
+                for r in rows]  # fmt: skip
 
     def set_schedule(self, study: str, visits: list[Visit], origin: str, at: str, effective_from: str = "") -> int:
         """Save a schedule as a new version (D-364, LIFE-012); the versions before it stay. ``effective_from`` is the
@@ -734,9 +749,9 @@ class Lifecycle:
             tx.execute("DELETE FROM schedule WHERE study = ?", (study,))
             for i, v in enumerate(visits):
                 tx.execute("INSERT INTO schedule (study, visit, seq, labels, anchor, day, win_before, win_after, "
-                           "origin, at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                           "origin, at, working_days) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                            (study, v.name, i, json.dumps(v.labels, ensure_ascii=False), v.anchor, v.day, v.before,
-                            v.after, origin, at))  # fmt: skip
+                            v.after, origin, at, v.working_days))  # fmt: skip
         return last + 1
 
     def schedule_versions(self, study: str) -> list[dict[str, Any]]:
@@ -745,7 +760,8 @@ class Lifecycle:
         return [{"version": int(r["version"]), "effective_from": str(r["effective_from"] or ""),
                  "origin": str(r["origin"]), "at": str(r["at"]),
                  "visits": [Visit(str(v["visit"]), int(v["day"]), int(v["before"]), int(v["after"]), str(v["anchor"]),
-                                  dict(v.get("labels") or {})) for v in json.loads(r["visits"] or "[]")]}
+                                  dict(v.get("labels") or {}), bool(v.get("working_days")))
+                            for v in json.loads(r["visits"] or "[]")]}
                 for r in rows]  # fmt: skip
 
     def schedule_on(self, study: str, day: date, versions: list[dict[str, Any]] | None = None) -> list[Visit]:
@@ -766,7 +782,7 @@ class Lifecycle:
         }
 
     def visits(self, study: str, record: str, today: date, schedule: list[Visit] | None = None,
-               subject: dict[str, Any] | None = None) -> list[dict[str, Any]]:  # fmt: skip
+               subject: dict[str, Any] | None = None, cal: Calendar = WEEKDAYS_ONLY) -> list[dict[str, Any]]:  # fmt: skip
         vers = self.schedule_versions(study)
         if schedule is not None:
             sched = schedule
@@ -779,13 +795,14 @@ class Lifecycle:
             vals.setdefault(str(r["event"]), {})[str(r["field"])] = str(r["value"])
         out = []
         for v in sched:
-            row = visit_status(v, anchors.get(v.anchor), vals.get(v.name, {}), str(sub["state"]), today)
+            row = visit_status(v, anchors.get(v.anchor), vals.get(v.name, {}), str(sub["state"]), today, cal)
             if vers:  # D-364 (LIFE-012): a visit done is judged by the schedule in force on the visit day
                 on = _day(row["done_on"]) if row["status"] == "done" else None
                 then = in_force_on(vers, on or today)
                 was = next((w for w in then["visits"] if w.name == v.name), None)
                 if on is not None and was is not None and was != v:
-                    row = visit_status(was, anchors.get(was.anchor), vals.get(v.name, {}), str(sub["state"]), today)
+                    row = visit_status(was, anchors.get(was.anchor), vals.get(v.name, {}), str(sub["state"]), today,
+                                       cal)  # fmt: skip
                 row["schedule_version"] = then["version"] if was is not None else in_force_on(vers, today)["version"]
             out.append(row)
         return out
@@ -857,7 +874,8 @@ class Lifecycle:
         return self.contact_rule(study)
 
     # ------------------------------------------------------------------ possible deviations (D-407, LIFE-025)
-    def possible_deviations(self, study: str, today: date, icf_version: str = "") -> list[dict[str, Any]]:
+    def possible_deviations(self, study: str, today: date, icf_version: str = "",
+                            cal: Calendar = WEEKDAYS_ONLY) -> list[dict[str, Any]]:  # fmt: skip
         """What the box's own facts say may be a deviation, one proposal per subject and fact, each with the
         coordinator's answer when there is one (``state``: open, confirmed, dismissed). Never a deviation entry by
         itself: a proposal becomes one only when a person confirms it. ``icf_version``: the consent form version in
@@ -867,7 +885,7 @@ class Lifecycle:
         out: list[dict[str, Any]] = []
         for sub in self.subjects(study):
             rec = str(sub["record"])
-            for p in self._proposals(study, rec, sub, today, icf_version):
+            for p in self._proposals(study, rec, sub, today, icf_version, cal):
                 c = calls.get((rec, p["key"]))
                 out.append({**p, "record": rec, "pid": str(sub["pid"]), "dv_kind": PROPOSAL_KINDS[p["kind"]],
                             "state": {"confirm": "confirmed", "dismiss": "dismissed"}[str(c["decision"])] if c
@@ -877,13 +895,13 @@ class Lifecycle:
         return out
 
     def _proposals(self, study: str, rec: str, sub: dict[str, Any], today: date,
-                   icf_version: str) -> list[dict[str, Any]]:  # fmt: skip
+                   icf_version: str, cal: Calendar = WEEKDAYS_ONLY) -> list[dict[str, Any]]:  # fmt: skip
         vals: dict[str, dict[str, str]] = {}
         for r in self.dc.values(study, rec):
             vals.setdefault(str(r["event"]), {})[str(r["field"])] = str(r["value"])
         once = vals.get("", {})
         out: list[dict[str, Any]] = []
-        for v in self.visits(study, rec, today, subject=sub):
+        for v in self.visits(study, rec, today, subject=sub, cal=cal):
             if v["status"] != "done":
                 continue
             said_out = vals.get(str(v["visit"]), {}).get("vs_window") == "0"
@@ -922,7 +940,8 @@ class Lifecycle:
         return out
 
     def decide_deviation(self, study: str, record: str, key: str, decision: str, *, reason: str = "", by: str,
-                         at: str, today: date, icf_version: str = "") -> dict[str, Any]:  # fmt: skip
+                         at: str, today: date, icf_version: str = "",
+                         cal: Calendar = WEEKDAYS_ONLY) -> dict[str, Any]:  # fmt: skip
         """The coordinator's answer to one proposal: ``confirm`` writes a deviation entry (the next ``dvN`` event:
         date, kind, what happened; class and reports are then completed on the form), ``dismiss`` keeps the reason.
         One answer per proposal; a second is refused."""
@@ -933,7 +952,7 @@ class Lifecycle:
             raise LifeError("chars", "the reason holds a character that cannot be stored (a control character)")
         if decision == "dismiss" and not reason:
             raise LifeError("dismiss_reason", "say why this is not a deviation")
-        one = next((p for p in self.possible_deviations(study, today, icf_version)
+        one = next((p for p in self.possible_deviations(study, today, icf_version, cal)
                     if p["record"] == record and p["key"] == key), None)  # fmt: skip
         if one is None:
             raise LifeError("proposal", "no such possible deviation for this subject")
@@ -1021,11 +1040,17 @@ def live_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def visit_status(v: Visit, anchor: date | None, vals: dict[str, str], state: str, today: date) -> dict[str, Any]:
-    """One visit's window and state on ``today`` (the site's local date)."""
+def visit_status(v: Visit, anchor: date | None, vals: dict[str, str], state: str, today: date,
+                 cal: Calendar = WEEKDAYS_ONLY) -> dict[str, Any]:  # fmt: skip
+    """One visit's window and state on ``today`` (the site's local date); ``cal``, the site's working days, counts
+    the window of a visit whose protocol says working days (10C-14)."""
     due = anchor + timedelta(days=v.day) if anchor else None
-    start = due - timedelta(days=v.before) if due else None
-    end = due + timedelta(days=v.after) if due else None
+    if due is not None and v.working_days:
+        start: date | None = cal.add_working_days(due, -v.before)
+        end: date | None = cal.add_working_days(due, v.after)
+    else:
+        start = due - timedelta(days=v.before) if due else None
+        end = due + timedelta(days=v.after) if due else None
     done_on = vals.get("vs_date", "")
     if vals.get("vs_status") == "1":
         status = "done"
