@@ -46,12 +46,20 @@ def _problems(*paths: Path, **kw: Any) -> list[str]:
 # ------------------------------------------------------------------------------------------------ the rules
 def test_the_forbidden_names_are_the_registers_class_c_with_their_aliases() -> None:
     r = vbc.rules()
-    assert r.names["snomed"] == ("SNOMED", "snomed-ct") and r.names["snomed ct"] == ("SNOMED", "snomed-ct")
-    assert r.names["snomedct_us"][0] == "SNOMED" and r.names["urn:oid:2.16.840.1.113883.6.96"][0] == "SNOMED"
-    assert r.names["cpt4"] == ("CPT4", "athena-licensed") and r.names["icd10"] == ("ICD10", "icd10-who")
-    assert r.names["http://snomed.info/sct"][0] == "SNOMED" and "http://snomed.info/sct" in r.needles
-    for open_ in ("rxnorm", "loinc", "ucum", "atc", "http://www.whocc.no/atc", "http://loinc.org", "gender"):
-        assert open_ not in r.names, open_
+    from tb_common.vocabfold import fold
+
+    def name(n: str) -> tuple[str, str] | None:
+        return r.names.get(fold(n))
+
+    assert name("SNOMED") == ("SNOMED", "snomed-ct") and name("snomed ct") == ("SNOMED", "snomed-ct")
+    assert name("SNOMEDCT_US") == ("SNOMED", "snomed-ct") and name("urn:oid:2.16.840.1.113883.6.96") == (
+        "SNOMED",
+        "snomed-ct",
+    )
+    assert name("CPT4") == ("CPT4", "athena-licensed") and name("ICD10") == ("ICD10", "icd10-who")
+    assert name("http://snomed.info/sct")[0] == "SNOMED" and "http://snomed.info/sct" in r.needles  # type: ignore[index]
+    for open_ in ("RxNorm", "LOINC", "UCUM", "ATC", "http://www.whocc.no/atc", "http://loinc.org", "Gender"):
+        assert name(open_) is None, open_
 
 
 # ------------------------------------------------------------------------------------------------ tables
@@ -317,3 +325,47 @@ def test_make_bundle_stops_on_a_forbidden_rule_set_before_any_image_is_saved(tmp
         assert re.search(r"vocabulary bundle check: \d+ artefacts, 0 problems", ok.stdout), ok.stdout + ok.stderr
     finally:
         mp.undo()
+
+
+# ------------------------------------------------------------------------------------------------ second review
+def test_a_sql_dump_and_a_csv_under_an_unknown_extension_are_read_field_by_field(tmp_path: Path) -> None:
+    dump = _write(tmp_path / "b/d.sql", "COPY concept (concept_id, vocabulary_id, concept_code) FROM stdin;\n"
+                  "4000001\tSNOMED\tNOT-A-CODE-1\n4000002\tRxNorm\tNOT-A-CODE-2\n\\.\n")  # fmt: skip
+    odd = _write(tmp_path / "b/codes.export", "id,vocab,code\n1,cpt4,NOT-A-CODE-3\n")
+    assert _problems(dump, odd) == [
+        f"{dump}: 1 row(s) of vocabulary 'SNOMED', licence class c, must not ship (register row snomed-ct)",
+        f"{odd}: 1 row(s) of vocabulary 'CPT4', licence class c, must not ship (register row athena-licensed)",
+    ]
+    prose = _write(tmp_path / "b/q.sql", "-- Read the table and keep it\nSELECT 1;\n")  # 'Read' only inside prose
+    notice = _write(tmp_path / "b/NOTICE.md", "## WHO ICD-10\nAttribution text.\n")  # a heading, not a row
+    assert _problems(prose, notice) == []
+
+
+def test_https_bare_oid_and_edition_uris_are_caught(tmp_path: Path) -> None:
+    txt = _write(tmp_path / "r/a.cql", "codesystem \"S\": 'https://snomed.info/sct'\n"
+                 "codesystem \"E\": 'http://snomed.info/sct/900000000000207008/version/20250101'\n"
+                 "-- oid 2.16.840.1.113883.6.96 and urn:oid:2.16.840.1.113883.6.12\n")  # fmt: skip
+    vs = _write(tmp_path / "r/vs.json", json.dumps({"resourceType": "ValueSet", "compose": {"include": [
+        {"system": "http://snomed.info/sct/900000000000207008/version/20250101"}]}}))  # fmt: skip
+    got = _problems(txt, vs)
+    assert f"{txt}: 1 row(s) of vocabulary 'CPT4', licence class c, must not ship (register row athena-licensed)" in got
+    assert any(g.startswith(f"{txt}: ") and "'SNOMED'" in g for g in got)
+    assert f"{vs}: 1 row(s) of vocabulary 'SNOMED', licence class c, must not ship (register row snomed-ct)" in got
+
+
+def test_terminology_coding_scheme_cs_keys_and_yaml_are_read(tmp_path: Path) -> None:
+    t = _write(tmp_path / "b/t.csv", "code,terminology,coding_scheme,cs\nN-1,SNOMED,,\nN-2,,CPT4,\nN-3,,,HemOnc\n")
+    y = _write(tmp_path / "b/map.yaml", "rows:\n  - code: NOT-A-CODE-1\n    vocabulary_id: snomed\n")
+    got = _problems(t, y)
+    assert len([g for g in got if g.startswith(f"{t}: ")]) == 3
+    assert got[-1] == f"{y}: 1 row(s) of vocabulary 'SNOMED', licence class c, must not ship (register row snomed-ct)"
+    bad = _write(tmp_path / "b/bad.yaml", "a: [unclosed\n")
+    assert _problems(bad) == [f"{bad}: YAML does not parse"]
+
+
+def test_the_help_says_which_check_guards_what(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        vbc.main(["--help"])
+    out = capsys.readouterr().out
+    assert "--tree guards make vocab-bundle-check, release-bundle and demo-bundle" in " ".join(out.split())
+    assert "make_bundle.sh" in out and "checks only what it stages" in " ".join(out.split())

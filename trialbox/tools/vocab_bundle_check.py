@@ -22,6 +22,12 @@ terminology.
 **By label only.** The check reads the vocabulary labels and system URIs the artefacts carry. A row relabelled, or a
 concept id with no label, passes; looking concept ids up in the site's own download is card 22-4b, not done here.
 
+**What guards what.** ``--tree`` (the shipped tree, the images' content) runs in ``make vocab-bundle-check``, which
+``make release-bundle`` and ``make demo-bundle`` need. ``tools/make_bundle.sh`` checks only what it stages beside the
+images (rule-set zips, reference data packs, the models folder): run directly, as ``tools/rehearse_box/rehearse.sh``,
+``tools/runbook_install.py``, ``deploy/gcp/box-install-run.sh`` and ``deploy/gcp/demo-vm-update.sh`` do, it does not
+check the tree.
+
 **Exceptions.** A register row of kind ``bundle-exception`` (status ``decision-pending``: an owner decision is
 pending) names shipped files in ``paths``; a hit in such a file is printed as a warning, not a failure. The register
 holds the rows; this tool holds no list of its own.
@@ -48,17 +54,28 @@ for _p in (ROOT, ROOT / "libs", ROOT / "services"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from omop.vocab_load import REGISTER, athena_register, fold  # noqa: E402
+import yaml  # noqa: E402
+from omop.vocab_load import REGISTER, athena_register  # noqa: E402
+from tb_common.vocabfold import fold  # noqa: E402
 
 from tools import licence_register as lr  # noqa: E402
 
 BY_LABEL = (
-    "checked by label: vocabulary columns, system columns, JSON keys and values, URI and OID mentions; a relabelled "
-    "row or an unlabelled concept id passes (a lookup in the site's download is card 22-4b)"
+    "checked by label: vocabulary and system columns, JSON and YAML keys and values, delimited fields of other text, "
+    "URI and OID mentions; a relabelled row or an unlabelled concept id passes (a lookup in the site's download is "
+    "card 22-4b). --tree guards make vocab-bundle-check, release-bundle and demo-bundle; make_bundle.sh, run directly "
+    "(rehearse.sh, runbook_install, box-install-run.sh, demo-vm-update.sh), checks only what it stages"
 )
 TABLE = (".csv", ".tsv", ".txt", ".parquet")
 JSON_DOC = (".json",)
 JSON_LINES = (".ndjson", ".jsonl")
+YAML = (".yaml", ".yml")
+# notices and read-me files: searched for URIs and OIDs only, not field by field
+PROSE = (".md", ".html", ".htm", ".rst")
+# the fields of other text (SQL, CQL, a dump, an unknown extension): the pieces between these delimiters (not spaces,
+# so prose is one field and is folded whole)
+FIELD = re.compile(r"[\t,;|'\"`()=:\[\]{}<>]")
+OID = re.compile(r"\d+(?:\.\d+){3,}")
 CANNOT = (
     ".sqlite", ".sqlite3", ".db", ".dump", ".bak", ".bz2", ".xz", ".7z", ".zst", ".rar", ".lz4", ".pdf", ".xlsx",
     ".xls", ".docx", ".mdb", ".accdb", ".feather", ".arrow", ".avro", ".orc", ".pkl", ".pickle",
@@ -77,7 +94,8 @@ def _key(name: str) -> str:
 
 def is_vocab_key(name: str) -> bool:
     k = _key(name)
-    return k in ("vocab", "vocabid", "vocabulary") or k.endswith("vocabularyid") or k.endswith("vocabulary")
+    return (k in ("vocab", "vocabid", "vocabulary", "terminology", "codingscheme", "cs") or k.endswith("vocabularyid")
+            or k.endswith("vocabulary"))  # fmt: skip
 
 
 def is_system_key(name: str) -> bool:
@@ -105,7 +123,21 @@ def rules(register: Path = REGISTER) -> Rules:
             for n in (v, *c.aliases):
                 names.setdefault(fold(n), (v, c.row))
     rows = lr.load(register)
-    needles = {n: hit for n, hit in names.items() if "://" in n or n.startswith("urn:oid:")}
+    needles: dict[str, tuple[str, str]] = {}  # URIs and OIDs as written (lower case), searched for whole in text
+    for v, c in athena_register(register).items():
+        if c.loadable:
+            continue
+        for n in (v, *c.aliases):
+            low = n.strip().lower()
+            forms = [low]
+            if low.startswith("http://"):
+                forms.append("https://" + low[7:])
+            if low.startswith("urn:oid:"):
+                forms.append(low[8:])
+            for f in forms:
+                if "://" in f or f.startswith("urn:oid:") or OID.fullmatch(f):
+                    needles.setdefault(f, (v, c.row))
+                    names.setdefault(fold(f), (v, c.row))
     exceptions = tuple((r.id, r.paths) for r in rows if r.kind == lr.EXCEPTION_KIND)
     return Rules(names, needles, exceptions)
 
@@ -187,10 +219,15 @@ class Checker:
                 self._json(name, text, hits)
             elif low.endswith(JSON_LINES):
                 self._jsonl(name, text, hits)
+            elif low.endswith(YAML):
+                self._yaml(name, text, hits)
             elif low.endswith((".csv", ".tsv", ".txt")):
                 self._table(name, text, mode, hits)
-            else:  # SQL, CQL, YAML and any other text: the URIs and OIDs it mentions
+            elif low.endswith(PROSE):
                 self._mentions(text, hits)
+            else:  # SQL, CQL, a dump, any other text: its delimited fields, and the URIs and OIDs it mentions
+                self._fields(text, hits)
+                self._mentions(text, hits, skip=hits)
         for (vocab, row), n in sorted(hits.items()):
             line = f"{name}: {n} row(s) of vocabulary {vocab!r}, licence class c, must not ship (register row {row})"
             if exception:
@@ -234,6 +271,8 @@ class Checker:
     def _hit(self, value: Any, hits: dict[tuple[str, str], int]) -> None:
         if isinstance(value, str) and value:
             got = self.r.names.get(fold(value))
+            if got is None and "://" in value:  # an edition or version URI: http://snomed.info/sct/<id>/version/<d>
+                got = self.r.names.get(fold(re.sub(r"/\d[\w./-]*$", "", value.strip())))
             if got is not None:
                 hits[got] = hits.get(got, 0) + 1
 
@@ -256,6 +295,21 @@ class Checker:
             self.report.problems.append(f"{name}: JSON does not parse ({exc})")
             return
         self._json_walk(doc, hits)
+
+    def _yaml(self, name: str, text: str, hits: Hits) -> None:
+        try:
+            docs = list(yaml.safe_load_all(text))
+        except yaml.YAMLError:
+            self.report.problems.append(f"{name}: YAML does not parse")
+            return
+        for doc in docs:
+            self._json_walk(doc, hits)
+
+    def _fields(self, text: str, hits: Hits) -> None:
+        for line in text.splitlines():
+            for field_ in FIELD.split(line):
+                if field_.strip():
+                    self._hit(field_, hits)
 
     def _jsonl(self, name: str, text: str, hits: dict[tuple[str, str], int]) -> None:
         for n, line in enumerate(text.splitlines(), start=1):
@@ -298,13 +352,17 @@ class Checker:
 
     def _mentions(self, text: str, hits: Hits, skip: Hits | None = None) -> None:
         low = text.casefold()
+        ends: dict[tuple[str, str], set[int]] = {}
         for needle, got in self.r.needles.items():
             if skip and got in skip:
                 continue
-            # a whole URI or OID: http://hl7.org/fhir/sid/icd-10 is not a mention inside .../icd-10-cm
-            n = len(re.findall(re.escape(needle) + r"(?![\w\-./#])", low))
-            if n:
-                hits[got] = hits.get(got, 0) + n
+            # a whole URI or OID (http://hl7.org/fhir/sid/icd-10 is no mention inside .../icd-10-cm), with an edition
+            # or version path after it (http://snomed.info/sct/<module>/version/<date>); one place counted once
+            rx = r"(?<![\w.])" + re.escape(needle) + r"(?:/\d[\w./-]*)?(?![\w\-./#])"
+            ends.setdefault(got, set()).update(m.end() for m in re.finditer(rx, low))
+        for got, at in ends.items():
+            if at:
+                hits[got] = hits.get(got, 0) + len(at)
 
 
 def check(paths: Iterable[Path] = (), *, tree: bool = False, models: Iterable[Path] = (),
@@ -324,7 +382,8 @@ def check(paths: Iterable[Path] = (), *, tree: bool = False, models: Iterable[Pa
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="python -m tools.vocab_bundle_check", description=__doc__.split("\n")[0])
+    ap = argparse.ArgumentParser(prog="python -m tools.vocab_bundle_check", description=__doc__.split("\n")[0],
+                                 epilog=BY_LABEL)  # fmt: skip
     ap.add_argument("paths", nargs="*", type=Path, help="bundle inputs: folders or files (zip, tar, refdata packs)")
     ap.add_argument("--tree", action="store_true", help="the shipped data files of this tree")
     ap.add_argument("--models", action="append", type=Path, default=[], help="a models folder")
