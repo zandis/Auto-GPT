@@ -58,11 +58,14 @@ for _p in (ROOT, ROOT / "libs", ROOT / "services"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
+from tools.public_accuracy import ladder as _ladder  # noqa: E402 - after the path above
+
 #: the report's layout: 2 adds ``within_target`` and ``met_only_by`` (D-1064 item 4: ``met`` is never true for a
 #: replay), each set's ``zone`` and ``key_stated``, and the target read without the conflicted pairs with
-#: ``with_conflicted``, ``conflicted`` and ``conflicted_excluded_on_another_line`` beside it (D-1064 items 1-2). Keys
-#: are only ever added.
-SCHEMA_VERSION = 2
+#: ``with_conflicted``, ``conflicted`` and ``conflicted_excluded_on_another_line`` beside it (D-1064 items 1-2); 3 adds
+#: ``ladder`` per level and set (card 10A-3: the rung, kind, language and site of each decided cell, and the decided
+#: share printed beside every figure). Keys are only ever added.
+SCHEMA_VERSION = 3
 MET_ONLY_BY = (
     "a launch (D-1064 item 4): a replay's figure decides whether a launch is worth its cost; it is not a result"
 )
@@ -716,6 +719,10 @@ def replay(
         "protocols_failing": t3.get("b", t3["a"])["within_target"],
         "at_level": report["met"]["at_level"],
     }
+    # card 10A-3: the ladder of each level, read from the verdicts that level scored (the key does not change it)
+    report["ladder"] = {"a": {n: a1[n].get("ladder") or a2[n].get("ladder") for n in names}}
+    if "b" in t1:
+        report["ladder"]["b"] = {n: b1[n].get("ladder") or b2[n].get("ladder") for n in names}
     report["limits"] += _limits(report, rerun)
     return report
 
@@ -727,7 +734,7 @@ def _brief(sc: dict[str, Any], key: dict[str, Any], refused: str | None = None) 
     this set (a run built on v2 has no v1), so nothing is kept but the reason."""
     if refused:
         return {"answer_key": key, "not_scored_because": refused}
-    keep = ("not_scored_because", "protocols", "pathology", "unjudged_exclusions")
+    keep = ("not_scored_because", "protocols", "pathology", "unjudged_exclusions", "ladder")
     out = {"answer_key": key, "scorer_read_the_folder_as": sc.get("answer_key"), **{k: sc[k] for k in keep if k in sc}}
     if "pairs" in sc:
         out["pairs"] = {lang: {k: v for k, v in s.items() if k != "denominators"}
@@ -833,6 +840,8 @@ def render(r: dict[str, Any]) -> str:
         for key, f in sorted(by.items()):
             per = ", ".join(f"{x['set']} {x['numerator']}/{x['denominator']}" if x.get("scored", True)
                             else f"{x['set']} not scored" for x in f["per_set"])  # fmt: skip
+            beside = _decided_beside(r, lvl, [x["set"] for x in f["per_set"]])
+            per += f"; decided: {beside}" if beside else ""
             wc = f.get("with_conflicted") or {}
             withc = f"{wc.get('numerator')}/{wc.get('denominator')}" if f.get("conflicted") is not None else "-"
             w(f"   ({lvl})   {key:<5}{f['numerator']:>10}{f['denominator']:>6}  {withc:<16}"
@@ -860,6 +869,7 @@ def render(r: dict[str, Any]) -> str:
     if pr.get("scored"):
         w(f"   (a) the run's tcga: excluded {pr['numerator']} of {pr['denominator']}, {pr['wrong_exclusions']} wrong, "
           f"lost {pr['eligible_lost']} of {pr['eligible']}: {_within(pr['within_target'])}")  # fmt: skip
+        w(f"       beside it: tcga {_ladder.decided_phrase((r.get('ladder') or {}).get('a', {}).get('tcga'))}")
     else:
         w(f"   (a) not scored: {pr['not_scored_because']}  -> not within the target")
     sc_ = t["pathology"].get("stored_counts")
@@ -882,6 +892,7 @@ def render(r: dict[str, Any]) -> str:
         w(f"   ({lvl}) failed {f['numerator']} of {f['denominator']} ({_pct(f['share'])}): "
           f"{_within(f['within_target'])}; before SCREEN {f['failed_before_screen']} of {f['denominator']} "
           f"({_pct(f['failed_before_screen_share'])}): {_within(f['within_target_before_screen_only'])}")  # fmt: skip
+        w(f"       beside it, decided: {_decided_beside(r, lvl, list(r['sets'])) or 'not known (no ladder)'}")
         if lvl == "a":
             w("       by class: " + ", ".join(f"{k} {v}" for k, v in sorted(f["failed_by_class"].items())))
         else:
@@ -893,6 +904,9 @@ def render(r: dict[str, Any]) -> str:
             w(f"   {n}, per failed protocol at level (b):")
             for rs, row in sorted(fp.items(), key=lambda kv: (kv[1]["class"], kv[0])):
                 w(f"     {rs:<18}{row['class']:<20}{row['outcome']:<12}{_why(row)}")
+    for lvl, lads in sorted((r.get("ladder") or {}).items()):
+        w(f"4. The ladder at level ({lvl}) (card 10A-3): the decided share is printed beside every figure above")
+        lines.extend(_ladder.render(lads, indent="   "))
     m = r["within_target"]
     w("")
     w("Targets: met only by a launch (D-1064 item 4); none is met by this replay.")
@@ -905,6 +919,14 @@ def render(r: dict[str, Any]) -> str:
     for x in r["limits"]:
         w(f"  - {x}")
     return "\n".join(lines) + "\n"
+
+
+def _decided_beside(r: dict[str, Any], lvl: str, sets: list[str]) -> str:
+    """'sigir 138 of 895 (15.4 %, ...)', the decided share of each set beside a figure (card 10A-3); '' if none."""
+    lads = (r.get("ladder") or {}).get(lvl) or {}
+    bits = [f"{n} {_ladder.decided_phrase(lads[n]).removeprefix('decided ')}" for n in sets
+            if (lads.get(n) or {}).get("cells")]  # fmt: skip
+    return ", ".join(bits)
 
 
 def _box_said(c: dict[str, Any]) -> str:

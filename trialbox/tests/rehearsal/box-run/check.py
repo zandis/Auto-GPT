@@ -710,7 +710,7 @@ if case == "acc-cut-resume":  # D-1129 (card H-14)
        "the services' lines and the box's calls of attempt 1 kept, attempt 2's after them")  # fmt: skip
     sc = json.loads((S / "evidence" / "collected" / "acc" / "jmed" / "score.json").read_text())
     pr = sc["protocols"]
-    ok(sc["schema_version"] == 4 and pr["screened"] == total and pr["not_run_time_budget"] == 0
+    ok(sc["schema_version"] == 5 and pr["screened"] == total and pr["not_run_time_budget"] == 0
        and pr["attempts"]["line"] == line and json.loads((S / "evidence" / "acc-score.json").read_text())["jmed"]["scored"],
        "the scorer reads the two attempts as one: every protocol screened once, the attempts line in its block")  # fmt: skip
     ok(state.get("kv", {}).get("acc_rate_set") != "jmed", "a set run in two attempts measures no slowdown (F22)")
