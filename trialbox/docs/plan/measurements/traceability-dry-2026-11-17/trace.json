@@ -1,0 +1,5881 @@
+{
+ "commit": "ceae54678f5a06afba4e1526e7ff1d62752192e3",
+ "counts": {
+  "csv_rows": 273,
+  "csv_rows_to_a_tst_id": 269,
+  "csv_rows_to_a_tst_naming_no_test": 265,
+  "csv_rows_with_no_test": 4,
+  "dead_references": 0,
+  "decisions_cited_by_tests": 742,
+  "decisions_merged_with_text": 888,
+  "decisions_not_cited": 146,
+  "decisions_rule_words_not_cited": 89,
+  "ds_ids_reached": 50,
+  "ds_ids_reached_among_requirements": 45,
+  "files_with_markers": 36,
+  "requirements": 711,
+  "requirements_cited_in_text": 23,
+  "requirements_marked": 45,
+  "requirements_marked_or_cited": 62,
+  "requirements_neither": 649,
+  "requirements_srs": 619,
+  "requirements_urs": 92,
+  "results_read": 794,
+  "safety_core_test_files": 160,
+  "safety_core_tests_untied": 19,
+  "spec_ids_in_markers": 85,
+  "tst_ids": 63,
+  "tst_ids_naming_a_collected_test": 1
+ },
+ "criteria": [
+  {
+   "activities": "V2, V3, V4",
+   "criterion": 1,
+   "kind": "tests",
+   "measure": null,
+   "note": "",
+   "rest_shown_only_by": "the confirming launch on the GPU VM (V2) and the owner's carve on his PC (V3)",
+   "results": {
+    "files": 26,
+    "files_run": 26,
+    "not_passed": [
+     "tests/unit/test_code_coverage.py::test_cql_fails_closed_the_same_way [skipped]",
+     "tests/unit/test_criteria_safety.py::test_an_impossible_score_input_is_null_in_the_cql_engine [skipped]",
+     "tests/unit/test_criteria_safety.py::test_cql_carries_the_same_rules_and_translates [skipped]",
+     "tests/unit/test_derived_scores.py::test_cql_names_the_equation_and_translates [skipped]",
+     "tests/unit/test_judge_tier.py::test_judge_set_agreement_real_model [skipped]",
+     "tests/unit/test_valueset_family.py::test_who_family_twin_in_cql_too [xfailed]",
+     "tests/unit/test_valueset_family.py::test_who_only_code_resolves_to_its_icd10cm_family_and_fails_closed_outside_it [xfailed]"
+    ],
+    "outcomes": {
+     "passed": 371,
+     "skipped": 5,
+     "xfailed": 2
+    }
+   },
+   "status": "has tests, some xfail/skip/fail or not run",
+   "test_files": [
+    "tests/unit/test_agreement_judge.py",
+    "tests/unit/test_canary_gate.py",
+    "tests/unit/test_cascade_excerpt_budget.py",
+    "tests/unit/test_cascade_exclusion_rules.py",
+    "tests/unit/test_cascade_lake_errors.py",
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_cascade_units.py",
+    "tests/unit/test_code_coverage.py",
+    "tests/unit/test_criteria_safety.py",
+    "tests/unit/test_derived_scores.py",
+    "tests/unit/test_japan_icd10.py",
+    "tests/unit/test_judge_tier.py",
+    "tests/unit/test_lab_value_unknown.py",
+    "tests/unit/test_microbatch_note_block.py",
+    "tests/unit/test_mixed_and_polarity.py",
+    "tests/unit/test_note_pair_disagreement.py",
+    "tests/unit/test_one_engine.py",
+    "tests/unit/test_one_rule.py",
+    "tests/unit/test_quotes.py",
+    "tests/unit/test_safety_properties.py",
+    "tests/unit/test_scenario_findings.py",
+    "tests/unit/test_screen_exclusion_pair.py",
+    "tests/unit/test_screen_not_at_index.py",
+    "tests/unit/test_suspected_diagnosis.py",
+    "tests/unit/test_two_model_identity.py",
+    "tests/unit/test_valueset_family.py"
+   ],
+   "tests_bear_on": "the two safety invariants (unknown never excludes; a proposed fact never counts); not accuracy",
+   "title": "Screening is accurate on what ships"
+  },
+  {
+   "activities": "V1",
+   "criterion": 2,
+   "kind": "tests",
+   "measure": null,
+   "note": "",
+   "rest_shown_only_by": "a box installed from the signed bundle, GPU VM then reference workstation (V1)",
+   "results": {
+    "files": 10,
+    "files_run": 0,
+    "not_passed": [],
+    "outcomes": {}
+   },
+   "status": "has tests; collected, result not run here",
+   "test_files": [
+    "tests/unit/test_b200_qualify.py",
+    "tests/unit/test_box_qualify.py",
+    "tests/unit/test_champion_qualify.py",
+    "tests/unit/test_g1_b3_qualify_marker.py",
+    "tests/unit/test_h14_qualify_progress_2026_11_17.py",
+    "tests/unit/test_qualify.py",
+    "tests/unit/test_qualify_code_identity.py",
+    "tests/unit/test_qualify_host_gpu.py",
+    "tests/unit/test_qualify_in_the_image.py",
+    "tests/unit/test_qualify_n12_from_screen.py"
+   ],
+   "tests_bear_on": "the qualify tool's logic on stubs; not a record for the real pair",
+   "title": "The model pair is qualified"
+  },
+  {
+   "activities": "V12, V19",
+   "criterion": 3,
+   "kind": "tests",
+   "measure": null,
+   "note": "",
+   "rest_shown_only_by": "three nightly runs in CI, under compose (V12, V19)",
+   "results": {
+    "files": 6,
+    "files_run": 0,
+    "not_passed": [],
+    "outcomes": {}
+   },
+   "status": "has tests; collected, result not run here",
+   "test_files": [
+    "tests/unit/test_audit_heads_nightly.py",
+    "tests/unit/test_mutation_tool.py",
+    "tests/unit/test_nightly_green.py",
+    "tests/unit/test_nightly_quality_workflow.py",
+    "tests/unit/test_nightly_restic.py",
+    "tests/unit/test_nightly_shards_under_90.py"
+   ],
+   "tests_bear_on": "the mutation and nightly tools; not three green nights",
+   "title": "Three green nights of a nightly that tests the deployed shape"
+  },
+  {
+   "activities": "V10, V17",
+   "criterion": 4,
+   "kind": "tests",
+   "measure": null,
+   "note": "",
+   "rest_shown_only_by": "the reference workstation (V10, V17)",
+   "results": {
+    "files": 17,
+    "files_run": 1,
+    "not_passed": [],
+    "outcomes": {
+     "passed": 13
+    }
+   },
+   "status": "has tests, some xfail/skip/fail or not run",
+   "test_files": [
+    "tests/unit/test_backup.py",
+    "tests/unit/test_backup_alert_on_the_health_page.py",
+    "tests/unit/test_backup_busy_night.py",
+    "tests/unit/test_backup_drill_says_why.py",
+    "tests/unit/test_backup_hard_links.py",
+    "tests/unit/test_backup_restic.py",
+    "tests/unit/test_backup_schedule.py",
+    "tests/unit/test_backup_vector_store.py",
+    "tests/unit/test_backup_verifies_itself.py",
+    "tests/unit/test_backup_without_pause.py",
+    "tests/unit/test_box_backup_step.py",
+    "tests/unit/test_ops_backup_resumes.py",
+    "tests/unit/test_restore_drill.py",
+    "tests/unit/test_restore_hold.py",
+    "tests/unit/test_restore_roles.py",
+    "tests/unit/test_t728_asof_restore_optouts.py",
+    "tests/unit/test_wsl2_backup_paths.py"
+   ],
+   "tests_bear_on": "backup and restore logic on the test machine; not a timed restore on hardware",
+   "title": "Install, update, backup and restore work on real hardware"
+  },
+  {
+   "activities": "V10",
+   "criterion": 5,
+   "kind": "tests",
+   "measure": null,
+   "note": "",
+   "rest_shown_only_by": "the owner's Windows PC (V10)",
+   "results": {
+    "files": 8,
+    "files_run": 0,
+    "not_passed": [],
+    "outcomes": {}
+   },
+   "status": "has tests; collected, result not run here",
+   "test_files": [
+    "tests/unit/test_p0_media_release.py",
+    "tests/unit/test_windows_10_form.py",
+    "tests/unit/test_windows_box_install.py",
+    "tests/unit/test_windows_handover_docs.py",
+    "tests/unit/test_windows_media.py",
+    "tests/unit/test_windows_media_debs.py",
+    "tests/unit/test_windows_preflight.py",
+    "tests/unit/test_windows_update.py"
+   ],
+   "tests_bear_on": "the Windows installer's scripts and files; not the install on the PC",
+   "title": "The P-0 install on the owner's Windows PC"
+  },
+  {
+   "activities": "V14, V15",
+   "criterion": 6,
+   "kind": "tests",
+   "measure": null,
+   "note": "the withdrawal rule fails: test_v15_withdrawal_data_use.py, strict xfail, V15-06",
+   "rest_shown_only_by": "lane E's REDCap container, the owner's EDC, CGRD on the owner's PC (V14, V15)",
+   "results": {
+    "files": 49,
+    "files_run": 1,
+    "not_passed": [
+     "tests/unit/test_v15_withdrawal_data_use.py::test_decide_is_refused_after_a_withdrawal_without_data_use [xfailed]",
+     "tests/unit/test_v15_withdrawal_data_use.py::test_export_is_refused_after_a_withdrawal_without_data_use [xfailed]",
+     "tests/unit/test_v15_withdrawal_data_use.py::test_send_is_refused_after_a_withdrawal_without_data_use [xfailed]",
+     "tests/unit/test_v15_withdrawal_data_use.py::test_sign_is_refused_after_a_withdrawal_without_data_use [xfailed]"
+    ],
+    "outcomes": {
+     "xfailed": 4
+    }
+   },
+   "status": "has tests, some xfail/skip/fail or not run",
+   "test_files": [
+    "tests/console/test_edc_admin_status.py",
+    "tests/console/test_edc_door_events_route.py",
+    "tests/console/test_edc_door_map_needs_role_and_csrf.py",
+    "tests/console/test_edc_door_token_csrf_rotation.py",
+    "tests/console/test_edc_pages.py",
+    "tests/console/test_edc_pages_d281.py",
+    "tests/console/test_edc_pages_d461.py",
+    "tests/console/test_edc_pages_t115.py",
+    "tests/console/test_edc_signing_t205.py",
+    "tests/unit/test_edc.py",
+    "tests/unit/test_edc_011_reread_before_import.py",
+    "tests/unit/test_edc_018_timeout_narrow_retry.py",
+    "tests/unit/test_edc_019_early_refusals_audited.py",
+    "tests/unit/test_edc_020_lakefacts_on_a_lake.py",
+    "tests/unit/test_edc_022_long_text_refused.py",
+    "tests/unit/test_edc_023_tfda_data_flow.py",
+    "tests/unit/test_edc_arm_and_ymd_dates.py",
+    "tests/unit/test_edc_attempt_ledger.py",
+    "tests/unit/test_edc_backend.py",
+    "tests/unit/test_edc_changed_in_redcap_shown.py",
+    "tests/unit/test_edc_changed_on_copy_and_sdv.py",
+    "tests/unit/test_edc_checkbox_held.py",
+    "tests/unit/test_edc_contract.py",
+    "tests/unit/test_edc_door_stores_in_the_db.py",
+    "tests/unit/test_edc_draft_prov.py",
+    "tests/unit/test_edc_era_roc_dates.py",
+    "tests/unit/test_edc_erase_attempt.py",
+    "tests/unit/test_edc_kit_loads_on_redcap.py",
+    "tests/unit/test_edc_logic_double_minus.py",
+    "tests/unit/test_edc_own_only_what_was_sent.py",
+    "tests/unit/test_edc_per_record_fallback.py",
+    "tests/unit/test_edc_prefill_code_system.py",
+    "tests/unit/test_edc_prefill_site_facts.py",
+    "tests/unit/test_edc_repeat_instance_whole.py",
+    "tests/unit/test_edc_retire_removed_item.py",
+    "tests/unit/test_edc_sent_values_reread.py",
+    "tests/unit/test_edc_signing_d281.py",
+    "tests/unit/test_edc_source_changed.py",
+    "tests/unit/test_edc_t115.py",
+    "tests/unit/test_edc_t302b.py",
+    "tests/unit/test_edc_tool_answer_deidentified.py",
+    "tests/unit/test_edc_v1_refused.py",
+    "tests/unit/test_redcap_13_refusals.py",
+    "tests/unit/test_redcap_13_supported.py",
+    "tests/unit/test_redcap_chinese_refusals.py",
+    "tests/unit/test_redcap_instance.py",
+    "tests/unit/test_redcap_instance_on_13_7.py",
+    "tests/unit/test_redcap_longitudinal.py",
+    "tests/unit/test_v15_withdrawal_data_use.py"
+   ],
+   "tests_bear_on": "drafting, signing and sending against stubs; not the round trip",
+   "title": "Real data in, and the EDC round trip"
+  },
+  {
+   "activities": "V13",
+   "criterion": 7,
+   "kind": "untestable",
+   "measure": null,
+   "note": "",
+   "rest_shown_only_by": "people who have not used TrialBox (V13)",
+   "results": {
+    "files": 4,
+    "files_run": 0,
+    "not_passed": [],
+    "outcomes": {}
+   },
+   "status": "has tests; collected, result not run here",
+   "test_files": [
+    "tests/console/test_journey_pages.py",
+    "tests/console/test_role_guides_from_the_help.py",
+    "tests/e2e/journeys/test_journeys.py",
+    "tests/unit/test_journey_rules.py"
+   ],
+   "tests_bear_on": "the help field and the role guides exist and link; not a person following them",
+   "title": "A first-time user can follow the journey"
+  },
+  {
+   "activities": "V7",
+   "criterion": 8,
+   "kind": "tests",
+   "measure": {
+    "answer": "27 entries owed",
+    "command": "tb_common.erasure.owed()",
+    "exit": 0,
+    "verdict": "fails"
+   },
+   "note": "",
+   "rest_shown_only_by": "the compose box, every store (V7)",
+   "results": {
+    "files": 13,
+    "files_run": 13,
+    "not_passed": [
+     "tests/unit/test_erasure_seed.py::test_the_vector_store_is_cleared_by_the_tick [skipped]"
+    ],
+    "outcomes": {
+     "passed": 156,
+     "skipped": 1
+    }
+   },
+   "status": "fails today by its own command",
+   "test_files": [
+    "tests/console/test_din3_optout_known.py",
+    "tests/console/test_opt_out_keeps_the_numbered_log_row.py",
+    "tests/console/test_optout_whole_pseudonym.py",
+    "tests/unit/test_erasure_registry.py",
+    "tests/unit/test_erasure_seed.py",
+    "tests/unit/test_optout_clears_the_owed_tables.py",
+    "tests/unit/test_optout_every_omop_store_roles.py",
+    "tests/unit/test_optout_no_registry_on_production.py",
+    "tests/unit/test_optout_registry_probe.py",
+    "tests/unit/test_optout_worker.py",
+    "tests/unit/test_optout_worker_roles.py",
+    "tests/unit/test_readers_drop_the_opted_out.py",
+    "tests/unit/test_t728_asof_restore_optouts.py"
+   ],
+   "tests_bear_on": "opt-out and erasure in each store the tests build",
+   "title": "Opt-out and erasure do what the screen says"
+  },
+  {
+   "activities": "V18, V9",
+   "criterion": 9,
+   "kind": "tests",
+   "measure": null,
+   "note": "",
+   "rest_shown_only_by": "the release candidate (V18, V9)",
+   "results": {
+    "files": 10,
+    "files_run": 0,
+    "not_passed": [],
+    "outcomes": {}
+   },
+   "status": "has tests; collected, result not run here",
+   "test_files": [
+    "tests/unit/test_codemap_release.py",
+    "tests/unit/test_gen_traceability.py",
+    "tests/unit/test_p0_media_release.py",
+    "tests/unit/test_release_bundle.py",
+    "tests/unit/test_release_clean_tree.py",
+    "tests/unit/test_release_dirty_refused.py",
+    "tests/unit/test_release_gates_mode_shown.py",
+    "tests/unit/test_release_image_stores.py",
+    "tests/unit/test_term2_release_stamp.py",
+    "tests/unit/test_traceability.py"
+   ],
+   "tests_bear_on": "the release tools and the old traceability generator; not a generated pack",
+   "title": "The evidence can be handed over"
+  },
+  {
+   "activities": "V16, V8",
+   "criterion": 10,
+   "kind": "tests",
+   "measure": null,
+   "note": "no walk ran here: the skips are the e2e walks; the passes are matrix and in-process tests",
+   "rest_shown_only_by": "the compose box, three languages, phone width (V16, V8)",
+   "results": {
+    "files": 10,
+    "files_run": 10,
+    "not_passed": [
+     "tests/e2e/test_life_cycle_walk.py::test_the_whole_life_of_a_study[en] [skipped]",
+     "tests/e2e/test_life_cycle_walk.py::test_the_whole_life_of_a_study[ja] [skipped]",
+     "tests/e2e/test_life_cycle_walk.py::test_the_whole_life_of_a_study[zh-TW] [skipped]",
+     "tests/e2e/test_new_study_walk.py::test_a_new_study_from_its_first_step[en] [skipped]",
+     "tests/e2e/test_new_study_walk.py::test_a_new_study_from_its_first_step[ja] [skipped]",
+     "tests/e2e/test_new_study_walk.py::test_a_new_study_from_its_first_step[zh-TW] [skipped]",
+     "tests/e2e/test_role_walk.py::test_five_roles_three_languages_desktop_and_phone [skipped]"
+    ],
+    "outcomes": {
+     "passed": 128,
+     "skipped": 7
+    }
+   },
+   "status": "has tests, some xfail/skip/fail or not run",
+   "test_files": [
+    "tests/console/test_role_route_matrix.py",
+    "tests/console/test_role_route_matrix_acting.py",
+    "tests/console/test_role_pages.py",
+    "tests/console/test_one_sign_in_acting_role.py",
+    "tests/e2e/test_life_cycle_walk.py",
+    "tests/e2e/test_new_study_walk.py",
+    "tests/e2e/test_role_walk.py",
+    "tests/unit/test_authz_matrix.py",
+    "tests/unit/test_role_paths.py",
+    "tests/unit/test_demo_walks.py"
+   ],
+   "tests_bear_on": "the matrix tests; the walks the criterion asks for need compose",
+   "title": "New. Every module of the life cycle has a passing end-to-end walk"
+  },
+  {
+   "activities": "V20",
+   "criterion": 11,
+   "kind": "tests",
+   "measure": {
+    "answer": "open High 5, open Medium 36, open Low 4, total 48 (open 45, card issued 0, fixed 3 of which not seen closed 3, not a defect 0)",
+    "command": "python -m tools.findings_register --counts; --check --release",
+    "exit": 1,
+    "verdict": "fails"
+   },
+   "note": "",
+   "rest_shown_only_by": "the register itself, read at release (V20)",
+   "results": {
+    "files": 1,
+    "files_run": 1,
+    "not_passed": [],
+    "outcomes": {
+     "passed": 120
+    }
+   },
+   "status": "fails today by its own command",
+   "test_files": [
+    "tests/unit/test_findings_register.py"
+   ],
+   "tests_bear_on": "the register tool; the register itself is read by its own command",
+   "title": "New. No High finding is open"
+  },
+  {
+   "activities": "V20",
+   "criterion": 12,
+   "kind": "untestable",
+   "measure": null,
+   "note": "",
+   "rest_shown_only_by": "a stranger with the kit, real hardware, the synthetic hospital (V20)",
+   "results": {
+    "files": 0,
+    "files_run": 0,
+    "not_passed": [],
+    "outcomes": {}
+   },
+   "status": "not testable in the repository",
+   "test_files": [],
+   "tests_bear_on": "nothing in the repository",
+   "title": "New. The implementation kit has been followed once, end to end, by someone who did not write it"
+  }
+ ],
+ "date": "2026-11-17",
+ "dead_references": [],
+ "decisions_uncited_top40": [
+  {
+   "decision": "D-988",
+   "groups": [
+    "screening exclusion",
+    "PHI and masking",
+    "roles",
+    "audit",
+    "erasure and opt-out"
+   ],
+   "place": "docs/decisions/D-988-shadow-mode-and-its-effectiveness-report.md",
+   "score": 8,
+   "title": "Shadow mode: the box screens a study unseen, and a report says how its answers compare with the coordinator's"
+  },
+  {
+   "decision": "D-96",
+   "groups": [
+    "screening exclusion",
+    "EDC signing"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 5,
+   "title": "Suspected findings never exclude (judge v4)"
+  },
+  {
+   "decision": "D-943",
+   "groups": [
+    "screening exclusion",
+    "erasure and opt-out"
+   ],
+   "place": "docs/decisions/D-943-feas-drops-an-unknown-inclusion-by-d18-not-a-known-failure.md",
+   "score": 5,
+   "title": "FEAS drops an unknown inclusion by D-18: an intended difference, not a known failure"
+  },
+  {
+   "decision": "D-975",
+   "groups": [
+    "roles",
+    "EDC signing"
+   ],
+   "place": "docs/decisions/D-975-the-role-walk-waits-for-the-name-in-the-page.md",
+   "score": 5,
+   "title": "the role walk waits for the person's name in the page, then opens the phone's menu to see it"
+  },
+  {
+   "decision": "D-59",
+   "groups": [
+    "screening exclusion",
+    "PHI and masking",
+    "audit",
+    "EDC signing"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 4,
+   "title": "Application drafts"
+  },
+  {
+   "decision": "D-89",
+   "groups": [
+    "screening exclusion"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 4,
+   "title": "Two-model agreement in SCREEN and CASE"
+  },
+  {
+   "decision": "D-115",
+   "groups": [
+    "screening exclusion"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 4,
+   "title": "The two-model rule is tested on both SCREEN paths; the canary scores the pair"
+  },
+  {
+   "decision": "D-512",
+   "groups": [
+    "PHI and masking"
+   ],
+   "place": "docs/decisions/D-512-a-de-identified-hospital-carve-may-come-later.md",
+   "score": 4,
+   "title": "A de-identified hospital carve may come later"
+  },
+  {
+   "decision": "D-781",
+   "groups": [
+    "screening exclusion"
+   ],
+   "place": "docs/decisions/D-781-a-note-criterion-nothing-can-retrieve-for-is-not-evaluated.md",
+   "score": 4,
+   "title": "A SCREEN note criterion nothing can retrieve for is \"not evaluated\", and the run says so"
+  },
+  {
+   "decision": "D-783",
+   "groups": [
+    "screening exclusion"
+   ],
+   "place": "docs/decisions/D-783-screen-ranks-with-the-boxs-embed-service.md",
+   "score": 4,
+   "title": "SCREEN ranks note sentences with the box's embed service when it serves a real model; that score never rescues"
+  },
+  {
+   "decision": "D-796",
+   "groups": [
+    "screening exclusion"
+   ],
+   "place": "docs/decisions/D-796-a-negated-exclusion-is-rewritten-and-an-empty-list-never-answers.md",
+   "score": 4,
+   "title": "A negated exclusion is rewritten, and a list with no code never answers"
+  },
+  {
+   "decision": "D-900",
+   "groups": [
+    "screening exclusion"
+   ],
+   "place": "docs/decisions/D-900-the-embed-service-loads-once-and-encodes-by-tokens.md",
+   "score": 4,
+   "title": "The embed service loads once, encodes by tokens, and SCREEN embeds a sentence once"
+  },
+  {
+   "decision": "D-925",
+   "groups": [
+    "audit"
+   ],
+   "place": "docs/decisions/D-925-the-audit-chain-reads-only-its-tail.md",
+   "score": 4,
+   "title": "The audit chain reads only its tail: a million events a day in linear time"
+  },
+  {
+   "decision": "D-1022",
+   "groups": [
+    "EDC signing"
+   ],
+   "place": "docs/decisions/D-1022-lane-e-may-push-its-redcap-fix-cards.md",
+   "score": 4,
+   "title": "Lane E may push its REDCap fix cards"
+  },
+  {
+   "decision": "D-1034",
+   "groups": [
+    "EDC signing"
+   ],
+   "place": "docs/decisions/D-1034-the-redcap-specification-stays-out-of-the-repository.md",
+   "score": 4,
+   "title": "The REDCap specification stays out of the repository"
+  },
+  {
+   "decision": "D-1067",
+   "groups": [
+    "screening exclusion",
+    "roles",
+    "erasure and opt-out",
+    "EDC signing"
+   ],
+   "place": "docs/decisions/D-1067-plan-8-is-adopted-with-the-owners-rulings.md",
+   "score": 4,
+   "title": "Plan 8 is adopted, with the owner's rulings of 2026-11-17"
+  },
+  {
+   "decision": "D-1118",
+   "groups": [
+    "screening exclusion"
+   ],
+   "place": "docs/decisions/D-1118-key-v2-marks-a-conflicted-pair-by-the-gold-rule.md",
+   "score": 4,
+   "title": "key v2 marks a conflicted pair by the rule read from the gold, and an exclusion on another line is a finding"
+  },
+  {
+   "decision": "D-106",
+   "groups": [
+    "screening exclusion",
+    "PHI and masking",
+    "EDC signing"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 3,
+   "title": "Synthetic hospital for the build (TB-DS-21) and the paste-criteria feasibility path"
+  },
+  {
+   "decision": "D-357",
+   "groups": [
+    "screening exclusion",
+    "roles",
+    "EDC signing"
+   ],
+   "place": "docs/decisions/D-357-context-aware-budgets.md",
+   "score": 3,
+   "title": "Prompt budgets come from the model's context"
+  },
+  {
+   "decision": "D-454",
+   "groups": [
+    "audit",
+    "erasure and opt-out",
+    "EDC signing"
+   ],
+   "place": "docs/decisions/D-454-plan-v6-1.md",
+   "score": 3,
+   "title": "Plan v6.1: the box, the capacity rule and five structural repairs"
+  },
+  {
+   "decision": "D-603",
+   "groups": [
+    "screening exclusion",
+    "roles",
+    "EDC signing"
+   ],
+   "place": "docs/decisions/D-603-bitlocker-unlock-and-key-probe.md",
+   "score": 3,
+   "title": "BitLocker opened by the TPM, the recovery key handed to the owner, and a probe for the key back end"
+  },
+  {
+   "decision": "D-42",
+   "groups": [
+    "PHI and masking",
+    "audit"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 2,
+   "title": "Unsuppressed counts stay inside"
+  },
+  {
+   "decision": "D-45",
+   "groups": [
+    "screening exclusion",
+    "roles"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 2,
+   "title": "Mail authentication and replies"
+  },
+  {
+   "decision": "D-46",
+   "groups": [
+    "PHI and masking",
+    "EDC signing"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 2,
+   "title": "Attachment encryption mode"
+  },
+  {
+   "decision": "D-66",
+   "groups": [
+    "PHI and masking",
+    "audit"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 2,
+   "title": "Identity for NHI submissions"
+  },
+  {
+   "decision": "D-94",
+   "groups": [
+    "audit",
+    "EDC signing"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 2,
+   "title": "One-file install and the sizing estimate"
+  },
+  {
+   "decision": "D-107",
+   "groups": [
+    "screening exclusion",
+    "roles"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 2,
+   "title": "Clinic workbench"
+  },
+  {
+   "decision": "D-206",
+   "groups": [
+    "roles",
+    "audit"
+   ],
+   "place": "docs/decisions/D-206-ci-gate-v1.md",
+   "score": 2,
+   "title": "**D-206 CI gate v1: one workflow of stable jobs on every pull request and push, the drills nightly, `make ci` "
+  },
+  {
+   "decision": "D-332",
+   "groups": [
+    "screening exclusion",
+    "EDC signing"
+   ],
+   "place": "docs/decisions/D-332-poc-not-research.md",
+   "score": 2,
+   "title": "The clinician PoC is product evaluation, not research"
+  },
+  {
+   "decision": "D-800",
+   "groups": [
+    "audit",
+    "EDC signing"
+   ],
+   "place": "docs/decisions/D-800-an-erase-is-ledgered-before-the-import.md",
+   "score": 2,
+   "title": "An erase is ledgered before the import"
+  },
+  {
+   "decision": "D-30",
+   "groups": [
+    "PHI and masking"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 1,
+   "title": "Resource ids"
+  },
+  {
+   "decision": "D-31",
+   "groups": [
+    "audit"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 1,
+   "title": "Volumes"
+  },
+  {
+   "decision": "D-32",
+   "groups": [
+    "screening exclusion"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 1,
+   "title": "What is compiled"
+  },
+  {
+   "decision": "D-50",
+   "groups": [
+    "screening exclusion"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 1,
+   "title": "Tiers"
+  },
+  {
+   "decision": "D-52",
+   "groups": [
+    "PHI and masking"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 1,
+   "title": "Lists and referrals"
+  },
+  {
+   "decision": "D-53",
+   "groups": [
+    "screening exclusion"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 1,
+   "title": "Pool and microbatch"
+  },
+  {
+   "decision": "D-54",
+   "groups": [
+    "screening exclusion"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 1,
+   "title": "Calibration"
+  },
+  {
+   "decision": "D-63",
+   "groups": [
+    "PHI and masking"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 1,
+   "title": "TWPAS IG and package set"
+  },
+  {
+   "decision": "D-64",
+   "groups": [
+    "screening exclusion"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 1,
+   "title": "Partial code systems"
+  },
+  {
+   "decision": "D-70",
+   "groups": [
+    "screening exclusion"
+   ],
+   "place": "docs/DECISIONS.md",
+   "score": 1,
+   "title": "Required nulls in contract JSON"
+  }
+ ],
+ "heuristic": {
+  "rule_words": "\\b(must|never|refuses|is refused|only)\\b",
+  "safety_groups": {
+   "EDC signing": "\\bsign|\\bedc\\b|redcap|delegation",
+   "PHI and masking": "\\bphi\\b|mask|pseudonym|identifier|de-identif",
+   "audit": "\\baudit",
+   "erasure and opt-out": "erasure|opt-out|opt out|withdraw",
+   "roles": "\\brole|matrix|permission|break-glass",
+   "screening exclusion": "exclu|eligib|unknown|screen"
+  },
+  "score": "3 per group in the title + 1 per group in the text"
+ },
+ "markers": {
+  "ds_ids_reached": 50,
+  "ds_ids_reached_among_requirements": 45,
+  "files_with_markers": 36,
+  "spec_ids_in_markers": 85,
+  "spec_ids_not_in_appendix": [
+   "LLM-20",
+   "MOD-5"
+  ]
+ },
+ "pack_cannot_yet": [
+  {
+   "command": "trialbox doctor (its output is not turned into a record)",
+   "exists": true,
+   "missing": "no command turns doctor's output and the release file into an IQ record; none is on file",
+   "part": "IQ record",
+   "path": "tools/trialbox/doctor.py"
+  },
+  {
+   "command": "tools/acceptance.py; CI",
+   "exists": true,
+   "missing": "no OQ protocol; CI keeps per-test results of marked tests only as an artifact, tied to no release",
+   "part": "OQ protocol and record",
+   "path": "tools/acceptance.py"
+  },
+  {
+   "command": "none (by hand)",
+   "exists": true,
+   "missing": "hazards name suites (TS-SCR) and OQ ids, not test ids; two risk files on two id schemes",
+   "part": "Risk file linked to tests",
+   "path": "docs/plan/design/11-risk-management.md"
+  },
+  {
+   "command": "none (by hand)",
+   "exists": true,
+   "missing": "the review's area K table is the only control-by-control reading",
+   "part": "Part 11 and Electronic Signatures Act assessment",
+   "path": "docs/validation/standards-position.md"
+  },
+  {
+   "command": "tools/release.py (in the release bundle)",
+   "exists": true,
+   "missing": "not written into docs/validation/release-records/ for a commit",
+   "part": "SBOM",
+   "path": "tools/release.py"
+  },
+  {
+   "command": "none",
+   "exists": true,
+   "missing": "the folder holds a README only (review K, 5.8)",
+   "part": "Release record",
+   "path": "docs/validation/release-records/README.md"
+  },
+  {
+   "command": "make test-compose COMPOSE_JUNIT=...",
+   "exists": false,
+   "missing": "junit kept as a CI artifact only; never in the repository",
+   "part": "Results of nightly, compose and hardware activities",
+   "path": ".github/workflows/trialbox-e2e.yml"
+  },
+  {
+   "command": "none",
+   "exists": true,
+   "missing": "no signed approval of any pack document",
+   "part": "Signatures and approvals",
+   "path": "docs/validation/change-control.md"
+  },
+  {
+   "command": "python -m tools.qualify",
+   "exists": true,
+   "missing": "no record for the shipped pair (review K-6)",
+   "part": "Model qualification record",
+   "path": "eval/qualification/README.md"
+  }
+ ],
+ "requirements": [
+  {
+   "by_mark": [
+    "tests/unit/test_registry_match_core.py",
+    "tests/unit/test_registry_match_egress.py",
+    "tests/unit/test_registry_match_harness.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-03"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_traceability.py"
+   ],
+   "by_text": [
+    "tests/unit/test_traceability.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-06"
+  },
+  {
+   "by_mark": [
+    "tests/console/test_console_app.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-07"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_bakeoff.py",
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_channels.py",
+    "tests/unit/test_egress_rules.py",
+    "tests/unit/test_gateway.py",
+    "tests/unit/test_gateway_box_phi.py",
+    "tests/unit/test_model_swap.py",
+    "tests/unit/test_no_direct_model_calls.py",
+    "tests/unit/test_perimeter.py",
+    "tests/unit/test_pin_model.py",
+    "tests/unit/test_prompt_registry.py",
+    "tests/unit/test_provider_pin.py",
+    "tests/unit/test_routing_policy.py",
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-11"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-12"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-13"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_bakeoff.py",
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_channels.py",
+    "tests/unit/test_dataclass.py",
+    "tests/unit/test_egress_rules.py",
+    "tests/unit/test_gateway.py",
+    "tests/unit/test_gateway_box_phi.py",
+    "tests/unit/test_no_direct_model_calls.py",
+    "tests/unit/test_pin_model.py",
+    "tests/unit/test_prompt_registry.py",
+    "tests/unit/test_provider_pin.py",
+    "tests/unit/test_routing_policy.py",
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-14"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-15"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-16"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-17"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "CON-18"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
+    "tests/console/test_site_realities_t629.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-03a"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_criterion_ir_v3.py"
+   ],
+   "by_text": [
+    "tests/unit/test_code_coverage.py",
+    "tests/unit/test_mixed_and_polarity.py",
+    "tests/unit/test_mutation_tool.py",
+    "tests/unit/test_one_rule.py",
+    "tests/unit/test_safety_properties.py",
+    "tests/unit/test_verdict_table.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-04a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-04b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
+    "tests/unit/test_feed_completeness.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-08a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-08b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-08c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
+    "tests/unit/test_operations_docs.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "DR-10"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_gateway.py",
+    "tests/unit/test_model_swap.py",
+    "tests/unit/test_prompt_registry.py",
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [
+    "tests/integration/test_e2e_simple.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUD-01a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUD-01b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUD-01c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUD-01d"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUD-01e"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUD-01f"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUD-01g"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUD-01h"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUD-01i"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUD-01j"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUD-01k"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUD-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUD-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUD-03a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUD-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUD-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUD-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUD-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-01a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-01b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-01c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-02a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-04a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-05a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-05b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-05c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-05d"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-06a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-10a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-11"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-11a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-11b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-12"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-12a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-12b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
+    "tests/console/test_console_app.py",
+    "tests/unit/test_journey_rules.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-13"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-13a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-AUTH-13b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CASE-01a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CASE-01b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CASE-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CASE-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CASE-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CASE-05"
+  },
+  {
+   "by_mark": [
+    "tests/console/test_console_app.py",
+    "tests/unit/test_channels.py",
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CHAT-01"
+  },
+  {
+   "by_mark": [
+    "tests/console/test_console_app.py",
+    "tests/unit/test_channels.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CHAT-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CHAT-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CHAT-03a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CHAT-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CHAT-04a"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CHAT-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CHAT-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CHAT-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CON-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CON-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CON-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CON-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CON-04a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CON-04b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CON-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CON-05a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CON-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CON-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CON-07a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CON-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CON-08a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CON-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CON-09a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-CON-10"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_eval_public_suites.py"
+   ],
+   "by_text": [
+    "tests/unit/test_phi_note_mask.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-01"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_eval_public_suites.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-03a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-05a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-05b"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_gateway.py",
+    "tests/unit/test_phi_recognisers.py",
+    "tests/unit/test_tracestore.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-05c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-05d"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-06a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-06b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-08a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-10"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_disclosure_linked.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-11a"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_disclosure_linked.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-11b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-12"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-13"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-13a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-14"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-14a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-DEID-15"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDC-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDC-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDC-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDC-03a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDC-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDC-04a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDC-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDC-05a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDC-05b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDC-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDC-06a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDC-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDC-07a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDC-07b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDC-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDC-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDC-09a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDC-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDCL-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDCL-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDCL-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDCL-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDCL-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-EDCL-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ERR-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ERR-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ERR-02a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ERR-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ERR-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ERR-04a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ERR-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ERR-05a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ERR-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ERR-06a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ERR-06b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ERR-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ERR-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-01a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-01b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-01c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-02"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_cascade_units.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-03"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-04a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-04b"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_cascade_units.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-04c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-04d"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-04e"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-04f"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-04g"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-04h"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-04i"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-05a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-07a"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-11"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-11a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-12"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-12a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-12b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-12c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-12d"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-12e"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-12f"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FEAS-13"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FED-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FED-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FED-02a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FED-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FED-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FED-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FED-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FED-06a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FED-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FED-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FED-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FED-09a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-FED-10"
+  },
+  {
+   "by_mark": [
+    "tests/console/test_console_app.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-I18N-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-I18N-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-I18N-02a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-I18N-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-I18N-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-I18N-04a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-03a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-03b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-04a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-04b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-04c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-07a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-07b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-08a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-08b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-09"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-11"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-12"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-12a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-13"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-14"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-15a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-15b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-16"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-17"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-18"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-19"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-19a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-19b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-19c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-19d"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-19e"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-20"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-21"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-21a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-21b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-ING-22"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-JP-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-JP-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-JP-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-JP-03a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-JP-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-JP-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-JP-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-JP-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-JP-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-JP-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-LOG-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-LOG-01a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-LOG-01b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-LOG-01c"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_gateway.py",
+    "tests/unit/test_phi_recognisers.py",
+    "tests/unit/test_tracestore.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-LOG-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-LOG-02a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-LOG-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-LOG-03a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-LOG-03b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-LOG-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MAIL-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MAIL-02"
+  },
+  {
+   "by_mark": [
+    "tests/console/test_console_app.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MAIL-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MAIL-03a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MAIL-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MAIL-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MAIL-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MAIL-06a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MOD-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MOD-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MOD-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MOD-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MOD-04a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MOD-04b"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_champion_qualify.py",
+    "tests/unit/test_contracts.py",
+    "tests/unit/test_gateway.py",
+    "tests/unit/test_model_registry.py",
+    "tests/unit/test_model_swap.py",
+    "tests/unit/test_no_direct_model_calls.py",
+    "tests/unit/test_pin_model.py",
+    "tests/unit/test_prompt_registry.py",
+    "tests/unit/test_provider_pin.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MOD-05"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_agreement_judge.py",
+    "tests/unit/test_bakeoff.py",
+    "tests/unit/test_eval_public_suites.py",
+    "tests/unit/test_licence_register.py",
+    "tests/unit/test_model_registry.py",
+    "tests/unit/test_provider_pin.py",
+    "tests/unit/test_qualify.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MOD-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MOD-06a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MOD-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MOD-07a"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_champion_qualify.py",
+    "tests/unit/test_gateway.py",
+    "tests/unit/test_model_registry.py",
+    "tests/unit/test_model_swap.py",
+    "tests/unit/test_pin_model.py",
+    "tests/unit/test_provider_pin.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MOD-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MOD-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MOD-09a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
+    "tests/unit/test_serving_config.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-MOD-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-NOTIF-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-NOTIF-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-NOTIF-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-NOTIF-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-NOTIF-04a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-NOTIF-04b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-NOTIF-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-NOTIF-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-NOTIF-06a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-NOTIF-06b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-NOTIF-06c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-NOTIF-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-NOTIF-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-NOTIF-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-OMOP-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-OMOP-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-OMOP-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-OMOP-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-OPS-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-OPS-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-OPS-03"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_pin_model.py",
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-OPS-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-OPS-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-OPS-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-OPS-06a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-OPS-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-OPS-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-OPS-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-OPS-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
+    "tests/integration/test_e2e_simple.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-OPS-11"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
+    "tests/unit/test_env_settings_gate.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-OPS-12"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-02a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-03a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-03b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-03c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-07a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-07b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-09a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-11"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-11a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-12"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-12a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-12b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-13"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-14"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-14a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-15"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-16"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-17"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-18"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-19"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-20"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-21"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-22"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-23"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-23a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-23b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-24"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-25"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-26"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-26a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-26b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-27"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-27a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-28"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-29"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-PLAT-30"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-03a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-03b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-05a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-06a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-06b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-06c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-07a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
+    "tests/unit/test_rc_sim.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
+    "tests/unit/test_rc_conformance.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-10a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-11"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-12"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-13"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-14"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-14a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-15"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-16"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-17"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-RC-17a"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_champion_qualify.py",
+    "tests/unit/test_gateway.py",
+    "tests/unit/test_model_registry.py",
+    "tests/unit/test_pin_model.py",
+    "tests/unit/test_provider_pin.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-REP-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
+    "tests/integration/test_e2e_simple.py",
+    "tests/unit/test_snapshot_holds.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-REP-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-REP-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-REP-04a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-REP-04b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-REP-04c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-REP-04d"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-REP-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-REP-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-REP-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-REP-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-REP-08a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
+    "tests/integration/test_list_demo.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-REP-09"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_cascade_units.py",
+    "tests/unit/test_screen_cascade.py",
+    "tests/unit/test_traceability.py"
+   ],
+   "by_text": [
+    "tests/unit/test_traceability.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-02a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-02b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-04a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-04b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-04c"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_agreement_judge.py",
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_cascade_units.py",
+    "tests/unit/test_traceability.py"
+   ],
+   "by_text": [
+    "tests/unit/test_traceability.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-05a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-05b"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_cascade_units.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-06a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-07a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-07b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-07c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-07d"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-07e"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
+    "tests/console/test_step2.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-07f"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-07g"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-07h"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-07i"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-07j"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-07k"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-10a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-10b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-10c"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_cascade_pipeline.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-11"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_agreement_judge.py",
+    "tests/unit/test_cascade_pipeline.py",
+    "tests/unit/test_cascade_units.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-12"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-12a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-12b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-12c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SCR-13"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-01a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-01b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-01c"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_eval_public_suites.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-03"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_champion_qualify.py",
+    "tests/unit/test_model_swap.py",
+    "tests/unit/test_pin_model.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-04a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-05a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-06a"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_gateway.py",
+    "tests/unit/test_phi_recognisers.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-08a"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_egress_rules.py",
+    "tests/unit/test_gateway.py",
+    "tests/unit/test_gateway_box_phi.py",
+    "tests/unit/test_model_swap.py",
+    "tests/unit/test_no_direct_model_calls.py",
+    "tests/unit/test_perimeter.py",
+    "tests/unit/test_pin_model.py",
+    "tests/unit/test_routing_policy.py",
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-10a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-11"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-12"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_egress_rules.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-13"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SEC-13a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-STUDY-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-STUDY-01a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-STUDY-01b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-STUDY-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-STUDY-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-STUDY-03a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-STUDY-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-STUDY-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-STUDY-05a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-STUDY-05b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-STUDY-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-STUDY-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-STUDY-07a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-STUDY-07b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-STUDY-07c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-STUDY-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-STUDY-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-STUDY-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-STUDY-10a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SYN-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SYN-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SYN-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SYN-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-SYN-04a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-TC-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-TC-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-TC-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-TC-03a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-TC-03b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-TC-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-TC-04a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-TC-04b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-TC-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-TC-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-TC-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-01a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-04a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-04b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-08a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-08b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-11a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-11b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-11c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-11d"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-11e"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-11f"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-12"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-13"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-13a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-13b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-14"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-14a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-15"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-16"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
+    "tests/console/test_console_app.py",
+    "tests/integration/test_list_demo.py"
+   ],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-17"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-17a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-18"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "FR-UI-19"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-03a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-03b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-11"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-11a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-11b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "IR-12"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-AVAIL-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-AVAIL-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-AVAIL-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-AVAIL-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-CAP-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-CAP-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-CAP-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-CAP-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-CAP-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-CAP-05a"
+  },
+  {
+   "by_mark": [
+    "tests/console/test_console_app.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-COMP-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-COMP-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-COMP-03a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-COMP-03b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-COMP-03c"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-COMP-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-COMP-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-COMP-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-COMP-06a"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-COMP-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-COMP-08"
+  },
+  {
+   "by_mark": [
+    "tests/testbench/test_testbench_app.py",
+    "tests/unit/test_dataclass.py",
+    "tests/unit/test_eval_public_suites.py",
+    "tests/unit/test_pin_model.py",
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-MAINT-01a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-MAINT-01b"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-MAINT-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-MAINT-03"
+  },
+  {
+   "by_mark": [
+    "tests/testbench/test_testbench_app.py",
+    "tests/unit/test_dataclass.py",
+    "tests/unit/test_eval_public_suites.py",
+    "tests/unit/test_pin_model.py",
+    "tests/unit/test_trialbox_doctor.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-MAINT-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-MAINT-04a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-MAINT-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PERF-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PERF-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PERF-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PERF-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PERF-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PERF-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PERF-07a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PERF-07b"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_registry_match_core.py",
+    "tests/unit/test_registry_match_harness.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PERF-08"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_registry_match_core.py",
+    "tests/unit/test_registry_match_harness.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PERF-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PERF-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PERF-11"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PERF-11a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PERF-12"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PERF-13"
+  },
+  {
+   "by_mark": [
+    "tests/unit/test_tracestore.py"
+   ],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PERF-14"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PERF-14a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PERF-15"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PORT-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PORT-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-PORT-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-USAB-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-USAB-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-USAB-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-USAB-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-USAB-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-USAB-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-USAB-06a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-USAB-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-USAB-07a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-USAB-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-USAB-08a"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-USAB-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/design/01-SRS.md",
+   "id": "NFR-USAB-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
+    "tests/unit/test_gen_traceability.py"
+   ],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-11"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-12"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-13"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-14"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-15"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-16"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-17"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-18"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-19"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-20"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-21"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-ADM-22"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-CLN-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-CLN-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-CLN-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-CRA-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-CRA-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-CRA-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-CRC-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-CRC-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-CRC-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-CRC-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-CRC-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-CRC-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-CRC-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-CRC-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-CRC-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-CRC-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-CRC-11"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-CRC-12"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-CRC-13"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-CRC-14"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
+    "tests/unit/test_gen_traceability.py"
+   ],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
+    "tests/console/test_not_matched_sample.py"
+   ],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [
+    "tests/unit/test_ruleset_pins.py"
+   ],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-11"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-12"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-13"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-14"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-15"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-16"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-17"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-18"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-19"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-20"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PI-21"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PRV-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PRV-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PRV-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PRV-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PRV-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PRV-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PRV-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PRV-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PRV-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-PRV-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-STW-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-STW-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-STW-03"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-STW-04"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-STW-05"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-STW-06"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-STW-07"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-STW-08"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-STW-09"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-STW-10"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-STW-11"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-STW-12"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-STW-13"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-STW-14"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-STW-15"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-STW-16"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-SUB-01"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-SUB-02"
+  },
+  {
+   "by_mark": [],
+   "by_text": [],
+   "home": "docs/plan/25-master-plan.md",
+   "id": "URS-SUB-03"
+  }
+ ],
+ "results_from": [
+  "results-run.xml",
+  "results-withdrawal.xml"
+ ],
+ "safety_core_untied": [
+  "tests/llm/test_llm_layer.py",
+  "tests/unit/test_budget_of_context_unknown.py",
+  "tests/unit/test_consent_unit.py",
+  "tests/unit/test_cql_sql_generators.py",
+  "tests/unit/test_demo_image.py",
+  "tests/unit/test_derived_phi.py",
+  "tests/unit/test_equivalence_gate.py",
+  "tests/unit/test_g1_b3_qualify_marker.py",
+  "tests/unit/test_jp_code_maps.py",
+  "tests/unit/test_judge_answer_cut_twice.py",
+  "tests/unit/test_judge_call_context.py",
+  "tests/unit/test_llm_client.py",
+  "tests/unit/test_malignancy_c44_c4a.py",
+  "tests/unit/test_model_hold.py",
+  "tests/unit/test_proposed_and_coded_filters.py",
+  "tests/unit/test_quotes.py",
+  "tests/unit/test_s2b_skipped_when_the_window_fits.py",
+  "tests/unit/test_screen_survives_an_embed_outage.py",
+  "tests/unit/test_screen_v1_judging.py"
+ ],
+ "tools": [
+  {
+   "reads": "TB-PLAN-05 (superseded): URS, RSK, TST ids",
+   "runs": "CI job checks (warns only)",
+   "tool": "tools/gen_traceability.py",
+   "writes": "docs/plan/25-traceability.csv, status 'planned' on every row"
+  },
+  {
+   "reads": "@pytest.mark.req ids of a run's trace.jsonl, TB-DS-01 Appendix D",
+   "runs": "CI unit job, every PR; kept as the artifact 'traceability', never in the repository",
+   "tool": "tools/traceability.py (NEW-STD-3)",
+   "writes": "traceability.csv/.md, summary.md: requirement, test, result of that run"
+  },
+  {
+   "reads": "plan 8 criteria, both requirement homes, mark.req via Appendix D, ids in test text, decisions, junit results, the criteria's own commands",
+   "runs": "by hand",
+   "tool": "tools/trace_dry.py (V-15)",
+   "writes": "this measurement"
+  }
+ ],
+ "tst_rows": [
+  {
+   "collected": [],
+   "csv_links": 1,
+   "id": "TST-UNIT-01",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 1,
+   "id": "TST-UNIT-02",
+   "named": []
+  },
+  {
+   "collected": [
+    "tests/unit/test_one_rule.py"
+   ],
+   "csv_links": 4,
+   "id": "TST-UNIT-03",
+   "named": [
+    "test_one_rule.py"
+   ]
+  },
+  {
+   "collected": [],
+   "csv_links": 2,
+   "id": "TST-UNIT-04",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 4,
+   "id": "TST-UNIT-05",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 5,
+   "id": "TST-UNIT-06",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 1,
+   "id": "TST-UNIT-07",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 1,
+   "id": "TST-UNIT-08",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 2,
+   "id": "TST-UNIT-09",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 1,
+   "id": "TST-INT-01",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 7,
+   "id": "TST-E2E-01",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 8,
+   "id": "TST-E2E-02",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 1,
+   "id": "TST-E2E-03",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 4,
+   "id": "TST-E2E-04",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 5,
+   "id": "TST-GOLD-01",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 2,
+   "id": "TST-GOLD-02",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 7,
+   "id": "TST-WALK-01",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 8,
+   "id": "TST-WALK-02",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 3,
+   "id": "TST-WALK-03",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 5,
+   "id": "TST-MOD-01",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 1,
+   "id": "TST-MOD-02",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 7,
+   "id": "TST-PROF-01",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 1,
+   "id": "TST-PROF-02",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 2,
+   "id": "TST-PROF-03",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 2,
+   "id": "TST-PROF-04",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 2,
+   "id": "TST-PROF-05",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 2,
+   "id": "TST-EDC-01",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 6,
+   "id": "TST-EDC-02",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 1,
+   "id": "TST-EDC-03",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 6,
+   "id": "TST-EDC-04",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 4,
+   "id": "TST-DOPS-01",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 2,
+   "id": "TST-DOPS-02",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 3,
+   "id": "TST-DOPS-03",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 1,
+   "id": "TST-FED-01",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 1,
+   "id": "TST-FED-02",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 5,
+   "id": "TST-PERF-01",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 4,
+   "id": "TST-OPS-01",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 3,
+   "id": "TST-OPS-02",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 4,
+   "id": "TST-OPS-03",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 4,
+   "id": "TST-OPS-04",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 2,
+   "id": "TST-OPS-05",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 14,
+   "id": "TST-SEC-01",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 5,
+   "id": "TST-SEC-02",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 7,
+   "id": "TST-SEC-03",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 2,
+   "id": "TST-SEC-04",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 1,
+   "id": "TST-SEC-05",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 4,
+   "id": "TST-SEC-06",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 2,
+   "id": "TST-SEC-07",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 1,
+   "id": "TST-SEC-08",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 15,
+   "id": "TST-IQ-01",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 8,
+   "id": "TST-OQ-02",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 9,
+   "id": "TST-IQ-03",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 1,
+   "id": "TST-IQ-04",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 1,
+   "id": "TST-MOD-03",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 8,
+   "id": "TST-PQ-03",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 6,
+   "id": "TST-PQ-04",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 3,
+   "id": "TST-SEC-09",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 7,
+   "id": "TST-SEC-10",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 9,
+   "id": "TST-OQ-01",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 3,
+   "id": "TST-PQ-01",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 3,
+   "id": "TST-PQ-02",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 2,
+   "id": "TST-CI-01",
+   "named": []
+  },
+  {
+   "collected": [],
+   "csv_links": 23,
+   "id": "TST-DOC-01",
+   "named": []
+  }
+ ]
+}
