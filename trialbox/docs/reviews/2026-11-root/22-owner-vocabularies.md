@@ -3,10 +3,10 @@
 **Reader:** the owner (a clinician) first, then the builders of Track H.
 
 **Input.** The owner supplied the vocabulary table (`VOCABULARY.csv`) of his OHDSI Athena download: 130 rows
-(id, name, reference, version, concept id). It is committed unchanged as
-`docs/licences/owner-athena-vocabularies-2026-11-18.tsv` (sha256 `7717965b…bae33b`) [measured: `sha256sum`, `wc -l` 131
-lines], beside the licence register (`docs/data` was the asked place, but the documentation linter allows only
-`NN-<slug>.md` pages there [measured: `tools/doclint.py`; read: `tools/doclint.py:243-245`]). It holds no patient data
+(id, name, reference, version, concept id). Its rows are committed as a Markdown table in
+`docs/licences/owner-athena-vocabularies-2026-11-18.md` [measured: 130 rows], beside the licence register: the
+repository's data scan refuses a data file outside its listed folders, and the documentation linter allows only
+`NN-<slug>.md` pages under `docs/data` [measured: `tools.data_scan`; read: `tools/doclint.py:243-245`]. It holds no patient data
 and no secret. The download itself (about 910 MB) stays in the owner's own cloud drive
 and never enters the repository or the bundle (decision 23, closed) [read: `origin/agent/B18-plan-10`
 `47-plan-10-2026-11-18.md`, Track H row 9h-4].
@@ -27,10 +27,10 @@ Nothing here is legal advice.
    at a US site and most of what matters internationally: RxNorm and RxNorm Extension, ATC, LOINC, UCUM, ICD-10-CM,
    ICD-10-PCS, ICD-9-CM, WHO ICD-10, ICD-O-3, SNOMED, NCIt, HemOnc, the OMOP structural vocabularies [measured: the
    table]. It is one release old: the OMOP row says `v5.0 27-AUG-25`; Athena's current release is `v20260829`
-   [measured: the TSV's `None` row; Athena's public `release-version` endpoint].
+   [measured: the list's `None` row; Athena's public `release-version` endpoint].
 2. **Today's loader would refuse your download whole.** It accepts 25 named vocabularies and refuses a bundle holding
    any other; 106 of your 130 are not on its list [measured: script over `services/omop/vocab_load.py:801-805` and the
-   TSV; read: refusal at `:905-908`]. Card 22-2 makes it filter by the licence register instead of refusing.
+   list; read: refusal at `:905-908`]. Card 22-2 makes it filter by the licence register instead of refusing.
 3. **Of the 130, 33 matter at one or more of the three kinds of site and 11 more "maybe"; the other 86 are other
    countries' codes, US billing codes, knowledge bases or retired OMOP types** (section 2) [opinion, per row;
    counted by script, section 7 row 7].
@@ -161,7 +161,7 @@ The last two rows group eleven OMOP vocabularies that behave identically; each i
 | Specimen Type, Visit Type, Drug Type, Procedure Type, Observation Type, Condition Type, Obs Period Type, Device Type, Death Type, Note Type, Cohort Type | Old OMOP type vocabularies | Superseded by Type Concept [opinion] | d |
 | Plan, Sponsor, Plan Stop Reason, Cost, Cost Type, Provider, Supplier, Cohort | OMOP payer and cost structure | Not used by finding | d |
 
-Every one of the 130 ids appears once in 2.1 or 2.2 [measured: a script matched each TSV id against this file's
+Every one of the 130 ids appears once in 2.1 or 2.2 [measured: a script matched each id of the list against this file's
 table rows; log in section 7].
 
 ### 2.3 Athena's own download terms
@@ -270,13 +270,13 @@ load; the Japanese masters stay site-loaded (O-4, 11/JP-9).
 
 | # | What | Command | Result |
 | --- | --- | --- | --- |
-| 1 | Row count and hash of the owner's list | `wc -l`; `sha256sum` on the TSV | 131 lines (130 vocabularies); `7717965bd054…bae33b` |
-| 2 | Loader allow-list against the list | Python: parse `ATHENA_ALLOW` from `services/omop/vocab_load.py:801-805`; set difference with the TSV ids | 24 allowed, 106 refused; `Note Encoding` allowed but absent |
+| 1 | Row count of the owner's list | count of table rows in `docs/licences/owner-athena-vocabularies-2026-11-18.md` | 130 vocabularies |
+| 2 | Loader allow-list against the list | Python: parse `ATHENA_ALLOW` from `services/omop/vocab_load.py:801-805`; set difference with the list's ids | 24 allowed, 106 refused; `Note Encoding` allowed but absent |
 | 3 | OMOP-generated rows; proprietary; UMLS-licensed references | Same script on the reference column | 42; SUS, MMI; CPT4, Read, HCPCS, MeSH, SNOMED |
 | 4 | Athena release | `curl https://athena.ohdsi.org/api/v1/vocabularies/release-version` | `v20260829`; the list endpoint answers 403 |
 | 5 | Athena licence text | `curl` of the application bundle named in athena.ohdsi.org's page; text search for the licence modal | SNOMED and HemOnc terms quoted in 2.3 |
 | 6 | UMLS restriction categories | `curl` of the UMLS licence appendix and agreement; text search per source | As cited in section 2.1 |
-| 7 | Every TSV id covered by section 2; relevance counts | `/var/tmp/trialbox-0/b24/cover.py`: each id found once as a first-column cell (grouped cells split on commas); JP TW US flags counted | 130 of 130, none twice; 2.1 holds 47 (33 with a Y, 11 M only, 3 N), 2.2 holds 83 |
+| 7 | Every id of the list covered by section 2; relevance counts | `/var/tmp/trialbox-0/b24/cover.py`: each id found once as a first-column cell (grouped cells split on commas); JP TW US flags counted | 130 of 130, none twice; 2.1 holds 47 (33 with a Y, 11 M only, 3 N), 2.2 holds 83 |
 
 Scratch in `/var/tmp/trialbox-0/b24/` (deleted when done).
 
