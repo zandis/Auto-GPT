@@ -286,7 +286,7 @@ def test_the_wizard_defaults_to_offline_and_takes_live_or_the_install_answer(mon
 
     def prompt(q: str) -> str:
         asked.append(q)
-        return ""
+        return "tw" if q.startswith("Country") else ""  # 10K-1: the country has no default; Enter everywhere else
 
     answers = wiz.ask({}, prompt=prompt)
     assert answers["ctgov_mode"] == "live" and not any("ClinicalTrials.gov" in q for q in asked)
