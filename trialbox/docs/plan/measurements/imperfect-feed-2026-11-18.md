@@ -90,8 +90,8 @@ as the hospital wrote it. Night goes on: the lake rebuilt and served, and FEAS r
 | column-short | csv | 0 published | nothing counted | none (no error line) | all | YES: 1 wrong | yes |
 | column-extra | csv | 0 published | lab: rejected 1 "MappingError: unparseable datetime <value>" | none (no error line) | all | no | yes |
 | header-renamed | csv | 0 published | nothing counted | none (no error line) | 200 of 800 lost | YES: 200 wrong | yes |
-| header-dropped | csv | 1 held | nothing counted | validation error rate 4.76% exceeds 0.5% | held: nothing served | not served | held (lake keeps the previous night) |
-| header-dropped | cgrd_sql | 1 held | nothing counted | validation error rate 2.38% exceeds 0.5% | held: nothing served | not served | held (lake keeps the previous night) |
+| header-dropped | csv | 1 held | nothing counted | validation error rate 7.14% exceeds 0.5% | held: nothing served | not served | held (lake keeps the previous night) |
+| header-dropped | cgrd_sql | 1 held | nothing counted | validation error rate 4.76% exceeds 0.5% | held: nothing served | not served | held (lake keeps the previous night) |
 | big5 | csv | 0 published | nothing counted | none (no error line) | all | no | yes |
 | big5 | fhir_bulk | crash (traceback) | nothing counted | none (no error line) | no night served | not served | no: UnicodeDecodeError: 'utf-8' codec can't decode byte 0xa7 in position 290: invalid start byte |
 | big5 | ssmix2 | 0 published | reader.json: PPR-01:read as cp932 1 | none (no error line) | all | YES: 2 garbled texts in the snapshot | yes |
@@ -122,7 +122,7 @@ as the hospital wrote it. Night goes on: the lake rebuilt and served, and FEAS r
 | birth-zero | cgrd_sql | 1 held | patient: rejected 1 "MappingError: unparseable date <value>" | patient: 1 of 50 rows rejected (over 1 %): MappingError: unparseable date <value> (1) | held: nothing served | not served | held (lake keeps the previous night) |
 | birth-zero | fhir_bulk | 1 failed | nothing counted | lake rebuild failed: ValueError: LAKE-BUILD: the lake could not build the snapshot. The error's own message can hold a value of a row and is not sent; the lake's log says where the build failed | no night served | not served | no: the night did not end |
 | ssmix2-birth-zero | ssmix2 | 1 held | patient: rejected 1 "MappingError: unparseable date <value>" | patient: 1 of 50 rows rejected (over 1 %): MappingError: unparseable date <value> (1) | held: nothing served | not served | held (lake keeps the previous night) |
-| ssmix2-birth-9999 | ssmix2 | 1 held | patient: implausible_dates 1 | validation error rate 2.38% exceeds 0.5% | held: nothing served | not served | held (lake keeps the previous night) |
+| ssmix2-birth-9999 | ssmix2 | 0 published | patient: implausible_dates 1 | none (no error line) | all | no | yes |
 | ssmix2-birth-after-visit | ssmix2 | 0 published | nothing counted | none (no error line) | all | kept as written: 1, not counted | yes |
 | note-2mb | csv | 1 held | note: file set aside | note: note.csv quarantined: not a readable CSV (field larger than field limit (131072)); moved to quarantine/note.csv | held: nothing served | not served | held (lake keeps the previous night) |
 | note-2mb | cgrd_sql | 0 published | nothing counted | none (no error line) | all | no | yes |
@@ -314,8 +314,8 @@ The night's validation takes a random sample (D-457). Three cases depend on it. 
 different percentage on each run (2.38 % to 9.52 % seen). A FHIR birth date 0000-00-00 is held by validation when
 the sample holds that patient and fails the lake build otherwise (both seen; H34-10). An SS-MIX2 birth date 99991231
 is left out and the patient kept, and the night is then published, or held when the sample takes that patient
-(both seen on the final head; H34-23). The table is the first of the two runs on the final head; the second differed
-in those cells only.
+(both seen across the four runs made for this page; H34-23). The table is the first of the two runs on the final
+tool; the second differed only in a validation percentage.
 
 ## Cited, not repeated
 
