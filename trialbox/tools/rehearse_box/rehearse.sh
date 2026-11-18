@@ -8,6 +8,8 @@
 # container, with the strict vLLM stand-ins (tools/vllm_standin.py) where the GPU would be. It proves:
 #
 #   wsl2            the WSL2 preflight passes on a WSL2-like host and fails on plain Linux (Windows itself cannot run)
+#   bootstrap       RUNBOOK §1's first command as written: openssl checks the bootstrap's signature, the bootstrap
+#                   verifies the bundle and unpacks its host tree into an empty folder (D-996)
 #   media-negative  missing media, a forged bundle and a missing vendor key each stop the installer, nothing written
 #   install         install.sh exits 0: bundle verified and loaded, settings, key, pins, stack healthy, serving check
 #   doctor          trialbox doctor --live passes (with the site's TLS proxy assumed: TB_CONSOLE_SECURE_COOKIE=1)
@@ -169,9 +171,14 @@ media() (  # a subshell: set -e stops the step, not the run
   # D-726, D-887: a rehearsal bundle (release.json says so): a site box refuses it; a rehearsal box pins its placeholders
   tools/make_bundle.sh --allow-dirty "a rehearsal of the working tree" --rehearsal \
     --key "$W/vendor/keys/vendor_ed25519.key" --id "$ID" --release-seq 1 \
-    --out "$MEDIA/linux/$BUNDLE_NAME" --gates "$W/vendor/gates/gates.json" --sbom-dir dist/sbom \
+    --out "$W/vendor/dist/$BUNDLE_NAME" --gates "$W/vendor/gates/gates.json" --sbom-dir dist/sbom \
     --models "$W/vendor/models" --refdata "$pack" "${args[@]}" \
     || { echo "the bundle was not built"; return 1; }
+  # H-22 (D-996): the vendor builds in its own folder and hands the files over; that folder is gone before the site
+  # installs, so a sidecar or a check that names the vendor's path fails here as it fails on a site's stick
+  mv "$W/vendor/dist/$BUNDLE_NAME" "$W/vendor/dist/$BUNDLE_NAME.sha256" "$W/vendor/dist/trialbox-bootstrap.sh" \
+    "$W/vendor/dist/trialbox-bootstrap.sh.sig" "$MEDIA/linux/" && rmdir "$W/vendor/dist" \
+    || { echo "the bundle's files are not all in the vendor's folder (bundle, .sha256, bootstrap, .sig)"; return 1; }
   [ -s "$MEDIA/linux/$BUNDLE_NAME" ] || { echo "no bundle at $MEDIA/linux/$BUNDLE_NAME"; return 1; }
   cp "$W/vendor/keys/vendor_ed25519.pub" "$MEDIA/linux/"
   cp deploy/measured/serving_config.*.json "$MEDIA/measured/"
@@ -287,6 +294,7 @@ step host-image 1 host_image
 step clear-images 1 clear_images
 step host-up 1 host_up
 step wsl2 0 in_box wsl2
+step bootstrap 1 in_box bootstrap
 step media-negative 0 in_box media-negative
 step install 1 in_box install
 [ "$VARIANT" = validation ] && step reinstall 1 in_box reinstall

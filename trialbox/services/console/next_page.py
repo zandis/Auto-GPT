@@ -12,6 +12,8 @@ from urllib.parse import quote, unquote, urlsplit
 from starlette.requests import Request
 from starlette.responses import Response
 
+from console.local_path import is_local
+
 NEXT_COOKIE = "tb_console_next"
 MAX_AGE = 900
 _NOT_KEPT = ("/login", "/logout", "/enrol", "/api/", "/auth/", "/static/")
@@ -20,7 +22,7 @@ _NOT_KEPT = ("/login", "/logout", "/enrol", "/api/", "/auth/", "/static/")
 def safe_next(raw: str | None) -> str:
     """``raw`` when it is a path of this console worth returning to (with its query), else ""."""
     p = (raw or "").strip()
-    if not p.startswith("/") or p.startswith("//") or "\\" in p or len(p) > 400 or any(c in p for c in "\r\n"):
+    if len(p) > 400 or not is_local(p):  # lane J's finding: every control, and "//" hidden by whitespace
         return ""
     path = urlsplit(p).path
     if any(path == x.rstrip("/") or path.startswith(x) for x in _NOT_KEPT):
@@ -49,6 +51,6 @@ def remember(resp: Response, page: str, secure: bool) -> None:
 def take(request: Request, resp: Response) -> None:
     """Send ``resp`` (a redirect after sign-in) to the kept page, if any, and forget it."""
     page = safe_next(unquote(request.cookies.get(NEXT_COOKIE) or ""))
-    if page:
-        resp.headers["location"] = page
+    if page:  # the review of D-1156: percent-encoded, so a non-ASCII page is a Location, never a 500
+        resp.headers["location"] = quote(page, safe="/?&=%#:@;+,!$'()*~-._")
     resp.delete_cookie(NEXT_COOKIE)

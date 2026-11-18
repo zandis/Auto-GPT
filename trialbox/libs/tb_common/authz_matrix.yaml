@@ -799,6 +799,15 @@ actions:
     cro: false
     steward: true
     privacy: true
+  audit.provenance:
+    what: which records a model, build or prompt touched (/audit/provenance; D-989, D-1155); the administrator reads them without pseudonyms (audit.ids)
+    admin: true
+    coordinator: false
+    investigator: false
+    viewer: false
+    cro: false
+    steward: true
+    privacy: true
   items.view:
     what: read the clinical item catalogue (/data/items)
     admin: false

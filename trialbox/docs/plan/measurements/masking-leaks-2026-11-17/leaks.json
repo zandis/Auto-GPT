@@ -1,0 +1,7509 @@
+{
+ "card": "V-5",
+ "date": "2026-11-17",
+ "seed": 20261117,
+ "entry_points": {
+  "mask": "tb_common.phi_guard.mask_note(text, site_mrn_regex()) as at services/lake/store.py:1463",
+  "tripwire": "guard.Guard.from_settings().tripwire(text) as at services/gateway/core.py:579"
+ },
+ "site_mrn_regex": "^\\d{8}$",
+ "base_notes": {
+  "zh-TW": {
+   "generated": 205,
+   "kept": 205
+  },
+  "ja": {
+   "generated": 274,
+   "kept": 274
+  },
+  "en": {
+   "generated": 235,
+   "kept": 235
+  }
+ },
+ "cells": {
+  "en|address|en_apt|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 9,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|address|en_apt|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 3,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|address|en_full|in": {
+   "planted": 18,
+   "leaked": 9,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "table": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "dddd Example Street, Springfield, IL ddddd",
+     "output": "○○○○ ○○○○○○○ ○○○○○○○ ○○○○○○○○○○○, IL ddddd No fever, c"
+    },
+    {
+     "position": "middle",
+     "value_shape": "dddd Placeholder Lane, Springfield, IL ddddd",
+     "output": "ds normal.  ○○○○ ○○○○○○○○○○○ ○○○○○ ○○○○○○○○○○○, IL ddddd Heart sound"
+    },
+    {
+     "position": "table",
+     "value_shape": "dddd Placeholder Lane, Springfield, IL ddddd",
+     "output": "d. ⏎Address⇥○○○○ ○○○○○○○○○○○ ○○○○○ ○○○○○○○○○○○, IL ddddd⇥備註⏎Family h"
+    },
+    {
+     "position": "start",
+     "value_shape": "dddd Example Street, Springfield, IL ddddd",
+     "output": "○○○○ ○○○○○○○ ○○○○○○○ ○○○○○○○○○○○, IL ddddd Occasional "
+    },
+    {
+     "position": "middle",
+     "value_shape": "dddd Sample Avenue, Springfield, IL ddddd",
+     "output": "ipidaemia.  ○○○○ ○○○○○○ ○○○○○○○ ○○○○○○○○○○○, IL ddddd Abdomen sof"
+    }
+   ],
+   "per_thousand": 500.0
+  },
+  "en|address|en_full|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ddd Example Street,⏎Springfield, IL ddddd",
+     "output": "preserved.  ○○○ ○○○○○○○ ○○○○○○○⏎○○○○○○○○○○○, IL ddddd Low-purine "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd Example Street,⏎Springfield, IL ddddd",
+     "output": "cultation.  ○○○○ ○○○○○○○ ○○○○○○○⏎○○○○○○○○○○○, IL ddddd Occasional "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd Testing Road,⏎Springfield, IL ddddd",
+     "output": "act sport.  ○○○○ ○○○○○○○ ○○○○○⏎○○○○○○○○○○○, IL ddddd Continue cu"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|chart|bare_8|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|chart|bare_8|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "cultation.  dddd⏎dddd Family hist"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "if needed.  dddd⏎dddd Heart sound"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "ds normal.  dddd⏎dddd Occasional "
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|chart|label_Chart_No|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|chart|label_Chart_No|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "  Chart No. ○○○○⏎dddd Results sim"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "  Chart No. ○○○○⏎dddd Diet discus"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "  Chart No. ○○○○⏎dddd Advised to "
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|chart|label_Hospital_No_colon|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|chart|label_Hospital_No_colon|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "spital No.: ○○○○⏎dddd Advised to "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "spital No.: ○○○○⏎dddd Continue cu"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "spital No.: ○○○○⏎dddd Results sim"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|chart|label_ID_colon|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|chart|label_ID_colon|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "amily.  ID: ○○○○⏎dddd Social hist"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": " week.  ID: ○○○○⏎dddd Exercise ad"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "uced).  ID: ○○○○⏎dddd Sleeping we"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|chart|label_MRN_colon|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|chart|label_MRN_colon|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "ced).  MRN: ○○○○⏎dddd Home blood "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "emia.  MRN: ○○○○⏎dddd Recommended"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "port.  MRN: ○○○○⏎dddd Family hist"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|chart|label_MRN|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|chart|label_MRN|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "ented.  MRN ○○○○⏎dddd Advised to "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "sport.  MRN ○○○○⏎dddd Abdomen sof"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "erved.  MRN ○○○○⏎dddd Results exp"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|dob|label_compact8|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|dob|label_compact8|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "ally.  DOB: dddd⏎dddd Vital signs"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "mily.  DOB: dddd⏎dddd Continue cu"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "able.  DOB: dddd⏎dddd No cervical"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|dob|label_day_month_abbr|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|dob|label_day_month_abbr|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dd Jun⏎dddd",
+     "output": "eded.  DOB: dd Jun⏎dddd Results exp"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd May⏎dddd",
+     "output": "able.  DOB: dd May⏎dddd Family hist"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd Oct⏎dddd",
+     "output": "ined.  DOB: dd Oct⏎dddd Family hist"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|dob|label_dotted|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|dob|label_dotted|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd.⏎dd.dd",
+     "output": "emia.  DOB: dddd.⏎dd.dd Occasional "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd.⏎dd.dd",
+     "output": "ally.  DOB: dddd.⏎dd.dd Family hist"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd.⏎dd.dd",
+     "output": "port.  DOB: dddd.⏎dd.dd Diet discus"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|dob|label_iso|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|dob|label_iso|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎dd-dd",
+     "output": "ined.  DOB: dddd-⏎dd-dd Advised to "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎dd-dd",
+     "output": "w-up.  DOB: dddd-⏎dd-dd Mostly adhe"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎dd-dd",
+     "output": "ally.  DOB: dddd-⏎dd-dd Low-purine "
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|dob|label_month_name|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|dob|label_month_name|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "July d,⏎ dddd",
+     "output": "port.  DOB: July d,⏎ dddd Diet discus"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "September⏎dd, dddd",
+     "output": "ined.  DOB: September⏎dd, dddd Advised to "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "January⏎dd, dddd",
+     "output": "emia.  DOB: January⏎dd, dddd Results sim"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|dob|label_nen_gappi_fullwidth|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|dob|label_nen_gappi_fullwidth|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|dob|label_nen_gappi|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|dob|label_nen_gappi|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|dob|label_slash_dmy|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|dob|label_slash_dmy|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dd/dd/⏎dddd",
+     "output": "ally.  DOB: dd/dd/⏎dddd Family hist"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd/dd/⏎dddd",
+     "output": "week.  DOB: dd/dd/⏎dddd Advised to "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd/dd/⏎dddd",
+     "output": "tion.  DOB: dd/dd/⏎dddd Mostly adhe"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|dob|label_slash_mdy|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|dob|label_slash_mdy|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dd/dd/⏎dddd",
+     "output": "rved.  DOB: dd/dd/⏎dddd No leg oede"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd/dd/⏎dddd",
+     "output": "mily.  DOB: dd/dd/⏎dddd Social hist"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd/dd/⏎dddd",
+     "output": "nted.  DOB: dd/dd/⏎dddd Heart sound"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|dob|label_slash_ymd|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|dob|label_slash_ymd|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd/⏎dd/dd",
+     "output": "mily.  DOB: dddd/⏎dd/dd Social hist"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd/⏎dd/dd",
+     "output": "ced).  DOB: dddd/⏎dd/dd Results sim"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd/⏎dd/dd",
+     "output": "able.  DOB: dddd/⏎dd/dd Family hist"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|dob|label_two_digit_year|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|dob|label_two_digit_year|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dd/dd/⏎dd",
+     "output": "emia.  DOB: dd/dd/⏎dd Social hist"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd/dd/⏎dd",
+     "output": "mily.  DOB: dd/dd/⏎dd Mostly adhe"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd/dd/⏎dd",
+     "output": "emia.  DOB: dd/dd/⏎dd Mostly adhe"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|email|ascii|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|email|ascii|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "a.testerdd@example.⏎net",
+     "output": "if needed.  a.testerdd@example.⏎net Exercise ad"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "yamadadd@example.⏎net",
+     "output": "act sport.  yamadadd@example.⏎net Advised to "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "a.testerdd@example.⏎net",
+     "output": "ry drinks.  a.testerdd@example.⏎net Home blood "
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|email|fullwidth_at|in": {
+   "planted": 18,
+   "leaked": 18,
+   "partly": 0,
+   "tripwire_missed": 18,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "label": 3,
+    "table": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "a.testerdd＠example.org",
+     "output": "a.testerdd＠example.org Results sim"
+    },
+    {
+     "position": "middle",
+     "value_shape": "ptdd＠example.net",
+     "output": " palpable.  ptdd＠example.net Family hist"
+    },
+    {
+     "position": "end",
+     "value_shape": "ptdd＠example.org",
+     "output": "act sport.  ptdd＠example.org"
+    },
+    {
+     "position": "label",
+     "value_shape": "yamadadd＠example.net",
+     "output": "ved. Email: yamadadd＠example.net. Home blood"
+    },
+    {
+     "position": "table",
+     "value_shape": "yamadadd＠example.org",
+     "output": "mal. ⏎Email⇥yamadadd＠example.org⇥備註⏎Mostly a"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|email|fullwidth_at|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "yamadadd＠example.⏎org",
+     "output": "ee months.  yamadadd＠example.⏎org Abdomen sof"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "a.testerdd＠example.⏎net",
+     "output": "fter food.  a.testerdd＠example.⏎net Exercise ad"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "a.testerdd＠example.⏎org",
+     "output": "ry drinks.  a.testerdd＠example.⏎org Family hist"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|email|plus|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|email|plus|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "yamadadd+clinic@example.⏎net",
+     "output": "explained.  yamadadd+clinic@example.⏎net Family hist"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ptdd+clinic@example.⏎com",
+     "output": " palpable.  ptdd+clinic@example.⏎com Sleeping we"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "chendd+clinic@example.⏎org",
+     "output": "ry drinks.  chendd+clinic@example.⏎org Abdomen sof"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|name|dr|in": {
+   "planted": 18,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "label": 3
+   },
+   "examples": [
+    {
+     "position": "label",
+     "value_shape": "Moreau",
+     "output": ". Name: ○○. Moreau. Low-purine"
+    },
+    {
+     "position": "label",
+     "value_shape": "Okafor",
+     "output": ". Name: ○○. Okafor. Advised to"
+    },
+    {
+     "position": "label",
+     "value_shape": "Lindqvist",
+     "output": ". Name: ○○. Lindqvist. No cervica"
+    }
+   ],
+   "per_thousand": 166.7
+  },
+  "en|name|dr|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 3,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|name|first_last|free": {
+   "planted": 12,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "Hugo Fairbanks",
+     "output": "Hugo Fairbanks No leg oede"
+    },
+    {
+     "position": "middle",
+     "value_shape": "Brian Sampleton",
+     "output": "ee months.  Brian Sampleton Home blood "
+    },
+    {
+     "position": "end",
+     "value_shape": "Brian Nakamura",
+     "output": "ry drinks.  Brian Nakamura"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "Hugo Pennington",
+     "output": "nd family. (Hugo Pennington) Social his"
+    },
+    {
+     "position": "start",
+     "value_shape": "Jonah Castellano",
+     "output": "Jonah Castellano Abdomen sof"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|name|first_last|in": {
+   "planted": 6,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "table": 3
+   },
+   "examples": [
+    {
+     "position": "table",
+     "value_shape": "Irene Brennan",
+     "output": "ally. ⏎Name⇥Irene Brennan⇥備註⏎Advised "
+    },
+    {
+     "position": "table",
+     "value_shape": "Hugo Pennington",
+     "output": "able. ⏎Name⇥Hugo Pennington⇥備註⏎Exercise"
+    },
+    {
+     "position": "table",
+     "value_shape": "Felix Nakamura",
+     "output": "nths. ⏎Name⇥Felix Nakamura⇥備註⏎Home blo"
+    }
+   ],
+   "per_thousand": 500.0
+  },
+  "en|name|first_last|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "Hugo⏎Brennan",
+     "output": "ight loss.  Hugo⏎Brennan Family hist"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Jonah⏎Brennan",
+     "output": "ds normal.  Jonah⏎Brennan Results sim"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Elena⏎Brennan",
+     "output": "preserved.  Elena⏎Brennan Vital signs"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|name|initials|free": {
+   "planted": 12,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "A.T.",
+     "output": "A.T. No leg oede"
+    },
+    {
+     "position": "middle",
+     "value_shape": "L.H.",
+     "output": "cultation.  L.H. Results exp"
+    },
+    {
+     "position": "end",
+     "value_shape": "C.T.",
+     "output": " oriented.  C.T."
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "C.O.",
+     "output": "ly stable. (C.O.) Social his"
+    },
+    {
+     "position": "start",
+     "value_shape": "H.F.",
+     "output": "H.F. Social hist"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|name|initials|in": {
+   "planted": 6,
+   "leaked": 6,
+   "partly": 0,
+   "tripwire_missed": 6,
+   "positions": {
+    "label": 3,
+    "table": 3
+   },
+   "examples": [
+    {
+     "position": "label",
+     "value_shape": "G.T.",
+     "output": "emia. Name: G.T.. Social his"
+    },
+    {
+     "position": "table",
+     "value_shape": "G.H.",
+     "output": "mily. ⏎Name⇥G.H.⇥備註⏎Social h"
+    },
+    {
+     "position": "label",
+     "value_shape": "F.W.",
+     "output": "ined. Name: F.W.. Advised to"
+    },
+    {
+     "position": "table",
+     "value_shape": "F.N.",
+     "output": "rved. ⏎Name⇥F.N.⇥備註⏎Low-puri"
+    },
+    {
+     "position": "label",
+     "value_shape": "A.W.",
+     "output": "tion. Name: A.W.. Abdomen so"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|name|initials|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "B.⏎W.",
+     "output": "ight loss.  B.⏎W. Occasional "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "G.⏎H.",
+     "output": "ee months.  G.⏎H. Low-purine "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "F.⏎P.",
+     "output": "ight loss.  F.⏎P. Diet discus"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|name|last_comma_first|free": {
+   "planted": 12,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "SAMPLETON, Irene",
+     "output": "SAMPLETON, Irene Advised to "
+    },
+    {
+     "position": "middle",
+     "value_shape": "NAKAMURA, Elena",
+     "output": "cultation.  NAKAMURA, Elena Occasional "
+    },
+    {
+     "position": "end",
+     "value_shape": "OKAFOR, Liam",
+     "output": "nd family.  OKAFOR, Liam"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "BRENNAN, Liam",
+     "output": "ee months. (BRENNAN, Liam) Family his"
+    },
+    {
+     "position": "start",
+     "value_shape": "NAKAMURA, Irene",
+     "output": "NAKAMURA, Irene Abdomen sof"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|name|last_comma_first|in": {
+   "planted": 6,
+   "leaked": 6,
+   "partly": 0,
+   "tripwire_missed": 6,
+   "positions": {
+    "label": 3,
+    "table": 3
+   },
+   "examples": [
+    {
+     "position": "label",
+     "value_shape": "HARTLEY, Grace",
+     "output": "ced). Name: HARTLEY, Grace. Advised to"
+    },
+    {
+     "position": "table",
+     "value_shape": "SAMPLETON, Felix",
+     "output": "port. ⏎Name⇥SAMPLETON, Felix⇥備註⏎Continue"
+    },
+    {
+     "position": "label",
+     "value_shape": "LINDQVIST, Carmen",
+     "output": "nths. Name: LINDQVIST, Carmen. Social his"
+    },
+    {
+     "position": "table",
+     "value_shape": "HARTLEY, Carmen",
+     "output": "nted. ⏎Name⇥HARTLEY, Carmen⇥備註⏎No fever"
+    },
+    {
+     "position": "label",
+     "value_shape": "OKAFOR, Brian",
+     "output": "nths. Name: OKAFOR, Brian. Sleeping w"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|name|last_comma_first|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "PENNINGTON,⏎ Liam",
+     "output": "follow-up.  PENNINGTON,⏎ Liam Low-purine "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "BRENNAN,⏎ Carmen",
+     "output": " palpable.  BRENNAN,⏎ Carmen Mostly adhe"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "LINDQVIST,⏎ Felix",
+     "output": "ee months.  LINDQVIST,⏎ Felix Occasional "
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|name|middle_initial|free": {
+   "planted": 12,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "Felix R. Fairbanks",
+     "output": "Felix R. Fairbanks Occasional "
+    },
+    {
+     "position": "middle",
+     "value_shape": "Jonah R. Sampleton",
+     "output": "ly stable.  Jonah R. Sampleton Family hist"
+    },
+    {
+     "position": "end",
+     "value_shape": "Grace D. Sampleton",
+     "output": "preserved.  Grace D. Sampleton"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "Liam M. Lindqvist",
+     "output": " palpable. (Liam M. Lindqvist) Continue c"
+    },
+    {
+     "position": "start",
+     "value_shape": "Derek B. Nakamura",
+     "output": "Derek B. Nakamura Home blood "
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|name|middle_initial|in": {
+   "planted": 6,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "table": 3
+   },
+   "examples": [
+    {
+     "position": "table",
+     "value_shape": "Derek B. Fairbanks",
+     "output": "food. ⏎Name⇥Derek B. Fairbanks⇥備註⏎Advised "
+    },
+    {
+     "position": "table",
+     "value_shape": "Elena K. Pennington",
+     "output": "eded. ⏎Name⇥Elena K. Pennington⇥備註⏎Social h"
+    },
+    {
+     "position": "table",
+     "value_shape": "Irene B. Lindqvist",
+     "output": "food. ⏎Name⇥Irene B. Lindqvist⇥備註⏎Social h"
+    }
+   ],
+   "per_thousand": 500.0
+  },
+  "en|name|middle_initial|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "Grace C.⏎Castellano",
+     "output": "ds normal.  Grace C.⏎Castellano Continue cu"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Elena R.⏎Testwell",
+     "output": "cultation.  Elena R.⏎Testwell Mostly adhe"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Derek M.⏎Brennan",
+     "output": "ipidaemia.  Derek M.⏎Brennan Diet discus"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|name|mr|in": {
+   "planted": 18,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "label": 3
+   },
+   "examples": [
+    {
+     "position": "label",
+     "value_shape": "Irene Fairbanks",
+     "output": ". Name: ○○. Irene Fairbanks. Family his"
+    },
+    {
+     "position": "label",
+     "value_shape": "Elena Fairbanks",
+     "output": ". Name: ○○. Elena Fairbanks. Home blood"
+    },
+    {
+     "position": "label",
+     "value_shape": "Irene Moreau",
+     "output": ". Name: ○○. Irene Moreau. Low-purine"
+    }
+   ],
+   "per_thousand": 166.7
+  },
+  "en|name|mr|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 3,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|name|ms|in": {
+   "planted": 18,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "label": 3
+   },
+   "examples": [
+    {
+     "position": "label",
+     "value_shape": "Pennington",
+     "output": ". Name: ○○. Pennington. Exercise a"
+    },
+    {
+     "position": "label",
+     "value_shape": "Fairbanks",
+     "output": ". Name: ○○. Fairbanks. Advised to"
+    },
+    {
+     "position": "label",
+     "value_shape": "Lindqvist",
+     "output": ". Name: ○○. Lindqvist. Social his"
+    }
+   ],
+   "per_thousand": 166.7
+  },
+  "en|name|ms|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 3,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|name|pinyin_family_first|free": {
+   "planted": 12,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "Lin Zhihao",
+     "output": "Lin Zhihao Results exp"
+    },
+    {
+     "position": "middle",
+     "value_shape": "Cai Shufen",
+     "output": "laterally.  Cai Shufen Occasional "
+    },
+    {
+     "position": "end",
+     "value_shape": "Wang Jiazhi",
+     "output": "ry drinks.  Wang Jiazhi"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "Zhang Xinguan",
+     "output": "laterally. (Zhang Xinguan) No cervica"
+    },
+    {
+     "position": "start",
+     "value_shape": "Chen Mingfen",
+     "output": "Chen Mingfen No fever, c"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|name|pinyin_family_first|in": {
+   "planted": 6,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "table": 3
+   },
+   "examples": [
+    {
+     "position": "table",
+     "value_shape": "Huang Tingming",
+     "output": "able. ⏎Name⇥Huang Tingming⇥備註⏎Social h"
+    },
+    {
+     "position": "table",
+     "value_shape": "Zhang Fenjia",
+     "output": "ced). ⏎Name⇥Zhang Fenjia⇥備註⏎Home blo"
+    },
+    {
+     "position": "table",
+     "value_shape": "Tu Guanshu",
+     "output": "port. ⏎Name⇥Tu Guanshu⇥備註⏎Abdomen "
+    }
+   ],
+   "per_thousand": 500.0
+  },
+  "en|name|pinyin_family_first|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "Xu⏎Yuxin",
+     "output": "act sport.  Xu⏎Yuxin Low-purine "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Cai⏎Shuxin",
+     "output": "follow-up.  Cai⏎Shuxin Sleeping we"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Lin⏎Tingfen",
+     "output": "ly stable.  Lin⏎Tingfen Recommended"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|name|pinyin_given_first|free": {
+   "planted": 12,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "Shujia Zhang",
+     "output": "Shujia Zhang Low-purine "
+    },
+    {
+     "position": "middle",
+     "value_shape": "Yushu Lin",
+     "output": " reduced).  Yushu Lin Occasional "
+    },
+    {
+     "position": "end",
+     "value_shape": "Yuzhi Wang",
+     "output": "ipidaemia.  Yuzhi Wang"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "Jiating Tu",
+     "output": "ly stable. (Jiating Tu) Family his"
+    },
+    {
+     "position": "start",
+     "value_shape": "Haoshu Huang",
+     "output": "Haoshu Huang Mostly adhe"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|name|pinyin_given_first|in": {
+   "planted": 6,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "table": 3
+   },
+   "examples": [
+    {
+     "position": "table",
+     "value_shape": "Jiating Zheng",
+     "output": "ced). ⏎Name⇥Jiating Zheng⇥備註⏎Advised "
+    },
+    {
+     "position": "table",
+     "value_shape": "Haoxin Que",
+     "output": "ined. ⏎Name⇥Haoxin Que⇥備註⏎Advised "
+    },
+    {
+     "position": "table",
+     "value_shape": "Shuxin Cai",
+     "output": "tion. ⏎Name⇥Shuxin Cai⇥備註⏎Family h"
+    }
+   ],
+   "per_thousand": 500.0
+  },
+  "en|name|pinyin_given_first|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "Fenxin⏎Huang",
+     "output": "ly stable.  Fenxin⏎Huang Continue cu"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Fenyu⏎Huang",
+     "output": "ly stable.  Fenyu⏎Huang No cervical"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Xinzhi⏎Huang",
+     "output": "fter food.  Xinzhi⏎Huang Results exp"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|name|wade_giles_family_first|free": {
+   "planted": 12,
+   "leaked": 1,
+   "partly": 0,
+   "tripwire_missed": 1,
+   "positions": {
+    "start": 1
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "Chueh Chih-chia",
+     "output": "Chueh Chih-chia Advised to "
+    }
+   ],
+   "per_thousand": 83.3
+  },
+  "en|name|wade_giles_family_first|in": {
+   "planted": 6,
+   "leaked": 1,
+   "partly": 0,
+   "tripwire_missed": 1,
+   "positions": {
+    "table": 1
+   },
+   "examples": [
+    {
+     "position": "table",
+     "value_shape": "Chueh Hao-yu",
+     "output": "rved. ⏎Name⇥Chueh Hao-yu⇥備註⏎Low-puri"
+    }
+   ],
+   "per_thousand": 166.7
+  },
+  "en|name|wade_giles_family_first|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "Chueh⏎Hao-hsin",
+     "output": "ee months.  Chueh⏎Hao-hsin Family hist"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Tu Ting-⏎yu",
+     "output": "explained.  Tu Ting-⏎yu No fever, c"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Hsu Fen-⏎hao",
+     "output": "ter a day.  Hsu Fen-⏎hao Vital signs"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|name|wade_giles_given_first|free": {
+   "planted": 12,
+   "leaked": 2,
+   "partly": 0,
+   "tripwire_missed": 2,
+   "positions": {
+    "cjk_adjacent": 1,
+    "middle": 1
+   },
+   "examples": [
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "Chih-hao Chueh",
+     "output": "explained. (Chih-hao Chueh) Results ex"
+    },
+    {
+     "position": "middle",
+     "value_shape": "Ting-yu Chueh",
+     "output": "preserved.  Ting-yu Chueh No leg oede"
+    }
+   ],
+   "per_thousand": 166.7
+  },
+  "en|name|wade_giles_given_first|in": {
+   "planted": 6,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|name|wade_giles_given_first|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "Ting-hao⏎Wang",
+     "output": "follow-up.  Ting-hao⏎Wang Diet discus"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Ting-⏎hao Tu",
+     "output": "ds normal.  Ting-⏎hao Tu No fever, c"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Hao-yu⏎Cheng",
+     "output": "fter food.  Hao-yu⏎Cheng Results exp"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|national_id|tw_arc_new|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|national_id|tw_arc_new|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "Fdddd⏎ddddd",
+     "output": "ds normal.  Fdddd⏎ddddd Heart sound"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Adddd⏎ddddd",
+     "output": "preserved.  Adddd⏎ddddd Family hist"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Jdddd⏎ddddd",
+     "output": " palpable.  Jdddd⏎ddddd Mostly adhe"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|national_id|tw_arc_old|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|national_id|tw_arc_old|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "WAddd⏎ddddd",
+     "output": "follow-up.  WAddd⏎ddddd Low-purine "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ZDddd⏎ddddd",
+     "output": "act sport.  ZDddd⏎ddddd Continue cu"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "OCddd⏎ddddd",
+     "output": " oriented.  OCddd⏎ddddd Heart sound"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|national_id|tw_id|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|national_id|tw_id|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "Mdddd⏎ddddd",
+     "output": "act sport.  Mdddd⏎ddddd Continue cu"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Adddd⏎ddddd",
+     "output": "ter a day.  Adddd⏎ddddd Vital signs"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Pdddd⏎ddddd",
+     "output": "follow-up.  Pdddd⏎ddddd No fever, c"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|national_id|us_ssn|in": {
+   "planted": 18,
+   "leaked": 9,
+   "partly": 0,
+   "tripwire_missed": 9,
+   "positions": {
+    "start": 2,
+    "cjk_adjacent": 3,
+    "middle": 2,
+    "end": 2
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "ddd-dd-dddd",
+     "output": "ddd-dd-dddd Recommended"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "ddd-dd-dddd",
+     "output": " oriented. (ddd-dd-dddd) No leg oed"
+    },
+    {
+     "position": "start",
+     "value_shape": "ddd-dd-dddd",
+     "output": "ddd-dd-dddd Recommended"
+    },
+    {
+     "position": "middle",
+     "value_shape": "ddd-dd-dddd",
+     "output": "nd family.  ddd-dd-dddd Mostly adhe"
+    },
+    {
+     "position": "end",
+     "value_shape": "ddd-dd-dddd",
+     "output": "ry drinks.  ddd-dd-dddd"
+    }
+   ],
+   "per_thousand": 500.0
+  },
+  "en|national_id|us_ssn|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ddd-dd-⏎dddd",
+     "output": "ds normal.  ddd-dd-⏎dddd No fever, c"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd-dd-⏎dddd",
+     "output": "explained.  ddd-dd-⏎dddd Advised to "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd-dd-⏎dddd",
+     "output": " oriented.  ddd-dd-⏎dddd Advised to "
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|phone|na_hyphen|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|phone|na_hyphen|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ddd-ddd-⏎dddd",
+     "output": " palpable.  ddd-ddd-⏎dddd Family hist"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd-ddd-⏎dddd",
+     "output": "ipidaemia.  ddd-ddd-⏎dddd Results sim"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd-ddd-⏎dddd",
+     "output": "follow-up.  ddd-ddd-⏎dddd Social hist"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|phone|na_intl|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|phone|na_intl|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "+d ddd⏎ddd dddd",
+     "output": "act sport.  +d ddd⏎ddd dddd Results exp"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "+d ddd⏎ddd dddd",
+     "output": "laterally.  +d ddd⏎ddd dddd Exercise ad"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "+d ddd⏎ddd dddd",
+     "output": " per week.  +d ddd⏎ddd dddd Abdomen sof"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|phone|na_paren|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|phone|na_paren|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "(ddd)⏎ddd-dddd",
+     "output": "ry drinks.  (ddd)⏎ddd-dddd Diet discus"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "(ddd)⏎ddd-dddd",
+     "output": "ter a day.  (ddd)⏎ddd-dddd Results exp"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "(ddd)⏎ddd-dddd",
+     "output": "act sport.  (ddd)⏎ddd-dddd Low-purine "
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|phone|tw_landline_ext|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 12,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|phone|tw_landline_ext|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ddd-dd-⏎dddd 分機ddd",
+     "output": "ly stable.  ddd-dd-⏎dddd 分機ddd Family hist"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd-ddd-⏎dddd 分機ddd",
+     "output": " reduced).  dd-ddd-⏎dddd 分機ddd Home blood "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd-dddd-⏎dddd 分機ddd",
+     "output": "if needed.  dd-dddd-⏎dddd 分機ddd Exercise ad"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|phone|tw_landline_hyphen|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|phone|tw_landline_hyphen|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dd-ddd-⏎dddd",
+     "output": "fter food.  dd-ddd-⏎dddd Advised to "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd-ddd-⏎dddd",
+     "output": "fter food.  ddd-ddd-⏎dddd No leg oede"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd-dd-⏎dddd",
+     "output": " per week.  ddd-dd-⏎dddd Exercise ad"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|phone|tw_landline_paren|in": {
+   "planted": 18,
+   "leaked": 4,
+   "partly": 0,
+   "tripwire_missed": 4,
+   "positions": {
+    "cjk_adjacent": 3,
+    "middle": 1
+   },
+   "examples": [
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "(ddd)dd-dddd",
+     "output": "cultation. ((ddd)dd-dddd) Abdomen so"
+    },
+    {
+     "position": "middle",
+     "value_shape": "(ddd)ddd-dddd",
+     "output": " palpable.  (ddd)ddd-dddd Sleeping we"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "(ddd)dd-dddd",
+     "output": " palpable. ((ddd)dd-dddd) Exercise a"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "(ddd)ddd-dddd",
+     "output": "preserved. ((ddd)ddd-dddd) Family his"
+    }
+   ],
+   "per_thousand": 222.2
+  },
+  "en|phone|tw_landline_paren|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "(dd)ddd-⏎dddd",
+     "output": "follow-up.  (dd)ddd-⏎dddd Exercise ad"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "(dd)ddd-⏎dddd",
+     "output": "laterally.  (dd)ddd-⏎dddd Advised to "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "(ddd)dd-⏎dddd",
+     "output": "preserved.  (ddd)dd-⏎dddd Recommended"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|phone|tw_mobile_hyphen|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|phone|tw_mobile_hyphen|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎ddd-ddd",
+     "output": "act sport.  dddd-⏎ddd-ddd Continue cu"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎ddd-ddd",
+     "output": " per week.  dddd-⏎ddd-ddd Advised to "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎ddd-ddd",
+     "output": "act sport.  dddd-⏎ddd-ddd Abdomen sof"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|phone|tw_mobile_intl_space|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|phone|tw_mobile_intl_space|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|phone|tw_mobile_intl|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|phone|tw_mobile_intl|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "+ddd-ddd-⏎ddd-ddd",
+     "output": "act sport.  +ddd-ddd-⏎ddd-ddd No leg oede"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "+ddd-ddd-⏎ddd-ddd",
+     "output": "ight loss.  +ddd-ddd-⏎ddd-ddd Results exp"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "+ddd-ddd-⏎ddd-ddd",
+     "output": "if needed.  +ddd-ddd-⏎ddd-ddd Results exp"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|phone|tw_mobile_plain|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|phone|tw_mobile_plain|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ddddd⏎ddddd",
+     "output": "ly stable.  ddddd⏎ddddd Vital signs"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddddd⏎ddddd",
+     "output": " per week.  ddddd⏎ddddd Low-purine "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddddd⏎ddddd",
+     "output": " palpable.  ddddd⏎ddddd Family hist"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|phone|tw_mobile_space|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|phone|tw_mobile_space|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|address|jp_full|in": {
+   "planted": 18,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "〒ddd-dddd 北海道札幌市中央区試験町d丁目dd番d号",
+     "output": "〒ddd-dddd ○○○○○○○○○○○○○○○○○○○○運動時の注意点を説明し、"
+    },
+    {
+     "position": "middle",
+     "value_shape": "〒ddd-dddd 東京都千代田区試験町d丁目dd番dd号",
+     "output": "雑音なし、両側呼吸音清。〒ddd-dddd ○○○○○○○○○○○○○○○○○○○家族歴：母に高血圧と糖尿"
+    },
+    {
+     "position": "end",
+     "value_shape": "〒ddd-dddd 北海道札幌市中央区仮町d丁目dd番dd号",
+     "output": "トル以上の飲水を勧めた。〒ddd-dddd ○○○○○○○○○○○○○○○○○○○○"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "〒ddd-dddd 北海道札幌市中央区見本町d丁目dd番dd号",
+     "output": "上の運動を勧めた。連絡先〒ddd-dddd ○○○○○○○○○○○○○○○○○○○○○確認済発熱、悪寒、体重減"
+    },
+    {
+     "position": "start",
+     "value_shape": "〒ddd-dddd 愛知県名古屋市中区見本町d丁目d番dd号",
+     "output": "〒ddd-dddd ○○○○○○○○○○○○○○○○○○○○バイタルサイン安定、意識"
+    }
+   ],
+   "per_thousand": 666.7
+  },
+  "ja|address|jp_full|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "〒ddd-dddd⏎北海道札幌市中央区仮町d丁目dd番dd号",
+     "output": "水を控えるよう指導した。〒ddd-dddd⏎○○○○○○○○○○○○○○○○○○○○身体所見：心音整、雑音な"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "〒ddd-dddd⏎大阪府大阪市北区見本町d丁目dd番d号",
+     "output": "り、黒色便や吐血はない。〒ddd-dddd⏎○○○○○○○○○○○○○○○○○○○食後内服とし経過観察とす"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "〒ddd-dddd⏎愛知県名古屋市中区見本町d丁目dd番d号",
+     "output": "服薬時間を再度指導した。〒ddd-dddd⏎○○○○○○○○○○○○○○○○○○○○腹部平坦・軟、圧痛なし、"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|address|jp_hyphen_building|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 12,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|address|jp_hyphen_building|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 3,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|address|jp_no_postcode|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|address|jp_no_postcode|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "北海道札幌市中央区試⏎験町d丁目dd番dd号",
+     "output": "り、黒色便や吐血はない。北海道札幌市中央区試⏎験町d丁目dd番dd号食後内服とし経過観察とす"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "北海道札幌市中央区⏎仮町d丁目d番dd号",
+     "output": "服薬時間を再度指導した。北海道札幌市中央区⏎仮町d丁目d番dd号現処方を継続し、三か月後"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "愛知県名古屋市中区⏎仮町d丁目dd番d号",
+     "output": "雑音なし、両側呼吸音清。愛知県名古屋市中区⏎仮町d丁目dd番d号両下肢浮腫なし、末梢動脈"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|chart|bare_8|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|chart|bare_8|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "水を控えるよう指導した。dddd⏎dddd時に食後の胃部不快感あり"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "雑音なし、両側呼吸音清。dddd⏎dddd前回と比較し検査値に大き"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "ーキングや水泳を勧めた。dddd⏎dddd検査結果を本人および家族"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|chart|label_ID_colon|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|chart|label_ID_colon|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "し、両側呼吸音清。ID:○○○○⏎ddddバイタルサイン安定、意識"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "、体重減少はない。ID:○○○○⏎dddd家庭血圧の記録を確認、お"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "グや水泳を勧めた。ID:○○○○⏎dddd睡眠は良好、食欲も保たれ"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|chart|label_カルテNo|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|chart|label_カルテNo|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "再診とする。カルテNo.○○○○⏎dddd身体所見：心音整、雑音な"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "定している。カルテNo.○○○○⏎dddd家族歴：母に高血圧と糖尿"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "側呼吸音清。カルテNo.○○○○⏎dddd腹部平坦・軟、圧痛なし、"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|chart|label_カルテ番号_colon|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|chart|label_カルテ番号_colon|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "変化はない。カルテ番号：○○○○⏎dddd必要に応じて用量を調整す"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "定している。カルテ番号：○○○○⏎dddd直近三か月の外来記録を確"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "側呼吸音清。カルテ番号：○○○○⏎dddd運動時の注意点を説明し、"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|chart|label_患者ID_colon|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|chart|label_患者ID_colon|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "最近は減量）。患者ID：○○○○⏎dddd運動時の注意点を説明し、"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "再度指導した。患者ID：○○○○⏎dddd睡眠は良好、食欲も保たれ"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "飲水を勧めた。患者ID：○○○○⏎dddd睡眠は良好、食欲も保たれ"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|dob|born_compact8|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|born_compact8|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "り、黒色便や吐血はない。dddd⏎dddd生まれ食後内服とし経過観"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "雑音なし、両側呼吸音清。dddd⏎dddd生まれ前回と比較し検査値"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "人および家族に説明した。dddd⏎dddd生まれ睡眠は良好、食欲も"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|dob|born_dotted|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|born_dotted|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd.⏎dd.dd",
+     "output": "ルサイン安定、意識清明。dddd.⏎dd.dd生まれ発熱、悪寒、体重減"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd.⏎dd.dd",
+     "output": "服薬時間を再度指導した。dddd.⏎dd.dd生まれ腹部平坦・軟、圧痛"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd.⏎dd.dd",
+     "output": "機会飲酒（最近は減量）。dddd.⏎dd.dd生まれ運動時の注意点を説"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|dob|born_era_kanji|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|born_era_kanji|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|born_era_letter|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|born_era_letter|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|born_iso|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|born_iso|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎dd-dd",
+     "output": "水を控えるよう指導した。dddd-⏎dd-dd生まれ家庭血圧の記録を確"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎dd-dd",
+     "output": "ず、胸部聴診でラ音なし。dddd-⏎dd-dd生まれ家族歴：母に高血圧"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎dd-dd",
+     "output": "病、父に脂質異常症あり。dddd-⏎dd-dd生まれ検査結果を本人およ"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|dob|born_nen_gappi_fullwidth|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|born_nen_gappi_fullwidth|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|born_nen_gappi|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|born_nen_gappi|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|born_slash_ymd|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|born_slash_ymd|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd/⏎dd/dd",
+     "output": "圧痛なし、腸蠕動音正常。dddd/⏎dd/dd生まれ身体所見：心音整、"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd/⏎dd/dd",
+     "output": "トル以上の飲水を勧めた。dddd/⏎dd/dd生まれ家族歴：母に高血圧"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd/⏎dd/dd",
+     "output": "雑音なし、両側呼吸音清。dddd/⏎dd/dd生まれ時に食後の胃部不快"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|dob|label_compact8|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|label_compact8|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "両側呼吸音清。生年月日：dddd⏎dddd両下肢浮腫なし、末梢動脈"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "な変化はない。生年月日：dddd⏎dddd必要に応じて用量を調整す"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "診でラ音なし。生年月日：dddd⏎dddd前回と比較し検査値に大き"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|dob|label_dotted|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|label_dotted|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd.⏎dd.dd",
+     "output": "よう指導した。生年月日：dddd.⏎dd.dd家庭血圧の記録を確認、お"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd.⏎dd.dd",
+     "output": "保たれている。生年月日：dddd.⏎dd.dd検査結果を本人および家族"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd.⏎dd.dd",
+     "output": "よう指導した。生年月日：dddd.⏎dd.dd身体所見：心音整、雑音な"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|dob|label_era_kanji|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|label_era_kanji|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|label_era_letter|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|label_era_letter|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|label_iso|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|label_iso|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎dd-dd",
+     "output": "安定している。生年月日：dddd-⏎dd-dd食事療法について相談し、"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎dd-dd",
+     "output": "安定している。生年月日：dddd-⏎dd-dd直近三か月の外来記録を確"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎dd-dd",
+     "output": "運動を勧めた。生年月日：dddd-⏎dd-dd身体所見：心音整、雑音な"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|dob|label_nen_gappi_fullwidth|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|label_nen_gappi_fullwidth|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|label_nen_gappi|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|label_nen_gappi|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|label_slash_ymd|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dob|label_slash_ymd|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd/⏎dd/dd",
+     "output": "最近は減量）。生年月日：dddd/⏎dd/dd運動時の注意点を説明し、"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd/⏎dd/dd",
+     "output": "定、意識清明。生年月日：dddd/⏎dd/dd現処方を継続し、三か月後"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd/⏎dd/dd",
+     "output": "重減少はない。生年月日：dddd/⏎dd/dd腹部平坦・軟、圧痛なし、"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|email|ascii|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|email|ascii|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ptdd@example.⏎com",
+     "output": "トル以上の飲水を勧めた。ptdd@example.⏎com家族歴：母に高血圧と糖尿"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "chendd@example.⏎org",
+     "output": "査値に大きな変化はない。chendd@example.⏎org必要に応じて用量を調整す"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "chendd@example.⏎com",
+     "output": "人および家族に説明した。chendd@example.⏎com睡眠は良好、食欲も保たれ"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|email|fullwidth_at|in": {
+   "planted": 18,
+   "leaked": 18,
+   "partly": 0,
+   "tripwire_missed": 18,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "label": 3,
+    "table": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "yamadadd＠example.org",
+     "output": "yamadadd＠example.org時に食後の胃部不快感あり"
+    },
+    {
+     "position": "middle",
+     "value_shape": "yamadadd＠example.net",
+     "output": "水を控えるよう指導した。yamadadd＠example.net腹部平坦・軟、圧痛なし、"
+    },
+    {
+     "position": "end",
+     "value_shape": "a.testerdd＠example.net",
+     "output": "服薬時間を再度指導した。a.testerdd＠example.net"
+    },
+    {
+     "position": "label",
+     "value_shape": "ptdd＠example.com",
+     "output": "るよう説明した。メール：ptdd＠example.com。バイタルサイン安定、意"
+    },
+    {
+     "position": "table",
+     "value_shape": "chendd＠example.net",
+     "output": "よう説明した。⏎メール⇥chendd＠example.net⇥備註⏎身体所見：心音整"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|email|fullwidth_at|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "yamadadd＠example.⏎org",
+     "output": "ルサイン安定、意識清明。yamadadd＠example.⏎org現処方を継続し、三か月後"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "chendd＠example.⏎org",
+     "output": "雑音なし、両側呼吸音清。chendd＠example.⏎org社会歴：既婚、配偶者と同"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ptdd＠example.⏎com",
+     "output": "圧痛なし、腸蠕動音正常。ptdd＠example.⏎com直近三か月の外来記録を確"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|email|plus|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|email|plus|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ptdd+clinic@example.⏎com",
+     "output": "ず、胸部聴診でラ音なし。ptdd+clinic@example.⏎com家庭血圧の記録を確認、お"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ptdd+clinic@example.⏎net",
+     "output": "機会飲酒（最近は減量）。ptdd+clinic@example.⏎net腹部平坦・軟、圧痛なし、"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "a.testerdd+clinic@example.⏎com",
+     "output": "雑音なし、両側呼吸音清。a.testerdd+clinic@example.⏎com運動時の注意点を説明し、"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|name|hepburn_family_first|free": {
+   "planted": 12,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "CHIBA Yoko",
+     "output": "CHIBA Yoko週ddd分以上の運動を勧"
+    },
+    {
+     "position": "middle",
+     "value_shape": "MORIMOTO Taro",
+     "output": "査値に大きな変化はない。MORIMOTO Taro必要に応じて用量を調整す"
+    },
+    {
+     "position": "end",
+     "value_shape": "SATO Yoko",
+     "output": "に応じて用量を調整する。SATO Yoko"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "MARUYAMA Taro",
+     "output": "グや水泳を勧めた。連絡先MARUYAMA Taro確認済腹部平坦・軟、圧痛"
+    },
+    {
+     "position": "start",
+     "value_shape": "TAKAHASHI Shota",
+     "output": "TAKAHASHI Shota時に食後の胃部不快感あり"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|name|hepburn_family_first|in": {
+   "planted": 6,
+   "leaked": 6,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "label": 3,
+    "table": 3
+   },
+   "examples": [
+    {
+     "position": "label",
+     "value_shape": "CHIBA Hanako",
+     "output": "上の運動を勧めた。氏名：CHIBA Hanako。身体所見：心音整、雑音"
+    },
+    {
+     "position": "table",
+     "value_shape": "OTSUKA Hanako",
+     "output": "や水泳を勧めた。⏎氏名⇥OTSUKA Hanako⇥備註⏎内服を継続し、定"
+    },
+    {
+     "position": "label",
+     "value_shape": "MORIMOTO Hanako",
+     "output": "するよう説明した。氏名：MORIMOTO Hanako。現処方を継続し、三か月"
+    },
+    {
+     "position": "table",
+     "value_shape": "SATO Hanako",
+     "output": "、両側呼吸音清。⏎氏名⇥SATO Hanako⇥備註⏎腹部平坦・軟、圧"
+    },
+    {
+     "position": "label",
+     "value_shape": "TAKAHASHI Yoko",
+     "output": "し、腸蠕動音正常。氏名：TAKAHASHI Yoko。運動時の注意点を説明し"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|name|hepburn_family_first|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "MARUYAMA⏎Kenichi",
+     "output": "好、食欲も保たれている。MARUYAMA⏎Kenichi腹部平坦・軟、圧痛なし、"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "MORIMOTO⏎Yoko",
+     "output": "ず、胸部聴診でラ音なし。MORIMOTO⏎Yoko腹部平坦・軟、圧痛なし、"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "YAMADA⏎Misaki",
+     "output": "圧痛なし、腸蠕動音正常。YAMADA⏎Misaki前回と比較し検査値に大き"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|name|hepburn_given_first|free": {
+   "planted": 12,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "Hanako Suzuki",
+     "output": "Hanako Suzuki睡眠は良好、食欲も保たれ"
+    },
+    {
+     "position": "middle",
+     "value_shape": "Kenichi Maruyama",
+     "output": "り、黒色便や吐血はない。Kenichi Maruyama食後内服とし経過観察とす"
+    },
+    {
+     "position": "end",
+     "value_shape": "Shota Yoshikawa",
+     "output": "人および家族に説明した。Shota Yoshikawa"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "Kenichi Yamada",
+     "output": "するよう説明した。連絡先Kenichi Yamada確認済社会歴：既婚、配偶"
+    },
+    {
+     "position": "start",
+     "value_shape": "Yoko Imai",
+     "output": "Yoko Imai発熱、悪寒、体重減少はな"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|name|hepburn_given_first|in": {
+   "planted": 6,
+   "leaked": 6,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "label": 3,
+    "table": 3
+   },
+   "examples": [
+    {
+     "position": "label",
+     "value_shape": "Taro Sato",
+     "output": "に脂質異常症あり。氏名：Taro Sato。睡眠は良好、食欲も保た"
+    },
+    {
+     "position": "table",
+     "value_shape": "Yoko Sato",
+     "output": "ね安定している。⏎氏名⇥Yoko Sato⇥備註⏎食事療法について"
+    },
+    {
+     "position": "label",
+     "value_shape": "Taro Takahashi",
+     "output": "末梢動脈触知良好。氏名：Taro Takahashi。検査結果を本人および家"
+    },
+    {
+     "position": "table",
+     "value_shape": "Shota Chiba",
+     "output": "を再度指導した。⏎氏名⇥Shota Chiba⇥備註⏎低プリン食とし、"
+    },
+    {
+     "position": "label",
+     "value_shape": "Shota Otsuka",
+     "output": "ン安定、意識清明。氏名：Shota Otsuka。食事療法について相談し"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|name|hepburn_given_first|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "Kenichi⏎Maruyama",
+     "output": "り、黒色便や吐血はない。Kenichi⏎Maruyama食後内服とし経過観察とす"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Shota⏎Yoshikawa",
+     "output": "雑音なし、両側呼吸音清。Shota⏎Yoshikawa運動時の注意点を説明し、"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Kenichi⏎Imai",
+     "output": "d分以上の運動を勧めた。Kenichi⏎Imai低プリン食とし、清涼飲料"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|name|hiragana_space|free": {
+   "planted": 12,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "おおつか　みさき",
+     "output": "おおつか　みさき運動時の注意点を説明し、"
+    },
+    {
+     "position": "middle",
+     "value_shape": "ちば　けんいち",
+     "output": "り、黒色便や吐血はない。ちば　けんいち食後内服とし経過観察とす"
+    },
+    {
+     "position": "end",
+     "value_shape": "ちば　みさき",
+     "output": "人および家族に説明した。ちば　みさき"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "いまい　けんいち",
+     "output": "間を再度指導した。連絡先いまい　けんいち確認済睡眠は良好、食欲も"
+    },
+    {
+     "position": "start",
+     "value_shape": "おおつか　たろう",
+     "output": "おおつか　たろう食事療法について相談し、"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|name|hiragana_space|in": {
+   "planted": 6,
+   "leaked": 6,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "label": 3,
+    "table": 3
+   },
+   "examples": [
+    {
+     "position": "label",
+     "value_shape": "やまだ　ようこ",
+     "output": "欲も保たれている。氏名：やまだ　ようこ。週ddd分以上の運動を"
+    },
+    {
+     "position": "table",
+     "value_shape": "よしかわ　はなこ",
+     "output": "便や吐血はない。⏎氏名⇥よしかわ　はなこ⇥備註⏎食後内服とし経過"
+    },
+    {
+     "position": "label",
+     "value_shape": "すずき　たろう",
+     "output": "ン安定、意識清明。氏名：すずき　たろう。現処方を継続し、三か月"
+    },
+    {
+     "position": "table",
+     "value_shape": "すずき　たろう",
+     "output": "の飲水を勧めた。⏎氏名⇥すずき　たろう⇥備註⏎家庭血圧の記録を"
+    },
+    {
+     "position": "label",
+     "value_shape": "もりもと　けんいち",
+     "output": "、体重減少はない。氏名：もりもと　けんいち。頸部リンパ節腫脹なし、"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|name|hiragana_space|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "やまだ⏎みさき",
+     "output": "、悪寒、体重減少はない。やまだ⏎みさき頸部リンパ節腫脹なし、甲"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "いまい⏎はなこ",
+     "output": "り、黒色便や吐血はない。いまい⏎はなこ食後内服とし経過観察とす"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "たかはし⏎はなこ",
+     "output": "水を控えるよう指導した。たかはし⏎はなこ頸部リンパ節腫脹なし、甲"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|name|kanji_space|free": {
+   "planted": 12,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "吉川　花子",
+     "output": "吉川　花子前回と比較し検査値に大き"
+    },
+    {
+     "position": "middle",
+     "value_shape": "佐藤　太郎",
+     "output": "、三か月後に再診とする。佐藤　太郎家庭血圧の記録を確認、お"
+    },
+    {
+     "position": "end",
+     "value_shape": "佐藤　健一",
+     "output": "病、父に脂質異常症あり。佐藤　健一"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "森本　健一",
+     "output": "部聴診でラ音なし。連絡先森本　健一確認済運動時の注意点を説"
+    },
+    {
+     "position": "start",
+     "value_shape": "佐藤　花子",
+     "output": "佐藤　花子現処方を継続し、三か月後"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|name|kanji_space|in": {
+   "planted": 6,
+   "leaked": 3,
+   "partly": 1,
+   "tripwire_missed": 0,
+   "positions": {
+    "table": 3
+   },
+   "examples": [
+    {
+     "position": "table",
+     "value_shape": "丸山　健一",
+     "output": "を再度指導した。⏎氏名⇥丸山　健一⇥備註⏎睡眠は良好、食欲"
+    },
+    {
+     "position": "table",
+     "value_shape": "吉川　美咲",
+     "output": "便や吐血はない。⏎氏名⇥吉川　美咲⇥備註⏎食後内服とし経過"
+    },
+    {
+     "position": "table",
+     "value_shape": "千葉　陽子",
+     "output": "梢動脈触知良好。⏎氏名⇥千葉　陽子⇥備註⏎頸部リンパ節腫脹"
+    }
+   ],
+   "per_thousand": 500.0
+  },
+  "ja|name|kanji_space|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "丸山⏎陽子",
+     "output": "水を控えるよう指導した。丸山⏎陽子身体所見：心音整、雑音な"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "千葉⏎翔太",
+     "output": "なし、末梢動脈触知良好。千葉⏎翔太時に食後の胃部不快感あり"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "森本⏎太郎",
+     "output": "り、黒色便や吐血はない。森本⏎太郎食後内服とし経過観察とす"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|name|kanji_さん|in": {
+   "planted": 18,
+   "leaked": 11,
+   "partly": 0,
+   "tripwire_missed": 7,
+   "positions": {
+    "start": 2,
+    "middle": 1,
+    "end": 2,
+    "label": 3,
+    "cjk_adjacent": 2,
+    "table": 1
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "吉川美咲",
+     "output": "吉川美咲さん身体所見：心音整、雑"
+    },
+    {
+     "position": "middle",
+     "value_shape": "吉川陽子",
+     "output": "、悪寒、体重減少はない。吉川陽子さん身体所見：心音整、雑"
+    },
+    {
+     "position": "end",
+     "value_shape": "丸山花子",
+     "output": "トル以上の飲水を勧めた。丸山花子さん"
+    },
+    {
+     "position": "label",
+     "value_shape": "吉川健一",
+     "output": "するよう説明した。氏名：吉川健一さん。身体所見：心音整、"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "吉川陽子",
+     "output": "大きな変化はない。連絡先吉川陽子さん確認済必要に応じて用"
+    }
+   ],
+   "per_thousand": 611.1
+  },
+  "ja|name|kanji_さん|line_break": {
+   "planted": 3,
+   "leaked": 2,
+   "partly": 0,
+   "tripwire_missed": 2,
+   "positions": {
+    "line_break": 2
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "吉川⏎花子",
+     "output": "圧痛なし、腸蠕動音正常。吉川⏎花子さん食事療法について相談"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "大塚⏎花子",
+     "output": "水を控えるよう指導した。大塚⏎花子さん頸部リンパ節腫脹なし"
+    }
+   ],
+   "per_thousand": 666.7
+  },
+  "ja|name|kanji_先生|in": {
+   "planted": 18,
+   "leaked": 8,
+   "partly": 0,
+   "tripwire_missed": 6,
+   "positions": {
+    "end": 2,
+    "label": 2,
+    "cjk_adjacent": 2,
+    "middle": 2
+   },
+   "examples": [
+    {
+     "position": "end",
+     "value_shape": "吉川美咲",
+     "output": "、おおむね安定している。吉川美咲先生"
+    },
+    {
+     "position": "label",
+     "value_shape": "丸山陽子",
+     "output": "上の運動を勧めた。氏名：丸山陽子先生。頸部リンパ節腫脹な"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "大塚陽子",
+     "output": "部聴診でラ音なし。連絡先大塚陽子先生確認済家庭血圧の記録"
+    },
+    {
+     "position": "middle",
+     "value_shape": "大塚美咲",
+     "output": "病、父に脂質異常症あり。大塚美咲先生時に食後の胃部不快感"
+    },
+    {
+     "position": "middle",
+     "value_shape": "吉川陽子",
+     "output": "服薬時間を再度指導した。吉川陽子先生頸部リンパ節腫脹なし"
+    }
+   ],
+   "per_thousand": 444.4
+  },
+  "ja|name|kanji_先生|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 2,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|name|kanji_様|in": {
+   "planted": 18,
+   "leaked": 8,
+   "partly": 4,
+   "tripwire_missed": 6,
+   "positions": {
+    "start": 2,
+    "cjk_adjacent": 2,
+    "middle": 1,
+    "label": 1,
+    "table": 1,
+    "end": 1
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "大塚翔太",
+     "output": "大塚翔太様直近三か月の外来記録を"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "丸山美咲",
+     "output": "するよう説明した。連絡先丸山美咲様確認済社会歴：既婚、配"
+    },
+    {
+     "position": "middle",
+     "value_shape": "吉川陽子",
+     "output": "好、食欲も保たれている。吉川陽子様社会歴：既婚、配偶者と"
+    },
+    {
+     "position": "label",
+     "value_shape": "大塚翔太",
+     "output": "欲も保たれている。氏名：大塚翔太様。身体所見：心音整、雑"
+    },
+    {
+     "position": "table",
+     "value_shape": "吉川陽子",
+     "output": "安定、意識清明。⏎氏名⇥吉川陽子様⇥備註⏎前回と比較し検"
+    }
+   ],
+   "per_thousand": 444.4
+  },
+  "ja|name|kanji_様|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "森本⏎花子",
+     "output": "、おおむね安定している。森本⏎花子様直近三か月の外来記録を"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "森本⏎翔太",
+     "output": "機会飲酒（最近は減量）。森本⏎翔太様腹部平坦・軟、圧痛なし"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "吉川⏎健一",
+     "output": "り、黒色便や吐血はない。吉川⏎健一様食後内服とし経過観察と"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|name|kanji_殿|in": {
+   "planted": 18,
+   "leaked": 13,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3,
+    "table": 1
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "山田花子",
+     "output": "山田花子殿発熱、悪寒、体重減少は"
+    },
+    {
+     "position": "middle",
+     "value_shape": "高橋健一",
+     "output": "ーキングや水泳を勧めた。高橋健一殿内服を継続し、定期受診"
+    },
+    {
+     "position": "end",
+     "value_shape": "佐藤健一",
+     "output": "ルサイン安定、意識清明。佐藤健一殿"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "今井翔太",
+     "output": "えるよう指導した。連絡先今井翔太殿確認済時に食後の胃部不"
+    },
+    {
+     "position": "start",
+     "value_shape": "丸山健一",
+     "output": "丸山健一殿睡眠は良好、食欲も保た"
+    }
+   ],
+   "per_thousand": 722.2
+  },
+  "ja|name|kanji_殿|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "山田⏎花子",
+     "output": "、三か月後に再診とする。山田⏎花子殿社会歴：既婚、配偶者と"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "山田⏎翔太",
+     "output": "、おおむね安定している。山田⏎翔太殿食事療法について相談し"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "森本⏎健一",
+     "output": "d分以上の運動を勧めた。森本⏎健一殿身体所見：心音整、雑音"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|name|kanji|free": {
+   "planted": 12,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "佐藤翔太",
+     "output": "佐藤翔太検査結果を本人および家族"
+    },
+    {
+     "position": "middle",
+     "value_shape": "丸山美咲",
+     "output": "、三か月後に再診とする。丸山美咲発熱、悪寒、体重減少はな"
+    },
+    {
+     "position": "end",
+     "value_shape": "丸山太郎",
+     "output": "好、食欲も保たれている。丸山太郎"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "鈴木太郎",
+     "output": "、体重減少はない。連絡先鈴木太郎確認済時に食後の胃部不快"
+    },
+    {
+     "position": "start",
+     "value_shape": "千葉美咲",
+     "output": "千葉美咲運動時の注意点を説明し、"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|name|kanji|in": {
+   "planted": 6,
+   "leaked": 2,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "table": 1,
+    "label": 1
+   },
+   "examples": [
+    {
+     "position": "table",
+     "value_shape": "大塚健一",
+     "output": "後に再診とする。⏎氏名⇥大塚健一⇥備註⏎バイタルサイン安"
+    },
+    {
+     "position": "label",
+     "value_shape": "今井健一",
+     "output": "末梢動脈触知良好。氏名：今井健一。直近三か月の外来記録を"
+    }
+   ],
+   "per_thousand": 333.3
+  },
+  "ja|name|kanji|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "吉川⏎陽子",
+     "output": "り、黒色便や吐血はない。吉川⏎陽子食後内服とし経過観察とす"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "佐藤⏎花子",
+     "output": "査値に大きな変化はない。佐藤⏎花子必要に応じて用量を調整す"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "千葉⏎健一",
+     "output": "人および家族に説明した。千葉⏎健一睡眠は良好、食欲も保たれ"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|name|katakana_space|free": {
+   "planted": 12,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "チバ　ケンイチ",
+     "output": "チバ　ケンイチ運動時の注意点を説明し、"
+    },
+    {
+     "position": "middle",
+     "value_shape": "チバ　ハナコ",
+     "output": "d分以上の運動を勧めた。チバ　ハナコ食事療法について相談し、"
+    },
+    {
+     "position": "end",
+     "value_shape": "チバ　ミサキ",
+     "output": "病、父に脂質異常症あり。チバ　ミサキ"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "スズキ　ケンイチ",
+     "output": "び家族に説明した。連絡先スズキ　ケンイチ確認済前回と比較し検査値"
+    },
+    {
+     "position": "start",
+     "value_shape": "ヨシカワ　ハナコ",
+     "output": "ヨシカワ　ハナコ頸部リンパ節腫脹なし、甲"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|name|katakana_space|in": {
+   "planted": 6,
+   "leaked": 6,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "label": 3,
+    "table": 3
+   },
+   "examples": [
+    {
+     "position": "label",
+     "value_shape": "サトウ　ハナコ",
+     "output": "大きな変化はない。氏名：サトウ　ハナコ。必要に応じて用量を調整"
+    },
+    {
+     "position": "table",
+     "value_shape": "イマイ　ミサキ",
+     "output": "も保たれている。⏎氏名⇥イマイ　ミサキ⇥備註⏎社会歴：既婚、配"
+    },
+    {
+     "position": "label",
+     "value_shape": "イマイ　ケンイチ",
+     "output": "し、腸蠕動音正常。氏名：イマイ　ケンイチ。家族歴：母に高血圧と糖"
+    },
+    {
+     "position": "table",
+     "value_shape": "チバ　タロウ",
+     "output": "るよう指導した。⏎氏名⇥チバ　タロウ⇥備註⏎身体所見：心音整"
+    },
+    {
+     "position": "label",
+     "value_shape": "イマイ　タロウ",
+     "output": "末梢動脈触知良好。氏名：イマイ　タロウ。バイタルサイン安定、意"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|name|katakana_space|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ヤマダ⏎ヨウコ",
+     "output": "好、食欲も保たれている。ヤマダ⏎ヨウコ社会歴：既婚、配偶者と同"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "モリモト⏎ハナコ",
+     "output": "病、父に脂質異常症あり。モリモト⏎ハナコ時に食後の胃部不快感あり"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "サトウ⏎ケンイチ",
+     "output": "圧痛なし、腸蠕動音正常。サトウ⏎ケンイチ食事療法について相談し、"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|national_id|insurance_symbol_no|in": {
+   "planted": 18,
+   "leaked": 18,
+   "partly": 0,
+   "tripwire_missed": 18,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "label": 3,
+    "table": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "dddd・ddd",
+     "output": "被保険者証 記号・番号：dddd・ddd両下肢浮腫なし、末梢動脈"
+    },
+    {
+     "position": "middle",
+     "value_shape": "dddd・ddd",
+     "output": "被保険者証 記号・番号：dddd・ddd社会歴：既婚、配偶者と同"
+    },
+    {
+     "position": "end",
+     "value_shape": "dddd・ddd",
+     "output": "被保険者証 記号・番号：dddd・ddd"
+    },
+    {
+     "position": "label",
+     "value_shape": "dddd・ddd",
+     "output": "被保険者証 記号・番号：dddd・ddd。頸部リンパ節腫脹なし、"
+    },
+    {
+     "position": "table",
+     "value_shape": "dddd・ddd",
+     "output": "被保険者証 記号・番号：dddd・ddd⇥備註⏎現処方を継続し、"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|national_id|insurance_symbol_no|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd・⏎ddd",
+     "output": "被保険者証 記号・番号：dddd・⏎ddd運動時の注意点を説明し、"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd・⏎ddd",
+     "output": "被保険者証 記号・番号：dddd・⏎ddd身体所見：心音整、雑音な"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd・⏎ddd",
+     "output": "被保険者証 記号・番号：dddd・⏎ddd頸部リンパ節腫脹なし、甲"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|national_id|insurer_no|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|national_id|insurer_no|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "泳を勧めた。保険者番号：○○○○⏎dddd頸部リンパ節腫脹なし、甲"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "異常症あり。保険者番号：○○○○⏎dddd週ddd分以上の運動を勧"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "たれている。保険者番号：○○○○⏎dddd社会歴：既婚、配偶者と同"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|national_id|my_number_fullwidth|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|national_id|my_number_fullwidth|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddddd⏎dddddd",
+     "output": "水を控えるよう指導した。dddddd⏎dddddd時に食後の胃部不快感あり"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddddd⏎dddddd",
+     "output": "、おおむね安定している。dddddd⏎dddddd両下肢浮腫なし、末梢動脈"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddddd⏎dddddd",
+     "output": "人および家族に説明した。dddddd⏎dddddd発熱、悪寒、体重減少はな"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|national_id|my_number_spaced|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|national_id|my_number_spaced|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd dddd⏎dddd",
+     "output": "服薬時間を再度指導した。dddd dddd⏎dddd発熱、悪寒、体重減少はな"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd dddd⏎dddd",
+     "output": "り、黒色便や吐血はない。dddd dddd⏎dddd食後内服とし経過観察とす"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd dddd⏎dddd",
+     "output": "ず、胸部聴診でラ音なし。dddd dddd⏎dddd身体所見：心音整、雑音な"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|national_id|my_number|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|national_id|my_number|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddddd⏎dddddd",
+     "output": "ルサイン安定、意識清明。dddddd⏎dddddd発熱、悪寒、体重減少はな"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddddd⏎dddddd",
+     "output": "服薬時間を再度指導した。dddddd⏎dddddd内服を継続し、定期受診す"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddddd⏎dddddd",
+     "output": "雑音なし、両側呼吸音清。dddddd⏎dddddd家族歴：母に高血圧と糖尿"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|phone|jp_fullwidth|in": {
+   "planted": 18,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "ddd－dddd－dddd",
+     "output": "ddd－dddd－dddd家族歴：母に高血圧と糖尿"
+    },
+    {
+     "position": "middle",
+     "value_shape": "ddd－dddd－dddd",
+     "output": "好、食欲も保たれている。ddd－dddd－dddd社会歴：既婚、配偶者と同"
+    },
+    {
+     "position": "end",
+     "value_shape": "ddd－dddd－dddd",
+     "output": "圧痛なし、腸蠕動音正常。ddd－dddd－dddd"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "ddd－dddd－dddd",
+     "output": "部聴診でラ音なし。連絡先ddd－dddd－dddd確認済直近三か月の外来記"
+    },
+    {
+     "position": "start",
+     "value_shape": "ddd－dddd－dddd",
+     "output": "ddd－dddd－dddd時に食後の胃部不快感あり"
+    }
+   ],
+   "per_thousand": 666.7
+  },
+  "ja|phone|jp_fullwidth|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ddd－dd⏎dd－dddd",
+     "output": "機会飲酒（最近は減量）。ddd－dd⏎dd－dddd睡眠は良好、食欲も保たれ"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd－dd⏎dd－dddd",
+     "output": "機会飲酒（最近は減量）。ddd－dd⏎dd－dddd腹部平坦・軟、圧痛なし、"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd－dd⏎dd－dddd",
+     "output": "ルサイン安定、意識清明。ddd－dd⏎dd－dddd前回と比較し検査値に大き"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|phone|jp_intl|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|phone|jp_intl|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "+dd-dd-⏎dddd-dddd",
+     "output": "病、父に脂質異常症あり。+dd-dd-⏎dddd-dddd前回と比較し検査値に大き"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "+dd-dd-⏎dddd-dddd",
+     "output": "機会飲酒（最近は減量）。+dd-dd-⏎dddd-dddd運動時の注意点を説明し、"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "+dd-dd-⏎dddd-dddd",
+     "output": "水を控えるよう指導した。+dd-dd-⏎dddd-dddd腹部平坦・軟、圧痛なし、"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|phone|jp_landline_3|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|phone|jp_landline_3|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ddd-ddd-⏎dddd",
+     "output": "人および家族に説明した。ddd-ddd-⏎dddd社会歴：既婚、配偶者と同"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd-ddd-⏎dddd",
+     "output": "人および家族に説明した。ddd-ddd-⏎dddd運動時の注意点を説明し、"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd-ddd-⏎dddd",
+     "output": "水を控えるよう指導した。ddd-ddd-⏎dddd睡眠は良好、食欲も保たれ"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|phone|jp_landline|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|phone|jp_landline|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dd-dddd-⏎dddd",
+     "output": "、おおむね安定している。dd-dddd-⏎dddd家族歴：母に高血圧と糖尿"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd-dddd-⏎dddd",
+     "output": "病、父に脂質異常症あり。dd-dddd-⏎dddd現処方を継続し、三か月後"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd-dddd-⏎dddd",
+     "output": "査値に大きな変化はない。dd-dddd-⏎dddd必要に応じて用量を調整す"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|phone|jp_mobile|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|phone|jp_mobile|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ddd-dddd-⏎dddd",
+     "output": "なし、末梢動脈触知良好。ddd-dddd-⏎dddd週ddd分以上の運動を勧"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd-dddd-⏎dddd",
+     "output": "期受診するよう説明した。ddd-dddd-⏎dddd身体所見：心音整、雑音な"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd-dddd-⏎dddd",
+     "output": "り、黒色便や吐血はない。ddd-dddd-⏎dddd食後内服とし経過観察とす"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|phone|jp_plain|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|phone|jp_plain|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ddddd⏎dddddd",
+     "output": "水を控えるよう指導した。ddddd⏎dddddd家族歴：母に高血圧と糖尿"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddddd⏎dddddd",
+     "output": "、三か月後に再診とする。ddddd⏎dddddd家庭血圧の記録を確認、お"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddddd⏎dddddd",
+     "output": "、おおむね安定している。ddddd⏎dddddd直近三か月の外来記録を確"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|address|tw_floor_unit|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|address|tw_floor_unit|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "新北市板橋區示範路⏎ddd號dd樓之d",
+     "output": "飯後服藥並觀察症狀變化。新北市板橋區示範路⏎ddd號dd樓之d社會史：已婚，與配偶同住"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "宜蘭縣羅東鎮測試路⏎ddd號dd樓之d",
+     "output": "病人及家屬說明檢驗結果。宜蘭縣羅東鎮測試路⏎ddd號dd樓之d與病人討論飲食控制，建議"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "臺中市西屯區示範⏎路dd號dd樓之d",
+     "output": "燒、畏寒或體重明顯減輕。臺中市西屯區示範⏎路dd號dd樓之d理學檢查：頭頸部無淋巴結"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|address|tw_full|in": {
+   "planted": 18,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "ddd臺中市西屯區示範路二段dd巷d弄dd號dd樓",
+     "output": "ddd○○○○○○○○○○○○○○○○○○○○○○病人詢問運動相關注意事項"
+    },
+    {
+     "position": "middle",
+     "value_shape": "ddd臺北市中正區範例街二段dd巷d弄ddd號d樓",
+     "output": "飯後服藥並觀察症狀變化。ddd○○○○○○○○○○○○○○○○○○○○○○已向病人及家屬說明檢驗結"
+    },
+    {
+     "position": "end",
+     "value_shape": "ddd新北市板橋區測試路一段dd巷dd弄ddd號dd樓",
+     "output": "飲食並減少含糖飲料攝取。ddd○○○○○○○○○○○○○○○○○○○○○○○○"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "ddd高雄市苓雅區示範路二段dd巷dd弄ddd號dd樓",
+     "output": "，每日至少兩千毫升。聯絡ddd○○○○○○○○○○○○○○○○○○○○○○○○已確認病人詢問運動相關注"
+    },
+    {
+     "position": "start",
+     "value_shape": "ddd高雄市苓雅區模擬大道二段dd巷d弄dd號dd樓",
+     "output": "ddd○○○○○○○○○○○○○○○○○○○○○○○持續原處方藥物，三個月後"
+    }
+   ],
+   "per_thousand": 666.7
+  },
+  "zh-TW|address|tw_full|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ddd臺北市中正區示範路一⏎段dd巷dd弄ddd號d樓",
+     "output": "社交性飲酒，近期已減量。ddd臺北市中正區示範路一⏎段dd巷dd弄ddd號d樓與病人討論飲食控制，建議"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd高雄市苓雅區測試路二⏎段dd巷dd弄ddd號d樓",
+     "output": "社交性飲酒，近期已減量。ddd高雄市苓雅區測試路二⏎段dd巷dd弄ddd號d樓檢驗結果與上次比較變化不"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd新北市板橋區模擬大道⏎三段dd巷dd弄dd號dd樓",
+     "output": "無雜音，雙側呼吸音清晰。ddd新北市板橋區模擬大道⏎三段dd巷dd弄dd號dd樓病人主訴近期睡眠品質尚可"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|address|tw_no_postcode|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|address|tw_no_postcode|line_break": {
+   "planted": 3,
+   "leaked": 2,
+   "partly": 1,
+   "tripwire_missed": 2,
+   "positions": {
+    "line_break": 2
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "新北市板橋區測試⏎路dd巷ddd號",
+     "output": "值，必要時調整藥物劑量。新北市板橋區測試⏎路dd巷ddd號病人主訴偶有胃部不適，進"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "新北市板橋區模擬⏎大道dd巷ddd號",
+     "output": "社交性飲酒，近期已減量。新北市板橋區模擬⏎大道dd巷ddd號理學檢查：頭頸部無淋巴結"
+    }
+   ],
+   "per_thousand": 666.7
+  },
+  "zh-TW|chart|bare_8|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|chart|bare_8|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "測紀錄已檢視，大致穩定。dddd⏎dddd建議規律運動，每週至少一"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "柔軟，無壓痛，腸音正常。dddd⏎dddd家族史：母親有高血壓及糖"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "無囉音，心跳規則無雜音。dddd⏎dddd生命徵象穩定，意識清楚。"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|chart|label_ID_colon|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|chart|label_ID_colon|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "每日至少兩千毫升。ID:○○○○⏎dddd回顧近三個月門診紀錄，病"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "象穩定，意識清楚。ID:○○○○⏎dddd檢驗結果與上次比較變化不"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "藥並定期回診追蹤。ID:○○○○⏎dddd回顧近三個月門診紀錄，病"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|chart|label_MRN|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|chart|label_MRN|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "或體重明顯減輕。MRN ○○○○⏎dddd腹部柔軟，無壓痛，腸音正"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "心跳規則無雜音。MRN ○○○○⏎dddd病人主訴偶有胃部不適，進"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "並定期回診追蹤。MRN ○○○○⏎dddd建議規律運動，每週至少一"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|chart|label_病歷號_colon|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|chart|label_病歷號_colon|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "少一百五十分鐘。病歷號：○○○○⏎dddd腹部柔軟，無壓痛，腸音正"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "心跳規則無雜音。病歷號：○○○○⏎dddd身體診察：心音規則，無雜"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "酒，近期已減量。病歷號：○○○○⏎dddd持續原處方藥物，三個月後"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|chart|label_病歷號碼_colon|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|chart|label_病歷號碼_colon|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "間與注意事項。病歷號碼：○○○○⏎dddd與病人討論飲食控制，建議"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "健康狀況良好。病歷號碼：○○○○⏎dddd已向病人及家屬說明檢驗結"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "健康狀況良好。病歷號碼：○○○○⏎dddd已向病人及家屬說明檢驗結"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|chart|label_病歷號碼|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|chart|label_病歷號碼|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "觀察症狀變化。病歷號碼 ○○○○⏎dddd家族史：母親有高血壓及糖"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "至少兩千毫升。病歷號碼 ○○○○⏎dddd回顧近三個月門診紀錄，病"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "至少兩千毫升。病歷號碼 ○○○○⏎dddd病人無發燒、畏寒或體重明"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|dob|born_compact8|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|born_compact8|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "燒、畏寒或體重明顯減輕。dddd⏎dddd出生生命徵象穩定，意識清"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "喝水，每日至少兩千毫升。dddd⏎dddd出生持續原處方藥物，三個"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "測紀錄已檢視，大致穩定。dddd⏎dddd出生建議規律運動，每週至"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|dob|born_dotted|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|born_dotted|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd.⏎dd.dd",
+     "output": "無水腫，周邊脈搏可觸及。dddd.⏎dd.dd出生社會史：已婚，與配偶"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd.⏎dd.dd",
+     "output": "喝水，每日至少兩千毫升。dddd.⏎dd.dd出生社會史：已婚，與配偶"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd.⏎dd.dd",
+     "output": "無雜音，雙側呼吸音清晰。dddd.⏎dd.dd出生與病人討論飲食控制，"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|dob|born_iso|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|born_iso|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎dd-dd",
+     "output": "處方藥物，三個月後回診。dddd-⏎dd-dd出生檢驗結果與上次比較變"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎dd-dd",
+     "output": "柔軟，無壓痛，腸音正常。dddd-⏎dd-dd出生血壓自我監測紀錄已檢"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎dd-dd",
+     "output": "無雜音，雙側呼吸音清晰。dddd-⏎dd-dd出生已向病人及家屬說明檢"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|dob|born_nen_gappi_fullwidth|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|born_nen_gappi_fullwidth|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|born_nen_gappi|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|born_nen_gappi|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|born_roc_compact|in": {
+   "planted": 18,
+   "leaked": 18,
+   "partly": 0,
+   "tripwire_missed": 18,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "label": 3,
+    "table": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "ddddddd",
+     "output": "ddddddd出生病人主訴偶有胃部不適"
+    },
+    {
+     "position": "middle",
+     "value_shape": "ddddddd",
+     "output": "無囉音，心跳規則無雜音。ddddddd出生回顧近三個月門診紀錄"
+    },
+    {
+     "position": "end",
+     "value_shape": "ddddddd",
+     "output": "衛教服藥時間與注意事項。ddddddd出生"
+    },
+    {
+     "position": "label",
+     "value_shape": "ddddddd",
+     "output": "無囉音，心跳規則無雜音。ddddddd出生。病人無發燒、畏寒或"
+    },
+    {
+     "position": "table",
+     "value_shape": "ddddddd",
+     "output": "飲酒，近期已減量。⏎欄⇥ddddddd出生⇥備註⏎理學檢查：頭"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|dob|born_roc_compact|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ddd⏎dddd",
+     "output": "生命徵象穩定，意識清楚。ddd⏎dddd出生檢驗結果與上次比較變"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd⏎dddd",
+     "output": "測紀錄已檢視，大致穩定。ddd⏎dddd出生持續原處方藥物，三個"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd⏎dddd",
+     "output": "無囉音，心跳規則無雜音。ddd⏎dddd出生病人無發燒、畏寒或體"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|dob|born_roc_dot|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|born_roc_dot|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dd.d.⏎dd",
+     "output": "，建議以快走或游泳為主。dd.d.⏎dd出生檢驗結果與上次比較變"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd.dd.⏎dd",
+     "output": "病人及家屬說明檢驗結果。dd.dd.⏎dd出生病人主訴近期睡眠品質"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd.⏎d.d",
+     "output": "喝水，每日至少兩千毫升。dd.⏎d.d出生建議低普林飲食並減少"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|dob|born_roc_nen|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|born_roc_nen|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|born_roc_numerals|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|born_roc_numerals|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "民國二二年⏎一〇月二七日",
+     "output": "無囉音，心跳規則無雜音。民國二二年⏎一〇月二七日出生身體診察：心音規則，"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "民國二二年⏎一月一三日",
+     "output": "生命徵象穩定，意識清楚。民國二二年⏎一月一三日出生檢驗結果與上次比較變"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "民國二八年⏎四月一五日",
+     "output": "睡眠品質尚可，食慾正常。民國二八年⏎四月一五日出生檢驗結果與上次比較變"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|dob|born_roc_slash|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|born_roc_slash|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dd/dd/⏎dd",
+     "output": "衛教服藥時間與注意事項。dd/dd/⏎dd出生身體診察：心音規則，"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd/dd/⏎dd",
+     "output": "值，必要時調整藥物劑量。dd/dd/⏎dd出生回顧近三個月門診紀錄"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd/dd/⏎dd",
+     "output": "社交性飲酒，近期已減量。dd/dd/⏎dd出生已向病人及家屬說明檢"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|dob|born_slash_ymd|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|born_slash_ymd|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd/⏎dd/dd",
+     "output": "飲食並減少含糖飲料攝取。dddd/⏎dd/dd出生腹部柔軟，無壓痛，腸"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd/⏎dd/dd",
+     "output": "無囉音，心跳規則無雜音。dddd/⏎dd/dd出生與病人討論飲食控制，"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd/⏎dd/dd",
+     "output": "社交性飲酒，近期已減量。dddd/⏎dd/dd出生四肢無水腫，周邊脈搏"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|dob|label_compact8|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|label_compact8|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "至少兩千毫升。出生日期：dddd⏎dddd衛教病人規律服藥並定期回"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "邊脈搏可觸及。出生日期：dddd⏎dddd家族史：母親有高血壓及糖"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd⏎dddd",
+     "output": "健康狀況良好。出生日期：dddd⏎dddd社會史：已婚，與配偶同住"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|dob|label_dotted|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|label_dotted|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd.⏎dd.dd",
+     "output": "側呼吸音清晰。出生日期：dddd.⏎dd.dd回顧近三個月門診紀錄，病"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd.⏎dd.dd",
+     "output": "至少兩千毫升。出生日期：dddd.⏎dd.dd檢驗結果與上次比較變化不"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd.⏎dd.dd",
+     "output": "定期回診追蹤。出生日期：dddd.⏎dd.dd病人詢問運動相關注意事項"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|dob|label_iso|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|label_iso|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎dd-dd",
+     "output": "至少兩千毫升。出生日期：dddd-⏎dd-dd病人主訴偶有胃部不適，進"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎dd-dd",
+     "output": "跳規則無雜音。出生日期：dddd-⏎dd-dd衛教病人規律服藥並定期回"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎dd-dd",
+     "output": "說明檢驗結果。出生日期：dddd-⏎dd-dd身體診察：心音規則，無雜"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|dob|label_nen_gappi_fullwidth|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|label_nen_gappi_fullwidth|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|label_nen_gappi|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|label_nen_gappi|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|label_roc_compact|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|label_roc_compact|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ddd⏎dddd",
+     "output": "側呼吸音清晰。出生日期：ddd⏎dddd回顧近三個月門診紀錄，病"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd⏎dddd",
+     "output": "體重明顯減輕。出生日期：ddd⏎dddd理學檢查：頭頸部無淋巴結"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd⏎dddd",
+     "output": "說明檢驗結果。出生日期：ddd⏎dddd理學檢查：頭頸部無淋巴結"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|dob|label_roc_dot|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|label_roc_dot|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dd.d.⏎dd",
+     "output": "跳規則無雜音。出生日期：dd.d.⏎dd病人主訴偶有胃部不適，進"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd.d.⏎dd",
+     "output": "觀察症狀變化。出生日期：dd.d.⏎dd病人無發燒、畏寒或體重明"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd.d.⏎dd",
+     "output": "觀察症狀變化。出生日期：dd.d.⏎dd家族史：母親有高血壓及糖"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|dob|label_roc_nen|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|label_roc_nen|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|label_roc_numerals|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|label_roc_numerals|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "民國二一年⏎六月一一日",
+     "output": "健康狀況良好。出生日期：民國二一年⏎六月一一日建議規律運動，每週至少一"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "民國四七年⏎三月一六日",
+     "output": "調整藥物劑量。出生日期：民國四七年⏎三月一六日回顧近三個月門診紀錄，病"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "民國三九年⏎七月一二日",
+     "output": "至少兩千毫升。出生日期：民國三九年⏎七月一二日回顧近三個月門診紀錄，病"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|dob|label_roc_slash|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|label_roc_slash|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dd/dd/⏎dd",
+     "output": "邊脈搏可觸及。出生日期：dd/dd/⏎dd家族史：母親有高血壓及糖"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd/dd/⏎dd",
+     "output": "一百五十分鐘。出生日期：dd/dd/⏎dd衛教病人規律服藥並定期回"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd/dd/⏎dd",
+     "output": "一百五十分鐘。出生日期：dd/dd/⏎dd生命徵象穩定，意識清楚。"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|dob|label_slash_ymd|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dob|label_slash_ymd|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd/⏎dd/dd",
+     "output": "一百五十分鐘。出生日期：dddd/⏎dd/dd生命徵象穩定，意識清楚。"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd/⏎dd/dd",
+     "output": "調整藥物劑量。出生日期：dddd/⏎dd/dd病人詢問運動相關注意事項"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd/⏎dd/dd",
+     "output": "，近期已減量。出生日期：dddd/⏎dd/dd理學檢查：頭頸部無淋巴結"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|email|ascii|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|email|ascii|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ptdd@example.⏎com",
+     "output": "測紀錄已檢視，大致穩定。ptdd@example.⏎com社會史：已婚，與配偶同住"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ptdd@example.⏎com",
+     "output": "燒、畏寒或體重明顯減輕。ptdd@example.⏎com生命徵象穩定，意識清楚。"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ptdd@example.⏎net",
+     "output": "規律服藥並定期回診追蹤。ptdd@example.⏎net家族史：母親有高血壓及糖"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|email|fullwidth_at|in": {
+   "planted": 18,
+   "leaked": 18,
+   "partly": 0,
+   "tripwire_missed": 18,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "label": 3,
+    "table": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "a.testerdd＠example.org",
+     "output": "a.testerdd＠example.org理學檢查：頭頸部無淋巴結"
+    },
+    {
+     "position": "middle",
+     "value_shape": "a.testerdd＠example.net",
+     "output": "病人及家屬說明檢驗結果。a.testerdd＠example.net四肢無水腫，周邊脈搏可觸"
+    },
+    {
+     "position": "end",
+     "value_shape": "yamadadd＠example.net",
+     "output": "燒、畏寒或體重明顯減輕。yamadadd＠example.net"
+    },
+    {
+     "position": "label",
+     "value_shape": "chendd＠example.net",
+     "output": "可，食慾正常。電子郵件：chendd＠example.net。建議低普林飲食並減少含"
+    },
+    {
+     "position": "table",
+     "value_shape": "ptdd＠example.org",
+     "output": "規則無雜音。⏎電子郵件⇥ptdd＠example.org⇥備註⏎與病人討論飲食控"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|email|fullwidth_at|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "a.testerdd＠example.⏎net",
+     "output": "無囉音，心跳規則無雜音。a.testerdd＠example.⏎net病人無發燒、畏寒或體重明"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "yamadadd＠example.⏎com",
+     "output": "，每週至少一百五十分鐘。yamadadd＠example.⏎com身體診察：心音規則，無雜"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ptdd＠example.⏎org",
+     "output": "睡眠品質尚可，食慾正常。ptdd＠example.⏎org腹部柔軟，無壓痛，腸音正"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|email|plus|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|email|plus|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ptdd+clinic@example.⏎org",
+     "output": "喝水，每日至少兩千毫升。ptdd+clinic@example.⏎org理學檢查：頭頸部無淋巴結"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "chendd+clinic@example.⏎org",
+     "output": "測紀錄已檢視，大致穩定。chendd+clinic@example.⏎org建議規律運動，每週至少一"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ptdd+clinic@example.⏎com",
+     "output": "，兄弟姊妹健康狀況良好。ptdd+clinic@example.⏎com回顧近三個月門診紀錄，病"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|name|han_2|free": {
+   "planted": 12,
+   "leaked": 11,
+   "partly": 1,
+   "tripwire_missed": 11,
+   "positions": {
+    "start": 3,
+    "middle": 2,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "闕晴",
+     "output": "闕晴理學檢查：頭頸部無淋巴結"
+    },
+    {
+     "position": "middle",
+     "value_shape": "尤柏",
+     "output": "，兄弟姊妹健康狀況良好。尤柏已向病人及家屬說明檢驗結"
+    },
+    {
+     "position": "end",
+     "value_shape": "黃彤",
+     "output": "規律服藥並定期回診追蹤。黃彤"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "龔芬",
+     "output": "必要時調整藥物劑量。聯絡龔芬已確認四肢無水腫，周邊脈"
+    },
+    {
+     "position": "start",
+     "value_shape": "吳家",
+     "output": "吳家已向病人及家屬說明檢驗結"
+    }
+   ],
+   "per_thousand": 916.7
+  },
+  "zh-TW|name|han_2|in": {
+   "planted": 6,
+   "leaked": 2,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "table": 1,
+    "label": 1
+   },
+   "examples": [
+    {
+     "position": "table",
+     "value_shape": "闕豪",
+     "output": "尚可，食慾正常。⏎姓名⇥闕豪⇥備註⏎身體診察：心音規"
+    },
+    {
+     "position": "label",
+     "value_shape": "闕家",
+     "output": "減少含糖飲料攝取。姓名：闕家。病人主訴近期睡眠品質尚"
+    }
+   ],
+   "per_thousand": 333.3
+  },
+  "zh-TW|name|han_2|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "龔⏎秉",
+     "output": "喝水，每日至少兩千毫升。龔⏎秉病人無發燒、畏寒或體重明"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "涂⏎雅",
+     "output": "飲食並減少含糖飲料攝取。涂⏎雅病人詢問運動相關注意事項"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "蔡⏎彤",
+     "output": "，每週至少一百五十分鐘。蔡⏎彤社會史：已婚，與配偶同住"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|name|han_3_先生|in": {
+   "planted": 18,
+   "leaked": 1,
+   "partly": 0,
+   "tripwire_missed": 1,
+   "positions": {
+    "cjk_adjacent": 1
+   },
+   "examples": [
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "冼冠宥",
+     "output": "音，雙側呼吸音清晰。聯絡冼冠宥先生已確認回顧近三個月門"
+    }
+   ],
+   "per_thousand": 55.6
+  },
+  "zh-TW|name|han_3_先生|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 3,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|name|han_3_女士|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|name|han_3_女士|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 2,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|name|han_3_醫師|in": {
+   "planted": 18,
+   "leaked": 1,
+   "partly": 0,
+   "tripwire_missed": 1,
+   "positions": {
+    "cjk_adjacent": 1
+   },
+   "examples": [
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "諶婷冠",
+     "output": "錄已檢視，大致穩定。聯絡諶婷冠醫師已確認病人詢問運動相"
+    }
+   ],
+   "per_thousand": 55.6
+  },
+  "zh-TW|name|han_3_醫師|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 3,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|name|han_3|free": {
+   "planted": 12,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "劉沛承",
+     "output": "劉沛承與病人討論飲食控制，建議"
+    },
+    {
+     "position": "middle",
+     "value_shape": "尤翰婷",
+     "output": "衛教服藥時間與注意事項。尤翰婷腹部柔軟，無壓痛，腸音正"
+    },
+    {
+     "position": "end",
+     "value_shape": "龔廷芬",
+     "output": "衛教服藥時間與注意事項。龔廷芬"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "冼明明",
+     "output": "服藥時間與注意事項。聯絡冼明明已確認持續原處方藥物，三"
+    },
+    {
+     "position": "start",
+     "value_shape": "粘翰淑",
+     "output": "粘翰淑理學檢查：頭頸部無淋巴結"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|name|han_3|in": {
+   "planted": 6,
+   "leaked": 2,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "label": 1,
+    "table": 1
+   },
+   "examples": [
+    {
+     "position": "label",
+     "value_shape": "闕志彤",
+     "output": "無壓痛，腸音正常。姓名：闕志彤。家族史：母親有高血壓及"
+    },
+    {
+     "position": "table",
+     "value_shape": "粘冠君",
+     "output": "少一百五十分鐘。⏎姓名⇥粘冠君⇥備註⏎腹部柔軟，無壓痛"
+    }
+   ],
+   "per_thousand": 333.3
+  },
+  "zh-TW|name|han_3|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "陳⏎沛秉",
+     "output": "，建議以快走或游泳為主。陳⏎沛秉建議規律運動，每週至少一"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "張⏎芬恩",
+     "output": "飯後服藥並觀察症狀變化。張⏎芬恩家族史：母親有高血壓及糖"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "劉⏎雅晴",
+     "output": "睡眠品質尚可，食慾正常。劉⏎雅晴腹部柔軟，無壓痛，腸音正"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|name|han_4|free": {
+   "planted": 12,
+   "leaked": 11,
+   "partly": 1,
+   "tripwire_missed": 11,
+   "positions": {
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3,
+    "start": 2
+   },
+   "examples": [
+    {
+     "position": "middle",
+     "value_shape": "范姜宥芬",
+     "output": "飲食並減少含糖飲料攝取。范姜宥芬衛教病人規律服藥並定期回"
+    },
+    {
+     "position": "end",
+     "value_shape": "司馬家廷",
+     "output": "第三指曾因車禍骨折開刀。司馬家廷"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "范姜冠淑",
+     "output": "徵象穩定，意識清楚。聯絡范姜冠淑已確認社會史：已婚，與配"
+    },
+    {
+     "position": "start",
+     "value_shape": "司馬怡明",
+     "output": "司馬怡明家族史：母親有高血壓及糖"
+    },
+    {
+     "position": "middle",
+     "value_shape": "張簡晴沛",
+     "output": "喝水，每日至少兩千毫升。張簡晴沛社會史：已婚，與配偶同住"
+    }
+   ],
+   "per_thousand": 916.7
+  },
+  "zh-TW|name|han_4|in": {
+   "planted": 6,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|name|han_4|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "張簡⏎婷承",
+     "output": "，每週至少一百五十分鐘。張簡⏎婷承生命徵象穩定，意識清楚。"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "張簡⏎家品",
+     "output": "無囉音，心跳規則無雜音。張簡⏎家品衛教病人規律服藥並定期回"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "范姜⏎諺宇",
+     "output": "，兄弟姊妹健康狀況良好。范姜⏎諺宇血壓自我監測紀錄已檢視，"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|name|pinyin_family_first|free": {
+   "planted": 12,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "Zheng Jiaxin",
+     "output": "Zheng Jiaxin已向病人及家屬說明檢驗結"
+    },
+    {
+     "position": "middle",
+     "value_shape": "Cai Shuming",
+     "output": "規律服藥並定期回診追蹤。Cai Shuming建議規律運動，每週至少一"
+    },
+    {
+     "position": "end",
+     "value_shape": "Huang Minghao",
+     "output": "規律服藥並定期回診追蹤。Huang Minghao"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "Zheng Tingjia",
+     "output": "音，心跳規則無雜音。聯絡Zheng Tingjia已確認病人主訴偶有胃部不"
+    },
+    {
+     "position": "start",
+     "value_shape": "Wang Yuxin",
+     "output": "Wang Yuxin身體診察：心音規則，無雜"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|name|pinyin_family_first|in": {
+   "planted": 6,
+   "leaked": 6,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "label": 3,
+    "table": 3
+   },
+   "examples": [
+    {
+     "position": "label",
+     "value_shape": "Xu Zhijia",
+     "output": "家屬說明檢驗結果。姓名：Xu Zhijia。與病人討論飲食控制，建"
+    },
+    {
+     "position": "table",
+     "value_shape": "Huang Shuzhi",
+     "output": "妹健康狀況良好。⏎姓名⇥Huang Shuzhi⇥備註⏎血壓自我監測紀錄"
+    },
+    {
+     "position": "label",
+     "value_shape": "Cai Tinghao",
+     "output": "藥並定期回診追蹤。姓名：Cai Tinghao。身體診察：心音規則，無"
+    },
+    {
+     "position": "table",
+     "value_shape": "Zheng Shujia",
+     "output": "日至少兩千毫升。⏎姓名⇥Zheng Shujia⇥備註⏎社會史：已婚，與"
+    },
+    {
+     "position": "label",
+     "value_shape": "Huang Jiafen",
+     "output": "藥並定期回診追蹤。姓名：Huang Jiafen。回顧近三個月門診紀錄，"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|name|pinyin_family_first|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "Tu⏎Haofen",
+     "output": "生命徵象穩定，意識清楚。Tu⏎Haofen社會史：已婚，與配偶同住"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Cai⏎Tingjia",
+     "output": "，建議以快走或游泳為主。Cai⏎Tingjia建議規律運動，每週至少一"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Zheng⏎Haojia",
+     "output": "值，必要時調整藥物劑量。Zheng⏎Haojia建議低普林飲食並減少含糖"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|name|pinyin_given_first|free": {
+   "planted": 12,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "Mingshu Xu",
+     "output": "Mingshu Xu病人主訴近期睡眠品質尚可"
+    },
+    {
+     "position": "middle",
+     "value_shape": "Xinting Wang",
+     "output": "喝水，每日至少兩千毫升。Xinting Wang已向病人及家屬說明檢驗結"
+    },
+    {
+     "position": "end",
+     "value_shape": "Tingzhi Huang",
+     "output": "睡眠品質尚可，食慾正常。Tingzhi Huang"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "Zhiming Tu",
+     "output": "服藥並定期回診追蹤。聯絡Zhiming Tu已確認家族史：母親有高血"
+    },
+    {
+     "position": "start",
+     "value_shape": "Fenzhi Tu",
+     "output": "Fenzhi Tu血壓自我監測紀錄已檢視，"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|name|pinyin_given_first|in": {
+   "planted": 6,
+   "leaked": 6,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {
+    "label": 3,
+    "table": 3
+   },
+   "examples": [
+    {
+     "position": "label",
+     "value_shape": "Minghao Zheng",
+     "output": "，周邊脈搏可觸及。姓名：Minghao Zheng。社會史：已婚，與配偶同"
+    },
+    {
+     "position": "table",
+     "value_shape": "Fenzhi Cai",
+     "output": "壓痛，腸音正常。⏎姓名⇥Fenzhi Cai⇥備註⏎理學檢查：頭頸部"
+    },
+    {
+     "position": "label",
+     "value_shape": "Zhiguan Huang",
+     "output": "藥並觀察症狀變化。姓名：Zhiguan Huang。建議規律運動，每週至少"
+    },
+    {
+     "position": "table",
+     "value_shape": "Zhixin Tu",
+     "output": "時間與注意事項。⏎姓名⇥Zhixin Tu⇥備註⏎身體診察：心音規"
+    },
+    {
+     "position": "label",
+     "value_shape": "Zhiming Zheng",
+     "output": "已檢視，大致穩定。姓名：Zhiming Zheng。持續原處方藥物，三個月"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|name|pinyin_given_first|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "Haoting⏎Cai",
+     "output": "喝水，每日至少兩千毫升。Haoting⏎Cai社會史：已婚，與配偶同住"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Fenxin⏎Zheng",
+     "output": "規律服藥並定期回診追蹤。Fenxin⏎Zheng建議規律運動，每週至少一"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Yushu⏎Cai",
+     "output": "病人及家屬說明檢驗結果。Yushu⏎Cai病人主訴近期睡眠品質尚可"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|name|wade_giles_family_first|free": {
+   "planted": 12,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|name|wade_giles_family_first|in": {
+   "planted": 6,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|name|wade_giles_family_first|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "Chang⏎Kuan-fen",
+     "output": "規律服藥並定期回診追蹤。Chang⏎Kuan-fen回顧近三個月門診紀錄，病"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Cheng⏎Ming-fen",
+     "output": "，兄弟姊妹健康狀況良好。Cheng⏎Ming-fen回顧近三個月門診紀錄，病"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Cheng⏎Ming-shu",
+     "output": "值，必要時調整藥物劑量。Cheng⏎Ming-shu身體診察：心音規則，無雜"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|name|wade_giles_given_first|free": {
+   "planted": 12,
+   "leaked": 2,
+   "partly": 0,
+   "tripwire_missed": 2,
+   "positions": {
+    "cjk_adjacent": 1,
+    "end": 1
+   },
+   "examples": [
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "Chih-chia Chueh",
+     "output": "服藥時間與注意事項。聯絡Chih-chia Chueh已確認身體診察：心音規則"
+    },
+    {
+     "position": "end",
+     "value_shape": "Yu-fen Chueh",
+     "output": "次出國為日本北海道滑雪。Yu-fen Chueh"
+    }
+   ],
+   "per_thousand": 166.7
+  },
+  "zh-TW|name|wade_giles_given_first|in": {
+   "planted": 6,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|name|wade_giles_given_first|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "Hao-⏎yu Tu",
+     "output": "喝水，每日至少兩千毫升。Hao-⏎yu Tu衛教病人規律服藥並定期回"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Hsin-yu⏎Chen",
+     "output": "，兄弟姊妹健康狀況良好。Hsin-yu⏎Chen回顧近三個月門診紀錄，病"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Shu-ming⏎Cheng",
+     "output": "衛教服藥時間與注意事項。Shu-ming⏎Cheng四肢無水腫，周邊脈搏可觸"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|national_id|tw_arc_new|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|national_id|tw_arc_new|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "Cdddd⏎ddddd",
+     "output": "無囉音，心跳規則無雜音。Cdddd⏎ddddd生命徵象穩定，意識清楚。"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Xdddd⏎ddddd",
+     "output": "，兄弟姊妹健康狀況良好。Xdddd⏎ddddd回顧近三個月門診紀錄，病"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Xdddd⏎ddddd",
+     "output": "無囉音，心跳規則無雜音。Xdddd⏎ddddd病人主訴偶有胃部不適，進"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|national_id|tw_arc_old|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|national_id|tw_arc_old|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ODddd⏎ddddd",
+     "output": "無水腫，周邊脈搏可觸及。ODddd⏎ddddd家族史：母親有高血壓及糖"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "LBddd⏎ddddd",
+     "output": "規律服藥並定期回診追蹤。LBddd⏎ddddd家族史：母親有高血壓及糖"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "IDddd⏎ddddd",
+     "output": "睡眠品質尚可，食慾正常。IDddd⏎ddddd建議低普林飲食並減少含糖"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|national_id|tw_id_fullwidth|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 18,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|national_id|tw_id_fullwidth|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "Ｔdddd⏎ddddd",
+     "output": "飲食並減少含糖飲料攝取。Ｔdddd⏎ddddd回顧近三個月門診紀錄，病"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Ｃdddd⏎ddddd",
+     "output": "病人及家屬說明檢驗結果。Ｃdddd⏎ddddd理學檢查：頭頸部無淋巴結"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Ａdddd⏎ddddd",
+     "output": "測紀錄已檢視，大致穩定。Ａdddd⏎ddddd病人詢問運動相關注意事項"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|national_id|tw_id|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|national_id|tw_id|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "Zdddd⏎ddddd",
+     "output": "喝水，每日至少兩千毫升。Zdddd⏎ddddd衛教病人規律服藥並定期回"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Qdddd⏎ddddd",
+     "output": "衛教服藥時間與注意事項。Qdddd⏎ddddd與病人討論飲食控制，建議"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Jdddd⏎ddddd",
+     "output": "，建議以快走或游泳為主。Jdddd⏎ddddd身體診察：心音規則，無雜"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|phone|tw_landline_ext|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 12,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|phone|tw_landline_ext|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dd-ddd-⏎dddd 分機ddd",
+     "output": "規律服藥並定期回診追蹤。dd-ddd-⏎dddd 分機ddd建議規律運動，每週至少一"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd-dddd-⏎dddd 分機ddd",
+     "output": "，兄弟姊妹健康狀況良好。dd-dddd-⏎dddd 分機ddd社會史：已婚，與配偶同住"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd-dddd-⏎dddd 分機ddd",
+     "output": "測紀錄已檢視，大致穩定。dd-dddd-⏎dddd 分機ddd已向病人及家屬說明檢驗結"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|phone|tw_landline_hyphen|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|phone|tw_landline_hyphen|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dd-ddd-⏎dddd",
+     "output": "值，必要時調整藥物劑量。dd-ddd-⏎dddd生命徵象穩定，意識清楚。"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd-dd-⏎dddd",
+     "output": "值，必要時調整藥物劑量。ddd-dd-⏎dddd身體診察：心音規則，無雜"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dd-ddd-⏎dddd",
+     "output": "社交性飲酒，近期已減量。dd-ddd-⏎dddd病人主訴偶有胃部不適，進"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|phone|tw_landline_paren|in": {
+   "planted": 18,
+   "leaked": 4,
+   "partly": 0,
+   "tripwire_missed": 4,
+   "positions": {
+    "middle": 1,
+    "cjk_adjacent": 2,
+    "end": 1
+   },
+   "examples": [
+    {
+     "position": "middle",
+     "value_shape": "(ddd)ddd-dddd",
+     "output": "衛教服藥時間與注意事項。(ddd)ddd-dddd腹部柔軟，無壓痛，腸音正"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "(ddd)ddd-dddd",
+     "output": "畏寒或體重明顯減輕。聯絡(ddd)ddd-dddd已確認生命徵象穩定，意識"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "(ddd)dd-dddd",
+     "output": "服藥並觀察症狀變化。聯絡(ddd)dd-dddd已確認四肢無水腫，周邊脈"
+    },
+    {
+     "position": "end",
+     "value_shape": "(ddd)dd-dddd",
+     "output": "無囉音，心跳規則無雜音。(ddd)dd-dddd"
+    }
+   ],
+   "per_thousand": 222.2
+  },
+  "zh-TW|phone|tw_landline_paren|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "(ddd)ddd-⏎dddd",
+     "output": "飲食並減少含糖飲料攝取。(ddd)ddd-⏎dddd腹部柔軟，無壓痛，腸音正"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "(dd)dddd-⏎dddd",
+     "output": "喝水，每日至少兩千毫升。(dd)dddd-⏎dddd理學檢查：頭頸部無淋巴結"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "(dd)dddd-⏎dddd",
+     "output": "社交性飲酒，近期已減量。(dd)dddd-⏎dddd檢驗結果與上次比較變化不"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|phone|tw_mobile_fullwidth|in": {
+   "planted": 18,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "dddd－ddd－ddd",
+     "output": "dddd－ddd－ddd檢驗結果與上次比較變化不"
+    },
+    {
+     "position": "middle",
+     "value_shape": "dddd－ddd－ddd",
+     "output": "無囉音，心跳規則無雜音。dddd－ddd－ddd病人主訴偶有胃部不適，進"
+    },
+    {
+     "position": "end",
+     "value_shape": "dddd－ddd－ddd",
+     "output": "社交性飲酒，近期已減量。dddd－ddd－ddd"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "dddd－ddd－ddd",
+     "output": "畏寒或體重明顯減輕。聯絡dddd－ddd－ddd已確認理學檢查：頭頸部無"
+    },
+    {
+     "position": "start",
+     "value_shape": "dddd－ddd－ddd",
+     "output": "dddd－ddd－ddd與病人討論飲食控制，建議"
+    }
+   ],
+   "per_thousand": 666.7
+  },
+  "zh-TW|phone|tw_mobile_fullwidth|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd－d⏎dd－ddd",
+     "output": "衛教服藥時間與注意事項。dddd－d⏎dd－ddd持續原處方藥物，三個月後"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd－d⏎dd－ddd",
+     "output": "，兄弟姊妹健康狀況良好。dddd－d⏎dd－ddd血壓自我監測紀錄已檢視，"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd－d⏎dd－ddd",
+     "output": "生命徵象穩定，意識清楚。dddd－d⏎dd－ddd檢驗結果與上次比較變化不"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|phone|tw_mobile_hyphen|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|phone|tw_mobile_hyphen|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎ddd-ddd",
+     "output": "無囉音，心跳規則無雜音。dddd-⏎ddd-ddd病人主訴偶有胃部不適，進"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎ddd-ddd",
+     "output": "，每週至少一百五十分鐘。dddd-⏎ddd-ddd回顧近三個月門診紀錄，病"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "dddd-⏎ddd-ddd",
+     "output": "，建議以快走或游泳為主。dddd-⏎ddd-ddd檢驗結果與上次比較變化不"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|phone|tw_mobile_intl_space|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|phone|tw_mobile_intl_space|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|phone|tw_mobile_intl|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|phone|tw_mobile_intl|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "+ddd-ddd-⏎ddd-ddd",
+     "output": "無水腫，周邊脈搏可觸及。+ddd-ddd-⏎ddd-ddd回顧近三個月門診紀錄，病"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "+ddd-ddd-⏎ddd-ddd",
+     "output": "喝水，每日至少兩千毫升。+ddd-ddd-⏎ddd-ddd建議低普林飲食並減少含糖"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "+ddd-ddd-⏎ddd-ddd",
+     "output": "衛教服藥時間與注意事項。+ddd-ddd-⏎ddd-ddd身體診察：心音規則，無雜"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|phone|tw_mobile_plain|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|phone|tw_mobile_plain|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ddddd⏎ddddd",
+     "output": "規律服藥並定期回診追蹤。ddddd⏎ddddd建議規律運動，每週至少一"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddddd⏎ddddd",
+     "output": "規律服藥並定期回診追蹤。ddddd⏎ddddd回顧近三個月門診紀錄，病"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddddd⏎ddddd",
+     "output": "柔軟，無壓痛，腸音正常。ddddd⏎ddddd血壓自我監測紀錄已檢視，"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|phone|tw_mobile_space|in": {
+   "planted": 18,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|phone|tw_mobile_space|line_break": {
+   "planted": 3,
+   "leaked": 0,
+   "partly": 0,
+   "tripwire_missed": 0,
+   "positions": {},
+   "examples": [],
+   "per_thousand": 0.0
+  }
+ },
+ "not_held": {
+  "en|chart|bare_7|in": {
+   "planted": 18,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "ddddddd",
+     "output": "ddddddd Heart sound"
+    },
+    {
+     "position": "middle",
+     "value_shape": "ddddddd",
+     "output": "ight loss.  ddddddd Vital signs"
+    },
+    {
+     "position": "end",
+     "value_shape": "ddddddd",
+     "output": "if needed.  ddddddd"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "ddddddd",
+     "output": " oriented. (ddddddd) Continue c"
+    },
+    {
+     "position": "start",
+     "value_shape": "ddddddd",
+     "output": "ddddddd No cervical"
+    }
+   ],
+   "per_thousand": 666.7
+  },
+  "en|chart|bare_7|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ddd⏎dddd",
+     "output": " per week.  ddd⏎dddd Occasional "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd⏎dddd",
+     "output": "act sport.  ddd⏎dddd Low-purine "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd⏎dddd",
+     "output": "fter food.  ddd⏎dddd Advised to "
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|chart|letter_7|in": {
+   "planted": 18,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "Cddddddd",
+     "output": "Cddddddd Mostly adhe"
+    },
+    {
+     "position": "middle",
+     "value_shape": "Eddddddd",
+     "output": "nd family.  Eddddddd Continue cu"
+    },
+    {
+     "position": "end",
+     "value_shape": "Eddddddd",
+     "output": "nd family.  Eddddddd"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "Bddddddd",
+     "output": "ter a day. (Bddddddd) Social his"
+    },
+    {
+     "position": "start",
+     "value_shape": "Bddddddd",
+     "output": "Bddddddd Sleeping we"
+    }
+   ],
+   "per_thousand": 666.7
+  },
+  "en|chart|letter_7|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "Gddd⏎dddd",
+     "output": "laterally.  Gddd⏎dddd Recommended"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Eddd⏎dddd",
+     "output": "preserved.  Eddd⏎dddd Low-purine "
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Hddd⏎dddd",
+     "output": "ee months.  Hddd⏎dddd Social hist"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|chart|bare_7|in": {
+   "planted": 18,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "ddddddd",
+     "output": "ddddddd睡眠は良好、食欲も保たれ"
+    },
+    {
+     "position": "middle",
+     "value_shape": "ddddddd",
+     "output": "水を控えるよう指導した。ddddddd身体所見：心音整、雑音な"
+    },
+    {
+     "position": "end",
+     "value_shape": "ddddddd",
+     "output": "人および家族に説明した。ddddddd"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "ddddddd",
+     "output": "むね安定している。連絡先ddddddd確認済睡眠は良好、食欲も"
+    },
+    {
+     "position": "start",
+     "value_shape": "ddddddd",
+     "output": "ddddddd両下肢浮腫なし、末梢動脈"
+    }
+   ],
+   "per_thousand": 666.7
+  },
+  "ja|chart|bare_7|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ddd⏎dddd",
+     "output": "人および家族に説明した。ddd⏎dddd社会歴：既婚、配偶者と同"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd⏎dddd",
+     "output": "、悪寒、体重減少はない。ddd⏎dddd家庭血圧の記録を確認、お"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd⏎dddd",
+     "output": "、三か月後に再診とする。ddd⏎dddd身体所見：心音整、雑音な"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|chart|letter_7|in": {
+   "planted": 18,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "Cddddddd",
+     "output": "Cddddddd腹部平坦・軟、圧痛なし、"
+    },
+    {
+     "position": "middle",
+     "value_shape": "Fddddddd",
+     "output": "雑音なし、両側呼吸音清。Fddddddd検査結果を本人および家族"
+    },
+    {
+     "position": "end",
+     "value_shape": "Addddddd",
+     "output": "病、父に脂質異常症あり。Addddddd"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "Dddddddd",
+     "output": "び家族に説明した。連絡先Dddddddd確認済睡眠は良好、食欲も"
+    },
+    {
+     "position": "start",
+     "value_shape": "Hddddddd",
+     "output": "Hddddddd家族歴：母に高血圧と糖尿"
+    }
+   ],
+   "per_thousand": 666.7
+  },
+  "ja|chart|letter_7|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "Hddd⏎dddd",
+     "output": "圧痛なし、腸蠕動音正常。Hddd⏎ddddバイタルサイン安定、意識"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Hddd⏎dddd",
+     "output": "り、黒色便や吐血はない。Hddd⏎dddd食後内服とし経過観察とす"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Eddd⏎dddd",
+     "output": "なし、末梢動脈触知良好。Eddd⏎dddd時に食後の胃部不快感あり"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|chart|bare_7|in": {
+   "planted": 18,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "ddddddd",
+     "output": "ddddddd建議規律運動，每週至少一"
+    },
+    {
+     "position": "middle",
+     "value_shape": "ddddddd",
+     "output": "飲食並減少含糖飲料攝取。ddddddd與病人討論飲食控制，建議"
+    },
+    {
+     "position": "end",
+     "value_shape": "ddddddd",
+     "output": "衛教服藥時間與注意事項。ddddddd"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "ddddddd",
+     "output": "並減少含糖飲料攝取。聯絡ddddddd已確認回顧近三個月門診紀"
+    },
+    {
+     "position": "start",
+     "value_shape": "ddddddd",
+     "output": "ddddddd病人主訴近期睡眠品質尚可"
+    }
+   ],
+   "per_thousand": 666.7
+  },
+  "zh-TW|chart|bare_7|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "ddd⏎dddd",
+     "output": "衛教服藥時間與注意事項。ddd⏎dddd血壓自我監測紀錄已檢視，"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd⏎dddd",
+     "output": "規律服藥並定期回診追蹤。ddd⏎dddd生命徵象穩定，意識清楚。"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "ddd⏎dddd",
+     "output": "測紀錄已檢視，大致穩定。ddd⏎dddd社會史：已婚，與配偶同住"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|chart|letter_7|in": {
+   "planted": 18,
+   "leaked": 12,
+   "partly": 0,
+   "tripwire_missed": 12,
+   "positions": {
+    "start": 3,
+    "middle": 3,
+    "end": 3,
+    "cjk_adjacent": 3
+   },
+   "examples": [
+    {
+     "position": "start",
+     "value_shape": "Bddddddd",
+     "output": "Bddddddd病人主訴偶有胃部不適，進"
+    },
+    {
+     "position": "middle",
+     "value_shape": "Cddddddd",
+     "output": "喝水，每日至少兩千毫升。Cddddddd社會史：已婚，與配偶同住"
+    },
+    {
+     "position": "end",
+     "value_shape": "Eddddddd",
+     "output": "柔軟，無壓痛，腸音正常。Eddddddd"
+    },
+    {
+     "position": "cjk_adjacent",
+     "value_shape": "Fddddddd",
+     "output": "，每日至少兩千毫升。聯絡Fddddddd已確認病人無發燒、畏寒或"
+    },
+    {
+     "position": "start",
+     "value_shape": "Gddddddd",
+     "output": "Gddddddd身體診察：心音規則，無雜"
+    }
+   ],
+   "per_thousand": 666.7
+  },
+  "zh-TW|chart|letter_7|line_break": {
+   "planted": 3,
+   "leaked": 3,
+   "partly": 0,
+   "tripwire_missed": 3,
+   "positions": {
+    "line_break": 3
+   },
+   "examples": [
+    {
+     "position": "line_break",
+     "value_shape": "Bddd⏎dddd",
+     "output": "喝水，每日至少兩千毫升。Bddd⏎dddd已向病人及家屬說明檢驗結"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Gddd⏎dddd",
+     "output": "睡眠品質尚可，食慾正常。Gddd⏎dddd與病人討論飲食控制，建議"
+    },
+    {
+     "position": "line_break",
+     "value_shape": "Bddd⏎dddd",
+     "output": "無雜音，雙側呼吸音清晰。Bddd⏎dddd社會史：已婚，與配偶同住"
+    }
+   ],
+   "per_thousand": 1000.0
+  }
+ },
+ "over_masking": {
+  "en|accession_10": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|age": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|code": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|date_compact8": {
+   "planted": 60,
+   "altered": 60,
+   "tripwire_hits": 60,
+   "examples": [
+    {
+     "input": "dddddddd",
+     "output": "○○○○○○○○"
+    },
+    {
+     "input": "dddddddd",
+     "output": "○○○○○○○○"
+    },
+    {
+     "input": "dddddddd",
+     "output": "○○○○○○○○"
+    },
+    {
+     "input": "dddddddd",
+     "output": "○○○○○○○○"
+    },
+    {
+     "input": "dddddddd",
+     "output": "○○○○○○○○"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "en|date_iso": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|date_mdy": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|date_month_name": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|date_slash": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|dose": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|duration": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|gene_variant": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|lab_value": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|score": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|staging": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "en|trial_id": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|accession_10": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|age": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|code": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|date_compact8": {
+   "planted": 60,
+   "altered": 60,
+   "tripwire_hits": 60,
+   "examples": [
+    {
+     "input": "dddddddd",
+     "output": "○○○○○○○○"
+    },
+    {
+     "input": "dddddddd",
+     "output": "○○○○○○○○"
+    },
+    {
+     "input": "dddddddd",
+     "output": "○○○○○○○○"
+    },
+    {
+     "input": "dddddddd",
+     "output": "○○○○○○○○"
+    },
+    {
+     "input": "dddddddd",
+     "output": "○○○○○○○○"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "ja|date_era": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|date_iso": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|date_nen": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|date_slash": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|dose": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|duration": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|gene_variant": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|lab_value": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|score": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|staging": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "ja|trial_id": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|accession_10": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|age": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|code": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|date_compact8": {
+   "planted": 60,
+   "altered": 60,
+   "tripwire_hits": 60,
+   "examples": [
+    {
+     "input": "dddddddd",
+     "output": "○○○○○○○○"
+    },
+    {
+     "input": "dddddddd",
+     "output": "○○○○○○○○"
+    },
+    {
+     "input": "dddddddd",
+     "output": "○○○○○○○○"
+    },
+    {
+     "input": "dddddddd",
+     "output": "○○○○○○○○"
+    },
+    {
+     "input": "dddddddd",
+     "output": "○○○○○○○○"
+    }
+   ],
+   "per_thousand": 1000.0
+  },
+  "zh-TW|date_iso": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|date_nen": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|date_roc": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|date_slash": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|dose": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|duration": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|gene_variant": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|lab_value": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|score": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|staging": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  },
+  "zh-TW|trial_id": {
+   "planted": 60,
+   "altered": 0,
+   "tripwire_hits": 0,
+   "examples": [],
+   "per_thousand": 0.0
+  }
+ },
+ "seconds": 21.8
+}

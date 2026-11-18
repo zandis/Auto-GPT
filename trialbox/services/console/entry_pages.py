@@ -37,7 +37,7 @@ from console.auth import Session, User
 from console.backend import Problem, Unavailable, service_and_status
 from console.data_pages import err_of
 from console.home import Helpers
-from console.i18n import translate
+from console.i18n import lookup, translate
 from console.studies import known_study
 from console.timefmt import local_today, site_zone
 
@@ -84,9 +84,10 @@ def form_view(q: dict[str, Any]) -> dict[str, Any]:
 def why(lang: str, p: dict[str, str], labels: dict[str, str]) -> str:
     """One refusal reason in the reader's language."""
     key = f"dc.why.{p.get('code', '')}"
-    text = translate(lang, key, label=labels.get(p.get("field", ""), p.get("field", "")), min=p.get("min", ""),
+    if lookup(lang, key) is None:  # a code with no sentence of its own
+        return translate(lang, "dc.why.other")
+    return translate(lang, key, label=labels.get(p.get("field", ""), p.get("field", "")), min=p.get("min", ""),
                      max=p.get("max", ""), owner=p.get("owner", ""), places=p.get("places", ""))  # fmt: skip
-    return translate(lang, "dc.why.other") if text == key else text
 
 
 def register(app: FastAPI, h: Helpers) -> None:
