@@ -60,7 +60,7 @@
 <fieldset><legend>{{ t('sstate.change') }}</legend>
 <div><label for="state-to">{{ t('sstate.move') }}</label>
 <select id="state-to" name="state">{% for s in moves %}<option value="{{ s }}">{{ t('sstate.' + s) }}</option>{% endfor %}</select></div>
-<div><label for="state-reason">{{ t('sstate.reason') }}</label>
+<div><label for="state-reason">{{ t('sstate.reason') }} <span class="hint" data-testid="state-reason-required">({{ t('sstate.reason_required') }})</span></label>
 <input id="state-reason" name="reason" maxlength="200" aria-describedby="state-reason-help">
 <p class="hint" id="state-reason-help">{{ t('sstate.reason_help') }}</p></div>
 {% if 'closed' in moves %}{# D-779 (T-305c): read on a close only #}<div><label for="state-keep-years">{{ t('sstate.keep_years') }}</label>
