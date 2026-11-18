@@ -25,8 +25,8 @@ EN: dict[str, str] = {
     "people.view.records": "Every record",
     "people.week_all": "This week, all studies",
     "people.working": "A working view: it can show people before and after consent.",
-    "people.side.candidates": "Everyone in this study before consent. Each person is here or under Participants, never both.",
-    "people.side.participants": "Everyone in this study who has consented. Each person is here or under Candidates, never both.",
+    "people.side.candidates": "Every person of this study with a recorded step before consent (a mark, a contact, a screening-log row, a record). Each is here or under Participants, never both. The patients a screening run found and nobody has acted on yet are under This week.",
+    "people.side.participants": "Every person of this study who has consented. Each is here or under Candidates, never both.",
 }
 
 JA: dict[str, str] = {
@@ -49,7 +49,7 @@ JA: dict[str, str] = {
     "people.view.records": "全記録",
     "people.week_all": "今週（全試験）",
     "people.working": "作業用の表示：同意の前と後の人が含まれることがあります。",
-    "people.side.candidates": "この試験で同意前の全員です。一人ひとりはここか「被験者」のどちらか一方にだけ載ります。",
+    "people.side.candidates": "この試験で、同意前の段階が記録された全員です（マーク、連絡、スクリーニングログ、記録）。一人ひとりはここか「被験者」のどちらか一方にだけ載ります。スクリーニングで見つかり、まだ誰も対応していない患者は「今週」にあります。",
     "people.side.participants": "この試験で同意した全員です。一人ひとりはここか「候補者」のどちらか一方にだけ載ります。",
 }
 
@@ -73,6 +73,6 @@ ZH: dict[str, str] = {
     "people.view.records": "所有紀錄",
     "people.week_all": "本週（所有試驗）",
     "people.working": "工作檢視：可能包含同意前與同意後的人。",
-    "people.side.candidates": "本試驗所有尚未同意的人；每個人只會出現在這裡或「受試者」其中之一。",
+    "people.side.candidates": "本試驗所有已記錄同意前步驟的人（標記、聯絡、篩選紀錄或紀錄）；每個人只會出現在這裡或「受試者」其中之一。篩選找到但尚無人處理的病人在「本週」。",
     "people.side.participants": "本試驗所有已同意的人；每個人只會出現在這裡或「候選者」其中之一。",
 }
