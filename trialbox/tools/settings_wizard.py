@@ -236,6 +236,23 @@ COUNTRY_KEYS = {
 }
 NO_DEFAULT = "no default for this country: please answer"
 NO_RULES_DAYS = ("outputs_days", "attachments_days")  # asked only where the country has no retention rules here
+RULE_DAYS = ("logs_days", "mail_log_days", *NO_RULES_DAYS)
+
+
+def _no_rules(cd: site_country.CountryDefaults, out: dict[str, Any]) -> bool:
+    return cd is not site_country.LEGACY and not cd.retention_rules and not out.get("retention_rules")
+
+
+def _required(key: str, cd: site_country.CountryDefaults, out: dict[str, Any]) -> bool:
+    """10K-1: a question with no default for this site, so an empty answer is asked again: a country value the table
+    does not hold, the SS-MIX2 storage's root folder, and the retention days where TrialBox has no rules."""
+    if cd is site_country.LEGACY:
+        return False
+    if key in COUNTRY_KEYS and key != "retention_rules":
+        return not getattr(cd, COUNTRY_KEYS[key])
+    if key == "data_source_host_dir":
+        return str(out.get("data_source_type")) == "ssmix2"
+    return key in RULE_DAYS and _no_rules(cd, out)
 
 
 def _asked(key: str, cd: site_country.CountryDefaults, out: dict[str, Any]) -> bool:
@@ -245,7 +262,7 @@ def _asked(key: str, cd: site_country.CountryDefaults, out: dict[str, Any]) -> b
     if key == "ssmix2_order_numbers":
         return str(out.get("data_source_type")) == "ssmix2"
     if key in NO_RULES_DAYS:
-        return cd is not site_country.LEGACY and not cd.retention_rules and not out.get("retention_rules")
+        return _no_rules(cd, out)
     return True
 
 
@@ -275,12 +292,22 @@ def ask(answers: dict[str, Any], prompt: Callable[[str], str] = input) -> dict[s
         d = default if default is not None else base.get(key, "")
         if key in COUNTRY_KEYS and cd is not site_country.LEGACY:
             d = getattr(cd, COUNTRY_KEYS[key]) or ""
+        required = _required(key, cd, out)
+        if required:  # review of #1088, items 3 and 5: no default; Enter is not an answer here
+            d = ""
+        if key in RULE_DAYS and required:
+            question = question.split(" (")[0]  # no rules to take a default from: the question does not name them
         shown = ", ".join(d) if isinstance(d, list) else d
         if isinstance(d, dict):
             shown = ", ".join(f"{k}=…" for k in d)
-        if key in COUNTRY_KEYS and not d and cd is not site_country.LEGACY and key != "retention_rules":
+        if required:
             shown = NO_DEFAULT
-        reply = prompt(f"{question} [{shown}]: ").strip()
+        for _ in range(5):
+            reply = prompt(f"{question} [{shown}]: ").strip()
+            if reply or not required:
+                break
+        else:
+            raise WizardError(f"{key}: {NO_DEFAULT}")
         out[key] = reply if reply else d
     out.update(answers)
     return out
@@ -475,9 +502,9 @@ def build(
         elif order:
             ssmix2_env["TB_SSMIX2_ORDER_NUMBERS"] = order
         if not legacy and not str(a.get("data_source_host_dir") or "").strip():
-            warnings.append(
-                "ssmix2 without data_source_host_dir: answer the SS-MIX2 storage's root folder on this host (read "
-                "only); ./site/feed is used until then"
+            errors.append(
+                "data_source_host_dir is required for ssmix2: the SS-MIX2 storage's root folder on this host (mounted "
+                "read-only)"
             )
     else:
         data_source["path"] = str(get("data_source_path"))

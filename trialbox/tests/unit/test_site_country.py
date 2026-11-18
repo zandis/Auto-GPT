@@ -44,14 +44,14 @@ def _build(**over: Any) -> tuple[dict[str, Any], dict[str, str], list[str]]:
 
 # ------------------------------------------------------------------------------------- the table, one country each
 def test_japan_gives_japanese_reports_japans_zone_and_retention_and_an_ssmix2_source() -> None:
-    s, env, _ = _build(country="jp")
+    s, env, _ = _build(country="jp", data_source_host_dir="/mnt/ssmix2")
     assert s["site"]["locale"] == "ja" and s["site"]["tz"] == "Asia/Tokyo" and env["TB_TZ"] == "Asia/Tokyo"
     assert s["retention"] == DEFAULTS["jp"] and s["retention"]["mail_log_days"] == 5 * 365
     assert s["data_source"]["type"] == "ssmix2"
     assert s["data_source"]["mapping"] == "mapping/jp_core/ssmix2_site.yaml"
     assert s["twpas"] == {"enabled": False, "dry_run": True}
     with pytest.raises(settings_wizard.WizardError, match="TWPAS is Taiwan's"):
-        _build(country="jp", twpas_enabled="yes", twpas_org_id="0123456789")
+        _build(country="jp", data_source_host_dir="/mnt/ssmix2", twpas_enabled="yes", twpas_org_id="0123456789")
 
 
 def test_taiwan_gives_the_defaults_the_wizard_always_had() -> None:
@@ -134,7 +134,7 @@ def _interactive(country: str, replies: dict[str, str] | None = None) -> tuple[d
 
 
 def test_the_country_is_the_first_question_and_the_defaults_shown_follow_it() -> None:
-    jp, asked = _interactive("jp", {"HIS source type": ""})
+    jp, asked = _interactive("jp", {"HIS source type": "", "Feed folder": "/mnt/ssmix2"})
     assert asked[0].startswith("Country")
     assert (jp["locale"], jp["tz"], jp["data_source_type"], jp["mapping"], jp["retention_rules"]) == (
         "ja", "Asia/Tokyo", "ssmix2", "mapping/jp_core/ssmix2_site.yaml", "jp"
@@ -145,8 +145,17 @@ def test_the_country_is_the_first_question_and_the_defaults_shown_follow_it() ->
     tw, asked = _interactive("tw")
     assert (tw["locale"], tw["tz"], tw["data_source_type"]) == ("zh-TW", "Asia/Taipei", "csv")
     assert any("TWPAS" in q for q in asked) and not any(q.startswith("SS-MIX2") for q in asked)
-    other, asked = _interactive("other")
-    assert other["locale"] == "" and other["tz"] == "" and other["mapping"] == ""
+    other, asked = _interactive(
+        "other",
+        {
+            "Time zone": "Europe/Paris",
+            "Report language": "en",
+            "HIS source type": "csv",
+            "Mapping YAML": "fr_site.yaml",
+            "Days to keep": "400",
+        },
+    )
+    assert (other["locale"], other["tz"], other["mapping"]) == ("en", "Europe/Paris", "fr_site.yaml")
     assert any("[no default for this country: please answer]" in q for q in asked if q.startswith("Report"))
     assert any(q.startswith("Days to keep job outputs") for q in asked)  # no rules here: the days are asked
 
@@ -183,13 +192,13 @@ def test_ssmix2_chosen_reaches_the_written_settings_and_the_reader_reads_the_fol
 
 def test_ssmix2_answers_get_the_checks_the_other_sources_get() -> None:
     with pytest.raises(settings_wizard.WizardError, match="ssmix2_order_numbers must be unique or per_day"):
-        _build(country="jp", ssmix2_order_numbers="sometimes")
+        _build(country="jp", data_source_host_dir="/mnt/ssmix2", ssmix2_order_numbers="sometimes")
     with pytest.raises(settings_wizard.WizardError, match="data_source_type must be one of"):
-        _build(country="jp", data_source_type="hl7v2")
+        _build(country="jp", data_source_host_dir="/mnt/ssmix2", data_source_type="hl7v2")
     with pytest.raises(settings_wizard.WizardError, match="differs from the mapping's tz"):
-        _build(country="jp", tz="Asia/Taipei")  # the Japanese mapping states Japan's zone
-    _, _, warnings = _build(country="jp")
-    assert any("SS-MIX2 storage's root folder" in w for w in warnings)
+        _build(
+            country="jp", data_source_host_dir="/mnt/ssmix2", tz="Asia/Taipei"
+        )  # the Japanese mapping states Japan's zone
 
 
 # -------------------------------------------------------------------------------- old answers files and boxes
@@ -294,6 +303,39 @@ def test_every_planned_box_mapping_loads(country: str, source: str, tmp_path: Pa
     if a is None:  # a source the country does not offer: refused, so never planned
         assert source == "ssmix2" and {p.field for p in problems} == {"source"}, problems
         return
-    p, s, _ = _box(tmp_path, **over)
+    _p, s, _ = _box(tmp_path, **over)
     path = find_mapping(s["data_source"]["mapping"], [tmp_path / "site" / "mapping"])
     Mapping.load(path)
+
+
+def test_enter_everywhere_in_japan_never_writes_ssmix2_over_the_empty_feed_folder() -> None:
+    """Review of #1088, item 3: the SS-MIX2 storage's root folder has no default; Enter is not an answer there, and
+    an answers file without it is refused (not a warning over ./site/feed)."""
+    with pytest.raises(settings_wizard.WizardError, match="data_source_host_dir"):
+        _interactive("jp")
+    a, asked = _interactive("jp", {"Feed folder": "/mnt/ssmix2"})
+    assert a["data_source_type"] == "ssmix2" and a["data_source_host_dir"] == "/mnt/ssmix2"
+    feed = next(q for q in asked if q.startswith("Feed folder"))
+    assert "./site/feed" not in feed
+    with pytest.raises(settings_wizard.WizardError, match="data_source_host_dir is required"):
+        _build(country="jp")
+
+
+def test_a_question_with_no_default_is_refused_where_it_is_asked() -> None:
+    """Review item 5: for the United States and another country an empty answer is refused at its question (the
+    wizard asks again, then stops naming it), and the days questions do not mention rules that do not exist."""
+    with pytest.raises(settings_wizard.WizardError, match="^tz:"):
+        _interactive("us")
+    replies = {"Time zone": "America/Chicago", "HIS source type": "csv", "Mapping YAML": "us_site.yaml"}
+    with pytest.raises(settings_wizard.WizardError, match="^logs_days:"):
+        _interactive("us", replies)
+    a, asked = _interactive("us", replies | {"Days to keep": "400"})
+    days = [q for q in asked if q.startswith("Days to keep")]
+    assert len(days) == 4 and not any("rules" in q for q in days)
+    assert {k: a[k] for k in OVERRIDABLE} == dict.fromkeys(OVERRIDABLE, "400")
+    with pytest.raises(settings_wizard.WizardError, match="^locale:"):
+        _interactive("other", {"Time zone": "Europe/Paris"})
+    with pytest.raises(settings_wizard.WizardError, match="must be 1 to 36500 days"):
+        _build(
+            country="us", tz="America/Chicago", data_source_type="csv", mapping="x.yaml", **DAYS | {"logs_days": "0"}
+        )
