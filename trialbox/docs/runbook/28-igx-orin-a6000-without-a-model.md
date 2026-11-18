@@ -27,20 +27,24 @@ models need about 100 GB free and more memory than this machine has (review 24, 
 | 3 | Base packages | `sudo apt update && sudo apt install -y git make curl python3-venv python3-yaml` | no "E:" line | send the "E:" line |
 | 4 | The version | `git clone https://github.com/zandis/Auto-GPT.git`; `cd Auto-GPT/trialbox`; `git checkout <the tag we send>` | "HEAD is now at …" | – |
 | 5 | Confirm the card's profile | `sh deploy/gpu_profile.sh` | `arm64-dgpu` (an older version prints `gb10`) | anything else: send it; either way do not use GPU mode |
-| 6 | Build the database image (the start forgets it on a machine without Java build tools) | `docker build -f deploy/docker/db.Dockerfile -t trialbox-postgres:16-1 deploy/docker` | after 5 to 15 minutes, a line naming `trialbox-postgres:16-1` | send the last 30 lines |
-| 7 | Start | `deploy/poc.sh` | "fetching fonts and JVM build inputs in a builder container"; image builds (perhaps 20 to 40 minutes on this processor); "starting the stack"; **the admin password, shown once: write it down**; "ingesting synthetic site A (600 patients)"; the addresses | copy the `poc:` line and the output of `deploy/poc.sh status` to us; running step 7 again is safe |
-| 8 | Sign in | browser on this machine: `http://127.0.0.1:8090`, user `admin`; set up the second factor with a phone authenticator | the console's overview | lost password: `docker compose --project-directory deploy -f deploy/docker-compose.yml -f deploy/docker-compose.test.yml -f deploy/docker-compose.poc.yml --profile stub --profile test exec console python -m console.cli reset-password admin` prints a new one, shown once (not `deploy/poc.sh reset`: that deletes all the data) |
-| 9 | Feasibility | console, "Test mailbox": subject `FEAS GZQO` | web mail `http://127.0.0.1:8025`: a reply with a PDF and an XLSX | no reply in 10 minutes: send `deploy/poc.sh status` |
-| 10 | A screened list | "Test mailbox": `SCREEN GZQO version=1.0.0` | an encrypted workbook and a summary PDF; the password in a second mail | send the reply's text |
-| 11 | Memory, after an idle hour | `docker stats --no-stream > ~/tb-stats.txt`; `free -g >> ~/tb-stats.txt` | a table of the services and their memory | send the file (it holds no password and no patient) |
-| 12 | Stop | `deploy/poc.sh down` | the containers stop; data kept | – |
+| 6 | Start (it builds every image it needs, the database's too, the first time) | `deploy/poc.sh` | "fetching fonts and JVM build inputs in a builder container"; image builds; "building the database image trialbox-postgres:16-1" (all builds together perhaps 30 to 60 minutes on this processor); "starting the stack"; **the admin password, shown once: write it down**; "ingesting synthetic site A (600 patients)"; the addresses | copy the `poc:` line and the output of `deploy/poc.sh status` to us; running step 6 again is safe (an image already built is not built again). If the build fails, see below the table |
+| 7 | Sign in | browser on this machine: `http://127.0.0.1:8090`, user `admin`; set up the second factor with a phone authenticator | the console's overview | lost password: `docker compose --project-directory deploy -f deploy/docker-compose.yml -f deploy/docker-compose.test.yml -f deploy/docker-compose.poc.yml --profile stub --profile test exec console python -m console.cli reset-password admin` prints a new one, shown once (not `deploy/poc.sh reset`: that deletes all the data) |
+| 8 | Feasibility | console, "Test mailbox": subject `FEAS GZQO` | web mail `http://127.0.0.1:8025`: a reply with a PDF and an XLSX | no reply in 10 minutes: send `deploy/poc.sh status` |
+| 9 | A screened list | "Test mailbox": `SCREEN GZQO version=1.0.0` | an encrypted workbook and a summary PDF; the password in a second mail | send the reply's text |
+| 10 | Memory, after an idle hour | `docker stats --no-stream > ~/tb-stats.txt`; `free -g >> ~/tb-stats.txt` | a table of the services and their memory | send the file (it holds no password and no patient) |
+| 11 | Stop | `deploy/poc.sh down` | the containers stop; data kept | – |
+
+**If the build fails** (step 6 stops with `poc: the database image trialbox-postgres:16-1 did not build`, or another
+build's error): it is almost always a download that failed. Check the internet (the last command of step 0), run
+`deploy/poc.sh` again (nothing was started, and what was built is kept), and if it fails a second time send us the
+`poc:` line and the 30 lines above it.
 
 ## Every day after
 
 Start: `deploy/poc.sh` (it keeps the passwords and the data). Stop: `deploy/poc.sh down`. State and addresses:
 `deploy/poc.sh status`. Start again from nothing, deleting all data: `deploy/poc.sh reset`.
 
-The builder container of step 7 runs as root and leaves root-owned files under `.cache` in the checkout. They do no
+The builder container of step 6 runs as root and leaves root-owned files under `.cache` in the checkout. They do no
 harm; to delete the checkout later, use `sudo rm -rf Auto-GPT`.
 
 ## Only when we ask: the engine probe (no model)
