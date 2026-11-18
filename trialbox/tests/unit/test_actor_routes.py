@@ -181,7 +181,7 @@ def test_every_console_call_that_changes_the_registry_passes_a_signer() -> None:
             if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
                     and n.func.attr in ("registry_update", "registry_promote")):  # fmt: skip
                 calls.append((f.name, n.lineno, len(n.args) + len(n.keywords)))
-    assert len(calls) >= 4, calls  # the registry page's two, a contact outcome and its undo
+    assert len(calls) >= 3, calls  # the registry page's promote, a contact outcome and its undo (D-1221: no hand edit)
     assert [c for c in calls if c[2] < 3] == []
 
 
