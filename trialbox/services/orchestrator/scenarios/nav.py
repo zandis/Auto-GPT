@@ -370,7 +370,7 @@ def _summary_pdf(rs: Ruleset, meta: ReportMeta, depts: list[str], counts: dict[s
         common.Paragraph(f"NHI navigation summary — {escape(rs.manifest.title or rs.id)}", h1),
         common.Paragraph(
             f"Departments {escape(', '.join(depts))}; appointments in the next {window} days; "
-            f"run {meta.run_date}, snapshot {meta.snapshot}.",
+            f"run {meta.day(meta.run_date)}, snapshot {meta.snapshot}.",
             body,
         ),
     ]

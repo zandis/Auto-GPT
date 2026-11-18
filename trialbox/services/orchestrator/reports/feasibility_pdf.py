@@ -171,7 +171,7 @@ def render(
                 [L("pdf.trial"), L("pdf.trial.value", title=m.title or m.id, rs=m.id, ver=m.version)],
                 [L("pdf.sponsor"), m.sponsor or "—"],
                 [L("pdf.site"), f"{meta.site_name} ({meta.site_id})"],
-                [L("pdf.run_date"), meta.run_date],
+                [L("pdf.run_date"), meta.day(meta.run_date)],
                 [L("pdf.snapshot"), meta.snapshot],
                 [L("pdf.population"), result.population],
                 [L("pdf.lookback"), L("pdf.lookback.value", months=result.lookback_months)],

@@ -10,6 +10,7 @@ from __future__ import annotations
 from html import escape
 from typing import Any
 
+from tb_common.dates import printed
 from tb_common.reasons import label as reason_label
 from tb_common.wording import statement
 
@@ -143,13 +144,13 @@ footer{margin-top:18px;color:#4a545e;font-size:12px;border-top:1px solid #d6dadf
 """
 
 
-def _row(r: dict[str, Any], lang: str) -> str:
+def _row(r: dict[str, Any], lang: str, dates: str = "western") -> str:
     verdict = str(r["verdict"])
     ev = ""
     if r.get("quote"):
         ev = f"<blockquote>{escape(str(r['quote']))}</blockquote>"
         if r.get("quote_date"):
-            ev += f'<div class="d">{escape(str(r["quote_date"]))}</div>'
+            ev += f'<div class="d">{escape(printed(r["quote_date"], dates))}</div>'
     elif r.get("refs"):
         ev = f'<div class="d">{escape(", ".join(str(x) for x in r["refs"]))}</div>'
     if r.get("reason") and verdict in ("unknown",) and reason_label(str(r["reason"]), lang):
@@ -165,7 +166,8 @@ def _row(r: dict[str, Any], lang: str) -> str:
     )
 
 
-def sheet(rec: dict[str, Any]) -> bytes:
+def sheet(rec: dict[str, Any], dates: str = "western") -> bytes:
+    """The printable CASE sheet; ``dates``: how it writes a date (10C-13, ``tb_common.dates.printed``)."""
     lang = str(rec.get("lang") or "en")
     m = META[lang]
     subj = rec["subject"]
@@ -183,18 +185,19 @@ def sheet(rec: dict[str, Any]) -> bytes:
     else:
         judge_line = m["nojudge"]
     charts = "; ".join(
-        f"{escape(str(c['filename']))} ({c['excerpts']} excerpts, {c['earliest']} – {c['latest']}, sha256 "
+        f"{escape(str(c['filename']))} ({c['excerpts']} excerpts, "
+        f"{printed(c['earliest'], dates)} – {printed(c['latest'], dates)}, sha256 "
         f"{str(c['sha256'])[:12]}…)"
         for c in rec["charts"]
     )
-    rows = "".join(_row(r, lang) for r in rec["criteria"])
+    rows = "".join(_row(r, lang, dates) for r in rec["criteria"])
     head = HEADLINE[lang].format(**rec["counts"])
     parts = [
         f'<!doctype html><html lang="{escape(lang)}"><head><meta charset="utf-8">'
         f"<title>{escape(TITLE[lang].format(ruleset=rec['ruleset'], version=rec['version']))}</title>"
         f"<style>{_CSS}</style></head><body>",
         f"<h1>{escape(TITLE[lang].format(ruleset=rec['ruleset'], version=rec['version']))}</h1>",
-        f'<p class="meta">{escape(m["date"])}: {escape(str(rec["index_date"]))} · {escape(m["by"])}: '
+        f'<p class="meta">{escape(m["date"])}: {escape(printed(rec["index_date"], dates))} · {escape(m["by"])}: '
         f"{escape(str(rec['requested_by']))}</p>",
         f'<p class="notice" role="note" data-testid="notice"><strong>{escape(NOTICE[lang])}</strong></p>',
         f'<p class="head" data-testid="headline">{escape(head)}</p>',

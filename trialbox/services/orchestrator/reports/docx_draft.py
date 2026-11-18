@@ -49,22 +49,26 @@ def render(
             return RichText(MISSING, highlight="yellow", bold=True)
         return RichText(str(v))
 
+    def day(v: Any) -> Any:
+        """10C-13: a date field of the printed form in the site's printed style (ISO as before for western)."""
+        return val(v if v in (None, "", MISSING) else meta.day(v))
+
     def rows(items: list[dict[str, str]]) -> list[dict[str, Any]]:
         return [{k: val(v) for k, v in it.items()} for it in items]
 
     ctx = {
         "apply_type": val(apply_type),
-        "run_date": val(meta.run_date),
+        "run_date": day(meta.run_date),
         "site_name": val(meta.site_name),
         "mrn": val(mrn),
         "sex": val(facts.get("sex")),
-        "birth_date": val(facts.get("birth_date")),
+        "birth_date": day(facts.get("birth_date")),
         "age": val(facts.get("age")),
         "physician": val(physician),
         "department": val(department),
         "diagnosis": val(facts.get("diagnosis")),
         "diagnosis_code": val(facts.get("diagnosis_code")),
-        "diagnosis_date": val(facts.get("diagnosis_date")),
+        "diagnosis_date": day(facts.get("diagnosis_date")),
         "dmards": rows(facts.dmards) or [{k: val(None) for k in ("name", "dose", "start", "end", "days")}],
         "prednisolone": val(facts.get("prednisolone")),
         "das28": rows(facts.das28),

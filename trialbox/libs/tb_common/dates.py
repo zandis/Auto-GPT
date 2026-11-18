@@ -180,6 +180,117 @@ def read(text: str | None, lang: str | None = None, era: bool = True) -> tuple[d
     return None, (CHECK_DATES if _fold(text or "") else None)
 
 
+# ------------------------------------------------------------------------------------------------ printed dates
+# 10C-13 (JP-14): how a PRINTED letter, form or report writes a date. ``western`` is the ISO date every print carried
+# before (byte for byte); ``era`` is 令和8年11月18日; ``both`` is 2026年（令和8年）11月18日. The eras are the table
+# :data:`ERAS` above (a new era is one row there, and its predecessor's last day). Only prints: stored values, machine
+# exports, audit records and the screens' sortable dates stay ISO.
+PRINTED_STYLES = ("western", "era", "both")
+# 10C-15 (JP-16): what "a year" is in a yearly report: the calendar year, or the fiscal year 年度 (1 April to 31 March,
+# named by the year it starts in: 年度2026 is 2026-04-01 to 2027-03-31)
+YEAR_BASES = ("calendar", "fiscal")
+FISCAL_START_MONTH = 4
+# the defaults by country (``tb_common.derived.country_of``); a country not listed keeps what every site had
+PRINTED_BY_COUNTRY = {"JP": "both"}
+YEAR_BY_COUNTRY = {"JP": "fiscal"}
+
+
+def era_of(d: date) -> tuple[str, int] | None:
+    """``(era name, year of the era)`` for ``d`` (``("令和", 1)`` for 2019-05-01); None before the first era."""
+    best: tuple[str, int, date] | None = None
+    for name, (offset, first, _last) in ERAS.items():
+        if d >= first and (best is None or first > best[2]):
+            best = (name, d.year - offset, first)
+    return None if best is None else (best[0], best[1])
+
+
+def era_year(d: date) -> str | None:
+    """``令和8年``, ``令和元年`` for the first year; None before the first era."""
+    e = era_of(d)
+    return None if e is None else f"{e[0]}{'元' if e[1] == 1 else e[1]}年"
+
+
+def _as_date(value: object) -> date | None:
+    if isinstance(value, date):
+        return value if type(value) is date else date(value.year, value.month, value.day)
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def printed(value: object, style: str | None) -> str:
+    """A date as a printed page writes it (``style`` one of :data:`PRINTED_STYLES`; anything else is ``western``).
+    ``value`` is a date or an ISO string (a time after the date is dropped by the era forms only). ``western``, an
+    unreadable value or a day before the first era returns the value exactly as before: ``str(value)`` or its ISO."""
+    d = _as_date(value)
+    plain = value.isoformat() if isinstance(value, date) else str(value)
+    if style not in ("era", "both") or d is None:
+        return plain
+    ey = era_year(d)
+    if ey is None:
+        return plain
+    if style == "era":
+        return f"{ey}{d.month}月{d.day}日"
+    return f"{d.year}年（{ey}）{d.month}月{d.day}日"
+
+
+def year_window(year: int, basis: str | None) -> tuple[date, date]:
+    """The first day and the day after the last of the year ``year`` on ``basis`` (``fiscal``: 年度)."""
+    if basis == "fiscal":
+        return date(year, FISCAL_START_MONTH, 1), date(year + 1, FISCAL_START_MONTH, 1)
+    return date(year, 1, 1), date(year + 1, 1, 1)
+
+
+def year_of(d: date, basis: str | None) -> int:
+    """The year ``d`` counts in: its calendar year, or the 年度 it falls in (2027-03-31 is 年度2026)."""
+    if basis == "fiscal" and d.month < FISCAL_START_MONTH:
+        return d.year - 1
+    return d.year
+
+
+def in_year(stamp: object, year: int, basis: str | None, tz: object = None) -> bool:
+    """Whether a stored stamp counts in ``year``. ``calendar``: the stamp's own first four characters, exactly as
+    every yearly count read them before. ``fiscal``: the stamp's day in the site's zone ``tz`` (a ``ZoneInfo``; an
+    aware stamp is moved there, a naive one is UTC as the stores write them, a plain date is that day)."""
+    text = stamp.isoformat() if isinstance(stamp, date) else str(stamp or "")
+    if basis != "fiscal":
+        return text[:4] == str(year)
+    if len(text) <= 10:
+        d = _as_date(text)
+    else:
+        from datetime import UTC, datetime
+
+        try:
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            d = _as_date(text)
+        else:
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=UTC)
+            d = dt.astimezone(tz).date() if tz is not None else dt.date()  # type: ignore[arg-type]
+    if d is None:
+        return False
+    first, after = year_window(year, basis)
+    return first <= d < after
+
+
+def site_dates(site: object) -> tuple[str, str]:
+    """``(printed style, year basis)`` for a site's settings (``site.printed_dates``, ``site.year_basis``); an unset
+    one follows the site's country (``country_of(tz, locale)``): Japan both and 年度, others western and calendar."""
+    from tb_common.derived import country_of
+
+    style = getattr(site, "printed_dates", None)
+    basis = getattr(site, "year_basis", None)
+    if style in PRINTED_STYLES and basis in YEAR_BASES:
+        return str(style), str(basis)
+    country = country_of(getattr(site, "tz", None), getattr(site, "locale", None)) or ""
+    return (
+        str(style) if style in PRINTED_STYLES else PRINTED_BY_COUNTRY.get(country, "western"),
+        str(basis) if basis in YEAR_BASES else YEAR_BY_COUNTRY.get(country, "calendar"),
+    )
+
+
 __all__ = [
     "CHART_SPAN",
     "CHECK_DATES",
@@ -188,11 +299,20 @@ __all__ = [
     "ERA_ABBR",
     "MINGUO_OFFSET",
     "PHI_SPAN",
+    "PRINTED_STYLES",
+    "YEAR_BASES",
     "era_date",
+    "era_of",
+    "era_year",
     "find",
+    "in_year",
     "minguo_date",
     "parse",
+    "printed",
     "read",
     "roc_nian",
+    "site_dates",
+    "year_of",
+    "year_window",
     "ymd",
 ]
