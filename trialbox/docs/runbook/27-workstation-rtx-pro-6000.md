@@ -22,7 +22,7 @@ version tag we send you; half a day.
 | 7 | GPU in containers | install the NVIDIA Container Toolkit (NVIDIA's apt steps); `sudo nvidia-ctk runtime configure --runtime=docker`; `sudo systemctl restart docker`; `docker run --rm --gpus all ubuntu:24.04 nvidia-smi` | the card's table | "could not select device driver": repeat this step |
 | 8 | The version | `git clone https://github.com/zandis/Auto-GPT.git`; `cd Auto-GPT/trialbox`; `git checkout <tag>` | "HEAD is now at …" | – |
 | 9 | Card and tier check | `sh deploy/gpu_profile.sh`; `python3 tools/tiers.py check --tier large` | `rtxpro6000`; then the record's path | `default`: stop and send it |
-| 10 | Model weights | the weights command sent with the tag (see below) | three folders under `deploy/models`; the template's `sha256sum` starts `ae53464b` | stop: the start will refuse other files |
+| 10 | Model weights | `python3 -m tools.fetch_weights --profile rtxpro6000 --dry-run`, then the same without `--dry-run` (see below) | the list of files and about 28 GB; then "ok" for the two model folders and the chat template, each licence, and "Next step"; `python3 -m tools.fetch_weights --profile rtxpro6000 --verify-only` says "All present and pinned." | send the red `fetch-weights:` line; running it again resumes and is safe |
 | 11 | Start | `TB_LLM_MODE=gpu deploy/poc.sh` | "ok" lines for the GPU, the profile and the model folders; image build (10 to 20 min); pinning; the stack healthy (up to 15 min); **the admin password, shown once: write it down**; the canary passes; 600 synthetic patients loaded; the addresses | copy the red `poc:` line and the output of `deploy/poc.sh status`; running step 11 again is safe |
 | 12 | Sign in | browser: `http://127.0.0.1:8090`, user `admin`; set up the second factor with a phone authenticator | the console | lost password: `deploy/poc.sh reset`, then step 11 |
 | 13 | Feasibility | console, "Test mailbox": subject `FEAS GZQO` | web mail `http://127.0.0.1:8025`: a reply with PDF and XLSX | no reply in 10 min: send `deploy/poc.sh status` |
@@ -32,21 +32,48 @@ version tag we send you; half a day.
 ## The weights (step 10)
 
 The start pins each folder against the hash the release expects, so each folder must hold exactly the publisher's
-files at these revisions (safetensors and configuration only, no `.bin`, no `.py`, no cache folder):
+files at the pinned revisions (safetensors and configuration only, no `.bin`, no `.py`, no cache folder). One command
+puts them there, from the repository's own pin record: the build rows of `models/registry.yaml` (each source and
+revision, and the expected manifest hash) and the measured record they name (`deploy/measured/`, every file with
+its size and sha256). It names no model itself, so the version tag decides what is fetched.
 
-| Folder under `deploy/models` | Source | Revision |
-| --- | --- | --- |
-| `gemma-4-26b-a4b-it-4bit` (the judge) | `nvidia/Gemma-4-26B-A4B-NVFP4` | `a19cfe00be84568a6867111c9a68c9c44fdcffe6` |
-| `qwen3.5-9b-4bit` (the verifier) | `cyankiwi/Qwen3.5-9B-AWQ-4bit` | `e4d2d39cede8c5d1716d824cd843e2889c648083` |
-| `chat-templates/gemma-4-26b-a4b-it/chat_template.jinja` (one file) | `google/gemma-4-26B-A4B-it` | `4d7ae4984b7db7de8f8457170b3f1a419ee76d52`, sha256 `ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4` |
+| Command (from `trialbox/`) | What it does |
+| --- | --- |
+| `python3 -m tools.fetch_weights --profile rtxpro6000 --dry-run` | lists every file, its size and address, the free disk; downloads nothing, writes nothing |
+| `python3 -m tools.fetch_weights --profile rtxpro6000` | fetches, checks every file's sha256, moves each verified folder into `deploy/models` |
+| `python3 -m tools.fetch_weights --profile rtxpro6000 --verify-only` | checks what is there against the pin; no network |
+| `make fetch-weights` (`ARGS=--dry-run` or `ARGS=--verify-only`) | the same through the Makefile |
 
-Use the command sent with the tag. Until there is one, this is the manual way (not verified to give the expected
-hashes): `python3 -m venv ~/hf && ~/hf/bin/pip install -U huggingface_hub`, then
-`~/hf/bin/hf download <source> --revision <revision> --local-dir deploy/models/<folder>` for each model, then
-remove any `.cache` folder inside, and fetch the template with `curl -fL -o
-deploy/models/chat-templates/gemma-4-26b-a4b-it/chat_template.jinja
-https://huggingface.co/google/gemma-4-26B-A4B-it/resolve/4d7ae4984b7db7de8f8457170b3f1a419ee76d52/chat_template.jinja`
-(make the folder first with `mkdir -p`).
+What it puts in place: `deploy/models/gemma-4-26b-a4b-it-4bit` (the judge, from `nvidia/Gemma-4-26B-A4B-NVFP4`),
+`deploy/models/qwen3.5-9b-4bit` (the verifier, from `cyankiwi/Qwen3.5-9B-AWQ-4bit`) and
+`deploy/models/chat-templates/gemma-4-26b-a4b-it/chat_template.jinja` (the judge's template, from
+`google/gemma-4-26B-A4B-it`), each at the revision the registry names. The models root and the folder names are found as the start finds them:
+`TB_MODELS_DIR` from the environment, else from `deploy/.env` (a line `TB_MODELS_DIR=...` with no spaces round
+`=`), else `deploy/models`; `JUDGE_MODEL_DIR`, `VERIFIER_MODEL_DIR` and `JUDGE_CHAT_TEMPLATE` from the environment,
+else the defaults above (not from `deploy/.env`, which the start does not read for them). The first line it prints
+is the models root it will fill: check it. Every folder must lie inside that root: a symbolic link on the way out
+of it is refused (to use another disk, set `TB_MODELS_DIR` to a folder there).
+
+- It needs only `python3` and `python3-yaml` (step 3); the publisher's own download tool is not needed.
+- Files arrive under `deploy/models/.fetch-weights` first. A folder is moved into place only when every file has
+  its pinned sha256 and nothing else is in it (no extra, hidden or linked file); a file with another hash is
+  deleted and the run stops.
+- One run at a time: a second run started while one is fetching stops at once and says so.
+- An interrupted download (network, power) resumes where it stopped: run the same command again.
+- A folder already in place is never changed. If it is the pinned build it is reported present; if not, the run
+  stops and names the differing files: move the folder aside (`mv <folder> <folder>.old`) and run again.
+- It checks the free disk before downloading (the download plus 1 GB); if the disk fills anyway, it says "the disk
+  is full" and stops.
+- It sends only the download requests, over https, to the hub and the content store it redirects to. If the hub
+  answers "refused" (HTTP 401 or 403) for a gated repository: sign in on the hub, accept the terms on the model's
+  page, make a read token under the hub's settings (Access Tokens), and run again with it in the environment:
+  `read -rs HF_TOKEN && export HF_TOKEN` (type or paste the token; it is not shown and not saved), then the
+  command. The token goes only to the hub itself (never to the content store it redirects to, and never when
+  `HF_ENDPOINT` names a mirror), and is never printed.
+- At the end it prints each model's licence as `docs/licences/register.csv` records it, with the obligation (for
+  the judge: the Apache 2.0 text beside the weights, outside the pinned folder), and the next step (step 11).
+
+Nothing runs this command at install or start: the start only checks the folders and refuses other files.
 
 ## On Windows instead (not verified anywhere)
 

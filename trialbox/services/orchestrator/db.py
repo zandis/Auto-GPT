@@ -8,7 +8,7 @@ import contextlib
 import hashlib
 import json
 import os
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any
 
@@ -215,10 +215,37 @@ CREATE TABLE IF NOT EXISTS judged_pairs (
 CREATE INDEX IF NOT EXISTS judged_pairs_pid ON judged_pairs (pid);
 CREATE INDEX IF NOT EXISTS judged_pairs_snapshot ON judged_pairs (snapshot);
 """
-MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5)
+# D-1226: a member site's alliance table is stored only when its Ed25519 signature holds for the key registered for
+# the site (``tb_common.alliance``). ``verified_by``: the signing key's fingerprint, ``own`` for the root's own table
+# (made in the box, never mailed), NULL for a table stored before signatures were required: kept, marked unverified,
+# and left out of every merge until its site sends it signed. ``signed_seq`` and ``signed_sha256``: the signed
+# table's sequence and hash, so an older table is not taken over a newer one. The record (``cohort_stored``) keeps
+# the same three, so a replay rebuilds them.
+SCHEMA_V6 = """
+ALTER TABLE cohort_tables ADD COLUMN IF NOT EXISTS verified_by TEXT;
+ALTER TABLE cohort_tables ADD COLUMN IF NOT EXISTS signed_seq BIGINT;
+ALTER TABLE cohort_tables ADD COLUMN IF NOT EXISTS signed_sha256 TEXT;
+ALTER TABLE cohort_stored ADD COLUMN IF NOT EXISTS verified_by TEXT;
+ALTER TABLE cohort_stored ADD COLUMN IF NOT EXISTS signed_seq BIGINT;
+ALTER TABLE cohort_stored ADD COLUMN IF NOT EXISTS signed_sha256 TEXT;
+UPDATE cohort_tables SET verified_by = 'own' WHERE received_from LIKE 'self:%';
+UPDATE cohort_stored SET verified_by = 'own' WHERE received_from LIKE 'self:%'
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6)
 SCHEMA_NAME = "orch"
 
 TERMINAL = ("done", "failed")
+
+
+def _ruleset_of(definition_version: str) -> str:
+    """``tb_common.alliance.ruleset_of``: the rule set of a definition (``GOUT-COH@1.0.0`` -> ``GOUT-COH``)."""
+    return definition_version.split("@", 1)[0]
+
+
+def _counts(site: str, verified_by: str, registered: Mapping[str, str] | None) -> bool:
+    """Whether a verified row is merged (D-1226): the root's own, or signed by the key registered for its site now
+    (any verified row when the caller gives no register)."""
+    return verified_by == "own" or registered is None or registered.get(site) == verified_by
 
 
 def cohort_table_hash(rows: list[dict[str, Any]]) -> str:
@@ -892,6 +919,11 @@ class JobDB:
         job_id: str,
         received_from: str,
         refuse: Callable[[set[str]], str | None] | None = None,
+        *,
+        verified_by: str | None = None,
+        signed_seq: int | None = None,
+        signed_sha256: str | None = None,
+        stale: Callable[[dict[tuple[str, str], tuple[int | None, str | None]]], str | None] | None = None,
     ) -> str | None:
         """Replace a site's table for each (disease, quarter, definition) it contains, then insert the rows, and
         record what was stored (D-648): one ``cohort_stored`` row per site in ``rows``, in this transaction, so the
@@ -902,7 +934,12 @@ class JobDB:
         with the addresses whose tables of the rows' sites stand in the store now (all the sites in ``rows``
         together: a caller with a rule per site passes one site's rows). A sentence back: nothing is stored
         and the sentence is returned. A check made before the call can be overtaken by another store (two senders
-        of one site, both let in). None is returned when the rows were stored."""
+        of one site, both let in). None is returned when the rows were stored.
+
+        ``verified_by``, ``signed_seq``, ``signed_sha256`` (D-1226): how the table was verified (the signing key's
+        fingerprint, ``own``, or None: unverified), and the signed table's sequence and hash. ``stale``: asked in the
+        same transaction with, for each (site, rule set) of ``rows``, the highest signed sequence stored and that
+        table's hash; a sentence back refuses the store as ``refuse`` does."""
         if not rows:
             return None
         with self.tx() as con:
@@ -915,6 +952,22 @@ class JobDB:
                 said = refuse(senders)
                 if said:
                     return said
+            if stale is not None:
+                # D-1226: freshness per (site, rule set), across its versions and quarters: the highest signed
+                # sequence stored and that table's hash
+                held: dict[tuple[str, str], tuple[int | None, str | None]] = {}
+                for site, ruleset in sorted({(r["site_id"], _ruleset_of(r["definition_version"])) for r in rows}):
+                    got = con.fetchall(
+                        "SELECT definition_version, signed_seq, signed_sha256 FROM cohort_tables WHERE site_id=? "
+                        "AND signed_seq IS NOT NULL",
+                        (site,),
+                    )
+                    mine = [(int(g[1]), str(g[2])) for g in got if _ruleset_of(str(g[0])) == ruleset]
+                    if mine:
+                        held[(site, ruleset)] = max(mine)
+                said = stale(held)
+                if said:
+                    return said
             for site, disease, quarter, version in {
                 (r["site_id"], r["disease"], r["quarter"], r["definition_version"]) for r in rows
             }:
@@ -925,7 +978,8 @@ class JobDB:
             for r in rows:
                 con.execute(
                     """INSERT INTO cohort_tables (site_id, disease, quarter, criterion_id, definition_version,
-                         criterion_label, n, n_contactable, received_from, job_id) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                         criterion_label, n, n_contactable, received_from, job_id, verified_by, signed_seq,
+                         signed_sha256) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         r["site_id"],
                         r["disease"],
@@ -937,17 +991,40 @@ class JobDB:
                         json.dumps(r["n_contactable"]),
                         received_from,
                         job_id,
+                        verified_by,
+                        signed_seq,
+                        signed_sha256,
                     ),
                 )
             for site in sorted({r["site_id"] for r in rows}):
                 table = [{c: r[c] for c in self._COHORT_COLS} for r in rows if r["site_id"] == site]
                 con.execute(
-                    "INSERT INTO cohort_stored (job_id, site_id, received_from, table_sha256, rows) VALUES (?,?,?,?,?)",
-                    (job_id, site, received_from, cohort_table_hash(table), json.dumps(table, ensure_ascii=False)),
+                    "INSERT INTO cohort_stored (job_id, site_id, received_from, table_sha256, rows, verified_by, "
+                    "signed_seq, signed_sha256) VALUES (?,?,?,?,?,?,?,?)",
+                    (
+                        job_id,
+                        site,
+                        received_from,
+                        cohort_table_hash(table),
+                        json.dumps(table, ensure_ascii=False),
+                        verified_by,
+                        signed_seq,
+                        signed_sha256,
+                    ),
                 )
         return None
 
-    _STORED_COLS = ("seq", "job_id", "site_id", "received_from", "table_sha256", "rows")
+    _STORED_COLS = (
+        "seq",
+        "job_id",
+        "site_id",
+        "received_from",
+        "table_sha256",
+        "rows",
+        "verified_by",
+        "signed_seq",
+        "signed_sha256",
+    )
 
     def _stored(self, where: str, args: tuple[Any, ...]) -> list[dict[str, Any]]:
         got = self._db.fetchall(f"SELECT {', '.join(self._STORED_COLS)} FROM cohort_stored {where} ORDER BY seq", args)
@@ -962,20 +1039,29 @@ class JobDB:
         """Every recorded store of a table, in order (D-648); up to and with the store ``upto`` when given."""
         return self._stored("" if upto is None else "WHERE seq <= ?", () if upto is None else (upto,))
 
-    def cohort_read(self, job_id: str, keys: list[tuple[str, str]]) -> list[dict[str, Any]]:
+    def cohort_read(
+        self, job_id: str, keys: list[tuple[str, str]], registered: Mapping[str, str] | None = None
+    ) -> list[dict[str, Any]]:
         """The rows of each (disease, quarter) of ``keys`` for the merge ``job_id``'s output, and the record of the
         point it read them at (D-648): the last store before the read, written in the transaction that reads,
-        while no store runs. A re-run rebuilds the tables up to that point."""
+        while no store runs. A re-run rebuilds the tables up to that point.
+
+        D-1226: only verified rows: the root's own (``own``), and, with ``registered`` (site -> the key fingerprint
+        the register holds now), only a member's rows signed by that key; without it, any verified row. An
+        unverified table, or one whose key the register no longer holds, is kept and left out
+        (:meth:`cohort_left_out`)."""
         out: list[dict[str, Any]] = []
         with self.tx() as con:
             con.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"{self.schema}:cohort_store",))
             for disease, quarter in keys:
                 got = con.fetchall(
-                    f"SELECT {', '.join(self._COHORT_COLS)} FROM cohort_tables WHERE disease=? AND quarter=? "
-                    "ORDER BY site_id, seq",
+                    f"SELECT {', '.join(self._COHORT_COLS)}, verified_by FROM cohort_tables WHERE disease=? "
+                    "AND quarter=? AND verified_by IS NOT NULL ORDER BY site_id, seq",
                     (disease, quarter),
                 )
-                for r in got:
+                for *r, by in got:
+                    if not _counts(str(r[0]), str(by), registered):
+                        continue
                     d = dict(zip(self._COHORT_COLS, r, strict=True))
                     d["n"], d["n_contactable"] = json.loads(d["n"]), json.loads(d["n_contactable"])
                     out.append(d)
@@ -1002,6 +1088,25 @@ class JobDB:
             d["n"], d["n_contactable"] = json.loads(d["n"]), json.loads(d["n_contactable"])
             out.append(d)
         return out
+
+    def cohort_left_out(
+        self, keys: list[tuple[str, str]], registered: Mapping[str, str] | None = None
+    ) -> tuple[set[str], set[str]]:
+        """The sites with a table in a (disease, quarter) of ``keys`` that :meth:`cohort_read` leaves out (D-1226):
+        (stored before signatures were required, signed by a key the register no longer holds for the site)."""
+        unverified: set[str] = set()
+        revoked: set[str] = set()
+        for disease, quarter in keys:
+            got = self._db.fetchall(
+                "SELECT DISTINCT site_id, verified_by FROM cohort_tables WHERE disease=? AND quarter=?",
+                (disease, quarter),
+            )
+            for site, by in got:
+                if by is None:
+                    unverified.add(str(site))
+                elif not _counts(str(site), str(by), registered):
+                    revoked.add(str(site))
+        return unverified, revoked
 
     def cohort_senders(self, site_id: str) -> set[str]:
         """Who has contributed tables for ``site_id`` (``self:<site>`` for the root's own runs)."""

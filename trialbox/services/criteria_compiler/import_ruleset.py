@@ -19,6 +19,7 @@ from typing import Any
 
 import yaml
 from tb_common.ruleset import SEEDED_TAG
+from tb_common.zipcap import ZipRefused, check_ruleset_zip
 
 from criteria_compiler.repo import RulesetRepo
 
@@ -29,11 +30,10 @@ class ImportRefused(ValueError):
 
 def read_zip(data: bytes) -> tuple[str, dict[str, bytes], dict[str, Any]]:
     with zipfile.ZipFile(io.BytesIO(data)) as z:
-        names = [n for n in z.namelist() if not n.endswith("/")]
-        for n in names:
-            p = PurePosixPath(n)
-            if p.is_absolute() or ".." in p.parts:
-                raise ImportRefused(f"unsafe path {n!r}")
+        try:  # 10G-6, D-1102: members, sizes, ratio and names from the central directory, before any read
+            names = [n for n in check_ruleset_zip(z) if not n.endswith("/")]
+        except ZipRefused as exc:
+            raise ImportRefused(str(exc)) from exc
         manifests = [n for n in names if PurePosixPath(n).name == "manifest.yaml" and len(PurePosixPath(n).parts) <= 2]
         if len(manifests) != 1:
             raise ImportRefused("the zip must hold exactly one ruleset manifest.yaml")

@@ -39,6 +39,15 @@ SAMPLE_SITES: tuple[dict[str, str], ...] = (
 )
 
 
+def _write_private(path: Path, data: bytes) -> None:
+    """A secret file made with mode 600 from the start (never readable by others, not even for a moment); an old
+    file of that name is replaced, and its mode made 600 too (D-1226)."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as fh:
+        os.fchmod(fh.fileno(), 0o600)  # the mode of a file that was already there
+        fh.write(data)
+
+
 def _write(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -163,8 +172,7 @@ def main(argv: list[str] | None = None) -> int:
         priv, pub = ed25519_generate()
         a.out.mkdir(parents=True, exist_ok=True)
         for name, data in (("site.key", priv), ("band.secret", secrets.token_hex(32).encode())):
-            (a.out / name).write_bytes(data)
-            (a.out / name).chmod(0o600)
+            _write_private(a.out / name, data)
         (a.out / "site.pub").write_bytes(pub)
         print(f"wrote site.key, band.secret (both stay on the site) and site.pub in {a.out}")
         print(

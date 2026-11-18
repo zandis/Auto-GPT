@@ -38,6 +38,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from tb_common import site_country
 from tb_common.box_answers import BackupKind, OwnerAnswers, SourceKind
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -50,6 +51,7 @@ SECOND_DISK_MOUNT = "/srv/trialbox-backup"
 SHARE_MOUNT = "/mnt/trialbox-share"
 FIRSTRUN_DIR = "/run/trialbox-firstrun"  # tmpfs: the answers (and a passphrase) never reach a disk
 BOX_MAPPING = "mapping/tw_core/box_site.yaml"
+BOX_SOURCE_MOUNT = "/data/source/site"  # where compose mounts the feed folder, read-only (TB_SOURCE_MOUNT)
 # OD-10: below half of the compose files' own caps the services were never measured: such a machine is refused
 MIN_SERVICE_SHARE = 0.5
 _MEM = re.compile(r"mem_limit:\s*(?:\$\{(TB_MEM_[A-Z_]+):-([0-9.]+[mgMG])\}|([0-9.]+[mgMG]))")
@@ -410,12 +412,44 @@ def retention_rules(tz: str) -> str:
     return "jp" if tz == "Asia/Tokyo" else "tw"
 
 
-def mapping_text(tz: str) -> str:
-    """The site mapping until the data source's own mapping step (T-731): the shared mapping and the site's zone."""
+def box_mapping(a: OwnerAnswers) -> tuple[str, str | None]:
+    """10K-1: the box's mapping and, when the box writes a site mapping of its own, the shipped mapping it extends.
+
+    No country, or a country with no shipped mapping: the box's site mapping over the shared one, as before. A country
+    whose shipped mapping is a base (it extends nothing): a site mapping over it with the site's zone. A country whose
+    shipped mapping itself extends the shared one (Japan's ``jp_core/ssmix2_site.yaml``): that mapping by name and no
+    file, since the adapter's loader takes one level of ``extends`` only; its zone is the country's one zone, which
+    the owner's answers must state (``tb_common.box_answers.parse``)."""
+    cd = site_country.defaults(a.country) if a.country else site_country.LEGACY
+    shipped = cd.mapping if a.country else None
+    # a shipped mapping that reads one kind of source (Japan's: an SS-MIX2 storage) is not a mapping of another
+    # source's export (second review of #1088, item 4): that source gets the placeholder, mapped on the box (T-731)
+    if not shipped or (cd.data_source_type == "ssmix2" and a.source is not SourceKind.SSMIX2):
+        return BOX_MAPPING, "../tw_core/demo_his.yaml"
+    if site_country.extends_another(shipped):
+        return shipped, None
+    folder = shipped.split("/")[1]  # mapping/<folder>/<file>
+    return f"mapping/{folder}/box_site.yaml", f"../{shipped.split('/', 1)[1]}"
+
+
+def box_retention(a: OwnerAnswers) -> dict[str, Any]:
+    """The wizard's retention answers. 10K-1: with a country, its rules (``tb_common.site_country.TABLE``), or the
+    days the owner gave where TrialBox has no rules for it; with none (the page's flag off, an older answers file),
+    from the zone as before (:func:`retention_rules`)."""
+    if not a.country:
+        return {"retention_rules": retention_rules(a.tz)}
+    rules = site_country.defaults(a.country).retention_rules
+    if rules:
+        return {"retention_rules": rules}
+    return {"retention_rules": "", **{k: str(v) for k, v in a.retention_days}}
+
+
+def mapping_text(tz: str, extends: str = "../tw_core/demo_his.yaml") -> str:
+    """The site mapping until the data source's own mapping step (T-731): the shipped mapping and the site's zone."""
     return (
         "# The box's site mapping (T-729, D-466): written by tools/box/plan.py from the owner's time zone. The data\n"
         "# source's own columns and codes are mapped on the box by its connector's mapping step (T-731).\n"
-        f"version: 1\nname: box_site\nextends: ../tw_core/demo_his.yaml\ntz: {tz}\n"
+        f"version: 1\nname: box_site\nextends: {extends}\ntz: {tz}\n"
     )
 
 
@@ -450,13 +484,37 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         warnings.append(LAN_UNKNOWN)  # D-629
     email = a.owner.email
     domain = email.split("@", 1)[1]
-    ds: dict[str, Any] = {"data_source_host_dir": "./site/feed", "mapping": BOX_MAPPING}
-    if a.source in (SourceKind.RESEARCH_DB, SourceKind.OWN_DB):
+    mapping, extends = box_mapping(a)
+    if a.country and not site_country.defaults(a.country).mapping:
+        warnings.append(
+            f"country {a.country}: TrialBox ships no mapping for it; the box starts from the shared one until the "
+            "data source's mapping step on the box (T-731)"
+        )
+    elif mapping == BOX_MAPPING and a.country:
+        warnings.append(
+            f"country {a.country}: its shipped mapping reads another kind of source; this one starts from the shared "
+            "mapping until the data source's mapping step on the box (T-731)"
+        )
+    if a.source is SourceKind.SSMIX2:
+        warnings.append(
+            "SS-MIX2: the shipped Japanese code tables (JLAC10, byomei, YJ) are sample rows marked verify: check them "
+            "and load the site's licensed releases (services/adapter/mapping/jp_core/ssmix2_site.yaml)"
+        )
+    ds: dict[str, Any] = {"data_source_host_dir": "./site/feed", "mapping": mapping}
+    if a.source is SourceKind.SSMIX2:
+        # 10K-1: the SS-MIX2 storage's root folder, mounted read-only where the adapter reads it (the ssmix2 reader)
+        ds |= {
+            "data_source_type": "ssmix2",
+            "data_source_path": BOX_SOURCE_MOUNT,
+            "data_source_host_dir": a.ssmix2_root,
+            "ssmix2_order_numbers": a.ssmix2_order_numbers or "unique",
+        }
+    elif a.source in (SourceKind.RESEARCH_DB, SourceKind.OWN_DB):
         # a read connection: its address and account are the one thing hospital IT gives (OD-13; T-731 connects it)
         ds |= {"data_source_type": "cgrd_sql", "data_source_dsn_env": "TB_SOURCE_DSN"}
         warnings.append("data source: a read connection; hospital IT gives its address and account (T-731)")
     else:
-        ds |= {"data_source_type": "csv", "data_source_path": "/data/source/site"}
+        ds |= {"data_source_type": "csv", "data_source_path": BOX_SOURCE_MOUNT}
         if a.source is not SourceKind.LATER:
             warnings.append(f"data source {a.source.value}: its connector and mapping step are on the box (T-731)")
     env: dict[str, str] = dict(caps)
@@ -472,6 +530,7 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
     wizard: dict[str, Any] = {
         "site_id": site_id(a.site_name),
         "site_name": a.site_name,
+        **({"country": a.country} if a.country else {}),
         "tz": a.tz,
         "locale": a.language,
         "contact": email,
@@ -501,12 +560,13 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         "chartno_rule": getattr(a, "chartno_rule", ""),
         "mrn_regex": chart_pattern(getattr(a, "chartno_rule", "")),
         "tls_mode": "internal",  # the box's default; the hospital's certificate is IT's optional step (one page, T-735)
-        "retention_rules": retention_rules(a.tz),
+        **box_retention(a),
         "ctgov_mode": "offline",
         "env_extra": env,
     }
-    files = {"site/hardening.conf": hardening_conf(hw, mdns=a.hostname.endswith(".local")),
-             f"site/{BOX_MAPPING}": mapping_text(a.tz)}  # fmt: skip
+    files = {"site/hardening.conf": hardening_conf(hw, mdns=a.hostname.endswith(".local"))}
+    if extends is not None:
+        files[f"site/{mapping}"] = mapping_text(a.tz, extends)
     if not hw.tpm:
         warnings.append(
             "no usable TPM (systemd-creds has-tpm2): the site keys are sealed under a passphrase the owner "
