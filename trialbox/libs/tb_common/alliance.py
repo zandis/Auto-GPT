@@ -194,47 +194,57 @@ def load_register(path: str | Path) -> dict[str, dict[str, str]]:
     return opp.load_register(Path(path), SITE_ID)
 
 
-def verify(
+def _verdict(
     rows: Sequence[Mapping[str, Any]],
     doc: Mapping[str, Any] | None,
     register: Mapping[str, Mapping[str, str]] | None,
-) -> Verified:
-    """The table's signature holds, by the key registered for its site, over this table and its scope; else
-    :class:`TableRefused` with the sentence. ``doc`` None: the table came with no signature file of its own."""
+) -> Verified | str:
+    """The table's signature holds, by the key registered for its site, over this table and its scope; else the
+    sentence that refuses it. ``doc`` None: the table came with no signature file of its own."""
     site = str(rows[0]["site_id"])
     if doc is None:
-        raise TableRefused(
+        return (
             f"the table of site {site} is not signed; the alliance root takes a table only with the signature file "
             "the site's box makes beside it"
         )
     if register is None:
-        raise TableRefused(
+        return (
             f"this alliance root has no readable register of site keys, so the table of site {site} cannot be verified"
         )
     if doc["site_id"] != site:
-        raise TableRefused(f"the table of site {site} carries a signature made for another site")
+        return f"the table of site {site} carries a signature made for another site"
     if {k: doc[k] for k in ("studies", "diseases", "quarters")} != {
         k: v for k, v in scope(rows).items() if k != "site_id"
     }:
-        raise TableRefused(
-            f"the table of site {site} carries a signature made for another study, version or time window"
-        )
+        return f"the table of site {site} carries a signature made for another study, version or time window"
     entry = register.get(site)
     if entry is None:
-        raise TableRefused(f"site {site} has no key in this alliance root's register")
+        return f"site {site} has no key in this alliance root's register"
     public = str(doc["public_key"]).encode("ascii", "replace")
     if doc["key_sha256"] != entry["key_sha256"] or opp.key_fingerprint(public) != entry["key_sha256"]:
-        raise TableRefused(f"the table of site {site} is signed by a key that is not the one registered for the site")
+        return f"the table of site {site} is signed by a key that is not the one registered for the site"
     if doc["table_sha256"] != table_sha256(rows) or doc["rows"] != len(rows):
-        raise TableRefused(f"the table of site {site} is not the table its signature covers; it was changed")
+        return f"the table of site {site} is not the table its signature covers; it was changed"
     try:
         raw = base64.b64decode(str(doc["signature"]["sig"]), validate=True)
         good = ed25519_verify(public, canonical(doc), raw)
     except (ValueError, binascii.Error):
         good = False
     if not good:
-        raise TableRefused(f"the signature on the table of site {site} does not verify")
+        return f"the signature on the table of site {site} does not verify"
     return Verified(site, str(doc["key_sha256"]), int(doc["seq"]), str(doc["table_sha256"]))
+
+
+def verify(
+    rows: Sequence[Mapping[str, Any]],
+    doc: Mapping[str, Any] | None,
+    register: Mapping[str, Mapping[str, str]] | None,
+) -> Verified:
+    """:func:`_verdict`, a refusal raised as :class:`TableRefused` with its sentence."""
+    got = _verdict(rows, doc, register)
+    if isinstance(got, str):
+        raise TableRefused(got)
+    return got
 
 
 def checked(
@@ -242,17 +252,13 @@ def checked(
     docs: Sequence[Mapping[str, Any]],
     register: Mapping[str, Mapping[str, str]] | None,
 ) -> Verified | str:
-    """:func:`verify` against each candidate signature in turn, the first that holds; else the refusal of the first
-    candidate, as its sentence (written in this module; it names the site only). No candidate: unsigned. Trying each
-    one means a forged second signature file (the same hash, a higher sequence) cannot push out the good one."""
+    """:func:`_verdict` for each candidate signature in turn, the first that holds; else the sentence refusing the
+    first candidate (written in this module; it names the site only). No candidate: unsigned. Trying each one means a
+    forged second signature file (the same hash, a higher sequence) cannot push out the good one."""
     candidates: list[Mapping[str, Any] | None] = list(docs) if docs else [None]
-    first: str | None = None
-    for doc in candidates:
-        try:
-            return verify(rows, doc, register)
-        except TableRefused as exc:
-            first = first or str(exc.args[0])
-    return str(first)
+    verdicts = [_verdict(rows, doc, register) for doc in candidates]
+    good = [v for v in verdicts if isinstance(v, Verified)]
+    return good[0] if good else verdicts[0]
 
 
 def ruleset_of(definition_version: str) -> str:
