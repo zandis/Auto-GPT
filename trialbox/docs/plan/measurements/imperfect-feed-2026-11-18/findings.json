@@ -1,0 +1,374 @@
+{
+ "card": "H34",
+ "title": "imperfect hospital data through the nightly ingest",
+ "date": "2026-11-18",
+ "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+ "decision": "D-1100",
+ "record": "docs/plan/measurements/imperfect-feed-2026-11-18/results.json",
+ "note": "Written by hand from the harness's results (make imperfect-feed, tools/imperfect_feed.py); each finding names the runs (case/format) that show it.",
+ "findings": [
+  {
+   "id": "H34-01",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "High",
+   "claim": "a CSV export cut inside its last row: that lab result is served with its value cut short (6.5 for a two-decimal value) and no sample time; nothing counted, no error line, the night published",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "cut-mid-row/csv"
+   ],
+   "expected": "the cut row rejected and counted, or the file set aside; never a value short of its digits in the lake",
+   "from": "STD-025 (T-615a: a row the mapping cannot read is rejected and counted by reason); T-615b (a file that is not a readable CSV is quarantined)"
+  },
+  {
+   "id": "H34-02",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "High",
+   "claim": "an SS-MIX2 lab message cut inside OBX-5: the value is served cut short (6.5) with the sample time taken from the folder's date; counted only as 'OML-11:sample time from folder' in reader.json",
+   "lane": "B2",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "cut-mid-row/ssmix2"
+   ],
+   "expected": "the cut message set aside and counted (as an unreadable message is), never its cut value",
+   "from": "T-615a; the reader's own rule for a file it cannot read (PPR-01:quarantined in reader.json)"
+  },
+  {
+   "id": "H34-03",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "High",
+   "claim": "a CSV export that ends inside a quoted field (no closing quote): the last note is served cut short; nothing counted, the night published",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "cut-in-quotes/csv"
+   ],
+   "expected": "the file set aside as not a readable CSV, or the row rejected and counted",
+   "from": "T-615b (not a readable CSV: quarantined); STD-025"
+  },
+  {
+   "id": "H34-04",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "High",
+   "claim": "a CSV row one field short is mapped with the missing column taken as empty: a lab result is served with no sample time; nothing counted",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "column-short/csv"
+   ],
+   "expected": "a row with fewer fields than the header rejected and counted",
+   "from": "STD-025; DATA-017 (the reader's row count is the export's)"
+  },
+  {
+   "id": "H34-05",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "High",
+   "claim": "a CSV whose header names the value column otherwise (result_val): all 200 lab results are served with no value; nothing counted, no error line, the night published",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "header-renamed/csv"
+   ],
+   "expected": "a column the mapping reads that is missing from the file refuses the table or holds the night with its name",
+   "from": "T-611 (a table that is not whole holds the night); mapping_check's column check before the first night"
+  },
+  {
+   "id": "H34-06",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "High",
+   "claim": "one chart number on two people's patient rows: the lake serves one patient with the second person's birth date and sex and the second person's visit; CSV and SQL count 'duplicate_keys 1' and publish; FHIR Bulk counts nothing",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "one-chart-two-people/csv",
+    "one-chart-two-people/cgrd_sql",
+    "one-chart-two-people/fhir_bulk"
+   ],
+   "expected": "two different people under one key held for a person (the night held, or the key refused), never merged into one patient",
+   "from": "DATA-017 (a duplicate source key is counted; the last row wins) does not cover two people; T-659b (identity changes are a person's)"
+  },
+  {
+   "id": "H34-07",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "High",
+   "claim": "SS-MIX2: a second person's ADT-00 (another birth date and sex) in the same patient folder, newer: it replaces the first person's birth date and sex; nothing counted",
+   "lane": "B2",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "one-chart-two-people/ssmix2"
+   ],
+   "expected": "an ADT-00 that changes birth date and sex of a patient said (counted, or held for a person)",
+   "from": "SS-MIX2 newest-wins (S22 3.1.2) is for corrections of one person; T-659b"
+  },
+  {
+   "id": "H34-08",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "High",
+   "claim": "a FHIR Bulk export with one cut-off line, a Big5 or UTF-16 file, or a UTF-8 byte-order mark: adapter run ends with a traceback (JSONDecodeError, UnicodeDecodeError) and the whole night fails; the audit and the steward's row say FAILED with the error's type only, no file or line",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "cut-mid-row/fhir_bulk",
+    "cut-mid-char/fhir_bulk",
+    "big5/fhir_bulk",
+    "utf8-bom/fhir_bulk",
+    "utf16/fhir_bulk"
+   ],
+   "expected": "the bad line or file counted with its reason (or set aside, as the CSV reader does) and the rest of the export read",
+   "from": "T-615b (the CSV reader's quarantine); D-668 (a failure in words); the card's 'nothing crashes'"
+  },
+  {
+   "id": "H34-09",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "High",
+   "claim": "SS-MIX2: a diagnosis message in Big5 under MSH-18 ~ISO IR87 is read as Shift_JIS: its 標準病名 name is served garbled in the snapshot (code.text and display; the code is right); counted only as 'PPR-01:read as cp932' in reader.json",
+   "lane": "B2",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "big5/ssmix2"
+   ],
+   "expected": "a message whose bytes do not read in its declared character set set aside and counted (as unreadable bytes are), never served garbled",
+   "from": "T-615b and D-215 (no guessed character set reaches a record); STD-020"
+  },
+  {
+   "id": "H34-10",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "Medium",
+   "claim": "a FHIR Bulk resource dated 0000-00-00 (an onset, or a birth date) fails the night's lake build: 'lake rebuild failed: ValueError: LAKE-BUILD: the lake could not build the snapshot ... the lake's log says where'; no row counted or named, nothing of the night served",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "date-zero/fhir_bulk",
+    "birth-zero/fhir_bulk"
+   ],
+   "expected": "the date refused and counted at the read, as the CSV path rejects it ('MappingError: unparseable date'), and the night goes on",
+   "from": "STD-025; DIN-012 (a placeholder is not a fact); D-669"
+  },
+  {
+   "id": "H34-11",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "Medium",
+   "claim": "rows rejected under 1 % of a table, and SS-MIX2 files set aside under 1 %, are counted only in completeness.json or reader.json: ingest_report.json has no error line, the audit event and the steward's batch row carry no rejected count, and the INGEST job's mail counts error lines only",
+   "lane": "B2",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "date-zero/csv",
+    "column-extra/csv",
+    "date-roc-slash/cgrd_sql",
+    "cut-mid-char/ssmix2",
+    "utf16/ssmix2"
+   ],
+   "expected": "each rejected row counted with its reason where a person reads the night (the report's lines, the steward's page)",
+   "from": "STD-025 (counted by reason); the card's 'each rejected row counted with its reason'; datacore DETAIL_KEYS"
+  },
+  {
+   "id": "H34-12",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "Medium",
+   "claim": "a FHIR Bulk export whose Observation file is zero bytes is published on a first night with no lab result at all; nothing counted, no error line",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "empty-zero-bytes/fhir_bulk"
+   ],
+   "expected": "an empty or missing type of a bulk export held on a first night, as a CSV table is (T-611, NEW-DIN-8)",
+   "from": "T-611; NEW-DIN-8 (D-583: every table required on the first night)"
+  },
+  {
+   "id": "H34-13",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "Medium",
+   "claim": "a birth date after the patient's visits is served as written and counted nowhere in every format (F9 checks only a life longer than 122 years)",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "birth-after-visit/csv",
+    "birth-after-visit/cgrd_sql",
+    "birth-after-visit/fhir_bulk",
+    "ssmix2-birth-after-visit/ssmix2"
+   ],
+   "expected": "an impossible date left out and counted (as F9 does for 122 years), the patient kept",
+   "from": "F9 (D-811); DIN-012"
+  },
+  {
+   "id": "H34-14",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "Medium",
+   "claim": "a FHIR Bulk onset 9999-12-31 is served as written and counted nowhere, where the CSV and SQL paths reject the same date ('DateRangeError: date <value>')",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "date-9999/fhir_bulk"
+   ],
+   "expected": "a FHIR export's dates held to the same range as a mapped source's",
+   "from": "DIN-012 (EARLIEST_YEAR, LATEST_YEARS_AHEAD in the mapping engine)"
+  },
+  {
+   "id": "H34-15",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "Medium",
+   "claim": "one person under two chart numbers (same name, birth date and sex) is served as two patients and FEAS counts 51 where the export holds 50 people; nothing tells a person that two charts look alike",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "two-charts-one-person/csv",
+    "two-charts-one-person/cgrd_sql",
+    "two-charts-one-person/fhir_bulk",
+    "two-charts-one-person/ssmix2"
+   ],
+   "expected": "the box keeps the hospital's two charts until a person merges them, and says which charts look alike so a person can",
+   "from": "T-659b (adapter pid-merge is a person's act); DATA-017"
+  },
+  {
+   "id": "H34-16",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "Medium",
+   "claim": "one CSV note longer than 131,072 characters sets the whole note file aside and holds the night ('not a readable CSV (field larger than field limit (131072))'); the SQL and FHIR paths keep the same note whole; the row is not named",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "note-2mb/csv"
+   ],
+   "expected": "the long note kept whole, or that row rejected and counted; never every note of the night set aside for one",
+   "from": "T-615b; STD-025 (a row, not the table)"
+  },
+  {
+   "id": "H34-17",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "Medium",
+   "claim": "a lab table without its sample-time column holds the night with 'validation error rate 4.76% exceeds 0.5%' (the number moves with the random sample); the reason names neither the table nor the missing column",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "header-dropped/csv",
+    "header-dropped/cgrd_sql"
+   ],
+   "expected": "the hold says which table lacks which column",
+   "from": "T-611; D-668 (a reason in words a person can act on)"
+  },
+  {
+   "id": "H34-18",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "Low",
+   "claim": "a CSV row with one field more (a decimal comma) is rejected as 'MappingError: unparseable datetime <value>': the reason points at a date, not at the row's extra field",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "column-extra/csv"
+   ],
+   "expected": "a row with more fields than the header rejected as such",
+   "from": "STD-025 (counted by reason)"
+  },
+  {
+   "id": "H34-19",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "Low",
+   "claim": "a CSV file cut inside a multibyte character is set aside as 'the file mixes two character sets (line 151)': the file is cut short, not mixed",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "cut-mid-char/csv"
+   ],
+   "expected": "the reason says the file ends inside a character (a cut file)",
+   "from": "T-615b; D-668"
+  },
+  {
+   "id": "H34-20",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "Low",
+   "claim": "a UTF-16 CSV with its byte-order mark is set aside as 'the file reads as UTF-16 without a byte order mark'",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "utf16/csv"
+   ],
+   "expected": "the reason says UTF-16 (with its mark) is not read",
+   "from": "T-615b; D-215"
+  },
+  {
+   "id": "H34-21",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "Low",
+   "claim": "a second copy of a table under another name (lab (1).csv) is ignored with no word: a corrected file sent under a new name would be lost unseen",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "twice-other-name/csv"
+   ],
+   "expected": "a file in the export folder that no table reads named in the night's report",
+   "from": "T-611 (what the export holds is said)"
+  },
+  {
+   "id": "H34-22",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "Low",
+   "claim": "a FHIR Observation with a code the box does not know is served and counted nowhere; the mapped sources count such codes in unmapped_codes.json",
+   "lane": "E",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "code-unknown-loinc/fhir_bulk"
+   ],
+   "expected": "unknown codes of a bulk export counted as a mapped source's are",
+   "from": "NEW-DIN-6 (D-580)"
+  },
+  {
+   "id": "H34-23",
+   "date": "2026-11-18",
+   "source": "docs/plan/measurements/imperfect-feed-2026-11-18.md",
+   "severity": "Medium",
+   "claim": "a patient whose birth date the mapping left out (counted as implausible_dates) fails the night's structural validation when the random sample takes that patient (a Patient needs birthDate): the same SS-MIX2 storage was published on one run and held on the next with 'validation error rate 2.38% exceeds 0.5%'",
+   "lane": "B2",
+   "basis": "shown",
+   "state": "open",
+   "runs": [
+    "ssmix2-birth-9999/ssmix2"
+   ],
+   "expected": "a value the mapping left out and counted does not also hold the night by chance; the same export gives the same night",
+   "from": "F9 (D-811: the patient is kept); D-457 (the sample); D-668"
+  }
+ ]
+}

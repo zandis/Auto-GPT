@@ -1,0 +1,100 @@
+{
+ "card": "H35",
+ "title": "every stated limit at the limit, one over and far over (lane H, 2026-11-18)",
+ "date": "2026-11-18",
+ "source": "docs/plan/measurements/limits-edge-2026-11-18.md",
+ "decision": "D-1101",
+ "findings": [
+  {
+   "id": "H35-01",
+   "severity": "Medium",
+   "lane": "E",
+   "basis": "shown",
+   "limit": "L07",
+   "case": "one over, far over (export)",
+   "claim": "the REDCap connector's file export (edc_backend.connection.EdcConnection.export_file) fetches the whole file from REDCap and only then refuses a file over TB_REDCAP_FILE_MAX_BYTES (26,214,400 bytes): one over and 100 MiB were both downloaded into memory before the refusal (the import side refuses before any call)",
+   "happened": "refused after the whole file was read from REDCap into memory",
+   "expected": "refused before the download (the size from REDCap's metadata, or a read cut at the limit plus one)",
+   "from": "docs/data/13-redcap-and-the-edc-backend.md:45 (\"A file larger than TB_REDCAP_FILE_MAX_BYTES ... is refused\"); D-1101 rule 3",
+   "state": "open"
+  },
+  {
+   "id": "H35-02",
+   "severity": "Medium",
+   "lane": "E",
+   "basis": "hypothesis",
+   "limit": "L07",
+   "case": "one over, far over",
+   "claim": "a file over the REDCap connector's limit is refused as RC-UPSTREAM \"the file is larger than the connector accepts\": the words name no limit, and by the EDC pages' rule (_edc_err.html, rc.err.RC-UPSTREAM) a person reads \"REDCap answered with an error (). Check the address and the access key\" in en, zh-TW and ja, which blames REDCap and the key for TrialBox's own size limit (page not rendered: the template's rule applied)",
+   "happened": "RC-UPSTREAM; page words point at the address and the API key",
+   "expected": "words that name the limit (25 MB) and say to send a smaller file",
+   "from": "docs/data/13-redcap-and-the-edc-backend.md:45; D-1101 rule 4",
+   "state": "open"
+  },
+  {
+   "id": "H35-03",
+   "severity": "Medium",
+   "lane": "C2",
+   "basis": "hypothesis",
+   "limit": "L09",
+   "case": "one over, far over",
+   "claim": "an EDC reason or citation over 300 characters is refused before anything is stored (edc.too_long, the service's sentence names 300), but the console has no edc.err.edc.too_long text, so by the EDC pages' rule (_edc_err.html) the person reads only \"TrialBox refused this.\" in en, zh-TW and ja: no limit, nothing to do (page not rendered: the template's rule applied)",
+   "happened": "edc.err.other on the page in three languages",
+   "expected": "the page names the 300-character limit and says to shorten the text",
+   "from": "D-854 (refused with edc.too_long); D-1101 rule 4",
+   "state": "open"
+  },
+  {
+   "id": "H35-04",
+   "severity": "Medium",
+   "lane": "C2",
+   "basis": "shown",
+   "limit": "L10",
+   "case": "one over, far over",
+   "claim": "a monitoring visit's findings over 2,000 characters are refused before anything is stored, but the reason \"the findings are at most 2000 characters\" is not in console.refusals.REFUSALS, so a zh-TW or ja monitor reads only \"could not be done; ask the administrator\": no limit, nothing to do (en names it)",
+   "happened": "zh-TW 已拒絕：無法執行此請求；若持續發生，請聯絡管理員; ja the same generic sentence",
+   "expected": "the limit (2,000 characters) and \"shorten the findings\" in zh-TW and ja",
+   "from": "D-436 (findings, at most 2,000 characters); D-119 (every refusal in the page's language)",
+   "state": "open"
+  },
+  {
+   "id": "H35-05",
+   "severity": "Medium",
+   "lane": "C2",
+   "basis": "shown",
+   "limit": "L12",
+   "case": "one over, far over",
+   "claim": "a local account's end date more than 365 days ahead is refused before the account exists, but the reason \"the end date is at most 365 days ahead (... at the latest)\" is not in console.refusals.REFUSALS, so a zh-TW or ja administrator reads only \"could not be done; ask the administrator\" (en names the limit and the latest date)",
+   "happened": "the generic sentence in zh-TW and ja on Users",
+   "expected": "the limit (365 days, the latest date) in zh-TW and ja",
+   "from": "docs/runbook/25-leavers.md:21; D-119",
+   "state": "open"
+  },
+  {
+   "id": "H35-06",
+   "severity": "Medium",
+   "lane": "C2",
+   "basis": "shown",
+   "limit": "L04",
+   "case": "one over, far over",
+   "claim": "a console upload over 50 MB (protocol) is refused before any job or stored file, in plain words in three languages, but with HTTP 400; the interface specification's UP-SIZE says 413",
+   "happened": "400 request.refused",
+   "expected": "413, as UP-SIZE states (or the specification changed to 400)",
+   "from": "docs/plan/design/08-interface-control.md:91 (UP-SIZE 413)",
+   "state": "open"
+  },
+  {
+   "id": "H35-07",
+   "severity": "Medium",
+   "lane": "C2",
+   "basis": "hypothesis",
+   "limit": "unstated: services/console/site_pages.py:52 MAX_UPLOAD",
+   "case": "read, not driven",
+   "claim": "the site set-up pages read at most 20 MiB + 1 byte of an uploaded code sheet or site sheet and send what they read on (site_pages.py codes_post, sheets_post): a larger file is cut, not refused, and no document states the 20 MiB (charts are refused by sitesetup.charts)",
+   "happened": "read from the code: up.read(MAX_UPLOAD + 1) with no comparison before the signed post",
+   "expected": "a stated limit, and a file over it refused whole before it is sent (D-854's rule: refused, never cut)",
+   "from": "D-1101 rule 1 (an unstated limit is listed, not tested); this row because a cut file is not a refusal",
+   "state": "open"
+  }
+ ]
+}
