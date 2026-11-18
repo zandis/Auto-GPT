@@ -179,7 +179,7 @@ def test_the_scorer_reads_two_attempts_as_the_same_protocols_run_in_one(tmp_path
     one = tmp_path / "one"
     box_vm.acc_set("sigir", built, one, TimedBox(clock), **KW)  # the same protocols, one attempt, no budget
     two, single = _scored(tmp_path, built, work, "two"), _scored(tmp_path, built, one, "single")
-    assert two["schema_version"] == score.SCHEMA_VERSION == 4
+    assert two["schema_version"] == score.SCHEMA_VERSION == 5  # 5 adds the ladder (10A-3)
     a2, a1 = two["protocols"].pop("attempts"), single["protocols"].pop("attempts")
     for sc in (two, single):  # the summary carries the same block
         sc["summary"]["protocols"].pop("attempts")
