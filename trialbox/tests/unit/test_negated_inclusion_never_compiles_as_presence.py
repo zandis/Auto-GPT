@@ -32,9 +32,10 @@ from tb_contracts import Atom, LlmExtractOutput
 from tests.unit.test_compiler_service import PDF, _approve, _compile, _decisions, env  # noqa: F401 (env: a fixture)
 
 FLAG = "negated_inclusion_presence"
-ROWS: list[dict[str, Any]] = json.loads(
-    (Path(__file__).resolve().parents[1] / "fixtures/negated_inclusion/lines.json").read_text(encoding="utf-8")
-)["rows"]
+FIX = Path(__file__).resolve().parents[1] / "fixtures/negated_inclusion"
+ROWS: list[dict[str, Any]] = json.loads((FIX / "lines.json").read_text(encoding="utf-8"))["rows"]
+# lines lane J's reviewer wrote before reading ROWS (unseen when the rule was designed): kept apart, scored apart
+UNSEEN: list[dict[str, Any]] = json.loads((FIX / "unseen_at_design.json").read_text(encoding="utf-8"))["rows"]
 CHEMO = {"domain": "procedure", "quantifier": "any", "concept": "chemotherapy"}  # VS_CHEMOTHERAPY once compiled
 CHEMO_CAND = [{"domain": "procedure", "name": "chemotherapy", "synonyms": ["化学療法", "化學治療"]}]
 _TERM: list[Terminology] = []
@@ -86,25 +87,54 @@ def test_the_two_p2b_lines_are_held() -> None:
                question="Does the patient have significant cardiopulmonary disease?"))  # fmt: skip
 
 
+ALL = [*ROWS, *UNSEEN]
+
+
 @pytest.mark.parametrize("cls", ["structured", "mixed"])
-@pytest.mark.parametrize("row", ROWS, ids=[f"{r['source']}-{r['lang']}-{i}" for i, r in enumerate(ROWS)])
-def test_property_each_line_of_the_table_is_held_or_runs_as_expected(row: dict[str, Any], cls: str) -> None:
+@pytest.mark.parametrize("row", ALL, ids=[f"{r['source']}-{r['lang']}-{i}" for i, r in enumerate(ALL)])
+def test_property_each_line_of_the_tables_is_held_or_runs_as_expected(row: dict[str, Any], cls: str) -> None:
+    """A negated line is always held (never a miss). A line that should run runs, unless the table marks it
+    ``over_held``: the fail-safe holds it today, which costs a person's look and is counted below."""
     q = "Does the patient meet it?" if cls == "mixed" else None
     x = _one(row["text"], _logic(row), cls=cls, concepts=_cand(row), question=q)
-    if row["expect"] == "held":
+    if row["expect"] == "held" or row.get("over_held"):
         _held(x)
     else:
         assert FLAG not in (x.flags or []), (row["text"], x.class_, x.flags)
 
 
-def test_the_table_counts() -> None:
-    """The figures the pull request reports: every negated line held, every line that should run runs."""
+def _score(rows: list[dict[str, Any]]) -> tuple[int, int, int, int]:
     out = _post([{"kind": "inclusion", "class": "structured", "text": r["text"], "logic": _logic(r),
-                  "concept_candidates": _cand(r)} for r in ROWS]).criteria  # fmt: skip
-    held = [r for r, x in zip(ROWS, out, strict=True) if r["expect"] == "held" and x.class_ == "human"]
-    over = [r["text"] for r, x in zip(ROWS, out, strict=True) if r["expect"] == "runs" and x.class_ == "human"]
-    assert len(held) == sum(r["expect"] == "held" for r in ROWS) and not over, over
-    assert {r["lang"] for r in ROWS} == {"en", "ja", "zh"} and len(ROWS) >= 150
+                  "concept_candidates": _cand(r)} for r in rows]).criteria  # fmt: skip
+    neg = [x.class_ == "human" for r, x in zip(rows, out, strict=True) if r["expect"] == "held"]
+    run = [x.class_ == "human" for r, x in zip(rows, out, strict=True) if r["expect"] == "runs"]
+    return sum(neg), len(neg), sum(run), len(run)
+
+
+def test_the_counts_the_pull_request_reports() -> None:
+    """This card's table: every negated line held; 8 of the 50 that should run are held by the fail-safe. The lines
+    unseen at design: every negated line held, none over-held."""
+    assert _score(ROWS) == (116, 116, 8, 50)
+    assert _score(UNSEEN) == (21, 21, 0, 3)
+    assert {r["lang"] for r in ALL} == {"en", "ja", "zh"}
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["chemotherapy has not responded to steroids and " * 900, "化学療法後に増悪が認められない、" * 2500,
+     "化學治療後未見惡化，" * 4000, "Prior chemotherapy is allowed. " * 1300, "no more than 2 " * 2700],
+    ids=["en", "ja", "zh", "plain", "bounds"],
+)  # fmt: skip
+def test_a_long_line_takes_linear_time(text: str) -> None:
+    """A concept or a cue repeated in one 40 kB line: every look is a window of 300 characters, never the line."""
+    import time
+
+    from criteria_compiler.ir_extract.negation_scope import negated_presence
+
+    gout = Atom(domain="procedure", valueset="VS_CHEMOTHERAPY", quantifier="any")
+    t0 = time.perf_counter()
+    negated_presence(text, gout, lambda vs: ["化学療法", "化學治療"])
+    assert time.perf_counter() - t0 < 3.0  # 0.4 s or less here; quadratic was 6 s
 
 
 NEGATED = [r for r in ROWS if r["expect"] == "held" and r["logic"] == "presence"]
@@ -204,3 +234,70 @@ def test_an_approved_negated_inclusion_reused_by_an_incremental_compile_goes_to_
     assert again.class_ == "human" and again.human_question and FLAG in (again.flags or [])
     assert isinstance(again.logic, Atom) and again.logic.valueset == "NONE"
     assert any(first.id in w and "approved before" in w for w in res2.warnings or []), res2.warnings
+
+
+def test_the_scan_lists_an_approved_negated_inclusion_and_changes_nothing(
+    env: dict[str, Any],  # noqa: F811 (the compiler-service fixture)
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The approved ruleset on main is what the engine runs: the scan (``make negated-inclusion-scan``, the doctor's
+    ``negated_inclusions``) names its negated inclusion by ruleset, version and criterion, and leaves main as it was."""
+    from criteria_compiler.negated_inclusions import scan
+
+    from tools.trialbox import doctor
+
+    doc = parse(PDF.read_bytes(), PDF.name)
+    inc = list(doc.ie_block.inclusion)
+    inc[1] = "No history of gout."
+    doc = doc.model_copy(update={"ie_block": doc.ie_block.model_copy(update={"inclusion": inc})})
+    env["store"].put("attachments/J/neg.json", c.dump_json(doc).encode())
+    real = pp.postprocess
+
+    def before_this_card(*a: Any, **kw: Any) -> Any:
+        out = real(*a, **kw)
+        for i, x in enumerate(out.criteria):
+            if x.text == "No history of gout.":
+                gout = Atom(domain="condition", valueset="VS_GOUT", quantifier="any")
+                out.criteria[i] = x.model_copy(update={"class_": "structured", "logic": gout, "flags": []})
+        return out
+
+    monkeypatch.setattr("criteria_compiler.ir_extract.postprocess.negated_presence", lambda *a, **kw: False)
+    monkeypatch.setattr("criteria_compiler.service.postprocess", before_this_card)
+    res = _compile(env, key="attachments/J/neg.json")
+    assert _approve(env, _decisions(env["store"], res.review_xlsx_key)).status == "approved"
+    monkeypatch.undo()
+    repo = env["deps"].repo
+    before = repo.ref("main")
+    hits = scan(repo)
+    cid = next(x.id for x in res.criteria if x.text == "No history of gout.")
+    assert [(h.ruleset, h.version, h.criterion) for h in hits] == [("GZQO", "1.0.0", cid)]
+    assert repo.ref("main") == before  # read-only
+    check = doctor.check_negated_inclusions(doctor.DoctorInputs(env={"TB_RULESETS_DIR": str(repo.path)}))
+    assert check.status == "WARN" and f"GZQO v1.0.0 {cid}" in check.detail
+    none_here = doctor.check_negated_inclusions(doctor.DoctorInputs(env={"TB_RULESETS_DIR": "/nonexistent"}))
+    assert none_here.status == "PASS" and none_here.detail.startswith("NOT CHECKED")
+
+
+def test_the_offline_install_reports_a_negated_inclusion() -> None:
+    """``import_ruleset`` installs the vendor's approved ruleset as it is and reports the ids the rule would hold."""
+    from criteria_compiler.import_ruleset import negated_hits
+    from tb_common.ruleset import SEED_RULESETS
+
+    files = {p.relative_to(SEED_RULESETS / "GZQO").as_posix(): p.read_bytes()
+             for p in (SEED_RULESETS / "GZQO").rglob("*") if p.is_file()}  # fmt: skip
+    assert negated_hits(_zip(files)) == []
+    ir = json.loads(files["ir/GZQO-INC-02.json"])
+    assert ir["kind"] == "inclusion" and ir["class"] == "structured"
+    files["ir/GZQO-INC-02.json"] = json.dumps({**ir, "text": "No history of gout."}).encode()
+    assert negated_hits(_zip(files)) == ["GZQO-INC-02"]
+
+
+def _zip(files: dict[str, bytes]) -> bytes:
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for name, data in files.items():
+            z.writestr(name, data)
+    return buf.getvalue()

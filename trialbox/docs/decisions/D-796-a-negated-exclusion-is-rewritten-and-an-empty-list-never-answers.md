@@ -10,13 +10,16 @@
 Review 15 (finding 2.3.1): "PRIOR CONCURRENT THERAPY: No prior chemotherapy or radiotherapy", an inclusion, compiled
 to "any of chemotherapy", which the patients it should exclude meet; item (1) leaves inclusions alone and nothing else
 compared a coded inclusion with its line. An inclusion (structured or mixed) whose logic asks the presence of a
-concept that a negation in its line governs is flagged `negated_inclusion_presence` and `needs_review` and goes to a
-person; it is not rewritten (a rewrite could be wrong too). "Governs" is read as ConText reads a sentence: a cue
-before the concept's name or a synonym (or after it, for "not allowed", "なし", "未曾…"), in the same clause and within a
-few words; a bound ("no more than 2", "超えない", "無…大於") is not a negation; an atom that compares a value,
-counts or takes the latest result asks a measure, not a presence. A line that never names its concept goes to a
-person when it holds any cue. An approved inclusion an incremental compile reuses gets the same check and the same
-flag, with a warning, so its reviewer sees why it came back. Cue lists:
+concept is flagged `negated_inclusion_presence` and `needs_review` and goes to a person (not rewritten: a rewrite
+could be wrong too) when its line carries any negation cue that is not explained. The rule fails safe: a cue is
+explained only when it is shown to be about something else (a bound such as "no more than 2", "超えない", "無…大於";
+a word the cue negates instead, "not responded", "増悪が認められない"; another concept the line names). The scope
+reading (ConText's) only lets a line run; it never decides that a negated line is safe. An atom that compares a
+value, counts or takes the latest result asks a measure, not a presence, and is never held.
+
+An approved inclusion an incremental compile reuses gets the same check and flag, with a warning. An approved line
+on `main` keeps running until a person recompiles and approves: `make negated-inclusion-scan`
+(`criteria_compiler.negated_inclusions`) and the doctor's `negated_inclusions` (a WARN) list such lines by ruleset,
+version and criterion, and change nothing; the offline install of a ruleset reports its hits. Cue lists:
 `services/criteria_compiler/ir_extract/negation_scope.py` (English adapted from medspaCy's ConText rules, MIT).
-Test: `tests/unit/test_negated_inclusion_never_compiles_as_presence.py` over
-`tests/fixtures/negated_inclusion/lines.json`.
+Test: `tests/unit/test_negated_inclusion_never_compiles_as_presence.py` over `tests/fixtures/negated_inclusion/`.

@@ -483,24 +483,33 @@ def strip_stray(node: Any, text: str = "", kind_: str = "inclusion") -> tuple[An
     return walk(node), sorted(set(flags))
 
 
-def hold_reused_negated(c: CriterionIR, valuesets: dict[str, dict[str, Any]]) -> tuple[CriterionIR, str | None]:
-    """Card 10A-1 for a criterion reused from the approved version (an incremental compile skips ``postprocess``):
-    an inclusion whose line negates what its logic asks the presence of goes to a person, flagged, with a warning.
-    The approved line is never changed silently: its reviewer sees why it came back. ``(criterion, warning)``."""
+def approved_negated(c: CriterionIR, valuesets: dict[str, dict[str, Any]]) -> bool:
+    """Card 10A-1 for a criterion already compiled (an approved ruleset): whether it is an inclusion whose line may
+    negate what its coded logic asks the presence of. The concept's names are its ValueSet's title and its codes'
+    displays (an approved ruleset keeps no concept candidates)."""
     if c.kind != "inclusion" or c.class_ not in FILTERED:
-        return c, None
+        return False
 
     def terms_for(vs: str) -> list[str]:
-        title = (valuesets.get(vs) or {}).get("title")
-        return [str(title)] if title else []
+        v = valuesets.get(vs) or {}
+        shown = [str(x.get("display")) for inc in (v.get("compose") or {}).get("include") or []
+                 for x in inc.get("concept") or [] if x.get("display")]  # fmt: skip
+        return [str(v["title"])] * bool(v.get("title")) + shown
 
-    if not negated_presence(c.text, c.logic, terms_for):
+    return negated_presence(c.text, c.logic, terms_for)
+
+
+def hold_reused_negated(c: CriterionIR, valuesets: dict[str, dict[str, Any]]) -> tuple[CriterionIR, str | None]:
+    """Card 10A-1 for a criterion reused from the approved version (an incremental compile skips ``postprocess``):
+    an inclusion whose line may negate what its logic asks the presence of goes to a person, flagged, with a warning.
+    The approved line is never changed silently: its reviewer sees why it came back. ``(criterion, warning)``."""
+    if not approved_negated(c, valuesets):
         return c, None
     flags = sorted({*(c.flags or []), "negated_inclusion_presence", "needs_review"})
     held = c.model_copy(update={"class_": "human", "human_question": c.human_question or _question(c.text),
                                 "logic": Atom(domain="demographic", valueset="NONE"), "flags": flags})  # fmt: skip
-    return held, (f"{c.id}: approved before, but its line negates what its logic asks the presence of; kept for a "
-                  "person to check")  # fmt: skip
+    return held, (f"{c.id}: approved before, but its line may negate what its logic asks the presence of; kept for "
+                  "a person to check")  # fmt: skip
 
 
 def demographic_alone(logic: Any) -> bool:
@@ -605,7 +614,10 @@ def postprocess(
         # concept that a negation in its line governs (negation_scope) is never run: a person checks it (rewriting it
         # could be wrong as well). It comes first: a later rule that hands a mixed line to the notes would have a
         # model answer the presence
-        if ir.kind == "inclusion" and ir.class_ in FILTERED and negated_presence(ir.text, ir.logic, terms_for):
+        named_terms = [x for cand in ec.concept_candidates if cand.domain != "demographic"
+                       for x in (cand.name, *(cand.synonyms or []))]  # fmt: skip
+        if ir.kind == "inclusion" and ir.class_ in FILTERED and negated_presence(ir.text, ir.logic, terms_for,
+                                                                                  named_terms):  # fmt: skip
             flags.append("negated_inclusion_presence")
             why = notes_can_decide(ir.kind, ir.text, ir.note_question or "") if ir.class_ == "mixed" else None
             if ir.note_question and why is not None:  # the reviewer sees why the notes cannot decide it either

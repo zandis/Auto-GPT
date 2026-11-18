@@ -1,5 +1,5 @@
 {
- "about": "Card 10A-1: synthetic criterion lines (inclusions) for the negated-inclusion rule. Each row's logic is built by the test: 'presence' is any-of the concept, 'value' is the latest value of an observation within a bound. 'expect' is 'held' (a person checks it) or 'runs' (the coded logic runs). 'source': p2b (review 15's two lines, public protocol text), card-v1 (this card's first table), review-1 (an adversarial review of the first version), review-j (lane J's review). Written for the test; no patient data.",
+ "about": "Card 10A-1: synthetic criterion lines (inclusions) for the negated-inclusion rule. Each row's logic is built by the test: 'presence' is any-of the concept, 'value' is the latest value of an observation within a bound. 'expect' is 'held' (a person checks it) or 'runs' (the coded logic runs). 'source': p2b (review 15's two lines, public protocol text), card-v1 (this card's first table), review-1 (an adversarial review of the first version), review-j (lane J's review). Written for the test; no patient data. 'over_held' marks a row whose ideal is 'runs' but which the fail-safe holds today (a cue governs something the line does not name as a concept): counted, not hidden.",
  "rows": [
   {
    "lang": "en",
@@ -1311,7 +1311,8 @@
    "domain": "condition",
    "logic": "presence",
    "expect": "runs",
-   "source": "card-v1"
+   "source": "card-v1",
+   "over_held": "the fail-safe holds it: a cue in the line governs a word that is not a named concept"
   },
   {
    "lang": "en",
@@ -1379,7 +1380,8 @@
    "domain": "condition",
    "logic": "presence",
    "expect": "runs",
-   "source": "card-v1"
+   "source": "card-v1",
+   "over_held": "the fail-safe holds it: a cue in the line governs a word that is not a named concept"
   },
   {
    "lang": "en",
@@ -1425,7 +1427,8 @@
    "domain": "procedure",
    "logic": "presence",
    "expect": "runs",
-   "source": "card-v1"
+   "source": "card-v1",
+   "over_held": "the fail-safe holds it: a cue in the line governs a word that is not a named concept"
   },
   {
    "lang": "zh",
@@ -1711,7 +1714,8 @@
    "domain": "condition",
    "logic": "presence",
    "expect": "runs",
-   "source": "fresh"
+   "source": "fresh",
+   "over_held": "the fail-safe holds it: a cue in the line governs a word that is not a named concept"
   },
   {
    "lang": "en",
@@ -1721,7 +1725,8 @@
    "domain": "condition",
    "logic": "presence",
    "expect": "runs",
-   "source": "fresh"
+   "source": "fresh",
+   "over_held": "the fail-safe holds it: a cue in the line governs a word that is not a named concept"
   },
   {
    "lang": "en",
@@ -1761,7 +1766,8 @@
    "domain": "condition",
    "logic": "presence",
    "expect": "runs",
-   "source": "fresh"
+   "source": "fresh",
+   "over_held": "the fail-safe holds it: a cue in the line governs a word that is not a named concept"
   },
   {
    "lang": "ja",
@@ -1773,7 +1779,8 @@
    "domain": "condition",
    "logic": "presence",
    "expect": "runs",
-   "source": "fresh"
+   "source": "fresh",
+   "over_held": "the fail-safe holds it: a cue in the line governs a word that is not a named concept"
   },
   {
    "lang": "ja",
@@ -1809,7 +1816,8 @@
    "domain": "condition",
    "logic": "presence",
    "expect": "runs",
-   "source": "fresh"
+   "source": "fresh",
+   "over_held": "the fail-safe holds it: a cue in the line governs a word that is not a named concept"
   },
   {
    "lang": "zh",
