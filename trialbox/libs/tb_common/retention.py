@@ -78,6 +78,25 @@ def defaults_for(country: str, overrides: dict[str, object] | None = None) -> di
     return out
 
 
+def site_own(overrides: dict[str, object] | None) -> dict[str, int]:
+    """10K-1: the retention block of a site whose country has no rules here (neither ``jp`` nor ``tw``): each of
+    :data:`OVERRIDABLE` must be given by the site; the rest (snapshots, the pool, the audit years) is the box's own
+    and the same in both rule sets. Raises ``ValueError`` naming the days not given."""
+    missing = [k for k in OVERRIDABLE if (overrides or {}).get(k) in (None, "")]
+    if missing:
+        raise ValueError(
+            "no retention rules for this country in TrialBox (only jp and tw): answer retention_rules, or give "
+            + ", ".join(missing)
+        )
+    out = dict(_COMMON)
+    for k in OVERRIDABLE:
+        n = int(str((overrides or {})[k]))
+        if n < 1:
+            raise ValueError(f"{k} must be at least 1 day")
+        out[k] = n
+    return out
+
+
 def snapshots_to_keep(
     snapshots: Iterable[str],
     today: date,

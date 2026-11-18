@@ -22,7 +22,8 @@ from enum import StrEnum
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from tb_common import chartno
+from tb_common import chartno, site_country
+from tb_common.retention import OVERRIDABLE
 
 LANGUAGES = ("en", "ja", "zh-TW")  # the console's three catalogues
 
@@ -33,7 +34,8 @@ class SourceKind(StrEnum):
     RESEARCH_DB = "research_db"  # the hospital's research database (CGRD) by a read connection, approved scope
     REDCAP = "redcap"  # a REDCap project, read
     OWN_DB = "own_db"  # the team's own patient database, read-only connection
-    EMR_FEED = "emr_feed"  # the EMR or hospital feed (HIS export, SS-MIX2) for site activation
+    EMR_FEED = "emr_feed"  # the EMR or hospital feed (an HIS export) for site activation
+    SSMIX2 = "ssmix2"  # 10K-1: the chart system's SS-MIX2 storage, read-only, read by the adapter's ssmix2 reader
     SPREADSHEET = "spreadsheet"  # spreadsheets and CSV files a person uploads
     LATER = "later"  # set up later, on the box (T-731's mapping step)
 
@@ -49,6 +51,7 @@ _SHARE = re.compile(r"^(?:(?:\\\\|//)[A-Za-z0-9._-]+[\\/][^\s\\/][^\s]*|[A-Za-z0
 _DISK = re.compile(r"^/dev/[A-Za-z0-9/_-]+$")  # a device the installer listed (never typed: chosen from a list)
 _USER = re.compile(r"^[a-z0-9._-]{1,26}$")  # console.auth.check_username, leaving room for "-admin"
 _MAIL = re.compile(r"^[^@\s]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
+_ROOT_DIR = re.compile(r"^/[A-Za-z0-9._/-]*$")  # a host folder as deploy/.env and compose take it: no space, no quote
 _BOXNAME = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$")
 ADMIN_SUFFIX = "-admin"
 
@@ -94,6 +97,14 @@ class OwnerAnswers:
     # D-825 (the owner's blocker 9): the authserv-id the hospital MTA writes first in Authentication-Results; empty:
     # no sender can be authenticated and the box refuses every request mail (D-369, fails closed)
     mta_authserv_id: str = ""
+    # 10K-1: the site's country (tb_common.site_country.COUNTRIES); empty: not asked (the page's flag is off, or an
+    # answers file from before), and the box's settings follow the zone as before
+    country: str = ""
+    # 10K-1: an SS-MIX2 source: the storage's root folder on the box (mounted read-only) and its order-number key
+    ssmix2_root: str = ""
+    ssmix2_order_numbers: str = ""
+    # 10K-1: the retention days, asked only for a country with no retention rules in TrialBox (tb_common.retention)
+    retention_days: tuple[tuple[str, int], ...] = ()
 
     @property
     def hostname(self) -> str:
@@ -103,6 +114,7 @@ class OwnerAnswers:
         d = asdict(self)
         d["backup"]["kind"] = self.backup.kind.value
         d["source"] = self.source.value
+        d["retention_days"] = dict(self.retention_days)
         return d
 
 
@@ -172,6 +184,29 @@ def parse(raw: dict[str, Any], *, disks: tuple[str, ...] = ()) -> tuple[OwnerAns
     authserv = _s(raw.get("mta_authserv_id"), 253).lower()
     if authserv and not _HOST.fullmatch(authserv):
         problems.append(Problem("mta_authserv_id", "mta_authserv_id"))
+    country = _s(raw.get("country"), 8).lower()
+    cd = site_country.LEGACY
+    try:
+        cd = site_country.defaults(country)
+    except ValueError:
+        problems.append(Problem("country", "country"))
+    ss_root, ss_order = "", ""
+    if source is SourceKind.SSMIX2:
+        ss_root = _s(raw.get("ssmix2_root"), 255)
+        if not _ROOT_DIR.fullmatch(ss_root) or ss_root == "/" or "/../" in f"{ss_root}/":
+            problems.append(Problem("ssmix2_root", "ssmix2_root"))
+        ss_order = _s(raw.get("ssmix2_order_numbers"), 16) or "unique"
+        if ss_order not in site_country.SSMIX2_ORDER_NUMBERS:
+            problems.append(Problem("ssmix2_order_numbers", "ssmix2_order_numbers"))
+    days: list[tuple[str, int]] = []
+    if country and cd.retention_rules is None:  # no rules here for this country: the site gives the days
+        given = raw["retention_days"] if isinstance(raw.get("retention_days"), dict) else raw
+        for k in OVERRIDABLE:
+            text = _s(given.get(k), 6)
+            if not (text.isascii() and text.isdigit() and int(text) >= 1):
+                problems.append(Problem(k, "retention_days"))
+            else:
+                days.append((k, int(text)))
     if problems or kind is None or rule is None:
         return None, problems
     backup = Backup(kind, disk if kind is BackupKind.SECOND_DISK else "", share if kind is BackupKind.SHARE else "")
@@ -187,6 +222,10 @@ def parse(raw: dict[str, Any], *, disks: tuple[str, ...] = ()) -> tuple[OwnerAns
             rule,
             environment,
             authserv,
+            country,
+            ss_root,
+            ss_order,
+            tuple(days),
         ),
         [],
     )

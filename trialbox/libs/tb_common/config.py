@@ -627,6 +627,9 @@ DECLARED: dict[str, Declared] = {
     "TB_FHIR_URL": Declared("str", "", "testbench: FHIR store URL"),
     "TB_FHIR_WORKERS": Declared("int", "8", "compiler: parallel FHIR evaluations"),
     "TB_FIRSTRUN_DIR": Declared("path", "", "console: the box's first-run folder (tmpfs; T-729, D-466)"),
+    "TB_FIRSTRUN_COUNTRY": Declared(
+        "bool", "", "console: the box's first-run page asks the site's country first (10K-1); off by default"
+    ),
     "TB_FONTS_DIR": Declared("path", "", "report fonts folder"),
     # master has no real RA or early-AD protocol; the owner puts two public ones here before a G-8 launch
     "TB_G8_PROTOCOLS_DIR": Declared(

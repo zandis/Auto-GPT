@@ -25,7 +25,7 @@ import hashlib
 import hmac
 import secrets
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -35,8 +35,9 @@ from zoneinfo import available_timezones
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from tb_common import box_answers, chartno, firstrun
+from tb_common import box_answers, chartno, firstrun, site_country
 from tb_common.audit import AuditLog
+from tb_common.retention import OVERRIDABLE
 
 from console import totp
 from console.auth import AuthError, PasswordRejected, UserStore, check_password_policy
@@ -50,6 +51,30 @@ COOKIE = "tb_firstrun"
 # the answers take a while to collect; long enough to read every question, short enough that a forgotten page dies
 FORM_TTL = timedelta(minutes=30)
 PATH = "/login/first-run"
+COUNTRY_FLAG = "TB_FIRSTRUN_COUNTRY"  # 10K-1: the country asked first; off by default (what an installer sees first)
+
+
+def country_on(env: Mapping[str, str]) -> bool:
+    """10K-1: the page asks the site's country first (``TB_FIRSTRUN_COUNTRY``); off unless set."""
+    return (env.get(COUNTRY_FLAG) or "").strip().lower() in ("1", "true", "on", "yes")
+
+
+def country_values(country: str, hw: dict[str, Any]) -> dict[str, str]:
+    """10K-1: the form's first values for a chosen country, from ``tb_common.site_country.TABLE`` only: its zone (else
+    the box's own clock zone, as without a country), its report language, and SS-MIX2 as the source where the
+    country's shipped mapping reads it. A country the table does not know gives no values."""
+    try:
+        cd = site_country.defaults(country)
+    except ValueError:
+        return {}
+    out = {"country": cd.country, "tz": cd.tz or str(hw.get("host_tz", ""))}
+    if cd.locale:
+        out["language"] = cd.locale
+    if cd.data_source_type == "ssmix2":
+        out["source"] = box_answers.SourceKind.SSMIX2.value
+    return out
+
+
 TIMEZONES = tuple(sorted(z for z in available_timezones() if "/" in z and not z.startswith(("Etc/", "SystemV/"))))
 
 
@@ -96,6 +121,7 @@ class FirstRunHooks:
     seal: Callable[[str, str], str]  # the console's TOTP SecretBox: (username, secret) -> sealed
     secure: bool
     folder: Path | None
+    country: bool = False  # 10K-1: the country asked first (country_on); off by default
 
 
 def _sha(text: str) -> str:
@@ -132,6 +158,12 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
     def form(request: Request, folder: Path, state: dict[str, Any], status: int = 200, **ctx: Any) -> Response:
         hw = hardware(folder)
         values = ctx.pop("values", {}) or {"tz": hw.get("host_tz", ""), "box_name": hw.get("hostname", "trialbox")}
+        asks_country = h.country
+        country = str(values.get("country") or "") if asks_country else ""
+        try:
+            cd = site_country.defaults(country)
+        except ValueError:
+            cd, country = site_country.LEGACY, ""
         secret = str(state["secret"])
         user = str(values.get("owner_username") or "owner")
         held = box_holds_patients()
@@ -141,7 +173,9 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
             errors=ctx.pop("errors", {}), key=totp.grouped(secret), link=totp.otpauth_uri(secret, user),
             disks=hw.get("disks") or [], tpm=bool(hw.get("tpm")), timezones=TIMEZONES,
             sources=[k.value for k in box_answers.SourceKind], languages=box_answers.LANGUAGES,
-            steward=user, admin=user + box_answers.ADMIN_SUFFIX, **ctx,
+            steward=user, admin=user + box_answers.ADMIN_SUFFIX, ask_country=asks_country, country=country,
+            countries=site_country.COUNTRIES, ss_orders=site_country.SSMIX2_ORDER_NUMBERS,
+            ask_retention=bool(country) and cd.retention_rules is None, retention_keys=OVERRIDABLE, **ctx,
         )  # fmt: skip
 
     @app.get(PATH)
@@ -177,12 +211,20 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
         state = pending(request, folder)
         if state is None:
             return RedirectResponse(PATH, status_code=303)
+        chosen = request.query_params.get("country", "")
+        if h.country and chosen:  # 10K-1: the first question; the page comes back with its defaults filled in
+            hw = hardware(folder)
+            values = {"box_name": hw.get("hostname", "trialbox"), **country_values(chosen, hw)}
+            return form(request, folder, state, values=values)
         return form(request, folder, state)
 
     @app.post(f"{PATH}/answers")
     async def first_run_submit(request: Request) -> Response:
         data = {k: str(v)[:512] for k, v in (await request.form()).items() if isinstance(v, str)}
         lang(request, data.get("lang", ""))
+        if not h.country:  # 10K-1: asked only behind the flag; a posted answer makes nothing then
+            for k in ("country", *OVERRIDABLE):
+                data.pop(k, None)
         folder = gate()
         state = pending(request, folder)
         if state is None or not hmac.compare_digest(str(state["csrf"]), data.get("fr_csrf", "")):

@@ -141,8 +141,11 @@ def test_the_kek_follows_the_tpm_and_the_firewall_the_boxs_network() -> None:
 
 @pytest.mark.parametrize("kind", list(SourceKind))
 def test_every_data_source_kind_builds(kind: SourceKind, tmp_path: Path) -> None:
-    settings, _, _ = _build(bp.plan(_answers(source=kind.value), _hw()), tmp_path)
-    want = "cgrd_sql" if kind in (SourceKind.RESEARCH_DB, SourceKind.OWN_DB) else "csv"
+    extra = {"ssmix2_root": "/mnt/ssmix2"} if kind is SourceKind.SSMIX2 else {}  # 10K-1: its one question
+    settings, _, _ = _build(bp.plan(_answers(source=kind.value, **extra), _hw()), tmp_path)
+    want = {SourceKind.RESEARCH_DB: "cgrd_sql", SourceKind.OWN_DB: "cgrd_sql", SourceKind.SSMIX2: "ssmix2"}.get(
+        kind, "csv"
+    )
     assert settings["data_source"]["type"] == want and settings["data_source"]["mapping"] == bp.BOX_MAPPING
 
 

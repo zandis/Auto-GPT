@@ -35,6 +35,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 for _p in ("libs", "services"):
     sys.path.insert(0, str(ROOT / _p))
+from tb_common import site_country  # noqa: E402 - libs is on the path only from here
 
 EXAMPLE = ROOT / "deploy" / "settings.example.yaml"
 MAPPING_ROOT = ROOT / "services" / "adapter"
@@ -46,13 +47,17 @@ MAILBOX_RE = (
     r"@[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+"  # every label non-empty
 )
 TLS_MODES = ("hospital", "internal")  # OPS-060: the hospital certificate is the first choice
+DATA_SOURCES = ("csv", "cgrd_sql", "fhir_bulk", "ssmix2")  # schemas/settings.schema.json data_source.type
 
-# key, question, default (None = from the example settings), kind
+# key, question, default (None = from the example settings), kind. 10K-1: the first question is the site's country;
+# the defaults of the keys in COUNTRY_KEYS then come from tb_common.site_country.TABLE, and the TWPAS questions are
+# asked only where that table lists them (a Taiwan site)
 QUESTIONS: list[tuple[str, str, Any, str]] = [
+    ("country", "Country or region (jp | tw | us | other)", "", "country"),
     ("site_id", "Site id (short, upper case)", None, "str"),
     ("site_name", "Site name", None, "str"),
     ("tz", "Time zone (IANA, e.g. Asia/Tokyo; the mapping's tz)", "", "str"),  # no default zone (D-315)
-    ("locale", "Report language (zh-TW | ja)", "zh-TW", "str"),
+    ("locale", "Report language (en | ja | zh-TW)", "zh-TW", "str"),
     ("contact", "Box contact e-mail (operations)", None, "str"),
     ("internal_domains", "Internal mail domains (comma separated)", None, "list"),
     ("intake_address", "Intake mailbox address of the box", None, "str"),
@@ -60,10 +65,27 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("physicians", "Physicians allowed to SUBMIT (comma separated)", None, "list"),
     ("reviewers", "Ruleset reviewers / approvers (comma separated)", None, "list"),
     ("alliance_sites", "Alliance member boxes (comma separated, may be empty)", [], "list"),
-    ("data_source_type", "HIS source type (csv | cgrd_sql | fhir_bulk)", "csv", "str"),
-    ("data_source_path", "Source directory as the adapter sees it (csv / fhir_bulk)", "/data/source/site", "str"),
-    # T-632 (OPS-011): the host folder the nightly export lands in; compose mounts it at data_source_path
-    ("data_source_host_dir", "Feed folder on this host (relative = under deploy/)", "./site/feed", "str"),
+    ("data_source_type", "HIS source type (csv | cgrd_sql | fhir_bulk | ssmix2)", "csv", "str"),
+    (
+        "data_source_path",
+        "Source directory as the adapter sees it (csv / fhir_bulk / ssmix2)",
+        "/data/source/site",
+        "str",
+    ),
+    # T-632 (OPS-011): the host folder the nightly export lands in; compose mounts it at data_source_path, read-only
+    (
+        "data_source_host_dir",
+        "Feed folder on this host (relative = under deploy/; SS-MIX2: the storage's root folder, mounted read-only)",
+        "./site/feed",
+        "str",
+    ),
+    # D-594: asked for an SS-MIX2 source only (the reader's TB_SSMIX2_ORDER_NUMBERS)
+    (
+        "ssmix2_order_numbers",
+        "SS-MIX2 order numbers (unique | per_day = the same order number comes back on another day)",
+        "unique",
+        "str",
+    ),
     ("data_source_dsn_env", "Env var holding the SQL DSN (cgrd_sql) or empty", "", "str"),
     ("mapping", "Mapping YAML (in deploy/site/mapping, else the shipped ones)", "mapping/tw_core/demo_his.yaml", "str"),
     ("mrn_regex", "MRN pattern (regular expression)", r"^\d{8}$", "str"),
@@ -109,9 +131,17 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("tls_cert_file", "Hospital certificate and chain, PEM (hospital mode)", "", "str"),
     ("tls_key_file", "Its key, PEM (hospital mode)", "", "str"),
     # D-138: log retention per country (tb_common.retention.DEFAULTS); "" = from the report language (ja -> jp)
-    ("retention_rules", "Retention defaults (jp | tw; empty = from the report language)", "", "str"),
+    (
+        "retention_rules",
+        "Retention defaults (jp | tw; empty = the country's, else from the report language)",
+        "",
+        "str",
+    ),
     ("logs_days", "Days to keep service logs (empty = the default of those rules)", "", "str"),
     ("mail_log_days", "Days to keep the mail logs (empty = the default of those rules)", "", "str"),
+    # 10K-1: asked only when the site's country has no retention rules in TrialBox (no default then)
+    ("outputs_days", "Days to keep job outputs", "", "str"),
+    ("attachments_days", "Days to keep inbound attachments", "", "str"),
     # D-140 (owner, 2026-11-09): ClinicalTrials.gov offline (the data pack of each update) unless the hospital says live
     ("ctgov_mode", "ClinicalTrials.gov (offline | live)", "offline", "ctgov"),
 ]
@@ -196,20 +226,60 @@ def defaults() -> dict[str, Any]:
     }
 
 
+# 10K-1: the questions whose default is the country's (tb_common.site_country.TABLE), and the table's field for each
+COUNTRY_KEYS = {
+    "locale": "locale",
+    "tz": "tz",
+    "data_source_type": "data_source_type",
+    "mapping": "mapping",
+    "retention_rules": "retention_rules",
+}
+NO_DEFAULT = "no default for this country: please answer"
+NO_RULES_DAYS = ("outputs_days", "attachments_days")  # asked only where the country has no retention rules here
+
+
+def _asked(key: str, cd: site_country.CountryDefaults, out: dict[str, Any]) -> bool:
+    """Whether the interactive wizard asks ``key`` for a site of the country ``cd`` with the answers so far."""
+    if key in site_country.TWPAS_QUESTIONS:
+        return key in cd.insurer_questions
+    if key == "ssmix2_order_numbers":
+        return str(out.get("data_source_type")) == "ssmix2"
+    if key in NO_RULES_DAYS:
+        return cd is not site_country.LEGACY and not cd.retention_rules and not out.get("retention_rules")
+    return True
+
+
 def ask(answers: dict[str, Any], prompt: Callable[[str], str] = input) -> dict[str, Any]:
     base = defaults()
     out: dict[str, Any] = {}
+    cd = site_country.LEGACY
     preset = os.environ.get("TB_CTGOV_MODE", "").strip().lower()  # install.sh --ctgov: already answered
     for key, question, default, kind in QUESTIONS:
+        if kind == "country":
+            print("\n".join(site_country.QUESTION[lang] for lang in ("en", "ja", "zh-TW")))
+            for _ in range(5):  # no default: the answer decides every default after it (10K-1)
+                reply = prompt(f"{question}: ").strip().lower()
+                if reply in site_country.COUNTRIES:
+                    break
+            else:
+                raise WizardError(f"country: one of {', '.join(site_country.COUNTRIES)}")
+            out[key], cd = reply, site_country.defaults(reply)
+            continue
+        if not _asked(key, cd, out):
+            continue
         if kind == "ctgov":
             if preset in CTGOV_MODES:
                 out[key] = preset
                 continue
             print("\n".join(CTGOV_QUESTION[lang] for lang in ("en", "ja", "zh-TW")))
         d = default if default is not None else base.get(key, "")
+        if key in COUNTRY_KEYS and cd is not site_country.LEGACY:
+            d = getattr(cd, COUNTRY_KEYS[key]) or ""
         shown = ", ".join(d) if isinstance(d, list) else d
         if isinstance(d, dict):
             shown = ", ".join(f"{k}=…" for k in d)
+        if key in COUNTRY_KEYS and not d and cd is not site_country.LEGACY and key != "retention_rules":
+            shown = NO_DEFAULT
         reply = prompt(f"{question} [{shown}]: ").strip()
         out[key] = reply if reply else d
     out.update(answers)
@@ -323,10 +393,24 @@ def build(
     def get(k: str) -> Any:
         return a.get(k, base.get(k))
 
-    domains = _split(get("internal_domains"))
-    senders, physicians, reviewers = _split(get("senders")), _split(get("physicians")), _split(get("reviewers"))
     errors: list[str] = []
     warnings: list[str] = []
+    # 10K-1: the site's country decides the defaults below (tb_common.site_country.TABLE); with no country the
+    # answers read exactly as before (site_country.LEGACY, and the code paths marked "legacy")
+    try:
+        cd = site_country.defaults(a.get("country"))
+    except ValueError as exc:
+        errors.append(str(exc))
+        cd = site_country.LEGACY
+    legacy = cd is site_country.LEGACY
+
+    def by_country(k: str) -> Any:
+        """The answer, else the country's value; None when neither exists (the caller reports it)."""
+        v = a.get(k)
+        return v if v not in (None, "") else getattr(cd, k)
+
+    domains = _split(get("internal_domains"))
+    senders, physicians, reviewers = _split(get("senders")), _split(get("physicians")), _split(get("reviewers"))
     if not domains:
         errors.append("at least one internal mail domain is required")
     for who in senders + physicians + reviewers:
@@ -352,21 +436,49 @@ def build(
     for pid, p in prac.items():
         if p.get("department") and p["department"] not in depts:
             errors.append(f"practitioner {pid}: department {p['department']!r} is not in departments")
-    mapping = str(get("mapping") or "mapping/tw_core/demo_his.yaml")
+    if legacy:
+        mapping = str(get("mapping") or "mapping/tw_core/demo_his.yaml")
+    else:
+        mapping = str(by_country("mapping") or "")
+        if not mapping:
+            errors.append(f"mapping is required: TrialBox ships no mapping for country {cd.country}")
     mapping_file = find_mapping(mapping, mapping_dirs)
-    if not mapping_file.is_file():
+    if mapping and not mapping_file.is_file():
         errors.append(
             f"mapping file {mapping} not found in the site mapping folder (deploy/site/mapping) or the image "
             "(copy a template from services/adapter/mapping/templates into deploy/site/mapping)"
         )
-    tz = str(a.get("tz") or "").strip()  # the site's zone: one answer, no default (D-315)
+    # the site's zone: one answer, no code default (D-315); a country with one zone gives it (10K-1)
+    tz = str((a.get("tz") if legacy else by_country("tz")) or "").strip()
     errors += _zone_errors(tz, mapping_file)
-    ds_type = str(get("data_source_type"))
+    if legacy:
+        ds_type = str(get("data_source_type"))
+    else:
+        ds_type = str(by_country("data_source_type") or "")
+        if not ds_type:
+            errors.append(f"data_source_type is required: no default for country {cd.country}")
+    if ds_type and ds_type not in DATA_SOURCES:
+        errors.append(f"data_source_type must be one of {' | '.join(DATA_SOURCES)}, not {ds_type!r}")
     data_source: dict[str, Any] = {"type": ds_type, "mapping": mapping, "nightly_at": "02:00"}
+    ssmix2_env: dict[str, str] = {}
     if ds_type == "cgrd_sql":
         if not get("data_source_dsn_env"):
             errors.append("cgrd_sql needs data_source_dsn_env (the env var holding the DSN)")
         data_source["dsn_env"] = str(get("data_source_dsn_env"))
+    elif ds_type == "ssmix2":
+        # the storage's root folder on the host (TB_SOURCE_DIR), mounted read-only at data_source_path (compose)
+        data_source["path"] = str(a.get("data_source_path") or "/data/source/site")
+        # D-594's key; written only when answered (no answer: the reader's own default, unique, as before 10K-1)
+        order = str(a.get("ssmix2_order_numbers") or "").strip()
+        if order and order not in site_country.SSMIX2_ORDER_NUMBERS:
+            errors.append(f"ssmix2_order_numbers must be unique or per_day, not {order!r} (D-594)")
+        elif order:
+            ssmix2_env["TB_SSMIX2_ORDER_NUMBERS"] = order
+        if not legacy and not str(a.get("data_source_host_dir") or "").strip():
+            warnings.append(
+                "ssmix2 without data_source_host_dir: answer the SS-MIX2 storage's root folder on this host (read "
+                "only); ./site/feed is used until then"
+            )
     else:
         data_source["path"] = str(get("data_source_path"))
     reg_type = str(a.get("registry_type", "none"))
@@ -425,17 +537,28 @@ def build(
         warnings.append("sae_office_mailbox is empty: nobody is mailed when a serious adverse event is entered; a "
                         "PRODUCTION install stops without it (D-736)")  # fmt: skip
     twpas = _bool(a.get("twpas_enabled", "no"))
-    if twpas and not a.get("twpas_org_id"):
+    if twpas and "twpas_enabled" not in cd.insurer_questions:
+        errors.append(f"TWPAS is Taiwan's National Health Insurance: not offered for country {cd.country}")
+    elif twpas and not a.get("twpas_org_id"):
         errors.append("TWPAS needs the NHI hospital code (twpas_org_id)")
-    from tb_common.retention import defaults_for
+    if legacy:
+        locale = str(a.get("locale", "zh-TW"))
+    else:
+        locale = str(by_country("locale") or "")
+        if not locale:
+            errors.append(f"locale is required: no report language default for country {cd.country}")
+    from tb_common.retention import defaults_for, site_own
 
-    rules = str(a.get("retention_rules") or "").strip().lower() or (
-        "jp" if str(a.get("locale", "zh-TW")).startswith("ja") else "tw"
-    )
+    days = {k: a.get(k) for k in ("logs_days", "mail_log_days", "outputs_days", "attachments_days")}
+    if legacy:
+        rules = str(a.get("retention_rules") or "").strip().lower() or (
+            "jp" if str(a.get("locale", "zh-TW")).startswith("ja") else "tw"
+        )
+    else:
+        rules = str(by_country("retention_rules") or "").strip().lower()
     retention: dict[str, int] = {}
     try:
-        retention = defaults_for(rules, {k: a.get(k) for k in ("logs_days", "mail_log_days", "outputs_days",
-                                                               "attachments_days")})  # fmt: skip
+        retention = defaults_for(rules, days) if rules else site_own(days)
     except ValueError as exc:
         errors.append(str(exc))
     extra = env_extra(a.get("env_extra"), errors)
@@ -447,7 +570,7 @@ def build(
             "id": site_id,
             "name": str(get("site_name")),
             "tz": tz,
-            "locale": str(a.get("locale", "zh-TW")),
+            "locale": locale,
             "contact": str(get("contact")),
         },
         "internal_domains": domains,
@@ -552,6 +675,7 @@ def build(
     env["TB_SOURCE_DIR"] = str(a.get("data_source_host_dir") or "./site/feed")
     env["TB_SOURCE_MOUNT"] = str(data_source.get("path") or "/data/source/site")
     env.update(tls_env)
+    env.update(ssmix2_env)
     if sae_to:
         env["TB_SAE_OFFICE_MAILBOX"] = sae_to
     env.update(extra)
