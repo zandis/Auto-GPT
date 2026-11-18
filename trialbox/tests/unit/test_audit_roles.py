@@ -84,9 +84,8 @@ def _closure(service: str, mods: dict[str, Path]) -> set[str]:
 def test_the_closure_follows_what_a_process_runs() -> None:
     mods = _modules()
     console = _closure("console", mods)
-    # a module the console's own page imports inside a function is the console's (D-1221: the registry page no
-    # longer imports orchestrator.candidates; the language guess of the command field is such an import)
-    assert "channels.native.engine" in console
+    # a store the console's own page opens inside a function is the console's
+    assert "orchestrator.candidates" in console
     # NEW-ARCH-3 slice 2 (D-865): the clinical conflicts are the orchestrator's; the console imports none of them
     assert "omop.conflicts" not in console
     # NEW-ARCH-3 (D-761): the night's data operations are the orchestrator's; the console imports none of them

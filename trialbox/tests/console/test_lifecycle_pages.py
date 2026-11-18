@@ -99,11 +99,11 @@ def test_lifecycle_path_on_the_console(lb: dict[str, Any]) -> None:
                                                       follow_redirects=True).text  # fmt: skip
     page = c.get("/studies/GZQO/subjects").text
     assert f'data-testid="subject-{no}"' in page and f'data-testid="subject-{other}"' in page
-    assert re.search(r'data-testid="count-listed"[^>]*><b>2</b>', page)  # D-1221: "On the list"
+    assert re.search(r'data-testid="count-candidate">.*?<b>2</b>', page, re.S)
     # an illegal step: refused with a plain reason, nothing changed
     r = c.post(f"/studies/GZQO/subjects/{no}/step", data={"csrf": csrf, "to": "enrolled"})
     assert r.status_code == 409 and 'data-testid="life-refused"' in r.text
-    assert "Enrolled cannot follow On the list. Possible next steps: Contacted, Screen failure." in r.text
+    assert "Enrolled cannot follow Candidate. Possible next steps: Approached, Screen failure." in r.text
     r = c.post(f"/studies/GZQO/subjects/{other}/step", data={"csrf": csrf, "to": "screen_fail"})
     assert r.status_code == 409 and "choose a reason" in r.text
     r = c.post(f"/studies/GZQO/subjects/{other}/step",
@@ -180,8 +180,7 @@ def test_api_v1_refusal_in_the_accounts_language_and_roles(lb: dict[str, Any]) -
     d = r.json()["detail"]
     assert (
         d["why"] == "order"
-        and d["message"]
-        == "「リスト掲載」の次に「試験終了」は来ません。次に来られる段階：連絡済み, スクリーニング不適格。"
+        and d["message"] == "「候補」の次に「試験終了」は来ません。次に来られる段階：声かけ済み, スクリーニング不適格。"
     )
     r = c.post(f"/api/v1/studies/GZQO/subjects/{no}/step", json={"to": "approached", "on_day": "2026-11-02"})
     assert r.status_code == 200 and r.json()["subject"]["state"] == "approached"

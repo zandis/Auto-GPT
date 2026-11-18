@@ -1402,39 +1402,35 @@ def test_registry_pages_add_promote_export(box: dict[str, Any]) -> None:
     assert 'data-testid="registry-summary"' in page and "GZQO" in page
     page = c.get("/pilot/registry/GZQO").text
     assert 'data-testid="registry-empty"' in page and 'data-testid="registry-add"' in page
-    # D-1221 (R10): a person by chart number goes on the log "On the list", with the reason; no status is chosen
-    assert 'name="status"' not in page and "<select" not in page.split('data-testid="registry-add"')[0][-900:]
-    # a status sent is refused, never quietly dropped (D-1221)
-    r = c.post("/pilot/registry/GZQO", data={"csrf": csrf, "mrn": "A1001", "status": "enrolled", "reason": "x"})
-    assert r.status_code == 400 and box["backend"].registry == {}
     r = c.post(
         "/pilot/registry/GZQO",
-        data={"csrf": csrf, "mrn": "A1001", "reason": "referred by Dr Lin"},
+        data={"csrf": csrf, "mrn": "A1001", "status": "candidate", "reason": "referred by Dr Lin"},
         follow_redirects=False,
     )
     assert r.status_code == 303
     page = c.get("/pilot/registry/GZQO").text
     assert 'data-testid="registry-rows"' in page and "referred by Dr Lin" in page and "A1001" not in page
     assert 'data-pid="' + "ab" * 16 + '"' in page
-    # no row has a status form any more (the drop-down went with D-1221)
-    assert "<select" not in page.split('data-testid="registry-rows"')[1].split("</table>")[0]
-    assert box["backend"].registry[("GZQO", "ab" * 16)].status == "candidate"
-    # an add never changes a row already on the log: refused with the person's state, nothing written
-    r = c.post("/pilot/registry/GZQO", data={"csrf": csrf, "pid": "ab" * 16, "reason": "called back"})
-    assert r.status_code == 409 and 'data-testid="registry-exists"' in r.text
-    assert box["backend"].registry[("GZQO", "ab" * 16)].reason == "referred by Dr Lin"
+    # the row's own status form offers only recorded transitions
+    assert '<option value="enrolled"' not in page.split('data-pid="')[1]
+    # change the status by pseudonym
+    r = c.post(
+        "/pilot/registry/GZQO",
+        data={"csrf": csrf, "pid": "ab" * 16, "status": "contacted", "reason": ""},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert box["backend"].registry[("GZQO", "ab" * 16)].status == "contacted"
     # a refusal from the orchestrator comes back on the page, not as a crash
-    r = c.post("/pilot/registry/GZQO", data={"csrf": csrf, "mrn": "nope"})
+    r = c.post("/pilot/registry/GZQO", data={"csrf": csrf, "mrn": "nope", "status": "candidate"})
     assert r.status_code == 422 and 'data-testid="registry-error"' in r.text and "chart number" in r.text
     # promote SCREEN candidates
     r = c.post("/pilot/registry/GZQO/promote", data={"csrf": csrf}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"].endswith("?added=2")
     page = c.get(r.headers["location"]).text
     assert 'data-testid="registry-added"' in page and "2 candidates added" in page and "SCREEN run" in page
-    # D-1221: every row in the person's one state; nobody has acted on them yet: on the list (counted nowhere)
-    rows = re.findall(r'<tr data-pid="([0-9a-f]+)".*?data-state="([a-z_]+)"', page, re.S)
-    assert len(rows) == 3 and {s for _, s in rows} == {"listed"}, rows
-    assert "On the list" in page and 'data-testid="registry-counts-none"' in page
+    counts = re.search(r'data-testid="registry-counts">(.*?)</p>', page, re.S)
+    assert counts and "candidate 2" in counts.group(1) and "contacted 1" in counts.group(1)
     # the summary page counts them
     page = c.get("/pilot/registry").text
     assert 'data-testid="registry-summary"' in page
@@ -1447,9 +1443,8 @@ def test_registry_pages_add_promote_export(box: dict[str, Any]) -> None:
     )
     assert c.get("/pilot/registry/BAD").status_code == 400
     events = [e.event for e in read_audit(box["dir"] / "audit")]
-    # an add + a refused add (the orchestrator) + promote + export requested (D-273, before the file is built) + export;
-    # D-1221: the add of a person already on the log is refused before anything is written, as console.refused
-    assert events.count("console.registry") == 5 and events.count("console.refused") >= 1
+    # 2 updates + 1 refused update + promote + export requested (D-273, before the file is built) + export
+    assert events.count("console.registry") == 6
     assert verify(box["dir"] / "audit").ok
 
 
@@ -1499,7 +1494,9 @@ def test_coordinator_requests_and_approves_but_does_not_operate(box: dict[str, A
     )
     assert r.status_code == 303
     assert box["backend"].created[-1].requested_by == "crc1@hospa.test"
-    r = c.post("/pilot/registry/GZQO", data={"csrf": csrf, "mrn": "A1001"}, follow_redirects=False)
+    r = c.post(
+        "/pilot/registry/GZQO", data={"csrf": csrf, "mrn": "A1001", "status": "candidate"}, follow_redirects=False
+    )
     assert r.status_code == 303
     assert c.post("/ops/ingest", data={"csrf": csrf}).status_code == 403
     assert c.get("/ops/users").status_code == 403

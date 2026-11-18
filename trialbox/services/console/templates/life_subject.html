@@ -2,7 +2,6 @@
 {# TB-PLAN-04 step 5 (D-134): one participant: the state, the next legal steps (a bar of buttons, as the patient
    sheet's mark bar), Undo, every step so far, the visits with their windows, AEs and deviations. #}
 {% from "_life.html" import life_nav, state_pill, vlabel, report_clock with context %}
-{% from "_person.html" import person_pill with context %}
 {% block title %}{{ t('life.subject.title', r=record) }} · {{ rs }}{% endblock %}
 {% macro src(s) %}{% set k = s.split(':') %}{% if k[0] == 'form' %}{{ t('life.source.form', form=k[1]) }}{% else %}{{ t_or('life.source.' + k[0], k[0]) }}{% endif %}{% endmacro %}
 {% block content %}
@@ -20,8 +19,7 @@
 {% if refused %}<p class="error" role="alert" data-testid="life-refused">{{ t('life.step.refused', why=refused) }}</p>{% endif %}
 {% if sub %}
 <section class="card" data-testid="life-now">
-{# D-1221: the participant's one state, as every list names it #}
-<p class="big">{% if person %}{{ person_pill(person, 'life-state') }} <span class="hint">{{ t('life.subject.now', state=t(person.key), day=sub.since) }}</span>{% else %}{{ state_pill(sub.state) }} <span class="hint">{{ t('life.subject.now', state=t('life.state.' + sub.state), day=sub.since) }}</span>{% endif %}</p>
+<p class="big">{{ state_pill(sub.state) }} <span class="hint">{{ t('life.subject.now', state=t('life.state.' + sub.state), day=sub.since) }}</span></p>
 {# T-516 (LIFE-019): consent is never implied by a later form; the participant waits here until the consent form is saved #}
 {% if sub.consent_missing %}<p class="warn" role="alert" data-testid="consent-missing">{{ t('life.alert.consent_missing', form=src(sub.consent_missing)) }}{% if editable %} <a href="/studies/{{ rs }}/entry?record={{ record|urlencode }}&amp;form=tb_consent&amp;back=subject" data-testid="consent-missing-do">{{ t('life.alert.consent_missing.do') }}</a>{% endif %}</p>{% endif %}
 {% include "_consent_record.html" %}
