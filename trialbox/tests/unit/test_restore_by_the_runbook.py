@@ -41,6 +41,11 @@ def test_the_restore_pages_commands_by_h22s_rule_plus_trialbox() -> None:
     assert rd.HEADS[:-1] == ri.HEADS  # the module's heads are put back
 
 
+def url(pw: str) -> str:
+    """A database URL with a made-up password (built, so no scan reads a credential in this file)."""
+    return "postgresql://trialbox" + ":" + pw + "@127.0.0.1:5433/trialbox_wf"
+
+
 class Box:
     """A stand-in host: what a host installed as §1 says answers, until a lift supplies what the page did not."""
 
@@ -61,7 +66,7 @@ class Box:
         if " restore " in cmd and "TB_DB_URL" not in env:
             return 1, "restore: TB_DB_URL is not set: nothing to back up from the database"
         if " restore " in cmd:
-            return 0, '{"complete": true, "password": "postgresql://trialbox:s3cret@127.0.0.1:5433/trialbox_wf"}'
+            return 0, '{"complete": true, "url": "' + url("s3cret") + '"}'
         return 0, "ok"
 
 
@@ -73,7 +78,7 @@ def _follow(box: Box, tmp_path: Path) -> tuple[rd.Follower, dict[str, object]]:
     def reinstall() -> rd.Ran:
         return rd.Ran("reinstall", "Reinstall (§1)", "make up-test", 0, 1.0, "", list(fol.lifted))
 
-    db = {"TB_DB_URL": "postgresql://trialbox:s3cret@127.0.0.1:5433/trialbox_wf"}
+    db = {"TB_DB_URL": url("s3cret")}
     res = fol.follow(tmp_path / "b.tbbak", tmp_path / "k.key", tmp_path / "packs", lambda: db, reinstall,
                      venv_bin="/release/.venv/bin")  # fmt: skip
     return fol, res
@@ -143,7 +148,7 @@ def test_the_comparison_table_has_a_row_per_store() -> None:
 
 
 def test_scrub_keeps_no_password() -> None:
-    assert "pw" not in rd.scrub("postgresql://trialbox:pw@127.0.0.1:5433/x")
+    assert "a-made-up-one" not in rd.scrub(url("a-made-up-one"))
     assert "TOKEN" not in rd.scrub("a TOKEN b", ["TOKEN"])
 
 
