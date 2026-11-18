@@ -341,7 +341,8 @@ def memory_caps(ram_gib: float, profile: str, deploy: Path = DEPLOY) -> tuple[di
     if profile == "gb10":
         return {}, []
     files = [deploy / "docker-compose.yml", deploy / "docker-compose.identity.yml"]
-    overlay = {"rtxpro6000": "rtxpro6000", "rtx5090": "rtx5090", "rtx4090": "rtx5090"}.get(profile)
+    # dgpu48: the UNMEASURED 48 GB draft (card 24-5): arithmetic only, never detected, refused by install.sh
+    overlay = {"rtxpro6000": "rtxpro6000", "rtx5090": "rtx5090", "rtx4090": "rtx5090", "dgpu48": "dgpu48"}.get(profile)
     if overlay:
         files.append(deploy / f"docker-compose.{overlay}.yml")
     var, fixed = compose_caps(files)

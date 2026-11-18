@@ -43,19 +43,28 @@ Start: `deploy/poc.sh` (it keeps the passwords and the data). Stop: `deploy/poc.
 The builder container of step 7 runs as root and leaves root-owned files under `.cache` in the checkout. They do no
 harm; to delete the checkout later, use `sudo rm -rf Auto-GPT`.
 
+## Optional: the real embedder (stub judge, real embedder)
+
+The stub answers every note question; the **embedder**, the model that finds the note sentences a question is about,
+can be the real one (build `e-embed-1` of `models/registry.yaml`), on the processor, beside the stub judge. It needs
+about 2.3 GB of weights, about 2 GB more for its image, about 3.5 GB of memory, and 30 to 60 minutes (card 24-7).
+Not verified on any Arm machine. Page 29 (step 4) runs it after the engine probe.
+
+| # | Step | Type or click | You should see | If not |
+| --- | --- | --- | --- | --- |
+| E1 | A tool to download | `python3 -m venv ~/hf && ~/hf/bin/pip install -U huggingface_hub` | no error | send the last lines |
+| E2 | The source and revision the release pins (read from the registry, so nothing is typed by hand) | `REPO=$(python3 -c "import yaml; print(next(b['repository'] for b in yaml.safe_load(open('models/registry.yaml'))['builds'] if b['build_id'] == 'e-embed-1'))")`; `REV=$(python3 -c "import yaml; print(next(b['revision'] for b in yaml.safe_load(open('models/registry.yaml'))['builds'] if b['build_id'] == 'e-embed-1'))")`; `echo $REPO $REV` | a repository name and `7b44caba5c06fd6f1ef1d2786261e636c38e4295` | send it |
+| E3 | Download into a folder of its own, without the three pickle files | `~/hf/bin/hf download "$REPO" --revision "$REV" --local-dir deploy/models/embedder.download --exclude pytorch_model.bin colbert_linear.pt sparse_linear.pt`; then `rm -rf deploy/models/embedder.download/.cache` | the files arrive (2.3 GB) | a network error: run it again (it continues) |
+| E4 | Check it is the pinned build before it goes in place | `docker run --rm -v "$PWD/deploy/models/embedder.download:/m:ro" trialbox-py:1.0.0 python -m tools.pin_model --build e-embed-1 --model-dir /m --endpoint embed --served-name e-embed-1 --out /tmp/check.yaml` | `pinned e-embed-1: sha256 e131f3203849…` (18 files) | any other line: send it, and do not go on |
+| E5 | Put it in place | `mv deploy/models/embedder.download deploy/models/embedder` | – | – |
+| E6 | Start with it | `deploy/poc.sh down`; then `TB_POC_EMBED=model deploy/poc.sh` | "embedder check", "building the embedder image", "pinning the embedder", and at the end "TrialBox POC (stub model, model embedder)" | "the synthetic lake was embedded with the hash embedder": the data of step 7 were made with the stand-in; `deploy/poc.sh reset` (deletes the PoC data), then E6 again. Anything else: send the `poc:` line |
+
+The choice is kept in `deploy/.env` (`TB_POC_EMBED=model`): a later plain `deploy/poc.sh` keeps the real embedder. To
+go back, `deploy/poc.sh reset` and then `TB_POC_EMBED=hash deploy/poc.sh`. This manual download is replaced by the
+weights command of card W-1 once it is on master.
+
 ## Only when we ask: the engine probe (no model)
 
-Two checks that tell us whether the model engine can use the card at all on this driver. Each downloads one engine
-image (10 to 12 GB to download, about 25 GB on disk once unpacked) and loads no model. On your disk, run them one at
-a time and remove the first image before pulling the second (two at once take about 50 GB). Run them only when we
-ask, and send both outputs.
-
-1. The pinned engine with its compatibility libraries switched on:
-   `docker run --rm --gpus all -e VLLM_ENABLE_CUDA_COMPATIBILITY=1 --entrypoint python3 vllm/vllm-openai:v0.32.0@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34 -c "import vllm, torch; print(torch.version.cuda, torch.cuda.is_available(), torch.cuda.get_device_name(0))"`
-   Then free its space: `docker image rm vllm/vllm-openai@sha256:befccf0e7e4089aa23926bb6f887a85c0d46c2a99e6de5c5ffdf5cb7957c5b34`
-   and check `df -h /`.
-2. The same release's CUDA 12.9 build (not the pinned one):
-   `docker run --rm --gpus all --entrypoint python3 vllm/vllm-openai:v0.32.0-cu129@sha256:bc0445dac61accbf1c3b17fbb524a71eee0b1b32f55ba45952095e3be8991c3f -c "import vllm, torch; print(torch.version.cuda, torch.cuda.is_available(), torch.cuda.get_device_name(0))"`
-
-Either may print `True` and the card's name, or an error about the driver; both answers are useful. Afterwards free
-the disk: `docker image rm vllm/vllm-openai@sha256:bc0445dac61accbf1c3b17fbb524a71eee0b1b32f55ba45952095e3be8991c3f`.
+Replaced by page 29 step 2: one command (`python3 tools/engine_probe.py run`) tries the pinned engine as it is, with
+its compatibility switch, with its compatibility libraries, and the same release's CUDA 12.9 build, one image at a
+time, and writes one small file to send. The commands that were here did half of that by hand.
