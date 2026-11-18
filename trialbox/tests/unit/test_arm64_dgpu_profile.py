@@ -40,7 +40,15 @@ def _profile(arch: str, card: str) -> str:
         ("aarch64", "NVIDIA RTX PRO 6000 Blackwell Workstation Edition", "arm64-dgpu"),
         ("aarch64", "NVIDIA GB10", "gb10"),
         ("arm64", "NVIDIA GB10", "gb10"),
-        ("aarch64", "", "gb10"),  # unreadable name: as before
+        # unreadable names: as before
+        ("aarch64", "", "gb10"),
+        ("aarch64", "[N/A]", "gb10"),
+        ("aarch64", "Unknown", "gb10"),
+        ("aarch64", "[Unknown Error]", "gb10"),
+        ("aarch64", "NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver.", "gb10"),
+        ("aarch64", "No devices were found", "gb10"),
+        ("x86_64", "[N/A]", "default"),
+        ("x86_64", "No devices were found", "default"),
         ("aarch64", "NVIDIA GB200", "b200-no-mig"),  # the B200 rule still comes first
         ("x86_64", A6000, "default"),  # the same card in an x86 machine: unchanged
     ],

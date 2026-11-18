@@ -28,6 +28,10 @@ models.** [opinion, from sections 1 to 3]
   feasibility reply, a screened list of synthetic patients, and every screen. One extra command is needed first (it
   builds the database image, which the start forgets on a machine without Java build tools). This has **never been
   started on an Arm machine by anyone**: you would be the first, so expect to send us an error or two.
+- **One real model could run here: the search model (the "embedder").** It runs on the processor, not the card,
+  needs about 3.5 GB of memory, and has an Arm build. With it, the box would use the stub for the judge and the real
+  embedder for finding note sentences ("stub judge, real embedder"). The one-command start cannot switch it on yet;
+  that is a small piece of work (card 24-7), not next week's first step.
 - **What does not work next week: the two real models on this machine.** Three separate reasons, each enough alone:
   1. **The driver.** Your machine's operating system (NVIDIA's IGX OS) carries driver 535 for the A6000, and every
      IGX Orin release NVIDIA publishes stays on 535; the newer 580 driver exists only for the newer IGX Thor. The
@@ -45,9 +49,9 @@ models.** [opinion, from sections 1 to 3]
   remove reason 1, but not reasons 2 and 3: those are the head-box measurement and profile already planned (10E-29,
   about 13 hours of the card, then 10E-31), not next week.
 
-**Your disk is the first thing to fix:** 91 GB free on a 90 % full disk is enough for the no-model look (about 15
-GB), not for the real models on any machine of this kind (about 120 GB with room to work; section 3). Free about 60 GB,
-or add a second disk, before any model work. **Your memory (53 GB)** is enough for the no-model look and too little
+**Your disk is the first thing to fix:** 91 GB free on a 90 % full disk is enough for the no-model look (about 12
+GB), not for the real models on any machine of this kind (about 100 GB; section 3). Free about 30 GB even for the
+no-model look, so the disk is not near full, and add a second disk before any model work. **Your memory (53 GB)** is enough for the no-model look and too little
 for the two models by TrialBox's own rule (79 GB). **Before anything, send us three more command outputs and two
 answers** (runbook 28, step 0): Docker, its GPU runtime, the card line; internet; a second disk.
 
@@ -179,7 +183,12 @@ Blackwell's native FP4 kernels; Marlin's repacked weights and workspace on Amper
 | Another build of the same judge (BF16 or a 4-bit format Ampere computes natively) | a new licence-register row, a registry build, a weight manifest, a qualification and its own accuracy run; BF16 of a 26B model does not fit 48 GB beside the verifier [opinion: about 2 bytes a parameter] | every measured figure; weeks, not days |
 | The verifier alone (`TB_SCREEN_JUDGE=single`-like operation) | one model on the card | a note can never exclude (D-89): review 19's option (a) [r19 line 298] |
 | Stub mode (runbook 28) | nothing | every note answer; the lists show the product, not its accuracy |
+| **Stub judge, real embedder:** the pinned embedder `e-embed-1` (BGE-M3, MIT, `verified: true`, a pinned manifest) on the CPU | the `trialbox-embed` image, whose lock carries the aarch64 CPU wheel of torch (1.1); the weights folder (18 files, 2.3 GB) at `deploy/models/embedder`; a pin, which `tools/pin_model.py --install-embedder` already makes for a box without a GPU; about 3.5 GB of memory (the service's cap is 6 GiB). **The one-command start cannot do it today**: its overlay forces the hash embedder in `trialbox-py`, and its builder path builds no embed image (card 24-7) | every judge and verifier answer (still the stub); it adds the real ranking of note sentences, the one model that can run on this machine | [read `models/registry.yaml:587-618`; `tools/pin_model.py:693-700,1165-1168`; `deploy/docker-compose.yml:195-210`; `deploy/docker-compose.poc.yml:9-12`; `services/embed_service/embedder.py:4-5,258-263`] |
 | The stub with a cloud model (`TB_LLM_MODE=openrouter`, synthetic data only, DEV) | a paid key; synthetic text leaves the machine | the pinned pair; costs money (the owner's decision); not considered further here [read `deploy/poc.sh:5-6,130-132`] |
+
+**The registry's other 4-bit judge** [read `models/registry.yaml:467-490`]: a 31B "QAT w4a16" challenger in a format
+Ampere computes natively (weights 4-bit, activations 16-bit). It is not a route: its revision is null, its licence is
+"to confirm at download" (`verified: false`), its bake-off has not run, and it would meet the same 535-driver block.
 
 ---
 
@@ -204,7 +213,7 @@ Blackwell's native FP4 kernels; Marlin's repacked weights and workspace on Amper
   With any model, 53 GB does not fit by the repository's own rule, and lowering the caps below that rule's floor is
   exactly what the rule forbids (services never measured there) [read `tools/box/plan.py:330-365`].
 - **CPU.** Twelve embedded-class Arm cores: enough for the services on synthetic data [opinion]; the image build in
-  step 5 of runbook 28 is slower than on a desktop (perhaps 20 to 40 minutes) [opinion]; the real embedder's speed on
+  steps 6 and 7 of runbook 28 is slower than on a desktop (perhaps 20 to 40 minutes) [opinion]; the real embedder's speed on
   Arm is unmeasured [r13 line 446] and not used in stub mode.
 - **Disk: the first hard obstacle.** 91 GB free, 90 % used [owner]. The budget (the six third-party and base images
   are 1.1 GB compressed for arm64 [measured: `image-sizes-arm64.txt`]; everything else is [opinion], not measured):
@@ -215,15 +224,14 @@ Blackwell's native FP4 kernels; Marlin's repacked weights and workspace on Amper
   | Own images (`trialbox-py`, `-jvm`, `-postgres`) and the build cache | 6 GB | 8 GB (with `-embed`) |
   | The checkout and the project's Python environment | 1 GB | 1 GB |
   | Database, lake, FHIR store and mail for the 600-patient synthetic hospital | 2 GB | 2 GB |
-  | The engine image (10.3 GB compressed arm64 [measured: `vllm-tags.txt`], unpacked and layers in flight) | – | 25 GB |
   | The two models' weights and the template (about 48 GB of model cache [r23 §1.1]) | – | 50 GB |
   | Working space: a download verified in a folder of its own, then moved on the same disk (a move needs no copy) | – | 5 GB |
-  | Free space the start itself demands in GPU mode [read `deploy/poc.sh:101-107`] | – | 30 GB |
-  | **Total** | **about 12 GB** | **about 125 GB** |
+  | Free space the start demands in GPU mode, checked before it pulls the engine image, which then takes about 25 GB of it (10.3 GB compressed arm64 [measured: `vllm-tags.txt`], unpacked) [read `deploy/poc.sh:101-107`] | – | 30 GB |
+  | **Total** | **about 12 GB** | **about 100 GB** |
 
   **91 GB is enough for the stub path, not for the model path.** A disk at 90 % is also near the point where Docker
-  and the database misbehave when a write fills it [opinion]; free at least 30 GB more even for the stub path, and
-  about 60 GB more, or add a second disk, before any model work. The developer kit lists "4x SATA 6 Gbps expansion
+  and the database misbehave when a write fills it [opinion]; free about 30 GB even for the stub path, and add a
+  second disk (or free at least 40 GB more, leaving no margin) before any model work. The developer kit lists "4x SATA 6 Gbps expansion
   ports" [source 11], so a second disk is possible in principle (which bays his unit has: not verified). Point
   Docker's data folder and `TB_MODELS_DIR` at it, not the root disk [opinion].
 
@@ -239,7 +247,9 @@ machine; the real models elsewhere.** [opinion, from sections 1 to 3]
   scans the Arm images daily but never starts the stack there (1.1).
 - The real pair on this machine is (c), **does not work next week**: driver 535 is fixed by the platform (1.3), the
   judge's format is not native on Ampere (2), no profile fits 48 GB of card memory (2), 53 GB of host memory is
-  below the planner's 79 GB for the pair (3), and 91 GB of free disk is below the model path's about 125 GB (3).
+  below the planner's 79 GB for the pair (3), and 91 GB of free disk is below the model path's about 100 GB (3).
+- **One real model can run here** (2): the pinned embedder on the CPU beside the stub judge, once card 24-7 gives the
+  start a switch for it. Until then it is reachable only by hand, which runbook 28 does not ask of the owner.
 - **The smallest alternatives for real models:** (1) an x86-64 machine with the 96 GB RTX PRO 6000, the one card
   measured, with review 23's page 27; (2) a rented cloud machine with that card, the route that has actually worked
   [r23 §1.2] (costs money: the owner's decision); (3) later, his A6000 in an x86-64 PC with Ubuntu 24.04 and a 580
@@ -249,12 +259,13 @@ machine; the real models elsewhere.** [opinion, from sections 1 to 3]
 
 | Card | What | Size | File(s) | What proves it |
 | --- | --- | --- | --- | --- |
-| 24-1 | **Done in this branch:** an aarch64 host whose card is not a GB10 gets `arm64-dgpu` (UNMEASURED; refused by `install.sh` and the start in GPU mode; a stub box in `tools.box`); a GB10 and an unreadable name stay `gb10` | S | `deploy/gpu_profile.sh`, `deploy/install.sh:215`, `tests/unit/test_arm64_dgpu_profile.py` | the new tests; `gpu-profile-after.txt`, `tiers-after.txt` |
+| 24-1 | **Done in this branch:** an aarch64 host whose card is not a GB10 gets `arm64-dgpu` (UNMEASURED; refused by `install.sh` and the start in GPU mode; a stub box in `tools.box`); a GB10 and an unreadable name (empty, `[N/A]`, `Unknown`, nvidia-smi's error text) stay `gb10` | S | `deploy/gpu_profile.sh`, `deploy/install.sh:215`, `tests/unit/test_arm64_dgpu_profile.py` | the new tests; `gpu-profile-after.txt`, `tiers-after.txt` |
 | 24-2 | The start's builder path also builds `trialbox-postgres` (and states the images it needs) | S | `deploy/poc.sh:202-218` | a unit test that the builder path names `db.Dockerfile`; a stub start on a host without Maven |
 | 24-3 | The first stub start on Arm, on his machine: console, FEAS and SCREEN replies, `docker stats` after an idle hour (review 13's S-2 on Arm) | S (1 to 2 h of his time) | runbook 28 | his output files filed under `docs/plan/measurements/` |
-| 24-4 | Engine probe on his machine, no model: does `v0.32.0` start CUDA with `VLLM_ENABLE_CUDA_COMPATIBILITY=1` on 535 and the A6000; does `v0.32.0-cu129` | S (about 1 h, two image pulls, 22 GB) | runbook 28, "Only when we ask" | the two printed lines |
+| 24-4 | Engine probe on his machine, no model: does `v0.32.0` start CUDA with `VLLM_ENABLE_CUDA_COMPATIBILITY=1` on 535 and the A6000; does `v0.32.0-cu129` | S (about 1 h; two pulls of 10 to 12 GB, about 25 GB each unpacked, one at a time) | runbook 28, "Only when we ask" | the two printed lines |
 | 24-5 | 10E-31 (head-box profile for 48 GB cards) widened to say which hosts it serves: x86-64 with R580 only, or also IGX with R535 and a CUDA 12.9 engine (a model change: requalify) | M (as planned) | `deploy/docker-compose.<head>.yml`, `tools/serving_config.py`, `deploy/images.lock` | 10E-29's records on the card; 24-4's answer |
 | 24-6 | The judge on Ampere: one run of the canary and MedTxt ja at W4A16 against the stored control, before any head-box result counts | M | 10E-29's O-runs | the record; the difference to the Blackwell control |
+| 24-7 | "Stub judge, real embedder" in the one-command start: a switch (for example `TB_POC_EMBED=model`) that builds `trialbox-embed` on the builder path too, sets `TB_EMBED_IMAGE` and `TB_EMBED_MODE=model` for the embed service in place of the overlay's hash embedder, checks `deploy/models/embedder`, and pins it with `tools/pin_model.py --install-embedder`; plus the documented fetch of the 18 files at revision `7b44caba` without the three pickle files, verified against the manifest before it is moved into place; runbook 28 gains it as an optional section | S to M | `deploy/poc.sh`, `deploy/docker-compose.poc.yml`, a test with a fake weights folder | the test: the switch renders a compose config with the embed image, the mode and the pin, and refuses a missing or wrong folder; then one start on his machine |
 
 ### 4.2 What has never been run anywhere
 
@@ -310,7 +321,8 @@ API on 2026-11-18 (section 9); CI's result from the repository's Actions API.
 ## 8. What this branch changed in code
 
 `deploy/gpu_profile.sh`: `aarch64` + a card name without "GB10" now prints `arm64-dgpu` (UNMEASURED); `aarch64` + "GB10"
-or an empty name stays `gb10`; B200 first as before; x86 unchanged. `deploy/install.sh:215`: refuses `arm64-dgpu` with
+or an unreadable name (empty, `[N/A]`, `Unknown`, `[Unknown Error]`, or nvidia-smi's "has failed" / "No devices were
+found" text) stays `gb10`, as on master; B200 first as before; x86 unchanged. `deploy/install.sh:215`: refuses `arm64-dgpu` with
 the reason. No measured profile, no pin, no record, no compose file changed. What production accepts only narrows: an
 Arm host with a non-GB10 card could before reach a gb10 rehearsal; now it cannot. The start's GPU mode already refused
 any word but `rtxpro6000` and `gb10` [read `deploy/poc.sh:79-83`]. Tests: `tests/unit/test_arm64_dgpu_profile.py`.

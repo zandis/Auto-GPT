@@ -13,7 +13,7 @@
 #               whole card or a time-slice (LLM-011, LLM-027); install.sh refuses it and says to enable MIG
 #   rtxpro6000  RTX PRO 6000 (96 GB): judge and verifier both resident, 32k context, no swap
 #   gb10        DGX Spark class (aarch64, 128 GB unified): the same pair resident, 16k context. An aarch64 host whose
-#               card name is unreadable stays gb10, as before
+#               card name is unreadable (empty, "[N/A]", "Unknown", or nvidia-smi's error text) stays gb10, as before
 #   arm64-dgpu  UNMEASURED: an aarch64 host with a discrete card that is not a GB10 (an IGX Orin developer kit with an
 #               RTX A6000, root review 24): no profile, no compose overlay, no serving record; install.sh and the
 #               one-command PoC refuse it in GPU mode. Its stub mode (no model) is unaffected
@@ -32,6 +32,10 @@ else
 fi
 case "$mig" in
   Enabled|enabled) echo shared-quota; exit 0 ;;
+esac
+# an unreadable name is no name: nvidia-smi's placeholders and its error text on stdout (review 24)
+case "$name" in
+  *"[N/A]"*|*"[Unknown"*|Unknown|*"NVIDIA-SMI has failed"*|*"No devices were found"*) name="" ;;
 esac
 case "$arch:$name" in
   *B200*)                   echo b200-no-mig ;;   # before the arm64 rule: a GB200 is arm64 and not a GB10
