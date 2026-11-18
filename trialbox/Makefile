@@ -308,6 +308,15 @@ walk:
 	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.complete_run part walk --dir "$(WALK_DIR)" \
 		--shots "$(WALK_DIR)/shots"
 
+# H-31 (D-1109): the failure drill on the compose test stack (tools/failure_drill.py): each service killed in turn
+# during a night's work, then the database, then a full data volume; no lost job, no double mail, an intact audit
+# chain. Needs Docker and `make images`; brings its own stack up and down for each target (about 75 minutes in all).
+# Not in test-compose: it kills the stack's parts. DRILL_OUT keeps one record per target and the raw records.
+DRILL_OUT ?= build/failure-drill
+.PHONY: failure-drill
+failure-drill:
+	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m tools.failure_drill run --out "$(DRILL_OUT)"
+
 # H-10 (D-1121): a new study from its first step, in Chromium, on a local box in steps mode (D-1062: tools/demo.py,
 # demo mode off, the stub model), once per language; about 7 minutes of seed, then about 70 s per language.
 # TB_WALK_ACCOUNTS, TB_WALK_BASE, TB_WALK_PASSWORD, TB_WALK_ID: tests/e2e/test_new_study_walk.py
@@ -322,8 +331,21 @@ walk-life-cycle:
 	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
 	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e tests/e2e/test_life_cycle_walk.py
 
+# H-32 (D-1110): plant the seven faults of plan 8's V17 on the in-process box, one at a time, and record the first
+# page, the mail, /metrics and the runbook as a person meets them (as root the backup target and the disk are mounts)
+.PHONY: planted-faults
+planted-faults:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m integration tests/e2e/test_planted_faults.py
+
 # H-29 (D-1103): one walk per module H-10 and H-20 do not cover (feasibility, safety, monitoring, amendment) on a local
 # steps-mode box, the roles that use each, three languages; reports findings. walk-<module> walks one module
+# H-35 (D-1101): every stated limit at the limit, one over and far over, on the in-process box; reports, fixes nothing
+.PHONY: limits-edge
+limits-edge:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e -n 0 tests/e2e/test_limits_edge_box.py
+
 .PHONY: walk-modules walk-feasibility walk-safety walk-monitoring walk-amendment
 walk-modules:
 	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
@@ -338,6 +360,17 @@ walk-feasibility walk-safety walk-monitoring walk-amendment:
 walk-life-cycle-390:
 	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
 	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e tests/e2e/test_life_cycle_walk_390.py
+
+# H-34 (D-1100): imperfect hospital data (cut-off files, the same file twice, wrong column counts, Big5, ROC and
+# placeholder dates, a long note, unknown codes, chart numbers, empty exports, line endings) through the box's own
+# `adapter run`, in every source format the adapter reads; reports and fixes nothing. Results in
+# $(TB_TEST_ROOT)/imperfect-feed/results.json; TABLE=1 prints the page's table. About two minutes
+.PHONY: imperfect-feed
+imperfect-feed:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	rm -rf "$(TB_TEST_ROOT)/imperfect-feed"
+	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m tools.imperfect_feed --out "$(TB_TEST_ROOT)/imperfect-feed" \
+		$(if $(TABLE),--table,)
 
 # root + nftables + iproute2 + the running test stack (docs/SECURITY.md §2)
 test-egress:

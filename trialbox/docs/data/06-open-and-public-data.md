@@ -4,7 +4,7 @@
 | --- | --- | --- | --- |
 | Synthetic hospital (`tools.synth_hospital`) | every gate: JP and TW sites, notes in ja, zh-TW and en, planted findings | ours, all fictional | generated |
 | Synthetic sites A and B (`tools/make_fixtures.py`) | unit and integration tests, 600 + 520 patients | ours | `tests/fixtures/` |
-| SIGIR 2016 patient descriptions (TrialGPT) | the public site's English notes | US government work, public domain | `eval/criterion_ml/LICENSE.NCBI` |
+| SIGIR 2016 patient descriptions (TrialGPT) | the public site's English notes | CC BY-SA 4.0 (Koopman and Zuccon, CSIRO); the criterion labels beside them: US government work, public domain | `eval/criterion_ml/NOTICE.md`, `eval/criterion_ml/LICENSE.NCBI` |
 | NTCIR-16 MedTxt-CR and MedTxt-RR | the public site's Japanese notes | CC BY 4.0 (Sociocom, NAIST) | fetched to `.cache/medtxt`, never committed |
 | MIMIC-IV Clinical Database Demo on FHIR v2.1.0 | the open-data test | ODbL 1.0 | fetched to `.cache/open_data/`, never committed |
 | ClinicalTrials.gov NCT04157751, NCT02568722 | open-data test rulesets | public registry | `tests/fixtures/open_data/` |
