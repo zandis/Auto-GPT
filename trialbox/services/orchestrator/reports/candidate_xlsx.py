@@ -37,6 +37,7 @@ def render(
     title: str = "candidates",
 ) -> bytes:
     from criteria_compiler.review import logic_summary
+    from criteria_compiler.semantics import codes_settle
     from openpyxl import Workbook
     from openpyxl.comments import Comment
     from openpyxl.formatting.rule import FormulaRule
@@ -114,6 +115,8 @@ def render(
     for c in crit:
         if c.class_ == "structured":
             how = logic_summary(c.logic, rs.valuesets)
+        elif c.class_ == "mixed" and not codes_settle(c):  # 10A-2: its age or sex never meets it alone
+            how = f"the notes: {c.note_question or ''}; coded data checked too: {logic_summary(c.logic, rs.valuesets)}"
         elif c.class_ == "mixed":
             how = f"coded data first: {logic_summary(c.logic, rs.valuesets)}; else the notes: {c.note_question or ''}"
         elif c.class_ == "note":

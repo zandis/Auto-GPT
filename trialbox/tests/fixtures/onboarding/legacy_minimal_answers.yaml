@@ -1,0 +1,11 @@
+# 10K-1: the fewest answers the settings wizard took before it asked the country (synthetic): no report language,
+# no mapping, no source type. No `country` key: it must read exactly as before (zh-TW, the Taiwan mapping, csv, the
+# retention rules of Taiwan); tests/unit/test_site_country.py compares with legacy_settings.json.
+site_id: DEMO-M
+site_name: Demo M (synthetic)
+tz: Asia/Taipei
+internal_domains: [hospm.test]
+senders: [crc@hospm.test]
+data_source_type: csv
+data_source_path: /data/source/site
+llm_mode: stub
