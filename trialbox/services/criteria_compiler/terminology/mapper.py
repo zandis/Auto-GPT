@@ -28,7 +28,6 @@ import re
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -691,7 +690,9 @@ class Terminology:
     def _index_loaded(self, inst: Any, table: str, rows: list[dict[str, Any]]) -> tuple[list[_Entry], list[_Entry]]:
         """A loaded code system's exact names and its looser keys (a LOINC component, an NHI ingredient), one entry per
         row and key, merged by ``_merge``. An NHI code whose validity ended is left out."""
-        today = date.today().isoformat()
+        from tb_common.timeutil import today as site_today
+
+        today = site_today().isoformat()  # 9l-7: the site's day, not the server's
         exact: list[_Entry] = []
         loose: list[_Entry] = []
 

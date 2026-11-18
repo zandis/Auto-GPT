@@ -980,7 +980,9 @@ class Mapper:
     @staticmethod
     def _western(dt: datetime, raw: str) -> datetime:
         """``dt`` when its year can be a patient's; one message for every form and column type."""
-        if not EARLIEST_YEAR <= dt.year <= date.today().year + LATEST_YEARS_AHEAD:
+        from tb_common.timeutil import today as site_today
+
+        if not EARLIEST_YEAR <= dt.year <= site_today().year + LATEST_YEARS_AHEAD:  # 9l-7: the site's year
             raise DateRangeError(
                 f"date {raw!r} is outside {EARLIEST_YEAR} to {LATEST_YEARS_AHEAD} years from now: "
                 "not a western calendar date"
@@ -1125,12 +1127,12 @@ class Mapper:
         before today when the row has none: nobody lives that long."""
         born = self._parse_dt(str(raw)).date()
         end_raw = row.get(str(spec.get("until") or ""))
-        end = date.today()
+        end = datetime.now(self.m.tz).date()  # 9l-7: the site's day (the mapping's zone), not the server's
         if end_raw not in (None, "") and str(end_raw).strip():
             try:
                 end = self._parse_dt(str(end_raw)).date()
             except (MappingError, ValueError):
-                end = date.today()
+                end = datetime.now(self.m.tz).date()
         years = int(spec["years"])
         try:
             oldest = end.replace(year=end.year - years)

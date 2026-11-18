@@ -72,6 +72,7 @@ from lake.flatten import (
 from tb_common import feedguard
 from tb_common.config import site_tz
 from tb_common.db import Database
+from tb_common.timeutil import today as site_today
 
 from omop import vocab
 from omop.partitions import PARTITIONED, ensure_years, years_of
@@ -565,7 +566,7 @@ def _batch_date(batch: str) -> date:
     try:
         return date.fromisoformat(batch.rsplit("@", 1)[-1][:10])
     except ValueError:
-        return date.today()
+        return site_today()  # 9l-7: the site's day, not the server's
 
 
 def _map_ids(tx: Any, kind: str, ids: Iterable[str], seq: str) -> dict[str, int]:
@@ -1587,7 +1588,7 @@ def _batch_day(batch: str) -> date:
     try:
         return date.fromisoformat(batch.rsplit("@", 1)[-1][:10])
     except ValueError:
-        return date.today()
+        return site_today()  # 9l-7: the site's day, not the server's
 
 
 def _merge_person(sources: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, list[Any]]]:
@@ -1732,7 +1733,7 @@ def _derive(tx: Any, persons: set[int], providers: set[int], batch: str, rep: Lo
             "trialbox/docs/DATA.md",
             "trialbox/services/omop/load.py",
             _batch_date(batch),
-            date.today(),
+            site_today(),
             str(vocab_version)[:20] if vocab_version else "TB local, no Athena",
         ),
     )
