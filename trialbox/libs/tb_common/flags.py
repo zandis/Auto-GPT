@@ -119,6 +119,15 @@ DECLARED: dict[str, Declared] = {
         "in two levels, and the patient sheet shows the evidence before the mark's note and reason. Off: the pages "
         "as before. Read once per request; no restart.",
     ),
+    "layout.home_today": Declared(
+        values=("off", "on"),
+        default="off",
+        seed_env=None,  # what the opening page shows first changes only by a person's ruling, with a reason (D-1225)
+        help="The opening page's 'Needs you today' and 'Next' (J-6, D-1225): on, /home gives the coordinator, the "
+        "investigator, the CRO and the viewer at most five lines of what needs them today (safety first, then "
+        "overdue, then due today), then one 'Next' line per study, from start-up to archive. Off: the opening pages "
+        "as before. Read once per request; no restart.",
+    ),
     "lake.source": Declared(
         values=("legacy", "omop"),
         default="legacy",

@@ -30,11 +30,12 @@ from pydantic import BaseModel, Field
 from tb_common.authz import NO_STANDING, Decision, conditional, study_bound
 from tb_common.authz import permit as permit_row
 from tb_common.erased import Gone, GoneOn
+from tb_common.retention import STUDY_YEARS_AFTER_CLOSE
 from tb_common.service_auth import bind_session
 from tb_contracts import Job
 
 from console import actor as console_actor
-from console import ai_confirm, coded_view, s28, terminology_refused
+from console import ai_confirm, coded_view, home_today, s28, terminology_refused
 from console import person_state as ps
 from console import studies as st
 from console.api_first import before_body, page_twin
@@ -519,6 +520,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             # state of each person; the opening page's layout changes only behind card J-7's flag
             "pipeline": ps.funnel(people, [str(w["pid"]) for w in rows]),
             "people_readable": people.readable,
+            "people": people,  # J-6 (D-1225): the Next line reads the same states as the funnel
             "tasks": tasks,
             "clinic": clinic,
             "feas": feas,
@@ -549,8 +551,10 @@ def register(app: FastAPI, h: Helpers) -> None:
 
     # ------------------------------------------------------------------ homes
     @app.get("/home")
-    def home(request: Request, view: str = "") -> Response:
+    def home(request: Request, view: str = "", today: str = "") -> Response:
         sess = h.need(request)
+        if home_today.flag_now() and sess.user.role in home_today.ROLES:  # J-6 (D-1225): behind its flag
+            return today_home(request, sess, every=today == "all")
         # T-102c (D-425): each role starts on the page of its first right in this order (the matrix's rows)
         for action, start in HOME_STARTS:
             if permit_row(sess.user.role, action):
@@ -566,6 +570,82 @@ def register(app: FastAPI, h: Helpers) -> None:
         return h.page(
             request, "home_crc.html", sess, cards=cards, tasks=tasks, clinic=clinic if phi else [], steps=st.STEPS,
             pipeline_keys=st.PIPELINE, models=bk.models(), life=h.life_home(sess) if h.life_home and phi else None,
+        )  # fmt: skip
+
+    def today_home(request: Request, sess: Session, every: bool) -> Response:
+        """J-6 (D-1225): "Needs you today" and one "Next" line per study (``console.home_today``). Each source is read
+        only where the matrix lets this role read it in that study: patient-level rows with ``phi.view`` and the study
+        task ``screen`` (as the week, participant and visit pages ask); serious AEs with ``sae.view``; visits with the
+        task ``enter_data``; a role without patient-level rows reads the feasibility report and its monitor grant."""
+        user = sess.user
+        jobs = bk.list_jobs(limit=500)
+        day = h.today()
+
+        def allow(action: str, rid: str | None = None) -> bool:
+            return bool(h.permit(user, action, rid).allowed)
+
+        phi = allow("phi.view")
+        life = h.life_home(sess) if h.life_home and phi else None
+        cards: list[dict[str, Any]] = []
+        lines: list[home_today.TodayLine] = []
+        nexts: list[home_today.NextLine] = []
+        failed: list[str] = []
+        grants = {g[0]: g for g in (h.monitor_grants(user) if h.monitor_grants else [])}
+        for r in trials(sess):
+            rs = r.id
+            if not (phi and h.delegated_ok(user, rs)):  # no patient-level row of this study: the aggregate reads
+                step = home_today.report_step(report=st.latest_job(jobs, rs, ("FEAS",)) is not None,
+                                              grant=grants.get(rs))  # fmt: skip
+                g = grants.get(rs) or ("", "", "")
+                nexts.append(home_today.next_line(rs, step, step != "report_none", home_today.href_of(step, rs),
+                                                  visit=g[1] or "–", end=g[2] or "–"))  # fmt: skip
+                continue
+            if allow("request.prepare"):  # the coordinator's card: its tasks, its funnel, the week's rows
+                card = study_card(sess, r, jobs)
+                cards.append(card)
+                people = card["people"]
+                step_no = card["step"]
+                lines += home_today.task_lines(card["tasks"], day)
+            else:
+                people = ps.read(h, rs)
+                step_no = study_step(rs, people)
+            state = store.study_state(rs)
+            screen_done = st.latest_job(jobs, rs, SCREEN_TYPES) is not None
+            step = home_today.life_step(state=state.state, step=step_no, screen_done=screen_done,
+                                        counts=people.counts() if people.readable else None)  # fmt: skip
+            waiting = st.latest_job(jobs, rs, ("FEAS", "SCREEN", "COMPILE"), state="awaiting_approval")
+            mine = {
+                "approve": bool(h.may_approve(user, rs)) if h.may_approve else allow("criteria.approve", rs),
+                "feas": h.may_run(user, rs, "FEAS"),
+                "screen": h.may_run(user, rs, "SCREEN"),
+                "review": allow("list.mark", rs),
+                "contact": allow("request.prepare"),
+                "consent": allow("task.enter_data", rs),
+                "conduct": allow("task.enter_data", rs),
+                "startup": allow("study.state", rs),
+                "close": allow("study.state", rs),
+                "paused": allow("study.state", rs),
+            }.get(step, False)
+            href = home_today.href_of(step, rs, approval=f"/pilot/jobs/{waiting.job_id}/approval" if waiting else "")
+            nexts.append(home_today.next_line(rs, step, mine and bool(href), href,
+                                              years=state.keep_years or STUDY_YEARS_AFTER_CLOSE))  # fmt: skip
+            if life is not None and allow("sae.view", rs):
+                lines += home_today.sae_lines(rs, [a for a in life["sae"] if a["rs"] == rs],
+                                              [a for a in life["reports"] if a["rs"] == rs],
+                                              acknowledges=allow("sae.ack", rs))  # fmt: skip
+                failed += [x for x in life.get("sae_failed") or [] if x == rs]
+            if life is not None and allow("task.enter_data", rs):
+                for v in life["studies"]:
+                    if v["rs"] == rs:
+                        lines += home_today.visit_lines(rs, len(v["overdue"]), len(v["today"]), day)
+        lines = home_today.ordered(lines)
+        shown = lines if every else lines[: home_today.LIMIT]
+        home_today.mark_in_today(nexts, shown)
+        template = "home_crc.html" if allow("request.prepare") else "home_today.html"
+        return h.page(
+            request, template, sess, today=True, every=every, lines=shown, more=len(lines) - len(shown),
+            total=len(lines), nexts=nexts, today_failed=failed, cards=cards, tasks=[], clinic=[], steps=st.STEPS,
+            pipeline_keys=st.PIPELINE, models=bk.models(), life=None,
         )  # fmt: skip
 
     def admin_home(request: Request, sess: Session) -> Response:

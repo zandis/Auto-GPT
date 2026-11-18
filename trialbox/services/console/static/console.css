@@ -642,3 +642,10 @@ form.entry .restored { outline: 2px solid var(--warn); outline-offset: 1px; back
 /* J-4 (D-1224): the screening number in the outcome box is a link to the participant; on a phone it is a 44 px
    target (D-133 step 4b), the desktop look unchanged */
 @media (max-width: 760px) { .pill[data-testid=screening-no] > a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; } }
+/* J-6 (D-1225, flag layout.home_today): "Needs you today", the same lines on a desktop and a phone; a safety line and
+   an overdue line carry a coloured edge, the words say the same (the colour only repeats them) */
+.today-lines li.tl-bad { border-left: 4px solid var(--bad); }
+.today-lines li.tl-warn { border-left: 4px solid var(--warn); }
+.today-lines li a { overflow-wrap: anywhere; }
+.today-next { margin: 8px 0; }
+.today-next span { overflow-wrap: anywhere; }
