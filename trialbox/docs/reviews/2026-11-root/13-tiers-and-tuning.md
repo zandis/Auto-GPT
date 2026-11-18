@@ -71,7 +71,7 @@ Edition (600 W) or Max-Q (300 W).
 5. **Validate each tier separately, once** (13-17): the qualification command already takes `--profile`
    [R `tools/qualify.py:1-10`]; it has only ever been run for `rtxpro6000`.
 
-**Buying advice for the first site (Japan).** The first site's public size is about 560 beds (section 9). Buy **tier D,
+**Buying advice for the first site (Japan).** The first site (a general hospital in Japan) is a hospital of about 500 to 600 beds — the owner to confirm (section 9). Buy **tier D,
 the RTX PRO 6000 Max-Q (300 W)** in a workstation from a maker that fits and supports it, as plan v7 already says
 [R `docs/plan/33-plan-v7.md:91`]. The card alone is listed at about **¥2.50 million** in Japan today [S2 kakaku.com].
 A Spark costs about **¥1.05 million** [S2] and a 5090, today, about **¥1.24 million** at the cheapest Japanese shop
@@ -565,10 +565,8 @@ outside the cap.
 
 ## 9. Buying advice for the first site (Japan)
 
-**The site's public size.** The hospital's own pages opened today give its name (医誠会国際総合病院) and address in
-Kita-ku, Osaka, but not its bed count [S www.iseikaihp.or.jp/about/, /about/outline/]. Third-party listings say 560
-beds after the 2023 merger [S2 search results citing hospitalsfile.doctorsfile.jp and an m3.com interview; not opened
-at the hospital's own page: **not verified at the source**]. This review uses the 600-bed row of section 4.
+**The site's size.** The first site (a general hospital in Japan) is a hospital of about 500 to 600 beds — the owner
+to confirm. This review uses the 600-bed row of section 4.
 
 **The arithmetic for 600 beds** (section 4, typical load, 15 studies): delta night D 0.5 h today; C 2.8 h; B 1.6 h;
 A server 8.2 h (does not fit). First load: D 4 nights today, 2 tuned; C 17 nights today, 5 tuned; B 10 / 3.
@@ -580,7 +578,7 @@ it carries the first load in days, not weeks; 300 W keeps an office cool and qui
 Run D-2 before the order is final; if the 300 W cap costs more than 20 % of the tuned rate, the Workstation Edition
 (600 W) is the alternative, with a server room.
 
-| Option | Card or box price in Japan | Availability | For Iseikai |
+| Option | Card or box price in Japan | Availability | For the first site |
 | --- | --- | --- | --- |
 | D, Max-Q | ¥2,499,980 card, lowest of 5 shops [S2 kakaku.com] + the workstation (not priced here) | listed at 5 shops | **recommended** |
 | D, Workstation Ed. | ¥1,630,600 at one retailer, date unknown [S2, not opened] | not verified | alternative after D-2 |
@@ -697,7 +695,7 @@ Scripts in `/var/tmp/trialbox-0/B14-tiers/` (not committed); run with `python3 -
 - **The RTX 5090's bandwidth** is not on NVIDIA's page; 1,792 GB/s is from reviews.
 - **Japanese prices** are from retailers and blogs (kakaku.com, gazlog.jp, issoh.co.jp), on the dates given; the
   Workstation Edition's Japanese price was not opened. Tax inclusion on kakaku.com was not legible.
-- **The first site's bed count** at the hospital's own page (560 is from third-party listings).
+- **The first site's bed count**: about 500 to 600 beds, for the owner to confirm.
 - **Whether the cloud RTX PRO 6000 Server Edition accepts a 300 W power limit** (run D-2's premise).
 - **Whether vLLM CPU runs this verifier's architecture** (a hybrid model); the docs list quantisations, not this model.
 - **Whether the Max-Q is a blower card**, and the noise of any of the four in dB: not on the makers' pages.
