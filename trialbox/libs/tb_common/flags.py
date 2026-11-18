@@ -110,6 +110,15 @@ DECLARED: dict[str, Declared] = {
         "synthetic data only and not a medical device on every page, and each account accepts the acknowledgement "
         "once (audit event demo.ack) before it opens any other page.",
     ),
+    "layout.phone_first": Declared(
+        values=("off", "on"),
+        default="off",
+        seed_env=None,  # what a phone shows first changes only by a person's ruling, with a reason (D-1222)
+        help="The console's phone-first layout (J-3, D-1222): on a phone the week list comes first under the title "
+        "and the study's links fold into one 'Study' fold below it, the list's rows are cards, the menu's 'More' folds "
+        "in two levels, and the patient sheet shows the evidence before the mark's note and reason. Off: the pages "
+        "as before. Read once per request; no restart.",
+    ),
     "lake.source": Declared(
         values=("legacy", "omop"),
         default="legacy",

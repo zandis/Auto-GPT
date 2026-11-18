@@ -6,7 +6,9 @@ demo mode off, the stub model, the synthetic hospital), each step done by the ro
 matrix (``libs/tb_common/authz_matrix.yaml``, row in :data:`OWNER_ROW`):
 
 12. the coordinator opens the weekly page ("This week's patients") of the new study;
-13. the investigator (the study's PI) opens the first patient there and marks Approach;
+13. the investigator (the study's PI) opens the first patient there and marks Approach. Which patient: the first row
+    of the list the weekly page opens on, in the page's own order (the walk's rule for "a patient", F-03); the later
+    steps follow the patient taken, by its pseudonym;
 14. the coordinator records the contact outcome "reached, visit booked": the patient gets a screening number;
 15. the coordinator takes the participant forward on its page: consent given, enrolled (D-134, D-399);
 16. the coordinator records the participant's withdrawal (D-134);
@@ -307,7 +309,7 @@ LIFE: tuple[Life, ...] = (
                 Act("card_link", T("life.to.subjects"), within="{rs}", finding="F-07"),
                 See("h1", T("life.subjects.title", prefix="{rs} · ")),
                 Do("link", T(None, prefix="{record}")),
-                See("h1", T("life.subjects.title", prefix="{record} · ")),
+                See("h1", T("life.subject.title", (("r", "{record}"),))),  # J-4 (D-1224): F-09
                 Do("button", T("life.go.consented")),
                 See("says", K("life.step.saved", (("state", "@life.state.consented"),))),
                 Do("button", T("life.go.enrolled")),

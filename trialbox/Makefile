@@ -78,6 +78,7 @@ lint: contracts-check
 	$(PY) -m ruff format --check .
 	$(PY) -m mypy libs services tools tests
 	$(PY) tools/doclint.py
+	PYTHONPATH=libs:services:. $(PY) -m tools.text_keys  # D-1220: no conflicting double, no missing key
 	$(PY) -m tools.findings_register --check
 
 FONTS := .cache/fonts/NotoSansTC-Regular.ttf
@@ -161,7 +162,8 @@ CROSS_CARD_TESTS = \
 	tests/unit/test_no_direct_model_calls.py \
 	tests/unit/test_test_isolation.py \
 	tests/unit/test_db_schemas_enumerated.py \
-	tests/unit/test_runbook_install_commands.py
+	tests/unit/test_runbook_install_commands.py \
+	tests/unit/test_text_keys.py
 cross-card: venv-check
 	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
 	@flock -n -E 75 "$(TB_TEST_ROOT)/.lock" $(MAKE) --no-print-directory test-locked TESTS="$(CROSS_CARD_TESTS)"; rc=$$?; \
@@ -276,6 +278,7 @@ demo-bundle: jvm-deps
 	@ls -l dist/trialbox-demo.tar.gz
 
 test-e2e:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
 	TB_INTEGRATION=1 $(PY) -m pytest -q -m e2e
 
 # the nightly compose job (ENG-017, T-653; trialbox-e2e.yml): with `make up-test` running, every test marked
@@ -291,6 +294,7 @@ public-data:
 # browser or jar never passes for green. COMPOSE_JUNIT names the junit file.
 COMPOSE_JUNIT ?= $(TB_TEST_ROOT)/compose-junit.xml
 test-compose:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
 	$(HL7_ENV) TB_INTEGRATION=1 TB_STRICT_SKIPS=1 PYTHONPATH=libs:services:. $(PY) -m pytest -q \
 		-m "(integration or e2e) and not egress" --junitxml "$(COMPOSE_JUNIT)" \
 		--ignore tests/e2e/test_console_poc.py tests/integration tests/e2e

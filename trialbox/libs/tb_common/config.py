@@ -915,6 +915,9 @@ DECLARED: dict[str, Declared] = {
     "TB_REGISTRY_PATH": Declared("path", "", "model registry file"),
     "TB_REHEARSAL_DIR": Declared("path", "", "rehearsal work folder (tools)"),
     "TB_RELEASE_FILE": Declared("path", "", "release.json path"),
+    "TB_RELEASE_REGISTRY": Declared(
+        "path", "", "release check: a synthetic model registry for the tests only, empty in a release (D-998)"
+    ),
     "TB_RELEASE_TREE": Declared("path", "", "qualify in the image: the signed release tree mounted read-only (D-881)"),
     "TB_RESTORE_ACTOR": Declared("str", "trialbox restore", "restore: actor in the audit"),
     "TB_RESTORE_FILE": Declared("str", "newest", "platform restore job: the backup on the share to restore (T-633)"),
@@ -1021,6 +1024,7 @@ DECLARED: dict[str, Declared] = {
     "TB_SPONSOR_WEEKLY_MAX_BYTES": Declared("int", "2000000", "largest sponsor weekly sheet read (D-435)"),
     "TB_STANDIN_LOAD_DELAY": Declared("float", "0", "model stand-in: load delay"),
     "TB_STEP_ID": Declared("str", "", "step id a gateway call names"),
+    "TB_STRICT_TEXT": Declared("bool", "", "console: a missing text key raises (set by hand; D-1220)"),
     "TB_STUB_CONTEXT": Declared("int", "", "model stub: context size"),
     "TB_STUB_LATENCY_S": Declared(
         "float", "", "model stub: seconds per answer (the scale gate's slow stand-in, T-687)"

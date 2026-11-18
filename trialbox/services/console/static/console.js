@@ -57,4 +57,126 @@
       });
     });
   } catch (e) { /* no session storage (a private mode that refuses it): the page works as before */ }
+  // 6. D-1222 (E-M3): a long form marked data-keep (an AE's or a visit's form) is kept in this tab's session storage
+  // while it is typed, so a session that ends before it is saved does not lose it. It is put back only once: on the
+  // way back from the sign-in after a save met the ended session, with a notice saying how many fields came back and
+  // a button that throws them away, the fields marked. Never on a later visit. Dropped: when a save reaches a live session (also
+  // when the same form is shown again), when the person leaves the form without saving, after 12 hours, and whenever
+  // the page's account (meta tb-user) is not the entry's; signing out drops every kept form. After the sign-in, the
+  // home page sends the tab back to the form's own address (record, event, form), never another account's.
+  try {
+    var PRE = "tb-form:", SENT = "tb-form-sent", VIA = "tb-form-via-sign-in", BACK = "tb-form-restore";
+    var AGE = 12 * 3600 * 1000, now = Date.now();
+    var who = document.querySelector("meta[name='tb-user']");
+    var me = who ? who.getAttribute("content") : null;
+    var signIn = !!document.querySelector("form[action^='/login']");
+    var read = function (k) {
+      try { return JSON.parse(sessionStorage.getItem(k) || "null"); } catch (e) { return null; }
+    };
+    var owner = function (id) { return String(id || "").split("|")[0]; };
+    var drop = function (k) { sessionStorage.removeItem(k); };
+    for (var i = sessionStorage.length - 1; i >= 0; i--) {
+      var k = sessionStorage.key(i), e = k && k.indexOf(PRE) === 0 ? read(k) : null;
+      if (k && k.indexOf(PRE) === 0 && (!e || !(now - e.at < AGE) || (me && e.user !== me))) drop(k);
+    }
+    var sent = read(SENT), here = {}, going = false;
+    if (sent && (!(now - sent.at < AGE) || (me && owner(sent.id) !== me))) { drop(SENT); drop(VIA); sent = null; }
+    if ((read(BACK) || {}).user !== me && me) drop(BACK);
+    document.querySelectorAll("form[data-keep]").forEach(function (f) { here[f.getAttribute("data-keep")] = true; });
+    if (sent && signIn) {
+      sessionStorage.setItem(VIA, "1");
+    } else if (sent && me) {
+      var via = sessionStorage.getItem(VIA);
+      drop(SENT); drop(VIA);
+      if (!via) {
+        drop(PRE + sent.id); // the save reached a live session
+      } else {
+        sessionStorage.setItem(BACK, JSON.stringify({ id: sent.id, user: me }));
+        if (!here[sent.id] && /^\/[^/\\]/.test(sent.url) && ["/", "/home"].indexOf(window.location.pathname) >= 0) {
+          going = true;
+          window.location.replace(sent.url);
+        }
+      }
+    }
+    var back = read(BACK);
+    document.querySelectorAll("form[data-keep]").forEach(function (f) {
+      var id = f.getAttribute("data-keep"), key = PRE + id, submitting = false;
+      var fields = function () {
+        return Array.prototype.filter.call(f.elements, function (x) {
+          return x.name && !x.disabled && ["hidden", "submit", "button"].indexOf(x.type) < 0;
+        });
+      };
+      if (back && back.id === id) {
+        drop(BACK);
+        var kept = read(key), put = [];
+        if (kept && kept.user === me) {
+          var all = fields(), had = {};
+          all.forEach(function (x) { if (x.checked) had[x.name] = true; }); // a group with a box ticked stays as shown
+          all.forEach(function (x) {
+            var v = (kept.v || {})[x.name];
+            if (v === undefined) return;
+            if (x.type === "checkbox" || x.type === "radio") {
+              if (!had[x.name] && v.indexOf(x.value) >= 0) { x.checked = true; put.push(x); }
+            } else if (!x.value) { x.value = v; put.push(x); }
+          });
+        }
+        if (put.length) {
+          if (f.hasAttribute("data-guard")) dirty = true;
+          put.forEach(function (x) { x.classList.add("restored"); });
+          var note = document.createElement("p"), btn = document.createElement("button"), span = document.createElement("span");
+          note.className = "warn";
+          note.setAttribute("role", "status");
+          note.setAttribute("data-testid", "form-restored");
+          span.textContent = (f.getAttribute("data-keep-msg") || "{n}").replace("{n}", String(put.length)) + " ";
+          btn.type = "button";
+          btn.className = "secondary small";
+          btn.setAttribute("data-testid", "form-discard");
+          btn.textContent = f.getAttribute("data-keep-discard") || "×";
+          btn.addEventListener("click", function () {
+            put.forEach(function (x) {
+              if (x.type === "checkbox" || x.type === "radio") x.checked = false; else x.value = "";
+              x.classList.remove("restored");
+            });
+            drop(key);
+            note.parentNode.removeChild(note);
+          });
+          note.appendChild(span);
+          note.appendChild(btn);
+          f.parentNode.insertBefore(note, f);
+        }
+      }
+      var save = function () {
+        var out = {}, any = false;
+        fields().forEach(function (x) {
+          if (x.type === "checkbox" || x.type === "radio") {
+            if (x.checked) { (out[x.name] = out[x.name] || []).push(x.value); any = true; }
+          } else if (x.value) { out[x.name] = x.value; any = true; }
+        });
+        if (any && me) sessionStorage.setItem(key, JSON.stringify({ user: me, at: Date.now(), v: out }));
+        else drop(key);
+      };
+      f.addEventListener("input", save);
+      f.addEventListener("change", save);
+      f.addEventListener("submit", function () {
+        submitting = true;
+        var q = ["record", "event", "form", "back"].map(function (n) {
+          var x = f.querySelector("input[type=hidden][name=" + n + "]");
+          return x && x.value ? n + "=" + encodeURIComponent(x.value) : "";
+        }).filter(Boolean).join("&");
+        var to = (f.getAttribute("action") || window.location.pathname) + (q ? "?" + q : "");
+        sessionStorage.setItem(SENT, JSON.stringify({ id: id, at: Date.now(), url: to }));
+        drop(VIA);
+      });
+      window.addEventListener("pagehide", function () { if (!submitting) drop(key); }); // left without saving
+    });
+    if (back && !going) drop(BACK); // one time only: never on a later visit
+    document.querySelectorAll("form[action='/logout']").forEach(function (f) {
+      f.addEventListener("submit", function () {
+        for (var j = sessionStorage.length - 1; j >= 0; j--) {
+          var n = sessionStorage.key(j);
+          if (n && n.indexOf("tb-form") === 0) drop(n);
+        }
+      });
+    });
+  } catch (e) { /* no session storage: the page works as before */ }
 })();

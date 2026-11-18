@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -25,7 +26,9 @@ WALK = ROOT / "docs" / "handover" / "life-cycle-walk-findings-2026-11-17.md"
 INSTALL = ROOT / "docs" / "plan" / "measurements" / "runbook-install-2026-11-17.md"
 INSTALL_JSON = ROOT / "docs" / "plan" / "measurements" / "runbook-install-2026-11-17" / "findings.json"
 P2B = ROOT / "docs" / "plan" / "measurements" / "p2b-review-2026-11-17.md"
-SRC = REGISTER.read_text(encoding="utf-8")
+#: the register as V-0 seeded it, frozen: the live register grows with every card, so no test pins its rows
+SEED_FILE = ROOT / "tests" / "fixtures" / "findings_register" / "seed.md"
+SRC = SEED_FILE.read_text(encoding="utf-8")
 
 pytestmark = pytest.mark.nodb
 
@@ -53,12 +56,16 @@ def tree(tmp_path: Path, text: str = SRC) -> Path:
     return reg
 
 
+#: the frozen seed in a tree of its own, with its three sources beside it
+SEED_REG = tree(Path(tempfile.mkdtemp(prefix="findings-register-seed-")))
+
+
 def errors_of(reg: Path) -> list[str]:
     return fr.check(fr.parse(reg))
 
 
 def by_card(card: str) -> list[fr.Row]:
-    return [r for r in fr.parse(REGISTER).rows if r.card == card]
+    return [r for r in fr.parse(SEED_REG).rows if r.card == card]
 
 
 def row_of(fid: str, text: str = SRC) -> str:
@@ -74,21 +81,29 @@ def sub(old: str, new: str, text: str = SRC) -> str:
 
 
 def test_the_committed_register_passes_check() -> None:
+    """The live register is well formed and has lost no seeded row; how many rows it holds is not pinned."""
     reg = fr.parse(REGISTER)
     assert fr.check(reg) == []
-    assert len(reg.rows) == len(SEED)
+    assert {s[0] for s in SEED} <= {r.id for r in reg.rows}
     assert fr.main(["--check"]) == 0
+
+
+def test_the_frozen_seed_passes_check() -> None:
+    reg = fr.parse(SEED_REG)
+    assert fr.check(reg) == []
+    assert len(reg.rows) == len(SEED)
 
 
 def test_the_register_keeps_no_counts_line() -> None:
     """D-1180: the counts are printed by --counts; a counts line in the file would conflict in every pair of PRs."""
-    assert not re.search(r"open High \d", SRC)
+    assert not re.search(r"open High \d", REGISTER.read_text(encoding="utf-8"))
 
 
 def test_counts_prints_the_open_findings(capsys: pytest.CaptureFixture[str]) -> None:
     assert fr.main(["--counts"]) == 0
     out = capsys.readouterr().out
-    assert out.startswith("open High 5, open Medium 38, open Low 5, total 51 ")
+    assert re.match(r"open High \d+, open Medium \d+, open Low \d+, total \d+ \(open \d+, card issued \d+, fixed ", out)
+    assert fr.counts_line(fr.parse(SEED_REG)).startswith("open High 5, open Medium 36, open Low 4, total 48 ")
 
 
 # --- the seed: every finding of the three sources, none dropped, none invented ----------------------------------------
@@ -117,10 +132,6 @@ SEED = [
     ("H20-F-20", "High (mapped)", "Int", "shown", "fixed 09b26e8ca", "552e4894f8"),
     ("H20-F-21", "Medium (mapped)", "C2", "shown", "open", "4f9ddbfe55"),
     ("H20-F-22", "Medium (mapped)", "C2", "shown", "open", "0b2c0bcc41"),
-    # H-30 (D-1106): what the walk saw on WALK-1's new steps, added to the walk's page and so here
-    ("H20-F-23", "Medium (mapped)", "C2", "shown", "open", "b1b89f94d9"),
-    ("H20-F-24", "Medium (mapped)", "C2", "shown", "open", "5652664ce2"),
-    ("H20-F-25", "Low (mapped)", "C2", "shown", "open", "ea3fd042b5"),
     ("H22-no-host-tree", "High (mapped)", "D", "shown", "open", "7446e30613"),
     ("H22-vendor-key-after-start", "High (mapped)", "D", "shown", "open", "96dce1b88a"),
     ("H22-stub-fragment-vs-tier", "Medium (mapped)", "D", "shown", "open", "dea98c5bdf"),
@@ -160,7 +171,7 @@ def test_the_seed_is_the_reviewed_seed() -> None:
             r.cells["State"],
             hashlib.sha256(r.cells["Claim"].encode()).hexdigest()[:10],
         )
-        for r in fr.parse(REGISTER).rows
+        for r in fr.parse(SEED_REG).rows
         if r.card in ("H18", "H20", "H22")
     }
     assert got == {s[0]: s[1:] for s in SEED}
@@ -178,9 +189,10 @@ def test_the_walk_seed_holds_every_finding_of_the_walks_page() -> None:
             cells = [c.strip() for c in line.strip("|").split(" | ")]
             source[cells[0]] = (cells[-2], cells[-1])
     # H-30 (D-1106): the page's open findings are exactly the plan's (a finding the walk no longer sees stands after
-    # the table), so a short read fails here rather than by a floor that the page's own changes move
+    # the table), so a short read fails here, and not by a floor that the page's own fixes move
     assert set(source) == {f.id for f in lp.FINDINGS} and len(source) == len(lp.FINDINGS)
-    rows = {r.id.removeprefix("H20-"): r for r in by_card("H20")}
+    # the live register: a finding new on lane H's page needs its row there, not in the frozen seed
+    rows = {r.id.removeprefix("H20-"): r for r in fr.parse(REGISTER).rows if r.card == "H20"}
     assert set(source) <= set(rows), sorted(set(source) - set(rows))
     for fid, (sev, lane) in source.items():
         assert (rows[fid].level == "High") == (sev == "blocks the step"), fid
@@ -189,15 +201,17 @@ def test_the_walk_seed_holds_every_finding_of_the_walks_page() -> None:
 
 def test_the_install_seed_holds_the_install_runs_12_findings() -> None:
     data = json.loads(INSTALL_JSON.read_text(encoding="utf-8"))
-    source = {f["id"]: f["severity"] for f in data["findings"]}
+    # a finding the follower no longer sees moves to "closed" (D-1139); the register keeps its row, so both lists count
+    source = {f["id"]: f["severity"] for f in [*data["findings"], *data.get("closed", [])]}
     assert len(source) == 12
     scale = {"stops the install": "High", "slows the reader": "Medium"}
     rows = {r.id.removeprefix("H22-"): r for r in by_card("H22")}
     assert set(rows) == set(source)
     for fid, sev in source.items():
         assert rows[fid].cells["Severity"] == f"{scale[sev]} (mapped)", fid
+    still_open = {f["id"] for f in data["findings"]}
     shown = {f["id"] for f in data["findings"] if f["seen_on"]}
-    assert {k for k, r in rows.items() if r.cells["Basis"] == "shown"} == shown
+    assert {k for k, r in rows.items() if r.cells["Basis"] == "shown" and k in still_open} == shown
 
 
 def test_the_p2b_seed_holds_its_8_proposed_cards_then_6_more_findings() -> None:
@@ -217,7 +231,7 @@ def test_the_p2b_seed_holds_its_8_proposed_cards_then_6_more_findings() -> None:
 
 
 def test_the_seed_closes_only_what_a_commit_plainly_fixed() -> None:
-    closed = {r.id: r.cells["State"] for r in fr.parse(REGISTER).rows if r.cells["State"] != "open"}
+    closed = {r.id: r.cells["State"] for r in fr.parse(SEED_REG).rows if r.cells["State"] != "open"}
     assert closed == {"H18-01": "fixed 0ee24331a", "H18-02": "fixed f549bfb8b", "H20-F-20": "fixed 09b26e8ca"}
 
 
@@ -435,7 +449,7 @@ def test_release_names_what_stops_it(tmp_path: Path, capsys: pytest.CaptureFixtu
 
 
 def test_the_committed_register_does_not_pass_release() -> None:
-    blockers = {r.id for r in fr.release_blockers(fr.parse(REGISTER))}
+    blockers = {r.id for r in fr.release_blockers(fr.parse(SEED_REG))}
     assert "H18-01" in blockers  # fixed, not yet seen closed
     assert "H18-02" not in blockers  # a Medium with its fix
 
