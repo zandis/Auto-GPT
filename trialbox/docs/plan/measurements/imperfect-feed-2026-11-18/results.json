@@ -1,0 +1,8765 @@
+{
+ "card": "H-34",
+ "decision": "D-1100",
+ "entry_point": "python -m adapter.cli run --source <kind> --path|--dsn <feed> --snapshot <night> --no-fhir (the box's settings from the settings wizard; TB_ADAPTER_LAKE=local)",
+ "patients": 50,
+ "clean": {
+  "csv": {
+   "case": "clean",
+   "family": "clean",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.4,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   },
+   "equal_to_truth": true,
+   "missing_from_lake": 0,
+   "extra_in_lake": 0,
+   "missing_kinds": [],
+   "extra_kinds": []
+  },
+  "cgrd_sql": {
+   "case": "clean",
+   "family": "clean",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.0,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   },
+   "equal_to_truth": true,
+   "missing_from_lake": 0,
+   "extra_in_lake": 0,
+   "missing_kinds": [],
+   "extra_kinds": []
+  },
+  "fhir_bulk": {
+   "case": "clean",
+   "family": "clean",
+   "fmt": "fhir_bulk",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 3.1,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   },
+   "equal_to_truth": true,
+   "missing_from_lake": 0,
+   "extra_in_lake": 0,
+   "missing_kinds": [],
+   "extra_kinds": []
+  },
+  "ssmix2": {
+   "case": "clean",
+   "family": "clean",
+   "fmt": "ssmix2",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 154,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "jp_core",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {
+     "drug_resolution": {
+      "atc": 100,
+      "atc_pct": 100.0,
+      "ingredient": 100,
+      "ingredient_pct": 100.0,
+      "lines": 100
+     },
+     "read": {
+      "ADT-00": 50,
+      "ADT-12": 146,
+      "ADT-22": 4,
+      "ADT-52": 4,
+      "ADT-52:class change": 4,
+      "OML-11": 200,
+      "OMP-01": 80,
+      "OMP-11": 31,
+      "OMP-11:with its order": 11,
+      "OMP-11:without an order": 20,
+      "PPR-01": 150,
+      "document": 4,
+      "medication:ingredient": 100
+     }
+    }
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [
+    "document of 87 characters (0 not from the file's script)",
+    "document of 84 characters (0 not from the file's script)",
+    "document of 84 characters (0 not from the file's script)",
+    "document of 87 characters (0 not from the file's script)"
+   ],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 4,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.1,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "YES: 4 wrong",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   },
+   "equal_to_truth": false,
+   "missing_from_lake": 0,
+   "extra_in_lake": 4,
+   "missing_kinds": [],
+   "extra_kinds": [
+    "document"
+   ]
+  }
+ },
+ "runs": [
+  {
+   "case": "cut-mid-row",
+   "family": "cut off",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [
+    "lab 1742-6 at  value=6.5"
+   ],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 1,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.3,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "YES: 1 wrong",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "cut-mid-row",
+   "family": "cut off",
+   "fmt": "fhir_bulk",
+   "exit": 1,
+   "traceback": true,
+   "exception": "json.decoder.JSONDecodeError: Expecting ',' delimiter: line 1 column 424 (char 423)",
+   "passed": null,
+   "held": null,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "FAILED",
+     "detail": [
+      "error",
+      "step"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.failed",
+     "detail": [
+      "batch",
+      "error",
+      "source",
+      "step"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "no night served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 1.6,
+   "verdict": {
+    "exit": "crash (traceback)",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "no night served",
+    "wrong": "not served",
+    "goes_on": "no: json.decoder.JSONDecodeError: Expecting ',' delimiter: line 1 column 424 (char 423)",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "cut-mid-row",
+   "family": "cut off",
+   "fmt": "ssmix2",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 154,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "reader.json": {
+     "OML-11:sample time from folder": 1
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "reader.json"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "jp_core",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {
+     "drug_resolution": {
+      "atc": 100,
+      "atc_pct": 100.0,
+      "ingredient": 100,
+      "ingredient_pct": 100.0,
+      "lines": 100
+     },
+     "read": {
+      "ADT-00": 50,
+      "ADT-12": 146,
+      "ADT-22": 4,
+      "ADT-52": 4,
+      "ADT-52:class change": 4,
+      "OML-11": 200,
+      "OML-11:sample time from folder": 1,
+      "OMP-01": 80,
+      "OMP-11": 31,
+      "OMP-11:with its order": 11,
+      "OMP-11:without an order": 20,
+      "PPR-01": 150,
+      "document": 4,
+      "medication:ingredient": 100
+     }
+    }
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [
+    "lab 1742-6 at 2026-08-24T00:00 value=6.5"
+   ],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 1,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.0,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "reader.json: OML-11:sample time from folder 1",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "YES: 1 wrong",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "cut-mid-char",
+   "family": "cut off",
+   "fmt": "csv",
+   "exit": 1,
+   "traceback": false,
+   "exception": "",
+   "passed": false,
+   "held": true,
+   "errors": [
+    "note: note.csv quarantined: FORM-ENCODING: the file mixes two character sets (line 151); moved to quarantine/note.csv",
+    "night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot"
+   ],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 0,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "note": {
+     "set_aside": true
+    }
+   },
+   "told": {
+    "report_errors": 2,
+    "counts_file": [
+     "note"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "HELD",
+     "detail": [
+      "gate",
+      "quarantined"
+     ]
+    },
+    "quarantine_folder": [
+     "note.csv"
+    ],
+    "audit": {
+     "event": "ingest.held",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "held",
+      "quarantined",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "held: nothing served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 3.1,
+   "verdict": {
+    "exit": "1 held",
+    "counted": "note: file set aside",
+    "reason": "note: note.csv quarantined: FORM-ENCODING: the file mixes two character sets (line 151); moved to quarantine/note.csv",
+    "good_kept": "held: nothing served",
+    "wrong": "not served",
+    "goes_on": "held (lake keeps the previous night)",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "cut-mid-char",
+   "family": "cut off",
+   "fmt": "fhir_bulk",
+   "exit": 1,
+   "traceback": true,
+   "exception": "json.decoder.JSONDecodeError: Unterminated string starting at: line 1 column 2 (char 1)",
+   "passed": null,
+   "held": null,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "FAILED",
+     "detail": [
+      "error",
+      "step"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.failed",
+     "detail": [
+      "batch",
+      "error",
+      "source",
+      "step"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "no night served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 1.8,
+   "verdict": {
+    "exit": "crash (traceback)",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "no night served",
+    "wrong": "not served",
+    "goes_on": "no: json.decoder.JSONDecodeError: Unterminated string starting at: line 1 column 2 (char 1)",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "cut-mid-char",
+   "family": "cut off",
+   "fmt": "ssmix2",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 149,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 154,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "reader.json": {
+     "PPR-01:quarantined (unreadable bytes)": 1
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "reader.json"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "jp_core",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {
+     "drug_resolution": {
+      "atc": 100,
+      "atc_pct": 100.0,
+      "ingredient": 100,
+      "ingredient_pct": 100.0,
+      "lines": 100
+     },
+     "read": {
+      "ADT-00": 50,
+      "ADT-12": 146,
+      "ADT-22": 4,
+      "ADT-52": 4,
+      "ADT-52:class change": 4,
+      "OML-11": 200,
+      "OMP-01": 80,
+      "OMP-11": 31,
+      "OMP-11:with its order": 11,
+      "OMP-11:without an order": 20,
+      "PPR-01": 149,
+      "PPR-01:quarantined (unreadable bytes)": 1,
+      "document": 4,
+      "medication:ingredient": 100
+     }
+    }
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 1,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.4,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "reader.json: PPR-01:quarantined (unreadable bytes) 1",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "cut-in-quotes",
+   "family": "cut off",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [
+    "document of 56 characters (0 not from the file's script)"
+   ],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 1,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.2,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "YES: 1 wrong",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "twice-same-name",
+   "family": "same file twice",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 7.3,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "twice-same-name",
+   "family": "same file twice",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 7.7,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "twice-same-name",
+   "family": "same file twice",
+   "fmt": "fhir_bulk",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 6.4,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "twice-same-name",
+   "family": "same file twice",
+   "fmt": "ssmix2",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 154,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "jp_core",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {
+     "drug_resolution": {
+      "atc": 100,
+      "atc_pct": 100.0,
+      "ingredient": 100,
+      "ingredient_pct": 100.0,
+      "lines": 100
+     },
+     "read": {
+      "ADT-00": 50,
+      "ADT-12": 146,
+      "ADT-22": 4,
+      "ADT-52": 4,
+      "ADT-52:class change": 4,
+      "OML-11": 200,
+      "OMP-01": 80,
+      "OMP-11": 31,
+      "OMP-11:with its order": 11,
+      "OMP-11:without an order": 20,
+      "PPR-01": 150,
+      "document": 4,
+      "medication:ingredient": 100
+     }
+    }
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 9.0,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "twice-other-name",
+   "family": "same file twice",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.0,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "twice-other-name",
+   "family": "same file twice",
+   "fmt": "fhir_bulk",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.8,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "twice-other-name",
+   "family": "same file twice",
+   "fmt": "ssmix2",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 154,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "jp_core",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {
+     "drug_resolution": {
+      "atc": 100,
+      "atc_pct": 100.0,
+      "ingredient": 100,
+      "ingredient_pct": 100.0,
+      "lines": 100
+     },
+     "read": {
+      "ADT-00": 50,
+      "ADT-12": 146,
+      "ADT-22": 4,
+      "ADT-52": 4,
+      "ADT-52:class change": 4,
+      "OML-11": 200,
+      "OMP-01": 80,
+      "OMP-11": 31,
+      "OMP-11:with its order": 11,
+      "OMP-11:without an order": 20,
+      "PPR-01": 150,
+      "document": 4,
+      "medication:ingredient": 100
+     }
+    }
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.0,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "twice-in-one-file",
+   "family": "same file twice",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 401,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "lab": {
+     "duplicate_keys": 200,
+     "unmapped": {
+      "lab": {
+       "codes": 1,
+       "rows": 1
+      }
+     }
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "lab"
+    ],
+    "unmapped_codes_file": [
+     "lab"
+    ],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "duplicate_keys",
+      "gate",
+      "publish",
+      "unmapped",
+      "unmapped_kinds"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "duplicate_keys",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source",
+      "unmapped",
+      "unmapped_kinds"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.3,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "lab: duplicate_keys 200, unmapped 2",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "twice-in-one-file",
+   "family": "same file twice",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 100,
+    "claim": 10,
+    "diagnosis": 300,
+    "encounter": 300,
+    "lab": 400,
+    "medication": 200,
+    "note": 300,
+    "patient": 100,
+    "practitioner": 6,
+    "procedure": 20,
+    "report": 100,
+    "vital": 100
+   },
+   "counted": {
+    "appointment": {
+     "duplicate_keys": 50
+    },
+    "claim": {
+     "duplicate_keys": 5
+    },
+    "diagnosis": {
+     "duplicate_keys": 150
+    },
+    "encounter": {
+     "duplicate_keys": 150
+    },
+    "lab": {
+     "duplicate_keys": 200
+    },
+    "medication": {
+     "duplicate_keys": 100
+    },
+    "note": {
+     "duplicate_keys": 150
+    },
+    "patient": {
+     "duplicate_keys": 50
+    },
+    "practitioner": {
+     "duplicate_keys": 3
+    },
+    "procedure": {
+     "duplicate_keys": 10
+    },
+    "report": {
+     "duplicate_keys": 50
+    },
+    "vital": {
+     "duplicate_keys": 50
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "appointment",
+     "claim",
+     "diagnosis",
+     "encounter",
+     "lab",
+     "medication",
+     "note",
+     "patient",
+     "practitioner",
+     "procedure",
+     "report",
+     "vital"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "duplicate_keys",
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "duplicate_keys",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.4,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "appointment: duplicate_keys 50; claim: duplicate_keys 5; diagnosis: duplicate_keys 150; encounter: duplicate_keys 150; lab: duplicate_keys 200; medication: duplicate_keys 100; note: duplicate_keys 150; patient: duplicate_keys 50; practitioner: duplicate_keys 3; procedure: duplicate_keys 10; report: duplicate_keys 50; vital: duplicate_keys 50",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "twice-in-one-file",
+   "family": "same file twice",
+   "fmt": "fhir_bulk",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.0,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "column-short",
+   "family": "wrong column count",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [
+    "lab 4548-4 at  value=3.5"
+   ],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 1,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.9,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "YES: 1 wrong",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "column-extra",
+   "family": "wrong column count",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "lab": {
+     "rejected": {
+      "MappingError: unparseable datetime <value>": 1
+     }
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "lab"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 1,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.2,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "lab: rejected 1 \"MappingError: unparseable datetime <value>\"",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "header-renamed",
+   "family": "wrong column count",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "200 of 800 lost",
+   "wrong": [
+    "lab 1742-6 at 2026-08-07T10:30 value=None",
+    "lab 2160-0 at 2026-04-07T10:30 value=None",
+    "lab 3084-1 at 2026-02-07T10:30 value=None",
+    "lab 4548-4 at 2026-06-07T10:30 value=None",
+    "lab 1742-6 at 2026-08-04T10:30 value=None",
+    "lab 2160-0 at 2026-04-04T10:30 value=None",
+    "lab 3084-1 at 2026-02-04T10:30 value=None",
+    "lab 4548-4 at 2026-06-04T10:30 value=None"
+   ],
+   "doubled": 0,
+   "lost": 200,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 200,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.0,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "200 of 800 lost",
+    "wrong": "YES: 200 wrong",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "header-dropped",
+   "family": "wrong column count",
+   "fmt": "csv",
+   "exit": 1,
+   "traceback": false,
+   "exception": "",
+   "passed": false,
+   "held": true,
+   "errors": [
+    "validation error rate 7.14% exceeds 0.5%",
+    "night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot"
+   ],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 2,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "HELD",
+     "detail": [
+      "gate"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.held",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "held",
+      "source",
+      "validation_error_pct"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "held: nothing served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 2.9,
+   "verdict": {
+    "exit": "1 held",
+    "counted": "nothing counted",
+    "reason": "validation error rate 7.14% exceeds 0.5%",
+    "good_kept": "held: nothing served",
+    "wrong": "not served",
+    "goes_on": "held (lake keeps the previous night)",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "header-dropped",
+   "family": "wrong column count",
+   "fmt": "cgrd_sql",
+   "exit": 1,
+   "traceback": false,
+   "exception": "",
+   "passed": false,
+   "held": true,
+   "errors": [
+    "validation error rate 4.76% exceeds 0.5%",
+    "night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot"
+   ],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 2,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "HELD",
+     "detail": [
+      "gate"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.held",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "held",
+      "source",
+      "validation_error_pct"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "held: nothing served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 3.0,
+   "verdict": {
+    "exit": "1 held",
+    "counted": "nothing counted",
+    "reason": "validation error rate 4.76% exceeds 0.5%",
+    "good_kept": "held: nothing served",
+    "wrong": "not served",
+    "goes_on": "held (lake keeps the previous night)",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "big5",
+   "family": "encoding",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.2,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "big5",
+   "family": "encoding",
+   "fmt": "fhir_bulk",
+   "exit": 1,
+   "traceback": true,
+   "exception": "UnicodeDecodeError: 'utf-8' codec can't decode byte 0xa7 in position 290: invalid start byte",
+   "passed": null,
+   "held": null,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "FAILED",
+     "detail": [
+      "error",
+      "step"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.failed",
+     "detail": [
+      "batch",
+      "error",
+      "source",
+      "step"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "no night served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 1.7,
+   "verdict": {
+    "exit": "crash (traceback)",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "no night served",
+    "wrong": "not served",
+    "goes_on": "no: UnicodeDecodeError: 'utf-8' codec can't decode byte 0xa7 in position 290: invalid start byte",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "big5",
+   "family": "encoding",
+   "fmt": "ssmix2",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 154,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "reader.json": {
+     "PPR-01:read as cp932": 1
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "reader.json"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "jp_core",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {
+     "drug_resolution": {
+      "atc": 100,
+      "atc_pct": 100.0,
+      "ingredient": 100,
+      "ingredient_pct": 100.0,
+      "lines": 100
+     },
+     "read": {
+      "ADT-00": 50,
+      "ADT-12": 146,
+      "ADT-22": 4,
+      "ADT-52": 4,
+      "ADT-52:class change": 4,
+      "OML-11": 200,
+      "OMP-01": 80,
+      "OMP-11": 31,
+      "OMP-11:with its order": 11,
+      "OMP-11:without an order": 20,
+      "PPR-01": 150,
+      "PPR-01:read as cp932": 1,
+      "document": 4,
+      "medication:ingredient": 100
+     }
+    }
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 2,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.0,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "reader.json: PPR-01:read as cp932 1",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "YES: 2 garbled texts in the snapshot",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "big5-hkscs",
+   "family": "encoding",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.5,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "utf8-bom",
+   "family": "encoding",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.5,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "utf8-bom",
+   "family": "encoding",
+   "fmt": "fhir_bulk",
+   "exit": 1,
+   "traceback": true,
+   "exception": "json.decoder.JSONDecodeError: Unexpected UTF-8 BOM (decode using utf-8-sig): line 1 column 1 (char 0)",
+   "passed": null,
+   "held": null,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "FAILED",
+     "detail": [
+      "error",
+      "step"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.failed",
+     "detail": [
+      "batch",
+      "error",
+      "source",
+      "step"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "no night served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 1.9,
+   "verdict": {
+    "exit": "crash (traceback)",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "no night served",
+    "wrong": "not served",
+    "goes_on": "no: json.decoder.JSONDecodeError: Unexpected UTF-8 BOM (decode using utf-8-sig): line 1 column 1 (char 0)",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "utf8-bom",
+   "family": "encoding",
+   "fmt": "ssmix2",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 154,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "jp_core",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {
+     "drug_resolution": {
+      "atc": 100,
+      "atc_pct": 100.0,
+      "ingredient": 100,
+      "ingredient_pct": 100.0,
+      "lines": 100
+     },
+     "read": {
+      "ADT-00": 50,
+      "ADT-12": 146,
+      "ADT-22": 4,
+      "ADT-52": 4,
+      "ADT-52:class change": 4,
+      "OML-11": 200,
+      "OMP-01": 80,
+      "OMP-11": 31,
+      "OMP-11:with its order": 11,
+      "OMP-11:without an order": 20,
+      "PPR-01": 150,
+      "document": 4,
+      "medication:ingredient": 100
+     }
+    }
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.9,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "utf16",
+   "family": "encoding",
+   "fmt": "csv",
+   "exit": 1,
+   "traceback": false,
+   "exception": "",
+   "passed": false,
+   "held": true,
+   "errors": [
+    "note: note.csv quarantined: FORM-ENCODING: the file reads as UTF-16 without a byte order mark (a NUL byte beside every character); moved to quarantine/note.csv",
+    "night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot"
+   ],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 0,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "note": {
+     "set_aside": true
+    }
+   },
+   "told": {
+    "report_errors": 2,
+    "counts_file": [
+     "note"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "HELD",
+     "detail": [
+      "gate",
+      "quarantined"
+     ]
+    },
+    "quarantine_folder": [
+     "note.csv"
+    ],
+    "audit": {
+     "event": "ingest.held",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "held",
+      "quarantined",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "held: nothing served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 2.4,
+   "verdict": {
+    "exit": "1 held",
+    "counted": "note: file set aside",
+    "reason": "note: note.csv quarantined: FORM-ENCODING: the file reads as UTF-16 without a byte order mark (a NUL byte beside every character); moved to quarantine/note.csv",
+    "good_kept": "held: nothing served",
+    "wrong": "not served",
+    "goes_on": "held (lake keeps the previous night)",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "utf16",
+   "family": "encoding",
+   "fmt": "fhir_bulk",
+   "exit": 1,
+   "traceback": true,
+   "exception": "UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte",
+   "passed": null,
+   "held": null,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "FAILED",
+     "detail": [
+      "error",
+      "step"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.failed",
+     "detail": [
+      "batch",
+      "error",
+      "source",
+      "step"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "no night served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 1.7,
+   "verdict": {
+    "exit": "crash (traceback)",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "no night served",
+    "wrong": "not served",
+    "goes_on": "no: UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "utf16",
+   "family": "encoding",
+   "fmt": "ssmix2",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 149,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 154,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "reader.json": {
+     "PPR-01:quarantined (unreadable bytes)": 1
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "reader.json"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "jp_core",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {
+     "drug_resolution": {
+      "atc": 100,
+      "atc_pct": 100.0,
+      "ingredient": 100,
+      "ingredient_pct": 100.0,
+      "lines": 100
+     },
+     "read": {
+      "ADT-00": 50,
+      "ADT-12": 146,
+      "ADT-22": 4,
+      "ADT-52": 4,
+      "ADT-52:class change": 4,
+      "OML-11": 200,
+      "OMP-01": 80,
+      "OMP-11": 31,
+      "OMP-11:with its order": 11,
+      "OMP-11:without an order": 20,
+      "PPR-01": 149,
+      "PPR-01:quarantined (unreadable bytes)": 1,
+      "document": 4,
+      "medication:ingredient": 100
+     }
+    }
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 1,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.6,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "reader.json: PPR-01:quarantined (unreadable bytes) 1",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "big5-one-row",
+   "family": "encoding",
+   "fmt": "csv",
+   "exit": 1,
+   "traceback": false,
+   "exception": "",
+   "passed": false,
+   "held": true,
+   "errors": [
+    "note: note.csv quarantined: FORM-ENCODING: the file mixes two character sets (line 11); moved to quarantine/note.csv",
+    "night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot"
+   ],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 0,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "note": {
+     "set_aside": true
+    }
+   },
+   "told": {
+    "report_errors": 2,
+    "counts_file": [
+     "note"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "HELD",
+     "detail": [
+      "gate",
+      "quarantined"
+     ]
+    },
+    "quarantine_folder": [
+     "note.csv"
+    ],
+    "audit": {
+     "event": "ingest.held",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "held",
+      "quarantined",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "held: nothing served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 2.4,
+   "verdict": {
+    "exit": "1 held",
+    "counted": "note: file set aside",
+    "reason": "note: note.csv quarantined: FORM-ENCODING: the file mixes two character sets (line 11); moved to quarantine/note.csv",
+    "good_kept": "held: nothing served",
+    "wrong": "not served",
+    "goes_on": "held (lake keeps the previous night)",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "date-zero",
+   "family": "dates",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "diagnosis": {
+     "rejected": {
+      "MappingError: unparseable date <value>": 1
+     }
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "diagnosis"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 1,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.0,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "diagnosis: rejected 1 \"MappingError: unparseable date <value>\"",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "date-zero",
+   "family": "dates",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "diagnosis": {
+     "rejected": {
+      "MappingError: unparseable date <value>": 1
+     }
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "diagnosis"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 1,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.9,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "diagnosis: rejected 1 \"MappingError: unparseable date <value>\"",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "date-zero",
+   "family": "dates",
+   "fmt": "fhir_bulk",
+   "exit": 1,
+   "traceback": false,
+   "exception": "",
+   "passed": false,
+   "held": false,
+   "errors": [
+    "lake rebuild failed: ValueError: LAKE-BUILD: the lake could not build the snapshot. The error's own message can hold a value of a row and is not sent; the lake's log says where the build failed"
+   ],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 1,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "FAILED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.failed",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "no night served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 2.9,
+   "verdict": {
+    "exit": "1 failed",
+    "counted": "nothing counted",
+    "reason": "lake rebuild failed: ValueError: LAKE-BUILD: the lake could not build the snapshot. The error's own message can hold a value of a row and is not sent; the lake's log says where the build failed",
+    "good_kept": "no night served",
+    "wrong": "not served",
+    "goes_on": "no: the night did not end",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "date-roc-slash",
+   "family": "dates",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "diagnosis": {
+     "rejected": {
+      "MappingError: unparseable date <value>": 1
+     }
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "diagnosis"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 1,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.9,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "diagnosis: rejected 1 \"MappingError: unparseable date <value>\"",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "date-roc-slash",
+   "family": "dates",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "diagnosis": {
+     "rejected": {
+      "MappingError: unparseable date <value>": 1
+     }
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "diagnosis"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 1,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.0,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "diagnosis: rejected 1 \"MappingError: unparseable date <value>\"",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "date-roc-compact",
+   "family": "dates",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "diagnosis": {
+     "rejected": {
+      "MappingError: unparseable date <value>": 1
+     }
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "diagnosis"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 1,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.6,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "diagnosis: rejected 1 \"MappingError: unparseable date <value>\"",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "date-roc-compact",
+   "family": "dates",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "diagnosis": {
+     "rejected": {
+      "MappingError: unparseable date <value>": 1
+     }
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "diagnosis"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 1,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.8,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "diagnosis: rejected 1 \"MappingError: unparseable date <value>\"",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "date-roc-words",
+   "family": "dates",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "diagnosis": {
+     "rejected": {
+      "MappingError: unparseable date <value>": 1
+     }
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "diagnosis"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 1,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.6,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "diagnosis: rejected 1 \"MappingError: unparseable date <value>\"",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "date-roc-words",
+   "family": "dates",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "diagnosis": {
+     "rejected": {
+      "MappingError: unparseable date <value>": 1
+     }
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "diagnosis"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 1,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.1,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "diagnosis: rejected 1 \"MappingError: unparseable date <value>\"",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "date-9999",
+   "family": "dates",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "diagnosis": {
+     "rejected": {
+      "DateRangeError: date <value>": 1
+     }
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "diagnosis"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 1,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.1,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "diagnosis: rejected 1 \"DateRangeError: date <value>\"",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "date-9999",
+   "family": "dates",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "diagnosis": {
+     "rejected": {
+      "DateRangeError: date <value>": 1
+     }
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "diagnosis"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 1,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.1,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "diagnosis: rejected 1 \"DateRangeError: date <value>\"",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "date-9999",
+   "family": "dates",
+   "fmt": "fhir_bulk",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 1,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.2,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "kept as written: 1, not counted",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "birth-after-visit",
+   "family": "dates",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 1,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.7,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "kept as written: 1, not counted",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "birth-after-visit",
+   "family": "dates",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 1,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.7,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "kept as written: 1, not counted",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "birth-after-visit",
+   "family": "dates",
+   "fmt": "fhir_bulk",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 1,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.1,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "kept as written: 1, not counted",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "birth-zero",
+   "family": "dates",
+   "fmt": "csv",
+   "exit": 1,
+   "traceback": false,
+   "exception": "",
+   "passed": false,
+   "held": true,
+   "errors": [
+    "patient: 1 of 50 rows rejected (over 1 %): MappingError: unparseable date <value> (1)",
+    "night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot"
+   ],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "patient": {
+     "rejected": {
+      "MappingError: unparseable date <value>": 1
+     }
+    }
+   },
+   "told": {
+    "report_errors": 2,
+    "counts_file": [
+     "patient"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "HELD",
+     "detail": [
+      "gate",
+      "orphans"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.held",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "held",
+      "orphans",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "held: nothing served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 2.9,
+   "verdict": {
+    "exit": "1 held",
+    "counted": "patient: rejected 1 \"MappingError: unparseable date <value>\"",
+    "reason": "patient: 1 of 50 rows rejected (over 1 %): MappingError: unparseable date <value> (1)",
+    "good_kept": "held: nothing served",
+    "wrong": "not served",
+    "goes_on": "held (lake keeps the previous night)",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "birth-zero",
+   "family": "dates",
+   "fmt": "cgrd_sql",
+   "exit": 1,
+   "traceback": false,
+   "exception": "",
+   "passed": false,
+   "held": true,
+   "errors": [
+    "patient: 1 of 50 rows rejected (over 1 %): MappingError: unparseable date <value> (1)",
+    "night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot"
+   ],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "patient": {
+     "rejected": {
+      "MappingError: unparseable date <value>": 1
+     }
+    }
+   },
+   "told": {
+    "report_errors": 2,
+    "counts_file": [
+     "patient"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "HELD",
+     "detail": [
+      "gate",
+      "orphans"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.held",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "held",
+      "orphans",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "held: nothing served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 3.0,
+   "verdict": {
+    "exit": "1 held",
+    "counted": "patient: rejected 1 \"MappingError: unparseable date <value>\"",
+    "reason": "patient: 1 of 50 rows rejected (over 1 %): MappingError: unparseable date <value> (1)",
+    "good_kept": "held: nothing served",
+    "wrong": "not served",
+    "goes_on": "held (lake keeps the previous night)",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "birth-zero",
+   "family": "dates",
+   "fmt": "fhir_bulk",
+   "exit": 1,
+   "traceback": false,
+   "exception": "",
+   "passed": false,
+   "held": false,
+   "errors": [
+    "lake rebuild failed: ValueError: LAKE-BUILD: the lake could not build the snapshot. The error's own message can hold a value of a row and is not sent; the lake's log says where the build failed"
+   ],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 1,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "FAILED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.failed",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "no night served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 2.4,
+   "verdict": {
+    "exit": "1 failed",
+    "counted": "nothing counted",
+    "reason": "lake rebuild failed: ValueError: LAKE-BUILD: the lake could not build the snapshot. The error's own message can hold a value of a row and is not sent; the lake's log says where the build failed",
+    "good_kept": "no night served",
+    "wrong": "not served",
+    "goes_on": "no: the night did not end",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "ssmix2-birth-zero",
+   "family": "dates",
+   "fmt": "ssmix2",
+   "exit": 1,
+   "traceback": false,
+   "exception": "",
+   "passed": false,
+   "held": true,
+   "errors": [
+    "patient: 1 of 50 rows rejected (over 1 %): MappingError: unparseable date <value> (1)",
+    "night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot"
+   ],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 154,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "patient": {
+     "rejected": {
+      "MappingError: unparseable date <value>": 1
+     }
+    }
+   },
+   "told": {
+    "report_errors": 2,
+    "counts_file": [
+     "patient"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "HELD",
+     "detail": [
+      "gate",
+      "orphans"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.held",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "held",
+      "jp_core",
+      "orphans",
+      "source"
+     ]
+    },
+    "reader": {
+     "drug_resolution": {
+      "atc": 100,
+      "atc_pct": 100.0,
+      "ingredient": 100,
+      "ingredient_pct": 100.0,
+      "lines": 100
+     },
+     "read": {
+      "ADT-00": 50,
+      "ADT-12": 146,
+      "ADT-22": 4,
+      "ADT-52": 4,
+      "ADT-52:class change": 4,
+      "OML-11": 200,
+      "OMP-01": 80,
+      "OMP-11": 31,
+      "OMP-11:with its order": 11,
+      "OMP-11:without an order": 20,
+      "PPR-01": 150,
+      "document": 4,
+      "medication:ingredient": 100
+     }
+    }
+   },
+   "served": false,
+   "good_kept": "held: nothing served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 3.5,
+   "verdict": {
+    "exit": "1 held",
+    "counted": "patient: rejected 1 \"MappingError: unparseable date <value>\"",
+    "reason": "patient: 1 of 50 rows rejected (over 1 %): MappingError: unparseable date <value> (1)",
+    "good_kept": "held: nothing served",
+    "wrong": "not served",
+    "goes_on": "held (lake keeps the previous night)",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "ssmix2-birth-9999",
+   "family": "dates",
+   "fmt": "ssmix2",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 154,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "patient": {
+     "implausible_dates": {
+      "birthDate": 1
+     }
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "patient"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "jp_core",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {
+     "drug_resolution": {
+      "atc": 100,
+      "atc_pct": 100.0,
+      "ingredient": 100,
+      "ingredient_pct": 100.0,
+      "lines": 100
+     },
+     "read": {
+      "ADT-00": 50,
+      "ADT-12": 146,
+      "ADT-22": 4,
+      "ADT-52": 4,
+      "ADT-52:class change": 4,
+      "OML-11": 200,
+      "OMP-01": 80,
+      "OMP-11": 31,
+      "OMP-11:with its order": 11,
+      "OMP-11:without an order": 20,
+      "PPR-01": 150,
+      "document": 4,
+      "medication:ingredient": 100
+     }
+    }
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.1,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "patient: implausible_dates 1",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "ssmix2-birth-after-visit",
+   "family": "dates",
+   "fmt": "ssmix2",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 154,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "jp_core",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {
+     "drug_resolution": {
+      "atc": 100,
+      "atc_pct": 100.0,
+      "ingredient": 100,
+      "ingredient_pct": 100.0,
+      "lines": 100
+     },
+     "read": {
+      "ADT-00": 50,
+      "ADT-12": 146,
+      "ADT-22": 4,
+      "ADT-52": 4,
+      "ADT-52:class change": 4,
+      "OML-11": 200,
+      "OMP-01": 80,
+      "OMP-11": 31,
+      "OMP-11:with its order": 11,
+      "OMP-11:without an order": 20,
+      "PPR-01": 150,
+      "document": 4,
+      "medication:ingredient": 100
+     }
+    }
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 1,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.6,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "kept as written: 1, not counted",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "note-2mb",
+   "family": "notes",
+   "fmt": "csv",
+   "exit": 1,
+   "traceback": false,
+   "exception": "",
+   "passed": false,
+   "held": true,
+   "errors": [
+    "note: note.csv quarantined: not a readable CSV (field larger than field limit (131072)); moved to quarantine/note.csv",
+    "night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot"
+   ],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 0,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "note": {
+     "set_aside": true
+    }
+   },
+   "told": {
+    "report_errors": 2,
+    "counts_file": [
+     "note"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "HELD",
+     "detail": [
+      "gate",
+      "quarantined"
+     ]
+    },
+    "quarantine_folder": [
+     "note.csv"
+    ],
+    "audit": {
+     "event": "ingest.held",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "held",
+      "quarantined",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "held: nothing served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 2.7,
+   "verdict": {
+    "exit": "1 held",
+    "counted": "note: file set aside",
+    "reason": "note: note.csv quarantined: not a readable CSV (field larger than field limit (131072)); moved to quarantine/note.csv",
+    "good_kept": "held: nothing served",
+    "wrong": "not served",
+    "goes_on": "held (lake keeps the previous night)",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "note-2mb",
+   "family": "notes",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 6.4,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "note-2mb",
+   "family": "notes",
+   "fmt": "fhir_bulk",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 6.3,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "note-nul",
+   "family": "notes",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.1,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "note-nul",
+   "family": "notes",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.0,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "note-nul",
+   "family": "notes",
+   "fmt": "fhir_bulk",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.1,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "note-blank",
+   "family": "notes",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.7,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "note-blank",
+   "family": "notes",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.1,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "note-blank",
+   "family": "notes",
+   "fmt": "fhir_bulk",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.2,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "long-line",
+   "family": "line endings",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.9,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "long-line",
+   "family": "line endings",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.3,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "long-line",
+   "family": "line endings",
+   "fmt": "fhir_bulk",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 3.9,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "code-unknown-lab",
+   "family": "unknown code",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "lab": {
+     "unmapped": {
+      "lab": {
+       "codes": 1,
+       "rows": 1
+      }
+     }
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "lab"
+    ],
+    "unmapped_codes_file": [
+     "lab"
+    ],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish",
+      "unmapped",
+      "unmapped_kinds"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source",
+      "unmapped",
+      "unmapped_kinds"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 1,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.0,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "lab: unmapped 2",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "code-unknown-lab",
+   "family": "unknown code",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "lab": {
+     "unmapped": {
+      "lab": {
+       "codes": 1,
+       "rows": 1
+      }
+     }
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "lab"
+    ],
+    "unmapped_codes_file": [
+     "lab"
+    ],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish",
+      "unmapped",
+      "unmapped_kinds"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source",
+      "unmapped",
+      "unmapped_kinds"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 1,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.7,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "lab: unmapped 2",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "code-trailing-space",
+   "family": "unknown code",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.4,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "code-trailing-space",
+   "family": "unknown code",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.0,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "code-lower-case",
+   "family": "unknown code",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.5,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "code-lower-case",
+   "family": "unknown code",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.2,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "code-unknown-dx",
+   "family": "unknown code",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.9,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "code-unknown-dx",
+   "family": "unknown code",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.2,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "code-unknown-dx",
+   "family": "unknown code",
+   "fmt": "fhir_bulk",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.3,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "code-unknown-drug",
+   "family": "unknown code",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "medication": {
+     "unmapped": {
+      "map:nhi_drug_list->atc:unavailable": {
+       "codes": 1,
+       "rows": 1
+      }
+     }
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "medication"
+    ],
+    "unmapped_codes_file": [
+     "medication"
+    ],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish",
+      "unmapped",
+      "unmapped_kinds"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source",
+      "unmapped",
+      "unmapped_kinds"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.9,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "medication: unmapped 2",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "code-unknown-drug",
+   "family": "unknown code",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "medication": {
+     "unmapped": {
+      "map:nhi_drug_list->atc:unavailable": {
+       "codes": 1,
+       "rows": 1
+      }
+     }
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "medication"
+    ],
+    "unmapped_codes_file": [
+     "medication"
+    ],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish",
+      "unmapped",
+      "unmapped_kinds"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source",
+      "unmapped",
+      "unmapped_kinds"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.6,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "medication: unmapped 2",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "code-unknown-loinc",
+   "family": "unknown code",
+   "fmt": "fhir_bulk",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.2,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "two-charts-one-person",
+   "family": "chart numbers",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 51,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 4,
+   "bad_in_lake": 0,
+   "bad_as_written": 5,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 51 patients in the funnel's start",
+   "seconds": 4.8,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "kept as written: 5, not counted",
+    "goes_on": "yes",
+    "feas": "ran: 51 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "two-charts-one-person",
+   "family": "chart numbers",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 51,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 4,
+   "bad_in_lake": 0,
+   "bad_as_written": 5,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 51 patients in the funnel's start",
+   "seconds": 5.4,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "kept as written: 5, not counted",
+    "goes_on": "yes",
+    "feas": "ran: 51 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "two-charts-one-person",
+   "family": "chart numbers",
+   "fmt": "fhir_bulk",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 4,
+   "bad_in_lake": 0,
+   "bad_as_written": 5,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 51 patients in the funnel's start",
+   "seconds": 4.2,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "kept as written: 5, not counted",
+    "goes_on": "yes",
+    "feas": "ran: 51 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "two-charts-one-person",
+   "family": "chart numbers",
+   "fmt": "ssmix2",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 154,
+    "patient": 51,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "jp_core",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {
+     "drug_resolution": {
+      "atc": 100,
+      "atc_pct": 100.0,
+      "ingredient": 100,
+      "ingredient_pct": 100.0,
+      "lines": 100
+     },
+     "read": {
+      "ADT-00": 51,
+      "ADT-12": 146,
+      "ADT-22": 4,
+      "ADT-52": 4,
+      "ADT-52:class change": 4,
+      "OML-11": 200,
+      "OMP-01": 80,
+      "OMP-11": 31,
+      "OMP-11:with its order": 11,
+      "OMP-11:without an order": 20,
+      "PPR-01": 150,
+      "document": 4,
+      "medication:ingredient": 100
+     }
+    }
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 4,
+   "bad_in_lake": 0,
+   "bad_as_written": 5,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 51 patients in the funnel's start",
+   "seconds": 5.3,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "kept as written: 5, not counted",
+    "goes_on": "yes",
+    "feas": "ran: 51 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "one-chart-two-people",
+   "family": "chart numbers",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 151,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 51,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "patient": {
+     "duplicate_keys": 1
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "patient"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "duplicate_keys",
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "duplicate_keys",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [
+    "encounter 2026-10-09T11:11",
+    "patient birth=1999-09-09 sex=female"
+   ],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 2,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 2,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.6,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "patient: duplicate_keys 1",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "YES: 2 wrong",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "one-chart-two-people",
+   "family": "chart numbers",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 151,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 51,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "patient": {
+     "duplicate_keys": 1
+    }
+   },
+   "told": {
+    "report_errors": 0,
+    "counts_file": [
+     "patient"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "duplicate_keys",
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "duplicate_keys",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [
+    "encounter 2026-10-09T11:11",
+    "patient birth=1999-09-09 sex=female"
+   ],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 2,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 2,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.8,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "patient: duplicate_keys 1",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "YES: 2 wrong",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "one-chart-two-people",
+   "family": "chart numbers",
+   "fmt": "fhir_bulk",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [
+    "encounter 2026-10-09T11:11",
+    "patient birth=1999-09-09 sex=female"
+   ],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 2,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 2,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.2,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "YES: 2 wrong",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "one-chart-two-people",
+   "family": "chart numbers",
+   "fmt": "ssmix2",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 154,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "jp_core",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {
+     "drug_resolution": {
+      "atc": 100,
+      "atc_pct": 100.0,
+      "ingredient": 100,
+      "ingredient_pct": 100.0,
+      "lines": 100
+     },
+     "read": {
+      "ADT-00": 50,
+      "ADT-12": 146,
+      "ADT-22": 4,
+      "ADT-52": 4,
+      "ADT-52:class change": 4,
+      "OML-11": 200,
+      "OMP-01": 80,
+      "OMP-11": 31,
+      "OMP-11:with its order": 11,
+      "OMP-11:without an order": 20,
+      "PPR-01": 150,
+      "document": 4,
+      "medication:ingredient": 100
+     }
+    }
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [
+    "patient birth=1999-09-09 sex=female"
+   ],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 1,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.1,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "YES: 1 wrong",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "empty-zero-bytes",
+   "family": "empty export",
+   "fmt": "csv",
+   "exit": 1,
+   "traceback": false,
+   "exception": "",
+   "passed": false,
+   "held": true,
+   "errors": [
+    "incomplete feed (against snapshot none): lab: table empty and no earlier good night had it (every table of the mapping is required until one has; a table this site does not have goes under feed_completeness.optional_tables). A missing or broken extract? To load it anyway set TB_FEED_DROP_OVERRIDE='2",
+    "night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot"
+   ],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 0,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 2,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "HELD",
+     "detail": [
+      "gate",
+      "incomplete"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.held",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "held",
+      "incomplete",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "held: nothing served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 200,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 2.9,
+   "verdict": {
+    "exit": "1 held",
+    "counted": "nothing counted",
+    "reason": "incomplete feed (against snapshot none): lab: table empty and no earlier good night had it (every table of the mapping is required until one has; a table this site does not have goes under feed_completeness.optional_tables). A missing or broken extract? To load it anyway set TB_FEED_DROP_OVERRIDE='2",
+    "good_kept": "held: nothing served",
+    "wrong": "not served",
+    "goes_on": "held (lake keeps the previous night)",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "empty-zero-bytes",
+   "family": "empty export",
+   "fmt": "fhir_bulk",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 200,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 200,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 3.7,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "UNCOUNTED: 200 bad rows absent, nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "empty-zero-bytes",
+   "family": "empty export",
+   "fmt": "ssmix2",
+   "exit": 1,
+   "traceback": false,
+   "exception": "",
+   "passed": false,
+   "held": true,
+   "errors": [
+    "lab: 4 of 200 SS-MIX2 files quarantined (more than 1 %): not an HL7 message",
+    "night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot"
+   ],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 196,
+    "medication": 100,
+    "note": 154,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {
+    "lab": {
+     "set_aside": true
+    },
+    "reader.json": {
+     "OML-11:quarantined (not an HL7 message)": 4
+    }
+   },
+   "told": {
+    "report_errors": 2,
+    "counts_file": [
+     "lab",
+     "reader.json"
+    ],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "HELD",
+     "detail": [
+      "gate",
+      "quarantined"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.held",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "held",
+      "jp_core",
+      "quarantined",
+      "source"
+     ]
+    },
+    "reader": {
+     "drug_resolution": {
+      "atc": 100,
+      "atc_pct": 100.0,
+      "ingredient": 100,
+      "ingredient_pct": 100.0,
+      "lines": 100
+     },
+     "read": {
+      "ADT-00": 50,
+      "ADT-12": 146,
+      "ADT-22": 4,
+      "ADT-52": 4,
+      "ADT-52:class change": 4,
+      "OML-11": 196,
+      "OML-11:quarantined (not an HL7 message)": 4,
+      "OMP-01": 80,
+      "OMP-11": 31,
+      "OMP-11:with its order": 11,
+      "OMP-11:without an order": 20,
+      "PPR-01": 150,
+      "document": 4,
+      "medication:ingredient": 100
+     }
+    }
+   },
+   "served": false,
+   "good_kept": "held: nothing served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 4,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 3.5,
+   "verdict": {
+    "exit": "1 held",
+    "counted": "lab: file set aside; reader.json: OML-11:quarantined (not an HL7 message) 4",
+    "reason": "lab: 4 of 200 SS-MIX2 files quarantined (more than 1 %): not an HL7 message",
+    "good_kept": "held: nothing served",
+    "wrong": "not served",
+    "goes_on": "held (lake keeps the previous night)",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "empty-header-only",
+   "family": "empty export",
+   "fmt": "csv",
+   "exit": 1,
+   "traceback": false,
+   "exception": "",
+   "passed": false,
+   "held": true,
+   "errors": [
+    "incomplete feed (against snapshot none): lab: table empty and no earlier good night had it (every table of the mapping is required until one has; a table this site does not have goes under feed_completeness.optional_tables). A missing or broken extract? To load it anyway set TB_FEED_DROP_OVERRIDE='2",
+    "night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot"
+   ],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 0,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 2,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "HELD",
+     "detail": [
+      "gate",
+      "incomplete"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.held",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "held",
+      "incomplete",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "held: nothing served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 200,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 2.5,
+   "verdict": {
+    "exit": "1 held",
+    "counted": "nothing counted",
+    "reason": "incomplete feed (against snapshot none): lab: table empty and no earlier good night had it (every table of the mapping is required until one has; a table this site does not have goes under feed_completeness.optional_tables). A missing or broken extract? To load it anyway set TB_FEED_DROP_OVERRIDE='2",
+    "good_kept": "held: nothing served",
+    "wrong": "not served",
+    "goes_on": "held (lake keeps the previous night)",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "empty-folder",
+   "family": "empty export",
+   "fmt": "csv",
+   "exit": 1,
+   "traceback": false,
+   "exception": "",
+   "passed": false,
+   "held": true,
+   "errors": [
+    "incomplete feed (against snapshot none): appointment: table missing and no earlier good night had it (every table of the mapping is required until one has; a table this site does not have goes under feed_completeness.optional_tables); claim: table missing and no earlier good night had it (every tabl",
+    "night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot"
+   ],
+   "read": {
+    "appointment": 0,
+    "claim": 0,
+    "diagnosis": 0,
+    "encounter": 0,
+    "lab": 0,
+    "medication": 0,
+    "note": 0,
+    "patient": 0,
+    "practitioner": 0,
+    "procedure": 0,
+    "report": 0,
+    "vital": 0
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 2,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "HELD",
+     "detail": [
+      "gate",
+      "incomplete"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.held",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "held",
+      "incomplete",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "held: nothing served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1018,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 1.9,
+   "verdict": {
+    "exit": "1 held",
+    "counted": "nothing counted",
+    "reason": "incomplete feed (against snapshot none): appointment: table missing and no earlier good night had it (every table of the mapping is required until one has; a table this site does not have goes under feed_completeness.optional_tables); claim: table missing and no earlier good night had it (every tabl",
+    "good_kept": "held: nothing served",
+    "wrong": "not served",
+    "goes_on": "held (lake keeps the previous night)",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "empty-folder",
+   "family": "empty export",
+   "fmt": "cgrd_sql",
+   "exit": 1,
+   "traceback": false,
+   "exception": "",
+   "passed": false,
+   "held": true,
+   "errors": [
+    "incomplete feed (against snapshot none): appointment: table missing and no earlier good night had it (every table of the mapping is required until one has; a table this site does not have goes under feed_completeness.optional_tables); claim: table missing and no earlier good night had it (every tabl",
+    "night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot"
+   ],
+   "read": {
+    "appointment": 0,
+    "claim": 0,
+    "diagnosis": 0,
+    "encounter": 0,
+    "lab": 0,
+    "medication": 0,
+    "note": 0,
+    "patient": 0,
+    "practitioner": 0,
+    "procedure": 0,
+    "report": 0,
+    "vital": 0
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 2,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "HELD",
+     "detail": [
+      "gate",
+      "incomplete"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.held",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "held",
+      "incomplete",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "held: nothing served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1018,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 2.2,
+   "verdict": {
+    "exit": "1 held",
+    "counted": "nothing counted",
+    "reason": "incomplete feed (against snapshot none): appointment: table missing and no earlier good night had it (every table of the mapping is required until one has; a table this site does not have goes under feed_completeness.optional_tables); claim: table missing and no earlier good night had it (every tabl",
+    "good_kept": "held: nothing served",
+    "wrong": "not served",
+    "goes_on": "held (lake keeps the previous night)",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "empty-folder",
+   "family": "empty export",
+   "fmt": "fhir_bulk",
+   "exit": 1,
+   "traceback": false,
+   "exception": "",
+   "passed": false,
+   "held": true,
+   "errors": [
+    "lake rebuild failed: lake snapshot 2026-11-10: <run folder>/lake/ndjson/2026-11-10 holds no patient or clinical record; nothing built, CURRENT unchanged",
+    "night held: the lake refused the snapshot; CURRENT still names the previous snapshot"
+   ],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 2,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "HELD",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.held",
+     "detail": [
+      "batch",
+      "gate",
+      "held",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "held: nothing served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1018,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 2.2,
+   "verdict": {
+    "exit": "1 held",
+    "counted": "nothing counted",
+    "reason": "lake rebuild failed: lake snapshot 2026-11-10: <run folder>/lake/ndjson/2026-11-10 holds no patient or clinical record; nothing built, CURRENT unchanged",
+    "good_kept": "held: nothing served",
+    "wrong": "not served",
+    "goes_on": "held (lake keeps the previous night)",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "empty-folder",
+   "family": "empty export",
+   "fmt": "ssmix2",
+   "exit": 1,
+   "traceback": false,
+   "exception": "",
+   "passed": false,
+   "held": true,
+   "errors": [
+    "incomplete feed (against snapshot none): appointment: table empty and no earlier good night had it (every table of the mapping is required until one has; a table this site does not have goes under feed_completeness.optional_tables); claim: table empty and no earlier good night had it (every table of",
+    "night held: fhir-store and the lake were not loaded; CURRENT still names the previous snapshot"
+   ],
+   "read": {
+    "appointment": 0,
+    "claim": 0,
+    "diagnosis": 0,
+    "encounter": 0,
+    "lab": 0,
+    "medication": 0,
+    "note": 0,
+    "patient": 0,
+    "practitioner": 0,
+    "procedure": 0,
+    "report": 0,
+    "vital": 0
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 2,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "HELD",
+     "detail": [
+      "gate",
+      "incomplete"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.held",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "held",
+      "incomplete",
+      "jp_core",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": false,
+   "good_kept": "held: nothing served",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1018,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": false,
+   "feas": "no night served: FEAS has no lake to read",
+   "seconds": 2.3,
+   "verdict": {
+    "exit": "1 held",
+    "counted": "nothing counted",
+    "reason": "incomplete feed (against snapshot none): appointment: table empty and no earlier good night had it (every table of the mapping is required until one has; a table this site does not have goes under feed_completeness.optional_tables); claim: table empty and no earlier good night had it (every table of",
+    "good_kept": "held: nothing served",
+    "wrong": "not served",
+    "goes_on": "held (lake keeps the previous night)",
+    "feas": "no night served: FEAS has no lake to read"
+   }
+  },
+  {
+   "case": "crlf",
+   "family": "line endings",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.1,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "crlf",
+   "family": "line endings",
+   "fmt": "fhir_bulk",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 3.8,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "crlf",
+   "family": "line endings",
+   "fmt": "ssmix2",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 154,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "jp_core",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {
+     "drug_resolution": {
+      "atc": 100,
+      "atc_pct": 100.0,
+      "ingredient": 100,
+      "ingredient_pct": 100.0,
+      "lines": 100
+     },
+     "read": {
+      "ADT-00": 50,
+      "ADT-12": 146,
+      "ADT-22": 4,
+      "ADT-52": 4,
+      "ADT-52:class change": 4,
+      "OML-11": 200,
+      "OMP-01": 80,
+      "OMP-11": 31,
+      "OMP-11:with its order": 11,
+      "OMP-11:without an order": 20,
+      "PPR-01": 150,
+      "document": 4,
+      "medication:ingredient": 100
+     }
+    }
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.1,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "lone-cr",
+   "family": "line endings",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.6,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "lone-cr",
+   "family": "line endings",
+   "fmt": "fhir_bulk",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.1,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "lone-cr",
+   "family": "line endings",
+   "fmt": "ssmix2",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 154,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "jp_core",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {
+     "drug_resolution": {
+      "atc": 100,
+      "atc_pct": 100.0,
+      "ingredient": 100,
+      "ingredient_pct": 100.0,
+      "lines": 100
+     },
+     "read": {
+      "ADT-00": 50,
+      "ADT-12": 146,
+      "ADT-22": 4,
+      "ADT-52": 4,
+      "ADT-52:class change": 4,
+      "OML-11": 200,
+      "OMP-01": 80,
+      "OMP-11": 31,
+      "OMP-11:with its order": 11,
+      "OMP-11:without an order": 20,
+      "PPR-01": 150,
+      "document": 4,
+      "medication:ingredient": 100
+     }
+    }
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 0,
+   "bad_in_lake": 0,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 5.2,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "newline-in-field",
+   "family": "line endings",
+   "fmt": "csv",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.3,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "newline-in-field",
+   "family": "line endings",
+   "fmt": "cgrd_sql",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {
+    "appointment": 50,
+    "claim": 5,
+    "diagnosis": 150,
+    "encounter": 150,
+    "lab": 200,
+    "medication": 100,
+    "note": 150,
+    "patient": 50,
+    "practitioner": 3,
+    "procedure": 10,
+    "report": 50,
+    "vital": 50
+   },
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 4.9,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  },
+  {
+   "case": "newline-in-field",
+   "family": "line endings",
+   "fmt": "fhir_bulk",
+   "exit": 0,
+   "traceback": false,
+   "exception": "",
+   "passed": true,
+   "held": false,
+   "errors": [],
+   "read": {},
+   "counted": {},
+   "told": {
+    "report_errors": 0,
+    "counts_file": [],
+    "unmapped_codes_file": [],
+    "steward": {
+     "state": "PUBLISHED",
+     "detail": [
+      "gate",
+      "publish"
+     ]
+    },
+    "quarantine_folder": [],
+    "audit": {
+     "event": "ingest.done",
+     "detail": [
+      "batch",
+      "counts",
+      "gate",
+      "lake_budget",
+      "publish",
+      "source"
+     ]
+    },
+    "reader": {}
+   },
+   "served": true,
+   "good_kept": "all",
+   "wrong": [],
+   "doubled": 0,
+   "lost": 0,
+   "bad_rows": 1,
+   "bad_in_lake": 1,
+   "bad_as_written": 0,
+   "bad_absent": 0,
+   "wrong_total": 0,
+   "garbled": 0,
+   "lake_rebuilt": true,
+   "feas": "ran: 50 patients in the funnel's start",
+   "seconds": 3.8,
+   "verdict": {
+    "exit": "0 published",
+    "counted": "nothing counted",
+    "reason": "none (no error line)",
+    "good_kept": "all",
+    "wrong": "no",
+    "goes_on": "yes",
+    "feas": "ran: 50 patients in the funnel's start"
+   }
+  }
+ ],
+ "not_applicable": [
+  {
+   "case": "cut-mid-row",
+   "format": "cgrd_sql",
+   "why": "the CGRD source is a database read through its driver: no file to cut, no bytes to decode, no line ending (the driver gives typed values)"
+  },
+  {
+   "case": "cut-mid-char",
+   "format": "cgrd_sql",
+   "why": "the CGRD source is a database read through its driver: no file to cut, no bytes to decode, no line ending (the driver gives typed values)"
+  },
+  {
+   "case": "cut-in-quotes",
+   "format": "cgrd_sql",
+   "why": "the CGRD source is a database read through its driver: no file to cut, no bytes to decode, no line ending (the driver gives typed values)"
+  },
+  {
+   "case": "cut-in-quotes",
+   "format": "fhir_bulk",
+   "why": "a FHIR export has no columns"
+  },
+  {
+   "case": "cut-in-quotes",
+   "format": "ssmix2",
+   "why": "an HL7 v2 message has no header row"
+  },
+  {
+   "case": "twice-other-name",
+   "format": "cgrd_sql",
+   "why": "the CGRD source is a database read through its driver: no file to cut, no bytes to decode, no line ending (the driver gives typed values)"
+  },
+  {
+   "case": "twice-in-one-file",
+   "format": "ssmix2",
+   "why": "one message per file"
+  },
+  {
+   "case": "column-short",
+   "format": "cgrd_sql",
+   "why": "the CGRD source is a database read through its driver: no file to cut, no bytes to decode, no line ending (the driver gives typed values)"
+  },
+  {
+   "case": "column-short",
+   "format": "fhir_bulk",
+   "why": "a FHIR export has no columns"
+  },
+  {
+   "case": "column-short",
+   "format": "ssmix2",
+   "why": "an HL7 v2 message has no header row"
+  },
+  {
+   "case": "column-extra",
+   "format": "cgrd_sql",
+   "why": "the CGRD source is a database read through its driver: no file to cut, no bytes to decode, no line ending (the driver gives typed values)"
+  },
+  {
+   "case": "column-extra",
+   "format": "fhir_bulk",
+   "why": "a FHIR export has no columns"
+  },
+  {
+   "case": "column-extra",
+   "format": "ssmix2",
+   "why": "an HL7 v2 message has no header row"
+  },
+  {
+   "case": "header-renamed",
+   "format": "cgrd_sql",
+   "why": "the CGRD source is a database read through its driver: no file to cut, no bytes to decode, no line ending (the driver gives typed values)"
+  },
+  {
+   "case": "header-renamed",
+   "format": "fhir_bulk",
+   "why": "a FHIR export has no columns"
+  },
+  {
+   "case": "header-renamed",
+   "format": "ssmix2",
+   "why": "an HL7 v2 message has no header row"
+  },
+  {
+   "case": "header-dropped",
+   "format": "fhir_bulk",
+   "why": "a FHIR export has no columns"
+  },
+  {
+   "case": "header-dropped",
+   "format": "ssmix2",
+   "why": "an HL7 v2 message has no header row"
+  },
+  {
+   "case": "big5",
+   "format": "cgrd_sql",
+   "why": "the CGRD source is a database read through its driver: no file to cut, no bytes to decode, no line ending (the driver gives typed values)"
+  },
+  {
+   "case": "big5-hkscs",
+   "format": "cgrd_sql",
+   "why": "the CGRD source is a database read through its driver: no file to cut, no bytes to decode, no line ending (the driver gives typed values)"
+  },
+  {
+   "case": "big5-hkscs",
+   "format": "fhir_bulk",
+   "why": "JSON is Unicode by RFC 8259"
+  },
+  {
+   "case": "big5-hkscs",
+   "format": "ssmix2",
+   "why": "SS-MIX2's character sets are ISO-2022-JP and UTF-8"
+  },
+  {
+   "case": "utf8-bom",
+   "format": "cgrd_sql",
+   "why": "the CGRD source is a database read through its driver: no file to cut, no bytes to decode, no line ending (the driver gives typed values)"
+  },
+  {
+   "case": "utf16",
+   "format": "cgrd_sql",
+   "why": "the CGRD source is a database read through its driver: no file to cut, no bytes to decode, no line ending (the driver gives typed values)"
+  },
+  {
+   "case": "big5-one-row",
+   "format": "cgrd_sql",
+   "why": "the CGRD source is a database read through its driver: no file to cut, no bytes to decode, no line ending (the driver gives typed values)"
+  },
+  {
+   "case": "big5-one-row",
+   "format": "fhir_bulk",
+   "why": "JSON is Unicode by RFC 8259"
+  },
+  {
+   "case": "big5-one-row",
+   "format": "ssmix2",
+   "why": "one message per file"
+  },
+  {
+   "case": "date-zero",
+   "format": "ssmix2",
+   "why": "PPR-01 dates are written by the exporter from the CSV; see ssmix2-birth-zero"
+  },
+  {
+   "case": "date-roc-slash",
+   "format": "fhir_bulk",
+   "why": "FHIR dates are typed: no ROC form is a valid FHIR date"
+  },
+  {
+   "case": "date-roc-slash",
+   "format": "ssmix2",
+   "why": "HL7 v2 dates are typed (DTM): no ROC form is a valid HL7 date"
+  },
+  {
+   "case": "date-roc-compact",
+   "format": "fhir_bulk",
+   "why": "FHIR dates are typed: no ROC form is a valid FHIR date"
+  },
+  {
+   "case": "date-roc-compact",
+   "format": "ssmix2",
+   "why": "HL7 v2 dates are typed (DTM): no ROC form is a valid HL7 date"
+  },
+  {
+   "case": "date-roc-words",
+   "format": "fhir_bulk",
+   "why": "FHIR dates are typed: no ROC form is a valid FHIR date"
+  },
+  {
+   "case": "date-roc-words",
+   "format": "ssmix2",
+   "why": "HL7 v2 dates are typed (DTM): no ROC form is a valid HL7 date"
+  },
+  {
+   "case": "date-9999",
+   "format": "ssmix2",
+   "why": "see ssmix2-birth-9999"
+  },
+  {
+   "case": "birth-after-visit",
+   "format": "ssmix2",
+   "why": "see ssmix2-birth-after-visit"
+  },
+  {
+   "case": "birth-zero",
+   "format": "ssmix2",
+   "why": "see ssmix2-birth-zero"
+  },
+  {
+   "case": "ssmix2-birth-zero",
+   "format": "csv",
+   "why": "the same case for them: birth-zero"
+  },
+  {
+   "case": "ssmix2-birth-zero",
+   "format": "cgrd_sql",
+   "why": "the same case for them: birth-zero"
+  },
+  {
+   "case": "ssmix2-birth-zero",
+   "format": "fhir_bulk",
+   "why": "the same case for them: birth-zero"
+  },
+  {
+   "case": "ssmix2-birth-9999",
+   "format": "csv",
+   "why": "the same case for them: date-9999"
+  },
+  {
+   "case": "ssmix2-birth-9999",
+   "format": "cgrd_sql",
+   "why": "the same case for them: date-9999"
+  },
+  {
+   "case": "ssmix2-birth-9999",
+   "format": "fhir_bulk",
+   "why": "the same case for them: date-9999"
+  },
+  {
+   "case": "ssmix2-birth-after-visit",
+   "format": "csv",
+   "why": "the same case for them: birth-after-visit"
+  },
+  {
+   "case": "ssmix2-birth-after-visit",
+   "format": "cgrd_sql",
+   "why": "the same case for them: birth-after-visit"
+  },
+  {
+   "case": "ssmix2-birth-after-visit",
+   "format": "fhir_bulk",
+   "why": "the same case for them: birth-after-visit"
+  },
+  {
+   "case": "note-2mb",
+   "format": "ssmix2",
+   "why": "notes are extended storage (a CSV source): see the csv row"
+  },
+  {
+   "case": "note-nul",
+   "format": "ssmix2",
+   "why": "see the csv row"
+  },
+  {
+   "case": "note-blank",
+   "format": "ssmix2",
+   "why": "see the csv row"
+  },
+  {
+   "case": "long-line",
+   "format": "ssmix2",
+   "why": "see the csv row"
+  },
+  {
+   "case": "code-unknown-lab",
+   "format": "fhir_bulk",
+   "why": "FHIR carries LOINC itself: see code-unknown-loinc"
+  },
+  {
+   "case": "code-unknown-lab",
+   "format": "ssmix2",
+   "why": "the exporter writes only codes it knows"
+  },
+  {
+   "case": "code-trailing-space",
+   "format": "fhir_bulk",
+   "why": "typed codes"
+  },
+  {
+   "case": "code-trailing-space",
+   "format": "ssmix2",
+   "why": "typed codes"
+  },
+  {
+   "case": "code-lower-case",
+   "format": "fhir_bulk",
+   "why": "typed codes"
+  },
+  {
+   "case": "code-lower-case",
+   "format": "ssmix2",
+   "why": "typed codes"
+  },
+  {
+   "case": "code-unknown-dx",
+   "format": "ssmix2",
+   "why": "the exporter writes only codes it knows"
+  },
+  {
+   "case": "code-unknown-drug",
+   "format": "fhir_bulk",
+   "why": "typed codes"
+  },
+  {
+   "case": "code-unknown-drug",
+   "format": "ssmix2",
+   "why": "the exporter writes only codes it knows"
+  },
+  {
+   "case": "code-unknown-loinc",
+   "format": "csv",
+   "why": "the same case for it: code-unknown-lab"
+  },
+  {
+   "case": "code-unknown-loinc",
+   "format": "cgrd_sql",
+   "why": "code-unknown-lab"
+  },
+  {
+   "case": "code-unknown-loinc",
+   "format": "ssmix2",
+   "why": "the exporter writes only codes it knows"
+  },
+  {
+   "case": "empty-zero-bytes",
+   "format": "cgrd_sql",
+   "why": "the CGRD source is a database read through its driver: no file to cut, no bytes to decode, no line ending (the driver gives typed values)"
+  },
+  {
+   "case": "empty-header-only",
+   "format": "cgrd_sql",
+   "why": "the CGRD source is a database read through its driver: no file to cut, no bytes to decode, no line ending (the driver gives typed values)"
+  },
+  {
+   "case": "empty-header-only",
+   "format": "fhir_bulk",
+   "why": "a FHIR export has no columns"
+  },
+  {
+   "case": "empty-header-only",
+   "format": "ssmix2",
+   "why": "an HL7 v2 message has no header row"
+  },
+  {
+   "case": "crlf",
+   "format": "cgrd_sql",
+   "why": "the CGRD source is a database read through its driver: no file to cut, no bytes to decode, no line ending (the driver gives typed values)"
+  },
+  {
+   "case": "lone-cr",
+   "format": "cgrd_sql",
+   "why": "the CGRD source is a database read through its driver: no file to cut, no bytes to decode, no line ending (the driver gives typed values)"
+  },
+  {
+   "case": "newline-in-field",
+   "format": "ssmix2",
+   "why": "see the csv row"
+  }
+ ],
+ "not_built": {
+  "hl7v2_feed": "a live HL7 v2 feed (MLLP or a file drop of v2 messages outside SS-MIX2): the adapter has no such source (`adapter run --source` offers cgrd_sql, csv, fhir_bulk, ssmix2)",
+  "fhir_feed": "a live FHIR feed (REST pushes or subscriptions): the adapter reads a FHIR Bulk Data export folder only (`fhir_bulk`)"
+ }
+}
