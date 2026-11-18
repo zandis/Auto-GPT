@@ -1,0 +1,17 @@
+[
+ {"decision": "D-988", "verdict": "no_test_found", "evidence": "no test names shadow mode or its effectiveness report"},
+ {"decision": "D-96", "verdict": "has_test", "evidence": "tests/unit/test_suspected_diagnosis.py"},
+ {"decision": "D-943", "verdict": "has_test", "evidence": "tests/property/test_path_independence.py"},
+ {"decision": "D-975", "verdict": "has_test", "evidence": "tests/e2e/test_role_walk.py (the rule is the walk's own wait)"},
+ {"decision": "D-89", "verdict": "has_test", "evidence": "tests/unit/test_two_model_identity.py"},
+ {"decision": "D-115", "verdict": "has_test", "evidence": "tests/unit/test_screen_exclusion_pair.py"},
+ {"decision": "D-781", "verdict": "has_test", "evidence": "tests/unit/test_no_retrieval_is_said.py"},
+ {"decision": "D-796", "verdict": "has_test", "evidence": "tests/unit/test_negated_exclusion_and_empty_lists.py"},
+ {"decision": "D-925", "verdict": "has_test", "evidence": "tests/unit/test_audit.py"},
+ {"decision": "D-1118", "verdict": "has_test", "evidence": "tests/unit/test_h4_replay_2026_11_17.py"},
+ {"decision": "D-357", "verdict": "has_test", "evidence": "tests/unit/test_context_budgets.py"},
+ {"decision": "D-603", "verdict": "has_test", "evidence": "tests/unit/test_windows_box_install.py"},
+ {"decision": "D-42", "verdict": "has_test", "evidence": "tests/integration/test_feas_lake.py"},
+ {"decision": "D-800", "verdict": "has_test", "evidence": "tests/unit/test_optout_clears_the_owed_tables.py"},
+ {"decision": "D-66", "verdict": "no_test_found", "evidence": "no test names the identity used for NHI submissions"}
+]
