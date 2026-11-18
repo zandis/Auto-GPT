@@ -28,7 +28,7 @@ information-security officer, not legal advice.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, tzinfo
 
 from tb_common.timeutil import add_months
 
@@ -47,16 +47,20 @@ STUDY_YEARS_AFTER_CLOSE = 5
 STUDY_YEARS_MAX = 30
 
 
-def kept_until(closed_at: str, years: int | None) -> date:
+def kept_until(closed_at: str, years: int | None, zone: tzinfo | None = None) -> date:
     """D-779: the day a closed study's files stop being held: the close's own day plus ``years`` (the default when
-    None). A close on 29 February ends on the 28th in a year with none."""
-    day = datetime.fromisoformat(closed_at).date()
-    return add_months(day, 12 * (years or STUDY_YEARS_AFTER_CLOSE))
+    None). A close on 29 February ends on the 28th in a year with none. ``zone``: the site's, so the close's day is
+    the site's (WALK-1, F-16: an instant stored in UTC is a day early in the evening UTC); None: the instant's own."""
+    when = datetime.fromisoformat(closed_at)
+    if zone is not None and when.tzinfo is not None:
+        when = when.astimezone(zone)
+    return add_months(when.date(), 12 * (years or STUDY_YEARS_AFTER_CLOSE))
 
 
 def held_after_close(closed_at: str, years: int | None, now: datetime) -> bool:
-    """D-779: whether a study closed at ``closed_at`` still holds its files on ``now``'s day."""
-    return now.date() < kept_until(closed_at, years)
+    """D-779: whether a study closed at ``closed_at`` still holds its files on ``now``'s day; both days are read in
+    ``now``'s zone (the site's, where ``now`` is the site's time)."""
+    return now.date() < kept_until(closed_at, years, now.tzinfo)
 
 
 def defaults_for(country: str, overrides: dict[str, object] | None = None) -> dict[str, int]:

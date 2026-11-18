@@ -838,6 +838,24 @@ class SiteStore:
                 before_commit(new)
         return new
 
+    def begin_study(self, ruleset: str, by: str, at: str,
+                    before_commit: Callable[[StudyState], None] | None = None) -> StudyState | None:  # fmt: skip
+        """D-386 point 3 (WALK-1, F-14): a new study starts in start-up, so it opens only through the move to open and
+        its checks (D-415: the type for SAE reporting). Recorded only when the study has no state yet (under the same
+        lock as :meth:`set_study_state`); None when it has one. ``before_commit``: the audit append."""
+        rid = ruleset.upper()
+        with self.db.transaction() as tx:
+            tx.execute("SELECT pg_advisory_xact_lock(hashtext(?))", (f"study_state:{rid}",))
+            if tx.fetchval("SELECT EXISTS (SELECT 1 FROM study_state WHERE ruleset = ?)", (rid,)):
+                return None
+            reason = "a new study: set up, then opened"
+            tx.execute("INSERT INTO study_state (ruleset, state, prev, reason, by, at) VALUES (?,?,?,?,?,?)",
+                       (rid, "startup", None, reason, by, at))  # fmt: skip
+            new = StudyState("startup", reason, by, at, None, None)
+            if before_commit is not None:
+                before_commit(new)
+        return new
+
     # ------------------------------------------------------------------ the IRB text's coverage (D-395)
     _IRB_COLS = "covers, approval_ref, text_version, approved_on, note, sentence, by, at"
 

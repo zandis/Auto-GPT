@@ -52,6 +52,10 @@
 {% if cur.by %}<p class="hint" data-testid="state-since">{{ t('sstate.since', at=cur.at|local, by=cur.by|replace('console:', '')) }}{% if cur.reason %} · {{ cur.reason }}{% endif %}</p>
 {% else %}<p class="hint" data-testid="state-default">{{ t('sstate.default') }}</p>{% endif %}
 <p data-testid="state-effect">{{ t('sstate.effect.' + cur.state) }}</p>
+{% if before_open %}{# WALK-2 (F-04): the new study's path leads to the IRB record before the first Approach #}
+<section class="card" data-testid="before-open"><h3>{{ t('sstate.before.title') }}</h3><p class="hint">{{ t('sstate.before.help') }}</p>
+<ul>{% for key, href, done in before_open %}<li data-testid="before-open-{{ key }}" data-done="{{ 'yes' if done else 'no' }}"><a href="{{ href }}">{{ t('sstate.before.' + key) }}</a>: <span class="{{ 'ok' if done else 'warn' }}">{{ t('sstate.before.done') if done else t('sstate.before.todo') }}</span></li>{% endfor %}</ul></section>
+{% endif %}
 {% if cur.state == 'closed' and kept_until %}<p class="hint" data-testid="state-kept-until">{{ t('sstate.kept_until', day=kept_until, years=cur.keep_years or keep_default) }}</p>{% endif %}
 {% if editable %}
 {% if moves %}
@@ -60,7 +64,7 @@
 <fieldset><legend>{{ t('sstate.change') }}</legend>
 <div><label for="state-to">{{ t('sstate.move') }}</label>
 <select id="state-to" name="state">{% for s in moves %}<option value="{{ s }}">{{ t('sstate.' + s) }}</option>{% endfor %}</select></div>
-<div><label for="state-reason">{{ t('sstate.reason') }}</label>
+<div><label for="state-reason">{{ t('sstate.reason') }} <span class="hint" data-testid="state-reason-required">({{ t('sstate.reason_required') }})</span></label>
 <input id="state-reason" name="reason" maxlength="200" aria-describedby="state-reason-help">
 <p class="hint" id="state-reason-help">{{ t('sstate.reason_help') }}</p></div>
 {% if 'closed' in moves %}{# D-779 (T-305c): read on a close only #}<div><label for="state-keep-years">{{ t('sstate.keep_years') }}</label>
