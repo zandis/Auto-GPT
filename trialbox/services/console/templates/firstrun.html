@@ -4,7 +4,7 @@
 {# T-729 (D-466): the box's first-run wizard, before any account exists (console.firstrun) #}
 <section class="card narrow" data-testid="firstrun">
 <h1>{{ t('firstrun.title') }}</h1>
-{% if step != 'done' %}<nav class="langpick" aria-label="{{ t('lang.label') }}">{% for l in langs %}<a href="/login/first-run{% if step == 'answers' %}/answers{% endif %}?lang={{ l }}" lang="{{ l }}" hreflang="{{ l }}" class="button{{ '' if l == lang else ' secondary' }}"{% if l == lang %} aria-current="true"{% endif %}>{{ t('lang.name.' + l) }}</a>{% endfor %}</nav>{% endif %}
+{% if step == 'answers' and ask_country %}<nav class="langpick" aria-label="{{ t('lang.label') }}">{% for l in langs %}<button type="submit" form="fr-form" formaction="/login/first-run/answers/keep" formnovalidate name="switch_lang" value="{{ l }}" lang="{{ l }}" class="button{{ '' if l == lang else ' secondary' }}"{% if l == lang %} aria-current="true"{% endif %}>{{ t('lang.name.' + l) }}</button>{% endfor %}</nav>{% elif step != 'done' %}<nav class="langpick" aria-label="{{ t('lang.label') }}">{% for l in langs %}<a href="/login/first-run{% if step == 'answers' %}/answers{% endif %}?lang={{ l }}" lang="{{ l }}" hreflang="{{ l }}" class="button{{ '' if l == lang else ' secondary' }}"{% if l == lang %} aria-current="true"{% endif %}>{{ t('lang.name.' + l) }}</a>{% endfor %}</nav>{% endif %}
 {% if step == 'code' %}
 <p>{{ t('firstrun.intro') }}</p>
 {% if wrong %}<p class="error" role="alert" data-testid="firstrun-wrong">{{ t('firstrun.code.wrong') }}</p>{% endif %}
@@ -15,21 +15,29 @@
   <button type="submit" data-testid="firstrun-code">{{ t('firstrun.continue') }}</button>
 </form>
 {% elif step == 'answers' and ask_country and not country %}
-{# 10K-1 (TB_FIRSTRUN_COUNTRY): the first question; the form comes back with the country's defaults filled in #}
+{# 10K-1 (TB_FIRSTRUN_COUNTRY): the first question; its buttons post what was typed, which comes back with the
+   country's defaults filled in #}
+{% macro err(name) %}{% if errors.get(name) %}<span class="error" data-testid="err-{{ name }}">{{ t('firstrun.err.' + errors[name]) }}</span>{% endif %}{% endmacro %}
 <p>{{ t('firstrun.form.intro') }}</p>
-<h2 id="country-q">{{ t('firstrun.country') }}</h2>
-<p class="hint">{{ t('firstrun.country.help') }}</p>
-<nav class="choices" aria-labelledby="country-q" data-testid="firstrun-country">{% for c in countries %}<a class="button secondary" href="/login/first-run/answers?lang={{ lang }}&amp;country={{ c }}" data-testid="country-{{ c }}">{{ t('firstrun.country.' + c) }}</a> {% endfor %}</nav>
+<form id="fr-form" method="post" action="/login/first-run/answers/keep">
+  <input type="hidden" name="fr_csrf" value="{{ fr_csrf }}">
+  <input type="hidden" name="lang" value="{{ lang }}">
+  {% for k, v in carried.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+  <fieldset><legend id="country-q">{{ t('firstrun.country') }}</legend>{{ err('country') }}
+  <p class="hint">{{ t('firstrun.country.help') }}</p>
+  <div class="choices" data-testid="firstrun-country">{% for c in countries %}<button type="submit" class="button secondary" name="pick_country" value="{{ c }}" data-testid="country-{{ c }}">{{ t('firstrun.country.' + c) }}</button> {% endfor %}</div>
+  </fieldset>
+</form>
 {% elif step == 'answers' %}
 <p>{{ t('firstrun.form.intro') }}</p>
 {% if errors %}<p class="error" role="alert" data-testid="firstrun-errors">{{ t('firstrun.errors') }}</p>{% endif %}
 {% macro err(name) %}{% if errors.get(name) %}<span class="error" data-testid="err-{{ name }}">{{ t('firstrun.err.' + errors[name]) }}</span>{% endif %}{% endmacro %}
-<form method="post" action="/login/first-run/answers" autocomplete="off">
+<form id="fr-form" method="post" action="/login/first-run/answers" autocomplete="off">
   <input type="hidden" name="fr_csrf" value="{{ fr_csrf }}">
   <input type="hidden" name="lang" value="{{ lang }}">
   <fieldset><legend>{{ t('firstrun.site') }}</legend>
     {% if country %}<input type="hidden" name="country" value="{{ country }}">
-    <p data-testid="firstrun-country-chosen">{{ t('firstrun.country.chosen', country=t('firstrun.country.' + country)) }} <a href="/login/first-run/answers?lang={{ lang }}">{{ t('firstrun.country') }}</a></p>{% endif %}{{ err('country') }}
+    <p data-testid="firstrun-country-chosen">{{ t('firstrun.country.chosen', country=t('firstrun.country.' + country)) }} <button type="submit" class="button secondary" formaction="/login/first-run/answers/keep" formnovalidate name="pick_country" value="" data-testid="country-change">{{ t('firstrun.country.change') }}</button></p>{% endif %}
     <label for="site_name">{{ t('firstrun.site_name') }}</label>
     <input id="site_name" name="site_name" required maxlength="200" value="{{ values.get('site_name', '') }}">{{ err('site_name') }}
     <label for="tz">{{ t('firstrun.tz') }}</label>
@@ -86,14 +94,14 @@
     <p class="hint">{{ t('firstrun.source.help') }}</p>
     {% for s in sources %}<label><input type="radio" name="source" value="{{ s }}"{% if values.get('source', 'later') == s %} checked{% endif %}> {{ t('firstrun.source.' + s) }}</label>{% endfor %}
   </fieldset>
-  {# 10K-1: the questions an SS-MIX2 source needs; read only when SS-MIX2 is chosen above #}
-  <fieldset data-testid="firstrun-ssmix2"><legend>{{ t('firstrun.ssmix2') }}</legend>
+  {# 10K-1: the questions an SS-MIX2 source needs, where SS-MIX2 is offered; read only when it is chosen above #}
+  {% if 'ssmix2' in sources %}<fieldset data-testid="firstrun-ssmix2"><legend>{{ t('firstrun.ssmix2') }}</legend>
     <p class="hint">{{ t('firstrun.ssmix2.help') }}</p>
     <label for="ssmix2_root">{{ t('firstrun.ssmix2_root') }}</label>
     <input id="ssmix2_root" name="ssmix2_root" maxlength="255" autocapitalize="none" spellcheck="false" value="{{ values.get('ssmix2_root', '') }}">{{ err('ssmix2_root') }}
     <p>{{ t('firstrun.ssmix2_order_numbers') }}</p>
     {% for o in ss_orders %}<label><input type="radio" name="ssmix2_order_numbers" value="{{ o }}"{% if values.get('ssmix2_order_numbers', 'unique') == o %} checked{% endif %}> {{ t('firstrun.ssmix2_order_numbers.' + o) }}</label>{% endfor %}{{ err('ssmix2_order_numbers') }}
-  </fieldset>
+  </fieldset>{% endif %}
   {# NEW-DIN-3 (D-544, D-579): asked only while the box holds no patient; a refused answer is still shown #}
   {% if ask_chartno %}<fieldset data-testid="firstrun-chartno"><legend>{{ t('firstrun.chartno') }}</legend>
     <p class="hint">{{ t('firstrun.chartno.help') }}</p>

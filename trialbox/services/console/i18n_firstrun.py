@@ -108,7 +108,10 @@ EN: dict[str, str] = {
     "firstrun.err.country": "Choose a country or region from the list.",
     "firstrun.err.ssmix2_root": "Write the folder as a full path starting with /, using letters, digits, dot, dash, underscore and /.",
     "firstrun.err.ssmix2_order_numbers": "Choose one of the two.",
-    "firstrun.err.retention_days": "A whole number of days, at least 1.",
+    "firstrun.err.retention_days": "A whole number of days, from 1 to 36500.",
+    "firstrun.err.tz_country": "This country has one time zone; choose it, or choose another country.",
+    "firstrun.err.source_country": "SS-MIX2 can be chosen only for a site in Japan.",
+    "firstrun.country.change": "Change the country or region",
 }
 
 JA: dict[str, str] = {
@@ -193,7 +196,7 @@ JA: dict[str, str] = {
     "firstrun.err.kek_same": "二つのパスフレーズが一致しません。",
     "firstrun.err.closed": "アカウントがすでにあるため、このページは使えません。ログインしてください。",
     "firstrun.country": "この施設の国・地域",
-    "firstrun.country.help": "最初に選んでください。下のタイムゾーン、レポートの言語、記録の保存期間、データ取得元はこの選択に従います。",
+    "firstrun.country.help": "最初に選んでください。下のタイムゾーン、レポートの言語、記録の保存期間、患者データの取得元の初期値は、この選択をもとに設定されます。",
     "firstrun.country.jp": "日本",
     "firstrun.country.tw": "台湾",
     "firstrun.country.us": "米国",
@@ -203,19 +206,22 @@ JA: dict[str, str] = {
     "firstrun.retention.help": "TrialBox にはこの国の保存期間の規則がありません。病院の情報セキュリティ責任者が決めた期間を日数で入力してください。",
     "firstrun.retention.logs_days": "サービスのログ（日）",
     "firstrun.retention.mail_log_days": "メールのログ（日）",
-    "firstrun.retention.outputs_days": "依頼の処理結果（日）",
+    "firstrun.retention.outputs_days": "作成したリストやレポートのファイル（日）",
     "firstrun.retention.attachments_days": "メールの添付ファイル（日）",
-    "firstrun.source.ssmix2": "電子カルテの SS-MIX2 ストレージ（読み取りのみ）",
+    "firstrun.source.ssmix2": "電子カルテの SS-MIX2 ストレージ（読み取り専用）",
     "firstrun.ssmix2": "SS-MIX2 ストレージ",
     "firstrun.ssmix2.help": "データの取得元が SS-MIX2 の場合だけ入力します。TrialBox はストレージを読むだけで、書き込みはしません。",
-    "firstrun.ssmix2_root": "本体から見た SS-MIX2 ストレージのルートフォルダ（例：/mnt/ssmix2）",
+    "firstrun.ssmix2_root": "この本体上の SS-MIX2 ストレージのルートフォルダー（例：/mnt/ssmix2）",
     "firstrun.ssmix2_order_numbers": "オーダ番号",
     "firstrun.ssmix2_order_numbers.unique": "オーダ番号は一度しか使われない",
     "firstrun.ssmix2_order_numbers.per_day": "同じオーダ番号が別の日に再び使われることがある",
     "firstrun.err.country": "一覧から国・地域を選んでください。",
-    "firstrun.err.ssmix2_root": "フォルダは / で始まる完全なパスで、英数字、ピリオド、ハイフン、下線、/ を使って書いてください。",
+    "firstrun.err.ssmix2_root": "フォルダーは / で始まる絶対パスで、英数字、ドット、ハイフン、アンダースコア、/ を使って書いてください。",
     "firstrun.err.ssmix2_order_numbers": "二つのうちどちらかを選んでください。",
-    "firstrun.err.retention_days": "1以上の整数の日数を入力してください。",
+    "firstrun.err.retention_days": "1から36500までの整数の日数を入力してください。",
+    "firstrun.err.tz_country": "この国のタイムゾーンは一つです。そのタイムゾーンを選ぶか、別の国・地域を選んでください。",
+    "firstrun.err.source_country": "SS-MIX2 を選べるのは日本の施設だけです。",
+    "firstrun.country.change": "国・地域を変更する",
 }
 
 ZH: dict[str, str] = {
@@ -322,5 +328,8 @@ ZH: dict[str, str] = {
     "firstrun.err.country": "請從清單中選擇國家或地區。",
     "firstrun.err.ssmix2_root": "資料夾請寫成以 / 開頭的完整路徑，只用英數字、句點、連字號、底線與 /。",
     "firstrun.err.ssmix2_order_numbers": "請從兩者中選一個。",
-    "firstrun.err.retention_days": "請填至少 1 的整數天數。",
+    "firstrun.err.retention_days": "請填 1 至 36500 的整數天數。",
+    "firstrun.err.tz_country": "此國家只有一個時區；請選擇該時區，或選擇其他國家或地區。",
+    "firstrun.err.source_country": "只有位於日本的機構可以選擇 SS-MIX2。",
+    "firstrun.country.change": "變更國家或地區",
 }

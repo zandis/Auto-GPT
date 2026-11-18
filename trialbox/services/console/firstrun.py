@@ -59,6 +59,20 @@ def country_on(env: Mapping[str, str]) -> bool:
     return (env.get(COUNTRY_FLAG) or "").strip().lower() in ("1", "true", "on", "yes")
 
 
+# what the page never sends back: kept out of the values a re-shown form carries (10K-1, review item 4)
+SECRET_FIELDS = ("password", "password2", "totp", "kek", "kek2", "fr_csrf")
+KEEP_CONTROLS = ("pick_country", "switch_lang", "lang")  # the keep route's own buttons and the page's language
+
+
+def offered_sources(country: str, asks_country: bool) -> list[str]:
+    """10K-1 (review item 2): the source kinds the page offers. SS-MIX2 only with the country asked and only where
+    the country's shipped mapping reads it; without the flag the list is master's."""
+    kinds = [k.value for k in box_answers.SourceKind]
+    if asks_country and site_country.reads_ssmix2(country):
+        return kinds
+    return [k for k in kinds if k != box_answers.SourceKind.SSMIX2.value]
+
+
 def country_values(country: str, hw: dict[str, Any]) -> dict[str, str]:
     """10K-1: the form's first values for a chosen country, from ``tb_common.site_country.TABLE`` only: its zone (else
     the box's own clock zone, as without a country), its report language, and SS-MIX2 as the source where the
@@ -159,20 +173,23 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
         hw = hardware(folder)
         values = ctx.pop("values", {}) or {"tz": hw.get("host_tz", ""), "box_name": hw.get("hostname", "trialbox")}
         asks_country = h.country
+        errors = ctx.pop("errors", {})
         country = str(values.get("country") or "") if asks_country else ""
         try:
             cd = site_country.defaults(country)
-        except ValueError:
+        except ValueError:  # a country no list offers (a tampered form): the first question again, said so
             cd, country = site_country.LEGACY, ""
+            errors = {**errors, "country": "country"}
+        carried = {k: v for k, v in values.items() if k not in (*SECRET_FIELDS, *KEEP_CONTROLS, "country")}
         secret = str(state["secret"])
         user = str(values.get("owner_username") or "owner")
         held = box_holds_patients()
         return h.page(
             request, "firstrun.html", None, status, step="answers", fr_csrf=state["csrf"], values=values,
             ask_chartno=held is False, chartno_unread=held is None, chartno_kinds=chartno.KINDS,
-            errors=ctx.pop("errors", {}), key=totp.grouped(secret), link=totp.otpauth_uri(secret, user),
+            errors=errors, key=totp.grouped(secret), link=totp.otpauth_uri(secret, user),
             disks=hw.get("disks") or [], tpm=bool(hw.get("tpm")), timezones=TIMEZONES,
-            sources=[k.value for k in box_answers.SourceKind], languages=box_answers.LANGUAGES,
+            sources=offered_sources(country, asks_country), languages=box_answers.LANGUAGES, carried=carried,
             steward=user, admin=user + box_answers.ADMIN_SUFFIX, ask_country=asks_country, country=country,
             countries=site_country.COUNTRIES, ss_orders=site_country.SSMIX2_ORDER_NUMBERS,
             ask_retention=bool(country) and cd.retention_rules is None, retention_keys=OVERRIDABLE, **ctx,
@@ -211,12 +228,33 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
         state = pending(request, folder)
         if state is None:
             return RedirectResponse(PATH, status_code=303)
-        chosen = request.query_params.get("country", "")
-        if h.country and chosen:  # 10K-1: the first question; the page comes back with its defaults filled in
-            hw = hardware(folder)
-            values = {"box_name": hw.get("hostname", "trialbox"), **country_values(chosen, hw)}
-            return form(request, folder, state, values=values)
         return form(request, folder, state)
+
+    @app.post(f"{PATH}/answers/keep")
+    async def first_run_keep(request: Request) -> Response:
+        """10K-1 (behind the flag): the country step's buttons, "change the country" and the language buttons post
+        the form here; the page comes back with what was typed (never a secret) and, for a chosen country, its
+        defaults (``tb_common.site_country.TABLE``) over the country's own fields. Nothing is made here."""
+        if not h.country:
+            raise StarletteHTTPException(404)
+        data = {k: str(v)[:512] for k, v in (await request.form()).items() if isinstance(v, str)}
+        lang(request, data.get("switch_lang") or data.get("lang", ""))
+        folder = gate()
+        state = pending(request, folder)
+        if state is None or not hmac.compare_digest(str(state["csrf"]), data.get("fr_csrf", "")):
+            return RedirectResponse(PATH, status_code=303)
+        hw = hardware(folder)
+        values = {k: v for k, v in data.items() if k not in (*SECRET_FIELDS, *KEEP_CONTROLS)}
+        values.setdefault("box_name", str(hw.get("hostname", "trialbox")))
+        if "pick_country" in data:
+            values.pop("country", None)
+            picked = data["pick_country"].strip()
+            if picked:
+                values["country"] = picked
+                values |= country_values(picked, hw)
+                if values.get("source") not in offered_sources(picked, True):
+                    values.pop("source", None)
+        return form(request, folder, state, values=values)
 
     @app.post(f"{PATH}/answers")
     async def first_run_submit(request: Request) -> Response:
