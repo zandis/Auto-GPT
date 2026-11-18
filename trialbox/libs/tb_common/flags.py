@@ -269,29 +269,7 @@ class Flags:
     def row(self, name: str) -> str | None:
         """The stored value, None when the flag has no row (or the store is not installed). Raises on errors
         (``LookupError`` when no store is configured). Reads only: it creates no schema and no table."""
-        declared(name)
-        if self._db is not None:
-            with self._db.transaction() as tx:
-                if tx.fetchval("SELECT to_regclass('flag')") is None:
-                    return None
-                v = tx.fetchval("SELECT value FROM flag WHERE name = ?", (name,))
-            return None if v is None else str(v)
-        if not self._url:
-            raise LookupError(f"{DB_URL_ENV} is not set: no flag store")
-        import psycopg
-
-        # not Database.connect: that creates the schema, and a read must leave the database as it found it
-        dsn, prefix = split_url(self._url)
-        schema = prefix + SCHEMA
-        if not _NAME_RE.match(schema):
-            raise DatabaseError(f"bad schema name {schema!r}")
-        table = f'"{schema}".flag'
-        with psycopg.connect(dsn, autocommit=True, connect_timeout=10) as con:
-            reg = con.execute("SELECT to_regclass(%s)", (table,)).fetchone()
-            if not reg or reg[0] is None:
-                return None
-            r = con.execute(f"SELECT value FROM {table} WHERE name = %s", (name,)).fetchone()
-        return None if r is None or r[0] is None else str(r[0])
+        return self.rows([name]).get(name)
 
     def rows(self, names: Sequence[str]) -> dict[str, str]:
         """The stored values of ``names`` in one read (a flag with no row is left out; an empty dict when the store is
@@ -311,6 +289,7 @@ class Flags:
         import psycopg
         from psycopg import sql as pgsql
 
+        # not Database.connect: that creates the schema, and a read must leave the database as it found it
         dsn, prefix = split_url(self._url)
         schema = prefix + SCHEMA
         if not _NAME_RE.match(schema):
