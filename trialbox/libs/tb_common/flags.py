@@ -287,19 +287,18 @@ class Flags:
         if not self._url:
             raise LookupError(f"{DB_URL_ENV} is not set: no flag store")
         import psycopg
-        from psycopg import sql as pgsql
 
         # not Database.connect: that creates the schema, and a read must leave the database as it found it
         dsn, prefix = split_url(self._url)
         schema = prefix + SCHEMA
         if not _NAME_RE.match(schema):
             raise DatabaseError(f"bad schema name {schema!r}")
-        query = pgsql.SQL("SELECT name, value FROM {} WHERE name = ANY(%s)").format(pgsql.Identifier(schema, "flag"))
+        table = f'"{schema}".flag'
         with psycopg.connect(dsn, autocommit=True, connect_timeout=10) as con:
-            reg = con.execute("SELECT to_regclass(%s)", (f'"{schema}".flag',)).fetchone()
+            reg = con.execute("SELECT to_regclass(%s)", (table,)).fetchone()
             if not reg or reg[0] is None:
                 return {}
-            got = con.execute(query, (wanted,)).fetchall()
+            got = con.execute(f"SELECT name, value FROM {table} WHERE name = ANY(%s)", (wanted,)).fetchall()
         return {str(r[0]): str(r[1]) for r in got if r[1] is not None}
 
     def get(self, name: str, default: str | None = None) -> str | None:
