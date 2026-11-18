@@ -1,0 +1,28 @@
+{
+ "card": "H23b",
+ "title": "the size ladder finished (lane H, 2026-11-18)",
+ "date": "2026-11-18",
+ "source": "docs/plan/measurements/size-test-2026-11-17.md",
+ "findings": [
+  {"id": "H23b-01", "severity": "High", "lane": "D", "basis": "shown",
+   "claim": "No installer step or compose overlay raises the orchestrator's 4 GiB cap (TB_MEM_ORCH), not even the reference workstation's; SCREEN of the whole hospital needs 4.37 GiB at 50,000 patients and 8.22 GiB at 100,000, so it is killed there as shipped",
+   "place": "deploy/docker-compose.yml (orchestrator mem_limit), deploy/docker-compose.rtxpro6000.yml, deploy/install.sh",
+   "expected": "the orchestrator's cap sized for the hospital the box screens, or SCREEN bounded in memory",
+   "happened": "4 GiB on every shape; SCREEN finished only with TB_MEM_ORCH=10g"},
+  {"id": "H23b-02", "severity": "Medium", "lane": "A2", "basis": "shown",
+   "claim": "The cascade's S1 keeps every patient's rows at every index date as Python dictionaries (_s1_rows, to_pylist of each batch): 2.08 GiB traced in 12.6 million allocations at 50,000 patients, S1's resident peak 5.31 GiB at 100,000, where the gate's cascade is killed at the 4 GiB cap",
+   "place": "services/matching/cascade/engine.py, _Run._s1_rows and _Run.s1",
+   "expected": "S1's memory bounded like the lake's batches (D-748)",
+   "happened": "the rows of all batches held at once, then indexed again by patient"},
+  {"id": "H23b-03", "severity": "Medium", "lane": "A2", "basis": "shown",
+   "claim": "The cascade's S1 time grows with about the square of the patients (243 s at 50,000, 902 s at 100,000 for one study; 807 s of it reading the rows in D-748's batches), the pattern H-23 showed for FEAS",
+   "place": "services/matching/cascade/engine.py, _Run._s1_rows (patients_per_query)",
+   "expected": "S1 time near linear in the patients",
+   "happened": "3.7 times the time for twice the patients"},
+  {"id": "H23b-04", "severity": "Low", "lane": "B2", "basis": "shown",
+   "claim": "The scale gate's ingest runs the HL7 validator only when TB_HL7_VALIDATOR_JAR and the packages are set, and its report does not say which check ran; one size's ingest differs about 2 times between the two (20,000: 241 s with it, 110 s without)",
+   "place": "tools/scale_gate.py (CHILD_INGEST, the report), services/adapter/validate/validator.py (Hl7Validator.from_env)",
+   "expected": "the report names the validator that ran",
+   "happened": "the same command gave 177 s and 328 s at 20,000 in H-23 with no record of why"}
+ ]
+}

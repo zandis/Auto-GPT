@@ -792,5 +792,2744 @@
    "unit": "patient-study"
   }
  ],
- "written": "2026-11-17T15:28:51+00:00"
+ "written": "2026-11-17T15:28:51+00:00",
+ "finished_h23b": {
+  "card": "H-23b",
+  "decision": "D-1137",
+  "commit": "312eca7c",
+  "machine": {
+   "cpus": 4,
+   "cpu": "Intel(R) Xeon(R) Processor @ 2.30GHz",
+   "mem_bytes": 16869130240,
+   "machine": "x86_64",
+   "python": "3.12.3"
+  },
+  "note": "a second container of the nightly shape, measured faster than H-23's; lifted rows ran with TB_MEM_ORCH=10g, not the shipped shape",
+  "runs": [
+   {
+    "patients": 20000,
+    "studies": 20,
+    "repeat": 1,
+    "caps": {
+     "adapter": 6442450944,
+     "lake": 8589934592,
+     "orchestrator": 4294967296
+    },
+    "cap_env": {},
+    "validator": "hl7",
+    "disk_bytes": 2112098017,
+    "seconds": 1909.4,
+    "gate": {
+     "ok": true,
+     "mode": "measure",
+     "unfinished": "",
+     "notes": [],
+     "runs": [
+      {
+       "name": "generate",
+       "service": "-",
+       "cap": 0,
+       "rc": 0,
+       "oom": false,
+       "peak": 465289216,
+       "seconds": 7.4,
+       "longest_quiet_s": 0.0
+      },
+      {
+       "name": "ingest (nightly)",
+       "service": "adapter",
+       "cap": 6442450944,
+       "rc": 0,
+       "oom": false,
+       "peak": 2099470336,
+       "seconds": 240.9,
+       "longest_quiet_s": 9.9
+      },
+      {
+       "name": "lake (rebuild, queries)",
+       "service": "lake",
+       "cap": 8589934592,
+       "rc": 0,
+       "oom": false,
+       "peak": 1265106944,
+       "seconds": 162.8,
+       "longest_quiet_s": 15.0
+      },
+      {
+       "name": "screen (cascade)",
+       "service": "orchestrator",
+       "cap": 4294967296,
+       "rc": 0,
+       "oom": false,
+       "peak": 1306996736,
+       "seconds": 90.5,
+       "longest_quiet_s": 37.4
+      },
+      {
+       "name": "backup (nightly steps)",
+       "service": "db",
+       "cap": 4294967296,
+       "rc": 0,
+       "oom": false,
+       "peak": 0,
+       "seconds": 0.7,
+       "longest_quiet_s": 0.0
+      }
+     ],
+     "numbers": {
+      "ingest": {
+       "ok": true,
+       "records": 621269,
+       "seconds": 240.4,
+       "validator": "Hl7Validator"
+      },
+      "publish": {
+       "rebuilds_started": 1,
+       "seconds": 70.2,
+       "first_answer_s": 0.0,
+       "client_timeout_s": 330
+      },
+      "screen": {
+       "seconds": 89.2,
+       "judge_calls": 750,
+       "refusals": {},
+       "n_after": {
+        "S0": 20000,
+        "S1": 717,
+        "S2": 717,
+        "S2b": 717,
+        "S3": 529,
+        "S4": 529,
+        "S5": 0
+       },
+       "stand_in_calls": 750,
+       "stand_in_outage_answers": 0,
+       "stand_in_restarts": 0
+      },
+      "backup": {
+       "ok": true,
+       "seconds": 0.7,
+       "paused": [],
+       "held_s": 0.0,
+       "dump_s_while_paused": 0.0,
+       "errors": []
+      }
+     },
+     "checks": {
+      "ingest.night_under_cap": "pass",
+      "publish.recorded_once": "pass",
+      "screen.ends_under_cap": "pass",
+      "screen.outage_no_unknown": "blocked",
+      "screen.model_faults_seen": "pass",
+      "rebuild.under_cap": "pass",
+      "backup.ends": "pass",
+      "backup.no_pause": "pass"
+     }
+    },
+    "jobs": {
+     "orchestrator_cap": 4294967296,
+     "lake_cap": 8589934592,
+     "mode": "measure",
+     "lines": [
+      {
+       "i": 0,
+       "study": "GZQO",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 54.55,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 522526720
+      },
+      {
+       "i": 0,
+       "study": "GZQO",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 69.34,
+       "scoped": 19370,
+       "model_calls": 992,
+       "stub_s": 0.79,
+       "rss_peak": 2183278592
+      },
+      {
+       "i": 1,
+       "study": "RA-BIO",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 51.38,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2183278592
+      },
+      {
+       "i": 1,
+       "study": "RA-BIO",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 49.49,
+       "scoped": 19370,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2183278592
+      },
+      {
+       "i": 2,
+       "study": "AD-MAB",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 22.03,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2183278592
+      },
+      {
+       "i": 2,
+       "study": "AD-MAB",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 28.96,
+       "scoped": 19370,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2183278592
+      },
+      {
+       "i": 3,
+       "study": "GOUT-COH",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 27.05,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2183278592
+      },
+      {
+       "i": 3,
+       "study": "GOUT-COH",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 35.29,
+       "scoped": 19370,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2183278592
+      },
+      {
+       "i": 4,
+       "study": "NEUR-COH",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 19.28,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2183278592
+      },
+      {
+       "i": 4,
+       "study": "NEUR-COH",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 23.38,
+       "scoped": 19370,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2183278592
+      },
+      {
+       "i": 5,
+       "study": "ONC-OSI",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 24.12,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2183278592
+      },
+      {
+       "i": 5,
+       "study": "ONC-OSI",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 39.1,
+       "scoped": 19370,
+       "model_calls": 1596,
+       "stub_s": 1.16,
+       "rss_peak": 2183278592
+      },
+      {
+       "i": 6,
+       "study": "RA-COH",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 26.43,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2183278592
+      },
+      {
+       "i": 6,
+       "study": "RA-COH",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 32.18,
+       "scoped": 19370,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2183278592
+      },
+      {
+       "i": 7,
+       "study": "RA-JAK",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 39.96,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2183278592
+      },
+      {
+       "i": 7,
+       "study": "RA-JAK",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 46.2,
+       "scoped": 19370,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2183278592
+      },
+      {
+       "i": 8,
+       "study": "GZQO",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 54.51,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2183278592
+      },
+      {
+       "i": 8,
+       "study": "GZQO",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 68.88,
+       "scoped": 19370,
+       "model_calls": 992,
+       "stub_s": 0.85,
+       "rss_peak": 2198487040
+      },
+      {
+       "i": 9,
+       "study": "RA-BIO",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 49.04,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2198487040
+      },
+      {
+       "i": 9,
+       "study": "RA-BIO",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 48.12,
+       "scoped": 19370,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2198487040
+      },
+      {
+       "i": 10,
+       "study": "AD-MAB",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 22.14,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2198487040
+      },
+      {
+       "i": 10,
+       "study": "AD-MAB",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 30.04,
+       "scoped": 19370,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2198487040
+      },
+      {
+       "i": 11,
+       "study": "GOUT-COH",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 26.43,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2198487040
+      },
+      {
+       "i": 11,
+       "study": "GOUT-COH",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 32.8,
+       "scoped": 19370,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2198487040
+      },
+      {
+       "i": 12,
+       "study": "NEUR-COH",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 17.56,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2198487040
+      },
+      {
+       "i": 12,
+       "study": "NEUR-COH",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 21.85,
+       "scoped": 19370,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2198487040
+      },
+      {
+       "i": 13,
+       "study": "ONC-OSI",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 22.2,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2198487040
+      },
+      {
+       "i": 13,
+       "study": "ONC-OSI",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 40.73,
+       "scoped": 19370,
+       "model_calls": 1596,
+       "stub_s": 1.14,
+       "rss_peak": 2198487040
+      },
+      {
+       "i": 14,
+       "study": "RA-COH",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 25.95,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2198487040
+      },
+      {
+       "i": 14,
+       "study": "RA-COH",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 31.81,
+       "scoped": 19370,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2198487040
+      },
+      {
+       "i": 15,
+       "study": "RA-JAK",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 40.15,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2198487040
+      },
+      {
+       "i": 15,
+       "study": "RA-JAK",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 44.93,
+       "scoped": 19370,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2198487040
+      },
+      {
+       "i": 16,
+       "study": "GZQO",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 52.03,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2198487040
+      },
+      {
+       "i": 16,
+       "study": "GZQO",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 68.78,
+       "scoped": 19370,
+       "model_calls": 992,
+       "stub_s": 0.78,
+       "rss_peak": 2208542720
+      },
+      {
+       "i": 17,
+       "study": "RA-BIO",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 46.38,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2208542720
+      },
+      {
+       "i": 17,
+       "study": "RA-BIO",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 46.95,
+       "scoped": 19370,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2208542720
+      },
+      {
+       "i": 18,
+       "study": "AD-MAB",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 21.5,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2208542720
+      },
+      {
+       "i": 18,
+       "study": "AD-MAB",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 29.63,
+       "scoped": 19370,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2208542720
+      },
+      {
+       "i": 19,
+       "study": "GOUT-COH",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 28.03,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2208542720
+      },
+      {
+       "i": 19,
+       "study": "GOUT-COH",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 34.0,
+       "scoped": 19370,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 2208542720
+      }
+     ],
+     "orchestrator_peak": 2165923840,
+     "orchestrator_s": 1496.4,
+     "orchestrator_rc": 0,
+     "orchestrator_oom": false,
+     "lake_peak": 1043152896,
+     "lake_s": 1497.2,
+     "lake_oom": false
+    }
+   },
+   {
+    "patients": 20000,
+    "studies": 1,
+    "repeat": 2,
+    "caps": {
+     "adapter": 6442450944,
+     "lake": 8589934592,
+     "orchestrator": 4294967296
+    },
+    "cap_env": {},
+    "validator": "hl7",
+    "disk_bytes": 1595199908,
+    "seconds": 550.0,
+    "gate": {
+     "ok": true,
+     "mode": "measure",
+     "unfinished": "",
+     "notes": [],
+     "runs": [
+      {
+       "name": "generate",
+       "service": "-",
+       "cap": 0,
+       "rc": 0,
+       "oom": false,
+       "peak": 434249728,
+       "seconds": 7.3,
+       "longest_quiet_s": 0.0
+      },
+      {
+       "name": "ingest (nightly)",
+       "service": "adapter",
+       "cap": 6442450944,
+       "rc": 0,
+       "oom": false,
+       "peak": 2167787520,
+       "seconds": 242.2,
+       "longest_quiet_s": 9.9
+      },
+      {
+       "name": "lake (rebuild, queries)",
+       "service": "lake",
+       "cap": 8589934592,
+       "rc": 0,
+       "oom": false,
+       "peak": 1291087872,
+       "seconds": 165.9,
+       "longest_quiet_s": 14.4
+      },
+      {
+       "name": "screen (cascade)",
+       "service": "orchestrator",
+       "cap": 4294967296,
+       "rc": 0,
+       "oom": false,
+       "peak": 1298706432,
+       "seconds": 93.6,
+       "longest_quiet_s": 59.4
+      },
+      {
+       "name": "backup (nightly steps)",
+       "service": "db",
+       "cap": 4294967296,
+       "rc": 0,
+       "oom": false,
+       "peak": 0,
+       "seconds": 0.6,
+       "longest_quiet_s": 0.0
+      }
+     ],
+     "numbers": {
+      "ingest": {
+       "ok": true,
+       "records": 621269,
+       "seconds": 241.7,
+       "validator": "Hl7Validator"
+      },
+      "publish": {
+       "rebuilds_started": 1,
+       "seconds": 70.2,
+       "first_answer_s": 0.0,
+       "client_timeout_s": 330
+      },
+      "screen": {
+       "seconds": 92.4,
+       "judge_calls": 750,
+       "refusals": {},
+       "n_after": {
+        "S0": 20000,
+        "S1": 717,
+        "S2": 717,
+        "S2b": 717,
+        "S3": 529,
+        "S4": 529,
+        "S5": 0
+       },
+       "stand_in_calls": 750,
+       "stand_in_outage_answers": 0,
+       "stand_in_restarts": 0
+      },
+      "backup": {
+       "ok": true,
+       "seconds": 0.6,
+       "paused": [],
+       "held_s": 0.0,
+       "dump_s_while_paused": 0.0,
+       "errors": []
+      }
+     },
+     "checks": {
+      "ingest.night_under_cap": "pass",
+      "publish.recorded_once": "pass",
+      "screen.ends_under_cap": "pass",
+      "screen.outage_no_unknown": "blocked",
+      "screen.model_faults_seen": "pass",
+      "rebuild.under_cap": "pass",
+      "backup.ends": "pass",
+      "backup.no_pause": "pass"
+     }
+    },
+    "jobs": {
+     "orchestrator_cap": 4294967296,
+     "lake_cap": 8589934592,
+     "mode": "measure",
+     "lines": [
+      {
+       "i": 0,
+       "study": "GZQO",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 61.68,
+       "scoped": 20000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 510377984
+      },
+      {
+       "i": 0,
+       "study": "GZQO",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 68.07,
+       "scoped": 19370,
+       "model_calls": 992,
+       "stub_s": 0.79,
+       "rss_peak": 2161823744
+      }
+     ],
+     "orchestrator_peak": 2105688064,
+     "orchestrator_s": 132.8,
+     "orchestrator_rc": 0,
+     "orchestrator_oom": false,
+     "lake_peak": 1047175168,
+     "lake_s": 133.7,
+     "lake_oom": false
+    }
+   },
+   {
+    "patients": 50000,
+    "studies": 5,
+    "repeat": 1,
+    "caps": {
+     "adapter": 6442450944,
+     "lake": 8589934592,
+     "orchestrator": 10737418240
+    },
+    "cap_env": {
+     "TB_MEM_ORCH": "10g"
+    },
+    "validator": "hl7",
+    "disk_bytes": 4403987831,
+    "seconds": 2368.7,
+    "gate": {
+     "ok": true,
+     "mode": "measure",
+     "unfinished": "",
+     "notes": [],
+     "runs": [
+      {
+       "name": "generate",
+       "service": "-",
+       "cap": 0,
+       "rc": 0,
+       "oom": false,
+       "peak": 1113632768,
+       "seconds": 17.2,
+       "longest_quiet_s": 0.0
+      },
+      {
+       "name": "ingest (nightly)",
+       "service": "adapter",
+       "cap": 6442450944,
+       "rc": 0,
+       "oom": false,
+       "peak": 2388054016,
+       "seconds": 587.8,
+       "longest_quiet_s": 9.9
+      },
+      {
+       "name": "lake (rebuild, queries)",
+       "service": "lake",
+       "cap": 8589934592,
+       "rc": 0,
+       "oom": false,
+       "peak": 2462965760,
+       "seconds": 499.5,
+       "longest_quiet_s": 40.9
+      },
+      {
+       "name": "screen (cascade)",
+       "service": "orchestrator",
+       "cap": 10737418240,
+       "rc": 0,
+       "oom": false,
+       "peak": 2955845632,
+       "seconds": 286.9,
+       "longest_quiet_s": 223.4
+      },
+      {
+       "name": "backup (nightly steps)",
+       "service": "db",
+       "cap": 4294967296,
+       "rc": 0,
+       "oom": false,
+       "peak": 0,
+       "seconds": 0.8,
+       "longest_quiet_s": 0.0
+      }
+     ],
+     "numbers": {
+      "ingest": {
+       "ok": true,
+       "records": 1553259,
+       "seconds": 587.3,
+       "validator": "Hl7Validator"
+      },
+      "publish": {
+       "rebuilds_started": 1,
+       "seconds": 210.5,
+       "first_answer_s": 0.0,
+       "client_timeout_s": 330
+      },
+      "screen": {
+       "seconds": 285.2,
+       "judge_calls": 1542,
+       "refusals": {},
+       "n_after": {
+        "S0": 50000,
+        "S1": 1767,
+        "S2": 1767,
+        "S2b": 1767,
+        "S3": 1402,
+        "S4": 1402,
+        "S5": 0
+       },
+       "stand_in_calls": 1542,
+       "stand_in_outage_answers": 0,
+       "stand_in_restarts": 0
+      },
+      "backup": {
+       "ok": true,
+       "seconds": 0.8,
+       "paused": [],
+       "held_s": 0.0,
+       "dump_s_while_paused": 0.0,
+       "errors": []
+      }
+     },
+     "checks": {
+      "ingest.night_under_cap": "pass",
+      "publish.recorded_once": "pass",
+      "screen.ends_under_cap": "pass",
+      "screen.outage_no_unknown": "blocked",
+      "screen.model_faults_seen": "pass",
+      "rebuild.under_cap": "pass",
+      "backup.ends": "pass",
+      "backup.no_pause": "pass"
+     }
+    },
+    "jobs": {
+     "orchestrator_cap": 10737418240,
+     "lake_cap": 8589934592,
+     "mode": "measure",
+     "lines": [
+      {
+       "i": 0,
+       "study": "GZQO",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 220.96,
+       "scoped": 50000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 535937024
+      },
+      {
+       "i": 0,
+       "study": "GZQO",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 170.0,
+       "scoped": 48345,
+       "model_calls": 2497,
+       "stub_s": 2.03,
+       "rss_peak": 4687323136
+      },
+      {
+       "i": 1,
+       "study": "RA-BIO",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 198.97,
+       "scoped": 50000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 4687323136
+      },
+      {
+       "i": 1,
+       "study": "RA-BIO",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 128.39,
+       "scoped": 48345,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 4687323136
+      },
+      {
+       "i": 2,
+       "study": "AD-MAB",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 106.33,
+       "scoped": 50000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 4687323136
+      },
+      {
+       "i": 2,
+       "study": "AD-MAB",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 74.94,
+       "scoped": 48345,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 4687323136
+      },
+      {
+       "i": 3,
+       "study": "GOUT-COH",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 122.82,
+       "scoped": 50000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 4687323136
+      },
+      {
+       "i": 3,
+       "study": "GOUT-COH",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 88.96,
+       "scoped": 48345,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 4687323136
+      },
+      {
+       "i": 4,
+       "study": "NEUR-COH",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 91.29,
+       "scoped": 50000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 4687323136
+      },
+      {
+       "i": 4,
+       "study": "NEUR-COH",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 56.25,
+       "scoped": 48345,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 4687323136
+      }
+     ],
+     "orchestrator_peak": 4581847040,
+     "orchestrator_s": 1262.2,
+     "orchestrator_rc": 0,
+     "orchestrator_oom": false,
+     "lake_peak": 1807761408,
+     "lake_s": 1263.1,
+     "lake_oom": false
+    }
+   },
+   {
+    "patients": 50000,
+    "studies": 1,
+    "repeat": 2,
+    "caps": {
+     "adapter": 6442450944,
+     "lake": 8589934592,
+     "orchestrator": 10737418240
+    },
+    "cap_env": {
+     "TB_MEM_ORCH": "10g"
+    },
+    "validator": "hl7",
+    "disk_bytes": 4153997627,
+    "seconds": 1513.9,
+    "gate": {
+     "ok": true,
+     "mode": "measure",
+     "unfinished": "",
+     "notes": [],
+     "runs": [
+      {
+       "name": "generate",
+       "service": "-",
+       "cap": 0,
+       "rc": 0,
+       "oom": false,
+       "peak": 1082376192,
+       "seconds": 16.9,
+       "longest_quiet_s": 0.0
+      },
+      {
+       "name": "ingest (nightly)",
+       "service": "adapter",
+       "cap": 6442450944,
+       "rc": 0,
+       "oom": false,
+       "peak": 2787348480,
+       "seconds": 592.3,
+       "longest_quiet_s": 10.0
+      },
+      {
+       "name": "lake (rebuild, queries)",
+       "service": "lake",
+       "cap": 8589934592,
+       "rc": 0,
+       "oom": false,
+       "peak": 2229694464,
+       "seconds": 491.2,
+       "longest_quiet_s": 36.1
+      },
+      {
+       "name": "screen (cascade)",
+       "service": "orchestrator",
+       "cap": 10737418240,
+       "rc": 0,
+       "oom": false,
+       "peak": 2956894208,
+       "seconds": 288.7,
+       "longest_quiet_s": 219.8
+      },
+      {
+       "name": "backup (nightly steps)",
+       "service": "db",
+       "cap": 4294967296,
+       "rc": 0,
+       "oom": false,
+       "peak": 0,
+       "seconds": 0.9,
+       "longest_quiet_s": 0.0
+      }
+     ],
+     "numbers": {
+      "ingest": {
+       "ok": true,
+       "records": 1553259,
+       "seconds": 591.8,
+       "validator": "Hl7Validator"
+      },
+      "publish": {
+       "rebuilds_started": 1,
+       "seconds": 200.4,
+       "first_answer_s": 0.0,
+       "client_timeout_s": 330
+      },
+      "screen": {
+       "seconds": 286.8,
+       "judge_calls": 1542,
+       "refusals": {},
+       "n_after": {
+        "S0": 50000,
+        "S1": 1767,
+        "S2": 1767,
+        "S2b": 1767,
+        "S3": 1402,
+        "S4": 1402,
+        "S5": 0
+       },
+       "stand_in_calls": 1542,
+       "stand_in_outage_answers": 0,
+       "stand_in_restarts": 0
+      },
+      "backup": {
+       "ok": true,
+       "seconds": 0.9,
+       "paused": [],
+       "held_s": 0.0,
+       "dump_s_while_paused": 0.0,
+       "errors": []
+      }
+     },
+     "checks": {
+      "ingest.night_under_cap": "pass",
+      "publish.recorded_once": "pass",
+      "screen.ends_under_cap": "pass",
+      "screen.outage_no_unknown": "blocked",
+      "screen.model_faults_seen": "pass",
+      "rebuild.under_cap": "pass",
+      "backup.ends": "pass",
+      "backup.no_pause": "pass"
+     }
+    },
+    "jobs": {
+     "orchestrator_cap": 10737418240,
+     "lake_cap": 8589934592,
+     "mode": "measure",
+     "lines": [
+      {
+       "i": 0,
+       "study": "GZQO",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 234.27,
+       "scoped": 50000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 520126464
+      },
+      {
+       "i": 0,
+       "study": "GZQO",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 173.75,
+       "scoped": 48345,
+       "model_calls": 2497,
+       "stub_s": 2.11,
+       "rss_peak": 4671283200
+      }
+     ],
+     "orchestrator_peak": 4583186432,
+     "orchestrator_s": 411.5,
+     "orchestrator_rc": 0,
+     "orchestrator_oom": false,
+     "lake_peak": 1753911296,
+     "lake_s": 412.5,
+     "lake_oom": false
+    }
+   },
+   {
+    "patients": 100000,
+    "studies": 1,
+    "repeat": 1,
+    "caps": {
+     "adapter": 6442450944,
+     "lake": 8589934592,
+     "orchestrator": 10737418240
+    },
+    "cap_env": {
+     "TB_MEM_ORCH": "10g"
+    },
+    "validator": "hl7",
+    "disk_bytes": 7837266614,
+    "seconds": 3768.3,
+    "gate": {
+     "ok": true,
+     "mode": "measure",
+     "unfinished": "",
+     "notes": [],
+     "runs": [
+      {
+       "name": "generate",
+       "service": "-",
+       "cap": 0,
+       "rc": 0,
+       "oom": false,
+       "peak": 2239741952,
+       "seconds": 33.9,
+       "longest_quiet_s": 0.0
+      },
+      {
+       "name": "ingest (nightly)",
+       "service": "adapter",
+       "cap": 6442450944,
+       "rc": 0,
+       "oom": false,
+       "peak": 3009318912,
+       "seconds": 1031.5,
+       "longest_quiet_s": 10.0
+      },
+      {
+       "name": "lake (rebuild, queries)",
+       "service": "lake",
+       "cap": 8589934592,
+       "rc": 0,
+       "oom": false,
+       "peak": 3549458432,
+       "seconds": 1468.6,
+       "longest_quiet_s": 44.8
+      },
+      {
+       "name": "screen (cascade)",
+       "service": "orchestrator",
+       "cap": 10737418240,
+       "rc": 0,
+       "oom": false,
+       "peak": 5684502528,
+       "seconds": 1050.3,
+       "longest_quiet_s": 959.7
+      },
+      {
+       "name": "backup (nightly steps)",
+       "service": "db",
+       "cap": 4294967296,
+       "rc": 0,
+       "oom": false,
+       "peak": 0,
+       "seconds": 1.6,
+       "longest_quiet_s": 0.0
+      }
+     ],
+     "numbers": {
+      "ingest": {
+       "ok": true,
+       "records": 3111538,
+       "seconds": 1031.0,
+       "validator": "Hl7Validator"
+      },
+      "publish": {
+       "rebuilds_started": 1,
+       "seconds": 415.9,
+       "first_answer_s": 0.1,
+       "client_timeout_s": 330
+      },
+      "screen": {
+       "seconds": 1047.7,
+       "judge_calls": 1911,
+       "refusals": {},
+       "n_after": {
+        "S0": 100000,
+        "S1": 3562,
+        "S2": 3562,
+        "S2b": 3562,
+        "S3": 3133,
+        "S4": 3133,
+        "S5": 0
+       },
+       "stand_in_calls": 1911,
+       "stand_in_outage_answers": 0,
+       "stand_in_restarts": 0
+      },
+      "backup": {
+       "ok": true,
+       "seconds": 1.6,
+       "paused": [],
+       "held_s": 0.0,
+       "dump_s_while_paused": 0.0,
+       "errors": []
+      }
+     },
+     "checks": {
+      "ingest.night_under_cap": "pass",
+      "publish.recorded_once": "pass",
+      "screen.ends_under_cap": "pass",
+      "screen.outage_no_unknown": "blocked",
+      "screen.model_faults_seen": "pass",
+      "rebuild.under_cap": "pass",
+      "backup.ends": "pass",
+      "backup.no_pause": "pass"
+     }
+    },
+    "jobs": {
+     "orchestrator_cap": 10737418240,
+     "lake_cap": 8589934592,
+     "mode": "measure",
+     "lines": [
+      {
+       "i": 0,
+       "study": "GZQO",
+       "kind": "FEAS",
+       "state": "done",
+       "error": "",
+       "seconds": 867.77,
+       "scoped": 100000,
+       "model_calls": 0,
+       "stub_s": 0.0,
+       "rss_peak": 538652672
+      },
+      {
+       "i": 0,
+       "study": "GZQO",
+       "kind": "SCREEN",
+       "state": "done",
+       "error": "",
+       "seconds": 358.9,
+       "scoped": 96695,
+       "model_calls": 5084,
+       "stub_s": 4.17,
+       "rss_peak": 8831356928
+      }
+     ],
+     "orchestrator_peak": 8698232832,
+     "orchestrator_s": 1230.7,
+     "orchestrator_rc": 0,
+     "orchestrator_oom": false,
+     "lake_peak": 2898706432,
+     "lake_s": 1232.4,
+     "lake_oom": false
+    }
+   }
+  ],
+  "table": [
+   {
+    "stage": "generate",
+    "patients": 20000,
+    "service": "-",
+    "seconds": {
+     "median": 7.35,
+     "min": 7.3,
+     "max": 7.4,
+     "spread_pct": 1.4,
+     "n": 2
+    },
+    "peak": 465289216,
+    "cap": 0,
+    "units": 20000,
+    "unit": "patient",
+    "ms_per_unit": 0.367,
+    "ok": true,
+    "lifted": false
+   },
+   {
+    "stage": "ingest",
+    "patients": 20000,
+    "service": "adapter",
+    "seconds": {
+     "median": 241.55,
+     "min": 240.9,
+     "max": 242.2,
+     "spread_pct": 0.5,
+     "n": 2
+    },
+    "peak": 2167787520,
+    "cap": 6442450944,
+    "units": 20000,
+    "unit": "patient",
+    "ms_per_unit": 12.078,
+    "ok": true,
+    "lifted": false,
+    "records": 621269
+   },
+   {
+    "stage": "rebuild+publish",
+    "patients": 20000,
+    "service": "lake",
+    "seconds": {
+     "median": 70.2,
+     "min": 70.2,
+     "max": 70.2,
+     "spread_pct": 0.0,
+     "n": 2
+    },
+    "peak": 1291087872,
+    "cap": 8589934592,
+    "units": 20000,
+    "unit": "patient",
+    "ms_per_unit": 3.51,
+    "ok": true,
+    "lifted": false
+   },
+   {
+    "stage": "cascade (gate, GZQO)",
+    "patients": 20000,
+    "service": "orchestrator",
+    "seconds": {
+     "median": 92.05,
+     "min": 90.5,
+     "max": 93.6,
+     "spread_pct": 3.4,
+     "n": 2
+    },
+    "peak": 1306996736,
+    "cap": 4294967296,
+    "units": 20000,
+    "unit": "patient",
+    "ms_per_unit": 4.603,
+    "ok": true,
+    "lifted": false,
+    "model_calls": 750
+   },
+   {
+    "stage": "FEAS x1",
+    "patients": 20000,
+    "service": "orchestrator",
+    "seconds": {
+     "median": 58.11,
+     "min": 54.55,
+     "max": 61.68,
+     "spread_pct": 12.3,
+     "n": 2
+    },
+    "peak": 522526720,
+    "cap": 4294967296,
+    "units": 20000,
+    "unit": "patient-study",
+    "ms_per_unit": 2.905,
+    "ok": true,
+    "lifted": false,
+    "model_calls": 0,
+    "stub_s": 0.0,
+    "studies": 1,
+    "scoped": 20000,
+    "lake_peak": 1043152896
+   },
+   {
+    "stage": "FEAS x5",
+    "patients": 20000,
+    "service": "orchestrator",
+    "seconds": {
+     "median": 174.29,
+     "min": 174.29,
+     "max": 174.29,
+     "spread_pct": 0.0,
+     "n": 1
+    },
+    "peak": 2183278592,
+    "cap": 4294967296,
+    "units": 100000,
+    "unit": "patient-study",
+    "ms_per_unit": 1.743,
+    "ok": true,
+    "lifted": false,
+    "model_calls": 0,
+    "stub_s": 0.0,
+    "studies": 5,
+    "scoped": 20000,
+    "lake_peak": 1043152896
+   },
+   {
+    "stage": "FEAS x20",
+    "patients": 20000,
+    "service": "orchestrator",
+    "seconds": {
+     "median": 670.72,
+     "min": 670.72,
+     "max": 670.72,
+     "spread_pct": 0.0,
+     "n": 1
+    },
+    "peak": 2208542720,
+    "cap": 4294967296,
+    "units": 400000,
+    "unit": "patient-study",
+    "ms_per_unit": 1.677,
+    "ok": true,
+    "lifted": false,
+    "model_calls": 0,
+    "stub_s": 0.0,
+    "studies": 20,
+    "scoped": 20000,
+    "lake_peak": 1043152896
+   },
+   {
+    "stage": "SCREEN x1",
+    "patients": 20000,
+    "service": "orchestrator",
+    "seconds": {
+     "median": 68.7,
+     "min": 68.07,
+     "max": 69.34,
+     "spread_pct": 1.8,
+     "n": 2
+    },
+    "peak": 2183278592,
+    "cap": 4294967296,
+    "units": 20000,
+    "unit": "patient-study",
+    "ms_per_unit": 3.435,
+    "ok": true,
+    "lifted": false,
+    "model_calls": 992,
+    "stub_s": 0.79,
+    "studies": 1,
+    "scoped": 19370,
+    "lake_peak": 1043152896
+   },
+   {
+    "stage": "SCREEN x5",
+    "patients": 20000,
+    "service": "orchestrator",
+    "seconds": {
+     "median": 206.46,
+     "min": 206.46,
+     "max": 206.46,
+     "spread_pct": 0.0,
+     "n": 1
+    },
+    "peak": 2183278592,
+    "cap": 4294967296,
+    "units": 100000,
+    "unit": "patient-study",
+    "ms_per_unit": 2.065,
+    "ok": true,
+    "lifted": false,
+    "model_calls": 992,
+    "stub_s": 0.79,
+    "studies": 5,
+    "scoped": 19370,
+    "lake_peak": 1043152896
+   },
+   {
+    "stage": "SCREEN x20",
+    "patients": 20000,
+    "service": "orchestrator",
+    "seconds": {
+     "median": 822.46,
+     "min": 822.46,
+     "max": 822.46,
+     "spread_pct": 0.0,
+     "n": 1
+    },
+    "peak": 2208542720,
+    "cap": 4294967296,
+    "units": 400000,
+    "unit": "patient-study",
+    "ms_per_unit": 2.056,
+    "ok": true,
+    "lifted": false,
+    "model_calls": 6168,
+    "stub_s": 4.72,
+    "studies": 20,
+    "scoped": 19370,
+    "lake_peak": 1043152896
+   },
+   {
+    "stage": "generate",
+    "patients": 50000,
+    "service": "-",
+    "seconds": {
+     "median": 17.05,
+     "min": 16.9,
+     "max": 17.2,
+     "spread_pct": 1.8,
+     "n": 2
+    },
+    "peak": 1113632768,
+    "cap": 0,
+    "units": 50000,
+    "unit": "patient",
+    "ms_per_unit": 0.341,
+    "ok": true,
+    "lifted": false
+   },
+   {
+    "stage": "ingest",
+    "patients": 50000,
+    "service": "adapter",
+    "seconds": {
+     "median": 590.05,
+     "min": 587.8,
+     "max": 592.3,
+     "spread_pct": 0.8,
+     "n": 2
+    },
+    "peak": 2787348480,
+    "cap": 6442450944,
+    "units": 50000,
+    "unit": "patient",
+    "ms_per_unit": 11.801,
+    "ok": true,
+    "lifted": false,
+    "records": 1553259
+   },
+   {
+    "stage": "rebuild+publish",
+    "patients": 50000,
+    "service": "lake",
+    "seconds": {
+     "median": 205.45,
+     "min": 200.4,
+     "max": 210.5,
+     "spread_pct": 4.9,
+     "n": 2
+    },
+    "peak": 2462965760,
+    "cap": 8589934592,
+    "units": 50000,
+    "unit": "patient",
+    "ms_per_unit": 4.109,
+    "ok": true,
+    "lifted": false
+   },
+   {
+    "stage": "cascade (gate, GZQO)",
+    "patients": 50000,
+    "service": "orchestrator",
+    "seconds": {
+     "median": 287.8,
+     "min": 286.9,
+     "max": 288.7,
+     "spread_pct": 0.6,
+     "n": 2
+    },
+    "peak": 2956894208,
+    "cap": 10737418240,
+    "units": 50000,
+    "unit": "patient",
+    "ms_per_unit": 5.756,
+    "ok": true,
+    "lifted": true,
+    "model_calls": 1542
+   },
+   {
+    "stage": "FEAS x1",
+    "patients": 50000,
+    "service": "orchestrator",
+    "seconds": {
+     "median": 227.62,
+     "min": 220.96,
+     "max": 234.27,
+     "spread_pct": 5.8,
+     "n": 2
+    },
+    "peak": 535937024,
+    "cap": 10737418240,
+    "units": 50000,
+    "unit": "patient-study",
+    "ms_per_unit": 4.552,
+    "ok": true,
+    "lifted": true,
+    "model_calls": 0,
+    "stub_s": 0.0,
+    "studies": 1,
+    "scoped": 50000,
+    "lake_peak": 1807761408
+   },
+   {
+    "stage": "FEAS x5",
+    "patients": 50000,
+    "service": "orchestrator",
+    "seconds": {
+     "median": 740.37,
+     "min": 740.37,
+     "max": 740.37,
+     "spread_pct": 0.0,
+     "n": 1
+    },
+    "peak": 4687323136,
+    "cap": 10737418240,
+    "units": 250000,
+    "unit": "patient-study",
+    "ms_per_unit": 2.961,
+    "ok": true,
+    "lifted": true,
+    "model_calls": 0,
+    "stub_s": 0.0,
+    "studies": 5,
+    "scoped": 50000,
+    "lake_peak": 1807761408
+   },
+   {
+    "stage": "SCREEN x1",
+    "patients": 50000,
+    "service": "orchestrator",
+    "seconds": {
+     "median": 171.88,
+     "min": 170.0,
+     "max": 173.75,
+     "spread_pct": 2.2,
+     "n": 2
+    },
+    "peak": 4687323136,
+    "cap": 10737418240,
+    "units": 50000,
+    "unit": "patient-study",
+    "ms_per_unit": 3.438,
+    "ok": true,
+    "lifted": true,
+    "model_calls": 2497,
+    "stub_s": 2.03,
+    "studies": 1,
+    "scoped": 48345,
+    "lake_peak": 1807761408
+   },
+   {
+    "stage": "SCREEN x5",
+    "patients": 50000,
+    "service": "orchestrator",
+    "seconds": {
+     "median": 518.54,
+     "min": 518.54,
+     "max": 518.54,
+     "spread_pct": 0.0,
+     "n": 1
+    },
+    "peak": 4687323136,
+    "cap": 10737418240,
+    "units": 250000,
+    "unit": "patient-study",
+    "ms_per_unit": 2.074,
+    "ok": true,
+    "lifted": true,
+    "model_calls": 2497,
+    "stub_s": 2.03,
+    "studies": 5,
+    "scoped": 48345,
+    "lake_peak": 1807761408
+   },
+   {
+    "stage": "generate",
+    "patients": 100000,
+    "service": "-",
+    "seconds": {
+     "median": 33.9,
+     "min": 33.9,
+     "max": 33.9,
+     "spread_pct": 0.0,
+     "n": 1
+    },
+    "peak": 2239741952,
+    "cap": 0,
+    "units": 100000,
+    "unit": "patient",
+    "ms_per_unit": 0.339,
+    "ok": true,
+    "lifted": false
+   },
+   {
+    "stage": "ingest",
+    "patients": 100000,
+    "service": "adapter",
+    "seconds": {
+     "median": 1031.5,
+     "min": 1031.5,
+     "max": 1031.5,
+     "spread_pct": 0.0,
+     "n": 1
+    },
+    "peak": 3009318912,
+    "cap": 6442450944,
+    "units": 100000,
+    "unit": "patient",
+    "ms_per_unit": 10.315,
+    "ok": true,
+    "lifted": false,
+    "records": 3111538
+   },
+   {
+    "stage": "rebuild+publish",
+    "patients": 100000,
+    "service": "lake",
+    "seconds": {
+     "median": 415.9,
+     "min": 415.9,
+     "max": 415.9,
+     "spread_pct": 0.0,
+     "n": 1
+    },
+    "peak": 3549458432,
+    "cap": 8589934592,
+    "units": 100000,
+    "unit": "patient",
+    "ms_per_unit": 4.159,
+    "ok": true,
+    "lifted": false
+   },
+   {
+    "stage": "cascade (gate, GZQO)",
+    "patients": 100000,
+    "service": "orchestrator",
+    "seconds": {
+     "median": 1050.3,
+     "min": 1050.3,
+     "max": 1050.3,
+     "spread_pct": 0.0,
+     "n": 1
+    },
+    "peak": 5684502528,
+    "cap": 10737418240,
+    "units": 100000,
+    "unit": "patient",
+    "ms_per_unit": 10.503,
+    "ok": true,
+    "lifted": true,
+    "model_calls": 1911
+   },
+   {
+    "stage": "FEAS x1",
+    "patients": 100000,
+    "service": "orchestrator",
+    "seconds": {
+     "median": 867.77,
+     "min": 867.77,
+     "max": 867.77,
+     "spread_pct": 0.0,
+     "n": 1
+    },
+    "peak": 538652672,
+    "cap": 10737418240,
+    "units": 100000,
+    "unit": "patient-study",
+    "ms_per_unit": 8.678,
+    "ok": true,
+    "lifted": true,
+    "model_calls": 0,
+    "stub_s": 0.0,
+    "studies": 1,
+    "scoped": 100000,
+    "lake_peak": 2898706432
+   },
+   {
+    "stage": "SCREEN x1",
+    "patients": 100000,
+    "service": "orchestrator",
+    "seconds": {
+     "median": 358.9,
+     "min": 358.9,
+     "max": 358.9,
+     "spread_pct": 0.0,
+     "n": 1
+    },
+    "peak": 8831356928,
+    "cap": 10737418240,
+    "units": 100000,
+    "unit": "patient-study",
+    "ms_per_unit": 3.589,
+    "ok": true,
+    "lifted": true,
+    "model_calls": 5084,
+    "stub_s": 4.17,
+    "studies": 1,
+    "scoped": 96695,
+    "lake_peak": 2898706432
+   }
+  ],
+  "first_slow": {
+   "generate": null,
+   "ingest": null,
+   "rebuild+publish": null,
+   "cascade (gate, GZQO)": {
+    "patients": 100000,
+    "ms_per_unit": 10.503,
+    "lowest_smaller": 4.603,
+    "ratio": 2.28,
+    "lifted_sizes": [
+     50000,
+     100000
+    ]
+   },
+   "FEAS x1": {
+    "patients": 50000,
+    "ms_per_unit": 4.552,
+    "lowest_smaller": 2.905,
+    "ratio": 1.57,
+    "lifted_sizes": [
+     50000,
+     100000
+    ]
+   },
+   "FEAS x5": {
+    "patients": 50000,
+    "ms_per_unit": 2.961,
+    "lowest_smaller": 1.743,
+    "ratio": 1.7,
+    "lifted_sizes": [
+     50000
+    ]
+   },
+   "FEAS x20": null,
+   "SCREEN x1": null,
+   "SCREEN x5": null,
+   "SCREEN x20": null
+  },
+  "cascade_stages": {
+   "50000": {
+    "caps": {
+     "adapter": 6442450944,
+     "lake": 8589934592,
+     "orchestrator": 10737418240
+    },
+    "cap_env": {
+     "TB_MEM_ORCH": "10g"
+    },
+    "validator": "hl7",
+    "patients_dir": "n50000-r1",
+    "frames": 0,
+    "cap": 10737418240,
+    "mode": "measure",
+    "seconds": 284.6,
+    "peak": 2960588800,
+    "rc": 0,
+    "oom": false,
+    "lake_peak": 1650212864,
+    "stages": [
+     {
+      "stage": "s0",
+      "start_s": 0.4,
+      "seconds": 0.6,
+      "rss_end": 239546368,
+      "rss_peak": 248487936
+     },
+     {
+      "stage": "s1",
+      "start_s": 1.0,
+      "seconds": 242.8,
+      "rss_end": 2421342208,
+      "rss_peak": 2960396288
+     },
+     {
+      "stage": "note_stage",
+      "start_s": 243.9,
+      "seconds": 2.4,
+      "rss_end": 2422472704,
+      "rss_peak": 2422472704
+     },
+     {
+      "stage": "sample",
+      "start_s": 246.3,
+      "seconds": 0.0,
+      "rss_end": 2422472704,
+      "rss_peak": 2422472704
+     },
+     {
+      "stage": "s3",
+      "start_s": 246.3,
+      "seconds": 31.9,
+      "rss_end": 2423275520,
+      "rss_peak": 2423304192
+     },
+     {
+      "stage": "s4",
+      "start_s": 278.2,
+      "seconds": 3.8,
+      "rss_end": 2423287808,
+      "rss_peak": 2423304192
+     },
+     {
+      "stage": "tiers",
+      "start_s": 282.0,
+      "seconds": 0.5,
+      "rss_end": 2423287808,
+      "rss_peak": 2423304192
+     },
+     {
+      "stage": "s5",
+      "start_s": 282.5,
+      "seconds": 0.0,
+      "rss_end": 2423287808,
+      "rss_peak": 2423304192
+     }
+    ]
+   },
+   "100000": {
+    "caps": {
+     "adapter": 6442450944,
+     "lake": 8589934592,
+     "orchestrator": 10737418240
+    },
+    "cap_env": {
+     "TB_MEM_ORCH": "10g"
+    },
+    "validator": "hl7",
+    "patients_dir": "n100000-r1",
+    "frames": 0,
+    "cap": 10737418240,
+    "mode": "measure",
+    "seconds": 959.7,
+    "peak": 5703958528,
+    "rc": 0,
+    "oom": false,
+    "lake_peak": 2770087936,
+    "stages": [
+     {
+      "stage": "s0",
+      "start_s": 0.4,
+      "seconds": 0.8,
+      "rss_end": 265871360,
+      "rss_peak": 285986816
+     },
+     {
+      "stage": "_s1_rows",
+      "start_s": 1.2,
+      "seconds": 806.8,
+      "rss_end": 4801736704,
+      "rss_peak": 4801736704
+     },
+     {
+      "stage": "s1",
+      "start_s": 1.2,
+      "seconds": 901.8,
+      "rss_end": 4584013824,
+      "rss_peak": 5703729152
+     },
+     {
+      "stage": "note_stage",
+      "start_s": 903.0,
+      "seconds": 5.2,
+      "rss_end": 4584558592,
+      "rss_peak": 4584558592
+     },
+     {
+      "stage": "sample",
+      "start_s": 908.1,
+      "seconds": 0.0,
+      "rss_end": 4584558592,
+      "rss_peak": 4584558592
+     },
+     {
+      "stage": "s3",
+      "start_s": 908.2,
+      "seconds": 42.2,
+      "rss_end": 4585459712,
+      "rss_peak": 4585459712
+     },
+     {
+      "stage": "s4",
+      "start_s": 950.3,
+      "seconds": 4.9,
+      "rss_end": 4585484288,
+      "rss_peak": 4585541632
+     },
+     {
+      "stage": "tiers",
+      "start_s": 955.3,
+      "seconds": 0.9,
+      "rss_end": 4585484288,
+      "rss_peak": 4585484288
+     },
+     {
+      "stage": "s5",
+      "start_s": 956.2,
+      "seconds": 0.0,
+      "rss_end": 4585484288,
+      "rss_peak": 4585484288
+     }
+    ]
+   },
+   "50000_traced": {
+    "caps": {
+     "adapter": 6442450944,
+     "lake": 8589934592,
+     "orchestrator": 12884901888
+    },
+    "cap_env": {
+     "TB_MEM_ORCH": "12g"
+    },
+    "validator": "hl7",
+    "patients_dir": "n50000-r1",
+    "frames": 8,
+    "cap": 12884901888,
+    "mode": "measure",
+    "seconds": 2163.5,
+    "peak": 6388457472,
+    "rc": 0,
+    "oom": false,
+    "lake_peak": 1640931328,
+    "stages": [
+     {
+      "stage": "s0",
+      "start_s": 5.0,
+      "seconds": 2.5,
+      "rss_end": 325918720,
+      "rss_peak": 333742080,
+      "traced_end": 45361991,
+      "traced_peak": 62086999,
+      "top": [
+       {
+        "bytes": 10400680,
+        "count": 100000,
+        "where": [
+         "services/matching/cascade/engine.py:1494",
+         "<string>:37",
+         "services/matching/cascade/engine.py:487"
+        ]
+       },
+       {
+        "bytes": 5890818,
+        "count": 100156,
+        "where": [
+         "services/matching/cascade/engine.py:1494",
+         "<string>:37",
+         "services/matching/cascade/engine.py:472"
+        ]
+       },
+       {
+        "bytes": 3664954,
+        "count": 4,
+        "where": [
+         "tools/cascade_e2e.py:114",
+         "libs/tb_common/ruleset.py:124",
+         "libs/tb_common/ruleset.py:115"
+        ]
+       },
+       {
+        "bytes": 3200000,
+        "count": 50000,
+        "where": [
+         "<string>:37",
+         "services/matching/cascade/engine.py:487",
+         "<string>:9"
+        ]
+       },
+       {
+        "bytes": 2800000,
+        "count": 50000,
+        "where": [
+         "<string>:37",
+         "services/matching/cascade/engine.py:487",
+         "<string>:13"
+        ]
+       },
+       {
+        "bytes": 1971937,
+        "count": 380,
+        "where": [
+         "<frozen importlib._bootstrap_external>:991",
+         "<frozen importlib._bootstrap_external>:1124",
+         "<frozen importlib._bootstrap_external>:753"
+        ]
+       }
+      ]
+     },
+     {
+      "stage": "_s1_rows",
+      "start_s": 16.6,
+      "seconds": 263.4,
+      "rss_end": 3840610304,
+      "rss_peak": 3840610304,
+      "traced_end": 2225653115,
+      "traced_peak": 2230998594,
+      "top": [
+       {
+        "bytes": 2179454670,
+        "count": 12559329,
+        "where": [
+         "services/matching/cascade/engine.py:552",
+         "<string>:37",
+         "services/matching/cascade/engine.py:532"
+        ]
+       },
+       {
+        "bytes": 10400680,
+        "count": 100000,
+        "where": [
+         "services/matching/cascade/engine.py:1494",
+         "<string>:37",
+         "services/matching/cascade/engine.py:487"
+        ]
+       },
+       {
+        "bytes": 5876474,
+        "count": 100001,
+        "where": [
+         "services/matching/cascade/engine.py:1494",
+         "<string>:37",
+         "services/matching/cascade/engine.py:472"
+        ]
+       },
+       {
+        "bytes": 3664954,
+        "count": 4,
+        "where": [
+         "tools/cascade_e2e.py:114",
+         "libs/tb_common/ruleset.py:124",
+         "libs/tb_common/ruleset.py:115"
+        ]
+       },
+       {
+        "bytes": 3200000,
+        "count": 50000,
+        "where": [
+         "<string>:37",
+         "services/matching/cascade/engine.py:487",
+         "<string>:9"
+        ]
+       },
+       {
+        "bytes": 2800000,
+        "count": 50000,
+        "where": [
+         "<string>:37",
+         "services/matching/cascade/engine.py:487",
+         "<string>:13"
+        ]
+       }
+      ]
+     },
+     {
+      "stage": "s1",
+      "start_s": 16.6,
+      "seconds": 884.4,
+      "rss_end": 4821348352,
+      "rss_peak": 6388162560,
+      "traced_end": 445904700,
+      "traced_peak": 2644919189,
+      "top": [
+       {
+        "bytes": 62443056,
+        "count": 845975,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:673"
+        ]
+       },
+       {
+        "bytes": 62353064,
+        "count": 842307,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:655"
+        ]
+       },
+       {
+        "bytes": 47303984,
+        "count": 844714,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:654"
+        ]
+       },
+       {
+        "bytes": 31171672,
+        "count": 372673,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:675"
+        ]
+       },
+       {
+        "bytes": 27191662,
+        "count": 370676,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:657"
+        ]
+       },
+       {
+        "bytes": 25708380,
+        "count": 428473,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:659"
+        ]
+       }
+      ]
+     },
+     {
+      "stage": "note_stage",
+      "start_s": 1021.5,
+      "seconds": 81.7,
+      "rss_end": 4830695424,
+      "rss_peak": 4830883840,
+      "traced_end": 453824322,
+      "traced_peak": 472812306,
+      "top": [
+       {
+        "bytes": 62443056,
+        "count": 845975,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:673"
+        ]
+       },
+       {
+        "bytes": 62353064,
+        "count": 842307,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:655"
+        ]
+       },
+       {
+        "bytes": 47303984,
+        "count": 844714,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:654"
+        ]
+       },
+       {
+        "bytes": 31171672,
+        "count": 372673,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:675"
+        ]
+       },
+       {
+        "bytes": 27191662,
+        "count": 370676,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:657"
+        ]
+       },
+       {
+        "bytes": 25708380,
+        "count": 428473,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:659"
+        ]
+       }
+      ]
+     },
+     {
+      "stage": "sample",
+      "start_s": 1234.3,
+      "seconds": 0.0,
+      "rss_end": 4843884544,
+      "rss_peak": 4843884544,
+      "traced_end": 454100329,
+      "traced_peak": 454387801,
+      "top": [
+       {
+        "bytes": 62443056,
+        "count": 845975,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:673"
+        ]
+       },
+       {
+        "bytes": 62353064,
+        "count": 842307,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:655"
+        ]
+       },
+       {
+        "bytes": 47303984,
+        "count": 844714,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:654"
+        ]
+       },
+       {
+        "bytes": 31171672,
+        "count": 372673,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:675"
+        ]
+       },
+       {
+        "bytes": 27191662,
+        "count": 370676,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:657"
+        ]
+       },
+       {
+        "bytes": 25708380,
+        "count": 428473,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:659"
+        ]
+       }
+      ]
+     },
+     {
+      "stage": "s3",
+      "start_s": 1370.1,
+      "seconds": 191.4,
+      "rss_end": 4854673408,
+      "rss_peak": 4854673408,
+      "traced_end": 457636657,
+      "traced_peak": 457871206,
+      "top": [
+       {
+        "bytes": 62443056,
+        "count": 845975,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:673"
+        ]
+       },
+       {
+        "bytes": 62353064,
+        "count": 842307,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:655"
+        ]
+       },
+       {
+        "bytes": 47303984,
+        "count": 844714,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:654"
+        ]
+       },
+       {
+        "bytes": 31171672,
+        "count": 372673,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:675"
+        ]
+       },
+       {
+        "bytes": 27191662,
+        "count": 370676,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:657"
+        ]
+       },
+       {
+        "bytes": 25708380,
+        "count": 428473,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:659"
+        ]
+       }
+      ]
+     },
+     {
+      "stage": "s4",
+      "start_s": 1700.8,
+      "seconds": 21.3,
+      "rss_end": 4874371072,
+      "rss_peak": 4874371072,
+      "traced_end": 457262951,
+      "traced_peak": 457413814,
+      "top": [
+       {
+        "bytes": 62443056,
+        "count": 845975,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:673"
+        ]
+       },
+       {
+        "bytes": 62353064,
+        "count": 842307,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:655"
+        ]
+       },
+       {
+        "bytes": 47303984,
+        "count": 844714,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:654"
+        ]
+       },
+       {
+        "bytes": 31171672,
+        "count": 372673,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:675"
+        ]
+       },
+       {
+        "bytes": 27191662,
+        "count": 370676,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:657"
+        ]
+       },
+       {
+        "bytes": 25708380,
+        "count": 428473,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:659"
+        ]
+       }
+      ]
+     },
+     {
+      "stage": "tiers",
+      "start_s": 1859.9,
+      "seconds": 2.5,
+      "rss_end": 4861980672,
+      "rss_peak": 4895969280,
+      "traced_end": 487191756,
+      "traced_peak": 487202122,
+      "top": [
+       {
+        "bytes": 62443056,
+        "count": 845975,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:673"
+        ]
+       },
+       {
+        "bytes": 62353064,
+        "count": 842307,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:655"
+        ]
+       },
+       {
+        "bytes": 47303984,
+        "count": 844714,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:654"
+        ]
+       },
+       {
+        "bytes": 31171672,
+        "count": 372673,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:675"
+        ]
+       },
+       {
+        "bytes": 27191662,
+        "count": 370676,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:657"
+        ]
+       },
+       {
+        "bytes": 25708380,
+        "count": 428473,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:659"
+        ]
+       }
+      ]
+     },
+     {
+      "stage": "s5",
+      "start_s": 2010.2,
+      "seconds": 0.1,
+      "rss_end": 4878635008,
+      "rss_peak": 4878635008,
+      "traced_end": 488326856,
+      "traced_peak": 488348005,
+      "top": [
+       {
+        "bytes": 62443056,
+        "count": 845975,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:673"
+        ]
+       },
+       {
+        "bytes": 62353064,
+        "count": 842307,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:655"
+        ]
+       },
+       {
+        "bytes": 47303984,
+        "count": 844714,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:654"
+        ]
+       },
+       {
+        "bytes": 31171672,
+        "count": 372673,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:675"
+        ]
+       },
+       {
+        "bytes": 27191662,
+        "count": 370676,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:657"
+        ]
+       },
+       {
+        "bytes": 25708380,
+        "count": 428473,
+        "where": [
+         "services/matching/cascade/engine.py:590",
+         "services/matching/cascade/engine.py:629",
+         "services/matching/cascade/engine.py:659"
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "ingest_validator": [
+   {
+    "patients": 5000,
+    "path": "ladder",
+    "validator": "structural",
+    "seconds": 27.2,
+    "peak_gib": 0.2
+   },
+   {
+    "patients": 5000,
+    "path": "gate alone",
+    "validator": "structural",
+    "seconds": 28,
+    "peak_gib": 0.2
+   },
+   {
+    "patients": 5000,
+    "path": "ladder",
+    "validator": "hl7",
+    "seconds": 73.5,
+    "peak_gib": 1.7
+   },
+   {
+    "patients": 5000,
+    "path": "ladder",
+    "validator": "hl7",
+    "seconds": 72.0,
+    "peak_gib": 1.84
+   },
+   {
+    "patients": 20000,
+    "path": "gate alone",
+    "validator": "structural",
+    "seconds": 110,
+    "peak_gib": 0.34
+   }
+  ]
+ }
 }
