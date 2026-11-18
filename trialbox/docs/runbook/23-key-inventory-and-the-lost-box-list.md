@@ -40,7 +40,7 @@ incident plan's (T-318). Change each secret at its source, not on the lost box.
 | the KEK (steward shares, passphrase) | `python -m tools.keys rotate-kek` on the restored box; old shares stop working | key stewards | at the restore |
 | `pid_map.key` | `python -m tools.keys rotate pid_map` on the restored box | site administrator | at the restore |
 | vendor update key | not on the box (public key only): nothing to do | | |
-| the alliance signing key (a member box of a COHORT alliance, D-1320) | the alliance root's register: the root's operator removes the site's line; the new box makes a new key and its line is added ("Alliance site keys" below) | the root's operator, the site administrator | 1 working day |
+| the alliance signing key (a member box of a COHORT alliance, D-1223) | the alliance root's register: the root's operator replaces the site's line, which also leaves the tables signed with the old key out of every merge; the new box makes a new key and sends its line ("Alliance site keys" below) | the root's operator, the site administrator | 1 working day |
 | share credentials for the backup target (NAS, SMB) | the hospital file server | hospital IT | 4 hours |
 
 **Not rotated:** `site_hmac.key`. A new key gives every patient a new pseudonym and loses the opt-outs (T-612). If it
@@ -53,27 +53,32 @@ box that was running exposes every password in it, and every row above applies.
 
 ## Alliance site keys
 
-*D-1320 (card 10D-1). In a COHORT alliance each member box signs the count table it mails to the alliance root, and
+*D-1223 (card 10D-1). In a COHORT alliance each member box signs the count table it mails to the alliance root, and
 the root merges a member's table only when the signature holds for the key its register holds for that site. The
 register has the form of the opportunity feed's site key register (D-467) and its key is made the same way.*
 
-On the member box, once (the site administrator):
+On the member box, once (the site administrator). The orchestrator sees the box's secrets volume at
+`/run/secrets/trialbox` (`deploy/docker-compose.yml`); on the host it is the volume `trialbox_tb-secrets`:
 
 ```sh
-python -m tools.opportunity_feed keygen --out /data/secrets/alliance   # writes site.key (mode 600) and site.pub
+sudo python -m tools.opportunity_feed keygen --out /var/lib/docker/volumes/trialbox_tb-secrets/_data/alliance
+#   writes site.key and band.secret with mode 600 from the start, and site.pub
 ```
 
 The command prints one register line: `"<site_id>": {"name": "<registered name>", "key_sha256": "<64 hex>"}`. Put the
-box's `site.id` from `settings.yaml` for `<site_id>` and the site's name for `<registered name>`. Set
-`TB_ALLIANCE_SIGNING_KEY_FILE=/data/secrets/alliance/site.key` in `deploy/.env` and restart the orchestrator. Keep
-`site.key` on the box: it is never mailed, printed or copied to the root. (`band.secret`, also written, is the
-opportunity feed's and is not used here.)
+box's `site.id` from `settings.yaml` for `<site_id>` and the site's name for `<registered name>`. Give `site.key` the
+owner of the other files in that volume and keep its mode 600. Set
+`TB_ALLIANCE_SIGNING_KEY_FILE=/run/secrets/trialbox/alliance/site.key` in `deploy/.env` and restart the orchestrator.
+A setting that names a missing file, or a file its group or others may read, stops the COHORT job with a sentence
+saying so. Keep `site.key` on the box: it is never mailed, printed or copied to the root. (`band.secret`, also
+written, is the opportunity feed's and is not used here.) The key is not wrapped under the KEK (D-1223, "What is not
+done here").
 
 Give the register line to the root's operator by a channel both sites trust (in person, or read out on the telephone
 and compared): the line is not secret, but a wrong line lets someone else's key speak for the site. On the alliance
 root (the root's operator):
 
-1. Add the line under `"sites"` in the register file, for example `/data/secrets/alliance-site-keys.json`:
+1. Add the line under `"sites"` in the register file, for example `/run/secrets/trialbox/alliance-site-keys.json`:
    `{"sites": {"HOSP-B": {"name": "Hospital B", "key_sha256": "…"}}}`.
 2. Set `TB_ALLIANCE_SITE_KEYS_FILE` to that file in `deploy/.env` and restart the orchestrator. The file is read at
    each merge, so later edits need no restart.
@@ -86,5 +91,6 @@ was sent to the root. Tables a root stored before this version are kept, marked 
 merge until their site sends them signed; the merge's summary names those sites.
 
 **A new key** (a new box, a lost box, a key that may have been read): the site runs `keygen` again; the root's
-operator replaces the site's line. Tables signed with the old key and already stored stay merged; the old key can
-sign nothing that is taken after its line is gone.
+operator replaces the site's line. From the next merge, the site's tables signed with the old key are kept but left
+out, and the summary names the site, until the site sends its tables under the new key; the old key can sign nothing
+that is taken after its line is gone.
