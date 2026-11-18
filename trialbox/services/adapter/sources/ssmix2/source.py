@@ -194,7 +194,35 @@ def parse_name(path: Path) -> StoredFile | None:
     if len(parts) != 7:
         return None
     pid, day, typ, order, stamp, dept, flag = parts
+    if flag not in FLAGS:
+        return None
     return StoredFile(path, pid, day, typ, order, stamp, dept, flag == "0")
+
+
+FLAGS = (
+    "0",
+    "1",
+    "2",
+)  # 0 invalid or deleted, 1 valid, 2 past history (構築ガイドライン 3.1.2 to 3.1.4, review 12 §4.4)
+
+
+def name_problem(name: str) -> str:
+    """Why a standardised-storage file name is not read, as a pattern that names no patient (review of PR #1095
+    item 7); empty when it is a message file's name."""
+    if "." in name:
+        return "an extension (not a message file)"
+    parts = name.split("_")
+    if len(parts) != 7:
+        return f"{len(parts)} parts, not 7"
+    if parts[6] not in FLAGS:
+        return "a condition flag other than 0, 1 or 2"
+    return ""
+
+
+def _newer(sf: StoredFile, cur: StoredFile) -> bool:
+    """Whether ``sf`` replaces ``cur``: the later 発生日時; on the same time a deletion wins, so the answer never
+    depends on the order a folder lists its files (review of PR #1095 item 7)."""
+    return sf.stamp > cur.stamp or (sf.stamp == cur.stamp and sf.deleted and not cur.deleted)
 
 
 def storage_dir(root: Path, patient: str, day: str, typ: str) -> Path:
@@ -385,6 +413,26 @@ def doses_from_text(text: str) -> int | None:
     return n or None
 
 
+def rx_lines(msg: hl7.Message) -> list[tuple[hl7.Segment, hl7.Segment, hl7.Segment | None]]:
+    """Every drug line of an order message as ``(ORC, RXE, TQ1)`` (review of PR #1095 item 6): each RXE with the ORC
+    before it, and the TQ1 of its group, whether it stands before the RXE (RDE^O11's order) or after it."""
+    out: list[tuple[hl7.Segment, hl7.Segment, hl7.Segment | None]] = []
+    orc: hl7.Segment | None = None
+    pending: hl7.Segment | None = None
+    for seg in msg.segments:
+        if seg.name == "ORC":
+            orc, pending = seg, None
+        elif seg.name == "TQ1":
+            if out and out[-1][0] is orc and out[-1][2] is None and pending is None:
+                out[-1] = (out[-1][0], out[-1][1], seg)
+            else:
+                pending = seg
+        elif seg.name == "RXE" and orc is not None:
+            out.append((orc, seg, pending))
+            pending = None
+    return out
+
+
 def times(dose: str, per_day: int | None) -> str:
     """One dose times the doses a day, written without a trailing zero; empty when either is unknown or the dose is
     not a number."""
@@ -516,6 +564,7 @@ class Ssmix2Source:
         if self.order_key not in ORDER_KEYS:
             raise ValueError(f"{ORDER_KEY_ENV}={self.order_key!r}: the key is one of {', '.join(ORDER_KEYS)}")
         self._index: dict[str, list[StoredFile]] | None = None
+        self._repeated: set[tuple[str, str, str]] = set()  # (patient, type, order no) live on several days
         self._gone: dict[str, list[StoredFile]] = {}  # newest version deleted (flag 0), by message type
         self._deleted_docs: list[Row] = []  # extended-storage documents whose newest version is deleted
         self.quarantine_max_pct = quarantine_max_pct
@@ -524,29 +573,57 @@ class Ssmix2Source:
         self._dx_dead: list[Row] = []  # PRB-1 DE diagnoses of the current snapshots: tombstones (10B-3)
 
     # ------------------------------------------------------------------ storage index
+    def _walk(self) -> Iterator[Path]:
+        """Every message file of the standardised storage: at ``<pid 1-3>/<pid 4-6>/<pid>/<day>/<type>/<file>``, in
+        name order. What is not read is counted by pattern, never by name (review of PR #1095 item 7): a file at
+        another depth, a name that is not a message file's, a symbolic link (never followed out of the root)."""
+        for top in sorted(p for p in self.root.iterdir() if p.is_dir() and p.name not in NOT_PATIENT_DIRS):
+            if top.is_symlink():
+                self.stats["storage:symbolic link not followed"] += 1
+                continue
+            for dirpath, dirnames, filenames in os.walk(top):  # never follows a linked folder
+                here = Path(dirpath)
+                for d in dirnames:
+                    if (here / d).is_symlink():
+                        self.stats["storage:symbolic link not followed"] += 1
+                dirnames.sort()
+                depth = len(here.relative_to(top).parts)
+                for name in sorted(filenames):
+                    f = here / name
+                    if f.is_symlink():
+                        self.stats["storage:symbolic link not followed"] += 1
+                        continue
+                    if depth != 4:
+                        self.stats["storage:file at another folder depth"] += 1
+                        continue
+                    why = name_problem(name)
+                    if why:
+                        self.stats[f"storage:file name not read ({why})"] += 1
+                        continue
+                    yield f
+
     def _files(self) -> dict[str, list[StoredFile]]:
         """The current version of every record by message type (latest timestamp wins, flag 0 = deleted)."""
         if self._index is None:
             latest: dict[tuple[str, str, str, str], StoredFile] = {}
             per_day: dict[tuple[str, str, str, str], StoredFile] = {}  # the newest version in each day folder
-            for top in sorted(p for p in self.root.iterdir() if p.is_dir() and p.name not in NOT_PATIENT_DIRS):
-                for f in top.glob("*/*/*/*/*"):
-                    sf = parse_name(f)
-                    if sf is None or not f.is_file():
-                        continue
-                    # D-1000 (amends D-594): the specification's key (patient, 診療日, データ種別,
-                    # オーダNo; 構築ガイドライン 3.1.4, review 12 F1) is the default; ``unique`` is a site's
-                    # declared exception, and even then "ALL9" (data not managed by an order) and the ADT
-                    # types (a per-day sequence, not an order number) keep their day
-                    by_day = sf.order in ("-", ALL9) or self.order_key == "per_day" or sf.type.startswith("ADT-")
-                    key = (sf.patient, sf.type, sf.order, sf.day if by_day else "")
-                    cur = latest.get(key)
-                    if cur is None or sf.stamp > cur.stamp:
-                        latest[key] = sf
-                    if sf.order not in ("-", ALL9) and sf.type in _RECORD_TYPES:
-                        on = (sf.patient, sf.type, sf.order, sf.day)
-                        if on not in per_day or sf.stamp > per_day[on].stamp:
-                            per_day[on] = sf
+            for f in self._walk():
+                sf = parse_name(f)
+                if sf is None:
+                    continue
+                # D-1000 (amends D-594): the specification's key (patient, 診療日, データ種別,
+                # オーダNo; 構築ガイドライン 3.1.4, review 12 F1) is the default; ``unique`` is a site's
+                # declared exception, and even then "ALL9" (data not managed by an order) and the ADT
+                # types (a per-day sequence, not an order number) keep their day
+                by_day = sf.order in ("-", ALL9) or self.order_key == "per_day" or sf.type.startswith("ADT-")
+                key = (sf.patient, sf.type, sf.order, sf.day if by_day else "")
+                cur = latest.get(key)
+                if cur is None or _newer(sf, cur):
+                    latest[key] = sf
+                if sf.order not in ("-", ALL9) and sf.type in _RECORD_TYPES:
+                    on = (sf.patient, sf.type, sf.order, sf.day)
+                    if on not in per_day or _newer(sf, per_day[on]):
+                        per_day[on] = sf
             # counted either way, so the site check shows whether a storage's order numbers come back on another
             # day: live versions of the record types only (a change message names an earlier order by design)
             days: Counter[tuple[str, str, str]] = Counter()
@@ -556,6 +633,16 @@ class Ssmix2Source:
             for (_patient, typ, _order), n in days.items():
                 if n > 1:
                     self.stats[f"{typ}:order number on several days"] += 1
+            self._repeated = {k for k, n in days.items() if n > 1}
+            # a delete that has no record on its own day while the number is live on another day: under the day key
+            # it reaches nothing and the order stays live. Counted for the site check (review of PR #1095 item 8);
+            # which record such a delete means is not guessed
+            for (patient, typ, order, day), sf in per_day.items():
+                if sf.deleted and any(
+                    (patient, typ, order, d) in per_day and not per_day[(patient, typ, order, d)].deleted
+                    for d in {k[3] for k in per_day if k[:3] == (patient, typ, order)} - {day}
+                ):
+                    self.stats[f"{typ}:delete filed under another day (order left live)"] += 1
             index: dict[str, list[StoredFile]] = {}
             gone: dict[str, list[StoredFile]] = {}
             for sf in sorted(latest.values(), key=lambda s: (s.type, s.patient, s.day, s.order)):
@@ -574,11 +661,14 @@ class Ssmix2Source:
         if table not in TYPES:
             return
         if table == "lab":
-            yield from self._lab_dead
+            yield from list(self._lab_dead)
         if table == "diagnosis":
             yield from list(self._dx_dead)
         self._files()
         build: Callable[[StoredFile, hl7.Message], Iterator[Row]] = getattr(self, f"_{table}")
+        # a deleted file is read only to name its records: what that read appends to the tombstone lists is taken
+        # here and removed again, so the lists never grow or repeat on another call (review of PR #1095)
+        marks = (len(self._dx_dead), len(self._lab_dead))
         for typ in TYPES[table]:
             for sf in self._gone.get(typ, []):
                 dead = len(self._dx_dead)
@@ -591,7 +681,10 @@ class Ssmix2Source:
                 self.stats[f"{typ}:deleted"] += 1
                 for row in rows:
                     row.pop("_same", None)
+                    row.pop("_changed", None)
                     yield row
+        del self._dx_dead[marks[0] :]
+        del self._lab_dead[marks[1] :]
 
     def _order_on_its_day(self, sf: StoredFile) -> str:
         """The order number for an id built from it (a result with no id of its own): with ``per_day`` it
@@ -640,12 +733,24 @@ class Ssmix2Source:
         )
 
     def rows(self, table: str, source_name: str, delta_column: str | None, since: str | None) -> Iterator[Row]:
+        """The table's rows; the dates :func:`hl7.ts` refused while reading them are counted (review of PR #1095)."""
+        before = Counter(hl7.REFUSED)
+        try:
+            yield from self._rows(table, source_name, delta_column, since)
+        finally:
+            for why, n in (Counter(hl7.REFUSED) - before).items():
+                self.stats[f"{table}:date {why}"] += n
+
+    def _rows(self, table: str, source_name: str, delta_column: str | None, since: str | None) -> Iterator[Row]:
         if table not in TYPES:
             if self.extended is not None:
                 yield from self.extended.rows(table, source_name, delta_column, since)
             if table == "note":
                 for row in self._documents():
-                    if delta_column and not after(row.get(delta_column), since):
+                    # a new version of a document keeps its day: its content folder's 発生日時 counts too
+                    changed = row.pop("_changed", "")
+                    stamp = max(str(row.get(delta_column) or ""), changed) if delta_column else ""
+                    if delta_column and not after(stamp or None, since):
                         continue
                     yield row
             return
@@ -665,7 +770,12 @@ class Ssmix2Source:
         elif table == "lab":
             out = self._lab_corrections(out)
         for row in out:
-            stamp = max(str(row.get(c) or "") for c in (delta_column, "class_changed_at", "end_datetime") if c)
+            # the change time: the delta column, a class change or end, and for a diagnosis the time its snapshot
+            # file was written (a diagnosis recorded long ago and ended last night is a change, review of PR
+            # #1095 item 2)
+            changed = str(row.pop("_changed", "") or "")
+            cols = (delta_column, "class_changed_at", "end_datetime")
+            stamp = max([str(row.get(c) or "") for c in cols if c] + [changed])
             if delta_column and not after(stamp or None, since):
                 continue
             yield row
@@ -856,10 +966,12 @@ class Ssmix2Source:
                 "outcome": outcome,
                 "outcome_date": hl7.ts(prb.field(15)) or "",
                 "main_diagnosis": _RANK.get(prb.comp(18, 1).strip(), ""),
+                "_changed": hl7.ts(sf.stamp) or "",  # the snapshot file's 発生日時 (not a column)
                 "suspected": "Y" if _suspected(prb) or unread or any(map(suspicion_in, (written, *modifiers))) else "",
             }
             if prb.field(1).strip().upper() in _DELETED:  # deleted at the hospital: a tombstone, never a record
                 self.stats["PPR-01:deleted diagnosis"] += 1
+                row.pop("_changed", None)
                 self._dx_dead.append(row)
                 continue
             if not icd:
@@ -894,8 +1006,11 @@ class Ssmix2Source:
             self.stats["medication:ATC from the ingredient table"] += 1
         if not atc:
             self.missed[f"medication:{source}"] += 1
+        rx_no = orc.comp(2, 1)
+        if self.order_key == "per_day" and (sf.patient, sf.type, sf.order) in self._repeated:
+            rx_no = f"{rx_no}@{sf.day}"  # one number on two days is two orders: two keys (review of PR #1095 item 8)
         return {
-            "rx_no": orc.comp(2, 1),
+            "rx_no": rx_no,
             "mrn": sf.patient,
             "nhi_drug_code": yj,
             "source_drug_code": source,
@@ -915,9 +1030,16 @@ class Ssmix2Source:
         the 用法 of TQ1-3, through the site's usage table, else its text ("1日3回"); ``daily_dose`` is their product,
         and stays empty when the frequency is unknown (頓用, no TQ1-3, a wording the reader does not read): never a
         guess. RXE-31's YJ code is read when RXE-2 names no YJ code (a HOT9 or local first code)."""
-        orc, rxe, tq1 = msg.first("ORC"), msg.first("RXE"), msg.first("TQ1")
-        if orc is None or rxe is None:
-            return
+        seen: Counter[str] = Counter()
+        for orc, rxe, tq1 in rx_lines(msg):
+            row = self._medication_line(sf, orc, rxe, tq1)
+            seen[row["rx_no"]] += 1
+            if seen[row["rx_no"]] > 1:  # another drug of the same order: its own key (review of PR #1095 item 6)
+                row["rx_no"] = f"{row['rx_no']}#{seen[row['rx_no']]}"
+                self.stats[f"{sf.type}:drug line after the first"] += 1
+            yield row
+
+    def _medication_line(self, sf: StoredFile, orc: hl7.Segment, rxe: hl7.Segment, tq1: hl7.Segment | None) -> Row:
         codes = drug_codes(rxe, 2)
         source = ""
         yj31 = supplementary_yj(rxe)
@@ -951,7 +1073,7 @@ class Ssmix2Source:
             daily_dose=daily,
             dose_unit=rxe.comp(5, 1),
         )
-        yield row
+        return row
 
     def _administrations(self, rows: list[Row]) -> list[Row]:
         """OMP-11/12 (実施): fill the order's empty fields, or become a medication of its own."""
@@ -1081,6 +1203,7 @@ class Ssmix2Source:
         deletes. The 診療日 may be ``YYYYMMDD``, ``YYYYMM``, ``YYYY`` or ``-``: the document's time is the day when it
         is a whole date, else the content folder's 発生日時, else unknown."""
         root = self.ext_storage
+        self._deleted_docs = []  # one walk's tombstones, never added to on another call
         if not root.is_dir():
             return
         latest: dict[tuple[str, ...], tuple[str, Path, str, str, str, bool]] = {}
@@ -1136,6 +1259,7 @@ class Ssmix2Source:
                 "note_type": note_type,
                 "doc_code": code,
                 "text": text,
+                "_changed": hl7.ts(stamp) or "",  # the version's 発生日時, for the delta (not a column)
             }
 
 

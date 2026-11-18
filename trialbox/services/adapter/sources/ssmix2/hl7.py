@@ -15,9 +15,13 @@ result text compares equal whichever way the vendor stored it; ISO-2022-JP holds
 
 from __future__ import annotations
 
+import re
+from collections import Counter
 from dataclasses import dataclass
+from datetime import date
 from functools import lru_cache
 
+NULL = '""'  # HL7's explicit null
 _ESC = (("\\", "\\E\\"), ("|", "\\F\\"), ("^", "\\S\\"), ("~", "\\R\\"), ("&", "\\T\\"))
 
 
@@ -27,7 +31,23 @@ def escape(text: str) -> str:
     return text
 
 
+_HEX = re.compile(r"\\X([0-9A-Fa-f]{2,})\\")
+
+
+def _hex(m: re.Match[str]) -> str:
+    data = bytes.fromhex(m.group(1)) if len(m.group(1)) % 2 == 0 else b""
+    try:
+        return data.decode("utf-8") if data else m.group(0)
+    except UnicodeDecodeError:
+        return m.group(0)  # not text this reader can name: kept as written
+
+
 def unescape(text: str) -> str:
+    """HL7 escapes: the separators (``\\F\\`` ...), a line break ``\\.br\\`` and a hexadecimal ``\\Xhh..\\`` (UTF-8
+    bytes; anything else kept as written)."""
+    if "\\" in text:
+        text = text.replace("\\.br\\", "\n")
+        text = _HEX.sub(_hex, text)
     for raw, esc in reversed(_ESC):
         text = text.replace(esc, raw)
     return text
@@ -39,9 +59,11 @@ class Segment:
     fields: list[str]
 
     def field(self, n: int) -> str:
-        """SEG-n (1-based, as the standard numbers them; MSH-1 is the field separator itself)."""
+        """SEG-n (1-based, as the standard numbers them; MSH-1 is the field separator itself). HL7's explicit null
+        ``""`` ("delete this value") reads as empty: never stored as a value (review of PR #1095 item 5)."""
         i = n - 1 if self.name == "MSH" else n
-        return self.fields[i] if 0 <= i < len(self.fields) else ""
+        value = self.fields[i] if 0 <= i < len(self.fields) else ""
+        return "" if value == NULL else value
 
     def comp(self, n: int, c: int = 1) -> str:
         """Component ``c`` of the first repetition of SEG-n, unescaped."""
@@ -51,7 +73,8 @@ class Segment:
     def rep_comp(rep: str, c: int) -> str:
         """Component ``c`` of one repetition, unescaped."""
         parts = rep.split("^")
-        return unescape(parts[c - 1]) if 0 < c <= len(parts) else ""
+        part = parts[c - 1] if 0 < c <= len(parts) else ""
+        return "" if part == NULL else unescape(part)
 
     def reps(self, n: int) -> list[str]:
         """Every repetition of SEG-n (STD-023: PID-3 and PID-5 may carry several)."""
@@ -188,23 +211,32 @@ def decode_bytes(data: bytes) -> tuple[str, str]:
     if data.startswith(b"\xef\xbb\xbf"):
         data = data[3:]
     high = any(b > 0x7F for b in data)
-    if _ESC_BYTE in data and not high:
+    if (_ESC_BYTE in data or b"\x0e" in data) and not high:
+        # read by :func:`_iso2022`, which resets the character set at every segment end (an escape left open does
+        # not turn the next segments into kanji) and reads SO / SI half-width katakana; reported as plain
+        # ``iso2022_jp`` when Python's codec reads it the same (review of PR #1095 item 9)
         try:
-            return data.decode("iso2022_jp"), "iso2022_jp"
-        except UnicodeDecodeError:
-            pass
-        try:
-            return _iso2022(data), "iso2022_jp_ext"
+            text = _iso2022(data)
         except (UnicodeDecodeError, KeyError) as exc:
             # D-682: a codec's reason is one of its fixed phrases; a failed lookup's text is the bytes looked up
             reason = exc.reason if isinstance(exc, UnicodeDecodeError) else "a character outside the code tables"
             raise Undecodable(f"ISO-2022-JP: {reason}") from exc
+        try:
+            same = data.decode("iso2022_jp") == text
+        except UnicodeDecodeError:
+            same = False
+        return text, "iso2022_jp" if same else "iso2022_jp_ext"
     if not high:
         return data.decode("ascii"), "ascii"
     try:
         return data.decode("utf-8"), "utf-8"
     except UnicodeDecodeError:
         pass
+    if any(part.strip().upper() in ("EUC-JP", "EUC_JP", "EUCJP") for part in charset_of(data).split("~")):
+        try:  # MSH-18 names EUC-JP: read as EUC-JP, never as Shift_JIS mojibake (review of PR #1095 item 9)
+            return data.decode("euc_jp"), "euc_jp"
+        except UnicodeDecodeError as exc:
+            raise Undecodable(f"not EUC-JP although {_msh18(data)} says so") from exc
     try:
         text = data.decode("cp932")
     except UnicodeDecodeError as exc:
@@ -219,7 +251,26 @@ def decode(data: bytes) -> str:
     return decode_bytes(data)[0]
 
 
+_STANDARD = "|^~\\&"  # field, component, repetition, escape, subcomponent: what the parser reads
+
+
+def _standard_separators(text: str) -> str:
+    """A message whose MSH-1 / MSH-2 name other separators, written with the standard ones (review of PR #1095): a
+    declared separator becomes its standard character, and a standard character that is data in such a message
+    becomes its escape, so nothing else in the reader changes."""
+    if not text.startswith("MSH") or len(text) < 8:
+        return text
+    declared = text[3] + text[4:8]
+    if declared == _STANDARD or len(set(declared)) != 5:
+        return text
+    to_std = dict(zip(declared, _STANDARD, strict=True))
+    esc = {"|": "\\F\\", "^": "\\S\\", "~": "\\R\\", "\\": "\\E\\", "&": "\\T\\"}
+    head, body = "MSH" + _STANDARD, text[8:]
+    return head + "".join(to_std.get(c) or esc.get(c, c) for c in body)
+
+
 def parse(text: str) -> Message:
+    text = _standard_separators(text)
     segs = []
     for line in text.replace("\n", "\r").split("\r"):
         if line.strip():
@@ -230,16 +281,38 @@ def parse(text: str) -> Message:
     return Message(segs)
 
 
+#: dates :func:`ts` refused or could not place, by reason (review of PR #1095 item 10); the reader adds them to its
+#: statistics. Never the value itself.
+REFUSED: Counter[str] = Counter()
+
+
 def ts(value: str) -> str | None:
-    """HL7 TS (``YYYYMMDD[HHMM[SS]]``, optional zone) -> ``YYYY-MM-DD[ HH:MM:SS]`` as the canonical tables use."""
-    v = value.split("+", maxsplit=1)[0].split("-", maxsplit=1)[0].split(".", maxsplit=1)[0].strip()
-    if len(v) < 8 or not v[:8].isdigit():
+    """HL7 TS (``YYYYMMDD[HHMM[SS]]``, optional zone) -> ``YYYY-MM-DD[ HH:MM:SS]`` as the canonical tables use. A date
+    that is not a real calendar date (``99999999``, ``20261301``) or not written in digits (a Japanese era) is None and
+    counted in :data:`REFUSED` (an impossible date is still passed on, for the mapping to reject the row, STD-025); an
+    offset is dropped as before (the reader does not know the site's zone) and counted."""
+    raw = value.strip()
+    v = raw.split("+", maxsplit=1)[0].split("-", maxsplit=1)[0].split(".", maxsplit=1)[0].strip()
+    if not v:
         return None
+    if len(v) < 8 or not v[:8].isdigit():
+        REFUSED["not a date in digits (an era, a word)"] += 1
+        return None
+    try:
+        date(int(v[:4]), int(v[4:6]), int(v[6:8]))
+    except ValueError:
+        # counted, and passed on as written: the mapping then refuses the row and counts it in the ingest's
+        # completeness (STD-025), so the record is seen as rejected, never loaded undated
+        REFUSED["not a calendar date (the row is rejected by the mapping)"] += 1
+    if "+" in raw or "-" in raw[8:]:
+        REFUSED["an offset dropped, the time kept as written"] += 1
     day = f"{v[:4]}-{v[4:6]}-{v[6:8]}"
     if len(v) < 10 or not v[8:10].isdigit():
         return day
     minute = v[10:12] if len(v) >= 12 else "00"  # STD-023: ``YYYYMMDDHH`` keeps its hour
     sec = v[12:14] if len(v) >= 14 else "00"
+    if not (minute + sec).isdigit() or int(v[8:10]) > 23 or int(minute) > 59 or int(sec) > 60:
+        REFUSED["not a time of day (the row is rejected by the mapping)"] += 1  # passed on, as a bad date is
     return f"{day} {v[8:10]}:{minute}:{sec}"
 
 
