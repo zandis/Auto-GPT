@@ -505,6 +505,8 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "life.gloss.": _values("console.guides", "GLOSSARY"),
     "log.xlsx.col.": lambda: [c for c in _values("datacore.sponsor", "LOG_COLUMNS")() if c != "screening_no"],
     "nav.grp.": _values("console.phone", "MENU_GROUPS"),  # J-3 (D-1222): the groups of "More" behind the flag
+    # J-2 (D-1221): a person's one state, every name and the state of facts that could not be read
+    "person.state.": _union(_values("console.person_state", "STATES"), lambda: ["unknown"]),
 }
 
 _RUN = "a value of stored data or of a service's answer (a state, a kind, a source): no one list in the code holds it"
@@ -712,7 +714,6 @@ UNCHECKED_FAMILIES: dict[str, str] = {
             "wb.list.",
             "wb.pipe.",
             "wb.task.",
-            "wstatus.",
         ),
         _RUN,
     ),

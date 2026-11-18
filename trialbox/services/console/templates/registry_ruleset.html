@@ -1,22 +1,26 @@
 {% extends "base.html" %}
+{% from "_person.html" import person_pill, count_strip with context %}
 {% block title %}{{ t('registry.title') }} {{ ruleset }}{% endblock %}
 {% block content %}
 <h1>{{ t('registry.title') }} · {{ ruleset }}</h1>
-{% if error %}<p class="error" role="alert" data-testid="registry-error">{{ error }}</p>{% endif %}
+{% if error %}<p class="error" role="alert" data-testid="registry-error">{{ error }}{% if exists %} <a href="#p-{{ exists }}" data-testid="registry-exists">{{ t('registry.rows') }}</a>{% endif %}</p>{% endif %}
 {% if request.query_params.get('added') %}<p class="hint" role="status" data-testid="registry-added">{{ t('registry.promoted', n=request.query_params.get('added')) }}</p>{% endif %}
 <p class="warn" role="note">{{ t('registry.notice') }}</p>
-<p data-testid="registry-counts">{% for s in statuses %}<span class="pill">{{ t('registry.status.' + s) }} {{ counts.get(s, 0) }}</span> {% endfor %}</p>
+{# D-1221 (review R10): the people of the study by their one state, as the home card and the research office count them #}
+<section class="card">
+<h2>{{ t('person.counts') }}</h2>
+{{ count_strip(shown, readable, '#rows', 'registry-counts') }}
+</section>
 
 <div class="grid">
 <section class="card">
 <h2>{{ t('registry.add') }}</h2>
 <p class="hint">{{ t('registry.add.help') }}</p>
+{# D-1221: a person by chart number goes on the log "On the list", with the reason; no status is chosen here #}
 <form method="post" action="/pilot/registry/{{ ruleset }}">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <label for="mrn">{{ t('registry.mrn') }}</label>
   <input id="mrn" name="mrn" required maxlength="32" pattern="[A-Za-z0-9\-]+" autocomplete="off">
-  <label for="status">{{ t('registry.status') }}</label>
-  <select id="status" name="status">{% for s in options(none) %}<option value="{{ s }}">{{ t('registry.status.' + s) }}</option>{% endfor %}</select>
   <label for="reason">{{ t('registry.reason') }}</label>
   <input id="reason" name="reason" maxlength="500">
   <button type="submit" {{ 'disabled' if not user.can_request else '' }} data-testid="registry-add">{{ t('registry.add.submit') }}</button>
@@ -35,31 +39,23 @@
 </section>
 </div>
 
-<section class="card">
+<section class="card" id="rows">
 <h2>{{ t('registry.rows') }}</h2>
+<p class="hint">{{ t('registry.steps') }}</p>
 {% if not rows %}<p class="hint" data-testid="registry-empty">{{ t('registry.empty') }}</p>{% else %}
 <div class="scroll" tabindex="0"><table data-testid="registry-rows">
-<thead><tr><th>{{ t('registry.pid') }}</th><th>{{ t('registry.status') }}</th><th>{{ t('registry.reason') }}</th><th>{{ t('registry.updated') }}</th><th>{{ t('col.by') }}</th><th>{{ t('registry.source') }}</th><th>{{ t('registry.change') }}</th></tr></thead>
+<thead><tr><th>{{ t('registry.pid') }}</th><th>{{ t('person.col.state') }}</th><th>{{ t('person.col.since') }}</th><th>{{ t('registry.reason') }}</th><th>{{ t('col.by') }}</th><th>{{ t('registry.source') }}</th></tr></thead>
 <tbody>
-{% for r in rows %}
+{% for r in rows %}{% set e = r.entry %}
 <tr data-pid="{{ r.pid }}" id="p-{{ r.pid }}">
-<td class="mono" title="{{ r.pid }}">{{ r.pid[:12] }}…</td>
-<td><span class="pill st-{{ r.status }}">{{ t('registry.status.' + r.status) }}</span></td>
-<td>{{ r.reason or '' }}</td>
-<td class="mono">{{ r.updated_at|local }}</td>
+<td class="mono" title="{{ r.pid }}">{% if r.pid.startswith('#') %}{{ r.state.record }}{% else %}{{ r.pid[:12] }}…{% endif %}</td>
+<td>{{ person_pill(r.state, 'reg-state-' + r.pid[:8]) }}</td>
+<td class="mono">{{ r.state.since|local if r.state.since else '–' }}</td>
+<td>{{ (e.reason or '') if e else '' }}</td>
 {# T-685 (UX-033): a system author by its name in the reader's language, not its service id ("rc-bridge") #}
-<td>{{ t_or('who.' + (r.updated_by|who), r.updated_by|who) }}</td>
-<td>{% if r.source_job %}<a href="/pilot/jobs/{{ r.source_job }}">{{ t('registry.source.' + r.source) }}</a>{% else %}{{ t('registry.source.' + r.source) }}{% endif %}{% if r.tier %} · {{ t('tier.' + r.tier) if r.tier in ('high', 'review', 'excluded') else r.tier }}{% endif %}</td>
-<td>
-<form method="post" action="/pilot/registry/{{ ruleset }}" class="inline">
-  <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="pid" value="{{ r.pid }}">
-  <label class="sr" for="st-{{ loop.index }}">{{ t('registry.status') }}</label>
-  <select id="st-{{ loop.index }}" name="status">{% for s in options(r.status) %}<option value="{{ s }}" {{ 'selected' if s == r.status else '' }}>{{ t('registry.status.' + s) }}</option>{% endfor %}</select>
-  <label class="sr" for="rs-{{ loop.index }}">{{ t('registry.reason') }}</label>
-  <input id="rs-{{ loop.index }}" name="reason" maxlength="500" placeholder="{{ t('registry.reason') }}">
-  <button type="submit" class="small" {{ 'disabled' if not user.can_request else '' }}>{{ t('registry.save') }}</button>
-</form>
-</td></tr>
+<td>{% set by = (e.updated_by if e else '') or r.state.by %}{% if by %}{{ t_or('who.' + (by|who), by|who) }}{% else %}–{% endif %}</td>
+<td>{% if e %}{% if e.source_job %}<a href="/pilot/jobs/{{ e.source_job }}">{{ t('registry.source.' + e.source) }}</a>{% else %}{{ t('registry.source.' + e.source) }}{% endif %}{% if e.tier %} · {{ t('tier.' + e.tier) if e.tier in ('high', 'review', 'excluded') else e.tier }}{% endif %}{% else %}–{% endif %}</td>
+</tr>
 {% endfor %}
 </tbody></table></div>
 {% endif %}

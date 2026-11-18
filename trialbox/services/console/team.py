@@ -365,6 +365,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             r["doctor"] = suggestion(r, names, staff)
             r["n_open"] = st.n_open(r)
             r["screening_no"] = nos.get(r["pid"])
+            r["person"] = wk["people"].of(r["pid"])  # D-1221: the same state as on every other list
         return wk, rows
 
     def suggestion(row: Mapping[str, Any], names: Mapping[str, str], staff: Mapping[str, Any]) -> dict[str, Any]:
@@ -1233,7 +1234,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             "job_id": wk["job"].job_id if wk else None,
             "candidate_view": view_open(rid),  # D-395: a candidate's page opens (the IRB text covers it)
             "candidates": [
-                {"pid": r["pid"], "tier": r["tier"], "status": r["status"], "screening_no": r["screening_no"],
+                {"pid": r["pid"], "tier": r["tier"], "status": r["status"], "state": r["person"].name,  # D-1221
+                 "screening_no": r["screening_no"],
                  "doctor": {"known": r["doctor"]["known"], "name": r["doctor"]["name"] or None,
                             "source": "data" if r["doctor"]["known"] else None},
                  "department": r["department"] or None, "open_items": r["n_open"],

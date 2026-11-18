@@ -137,14 +137,14 @@ def test_link_checked_against_the_dictionary_then_run_now_updates_the_log(b3: di
     r = c.post("/studies/GZQO/redcap-read", data={"csrf": csrf, "back": "log"})
     assert r.status_code == 200 and 'data-testid="read-done"' in r.text
     status = re.search(r'data-testid="status-GZQO-0901">([^<]+)', r.text)
-    assert status and status.group(1).startswith("enrolled")
+    assert status and status.group(1).startswith("Enrolled")  # D-1221: the person's one state, its words
     assert "S-0001" in r.text and 'data-testid="rc-changes"' in r.text
-    assert re.search(r'data-testid="status-GZQO-0902">screen failure', r.text)
+    assert re.search(r'data-testid="status-GZQO-0902">Screen failure', r.text)
 
     # the demo: change a status in the simulator, press Run now, see it in the log
     sim_edit(b3["sim"], 101, [{"record_id": "2", "sf_reason": "", "consent_date": "2026-11-07"}])
     r = c.post("/studies/GZQO/redcap-read", data={"csrf": csrf, "back": "log"})
-    assert re.search(r'data-testid="status-GZQO-0902">consented', r.text)
+    assert re.search(r'data-testid="status-GZQO-0902">Consented', r.text)
     xlsx = c.get("/studies/GZQO/screening-log.xlsx")
     assert xlsx.status_code == 200
 
