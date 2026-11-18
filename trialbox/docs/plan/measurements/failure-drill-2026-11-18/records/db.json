@@ -1,0 +1,68 @@
+{
+ "target": "db",
+ "kind": "db",
+ "service": "db",
+ "stage": "mailed",
+ "when": "a mailed job is running",
+ "killed": "kill -9 of pid 23456 on the host: the first process (init) of container db (52ae5b3d2bfa)",
+ "killed_at_s": 4.02005226700021,
+ "recovered_by": "Docker's restart policy (restarts: 1)",
+ "recover_s": 18.866417585999443,
+ "finished": false,
+ "jobs": {
+  "ok": false,
+  "counts": {
+   "units": 6,
+   "done_once": 5,
+   "visibly_failed": 0,
+   "missing": 0,
+   "stuck": 1,
+   "failed_no_reason": 0,
+   "done_twice": 0,
+   "behind_failed_ingest": 0,
+   "lost": 1
+  },
+  "lines": [
+   "SCREEN:GZQO:mail: stuck in running"
+  ]
+ },
+ "mail": {
+  "ok": true,
+  "counts": {
+   "messages": 11,
+   "double": 0,
+   "missing": 7,
+   "held": 0,
+   "sending": 0,
+   "queued": 0
+  },
+  "lines": [
+   "crc1@hospa.test: 'Password: [GZQO] SCREEN candidates: 18 \u4f4d \u00b7 job <job>' not sent",
+   "crc1@hospa.test: '[GZQO] SCREEN candidates: 18 \u4f4d \u00b7 job <job>' not sent",
+   "crc1@hospa.test: '[GZQO] SCREEN done: 2 \u4f4d\u53ef\u80fd\u7b26\u5408\u689d\u4ef6\u300116 \u4f4d\u5f85\u78ba\u8a8d \u00b7 job <job>' not sent",
+   "meta-head@hospa.test: 'Password: [GZQO] SCREEN referral: META\uff0c6 \u4f4d \u00b7 job <job>' not sent",
+   "meta-head@hospa.test: '[GZQO] SCREEN referral: META\uff0c6 \u4f4d \u00b7 job <job>' not sent",
+   "pi@hospa.test: 'Password: [GZQO] SCREEN candidates: 18 \u4f4d \u00b7 job <job>' not sent",
+   "pi@hospa.test: '[GZQO] SCREEN candidates: 18 \u4f4d \u00b7 job <job>' not sent"
+  ]
+ },
+ "audit": {
+  "ok": true,
+  "counts": {
+   "verify_rc": 0,
+   "lines_at_kill": 28,
+   "lines_at_end": 202,
+   "journal_left": 0,
+   "work_after": 1
+  },
+  "lines": []
+ },
+ "notes": [
+  "the mailed jobs had not settled when the timer's ingest started",
+  "the night's jobs had not settled within 900 s of the ingest stage",
+  "console.notify: exit 0: ",
+  "the night took 1194 s",
+  "after the check, a person's step (docker compose restart orchestrator): the stuck jobs ended within 11 s: {'01M7PKXJJ77H7JFGMVVJ1B2GG4': 'done'}"
+ ],
+ "run": 1
+}

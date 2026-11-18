@@ -1,0 +1,58 @@
+{
+ "target": "lake",
+ "kind": "service",
+ "service": "lake",
+ "stage": "ingest",
+ "when": "the ingest has ended and the lake is rebuilding",
+ "killed": "kill -9 of pid 5736 on the host: the first process (init) of container lake (683ba78c8caf)",
+ "killed_at_s": 303.70521592099976,
+ "recovered_by": "Docker's restart policy (restarts: 1)",
+ "recover_s": 12.217348817001039,
+ "finished": true,
+ "jobs": {
+  "ok": true,
+  "counts": {
+   "units": 6,
+   "done_once": 4,
+   "visibly_failed": 1,
+   "missing": 0,
+   "stuck": 0,
+   "failed_no_reason": 0,
+   "done_twice": 0,
+   "behind_failed_ingest": 1,
+   "lost": 0
+  },
+  "lines": [
+   "INGEST:-:timer: failed with a reason: The nightly ingest finished with 1 error(s): see ingest_report_2026-11-18.json.",
+   "RETENTION:-:timer: no job: the chain waits behind the night's ingest, which failed with a reason"
+  ]
+ },
+ "mail": {
+  "ok": true,
+  "counts": {
+   "messages": 19,
+   "double": 0,
+   "missing": 0,
+   "held": 0,
+   "sending": 0,
+   "queued": 0
+  },
+  "lines": []
+ },
+ "audit": {
+  "ok": true,
+  "counts": {
+   "verify_rc": 0,
+   "lines_at_kill": 177,
+   "lines_at_end": 183,
+   "journal_left": 0,
+   "work_after": 1
+  },
+  "lines": []
+ },
+ "notes": [
+  "console.notify: exit 0: ",
+  "the night took 319 s"
+ ],
+ "run": 1
+}
