@@ -582,6 +582,19 @@ def postprocess(
         if stray:
             flags.extend(stray)
             warnings.append(f"{cid}: fields its atoms cannot use ({', '.join(stray)})")
+        # card 10A-1 (review 15, P2b): "No prior chemotherapy" (inclusion) compiled to "any of chemotherapy", which
+        # meets the line only for the patients it should exclude. An inclusion whose line is a negation and whose
+        # logic asks a concept's presence is never run: a person checks it (rewriting it could be wrong as well). It
+        # comes first: a later rule that hands a mixed line to the notes would have a model answer the presence
+        if ir.kind == "inclusion" and ir.class_ in FILTERED and line_is_negated(ir.text) and asks_presence(ir.logic):
+            flags.append("negated_inclusion_presence")
+            why = notes_can_decide(ir.kind, ir.text, ir.note_question or "") if ir.class_ == "mixed" else None
+            if ir.note_question and why is not None:  # the reviewer sees why the notes cannot decide it either
+                flags.append(f"notes_cannot_decide_{why}")
+            ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
+                                       "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
+            warnings.append(f"{cid}: its line is a negation but its logic asks the presence of what it negates; kept "
+                            "for a person to check")  # fmt: skip
         if ir.class_ in FILTERED and set(stray) & set(HOLD):
             if ir.class_ == "mixed" and ir.note_question:  # as demote_uncompilable keeps it (D-98): the notes decide
                 ir = ir.model_copy(update={"class_": "note", "logic": Atom(domain="demographic", valueset="NONE")})
@@ -627,18 +640,6 @@ def postprocess(
             ir = ir.model_copy(update={"logic": pos})
             flags.append("negated_logic_rewritten")
             warnings.append(f"{cid}: exclusion logic was negated; rewritten to the positive form (check it)")
-        # card 10A-1 (review 15, P2b): "No prior chemotherapy" (inclusion) compiled to "any of chemotherapy", which
-        # meets the line only for the patients it should exclude. An inclusion whose line is a negation and whose
-        # logic asks a concept's presence is never run: a person checks it (rewriting it could be wrong as well)
-        if ir.kind == "inclusion" and ir.class_ in FILTERED and line_is_negated(ir.text) and asks_presence(ir.logic):
-            flags.append("negated_inclusion_presence")
-            why = notes_can_decide(ir.kind, ir.text, ir.note_question or "") if ir.class_ == "mixed" else None
-            if ir.note_question and why is not None:  # the reviewer sees why the notes cannot decide it either
-                flags.append(f"notes_cannot_decide_{why}")
-            ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
-                                       "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
-            warnings.append(f"{cid}: its line is a negation but its logic asks the presence of what it negates; kept "
-                            "for a person to check")  # fmt: skip
         if ir.class_ in FILTERED and ir.logic is not None and says_active(ir.text):
             active, changed = _active_only(ir.logic)
             if changed:

@@ -100,6 +100,29 @@ NEGATED_LINES = [
     "不曾接受化學治療",
     "病人無化學治療病史",
     "患者未曾接受化學治療",
+    # forms an adversarial review found missed by the first version of the rule
+    "Patient has not received chemotherapy",
+    "Patients must not have received prior chemotherapy",
+    "Female patients who are not on chemotherapy",
+    "Patients that haven't received chemotherapy",
+    "The patient has no history of chemotherapy",
+    "Prior chemotherapy not allowed",
+    "Chemotherapy is not permitted",
+    "Prior chemotherapy - none",
+    "Previously untreated",
+    "Must be chemotherapy-naive",
+    "Treatment-naïve for HCC",
+    "化学療法治療歴なし（ただし術後補助療法は除く）",
+    "化学療法を受けていない（6ヶ月以内）",
+    "化学療法歴が無い",
+    "化学療法未施行例",
+    "化学療法ナイーブ",
+    "過去未曾接受化學治療",
+    "先前未接受化學治療",
+    "之前沒有接受過化學治療",
+    "病患未曾接受化學治療",
+    "參與者未曾接受化學治療",
+    "不得曾接受化學治療",
 ]
 # shapes of logic that ask presence: the atom itself, in an and/or beside an age, or twice negated
 PRESENCE = [
@@ -145,7 +168,6 @@ POSITIVE_LINES = [
     "Patients with cutaneous leg ulcers due to diabetes mellitus, not healing after 4 weeks",
     "Non-small cell lung cancer",
     "Noninvasive breast cancer",
-    "Nonsmokers with asthma",
     "Notable history of chemotherapy",
     "非小細胞肺癌",
     "未満18歳の化学療法歴のある患者",
@@ -159,6 +181,32 @@ POSITIVE_LINES = [
 def test_a_positive_line_with_a_negation_inside_is_kept(text: str) -> None:
     c = _one(text, CHEMO)
     assert c.class_ == "structured" and FLAG not in (c.flags or []), (text, c.class_, c.flags)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["Patients must not be pregnant", "Non-pregnant, non-lactating women", "Nonsmoker", "妊娠中ではない女性",
+     "未懷孕", "非懷孕", "受試者未懷孕"],
+)  # fmt: skip
+def test_property_not_pregnant_never_runs_as_pregnant(text: str) -> None:
+    """ "Not pregnant" coded as "any of pregnancy" would exclude every woman who is not pregnant."""
+    preg = {"domain": "condition", "quantifier": "any", "concept": "pregnancy"}
+    _held(_one(text, preg, concepts=[{"domain": "condition", "name": "pregnancy"}]))
+
+
+def test_a_negated_mixed_line_is_held_before_another_rule_hands_it_to_the_notes() -> None:
+    """The age-at-onset rule hands a mixed line to the notes; a negated inclusion must not get there first."""
+    logic = {**CHEMO, "age": {"max": 18}}
+    c = _one("No chemotherapy before age 18", logic, cls="mixed",
+             question="Did the patient receive chemotherapy before age 18?")  # fmt: skip
+    _held(c)
+
+
+def test_a_line_led_by_a_negated_subject_is_held_even_when_its_concept_is_present() -> None:
+    """The cost the rule accepts: "Nonsmokers with asthma" asks asthma, yet its lead is a negation, so a person looks
+    at it. Holding a line costs a look; missing a negated one would exclude the patients it should keep."""
+    asthma = {"domain": "condition", "quantifier": "any", "concept": "asthma"}
+    _held(_one("Nonsmokers with asthma", asthma, concepts=[{"domain": "condition", "name": "asthma"}]))
 
 
 def test_an_age_or_sex_alone_and_an_exclusion_are_not_this_rule() -> None:
