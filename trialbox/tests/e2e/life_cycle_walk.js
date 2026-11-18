@@ -30,6 +30,10 @@ const vars = { job: "" }; // values read from the product on the way ({job}, {pi
 const stopped = new Set(); // steps stopped with a recorded finding
 let current = "";
 let rec = null; // the record of the step being walked
+// H-29 (D-1103): act and expectation kinds a caller adds through ``extend`` (tests/e2e/module_walk.js); the kinds
+// below are unchanged. Each is called with the page, the act, the step's tag and the driver's own helpers.
+const extra = { acts: {}, holds: {} };
+const helpers = { fill: (s) => fill(s), masked: (s) => masked(s), clicked: (t) => clicked(t), check: (ok, w) => check(ok, w), get rec() { return rec; } };
 
 function check(ok, what) {
   checks.push({ ok: !!ok, what });
@@ -279,6 +283,7 @@ async function act(p, a, tag) {
     case "see":
       return see(p, a, tag);
     default:
+      if (extra.acts[a.do]) return extra.acts[a.do](p, a, tag, helpers);
       throw new Error("unknown action " + a.do);
   }
 }
@@ -312,6 +317,7 @@ async function holds(p, a) {
       return [t.includes(value), `the response holds "${value}" at ${path}`];
     }
     default:
+      if (extra.holds[a.kind]) return extra.holds[a.kind](p, a, helpers);
       throw new Error("unknown expectation " + a.kind);
   }
 }
@@ -362,7 +368,7 @@ async function heading(p) {
   return (await h.count()) ? (await h.first().innerText()).replace(/\s+/g, " ").trim() : "";
 }
 
-(async () => {
+async function main() {
   const browser = await chromium.launch();
   const t0 = Date.now();
   const steps = [];
@@ -417,4 +423,8 @@ async function heading(p) {
   };
   if (plan.log) fs.writeFileSync(plan.log, JSON.stringify({ ...out, steps }, null, 1));
   console.log(JSON.stringify(out));
-})();
+}
+
+// H-29 (D-1103): run as a script, or required by a caller that adds kinds first and then runs ``main``
+module.exports = { extend: (kinds) => (Object.assign(extra.acts, kinds.acts || {}), Object.assign(extra.holds, kinds.holds || {})), main };
+if (require.main === module) main();
