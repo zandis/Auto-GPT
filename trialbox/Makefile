@@ -577,6 +577,16 @@ runbook-install:
 	PYTHONPATH=libs:services:. $(PY) -m tools.runbook_install run --py $(PY) \
 		$(if $(TB_EXTRA_CA),--extra-ca $(TB_EXTRA_CA),) $(RUNBOOK_INSTALL_ARGS)
 
+# H-33 (D-1122): the compose test stack (stub model, synthetic site A) does a night's work, is backed up as RUNBOOK §5
+# says, has every volume wiped and is restored by §5's restore page alone, timed; every store is then compared with
+# its fingerprint from before. Root, Docker and `make images` (the box's own images); about 10 minutes. The record
+# (no secret, no row) goes to RESTORE_DRILL_OUT; docs/plan/measurements/restore-drill-2026-11-18.md reads it.
+RESTORE_DRILL_OUT ?= $(TB_TEST_ROOT)/restore-drill/run.json
+.PHONY: restore-drill
+restore-drill:
+	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m tools.restore_drill run --out "$(RESTORE_DRILL_OUT)" \
+		--work "$(TB_TEST_ROOT)/restore-drill/work"
+
 test-console:
 	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q tests/console
 
