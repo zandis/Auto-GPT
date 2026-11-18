@@ -125,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     from console.i18n import CATALOGUES
 
-    enrolled = CATALOGUES[a.lang]["person.state.enrolled"]
+    enrolled = CATALOGUES[a.lang]["registry.status.enrolled"]
     good = res["s36_ok"] and res["after_enrol"].startswith(enrolled) and res["subject_shown"]
     if a.serve:
         import uvicorn

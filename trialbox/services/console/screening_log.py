@@ -30,7 +30,6 @@ from tb_common import sheets
 from tb_common.authz import permit
 from tb_contracts import Job
 
-from console import person_state as ps
 from console import s28
 from console import studies as st
 from console.auth import Session
@@ -115,20 +114,6 @@ def prescreen_rows(marks: list[Any], numbers: dict[str, str], seen: dict[str, tu
     return rows
 
 
-def aggregate_counts(by_status: dict[str, int]) -> dict[str, int]:
-    """Master's research-office formula over the screening log's counts by status (FR-REP-09): contacted = contacted,
-    consented, enrolled or screen failure; consented = consented or enrolled; then enrolled, screen failure, declined.
-    For an account that may not read patient rows (D-1221): the whole study, not one year."""
-    rank = {"contacted": 1, "consented": 2, "enrolled": 3}
-    return {
-        "contacted": sum(n for st, n in by_status.items() if rank.get(st, 0) >= 1 or st == "screen_fail"),
-        "consented": sum(n for st, n in by_status.items() if rank.get(st, 0) >= 2),
-        "enrolled": by_status.get("enrolled", 0),
-        "screen_fail": by_status.get("screen_fail", 0),
-        "declined": by_status.get("declined", 0),
-    }
-
-
 def suppress(n: int, k: int) -> int | str:
     return f"<{k}" if 0 < n < k else n
 
@@ -165,7 +150,7 @@ def _width(text: str) -> int:
     return sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in text)
 
 
-def printable(wb: Any, lang: str, table: list[list[Any]], states: list[str] | None = None) -> Any:
+def printable(wb: Any, lang: str, table: list[list[Any]]) -> Any:
     """NEW-UX-3 (D-698, UX-003): the screening log as a person reads and prints it, put first in the workbook: the
     headings and the words of the reader's language, dates as dates, the header frozen and printed on every page,
     landscape and one page wide. The machine-readable sheets stay as they are, for the systems that read them."""
@@ -181,12 +166,10 @@ def printable(wb: Any, lang: str, table: list[list[Any]], states: list[str] | No
     ws.append(heads)
     for cell in ws[1]:
         cell.font = Font(bold=True)
-    for n, line in enumerate(table):
+    for line in table:
         out: list[Any] = []
         for col, v in zip(sponsor.LOG_COLUMNS, line, strict=False):
-            if col == "status" and states is not None and n < len(states):
-                out.append(translate(lang, ps.key(states[n])))  # D-1221: the word the page shows, the one state
-            elif col in WORDS and isinstance(v, str) and v:
+            if col in WORDS and isinstance(v, str) and v:
                 out.append(_word(lang, WORDS[col], v))
             elif col in LISTS and isinstance(v, str) and v:
                 sep = ", " if lang == "en" else "、"
@@ -275,12 +258,8 @@ def register(app: FastAPI, h: Helpers) -> None:
     def prescreen(rs: str) -> list[dict[str, Any]]:
         refs: dict[str, Any] = h.team.latest_referrals(rs) if h.team is not None else {}
         gone = h.gone()
-        rows = prescreen_rows(store.all_marks(rs), store.screening_nos(rs), store.first_seen(rs), registry_rows(rs),
+        return prescreen_rows(store.all_marks(rs), store.screening_nos(rs), store.first_seen(rs), registry_rows(rs),
                               refs, gone)  # fmt: skip
-        people = ps.read(h, rs)  # D-1221: the person's one state now, beside each mark
-        for r in rows:
-            r["person"] = people.of(r["pid"])
-        return rows
 
     def log_rows(rs: str) -> list[dict[str, Any]]:
         reg = registry_rows(rs)
@@ -301,7 +280,6 @@ def register(app: FastAPI, h: Helpers) -> None:
         for o in h.team.overrides(rs) if h.team is not None else []:
             overrides[o[0]] = o
         gone = h.opted_out_on()
-        people = ps.read(h, rs, subjects=list(life.values()))  # D-1221: the one state, as on every list
         rows = []
         for pid, no, at in store.screening_rows(rs):
             e = reg.get(pid)
@@ -319,7 +297,6 @@ def register(app: FastAPI, h: Helpers) -> None:
                     "outcome": oc[-1] if oc else None,
                     "attempts": len(oc),
                     "status": e.status if e else "candidate",
-                    "person": people.of(pid),
                     "reason": (e.reason if e else "") or "",
                     "reason_rc": _rc_note((e.reason if e else "") or ""),
                     "updated": local_date(e.updated_at.isoformat(), tz) if e else "",
@@ -394,9 +371,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         ws: Any = wb.active
         ws.title = "screening log"
         table: list[list[Any]] = []
-        states: list[str] = []
         for r in log_rows(rid):
-            states.append(r["person"].name)
             mk, oc, rf, ov = r["mark"], r["outcome"], r["referral"], r["override"]
             table.append(
                 [
@@ -453,7 +428,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         ws.append(list(sponsor.LOG_COLUMNS))
         for line in table:
             ws.append(line)
-        printable(wb, sess.lang, table, states)  # NEW-UX-3 (D-698): the first sheet is the log for people
+        printable(wb, sess.lang, table)  # NEW-UX-3 (D-698): the first sheet is the log for people
         pre = wb.create_sheet("pre-screen log")  # D-387 (LIFE-015): one row per investigator mark
         pre.append(["pseudonym", "first_listed", "criteria_version", "pi_mark", "pi_mark_reason", "pi_mark_date",
                     "pi_mark_by", "later", "screening_no", "referral_outcome", "referral_reason", "status",
@@ -537,25 +512,6 @@ def register(app: FastAPI, h: Helpers) -> None:
         )
 
     # ------------------------------------------------------------------ FR-REP-09
-    def office_states(rid: str, year: int) -> tuple[str, dict[str, int]]:
-        """How far people came in study ``rid``: ``("rows", counts)`` from the one state of each person whose state
-        began in ``year`` (cumulative: ever reached, D-1221); ``("unread", {})`` when this reader may read the rows but
-        the read failed (unknown, never the aggregate, CR-010); ``("aggregate", counts)`` for an account that may not
-        read patient rows: the screening log's own counts by status for the whole study, by master's formula, with no
-        patient-level read attempted (D-146, D-280)."""
-        if ps.may_read_rows(rid):
-            people = ps.read(h, rid)
-            if not people.readable:
-                return "unread", {}
-            yr = people.in_year(year)
-            return "rows", {**{x: people.reached(x, year) for x in ("contacted", "consented", "enrolled")},
-                            "screen_fail": yr["screen_fail"], "declined": yr["declined"]}  # fmt: skip
-        by: dict[str, int] = {}
-        for sm in bk.registry_summaries():
-            if sm.ruleset == rid:
-                by = {str(k): int(v) for k, v in sm.counts.items()}
-        return "aggregate", aggregate_counts(by)
-
     def office_counts(year: int, k: int) -> list[dict[str, Any]]:
         out = []
         for info in bk.rulesets():
@@ -565,19 +521,23 @@ def register(app: FastAPI, h: Helpers) -> None:
             y = str(year)
             seen = store.first_seen(rid)
             marks = store.all_marks(rid)
+            reg = registry_rows(rid)
             nos = store.screening_rows(rid)
-            counts: dict[str, Any] = {
+            counts = {
                 "listed": sum(1 for _j, a in seen.values() if a.startswith(y)),
                 "reviewed": len({m.pid for m in marks if m.at.startswith(y) and m.mark != "withdrawn"}),
                 "approached": sum(1 for _p, _n, a in nos if a.startswith(y)),
             }
-            how, steps = office_states(rid, year)
-            if not any(counts.values()) and not any(steps.values()) and how != "unread":
+            rank = {"contacted": 1, "consented": 2, "enrolled": 3}
+            yr = [e for e in reg.values() if e.updated_at.year == year]
+            counts["contacted"] = sum(1 for e in yr if rank.get(e.status, 0) >= 1 or e.status in ("screen_fail",))
+            counts["consented"] = sum(1 for e in yr if rank.get(e.status, 0) >= 2)
+            counts["enrolled"] = sum(1 for e in yr if e.status == "enrolled")
+            counts["screen_fail"] = sum(1 for e in yr if e.status == "screen_fail")
+            counts["declined"] = sum(1 for e in yr if e.status == "declined")
+            if not any(counts.values()):
                 continue
-            row = {c: suppress(int(counts[c]), k) for c in ("listed", "reviewed", "approached")}
-            for c in ("contacted", "consented", "enrolled", "screen_fail", "declined"):
-                row[c] = "–" if how == "unread" else suppress(int(steps.get(c, 0)), k)
-            out.append({"study": rid, "kind": info.kind or "trial", "how": how, **row})
+            out.append({"study": rid, "kind": info.kind or "trial", **{c: suppress(counts[c], k) for c in COUNT_KEYS}})
         return out
 
     def office_allowed(sess: Session) -> bool:

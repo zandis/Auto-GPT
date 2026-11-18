@@ -741,6 +741,24 @@ def met_score(fit: Fit) -> tuple[int, int]:
     return fit.inc_met + fit.exc_clear, fit.inc_total + fit.exc_total
 
 
+def pipeline_counts(rows: Sequence[Mapping[str, Any]], registry: Mapping[str, str]) -> dict[str, int]:
+    """Found → PI reviewed → contacted → consented → enrolled, cumulative: a consented patient was also contacted."""
+    found = {str(r["pid"]) for r in rows} | set(registry)
+    reviewed = {str(r["pid"]) for r in rows if r.get("mark") is not None}
+    rank = {"contacted": 1, "consented": 2, "screen_fail": 2, "enrolled": 3}
+    contacted = {p for p, s in registry.items() if rank.get(s, 0) >= 1}
+    consented = {p for p, s in registry.items() if rank.get(s, 0) >= 2}
+    enrolled = {p for p, s in registry.items() if s == "enrolled"}
+    reviewed |= contacted
+    return {
+        "found": len(found),
+        "reviewed": len(reviewed),
+        "contacted": len(contacted),
+        "consented": len(consented),
+        "enrolled": len(enrolled),
+    }
+
+
 def procedure_step(
     *, approved: bool, feas_done: bool, screen_done: bool, contacted: int, enrolled: int, waiting: bool
 ) -> int:

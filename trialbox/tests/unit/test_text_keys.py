@@ -163,8 +163,8 @@ def _first_use(prefix: str) -> str:
 
 
 def test_a_new_family_must_be_checked_or_listed(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delitem(tk.UNCHECKED_FAMILIES, "tier.")
-    assert [p for p in tk.problems() if "'tier.'" in p and "neither FAMILIES nor" in p]
+    monkeypatch.delitem(tk.UNCHECKED_FAMILIES, "wstatus.")
+    assert [p for p in tk.problems() if "'wstatus.'" in p and "neither FAMILIES nor" in p]
 
 
 # ------------------------------------------------------------------ translate in the suite and on a box
