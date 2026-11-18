@@ -495,12 +495,13 @@ def run_merge(ctx: Ctx) -> Outcome:
     for f in files:
         rows, errors = parse_csv(ctx.input_bytes(f))
         if not errors and rows:
-            try:  # D-1320: the signature, by the key registered for the site, before anything is stored
-                if rows[0]["site_id"] == ctx.cfg.settings.site.id:  # asked again in the store; its sentence first
-                    raise alliance.TableRefused(sender_refusal(rows[0]["site_id"], rows[0]["site_id"], set(), ""))
-                ok = alliance.verify(rows, _signature_for(rows, signatures), register)
-            except alliance.TableRefused as exc:
-                errors = [str(exc)]
+            # D-1320: the signature, by the key registered for the site, before anything is stored; the root's own
+            # site is refused first (asked again in the store), so its sentence comes before the signature's
+            own = rows[0]["site_id"] == ctx.cfg.settings.site.id
+            said = sender_refusal(rows[0]["site_id"], rows[0]["site_id"], set(), "") if own else None
+            ok = said or alliance.checked(rows, _signature_for(rows, signatures), register)
+            if isinstance(ok, str):
+                errors = [ok]
             else:
                 # who may send this site's table, and whether it is newer than the one stored, are asked in the
                 # store's transaction: asked before it, another store of the same site could come between the

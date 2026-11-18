@@ -229,6 +229,18 @@ def verify(
     return Verified(site, str(doc["key_sha256"]), int(doc["seq"]), str(doc["table_sha256"]))
 
 
+def checked(
+    rows: Sequence[Mapping[str, Any]],
+    doc: Mapping[str, Any] | None,
+    register: Mapping[str, Mapping[str, str]] | None,
+) -> Verified | str:
+    """:func:`verify`, with a refusal returned as its sentence (written in this module; it names the site only)."""
+    try:
+        return verify(rows, doc, register)
+    except TableRefused as exc:
+        return str(exc.args[0])
+
+
 def stale_refusal(
     site: str, seq: int, table: str, held: Mapping[tuple[str, str, str, str], tuple[int | None, str | None]]
 ) -> str | None:
