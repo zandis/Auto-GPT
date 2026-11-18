@@ -237,7 +237,12 @@ def test_the_findings_are_well_formed(module: str) -> None:
     steps = {st.n for st in mw.all_steps(mod)}
     prefix = {"feasibility": "FEA", "safety": "SAF", "monitoring": "MON", "amendment": "AMD"}[module]
     ids = [f.id for f in mod.findings]
-    assert ids == [f"{prefix}-{i:02d}" for i in range(1, len(ids) + 1)], ids
+    gone = [c.id for c in mod.closed]
+    every = sorted(ids + gone)
+    assert every == [f"{prefix}-{i:02d}" for i in range(1, len(every) + 1)], every  # an id is never given again
+    assert ids == sorted(ids), ids
+    for c in mod.closed:
+        assert c.step in steps and c.showed and c.now and c.by.startswith("D-"), c
     for f in mod.findings:
         assert f.step in steps and f.severity in mw.SEVERITIES and f.lane in mw.LANES, f
         assert f.role in mw.ROLES and f.path.startswith("/") and f.showed and f.expected and f.source, f

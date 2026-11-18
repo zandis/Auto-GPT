@@ -664,6 +664,7 @@ class Follower:
         lifts: bool = True,
         kek_pass: str = "",
         sidecar_fix: Callable[[], None] | None = None,
+        raw_dir: Path | None = None,
     ) -> None:
         self.m, self.bundle, self.pub, self.work, self.root, self.allow_lifts = (
             machine,
@@ -675,6 +676,9 @@ class Follower:
         )
         self.kek_pass = kek_pass
         self.sidecar_fix = sidecar_fix  # rewrites the stick's <bundle>.sha256 (the vendor's media, not the box)
+        # H-38: each command's own output, unredacted, in root-only files on the machine (the first administrator's
+        # password and enrolment code are printed once): never part of the record, gone with the machine
+        self.raw_dir = raw_dir
         self.cwd, self.user = convention(root)
         self.rec = Record(machine.name, time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), _git_head(root))
         self.env: dict[str, str] = {}
@@ -703,6 +707,12 @@ class Follower:
         r = self.m.sh(run, cwd=cwd or self.cwd, env={**self.env, **(env or {})}, stdin=stdin)
         self.rec.commands_run += 1
         self.rec.seconds += r.seconds
+        if self.raw_dir is not None:
+            self.raw_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            raw = self.raw_dir / f"{self.rec.commands_run:02d}-{step}.log"
+            fd = os.open(raw, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(f"$ {run}\n{r.out}\n--- stderr ---\n{r.err}")
         prompts = sorted(set(PROMPTS.findall(r.out + r.err)))
         self.rec.steps.append(
             {
@@ -1101,15 +1111,109 @@ def _container_up(name: str, image: str, work: Path, usb: Path) -> DockerMachine
     return DockerMachine(name)
 
 
+# ------------------------------------------------------------------------------------------------ the VM follow
+STICK_FILES = ("trialbox-bootstrap.sh", "trialbox-bootstrap.sh.sig")  # beside the bundle and its .sha256 (D-996)
+# the disk a first follow needs on /: the installer stages the bundle (1.1x, the GPU VM hand-over's T17), then loads
+# the images and copies the weights (about the bundle again): the follower's own rule, 2.2x the bundle and 10 GiB
+DISK_FACTOR, DISK_SLACK = 2.2, 10 << 30
+
+
+def release_commit(bundle: Path) -> str | None:
+    """The commit the signed bundle's release.json names (top level of the bundle), or None without one."""
+    import tarfile
+
+    try:
+        with tarfile.open(bundle) as tf:
+            fh = tf.extractfile("release.json")
+            return json.load(fh).get("commit") if fh is not None else None
+    except (KeyError, OSError, tarfile.TarError, ValueError):
+        return None
+
+
+def vm_preflight(
+    bundle: Path,
+    pub: Path,
+    *,
+    rerun: bool,
+    is_root: bool,
+    exists: Callable[[str], bool],
+    free_root: Callable[[], int],
+    head: str,
+) -> list[str]:
+    """What a follow on a clean VM needs before anything slow runs, each missing one named (H-38). The follower's
+    checkout must be the commit the bundle was built from: it reads that commit's §1."""
+    out: list[str] = []
+    if not is_root:
+        out.append("run it as root: the hub's commands run as root")
+    if bundle.parent != Path(STICK):
+        out.append(f"the bundle must be on the stick at {STICK} (the one command starts `cd {STICK}`), not {bundle}")
+    for n in (bundle.name, f"{bundle.name}.sha256", *STICK_FILES):
+        if not (bundle.parent / n).is_file():
+            out.append(f"the stick has no {n} (the vendor hands over four files: D-996)")
+    if not pub.is_file():
+        out.append(f"no vendor key at {pub} (given apart from the stick)")
+    if not rerun:
+        for p in (OPT, SITE_AT, FEED_AT, KEY_AT):
+            if exists(p):
+                out.append(
+                    f"{p} exists: a first follow needs a machine without it (--rerun runs the one command again)"
+                )
+    if bundle.is_file():
+        need = int(DISK_FACTOR * bundle.stat().st_size) + DISK_SLACK
+        if free_root() < need:
+            out.append(f"/ has {free_root() / (1 << 30):.1f} GiB free; a first install of this bundle needs about "
+                       f"{need / (1 << 30):.1f} GiB ({DISK_FACTOR}x the bundle and 10 GiB)")  # fmt: skip
+        commit = release_commit(bundle)
+        if commit is None:
+            out.append("the bundle names no release commit (a site bundle from make_bundle.sh carries release.json)")
+        elif commit != head:
+            out.append(
+                f"the bundle was built from {commit[:12]}; this checkout is {head[:12]}: follow that commit's §1"
+            )
+    return out
+
+
+def _has_gpu() -> bool:
+    """On the VM itself: the GPU is there when nvidia-smi lists one (step 1's driver installed)."""
+    if shutil.which("nvidia-smi") is None:
+        return False
+    return subprocess.run(["nvidia-smi", "-L"], capture_output=True, check=False).returncode == 0
+
+
+def timings(rec: Record) -> list[dict[str, Any]]:
+    """Per step of the path, the commands run and their seconds, in order (the record to compare a later install
+    with, step by step)."""
+    out: list[dict[str, Any]] = []
+    for s in rec.steps:
+        if "rc" not in s:
+            continue
+        if out and out[-1]["step"] == s["step"]:
+            out[-1]["commands"] += 1
+            out[-1]["seconds"] = round(out[-1]["seconds"] + s["seconds"], 1)
+        else:
+            out.append({"step": s["step"], "commands": 1, "seconds": s["seconds"], "rc": s["rc"]})
+        out[-1]["rc"] = s["rc"]
+    return out
+
+
 def _cmd_follow(a: argparse.Namespace) -> int:
     work = Path(a.work).resolve()
     work.mkdir(parents=True, exist_ok=True)
     if a.machine == "container":
         m: Machine = _container_up(a.container, a.image, work, Path(a.bundle).resolve().parent)
     elif a.machine == "vm":  # a clean VM, as root: the commands run on it, at the runbook's own paths
-        if os.geteuid() != 0 or (Path(OPT).exists() and any(Path(OPT).iterdir())):
-            raise SystemExit(f"--machine vm runs as root on a machine whose {OPT} is absent or empty")
-        m = LocalMachine(Path("/opt"), os.environ.get("PATH", ""), name="vm")
+        found = vm_preflight(
+            Path(a.bundle),
+            Path(a.vendor_pub),
+            rerun=a.rerun,
+            is_root=os.geteuid() == 0,
+            exists=lambda p: Path(p).exists() or Path(p).is_symlink(),
+            free_root=lambda: shutil.disk_usage("/").free,
+            head=_git_head(ROOT),
+        )
+        if found:
+            raise SystemExit("runbook_install follow --machine vm: not started:\n  " + "\n  ".join(found))
+        m = LocalMachine(Path("/opt"), os.environ.get("PATH", ""), has_gpu=_has_gpu(), name="vm")
     else:
         raise SystemExit(f"--machine {a.machine}: container or vm (the stand-in machine is the unit test's)")
     t0 = time.monotonic()
@@ -1128,6 +1232,7 @@ def _cmd_follow(a: argparse.Namespace) -> int:
         lifts=not a.strict,
         kek_pass="",  # a fresh throwaway passphrase per run (the machine lift no-tpm); never recorded
         sidecar_fix=sidecar_fix if sidecar.is_file() else None,
+        raw_dir=Path(a.raw_dir) if getattr(a, "raw_dir", "") else None,
     )
     rec = f.follow()
     out = asdict(rec) | {
@@ -1135,6 +1240,8 @@ def _cmd_follow(a: argparse.Namespace) -> int:
         "not_needed": not_needed(all_commands()),
         "static": static_findings(),
         "machine_lacks": getattr(f, "machine_lacks", []),
+        "timings": timings(rec),
+        "rerun": bool(getattr(a, "rerun", False)),
     }
     Path(a.out).write_text(json.dumps(out, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     print(rec.verdict)
@@ -1165,7 +1272,7 @@ JOB_IMAGES = ["trialbox-backup:1.0.0"]
 def models_args(models: str | Path | None) -> list[str]:
     """``make_bundle.sh --models``: since D-998 a site bundle carries the embedder (``release check`` refuses one whose
     ``embedder/`` files do not hash to the registry's expected manifest for e-embed-1). The follower never fetches
-    the weights itself: the caller gives a models folder holding ``embedder/`` (BGE-M3 at the registry's revision,
+    the weights itself: the caller gives a models folder holding ``embedder/`` (e-embed-1 at the registry's revision,
     without its three pickle files)."""
     if not models:
         raise SystemExit(
@@ -1397,6 +1504,8 @@ def main(argv: Iterable[str] | None = None) -> int:
     f.add_argument("--image", default="trialbox-runbook-host:24.04")
     f.add_argument("--container", default="tb-runbook-host")
     f.add_argument("--strict", action="store_true", help="no lifts: stop at the verdict")
+    f.add_argument("--rerun", action="store_true", help="vm: the one command again on a machine it ran on (§1)")
+    f.add_argument("--raw-dir", default="", help="each command's unredacted output, 0600, never in the record")
     r = sub.add_parser("run", help="the whole container run (make runbook-install)")
     r.add_argument("--out", default="docs/plan/measurements/runbook-install-2026-11-17/run-container.json")
     r.add_argument("--work", default=WORK_DEFAULT)
