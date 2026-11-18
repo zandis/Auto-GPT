@@ -7,22 +7,26 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 MEASURE = ROOT / "docs" / "plan" / "measurements"
 
 
-def _finding() -> dict:
+def _finding() -> dict[str, Any]:
     data = json.loads((MEASURE / "size-test-2026-11-17-findings.json").read_text(encoding="utf-8"))
     (row,) = [f for f in data["findings"] if f["id"] == "H23b-01"]
+    assert isinstance(row, dict)
     return row
 
 
 def _limit() -> int:
     """The patients at which SCREEN's peak reaches the cap, on the line through the finding's two measured points,
     to the nearest thousand (the page's "near 45,000")."""
-    claim = _finding()["claim"]
-    cap = float(re.search(r"(\d+(?:\.\d+)?) GiB cap", claim).group(1))
+    claim = str(_finding()["claim"])
+    m = re.search(r"(\d+(?:\.\d+)?) GiB cap", claim)
+    assert m, claim
+    cap = float(m.group(1))
     points = [(int(n.replace(",", "")), float(g)) for g, n in re.findall(r"(\d+\.\d+) GiB at ([\d,]+)", claim)]
     assert len(points) == 2, claim
     (n1, g1), (n2, g2) = points
@@ -52,8 +56,17 @@ def test_the_figure_is_the_measurement_pages() -> None:
 def test_the_release_notes_state_the_limit_with_its_basis() -> None:
     notes = _known_limits()
     assert f"about {_limit():,} patients" in notes and "H23b-01" in notes
-    for fact in ("TB_MEM_ORCH", "4 GiB", "3 GiB", "stub model", "4.37 GiB", "8.22 GiB", "lower, not measured",
-                 "not a supported configuration", "TB_JOB_MAX_RESTARTS"):
+    for fact in (
+        "TB_MEM_ORCH",
+        "4 GiB",
+        "3 GiB",
+        "stub model",
+        "4.37 GiB",
+        "8.22 GiB",
+        "lower, not measured",
+        "not a supported configuration",
+        "TB_JOB_MAX_RESTARTS",
+    ):
         assert fact in notes, fact
 
 
