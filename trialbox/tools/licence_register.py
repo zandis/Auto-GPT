@@ -7,7 +7,8 @@ One row per third-party (or own) source: standard, version, source, licence and 
 licence, status, the date it was checked, the evidence, the licence text's sha256 (models), the Athena vocabularies
 it covers and the shipped files it covers (``paths``: ``;``-separated patterns relative to ``trialbox/``, ``*`` is
 one path segment or part of one, ``**`` any number of segments), its licence ``class`` and the Athena vocabularies
-it says must never load or ship (``athena_never``).
+it says must never load or ship (``athena_never``: entries ``ID|alias|alias``, the other names, URIs and OIDs the
+vocabulary goes by).
 
 **Classes** (root review 22, section 2): ``a`` open, may ship; ``b`` free with terms, may ship if the terms are met;
 ``c`` a licence the vendor does not hold, must not ship (a site loads it under its own licence); ``d`` OMOP
@@ -111,7 +112,7 @@ def load(path: Path = REGISTER) -> list[Row]:
             _split(r["paths"]),
             r,
             r["class"],
-            _split(r["athena_never"]),
+            tuple(e.split("|")[0].strip() for e in _split(r["athena_never"])),
         )
         for r in rows
     ]

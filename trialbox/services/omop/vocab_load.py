@@ -807,35 +807,59 @@ def edition_code(
 REGISTER = Path(__file__).resolve().parents[2] / "docs" / "licences" / "register.csv"
 
 
+LOADABLE_CLASSES = frozenset({"a", "b", "d", "open"})  # register classes the loader may load; c never
+
+
 @dataclass(frozen=True)
 class AthenaClass:
-    """What the licence register says of one Athena vocabulary: its row, the row's class and status, and whether
-    the loader may load it (column ``athena``) or never (column ``athena_never``)."""
+    """What the licence register says of one Athena vocabulary: its row, the row's class and status, whether the
+    loader may load it, and the other names it goes by (``athena_never`` entries ``ID|alias|alias``)."""
 
     vocabulary: str
     row: str
     klass: str
     status: str
     loadable: bool
+    aliases: tuple[str, ...] = ()
 
     def reason(self) -> str:
         """Why the loader skips it (a loadable vocabulary is never skipped)."""
-        where = f"register row {self.row}, class {self.klass}, status {self.status}"
-        if self.status == "removed":
+        where = f"register row {self.row}, class {self.klass or '(none)'}, status {self.status}"
+        if self.status == "removed" or (self.klass == "c" and self.status != "site-loaded"):
             return f"licence class must not ship ({where})"
-        return f"licence class must not ship: the site loads it under its own licence, not this loader ({where})"
+        if self.klass == "c":
+            return f"licence class must not ship: the site loads it under its own licence, not this loader ({where})"
+        return f"licence class must not ship: the register row does not let it load ({where})"
+
+
+def fold(name: str) -> str:
+    """A vocabulary label compared without case and with its spaces collapsed (``' snomed '`` is ``SNOMED``)."""
+    return " ".join(name.split()).casefold()
+
+
+def _cells(value: str | None) -> list[str]:
+    return [x.strip() for x in (value or "").split(";") if x.strip()]
 
 
 def athena_register(register: Path = REGISTER) -> dict[str, AthenaClass]:
-    """``vocabulary_id -> AthenaClass`` of every Athena vocabulary the licence register names."""
-    out: dict[str, AthenaClass] = {}
+    """``vocabulary_id -> AthenaClass`` of every Athena vocabulary the licence register names. A vocabulary loads
+    only when it is in a row's ``athena`` column, that row's class is one of :data:`LOADABLE_CLASSES` and its status
+    is not ``removed``, and no row names it in ``athena_never`` (never wins)."""
     with register.open(encoding="utf-8", newline="") as fh:
-        for r in csv.DictReader(fh):
-            for col, loadable in (("athena", True), ("athena_never", False)):
-                for v in (x.strip() for x in (r.get(col) or "").split(";")):
-                    if v:
-                        out.setdefault(v, AthenaClass(v, r["id"], (r.get("class") or "").strip(),
-                                                      (r.get("status") or "").strip(), loadable))  # fmt: skip
+        rows = list(csv.DictReader(fh))
+    out: dict[str, AthenaClass] = {}
+    for r in rows:
+        for entry in _cells(r.get("athena_never")):
+            names = [x.strip() for x in entry.split("|") if x.strip()]
+            out.setdefault(names[0], AthenaClass(names[0], r["id"], (r.get("class") or "").strip(),
+                                                 (r.get("status") or "").strip(), False, tuple(names[1:])))  # fmt: skip
+    for r in rows:
+        klass, status = (r.get("class") or "").strip(), (r.get("status") or "").strip()
+        ok = klass in LOADABLE_CLASSES and status != "removed"
+        for v in _cells(r.get("athena")):
+            have = out.get(v)
+            if have is None or (have.loadable and not ok):  # never wins; of two athena rows the stricter
+                out[v] = AthenaClass(v, r["id"], klass, status, ok)
     return out
 
 
@@ -872,6 +896,18 @@ ATHENA_FILES = ("VOCABULARY", "CONCEPT", "CONCEPT_RELATIONSHIP", "CONCEPT_SYNONY
 _CONCEPT_COLS = ("concept_id", "concept_name", "domain_id", "vocabulary_id", "concept_class_id", "standard_concept",
                  "concept_code", "valid_start_date", "valid_end_date", "invalid_reason")  # fmt: skip
 _REL_COLS = ("concept_id_1", "concept_id_2", "relationship_id", "valid_start_date", "valid_end_date", "invalid_reason")
+_REQUIRED = {
+    "VOCABULARY": ("vocabulary_id", "vocabulary_name"),
+    "CONCEPT": ("concept_id", "concept_name", "domain_id", "vocabulary_id", "concept_class_id", "concept_code",
+                "valid_start_date", "valid_end_date"),
+    "CONCEPT_RELATIONSHIP": ("concept_id_1", "concept_id_2", "relationship_id", "valid_start_date", "valid_end_date"),
+    "CONCEPT_SYNONYM": ("concept_id", "concept_synonym_name", "language_concept_id"),
+    "CONCEPT_ANCESTOR": ("ancestor_concept_id", "descendant_concept_id", "min_levels_of_separation",
+                         "max_levels_of_separation"),
+}  # fmt: skip
+# the concept-id columns of each side table: a row is kept only when every one is a kept concept
+_SIDE = {"CONCEPT_RELATIONSHIP": ("concept_id_1", "concept_id_2"), "CONCEPT_SYNONYM": ("concept_id",),
+         "CONCEPT_ANCESTOR": ("ancestor_concept_id", "descendant_concept_id")}  # fmt: skip
 
 
 def _athena_file(directory: Path, name: str) -> Path | None:
@@ -892,7 +928,12 @@ def read_athena(directory: Path) -> dict[str, list[dict[str, str]]]:
                 raise OmopError(f"Athena bundle {directory}: {name}.csv is missing")
             continue
         with f.open(encoding="utf-8", newline="") as fh:
-            rows = list(csv.DictReader(fh, delimiter="\t", quoting=csv.QUOTE_NONE))
+            reader = csv.DictReader(fh, delimiter="\t", quoting=csv.QUOTE_NONE)
+            rows = list(reader)
+            have = {k.strip().lower() for k in reader.fieldnames or () if k}
+        lacking = [c for c in _REQUIRED.get(name, ()) if c not in have]
+        if lacking:
+            raise OmopError(f"Athena bundle {directory}: {name}.csv lacks the column(s) {', '.join(lacking)}")
         out[name] = [{k.strip().lower(): (v or "") for k, v in r.items() if k} for r in rows]
     return out
 
@@ -939,6 +980,8 @@ class AthenaSelection:
     skipped: dict[str, str]  # vocabulary_id -> reason
     concepts: dict[str, int]  # vocabulary_id -> concepts in the download
     rows_skipped: dict[str, int]  # table -> rows left out
+    removed: dict[str, int] = field(default_factory=dict)  # vocabulary -> its concepts an earlier load left, deleted
+    canonical: set[str] = field(default_factory=set)  # the register's ids of the skipped labels it knows
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -951,44 +994,68 @@ class AthenaSelection:
                        "skipped_not_on_the_list": sum(r.startswith("not on the list") for r in self.skipped.values()),
                        "skipped_must_not_ship": sum(r.startswith("licence class") for r in self.skipped.values())},
             "rows_skipped": dict(sorted(self.rows_skipped.items())),
+            "removed_from_the_box": dict(sorted(self.removed.items())),
         }  # fmt: skip
+
+
+def _whole(table: str, line: int, col: str, value: str | None) -> int:
+    try:
+        return int((value or "").strip())
+    except ValueError:
+        msg = f"Athena bundle refused: {table}.csv line {line}: {col} {value!r} is not a whole number"
+        raise OmopError(msg) from None
+
+
+def _why(label: str, allow: frozenset[str], by_fold: Mapping[str, AthenaClass]) -> str:
+    c = by_fold.get(fold(label))
+    if c is None:
+        return NOT_LISTED
+    if not c.loadable:
+        return c.reason()
+    if label == c.vocabulary:
+        return f"not on the list this load was given (register row {c.row} allows it)"
+    return f"not on the list: the label {label!r} is not exactly {c.vocabulary!r} (register row {c.row})"
 
 
 def select_athena(
     tables: dict[str, list[dict[str, str]]], allow: frozenset[str], register: Mapping[str, AthenaClass]
 ) -> AthenaSelection:
-    """Keep the rows of the vocabularies on ``allow`` and leave out the rest, in place: their ``VOCABULARY`` and
-    ``CONCEPT`` rows, and every relationship, synonym and ancestor row that touches a left-out concept."""
+    """Keep, in place, only what is on ``allow``: a ``VOCABULARY`` or ``CONCEPT`` row whose ``vocabulary_id`` is
+    exactly an allowed id, and a relationship, synonym or ancestor row whose every concept id (as a number) is a kept
+    concept. Every other label is classified with case and spaces folded (``'snomed '`` is SNOMED: must not ship)."""
+    by_fold: dict[str, AthenaClass] = {}
+    for v, c in register.items():
+        for name in (v, *c.aliases):
+            by_fold.setdefault(fold(name), c)
     versions = {r["vocabulary_id"]: r.get("vocabulary_version") or "" for r in tables["VOCABULARY"]}
     counts: dict[str, int] = {}
     for r in tables["CONCEPT"]:
         counts[r["vocabulary_id"]] = counts.get(r["vocabulary_id"], 0) + 1
     found = set(versions) | set(counts)
-    skipped: dict[str, str] = {}
-    for v in sorted(found - allow):
-        c = register.get(v)
-        if c is None:
-            skipped[v] = NOT_LISTED
-        elif c.loadable:
-            skipped[v] = f"not on the list this load was given (register row {c.row} allows it)"
-        else:
-            skipped[v] = c.reason()
+    skipped = {v: _why(v, allow, by_fold) for v in sorted(found - allow)}
     sel = AthenaSelection(athena_version(tables), {v: versions.get(v, "") for v in sorted(found & allow)}, skipped,
                           counts, {})  # fmt: skip
-    if not skipped:
-        return sel
-    gone = {r["concept_id"].strip() for r in tables["CONCEPT"] if r["vocabulary_id"] in skipped}
-    keys = {"VOCABULARY": ("vocabulary_id",), "CONCEPT": ("vocabulary_id",),
-            "CONCEPT_RELATIONSHIP": ("concept_id_1", "concept_id_2"), "CONCEPT_SYNONYM": ("concept_id",),
-            "CONCEPT_ANCESTOR": ("ancestor_concept_id", "descendant_concept_id")}  # fmt: skip
-    for name, cols in keys.items():
-        if name not in tables:
-            continue
-        drop = skipped if name in ("VOCABULARY", "CONCEPT") else gone
-        before = len(tables[name])
-        tables[name] = [r for r in tables[name] if not any((r.get(c) or "").strip() in drop for c in cols)]
-        if before - len(tables[name]):
-            sel.rows_skipped[name] = before - len(tables[name])
+    known = [by_fold.get(fold(v)) for v in skipped]
+    sel.canonical = {k.vocabulary for k in known if k is not None and not k.loadable}
+    kept: list[dict[str, str]] = []
+    kept_ids: set[int] = set()
+    for line, r in enumerate(tables["CONCEPT"], start=2):
+        cid = _whole("CONCEPT", line, "concept_id", r.get("concept_id"))
+        if r["vocabulary_id"] in allow:
+            kept.append(r)
+            kept_ids.add(cid)
+    news = {"CONCEPT": kept, "VOCABULARY": [r for r in tables["VOCABULARY"] if r["vocabulary_id"] in allow]}
+    for name, cols in _SIDE.items():
+        if name in tables:
+            news[name] = [r for line, r in enumerate(tables[name], start=2)
+                          if all(_whole(name, line, c, r.get(c)) in kept_ids for c in cols)]  # fmt: skip
+    for name, rows in news.items():
+        if len(tables[name]) - len(rows):
+            sel.rows_skipped[name] = len(tables[name]) - len(rows)
+        tables[name] = rows
+    stray = {r["vocabulary_id"] for n in ("CONCEPT", "VOCABULARY") for r in tables[n]} - allow
+    if stray:  # cannot happen; a load never goes on with a row off the list
+        raise OmopError(f"Athena bundle refused: rows of {', '.join(sorted(stray))} left after selection")
     return sel
 
 
@@ -1034,7 +1101,10 @@ def load_athena(
     selection = select_athena(tables, allow, classes)
     if selection.skipped:  # what was loaded is part of the release: a wider list later loads again
         sha = hashlib.sha256(f"{sha}\0{','.join(sorted(selection.loaded))}".encode()).hexdigest()
-    concepts = [_concept_row(r) for r in tables["CONCEPT"]]
+    try:
+        concepts = [_concept_row(r) for r in tables["CONCEPT"]]
+    except (KeyError, ValueError) as exc:
+        raise OmopError(f"Athena bundle refused: CONCEPT.csv: a malformed value ({exc})") from None
     high = [c[0] for c in concepts if c[0] >= LOCAL_MIN or c[0] < 0]
     if high:
         raise OmopError(f"Athena bundle refused: concept ids outside the OHDSI range (e.g. {high[0]}); "
@@ -1044,6 +1114,18 @@ def load_athena(
                         f"{', '.join(refused)})")  # fmt: skip
     version = athena_version(tables)
     res = LoadResult(ATHENA, sha, False, athena=selection.as_dict())
+    try:
+        return _load_athena_rows(db, directory, tables, concepts, selection, res, allow, version, sha, by, source)
+    except (KeyError, ValueError) as exc:
+        msg = f"Athena bundle refused: {directory}: a malformed value ({type(exc).__name__}: {exc})"
+        raise OmopError(msg) from None
+
+
+def _load_athena_rows(
+    db: Database, directory: Path, tables: dict[str, list[dict[str, str]]], concepts: list[tuple[Any, ...]],
+    selection: AthenaSelection, res: LoadResult, allow: frozenset[str], version: str, sha: str, by: str,
+    source: str | None,
+) -> LoadResult:  # fmt: skip
     with db.transaction() as tx:
         _prepare(tx)
         if not _release(tx, ATHENA, sha, "None", version, source or directory.name, len(concepts), by):
@@ -1095,6 +1177,8 @@ def load_athena(
         res.concepts = len(concepts)
         _acknowledge(tx, tables, sha, by)
         _record_vocabularies(tx, selection, sha, by)
+        selection.removed = _remove_skipped(tx, selection, allow)
+        res.athena = selection.as_dict()
         _check_never_standard(tx)
     return res
 
@@ -1110,6 +1194,29 @@ def _acknowledge(tx: Any, tables: Mapping[str, list[dict[str, str]]], sha: str, 
             tx.execute("UPDATE tb_vocab_release SET active = false WHERE release_name = ?", (name,))
             continue
         _release(tx, name, sha, vid, versions.get(vid) or "unversioned", terms, 0, by)
+
+
+def _remove_skipped(tx: Any, selection: AthenaSelection, allow: frozenset[str]) -> dict[str, int]:
+    """The summary is true of the box: concepts (OHDSI range) of a vocabulary this load skipped, left by an earlier
+    load, are deleted with their synonyms, relationships and ancestors and their vocabulary row; returns the counts.
+    TrialBox's own concepts (>= 2e9) and the seeded TB-* vocabularies are never touched."""
+    gone = sorted((set(selection.skipped) | selection.canonical) - allow)
+    removed: dict[str, int] = {}
+    for vid in gone:
+        rows = tx.fetchall("SELECT concept_id FROM concept WHERE vocabulary_id = ? AND concept_id > 0 AND "
+                           "concept_id < ?", (vid, LOCAL_MIN))  # fmt: skip
+        ids = [int(i) for (i,) in rows]
+        if ids:
+            tx.execute("DELETE FROM concept_synonym WHERE concept_id = ANY(?)", (ids,))
+            tx.execute("DELETE FROM concept_relationship WHERE concept_id_1 = ANY(?) OR concept_id_2 = ANY(?)",
+                       (ids, ids))  # fmt: skip
+            tx.execute("DELETE FROM concept_ancestor WHERE ancestor_concept_id = ANY(?) OR descendant_concept_id = "
+                       "ANY(?)", (ids, ids))  # fmt: skip
+            tx.execute("DELETE FROM concept WHERE concept_id = ANY(?)", (ids,))
+            removed[vid] = len(ids)
+        if tx.fetchone("SELECT 1 FROM concept WHERE vocabulary_id = ?", (vid,)) is None:
+            tx.execute("DELETE FROM vocabulary WHERE vocabulary_id = ?", (vid,))
+    return removed
 
 
 def _record_vocabularies(tx: Any, selection: AthenaSelection, sha: str, by: str) -> None:

@@ -24,26 +24,32 @@ BEFORE_22_2 = frozenset({
     "None", "Domain", "Vocabulary", "Concept Class", "Relationship", "Metadata", "Note Encoding", "Language",
     "Condition Status", "Meas Type", "Cost", "Cost Type", "Episode", "Episode Type", "OMOP Extension",
 })  # fmt: skip
-# invented concepts: ids in the OHDSI range, made-up names and codes
+# invented concepts: ids in the OHDSI range, made-up names and codes no vocabulary could hold
 EXTRA = {
-    "SNOMED": ("4000001", "Synthetic disorder alpha", "Condition", "Clinical Finding", "S", "1000001"),
-    "KCD7": ("4000002", "Synthetic Korean code beta", "Condition", "KCD7 code", "", "Z00.0"),
-    "HemOnc": ("4000003", "Synthetic regimen gamma", "Regimen", "Regimen", "S", "999001"),
-    "Made Up": ("4000004", "Synthetic thing delta", "Observation", "Thing", "", "MU-1"),
+    "SNOMED": ("4000001", "Synthetic disorder alpha", "Condition", "Clinical Finding", "S", "NOT-A-CODE-1"),
+    "KCD7": ("4000002", "Synthetic Korean code beta", "Condition", "KCD7 code", "", "NOT-A-CODE-2"),
+    "HemOnc": ("4000003", "Synthetic regimen gamma", "Regimen", "Regimen", "S", "NOT-A-CODE-3"),
+    "Made Up": ("4000004", "Synthetic thing delta", "Observation", "Thing", "", "NOT-A-CODE-4"),
+    "CPT4": ("4000005", "Synthetic procedure epsilon", "Procedure", "CPT4", "S", "NOT-A-CODE-5"),
 }
+# what review 22 classes c and the register must keep in athena_never: dropping one fails here
+NEVER_22 = frozenset({"SNOMED", "CPT4", "HemOnc", "ICDO3", "ICD10", "SMQ", "EORTC QLQ", "GCN_SEQNO", "Multum", "SUS",
+                      "MMI", "JMDC"})  # fmt: skip
 ATORVASTATIN = "1545958"  # an RxNorm ingredient of the fixture
 
 
-def _download(tmp_path: Path, *vocabs: str) -> Path:
+def _download(tmp_path: Path, *vocabs: str, label: dict[str, str] | None = None) -> Path:
+    """The fixture plus one invented concept per vocabulary; ``label`` writes a vocabulary under another spelling."""
     out = tmp_path / "download"
     shutil.copytree(ATHENA, out)
+    names = {v: (label or {}).get(v, v) for v in vocabs}
     with (out / "VOCABULARY.csv").open("a", encoding="utf-8") as f:
         for v in vocabs:
-            f.write(f"{v}\t{v} (synthetic)\tinvented\tTEST-SYNTHETIC {v}\t0\n")
+            f.write(f"{names[v]}\t{v} (synthetic)\tinvented\tTEST-SYNTHETIC {v}\t0\n")
     with (out / "CONCEPT.csv").open("a", encoding="utf-8") as f:
         for v in vocabs:
             cid, name, domain, klass, std, code = EXTRA[v]
-            f.write(f"{cid}\t{name}\t{domain}\t{v}\t{klass}\t{std}\t{code}\t19700101\t20991231\t\n")
+            f.write(f"{cid}\t{name}\t{domain}\t{names[v]}\t{klass}\t{std}\t{code}\t19700101\t20991231\t\n")
     with (out / "CONCEPT_RELATIONSHIP.csv").open("a", encoding="utf-8") as f:
         for v in vocabs:  # a map from the skipped concept to a loaded one, and back: both must be left out
             cid = EXTRA[v][0]
@@ -162,3 +168,115 @@ def test_a_download_with_nothing_on_the_list_is_refused(db: Any, tmp_path: Path)
     )
     with pytest.raises(OmopError, match="none of its vocabularies is on the list"):
         vocab_load.load_athena(db, only)
+
+
+# ------------------------------------------------------------------------------------------------ review of PR #1093
+def test_a_label_with_spaces_or_another_case_is_never_inserted(db: Any, tmp_path: Path) -> None:  # noqa: F811
+    from omop import vocab_load
+
+    labels = {"SNOMED": "SNOMED ", "CPT4": " CPT4", "HemOnc": "hemonc"}
+    res = vocab_load.load_athena(db, _download(tmp_path, "SNOMED", "CPT4", "HemOnc", label=labels), by="test")
+    assert res.concepts == 19
+    assert db.fetchval("SELECT count(*) FROM concept WHERE concept_id BETWEEN 4000001 AND 4000005") == 0
+    reasons = {s["vocabulary"]: s["reason"] for s in res.as_dict()["athena"]["skipped"]}
+    assert set(reasons) == {"SNOMED ", " CPT4", "hemonc"}
+    assert all(r.startswith("licence class must not ship") for r in reasons.values()), reasons
+
+
+def test_never_wins_and_the_rows_class_and_status_govern(tmp_path: Path) -> None:
+    from omop import vocab_load
+
+    reg = tmp_path / "register.csv"
+    head = ",".join(lr.COLUMNS)
+    row = {c: "x" for c in lr.COLUMNS}
+
+    def line(**kw: str) -> str:
+        return ",".join({**row, "athena": "", "athena_never": "", "class": "", **kw}[c] for c in lr.COLUMNS)
+
+    reg.write_text("\n".join([
+        head,
+        line(id="r1", status="site-loaded", athena="RxNorm", **{"class": "a"}),
+        line(id="r2", status="removed", athena_never="RxNorm", **{"class": "c"}),  # never wins over r1
+        line(id="r3", status="cleared", athena="LOINC", **{"class": "c"}),  # class c in the wrong column
+        line(id="r4", status="removed", athena="UCUM", **{"class": "b"}),  # removed
+        line(id="r5", status="cleared", athena="Gender", **{"class": "d"}),
+    ]) + "\n", encoding="utf-8")  # fmt: skip
+    got = vocab_load.athena_register(reg)
+    assert {v for v, c in got.items() if c.loadable} == {"Gender"}
+    assert got["RxNorm"].row == "r2" and not got["RxNorm"].loadable
+
+
+def test_side_rows_are_kept_only_inside_the_kept_concepts(tmp_path: Path) -> None:
+    from omop import vocab_load
+
+    d = _download(tmp_path, "SNOMED")
+    (d / "CONCEPT_SYNONYM.csv").write_text(
+        "concept_id\tconcept_synonym_name\tlanguage_concept_id\n"
+        f"04000001\tInvented synonym of a skipped concept\t4180186\n{ATORVASTATIN}\tInvented synonym kept\t4180186\n"
+        "4999999\tInvented synonym of a concept not in the download\t4180186\n",
+        encoding="utf-8",
+    )
+    (d / "CONCEPT_ANCESTOR.csv").write_text(
+        "ancestor_concept_id\tdescendant_concept_id\tmin_levels_of_separation\tmax_levels_of_separation\n"
+        f"{ATORVASTATIN}\t{ATORVASTATIN}\t0\t0\n4000001\t{ATORVASTATIN}\t1\t1\n{ATORVASTATIN}\t004000001\t1\t1\n",
+        encoding="utf-8",
+    )
+    tables = vocab_load.read_athena(d)
+    sel = vocab_load.select_athena(tables, vocab_load.ATHENA_ALLOW, vocab_load.athena_register())
+    assert [r["concept_synonym_name"] for r in tables["CONCEPT_SYNONYM"]] == ["Invented synonym kept"]
+    assert len(tables["CONCEPT_ANCESTOR"]) == 1
+    assert sel.rows_skipped["CONCEPT_SYNONYM"] == 2 and sel.rows_skipped["CONCEPT_ANCESTOR"] == 2
+
+
+def test_rows_left_by_an_earlier_load_of_a_now_skipped_vocabulary_are_removed(db: Any, tmp_path: Path) -> None:  # noqa: F811
+    from omop import vocab_load
+
+    vocab_load.load_athena(db, ATHENA, by="test")
+    with db.transaction() as tx:  # as if an earlier load (a wider list) had brought KCD7
+        tx.execute("INSERT INTO vocabulary (vocabulary_id, vocabulary_name, vocabulary_reference, vocabulary_version, "
+                   "vocabulary_concept_id) VALUES ('KCD7', 'invented', 'invented', 'v0', 0)")  # fmt: skip
+        tx.execute("INSERT INTO concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, "
+                   "standard_concept, concept_code, valid_start_date, valid_end_date) VALUES (4000002, 'Invented', "
+                   "'Condition', 'KCD7', 'KCD7 code', NULL, 'NOT-A-CODE-2', '1970-01-01', '2099-12-31')")  # fmt: skip
+    res = vocab_load.load_athena(db, _download(tmp_path, "KCD7"), by="test")
+    assert db.fetchval("SELECT count(*) FROM concept WHERE vocabulary_id = 'KCD7'") == 0
+    assert db.fetchval("SELECT count(*) FROM vocabulary WHERE vocabulary_id = 'KCD7'") == 0
+    assert res.as_dict()["athena"]["removed_from_the_box"] == {"KCD7": 1}
+
+
+def test_a_malformed_download_is_refused_with_a_message(db: Any, tmp_path: Path) -> None:  # noqa: F811
+    from omop import vocab_load
+    from omop.schema import OmopError
+
+    d = _download(tmp_path, "SNOMED")
+    with (d / "CONCEPT.csv").open("a", encoding="utf-8") as f:
+        f.write("not-a-number\tInvented\tDrug\tRxNorm\tIngredient\tS\tNOT-A-CODE-9\t19700101\t20991231\t\n")
+    with pytest.raises(OmopError, match="CONCEPT.*concept_id"):
+        vocab_load.load_athena(db, d)
+    bad = tmp_path / "nocol"
+    bad.mkdir()
+    (bad / "VOCABULARY.csv").write_text("vocabulary_id\tvocabulary_name\nRxNorm\tx\n", encoding="utf-8")
+    (bad / "CONCEPT.csv").write_text("concept_id\tconcept_name\n1\tx\n", encoding="utf-8")
+    with pytest.raises(OmopError, match="CONCEPT.*vocabulary_id"):
+        vocab_load.load_athena(db, bad)
+
+
+def test_a_missing_or_empty_register_refuses(db: Any, tmp_path: Path) -> None:  # noqa: F811
+    from omop import vocab_load
+    from omop.schema import OmopError
+
+    with pytest.raises(OmopError, match="no licence register"):
+        vocab_load.load_athena(db, ATHENA, register=tmp_path / "absent.csv")
+    empty = tmp_path / "empty.csv"
+    empty.write_text(",".join(lr.COLUMNS) + "\n", encoding="utf-8")
+    with pytest.raises(OmopError, match="names a loadable vocabulary"):
+        vocab_load.load_athena(db, ATHENA, register=empty)
+    assert vocab_load.athena_loaded(db) == {}
+
+
+def test_the_never_column_keeps_what_review_22_classes_c() -> None:
+    from omop import vocab_load
+
+    reg = vocab_load.athena_register()
+    assert {v for v, c in reg.items() if not c.loadable} >= NEVER_22
+    assert reg["SNOMED"].aliases and "http://snomed.info/sct" in reg["SNOMED"].aliases
