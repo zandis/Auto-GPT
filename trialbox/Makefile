@@ -308,6 +308,15 @@ walk:
 	TB_ENV=DEV PYTHONPATH=libs:services:. $(PY) -m tools.complete_run part walk --dir "$(WALK_DIR)" \
 		--shots "$(WALK_DIR)/shots"
 
+# H-31 (D-1109): the failure drill on the compose test stack (tools/failure_drill.py): each service killed in turn
+# during a night's work, then the database, then a full data volume; no lost job, no double mail, an intact audit
+# chain. Needs Docker and `make images`; brings its own stack up and down for each target (about 75 minutes in all).
+# Not in test-compose: it kills the stack's parts. DRILL_OUT keeps one record per target and the raw records.
+DRILL_OUT ?= build/failure-drill
+.PHONY: failure-drill
+failure-drill:
+	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m tools.failure_drill run --out "$(DRILL_OUT)"
+
 # H-10 (D-1121): a new study from its first step, in Chromium, on a local box in steps mode (D-1062: tools/demo.py,
 # demo mode off, the stub model), once per language; about 7 minutes of seed, then about 70 s per language.
 # TB_WALK_ACCOUNTS, TB_WALK_BASE, TB_WALK_PASSWORD, TB_WALK_ID: tests/e2e/test_new_study_walk.py
