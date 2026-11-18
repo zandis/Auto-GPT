@@ -124,6 +124,14 @@ def ed25519_generate() -> tuple[bytes, bytes]:
     return priv, pub
 
 
+def ed25519_public_of(private_pem: bytes) -> bytes:
+    """The public key (PEM) of an Ed25519 private key (PEM), so a box keeps one key file, not two."""
+    key = serialization.load_pem_private_key(private_pem, password=None)
+    if not isinstance(key, Ed25519PrivateKey):
+        raise ValueError("not an Ed25519 private key")
+    return key.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+
+
 def ed25519_sign(private_pem: bytes, data: bytes) -> bytes:
     key = serialization.load_pem_private_key(private_pem, password=None)
     if not isinstance(key, Ed25519PrivateKey):
