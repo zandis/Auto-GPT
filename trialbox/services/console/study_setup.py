@@ -502,6 +502,17 @@ def register(app: FastAPI, h: Helpers) -> None:
         return RedirectResponse(f"{target}?read={len(out['changes'])}#redcap", status_code=303)
 
     # ------------------------------------------------------------------ D-386: study state and identifiers
+    def before_open(rid: str) -> list[tuple[str, str, bool]]:
+        """WALK-2 (F-04): what a study in start-up records before it opens and its first patient is approached, each
+        with its page and whether it is done (a list, not a gate: D-311). (key, page, done)."""
+        team = getattr(h, "team", None)
+        irb_done = team is not None and not team.irb(rid).warnings(h.today())
+        out = [("irb", f"/studies/{rid}/irb", irb_done)]
+        # the SAE type only where the study reports serious adverse events (D-415: a registry study is not gated)
+        if s28.has_api(bk) and s28.load(bk, store, rid, defaults(rid)).study_type in SAE_STUDY_TYPES:
+            out.insert(0, ("sae", f"/studies/{rid}/setup#sae", not sae_type_missing(rid)))
+        return out
+
     def state_page(request: Request, sess: Session, rid: str, status: int = 200, ident: StudyIdentity | None = None,
                    irbt: IrbText | None = None, **extra: Any) -> Response:  # fmt: skip
         cur = store.study_state(rid)
@@ -512,6 +523,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             status=status,
             rs=rid,
             cur=cur,
+            before_open=before_open(rid) if cur.state == "startup" else [],
             moves=STATE_MOVES.get(cur.state, ()),
             states=STUDY_STATES,
             history=list(reversed(store.state_history(rid))),
