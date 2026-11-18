@@ -182,5 +182,5 @@ Not findings, for the record:
 `make restore-drill` (root, Docker, `make images` first; about 11 minutes): it sets the stack's names in
 `deploy/.env`, links `/opt/trialbox` to the checkout when that path is free, does the night, the backup, the wipe,
 the follow and the comparison, then part B, and writes the record to `RESTORE_DRILL_OUT`. `python -m
-tools.restore_drill compare <record>` prints the comparison table. `tests/unit/test_restore_drill.py` holds the
+tools.restore_drill compare <record>` prints the comparison table. `tests/unit/test_restore_by_the_runbook.py` holds the
 follower, the comparison rules and this page's findings file on stand-ins.

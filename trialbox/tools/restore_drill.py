@@ -37,6 +37,9 @@ withheld), the approved rule sets (version and files) and that a job after the r
 sign-in for each of the four roles (password and code), with a session opened before the wipe refused after it.
 What the restore itself writes (its audit events, the hold flag, the failed jobs) is named in ``EXPECTED_CHANGES``.
 
+Not T-730d's ``trialbox restore-drill`` (D-892, ``tools/trialbox/restore_drill.py``: a backup restored into scratch
+databases on a live box); this drill wipes a test box and restores it by the page.
+
 Nothing here prints or records a password, a key, a code, a token or a row: names, counts, sizes and hashes only.
 """
 

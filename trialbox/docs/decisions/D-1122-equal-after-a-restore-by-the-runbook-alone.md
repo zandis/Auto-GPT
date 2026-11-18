@@ -65,8 +65,11 @@ backup leaves some files out on purpose, and a service that starts again writes 
 
 ## Consequences
 
-- `make restore-drill` runs it where root and Docker are (about ten minutes); `tests/unit/test_restore_drill.py`
+- `make restore-drill` runs it where root and Docker are (about ten minutes); `tests/unit/test_restore_by_the_runbook.py`
   holds the follower, the comparison rules and the findings file on stand-ins.
+- Not to be confused with T-730d's `trialbox restore-drill` (D-892, `tools/trialbox/restore_drill.py`), which
+  restores a backup into scratch databases on a live box and leaves the box untouched. This drill wipes a test box
+  and restores it by the page.
 - The times are of the stub stack with 600 synthetic patients on one machine; they are not RUNBOOK §22's RTO.
 
 ## Not done
