@@ -30,6 +30,9 @@ const vars = { job: "" }; // values read from the product on the way ({job}, {pi
 const stopped = new Set(); // steps stopped with a recorded finding
 let current = "";
 let rec = null; // the record of the step being walked
+// H-21 (D-1138): a plan with a "viewport" walks on a phone; tests/e2e/life_cycle_walk_phone.js measures its pages
+const phone = plan.viewport ? require("./life_cycle_walk_phone.js").phoneWalk(plan, { rec: () => rec, masked, clicked }) : null;
+let phoneStop = 0; // H-21: the step where the phone could not go on
 // H-29 (D-1103): act and expectation kinds a caller adds through ``extend`` (tests/e2e/module_walk.js); the kinds
 // below are unchanged. Each is called with the page, the act, the step's tag and the driver's own helpers.
 const extra = { acts: {}, holds: {} };
@@ -65,10 +68,11 @@ function clicked(text) {
 
 async function signIn(browser, user) {
   const locale = { en: "en-US", "zh-TW": "zh-TW", ja: "ja-JP" }[plan.lang];
-  const c = await browser.newContext({ locale, extraHTTPHeaders: { "Accept-Language": plan.lang } });
+  const c = await browser.newContext({ locale, extraHTTPHeaders: { "Accept-Language": plan.lang }, ...(phone ? phone.context : {}) });
   const p = await c.newPage();
   p.setDefaultTimeout(30000);
   await p.goto(base + "/login", { waitUntil: "load" });
+  if (phone) await phone.measure(p);
   await p.fill("#username", user);
   await p.fill("#password", acc.password);
   await Promise.all([
@@ -82,13 +86,14 @@ async function signIn(browser, user) {
 }
 
 async function chooseLanguage(p, label, apply, waitS) {
+  if (phone) await phone.openMenu(p);
   const form = p.locator("header form").filter({ has: p.locator("#lang") });
   await form.locator("#lang").selectOption(plan.lang);
   await click(p, form.locator("button[type=submit]"), waitS, apply);
   const again = p.locator("header form").filter({ has: p.locator("#lang") });
   check((await p.getAttribute("html", "lang")) === plan.lang, `the page is in ${plan.lang} after the switch`);
   check((await again.getByLabel(label, { exact: true }).count()) === 1, `the language box is labelled "${label}"`);
-  check((await again.getByRole("button", { name: apply, exact: true }).count()) === 1, `its button reads "${apply}"`);
+  check((await again.getByRole("button", { name: apply, exact: true, includeHidden: !!phone }).count()) === 1, `its button reads "${apply}"`);
 }
 
 async function actingRoleControl(p) {
@@ -129,6 +134,7 @@ async function settle(p) {
 }
 
 async function click(p, locator, waitS, text) {
+  if (phone) await phone.reachable(p, locator, text);
   await Promise.all([
     p.waitForEvent("framenavigated", { timeout: waitS * 1000 }),
     locator.click({ noWaitAfter: true }),
@@ -136,6 +142,7 @@ async function click(p, locator, waitS, text) {
   await p.waitForLoadState("load", { timeout: waitS * 1000 });
   await settle(p);
   clicked(text);
+  if (phone) await phone.measure(p);
 }
 
 // the text of a page's alert (an error or a refusal), as the product wrote it
@@ -154,8 +161,10 @@ async function act(p, a, tag) {
     case "language":
       return chooseLanguage(p, a.label, a.text, a.wait_s);
     case "nav":
+      if (phone) await phone.openMenu(p);
       return click(p, p.getByRole("navigation", { name: "main" }).getByRole("link", { name: text, exact: true }), a.wait_s, text);
     case "more":
+      if (phone) await phone.openMenu(p);
       await p.locator("[data-testid=nav-more] summary").filter({ hasText: plan.more }).click();
       clicked(plan.more);
       return click(p, p.locator("[data-testid=nav-more]").getByRole("link", { name: text, exact: true }), a.wait_s, text);
@@ -197,7 +206,8 @@ async function act(p, a, tag) {
       guess(a);
       await p.goto(base + value, { waitUntil: "load" });
       clicked(`(typed) ${masked(value)}`);
-      return settle(p);
+      await settle(p);
+      return phone ? phone.measure(p) : undefined;
     case "first_row_link": {
       // the first row of the table ``data-testid=within``: the tester picks one by a name only the product knows
       guess(a);
@@ -335,6 +345,7 @@ async function holds(p, a) {
 
 async function see(p, a, tag) {
   const [ok, what] = await holds(p, a);
+  if (!ok && phone) return phone.notShown(p, what); // H-21: a measure of the phone, which a finding must name
   return check(ok, `${tag}: ${what}`);
 }
 
@@ -389,9 +400,9 @@ async function main() {
       const tag = `step ${st.n} (${st.role}, ${plan.lang})`;
       const t1 = Date.now();
       rec = { n: st.n, key: st.key, role: st.role, lane: st.lane, lang: plan.lang, at: new Date().toISOString(),
-              clicks: [], inputs: [], read: {}, guesses: [...(st.guesses || [])], refusals: [], stopped: null };
+              clicks: [], inputs: [], read: {}, layout: [], guesses: [...(st.guesses || [])], refusals: [], stopped: null };
       steps.push(rec);
-      if ((st.after || []).some((n) => stopped.has(n))) {
+      if ((st.after || []).some((n) => stopped.has(n)) || phoneStop) {
         rec.stopped = { finding: "", why: "stands on a step that stopped", page: "", path: "" };
         stopped.add(st.n);
         continue;
@@ -411,11 +422,17 @@ async function main() {
         }
         if (!rec.stopped) for (const r of st.refusals) await refuse(browser, r, tag);
       } catch (e) {
-        check(false, `${tag}: ${e.message.split("\n")[0]} at ${new URL(p.url()).pathname}`);
+        const why = e.message.split("\n")[0];
+        if (phone) { // H-21: a control the phone cannot reach stops the walk there; the later steps stand on it
+          await phone.cannotReach(p, why);
+          rec.stopped = { finding: "phone", why: "a control the phone cannot reach", page: masked(why.slice(0, 300)), path: masked(new URL(p.url()).pathname) };
+          stopped.add((phoneStop = rec.n));
+        } else check(false, `${tag}: ${why} at ${new URL(p.url()).pathname}`);
       }
       rec.path = masked(new URL(p.url()).pathname);
       rec.heading = masked(await heading(p));
       rec.seconds = Math.round((Date.now() - t1) / 100) / 10;
+      if (phone) await phone.measure(p);
       if (checks.some((c) => !c.ok)) break; // a later step stands on this one
     }
   } finally {
