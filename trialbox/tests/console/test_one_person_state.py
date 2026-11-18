@@ -200,6 +200,33 @@ def test_the_registry_adds_by_chart_number_but_sets_no_status(study: dict[str, A
     assert n_rows == sum(_strip(page, "registry-counts").values()) + listed == 5
 
 
+def test_the_administrator_adds_without_a_read_of_patient_rows(study: dict[str, Any]) -> None:
+    """The matrix lets the administrator add to the screening log (``request.prepare``) and not read patient rows
+    (``phi.view``, D-280): the add asks for no read of the log, so it is answered as the matrix says (the role walk
+    of train 83 found it refused). An add that names nobody is refused for every role before anything is read."""
+    bk = study["backend"]
+    reads: list[str] = []
+    rows = bk.registry_rows
+
+    def counted(rs: str) -> Any:
+        reads.append(rs)
+        return rows(rs)
+
+    bk.registry_rows = counted
+    admin, csrf = login(study["app"], "admin", ADMIN_PW)
+    r = admin.post("/pilot/registry/GZQO", data={"csrf": csrf, "pid": C, "reason": "walk-in"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/pilot/registry/GZQO", r.text[:300]
+    assert reads == []  # no patient rows asked for this account
+    assert {e.pid: e.status for e in study["reg"].rows("GZQO")}[C] == "candidate"
+    n = len(study["reg"].rows("GZQO"))
+    for user, pw in (("admin", ADMIN_PW), ("crc", PW)):
+        c, token = login(study["app"], user, pw)
+        reads.clear()  # the coordinator's home page reads the log; the add that names nobody does not
+        r = c.post("/pilot/registry/GZQO", data={"csrf": token}, follow_redirects=False)
+        assert r.status_code == 400 and "Give a chart number or a pseudonym".lower() in html.unescape(r.text).lower()
+    assert reads == [] and len(study["reg"].rows("GZQO")) == n
+
+
 def _seq(lb: dict[str, Any]) -> tuple[Any, str, Any, str]:  # noqa: F811
     bk, reg = lb["backend"], lb["reg"]
     bk.registry_rows = reg.rows

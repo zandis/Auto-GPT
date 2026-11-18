@@ -68,7 +68,7 @@
 
   | Action on the old registry page | Now |
   | --- | --- |
-  | Add a patient by chart number (with a status) | the same form and signed route, `POST /pilot/registry/{ruleset}`, without the status: a person not yet on the log is added "On the list" with the reason; a person already on it is refused (409, their state named, a link to their row; nothing written); a status sent is refused (400) |
+  | Add a patient by chart number (with a status) | the same form and signed route, `POST /pilot/registry/{ruleset}`, without the status: a person not yet on the log is added "On the list" with the reason; a person already on it is refused (409, their state named, a link to their row; nothing written); a status sent is refused (400), and so is an add that names nobody; the log is read to find the person only for an account that may read patient rows, so an account that may add and not read (the administrator, D-280) is asked for no read and adds as the matrix says |
   | Set a status by hand on a row (drop-down) | gone: the state follows the step that records it (the investigator's mark, the contact outcome, the consent form, the participant's steps) |
   | Correct a wrong status on a row | where it was recorded: the contact outcome's Undo, or the participant page (undo the last step, or record the step); a REDCap conflict names those places (`rc.conflict`) |
   | Take over a SCREEN run's candidates | unchanged (`/promote`) |

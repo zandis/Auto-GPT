@@ -2331,13 +2331,19 @@ def create_app(
             raise _Problem(400, "registry.add.no_status")
         chart = "".join(mrn.split())
         who_pid = pid.strip()
+        if not chart and not who_pid:  # an add names a person; nothing is sent, read or written for nobody
+            raise _Problem(400, "request.refused", reason="give a chart number or a pseudonym")
         if chart and not who_pid and helpers.chart_to_pid is not None:
             # the one door from a chart number to its pseudonym (D-771: capped, recorded), so an existing row is found
             # before anything is written
             with contextlib.suppress(Exception):
                 who_pid = helpers.chart_to_pid(sess, chart, "registry_add")[0]
                 chart = ""
-        entries = {e.pid: e for e in bk.registry_rows(rs)}
+        # the log is read only to find this person's row, and only for a reader who may read patient rows (D-280): an
+        # account that may add but not read (the administrator) is asked for no read, so its add is answered as the
+        # matrix says and not by a refused read (the role walk, train 83)
+        may_read = person_state.may_read_rows(rs)
+        entries = {e.pid: e for e in bk.registry_rows(rs)} if who_pid and may_read else {}
         if who_pid and who_pid in entries:
             # D-1221: an add never changes a row already on the log (it would reset a declined or consented person)
             now = person_state.read(helpers, rs).of(who_pid)
@@ -2356,6 +2362,8 @@ def create_app(
         try:
             bk.registry_update(rs, upd, sign)
         except Refused as exc:
+            if not may_read:  # the page lists patient rows: this reader gets the refusal's own words, not the list
+                raise _Problem(400, "request.refused", reason=str(exc)) from exc
             return _registry_page(request, sess, rs, 422, error=str(exc))
         return RedirectResponse(f"/pilot/registry/{rs}", status_code=303)
 
