@@ -108,18 +108,32 @@ def test_a_table_with_no_vocabulary_column_cannot_be_checked_in_a_bundle_input(t
 
 
 # ------------------------------------------------------------------------------------------------ JSON and text
-def test_a_value_set_and_a_concept_map_naming_a_forbidden_system_fail(tmp_path: Path) -> None:
+def test_a_value_set_naming_a_forbidden_system_fails(tmp_path: Path) -> None:
     vs = _write(tmp_path / "r/valuesets/VS_INVENTED.json", json.dumps({
         "resourceType": "ValueSet", "compose": {"include": [
             {"system": "http://www.whocc.no/atc", "concept": [{"code": "Z99ZZ99"}]},
             {"system": "http://snomed.info/sct", "concept": [{"code": "NOT-A-CODE-1"}]}]}}))  # fmt: skip
-    cm = _write(tmp_path / "r/maps/CM_INVENTED.json", json.dumps({
-        "resourceType": "ConceptMap", "group": [{"source": "http://hl7.org/fhir/sid/icd-10",
-                                                 "target": "http://hl7.org/fhir/sid/icd-10-cm"}]}))  # fmt: skip
     assert _problems(tmp_path / "r") == [
-        f"{cm}: 1 row(s) of vocabulary 'ICD10', licence class c, must not ship (register row icd10-who)",
         f"{vs}: 1 row(s) of vocabulary 'SNOMED', licence class c, must not ship (register row snomed-ct)",
     ]
+
+
+def test_who_icd10_codes_as_identifiers_pass_as_the_register_ships_them(tmp_path: Path) -> None:
+    """Register row icd10-who-cm-bridge (own-work) ships WHO ICD-10 codes; only the Athena ICD10 vocabulary (codes
+    with WHO's titles) is class c. The refdata pack's bridge map and the rule sets' WHO-only path (D-130) pass."""
+    bridge = _write(tmp_path / "r/map.jsonl", json.dumps({
+        "source_system": "http://hl7.org/fhir/sid/icd-10", "source_code": "NOT-A-CODE-1", "source_display": "",
+        "target_system": "http://hl7.org/fhir/sid/icd-10-cm", "target_code": "NOT-A-CODE-1"}) + "\n")  # fmt: skip
+    cm = _write(tmp_path / "r/CM.json", json.dumps({"resourceType": "ConceptMap", "group": [
+        {"source": "http://hl7.org/fhir/sid/icd-10", "target": "http://hl7.org/fhir/sid/icd-10-cm"}]}))  # fmt: skip
+    assert _problems(bridge, cm) == []
+    athena = _write(
+        tmp_path / "r/athena_rows.csv", CONCEPT_HEADER + "4000009,Invented,Condition,ICD10,ICD10 code,,N-9\n"
+    )
+    assert _problems(athena) == [
+        f"{athena}: 1 row(s) of vocabulary 'ICD10', licence class c, must not ship (register row icd10-who)"
+    ]
+    assert any("icd10-who-cm-bridge" in r.id and r.status == "own-work" for r in lr.load())
 
 
 def test_text_is_searched_for_whole_uris_and_oids(tmp_path: Path) -> None:

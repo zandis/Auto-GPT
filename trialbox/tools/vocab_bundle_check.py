@@ -9,13 +9,15 @@ and ``.gz`` (nested ones too). Tables (CSV, TSV, ``.txt``, Parquet) by their voc
 NDJSON and JSONL by every key and string value; other text (SQL, CQL, YAML, XML, Markdown, files without an
 extension) by a search for the URIs and OIDs of the must-not-ship vocabularies.
 
-**What fails it.** A row, value or mention of a vocabulary the licence register classes ``c`` (must not ship): the
-ids of its ``athena_never`` cells with their aliases, URIs and OIDs (``ID|alias|...``), and the code-system URIs of
-``tools.codemap_release.SYSTEM_REGISTER`` whose register row is class c. Names are compared without case and with
-spaces collapsed. Also a problem: a path that does not exist, no artefact at all, JSON or an NDJSON line that does
-not parse, and anything it **cannot check**: a database file (SQLite, a dump), a ``.bz2``/``.xz``/``.7z``/``.zst``
-archive, a container image tar, a PDF, an unknown binary, or, in a bundle input, a table with no vocabulary or
-system column. Model weights, fonts and images in a models folder are listed as not terminology.
+**What fails it.** A row, value or mention of a vocabulary the licence register classes ``c`` (must not ship): the ids
+of its ``athena_never`` cells with their aliases, URIs and OIDs (``ID|alias|...``), and nothing else: the register is
+the one source. Names are compared without case and with spaces collapsed. (The WHO ICD-10 system URI is not among
+them: WHO ICD-10 codes ship as identifiers under register row ``icd10-who-cm-bridge``; only the Athena ``ICD10``
+vocabulary, codes with WHO's titles, is class c.) Also a problem: a path that does not exist, no artefact at all, JSON
+or an NDJSON line that does not parse, and anything it **cannot check**: a database file (SQLite, a dump), a
+``.bz2``/``.xz``/``.7z``/``.zst`` archive, a container image tar, a PDF, an unknown binary, or, in a bundle input, a
+table with no vocabulary or system column. Model weights, fonts and images in a models folder are listed as not
+terminology.
 
 **By label only.** The check reads the vocabulary labels and system URIs the artefacts carry. A row relabelled, or a
 concept id with no label, passes; looking concept ids up in the site's own download is card 22-4b, not done here.
@@ -49,7 +51,6 @@ for _p in (ROOT, ROOT / "libs", ROOT / "services"):
 from omop.vocab_load import REGISTER, athena_register, fold  # noqa: E402
 
 from tools import licence_register as lr  # noqa: E402
-from tools.codemap_release import SYSTEM_REGISTER  # noqa: E402
 
 BY_LABEL = (
     "checked by label: vocabulary columns, system columns, JSON keys and values, URI and OID mentions; a relabelled "
@@ -104,10 +105,6 @@ def rules(register: Path = REGISTER) -> Rules:
             for n in (v, *c.aliases):
                 names.setdefault(fold(n), (v, c.row))
     rows = lr.load(register)
-    c_rows = {r.id for r in rows if r.klass == lr.MUST_NOT_SHIP}
-    for uri, row in SYSTEM_REGISTER.items():
-        if row in c_rows:
-            names.setdefault(fold(uri), (uri, row))
     needles = {n: hit for n, hit in names.items() if "://" in n or n.startswith("urn:oid:")}
     exceptions = tuple((r.id, r.paths) for r in rows if r.kind == lr.EXCEPTION_KIND)
     return Rules(names, needles, exceptions)
