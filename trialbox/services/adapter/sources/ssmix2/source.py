@@ -28,11 +28,14 @@ The message types read, and the canonical tables (``mapping/templates/CANONICAL.
   no. The 標準病名 code is kept (``byomei_code``) beside the ICD-10, so a code nothing can read reaches the lake as
   itself, not as an empty code (D-130, D-137).
 * ``OMP-01`` prescription / ``OMP-02`` injection orders (RDE^O11, ORC/RXE/TQ1) -> medication: ORC-2 order no, ORC-4
-  Rp group, ORC-9 date, ORC-5 status, RXE-2 the drug (YJ or HOT, with an alternate ATC, YJ or HOT), RXE-3 dose,
-  RXE-5 unit, TQ1-7/8 start/end, file dept.
+  Rp group, ORC-9 date, ORC-5 status, RXE-2 the drug (YJ or HOT, with an alternate ATC, YJ or HOT), RXE-31 the YJ
+  code when RXE-2 names none, RXE-3 one dose (``dose_per_time``), TQ1-3 the 用法 and from it the doses a day (the
+  site's ``usage.csv``, else "1日N回" in its text), ``daily_dose`` their product or empty (10B-4), RXE-5 unit,
+  TQ1-7/8 start/end, file dept.
 * ``OMP-11`` prescription / ``OMP-12`` injection 実施 (RAS^O17, ORC/RXA) (D-137) -> medication, YJ / HOT kept coded:
   folded into the order with the same ORC-2 when the storage has it (only empty fields are filled), else a
-  medication of its own: RXA-5 the drug, RXA-3/4 start/end, RXA-6/7 amount and unit, ORC-9 date, ORC-5 status.
+  medication of its own: RXA-5 the drug, RXA-3/4 start/end, RXA-6/7 the amount given and its unit
+  (``dose_per_time``, never a day's dose), ORC-9 date, ORC-5 status.
 * ``OML-11`` lab results (OUL^R22, SPM/OBR/OBX) -> lab: OBX-21 result id, OBX-3 ``JLAC10^name^JC10``, OBX-5 value
   read by OBX-2 (``CWE`` / ``CE``: the text, else the code; ``SN``: comparator and numbers joined, ``<^0.03`` ->
   ``<0.03``; ``NM`` as is), OBX-6 unit, OBX-7 reference range, OBX-8 flag, OBX-11 status. The sample time is OBX-14,
@@ -81,9 +84,11 @@ import json
 import logging
 import os
 import re
+import unicodedata
 from collections import Counter
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -275,6 +280,62 @@ def drug_codes(seg: hl7.Segment, n: int) -> dict[str, str]:
     return out
 
 
+# RXE-31 (10B-4, review 12 F3): the YJ code the specification puts there (revision 1.2g, as review 12 records it); a
+# triple with no coding system counts only with the YJ shape (the codes of ``jp_core/yj_to_atc.csv``: seven digits,
+# the dosage-form letter, four more)
+_YJ_SHAPE = re.compile(r"^[0-9]{7}[A-Z][0-9A-Z]{4}$")
+
+
+def supplementary_yj(rxe: hl7.Segment) -> str:
+    """The YJ code of RXE-31: the first triple that names a YJ system, else one of the YJ shape with no system."""
+    for code, _text, system in _triples(rxe, 31):
+        code = code.strip()
+        if code and (system in _YJ_SYS or (not system and _YJ_SHAPE.match(code.upper()))):
+            return code
+    return ""
+
+
+def usage(tq1: hl7.Segment | None) -> tuple[str, str]:
+    """``(code, text)`` of the 用法 in TQ1-3 (10B-4). TQ1-3 is an HL7 RPT whose first component is a CWE, so its
+    parts are subcomponents (``code&text&system``); a vendor that writes them as components (``code^text^system``)
+    is read too. JAMI 標準用法 (``JAMISDP01``) or a local code (review 12 §4.6)."""
+    if tq1 is None:
+        return "", ""
+    rep = tq1.field(3).split("~")[0]
+    first = rep.split("^")[0]
+    if "&" in first:
+        parts = [hl7.unescape(x) for x in first.split("&")]
+        return parts[0].strip(), (parts[1] if len(parts) > 1 else "").strip()
+    return hl7.Segment.rep_comp(rep, 1).strip(), hl7.Segment.rep_comp(rep, 2).strip()
+
+
+_KANJI_DIGIT = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+_TIMES_A_DAY = re.compile(r"(?<![0-9一-十])(?:1|一)日\s*([0-9]{1,2}|[一二三四五六七八九十])\s*回")
+
+
+def doses_from_text(text: str) -> int | None:
+    """The number of doses a day a 用法 text states as "1日N回" (full-width or kanji digits too); None for any other
+    wording (頓用, 疼痛時, 隔日, 週1回, 分3 ...): the reader does not guess."""
+    m = _TIMES_A_DAY.search(unicodedata.normalize("NFKC", text or ""))
+    if not m:
+        return None
+    n = int(m.group(1)) if m.group(1).isdigit() else _KANJI_DIGIT[m.group(1)]
+    return n or None
+
+
+def times(dose: str, per_day: int | None) -> str:
+    """One dose times the doses a day, written without a trailing zero; empty when either is unknown or the dose is
+    not a number."""
+    if per_day is None:
+        return ""
+    try:
+        q = Decimal(unicodedata.normalize("NFKC", dose).strip()) * per_day
+    except (InvalidOperation, ValueError):
+        return ""
+    out = format(q, "f")
+    return out.rstrip("0").rstrip(".") if "." in out else out
+
+
 def _icd10cm() -> set[str]:
     """Every ICD-10-CM code (D-122's full list): a WHO ICD-10 code is also given as ICD-10-CM only where it is one."""
     import pyarrow.parquet as pq
@@ -351,6 +412,7 @@ class Ssmix2Source:
         drug_master: Path | None = None,
         ingredient_atc: Path | None = None,
         lab_lookup: Path | None = None,
+        usage_table: Path | None = None,
         licensed: dict[str, dict[str, dict[str, str]]] | None = None,
         quarantine_max_pct: float = QUARANTINE_MAX_PCT,
         order_key: str | None = None,
@@ -363,6 +425,9 @@ class Ssmix2Source:
         self.ext_storage = extended_storage or directory / "extended_storage"
         self.byomei = _lookup(byomei_to_icd10 or JP_CORE / "byomei_to_icd10.csv", "code", "icd10")
         self.yj = _lookup(yj_to_atc or JP_CORE / "yj_to_atc.csv", "yj_code", "atc")
+        # 10B-4: the site's 用法 table (review 12 §7 ``codes/usage.csv``: ``code,doses_per_day``), optional; a code it
+        # does not list is read from its text ("1日3回"), else the daily dose stays unknown
+        self.usage = _lookup(usage_table or JP_CORE / "usage.csv", "code", "doses_per_day")
         if licensed is None:
             from adapter import licensed as lic
 
@@ -740,25 +805,27 @@ class Ssmix2Source:
             first = first or res
         return first or {"code": "", "stem": "", "yj": "", "atc": "", "via": ""}
 
-    def _drug_row(self, sf: StoredFile, orc: hl7.Segment, codes: dict[str, str]) -> Row:
+    def _drug_row(self, sf: StoredFile, orc: hl7.Segment, codes: dict[str, str], source: str = "") -> Row:
+        """``source``: the code the order line itself carried, when another field (RXE-31) gave the YJ code."""
         res = self._resolve_drug(codes)
         yj = codes["yj"]
         if res["via"] == "master" and res["yj"]:  # a HOT or local code the site's master turns into its YJ code
             yj = res["yj"]
             self.stats["medication:YJ from the drug master"] += 1
-        self.drug_lines[codes["yj"] or codes["hot"]] += 1
+        source = source or codes["yj"] or codes["hot"]
+        self.drug_lines[source] += 1
         atc = codes["atc"] or self._atc(yj) or res["atc"]
         if res["stem"]:
             self.stats["medication:ingredient"] += 1
         if res["atc"] and not (codes["atc"] or self._atc(yj)):
             self.stats["medication:ATC from the ingredient table"] += 1
         if not atc:
-            self.missed[f"medication:{codes['yj'] or codes['hot']}"] += 1
+            self.missed[f"medication:{source}"] += 1
         return {
             "rx_no": orc.comp(2, 1),
             "mrn": sf.patient,
             "nhi_drug_code": yj,
-            "source_drug_code": codes["yj"] or codes["hot"],
+            "source_drug_code": source,
             "yj_stem": res["stem"],
             "hot_code": codes["hot"],
             "atc": atc,
@@ -771,14 +838,43 @@ class Ssmix2Source:
         }
 
     def _medication(self, sf: StoredFile, msg: hl7.Message) -> Iterator[Row]:
+        """OMP-01 / OMP-02 (10B-4, review 12 F3): RXE-3 is one dose (``dose_per_time``); the doses a day come from
+        the 用法 of TQ1-3, through the site's usage table, else its text ("1日3回"); ``daily_dose`` is their product,
+        and stays empty when the frequency is unknown (頓用, no TQ1-3, a wording the reader does not read): never a
+        guess. RXE-31's YJ code is read when RXE-2 names no YJ code (a HOT9 or local first code)."""
         orc, rxe, tq1 = msg.first("ORC"), msg.first("RXE"), msg.first("TQ1")
         if orc is None or rxe is None:
             return
-        row = self._drug_row(sf, orc, drug_codes(rxe, 2))
+        codes = drug_codes(rxe, 2)
+        source = ""
+        yj31 = supplementary_yj(rxe)
+        if yj31 and not any(system in _YJ_SYS for _c, _t, system in _triples(rxe, 2)):
+            source = codes["yj"] or codes["hot"]
+            codes = {**codes, "yj": yj31}
+            self.stats["medication:YJ from RXE-31"] += 1
+        row = self._drug_row(sf, orc, codes, source)
+        dose = rxe.comp(3, 1)
+        code, text = usage(tq1)
+        per_day: int | None = None
+        how = ""
+        if code and self.usage.get(code, "").strip().isdigit() and int(self.usage[code]) > 0:
+            per_day, how = int(self.usage[code]), "usage table"
+        elif doses_from_text(text) is not None:
+            per_day, how = doses_from_text(text), "usage text"
+        daily = times(dose, per_day)
+        if dose and not daily:
+            self.stats[f"{sf.type}:daily dose unknown ({'no frequency' if per_day is None else 'dose not a number'})"] += 1
+            if code and per_day is None:
+                self.missed[f"usage:{code}"] += 1
         row.update(
             start_date=(hl7.ts(tq1.field(7)) or "") if tq1 else "",
             end_date=(hl7.ts(tq1.field(8)) or "") if tq1 else "",
-            daily_dose=rxe.comp(3, 1),
+            dose_per_time=dose,
+            doses_per_day=str(per_day) if per_day is not None else "",
+            doses_per_day_from=how,
+            usage_code=code,
+            usage_text=text,
+            daily_dose=daily,
             dose_unit=rxe.comp(5, 1),
         )
         yield row
@@ -793,10 +889,10 @@ class Ssmix2Source:
                     self.stats[f"{typ}:no ORC/RXA"] += 1
                     continue
                 codes = drug_codes(rxa, 5)
-                done = {
+                done = {  # RXA-6 is the amount given at this administration, never a day's dose (10B-4)
                     "start_date": hl7.ts(rxa.field(3)) or "",
                     "end_date": hl7.ts(rxa.field(4)) or "",
-                    "daily_dose": rxa.comp(6, 1),
+                    "dose_per_time": rxa.comp(6, 1),
                     "dose_unit": rxa.comp(7, 1),
                 }
                 order = by_no.get((sf.patient, orc.comp(2, 1)))
@@ -807,6 +903,8 @@ class Ssmix2Source:
                     self.stats[f"{typ}:with its order"] += 1
                     continue
                 row = self._drug_row(sf, orc, codes)
+                # an administration alone says nothing of the doses a day: the daily dose is unknown, never RXA-6
+                row.update(doses_per_day="", doses_per_day_from="", usage_code="", usage_text="", daily_dose="")
                 row.update(done)
                 rows.append(row)
                 by_no[(sf.patient, row["rx_no"])] = row

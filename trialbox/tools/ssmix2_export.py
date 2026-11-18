@@ -191,7 +191,9 @@ def export(src: Path, out: Path) -> dict[str, int]:
         orc = ["ORC", "NW", _e(m["rx_no"]), "", str(k % 3 + 1), status, "", "", "", ""]
         orc[9] = hl7.hl7_ts(m.get("order_date"))
         rxe = ["RXE", "", drug, _e(m.get("daily_dose")), "", _e(m.get("dose_unit"))]
-        tq1 = ["TQ1", "", "", "", "", "", "", hl7.hl7_ts(m.get("start_date")), hl7.hl7_ts(m.get("end_date"))]
+        # RXE-3 is one dose and TQ1-3 the 用法 (10B-4): the CSV knows only the daily dose, so it is written as one dose
+        # once a day ("1日1回", a local usage code with no code), which the reader multiplies back to the same number
+        tq1 = ["TQ1", "", "", "&1日1回&99XYZ", "", "", "", hl7.hl7_ts(m.get("start_date")), hl7.hl7_ts(m.get("end_date"))]
         rxa = [
             "RXA",
             "0",

@@ -129,6 +129,14 @@ overlay:
       identifier[1].system: {template: "{sys.rp_order}"}
       identifier[1].value: {const: "1"}
       medicationCodeableConcept.coding[2]: {builder: coding, column: hot_code, system: hot9}
+      # 10B-4: the reader's daily dose is one dose (RXE-3) times the doses a day of the 用法 (TQ1-3); with no known
+      # frequency it is empty and no daily-dose text is written. The 用法 itself and its doses a day are carried as
+      # the timing
+      dosageInstruction[0].text: {template: "{daily_dose} {dose_unit}", when: {column: daily_dose, not_empty: true}}
+      dosageInstruction[0].timing.code.text: {column: usage_text}
+      dosageInstruction[0].timing.repeat.frequency: {column: doses_per_day, type: int}
+      dosageInstruction[0].timing.repeat.period: {const: 1, when: {column: doses_per_day, not_empty: true}}
+      dosageInstruction[0].timing.repeat.periodUnit: {const: d, when: {column: doses_per_day, not_empty: true}}
   - type: DocumentReference
     table: note
     elements:

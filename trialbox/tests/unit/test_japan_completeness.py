@@ -258,9 +258,11 @@ def test_omp_11_12_fold_into_their_order_or_stand_alone_with_hot_and_yj(tmp_path
         "completed",
         "injection",
     )
-    assert (b["start_date"], b["daily_dose"], b["dose_unit"], b["order_date"]) == (
+    # 10B-4: RXA-6 is the amount given at this administration (review 12 F3), no longer read as a daily dose
+    assert (b["start_date"], b["dose_per_time"], b["daily_dose"], b["dose_unit"], b["order_date"]) == (
         "2026-01-05",
         "162",
+        "",
         "mg",
         "2026-01-05",
     )

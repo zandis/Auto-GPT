@@ -32,7 +32,10 @@ inactive (転帰 死亡), `M` remission (寛解) and `U` (an outcome that says n
 a PRB-1 `DE` diagnosis is a tombstone, never a row; lab `jlac10_code`,
 `hosp_lab_code`, `specimen`; medication `hot_code`, `rp_no`, `rx_kind` (`prescription`, `injection`), `source_drug_code` (the code the order
 line carried, when the site's drug master turned a HOT or local code into `nhi_drug_code`'s YJ code) and `yj_stem`
-(the ingredient, T-610; empty when the line reached none); note_type
+(the ingredient, T-610; empty when the line reached none), and (10B-4) `dose_per_time` (RXE-3 one dose, or RXA-6 the
+amount given), `usage_code` and `usage_text` (TQ1-3 用法), `doses_per_day` with `doses_per_day_from` (`usage table`:
+the site's `usage.csv`, `usage text`: "1日N回"); from SS-MIX2 `daily_dose` is one dose times the doses a day, and empty
+when the frequency is unknown (never a guess); note_type
 `report` and `document` (extended-storage documents).
 
 `identity: {name: name, national_id: id_no}` on the patient table keeps the name and national id encrypted in the

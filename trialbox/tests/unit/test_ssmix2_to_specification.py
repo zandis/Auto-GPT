@@ -150,3 +150,54 @@ def test_f2_the_japan_mapping_gives_each_status_its_fhir_word(storage: kit.Stora
 
 
 JP_MAPPING = Path(__file__).resolve().parents[2] / "services/adapter/mapping/jp_core/ssmix2_site.yaml"
+
+
+# ------------------------------------------------------------------------------------------------ F3 (10B-4)
+def _medicines(st: kit.Storage, table: bool = True) -> tuple[dict[str, dict[str, object]], Ssmix2Source]:
+    usage = st.root.parent / "usage.csv"
+    src = _source(st, usage_table=usage if table else st.root.parent / "absent.csv")
+    return {str(r["rx_no"]): r for r in src.rows("medication", "medication", None, None)}, src
+
+
+def test_f3_two_tablets_three_times_a_day_is_six_a_day(storage: kit.Storage) -> None:
+    """Card 12-3's proof: "1回2錠 1日3回" gives 6 a day; the one dose is kept as it was written."""
+    rows, _ = _medicines(storage)
+    r = rows[kit.RX["tid"]]
+    assert (r["dose_per_time"], r["doses_per_day"], r["doses_per_day_from"], r["daily_dose"], r["dose_unit"]) == (
+        "2",
+        "3",
+        "usage text",
+        "6",
+        "TAB",
+    )
+
+
+def test_f3_a_missing_or_unreadable_frequency_leaves_the_daily_dose_unknown(storage: kit.Storage) -> None:
+    rows, src = _medicines(storage)
+    for key in ("prn", "none"):
+        r = rows[kit.RX[key]]
+        assert (r["dose_per_time"], r["doses_per_day"], r["daily_dose"]) == ("1", "", ""), key
+    assert src.stats["OMP-01:daily dose unknown (no frequency)"] == 2
+    assert src.missed["usage:U99"] == 1  # the steward's work list names the usage code nothing reads
+
+
+def test_f3_the_sites_usage_table_gives_the_doses_a_day_and_without_it_nothing_is_guessed(storage: kit.Storage) -> None:
+    rows, _ = _medicines(storage)
+    r = rows[kit.RX["coded"]]
+    assert (r["usage_code"], r["doses_per_day"], r["doses_per_day_from"], r["daily_dose"]) == ("U02", "2", "usage table", "2")
+    rows, _ = _medicines(storage, table=False)
+    assert (rows[kit.RX["coded"]]["doses_per_day"], rows[kit.RX["coded"]]["daily_dose"]) == ("", "")
+
+
+def test_f3_the_yj_code_of_rxe31_resolves_the_atc_of_a_hot9_line(storage: kit.Storage) -> None:
+    """Card 12-3's proof: HOT9 in RXE-2 and YJ in RXE-31 resolves ATC; the line's own code stays the source."""
+    rows, src = _medicines(storage)
+    r = rows[kit.RX["tid"]]
+    assert (r["nhi_drug_code"], r["hot_code"], r["source_drug_code"], r["atc"]) == (
+        "3943001F1020",
+        "999000001",
+        "999000001",
+        "M04AA01",
+    )
+    assert all(rows[k]["atc"] for k in rows) and not [k for k in src.missed if k.startswith("medication:")]
+    assert src.stats["medication:YJ from RXE-31"] == 4
