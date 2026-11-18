@@ -1,0 +1,1174 @@
+{
+ "card": "H33",
+ "decision": "D-1122",
+ "machine": "compose test stack on this machine's Docker",
+ "head": "a4aa0be15324fe7c3d0a8a351dddd05a50051e68",
+ "started": "2026-11-18T08:08:05+00:00",
+ "steps": [
+  {
+   "step": "box: wipe before the night (a clean start)",
+   "seconds": 7.39,
+   "ok": true
+  },
+  {
+   "step": "box: up (make up-test)",
+   "seconds": 63.58,
+   "ok": true
+  },
+  {
+   "step": "night: ingest synthetic site A (adapter -> lake, FHIR store)",
+   "seconds": 73.12,
+   "ok": true
+  },
+  {
+   "step": "night: five accounts with an authenticator",
+   "seconds": 1.7,
+   "ok": true
+  },
+  {
+   "step": "night: SCREEN by mail (the pinned rule set)",
+   "seconds": 11.5,
+   "ok": true
+  },
+  {
+   "step": "night: the steward opts a listed patient out",
+   "seconds": 0.67,
+   "ok": true
+  },
+  {
+   "step": "night: SCREEN again: the patient withheld",
+   "seconds": 13.35,
+   "ok": true
+  },
+  {
+   "step": "night: a rule set drafted and approved in the console",
+   "seconds": 39.27,
+   "ok": true
+  },
+  {
+   "step": "night: set-up files uploaded",
+   "seconds": 4.51,
+   "ok": true
+  },
+  {
+   "step": "fingerprint before",
+   "seconds": 2.95,
+   "ok": true
+  },
+  {
+   "step": "backup: backup-nightly (by hand, as §5 says)",
+   "seconds": 8.41,
+   "ok": true
+  },
+  {
+   "step": "wipe every volume (down --volumes, objects folder emptied)",
+   "seconds": 3.83,
+   "ok": true
+  },
+  {
+   "step": "restore by the page (every step below, to a healthy box)",
+   "seconds": 132.92,
+   "ok": true
+  },
+  {
+   "step": "fingerprint after",
+   "seconds": 2.71,
+   "ok": true
+  },
+  {
+   "step": "after: SCREEN by mail on the restored box",
+   "seconds": 13.12,
+   "ok": true
+  },
+  {
+   "step": "B: a backup while a SCREEN runs, wipe, restore by the page, the job after",
+   "seconds": 222.62,
+   "ok": true
+  }
+ ],
+ "box_settings": [
+  "COMPOSE_FILE",
+  "COMPOSE_PROFILES",
+  "TB_CONSOLE_MFA",
+  "TB_ENV",
+  "TB_HOST_OBJECTS_DIR",
+  "TB_SETTINGS_FILE",
+  "TB_STUB_LATENCY_S"
+ ],
+ "wipe_first": {
+  "rc": 0,
+  "removed_by_name": [
+   "tb-secrets"
+  ],
+  "volumes_left": [],
+  "objects_left": [],
+  "out": "…ed \n Volume trialbox_db-pg Removed \n Volume trialbox_lake-data Removed \n Volume trialbox_traces-data Removed \n Volume trialbox_console-data Removed \n Volume trialbox_mail-data Removed \n Volume trialbox_orch-data Removed \n Volume trialbox_audit-data Removed \n Volume trialbox_rulesets-data Removed \n Network trialbox-hostnet Removed \n Network trialbox-console Removed \n Network trialbox-egress Removed"
+ },
+ "up": {
+  "rc": 0
+ },
+ "ingest": {
+  "rc": 0
+ },
+ "accounts": {
+  "out": "accounts made"
+ },
+ "optout": {
+  "status": 303
+ },
+ "screens_before": [
+  {
+   "state": "done",
+   "ruleset": "GZQO",
+   "ruleset_version": "1.0.0",
+   "listed": 18,
+   "opted_out_listed": true
+  },
+  {
+   "state": "done",
+   "ruleset": "GZQO",
+   "ruleset_version": "1.0.0",
+   "listed": 17,
+   "opted_out_listed": false
+  }
+ ],
+ "new_ruleset": {
+  "ruleset": "SITE5B",
+  "pasted": 303,
+  "drafted": true,
+  "pi_named": 303,
+  "approved": 303,
+  "state": "done"
+ },
+ "setup_files": {
+  "charts": [
+   303,
+   303
+  ],
+  "dump": 303,
+  "sheet": 303
+ },
+ "sign_in_before": {
+  "drill-admin": {
+   "user": "drill-admin",
+   "password": 303,
+   "code": 303,
+   "home": 200,
+   "ok": true
+  },
+  "drill-crc": {
+   "user": "drill-crc",
+   "password": 303,
+   "code": 303,
+   "home": 200,
+   "ok": true
+  },
+  "drill-pi": {
+   "user": "drill-pi",
+   "password": 303,
+   "code": 303,
+   "home": 200,
+   "ok": true
+  },
+  "drill-viewer": {
+   "user": "drill-viewer",
+   "password": 303,
+   "code": 303,
+   "home": 200,
+   "ok": true
+  }
+ },
+ "backup": {
+  "rc": 0,
+  "out": "backup-nightly: wrote trialbox-DEMO-A-20261118T081209Z.tbbak (15507604 bytes) to 2 targets"
+ },
+ "backup_file": {
+  "name": "trialbox-DEMO-A-20261118T081209Z.tbbak",
+  "bytes": 15507604
+ },
+ "wipe": {
+  "rc": 0,
+  "removed_by_name": [
+   "tb-secrets"
+  ],
+  "volumes_left": [],
+  "objects_left": [],
+  "out": "… Network trialbox-egress Removed \n Network trialbox-hostnet Removed \n Network trialbox-model-net Removed \n Volume trialbox_db-pg Removed \n Volume trialbox_console-data Removed \n Volume trialbox_lake-data Removed \n Volume trialbox_objects-data Removed \n Volume trialbox_mail-data Removed \n Volume trialbox_rulesets-data Removed \n Volume trialbox_orch-data Removed \n Volume trialbox_traces-data Removed"
+ },
+ "follow": {
+  "packs_named": [],
+  "restore_rc": 0,
+  "total_s": 100.44,
+  "lifts": [
+   "trialbox-command",
+   "host-python",
+   "reinstall-test-stack",
+   "compose-project",
+   "objects-bind",
+   "restore-db-url"
+  ],
+  "page_alone": false,
+  "stopped_at": "trialbox-command: the host has no program `trialbox`"
+ },
+ "restore_total_s": 132.92,
+ "healthy_after": true,
+ "follow_steps": [
+  {
+   "key": "verify",
+   "written": "trialbox backup-verify <file> --key <private key>",
+   "run": "trialbox backup-verify /root/h33-drill/nas/trialbox-DEMO-A-20261118T081209Z.tbbak --key [redacted]",
+   "rc": 127,
+   "seconds": 0.0,
+   "out": "bash: line 1: trialbox: command not found",
+   "lifts": [],
+   "supplied": [
+    "<file>: the newest backup on the off-box target",
+    "<private key>: the key from the envelope"
+   ]
+  },
+  {
+   "key": "verify",
+   "written": "trialbox backup-verify <file> --key <private key>",
+   "run": "python3 -m tools.trialbox backup-verify /root/h33-drill/nas/trialbox-DEMO-A-20261118T081209Z.tbbak --key [redacted]",
+   "rc": 1,
+   "seconds": 0.08,
+   "out": "Traceback (most recent call last):\n  File \"<frozen runpy>\", line 203, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/home/user/Auto-GPT/trialbox/tools/trialbox/__main__.py\", line 601, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/home/user/Auto-GPT/trialbox/tools/trialbox/__main__.py\", line 308, in main\n    return _backup_cmd(a)\n  File \"/home/user/Auto-GPT/trialbox/tools/trialbox/__main__.py\", line 500, in _backup_cmd\n    from tools.trialbox import backup as bk\n  File \"/home/user/Auto-GPT/trialbox/tools/trialbox/backup.py\", line 74, in <module>\n    import zstandard\nModuleNotFoundError: No module named 'zstandard'",
+   "lifts": [
+    "trialbox-command"
+   ],
+   "supplied": [
+    "<file>: the newest backup on the off-box target",
+    "<private key>: the key from the envelope"
+   ]
+  },
+  {
+   "key": "verify",
+   "written": "trialbox backup-verify <file> --key <private key>",
+   "run": "python3 -m tools.trialbox backup-verify /root/h33-drill/nas/trialbox-DEMO-A-20261118T081209Z.tbbak --key [redacted]",
+   "rc": 0,
+   "seconds": 0.63,
+   "out": "{\n \"ok\": true,\n \"site\": \"DEMO-A\",\n \"created_at\": \"2026-11-18T08:12:09+00:00\",\n \"layout\": 2,\n \"files\": 780,\n \"sha256\": \"7bc301514f9f8c452b9e9d3752ff0035a42160cd85ee35cbb645301f99f67843\",\n \"excluded\": {\n  \"lake\": {\n   \"lake generations (the newest is db/<snapshot>.duckdb)\": 1,\n   \"lake reader links (the same files as db/)\": 1\n  }\n },\n \"refdata_packs\": [],\n \"databases\": {\n  \"hapi\": 303027,\n  \"trialbox_wf\": 1866\n },\n \"restic\": null\n}",
+   "lifts": [
+    "trialbox-command",
+    "host-python"
+   ],
+   "supplied": [
+    "<file>: the newest backup on the off-box target",
+    "<private key>: the key from the envelope"
+   ]
+  },
+  {
+   "key": "reinstall",
+   "written": "Reinstall (§1) and put each <pack_id>.tar in deploy/refdata/loaded",
+   "run": "make up-test (machine stand-in: lift reinstall-test-stack)",
+   "rc": 0,
+   "seconds": 60.74,
+   "out": "…chestrator-1 Healthy \n Container trialbox-db-1 Healthy \n Container trialbox-adapter-1 Healthy \n Container trialbox-greenmail-1 Healthy \n Container trialbox-lake-1 Healthy \n Container trialbox-console-1 Healthy \n Container trialbox-criteria-compiler-1 Healthy \n Container trialbox-fhir-store-1 Healthy",
+   "lifts": [
+    "trialbox-command",
+    "host-python",
+    "reinstall-test-stack"
+   ],
+   "supplied": []
+  },
+  {
+   "key": "stop",
+   "written": "docker compose stop $(docker compose ps --services | grep -vx db)",
+   "run": "docker compose stop $(docker compose ps --services | grep -vx db)",
+   "rc": 1,
+   "seconds": 0.15,
+   "out": "no configuration file provided: not found\nno configuration file provided: not found",
+   "lifts": [
+    "trialbox-command",
+    "host-python",
+    "reinstall-test-stack"
+   ],
+   "supplied": []
+  },
+  {
+   "key": "stop",
+   "written": "docker compose stop $(docker compose ps --services | grep -vx db)",
+   "run": "docker compose --project-directory deploy stop $(docker compose --project-directory deploy ps --services | grep -vx db)",
+   "rc": 0,
+   "seconds": 2.77,
+   "out": "Container trialbox-criteria-compiler-1 Stopping \n Container trialbox-doc-parser-1 Stopping \n Container trialbox-lake-1 Stopping \n Container trialbox-llm-stub-1 Stopping \n Container trialbox-console-1 Stopping \n Container trialbox-embed-service-1 Stopping \n Container trialbox-fhir-store-1 Stopping \n Container trialbox-adapter-1 Stopping \n Container trialbox-mailpit-1 Stopping \n Container trialbox-audit-writer-1 Stopping \n Container trialbox-greenmail-1 Stopping \n Container trialbox-audit-writer-1 Stopped \n Container trialbox-embed-service-1 Stopped \n Container trialbox-llm-stub-1 Stopped \n Container trialbox-doc-parser-1 Stopped \n Container trialbox-console-1 Stopped \n Container trialbox-gateway-1 Stopping \n Container trialbox-orchestrator-1 Stopping \n Container trialbox-mail-gateway-1 Stopping \n Container trialbox-adapter-1 Stopped \n Container trialbox-mailpit-1 Stopped \n Container trialbox-lake-1 Stopped \n Container trialbox-criteria-compiler-1 Stopped \n Container trialbox-greenmail-1 Stopped \n Container trialbox-fhir-store-1 Stopped \n Container trialbox-orchestrator-1 Stopped \n Container trialbox-mail-gateway-1 Stopped \n Container trialbox-gateway-1 Stopped",
+   "lifts": [
+    "trialbox-command",
+    "host-python",
+    "reinstall-test-stack",
+    "compose-project"
+   ],
+   "supplied": []
+  },
+  {
+   "key": "restore",
+   "written": "trialbox restore <file> --key <private key> --yes [--refdata <folder>]",
+   "run": "python3 -m tools.trialbox restore /root/h33-drill/nas/trialbox-DEMO-A-20261118T081209Z.tbbak --key [redacted] --yes --refdata /home/user/Auto-GPT/trialbox/deploy/refdata/loaded",
+   "rc": 1,
+   "seconds": 1.08,
+   "out": "restore: TB_DB_URL is not set: nothing to back up from the database",
+   "lifts": [
+    "trialbox-command",
+    "host-python",
+    "reinstall-test-stack",
+    "compose-project",
+    "objects-bind"
+   ],
+   "supplied": [
+    "<file>",
+    "<private key>",
+    "--refdata <folder>: deploy/refdata/loaded",
+    "TB_DB_ROLES_CMD: as the paragraph 'Database roles after a restore' writes it"
+   ]
+  },
+  {
+   "key": "restore",
+   "written": "trialbox restore <file> --key <private key> --yes [--refdata <folder>]",
+   "run": "python3 -m tools.trialbox restore /root/h33-drill/nas/trialbox-DEMO-A-20261118T081209Z.tbbak --key [redacted] --yes --refdata /home/user/Auto-GPT/trialbox/deploy/refdata/loaded",
+   "rc": 0,
+   "seconds": 7.53,
+   "out": "{\n \"ok\": true,\n \"site\": \"DEMO-A\",\n \"created_at\": \"2026-11-18T08:12:09+00:00\",\n \"layout\": 2,\n \"rows\": {\n  \"hapi\": 303027,\n  \"trialbox_wf\": 1866\n },\n \"dirs\": [\n  \"audit\",\n  \"console\",\n  \"host\",\n  \"lake\",\n  \"mail\",\n  \"objects\",\n  \"orchestrator\",\n  \"rulesets\",\n  \"secrets\",\n  \"terminology\"\n ],\n \"refdata\": {\n  \"reloaded\": [],\n  \"missing\": []\n },\n \"warnings\": [],\n \"kept_copy\": \"deploy/pre-restore/trialbox-vm-20261118T081321Z.tbbak\",\n \"copy\": \"kept in deploy/pre-restore/trialbox-vm-20261118T081321Z.tbbak\",\n \"host\": \"in the backup; not restored (--dir host=<folder> writes it)\",\n \"lake_check\": {\n  \"snapshots\": 1,\n  \"problems\": [],\n  \"unsigned\": 0,\n  \"checked\": true\n },\n \"to_reapply\": [],\n \"reapply_since\": \"2026-11-18T08:12:05.156+00:00\",\n \"optouts_after_backup\": {\n  \"readable\": true,\n  \"events\": 0,\n  \"since\": \"2026-11-18T08:12:05.156+00:00\",\n  \"by_action\": {},\n  \"by_source\": {},\n  \"from_registry\": 0,\n  \"typed\": 0,\n  \"first_at\": null,\n  \"last_at\": null,\n  \"state\": \"counted\",\n  \"kept\": 0,\n  \"not_kept\": 0,\n  \"lifts_reverted\": 0\n },\n \"jobs_failed\": [],\n \"service_roles\": {\n  \"state\": \"applied\"\n },\n \"complete\": true,\n \"hold\": \"released\",\n \"audit\": \"/var/lib/docker/volumes/trialbox_audit-data/_data\"\n}",
+   "lifts": [
+    "trialbox-command",
+    "host-python",
+    "reinstall-test-stack",
+    "compose-project",
+    "objects-bind",
+    "restore-db-url"
+   ],
+   "supplied": [
+    "<file>",
+    "<private key>",
+    "--refdata <folder>: deploy/refdata/loaded",
+    "TB_DB_ROLES_CMD: as the paragraph 'Database roles after a restore' writes it"
+   ]
+  },
+  {
+   "key": "migrate",
+   "written": "python3 -m tools.trialbox migrate",
+   "run": "python3 -m tools.trialbox migrate",
+   "rc": 0,
+   "seconds": 12.56,
+   "out": "",
+   "lifts": [
+    "trialbox-command",
+    "host-python",
+    "reinstall-test-stack",
+    "compose-project",
+    "objects-bind",
+    "restore-db-url"
+   ],
+   "supplied": []
+  },
+  {
+   "key": "start",
+   "written": "Start them again after the restore. (no command on the page)",
+   "run": "docker compose --project-directory deploy start",
+   "rc": 0,
+   "seconds": 14.89,
+   "out": "Container trialbox-greenmail-1 Starting \n Container trialbox-mailpit-1 Starting \n Container trialbox-db-1 Waiting \n Container trialbox-db-1 Healthy \n Container trialbox-criteria-compiler-1 Starting \n Container trialbox-audit-writer-1 Starting \n Container trialbox-mail-gateway-1 Starting \n Container trialbox-lake-1 Starting \n Container trialbox-llm-stub-1 Starting \n Container trialbox-orchestrator-1 Starting \n Container trialbox-adapter-1 Starting \n Container trialbox-gateway-1 Starting \n Container trialbox-fhir-store-1 Starting \n Container trialbox-embed-service-1 Starting \n Container trialbox-doc-parser-1 Starting \n Container trialbox-greenmail-1 Started \n Container trialbox-mailpit-1 Started \n Container trialbox-criteria-compiler-1 Started \n Container trialbox-audit-writer-1 Started \n Container trialbox-mail-gateway-1 Started \n Container trialbox-mail-gateway-1 Waiting \n Container trialbox-lake-1 Started \n Container trialbox-llm-stub-1 Started \n Container trialbox-orchestrator-1 Started \n Container trialbox-orchestrator-1 Waiting \n Container trialbox-adapter-1 Started \n Container trialbox-gateway-1 Started \n Container trialbox-gateway-1 Waiting \n Container trialbox-fhir-store-1 Started \n Container trialbox-embed-service-1 Started \n Container trialbox-doc-parser-1 Started \n Container trialbox-mail-gateway-1 Healthy \n Container trialbox-gateway-1 Healthy \n Container trialbox-orchestrator-1 Healthy \n Container trialbox-console-1 Starting \n Container trialbox-console-1 Started",
+   "lifts": [
+    "trialbox-command",
+    "host-python",
+    "reinstall-test-stack",
+    "compose-project",
+    "objects-bind",
+    "restore-db-url"
+   ],
+   "supplied": []
+  }
+ ],
+ "chain_prefix": {
+  "files": 3,
+  "not_prefix": [],
+  "ok": true
+ },
+ "comparison": [
+  {
+   "store": "database hapi",
+   "before": "60 tables",
+   "after": "57 equal, 3 changed as expected, 0 unequal",
+   "equal": true,
+   "detail": {
+    "tables": 60,
+    "equal": 57,
+    "expected": [
+     "public.bt2_job_instance",
+     "public.bt2_work_chunk",
+     "public.trm_valueset"
+    ],
+    "unequal": [],
+    "rows": {
+     "public.bt2_job_instance": [
+      3,
+      3
+     ],
+     "public.bt2_work_chunk": [
+      81,
+      84
+     ],
+     "public.trm_valueset": [
+      6,
+      3
+     ]
+    },
+    "ok": true
+   }
+  },
+  {
+   "store": "database trialbox_wf",
+   "before": "134 tables",
+   "after": "115 equal, 19 changed as expected, 0 unequal",
+   "equal": true,
+   "detail": {
+    "tables": 134,
+    "equal": 115,
+    "expected": [
+     "app.flag",
+     "app.flag_event",
+     "audit.journal",
+     "edc._schema_version",
+     "edc.copy_tick",
+     "edc.decision",
+     "edc.direct_source_event",
+     "edc.draft",
+     "edc.item_map",
+     "edc.map_event",
+     "edc.reentry_record",
+     "edc.sent",
+     "edc.signature",
+     "edc.signature_void",
+     "edc.switch",
+     "edc.switch_event",
+     "edc.target",
+     "orch.judged_pairs",
+     "orch.pool"
+    ],
+    "unequal": [],
+    "rows": {
+     "app.flag": [
+      9,
+      9
+     ],
+     "app.flag_event": [
+      9,
+      11
+     ],
+     "audit.journal": [
+      279,
+      280
+     ],
+     "edc._schema_version": [
+      null,
+      8
+     ],
+     "edc.copy_tick": [
+      null,
+      0
+     ],
+     "edc.decision": [
+      null,
+      0
+     ],
+     "edc.direct_source_event": [
+      null,
+      0
+     ],
+     "edc.draft": [
+      null,
+      0
+     ],
+     "edc.item_map": [
+      null,
+      0
+     ],
+     "edc.map_event": [
+      null,
+      0
+     ],
+     "edc.reentry_record": [
+      null,
+      0
+     ],
+     "edc.sent": [
+      null,
+      0
+     ],
+     "edc.signature": [
+      null,
+      0
+     ],
+     "edc.signature_void": [
+      null,
+      0
+     ],
+     "edc.switch": [
+      null,
+      0
+     ],
+     "edc.switch_event": [
+      null,
+      0
+     ],
+     "edc.target": [
+      null,
+      0
+     ],
+     "orch.judged_pairs": [
+      30,
+      29
+     ],
+     "orch.pool": [
+      18,
+      17
+     ]
+    },
+    "ok": true
+   }
+  },
+  {
+   "store": "volume audit-data",
+   "before": "3 files",
+   "after": "3 files, 0 unequal",
+   "equal": true,
+   "detail": {
+    "files": 3,
+    "equal": 1,
+    "missing": [],
+    "added": [],
+    "changed": [
+     "2026-11-18.jsonl",
+     "HEAD.json"
+    ],
+    "unequal": [],
+    "ok": true
+   }
+  },
+  {
+   "store": "volume console-data",
+   "before": "1 files",
+   "after": "1 files, 0 unequal",
+   "equal": true,
+   "detail": {
+    "files": 1,
+    "equal": 1,
+    "missing": [],
+    "added": [],
+    "changed": [],
+    "unequal": [],
+    "ok": true
+   }
+  },
+  {
+   "store": "volume lake-data",
+   "before": "80 files",
+   "after": "78 files, 0 unequal",
+   "equal": true,
+   "detail": {
+    "files": 80,
+    "equal": 77,
+    "missing": [
+     ".rebuild.lock",
+     "db/.open/1917297-1794989399868738443-10235904/2026-10-04.duckdb",
+     "db/gen/2026-10-04.g1.duckdb"
+    ],
+    "added": [
+     "db/.open/1927432-1794989399868738412-10235904/2026-10-04.duckdb"
+    ],
+    "changed": [],
+    "unequal": [],
+    "ok": true
+   }
+  },
+  {
+   "store": "volume mail-data",
+   "before": "0 files",
+   "after": "0 files, 0 unequal",
+   "equal": true,
+   "detail": {
+    "files": 0,
+    "equal": 0,
+    "missing": [],
+    "added": [],
+    "changed": [],
+    "unequal": [],
+    "ok": true
+   }
+  },
+  {
+   "store": "volume objects-data",
+   "before": "30 files",
+   "after": "30 files, 0 unequal",
+   "equal": true,
+   "detail": {
+    "files": 30,
+    "equal": 30,
+    "missing": [],
+    "added": [],
+    "changed": [],
+    "unequal": [],
+    "ok": true
+   }
+  },
+  {
+   "store": "volume orch-data",
+   "before": "48 files",
+   "after": "48 files, 0 unequal",
+   "equal": true,
+   "detail": {
+    "files": 48,
+    "equal": 48,
+    "missing": [],
+    "added": [],
+    "changed": [],
+    "unequal": [],
+    "ok": true
+   }
+  },
+  {
+   "store": "volume rulesets-data",
+   "before": "609 files",
+   "after": "609 files, 0 unequal",
+   "equal": true,
+   "detail": {
+    "files": 609,
+    "equal": 609,
+    "missing": [],
+    "added": [],
+    "changed": [],
+    "unequal": [],
+    "ok": true
+   }
+  },
+  {
+   "store": "volume tb-secrets",
+   "before": "0 files",
+   "after": "0 files, 0 unequal",
+   "equal": true,
+   "detail": {
+    "files": 0,
+    "equal": 0,
+    "missing": [],
+    "added": [],
+    "changed": [],
+    "unequal": [],
+    "ok": true
+   }
+  },
+  {
+   "store": "volume tb-terminology",
+   "before": "0 files",
+   "after": "0 files, 0 unequal",
+   "equal": true,
+   "detail": {
+    "files": 0,
+    "equal": 0,
+    "missing": [],
+    "added": [],
+    "changed": [],
+    "unequal": [],
+    "ok": true
+   }
+  },
+  {
+   "store": "volume traces-data",
+   "before": "0 files",
+   "after": "0 files, 0 unequal",
+   "equal": true,
+   "detail": {
+    "files": 0,
+    "equal": 0,
+    "missing": [],
+    "added": [],
+    "changed": [],
+    "unequal": [],
+    "ok": true
+   }
+  },
+  {
+   "store": "the audit chain's head",
+   "before": "b6a85f56d07dad9d",
+   "after": "5b53034b613ddb15",
+   "equal": true,
+   "detail": {
+    "before": {
+     "file": "2026-11-18.jsonl",
+     "hash": "b6a85f56d07dad9d865256925264886df32ad2f52d1528ba61e89bdf43b50b46",
+     "lines": 279
+    },
+    "after": {
+     "file": "2026-11-18.jsonl",
+     "hash": "5b53034b613ddb15aada492d1838b255c71548a155809d077b1a90284132f1d5",
+     "lines": 282,
+     "verified": true,
+     "prefix_of_after": true
+    }
+   }
+  },
+  {
+   "store": "the opt-out list",
+   "before": "b7f3264a82f4ddc8",
+   "after": "b7f3264a82f4ddc8",
+   "equal": true,
+   "detail": {
+    "before_n": 1,
+    "after_n": 1
+   }
+  },
+  {
+   "store": "the approved rule sets",
+   "before": "6fedd34abe93aea1",
+   "after": "6fedd34abe93aea1",
+   "equal": true,
+   "detail": {
+    "before_n": 10,
+    "after_n": 10
+   }
+  },
+  {
+   "store": "the accounts",
+   "before": "7d51f263af0c6383",
+   "after": "7d51f263af0c6383",
+   "equal": true,
+   "detail": {
+    "before_n": 5,
+    "after_n": 5
+   }
+  }
+ ],
+ "old_sessions_after": {
+  "drill-admin": 200,
+  "drill-crc": 200,
+  "drill-pi": 200,
+  "drill-viewer": 200
+ },
+ "sign_in_after": {
+  "drill-admin": {
+   "user": "drill-admin",
+   "password": 303,
+   "code": 303,
+   "home": 200,
+   "ok": true
+  },
+  "drill-crc": {
+   "user": "drill-crc",
+   "password": 303,
+   "code": 303,
+   "home": 200,
+   "ok": true
+  },
+  "drill-pi": {
+   "user": "drill-pi",
+   "password": 303,
+   "code": 303,
+   "home": 200,
+   "ok": true
+  },
+  "drill-viewer": {
+   "user": "drill-viewer",
+   "password": 303,
+   "code": 303,
+   "home": 200,
+   "ok": true
+  }
+ },
+ "screen_after": {
+  "state": "done",
+  "ruleset": "GZQO",
+  "ruleset_version": "1.0.0",
+  "listed": 17,
+  "opted_out_listed": false
+ },
+ "rulesets_after_job": {
+  "before": "1.0.0",
+  "after": "1.0.0"
+ },
+ "fingerprints": {
+  "before": {
+   "db": {
+    "trialbox_wf": {
+     "tables": 120,
+     "rows": 1866,
+     "hash": "d6e9af5605fa5e8ec4fd9ac02f2d31de98403e76db4d2b93f2018d54fb36b391"
+    },
+    "hapi": {
+     "tables": 60,
+     "rows": 303027,
+     "hash": "a317acac8790ba0613dca08ab2ee0e03275ecfb6681c8952d7e587f9ac6971d3"
+    }
+   },
+   "volumes": {
+    "console-data": {
+     "files": 1,
+     "hash": "f357568631ff6157a8ef4606c34dae3feeaade3d489cc55510ef3fd659b443eb"
+    },
+    "objects-data": {
+     "files": 30,
+     "hash": "add018697d2f8f6c10df4396815fdb405b8f1103b61b525758f135e9301bcbd0"
+    },
+    "lake-data": {
+     "files": 80,
+     "hash": "757bda66d330bdc9747bed2ac6d5fd3eae1fcddf3ffb9f7cab5824994441bf31"
+    },
+    "audit-data": {
+     "files": 3,
+     "hash": "ff7d3d1853bad562c7fc11d47f64618df9cdbaca99bf55a34aa1d81cb74c90fe"
+    },
+    "orch-data": {
+     "files": 48,
+     "hash": "7ab83e7461535640931f7509e3978fe4023f35c985142cfab9d94344d5660df6"
+    },
+    "rulesets-data": {
+     "files": 609,
+     "hash": "2acab4a6cf978f23f6fd3471b5431c75c7eac1505bb395daa7c40982ab867501"
+    },
+    "mail-data": {
+     "files": 0,
+     "hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    "tb-secrets": {
+     "files": 0,
+     "hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    "tb-terminology": {
+     "files": 0,
+     "hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    "traces-data": {
+     "files": 0,
+     "hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    }
+   },
+   "audit_head": {
+    "file": "2026-11-18.jsonl",
+    "lines": 279,
+    "hash": "b6a85f56d07dad9d865256925264886df32ad2f52d1528ba61e89bdf43b50b46"
+   },
+   "audit_verify_rc": 0,
+   "optouts": {
+    "events": 1,
+    "hash": "b7f3264a82f4ddc838e8fbc2979fe084eb407e65da455d244e39002479a98682"
+   },
+   "accounts": {
+    "n": 5,
+    "hash": "7d51f263af0c638385868afbb084d41a9d07cb7048502b486c93799475576d42"
+   },
+   "rulesets": {
+    "AD-MAB": {
+     "version": "1.0.0",
+     "files": "fee391a0be4f4f7e0dfbe7845443dec506f163b0f906723f23d15828007111aa"
+    },
+    "GOUT-COH": {
+     "version": "1.0.0",
+     "files": "945eed469978656d398b69ce77329a5da7ec3cf72c6ed7cb2377db1db923e769"
+    },
+    "GZQO": {
+     "version": "1.0.0",
+     "files": "7cff594aca9e613dfa8519b254234e2959a8bf048296c324e15b20a6fcd2b23b"
+    },
+    "NEUR-COH": {
+     "version": "1.0.0",
+     "files": "72e87da0e9253804642a84e4d0e6e9b192bf1b19614eea49d7d69b876ac64f41"
+    },
+    "ONC-OSI": {
+     "version": "1.0.0",
+     "files": "d186572e6a832d3450d11c801f36e2205bbea0b0440b4d5c9e69e8b6abcf4384"
+    },
+    "RA-BIO": {
+     "version": "1.0.0",
+     "files": "578dfbc6145f01553ed7394f4bfd54de78aacc39cc88b9f96aed86d75e1cbde6"
+    },
+    "RA-COH": {
+     "version": "1.0.0",
+     "files": "4a22f53382812d0a295a8795e1dba29bc9e56f5a9a68e3525cffe9e533731783"
+    },
+    "RA-JAK": {
+     "version": "1.0.0",
+     "files": "247b946189f7397bf6b32ad362064d56bd9a79df9f5507aa50539cdda75e94fc"
+    },
+    "SITE5B": {
+     "version": "1.0.0",
+     "files": "db7afe2794abfed866917fbb41bbcaf0eabeefeae32d0cddcfd3f122e4c79d52"
+    },
+    "profiles": {
+     "version": "none (RulesetNotApproved)",
+     "files": "84b719689f4351fe334899c5a731d78a3e7a841cae4e821e084a1f303078ecc8"
+    }
+   }
+  },
+  "after": {
+   "db": {
+    "trialbox_wf": {
+     "tables": 134,
+     "rows": 1875,
+     "hash": "02793ed00f25769832a6065be65c594fbaf6271a2a512df875c539e325cb9ce3"
+    },
+    "hapi": {
+     "tables": 60,
+     "rows": 303027,
+     "hash": "d703247435898eeec254c6232b5af6547aa328f0a6efb831b596f76f68a5e7a7"
+    }
+   },
+   "volumes": {
+    "console-data": {
+     "files": 1,
+     "hash": "f357568631ff6157a8ef4606c34dae3feeaade3d489cc55510ef3fd659b443eb"
+    },
+    "objects-data": {
+     "files": 30,
+     "hash": "add018697d2f8f6c10df4396815fdb405b8f1103b61b525758f135e9301bcbd0"
+    },
+    "lake-data": {
+     "files": 78,
+     "hash": "e30cf7789168e6b84e280a8f92ef6e6eee675582cbd95808038dd848ff6d2e21"
+    },
+    "audit-data": {
+     "files": 3,
+     "hash": "3b268f5fb3fc442c9edd377d7f01beb5d3d0163ac2a6b27d42ddf0cbaa726302"
+    },
+    "orch-data": {
+     "files": 48,
+     "hash": "7ab83e7461535640931f7509e3978fe4023f35c985142cfab9d94344d5660df6"
+    },
+    "rulesets-data": {
+     "files": 609,
+     "hash": "2acab4a6cf978f23f6fd3471b5431c75c7eac1505bb395daa7c40982ab867501"
+    },
+    "mail-data": {
+     "files": 0,
+     "hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    "tb-secrets": {
+     "files": 0,
+     "hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    "tb-terminology": {
+     "files": 0,
+     "hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    "traces-data": {
+     "files": 0,
+     "hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    }
+   },
+   "audit_head": {
+    "file": "2026-11-18.jsonl",
+    "lines": 282,
+    "hash": "5b53034b613ddb15aada492d1838b255c71548a155809d077b1a90284132f1d5"
+   },
+   "audit_verify_rc": 0,
+   "optouts": {
+    "events": 1,
+    "hash": "b7f3264a82f4ddc838e8fbc2979fe084eb407e65da455d244e39002479a98682"
+   },
+   "accounts": {
+    "n": 5,
+    "hash": "7d51f263af0c638385868afbb084d41a9d07cb7048502b486c93799475576d42"
+   },
+   "rulesets": {
+    "AD-MAB": {
+     "version": "1.0.0",
+     "files": "fee391a0be4f4f7e0dfbe7845443dec506f163b0f906723f23d15828007111aa"
+    },
+    "GOUT-COH": {
+     "version": "1.0.0",
+     "files": "945eed469978656d398b69ce77329a5da7ec3cf72c6ed7cb2377db1db923e769"
+    },
+    "GZQO": {
+     "version": "1.0.0",
+     "files": "7cff594aca9e613dfa8519b254234e2959a8bf048296c324e15b20a6fcd2b23b"
+    },
+    "NEUR-COH": {
+     "version": "1.0.0",
+     "files": "72e87da0e9253804642a84e4d0e6e9b192bf1b19614eea49d7d69b876ac64f41"
+    },
+    "ONC-OSI": {
+     "version": "1.0.0",
+     "files": "d186572e6a832d3450d11c801f36e2205bbea0b0440b4d5c9e69e8b6abcf4384"
+    },
+    "RA-BIO": {
+     "version": "1.0.0",
+     "files": "578dfbc6145f01553ed7394f4bfd54de78aacc39cc88b9f96aed86d75e1cbde6"
+    },
+    "RA-COH": {
+     "version": "1.0.0",
+     "files": "4a22f53382812d0a295a8795e1dba29bc9e56f5a9a68e3525cffe9e533731783"
+    },
+    "RA-JAK": {
+     "version": "1.0.0",
+     "files": "247b946189f7397bf6b32ad362064d56bd9a79df9f5507aa50539cdda75e94fc"
+    },
+    "SITE5B": {
+     "version": "1.0.0",
+     "files": "db7afe2794abfed866917fbb41bbcaf0eabeefeae32d0cddcfd3f122e4c79d52"
+    },
+    "profiles": {
+     "version": "none (RulesetNotApproved)",
+     "files": "84b719689f4351fe334899c5a731d78a3e7a841cae4e821e084a1f303078ecc8"
+    }
+   }
+  }
+ },
+ "during_job": {
+  "state_at_backup": "running",
+  "backup": {
+   "rc": 0,
+   "out": "backup-nightly: wrote trialbox-DEMO-A-20261118T081536Z.tbbak (15706451 bytes) to 2 targets"
+  },
+  "beside_jobs": {
+   "bound_s": 0.0,
+   "count": 1,
+   "jobs": [
+    {
+     "job_id": "01M7PVK96N0Y87Y8A6CRTY7SQ3",
+     "type": "SCREEN"
+    }
+   ],
+   "waited_s": 0.3
+  },
+  "state_before_wipe": "done",
+  "list_mails_before_wipe": 1,
+  "wipe": {
+   "rc": 0,
+   "removed_by_name": [
+    "tb-secrets"
+   ],
+   "volumes_left": [],
+   "objects_left": [],
+   "out": "…emoved \n Volume trialbox_orch-data Removed \n Volume trialbox_objects-data Removed \n Volume trialbox_console-data Removed \n Network trialbox-model-net Removed \n Network trialbox-egress Removed \n Network trialbox-hostnet Removed \n Network trialbox-net Removed \n Volume trialbox_db-pg Removed \n Network trialbox-console Removed \n Volume trialbox_rulesets-data Removed \n Volume trialbox_mail-data Removed"
+  },
+  "follow": {
+   "packs_named": [],
+   "restore_rc": 0,
+   "total_s": 93.12,
+   "lifts": [
+    "trialbox-command",
+    "host-python",
+    "reinstall-test-stack",
+    "compose-project",
+    "objects-bind",
+    "restore-db-url"
+   ],
+   "page_alone": false,
+   "stopped_at": "trialbox-command: the host has no program `trialbox`"
+  },
+  "healthy_after": true,
+  "restore_total_s": 136.44,
+  "jobs_failed_listed": true,
+  "restore_rc": 0,
+  "state_after_restore": "failed",
+  "list_mails_after_restore": 0,
+  "follow_steps": [
+   {
+    "key": "verify",
+    "rc": 127,
+    "seconds": 0.0,
+    "lifts": []
+   },
+   {
+    "key": "verify",
+    "rc": 1,
+    "seconds": 0.09,
+    "lifts": [
+     "trialbox-command"
+    ]
+   },
+   {
+    "key": "verify",
+    "rc": 0,
+    "seconds": 0.72,
+    "lifts": [
+     "trialbox-command",
+     "host-python"
+    ]
+   },
+   {
+    "key": "reinstall",
+    "rc": 0,
+    "seconds": 58.03,
+    "lifts": [
+     "trialbox-command",
+     "host-python",
+     "reinstall-test-stack"
+    ]
+   },
+   {
+    "key": "stop",
+    "rc": 1,
+    "seconds": 0.11,
+    "lifts": [
+     "trialbox-command",
+     "host-python",
+     "reinstall-test-stack"
+    ]
+   },
+   {
+    "key": "stop",
+    "rc": 0,
+    "seconds": 2.78,
+    "lifts": [
+     "trialbox-command",
+     "host-python",
+     "reinstall-test-stack",
+     "compose-project"
+    ]
+   },
+   {
+    "key": "restore",
+    "rc": 1,
+    "seconds": 1.24,
+    "lifts": [
+     "trialbox-command",
+     "host-python",
+     "reinstall-test-stack",
+     "compose-project",
+     "objects-bind"
+    ]
+   },
+   {
+    "key": "restore",
+    "rc": 0,
+    "seconds": 7.79,
+    "lifts": [
+     "trialbox-command",
+     "host-python",
+     "reinstall-test-stack",
+     "compose-project",
+     "objects-bind",
+     "restore-db-url"
+    ]
+   },
+   {
+    "key": "migrate",
+    "rc": 0,
+    "seconds": 12.19,
+    "lifts": [
+     "trialbox-command",
+     "host-python",
+     "reinstall-test-stack",
+     "compose-project",
+     "objects-bind",
+     "restore-db-url"
+    ]
+   },
+   {
+    "key": "start",
+    "rc": 0,
+    "seconds": 10.15,
+    "lifts": [
+     "trialbox-command",
+     "host-python",
+     "reinstall-test-stack",
+     "compose-project",
+     "objects-bind",
+     "restore-db-url"
+    ]
+   }
+  ]
+ },
+ "finished": "2026-11-18T08:19:00+00:00",
+ "machine_versions": {
+  "docker": "29.10.0",
+  "compose": "5.7.1"
+ }
+}
