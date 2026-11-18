@@ -9,7 +9,10 @@
     actions and the same filters. Nothing a role may read or do changes; a role refused an old list is refused its
     view with the same answer.
   - **Every old address redirects** (a GET, 303) to its view with its query kept (``/studies/X/week?list=all&pid=..``
-    to ``/studies/X/people/candidates?list=all&pid=..``). A form posts to the address it posted to before.
+    to ``/studies/X/people/candidates?list=all&pid=..``), for a reader the old route lets in. Any other request (no
+    session, an ended one, a role the route refuses) reaches the old route as before and gets its answer and its
+    audit event there: the gate peeks at the session (no activity, no sign-in, no audit) and asks the strip's
+    questions. A form posts to the address it posted to before.
   - **One strip** above each view (``templates/_people_tabs.html``) names the two lists and the views of the list
     shown, each only where the role may open it (the same questions the routes ask, read from the delegation log,
     without an audit event and without a patient read): one step to the other list, one step to another view.
@@ -32,6 +35,7 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import FastAPI
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
@@ -141,6 +145,8 @@ class _Kept:
 
 
 _flag = _Kept()
+#: set by :func:`register`: whether the reader of a request would be let into the old list (then it redirects)
+_gate: Callable[[Scope, View, str], bool] | None = None
 
 
 def flag_now() -> bool:
@@ -192,7 +198,7 @@ class PeopleLists:
             if new is not None and not on:
                 await _see_other(new[0].old_path(new[1]) + _query(scope))(scope, receive, send)
                 return
-            if old is not None and on:
+            if old is not None and on and _gate is not None and await run_in_threadpool(_gate, scope, *old):
                 await _see_other(old[0].path(old[1]) + _query(scope))(scope, receive, send)
                 return
             if new is not None:  # served by the old route, which asks its own questions
@@ -233,9 +239,28 @@ def register(app: FastAPI, h: Any, env: Any) -> None:
             return rows
         if view.key == "referrals":  # team.need_task(screen)
             return h.stand is not None and "screen" in h.stand(user, rid).tasks
-        if view.key == "registry":  # app.registry_view: the delegation rule; never the administrator (D-280), nor an
-            return h.delegated_ok(user, rid) and not user.is_admin and not user.aggregate_only  # aggregate-only (D-146)
+        if view.key == "registry":  # route_actions: phi.view and task.screen (D-280, D-273); never aggregate-only
+            return rows and not user.is_admin and not user.aggregate_only
         return False
+
+    def gate(scope: Scope, view: View, rs: str) -> bool:
+        """Would the old list's route let this request's reader in? Only then does its address redirect. A session is
+        read without counting as activity; no sign-in is made and nothing is audited (the route does that)."""
+        from console.app import COOKIE
+
+        try:
+            request = Request(scope)
+            sess = h.users.session(request.cookies.get(COOKIE), touch=False)
+            if sess is None or h.users.must_change(sess.user.username):
+                return False
+            rid = rs.strip().upper()
+            # the weekly page and the cohort list are each the route of its own study type; either redirects
+            return may(sess.user, rid, view, view.key == "cohort")
+        except Exception:  # any doubt: the old route answers, as before
+            return False
+
+    global _gate
+    _gate = gate
 
     def offered(user: Any, rid: str) -> dict[str, list[View]]:
         registry = registry_study(rid)

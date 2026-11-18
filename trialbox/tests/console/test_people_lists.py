@@ -43,6 +43,8 @@ OLD: dict[str, str] = {
     f"/studies/{RS}/enrolment": f"/studies/{RS}/people/participants/enrolment",
 }
 KEY_OF = {v.old_path(RS): v.key for v in people_lists.VIEWS}
+#: the columns that read the study registry page's counts without patient rows (D-280, D-380)
+AGGREGATE_REGISTRY = ("steward", "privacy")
 
 
 @pytest.fixture(autouse=True)
@@ -151,6 +153,9 @@ def test_with_the_flag_on_every_old_address_sends_to_its_view_with_its_query(box
         assert not (r.status_code == 303 and "/people/" in r.headers.get("location", "")), path
     # a form posts where it posted before: no redirect of a POST
     assert crc.post(f"/pilot/registry/{RS}", data={}, follow_redirects=False).status_code != 303
+    # no session: the old route answers as before (to sign-in), never the view
+    anon = TestClient(box["app"]).get(f"/studies/{RS}/week?list=all", follow_redirects=False)
+    assert anon.status_code == 303 and anon.headers["location"].startswith("/login"), anon.headers.get("location")
     # an unknown view is not a page
     assert crc.get(f"/studies/{RS}/people/candidates/nothing", follow_redirects=False).status_code == 404
 
@@ -192,12 +197,24 @@ def test_every_role_gets_the_same_answer_and_the_same_actions_and_two_steps_at_m
                 assert r.status_code == 303, (col, old)
                 continue
             assert r.status_code == status, (col, old, status, r.status_code)
+            # the old address: a reader the route lets in goes to the view; anyone else gets the route's own answer
+            o = page.get(old, follow_redirects=False)
+            if status == 200 and col in AGGREGATE_REGISTRY and KEY_OF[old] == "registry":
+                # the steward and the privacy office read the registry page's counts (no patient row): not one of
+                # their lists, so it is not offered and its address answers as before
+                assert o.status_code == 200 and 'data-testid="people-tabs"' not in o.text, (col, o.status_code)
+                continue
+            if status == 200:
+                assert o.status_code == 303 and o.headers["location"] == new, (col, old, o.status_code)
+            else:
+                assert o.status_code == status, (col, old, status, o.status_code)
             if status == 200:
                 assert _main(r.text) == body, (col, old)  # every form, link and filter of the old list, unchanged
                 assert 'data-testid="people-tabs"' in r.text, (col, old)
                 reached.setdefault(col, set()).add(KEY_OF[old])
     # the same refusals: the strip and the redirects ask no question that is refused and audited
-    assert len(_events(box, "console.denied")) - denied_before == 2 * denied_off
+    # each refusal once at the view and once at the old address (its own route), as with the flag off
+    assert len(_events(box, "console.denied")) - denied_before == 3 * denied_off
     for col, (page, _, _) in clients.items():
         got = reached.get(col, set())
         for lst in people_lists.LISTS:
@@ -220,10 +237,11 @@ def test_the_strip_names_the_other_list_only_where_the_role_opens_it(box: dict[s
     crc, _, _ = clients["crc"]
     page = crc.get(f"/studies/{RS}/people/candidates/log").text
     assert 'data-testid="people-list-candidates"' in page and 'data-testid="people-list-participants"' in page
-    stw, _, _ = clients["steward"]  # the steward opens the registry's page (aggregate counts), no patient list
-    page = stw.get(f"/studies/{RS}/people/candidates/registry").text
-    assert 'data-testid="people-list-participants"' not in page
-    assert re.findall(r'data-testid="people-view-([a-z]+)"', page) == ["registry"]
+    stw, _, _ = clients["steward"]  # the steward reads the registry page's counts, no patient list: no view offered
+    assert 'data-testid="people-pick-none"' in stw.get("/people/candidates").text
+    page = stw.get(f"/studies/{RS}/people/candidates/registry")  # its new address serves it, with only that view
+    assert page.status_code == 200 and 'data-testid="people-list-participants"' not in page.text
+    assert re.findall(r'data-testid="people-view-([a-z]+)"', page.text) == ["registry"]
 
 
 # ------------------------------------------------------------------------------------------- the menu and the picker
