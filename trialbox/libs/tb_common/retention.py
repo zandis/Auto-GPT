@@ -39,6 +39,9 @@ DEFAULTS: dict[str, dict[str, int]] = {
     "tw": {**_COMMON, "mail_log_days": 7 * 365},
 }
 OVERRIDABLE = ("attachments_days", "outputs_days", "logs_days", "mail_log_days")
+# 10K-1: the most days a site may give where TrialBox has no rules for its country (a hundred years: a typo, not a
+# period); the rule sets' own overrides keep their only bound, at least one day
+MAX_DAYS = 36500
 # D-779 (T-305c): how many years a closed study's files, pool and marks are kept after the close when the close names
 # no period (a close recorded before the period was asked). Japan's 臨床研究法施行規則 keeps a study's records five
 # years from its end; a sponsor's contract often asks longer, which the trial office gives per study (1 to 30). A
@@ -91,8 +94,8 @@ def site_own(overrides: dict[str, object] | None) -> dict[str, int]:
     out = dict(_COMMON)
     for k in OVERRIDABLE:
         n = int(str((overrides or {})[k]))
-        if n < 1:
-            raise ValueError(f"{k} must be at least 1 day")
+        if not 1 <= n <= MAX_DAYS:
+            raise ValueError(f"{k} must be 1 to {MAX_DAYS} days")
         out[k] = n
     return out
 

@@ -23,7 +23,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from tb_common import chartno, site_country
-from tb_common.retention import OVERRIDABLE
+from tb_common.retention import MAX_DAYS, OVERRIDABLE
 
 LANGUAGES = ("en", "ja", "zh-TW")  # the console's three catalogues
 
@@ -190,8 +190,12 @@ def parse(raw: dict[str, Any], *, disks: tuple[str, ...] = ()) -> tuple[OwnerAns
         cd = site_country.defaults(country)
     except ValueError:
         problems.append(Problem("country", "country"))
+    if country and cd.tz and tz and tz != cd.tz and not any(p.field == "tz" for p in problems):
+        problems.append(Problem("tz", "tz_country"))  # a country with one zone: its shipped mapping states it
     ss_root, ss_order = "", ""
-    if source is SourceKind.SSMIX2:
+    if source is SourceKind.SSMIX2 and not site_country.reads_ssmix2(country):
+        problems.append(Problem("source", "source_country"))  # offered only where a shipped mapping reads it
+    elif source is SourceKind.SSMIX2:
         ss_root = _s(raw.get("ssmix2_root"), 255)
         if not _ROOT_DIR.fullmatch(ss_root) or ss_root == "/" or "/../" in f"{ss_root}/":
             problems.append(Problem("ssmix2_root", "ssmix2_root"))
@@ -203,7 +207,7 @@ def parse(raw: dict[str, Any], *, disks: tuple[str, ...] = ()) -> tuple[OwnerAns
         given = raw["retention_days"] if isinstance(raw.get("retention_days"), dict) else raw
         for k in OVERRIDABLE:
             text = _s(given.get(k), 6)
-            if not (text.isascii() and text.isdigit() and int(text) >= 1):
+            if not (text.isascii() and text.isdigit() and 1 <= int(text) <= MAX_DAYS):
                 problems.append(Problem(k, "retention_days"))
             else:
                 days.append((k, int(text)))

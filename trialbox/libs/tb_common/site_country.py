@@ -77,6 +77,24 @@ TABLE: dict[str, CountryDefaults] = {
 LEGACY = CountryDefaults("", "zh-TW", False, None, "csv", "mapping/tw_core/demo_his.yaml", TWPAS_QUESTIONS)
 
 
+def extends_another(mapping: str) -> bool:
+    """Whether a shipped mapping (``mapping/<folder>/<file>``) itself extends another one: then it can be used only by
+    name, never as the base of a site mapping (the adapter's loader takes one level of ``extends``)."""
+    try:
+        text = (MAPPING_ROOT / mapping).read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return re.search(r"^extends:", text, re.M) is not None
+
+
+def reads_ssmix2(country: str | None) -> bool:
+    """Whether a country's shipped mapping reads an SS-MIX2 storage: the box offers SS-MIX2 only there."""
+    try:
+        return defaults(country).data_source_type == "ssmix2" and bool(str(country or "").strip())
+    except ValueError:
+        return False
+
+
 def defaults(country: str | None) -> CountryDefaults:
     """The defaults for a country answer; :data:`LEGACY` when there is none. Raises ``ValueError`` for an answer that
     is not one of :data:`COUNTRIES`."""

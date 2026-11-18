@@ -411,12 +411,19 @@ def retention_rules(tz: str) -> str:
     return "jp" if tz == "Asia/Tokyo" else "tw"
 
 
-def box_mapping(a: OwnerAnswers) -> tuple[str, str]:
-    """10K-1: the box's site mapping (its name, and the shipped mapping it extends): the country's mapping
-    (``tb_common.site_country.TABLE``) when the owner named a country that has one, else the shared one as before."""
+def box_mapping(a: OwnerAnswers) -> tuple[str, str | None]:
+    """10K-1: the box's mapping and, when the box writes a site mapping of its own, the shipped mapping it extends.
+
+    No country, or a country with no shipped mapping: the box's site mapping over the shared one, as before. A country
+    whose shipped mapping is a base (it extends nothing): a site mapping over it with the site's zone. A country whose
+    shipped mapping itself extends the shared one (Japan's ``jp_core/ssmix2_site.yaml``): that mapping by name and no
+    file, since the adapter's loader takes one level of ``extends`` only; its zone is the country's one zone, which
+    the owner's answers must state (``tb_common.box_answers.parse``)."""
     shipped = site_country.defaults(a.country).mapping if a.country else None
     if not shipped:
         return BOX_MAPPING, "../tw_core/demo_his.yaml"
+    if site_country.extends_another(shipped):
+        return shipped, None
     folder = shipped.split("/")[1]  # mapping/<folder>/<file>
     return f"mapping/{folder}/box_site.yaml", f"../{shipped.split('/', 1)[1]}"
 
@@ -543,8 +550,9 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
         "ctgov_mode": "offline",
         "env_extra": env,
     }
-    files = {"site/hardening.conf": hardening_conf(hw, mdns=a.hostname.endswith(".local")),
-             f"site/{mapping}": mapping_text(a.tz, extends)}  # fmt: skip
+    files = {"site/hardening.conf": hardening_conf(hw, mdns=a.hostname.endswith(".local"))}
+    if extends is not None:
+        files[f"site/{mapping}"] = mapping_text(a.tz, extends)
     if not hw.tpm:
         warnings.append(
             "no usable TPM (systemd-creds has-tpm2): the site keys are sealed under a passphrase the owner "

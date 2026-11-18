@@ -141,12 +141,14 @@ def test_the_kek_follows_the_tpm_and_the_firewall_the_boxs_network() -> None:
 
 @pytest.mark.parametrize("kind", list(SourceKind))
 def test_every_data_source_kind_builds(kind: SourceKind, tmp_path: Path) -> None:
-    extra = {"ssmix2_root": "/mnt/ssmix2"} if kind is SourceKind.SSMIX2 else {}  # 10K-1: its one question
+    # 10K-1: SS-MIX2 is offered for a Japanese site only (its shipped mapping reads it), by that mapping's name
+    extra = {"ssmix2_root": "/mnt/ssmix2", "country": "jp"} if kind is SourceKind.SSMIX2 else {}
     settings, _, _ = _build(bp.plan(_answers(source=kind.value, **extra), _hw()), tmp_path)
     want = {SourceKind.RESEARCH_DB: "cgrd_sql", SourceKind.OWN_DB: "cgrd_sql", SourceKind.SSMIX2: "ssmix2"}.get(
         kind, "csv"
     )
-    assert settings["data_source"]["type"] == want and settings["data_source"]["mapping"] == bp.BOX_MAPPING
+    mapping = "mapping/jp_core/ssmix2_site.yaml" if kind is SourceKind.SSMIX2 else bp.BOX_MAPPING
+    assert settings["data_source"]["type"] == want and settings["data_source"]["mapping"] == mapping
 
 
 @pytest.mark.parametrize(

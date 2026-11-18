@@ -238,8 +238,9 @@ def test_a_box_without_a_country_is_planned_as_before(tmp_path: Path) -> None:
 
 def test_a_japanese_box_with_ssmix2_is_planned_from_the_table(tmp_path: Path) -> None:
     p, s, env = _box(tmp_path, country="jp", source="ssmix2", ssmix2_root="/mnt/ssmix2")
-    assert s["data_source"]["type"] == "ssmix2" and s["data_source"]["mapping"] == "mapping/jp_core/box_site.yaml"
-    assert "extends: ../jp_core/ssmix2_site.yaml" in p.files["site/mapping/jp_core/box_site.yaml"]
+    # the shipped JP mapping by name (it extends the shared one; the loader takes one level), no site file for it
+    assert s["data_source"]["type"] == "ssmix2" and s["data_source"]["mapping"] == "mapping/jp_core/ssmix2_site.yaml"
+    assert set(p.files) == {"site/hardening.conf"}
     assert env["TB_SOURCE_DIR"] == "/mnt/ssmix2" and env["TB_SSMIX2_ORDER_NUMBERS"] == "unique"
     assert s["retention"] == DEFAULTS["jp"] and s["site"]["locale"] == "ja"
     assert not any("T-731" in w and "ssmix2" in w for w in p.warnings)  # SS-MIX2 is no longer "set up later"
@@ -254,14 +255,45 @@ def test_a_box_in_the_united_states_takes_the_owners_retention_days(tmp_path: Pa
 
 
 def test_the_box_answers_refuse_what_the_reader_cannot_use() -> None:
+    jp = {"country": "jp", "source": "ssmix2"}
     for over, field in (
-        ({"source": "ssmix2"}, "ssmix2_root"),
-        ({"source": "ssmix2", "ssmix2_root": "relative/path"}, "ssmix2_root"),
-        ({"source": "ssmix2", "ssmix2_root": "/mnt/a b"}, "ssmix2_root"),
-        ({"source": "ssmix2", "ssmix2_root": "/mnt/../etc"}, "ssmix2_root"),
-        ({"source": "ssmix2", "ssmix2_root": "/mnt/s", "ssmix2_order_numbers": "x"}, "ssmix2_order_numbers"),
+        (jp, "ssmix2_root"),
+        (jp | {"ssmix2_root": "relative/path"}, "ssmix2_root"),
+        (jp | {"ssmix2_root": "/mnt/a b"}, "ssmix2_root"),
+        (jp | {"ssmix2_root": "/mnt/../etc"}, "ssmix2_root"),
+        (jp | {"ssmix2_root": "/mnt/s", "ssmix2_order_numbers": "x"}, "ssmix2_order_numbers"),
         ({"country": "fr"}, "country"),
+        # review of #1088, items 1, 2 and 5: SS-MIX2 only where a shipped mapping reads it; Japan's one zone;
+        # retention days bounded
+        ({"source": "ssmix2", "ssmix2_root": "/mnt/s"}, "source"),
+        ({"country": "tw", "source": "ssmix2", "ssmix2_root": "/mnt/s"}, "source"),
+        (jp | {"ssmix2_root": "/mnt/s", "tz": "Asia/Taipei"}, "tz"),
+        ({"country": "us", "tz": "America/Chicago"} | DAYS | {"logs_days": "36501"}, "logs_days"),
     ):
         a, problems = parse(OWNER | over)
         assert a is None and field in {p.field for p in problems}, over
     assert SourceKind.SSMIX2.value == "ssmix2"
+
+
+@pytest.mark.parametrize("country", ["", *site_country.COUNTRIES])
+@pytest.mark.parametrize("source", [k.value for k in SourceKind])
+def test_every_planned_box_mapping_loads(country: str, source: str, tmp_path: Path) -> None:
+    """Review of #1088, item 1: the mapping a box is planned with is loaded with the adapter's own loader (a base
+    mapping cannot extend another one), for every country and source the box answers allow."""
+    from adapter.mapping.engine import Mapping
+
+    from tools.settings_wizard import find_mapping
+
+    tz = site_country.defaults(country).tz or "Asia/Tokyo"
+    over: dict[str, Any] = {"country": country, "tz": tz, "source": source}
+    if source == "ssmix2":
+        over["ssmix2_root"] = "/mnt/ssmix2"
+    if country and not site_country.defaults(country).retention_rules:
+        over |= DAYS
+    a, problems = parse(OWNER | over)
+    if a is None:  # a source the country does not offer: refused, so never planned
+        assert source == "ssmix2" and {p.field for p in problems} == {"source"}, problems
+        return
+    p, s, _ = _box(tmp_path, **over)
+    path = find_mapping(s["data_source"]["mapping"], [tmp_path / "site" / "mapping"])
+    Mapping.load(path)
