@@ -107,17 +107,17 @@ for i, rs in enumerate(studies):
 
 
 # H-23b: the gate's cascade (``scale_gate.CHILD_SCREEN``, unchanged) with each top-level stage of ``run_cascade`` timed
-# (and the marks of :data:`TRACED_MARKS` inside one) and its memory read: the process's resident peak within the stage (``VmHWM``, reset at the stage's start) and, with
-# ``TB_LADDER_TRACE_FRAMES`` above 0, Python's own tracer (``tracemalloc``): the stage's traced peak and the largest
-# allocation sites still held at its end. A JSON line per stage goes to ``TB_LADDER_TRACE_OUT``. It patches the class
-# in this process only; the product file is not changed.
+# (and the marks of :data:`TRACED_MARKS` inside one) and its memory read: the process's resident peak within the stage
+# (``VmHWM``, reset at the stage's start) and, with a tracer depth above 0, Python's own tracer (``tracemalloc``): the
+# stage's traced peak and the largest allocation sites still held at its end. The depth and the output file are the
+# child's 8th and 9th arguments, after the gate's own seven; a JSON line per stage goes to the file. It patches the
+# class in this process only; the product file is not changed.
 TRACE_PREFIX = r"""
 import json as _json, os as _os, time as _time, tracemalloc as _tm
 from pathlib import Path as _Path
 from matching.cascade import engine as _eng
-_frames = int(_os.environ.get("TB_LADDER_TRACE_FRAMES", "0"))
-_top = int(_os.environ.get("TB_LADDER_TRACE_TOP", "15"))
-_out = _Path(_os.environ["TB_LADDER_TRACE_OUT"])
+import sys as _sys
+_frames, _out, _top = int(_sys.argv[8]), _Path(_sys.argv[9]), 15
 _t0, _depth = _time.perf_counter(), [0]
 if _frames:
     _tm.start(_frames)
@@ -564,9 +564,21 @@ def trace_cascade(kept: Path, frames: int = 0, enforce: str = "") -> dict[str, A
                 "cascade (traced)",
                 "orchestrator",
                 caps["orchestrator"],
-                [sys.executable, "-c", TRACE_PREFIX + sg.CHILD_SCREEN, url, model.url, sg.TRIAL, sg.SNAPSHOT,
-                 sg.REF_DATE.isoformat(), str(work / "screen"), "auto"],  # fmt: skip
-                _env(TB_SERVICE_TOKEN=token, TB_LADDER_TRACE_FRAMES=str(frames), TB_LADDER_TRACE_OUT=str(stages)),
+                [
+                    sys.executable,
+                    "-c",
+                    TRACE_PREFIX + sg.CHILD_SCREEN,
+                    url,
+                    model.url,
+                    sg.TRIAL,
+                    sg.SNAPSHOT,
+                    sg.REF_DATE.isoformat(),
+                    str(work / "screen"),
+                    "auto",
+                    str(frames),
+                    str(stages),
+                ],
+                _env(TB_SERVICE_TOKEN=token),
                 ROOT,
                 logs / "cascade.log",
             )
