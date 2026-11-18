@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     for h in hits:  # card 10A-1: installed as approved; a person recompiles these lines (the scan lists them again)
         print(f"WARNING {h}: its line may negate what its logic asks the presence of; recompile and approve",
               file=sys.stderr)  # fmt: skip
-    print(json.dumps({"installed": tag, "negated_inclusions": hits}))
+    print(json.dumps({"installed": tag, **({"negated_inclusions": hits} if hits else {})}))
     return 0
 
 
