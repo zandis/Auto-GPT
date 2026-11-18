@@ -179,8 +179,9 @@ def _demographic(a: Atom) -> bool:
 
 def met_on_demographics(logic: Atom | BoolExpr | None) -> bool:
     """Whether a criterion's coded logic can be true on its age and sex atoms alone: true for some answer of its age
-    and sex atoms while every other atom is false (card 10A-2: ``age``, ``age and sex``, ``age or gout``, ``age or
-    not gout`` and ``not age`` can; ``gout`` and ``age and gout`` cannot). A logic with more than 12 age or sex atoms
+    and sex atoms while every other record is absent (an atom false, a ``none`` atom true; card 10A-2: ``age``,
+    ``age and sex``, ``age or gout``, ``age or not gout``, ``age and no gout record`` and ``not age`` can; ``gout``
+    and ``age and gout`` cannot). A logic with more than 12 age or sex atoms
     is read as one that can (never seen; the answer that keeps the notes asked)."""
     if logic is None:
         return False
@@ -191,8 +192,8 @@ def met_on_demographics(logic: Atom | BoolExpr | None) -> bool:
         return True
 
     def ev(e: Atom | BoolExpr, on: dict[int, bool]) -> bool:
-        if isinstance(e, Atom):
-            return on.get(id(e), False)
+        if isinstance(e, Atom):  # a record's absence ("none") is true when every other record is taken as absent
+            return on.get(id(e), e.quantifier == "none")
         if e.op == "not":
             return not ev(e.args[0], on)
         got = [ev(x, on) for x in e.args]

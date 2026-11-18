@@ -613,7 +613,7 @@ def rescreen(
                         verdict = seen.pop() if len(seen) == 1 else "not_evaluated"
                     got = {"id": cid, "verdict": verdict, "basis": "coded", "quote": None}
                 elif not codes_settle(c):  # 10A-2: an age or sex part alone never meets a mixed inclusion
-                    if v is None or v.get("basis") not in ("notes", "pair"):
+                    if v is None or v.get("basis") not in ("notes", "pair", "single"):
                         got = {"id": cid, "verdict": "not_evaluated", "basis": None, "quote": None}  # the notes'
                 elif v is not None and v.get("basis") in ("notes", "pair") and v.get("verdict") == "fail":
                     if c.kind == "exclusion" and inferred(str(v.get("quote") or ""), c.text):

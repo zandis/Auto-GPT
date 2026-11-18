@@ -25,6 +25,7 @@ INDEX = date(2026, 10, 5)
 AGE = Atom.model_validate({"domain": "demographic", "valueset": "NONE", "quantifier": "any", "age": {"min": 18.0}})
 FEMALE = Atom(domain="demographic", valueset="NONE", quantifier="any", sex="female")
 GOUT = Atom(domain="condition", valueset="VS_GOUT", quantifier="any")
+NO_GOUT = Atom(domain="condition", valueset="VS_GOUT", quantifier="none")  # "no gout record"
 
 
 def _crit(kind: str, logic: Atom | BoolExpr, text: str, class_: str = "mixed") -> CriterionIR:
@@ -71,6 +72,13 @@ def _b(op: str, *args: Atom | BoolExpr) -> BoolExpr:
         (_b("and", AGE, _b("not", _b("not", GOUT))), True),
         (_b("or", _b("and", AGE, GOUT), _b("and", FEMALE, GOUT)), True),
         (_b("not", GOUT), True),  # no age or sex in it: D-98 as before
+        # the second review: a "none" atom is true on an absent record, so it adds nothing to the age
+        (_b("and", AGE, NO_GOUT), False),
+        (_b("and", AGE, _b("not", NO_GOUT)), True),  # "not none": the record must be there
+        (_b("or", _b("and", AGE, NO_GOUT), GOUT), False),
+        (_b("and", AGE, NO_GOUT, GOUT), True),
+        (_b("and", FEMALE, _b("or", NO_GOUT, GOUT)), False),
+        (NO_GOUT, True),  # no age or sex in it: D-98 as before
     ],
 )
 def test_nestings_of_and_or_and_not(logic: BoolExpr, settles: bool) -> None:
@@ -194,6 +202,7 @@ class _Tables:
     [
         ({"verdict": "pass", "basis": "coded"}, "not_evaluated"),  # P2b's "pass, coded" on the age: open now
         ({"verdict": "pass", "basis": "pair", "quote": "FAP confirmed"}, "pass"),  # the notes' answer stands
+        ({"verdict": "pass", "basis": "single", "quote": "FAP confirmed"}, "pass"),  # a one-model note answer too
     ],
 )
 def test_the_replay_decides_such_a_line_as_the_engine_does(stored: dict[str, Any], expected: str) -> None:
