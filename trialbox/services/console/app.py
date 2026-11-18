@@ -22,6 +22,7 @@ import contextlib
 import hashlib
 import io
 import ipaddress
+import logging
 import os
 import re
 import secrets
@@ -962,12 +963,40 @@ def create_app(
             # D-272 (CR-016, PX-3): the request line is audited with its chart number masked
             detail={"line": mask_ids(line), "mailbox": mailbox, "role": sess.user.role, "channel": "web"},
         )
+        # WALK-1 (F-14): a new study is known as such before its job makes the ruleset (the review of D-1153: its
+        # state is written only once the job is accepted, so a refused request leaves no study behind)
+        new = req.type == "FEAS" and bool(inputs) and bool(req.ruleset) and not known_ruleset(str(req.ruleset))
         try:
             # D-146 (review J-01): the orchestrator authorises by the signed-in person's role, sent signed
-            return bk.create_job(req, by=actor(sess), role=sess.user.role)
+            made = bk.create_job(req, by=actor(sess), role=sess.user.role)
         except Refused as exc:
             au.append("console.refused", job_id=job_id, actor=actor(sess), detail={"reason": str(exc)[:200]})
             raise refusal_problem(str(exc), cmd, mailbox) from exc
+        if new:
+            try:
+                new_study(sess, str(req.ruleset))
+            except Exception:  # the re-review of D-1153: the job was accepted; the page says so, and the log says
+                # the state was not written (the coordinator puts the study in start-up on its state page)
+                logging.getLogger(__name__).exception(
+                    "WALK-1: study %s not put in start-up; its job %s was accepted", req.ruleset, job_id
+                )
+        return made
+
+    def known_ruleset(ruleset: str) -> bool:
+        rid = ruleset.upper()
+        return any(r.id.upper() == rid for r in bk.rulesets())
+
+    def new_study(sess: Session, ruleset: str) -> None:
+        """WALK-1 (F-14, D-386 point 3): a protocol sent for a study the box did not know starts that study in
+        start-up, audited, so it opens only through the move to open and its SAE check (D-415). A study the box knows
+        (a new protocol version of a running study) keeps its state; one with a state keeps it."""
+        rid = ruleset.upper()
+
+        def audit(new: Any) -> None:
+            au.append("console.study_state", ruleset=rid, actor=actor(sess),
+                      detail={"state": new.state, "prev": None, "reason": new.reason})  # fmt: skip
+
+        helpers.store.begin_study(rid, actor(sess), us.clock().isoformat(), before_commit=audit)
 
     def refusal_problem(reason: str, cmd: str, mailbox: str) -> _Problem:
         """The orchestrator's refusal of a request as a page in the user's language (D-146, review J-01/J-02): the

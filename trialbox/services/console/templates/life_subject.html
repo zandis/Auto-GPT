@@ -34,7 +34,7 @@
     <label for="on_day">{{ t('life.step.day') }}</label>
     <input id="on_day" name="on_day" type="date" value="{{ today }}" max="{{ today }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
     {% if 'screen_fail' in sub.next or 'withdrawn' in sub.next %}
-    <label for="reason">{{ t('life.step.reason') }}</label>
+    <label for="reason">{{ t('life.step.reason') }} <span class="hint" data-testid="step-reason-required">({{ t('life.step.reason_required') }})</span></label>
     <select id="reason" name="reason" data-testid="step-reason"><option value=""></option>
       {% if 'screen_fail' in sub.next %}<optgroup label="{{ t('life.state.screen_fail') }}">{% for r in sf_reasons %}<option value="{{ r }}">{{ t('life.reason.sf.' + r) }}</option>{% endfor %}</optgroup>{% endif %}
       {% if 'withdrawn' in sub.next %}<optgroup label="{{ t('life.state.withdrawn') }}">{% for r in wd_reasons %}<option value="{{ r }}">{{ t('life.reason.wd.' + r) }}</option>{% endfor %}</optgroup>{% endif %}

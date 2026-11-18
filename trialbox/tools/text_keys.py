@@ -498,6 +498,8 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     # the provenance search page (D-1155): its five search fields and the two kinds of event the index holds
     "prov.f.": lambda: ("model", "build_sha", "prompt_sha", "prompt_id", "prompt_version"),
     "prov.event.": lambda: ("used", "confirmed"),
+    # the study state page's list of what comes before Open (WALK-2, D-1154): the SAE type and the IRB record
+    "sstate.before.": lambda: ("sae", "irb"),
     "help.page.": _union(_values("console.step4", "HELP_SLUGS"), _guide_pages),
     "guide.page.": _guide_pages,
     "life.gloss.": _values("console.guides", "GLOSSARY"),

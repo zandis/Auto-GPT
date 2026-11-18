@@ -107,7 +107,8 @@ def test_lifecycle_path_on_the_console(lb: dict[str, Any]) -> None:
     r = c.post(f"/studies/GZQO/subjects/{other}/step", data={"csrf": csrf, "to": "screen_fail"})
     assert r.status_code == 409 and "choose a reason" in r.text
     r = c.post(f"/studies/GZQO/subjects/{other}/step",
-               data={"csrf": csrf, "to": "screen_fail", "reason": "declined", "on_day": "2026-11-05"})  # fmt: skip
+               data={"csrf": csrf, "to": "screen_fail", "reason": "declined", "on_day": "2026-11-05",
+                     "confirm": "yes"})  # fmt: skip
     assert 'data-testid="life-saved"' in r.text and "Screen failure" in r.text
     assert lb["reg"].rows("GZQO")[0].status == "screen_fail"  # the screening log follows
     r = c.post(f"/studies/GZQO/subjects/{no}/step", data={"csrf": csrf, "to": "approached", "on_day": "2026-11-02"})
