@@ -322,6 +322,13 @@ walk-life-cycle:
 	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
 	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e tests/e2e/test_life_cycle_walk.py
 
+# H-32 (D-1110): plant the seven faults of plan 8's V17 on the in-process box, one at a time, and record the first
+# page, the mail, /metrics and the runbook as a person meets them (as root the backup target and the disk are mounts)
+.PHONY: planted-faults
+planted-faults:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m integration tests/e2e/test_planted_faults.py
+
 # root + nftables + iproute2 + the running test stack (docs/SECURITY.md §2)
 test-egress:
 	TB_EGRESS_TEST=1 $(PY) -m pytest -q -m egress tests/integration/test_egress.py
