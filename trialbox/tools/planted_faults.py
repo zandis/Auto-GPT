@@ -531,6 +531,9 @@ ADMINS = {"admin": "en", "adminzh": "zh-TW", "adminja": "ja"}
 COORDS = {"crc": "en", "crcja": "ja"}
 PASSWORD = "planted-faults-password-0001"  # a synthetic box's own accounts, made and dropped by this run
 HOST = "trialbox.hospa.test"
+#: the settings the box's deploy/.env carries (backup-status on the command line reads them from there)
+ENV_FILE_KEYS = ("TB_BACKUP_TARGETS", "TB_BACKUP_PUBKEY", "TB_BACKUP_DIRS", "TB_BACKUP_ALERT_CMD", "TB_HEALTH_DISKS",
+                 "TB_SITE_ID")  # fmt: skip
 FIRST_PAGE = "/home"  # where sign-in lands (console.app: "/home" with the workspace on, in every environment)
 
 
@@ -593,7 +596,7 @@ class Box:
             "TB_SITE_ID": "TEST",
         }
         (self.deploy / ".env").write_text("".join(f"{k}={v!r}\n".replace("'", '"') for k, v in self.env.items()
-                                                  if k.startswith(("TB_BACKUP", "TB_SITE", "TB_HEALTH"))),
+                                                  if k in ENV_FILE_KEYS),
                                           encoding="utf-8")  # fmt: skip
         from orchestrator.canary_gate import Gate
 
