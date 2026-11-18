@@ -1,6 +1,6 @@
 """H-32 (D-1110): the planted-faults drill on the in-process box, the seven faults of plan 8's V17 one at a time.
 
-    TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. .venv/bin/python -m pytest tests/e2e/test_planted_faults.py
+    TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. .venv/bin/python -m pytest tests/e2e/test_planted_faults_drill.py
     make planted-faults                                  # the same; the record goes to TB_PLANTED_FAULTS_OUT if set
 
 It fails when a fault could not be planted, when the box was not green before a fault, when a fault does not clear

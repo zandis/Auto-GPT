@@ -6,7 +6,7 @@ page, in the mail and in ``/metrics``, with a runbook page that works." This too
 
     python -m tools.planted_faults run --out <record.json> [--fault backup_target ...] [--db-url URL]
     python -m tools.planted_faults faults           # the seven faults, how each is planted, the product's check
-    make planted-faults                             # the drill test (tests/e2e/test_planted_faults.py), all seven
+    make planted-faults                             # the drill test (tests/e2e/test_planted_faults_drill.py), all seven
 
 **The box.** No Docker daemon runs here, so not the compose box: the in-process box of the console tests and the
 demo (``console.app.create_app`` with ``TB_OPS_RUNNER=inline``: the operations runner, the host facts, the health

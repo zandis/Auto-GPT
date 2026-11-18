@@ -4,7 +4,7 @@
  "date": "2026-11-18",
  "source": "docs/plan/measurements/planted-faults-2026-11-18.md",
  "decision": "D-1110",
- "note": "Written by hand from the drill's record (python -m tools.planted_faults run; tests/e2e/test_planted_faults.py holds the fault-by-surface table). Box: the in-process console, no Docker. fault: the drill's fault key; surface: first page, mail, metrics, runbook or all.",
+ "note": "Written by hand from the drill's record (python -m tools.planted_faults run; tests/e2e/test_planted_faults_drill.py holds the fault-by-surface table). Box: the in-process console, no Docker. fault: the drill's fault key; surface: first page, mail, metrics, runbook or all.",
  "findings": [
   {
    "id": "H32-01",

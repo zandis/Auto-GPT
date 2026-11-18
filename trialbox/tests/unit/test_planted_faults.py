@@ -1,7 +1,7 @@
 """H-32 (D-1110): the planted-faults harness, on stand-ins. No box, no database: how a page is read, which lines are
 new, what counts as shown, in the language, on /metrics and in the mail, which runbook page a text names, the clock's
 stand-in time server and the certificate maker; and that the faults, their runbook quotes and the findings file agree
-with the tree. The drill itself is ``tests/e2e/test_planted_faults.py``."""
+with the tree. The drill itself is ``tests/e2e/test_planted_faults_drill.py``."""
 
 from __future__ import annotations
 

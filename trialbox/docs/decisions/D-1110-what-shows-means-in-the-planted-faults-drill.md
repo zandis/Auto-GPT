@@ -18,7 +18,7 @@ English sentence inside a Japanese mail would each be counted one way by one rea
 
 ## Decision
 
-For this drill (`tools/planted_faults.py`, `tests/e2e/test_planted_faults.py`):
+For this drill (`tools/planted_faults.py`, `tests/e2e/test_planted_faults_drill.py`):
 
 1. **The first page** is the page sign-in lands an administrator on: `/home`, which for an administrator is the
    `/admin` Health tab. It is read as text, as a person reads it. A fault **shows** there when a line that the green

@@ -327,7 +327,7 @@ walk-life-cycle:
 .PHONY: planted-faults
 planted-faults:
 	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
-	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m integration tests/e2e/test_planted_faults.py
+	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m integration tests/e2e/test_planted_faults_drill.py
 
 # H-29 (D-1103): one walk per module H-10 and H-20 do not cover (feasibility, safety, monitoring, amendment) on a local
 # steps-mode box, the roles that use each, three languages; reports findings. walk-<module> walks one module
