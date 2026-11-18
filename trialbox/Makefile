@@ -278,6 +278,7 @@ demo-bundle: jvm-deps
 	@ls -l dist/trialbox-demo.tar.gz
 
 test-e2e:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
 	TB_INTEGRATION=1 $(PY) -m pytest -q -m e2e
 
 # the nightly compose job (ENG-017, T-653; trialbox-e2e.yml): with `make up-test` running, every test marked
@@ -293,6 +294,7 @@ public-data:
 # browser or jar never passes for green. COMPOSE_JUNIT names the junit file.
 COMPOSE_JUNIT ?= $(TB_TEST_ROOT)/compose-junit.xml
 test-compose:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
 	$(HL7_ENV) TB_INTEGRATION=1 TB_STRICT_SKIPS=1 PYTHONPATH=libs:services:. $(PY) -m pytest -q \
 		-m "(integration or e2e) and not egress" --junitxml "$(COMPOSE_JUNIT)" \
 		--ignore tests/e2e/test_console_poc.py tests/integration tests/e2e
