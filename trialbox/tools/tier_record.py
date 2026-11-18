@@ -1,6 +1,6 @@
 """The tier record: one file per GPU profile that says what the box is (plan 10 row 10E-1, commitment C-4, D-1320).
 
-``deploy/tiers/<profile>.json`` (format ``tb-tier-record/1``, schema ``deploy/tiers/tier_record.schema.json``) holds
+``models/tiers/<profile>.json`` (format ``tb-tier-record/1``, schema ``models/tiers/tier_record.schema.json``) holds
 what the gateway, the scheduler, the console, the host check, ``doctor`` and the capability page read about the box:
 sequences, context, roles on the box, protocol route, night budget, interactive lane, what the console promises.
 Each field says its basis and nothing is filled in:
@@ -15,8 +15,8 @@ A record made under the ballast stand-in (plan 10 row 10E-28: a larger card held
 captured with ``--capped-to "... by ballast"``) is refused: a stand-in is never a tier record. So is any record whose
 serving record was capped. Standard library only, so the host's ``python3`` can run it, as ``tools/tiers.py``.
 
-    python3 tools/tier_record.py check [deploy/tiers/<profile>.json ...]   # every record when none named
-    python3 tools/tier_record.py summary deploy/tiers/<profile>.json      # counts by basis, then each field
+    python3 tools/tier_record.py check [models/tiers/<profile>.json ...]   # every record when none named
+    python3 tools/tier_record.py summary models/tiers/<profile>.json      # counts by basis, then each field
     # exit 0 when every record named is complete and sound, 3 with the reasons on stderr when not
 """
 
@@ -36,7 +36,7 @@ except ImportError:  # pragma: no cover - script mode
     import tiers  # type: ignore[no-redef,import-not-found]
 
 ROOT = Path(__file__).resolve().parents[1]
-TIERS_DIR = ROOT / "deploy" / "tiers"
+TIERS_DIR = ROOT / "models" / "tiers"
 SCHEMA_PATH = TIERS_DIR / "tier_record.schema.json"
 FORMAT = "tb-tier-record/1"
 BASES = ("measured", "declared", "not_measured")
@@ -234,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
         return REFUSED if why else 0
     paths = a.records or record_files()
     if not paths:
-        print("tier record: refused: no tier record under deploy/tiers/", file=sys.stderr)
+        print("tier record: refused: no tier record under models/tiers/", file=sys.stderr)
         return REFUSED
     bad = 0
     for p, why in check(paths).items():

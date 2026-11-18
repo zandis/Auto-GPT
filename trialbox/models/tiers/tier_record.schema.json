@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://trialbox.local/deploy/tiers/tier_record.schema.json",
+  "$id": "https://trialbox.local/models/tiers/tier_record.schema.json",
   "title": "TierRecord",
   "description": "The tier record of one GPU profile (plan 10 row 10E-1, commitment C-4, decision record docs/decisions/D-1320-the-tier-record-states-only-what-is-measured-or-declared.md): what the gateway, the scheduler, the console, the host check, doctor and the capability page read about the box. Every field carries its basis: measured (a measurement record of this profile on its own uncapped card, named by path), declared (a file and line that declares it) or not_measured (value null, and the run or card that would measure it). Format tb-tier-record/1. Checked by tools/tier_record.py, which adds what JSON Schema cannot say (sources exist, a measured source passes the serving record rule, no ballast stand-in).",
   "type": "object",
@@ -8,7 +8,7 @@
   "required": ["schema", "profile", "tier", "measured_on", "fields"],
   "properties": {
     "schema": {"const": "tb-tier-record/1"},
-    "profile": {"type": "string", "description": "The GPU profile deploy/gpu_profile.sh prints for this box; the file is deploy/tiers/<profile>.json"},
+    "profile": {"type": "string", "description": "The GPU profile deploy/gpu_profile.sh prints for this box; the file is models/tiers/<profile>.json"},
     "tier": {"type": "string", "description": "The tier name tools/tiers.py gives this profile"},
     "measured_on": {
       "type": "object",
