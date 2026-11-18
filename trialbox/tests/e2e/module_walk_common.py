@@ -156,6 +156,18 @@ def refuse(role: str, method: str, path: str, why: str, fields: tuple[tuple[str,
 
 
 @dataclass(frozen=True)
+class Closed:
+    """A finding an earlier run of the walk saw and the walk no longer sees: its id (never given again), its step,
+    what the earlier run saw, what the walk sees now and what changed it (a decision on master)."""
+
+    id: str
+    step: int
+    showed: str
+    now: str
+    by: str
+
+
+@dataclass(frozen=True)
 class Module:
     """One module walk: its steps after the prefix, its findings, what a steps-mode box cannot complete, the study
     it walks (``study``, a study the box seeds; else a new study per language under ``rulesets``), and the
@@ -172,6 +184,7 @@ class Module:
     prefix: bool = False
     summary: dict[int, dict[str, Any]] = field(default_factory=dict)
     sources: str = ""
+    closed: tuple[Closed, ...] = ()
 
 
 @cache
@@ -317,6 +330,11 @@ def render_module(mod: Module) -> list[str]:
         clicks = mod.summary.get(f.step, {}).get("clicks", "")
         out.append(f"| {f.id} | {f.step} | {f.role} | `{f.path}` | {clicks} | {_cell(f.showed)} | "
                    f"{_cell(f.expected)} ({_cell(f.source)}) | {f.severity} | {f.lane} |")  # fmt: skip
+    if mod.closed:
+        out += ["", f"#### {mod.key.capitalize()}: no longer seen", ""]
+        out += ["| Id | Step | What an earlier run saw | What the walk sees now | Changed by |",
+                "| --- | --- | --- | --- | --- |"]  # fmt: skip
+        out += [f"| {c.id} | {c.step} | {_cell(c.showed)} | {_cell(c.now)} | {_cell(c.by)} |" for c in mod.closed]
     out += ["", f"#### {mod.key.capitalize()}: cannot complete on a steps-mode box", ""]
     if mod.not_completed:
         out += ["| Step | What | What the product needs that the box does not have |", "| --- | --- | --- |"]
@@ -371,7 +389,9 @@ def findings_json() -> str:
             })  # fmt: skip
     doc = {"card": "H29", "title": "the module walks (feasibility, safety, monitoring, amendment)",
            "date": "2026-11-17", "source": str(FINDINGS_PAGE.relative_to(ROOT)), "decision": "D-1103",
-           "findings": rows}  # fmt: skip
+           "findings": rows,
+           "no_longer_seen": [{"id": f"H29-{c.id}", "module": key, "step": c.step, "showed": c.showed, "now": c.now,
+                               "by": c.by} for key in MODULES for c in modules()[key].closed]}  # fmt: skip
     return json.dumps(doc, ensure_ascii=False, indent=1) + "\n"
 
 
@@ -428,7 +448,23 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-__all__ = ["Act", "Do", "F", "Finding", "K", "M", "Module", "Refuse", "S", "See", "Step", "Stop", "T", "refuse"]
+__all__ = [
+    "Act",
+    "Closed",
+    "Do",
+    "F",
+    "Finding",
+    "K",
+    "M",
+    "Module",
+    "Refuse",
+    "S",
+    "See",
+    "Step",
+    "Stop",
+    "T",
+    "refuse",
+]
 
 if __name__ == "__main__":
     sys.exit(main())

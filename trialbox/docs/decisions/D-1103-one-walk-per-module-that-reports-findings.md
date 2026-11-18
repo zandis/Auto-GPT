@@ -53,8 +53,10 @@ own (and on a box without a GPU), safety, monitoring and an amendment.
    targets are added to the Makefile only. CI is not changed: like H-10's and H-20's walks, the nightly compose job
    would collect the e2e tests once merged; the integrator decides whether its budget takes them.
 
-## When lane C2's WALK-1 lands
+## After lane C2's WALK-1 (card H-29b)
 
-A new study will start in start-up and open only after its SAE type is chosen. The imported steps 1 to 15 follow
-H-30's change of H-20's plan; the safety walk's pause-and-reopen (steps 19 and 20) becomes a read of the open state,
-and its findings SAF-02 and SAF-05 are walked again. The findings page says so.
+A new study starts in start-up and opens only after its SAE type is chosen (D-1153). The imported steps 1 to 15
+follow H-30's change of H-20's plan; the safety walk's steps 19 and 20 read the open state and the rule set instead
+of pausing and reopening the study. SAF-02, SAF-04 and SAF-05 were walked again and are no longer seen: a module's
+findings that a later run no longer sees are listed as such (`Closed`, with the decision that changed them) and their
+ids are never given again. The findings page says so.
