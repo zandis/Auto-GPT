@@ -3,9 +3,11 @@ its extended storage (TB-PLAN-04 step 7, D-137).
 
 Layout (SS-MIX2 標準化ストレージ仕様書 v1.2): ``<root>/<id[0:3]>/<id[3:6]>/<patient id>/<YYYYMMDD | ->/<type>/<file>``
 with file names ``<patient id>_<date>_<type>_<order no>_<timestamp>_<dept>_<flag>``. Every change writes a new file;
-the newest timestamp per (patient, type, order no) wins and flag ``0`` means the record was deleted. A site whose
-order numbers come back on another day sets ``TB_SSMIX2_ORDER_NUMBERS=per_day`` (D-594): the day is then part of
-that key; either way an order number seen on several days is counted (``<type>:order number on several days``).
+the newest timestamp per (patient, 診療日, type, order no) wins, the specification's record key (構築ガイドライン
+3.1.4, review 12 F1), and flag ``0`` means the record was deleted. A site whose vendor files an order's amendments
+under another day declares ``TB_SSMIX2_ORDER_NUMBERS=unique`` (D-594, D-1000): the day then leaves the key, except for
+order number ``ALL9`` and the ADT types, which keep it always. Either way an order number seen on several days is
+counted (``<type>:order number on several days``).
 
 The message types read, and the canonical tables (``mapping/templates/CANONICAL.md``) they become:
 
@@ -101,6 +103,8 @@ TYPES = {
 _RECORD_TYPES = frozenset(t for types in TYPES.values() for t in types)
 ORDER_KEY_ENV = "TB_SSMIX2_ORDER_NUMBERS"
 ORDER_KEYS = ("unique", "per_day")  # D-594
+DEFAULT_ORDER_KEY = "per_day"  # the specification's key (D-1000, amends D-594's default "unique")
+ALL9 = "ALL9"  # the order number of data no order manages (患者基本, 病名, アレルギー): 構築ガイドライン 3.1 (review 12 §4.2)
 CHANGES = {"encounter": ("ADT-52",), "medication": ("OMP-11", "OMP-12")}  # read after the table's own types
 INJECTION = ("OMP-02", "OMP-12")
 JP_CORE = Path(__file__).resolve().parents[2] / "mapping" / "jp_core"
@@ -348,7 +352,7 @@ class Ssmix2Source:
         self.missed: Counter[str] = Counter()  # "diagnosis:<標準病名 code>", "medication:<YJ code>"
         self.stats: Counter[str] = Counter()  # messages and documents read, by type and outcome
         # NEW-DIN-4 (D-594): whether the day folder is part of an order's key: the site's declaration
-        self.order_key = order_key or os.environ.get(ORDER_KEY_ENV) or "unique"
+        self.order_key = order_key or os.environ.get(ORDER_KEY_ENV) or DEFAULT_ORDER_KEY
         if self.order_key not in ORDER_KEYS:
             raise ValueError(f"{ORDER_KEY_ENV}={self.order_key!r}: the key is one of {', '.join(ORDER_KEYS)}")
         self._index: dict[str, list[StoredFile]] | None = None
@@ -369,13 +373,18 @@ class Ssmix2Source:
                     sf = parse_name(f)
                     if sf is None or not f.is_file():
                         continue
-                    # D-594: the day is part of the key only where the site says its order numbers repeat
-                    by_day = sf.order == "-" or self.order_key == "per_day"
+                    # D-1000 (amends D-594): the specification's key (patient, 診療日, データ種別, オーダNo; 構築ガイドライン
+                    # 3.1.4, review 12 F1) is the default; ``unique`` is a site's declared exception, and even then
+                    # "ALL9" (data not managed by an order) and the ADT types (a per-day sequence, not an order
+                    # number) keep their day
+                    by_day = (
+                        sf.order in ("-", ALL9) or self.order_key == "per_day" or sf.type.startswith("ADT-")
+                    )
                     key = (sf.patient, sf.type, sf.order, sf.day if by_day else "")
                     cur = latest.get(key)
                     if cur is None or sf.stamp > cur.stamp:
                         latest[key] = sf
-                    if sf.order != "-" and sf.type in _RECORD_TYPES:
+                    if sf.order not in ("-", ALL9) and sf.type in _RECORD_TYPES:
                         on = (sf.patient, sf.type, sf.order, sf.day)
                         if on not in per_day or sf.stamp > per_day[on].stamp:
                             per_day[on] = sf
@@ -423,8 +432,9 @@ class Ssmix2Source:
 
     def _order_on_its_day(self, sf: StoredFile) -> str:
         """The order number for an id built from it (a result with no id of its own): with ``per_day`` it
-        always carries its day, so an id never changes meaning when another day's file appears (D-594)."""
-        return f"{sf.order}@{sf.day}" if self.order_key == "per_day" else sf.order
+        always carries its day, so an id never changes meaning when another day's file appears (D-594); "ALL9"
+        always does, as the key does (D-1000)."""
+        return f"{sf.order}@{sf.day}" if self.order_key == "per_day" or sf.order == ALL9 else sf.order
 
     def _quarantine(self, typ: str, sf: StoredFile, why: str, said: str) -> None:
         self.stats[f"{typ}:quarantined ({why})"] += 1
