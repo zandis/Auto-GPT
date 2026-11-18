@@ -9,8 +9,10 @@
     (`console.person_state`): Candidates' default shows every person whose state is a candidate's (`CANDIDATE`: on the
     list to screen failure, a record at its first step included), Participants' default every person whose state is
     a participant's (`PARTICIPANT`: consented to withdrawn, a re-consent included, and a participant the screening log
-    names before a record exists). Each person of the study is in exactly one of the two; nobody opted out or erased
-    is in either (`People.states`); a state that could not be read is in neither, and the page says the facts could
+    names before a record exists). The people divided are J-2's: every person the console holds a fact about (a mark,
+    a contact outcome, a screening-log row, a participant record), the population every count uses. The patients a
+    screening run found that nobody has acted on yet hold no such fact: they are on "This week", and Candidates'
+    default says so. Each of J-2's people is in exactly one of the two; nobody opted out or erased is in either (`People.states`); a state that could not be read is in neither, and the page says the facts could
     not be read. A filter on a default (`?state=`) is the one state's, never a record's own step.
   - **Each default is built on an old page's route, guard and reads**: Candidates' on the study registry page
     (`/pilot/registry/{rs}`, which already read every person with the one state, and holds the add by chart number,
