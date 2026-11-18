@@ -25,6 +25,7 @@ from datetime import date, timedelta
 from typing import Any, Literal, Protocol, cast
 
 from criteria_compiler.compile_sql.overlay import safe_sql
+from criteria_compiler.semantics import codes_settle
 from guard.injection import planted_in
 from lake.client import LakeAPI
 from matching import coded_values, decision
@@ -661,8 +662,9 @@ JUDGED = ("note", "mixed")  # classes whose note_question the model may be asked
 
 def coded_settles(c: CriterionIR, ev: PatientEvaluation | None) -> bool:
     """D-98: a ``mixed`` criterion is settled by the coded data when its logic is true (an inclusion met, an
-    exclusion present). A false or null coded answer only means the codes did not show it: the notes decide."""
-    return c.class_ == "mixed" and ev is not None and ev.results.get(c.id) is True
+    exclusion present). A false or null coded answer only means the codes did not show it: the notes decide. Card
+    10A-2: an inclusion whose coded part is an age or a sex alone is never settled by it (``codes_settle``)."""
+    return c.class_ == "mixed" and ev is not None and ev.results.get(c.id) is True and codes_settle(c)
 
 
 def is_note_answer(c: CriterionIR, v: CriterionVerdict) -> bool:

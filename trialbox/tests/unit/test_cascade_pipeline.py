@@ -292,6 +292,48 @@ def test_mixed_criterion_codes_settle_when_true_else_notes(env: dict[str, Any]) 
     assert stages - {"S1"}, "patients with silent codes must reach the note stages"
 
 
+@pytest.mark.req("CAS-1")
+@pytest.mark.parametrize(
+    ("text", "logic"),
+    [
+        # review 15 section 2.3 finding 2 (P2b, 6 of 81 mixed inclusions): the coded part is only the age
+        ("18 years or older with a clinical or genetic diagnosis of gout", {"age": {"min": 18.0}}),
+        # a pregnancy line whose coded part kept only the sex: never met on "female" alone
+        ("Women of childbearing potential with a negative pregnancy test at screening", {"sex": "female"}),
+    ],
+)
+def test_mixed_inclusion_is_never_met_on_its_age_or_sex_part_alone(
+    env: dict[str, Any], text: str, logic: dict[str, Any]
+) -> None:
+    """Card 10A-2 (review 15, ``engine.py:586-590``): a mixed inclusion whose coded part is an age or a sex alone
+    was settled "met" at S1 when that part was true, and its other part (the disease, the pregnancy test) was never
+    asked. Its codes now never settle it: the notes decide, and with nothing in the notes it stays unknown, never
+    met and never excluded."""
+    from dataclasses import replace as rep
+
+    from tb_contracts import Atom
+
+    rs = env["rs"]
+    target = next(c for c in rs.active() if c.id == "GZQO-INC-01")  # aged 18 or older: true for every adult
+    mixed = target.model_copy(
+        update={
+            "class_": "mixed",
+            "text": text,
+            "logic": Atom.model_validate({"domain": "demographic", "valueset": "NONE", "quantifier": "any", **logic}),
+            "note_question": f"Do the notes document: {text}?",
+        }
+    )
+    rs2 = rep(rs, criteria=[mixed if c.id == target.id else c for c in rs.criteria])
+    res = _run({**env, "rs": rs2}, RecordingJudge(), sample_per_stratum=None, absence_semantics=False)
+    assert target.id in res.note_criteria
+    got = [t.outcomes[target.id] for t in res.traces.values() if target.id in t.outcomes]
+    assert got, "the line must be answered for the patients who reach the notes"
+    assert not [o for o in got if o.stage == "S1"], "the age or sex part alone settled the line at S1"
+    assert not [o for o in got if o.status == "pass"]  # the judge never says met here: nothing else may
+    assert all(o.status == "unknown" for o in got)
+    assert not [t for t in res.traces.values() if t.exit_criterion == target.id]
+
+
 # --------------------------------------------------------------------------------------------- D-142 review A-07
 class SlowJudge:
     """The quoting judge, a little slow, counting how many calls are in flight at once."""

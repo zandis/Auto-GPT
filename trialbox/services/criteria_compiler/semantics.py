@@ -162,6 +162,29 @@ FILTERED = ("structured", "mixed")  # classes whose logic is compiled to CQL/SQL
 JUDGED = ("note", "mixed")  # classes whose note_question goes to the model
 
 
+def demographic_alone(logic: Atom | BoolExpr | None) -> bool:
+    """Whether a criterion's coded logic is an age or a sex and nothing else: every atom demographic, none naming a
+    ValueSet or a derived value (P2b: an exclusion that compiled to this while its line named more lost its
+    qualifier; a mixed inclusion that compiled to this was met on its age alone, card 10A-2)."""
+    if logic is None:
+        return False
+    got = atoms(logic)
+    return bool(got) and all(
+        a.domain == "demographic" and a.valueset in ("NONE", "", None) and not a.derived and (a.sex or a.age)
+        for a in got
+    )
+
+
+def codes_settle(c: CriterionIR) -> bool:
+    """Whether a ``mixed`` criterion's coded part, when true, settles the line without its note question (D-98).
+    Card 10A-2 (review 15, P2b: 6 of 81 mixed inclusions): an inclusion whose coded part is only an age or a sex
+    ("18 years or older with a diagnosis of FAP", "women with a negative pregnancy test" kept as ``female``) is not
+    met on that part: the notes decide the rest, and with no answer from them the line stays unknown, never met and
+    never excluded. An exclusion keeps D-98 (the compiler's ``qualifier_dropped`` rule keeps an age-or-sex-alone
+    exclusion from running)."""
+    return not (c.class_ == "mixed" and c.kind == "inclusion" and demographic_alone(c.logic))
+
+
 def class_split(criteria: list[CriterionIR]) -> dict[str, int]:
     """How many active (not rejected) inclusion/exclusion criteria each class checks (D-101)."""
     out = {"structured": 0, "mixed": 0, "note": 0, "human": 0}
