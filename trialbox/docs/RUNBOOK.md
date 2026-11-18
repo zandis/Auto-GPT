@@ -174,4 +174,4 @@ build TrialBox; OPS-073: [Developing](DEVELOPING.md) lists them, D-390).
 | 24 | Patch policy | on master | IT, Aimedics |
 | 25 | Leavers | on master | owner |
 | 26 | Platform day 2 | on master | IT (other install form) |
-| 27 | Installing on a workstation with an RTX PRO 6000-class card | B25 (root review 23) | owner (other install form) |
+| 27 | Installing on a workstation with an RTX PRO 6000-class card | on master | owner (other install form) |
