@@ -63,3 +63,90 @@ def test_f1_the_default_is_the_specifications_key() -> None:
 
     assert source.DEFAULT_ORDER_KEY == "per_day"
     assert DECLARED["TB_SSMIX2_ORDER_NUMBERS"].default == "per_day"
+
+
+# ------------------------------------------------------------------------------------------------ F2 (10B-3)
+def _diagnoses(st: kit.Storage) -> tuple[dict[str, dict[str, object]], list[dict[str, object]], Ssmix2Source]:
+    src = _source(st)
+    rows = {str(r["diag_no"]): r for r in src.rows("diagnosis", "diagnosis", None, None)}
+    dead = list(src.deleted_rows("diagnosis", "diagnosis", None, None))
+    return rows, dead, src
+
+
+def test_f2_the_specifications_sample_reads_icd10_onset_current_and_main(storage: kit.Storage) -> None:
+    """Card 12-2's proof: ICD-10 K29.7 from PRB-10, onset 2011-08-31 (PRB-16), diagnosed 2011-09-10 (PRB-7), no
+    outcome so not resolved, 主診断 (PRB-18)."""
+    rows, _, src = _diagnoses(storage)
+    g = rows[kit.DX["gastritis"]]
+    assert (g["icd10"], g["diag_date"], g["diagnosed_date"], g["status"], g["main_diagnosis"]) == (
+        "K29.7",
+        "2011-08-31",
+        "2011-09-10",
+        "A",
+        "Y",
+    )
+    assert g["byomei_code"] == "99990001" and g["suspected"] == ""
+    assert not [k for k in src.missed if k.startswith("diagnosis:")]  # every ICD-10 came from PRB-10
+
+
+def test_f2_a_deleted_diagnosis_is_no_row_and_a_tombstone(storage: kit.Storage) -> None:
+    rows, dead, src = _diagnoses(storage)
+    assert kit.DX["diabetes"] not in rows
+    assert [(d["diag_no"], d["mrn"]) for d in dead] == [(kit.DX["diabetes"], kit.P1)]
+    assert src.stats["PPR-01:deleted diagnosis"] == 1
+
+
+def test_f2_every_outcome_is_read_none_reads_as_active_by_mistake(storage: kit.Storage) -> None:
+    """Cured (F, HL7 0241) is resolved with its end and outcome days; remission (M, JHSD0006) is remission; died (D)
+    is inactive; follow-up stopped (I, JHSD0006) says neither and is U, which the mapping leaves unconfirmed."""
+    rows, _, _ = _diagnoses(storage)
+    got = {k: (rows[v]["status"], rows[v]["outcome"]) for k, v in kit.DX.items() if v in rows}
+    assert got == {
+        "gastritis": ("A", ""),
+        "uri": ("R", "F"),
+        "ra": ("M", "M"),
+        "pneumonia": ("A", ""),
+        "infarct": ("I", "D"),
+        "stopped": ("U", "I"),
+    }
+    uri = rows[kit.DX["uri"]]
+    assert (uri["end_date"], uri["outcome_date"], uri["main_diagnosis"]) == ("2026-03-01", "2026-03-01", "N")
+
+
+def test_f2_a_suspicion_written_only_as_a_modifier_is_suspected(storage: kit.Storage) -> None:
+    rows, _, _ = _diagnoses(storage)
+    p = rows[kit.DX["pneumonia"]]
+    assert (p["byomei_name"], p["written_name"], p["modifiers"], p["suspected"]) == ("肺炎", "肺炎の疑い", "の疑い", "Y")
+
+
+def test_f2_the_japan_mapping_gives_each_status_its_fhir_word(storage: kit.Storage) -> None:
+    """The reader's rows through ``jp_core/ssmix2_site.yaml``: each outcome its clinical status, U none and
+    unconfirmed (D-587), and the end day as the abatement of the cured diagnosis only."""
+    from adapter.mapping.engine import Mapper, Mapping
+
+    m = Mapping.load(JP_MAPPING)
+    mp = Mapper(m, b"k" * 32, "S")
+    spec = next(r for r in m.resources if r.type == "Condition")
+    rows, _, _ = _diagnoses(storage)
+    out = {}
+    for key, no in kit.DX.items():
+        if no in rows:
+            res = mp.map_row(spec, rows[no])
+            assert res is not None, key
+            out[key] = res
+    words = {k: [c["code"] for c in (r.get("clinicalStatus") or {}).get("coding", [])] for k, r in out.items()}
+    assert words == {
+        "gastritis": ["active"],
+        "uri": ["resolved"],
+        "ra": ["remission"],
+        "pneumonia": ["active"],
+        "infarct": ["inactive"],
+        "stopped": [],
+    }
+    unconfirmed = [c["code"] for c in out["stopped"]["verificationStatus"]["coding"] if c]
+    assert "unconfirmed" in unconfirmed
+    assert out["uri"]["abatementDateTime"].startswith("2026-03-01")
+    assert "abatementDateTime" not in out["gastritis"]
+
+
+JP_MAPPING = Path(__file__).resolve().parents[2] / "services/adapter/mapping/jp_core/ssmix2_site.yaml"

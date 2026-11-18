@@ -21,9 +21,11 @@ The message types read, and the canonical tables (``mapping/templates/CANONICAL.
   other event that carries PV1-2 a patient class change (患者区分変更): the new class from PV1-2, the old one kept as
   ``prev_enc_type`` with the time of the change (``Encounter.classHistory``). A change for a visit the storage does not
   hold is counted (``stats``), never turned into a visit.
-* ``PPR-01`` (PPR^ZD1, PRB) -> diagnosis: PRB-3 標準病名 ``code^name^99XYZ^ICD-10^name^I10``, PRB-4 id, PRB-2
-  recorded, PRB-16 onset, PRB-14 status, PRB-13 the 疑い flag (``suspected``, D-142), PV1-19 visit no. The 標準病名
-  code is kept (``byomei_code``) beside the ICD-10, so a code nothing can read reaches the lake as
+* ``PPR-01`` (PPR^ZD1, PRB, ZPR; one snapshot per patient) -> diagnosis (10B-3): PRB-1 ``DE`` a tombstone, PRB-3
+  標準病名 (``code^name^MDCDX2``, or ``code^name^99XYZ^ICD-10^name^I10``), PRB-10 ICD-10 first, PRB-4 id, PRB-2
+  recorded, PRB-7 diagnosed, PRB-9 end, PRB-16 onset, PRB-14 転帰 (HL7 0241 and JHSD0006) as the status, PRB-15 its
+  day, PRB-18 主診断, PRB-17 the written name, ZPR 修飾語, PRB-13 the 疑い flag (``suspected``, D-142), PV1-19 visit
+  no. The 標準病名 code is kept (``byomei_code``) beside the ICD-10, so a code nothing can read reaches the lake as
   itself, not as an empty code (D-130, D-137).
 * ``OMP-01`` prescription / ``OMP-02`` injection orders (RDE^O11, ORC/RXE/TQ1) -> medication: ORC-2 order no, ORC-4
   Rp group, ORC-9 date, ORC-5 status, RXE-2 the drug (YJ or HOT, with an alternate ATC, YJ or HOT), RXE-3 dose,
@@ -45,7 +47,7 @@ where it is (the storage is the hospital's), counted by type and reason in ``sta
 :attr:`Ssmix2Source.quarantined` for the steward, and the patient's other files still load. The table's night is held
 (``quarantine_reason``) only when more than ``quarantine_max_pct`` % of its files could not be read.
 
-ICD-10 comes from PRB-3's alternate coding; when a vendor sends only the 標準病名 code it is looked up in the site's
+ICD-10 comes from PRB-10, else PRB-3's alternate coding; when a vendor sends only the 標準病名 code it is looked up in the site's
 licensed MEDIS release (``adapter.licensed``) and then in ``byomei_to_icd10.csv`` (``code,icd10``). Japan codes in
 WHO ICD-10 (2013), not ICD-10-CM (D-314): ``icd10`` is the WHO code as the site wrote it (written ``E14.9``: upper
 case, the dot after the category, a dagger or asterisk mark dropped), kept even when ICD-10-CM has no such code
@@ -215,6 +217,37 @@ def _suspected(prb: hl7.Segment) -> bool:
 
 
 _ICD10_SYS = ("I10", "ICD10")  # the HL7 table 0396 name and the spelling vendors write
+# PRB-14 転帰 (10B-3, review 12 F2) -> the canonical diagnosis ``status``: A active, R resolved, I inactive, M remission,
+# U an outcome that says neither (D-587: no clinical status and unconfirmed, never active). HL7 table 0241 as HL7 v2.5
+# publishes it (D dead, F fully recovered, N not recovering or unchanged, P improving, R recovered with sequelae, S
+# deteriorated, U unknown, W worsening); JHSD0006 as review 12 §4.10 F2 records it (I 中止, M 寛解, C 継続, O その他),
+# not re-verified. The two tables share no code, so a PRB-14 that names no table is read against both.
+_OUTCOME = {
+    "HL70241": {"D": "I", "F": "R", "N": "A", "P": "A", "R": "R", "S": "A", "U": "U", "W": "A"},
+    "JHSD0006": {"C": "A", "M": "M", "I": "U", "O": "U"},
+}
+_OUTCOME_ANY = {**_OUTCOME["HL70241"], **_OUTCOME["JHSD0006"]}
+_OUTCOME_WORDS = (("治癒", "R"), ("resolved", "R"), ("死亡", "I"), ("寛解", "M"), ("中止", "U"), ("継続", "A"))
+_DELETED = ("DE",)  # PRB-1 (HL7 table 0287): DE deletes the diagnosis (review 12 §4.4)
+_RANK = {"1": "Y", "2": "N"}  # PRB-18 (JHSD0007): 1 主診断, 2 副診断
+
+
+def outcome_status(prb: hl7.Segment) -> tuple[str, str]:
+    """``(status, outcome code)`` of PRB-14: the 転帰 read through :data:`_OUTCOME`. No 転帰 is active, as before; a
+    code no table lists is ``U`` (never active, D-587); ``R`` and ``resolved`` stay resolved, and ``A`` with no table
+    named stays active (the shape TrialBox's exporter and older tests write)."""
+    code, text, system = prb.comp(14, 1).strip(), prb.comp(14, 2), prb.comp(14, 3).strip().upper()
+    if not code and not text:
+        return "A", ""
+    table = _OUTCOME.get(system, _OUTCOME_ANY)
+    if code.upper() in table:
+        return table[code.upper()], code
+    if code.lower() == "resolved":
+        return "R", code
+    if code.upper() == "A" and system not in _OUTCOME:  # the reader's own legacy word (TrialBox's exporter writes
+        return "A", code  # it): active, as it always was; it is no code of either table
+    word = next((st for w, st in _OUTCOME_WORDS if w in text or w == code), "")
+    return word or "U", code
 
 
 def _alt(seg: hl7.Segment, n: int, systems: tuple[str, ...]) -> str:
@@ -361,6 +394,7 @@ class Ssmix2Source:
         self.quarantine_max_pct = quarantine_max_pct
         self.quarantined: list[tuple[str, str, str]] = []  # (message type, path under the root, reason), STD-020
         self._lab_dead: list[Row] = []  # OBX-11 D results and results a C replaced: tombstones (T-615a)
+        self._dx_dead: list[Row] = []  # PRB-1 DE diagnoses of the current snapshots: tombstones (10B-3)
 
     # ------------------------------------------------------------------ storage index
     def _files(self) -> dict[str, list[StoredFile]]:
@@ -416,12 +450,16 @@ class Ssmix2Source:
             return
         if table == "lab":
             yield from self._lab_dead
+        if table == "diagnosis":
+            yield from list(self._dx_dead)
         self._files()
         build: Callable[[StoredFile, hl7.Message], Iterator[Row]] = getattr(self, f"_{table}")
         for typ in TYPES[table]:
             for sf in self._gone.get(typ, []):
+                dead = len(self._dx_dead)
                 try:
                     rows = list(build(sf, hl7.parse(hl7.decode(sf.path.read_bytes()))))
+                    rows += self._dx_dead[dead:]  # a deleted file's DE diagnoses are gone too
                 except Exception:  # a bare delete marker without a readable message
                     self.stats[f"{typ}:deleted unreadable"] += 1
                     continue
@@ -489,6 +527,8 @@ class Ssmix2Source:
         build: Callable[[StoredFile, hl7.Message], Iterator[Row]] = getattr(self, f"_{table}")
         if table == "lab":
             self._lab_dead = []
+        if table == "diagnosis":
+            self._dx_dead = []
         out: list[Row] = []
         for typ in TYPES[table]:
             for sf, msg in self._messages(typ):
@@ -610,12 +650,28 @@ class Ssmix2Source:
         return rows
 
     def _diagnosis(self, sf: StoredFile, msg: hl7.Message) -> Iterator[Row]:
-        """PPR-01 PRB segments. PRB-13 is the 疑い病名フラグ (SS-MIX2 標準化ストレージ仕様書 v1.2h 表 3-47,
-        JHSD 表 0005: ``1`` 疑いあり), read into ``suspected``: the diagnosis becomes ``verificationStatus =
-        provisional`` and never excludes (D-142)."""
+        """PPR-01: one snapshot of a patient's diagnoses, one PRB each with the ZPR segments that follow it (10B-3,
+        review 12 F2; SS-MIX2 標準化ストレージ仕様書 表 3-46 and 3-47 as the review records them):
+
+        * PRB-1 ``DE`` deletes the diagnosis: it is no row, and a tombstone for what an earlier night stored;
+        * ICD-10 from PRB-10 (``K297^^I10^O^外来時^JHSD0004``) first, then from PRB-3 as before;
+        * PRB-7 診断日 (``diagnosed_date``), PRB-9 終了日 (``end_date``), PRB-16 発生日 (``diag_date``, the onset);
+        * PRB-14 転帰 through :func:`outcome_status` into ``status`` (A, R, I, M, U), the code kept as ``outcome``,
+          PRB-15 転帰日 as ``outcome_date``;
+        * PRB-18 主診断 / 副診断 as ``main_diagnosis`` (``Y`` / ``N``);
+        * PRB-17 the written name (``written_name``) and the ZPR 修飾語 (``modifiers``, their texts): a "疑い" in
+          either makes the diagnosis suspected, as PRB-13 does (``suspected``, D-142). ZPR's field layout is not in
+          review 12, so every coded value of a ZPR is read as a 修飾語 (not re-verified).
+        """
         pv1 = msg.first("PV1")
         enc = pv1.comp(19, 1) if pv1 else ""
-        for prb in msg.all("PRB"):
+        groups: list[tuple[hl7.Segment, list[hl7.Segment]]] = []
+        for seg in msg.segments:
+            if seg.name == "PRB":
+                groups.append((seg, []))
+            elif seg.name == "ZPR" and groups:
+                groups[-1][1].append(seg)
+        for prb, zprs in groups:
             code = prb.comp(3, 1)
             # NEW-DIN-5 (DIN-005): the ICD-10 code is in whichever triple names ICD-10: the standard puts the 病名
             # code first and ICD-10 second, vendors differ, and some send it as a second repetition. A triple that
@@ -629,27 +685,48 @@ class Ssmix2Source:
                 codes = (who_icd10(t[0]) for t in triples if t[2] in _ICD10_SYS)
                 return next((c for c in codes if _WHO_SHAPE.match(c)), "")
 
-            icd = shaped(first)
+            icd = shaped(_triples(prb, 10))  # 10B-3: the specification's place for ICD-10
+            if icd:
+                self.stats["PPR-01:ICD-10 from PRB-10"] += 1
+            if not icd:
+                icd = shaped(first)
             if not icd:  # as before: an alternate that is called ICD-10 is passed on as written
                 icd = who_icd10(_alt(prb, 3, _ICD10_SYS)) or ("" if named else self._icd(code))
             if not icd:
                 icd = shaped([t for r in later for t in r])
             if len(prb.reps(3)) > 1:
                 self.stats["PPR-01:PRB-3 repeated"] += 1  # one diagnosis is made of it; the site check shows it
-            if not icd:
-                self.missed[f"diagnosis:{code}"] += 1
-            yield {
+            status, outcome = outcome_status(prb)
+            if outcome and outcome.upper() != "A":
+                self.stats[f"PPR-01:outcome {outcome} as {status}"] += 1
+            modifiers = [t for z in zprs for n in range(1, len(z.fields)) for _c, t, _s in _triples(z, n) if t]
+            written = prb.comp(17, 1).strip()
+            row: Row = {
                 "diag_no": prb.comp(4, 1),
                 "enc_no": enc,
                 "mrn": sf.patient,
                 **self._icd_columns(icd),
                 "byomei_code": "" if named else code,
                 "byomei_name": prb.comp(3, 2),
+                "written_name": written,
+                "modifiers": "、".join(modifiers),
                 "diag_date": hl7.ts(prb.field(16)) or "",
+                "diagnosed_date": hl7.ts(prb.field(7)) or "",
                 "recorded_date": hl7.ts(prb.field(2)) or hl7.ts(prb.field(7)) or "",
-                "status": "R" if prb.comp(14, 1) in ("R", "resolved") else "A",
-                "suspected": "Y" if _suspected(prb) else "",
+                "end_date": hl7.ts(prb.field(9)) or "",
+                "status": status,
+                "outcome": outcome,
+                "outcome_date": hl7.ts(prb.field(15)) or "",
+                "main_diagnosis": _RANK.get(prb.comp(18, 1).strip(), ""),
+                "suspected": "Y" if _suspected(prb) or any("疑い" in t for t in (written, *modifiers)) else "",
             }
+            if prb.field(1).strip().upper() in _DELETED:  # deleted at the hospital: a tombstone, never a record
+                self.stats["PPR-01:deleted diagnosis"] += 1
+                self._dx_dead.append(row)
+                continue
+            if not icd:
+                self.missed[f"diagnosis:{code}"] += 1
+            yield row
 
     def _resolve_drug(self, codes: dict[str, str]) -> dict[str, str]:
         """The line's ingredient (STD-042): the YJ (or local) code first, then the HOT code."""

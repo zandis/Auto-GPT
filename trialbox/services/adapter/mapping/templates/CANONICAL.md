@@ -25,7 +25,11 @@ roc}`; `era`), and the source's placeholder dates in `empty_dates` (D-589); noth
 
 The Japan mapping (`jp_core/ssmix2_site.yaml`, D-137) reads a few more optional columns, which the SS-MIX2 reader
 fills: encounter `end_datetime`, `enc_status` (`finished`, `in-progress`), `prev_enc_type` and `class_changed_at`
-(ADT-52); diagnosis `byomei_code`, `byomei_name` (the 標準病名 code beside the ICD-10); lab `jlac10_code`,
+(ADT-52); diagnosis `byomei_code`, `byomei_name` (the 標準病名 code beside the ICD-10), and from PPR-01 (10B-3)
+`written_name` (PRB-17), `modifiers` (ZPR 修飾語), `diagnosed_date` (PRB-7), `end_date` (PRB-9), `outcome` and
+`outcome_date` (PRB-14 転帰 and PRB-15), `main_diagnosis` (PRB-18: `Y` 主診断, `N` 副診断), with `status` also `I`
+inactive (転帰 死亡), `M` remission (寛解) and `U` (an outcome that says neither: unconfirmed, never active, D-587);
+a PRB-1 `DE` diagnosis is a tombstone, never a row; lab `jlac10_code`,
 `hosp_lab_code`, `specimen`; medication `hot_code`, `rp_no`, `rx_kind` (`prescription`, `injection`), `source_drug_code` (the code the order
 line carried, when the site's drug master turned a HOT or local code into `nhi_drug_code`'s YJ code) and `yj_stem`
 (the ingredient, T-610; empty when the line reached none); note_type
