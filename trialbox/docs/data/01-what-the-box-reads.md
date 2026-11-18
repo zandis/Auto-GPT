@@ -15,13 +15,38 @@ TrialBox never writes to a hospital record system (owner decision 2, 2026-11-08)
 R4 snapshot with pseudonyms (`HMAC(site key, chart number)`) and rebuilds the lake; HAPI gets only new or changed
 resources (D-122).
 
-**SS-MIX2 (Japan).** The reader walks `<id[0:3]>/<id[3:6]>/<id>/<date>/<type>/`, keeps the newest message per
-patient, type and order, and reads HL7 v2.5 in ISO-2022-JP or UTF-8: ADT-00/12/22/52 (patient, visits, class changes),
-PPR-01 (標準病名 with the ICD-10 code, or `byomei_to_icd10.csv`), OMP-01/02 (orders) and OMP-11/12
-(administrations) with YJ and ATC, and OML-11 (labs with JLAC10). Extended storage is read by folder kind (no
-`_contents.xml` index yet); tables SS-MIX2 does not standardize come from `<root>/extended/<table>.csv` (D-122,
-D-137). Output claims JP Core 1.1.0 and is validated on a sample at ingest, offline
-(`services/adapter/validate/jpcore.py`).
+**SS-MIX2 (Japan).** The reader walks `<id[0:3]>/<id[3:6]>/<id>/<診療日>/<type>/`, keeps the newest message per
+patient, 診療日, type and order number (the specification's key; a site may declare `unique`, D-594, D-1000), and
+reads HL7 v2.5 in ISO-2022-JP or UTF-8: ADT-00/12/22/52 (patient, visits, discharges, class changes), PPR-01 (one
+snapshot per patient: deletions, ICD-10 from PRB-10, dates, 転帰, 主診断, 修飾語), OMP-01/02 (orders: one dose, the
+doses a day from the 用法, YJ from RXE-31) and OMP-11/12 (administrations) with YJ and ATC, and OML-11 (labs with
+JLAC10). Extended storage is read in the guideline's layout (content folders under data-type folders that carry the
+LOINC document code) and in the older one (files in folders named by kind); `_contents.xml` is not read. Tables
+SS-MIX2 does not standardize come from `<root>/extended/<table>.csv` (D-122, D-137). Output claims JP Core 1.1.0 and
+is validated on a sample at ingest, offline (`services/adapter/validate/jpcore.py`).
+
+What of the specification the reader reads, after plan 10 cards 10B-2 to 10B-5 (review 12 §4.9, which counted 26
+types: 1 parsed, 8 partly, 17 not). It is tested against a storage written from the specification
+(`tests/ssmix2_spec_kit.py`, `tests/unit/test_ssmix2_to_specification.py`), not yet against a vendor's storage.
+
+| Type or part | State | What is still not read |
+| --- | --- | --- |
+| Tree, names, flags 0/1/2, record key | Parsed | Flag 2 is read as "an older version" (newest wins) |
+| Multi-volume manifest | Not | One root only (10B-11) |
+| ADT-00 | Partly | IN1; A23 is read only as flag 0 (10B-8) |
+| ADT-12 | Parsed | – |
+| ADT-22 | Partly | A11 cancellation only through flag 0 (10B-8) |
+| ADT-52 | Partly | A13 (cancel discharge) not undone (10B-8) |
+| ADT-01, 21, 31, 32, 41, 42, 51, 61 | Not | 10B-7, 10B-8 |
+| PPR-01 | Parsed | ZPR's field layout is read loosely (every coded value a 修飾語); a diagnosis missing from a newer snapshot without PRB-1 `DE` is kept; 主診断 is not yet carried to the lake (no `diagnosis_role` reader) |
+| OMP-01, 02 | Partly | JAMI 標準用法 codes are not decoded (the site's `usage.csv` gives doses a day, else "1日N回" in the text); RXE-12 refills |
+| OMP-11, 12 | Parsed | – |
+| OML-11 | Parsed | Microbiology shape untested (10B-9) |
+| OML-01, OMG-01/02/03/11/12/13, OMD | Not | 10B-9, 10B-10 |
+| Extended storage | Partly | `_contents.xml`, CDA sections (HS032, HS008) |
+
+Count: of the 26 types, **5 parsed** (ADT-12, PPR-01, OMP-11, OMP-12, OML-11), **5 partly** (ADT-00, ADT-22,
+ADT-52, OMP-01, OMP-02), **16 not**.
 
 **Code lists.** ICD-10-CM 2026 in full (98,186 codes, public domain) for lookups and family groupers. The licensed
 Japanese lists (MEDIS 標準病名, JLAC10, YJ) are loaded by the site from its own licensed files
