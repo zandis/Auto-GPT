@@ -26,7 +26,7 @@ const base = plan.base;
 const acc = plan.accounts;
 const checks = [];
 const ctx = {}; // role (or "person") -> page
-const vars = { job: "" }; // values read from the product on the way ({job}, {pid}, {short}, {record}, {chart})
+const vars = { job: "" }; // values read from the product on the way ({job}, {pid}, {short}, {record}, {chart}, {kept}, {since})
 const stopped = new Set(); // steps stopped with a recorded finding
 let current = "";
 let rec = null; // the record of the step being walked
@@ -41,7 +41,7 @@ function check(ok, what) {
 }
 
 function fill(s) {
-  return String(s || "").replace(/\{(job|pid|record|short|chart)\}/g, (_, k) => vars[k] || "");
+  return String(s || "").replace(/\{(job|pid|record|short|chart|kept|since)\}/g, (_, k) => vars[k] || "");
 }
 
 // what the log may hold: never a pseudonym in full or a chart number, only their names
@@ -203,11 +203,13 @@ async function act(p, a, tag) {
     }
     case "remember": {
       // a value the product shows, kept for a later step: from the address (``value``: a regular expression with
-      // one group) or from the element ``within`` (a CSS selector)
+      // one group) or from the element ``within`` (a CSS selector; with ``value``, its one group in the element's text)
       guess(a);
       if (a.within) {
         const el = p.locator(a.within).first();
-        vars[a.label] = ((await el.count()) ? await el.innerText() : "").replace(/\s+/g, " ").trim();
+        const t = ((await el.count()) ? await el.innerText() : "").replace(/\s+/g, " ").trim();
+        const m = a.value ? t.match(new RegExp(a.value)) : null;
+        vars[a.label] = a.value ? (m ? m[1] : "") : t;
       } else {
         const u = new URL(p.url());
         const m = (u.pathname + u.search).match(new RegExp(a.value));
@@ -215,6 +217,36 @@ async function act(p, a, tag) {
       }
       if (a.label === "pid" && vars.pid) vars.short = vars.pid.slice(0, 8);
       return check(vars[a.label], `${tag}: read the ${a.label} from the page`);
+    }
+    case "worker_ran": {
+      // H-25 (D-1124): the opt-out worker's next run after the opt-out, as the audit trail shows it. The newest run on
+      // the page when the steward opens it is noted; the walk then waits on the product's own page (read again every
+      // 2 s, up to wait_s) for a newer one. The page shows the run, not what it did (F-22): the clears are read from
+      // the audit log by the test (test_life_cycle_walk.py), and step 22 reads the health check.
+      const row = 'tr[data-event="optout.worker"]';
+      const first = async () => (await p.locator(`main ${row}`).count()) ? await p.locator(`main ${row} td[title]`).first().getAttribute("title") : "";
+      const before = await first();
+      const url = new URL(p.url());
+      await p.waitForFunction(
+        ([path, before, row]) => {
+          const x = new XMLHttpRequest();
+          x.open("GET", path, false);
+          x.send();
+          const d = new DOMParser().parseFromString(x.responseText, "text/html");
+          const cell = d.querySelector(`${row} td[title]`);
+          return !!cell && cell.getAttribute("title") !== before;
+        },
+        [url.pathname + url.search, before, row],
+        { polling: 2000, timeout: a.wait_s * 1000 },
+      );
+      await p.reload({ waitUntil: "load" });
+      await settle(p);
+      const after = await first();
+      check(after && after !== before, `${tag}: the audit trail shows a run of the opt-out worker after the opt-out`);
+      const detail = ((await p.locator(`main ${row} td[data-src=audit]`).first().textContent()) || "").trim();
+      if (!detail) guess({ finding: a.finding, guess: "the run's detail is empty on the page" });
+      if (rec) rec.read.worker = masked(detail.slice(0, 300)) || "(no detail on the page)";
+      return;
     }
     case "read": {
       // a text the product shows, kept in the log (what a finding quotes)
@@ -276,6 +308,15 @@ async function holds(p, a) {
     }
     case "path":
       return [new RegExp(value).test(path), `path ${value} (${path})`];
+    case "years": {
+      // "A+N=B": day B is day A plus N years (D-779: a close on 29 February ends on the 28th in a year with none)
+      const m = value.match(/^(\d{4})-(\d{2})-(\d{2})\+(\d+)=(\d{4}-\d{2}-\d{2})$/);
+      if (!m) return [false, `two days to compare (${value}) at ${path}`];
+      const y = Number(m[1]) + Number(m[4]);
+      const last = new Date(Date.UTC(y, Number(m[2]), 0)).getUTCDate();
+      const day = `${y}-${m[2]}-${String(Math.min(Number(m[3]), last)).padStart(2, "0")}`;
+      return [day === m[5], `${m[5]} is ${m[4]} years after ${m[1]}-${m[2]}-${m[3]} (${day}) at ${path}`];
+    }
     case "body": {
       // the response's own text (a page with no main part, such as /metrics)
       const t = await p.evaluate(() => document.body.innerText);

@@ -145,6 +145,9 @@ jobs:
       - name: decision numbers (one number, one text; registry rows are notes only; D-306, D-311)
         if: ${{ !cancelled() }}
         run: .venv/bin/python -m tools.decisions_index --check
+      - name: findings register (every row well formed; plan 8 criterion 11; D-1180)
+        if: ${{ !cancelled() }}
+        run: .venv/bin/python -m tools.findings_register --check
       - name: licence register (every shipped data file has a row; no SNOMED CT; model licence rows; T-617b, D-342)
         if: ${{ !cancelled() }}
         run: PYTHONPATH=libs:services:. .venv/bin/python -m tools.licence_register --check

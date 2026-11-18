@@ -1,0 +1,5661 @@
+[
+ {
+  "place": "services/adapter/pipeline.py:1232",
+  "event": "event",
+  "fields": [
+   "snapshot"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/account_rules.py:105",
+  "event": "console.factor_refused",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.user",
+   "detail.factor",
+   "detail.held",
+   "detail.until"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/account_rules.py:115",
+  "event": "console.user",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.user",
+   "detail.role",
+   "detail.class",
+   "detail.affiliation",
+   "detail.studies",
+   "detail.expires",
+   "detail.confirmed_by"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/account_rules.py:136",
+  "event": "console.user",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.user",
+   "detail.confirmed_by"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/account_rules.py:166",
+  "event": "console.user",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.user",
+   "detail.affiliation",
+   "detail.studies",
+   "detail.expires",
+   "detail.confirmed_by"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/account_rules.py:186",
+  "event": "console.account_request",
+  "fields": [
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/account_rules.py:276",
+  "event": "console.account_opened",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.opened_by"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/account_rules.py:287",
+  "event": "console.login",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.role",
+   "detail.via"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/account_rules.py:358",
+  "event": "console.account_confirmed",
+  "fields": [
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/account_rules.py:150",
+  "event": "console.enrol_code",
+  "fields": [
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/account_rules.py:155",
+  "event": "console.totp_reset",
+  "fields": [
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/account_rules.py:249",
+  "event": "console.login_failed",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.factor",
+   "detail.reason",
+   "detail.source"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/account_rules.py:271",
+  "event": "console.login_failed",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.factor",
+   "detail.reason",
+   "detail.source"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/account_rules.py:299",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/account_rules.py:326",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/account_rules.py:332",
+  "event": "console.account_refused",
+  "fields": [
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/account_rules.py:268",
+  "event": "console.enrol_code_reused",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.used_at",
+   "detail.source"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/account_rules.py:356",
+  "event": "console.account_refused",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/acting.py:112",
+  "event": "AUDIT",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.user",
+   "detail.from",
+   "detail.to",
+   "detail.at"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/acting.py:123",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.to"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/acting.py:127",
+  "event": "AUDIT",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.user",
+   "detail.from",
+   "detail.to"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/actor.py:90",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "ruleset",
+   "detail",
+   "detail.action",
+   "detail.why"
+  ],
+  "free": [
+   "detail.why"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/actor.py:107",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "ruleset",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/admin_accounts.py:137",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/admin_flags.py:62",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:556",
+  "event": "console.account_notice",
+  "fields": [
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:935",
+  "event": "console.request",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "actor",
+   "input_sha",
+   "detail",
+   "detail.line",
+   "detail.mailbox",
+   "detail.role",
+   "detail.channel"
+  ],
+  "free": [],
+  "masked": true
+ },
+ {
+  "place": "services/console/app.py:1053",
+  "event": "console.login",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.role"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:1071",
+  "event": "console.logout",
+  "fields": [
+   "actor"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:1155",
+  "event": "console.operate",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:1157",
+  "event": "console.operate",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.run"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:1414",
+  "event": "acting.AUDIT",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.user",
+   "detail.from",
+   "detail.to",
+   "detail.at"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:1568",
+  "event": "console.view",
+  "fields": [
+   "job_id",
+   "actor",
+   "output_sha",
+   "detail",
+   "detail.filename",
+   "detail.tag"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:1895",
+  "event": "console.download",
+  "fields": [
+   "job_id",
+   "actor",
+   "output_sha",
+   "detail",
+   "detail.filename",
+   "detail.tag"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:1990",
+  "event": "console.proposal",
+  "fields": [
+   "actor",
+   "input_sha",
+   "detail",
+   "detail.action",
+   "detail.role"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:2005",
+  "event": "console.proposal",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.line"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:2262",
+  "event": "console.registry",
+  "fields": [
+   "actor",
+   "ruleset",
+   "detail",
+   "detail.action",
+   "detail.status",
+   "detail.by_mrn"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:2297",
+  "event": "console.registry",
+  "fields": [
+   "actor",
+   "ruleset",
+   "detail",
+   "detail.action",
+   "detail.added"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:2318",
+  "event": "console.export",
+  "fields": [
+   "job_id",
+   "actor",
+   "ruleset",
+   "output_sha",
+   "detail",
+   "detail.action",
+   "detail.files"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:2355",
+  "event": "console.registry",
+  "fields": [
+   "actor",
+   "ruleset",
+   "output_sha",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:2399",
+  "event": "console.cascade",
+  "fields": [
+   "actor",
+   "ruleset",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:2442",
+  "event": "console.download",
+  "fields": [
+   "actor",
+   "ruleset",
+   "output_sha",
+   "detail",
+   "detail.filename",
+   "detail.tag",
+   "detail.run"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:2483",
+  "event": "console.testmail",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.subject",
+   "detail.action"
+  ],
+  "free": [
+   "detail.subject"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:497",
+  "event": "console.user",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.role"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:541",
+  "event": "console.account_notice",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.user",
+   "detail.sent"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:623",
+  "event": "console.sso_rejected",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:658",
+  "event": "console.login",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.role",
+   "detail.via"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:709",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:712",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:718",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:728",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:735",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:928",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:1031",
+  "event": "console.login_failed",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.reason",
+   "detail.source"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:1041",
+  "event": "console.login_failed",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.source"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:1230",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:2228",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:2350",
+  "event": "console.registry",
+  "fields": [
+   "actor",
+   "ruleset",
+   "detail",
+   "detail.action",
+   "detail.role"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:2402",
+  "event": "console.cascade",
+  "fields": [
+   "actor",
+   "ruleset",
+   "detail",
+   "detail.action",
+   "detail.run"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:641",
+  "event": "console.sso_rejected",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:948",
+  "event": "console.refused",
+  "fields": [
+   "job_id",
+   "actor",
+   "detail",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:1259",
+  "event": "console.user",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.user",
+   "detail.role",
+   "detail.affiliation",
+   "detail.studies",
+   "detail.expires"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:1294",
+  "event": "console.user",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.user"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:1309",
+  "event": "console.user",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.user",
+   "detail.affiliation",
+   "detail.studies",
+   "detail.expires"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:1329",
+  "event": "console.user",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.user"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:1333",
+  "event": "console.user",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.user",
+   "detail.undo"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/app.py:1238",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/approval.py:216",
+  "event": "console.code_tick",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.role"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/approval.py:245",
+  "event": "console.criterion_label",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.role",
+   "detail.lang"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/approval.py:304",
+  "event": "console.approve_all",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.rows",
+   "detail.amber",
+   "detail.ticked",
+   "detail.since",
+   "detail.amendment"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/approval.py:190",
+  "event": "console.approval_open",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/approval.py:209",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/approval.py:235",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/approval.py:268",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/approval.py:273",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/audit_page.py:449",
+  "event": "console.audit_search",
+  "fields": [
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/audit_page.py:485",
+  "event": "console.audit_report",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.format"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/audit_page.py:504",
+  "event": "console.audit_report",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.format",
+   "detail.by"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/audit_page.py:531",
+  "event": "console.audit_report",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.format"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/audit_page.py:548",
+  "event": "console.audit_verify",
+  "fields": [
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/audit_page.py:581",
+  "event": "console.audit_verify",
+  "fields": [
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/audit_page.py:416",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/audit_page.py:571",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/breakglass.py:87",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/breakglass.py:121",
+  "event": "console.breakglass_use",
+  "fields": [
+   "actor",
+   "ruleset",
+   "job_id",
+   "detail",
+   "detail.grant",
+   "detail.reason",
+   "detail.kind",
+   "detail.what"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/breakglass.py:153",
+  "event": "console.breakglass_notice",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.grant",
+   "detail.sent"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/breakglass.py:211",
+  "event": "console.breakglass_open",
+  "fields": [
+   "actor",
+   "ruleset",
+   "job_id",
+   "detail",
+   "detail.grant",
+   "detail.reason",
+   "detail.note",
+   "detail.kind",
+   "detail.ends_at"
+  ],
+  "free": [
+   "detail.note",
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/breakglass.py:228",
+  "event": "console.breakglass_end",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.grant",
+   "detail.why"
+  ],
+  "free": [
+   "detail.why"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/breakglass.py:242",
+  "event": "console.breakglass_review",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.grant",
+   "detail.uses"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/breakglass.py:139",
+  "event": "console.breakglass_notice",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.grant",
+   "detail.sent"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/breakglass.py:210",
+  "event": "console.breakglass_end",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.grant",
+   "detail.why"
+  ],
+  "free": [
+   "detail.why"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/breakglass.py:150",
+  "event": "console.breakglass_notice",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.grant",
+   "detail.sent",
+   "detail.error"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/conflicts_page.py:135",
+  "event": "console.conflict_resolved",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.conflict",
+   "detail.item",
+   "detail.resolution",
+   "detail.authority"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/conflicts_page.py:83",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/copy_assist_page.py:168",
+  "event": "console.edc_copy",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.format",
+   "detail.record",
+   "detail.values"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/copy_assist_page.py:180",
+  "event": "console.edc_copy",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.record",
+   "detail.values"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/copy_assist_page.py:140",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/data_pages.py:185",
+  "event": "console.data_source",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.source",
+   "detail.action",
+   "detail.owned"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/data_pages.py:203",
+  "event": "console.data_source",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.source",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/data_pages.py:214",
+  "event": "console.data_sync",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.source",
+   "detail.conflicts"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/data_pages.py:225",
+  "event": "console.data_resolve",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.conflict",
+   "detail.keep"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/data_pages.py:237",
+  "event": "console.data_forms",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.forms",
+   "detail.dropped"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/data_pages.py:338",
+  "event": "console.data_source",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.source",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/data_pages.py:123",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/data_pages.py:131",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/data_pages.py:330",
+  "event": "console.refused",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.source",
+   "detail.action",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/dataops_page.py:278",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/demo_guard.py:176",
+  "event": "ACK_EVENT",
+  "fields": [
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/demo_guard.py:185",
+  "event": "REFUSED_EVENT",
+  "fields": [
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/edc_door.py:96",
+  "event": "edc.map",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.studies"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/edc_door.py:134",
+  "event": "edc.tool_confirm",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.tool",
+   "detail.project_id"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/edc_door.py:67",
+  "event": "edc.event",
+  "fields": [
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/edc_door.py:74",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/edc_pages.py:307",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/edc_pages.py:357",
+  "event": "console.edc",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.on",
+   "detail.copy"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/edc_pages.py:380",
+  "event": "console.edc_refused",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.code"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/edc_pages.py:478",
+  "event": "console.edc",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.file"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/edc_pages.py:398",
+  "event": "console.edc_reauth_failed",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/edc_pages.py:403",
+  "event": "console.edc_reauth_failed",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.factor",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/edc_pages.py:797",
+  "event": "console.edc_reauth_failed",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.factor"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/edc_pages.py:781",
+  "event": "console.edc_reauth_failed",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.factor",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/entry_pages.py:154",
+  "event": "console.data_forms",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.forms",
+   "detail.origin",
+   "detail.ctcae"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/entry_pages.py:173",
+  "event": "console.data_entry",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.form",
+   "detail.event",
+   "detail.changed"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/entry_pages.py:217",
+  "event": "console.data_export",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.format"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/entry_pages.py:101",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/entry_pages.py:116",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/entry_pages.py:204",
+  "event": "console.consent_version_override",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.event",
+   "detail.version",
+   "detail.day",
+   "detail.warnings"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/feedback.py:232",
+  "event": "EVENT",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.id",
+   "detail.path"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/feedback.py:243",
+  "event": "feedback.export",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.entries"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/feedback.py:240",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/firstrun.py:237",
+  "event": "console.first_run",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.step",
+   "detail.accounts",
+   "detail.roles",
+   "detail.source",
+   "detail.backup",
+   "detail.chartno_rule"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/firstrun.py:158",
+  "event": "console.first_run",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.step",
+   "detail.result"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:732",
+  "event": "console.site_profile",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:987",
+  "event": "console.view",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.page",
+   "detail.rows"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1022",
+  "event": "console.excluded_review",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.pid",
+   "detail.criterion",
+   "detail.role"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1070",
+  "event": "console.view",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.page",
+   "detail.rows",
+   "detail.version"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1395",
+  "event": "console.contact_outcome",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.pid",
+   "detail.action",
+   "detail.to",
+   "detail.reason",
+   "detail.run"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1426",
+  "event": "console.contact_outcome",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1524",
+  "event": "console.login",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.role",
+   "detail.via"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:195",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:203",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:679",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:694",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:954",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:974",
+  "event": "console.view",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.page",
+   "detail.held"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1003",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1136",
+  "event": "console.refused",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.pid",
+   "detail.action",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1159",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1232",
+  "event": "console.pi_mark",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1329",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1344",
+  "event": "console.refused",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.pid",
+   "detail.action",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1351",
+  "event": "console.refused",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.pid",
+   "detail.action",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1485",
+  "event": "console.login_failed",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.via",
+   "detail.reason",
+   "detail.source"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1493",
+  "event": "console.login_failed",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.via",
+   "detail.source"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1520",
+  "event": "console.login_failed",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.via",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1577",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1583",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:315",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1205",
+  "event": "console.refused",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.pid",
+   "detail.action",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1226",
+  "event": "console.approach_override",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.pid",
+   "detail.action",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1360",
+  "event": "console.refused",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.pid",
+   "detail.action",
+   "detail.reason",
+   "detail.attempts",
+   "detail.max"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1503",
+  "event": "console.login_failed",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.via",
+   "detail.factor",
+   "detail.reason",
+   "detail.source"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/home.py:1508",
+  "event": "console.login_failed",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.via",
+   "detail.factor",
+   "detail.reason",
+   "detail.source"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/identity.py:301",
+  "event": "console.lockout",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.failures",
+   "detail.until",
+   "detail.source"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/identity.py:405",
+  "event": "console.login",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.role",
+   "detail.via"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/identity.py:723",
+  "event": "console.totp_reset",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.user"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/identity.py:503",
+  "event": "console.login_failed",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.factor",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/identity.py:586",
+  "event": "console.login_failed",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.via",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/identity.py:613",
+  "event": "console.reauth_failed",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.via",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/identity.py:676",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/identity.py:683",
+  "event": "console.unlock",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.user",
+   "detail.was_locked"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/identity.py:715",
+  "event": "console.enrol_code",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.user"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/identity.py:423",
+  "event": "console.login_failed",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.factor",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/identity.py:539",
+  "event": "console.login_failed",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.via",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/identity.py:498",
+  "event": "console.totp_enrolled",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.kind"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/instruments_page.py:90",
+  "event": "instrument.switch",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.instrument",
+   "detail.storable",
+   "detail.licence_ref"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/instruments_page.py:42",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/instruments_page.py:80",
+  "event": "instrument.switch_refused",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.instrument",
+   "detail.storable",
+   "detail.why"
+  ],
+  "free": [
+   "detail.why"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/items_page.py:52",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/lifecycle_pages.py:260",
+  "event": "console.life_step",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.to"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/lifecycle_pages.py:272",
+  "event": "console.life_step",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.to"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/lifecycle_pages.py:279",
+  "event": "console.life_schedule",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.visits"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/lifecycle_pages.py:287",
+  "event": "console.life_schedule",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.origin"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/lifecycle_pages.py:296",
+  "event": "console.export",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.filename"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/lifecycle_pages.py:395",
+  "event": "console.sae_ack",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.event",
+   "detail.at"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/lifecycle_pages.py:597",
+  "event": "console.deviation_call",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.key",
+   "detail.decision",
+   "detail.event"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/lifecycle_pages.py:198",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/lifecycle_pages.py:207",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/lifecycle_pages.py:389",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/metrics_page.py:70",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/notify.py:425",
+  "event": "console.notice",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.to",
+   "detail.subject"
+  ],
+  "free": [
+   "detail.subject"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/notify.py:459",
+  "event": "console.notice_settings",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/notify.py:468",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/notmatched_pages.py:97",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/notmatched_pages.py:222",
+  "event": "console.view",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.page",
+   "detail.rows"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/notmatched_pages.py:183",
+  "event": "console.notmatched_answer",
+  "fields": [
+   "ruleset",
+   "job_id",
+   "actor",
+   "detail",
+   "detail.pid",
+   "detail.week",
+   "detail.answer",
+   "detail.role"
+  ],
+  "free": [
+   "detail.answer"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/notmatched_pages.py:205",
+  "event": "console.notmatched_check",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.passed",
+   "detail.record",
+   "detail.note"
+  ],
+  "free": [
+   "detail.note"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/notmatched_pages.py:109",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/notmatched_pages.py:144",
+  "event": "notmatched.sample",
+  "fields": [
+   "ruleset",
+   "job_id",
+   "actor",
+   "detail",
+   "detail.week",
+   "detail.n",
+   "detail.snapshot",
+   "detail.by"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/ops_pages.py:197",
+  "event": "console.ops",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.request"
+  ],
+  "free": [
+   "detail.request"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/ops_pages.py:210",
+  "event": "console.ops",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.file"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/ops_pages.py:98",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/ops_pages.py:201",
+  "event": "console.ops",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.request",
+   "detail.ok"
+  ],
+  "free": [
+   "detail.request"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/ops_pages.py:221",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/rc_read.py:35",
+  "event": "console.redcap_read",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.changes"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/reveal.py:145",
+  "event": "console.reveal_refused",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/reveal.py:155",
+  "event": "console.reveal_patient",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/sae_pages.py:97",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/sae_pages.py:377",
+  "event": "console.data_entry",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.form",
+   "detail.event",
+   "detail.fields"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/sae_pages.py:406",
+  "event": "console.sae_ack",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.event",
+   "detail.at"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/sae_pages.py:120",
+  "event": "console.sae",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.record",
+   "detail.event"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/sae_pages.py:218",
+  "event": "console.sae",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.why"
+  ],
+  "free": [
+   "detail.why"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/sae_pages.py:228",
+  "event": "console.sae",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.record",
+   "detail.event"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/sae_pages.py:235",
+  "event": "console.sae",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/sae_pages.py:237",
+  "event": "console.sae",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.record",
+   "detail.event",
+   "detail.error"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/sae_pages.py:247",
+  "event": "console.sae",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.error"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/screening_log.py:452",
+  "event": "console.export",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.filename"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/screening_log.py:580",
+  "event": "console.export",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.filename"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/screening_log.py:425",
+  "event": "console.export",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.filename",
+   "detail.layout"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/screening_log.py:562",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/sdv_page.py:164",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/sdv_page.py:283",
+  "event": "console.monitor_view",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.visit",
+   "detail.state",
+   "detail.items",
+   "detail.forms"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/sdv_page.py:312",
+  "event": "console.monitor_visit",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.id",
+   "detail.visit",
+   "detail.day",
+   "detail.subjects"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/sdv_page.py:246",
+  "event": "console.monitor_view",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.visit",
+   "detail.subjects"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/sdv_page.py:261",
+  "event": "console.denied",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.why",
+   "detail.visit"
+  ],
+  "free": [
+   "detail.why"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/sdv_page.py:270",
+  "event": "console.denied",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.why",
+   "detail.visit"
+  ],
+  "free": [
+   "detail.why"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/site_pages.py:205",
+  "event": "console.chart_lookup",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.for",
+   "detail.ws",
+   "detail.input",
+   "detail.role"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/site_pages.py:207",
+  "event": "console.site_chart",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.input",
+   "detail.proposed"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/site_pages.py:217",
+  "event": "console.site_fact",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.fact",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/site_pages.py:240",
+  "event": "console.site_map",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.local",
+   "detail.to"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/site_pages.py:246",
+  "event": "console.site_check",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.check",
+   "detail.answer"
+  ],
+  "free": [
+   "detail.answer"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/site_pages.py:338",
+  "event": "console.ask_patient",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.pid",
+   "detail.role"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/site_pages.py:735",
+  "event": "console.site_practice",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/site_pages.py:755",
+  "event": "console.site_remote",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.on"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/site_pages.py:765",
+  "event": "console.export",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.filename"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/site_pages.py:133",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/site_pages.py:136",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/site_pages.py:142",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/site_pages.py:161",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/site_pages.py:330",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.ruleset"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/site_pages.py:645",
+  "event": "console.site_sheet",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/site_pages.py:681",
+  "event": "console.site_resolve",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.pid"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/site_pages.py:699",
+  "event": "console.site_patients",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.patients",
+   "detail.role"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/site_pages.py:747",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/site_pages.py:336",
+  "event": "console.rate_limited",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.limit"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/site_pages.py:544",
+  "event": "console.site_map",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.sheet"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/step4.py:166",
+  "event": "console.command",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.intent",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/step4.py:495",
+  "event": "console.operate",
+  "fields": [
+   "actor",
+   "job_id",
+   "ruleset",
+   "detail",
+   "detail.action",
+   "detail.type"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/step4.py:519",
+  "event": "console.operate",
+  "fields": [
+   "actor",
+   "job_id",
+   "ruleset",
+   "detail",
+   "detail.action",
+   "detail.from",
+   "detail.type"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/step4.py:556",
+  "event": "console.operate",
+  "fields": [
+   "actor",
+   "job_id",
+   "ruleset",
+   "detail",
+   "detail.action",
+   "detail.from",
+   "detail.type"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/step4.py:573",
+  "event": "console.operate",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.started"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/step4.py:244",
+  "event": "console.user",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.user"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/step4.py:313",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:263",
+  "event": "console.study_setup",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.section"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:304",
+  "event": "console.study_setup",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:323",
+  "event": "console.study_setup",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.section",
+   "detail.max_attempts",
+   "detail.min_days"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:373",
+  "event": "console.study_setup",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.section",
+   "detail.mode",
+   "detail.practitioners"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:425",
+  "event": "console.study_setup",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.section"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:464",
+  "event": "console.study_setup",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.section"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:500",
+  "event": "console.redcap_read",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.changes"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:718",
+  "event": "console.study_identity",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.fields"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:803",
+  "event": "console.redcap_connection",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.token_ref"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:179",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:190",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:433",
+  "event": "console.study_setup",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.section"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:492",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:569",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:629",
+  "event": "console.study_state",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.state",
+   "detail.prev",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:657",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:667",
+  "event": "console.study_state",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.state",
+   "detail.prev",
+   "detail.reason",
+   "detail.take_back"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:681",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:733",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:747",
+  "event": "console.irb_text",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.covers",
+   "detail.sentence",
+   "detail.approval_ref",
+   "detail.text_version",
+   "detail.approved_on",
+   "detail.note"
+  ],
+  "free": [
+   "detail.note"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:759",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:791",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/study_setup.py:557",
+  "event": "console.study_state",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.error"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/team.py:315",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/team.py:441",
+  "event": "console.candidate_view",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.pid",
+   "detail.purpose",
+   "detail.role",
+   "detail.pi"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/team.py:532",
+  "event": "console.referral",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.pid",
+   "detail.action",
+   "detail.route",
+   "detail.known",
+   "detail.suggested",
+   "detail.changed",
+   "detail.run",
+   "detail.id"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/team.py:570",
+  "event": "console.referral",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.pid",
+   "detail.action",
+   "detail.to",
+   "detail.reason",
+   "detail.channel",
+   "detail.route",
+   "detail.id"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/team.py:616",
+  "event": "console.referral",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.pid",
+   "detail.action",
+   "detail.id",
+   "detail.lang",
+   "detail.chart_no"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/team.py:754",
+  "event": "console.delegation",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.id",
+   "detail.role",
+   "detail.username",
+   "detail.tasks"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/team.py:773",
+  "event": "console.delegation",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.to"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/team.py:792",
+  "event": "console.delegation",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.id",
+   "detail.tasks",
+   "detail.to"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/team.py:824",
+  "event": "console.irb",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.approved_on",
+   "detail.expires_on",
+   "detail.icf_version",
+   "detail.approval_no",
+   "detail.changed",
+   "detail.reason",
+   "detail.before"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/team.py:878",
+  "event": "console.icf",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.version",
+   "detail.irb_approved_on",
+   "detail.effective_from",
+   "detail.reconsent"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/team.py:1024",
+  "event": "console.staff",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/team.py:1073",
+  "event": "console.chart_lookup",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.pid",
+   "detail.for",
+   "detail.role",
+   "detail.known"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/team.py:347",
+  "event": "console.denied",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/console/team.py:390",
+  "event": "console.rate_limited",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.limit"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/team.py:399",
+  "event": "console.rate_limited",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.limit"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/team.py:1115",
+  "event": "console.chart_lookup",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.pid",
+   "detail.for",
+   "detail.role",
+   "detail.known"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/team.py:1140",
+  "event": "console.opt_out",
+  "fields": [
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/team.py:307",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/team.py:322",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/twin_api.py:89",
+  "event": "console.twin_view",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/twin_api.py:62",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/console/twin_api.py:69",
+  "event": "console.denied",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/criteria_compiler/service.py:429",
+  "event": "event",
+  "fields": [],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/datacore/dataops.py:313",
+  "event": "EVENT_STEP",
+  "fields": [
+   "snapshot",
+   "actor",
+   "detail",
+   "detail.batch",
+   "detail.source",
+   "detail.attempt",
+   "detail.old",
+   "detail.new",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/datacore/dataops.py:387",
+  "event": "event",
+  "fields": [
+   "snapshot"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/datacore/dataops.py:451",
+  "event": "EVENT_DECIDE",
+  "fields": [
+   "snapshot",
+   "actor",
+   "detail",
+   "detail.phase"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/datacore/dataops.py:498",
+  "event": "event",
+  "fields": [
+   "snapshot",
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/datacore/dataops.py:294",
+  "event": "EVENT_STEP",
+  "fields": [
+   "snapshot",
+   "actor",
+   "detail",
+   "detail.batch",
+   "detail.source",
+   "detail.attempt",
+   "detail.old",
+   "detail.new",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/datacore/dataops.py:462",
+  "event": "EVENT_DECIDE",
+  "fields": [
+   "snapshot",
+   "actor",
+   "detail",
+   "detail.phase",
+   "detail.outcome",
+   "detail.error"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/datacore/optout_worker.py:703",
+  "event": "optout.worker",
+  "fields": [
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/datacore/optout_worker.py:790",
+  "event": "optout.worker_failed",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.failed"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/edc/service.py:125",
+  "event": "event",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/gateway/app.py:252",
+  "event": "llm.gateway.refuse",
+  "fields": [
+   "detail",
+   "detail.reason",
+   "detail.message",
+   "detail.caller",
+   "detail.service"
+  ],
+  "free": [
+   "detail.message",
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/gateway/app.py:316",
+  "event": "llm.gateway.perimeter_refused",
+  "fields": [
+   "detail",
+   "detail.phase",
+   "detail.problems"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/gateway/app.py:189",
+  "event": "event",
+  "fields": [
+   "detail",
+   "detail.mismatches"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/gateway/app.py:406",
+  "event": "llm.gateway.perimeter_refused",
+  "fields": [
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/gateway/core.py:354",
+  "event": "llm.gateway.swap_refused",
+  "fields": [
+   "detail",
+   "detail.caller",
+   "detail.service",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/gateway/core.py:378",
+  "event": "llm.gateway.swap",
+  "fields": [
+   "detail",
+   "detail.caller",
+   "detail.service"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/gateway/core.py:391",
+  "event": "llm.gateway.swap_release",
+  "fields": [
+   "detail",
+   "detail.caller",
+   "detail.service"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/gateway/core.py:1030",
+  "event": "event",
+  "fields": [
+   "actor",
+   "model",
+   "prompt_version",
+   "input_sha",
+   "output_sha",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/gateway/core.py:376",
+  "event": "llm.gateway.swap_failed",
+  "fields": [
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/gateway/core.py:752",
+  "event": "llm.gateway.swap",
+  "fields": [
+   "detail",
+   "detail.caller",
+   "detail.service",
+   "detail.from",
+   "detail.role"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/mail_gateway/gateway.py:288",
+  "event": "event",
+  "fields": [
+   "job_id",
+   "recipients",
+   "detail",
+   "detail.key",
+   "detail.message_id",
+   "detail.attempts",
+   "detail.next_at",
+   "detail.error",
+   "detail.subject"
+  ],
+  "free": [
+   "detail.subject"
+  ],
+  "masked": true
+ },
+ {
+  "place": "services/mail_gateway/gateway.py:330",
+  "event": "mail.resolved",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.key",
+   "detail.from",
+   "detail.decision"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/mail_gateway/gateway.py:353",
+  "event": "mail.sent",
+  "fields": [
+   "job_id",
+   "recipients",
+   "output_sha",
+   "detail",
+   "detail.subject",
+   "detail.message_id",
+   "detail.tag",
+   "detail.attachments",
+   "detail.encrypted",
+   "detail.mode"
+  ],
+  "free": [
+   "detail.subject"
+  ],
+  "masked": true
+ },
+ {
+  "place": "services/mail_gateway/gateway.py:431",
+  "event": "mail.rejected",
+  "fields": [
+   "actor",
+   "input_sha",
+   "detail",
+   "detail.reason",
+   "detail.auth"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": true
+ },
+ {
+  "place": "services/mail_gateway/gateway.py:195",
+  "event": "mail.duplicate_suppressed",
+  "fields": [
+   "job_id",
+   "detail",
+   "detail.key"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/mail_gateway/gateway.py:307",
+  "event": "mail.uncertain",
+  "fields": [
+   "detail",
+   "detail.key",
+   "detail.error"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/mail_gateway/gateway.py:413",
+  "event": "mail.received",
+  "fields": [
+   "ts",
+   "job_id",
+   "actor",
+   "input_sha",
+   "detail",
+   "detail.subject",
+   "detail.auth",
+   "detail.attachments"
+  ],
+  "free": [
+   "detail.subject"
+  ],
+  "masked": true
+ },
+ {
+  "place": "services/mail_gateway/gateway.py:192",
+  "event": "mail.duplicate_suppressed",
+  "fields": [
+   "job_id",
+   "detail",
+   "detail.key",
+   "detail.state"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/app.py:426",
+  "event": "optout.outputs_asked",
+  "fields": [
+   "job_id",
+   "detail",
+   "detail.files",
+   "detail.current"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/app.py:578",
+  "event": "screen.reveal",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.pid",
+   "detail.found",
+   "detail.session",
+   "detail.verified",
+   "detail.role"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/app.py:650",
+  "event": "notice.sent",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.kind",
+   "detail.to",
+   "detail.subject",
+   "detail.message_id"
+  ],
+  "free": [
+   "detail.subject"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/app.py:1045",
+  "event": "registry.export",
+  "fields": [
+   "ruleset",
+   "actor",
+   "output_sha",
+   "detail",
+   "detail.session",
+   "detail.verified",
+   "detail.caller"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/app.py:273",
+  "event": "event",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/app.py:543",
+  "event": "screen.reveal_refused",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/app.py:1038",
+  "event": "registry.export_refused",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/app.py:222",
+  "event": "actor.refused",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.path",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/canary_gate.py:301",
+  "event": "llm.pair.same_model",
+  "fields": [
+   "detail",
+   "detail.judge",
+   "detail.verifier",
+   "detail.why",
+   "detail.note_block"
+  ],
+  "free": [
+   "detail.why"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/candidates.py:109",
+  "event": "registry.update",
+  "fields": [
+   "ruleset",
+   "actor",
+   "job_id",
+   "detail",
+   "detail.pid",
+   "detail.status",
+   "detail.previous"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/candidates.py:144",
+  "event": "registry.promote",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.added",
+   "detail.tiers"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/core.py:206",
+  "event": "output",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "ruleset_version",
+   "snapshot",
+   "output_sha",
+   "recipients",
+   "detail",
+   "detail.filename",
+   "detail.tag",
+   "detail.bytes"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/core.py:344",
+  "event": "job.state",
+  "fields": [
+   "ts",
+   "job_id",
+   "ruleset",
+   "actor",
+   "input_sha",
+   "detail",
+   "detail.from",
+   "detail.to",
+   "detail.type",
+   "detail.options"
+  ],
+  "free": [],
+  "masked": true
+ },
+ {
+  "place": "services/orchestrator/core.py:417",
+  "event": "job.retried",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.from",
+   "detail.type",
+   "detail.by",
+   "detail.role"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/core.py:434",
+  "event": "job.state",
+  "fields": [
+   "ts",
+   "job_id",
+   "ruleset",
+   "ruleset_version",
+   "snapshot",
+   "actor",
+   "detail",
+   "detail.from",
+   "detail.to"
+  ],
+  "free": [],
+  "masked": true
+ },
+ {
+  "place": "services/orchestrator/core.py:711",
+  "event": "job.requeued",
+  "fields": [
+   "job_id",
+   "detail",
+   "detail.state",
+   "detail.restarts",
+   "detail.kept_answers"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/core.py:695",
+  "event": "job.requeued",
+  "fields": [
+   "job_id",
+   "detail",
+   "detail.state",
+   "detail.restarts",
+   "detail.gave_up"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/datacore_api.py:95",
+  "event": "data.sync",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.source",
+   "detail.pulled",
+   "detail.taken",
+   "detail.pushed",
+   "detail.conflicts"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/datacore_api.py:246",
+  "event": "data.forms",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.forms",
+   "detail.dropped"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/datacore_api.py:267",
+  "event": "data.entry",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.fields"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/datacore_api.py:297",
+  "event": "data.source",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.source",
+   "detail.owned"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/datacore_api.py:307",
+  "event": "data.source",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.source",
+   "detail.detached"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/datacore_api.py:358",
+  "event": "data.import",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.source",
+   "detail.pulled",
+   "detail.taken",
+   "detail.dropped",
+   "detail.refused"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/datacore_api.py:378",
+  "event": "data.resolve",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/datacore_api.py:403",
+  "event": "data.forms",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.forms",
+   "detail.origin",
+   "detail.ctcae"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/datacore_api.py:436",
+  "event": "data.entry",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.event",
+   "detail.form",
+   "detail.fields"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/datacore_api.py:467",
+  "event": "data.export",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.format"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/decision_context.py:235",
+  "event": "event",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/derive.py:175",
+  "event": "derive.batch",
+  "fields": [
+   "detail",
+   "detail.snapshot"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/derive.py:172",
+  "event": "derive.failed",
+  "fields": [
+   "detail",
+   "detail.snapshot",
+   "detail.error"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/derive.py:182",
+  "event": "derive.failed",
+  "fields": [
+   "detail",
+   "detail.snapshot",
+   "detail.error"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/edc_api.py:222",
+  "event": "edc.refused",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.action",
+   "detail.code"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/identifiers.py:140",
+  "event": "screen.to_pid",
+  "fields": [
+   "actor",
+   "ruleset",
+   "detail",
+   "detail.pid",
+   "detail.role",
+   "detail.action",
+   "detail.via"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/identifiers.py:147",
+  "event": "screen.to_pid",
+  "fields": [
+   "actor",
+   "ruleset",
+   "detail",
+   "detail.input",
+   "detail.role",
+   "detail.action",
+   "detail.via"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/jobs.py:712",
+  "event": "llm.outage",
+  "fields": [
+   "job_id",
+   "detail",
+   "detail.model",
+   "detail.reason",
+   "detail.waited_s",
+   "detail.outcome"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/jobs.py:720",
+  "event": "llm.outage",
+  "fields": [
+   "job_id",
+   "detail",
+   "detail.model",
+   "detail.reason",
+   "detail.waited_s",
+   "detail.outcome"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/lifecycle_api.py:515",
+  "event": "life.step",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.steps",
+   "detail.reason",
+   "detail.source"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/lifecycle_api.py:531",
+  "event": "life.step",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.steps",
+   "detail.source",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/lifecycle_api.py:550",
+  "event": "life.schedule",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.visits",
+   "detail.origin",
+   "detail.version",
+   "detail.effective_from"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/lifecycle_api.py:633",
+  "event": "life.sae_rule",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.old",
+   "detail.new",
+   "detail.at"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/lifecycle_api.py:652",
+  "event": "life.contact_rule",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.old",
+   "detail.new"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/lifecycle_api.py:679",
+  "event": "life.deviation_call",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.key",
+   "detail.decision",
+   "detail.event"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/lifecycle_api.py:693",
+  "event": "life.sae_ack",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.event",
+   "detail.at",
+   "detail.by",
+   "detail.outcome"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/lifecycle_api.py:712",
+  "event": "life.report",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.format"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/lifecycle_api.py:307",
+  "event": "life.step",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.steps",
+   "detail.source"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/lifecycle_api.py:311",
+  "event": "life.log_sync",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.to",
+   "detail.from",
+   "detail.ok"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/lifecycle_api.py:510",
+  "event": "life.refused",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.to",
+   "detail.why"
+  ],
+  "free": [
+   "detail.why"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/lifecycle_api.py:676",
+  "event": "life.refused",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.deviation",
+   "detail.why"
+  ],
+  "free": [
+   "detail.why"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/night.py:182",
+  "event": "scheduler.held",
+  "fields": [
+   "detail",
+   "detail.night"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/notmatched_sample.py:86",
+  "event": "notmatched.held",
+  "fields": [
+   "ruleset",
+   "detail",
+   "detail.week"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/notmatched_sample.py:98",
+  "event": "notmatched.sample",
+  "fields": [
+   "ruleset",
+   "job_id",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/rerun.py:287",
+  "event": "rerun.checked",
+  "fields": [
+   "job_id",
+   "detail",
+   "detail.identical",
+   "detail.files",
+   "detail.error"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/scenarios/case.py:209",
+  "event": "case.opt_out_refused",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "detail",
+   "detail.register"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/scenarios/consent.py:595",
+  "event": "consent.release",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "actor",
+   "output_sha",
+   "detail",
+   "detail.consent_job",
+   "detail.drop",
+   "detail.keep",
+   "detail.languages"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/scenarios/consent.py:519",
+  "event": "llm.pair.same_model",
+  "fields": [
+   "job_id",
+   "detail",
+   "detail.step",
+   "detail.why",
+   "detail.served"
+  ],
+  "free": [
+   "detail.why"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/scenarios/consent.py:480",
+  "event": "llm.pair.same_model",
+  "fields": [
+   "job_id",
+   "detail",
+   "detail.step",
+   "detail.why"
+  ],
+  "free": [
+   "detail.why"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/scenarios/feas.py:135",
+  "event": "feas.profile_skipped",
+  "fields": [
+   "job_id",
+   "actor",
+   "detail",
+   "detail.reason"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/scenarios/microbatch.py:622",
+  "event": "microbatch.budget",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "detail",
+   "detail.trigger",
+   "detail.budget",
+   "detail.left",
+   "detail.rechecked",
+   "detail.recheck_carried",
+   "detail.version_rescreened",
+   "detail.version_carried",
+   "detail.new_screened",
+   "detail.new_carried",
+   "detail.excluded_rescreened",
+   "detail.excluded_back",
+   "detail.excluded_carried",
+   "detail.excluded_in_scope",
+   "detail.excluded_percent",
+   "detail.excluded_kept",
+   "detail.excluded_full_pass_runs"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/scenarios/opportunity.py:158",
+  "event": "opportunity.feed",
+  "fields": [
+   "job_id",
+   "detail",
+   "detail.conditions",
+   "detail.counted",
+   "detail.published",
+   "detail.period",
+   "detail.threshold",
+   "detail.opt_out_register"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/scenarios/retention.py:161",
+  "event": "retention.deleted",
+  "fields": [
+   "job_id",
+   "detail",
+   "detail.group",
+   "detail.objects"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/scenarios/retention.py:169",
+  "event": "retention.mail",
+  "fields": [
+   "job_id",
+   "detail",
+   "detail.days",
+   "detail.rows"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/scenarios/retention.py:178",
+  "event": "retention.pools",
+  "fields": [
+   "job_id",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/scenarios/screen.py:494",
+  "event": "screen.evaluated",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "ruleset_version",
+   "snapshot",
+   "model",
+   "prompt_version",
+   "detail",
+   "detail.engine",
+   "detail.index_date",
+   "detail.patients",
+   "detail.only",
+   "detail.tiers",
+   "detail.judging"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/scenarios/screen.py:653",
+  "event": "screen.evaluated",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "ruleset_version",
+   "snapshot",
+   "model",
+   "prompt_version",
+   "detail",
+   "detail.engine",
+   "detail.index_date",
+   "detail.patients",
+   "detail.tiers",
+   "detail.n_after",
+   "detail.judging",
+   "detail.budget"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/scenarios/submit.py:245",
+  "event": "twpas.submit",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "output_sha",
+   "detail",
+   "detail.nav_job_id",
+   "detail.pid",
+   "detail.dry_run",
+   "detail.endpoint",
+   "detail.outcome",
+   "detail.by"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/scenarios/trials.py:196",
+  "event": "cohort.trials",
+  "fields": [
+   "job_id",
+   "ruleset",
+   "detail",
+   "detail.source",
+   "detail.condition",
+   "detail.trials"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/scheduler.py:190",
+  "event": "scheduler.held",
+  "fields": [
+   "ruleset",
+   "detail",
+   "detail.job",
+   "detail.state"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/scheduler.py:175",
+  "event": "scheduler.held",
+  "fields": [
+   "ruleset",
+   "detail",
+   "detail.job",
+   "detail.state"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/selftest.py:343",
+  "event": "'selftest.passed' if report['ok'] else 'selftest.failed'",
+  "fields": [
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/selftest.py:327",
+  "event": "selftest.unreached",
+  "fields": [
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/setup_api.py:447",
+  "event": "setup.practice",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.action"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/setup_api.py:486",
+  "event": "setup.remote",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.on",
+   "detail.approved_by",
+   "detail.real_data"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/sponsor_api.py:84",
+  "event": "sponsor.layout",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.id",
+   "detail.log",
+   "detail.weekly"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/sponsor_api.py:95",
+  "event": "sponsor.weekly",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.file",
+   "detail.name"
+  ],
+  "free": [
+   "detail.name"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/sponsor_api.py:124",
+  "event": "life.step",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.steps",
+   "detail.reason",
+   "detail.source",
+   "detail.file"
+  ],
+  "free": [
+   "detail.reason"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/sponsor_api.py:64",
+  "event": "sponsor.weekly",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.file",
+   "detail.refused"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/sponsor_api.py:82",
+  "event": "sponsor.layout",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.refused"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/sponsor_api.py:111",
+  "event": "life.refused",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.source",
+   "detail.why"
+  ],
+  "free": [
+   "detail.why"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/sponsor_api.py:120",
+  "event": "life.refused",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.record",
+   "detail.source",
+   "detail.why"
+  ],
+  "free": [
+   "detail.why"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/study_api.py:108",
+  "event": "redcap.test",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.token_ref",
+   "detail.result"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/study_api.py:150",
+  "event": "redcap.link",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.project_id"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/study_api.py:216",
+  "event": "redcap.write",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.updated",
+   "detail.created",
+   "detail.fields"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/study_api.py:329",
+  "event": "redcap.read",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.result",
+   "detail.changes",
+   "detail.duplicates",
+   "detail.conflicts",
+   "detail.status_changes"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/study_api.py:441",
+  "event": "study.settings",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.study_type"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/study_api.py:462",
+  "event": "study.screen_scope",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.mode",
+   "detail.practitioners"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/study_api.py:487",
+  "event": "redcap.connection",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.token_ref",
+   "detail.token_changed"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/study_api.py:105",
+  "event": "redcap.test",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.token_ref",
+   "detail.result"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/study_api.py:255",
+  "event": "redcap.read",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.result"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/study_api.py:259",
+  "event": "redcap.read",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail",
+   "detail.result"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/orchestrator/study_api.py:287",
+  "event": "redcap.erased_consent",
+  "fields": [
+   "ruleset",
+   "actor",
+   "detail"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/sitesetup/service.py:190",
+  "event": "setup.input",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.input",
+   "detail.kind",
+   "detail.rows",
+   "detail.dropped"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/sitesetup/service.py:296",
+  "event": "setup.chart",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.input",
+   "detail.pid",
+   "detail.method",
+   "detail.proposed",
+   "detail.dropped",
+   "detail.hidden_text"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/sitesetup/service.py:347",
+  "event": "setup.fact",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.fact",
+   "detail.action",
+   "detail.domain",
+   "detail.pid",
+   "detail.changed"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/sitesetup/service.py:369",
+  "event": "setup.check",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.check",
+   "detail.kind",
+   "detail.column",
+   "detail.answer"
+  ],
+  "free": [
+   "detail.answer"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/sitesetup/service.py:383",
+  "event": "setup.map",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.domain",
+   "detail.local",
+   "detail.to"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/sitesetup/service.py:410",
+  "event": "setup.resolve",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.pid",
+   "detail.what",
+   "detail.rejected"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/sitesetup/service.py:564",
+  "event": "setup.publish",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.snapshot",
+   "detail.counts"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/sitesetup/service.py:255",
+  "event": "setup.reread",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.input",
+   "detail.rows"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/sitesetup/service.py:322",
+  "event": "setup.fact",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.fact",
+   "detail.action",
+   "detail.domain",
+   "detail.pid",
+   "detail.from"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/sitesetup/service.py:521",
+  "event": "setup.publish_begin",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.snapshot",
+   "detail.digest"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/sitesetup/service.py:596",
+  "event": "setup.publish_failed",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.snapshot",
+   "detail.state"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/sitesetup/service.py:600",
+  "event": "setup.publish_deferred",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.snapshot"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/sitesetup/service.py:642",
+  "event": "setup.reset",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.omop_store"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/sitesetup/service.py:461",
+  "event": "setup.publish_waits",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.why"
+  ],
+  "free": [
+   "detail.why"
+  ],
+  "masked": false
+ },
+ {
+  "place": "services/sitesetup/service.py:542",
+  "event": "setup.publish_deferred",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.snapshot"
+  ],
+  "free": [],
+  "masked": false
+ },
+ {
+  "place": "services/sitesetup/service.py:537",
+  "event": "setup.publish_building",
+  "fields": [
+   "actor",
+   "detail",
+   "detail.ws",
+   "detail.snapshot"
+  ],
+  "free": [],
+  "masked": false
+ }
+]

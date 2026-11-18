@@ -71,6 +71,18 @@
 #                      tb-bucket boxruns/<run>/acc/<set>.tgz at once: a pre-emption loses at most the set in hand,
 #                      and that set resumes protocol by protocol. Scored outside the box (box-run.sh --collect)
 #     79-acc-result    the sets' counts; protocols refused by the PHI tripwire are a product defect count
+#   session  the owner's live session (D-1123; D-1130 to D-1133), with dev only: the public sets tcga and jmed and the
+#            synthetic hospital loaded as acc loads them (50 to 54 and 53h-session-hospital), the session's
+#            environment (51s-session-env: DEV with the acting role, or VALIDATION), the box's own egress rules
+#            applied by the product's script and read back (55-session-egress), the accounts by the console's own
+#            enrolment code with the links to one private object (56-session-accounts), the session itself with its
+#            ready line, its heartbeat and its stop (57-session-open), the accounts disabled (58-session-close; also at
+#            the next boot of any run when a session did not close). sshd is stopped at every boot of a session run.
+#            Nothing from a session is evidence: records/session.json says so, and holds no code and no pasted text
+#   session metadata: tb-session-env (DEV|VALIDATION), tb-session-minutes, tb-session-people (name:role[+role],...),
+#            tb-session-handoff (gs:// of the links object), tb-session-synth (patients), tb-session-idle-minutes
+#            (setting, 60: a session with no request through the box's Caddy for this long ends early),
+#            tb-session-code-hours (setting, 24: an unused code expires, D-776)
 # Modes (tb-mode): production (the default: the vendor key, box-install.sh and the first-run wizard, PRODUCTION) or
 # validation (the owner's ruling of 2026-11-15, a proof of concept): b05 signs with a THROWAWAY Ed25519 key made in
 # tmpfs on this VM by tools/sign_bundle.py keygen (never the vendor key; its public half goes beside the bundle; the
@@ -378,6 +390,18 @@ PY
 st() { local c=$1 s=$2; shift 2; "$PY" "$SBIN/tb-boxrun-state.py" "$RUN" "$c" "$s" "$@"; }
 finish() {  # $1 marker line, $2 phase: say why, keep it in the state, pack, DONE; the watchdog does the rest
   echo "$1" | tee -a "$LOG"; phase "$2"
+  # the session (D-1132): a run that ends before the session opened says so on its own boot's line, and a session
+  # whose accounts are still open is closed now (else at the next boot)
+  if [ -n "${SBOOT:-}" ] && has session && [ ! -f "$SES/ready-$SBOOT" ]; then
+    echo "TB-SESSION-NOT-READY boot=$SBOOT at=$(date -u +%FT%TZ) why=$(printf '%s' "$1" | tr -d '\n' | cut -c1-200)"
+  fi
+  # round 4's a: never a close of this kind while the box's Caddy may serve (the boot's close held them: SES_HOLD)
+  if declare -F session_close >/dev/null && [ -z "${SES_HOLD:-}" ] && session_open_left; then
+    session_close "the run's end ($2)" || true
+  fi
+  # the re-review's C: a session run that ends with no account open (a refusal, a stop before 56) is closed too
+  if declare -F has >/dev/null && has session; then session_unclosed_add; fi
+  session_runs_closed "the run's end ($2)" || true
   # the box's facts on any way out of a start once an install was tried (a stop is when they matter most)
   if has start && [ -d "${BOXROOT:-/nonexistent}/deploy" ] && [ ! -s "$REC/facts-box.txt" ]; then
     NOTES=/dev/null; step_facts_box >/dev/null 2>&1 || true
@@ -555,21 +579,103 @@ ACC_MIN_START=$(md tb-acc-min-start || echo 600)   # D4: no protocol started wit
 ACC_DEADLINE=$(md tb-acc-deadline || true)         # the owner's probe: each set's time budget, seconds (else the plan's)   # "set:size:high_seconds ..." from the plan (tools/box_run.py metadata)
 PROBE=$(md tb-probe || true)
 DIRECT=$(md tb-direct || true)   # 1: 02 brings the installed tree's stack up with the product's own tools, no install.sh   # 1: read the VM's and the box's facts (00-facts; after the install 04p-facts) and stop
+# the owner's live session (D-1123, D-1132)
+SES_ENV=$(md tb-session-env || true)
+SES_MIN=$(md tb-session-minutes || true)
+SES_PEOPLE=$(md tb-session-people || true)
+SES_HANDOFF=$(md tb-session-handoff || true)
+SES_SYNTH=$(md tb-session-synth || echo 200)
+SES_IDLE=$(md tb-session-idle-minutes || echo 60)          # (setting) the session ends early after this long unread
+SES_CODE_HOURS=$(md tb-session-code-hours || echo 24)      # (setting) an unused one-time code expires (D-776)
+SES="$TB/session"   # on the kept disk, across runs: the names of a session's accounts until they are disabled
+# a session's accounts named on the disk (56 writes the names before any code exists), its environment not put back,
+# or the console's and Caddy's restart policy still `no`: the close has work to do
+session_accounts_left() { [ -s "$SES/accounts" ] || [ -s "$SES/env-before" ] || [ -f "$SES/norestart" ]; }
+# ... or the box's own unit not put back yet (round 3's finding 1: it is put back once CLOSED is written)
+session_open_left() { session_accounts_left || [ -s "$SES/unit-before" ]; }
+# Round 3's finding 1 and round 4's b: lane D's units that bring the stack up by themselves (deploy/install.sh installs
+# and enables them when its egress check passes): trialbox.service runs `docker compose up` at every boot, Caddy and
+# 443 with it, whatever the containers' restart policy; trialbox-ops.timer runs the Operations page's requests every
+# minute from a boot on (an update's `compose up -d` of every service, Caddy included); trialbox-watchdog.timer
+# restarts an unhealthy service. While a session's accounts are open they are disabled (the timers and what they start
+# also stopped), each one's state before kept (step 56); a close at a boot stops them and waits for them first.
+TB_UNIT=trialbox.service
+SES_UNITS="trialbox.service trialbox-ops.timer trialbox-watchdog.timer"   # kept off while the accounts are open
+SES_UNITS_RUN="trialbox-ops.service trialbox-watchdog.service"             # what the two timers start
+SYSTEMD_DIRS=${TB_BOXRUN_SYSTEMD_DIRS:-/etc/systemd/system /run/systemd/system /usr/lib/systemd/system /lib/systemd/system}
+unit_file() { local d; for d in $SYSTEMD_DIRS; do [ -e "$d/$1" ] && return 0; done; return 1; }
+# is-enabled / is-active of a unit: "absent" when no unit file exists, "?" when systemctl gives no answer for one that
+# does (a D-Bus error: round 4's c; never read as "not installed")
+unit_q() { local v; v=$(systemctl "$1" "$2" 2>/dev/null | head -n 1)
+  if [ -n "$v" ] && [ "$v" != not-found ]; then echo "$v"; elif unit_file "$2"; then echo "?"; else echo absent; fi; }
+unit_enabled() { unit_q is-enabled "$1"; }
+unit_active() { unit_q is-active "$1"; }
+unit_idle() { case "$(unit_active "$1")" in absent|inactive|failed) return 0 ;; *) return 1 ;; esac; }
+door_state() {  # tcp:443 now: open (the box's Caddy runs, or something listens), closed, or unknown (round 4's f: ss
+  # gives no answer: never read as "nothing listens")
+  local l rc=0
+  if d_caddy_running; then echo open; return 0; fi
+  l=$(ss -Htln 'sport = :443' 2>/dev/null) || rc=$?
+  if [ "$rc" != 0 ]; then echo unknown; elif [ -n "$l" ]; then echo open; else echo closed; fi
+}
+d_door_open() { [ "$(door_state)" != closed ]; }   # open or cannot tell
+# The re-review's C: every session run that booted on this disk gets its CLOSED marker beside its links once no
+# session account is open here, even a run that never opened one (a refusal, a stop before 56, a cut). The driver
+# (box-run.sh session_closed) keeps the door's deny-all and the tag until the marker of the run the deny names exists.
+session_unclosed_add() {  # this run's handoff, when it is a session run's of the checked form
+  [[ "${SES_HANDOFF:-}" =~ ^gs://[a-z0-9._-]{3,63}(/[A-Za-z0-9._-]+)*$ ]] || return 0
+  mkdir -p "$SES"; chmod 700 "$SES"
+  grep -qxF "$SES_HANDOFF" "$SES/unclosed" 2>/dev/null || printf '%s\n' "$SES_HANDOFF" >> "$SES/unclosed"
+}
+session_runs_closed() {  # $1 why: CLOSED for each run listed, while no session account is open on this disk
+  local h left=""
+  [ ! -s "$SES/accounts" ] || return 1
+  [ -s "$SES/unclosed" ] || return 0
+  while read -r h; do
+    [ -n "$h" ] || continue
+    printf 'closed %s by %s (run %s): no session account is open on this disk\n' "$(date -u +%FT%TZ)" "$1" "$RUN_ID" \
+      > "$SES/closed.txt"
+    if ! gcloud storage cp "$SES/closed.txt" "$h/CLOSED" > /dev/null 2>&1; then
+      left="$left$h"$'\n'
+      echo "TB-SESSION the CLOSED marker could not be written to $h (the door's deny stays)" | tee -a "$LOG"
+    fi
+  done < "$SES/unclosed"
+  rm -f "$SES/closed.txt"
+  if [ -n "$left" ]; then printf '%s' "$left" > "$SES/unclosed"; else rm -f "$SES/unclosed"; fi
+}
 ISSUE="${TB_ISSUE_DIR:-/etc/issue.d}/trialbox-firstrun.issue"
 BUNDLE="$TB/bundle/$RUN_ID.tar"
 ANSWERS="$TB/wizard-answers"
 REC="$RUN/records"
 
-ENDED=$(st get _ended)
-if [ -n "$ENDED" ]; then  # this run already ended (a stop, or all steps): hand over its results, repeat nothing
-  echo "TB-RUN-ENDED-BEFORE: $ENDED" | tee -a "$LOG"; phase ended
+# Round 4's g: a boot that ends before the run's steps (the run ended before, the cap, its preflight, sshd) while a
+# session's accounts are still open on this disk ends only after the close below (a later boot of the same run closed
+# nothing before: only another run's boot did). EARLY_END holds the end: the marker line, the phase, the exit code.
+EARLY_END=()
+early_end() {
+  if [ "${#EARLY_END[@]}" -gt 0 ]; then return 0; fi
+  if session_open_left; then
+    EARLY_END=("$1" "$2" "${3:-1}")
+    echo "TB-SESSION the run ends ($(printf '%s' "$1" | cut -c1-120)), after the close of the session left open on this disk" | tee -a "$LOG"
+    return 0
+  fi
+  finish "$@"
+}
+early_ended() {  # the run ended before (a stop, or all steps): its results handed over again, nothing repeated
+  echo "TB-RUN-ENDED-BEFORE: $1" | tee -a "$LOG"; phase ended
   pack; touch "$DONE"; echo BOX-RUN-DONE; exit 0
+}
+ENDED=$(st get _ended)
+if [ -n "$ENDED" ]; then
+  if session_open_left; then EARLY_END=("ended" "$ENDED" 0)
+    echo "TB-SESSION run $RUN_ID ended before; it ends again after the close of the session left open on this disk" | tee -a "$LOG"
+  else early_ended "$ENDED"; fi
 fi
-[ "$CAP_LEFT" -gt 0 ] || finish "TB-CAP-REACHED: the $MAXM minutes of this run are used ($CAP_USED s over its boots)" cap-reached
+[ "$CAP_LEFT" -gt 0 ] || early_end "TB-CAP-REACHED: the $MAXM minutes of this run are used ($CAP_USED s over its boots)" cap-reached
 
 has() { case "$STEPS" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 pf=""
-for s in $STEPS; do case "$s" in build|start|g6|g9|g10|acc|probe|dev) ;; *) pf="$pf; unknown group '$s' in tb-steps" ;; esac; done
+for s in $STEPS; do case "$s" in build|start|g6|g9|g10|acc|probe|dev|session) ;; *) pf="$pf; unknown group '$s' in tb-steps" ;; esac; done
 [ -s "$HELPER" ] || pf="$pf; no tb-helper (deploy/gcp/box_vm.py)"
 for c in "$PY" curl tar sha256sum; do command -v "$c" >/dev/null || pf="$pf; no $c"; done
 if has build || has dev; then
@@ -599,8 +705,63 @@ fi
 has g10 && [ -z "$G10_IMAGE" ] && pf="$pf; no tb-g10-vllm-image (G-10 names its image)"
 has acc && [ -z "$ACC_TOOLS" ] && pf="$pf; no tb-acc-tools (lane G's accuracy tools, a tarball in the bucket)"
 has acc && [ -z "$ACC_SETS" ] && pf="$pf; no tb-acc-sets"
-[ -z "$pf" ] || finish "TB-PREFLIGHT-FAILED${pf}" preflight-failed
+if has session; then   # D-1132: with dev only, on the direct route; the session's own keys of the checked form
+  { has dev && [ -n "$DIRECT" ]; } || pf="$pf; a session runs with dev on the direct route only"
+  if has acc || has start || has g6 || has g9 || has g10 || has build; then pf="$pf; a session runs with dev only"; fi
+  { [ -n "$ACC_TOOLS" ] && [ -n "$ACC_SETS" ]; } || pf="$pf; no tb-acc-tools / tb-acc-sets (the session's public sets)"
+  case "$SES_ENV" in DEV|VALIDATION) ;; *) pf="$pf; tb-session-env must be DEV or VALIDATION (got '$SES_ENV')" ;; esac
+  [[ "$SES_MIN" =~ ^[1-9][0-9]{0,2}$ ]] || pf="$pf; tb-session-minutes must be whole minutes (got '$SES_MIN')"
+  [[ "$SES_PEOPLE" =~ ^[a-z][a-z0-9._-]{1,21}:[a-z+]+(,[a-z][a-z0-9._-]{1,21}:[a-z+]+)*$ ]] \
+    || pf="$pf; tb-session-people must be name:role[+role] pairs"
+  [[ "$SES_HANDOFF" =~ ^gs://[a-z0-9._-]{3,63}(/[A-Za-z0-9._-]+)*$ ]] || pf="$pf; tb-session-handoff must be gs://BUCKET/PATH"
+  [[ "$SES_SYNTH" =~ ^[0-9]{1,4}$ ]] || pf="$pf; tb-session-synth must be a number of patients"
+  [[ "$SES_CODE_HOURS" =~ ^[0-9]{1,3}$ ]] && [ "$SES_CODE_HOURS" -ge 1 ] && [ "$SES_CODE_HOURS" -le 72 ] \
+    || pf="$pf; tb-session-code-hours must be 1 to 72 (got '$SES_CODE_HOURS')"
+  [[ "$SES_IDLE" =~ ^[0-9]{1,3}$ ]] && [ "$SES_IDLE" -ge 1 ] || pf="$pf; tb-session-idle-minutes must be 1 to 999 (got '$SES_IDLE')"
+  # the security review's finding 1: a step of the session left out or run again would leave out a proof (55) or the
+  # close (58); the session's own skip is 08 to 12 only, and nothing is redone
+  for _s in $SKIP_STEPS; do case "$_s" in 5[0-8]*) pf="$pf; tb-skip names $_s: a session's own steps are never left out" ;; esac; done
+  [ -z "$(md tb-redo || true)" ] || pf="$pf; tb-redo: a session is never run again in part (D-1123 4.4)"
+  # finding 2: a session is never resumed (a resume would run its steps without the launch's door and checks)
+  [ -z "$RETRY" ] || pf="$pf; tb-retry: a session run is never resumed; more time is a new launch (D-1123 4.4)"
+fi
+# a run resumed on a disk whose last session was this run's, even with tb-steps lost: never a session's steps again
+if [ -n "$RETRY" ] && [ "$(cat "$TB/session/run" 2>/dev/null)" = "$RUN_ID" ]; then
+  pf="$pf; tb-retry: run $RUN_ID opened a session on this disk; a session run is never resumed (D-1123 4.4)"
+fi
+[ -z "$pf" ] || early_end "TB-PREFLIGHT-FAILED${pf}" preflight-failed
 echo "TB-PREFLIGHT ok: groups$STEPS"
+# D-1120 for the session: this boot's own id (8 random bytes, hex; derived from nothing, not a secret), on its first
+# line, its ready line and its end; box-run.sh --session-status counts a ready line only when it is this boot's
+SBOOT=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+d_port22() { ss -Htln 'sport = :22' 2>/dev/null; }   # what listens on tcp:22 now
+SSHD_BEFORE="$TB/session-sshd-before"   # each unit's is-enabled and is-active before the first session boot
+if has session; then
+  echo "TB-SESSION-BOOT boot=$SBOOT started=$(date -u +%FT%TZ)"
+  # D-1130 and the security review's finding 5: no SSH for anyone during a session. Ubuntu 24.04 starts sshd from
+  # ssh.socket, so both units are stopped and masked; what they were is kept to be put back by the next boot that is
+  # no session. The firewall's deny on the session tag is the first lock; block-project-ssh-keys keeps the keys off.
+  if [ ! -s "$SSHD_BEFORE" ]; then
+    for _u in ssh.socket ssh.service; do
+      printf '%s %s %s\n' "$_u" "$(systemctl is-enabled "$_u" 2>/dev/null | head -n 1 || true)" \
+        "$(systemctl is-active "$_u" 2>/dev/null | head -n 1 || true)"
+    done > "$SSHD_BEFORE"
+  fi
+  cp "$SSHD_BEFORE" "$RUN/records/sshd-before.txt" 2>/dev/null || true
+  systemctl stop ssh.socket ssh.service >/dev/null 2>&1 || true
+  systemctl mask ssh.socket ssh.service >/dev/null 2>&1 || true
+  _l22=$(d_port22) || _l22="(ss gave no answer: what listens cannot be told)"   # round 4's f
+  echo "TB-SESSION no SSH: ssh.socket and ssh.service stopped and masked (before: $(paste -sd';' "$SSHD_BEFORE")); listening on :22: ${_l22:-nothing}"
+  [ -z "$_l22" ] || early_end "TB-SESSION-SSH: something still listens on tcp:22 after the stop ($_l22): no session" session-ssh
+elif [ -s "$SSHD_BEFORE" ]; then   # the first boot after a session that is no session: SSH as it was
+  systemctl unmask ssh.socket ssh.service >/dev/null 2>&1 || true
+  while read -r _u _en _act; do
+    case "$_en" in enabled) systemctl enable "$_u" >/dev/null 2>&1 || true ;; esac
+    case "$_act" in active) systemctl start "$_u" >/dev/null 2>&1 || true ;; esac
+  done < "$SSHD_BEFORE"
+  echo "TB-SESSION SSH put back as it was before the session ($(paste -sd';' "$SSHD_BEFORE")); listening on :22: $(d_port22 | wc -l) socket(s)"
+  rm -f "$SSHD_BEFORE"
+fi
 
 # ------------------------------------------------------------------ the step runner
 STEP=""; STEP_LOG=/dev/null; NOTES=/dev/null; STOP=""
@@ -733,6 +894,24 @@ except Exception:
     cuda = "see nvidia-smi"
 print(json.dumps({"driver": d, "cuda": cuda, "gpu": n.rstrip(",")}))'
 }
+# H-19 (D-1105): the record names its code by the commit the installer recorded in deploy/updates/installed.json
+# (D-994; the box has no git), beside the image id: the three evidence gates compare the evidence files' git commit
+# with it. Only 40 lowercase hex with dirty: false (box_vm.py installed-commit); dirty: true, a null, missing or
+# malformed commit is refused by name. A run whose record can be the product's (production mode, or evidence given)
+# stops on the refusal; a validation measurement without evidence runs on, its code named by the image as before.
+CODE_ENV=()
+code_commit() {  # code_commit [record]: CODE_ENV for qualify, or the refusal by name (a STOP when "record")
+  local cc
+  CODE_ENV=()
+  if cc=$(vm installed-commit "$BOXROOT/deploy/updates/installed.json" 2>&1); then
+    CODE_ENV=(-e "TB_CODE_COMMIT=$cc"); note code_commit "\"$cc\""; return 0
+  fi
+  cc=${cc#installed-commit refused: }
+  echo "TB-CODE-COMMIT-REFUSED: $cc" >> "$STEP_LOG"; note code_commit_refused "$cc"
+  [ "${1:-}" = record ] || return 0
+  STOP="TB-CODE-COMMIT-REFUSED: the record names its code by the installed release's commit: $cc"
+  return 1
+}
 d_qualify() {
   local out=$1 tok=() m=() p; shift
   for p in /var/run/docker.sock /var/lib/docker/containers /var/lib/docker/volumes "$BOXROOT" "$MODELS"; do
@@ -757,6 +936,7 @@ d_qualify() {
     -e "TB_COMPOSE=docker compose --project-directory $BOXROOT/deploy" -e TB_DOCKER=docker \
     -e "TB_ENV=$(envget TB_ENV)" \
     -e TB_HOST_PROFILE=poc -e "TB_CODE_IMAGE=$(docker image inspect -f '{{.Id}}' "$(img_py)" 2>/dev/null)" \
+    ${CODE_ENV[@]+"${CODE_ENV[@]}"} \
     -e "TB_HOST_GPU=$(host_gpu_json)" \
     trialbox eval qualify --box --profile "$PROFILE" --gateway-url http://gateway:8020/v1 --operator lane-g-box-run \
     --out /q "$@"
@@ -1537,6 +1717,7 @@ step_qualify() {
     args+=(--evidence "${e%%=*}=$TB/evidence/${e%%=*}.json")
   done
   note evidence "\"${QEVIDENCE:-none}\""
+  if [ "$MODE" = validation ] && [ -z "$QEVIDENCE" ]; then code_commit; else code_commit record || return 1; fi
   # a boot after the start's (a resume): the stack restarts by itself, the model servers load for minutes; qualify
   # starts only once compose says every service, both model servers too, is healthy (F14: model_unavailable)
   if [ -n "$DIRECT" ]; then WATCH_IO=1 need "the stack healthy before qualify (compose up --wait)" d_direct_up || return 1; fi
@@ -1832,6 +2013,7 @@ step_g10_image() {
 }
 step_g10_canary() { watched d_canary; local rc=$?; note canary_exit "$rc"; [ "$rc" = 0 ] && note pass true || note pass false; }
 step_g10_qualify() {
+  code_commit   # G-10's record is a measurement of the declared image (no evidence): a refusal is noted, not a stop
   watched d_qualify "$REC/qualification-g10.json"; local rc=$?
   note qualify_exit "$rc"; note status "\"$(jget "$REC/qualification-g10.json" status)\""
   [ "$rc" = 0 ] && [ "$(jget "$REC/qualification-g10.json" status)" = passed ] && note pass true || note pass false
@@ -1989,7 +2171,10 @@ step_acc_ingest() {
   for item in $ACC_SETS; do   # the sets 53 built (a set left out there has no site)
     [ -d "$ACC/${item%%:*}/built/site/hospital" ] && sites+=("$ACC/${item%%:*}/built/site/hospital")
   done
+  # the session's synthetic hospital (53h-session-hospital), beside the public sets (the integrator's answer 6)
+  if has session && [ -d "$ACC/synth/built/site" ]; then sites+=("$ACC/synth/built/site"); fi
   [ ${#sites[@]} -gt 0 ] || { STOP="no accuracy set was built (53)"; return 1; }
+  rm -rf "${feed:?}/acc"   # only this run's sets: never a table an earlier run (a session's hospital) left there
   need "the sets' hospital feeds as one feed in the box's feed folder (acc/)" vm acc-merge-feed --into "$feed/acc" "${sites[@]}" || return 1
   need "the site's optional tables for a public-data feed (settings.yaml feed_completeness)" d_optional_tables "$feed/acc" || return 1
   ref=$(acc_today); snap=$(date -d "$ref -1 day" +%F); note snapshot "\"$snap\""
@@ -2253,7 +2438,426 @@ step_facts_box() {
   } > "$f"
   note facts_box "\"records/facts-box.txt\""
 }
+# ================================================================== the owner's live session (D-1123; D-1130 to D-1133)
+# Nothing from a session is evidence. The steps reuse the acc group's 50 to 54 for the public sets, then:
+# 51s the session's environment, 53h the synthetic hospital, 55 the box's own egress rules (the product's script,
+# read back), 56 the accounts and the links object, 57 the session itself, 58 the accounts disabled.
+SES_GRACE_MIN=10   # (setting) the session closes this long before the cost cap, so 58 runs before the cap fires
+md_ip() { curl -sf -H Metadata-Flavor:Google "http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip"; }
+session_host() {  # the name the box's Caddy serves (deploy/.env TB_TLS_HOSTNAME, the site's own), else the address
+  local h; h=$(envget TB_TLS_HOSTNAME | tr -d "\"' \r")
+  if [ -n "$h" ]; then printf '%s' "$h"; else md_ip; fi
+}
+session_rec() { local a=() kv; for kv in "$@"; do a+=(--set "$kv"); done; vm session-record --file "$REC/session.json" "${a[@]}" > /dev/null; }
+svc_recreate() {  # every service that reads deploy/.env, not the two model servers (51-acc-settings' rule); $1 one more left out
+  local svcs=(); mapfile -t svcs < <(dc config --services | grep -v '^llm-' | grep -vx -e "${1:-llm-service}")
+  [ ${#svcs[@]} -gt 0 ] || { echo "no service of the box is named (compose config)"; return 1; }
+  d_recreate "${svcs[@]}"
+}
+step_session_env() {
+  local before host
+  mkdir -p "$SES"; chmod 700 "$SES"
+  before=$(envget TB_ENV | tr -d "\"' \r" | tr '[:lower:]' '[:upper:]')
+  note environment_before "\"${before:-PRODUCTION (unset)}\""
+  [ "$before" = VALIDATION ] || [ "$before" = "$SES_ENV" ] \
+    || { STOP="the box is ${before:-PRODUCTION (TB_ENV unset)} before the session, not VALIDATION: a session never runs on another box"; return 1; }
+  [ -s "$SES/env-before" ] || printf '%s\n' "$before" > "$SES/env-before"   # 58 puts it back
+  if [ ! -s "$SES/public-url-before" ]; then   # and this one (the review's finding 11)
+    if grep -q '^TB_CONSOLE_PUBLIC_URL=' "$BOXROOT/deploy/.env" 2>/dev/null; then
+      printf 'set %s\n' "$(envget TB_CONSOLE_PUBLIC_URL)" > "$SES/public-url-before"
+    else echo unset > "$SES/public-url-before"; fi
+  fi
+  printf '%s\n' "$RUN_ID" > "$SES/run"
+  # the box's own declared settings, as an operator sets them (D-127): its environment (DEV: the acting role of
+  # D-1063 is allowed there; VALIDATION: unchanged) and the public address its one-time links name (D-776)
+  [ "$before" = "$SES_ENV" ] || envset_box TB_ENV "$SES_ENV"
+  host=$(session_host)
+  [ -n "$host" ] || { STOP="no name or address for the box (TB_TLS_HOSTNAME in deploy/.env, or the VM's external address)"; return 1; }
+  envset_box TB_CONSOLE_PUBLIC_URL "https://$host"
+  note environment "\"$SES_ENV\""; note public_url "\"https://$host\""
+  need "the stack recreated in the session's environment (not the model servers)" svc_recreate || return 1
+  session_rec "run=$RUN_ID" "commit=$COMMIT" "environment=$SES_ENV" "environment_before=$before" \
+    "what=the owner's live session on the GPU VM (D-1123): the owner looking, not a validation record"
+}
+# the synthetic hospital: the scale gate's generator (tools.synth, the g6 night's, thin), a few hundred patients
+d_session_feed() { docker run --rm --network none -v "$1:/out" "$(img_py)" python -c "$GEN_FEED" "$2" /out/site "$3" thin; }
+step_session_hospital() {
+  [ "$SES_SYNTH" -gt 0 ] || { note patients 0; note skipped '"no synthetic hospital asked (tb-session-synth 0)"'; return 0; }
+  [ -d "$ACC/synth/built/site" ] && { note kept '"built before"'; return 0; }
+  mkdir -p "$ACC/synth/built"
+  note patients "$SES_SYNTH"
+  need "the synthetic hospital (tools.synth, in the box's image)" d_session_feed "$ACC/synth/built" "$SES_SYNTH" "$(acc_today)"
+}
+# D-1131: the box's own egress rules, by the product's own script as install.sh runs it (its line `deploy/network.sh
+# apply`), then read back from the kernel (`status`) against the networks `apply` saw: the pasted text cannot leave
+EGRESS_STATE=/var/lib/trialbox/egress-state.json
+[ -z "${TB_BOXRUN_ROOT:-}" ] || EGRESS_STATE="$TB/egress-state.json"
+d_egress() { (cd "$BOXROOT" && deploy/network.sh "$1" --env deploy/.env --state "$EGRESS_STATE"); }
+step_session_egress() {
+  [ -x "$BOXROOT/deploy/network.sh" ] || { STOP="no deploy/network.sh in the box's tree: the product's egress rules cannot be applied"; return 1; }
+  need "the box's own egress rules (deploy/network.sh apply, as install.sh applies them)" d_egress apply || return 1
+  d_egress status > "$REC/session-egress-table.txt" 2>> "$STEP_LOG" \
+    || { STOP="the egress table cannot be read back (deploy/network.sh status)"; return 1; }
+  vm session-egress --table "$REC/session-egress-table.txt" --state "$EGRESS_STATE" --notes "$NOTES" > "$REC/session-egress.json" \
+    || { STOP="TB-SESSION-EGRESS: text could leave the box: $(jget "$REC/session-egress.json" problems) (no link is given)"; return 1; }
+}
+# the accounts, by the console's own code in its own container (D-776, D-719): DEV, one account per person with the
+# roles it may act in (D-877's boot tool, console.steps_roles: a one-time code each, the flag steps.acting_role on,
+# audited); VALIDATION, one account per role (UserStore.open_by_code). One line a person on stdout: name, roles,
+# code, expiry. The caller keeps them in a root-only file; they never reach a log, the metadata or the serial port.
+d_session_people() { in_svc console <<EOF
+# tb-boxrun: session-people
+import os, sys
+from datetime import timedelta
+from pathlib import Path
+for p in (Path.cwd(), Path.cwd() / "libs", Path.cwd() / "services"):
+    sys.path.insert(0, str(p))
+from console.auth import UserStore
+people = [(x.split(":", 1)[0], tuple(x.split(":", 1)[1].split("+"))) for x in "$1".split(",")]
+hours, env = int("$2"), "$3"
+users = UserStore()
+if env == "DEV":
+    from console import steps_roles
+    rows = steps_roles.open_people(users, None, people, [], hours)
+    steps_roles.flag_on(Path(os.environ.get("TB_AUDIT_DIR") or "/data/audit"),
+                        "the owner's live session (D-1123, D-1132): one sign-in per person, the acting role (D-1063)")
+else:
+    users.enrol_ttl = timedelta(hours=hours)
+    rows = []
+    for name, roles in people:
+        if len(roles) != 1:
+            sys.exit(f"session: {name}: one role per account on a VALIDATION box (D-1063 item 3)")
+        if users.role_of(name):
+            sys.exit(f"session: an account {name} exists already")
+        rows.append((name, roles, users.open_by_code(name, roles[0], f"{name}@hospa.test", "box-session"), ""))
+for name, roles, code, expires in rows:
+    print(f"{name}\t{'+'.join(roles)}\t{code}\t{expires}")
+EOF
+}
+# the session's accounts disabled (UserStore.disable: the account off, its sessions ended), their extra roles taken
+# back and the acting flag off while the box is still a test box (a VALIDATION console refuses to start with either
+# on record, D-877); prints one line a name
+d_session_disable() { in_svc console <<EOF
+# tb-boxrun: session-disable
+import os, sys
+from pathlib import Path
+for p in (Path.cwd(), Path.cwd() / "libs", Path.cwd() / "services"):
+    sys.path.insert(0, str(p))
+from console.auth import UserStore
+from tb_common.flags import test_box
+users = UserStore()
+for name in "$1".split():
+    if test_box() and users.role_of(name) and users.extra_roles(name):
+        users.grant_roles(name, [], allowed=True)
+    users.disable(name)
+    print(f"disabled {name}")
+if test_box():
+    from tb_common.audit_writer import open_audit
+    from tb_common.config import site_tz
+    from tb_common.flags import Flags
+    flags = Flags(audit=open_audit(Path(os.environ.get("TB_AUDIT_DIR") or "/data/audit"), site_tz()))
+    if flags.get("steps.acting_role", "off") != "off":
+        flags.set("steps.acting_role", "off", "box-session", "the owner's live session closed (D-1132)")
+        print("steps.acting_role off")
+EOF
+}
+session_suffix() {  # a session's account names carry its run's stamp: the kept disk keeps every earlier session's
+  local s; s=$(st kv _ session_suffix)
+  if [ -z "$s" ]; then
+    s=$(printf '%s' "$RUN_ID" | sed -n 's/^box-[0-9]\{4\}\([0-9]\{4\}\)T\([0-9]\{4\}\).*/s\1\2/p')
+    [ -n "$s" ] || s="s$(date -u +%m%d%H%M)"
+    st set _ session_suffix "$s"
+  fi
+  printf '%s' "$s"
+}
+step_session_accounts() {
+  local people suffix host ip fp stop now cap_end stamp obj item name roles code expires
+  mkdir -p "$SES"; chmod 700 "$SES"
+  # round 3's finding 4: this run began to open a session on this disk: any later boot of it closes and stops
+  grep -qxF "$RUN_ID" "$SES/opened" 2>/dev/null || printf '%s\n' "$RUN_ID" >> "$SES/opened"
+  SES_OPENED_HERE=1
+  suffix=$(session_suffix)
+  people=$(printf '%s' "$SES_PEOPLE" | tr ',' '\n' | sed "s/^\([^:]*\):/\1-$suffix:/" | paste -sd, -)
+  # the review's finding 6: while the accounts are open, the console and Caddy do not start again by themselves at a
+  # boot (compose's unless-stopped); the next boot closes the accounts with Caddy down before anything is served.
+  # The re-review's E: a policy that cannot be set is no session (nothing is opened yet)
+  # Round 3's finding 1: the box's own unit cannot bring the stack up at a boot while the accounts are open
+  if ! session_units_off >> "$STEP_LOG" 2>&1; then
+    STOP="the box's own units ($SES_UNITS) could not be read, disabled or stopped (they bring Caddy up whatever the restart policy): no session is opened"
+    return 1
+  fi
+  note units_before "\"$(paste -sd';' "$SES/unit-before")\""
+  touch "$SES/norestart"
+  if ! d_restart_policy no >> "$STEP_LOG" 2>&1; then
+    STOP="the console's and Caddy's restart policy could not be set to no (docker update): no session is opened"; return 1
+  fi
+  # a CLOSED marker of this run from before (a boot closed nothing yet) says "open" before any account is opened: the
+  # driver takes the door's deny away only while it says "closed" (box-run.sh run_closed). Copied, as every object
+  # the VM writes (the VM's gcloud reads secrets and copies, nothing else)
+  printf 'open %s by run %s: its accounts are being opened\n' "$(date -u +%FT%TZ)" "$RUN_ID" > "$SES/open.txt"
+  if ! gcloud storage cp "$SES/open.txt" "$SES_HANDOFF/CLOSED" > /dev/null 2>&1; then
+    rm -f "$SES/open.txt"; STOP="the run's marker at $SES_HANDOFF cannot be set to open: no account is opened"; return 1
+  fi
+  rm -f "$SES/open.txt"
+  # the names first, before any code exists: a session account still open is closed at the next boot
+  printf '%s' "$people" | tr ',' '\n' | cut -d: -f1 > "$SES/accounts"
+  session_unclosed_add
+  # the window: the asked minutes, never past the cost cap less a margin (58 must run before the cap fires)
+  now=$(date +%s); cap_end=$((BOOT_T0 + CAP_LEFT))
+  stop=$((now + SES_MIN * MIN_S)); [ "$stop" -le $((cap_end - SES_GRACE_MIN * MIN_S)) ] || stop=$((cap_end - SES_GRACE_MIN * MIN_S))
+  [ "$stop" -gt "$now" ] || { STOP="no time is left before the cost cap for a session"; return 1; }
+  printf '%s\n' "$stop" > "$SES/stop-epoch"
+  host=$(session_host); ip=$(md_ip || true)
+  fp=$(openssl x509 -noout -fingerprint -sha256 -in "$CACERT" 2>/dev/null | sed 's/^.*=//')
+  rm -f "$SES/people.tsv" "$SES/links.txt"
+  if ! (umask 077; d_session_people "$people" "$SES_CODE_HOURS" "$SES_ENV" > "$SES/people.tsv" 2>> "$STEP_LOG"); then
+    rm -f "$SES/people.tsv"; STOP="the session's accounts could not be opened (the console's own enrolment code; its log)"; return 1
+  fi
+  if ! (
+    umask 077
+    {
+      echo "TrialBox live session for the owner (run $RUN_ID, boot id $SBOOT). NOTHING FROM THIS SESSION IS EVIDENCE:"
+      echo "the owner looking at the product with the served models, not a validation record (D-1123)."
+      echo "Public or synthetic text only: paste the text of a public ClinicalTrials.gov record, never a patient's."
+      if [ "$SES_ENV" = DEV ]; then echo "Environment: DEV (one sign-in; choose the acting role in the top bar)."
+      else echo "Environment: VALIDATION (one account per role)."; fi
+      echo "Address: https://$host/ (the box's own certificate: the browser warns once; root SHA-256 ${fp:-unknown}, compare it)."
+      if [ -n "$ip" ] && [ "$host" != "$ip" ]; then
+        echo "The box answers at $ip under the name $host: add the line \"$ip $host\" to the computer's hosts file first."
+      fi
+      echo "The session closes at $(date -u -d "@$stop" +%FT%TZ) (UTC); the pages then stop answering. More time is a new launch."
+      echo "Give each line to its person privately, in the integrator's own session; never on a PR, in a comment or a file."
+      echo
+      while IFS=$'\t' read -r name roles code expires; do
+        [[ "$code" =~ ^[A-Za-z0-9-]+$ ]] || exit 4   # D-776: the product's form; anything else is not handed out
+        printf '%s (%s): https://%s/enrol#u=%s&c=%s  user name: %s  code: %s  (one-time link; unused, it expires %s)\n' \
+          "$name" "$roles" "$host" "$name" "$code" "$name" "$code" "${expires:-in $SES_CODE_HOURS h}"
+      done < "$SES/people.tsv"
+    } > "$SES/links.txt"
+  ); then
+    rm -f "$SES/people.tsv" "$SES/links.txt"; STOP="a one-time code is not of the product's form: no link is written"; return 1
+  fi
+  rm -f "$SES/people.tsv"
+  stamp=$(date -u +%Y%m%dT%H%M%SZ); obj="$SES_HANDOFF/links-$stamp.txt"
+  if ! gcloud storage cp "$SES/links.txt" "$obj" > /dev/null 2>&1; then
+    rm -f "$SES/links.txt"; STOP="the links could not be written to $obj (the VM's service account needs objectAdmin there)"; return 1
+  fi
+  rm -f "$SES/links.txt"
+  for item in ${people//,/ }; do note "person_${item%%:*}" "\"${item#*:}\""; done
+  note links_object "\"$obj\""; note closes_at "\"$(date -u -d "@$stop" +%FT%TZ)\""
+  session_rec "people=$people" "address=https://$host/" "links_object=$obj (read once and deleted by box-run.sh --links)" \
+    "certificate_root_sha256=${fp:-unknown}"
+}
+# the box's Caddy access log since a time (the heartbeat's input: requests from the owner's browser)
+d_session_requests() { dc logs --no-log-prefix --since "$1" caddy; }
+step_session_open() {
+  local stop now last since n
+  # D-1123 4.4: no extension inside a session, and never a second opening: a session cut (a pre-emption, a power cut)
+  # is over; more time is a new launch with new accounts and new links
+  [ -z "$(st kv _ session_opened)" ] \
+    || { STOP="the session was opened before ($(st kv _ session_opened)): a session is never opened again (D-1123 4.4)"; return 1; }
+  stop=$(cat "$SES/stop-epoch" 2>/dev/null); [ -n "$stop" ] || { STOP="no session window (56-session-accounts)"; return 1; }
+  st set "$STEP" session_opened "$(date -u +%FT%TZ) boot $SBOOT"
+  session_rec "opened_at=$(date -u +%FT%TZ)" "planned_stop=$(date -u -d "@$stop" +%FT%TZ)" "boot=$SBOOT"
+  touch "$SES/ready-$SBOOT"
+  echo "TB-SESSION-READY boot=$SBOOT at=$(date -u +%FT%TZ) stop=$(date -u -d "@$stop" +%FT%TZ)"
+  last=$(date +%s); since=$(date -u +%FT%TZ)
+  # the session's own heartbeat (D-1132): the watchdog's 20 minutes would cut a person reading a page, so while the
+  # owner's browser made a request through the box's Caddy within tb-session-idle-minutes, the heartbeat is kept;
+  # never past the session's stop, which never passes the cost cap (and the cloud's max-run-duration behind it)
+  while now=$(date +%s); [ "$now" -lt "$stop" ]; do
+    n=$(d_session_requests "$since" 2>/dev/null | vm session-requests 2>/dev/null || echo 0)
+    since=$(date -u +%FT%TZ)
+    [ "${n:-0}" -gt 0 ] && last=$now
+    if [ $((now - last)) -ge $((SES_IDLE * MIN_S)) ]; then
+      note ended_by "\"no request from outside for $SES_IDLE minutes: ended early\""; break
+    fi
+    touch "$HB"
+    sleep "$MIN_S"
+  done
+  [ "$(date +%s)" -lt "$stop" ] || note ended_by '"the session'"'"'s stop"'
+  session_rec "ended_at=$(date -u +%FT%TZ)"
+}
+# the console's and Caddy's restart policy (docker update; the compose files are not changed)
+d_restart_policy() { local c=(); mapfile -t c < <(cid console; cid caddy); [ ${#c[@]} -gt 0 ] && docker update --restart="$1" "${c[@]}"; }
+session_units_off() {  # step 56: lane D's units disabled (the timers and what they start stopped), each one's state
+  # before kept (as sshd's); 1 when one cannot be read, disabled or stopped
+  local u
+  if [ ! -s "$SES/unit-before" ]; then
+    for u in $SES_UNITS; do printf '%s %s %s\n' "$u" "$(unit_enabled "$u")" "$(unit_active "$u")"; done > "$SES/unit-before"
+  fi
+  echo "TB-SESSION the box's own units before the session: $(paste -sd';' "$SES/unit-before")"
+  for u in $SES_UNITS; do
+    case "$(unit_enabled "$u")" in
+      absent|disabled|masked|masked-runtime) ;;
+      "?") echo "TB-SESSION $u: systemctl gives no answer for it (its unit file exists)"; return 1 ;;
+      # trialbox.service is not stopped: its ExecStop stops the stack the session is about to serve; disabled, it is
+      # not started at a boot. The timers are stopped too (they run from a boot and every minute)
+      *) systemctl disable "$u" || return 1 ;;
+    esac
+    case "$(unit_enabled "$u")" in absent|disabled|masked|masked-runtime) ;;
+      *) echo "TB-SESSION $u is still $(unit_enabled "$u") after the disable"; return 1 ;; esac
+  done
+  for u in trialbox-ops.timer trialbox-watchdog.timer $SES_UNITS_RUN; do
+    unit_idle "$u" || systemctl stop "$u" || return 1
+    unit_idle "$u" || { echo "TB-SESSION $u is still $(unit_active "$u") after its stop"; return 1; }
+  done
+  echo "TB-SESSION the box's own units disabled and their timers stopped while the accounts are open"
+}
+session_units_back() {  # each unit as it was before step 56: only after a clean close (the accounts disabled, every
+  # CLOSED written, no Caddy served, not a later boot of the session's own run: round 4's d)
+  local u en act
+  [ -s "$SES/unit-before" ] || return 0
+  while read -r u en act; do
+    case "$en" in
+      enabled) systemctl enable "$u" >> "$LOG" 2>&1 || return 1 ;;
+      enabled-runtime) systemctl enable --runtime "$u" >> "$LOG" 2>&1 || return 1 ;;
+    esac
+    if [ "$act" = active ] && [ "$(unit_active "$u")" != active ]; then
+      systemctl start --no-block "$u" >> "$LOG" 2>&1 || return 1
+    fi
+  done < "$SES/unit-before"
+  echo "TB-SESSION the box's own units put back as they were before the session ($(paste -sd';' "$SES/unit-before"))" | tee -a "$LOG"
+  rm -f "$SES/unit-before"
+}
+session_units_quiet() {  # a close at a boot: none of lane D's units active or activating (an `up` would bring Caddy
+  # back): the timers first, then what they start, then trialbox.service (its ExecStop stops the stack, Caddy with it)
+  local u end busy
+  for u in trialbox-ops.timer trialbox-watchdog.timer $SES_UNITS_RUN $TB_UNIT; do
+    unit_idle "$u" && continue
+    echo "TB-SESSION $u is $(unit_active "$u") at this boot: stopped first" | tee -a "$LOG"
+    systemctl stop "$u" >> "$LOG" 2>&1 || true
+  done
+  end=$((SECONDS + 5 * MIN_S))   # systemctl stop waits for the job; this is the check of it, 5 "minutes" at most
+  while :; do
+    busy=""
+    for u in trialbox-ops.timer trialbox-watchdog.timer $SES_UNITS_RUN $TB_UNIT; do
+      unit_idle "$u" || busy="$busy $u=$(unit_active "$u")"
+    done
+    [ -n "$busy" ] || return 0
+    [ "$SECONDS" -lt "$end" ] || break
+    sleep "$(awk -v m="$MIN_S" 'BEGIN { print m / 12 }')"
+  done
+  echo "TB-SESSION the box's own units are not all stopped:$busy" | tee -a "$LOG"; SES_BUSY="$busy"; return 1
+}
+SES_SERVED=""; SES_HOLD=""; SES_BUSY=""; SES_DOOR=""; SES_OPENED_HERE=""
+# a later boot of the run that opened the session on this disk (not the boot whose 56 opened it): round 4's d
+session_own_later_boot() { [ -z "$SES_OPENED_HERE" ] && grep -qxF "$RUN_ID" "$SES/opened" 2>/dev/null; }
+session_close() {  # $1 why [$2 dark]: the accounts disabled, the box's environment as it was; 1 when the console cannot be asked
+  local names="" before url restored=""
+  rm -f "${SES:?}/people.tsv" "$SES/links.txt"   # the review's finding 10: no code left on the kept disk
+  # nothing to do once the accounts are closed and the units may not be put back yet (round 4's d)
+  session_accounts_left || { [ -s "$SES/unit-before" ] && [ -z "$SES_SERVED" ] && ! session_own_later_boot; } || return 0
+  if [ -s "$SES/accounts" ]; then
+    names=$(paste -sd' ' "$SES/accounts")
+    # round 3's finding 1: a close at a boot checks tcp:443 right before and right after the disable. The accounts are
+    # disabled all the same (the sooner the better); a Caddy that served then stops the run (session_close_dark)
+    if [ "${2:-}" = dark ] && d_door_open; then
+      SES_SERVED="${SES_SERVED}before the disable; "
+      echo "TB-SESSION-SERVED: tcp:443 is $(door_state) right before the accounts are disabled (the box's Caddy runs, something listens, or ss gives no answer)" | tee -a "$LOG"
+    fi
+    if ! d_session_disable "$names" >> "$LOG" 2>&1; then
+      echo "TB-SESSION-ACCOUNTS-OPEN: the session's accounts ($names) could not be disabled ($1): the next boot tries again" | tee -a "$LOG"
+      return 1
+    fi
+    rm -f "$SES/accounts"
+    if [ "${2:-}" = dark ] && d_door_open; then
+      SES_SERVED="${SES_SERVED}after the disable; "
+      echo "TB-SESSION-SERVED: tcp:443 is $(door_state) right after the accounts were disabled" | tee -a "$LOG"
+    fi
+  fi
+  # the re-review's F: the box's settings put back first (its address, then its environment), then every service that
+  # reads them recreated, always: a VALIDATION session on a VALIDATION box changed the address only. Not Caddy: it
+  # reads neither, and a close at a boot keeps it down until the accounts are disabled (the re-review's A)
+  url=$(cat "$SES/public-url-before" 2>/dev/null)
+  case "$url" in
+    unset) sed -i '/^TB_CONSOLE_PUBLIC_URL=/d' "$BOXROOT/deploy/.env"; restored=1 ;;
+    "set "*) envset_box TB_CONSOLE_PUBLIC_URL "${url#set }"; restored=1 ;;
+  esac
+  before=$(cat "$SES/env-before" 2>/dev/null)
+  if [ -n "$before" ]; then
+    [ "$(envget TB_ENV | tr -d "\"' \r")" = "$before" ] || envset_box TB_ENV "$before"
+    restored=1
+  fi
+  if [ -n "$restored" ]; then
+    svc_recreate caddy >> "$LOG" 2>&1 \
+      || echo "TB-SESSION the stack could not be recreated on its own settings (the next step's own wait)" | tee -a "$LOG"
+  fi
+  if [ -f "$SES/norestart" ]; then d_restart_policy unless-stopped >> "$LOG" 2>&1 || true; rm -f "$SES/norestart"; fi
+  rm -f "$SES/handoff" "$SES/env-before" "$SES/stop-epoch" "$SES/public-url-before"
+  session_runs_closed "$1" || true   # the driver's proof that the accounts are closed (box-run.sh session_closed)
+  # round 3's finding 1: the box's own unit as it was, only now (the accounts disabled, every CLOSED written); kept
+  # disabled while a marker is not written (the next boot's close tries again)
+  if [ -s "$SES/unit-before" ]; then
+    if [ -s "$SES/unclosed" ]; then
+      echo "TB-SESSION the box's own units are not put back (left as they are): a CLOSED marker is not written yet (the next boot's close tries again)" | tee -a "$LOG"
+    elif [ -n "$SES_SERVED" ]; then
+      echo "TB-SESSION the box's own units are not put back (left as they are): the box's Caddy served during this close (the next clean close puts them back)" | tee -a "$LOG"
+    elif session_own_later_boot; then
+      echo "TB-SESSION the box's own units are not put back (left as they are): this is a later boot of the session's own run (the next clean close puts them back)" | tee -a "$LOG"
+    else
+      session_units_back || echo "TB-SESSION the box's own units could not be put back ($(paste -sd';' "$SES/unit-before" 2>/dev/null)): the next boot tries again" | tee -a "$LOG"
+    fi
+  fi
+  [ ! -d "$REC" ] || session_rec "closed_at=$(date -u +%FT%TZ)" "closed_by=$1" "accounts_disabled=$names"
+  echo "TB-SESSION-END boot=$SBOOT at=$(date -u +%FT%TZ) why=$1 (accounts disabled: ${names:-none}; the box in ${before:-its environment})"
+}
+# The re-review's A: an earlier session's accounts are closed at a boot before anything is served. The box's Caddy is
+# its only door (deploy/docker-compose.identity.yml publishes 443; the console binds 127.0.0.1): it is stopped, the
+# console comes up without it, the accounts are disabled; only then does any step bring the whole stack up.
+d_caddy_running() { dc ps --format '{{.Service}} {{.State}}' 2>/dev/null | awk '$1 == "caddy" && $2 == "running" {f=1} END {exit !f}'; }
+session_close_dark() {  # $1 why
+  echo "TB-SESSION $(date -u +%T): an earlier session's accounts are disabled first, the box's Caddy down" | tee -a "$LOG"
+  # round 3's finding 1, round 4's a and b: the box's own units first (enabled again by hand, a timer, a session cut
+  # before 56 disabled them): an `up` of theirs at this boot would bring Caddy back in the middle of the close. Caddy
+  # is stopped whatever they did, then tcp:443 decides: with Caddy possibly up, no close of any kind on this boot
+  local quiet=1
+  SES_BUSY=""; SES_DOOR=""
+  session_units_quiet || quiet=0
+  dc stop caddy >> "$LOG" 2>&1 || true
+  SES_DOOR=$(door_state)
+  if [ "$SES_DOOR" != closed ]; then
+    SES_HOLD=1
+    echo "TB-SESSION-ACCOUNTS-OPEN: tcp:443 is $SES_DOOR after the box's Caddy was stopped (units not stopped:${SES_BUSY:- none}): no close runs while Caddy may serve" | tee -a "$LOG"
+    return 1
+  fi
+  [ "$quiet" = 1 ] || echo "TB-SESSION the box's own units are not all stopped (${SES_BUSY# }) but Caddy is down: the close goes on, tcp:443 checked right before and after the disable" | tee -a "$LOG"
+  d_models_bind >> "$LOG" 2>&1 || true
+  dc up -d --pull never --wait --wait-timeout 900 console >> "$LOG" 2>&1 \
+    || echo "TB-SESSION the console did not come up healthy without Caddy (the close is tried all the same)" | tee -a "$LOG"
+  session_close "$1" dark || return 1
+  [ -z "$SES_SERVED" ]   # the accounts are disabled; a Caddy that served around the disable stops the run all the same
+}
+step_session_close() {
+  session_close "the session's stop" || { STOP="the session's accounts could not be disabled (the next boot tries again)"; return 1; }
+  note closed true
+}
+
 # ------------------------------------------------------------------ the run
+# a session that did not close itself (a cut, the cap, a stop): its accounts are disabled before any step and before
+# anything is served, the box's Caddy down (the re-review's A; D-1132). A run of any kind does not go on while they
+# cannot be: nothing of this boot brings the stack (Caddy) up with them open.
+if session_open_left; then
+  session_close_dark "the next boot (the session did not close itself)" || true
+  [ -z "${SES_HOLD:-}" ] \
+    || finish "TB-SESSION-ACCOUNTS-OPEN: a session's accounts are still open on this disk and tcp:443 is $SES_DOOR with the box's Caddy stopped: they were not closed on this boot (no close while Caddy may serve); this run does not go on" session-open
+  ! session_accounts_left \
+    || finish "TB-SESSION-ACCOUNTS-OPEN: a session's accounts are still open on this disk and could not be closed (the box's Caddy was down for the close): this run does not go on" session-open
+  [ -z "$SES_SERVED" ] \
+    || finish "TB-SESSION-SERVED: the box's Caddy served on tcp:443 during the close at this boot (${SES_SERVED% }): the accounts are disabled now; this run does not go on" session-served
+fi
+# round 4's g: an end found before the close (the run ended before, the cap, its preflight, sshd) comes now
+if [ "${#EARLY_END[@]}" -gt 0 ]; then
+  if [ "${EARLY_END[0]}" = ended ]; then early_ended "${EARLY_END[1]}"; fi
+  finish "${EARLY_END[@]}"
+fi
+# Round 3's finding 4: a later boot of a run that opened (or began to open) a session on this disk, with or without
+# tb-retry (a power cycle, a start by hand, a host restart): its accounts are closed above; it never runs 56 again
+if grep -qxF "$RUN_ID" "$SES/opened" 2>/dev/null; then
+  finish "TB-SESSION-AGAIN: run $RUN_ID opened a session on this disk before (this is a later boot of it); its accounts are closed and it is never opened again: more time is a new launch (D-1123 4.4)" session-again
+fi
+session_runs_closed "the next boot" || true   # the re-review's C: an earlier session run that opened no account
+has session && session_unclosed_add
 # a later boot of a direct-route box (a resume, or an acc launch): the stack as this tree starts it (the weights' bind,
 # the site's settings.yaml, every service healthy) before any step, since no systemd unit does it on this route (F15,
 # F16). Said in the log; a stack that cannot come up is the next step's stop, with its own log.
@@ -2326,6 +2930,19 @@ if has g10; then
   run_step 41-g10-image step_g10_image
   run_step 42-g10-canary step_g10_canary
   run_step 43-g10-qualify step_g10_qualify
+fi
+if has session; then   # D-1132: the acc group's data steps, then the session's own
+  run_step 50-acc-tools step_acc_tools
+  run_step 51-acc-settings step_acc_settings
+  run_step 51s-session-env step_session_env
+  run_step 52-acc-routes step_acc_routes
+  run_step 53-acc-data step_acc_data
+  run_step 53h-session-hospital step_session_hospital
+  run_step 54-acc-ingest step_acc_ingest
+  run_step 55-session-egress step_session_egress
+  run_step 56-session-accounts step_session_accounts
+  run_step 57-session-open step_session_open
+  run_step 58-session-close step_session_close
 fi
 if has acc; then
   run_step 50-acc-tools step_acc_tools

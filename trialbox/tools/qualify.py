@@ -536,6 +536,9 @@ def step_serving_record(ctx: Ctx) -> StepResult:
     ctx.state["serving"] = detail
     if code_note(head):
         detail["code"] = code_note(head)
+    image = (os.environ.get("TB_CODE_IMAGE") or "").strip()
+    if image and not head.startswith("image:"):  # H-19 (D-1105): the image the named commit ran in, beside it
+        detail["code_image"] = image
     problems = code_problems(head, os.environ)
     if dirty and ctx.opts.profile != "ci":
         problems.append(dirty_problem(head, dirty))

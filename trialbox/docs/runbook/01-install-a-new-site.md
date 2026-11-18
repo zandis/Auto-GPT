@@ -24,15 +24,35 @@ the site's install (RUNBOOK §16, "A rehearsal box"), keeping the record.
 `python -m tools.gpu_sizing` prints the hardware estimate. Feasibility needs no GPU; notes need one. The tier
 rule is held by `tests/unit/test_install_tiers.py`.
 
-**One command.** With the vendor's signed bundle on a USB stick:
-`sudo deploy/install.sh trialbox-<version>.tar --tier large --answers site.yaml`. It verifies and loads the bundle,
+**One command** (H-22, D-996). The vendor hands over a USB stick with four files: the signed bundle
+`trialbox-<version>.tar` and its `.sha256`, and the bootstrap `trialbox-bootstrap.sh` and its `.sig`. The vendor key,
+`vendor_ed25519.pub`, comes apart from the stick (out of band). Nothing TrialBox is on the machine before this command:
+it runs from the stick, as root, with the stick mounted (here at `/media/usb`), the key at `/root/vendor_ed25519.pub`
+and the site's folder at `/root/site` (below):
+`cd /media/usb && openssl pkeyutl -verify -pubin -inkey /root/vendor_ed25519.pub -rawin -in trialbox-bootstrap.sh -sigfile trialbox-bootstrap.sh.sig && sudo bash trialbox-bootstrap.sh trialbox-<version>.tar --pub /root/vendor_ed25519.pub -- --tier large --answers /root/site/site.yaml`.
+`openssl` must print `Signature Verified Successfully`; anything else, stop and call the vendor. The bootstrap checks
+the bundle's signature with the same key and the release's host tree against it, unpacks the tree to `/opt/trialbox`
+(never over a folder that holds anything else), places the key at `/opt/trialbox/deploy/keys/vendor_ed25519.pub`
+and runs `/opt/trialbox/deploy/install.sh` with the bundle and the options after `--`. An install that stopped (a
+missing answer, a machine check) is run again by the same command. The installer verifies and loads the bundle,
 runs the settings wizard, makes one token per service, turns TLS on (the identity overlay, after `console.cli
 check-tls` passed), starts the stack, creates the first administrator and prints the password and the enrolment code
 once, writes the site's network sheet to `deploy/site/network-sheet.{en,ja,zh-TW}.{md,html}` (print it for hospital
 IT), installs both cron files (log retention and backups), runs the host check, names the judge (its role, the
 registry's label of the build the profile serves, and the pin) and ends with the `https://` console URL, which it
 checks from the box with the certificate the clinic PCs will see. It exits 1 when a FAIL line remains, and lists them
-(T-632, D-382). `--mode stub` installs a box without a GPU.
+(T-632, D-382). On a machine without a GPU, `--mode stub` takes the place of `--tier` (the installer refuses
+the two together). A box without a GPU is a product form (D-1066): a feasibility-only site, which may add a GPU
+later. It runs feasibility and screening on the structured criteria (diagnoses, labs, medicines, ages, dates);
+criteria that need a note's free text wait for a GPU or a pinned cloud model. The installer pins the embedder
+(`e-embed-1`, BGE-M3, on the CPU) from the bundle's weights: every site bundle carries them (about 2.3 GB, 18
+files), and `release check` refuses a site bundle without them. A PRODUCTION install stops when they are missing.
+How fast the CPU embeds a hospital's records is not measured yet.
+
+**The questions it asks.** Without `--yes`, at the terminal, the installer asks whether to start the stack now and,
+when the answers lack them, the ClinicalTrials.gov mode (`ctgov_mode`), the console's name (`tls_hostname`) and the
+trial office's mailbox (`sae_office_mailbox`). With all three in the answers, add `--yes` after `--` for an install
+that asks nothing.
 
 **Memory caps from the hospital's size** (T-692, D-473). The night's ingest and the lake rebuild stream: what they
 hold grows only slowly with the patient count. The installer sizes `TB_MEM_ADAPTER` and `TB_MEM_LAKE` in
@@ -52,11 +72,13 @@ it at install: once the box has loaded patients the tools refuse another rule, b
 pseudonym of every chart number that is not already written the new way.
 
 **What the site brings** (D-382). A folder with the answers file and the site's mapping beside it:
-`site.yaml` and `mapping/tw_core/<site>.yaml` (with its lab lookup). The installer copies `mapping/` into
+`site.yaml` and `mapping/tw_core/<site>.yaml` (with its lab lookup). Put it where root can read it and nobody else
+needs to, for example `/root/site`, and give the answers by their full path in the one command. The installer copies `mapping/` into
 `deploy/site/mapping/`, which every update keeps; the wizard and the adapter look there before the image, so the
 mapping is never part of the image. The answers name the feed folder on the host (`data_source_host_dir`, for example
 `/srv/his-export`; written as `TB_SOURCE_DIR`) and the folder the adapter sees it at (`data_source_path`; compose
-mounts the one at the other, read-only), and the console's DNS name (`tls_hostname`) with `tls_mode` `hospital` (the
+mounts the one at the other, read-only); the folder must exist and hold the hospital's first export before the
+one command, put there by the hospital's IT from its HIS export (a PRODUCTION install stops without it), and the console's DNS name (`tls_hostname`) with `tls_mode` `hospital` (the
 default and first choice; then `tls_cert_file` and `tls_key_file`) or `internal` (Caddy's own CA: its root must be on
 every clinic PC by group policy, and personal devices cannot use it; the wizard warns). A PRODUCTION install stops without a feed folder or a TLS host
 name, or without the trial office's mailbox (`sae_office_mailbox` in the answers, written as `TB_SAE_OFFICE_MAILBOX`;
@@ -70,7 +92,10 @@ for every image a bundle carries; the dated exceptions and open findings are in 
 
 **The same, step by step.**
 
-1. **Host.** Ubuntu 24.04 LTS on LUKS2 with TPM2 unlock, swap off, Docker Engine 27+, nftables; the NVIDIA driver
+1. **Host.** Ubuntu 24.04 LTS on LUKS2 with TPM2 unlock, swap off, Docker Engine 27+ with its compose plugin
+   (`docker-compose-plugin` from Docker's packages, `docker-compose-v2` from Ubuntu's), nftables, and the packages
+   `python3-yaml`, `python3-cryptography`, `curl`, `cron` and `openssl` (Ubuntu Server has `python3`, `tar` and
+   `openssl`; the installer names the compose plugin and PyYAML when they are missing); the NVIDIA driver
    and container toolkit when there is a GPU (GB10: driver 580.142, held). See [Security §1](../SECURITY.md#1-the-host).
 2. **Images.** `tools/apply_update.sh trialbox-<version>.tar` loads images, models and approved rulesets. A
    development host can build instead: `make images` (or `make images-multiarch` for x86 and GB10). The build host
@@ -98,9 +123,10 @@ for every image a bundle carries; the dated exceptions and open findings are in 
    or on an SPF or DKIM pass for the From: domain.
 4. **Mapping.** Copy a template from `services/adapter/mapping/templates/` to
    `deploy/site/mapping/tw_core/<site>.yaml` (its lab lookup beside it; keep `extends`: the shared mapping comes from
-   the image) and check it against an export with `python tools/mapping_check.py --mapping
-   deploy/site/mapping/tw_core/<site>.yaml --source csv --path <export dir>` ([Data §2](../DATA.md#2-mapping-a-site)).
-   It must report 0 missing columns.
+   the image) and check it against an export, in the release's Python image once the one command has loaded it
+   (the host has the tool but not its packages):
+   `docker run --rm --network none --user 0:0 -v /opt/trialbox/deploy/site/mapping:/app/deploy/site/mapping:ro -v <export dir>:/export:ro trialbox-py:1.0.0 python tools/mapping_check.py --mapping deploy/site/mapping/tw_core/<site>.yaml --source csv --path /export`
+   ([Data §2](../DATA.md#2-mapping-a-site)). It must report 0 missing columns.
 5. **Start.** `sudo python3 -m tools.trialbox secrets init`, then `cd deploy && docker compose -f docker-compose.yml
    -f docker-compose.secrets.yml -f docker-compose.identity.yml -f docker-compose.<gpu>.yml --profile gpu up -d
    --wait` (`--profile stub` without a GPU; TLS settings first, [§12](12-identity-and-tls.md)). Then
@@ -108,10 +134,13 @@ for every image a bundle carries; the dated exceptions and open findings are in 
    (D-377): the egress table closed at boot before Docker, the stack after a host restart, the egress refresh and
    watchdog timers. By hand: copy the units with `@TB_ROOT@` replaced by the install folder, then
    `systemctl enable trialbox-egress.service trialbox.service trialbox-egress-refresh.timer trialbox-watchdog.timer`.
-6. **Vendor key.** Install `deploy/keys/vendor_ed25519.pub`, received out of band.
-7. **First ingest.** `docker compose exec adapter python -m adapter.cli run`, or wait for 02:00. It reads the feed
-   folder (`TB_SOURCE_DIR`) with the site's mapping (`deploy/site/mapping`). Check
-   `/data/lake/ndjson/<date>/ingest_report.json`: `passed: true`, validator errors under 0.5 %.
+6. **Vendor key.** The one command placed it (`deploy/keys/vendor_ed25519.pub`, from the key received out of
+   band); the installer refuses to start without it.
+7. **First ingest.** From `/opt/trialbox`: `docker compose --project-directory deploy exec adapter python -m adapter.cli run`,
+   or wait for 02:00. It reads the feed folder (`TB_SOURCE_DIR`) with the site's mapping (`deploy/site/mapping`).
+   The report is in the lake's volume, which the adapter mounts:
+   `docker compose --project-directory deploy exec adapter cat /data/lake/ndjson/<date>/ingest_report.json`
+   (`<date>` is the run's, `YYYY-MM-DD`): `passed: true`, validator errors under 0.5 %.
 8. **Host check.** `deploy/check_host.sh [--gb10]`: no FAIL line.
 9. **Backup key.** With hospital IT, once (§5).
 10. **Acceptance** before go-live (§6).

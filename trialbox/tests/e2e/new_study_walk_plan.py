@@ -2,7 +2,9 @@
 
 A new study from its first step, on a box in steps mode (D-1062: demo mode off, the stub model, the synthetic
 hospital): the coordinator pastes the SITE5B criteria under a new ruleset id, the data steward names the PI on the
-study's delegation log, the PI approves, the coordinator runs FEAS and SCREEN and reads the candidate list.
+study's delegation log, the PI approves, the coordinator runs FEAS, chooses who to screen and the study's type for SAE
+reporting, opens the study (a new study starts in start-up, D-1153; SCREEN before that fails), runs SCREEN and reads
+the candidate list.
 
 Three readers take their words from here, so they cannot drift apart:
 
@@ -44,6 +46,12 @@ ROLES = ("coordinator", "steward", "investigator", "operator")
 CONSOLE_ROLE = {"coordinator": "coordinator", "steward": "steward", "investigator": "investigator", "operator": "admin"}
 #: four-account mode: the steps-mode box's own seeded accounts (tools/demo.py SEEDED)
 SEEDED_ACCOUNTS = {"coordinator": "crc", "steward": "stw", "investigator": "pi", "operator": "admin"}
+#: the study's type for SAE reporting the coordinator chooses on set-up (D-277, D-415): a drug trial in Taiwan. The
+#: steps-mode box's site is in Asia/Taipei (``deploy/settings.example.yaml``), and set-up offers only its country's types
+SAE_RULE_SET = "tw_trial"
+#: the matrix rows of the steps that set up and open the new study (``libs/tb_common/authz_matrix.yaml``): step 9 saves
+#: set-up (who to screen, the type for SAE reporting) and tries to open the study; step 10 opens it
+OWNER_ROW = {9: ("study.setup", "study.state"), 10: ("study.state",)}
 
 
 @cache
@@ -87,6 +95,62 @@ class T:
         if self.key is None:
             return []
         return [lang for lang in ("zh-TW", "ja") if not CATALOGUES[lang].get(self.key)]
+
+
+@dataclass(frozen=True)
+class K(T):
+    """A product text whose values are themselves catalogue keys (``@key``: the key's text in the page language),
+    such as "The study is now {state}." with the state's own word."""
+
+    def text(self, lang: str, rs: str) -> str:
+        translate, _ = catalogue()
+        vals = tuple((k, translate(lang, v[1:]) if v.startswith("@") else v) for k, v in self.values)
+        return T(self.key, vals, self.prefix).text(lang, rs)
+
+
+@dataclass(frozen=True)
+class Marked(T):
+    """A field's label with its hint in brackets, as the template writes it: "Reason (Required to ...)" (WALK-1:
+    the Reason labels say they are required). ``hint`` is the hint's catalogue key."""
+
+    hint: str = ""
+
+    def text(self, lang: str, rs: str) -> str:
+        translate, _ = catalogue()
+        return f"{T(self.key, self.values, self.prefix).text(lang, rs)} ({translate(lang, self.hint)})"
+
+    def missing(self) -> list[str]:
+        return sorted({*T(self.key).missing(), *T(self.hint).missing()})
+
+
+@dataclass(frozen=True)
+class Said(T):
+    """The words a job page shows when the job fails at its first check (``job.html``: the catalogue's ``job.error``,
+    then the orchestrator's message): here a list job of a study in ``state``, which only an open study runs (D-386,
+    ``orchestrator.scheduler.require_open``). The message is read from that check, never typed; it has no catalogue
+    key, so a zh-TW or ja page shows it in English (:meth:`missing`)."""
+
+    state: str = "startup"
+
+    def text(self, lang: str, rs: str) -> str:
+        from unittest import mock
+
+        from orchestrator import scheduler
+        from orchestrator.clients import StepFailed
+
+        translate, _ = catalogue()
+        with (
+            mock.patch.object(scheduler, "restore_held", return_value=False),
+            mock.patch.object(scheduler, "study_state", return_value=self.state),
+        ):
+            try:
+                scheduler.require_open(rs)
+            except StepFailed as exc:
+                return f"{translate(lang, 'job.error', step=exc.step)}: {exc.message}"
+        raise AssertionError(f"require_open let a study in {self.state} through")
+
+    def missing(self) -> list[str]:
+        return ["zh-TW", "ja"]
 
 
 @dataclass(frozen=True)
@@ -152,6 +216,13 @@ def site_label(lang: str, crit: str, rs: str) -> str:
     from tools.e2e_simple import SITE_LABELS
 
     return SITE_LABELS.get(lang, {}).get("SITE5B" + crit[len(rs) :], crit)
+
+
+def _regulator(rule_set: str) -> str:
+    """The regulator's name of an SAE rule set (the same word in every language, UX-005)."""
+    from datacore.lifecycle import RULE_SETS
+
+    return RULE_SETS[rule_set].regulator
 
 
 STEPS: tuple[Step, ...] = (
@@ -393,38 +464,133 @@ STEPS: tuple[Step, ...] = (
             Do("radio", label=T("setup.who.hospital")),
             Do("button", T("setup.who.save")),
             See("says", T("setup.who.now.hospital")),
+            # D-1153 (WALK-1, the walk's F-14): a new study starts in start-up, and opens only with its type for SAE
+            # reporting (D-415)
+            Do("link", T("sstate.link")),
+            See("h1", T("sstate.title", prefix="{rs} · ")),
+            See("says", K("sstate.now", (("state", "@sstate.startup"),))),
+            See("gone", value="state-default"),
+            Do("select", label=T("sstate.move"), value="open"),
+            Do("button", T("sstate.save")),
+            See("shown", value="state-error"),
+            See("says", T("sstate.sae_type")),
+            See("says", K("sstate.now", (("state", "@sstate.startup"),))),
+            Do("link", T("setup.title")),
+            See("h1", T("setup.title", prefix="{rs} · ")),
+            Do("select", label=T("sae.setup.field"), value=SAE_RULE_SET),
+            Do("button", T("sae.setup.save")),
+            See(
+                "says",
+                K(
+                    "sae.rule.set",
+                    (("rs", "{rs}"), ("name", f"@sae.set.{SAE_RULE_SET}"), ("regulator", _regulator(SAE_RULE_SET))),
+                ),
+            ),
         ),
-        (),
+        (
+            Refuse(
+                "investigator",
+                "POST",
+                "/studies/{rs}/setup/sae",
+                (("rule_set", SAE_RULE_SET),),
+                {
+                    "en": "the investigator cannot choose the type for SAE reporting",
+                    "zh-TW": "主持人不能選擇 SAE 通報類型",
+                    "ja": "治験責任医師は SAE 報告の種類を選べない",
+                },
+            ),
+            Refuse(
+                "steward",
+                "POST",
+                "/studies/{rs}/setup/sae",
+                (("rule_set", SAE_RULE_SET),),
+                {
+                    "en": "the steward cannot choose the type for SAE reporting",
+                    "zh-TW": "資料管理員不能選擇 SAE 通報類型",
+                    "ja": "データスチュワードは SAE 報告の種類を選べない",
+                },
+            ),
+        ),
         {
-            "en": "Open the study's report, then its set-up, and choose the whole hospital under who to screen.",
-            "zh-TW": "開啟試驗的報告，再開啟試驗設定，在篩選對象選擇全院。",
-            "ja": "試験のレポート、次に試験の設定を開き、スクリーニングの対象で病院全体を選びます。",
+            "en": "Open the study's report, then its set-up, and choose the whole hospital under who to screen. Then "
+            "open the study's state: it is in start-up, and Open is refused until the study has its type for SAE "
+            "reporting. Back on set-up, choose the type under the SAE reporting rules and save it.",
+            "zh-TW": "開啟試驗的報告，再開啟試驗設定，在篩選對象選擇全院。接著開啟試驗狀態：試驗為準備中，"
+            "在選定 SAE 通報類型之前無法改為收案中。回到試驗設定，在 SAE 通報規定選擇類型並儲存。",
+            "ja": "試験のレポート、次に試験の設定を開き、スクリーニングの対象で病院全体を選びます。次に試験の状態を"
+            "開きます。試験は準備中で、SAE 報告の種類を選ぶまで募集中にできません。設定に戻り、SAE の報告規定で"
+            "種類を選んで保存します。",
         },
         {
-            "en": "Who to screen: the whole hospital.",
-            "zh-TW": "篩選對象：全院。",
-            "ja": "スクリーニングの対象：病院全体。",
+            "en": "Who to screen: the whole hospital. The study is in start-up; Open is refused with words that "
+            "send you to set-up; then the study has its type for SAE reporting.",
+            "zh-TW": "篩選對象：全院。試驗為準備中；改為收案中被拒絕，訊息請您先到設定頁面；之後試驗已有 SAE 通報類型。",
+            "ja": "スクリーニングの対象：病院全体。試験は準備中で、募集中への変更は拒否され、設定ページに案内されます。"
+            "その後、試験に SAE 報告の種類が設定されます。",
         },
     ),
     Step(
         10,
         "coordinator",
         (
+            # D-1153: SCREEN before the study is open fails at its first check, with the words that say what to do
+            Do("more", T("nav.request")),
+            Do("form", T("request.start.screen"), value="{rs}", wait_s=600),
+            See("state", value="failed"),
+            See("h1", T(None, prefix="SCREEN {rs} ")),  # a failed job's heading names no version
+            See("says", Said(None)),
+            Do("nav", T("nav.reports")),
+            Do("row_link", T("home.open_report"), within="{rs} v{v}"),
+            Do("more", T("setup.title", prefix="{rs} · ")),
+            Do("link", T("sstate.link")),
+            Do("select", label=T("sstate.move"), value="open"),
+            Do("button", T("sstate.save")),
+            See("says", K("sstate.changed", (("state", "@sstate.open"),))),
+            See("says", K("sstate.now", (("state", "@sstate.open"),))),
             Do("more", T("nav.request")),
             Do("form", T("request.start.screen"), value="{rs}", wait_s=600),
             See("state", value="done"),
             See("h1", T(None, prefix="SCREEN {rs} v{v}")),
         ),
-        (),
+        (
+            Refuse(
+                "steward",
+                "POST",
+                "/studies/{rs}/state",
+                (("state", "open"),),
+                {
+                    "en": "the steward cannot open the study",
+                    "zh-TW": "資料管理員不能將試驗改為收案中",
+                    "ja": "データスチュワードは試験を募集中にできない",
+                },
+            ),
+            Refuse(
+                "operator",
+                "POST",
+                "/studies/{rs}/state",
+                (("state", "open"),),
+                {
+                    "en": "the administrator cannot open the study",
+                    "zh-TW": "管理者不能將試驗改為收案中",
+                    "ja": "管理者は試験を募集中にできない",
+                },
+            ),
+        ),
         {
-            "en": "Run SCREEN on the new study. It takes about a minute.",
-            "zh-TW": "對新試驗執行 SCREEN，約需一分鐘。",
-            "ja": "新しい試験で SCREEN を実行します。1 分ほどかかります。",
+            "en": "Run SCREEN on the new study: it fails, since the study is not open yet. Open the study on its "
+            "state page, then run SCREEN again. It takes about a minute.",
+            "zh-TW": "對新試驗執行 SCREEN：試驗尚未收案，作業失敗。在試驗狀態頁面將試驗改為收案中，再執行一次 SCREEN，"
+            "約需一分鐘。",
+            "ja": "新しい試験で SCREEN を実行します。試験がまだ募集中でないため失敗します。試験の状態ページで募集中に"
+            "し、もう一度 SCREEN を実行します。1 分ほどかかります。",
         },
         {
-            "en": "The SCREEN job, done, with its list.",
-            "zh-TW": "SCREEN 作業完成，附名單。",
-            "ja": "SCREEN ジョブが完了し、リストが出ます。",
+            "en": "The first SCREEN job failed with the reason (the study is not open; the coordinator changes the "
+            "state). The study is open. The second SCREEN job, done, with its list.",
+            "zh-TW": "第一個 SCREEN 作業失敗並附原因（試驗尚未收案；由研究協調員變更狀態）。試驗已收案。第二個 SCREEN "
+            "作業完成，附名單。",
+            "ja": "最初の SCREEN ジョブは理由付きで失敗します（試験が募集中でない。CRC が状態を変える）。試験は募集中に"
+            "なります。2 回目の SCREEN ジョブが完了し、リストが出ます。",
         },
     ),
     Step(

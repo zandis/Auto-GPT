@@ -101,10 +101,32 @@ def run_install_trial_boot(tmp: Path) -> None:
                               TB_ACCEPT_UNMEASURED_GPU="1")  # fmt: skip
 
 
-def run_install_tier(tmp: Path) -> None:
-    out = _install_to_the_host_step(tmp, "--tier", "large", "--answers", str(ANSWERS_C), TB_TIER_TEST_CARD=PRO6000,
-                                    TB_TIER_TEST_ARCH="x86_64")  # fmt: skip
-    assert "tier large: rtxpro6000 profile" in out.stdout
+def run_first_command(tmp: Path) -> None:
+    """D-996: the one command from the stick, as written, on a signed bundle of this checkout's host tree (a
+    throwaway vendor key): openssl checks the bootstrap's signature, the bootstrap unpacks the tree into an empty
+    /opt/trialbox stand-in and places the key, and that tree's installer runs to its host step."""
+    from tools import sign_bundle
+
+    priv, pub = sign_bundle.keygen(tmp / "vendor")
+    usb, opt = tmp / "usb", tmp / "opt" / "trialbox"
+    usb.mkdir()
+    host = tmp / "trialbox-host.tar"
+    packed = _run([sys.executable, "-m", "tools.host_tree", "pack", "--root", ".", "--out", str(host)])
+    assert packed.returncode == 0, packed.stderr
+    sign_bundle.build(priv, "2026.11-1", [("host", host, "trialbox-host.tar")], usb / "trialbox-2026.11-1.tar")
+    shutil.copy(ROOT / "deploy/bootstrap.sh", usb / "trialbox-bootstrap.sh")
+    sign_bundle.sign_file(priv, usb / "trialbox-bootstrap.sh")
+    cmd = next(c for c in commands() if c.startswith("cd /media/usb && openssl"))
+    cmd = (cmd.replace("/media/usb", str(usb)).replace("/root/vendor_ed25519.pub", str(pub))
+           .replace("<version>", "2026.11-1").replace("/root/site/site.yaml", str(ANSWERS_C)).replace("sudo ", ""))  # fmt: skip
+    bin_dir = tmp / "bin"
+    _stand_in(bin_dir, "docker", "import sys\nsys.exit(1)\n")
+    out = _run(["bash", "-c", cmd], TB_BOOTSTRAP_NO_ROOT="1", TB_BOOTSTRAP_ROOT=str(opt), TB_TIER_TEST_CARD=PRO6000,
+               TB_TIER_TEST_ARCH="x86_64", PATH=f"{bin_dir}{os.pathsep}{_env()['PATH']}")  # fmt: skip
+    assert "Signature Verified Successfully" in out.stdout, out.stderr
+    assert (opt / "deploy/keys/vendor_ed25519.pub").read_bytes() == pub.read_bytes()
+    assert f"running: {opt}/deploy/install.sh" in out.stdout and "tier large: rtxpro6000 profile" in out.stdout
+    assert out.returncode == 1 and "Docker is not running" in out.stderr, out.stderr
 
 
 def run_install_stub(tmp: Path) -> None:
@@ -199,14 +221,32 @@ def run_wizard_answers(tmp: Path) -> None:
     assert check.returncode == 0 and check.stdout.startswith("OK:"), check.stderr
 
 
-def run_mapping_check(tmp: Path) -> None:
-    """A site mapping in a site mapping folder (the rehearsal's), checked against an export (synthetic site A)."""
-    site = tmp / "deploy/site/mapping"
-    shutil.copytree(ROOT / "tools/rehearse_box/mapping", site)
-    out = _run([sys.executable, "tools/mapping_check.py", "--mapping", str(site / "tw_core/rehearsal_a.yaml"),
-                "--source", "csv", "--path", str(ROOT / "tests/fixtures/synthetic_patients/site-a"), "--json"])  # fmt: skip
+def run_mapping_check_in_the_image(tmp: Path) -> None:
+    """The same check as the image runs it: its WORKDIR is /app, so the relative --mapping path is the mount. The
+    image itself is the CI images job's; here the tool runs with the same arguments against the same layout."""
+    df = (ROOT / "deploy/docker/python.Dockerfile").read_text(encoding="utf-8")
+    assert "WORKDIR /app" in df and "COPY --chown=tb:tb tools /app/tools" in df
+    app = tmp / "app"
+    shutil.copytree(ROOT / "tools/rehearse_box/mapping", app / "deploy/site/mapping")
+    out = _run([sys.executable, str(ROOT / "tools/mapping_check.py"), "--mapping",
+                "deploy/site/mapping/tw_core/rehearsal_a.yaml", "--source", "csv", "--path",
+                str(ROOT / "tests/fixtures/synthetic_patients/site-a"), "--json"], cwd=app)  # fmt: skip
     assert out.returncode == 0, out.stderr[-2000:]
     assert json.loads(out.stdout[out.stdout.index("{") :])["passed"]
+
+
+def run_ingest_report(tmp: Path) -> None:
+    """The report is in the lake's volume, which the adapter mounts at /data/lake, under the run's date."""
+    import yaml
+
+    class _Compose(yaml.SafeLoader):
+        pass
+
+    _Compose.add_multi_constructor("!", lambda loader, suffix, node: None)
+    compose = yaml.load((ROOT / "deploy/docker-compose.yml").read_text(encoding="utf-8"), Loader=_Compose)
+    assert "lake-data:/data/lake" in compose["services"]["adapter"]["volumes"]
+    pipeline = (ROOT / "services/adapter/pipeline.py").read_text(encoding="utf-8")
+    assert '(out_dir / "ingest_report.json")' in pipeline
 
 
 def run_secrets_init(tmp: Path) -> None:
@@ -334,7 +374,7 @@ RUNNERS: list[tuple[str, Callable[[Path], None]]] = [
     ),
     (r"python3 tools/serving_config\.py capture .*", run_capture),
     (r"python -m tools\.gpu_sizing", run_gpu_sizing),
-    (r"sudo deploy/install\.sh trialbox-<version>\.tar --tier large --answers site\.yaml", run_install_tier),
+    (r"cd /media/usb && openssl pkeyutl -verify .* -- --tier large --answers /root/site/site\.yaml", run_first_command),
     (r"--mode stub", run_install_stub),
     (r"tools/make_bundle\.sh", run_make_bundle),
     (r"make release-bundle", run_make_release_bundle),
@@ -348,12 +388,19 @@ RUNNERS: list[tuple[str, Callable[[Path], None]]] = [
         run_wizard_answers,
     ),
     (r"--check deploy/settings\.yaml", run_wizard_answers),
-    (r"python tools/mapping_check\.py --mapping deploy/site/mapping/.*", run_mapping_check),
+    (
+        r"docker run --rm --network none .* trialbox-py:1\.0\.0 python tools/mapping_check\.py --mapping deploy/site/mapping/.*",
+        run_mapping_check_in_the_image,
+    ),
     (r"sudo python3 -m tools\.trialbox secrets init", run_secrets_init),
     (r"cd deploy && docker compose .* up -d --wait", run_compose_up),
     (r"--profile stub", run_compose_up),
     (r"deploy/network\.sh apply", run_network_apply),
-    (r"docker compose exec adapter python -m adapter\.cli run", run_first_ingest),
+    (r"docker compose --project-directory deploy exec adapter python -m adapter\.cli run", run_first_ingest),
+    (
+        r"docker compose --project-directory deploy exec adapter cat /data/lake/ndjson/<date>/ingest_report\.json",
+        run_ingest_report,
+    ),
     (r"deploy/check_host\.sh \[--gb10\]", run_check_host),
     (r"systemctl enable trialbox-.*", run_systemctl_enable),
     (r"python -m tools\.trialbox\.memcaps --measure", run_memcaps_measure),

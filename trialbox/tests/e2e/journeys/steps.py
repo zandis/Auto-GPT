@@ -318,7 +318,9 @@ def _pi_approach(s: Site, st: dict[str, Any]) -> None:
     page = poc.sheet(s, name, RS, pid).text
     assert 'data-testid="irb-warning"' not in page and f'data-testid="approach-{pid[:8]}"' in page
     r = poc.mark(s, name, RS, pid, "approach")
-    assert r.status_code == 200 and "Approved. The coordinator has a task to contact this patient." in js.text(r.text)
+    assert r.status_code == 200 and "Marked Approach. The coordinator has a task to contact this patient." in js.text(
+        r.text
+    )
     no = s.h.store.screening_no(RS, pid)
     assert no and no.startswith(f"{RS}-")
     assert no in js.text(s.get(name, f"/studies/{RS}/screening-log").text)

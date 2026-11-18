@@ -1,0 +1,11 @@
+#!/bin/bash
+# Box-run rehearsal shim for ss on the "VM": what listens on tcp:22 (the session's sshd check, D-1130): nothing, unless
+# the knob ssh-listens says sshd (or anything) still listens after the session's stop. On tcp:443 (round 3's finding
+# 1, the dark close's check): the stand-in box's Caddy, when it runs.
+echo "ss $*" >> "$BR_S/calls.log"
+case "$*" in
+  *:443*) [ ! -f "$BR_S/knobs/ss-fails" ] || exit 1   # round 4's f: ss gives no answer
+    exec python3 "$BR_HERE/standins/box.py" caddy-state ;;
+  *) [ -f "$BR_S/knobs/ssh-listens" ] && echo "LISTEN 0      4096         0.0.0.0:22        0.0.0.0:*" ;;
+esac
+exit 0

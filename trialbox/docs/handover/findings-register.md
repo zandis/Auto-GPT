@@ -1,0 +1,230 @@
+# The findings register
+
+**Reader:** the people who build TrialBox: every lane, the integrator, and lane R. One row per finding, from every
+card and every verification.
+
+This is the one findings register of plan 8 (section 5b, release criterion 11; decision D-1180). What a card or a
+verification finds goes here, with a severity, an owning lane and a state. A finding is closed when it is seen closed.
+The integrator keeps the register; lane R keeps it honest. The stale problem log (`docs/validation/problems.csv`) and
+the older review registers stay as records of what was found then; a finding of theirs that is still open enters
+here when a card picks it up.
+
+## Who adds and who closes
+
+- **Adding.** Every card that finds something adds its rows in its own pull request, under one heading for the card.
+  A card with a `findings.json` runs `python -m tools.findings_register --add-from <file>` (the form is in the tool's
+  opening text). The card's own page stays the full account; a row here is one line that links to it.
+- **Closing.** The owning lane proposes the new state in the pull request that does it: `card issued #<pr>` when a card
+  is open for it, `fixed <sha>` with the commit that fixes it, or `not a defect: <why>`. Lane R re-checks a fix and
+  adds ", seen closed by <who> on <date>". A row is never deleted and an id is never reused.
+- **Checking.** `python -m tools.findings_register --check` runs in `make lint` and in CI's `checks` job. It is strict:
+  below the first card heading every line must be a card heading, a blank line, a table's header or rule, or a row,
+  so a malformed line or row turns the fast tier red and no row can be skipped unseen. A parse error names its line;
+  a row error names the line and the id. The sha of `fixed` and the number of `card issued` are checked for their
+  form only.
+- **The release (criterion 11).** `--check --release` fails while a finding stops the release. A High passes only as
+  `fixed <sha>, seen closed by <who> on <date>` or `not a defect: <why>`. A Medium passes only as `fixed <sha>` or
+  `not a defect: <why>`: a card issued is not a card done. A Low never stops it. This mode is not in CI.
+
+## The rules of a row
+
+- **Id.** The card and the finding: `<card>-<local>`, where the card is the card's name without its hyphen (H-20 is
+  `H20`). Lane V's ids are the card and a number (`V2-07`). A seeded row keeps the id its source gave, after the card
+  (lane H's walk F-16 is `H20-F-16`; the install run's `no-host-tree` is `H22-no-host-tree`). A source that gives no
+  ids is numbered here in its own order, two digits (`H18-01`). The id must start with its heading's card.
+- **Severity.** High: a patient harmed or wrongly excluded, data leaked or not erased, a role doing what the matrix
+  forbids, an audit trail that can be wrong, or a box that cannot be installed or restored. Medium: a person slowed or
+  misled, or a document's claim not true. Low: wording only. A severity the register mapped from a source's other
+  scale says "(mapped)".
+- **Basis.** `shown` (a run or a test showed it), `hypothesis` (read from code or text, not run), `not_run`, or
+  `not stated` (a seeded row whose source does not say).
+- **State.** Exactly one of: `open`; `card issued #<pr>`; `fixed <sha>` (7 to 40 hex), optionally followed by
+  ", seen closed by <who> on <date>"; `not a defect: <why>`.
+- **Date.** A real calendar date, written YYYY-MM-DD. **Source.** A relative link to a file inside `trialbox/`.
+- **Lane.** A2, B2, C2, C2a, C2b, D, E, G, H, W, R, Int or V.
+
+## Counts and merges
+
+The file keeps no counts: run `--counts`. Rows are never sorted. Each card adds under its own heading, and the file
+is merged as a union (`.gitattributes`), so rows that two branches append are both kept with no conflict: two cards
+appending to one table, to two tables, or each adding a new card at the end of the file.
+
+A state change is different. When one branch changes a row's state and another changes a neighbouring row's state
+or appends right after that row (also a new card at the end of the file after the last row), the union keeps both
+copies of the changed row and `--check` fails on the id used twice. The integrator then runs
+`python -m tools.findings_register --resolve` on the merged tree: when the copies differ only in the state and
+exactly one state other than `open` is among them, one row with that state stays where the first copy was. Two
+different states other than `open` (two branches that changed the same row), or copies that differ in another cell,
+are left for a person. Whether GitHub's merge button reads the union setting is not checked; the trains merge with
+git.
+
+## The seeded rows
+
+The first rows (card V-0, D-1180) are the findings of three pages of 2026-11-17, none dropped. Each severity is
+mapped by the rule above from what the finding says; the source's own word is not copied.
+
+- H20, lane H's walk of a study's life: its 22 findings (F-20 was settled by H-25 on master, D-1124, and F-22 came with it). Basis `shown`: the page is written from the logs of its three
+  runs. "Blocks the step" became High; every other finding is Medium (a person slowed or misled) except the four that
+  are wording only (F-02, F-09, F-12, F-19), which are Low. F-10 happens on a test-day box only (`tools/demo.py`
+  with `--day data`), which the installer never starts, so it is Medium, not an audit trail that can be wrong.
+- H22, the install runbook followed alone: its 12 findings, with the ids of its `findings.json`. "Stops the install"
+  became High, "slows the reader" Medium. Basis `shown` where a run saw it, `hypothesis` where the page says "text".
+- H18, launch P2b reviewed offline: the page gives no ids and no severity. Its 8 proposed cards are H18-01 to H18-08,
+  in the page's order; H18-09 to H18-14 are the other statements of something wrong or unproven in its sections 1 and
+  2 and its "Not shown" list. Basis as the page labels it, else `not stated`.
+
+## H20: the life-cycle walk (lane H, 2026-11-17)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H20-F-01 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | Help on the weekly page tells the coordinator to mark Approach, Need info or Not suitable; the page gives the coordinator no mark | C2 | shown | open |
+| H20-F-02 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Low (mapped) | The investigator's mark reads "Approach", and the page then says "Approved": two words for one mark | C2 | shown | open |
+| H20-F-03 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | Patients are named by an 8-character pseudonym only, and no testers' page says which patient to take | C2 | shown | open |
+| H20-F-04 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | A new study warns that Approach is recorded as an override (no IRB date, no consent-form version), and no step of the new-study walk leads to the IRB record | C2 | shown | open |
+| H20-F-05 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | The approved patient is on the list "Approved and contacted" before anyone contacted them, and the list link's name runs into its count | C2 | shown | open |
+| H20-F-06 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | The five contact outcome buttons are on the weekly page twice for the approved patient | C2 | shown | open |
+| H20-F-07 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | The patient panel shows the screening number, but no link leads from it to the participant's page | C2 | shown | open |
+| H20-F-08 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | "Participants" and "Study state and identifiers" are not in the More menu, and neither Help nor the coordinator's guide names them | C2 | shown | open |
+| H20-F-09 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Low (mapped) | One participant's page is headed with the list's title "Participants", not with the participant | C2 | shown | open |
+| H20-F-10 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | On a test-day box only (tools/demo.py --day data, a frozen clock), the steps TrialBox makes carry the real day and the recorded steps the box's day, so the trail shows consent before approach | C2 | shown | open |
+| H20-F-11 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | Withdraw without a reason is refused only after the click, and with a reason one click makes the participant final with no confirmation | C2 | shown | open |
+| H20-F-12 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Low (mapped) | In English "Withdraw" names both the participant's withdrawal and taking back a mark | C2 | shown | open |
+| H20-F-13 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | After the withdrawal and the close, the patient sheet still offers contact outcomes | C2 | shown | open |
+| H20-F-14 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | A new study is never opened, so its type for SAE reporting is never asked; with no state recorded it counts as open | C2 | shown | open |
+| H20-F-15 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | Closing a study, which is final, is one click with no confirmation page | C2 | shown | open |
+| H20-F-16 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | The "kept until" date is counted from the close's UTC day, one day before the site's day | C2 | shown | open |
+| H20-F-17 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | The steward's opt-out form asks for the chart number, and no page of the steward shows one | C2 | shown | open |
+| H20-F-18 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | After the withdrawal the patient is on no weekly list but the paged "All on the list", and the participant's page has no link to the patient sheet | C2 | shown | open |
+| H20-F-19 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Low (mapped) | The opt-out form's note is labelled "Note for the coordinator" on the steward's register | C2 | shown | open |
+| H20-F-20 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | High (mapped) | The opt-out worker never ran on the steps-mode box, so none of the erasure registry's clears ran after an opt-out | Int | shown | fixed 09b26e8ca |
+| H20-F-21 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | The red opt-out worker check is on the metrics page only; the administrator's Health tab shows no line for it | C2 | shown | open |
+| H20-F-22 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | The audit trail shows each run of the opt-out worker with an empty detail, so a steward cannot see on any page that an erase completed | C2 | shown | open |
+| H20-F-23 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | SCREEN of a study in start-up fails with the orchestrator's English on every page, the state named by its code | C2 | shown | open |
+| H20-F-24 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Medium (mapped) | The failed SCREEN job sends the coordinator to the study's set-up page but has no link to it, and the state is changed one page further | C2 | shown | open |
+| H20-F-25 | 2026-11-17 | [life-cycle-walk-findings-2026-11-17.md](life-cycle-walk-findings-2026-11-17.md) | Low (mapped) | Open is refused for want of the type for serious adverse event reporting, a field set-up names "SAE reporting rules" and "Rule set" | C2 | shown | open |
+
+## H22: the install runbook followed alone (lane H, 2026-11-17)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H22-no-host-tree | 2026-11-17 | [runbook-install-2026-11-17.md](../plan/measurements/runbook-install-2026-11-17.md) | High (mapped) | The one command runs from /opt/trialbox, but nothing in the runbook puts the release's host tree there, so deploy/install.sh is not found | D | shown | open |
+| H22-vendor-key-after-start | 2026-11-17 | [runbook-install-2026-11-17.md](../plan/measurements/runbook-install-2026-11-17.md) | High (mapped) | The installer needs the vendor key in its first step, but section 1 places the key at step 6, after the start | D | shown | open |
+| H22-stub-fragment-vs-tier | 2026-11-17 | [runbook-install-2026-11-17.md](../plan/measurements/runbook-install-2026-11-17.md) | Medium (mapped) | "--mode stub installs a box without a GPU", but added to the one command the installer refuses it beside --tier; only its own message says to drop the tier | D | shown | open |
+| H22-bundle-sidecar-path | 2026-11-17 | [runbook-install-2026-11-17.md](../plan/measurements/runbook-install-2026-11-17.md) | High (mapped) | The bundle's .sha256 names the vendor's --out path, so the installer's check on the stick fails with a checksum mismatch | D | shown | open |
+| H22-stub-production-embedder | 2026-11-17 | [runbook-install-2026-11-17.md](../plan/measurements/runbook-install-2026-11-17.md) | High (mapped) | A PRODUCTION box without a GPU does not become healthy: embed-service refuses with no pinned embedder, and the installer pins models only in GPU mode | D | shown | open |
+| H22-unmentioned-questions | 2026-11-17 | [runbook-install-2026-11-17.md](../plan/measurements/runbook-install-2026-11-17.md) | Medium (mapped) | The installer asks questions at a terminal (start now, and answers the file lacks) that section 1 never names | D | hypothesis | open |
+| H22-host-packages-unnamed | 2026-11-17 | [runbook-install-2026-11-17.md](../plan/measurements/runbook-install-2026-11-17.md) | Medium (mapped) | Step 1 does not name the compose plugin, python3 with PyYAML, curl and cron that the installer needs | D | hypothesis | open |
+| H22-site-folder-place-unstated | 2026-11-17 | [runbook-install-2026-11-17.md](../plan/measurements/runbook-install-2026-11-17.md) | Medium (mapped) | Section 1 does not say where the site's folder (the answers file and the mapping) goes | D | hypothesis | open |
+| H22-feed-folder-content-unstated | 2026-11-17 | [runbook-install-2026-11-17.md](../plan/measurements/runbook-install-2026-11-17.md) | Medium (mapped) | Section 1 does not say that the feed folder must hold an export before the one command, nor who puts it there | D | hypothesis | open |
+| H22-python-not-python3 | 2026-11-17 | [runbook-install-2026-11-17.md](../plan/measurements/runbook-install-2026-11-17.md) | Medium (mapped) | Step 4 runs python, which Ubuntu 24.04 does not have; the tool also needs the release's Python packages and libs/ on the path, which step 1 does not name | D | hypothesis | open |
+| H22-compose-cwd-unstated | 2026-11-17 | [runbook-install-2026-11-17.md](../plan/measurements/runbook-install-2026-11-17.md) | Medium (mapped) | Step 7's docker compose exec finds no project from /opt/trialbox; the working form needs --project-directory deploy | D | hypothesis | open |
+| H22-ingest-report-in-volume | 2026-11-17 | [runbook-install-2026-11-17.md](../plan/measurements/runbook-install-2026-11-17.md) | Medium (mapped) | Step 7's ingest report is inside the lake's volume, and section 1 does not say how to read it | D | hypothesis | open |
+
+## H18: launch P2b reviewed offline (lane H, 2026-11-17)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| H18-01 | 2026-11-17 | [p2b-review-2026-11-17.md](../plan/measurements/p2b-review-2026-11-17.md) | High (mapped) | An exclusion compiled to a sex alone ("women with pregnant or lactation") excluded an eligible woman at S1 with no model asked; the same shape excluded two more sigir women, both gold "would consider" | A2 | shown | fixed 0ee24331a |
+| H18-02 | 2026-11-17 | [p2b-review-2026-11-17.md](../plan/measurements/p2b-review-2026-11-17.md) | Medium (mapped) | D-958's sentinel quote date rule was not on SCREEN's own judge path, so 3 of 107 protocols failed in screen judging | A2 | shown | fixed f549bfb8b |
+| H18-03 | 2026-11-17 | [p2b-review-2026-11-17.md](../plan/measurements/p2b-review-2026-11-17.md) | High (mapped) | "Older than N years" compiles to a minimum age of N+1, which excluded a patient of 15 years and 8 months that the label calls eligible; whether the rule or the label is wrong is open | A2 | hypothesis | open |
+| H18-04 | 2026-11-17 | [p2b-review-2026-11-17.md](../plan/measurements/p2b-review-2026-11-17.md) | Medium (mapped) | JMED's two condition lines now compile structured, so with no coded diagnoses S3 judged 0 pairs and each protocol left 263 verdicts unknown; jmed's 0 of 330 is no result | A2 | not stated | open |
+| H18-05 | 2026-11-17 | [p2b-review-2026-11-17.md](../plan/measurements/p2b-review-2026-11-17.md) | Medium (mapped) | No tool prints the target-1 figure three ways, with the age-line class apart from D-1064's six conflicted pairs, as the integrator ruled | H | not stated | open |
+| H18-06 | 2026-11-17 | [p2b-review-2026-11-17.md](../plan/measurements/p2b-review-2026-11-17.md) | Medium (mapped) | An age line the benchmark key wrote excludes a pair its physicians labelled eligible (sigir-201422 with NCT00236912) | H | shown | open |
+| H18-07 | 2026-11-17 | [p2b-review-2026-11-17.md](../plan/measurements/p2b-review-2026-11-17.md) | Medium (mapped) | The replay reads stored judge replies through the gateway judge, not the box's path, so level (b) shows the 3 failed protocols as cause gone | H | shown | open |
+| H18-08 | 2026-11-17 | [p2b-review-2026-11-17.md](../plan/measurements/p2b-review-2026-11-17.md) | Medium (mapped) | No stored set records the build day, so the replay found no index day and did not run level (b); the source names lanes H and G (the driver) | H | shown | open |
+| H18-09 | 2026-11-17 | [p2b-review-2026-11-17.md](../plan/measurements/p2b-review-2026-11-17.md) | Medium (mapped) | The key may be wrong on sigir-20154 with NCT01701453: the box excluded on the target-lesion line, which no gold row judges, and the physicians labelled the pair eligible | H | hypothesis | open |
+| H18-10 | 2026-11-17 | [p2b-review-2026-11-17.md](../plan/measurements/p2b-review-2026-11-17.md) | Medium (mapped) | Two tcga verifier replies (TCGA-AZ-5403, TCGA-RC-A6M4) are no JSON: they run on until cut off, twice, and are the run's 2 judging failures | A2 | shown | open |
+| H18-11 | 2026-11-17 | [p2b-review-2026-11-17.md](../plan/measurements/p2b-review-2026-11-17.md) | Medium (mapped) | PoC-1's record keeps counts only, so the 5 pathology reports that moved from 384 to 379 excluded cannot be named; their cause, the pair's run-to-run difference, is a hypothesis | H | shown | open |
+| H18-12 | 2026-11-17 | [p2b-review-2026-11-17.md](../plan/measurements/p2b-review-2026-11-17.md) | Medium (mapped) | The product's quote check on tcga is not shown: the 42 verifier quotes not found are the trace's own whitespace-and-case match, against the run's 45 disagreements | H | not_run | open |
+| H18-13 | 2026-11-17 | [p2b-review-2026-11-17.md](../plan/measurements/p2b-review-2026-11-17.md) | Medium (mapped) | The stored sets keep no serving settings (the answer's token budget), so what the 2 cut-off tcga verifier replies would have said is not known | H | not_run | open |
+| H18-14 | 2026-11-17 | [p2b-review-2026-11-17.md](../plan/measurements/p2b-review-2026-11-17.md) | Medium (mapped) | Level (b) of the 3 failed protocols' SCREEN was not run: it needs the models, and the stored replies cover only the questions asked | H | not_run | open |
+
+## V1: an opt-out's reach, searched by brute force (lane V, 2026-11-17)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| V1-01 | 2026-11-17 | [erasure-reach-2026-11-17.md](../plan/measurements/erasure-reach-2026-11-17.md) | High | The erasure registry owes erasure in 27 stores, 26 of them inside the box (also lanes C2, A2, E, D) | B2 | shown | open |
+| V1-02 | 2026-11-17 | [erasure-reach-2026-11-17.md](../plan/measurements/erasure-reach-2026-11-17.md) | High | The lake's kept snapshot, Parquet and NDJSON keep the opted-out patient with the note's name, chart number and phone; the embed cache keeps the vectors of the patient's chunks. Ruled by D-513 and D-862 (the owner's ruling); plan 8 criterion 8 now asks for more | B2 | shown | open |
+| V1-03 | 2026-11-17 | [erasure-reach-2026-11-17.md](../plan/measurements/erasure-reach-2026-11-17.md) | High | omop.tb_record_event keeps the before-images, the note's name, chart number and phone among them. Ruled by D-1031 (the owner's ruling); plan 8 criterion 8 now asks for more | B2 | shown | open |
+| V1-04 | 2026-11-17 | [erasure-reach-2026-11-17.md](../plan/measurements/erasure-reach-2026-11-17.md) | High | A job's list, a per-patient file and an attached chart of the patient stay in the object store. Ruled by D-513 (the owner's ruling); plan 8 criterion 8 now asks for more | B2 | shown | open |
+| V1-05 | 2026-11-17 | [erasure-reach-2026-11-17.md](../plan/measurements/erasure-reach-2026-11-17.md) | High | trace.traces keeps a model call's body with the pseudonym and the name (also lanes A2) | B2 | shown | open |
+| V1-06 | 2026-11-17 | [erasure-reach-2026-11-17.md](../plan/measurements/erasure-reach-2026-11-17.md) | High | pidmap.identity keeps the opted-out patient's encrypted identity | B2 | shown | open |
+| V1-07 | 2026-11-17 | [erasure-reach-2026-11-17.md](../plan/measurements/erasure-reach-2026-11-17.md) | High | The recall tables keep the unsalted recall hash of the pseudonym. Ruled by the review of D-866 (left owed); plan 8 criterion 8 now asks for more | A2 | shown | open |
+| V1-08 | 2026-11-17 | [erasure-reach-2026-11-17.md](../plan/measurements/erasure-reach-2026-11-17.md) | High | A CASE job's request (orch.jobs) and an EDC draft (edc.draft, erasure.py:383) keep the pseudonym. The draft is held by D-1032 (the owner's ruling) and its open question; plan 8 criterion 8 now asks for more (also lanes E) | B2 | shown | open |
+| V1-09 | 2026-11-17 | [erasure-reach-2026-11-17.md](../plan/measurements/erasure-reach-2026-11-17.md) | High | The derive batch's failure line names the pseudonym through the box's own JSON formatter (libs/tb_common/logging.py:132); the run's log text held it after the ticks | B2 | shown | open |
+| V1-10 | 2026-11-17 | [erasure-reach-2026-11-17.md](../plan/measurements/erasure-reach-2026-11-17.md) | Medium | The register is re-applied, but the restored stores hold the patient until the worker's next tick, and a complete restore releases its hold before that tick (also lanes B2) | D | shown | open |
+| V1-11 | 2026-11-17 | [erasure-reach-2026-11-17.md](../plan/measurements/erasure-reach-2026-11-17.md) | Low | 4 top-level lake entries are not in the registry: gates, night_runs.json, site_key.json, source.jsonl (none held the patient) | B2 | shown | open |
+| V1-12 | 2026-11-17 | [erasure-reach-2026-11-17.md](../plan/measurements/erasure-reach-2026-11-17.md) | Medium | Not searched: the FHIR store, the backups, the provenance index, a practice space's stores and the vector store; the live mode exists and was not run on a compose box (also lanes B2) | D | not_run | open |
+| V1-13 | 2026-11-17 | [erasure-reach-2026-11-17.md](../plan/measurements/erasure-reach-2026-11-17.md) | Medium | orch.submissions is an erase entry with a clear and the generated registry lists it as erased; a live submission of the patient stays, as D-513 (the owner's ruling) keeps it: the registry and the decision do not match | B2 | shown | open |
+| V1-14 | 2026-11-17 | [erasure-reach-2026-11-17.md](../plan/measurements/erasure-reach-2026-11-17.md) | High | An uncertain mail of the patient's own file and a queued mail of a list (in the test, its body names the patient) keep their requests. Ruled by D-863 and D-874 (the integrator's rulings); plan 8 criterion 8 now asks for more | C2 | shown | open |
+| V1-15 | 2026-11-17 | [erasure-reach-2026-11-17.md](../plan/measurements/erasure-reach-2026-11-17.md) | High | A set-up sheet of many patients keeps the patient: its file, its row, its check items and its column examples. Ruled by D-869 (left owed); plan 8 criterion 8 now asks for more | C2 | shown | open |
+| V1-16 | 2026-11-17 | [erasure-reach-2026-11-17.md](../plan/measurements/erasure-reach-2026-11-17.md) | Medium | The box keeps each service's log (json-file, 10 files of 100 MB) and nothing on the opt-out reaches it; the registry has no entry for logs (also lanes B2) | D | hypothesis | open |
+## V3: the ASVS Level 2 checklist (lane V, 2026-11-17)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| V3-01 | 2026-11-17 | [asvs-l2-checklist-2026-11-17.md](../plan/measurements/asvs-l2-checklist-2026-11-17.md) | Medium | Behind Caddy every browser shares one address, so five wrong guesses lock a named person out on every PC. | D | shown | open |
+| V3-02 | 2026-11-17 | [asvs-l2-checklist-2026-11-17.md](../plan/measurements/asvs-l2-checklist-2026-11-17.md) | Medium | The session cookie has no __Host- prefix. | C2 | shown | open |
+| V3-03 | 2026-11-17 | [asvs-l2-checklist-2026-11-17.md](../plan/measurements/asvs-l2-checklist-2026-11-17.md) | Medium | A person cannot see or end their other sessions, and a new sign-in leaves older ones alive. | C2 | hypothesis | open |
+| V3-04 | 2026-11-17 | [asvs-l2-checklist-2026-11-17.md](../plan/measurements/asvs-l2-checklist-2026-11-17.md) | Medium | A break-glass grant opens on the session alone, with no fresh password or code. | C2 | shown | open |
+| V3-05 | 2026-11-17 | [asvs-l2-checklist-2026-11-17.md](../plan/measurements/asvs-l2-checklist-2026-11-17.md) | Medium | A password longer than 256 characters is accepted when chosen and never signs in. | C2 | shown | open |
+| V3-06 | 2026-11-17 | [asvs-l2-checklist-2026-11-17.md](../plan/measurements/asvs-l2-checklist-2026-11-17.md) | Medium | A password history of five is enforced, which ASVS 2.1.10 says not to do. | C2 | shown | open |
+| V3-07 | 2026-11-17 | [asvs-l2-checklist-2026-11-17.md](../plan/measurements/asvs-l2-checklist-2026-11-17.md) | Medium | In PRODUCTION no breached-password check runs unless the operator supplies the list; nothing warns. | D | hypothesis | open |
+| V3-08 | 2026-11-17 | [asvs-l2-checklist-2026-11-17.md](../plan/measurements/asvs-l2-checklist-2026-11-17.md) | Medium | The password fields have no strength meter and no show-password control, and refuse spaces at the ends. | C2 | hypothesis | open |
+| V3-09 | 2026-11-17 | [asvs-l2-checklist-2026-11-17.md](../plan/measurements/asvs-l2-checklist-2026-11-17.md) | Medium | Password hashes have no secret pepper. | C2 | hypothesis | open |
+| V3-10 | 2026-11-17 | [asvs-l2-checklist-2026-11-17.md](../plan/measurements/asvs-l2-checklist-2026-11-17.md) | Medium | Local accounts cannot use a security key; only directory accounts can (through Authelia). | C2 | hypothesis | open |
+| V3-11 | 2026-11-17 | [asvs-l2-checklist-2026-11-17.md](../plan/measurements/asvs-l2-checklist-2026-11-17.md) | Medium | The holder is not told of a replayed code, of their own password change or of a new sign-in. | C2 | hypothesis | open |
+| V3-12 | 2026-11-17 | [asvs-l2-checklist-2026-11-17.md](../plan/measurements/asvs-l2-checklist-2026-11-17.md) | Medium | Sign-out removes the session cookie without the flags it was set with. | C2 | shown | open |
+| V3-13 | 2026-11-17 | [asvs-l2-checklist-2026-11-17.md](../plan/measurements/asvs-l2-checklist-2026-11-17.md) | Medium | Database, mail and KEK passwords are environment variables; the TOTP key is a plain file in the console volume. | D | hypothesis | open |
+| V3-14 | 2026-11-17 | [asvs-l2-checklist-2026-11-17.md](../plan/measurements/asvs-l2-checklist-2026-11-17.md) | High | A chart number typed in free text reaches the audit in clear, and the audit is never erased. | C2 | shown | open |
+| V3-15 | 2026-11-17 | [asvs-l2-checklist-2026-11-17.md](../plan/measurements/asvs-l2-checklist-2026-11-17.md) | Medium | A service not listed in CALLERS accepts any service's token. | D | hypothesis | open |
+| V3-16 | 2026-11-17 | [asvs-l2-checklist-2026-11-17.md](../plan/measurements/asvs-l2-checklist-2026-11-17.md) | Medium | No threat model is on file. | D | hypothesis | open |
+| V3-17 | 2026-11-17 | [asvs-l2-checklist-2026-11-17.md](../plan/measurements/asvs-l2-checklist-2026-11-17.md) | Medium | A password an administrator resets never expires until it is used. | C2 | hypothesis | open |
+| V3-18 | 2026-11-17 | [asvs-l2-checklist-2026-11-17.md](../plan/measurements/asvs-l2-checklist-2026-11-17.md) | High | Changes are stored before their audit event is written, so an audit write that fails (AuditFull when the audit volume is low, AuditAnchorBroken when the chain's head does not match) leaves the change done and unaudited. | C2 | shown | open |
+| V3-19 | 2026-11-17 | [asvs-l2-checklist-2026-11-17.md](../plan/measurements/asvs-l2-checklist-2026-11-17.md) | Medium | A typed mark note stays in the tab's session storage after sign-out and is put back for the next person who opens that patient in that tab. | C2 | hypothesis | open |
+## V5: masking on synthetic notes (lane V, 2026-11-17)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| V5-01 | 2026-11-17 | [masking-leaks-2026-11-17.md](../plan/measurements/masking-leaks-2026-11-17.md) | High | Japanese names in the ruling's scope leak 639 per 1,000: after 氏名 katakana, hiragana and Hepburn names leak every time; with さん, 様, 殿 or 先生 a surname outside the masker's list leaks | B2 | shown | open |
+| V5-02 | 2026-11-17 | [masking-leaks-2026-11-17.md](../plan/measurements/masking-leaks-2026-11-17.md) | High | English names in the ruling's scope leak 333 per 1,000: after Name: a LAST, First name, initials, and the surname after Dr./Mr./Ms. stay readable; in a Name table line every form leaks | B2 | shown | open |
+| V5-03 | 2026-11-17 | [masking-leaks-2026-11-17.md](../plan/measurements/masking-leaks-2026-11-17.md) | High | Chinese names in the ruling's scope leak 188 per 1,000: Pinyin after 姓名 every time; a surname outside the masker's list (闕, 冼, 諶) after 姓名 or before 先生 or 醫師 | B2 | shown | open |
+| V5-04 | 2026-11-17 | [masking-leaks-2026-11-17.md](../plan/measurements/masking-leaks-2026-11-17.md) | High | The Japanese insurance card's 記号・番号 leaks after its label every time | B2 | shown | open |
+| V5-05 | 2026-11-17 | [masking-leaks-2026-11-17.md](../plan/measurements/masking-leaks-2026-11-17.md) | Medium | An e-mail address with a full-width ＠ is never masked, in all three languages | B2 | shown | open |
+| V5-06 | 2026-11-17 | [masking-leaks-2026-11-17.md](../plan/measurements/masking-leaks-2026-11-17.md) | Medium | Unlabelled full-width Taiwan and Japan mobiles (667 per 1,000 of the form) and landlines with a 3-digit area code in brackets, (037)dd-dddd, leak; well-formed 02, 04 and other landlines are masked | B2 | shown | open |
+| V5-07 | 2026-11-17 | [masking-leaks-2026-11-17.md](../plan/measurements/masking-leaks-2026-11-17.md) | Medium | A value split by a hard wrap (at a separator between groups, or mid-run) leaks 806 per 1,000 | B2 | shown | open |
+| V5-08 | 2026-11-17 | [masking-leaks-2026-11-17.md](../plan/measurements/masking-leaks-2026-11-17.md) | Medium | A compact 7-digit ROC birth date before 出生 is never masked (after 出生日期 it is) | B2 | shown | open |
+| V5-09 | 2026-11-17 | [masking-leaks-2026-11-17.md](../plan/measurements/masking-leaks-2026-11-17.md) | Medium | An unlabelled US SSN leaks (500 per 1,000 of the form; masked after a label); rare in Taiwan and Japan | B2 | shown | open |
+| V5-10 | 2026-11-17 | [masking-leaks-2026-11-17.md](../plan/measurements/masking-leaks-2026-11-17.md) | Medium | The tripwire misses 75 per 1,000 in-scope planted notes. Medium by default (cloud_enabled false; no approved external endpoint). High at a site with cloud_enabled true and an external endpoint with a g5_record on a route whose external_requires flags are set | A2 | shown | open |
+| V5-11 | 2026-11-17 | [masking-leaks-2026-11-17.md](../plan/measurements/masking-leaks-2026-11-17.md) | Medium | Every 8-digit clinical date is masked in chunks and trips the tripwire (site pattern ^\d{8}$); the effect on retrieval and S2b ranking is a hypothesis, no exclusion path shown | B2 | shown | open |
+| V5-12 | 2026-11-17 | [masking-leaks-2026-11-17.md](../plan/measurements/masking-leaks-2026-11-17.md) | Medium | The postcode of a masked address stays readable: the 〒 code, the Taiwan 3-digit code and the US ZIP (500 to 667 per 1,000 of the full-address forms) | B2 | shown | open |
+| V5-13 | 2026-11-17 | [masking-leaks-2026-11-17.md](../plan/measurements/masking-leaks-2026-11-17.md) | High | Free-standing names (no label, role, title or honorific) leak 821 per 1,000. Outside D-337 section 1; plan 8's V6 claim 'masking hides identifiers in notes' asks for more | B2 | shown | open |
+## V8: the audit trail (lane V, 2026-11-17)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| V8-01 | 2026-11-17 | [audit-trail-2026-11-17.md](../plan/measurements/audit-trail-2026-11-17.md) | Medium | A torn last line (a write cut short) is reported as tampering: 'invalid JSON' and 'events dropped, a day file deleted, or the chain rewritten'; nothing names it a write cut short. | C2 | shown | open |
+| V8-02 | 2026-11-17 | [audit-trail-2026-11-17.md](../plan/measurements/audit-trail-2026-11-17.md) | High | make audit-verify without ANCHOR (tools/audit_verify.py without --heads) prints PASS on a fully re-chained forgery, a prefix, a fresh chain and a rollback, with no word that no signed head was read: a check that says PASS on a forged trail. The daily runbook names --heads (docs/runbook/02-daily-operation.md:8); the Makefile default (Makefile:434) and the close-out runbook's first command (20-close-out-and-decommissioning.md:39) do not. (also lanes D) | C2 | shown | open |
+| V8-03 | 2026-11-17 | [audit-trail-2026-11-17.md](../plan/measurements/audit-trail-2026-11-17.md) | High | The steward's typed reason for a data-ops decision (page and /api/v1) reaches the audit chain in clear: a chart number, a name, a phone and an e-mail typed there are stored as typed, in a store that is never erased. (also lanes B2) | C2 | shown | open |
+| V8-04 | 2026-11-17 | [audit-trail-2026-11-17.md](../plan/measurements/audit-trail-2026-11-17.md) | High | POST /ops/users (add) makes the account before its audit event; with the audit write failing (AuditFull) the account stays, with no event. Reset (app.py:1293), scope (:1308), disable (:1328) and enable (:1332) have the same order by reading (hypothesis). | C2 | shown | open |
+| V8-05 | 2026-11-17 | [audit-trail-2026-11-17.md](../plan/measurements/audit-trail-2026-11-17.md) | High | A re-signed forgery passes both verifiers as an operator runs them (actor changed, chain re-made without its head_signed events, HEAD.json rewritten, the anchor folder's heads/ and keys/ emptied, a new key signs). The console trusts the keys it finds in the folder and cannot pin one; audit_verify --heads passes with a note only; the runbook never passes --pubkey (20-close-out-and-decommissioning.md:41, and :65 checks an archive against its own keys). With heads/ emptied, the nightly signer (tools/trialbox/audit_heads.py:113, :127) checks the chain only against its own HEAD.json and signs the forgery with the box's real key. (also lanes D) | C2 | shown | open |
+| V8-06 | 2026-11-17 | [audit-trail-2026-11-17.md](../plan/measurements/audit-trail-2026-11-17.md) | High | With the newest signed head deleted from the anchor folder, the genuine chain passes both verifiers with no word, so the rollback window silently widens to the night before. (also lanes D) | C2 | shown | open |
+| V8-07 | 2026-11-17 | [audit-trail-2026-11-17.md](../plan/measurements/audit-trail-2026-11-17.md) | High | The IRB record's typed reason reaches the audit in clear: a chart number, a name, a phone and an e-mail typed there are stored as typed. team.save_irb also stores before the event (team.py:821, then :824; hypothesis). | C2 | shown | open |
+## V11: twice has one effect (lane V, 2026-11-17)
+
+| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| V11-01 | 2026-11-17 | [twice-one-effect-2026-11-17.md](../plan/measurements/twice-one-effect-2026-11-17.md) | High | A second identical Approach (what the code calls no new decision) writes a second IRB-override record and a second console.approach_override event: the override trail overcounts. | C2 | shown | open |
+| V11-02 | 2026-11-17 | [twice-one-effect-2026-11-17.md](../plan/measurements/twice-one-effect-2026-11-17.md) | Medium | A second identical save of the withdrawal (also enrolment, consent, an SAE form) form changes nothing but answers 'Saved.' and writes a data_entry event with changed 0. | C2 | shown | open |
+| V11-03 | 2026-11-17 | [twice-one-effect-2026-11-17.md](../plan/measurements/twice-one-effect-2026-11-17.md) | High | Two 'send now' at once send each person's patient digest (N1, N2) twice: the once-a-day check, the send and the log are not one step. | C2 | shown | open |
+| V11-04 | 2026-11-17 | [twice-one-effect-2026-11-17.md](../plan/measurements/twice-one-effect-2026-11-17.md) | Medium | Disabling an account that is already disabled writes a second 'disable' audit event with the same Undo toast; a reset sent twice resets twice (two console.user events). | C2 | shown | open |
+| V11-05 | 2026-11-17 | [twice-one-effect-2026-11-17.md](../plan/measurements/twice-one-effect-2026-11-17.md) | Low | The enrolment form replayed after a withdrawal is refused as 'correct the 1 marked fields' (a change reason), not as 'the participant is withdrawn'. | C2 | shown | open |
+| V11-06 | 2026-11-17 | [twice-one-effect-2026-11-17.md](../plan/measurements/twice-one-effect-2026-11-17.md) | Low | Calling the timer's entry (scheduler._submit) twice makes two INGEST jobs. The timer itself is one in-memory APScheduler job (id 'ingest', coalesce, max_instances=1), so it was not shown to fire twice; two orchestrator processes on one job store would each have that timer (not run). | B2 | hypothesis | open |
+| V11-07 | 2026-11-17 | [twice-one-effect-2026-11-17.md](../plan/measurements/twice-one-effect-2026-11-17.md) | Medium | Two retries of one failed scheduler job at once (POST /jobs/{job_id}/retry, two clients) make two jobs: the 'one already queued' read and the new job are not one step. Hypothesis: the same holds for a list job (two candidate lists). | B2 | shown | open |
+| V11-08 | 2026-11-17 | [twice-one-effect-2026-11-17.md](../plan/measurements/twice-one-effect-2026-11-17.md) | High | A double click on break-glass open (the CSRF token is fixed for the session, auth.py:762 per the review) makes two grants: two console.breakglass_open events, two notices to the PI and the steward; the second ends the first. | C2 | shown | open |
+| V11-09 | 2026-11-17 | [twice-one-effect-2026-11-17.md](../plan/measurements/twice-one-effect-2026-11-17.md) | Medium | A second identical opt-out answers done=same but writes a second console.opt_out event that names what it removed, with nothing marking it a no-op. | C2 | shown | open |
+| V11-10 | 2026-11-17 | [twice-one-effect-2026-11-17.md](../plan/measurements/twice-one-effect-2026-11-17.md) | Medium | An Approach replayed after the study is closed is accepted (303): a new mark row and a new screening number on a closed study. | C2 | shown | open |
+| V11-11 | 2026-11-17 | [twice-one-effect-2026-11-17.md](../plan/measurements/twice-one-effect-2026-11-17.md) | Medium | Ending a break-glass grant that is already ended writes a second console.breakglass_end event; switching EDC prefill on when it is on writes a second edc.switch event and switch record. | C2 | shown | open |
+| V11-12 | 2026-11-17 | [twice-one-effect-2026-11-17.md](../plan/measurements/twice-one-effect-2026-11-17.md) | Medium | A double submit of /pilot/request, /pilot/case, /pilot/consent or /pilot/jobs/{id}/release sends a second job request (a second console.request event and JobCreate at the stand-in). Whether the real orchestrator then makes two jobs was not run. | C2 | shown | open |
+| V11-13 | 2026-11-17 | [twice-one-effect-2026-11-17.md](../plan/measurements/twice-one-effect-2026-11-17.md) | Medium | After the person opts out, the coordinator's earlier consent and enrolment forms are saved: 2 steps and 5 values written, the participant becomes enrolled. | C2 | shown | open |
+| V11-14 | 2026-11-17 | [twice-one-effect-2026-11-17.md](../plan/measurements/twice-one-effect-2026-11-17.md) | High | A second acknowledgement of the same SAE by the investigator (a double click) answers 303 and writes a second console.sae_ack and a second life.sae_ack event: the SAE trail shows two acknowledgements. | C2 | shown | open |

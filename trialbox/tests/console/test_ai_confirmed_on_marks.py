@@ -1,0 +1,305 @@
+"""D-989 (lane C2's card): a person's decision on a patient a model answered is ``ai.confirmed``.
+
+A PI mark or a "this is wrong, send to review" on a patient with model evidence writes one ``ai.confirmed`` per verdict
+a model answered (its ``prov`` not empty): ``record_ref`` (ruleset, version, job, pid, crit), the patient by pseudonym,
+``by`` the person, and the decision: Approach ``confirmed``, a review ``rejected``, and an Approach taken back
+(withdrawn, undone, or another mark in its place) ``withdrawn``, on the list it confirmed. Not suitable now (a site's
+own reasons), Need info and Not now decide nothing about the model's answer: no event, so the answer stays unconfirmed
+(never inferred). A verdict no model answered (``prov`` empty or absent) writes nothing. Synthetic data only."""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import pytest
+from tb_common.crypto import sha256_bytes
+from tb_contracts import JobOutput
+
+from tests.console.test_amendment_rescreen import _csrf, _screen
+from tests.console.test_console_app import _done_screen, _ulid, box, login, name_pi  # noqa: F401 - box is a fixture
+from tests.console.test_criterion_labels import _gzqo
+
+PW = "ai-confirmed-password-01"
+A, B = "a" * 32, "b" * 32
+CALLS = ["01JCALLJUDGE0000000000000A", "01JCALLVERIFY000000000000A"]
+
+
+def _row(pid: str, tier: str, prov: list[str] | None) -> dict[str, Any]:
+    model = {"id": "GZQO-INC-05", "verdict": "pass", "evidence": {"resource_refs": [], "quote": "two flares"}}
+    if prov is not None:
+        model["prov"] = prov
+    return {"pid": pid, "tier": tier, "next_appointment": None, "practitioner_id": "DR-LIN", "department": "RHEU",
+            "criteria": [{"id": "GZQO-INC-01", "verdict": "pass", "evidence": {"resource_refs": []}, "prov": []},
+                         model], "actions": [], "n_unknown": 0}  # fmt: skip
+
+
+def _events(b: dict[str, Any], kind: str = "ai.confirmed") -> list[dict[str, Any]]:  # in the chain's order
+    return [e for f in sorted((b["dir"] / "audit").glob("*.jsonl")) for x in f.read_text().splitlines() if x
+            for e in [json.loads(x)] if e["event"] == kind]  # fmt: skip
+
+
+def _pi(b: dict[str, Any], rows: list[dict[str, Any]]) -> tuple[Any, str, str]:
+    _gzqo(b)
+    job = _screen(b, 9801, "1.0.0", rows, 0)
+    b["users"].create("pi", "investigator", PW, "pi@hospa.test")
+    name_pi(b, "pi")
+    pi, _ = login(b["app"], "pi", PW)
+    return pi, _csrf(pi.get("/studies/GZQO/week").text), job.job_id
+
+
+def test_an_approach_confirms_each_model_answer_of_the_row(box: dict[str, Any]) -> None:  # noqa: F811
+    pi, csrf, job = _pi(box, [_row(A, "high", CALLS), _row(B, "review", CALLS)])
+    r = pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": csrf, "mark": "approach"})
+    assert r.status_code == 200, r.text
+    (ev,) = _events(box)
+    d = ev["detail"]
+    assert d["record_kind"] == "verdict" and d["decision"] == "confirmed" and d["by"] == "pi"
+    assert d["record_ref"] == {"ruleset": "GZQO", "version": "1.0.0", "job": job, "pid": A, "crit": "GZQO-INC-05"}
+    assert d["calls"] == CALLS and ev["actor"] == "console:pi"  # the coded answer (prov empty) writes nothing
+
+
+def test_not_suitable_now_and_the_other_marks_decide_nothing(box: dict[str, Any]) -> None:  # noqa: F811
+    """The integrator's ruling: Not suitable now's reasons are the site's own and may have nothing to do with the
+    model, so the chain never reads it as a judgement on the model's answer."""
+    from console.sitestore import SiteStore
+
+    pi, csrf, _job = _pi(box, [_row(A, "high", CALLS), _row(B, "review", CALLS)])
+    for mark in ("need_info", "not_now", "withdraw"):
+        assert pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": csrf, "mark": mark}).status_code == 200
+    r = pi.post(
+        f"/studies/GZQO/patients/{B}/mark", data={"csrf": csrf, "mark": "not_suitable", "reason": "comorbidity"}
+    )
+    assert r.status_code == 200
+    assert SiteStore().latest_marks("GZQO")[B].mark == "not_suitable"  # the mark is kept
+    assert _events(box) == []  # the model's answer stays unconfirmed
+    pi.post(f"/studies/GZQO/patients/{B}/mark", data={"csrf": csrf, "mark": "approach"})
+    assert len(_events(box)) == 1
+    pi.post(f"/studies/GZQO/patients/{B}/mark", data={"csrf": csrf, "mark": "undo"})  # back to Not suitable now
+    assert [e["detail"]["decision"] for e in _events(box)] == ["confirmed", "withdrawn"]  # the Approach taken back
+
+
+def test_a_row_no_model_answered_writes_nothing(box: dict[str, Any]) -> None:  # noqa: F811
+    pi, csrf, _job = _pi(box, [_row(A, "high", None), _row(B, "review", [])])  # before the field, and "no model"
+    pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": csrf, "mark": "approach"})
+    pi.post(f"/studies/GZQO/patients/{B}/mark", data={"csrf": csrf, "mark": "approach"})
+    assert _events(box) == []
+
+
+EXCLUDED = {"ruleset": "GZQO", "version": "1.0.0", "run_date": "2026-10-05", "snapshot": "2026-10-04", "rows": [
+    {"pid": "c" * 32, "actions": [], "criteria": [
+        {"id": "GZQO-EXC-02", "source": "notes", "reason": "note", "quote": "history of breast cancer 2019",
+         "resource_refs": [], "prov": CALLS},
+        {"id": "GZQO-EXC-01", "source": "coded", "reason": "coded", "resource_refs": ["cond-1"], "prov": []}]},
+    {"pid": "d" * 32, "actions": [], "criteria": [
+        {"id": "GZQO-EXC-02", "source": "notes", "reason": "note", "quote": "breast cancer", "resource_refs": [],
+         "prov": CALLS[:1]},
+        {"id": "GZQO-EXC-03", "source": "notes", "reason": "note", "quote": "on dialysis", "resource_refs": [],
+         "prov": CALLS[1:]}]},
+]}  # fmt: skip
+
+
+def _with_excluded(b: dict[str, Any]) -> str:
+    job = _done_screen(b["backend"], _ulid(9811))
+    data = json.dumps(EXCLUDED).encode()
+    key = f"outputs/{job.job_id}/excluded_GZQO_v1.0.0.json"
+    b["backend"].objects[key] = data
+    out = JobOutput(filename="excluded_GZQO_v1.0.0.json", sha256=sha256_bytes(data), minio_key=key, recipients=[],
+                    tag="phi")  # fmt: skip
+    b["backend"].jobs[job.job_id] = job.model_copy(update={"outputs": [*(job.outputs or []), out]})
+    return job.job_id
+
+
+def test_a_review_rejects_the_model_answers_that_excluded_the_patient(box: dict[str, Any]) -> None:  # noqa: F811
+    job = _with_excluded(box)
+    box["users"].create("crc", "coordinator", PW, "crc@hospa.test")
+    crc, csrf = login(box["app"], "crc", PW)
+    r = crc.post(f"/studies/GZQO/not-matched/{'c' * 32}/review", data={"csrf": csrf, "crit": "", "note": "n"})
+    assert r.status_code == 200, r.text
+    (ev,) = _events(box)  # the coded exclusion (prov empty) writes nothing
+    assert ev["detail"]["decision"] == "rejected" and ev["detail"]["by"] == "crc" and ev["detail"]["calls"] == CALLS
+    assert ev["detail"]["record_ref"] == {"ruleset": "GZQO", "version": "1.0.0", "job": job, "pid": "c" * 32,
+                                         "crit": "GZQO-EXC-02"}  # fmt: skip
+    # a criterion named: that verdict only
+    crc.post(f"/studies/GZQO/not-matched/{'d' * 32}/review", data={"csrf": csrf, "crit": "GZQO-EXC-03", "note": ""})
+    last = _events(box)[1:]
+    assert [e["detail"]["record_ref"]["crit"] for e in last] == ["GZQO-EXC-03"] and last[0]["detail"]["calls"] == CALLS[
+        1:
+    ]
+
+
+def test_the_api_review_writes_the_same(box: dict[str, Any]) -> None:  # noqa: F811
+    from fastapi.testclient import TestClient
+
+    _with_excluded(box)
+    box["users"].create("crc", "coordinator", PW, "crc@hospa.test")
+    users = box["users"]
+    token, _sess = users.new_session(users.get("crc"), via="api")
+    api = TestClient(box["app"], headers={"Authorization": f"Bearer {token}"})
+    r = api.post(f"/api/v1/studies/GZQO/not-matched/{'c' * 32}/review", json={"crit": "GZQO-EXC-02"})
+    assert r.status_code == 200, r.text
+    (ev,) = _events(box)
+    assert ev["detail"]["decision"] == "rejected" and ev["detail"]["record_ref"]["crit"] == "GZQO-EXC-02"
+
+
+def test_an_unknown_answer_and_a_repeated_approach_write_nothing_more(box: dict[str, Any]) -> None:  # noqa: F811
+    """The review of D-1152: an ``unknown`` answer is no answer to confirm; an Approach on an Approach is no new
+    decision."""
+    row = _row(A, "high", CALLS)
+    row["criteria"].append({"id": "GZQO-INC-02", "verdict": "unknown", "evidence": {"resource_refs": []},
+                            "prov": CALLS[:1]})  # fmt: skip
+    pi, csrf, _job = _pi(box, [row, _row(B, "review", CALLS)])
+    for _ in range(2):
+        assert pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": csrf, "mark": "approach"}).status_code == 200
+    assert [e["detail"]["record_ref"]["crit"] for e in _events(box)] == ["GZQO-INC-05"]
+
+
+def test_a_second_review_the_store_does_not_keep_writes_no_decision(box: dict[str, Any]) -> None:  # noqa: F811
+    """The review of D-1152: only a patient's first review on a run is kept; a second one (another person, another
+    criterion) writes no ``ai.confirmed`` under that person's name."""
+    _with_excluded(box)
+    for name in ("crc", "crc2"):
+        box["users"].create(name, "coordinator", PW, f"{name}@hospa.test")
+    crc, csrf = login(box["app"], "crc", PW)
+    crc2, csrf2 = login(box["app"], "crc2", PW)
+    dpid = "d" * 32
+    assert (
+        crc.post(f"/studies/GZQO/not-matched/{dpid}/review", data={"csrf": csrf, "crit": "GZQO-EXC-02"}).status_code
+        == 200
+    )
+    assert crc2.post(f"/studies/GZQO/not-matched/{dpid}/review", data={"csrf": csrf2, "crit": ""}).status_code == 200
+    assert [(e["detail"]["by"], e["detail"]["record_ref"]["crit"]) for e in _events(box)] == [("crc", "GZQO-EXC-02")]
+
+
+def test_a_review_whose_decision_cannot_be_written_is_not_kept(box: dict[str, Any],  # noqa: F811
+                                                               monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """The review of D-1152: the decision is written inside the review's transaction, so a failed append keeps no
+    review (the person can send it again), as a mark's events are."""
+    from console.sitestore import SiteStore
+    from tb_common import provenance
+
+    _with_excluded(box)
+    box["users"].create("crc", "coordinator", PW, "crc@hospa.test")
+    crc, csrf = login(box["app"], "crc", PW)
+
+    def broken(*_a: Any, **_k: Any) -> bool:
+        raise OSError("the audit volume is full")
+
+    real = provenance.confirmed
+    monkeypatch.setattr(provenance, "confirmed", broken)
+    cpid = "c" * 32
+    with pytest.raises(OSError):
+        crc.post(f"/studies/GZQO/not-matched/{cpid}/review", data={"csrf": csrf, "crit": ""})
+    assert cpid not in SiteStore().excluded_reviews("GZQO")
+    monkeypatch.setattr(provenance, "confirmed", real)  # (not undo(): that would undo the box's settings too)
+    assert crc.post(f"/studies/GZQO/not-matched/{cpid}/review", data={"csrf": csrf, "crit": ""}).status_code == 200
+    assert cpid in SiteStore().excluded_reviews("GZQO") and len(_events(box)) == 1
+
+
+def test_a_patient_not_named_by_a_pseudonym_is_never_written(box: dict[str, Any]) -> None:  # noqa: F811
+    from console import ai_confirm
+
+    written: list[Any] = []
+    audit = type("A", (), {"append": lambda self, *a, **k: written.append((a, k))})()
+    crit = [{"id": "GZQO-INC-05", "verdict": "pass", "prov": CALLS}]
+    common: dict[str, Any] = {"ruleset": "GZQO", "version": "1.0.0", "job": "01J0000000000000000000000A", "criteria": crit,
+              "by": "pi", "decision": "confirmed"}  # fmt: skip
+    assert ai_confirm.on_verdicts(audit, pid="A123456789", **common) == 0 and written == []  # a chart-number shape
+    assert ai_confirm.on_verdicts(audit, pid=A, **common) == 1
+
+
+def test_an_approach_taken_back_says_so_in_the_chain(box: dict[str, Any]) -> None:  # noqa: F811
+    """The integrator's ruling (b) on D-1152: a confirmation that is taken back says so in the chain itself, with the
+    same record and calls, whether the Approach is withdrawn, undone or replaced; an Approach put back is confirmed
+    again."""
+
+    def mark(pid: str, m: str) -> None:
+        assert pi.post(f"/studies/GZQO/patients/{pid}/mark", data={"csrf": csrf, "mark": m}).status_code == 200
+
+    pi, csrf, _job = _pi(box, [_row(A, "high", CALLS), _row(B, "review", CALLS)])
+    mark(A, "approach")
+    mark(A, "withdraw")
+    first, taken = _events(box)
+    assert taken["detail"]["decision"] == "withdrawn" and taken["detail"]["by"] == "pi"
+    assert taken["detail"]["record_ref"] == first["detail"]["record_ref"] and taken["detail"]["calls"] == CALLS
+    mark(A, "undo")  # the Approach is back: confirmed again
+    mark(B, "approach")
+    mark(B, "need_info")  # another mark in its place takes the Approach back
+    mark(B, "not_now")  # no Approach to take back: nothing
+    got = [(e["detail"]["record_ref"]["pid"], e["detail"]["decision"]) for e in _events(box)]
+    assert got == [(A, "confirmed"), (A, "withdrawn"), (A, "confirmed"), (B, "confirmed"), (B, "withdrawn")]
+
+
+def test_a_withdrawal_names_the_list_the_approach_was_made_on(box: dict[str, Any]) -> None:  # noqa: F811
+    """A newer run after the Approach: the withdrawal names the run and version the confirmation named."""
+    pi, csrf, job = _pi(box, [_row(A, "high", CALLS), _row(B, "review", CALLS)])
+    assert pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": csrf, "mark": "approach"}).status_code == 200
+    _screen(box, 9802, "1.0.0", [_row(A, "high", ["01JCALLNEWRUN000000000000A"]), _row(B, "review", CALLS)], 24)
+    csrf = _csrf(pi.get("/studies/GZQO/week").text)
+    assert pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": csrf, "mark": "withdraw"}).status_code == 200
+    first, taken = _events(box)
+    assert taken["detail"]["decision"] == "withdrawn" and taken["detail"]["record_ref"]["job"] == job
+    assert taken["detail"]["calls"] == CALLS == first["detail"]["calls"]
+
+
+def test_a_new_approach_on_a_newer_list_moves_the_confirmation(box: dict[str, Any]) -> None:  # noqa: F811
+    """The re-review of D-1152: an Approach again on a newer run's list takes back the confirmation of the old list
+    and confirms the new one, so a later withdrawal names the list the standing confirmation is on."""
+    pi, csrf, job1 = _pi(box, [_row(A, "high", CALLS), _row(B, "review", CALLS)])
+    assert pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": csrf, "mark": "approach"}).status_code == 200
+    new = ["01JCALLNEWRUN000000000000A"]
+    job2 = _screen(box, 9803, "1.0.0", [_row(A, "high", new), _row(B, "review", CALLS)], 24).job_id
+    csrf = _csrf(pi.get("/studies/GZQO/week").text)
+    for m in ("approach", "withdraw"):
+        assert pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": csrf, "mark": m}).status_code == 200
+    got = [(e["detail"]["decision"], e["detail"]["record_ref"]["job"], e["detail"]["calls"]) for e in _events(box)]
+    assert got == [("confirmed", job1, CALLS), ("withdrawn", job1, CALLS), ("confirmed", job2, new),
+                   ("withdrawn", job2, new)]  # fmt: skip
+
+
+def test_a_withdrawal_whose_list_is_gone_is_said_on_the_mark(box: dict[str, Any]) -> None:  # noqa: F811
+    """The re-review of D-1152: when the list a confirmation named can no longer be read, the withdrawal cannot name
+    its calls; the mark's own event says so, never silently."""
+    pi, csrf, job1 = _pi(box, [_row(A, "high", CALLS), _row(B, "review", CALLS)])
+    assert pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": csrf, "mark": "approach"}).status_code == 200
+    old = box["backend"].jobs[job1]
+    outs = [o for o in old.outputs or [] if not o.filename.startswith("candidate_list_")]
+    box["backend"].jobs[job1] = old.model_copy(update={"outputs": outs})
+    _screen(box, 9804, "1.0.0", [_row(A, "high", CALLS), _row(B, "review", CALLS)], 24)
+    csrf = _csrf(pi.get("/studies/GZQO/week").text)
+    assert pi.post(f"/studies/GZQO/patients/{A}/mark", data={"csrf": csrf, "mark": "withdraw"}).status_code == 200
+    assert [e["detail"]["decision"] for e in _events(box)] == ["confirmed"]
+    last = _events(box, "console.pi_mark")[-1]
+    assert job1 in last["detail"]["ai"] and "withdrawn not written" in last["detail"]["ai"]
+
+
+def test_the_weekly_samples_send_back_rejects_too(box: dict[str, Any]) -> None:  # noqa: F811
+    """The re-review of D-1152: "send back" from the weekly not-matched sample records the same review, and writes
+    the same ``rejected`` on the model's answers that excluded the patient."""
+    from tb_common.notmatched import NotMatchedStore
+
+    from tests.console.test_not_matched_sample import PIDS, _week
+
+    doc = {"ruleset": "GZQO", "version": "1.0.0", "run_date": "2026-10-05", "snapshot": "2026-10-04", "rows": [
+        {"pid": p, "actions": [], "criteria": [{"id": "GZQO-EXC-02", "source": "notes", "reason": "note",
+                                                "quote": "breast cancer", "resource_refs": [], "prov": CALLS}]}
+        for p in PIDS]}  # fmt: skip
+    job = _done_screen(box["backend"], _ulid(9812))
+    data = json.dumps(doc).encode()
+    key = f"outputs/{job.job_id}/excluded_GZQO_v1.0.0.json"
+    box["backend"].objects[key] = data
+    out = JobOutput(filename="excluded_GZQO_v1.0.0.json", sha256=sha256_bytes(data), minio_key=key, recipients=[],
+                    tag="phi")  # fmt: skip
+    box["backend"].jobs[job.job_id] = job.model_copy(update={"outputs": [*(job.outputs or []), out]})
+    box["users"].create("pi", "investigator", PW, "pi@hospa.test")
+    name_pi(box, "pi")
+    pi, csrf = login(box["app"], "pi", PW)
+    pi.get("/studies/GZQO/not-matched/sample")
+    back = NotMatchedStore().sample("GZQO", _week(box))[0].pid
+    r = pi.post(f"/studies/GZQO/not-matched/sample/{back}", data={"csrf": csrf, "answer": "send_back"},
+                follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303, r.text
+    (ev,) = _events(box)
+    assert ev["detail"]["decision"] == "rejected" and ev["detail"]["by"] == "pi" and ev["detail"]["calls"] == CALLS
+    assert ev["detail"]["record_ref"] == {"ruleset": "GZQO", "version": "1.0.0", "job": job.job_id, "pid": back,
+                                         "crit": "GZQO-EXC-02"}  # fmt: skip
