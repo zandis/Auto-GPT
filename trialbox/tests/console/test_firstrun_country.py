@@ -65,7 +65,9 @@ def test_with_the_flag_off_the_page_is_as_on_master(tmp_path: Path) -> None:
     r, _ = _answers(c, country="jp", logs_days="1")  # posted all the same: dropped, as the page never asked
     assert r.status_code == 200, r.text[-400:]
     got = json.loads((b["folder"] / firstrun.ANSWERS).read_text(encoding="utf-8"))
-    assert got["country"] == "" and got["retention_days"] == {}
+    # the answers file is master's: the 10K-1 keys are written only when answered (second review)
+    assert set(got) == {"site_name", "tz", "language", "owner", "box_name", "backup", "source", "chartno_rule",
+                        "environment", "mta_authserv_id"}  # fmt: skip
 
 
 def test_with_the_flag_off_ssmix2_posted_all_the_same_is_refused_and_said_so(tmp_path: Path) -> None:

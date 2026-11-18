@@ -115,6 +115,10 @@ class OwnerAnswers:
         d["backup"]["kind"] = self.backup.kind.value
         d["source"] = self.source.value
         d["retention_days"] = dict(self.retention_days)
+        # 10K-1: its keys only when answered, so a box that was not asked writes the file it wrote before
+        for k in ("country", "ssmix2_root", "ssmix2_order_numbers", "retention_days"):
+            if not d[k]:
+                del d[k]
         return d
 
 
