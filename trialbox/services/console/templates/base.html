@@ -62,7 +62,7 @@
 <p>{{ t('pi.task.lead') }}</p>
 <ul>{% for prs in pi_tasks %}<li><a href="/studies/{{ prs }}/team" data-testid="task-name-pi-{{ prs }}">{{ t('pi.task.item', rs=prs) }}</a></li>{% endfor %}</ul>
 </section>{% endif %}
-{% if request is defined and request.state is defined and request.state.people %}{% include "_people_tabs.html" %}{% endif %}{# J-5 (D-1223) #}
+{% if request is defined and request.state is defined and request.state.people %}{# J-5 (D-1223) #}{% include "_people_tabs.html" %}{% endif -%}
 {% block content %}{% endblock %}
 </main>
 <footer>{{ t('footer', env=('DEMO' if request is defined and request.state.demo_on else (settings.environment_label or settings.environment)), dc=settings.data_class) }}

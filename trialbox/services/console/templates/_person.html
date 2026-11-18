@@ -3,5 +3,5 @@
    research office. #}
 {% macro person_pill(s, tid='') %}{% set name = s.name if s.name is defined else s %}<span class="pill ps-{{ name }}" data-state="{{ name }}"{% if tid %} data-testid="{{ tid }}"{% endif %}>{{ t('person.state.' + name) }}</span>{% endmacro %}
 
-{#- J-5 (D-1223): with by_state (the view Participants, flag layout.people_lists) each count shows only that state -#}
+{# J-5 (D-1223): with by_state (a view of Participants, flag layout.people_lists) each count shows only that state #}
 {% macro count_strip(shown, readable, href, tid, by_state=false) %}<div class="pipe" data-testid="{{ tid }}">{% if not readable %}<p class="hint" data-testid="{{ tid }}-unread">{{ t('person.counts.unread') }}</p>{% else %}{% for k, n in shown %}<a href="{{ '?state=' ~ k ~ href if by_state else href }}" data-testid="{{ tid }}-{{ k }}" data-state="{{ k }}"><b>{{ n }}</b><span>{{ t('person.state.' + k) }}</span></a>{% else %}<p class="hint" data-testid="{{ tid }}-none">{{ t('person.counts.none') }}</p>{% endfor %}{% endif %}</div>{% endmacro %}

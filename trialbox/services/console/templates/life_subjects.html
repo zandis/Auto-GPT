@@ -9,16 +9,16 @@
 <p class="hint">{{ t('life.subjects.help') }}</p>
 {% if err %}{% include "_data_err.html" %}{% endif %}
 <section class="card" data-testid="life-counts">
-{% set by_state = request.state.people is defined and request.state.people %}{{ count_strip(shown, readable, '#subjects', 'count', by_state) }}
-{% if by_state and only %}<p data-testid="state-filter">{{ t('people.filter.lead') }} {{ person_pill(only, 'state-only') }} <a href="?#subjects" data-testid="state-filter-all">{{ t('people.filter.all') }}</a></p>{% endif %}
+{% set by_state = request.state.people is defined and request.state.people %}{{ count_strip(shown, readable, '#subjects', 'count', by_state) }}{% if by_state and only %}{# J-5 (D-1223) #}
+<p data-testid="state-filter">{{ t('people.filter.lead') }} {{ person_pill(only, 'state-only') }} <a href="?#subjects" data-testid="state-filter-all">{{ t('people.filter.all') }}</a></p>{% endif %}
 </section>
 <section class="card" data-testid="subjects" id="subjects">
 {% if not subjects %}<p class="empty" data-testid="subjects-none">{{ t('life.subjects.none') }}</p>{% else %}
 <div class="scroll" tabindex="0"><table class="candidates">
 <thead><tr><th>{{ t('life.col.record') }}</th><th>{{ t('life.col.state') }}</th><th>{{ t('life.col.since') }}</th><th>{{ t('life.col.visits') }}</th></tr></thead>
-<tbody>{% for s in subjects %}<tr data-testid="subject-{{ s.record }}">
-<td><a href="/studies/{{ rs }}/subjects/{{ s.record|urlencode }}" class="mono">{{ s.record }}</a></td>
-<td>{{ person_pill(s.person, 'state-' + s.record) }}</td>
+<tbody>{% for s in subjects %}<tr data-testid="subject-{{ s.record or 'log-' ~ loop.index }}">
+<td>{% if s.record %}<a href="/studies/{{ rs }}/subjects/{{ s.record|urlencode }}" class="mono">{{ s.record }}</a>{% else %}<span class="mono" data-testid="log-only">–</span>{% endif %}</td>
+<td>{{ person_pill(s.person, 'state-' + (s.record or 'log-' ~ loop.index)) }}</td>
 <td class="nowrap">{{ s.since }}</td>
 <td>{% for k in ('overdue', 'open', 'done') %}{% if s.visits[k] %}<span class="pill v-{{ k }}">{{ t('life.vstate.' + k) }} {{ s.visits[k] }}</span> {% endif %}{% endfor %}</td>
 </tr>{% endfor %}</tbody></table></div>{% endif %}

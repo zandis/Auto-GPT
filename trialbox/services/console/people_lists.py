@@ -1,27 +1,27 @@
 """J-5 (D-1223; the journey review's R16 and D-2): two lists of people, Candidates and Participants, in place of seven.
 
-* **The flag** ``layout.people_lists`` (``tb_common.flags``, audited, off by default). Off, every page and address is
-  as before, and the new addresses send a person to the old ones (303). On:
+* **The flag** ``layout.people_lists`` (``tb_common.flags``, audited, off by default). Off, every page renders as
+  before and the new addresses are no page (404). On:
 
-  - **Candidates** (people before consent) is ``/studies/{rs}/people/candidates`` and its views; **Participants**
-    (people who have consented) is ``/studies/{rs}/people/participants`` and its views (:data:`VIEWS`). Each view *is*
-    one of the old list pages, served by its own route: the same guard, the same reads, the same audit event, the same
-    actions and the same filters. Nothing a role may read or do changes; a role refused an old list is refused its
-    view with the same answer.
-  - **Every old address redirects** (a GET, 303) to its view with its query kept (``/studies/X/week?list=all&pid=..``
-    to ``/studies/X/people/candidates?list=all&pid=..``), for a reader the old route lets in. Any other request (no
-    session, an ended one, a role the route refuses) reaches the old route as before and gets its answer and its
-    audit event there: the gate peeks at the session (no activity, no sign-in, no audit) and asks the strip's
+  - **Candidates** is ``/studies/{rs}/people/candidates`` and **Participants** ``/studies/{rs}/people/participants``,
+    each with its views (:data:`VIEWS`). The **default view** of each divides the study's people at consent by J-2's
+    one state (:func:`side`): each person is in exactly one, nobody opted out or erased in either. It is built on an
+    old page's route, guard and reads (the study registry page, the participants page), which only leaves rows out.
+    The other views are **working views**: the old page as it was, which can show people from both sides of consent.
+  - **An old address redirects** (a GET, 303) to its view with its query kept, for a reader its route lets in. Any
+    other request (no session, an ended one, a role the route refuses) reaches the old route and gets its answer and
+    its audit event there: the gate peeks at the session (no activity, no sign-in, no audit) and asks the strip's
     questions. A form posts to the address it posted to before.
-  - **One strip** above each view (``templates/_people_tabs.html``) names the two lists and the views of the list
-    shown, each only where the role may open it (the same questions the routes ask, read from the delegation log,
-    without an audit event and without a patient read): one step to the other list, one step to another view.
+  - **One strip** on a 200 above each view (``templates/_people_tabs.html``) names the two lists and the views of the
+    list shown, each only where the role may open it (the same questions the routes ask, from the delegation log,
+    without an audit event and without a patient read), says what the view holds, and links the weekly page across
+    studies from Candidates.
   - **The menu** shows Candidates and Participants where it showed "This week's patients" and "Candidate registry"
-    (``/people/candidates`` and ``/people/participants`` open the study's list, or a picker when there are several).
+    (``/people/candidates`` and ``/people/participants``, plain routes, open the study's list or a picker).
 
 * **What is not here.** The person's state is J-2's (``console.person_state``); no list reads it another way. The
   site set-up's patient check (``/site/patients``) and the registry index (``/pilot/registry``, all studies' counts)
-  are not lists of one study's people and keep their addresses. The EDC's state is shown as before (lane E).
+  keep their addresses. The EDC's state is shown as before (lane E).
 """
 
 from __future__ import annotations
@@ -43,6 +43,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from tb_common.flags import Flags
 
 from console import i18n_lists
+from console import person_state as ps
 from console.i18n import CATALOGUES
 
 FLAG = "layout.people_lists"
@@ -73,17 +74,39 @@ class View:
         return self.old.format(rs=quote(rs, safe=""))
 
 
-#: the views, in the order of their tabs. The weekly page and the cohort list are one view each for a trial and a
-#: registry study (the weekly page of a registry study sends to its cohort list, as before)
+#: the views, in the order of their tabs. The first view of each list is its **default** and divides the study's
+#: people at consent by J-2's one state (``person_state.CANDIDATE`` / ``PARTICIPANT``): each person who is on no
+#: opt-out or erasure is in exactly one of the two defaults. The other views are **working views**: the old page as
+#: it was, which can show people from both sides of consent (the strip says so). An old address goes to the first
+#: view served by its route (the study registry's to Candidates' default, Participants' to Participants' default).
+#: The weekly page and the cohort list are one view each for a trial and a registry study.
 VIEWS: tuple[View, ...] = (
-    View("candidates", "", "/studies/{rs}/week", "week"),
+    View("candidates", "", "/pilot/registry/{rs}", "before"),
+    View("candidates", "week", "/studies/{rs}/week", "week"),
     View("candidates", "cohort", "/studies/{rs}/cohort", "cohort"),
     View("candidates", "referrals", "/studies/{rs}/candidates", "referrals"),
-    View("candidates", "registry", "/pilot/registry/{rs}", "registry"),
     View("candidates", "log", "/studies/{rs}/screening-log", "log"),
-    View("participants", "", "/studies/{rs}/subjects", "list"),
+    View("participants", "", "/studies/{rs}/subjects", "from"),
+    View("participants", "records", "/studies/{rs}/subjects", "records"),
     View("participants", "enrolment", "/studies/{rs}/enrolment", "enrolment"),
 )
+#: which side of consent each default view keeps (J-2's one state)
+SIDE: dict[str, tuple[str, ...]] = {"candidates": ps.CANDIDATE, "participants": ps.PARTICIPANT}
+
+
+def default_of(request: Any) -> str:
+    """``candidates`` or ``participants`` when the request is served as that list's default view, else ""."""
+    state = getattr(getattr(request, "state", None), "people", None) or {}
+    return str(state.get("list") or "") if state and not state.get("view") else ""
+
+
+def side(people: ps.People, lst: str) -> dict[str, ps.PersonState]:
+    """The people of one default view: every person of the study (``People.states``: no one opted out or erased)
+    whose one state is on that side of consent. A state that could not be read is on neither side."""
+    keep = set(SIDE[lst])
+    return {pid: st for pid, st in people.states().items() if st.name in keep}
+
+
 _NEW = re.compile(rf"^/studies/(?P<rs>{_RS})/people/(?P<list>candidates|participants)(?:/(?P<view>[a-z]+))?$")
 _OLD = tuple((re.compile("^" + re.escape(v.old).replace(re.escape("{rs}"), f"(?P<rs>{_RS})") + "$"), v) for v in VIEWS)
 
@@ -195,13 +218,10 @@ class PeopleLists:
             state["people_lists"] = on
             new = new_of(path) if scope.get("method") == "GET" else None
             old = old_of(path) if scope.get("method") == "GET" and new is None else None
-            if new is not None and not on:
-                await _see_other(new[0].old_path(new[1]) + _query(scope))(scope, receive, send)
-                return
             if old is not None and on and _gate is not None and await run_in_threadpool(_gate, scope, *old):
                 await _see_other(old[0].path(old[1]) + _query(scope))(scope, receive, send)
                 return
-            if new is not None:  # served by the old route, which asks its own questions
+            if new is not None and on:  # served by the old route, which asks its own questions (off: no such page)
                 view, rs = new
                 target = view.old_path(rs)
                 state["people"] = {"list": view.list, "view": view.name, "rs": rs}
@@ -239,8 +259,8 @@ def register(app: FastAPI, h: Any, env: Any) -> None:
             return rows
         if view.key == "referrals":  # team.need_task(screen)
             return h.stand is not None and "screen" in h.stand(user, rid).tasks
-        if view.key == "registry":  # route_actions: phi.view and task.screen (D-280, D-273); never aggregate-only
-            return rows and not user.is_admin and not user.aggregate_only
+        if view.key == "before":  # the study registry's route; route_actions: phi.view and task.screen (D-280,
+            return rows and not user.is_admin and not user.aggregate_only  # D-273); never aggregate-only (D-146)
         return False
 
     def gate(scope: Scope, view: View, rs: str) -> bool:
@@ -266,10 +286,11 @@ def register(app: FastAPI, h: Any, env: Any) -> None:
         registry = registry_study(rid)
         return {lst: [v for v in VIEWS if v.list == lst and may(user, rid, v, registry)] for lst in LISTS}
 
-    def people_tabs(request: Any, user: Any) -> dict[str, Any] | None:
-        """The strip above a view: None when the page is not a view (or the flag is off)."""
+    def people_tabs(request: Any, user: Any, status: int = 200) -> dict[str, Any] | None:
+        """The strip above a view: None when the page is not a view, the flag is off, or the page is not a 200 (a
+        refusal or a missing page offers no view)."""
         state = getattr(getattr(request, "state", None), "people", None)
-        if not state or user is None:
+        if not state or user is None or status != 200:
             return None
         rid = str(state["rs"]).upper()
         shown = offered(user, rid)
@@ -281,36 +302,47 @@ def register(app: FastAPI, h: Any, env: Any) -> None:
             "list": state["list"],
             "lists": [(lst, shown[lst][0].path(rid)) for lst in LISTS if shown[lst]],
             "views": [(v.key, v.path(rid), v == here) for v in shown[state["list"]]],
+            "working": bool(state["view"]),  # a working view: people from both sides of consent
+            # /week across studies (its approvals, safety banners and registry lists): one step from Candidates
+            "week_all": state["list"] == "candidates" and bool(user.can_view_phi) and not user.aggregate_only,
         }
 
-    def studies_for(user: Any, lst: str) -> list[tuple[str, str]]:
+    def studies_for(user: Any, lst: str, name: str = "") -> list[tuple[str, str]]:
+        """The studies with this list for the reader, each with the address of the view asked for (``name``) where
+        the reader may open it, else of the list's first view."""
         out: list[tuple[str, str]] = []
         for r in h.bk.rulesets():
             if r.status != "approved" or not user.sees_study(r.id) or any(r.id == s for s, _ in out):
                 continue
-            first = offered(user, r.id)[lst]
-            if first:
-                out.append((r.id, first[0].path(r.id)))
+            views = offered(user, r.id)[lst]
+            if views:
+                pick = next((v for v in views if v.name == name), views[0])
+                out.append((r.id, pick.path(r.id)))
         return out
 
     env.globals["people_tabs"] = people_tabs
+    app.state.people_lists_env = env  # the console's templates, for the test that the flag off adds no byte
 
     def people_pick(request: Request, which: str) -> Response:
-        """The menu's Candidates and Participants: the study's list, or a choice of study when there are several.
-        With the flag off the menu does not link here; an address kept from before goes to the old page."""
-        sess = h.need(request)
+        """The menu's Candidates and Participants: the study's list, or a choice of study when there are several
+        (``?view=`` keeps the view asked for through the choice). With the flag off this page does not exist."""
         if not flag_now():
-            return _see_other("/week" if which == "candidates" else "/home")
-        studies = studies_for(sess.user, which)
+            raise h.problem(404, "notfound")
+        sess = h.need(request)
+        name = request.query_params.get("view", "")
+        studies = studies_for(sess.user, which, name if re.fullmatch(r"[a-z]{1,20}", name) else "")
         if len(studies) == 1:
             return _see_other(studies[0][1])
         page: Response = h.page(request, "people_pick.html", sess, which=which, studies=studies)
         return page
 
-    @app.get("/people/candidates")
-    def people_candidates(request: Request) -> Response:
-        return people_pick(request, "candidates")
+    async def people_candidates(request: Request) -> Response:
+        return await run_in_threadpool(people_pick, request, "candidates")
 
-    @app.get("/people/participants")
-    def people_participants(request: Request) -> Response:
-        return people_pick(request, "participants")
+    async def people_participants(request: Request) -> Response:
+        return await run_in_threadpool(people_pick, request, "participants")
+
+    # plain routes, not API routes: with the flag off the route table the walks read is master's (and these answer
+    # 404); with it on they open the study's list after the session check
+    app.add_route("/people/candidates", people_candidates, methods=["GET"], include_in_schema=False)
+    app.add_route("/people/participants", people_participants, methods=["GET"], include_in_schema=False)

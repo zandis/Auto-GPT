@@ -516,6 +516,7 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     # J-5 (D-1223): the two lists of people and the views of each, behind the flag layout.people_lists
     "people.": _values("console.people_lists", "LISTS"),
     "people.view.": _view_keys,
+    "people.side.": _values("console.people_lists", "LISTS"),
 }
 
 _RUN = "a value of stored data or of a service's answer (a state, a kind, a source): no one list in the code holds it"

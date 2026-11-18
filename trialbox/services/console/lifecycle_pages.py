@@ -35,7 +35,7 @@ from pydantic import BaseModel, Field
 from tb_common.csvfile import for_spreadsheet
 from tb_common.erased import is_erased
 
-from console import actor, s28
+from console import actor, people_lists, s28
 from console import person_state as ps
 from console.api_first import before_body, page_twin
 from console.auth import Session
@@ -427,15 +427,28 @@ def register(app: FastAPI, h: Helpers) -> None:
         for s in subs:
             s["person"] = people.of(str(s.get("pid") or "") or f"#{s.get('record')}")
         counts = ps.counts(s["person"] for s in subs)  # one per row: a kept record of an opted-out person too
-        # J-5 (D-1223, flag layout.people_lists): the view Participants filters by the one state (the withdrawals, the
-        # enrolled ...); the counts stay the whole study's. Off, the page is as before
-        only = request.query_params.get("state", "") if getattr(request.state, "people", None) else ""
-        only = only if only in ps.STATES else ""
+        # J-5 (D-1223, flag layout.people_lists), only when the page is served as a view of Participants (off: as
+        # before). The default view divides at consent by the one state: the people who have consented, none opted out
+        # or erased, a participant the log names before a record exists too; the working view "every record" is the
+        # page as it was. Either filters by the one state (``?state=``), never by the record's own step
+        lst = people_lists.default_of(request)
+        view = getattr(request.state, "people", None)
         readable = people.readable or not subs
+        keep: tuple[str, ...] = ps.STATES
+        if lst == "participants":
+            on_side = people_lists.side(people, "participants")
+            keys = {str(s.get("pid") or "") or f"#{s.get('record')}" for s in subs}
+            subs = [s for s in subs if (str(s.get("pid") or "") or f"#{s.get('record')}") in on_side]
+            subs += [{"record": "", "pid": pid, "since": st.since[:10], "visits": {}, "person": st, "log_only": True}
+                     for pid, st in sorted(on_side.items()) if pid not in keys]  # fmt: skip
+            counts = ps.counts(s["person"] for s in subs)
+            keep = ps.PARTICIPANT
+        only = request.query_params.get("state", "") if view else ""
+        only = only if only in keep else ""
         if only:
             subs = [s for s in subs if s["person"].name == only]
         return h.page(request, "life_subjects.html", sess, rs=rid, subjects=subs, err=err, only=only,
-                      shown=ps.shown_counts(counts, ps.STATES), readable=readable)  # fmt: skip
+                      shown=ps.shown_counts(counts, keep), readable=readable)  # fmt: skip
 
     def subject_page(request: Request, sess: Session, rid: str, rec: str, status: int = 200,
                      refused: str = "", done: str = "") -> Response:  # fmt: skip

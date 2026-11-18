@@ -10,10 +10,8 @@
 <nav aria-label="main" data-testid="nav" data-role="{{ r }}">
   {% if pilot %}
     {% if r == 'investigator' %}
-      {% if pl %}{{ item('/people/candidates', 'people.candidates', pnow == 'candidates' or '/patients/' in path) }}
-      {{ item('/people/participants', 'people.participants', pnow == 'participants' or '/subjects/' in path) }}{% else %}
-      {{ item('/week', 'nav.week', path.startswith('/week') or path.endswith('/week') or '/patients/' in path) }}
-      {{ item('/pilot/registry', 'nav.patients', path.startswith('/pilot/registry')) }}{% endif %}
+      {% if pl %}{{ item('/people/candidates', 'people.candidates', pnow == 'candidates' or '/patients/' in path) }}{% else %}{{ item('/week', 'nav.week', path.startswith('/week') or path.endswith('/week') or '/patients/' in path) }}{% endif %}
+      {% if pl %}{{ item('/people/participants', 'people.participants', pnow == 'participants' or '/subjects/' in path) }}{% else %}{{ item('/pilot/registry', 'nav.patients', path.startswith('/pilot/registry')) }}{% endif %}
       {{ item('/reports', 'nav.reports', path.startswith('/reports') or path.endswith('/feasibility')) }}
     {% elif r in ('cro', 'viewer') %}
       {{ item('/reports', 'nav.reports', path.startswith('/reports') or path.endswith('/feasibility')) }}
@@ -34,11 +32,9 @@
       {% if permit(r, 'audit.browse') %}{{ item('/audit', 'nav.audit', path.startswith('/audit')) }}{% endif %}{# T-211c (D-451) #}
     {% else %}
       {{ item('/home', 'nav.studies', path == '/home') }}
-      {% if pl %}{{ item('/people/candidates', 'people.candidates', pnow == 'candidates' or '/patients/' in path) }}{% else %}
-      {{ item('/week', 'nav.week', path.startswith('/week') or path.endswith('/week') or '/patients/' in path) }}{% endif %}
+      {% if pl %}{{ item('/people/candidates', 'people.candidates', pnow == 'candidates' or '/patients/' in path) }}{% else %}{{ item('/week', 'nav.week', path.startswith('/week') or path.endswith('/week') or '/patients/' in path) }}{% endif %}
       {{ item('/reports', 'nav.reports', path.startswith('/reports') or path.endswith('/feasibility')) }}
-      {% if pl %}{{ item('/people/participants', 'people.participants', pnow == 'participants' or '/subjects/' in path) }}{% else %}
-      {{ item('/pilot/registry', 'nav.patients', path.startswith('/pilot/registry')) }}{% endif %}
+      {% if pl %}{{ item('/people/participants', 'people.participants', pnow == 'participants' or '/subjects/' in path) }}{% else %}{{ item('/pilot/registry', 'nav.patients', path.startswith('/pilot/registry')) }}{% endif %}
     {% endif %}
     <details class="more" data-testid="nav-more">
       <summary>{{ t('nav.more') }}</summary>
