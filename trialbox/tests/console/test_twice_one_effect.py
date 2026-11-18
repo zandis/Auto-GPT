@@ -648,7 +648,7 @@ def test_close_a_study_twice(lb: dict[str, Any]) -> None:
     _open_study(lb)
     c, csrf = login(lb["app"], "crc", PW)
     store = lb["app"].state.helpers.store
-    row = twice(lb, "close_study", c, f"/studies/{STUDY}/state", {"csrf": csrf, "state": "closed", "reason": "end"},
+    row = twice(lb, "close_study", c, f"/studies/{STUDY}/state", {"csrf": csrf, "state": "closed", "reason": "end", "confirm": "yes"},
                 records=lambda: len(store.state_history(STUDY)), template="/studies/{rs}/state")  # fmt: skip
     assert row["one_effect"], row
 
@@ -764,7 +764,7 @@ def _approach_after_close(lb: dict[str, Any]) -> dict[str, Any]:
     _open_study(lb)
     crc, csrf = login(lb["app"], "crc", PW)
     store = lb["app"].state.helpers.store
-    r = crc.post(f"/studies/{STUDY}/state", data={"csrf": csrf, "state": "closed", "reason": "end"},
+    r = crc.post(f"/studies/{STUDY}/state", data={"csrf": csrf, "state": "closed", "reason": "end", "confirm": "yes"},
                  follow_redirects=False)  # fmt: skip
     closed = store.study_state(STUDY).state
     n, nos = len(store.mark_history(STUDY, B)), len(store.screening_nos(STUDY))

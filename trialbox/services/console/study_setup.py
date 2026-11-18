@@ -41,6 +41,7 @@ from console.api_first import before_body
 from console.auth import Session, User
 from console.backend import Problem, Unavailable
 from console.home import Helpers
+from console.i18n import translate
 from console.sitestore import (
     ALL_REASONS,
     COHORT_KINDS,
@@ -501,6 +502,17 @@ def register(app: FastAPI, h: Helpers) -> None:
         return RedirectResponse(f"{target}?read={len(out['changes'])}#redcap", status_code=303)
 
     # ------------------------------------------------------------------ D-386: study state and identifiers
+    def before_open(rid: str) -> list[tuple[str, str, bool]]:
+        """WALK-2 (F-04): what a study in start-up records before it opens and its first patient is approached, each
+        with its page and whether it is done (a list, not a gate: D-311). (key, page, done)."""
+        team = getattr(h, "team", None)
+        irb_done = team is not None and not team.irb(rid).warnings(h.today())
+        out = [("irb", f"/studies/{rid}/irb", irb_done)]
+        # the SAE type only where the study reports serious adverse events (D-415: a registry study is not gated)
+        if s28.has_api(bk) and s28.load(bk, store, rid, defaults(rid)).study_type in SAE_STUDY_TYPES:
+            out.insert(0, ("sae", f"/studies/{rid}/setup#sae", not sae_type_missing(rid)))
+        return out
+
     def state_page(request: Request, sess: Session, rid: str, status: int = 200, ident: StudyIdentity | None = None,
                    irbt: IrbText | None = None, **extra: Any) -> Response:  # fmt: skip
         cur = store.study_state(rid)
@@ -511,6 +523,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             status=status,
             rs=rid,
             cur=cur,
+            before_open=before_open(rid) if cur.state == "startup" else [],
             moves=STATE_MOVES.get(cur.state, ()),
             states=STUDY_STATES,
             history=list(reversed(store.state_history(rid))),
@@ -520,7 +533,9 @@ def register(app: FastAPI, h: Helpers) -> None:
             take_back=take_back_open(cur) and may_take_back(h, sess.user, rid),  # D-763: the PI, the same day
             keep_default=STUDY_YEARS_AFTER_CLOSE,  # D-779 (T-305c): the period after the close
             keep_max=STUDY_YEARS_MAX,
-            kept_until=kept_until(cur.at, cur.keep_years).isoformat() if cur.state == "closed" and cur.at else "",
+            kept_until=kept_until(cur.at, cur.keep_years, site_zone(bk)).isoformat()  # F-16: the site's day
+            if cur.state == "closed" and cur.at
+            else "",
             irbt=irbt or store.irb_text(rid),
             irbt_history=list(reversed(store.irb_text_history(rid))),
             irbt_edit=may_record_irb_text(h, sess.user, rid),
@@ -599,7 +614,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     @app.post("/studies/{rs}/state")
     def change_state(
         request: Request, rs: str, csrf: str = Form(""), state: str = Form(""), reason: str = Form(""),
-        keep_years: str = Form(""),
+        keep_years: str = Form(""), confirm: str = Form(""),
     ) -> Response:  # fmt: skip
         """Move the study to ``state`` (D-386). Pausing or closing takes a reason. The audit event is written in the
         store's transaction, so a change is never kept without it. A close names the years the study's files are
@@ -624,6 +639,14 @@ def register(app: FastAPI, h: Helpers) -> None:
             refused, counts = close_refused(rid)
             if refused:
                 return state_page(request, sess, rid, status=409, err=refused, close=counts)
+            if (
+                confirm != "yes" and h.confirm is not None
+            ):  # WALK-1 (F-15, D-763): the close is final; it is named, with its day, before it is made
+                day = kept_until(h.clock().isoformat(), years, site_zone(bk)).isoformat()
+                text = translate(sess.lang, "sstate.confirm.close", rs=rid, day=day)
+                return h.confirm(request, sess, text, request.url.path,
+                                 {"state": state, "reason": why, "keep_years": str(years)},
+                                 f"/studies/{rid}/state")  # fmt: skip
 
         def audit(new: StudyState) -> None:
             au.append("console.study_state", ruleset=rid, actor=h.actor(sess),

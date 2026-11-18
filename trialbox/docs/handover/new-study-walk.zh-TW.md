@@ -14,6 +14,8 @@
   上線後，同一人在每個步驟前切換角色。
 - 選一個新的條件代碼：1 到 16 個大寫英文字母、數字、「-」或「_」，且機器上尚未存在。表格中以 `MYSTUDY` 表示。
   不要使用 `SITE5B` 或以 `SITE5B-` 開頭的代碼：stub 在該代碼下看過這段文字，而本操作要看的是它沒看過的文字。
+- 新試驗從「準備中」開始（D-1153）：收案中之前不產生名單，且要先有 SAE 通報類型才能改為收案中（D-415）。步驟 9 在
+  試驗設定（「SAE 通報規定」）選擇類型；步驟 10 先執行 SCREEN，作業失敗並附原因，再將試驗改為收案中並再執行一次 SCREEN。
 - 每個步驟都註明角色。以該角色登入（或切換到該角色），再依步驟的表格操作。表格中出現 `pi` 時，選擇主持人的帳號。
 - 步驟中「被拒絕」列出該角色不得執行的請求。您會看到按鈕不存在，或自行開啟該網址時出現「這個頁面需要其他角色」頁面。
 
@@ -143,7 +145,7 @@ Exclusion Criteria
 
 ### 步驟 9 · 研究護理師（CRC）
 
-開啟試驗的報告，再開啟試驗設定，在篩選對象選擇全院。
+開啟試驗的報告，再開啟試驗設定，在篩選對象選擇全院。接著開啟試驗狀態：試驗為準備中，在選定 SAE 通報類型之前無法改為收案中。回到試驗設定，在 SAE 通報規定選擇類型並儲存。
 
 | 操作 | en | zh-TW | ja |
 | --- | --- | --- | --- |
@@ -152,19 +154,39 @@ Exclusion Criteria
 | 開啟選單，然後點選 | More → MYSTUDY · Study set-up | 更多 → MYSTUDY · 試驗設定 | その他 → MYSTUDY · 試験の設定 |
 | 選擇 | The whole hospital: every patient with a booked appointment in the coming months or a visit in the last 12 months | 全院：未來數個月有預約，或過去 12 個月內有就診的所有病人 | 病院全体：今後数か月に予約がある、または過去12か月に受診したすべての患者 |
 | 點選 | Save who to screen | 儲存篩選對象 | スクリーニングの対象を保存 |
+| 點選 | Study state and identifiers | 試驗狀態與識別編號 | 試験の状態と識別番号 |
+| 在此欄選擇 `open` | Move to | 變更為 | 変更先 |
+| 點選 | Change state | 變更狀態 | 状態を変更 |
+| 點選 | Study set-up | 試驗設定 | 試験の設定 |
+| 在此欄選擇 `tw_trial` | Rule set | 規定 | 規定 |
+| 點選 | Save and confirm | 儲存並確認 | 保存して確認 |
 
-應看到: 篩選對象：全院。
+應看到: 篩選對象：全院。試驗為準備中；改為收案中被拒絕，訊息請您先到設定頁面；之後試驗已有 SAE 通報類型。
+
+- 試驗主持人／協同主持人: 主持人不能選擇 SAE 通報類型: `POST /studies/MYSTUDY/setup/sae` 被拒絕：403 與頁面 "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
+- 資料管理員: 資料管理員不能選擇 SAE 通報類型: `POST /studies/MYSTUDY/setup/sae` 被拒絕：403 與頁面 "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
 
 ### 步驟 10 · 研究護理師（CRC）
 
-對新試驗執行 SCREEN，約需一分鐘。
+對新試驗執行 SCREEN：試驗尚未收案，作業失敗。在試驗狀態頁面將試驗改為收案中，再執行一次 SCREEN，約需一分鐘。
 
 | 操作 | en | zh-TW | ja |
 | --- | --- | --- | --- |
 | 開啟選單，然後點選 | More → New request | 更多 → 新請求 | その他 → 新規リクエスト |
 | 在此按鈕的表單中選擇 `MYSTUDY`，然後點選 | Find candidates for the next visits | 找出近期回診的候選者 | 次回受診の候補者を抽出 |
+| 在上方列點選 | Reports | 報告 | レポート |
+| 在該試驗的列點選 | Open report | 開啟報告 | レポートを開く |
+| 開啟選單，然後點選 | More → MYSTUDY · Study set-up | 更多 → MYSTUDY · 試驗設定 | その他 → MYSTUDY · 試験の設定 |
+| 點選 | Study state and identifiers | 試驗狀態與識別編號 | 試験の状態と識別番号 |
+| 在此欄選擇 `open` | Move to | 變更為 | 変更先 |
+| 點選 | Change state | 變更狀態 | 状態を変更 |
+| 開啟選單，然後點選 | More → New request | 更多 → 新請求 | その他 → 新規リクエスト |
+| 在此按鈕的表單中選擇 `MYSTUDY`，然後點選 | Find candidates for the next visits | 找出近期回診的候選者 | 次回受診の候補者を抽出 |
 
-應看到: SCREEN 作業完成，附名單。
+應看到: 第一個 SCREEN 作業失敗並附原因（試驗尚未收案；由研究協調員變更狀態）。試驗已收案。第二個 SCREEN 作業完成，附名單。
+
+- 資料管理員: 資料管理員不能將試驗改為收案中: `POST /studies/MYSTUDY/state` 被拒絕：403 與頁面 "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
+- 管理者: 管理者不能將試驗改為收案中: `POST /studies/MYSTUDY/state` 被拒絕：403 與頁面 "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
 
 ### 步驟 11 · 研究護理師（CRC）
 
@@ -216,5 +238,6 @@ DEV 或 TEST 機器在程序內執行同一個 stub，`services/console/studies.
 ## 出處
 
 - D-1121（本操作）、D-1062（steps 模式）、D-1063（每人一個帳號並切換執行角色）、D-540（第一次核准前由資料管理員登記
-  試驗主持人）、D-309（中文或日文頁面上每條條件的簡短名稱）。
+  試驗主持人）、D-309（中文或日文頁面上每條條件的簡短名稱）、D-1153（新試驗從準備中開始）、D-415（有 SAE 通報類型才能
+  改為收案中）、D-386（只有收案中的試驗產生名單）、D-1106（本操作依 D-1153 調整）。
 - 自動化操作：`tests/e2e/new_study_walk_plan.py`、`tests/e2e/new_study_walk.js`、`tests/e2e/test_new_study_walk.py`。

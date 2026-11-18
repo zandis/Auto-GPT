@@ -122,14 +122,15 @@ def test_the_log_row_shows_the_criterion_not_met_and_its_version(lb: dict[str, A
     # "not eligible" without a criterion, or one not on the approved list: refused, nothing changed
     for crit in ("", "GZQO-EXC-99"):
         r = c.post(f"/studies/GZQO/subjects/{no}/step", data={"csrf": csrf, "to": "screen_fail",
-                                                              "reason": "not_eligible", "criterion": crit})  # fmt: skip
+                                                              "reason": "not_eligible", "criterion": crit,
+                                                              "confirm": "yes"})  # fmt: skip
         assert r.status_code == 409 and "choose the criterion not met" in r.text
     r = c.post(f"/studies/GZQO/subjects/{no}/step", data={"csrf": csrf, "to": "screen_fail", "reason": "not_eligible",
-                                                          "criterion": FAILED, "on_day": "2026-11-05"})  # fmt: skip
+                                                          "criterion": FAILED, "on_day": "2026-11-05", "confirm": "yes"})  # fmt: skip
     assert 'data-testid="life-saved"' in r.text and f"criterion not met: {FAILED} (v3.0.0)" in r.text
     # another reason takes no criterion
     r = c.post(f"/studies/GZQO/subjects/{other}/step", data={"csrf": csrf, "to": "screen_fail", "reason": "declined",
-                                                             "criterion": FAILED})  # fmt: skip
+                                                             "criterion": FAILED, "confirm": "yes"})  # fmt: skip
     assert 'data-testid="life-saved"' in r.text
     sub = lb["oc"].get(f"/studies/GZQO/subjects/{other}").json()
     assert sub["steps"][-1]["criterion"] == ""

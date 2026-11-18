@@ -17,6 +17,9 @@ Japanese. A test fails when this page and the walk differ.
 - Choose a new ruleset id: 1 to 16 capital letters, digits, "-" or "_", that the box does not have yet. The tables
   show it as `MYSTUDY`. Do not use `SITE5B` or an id that starts with `SITE5B-`: the stub has seen that text under
   that id, and the walk is about text it has not seen.
+- A new study starts in start-up (D-1153): no list runs for it until it is open, and it opens only once it has its
+  type for SAE reporting (D-415). Step 9 chooses that type on set-up (the "SAE reporting rules"); step 10 first runs
+  SCREEN, which fails with the reason, then opens the study and runs SCREEN again.
 - Each step names its role. Sign in as that role (or switch to it), then do what the step's table says. Where a
   table names `pi`, choose the investigator's account.
 - Under "refused" a step names a request the role must not be able to make. You see it as a missing button, or as
@@ -148,7 +151,7 @@ You should see: The FEAS job, done, with its funnel of the four criteria.
 
 ### Step 9 · study coordinator
 
-Open the study's report, then its set-up, and choose the whole hospital under who to screen.
+Open the study's report, then its set-up, and choose the whole hospital under who to screen. Then open the study's state: it is in start-up, and Open is refused until the study has its type for SAE reporting. Back on set-up, choose the type under the SAE reporting rules and save it.
 
 | What you do | en | zh-TW | ja |
 | --- | --- | --- | --- |
@@ -157,19 +160,39 @@ Open the study's report, then its set-up, and choose the whole hospital under wh
 | Open the menu, then click | More → MYSTUDY · Study set-up | 更多 → MYSTUDY · 試驗設定 | その他 → MYSTUDY · 試験の設定 |
 | Choose | The whole hospital: every patient with a booked appointment in the coming months or a visit in the last 12 months | 全院：未來數個月有預約，或過去 12 個月內有就診的所有病人 | 病院全体：今後数か月に予約がある、または過去12か月に受診したすべての患者 |
 | Click | Save who to screen | 儲存篩選對象 | スクリーニングの対象を保存 |
+| Click | Study state and identifiers | 試驗狀態與識別編號 | 試験の状態と識別番号 |
+| Choose `open` in | Move to | 變更為 | 変更先 |
+| Click | Change state | 變更狀態 | 状態を変更 |
+| Click | Study set-up | 試驗設定 | 試験の設定 |
+| Choose `tw_trial` in | Rule set | 規定 | 規定 |
+| Click | Save and confirm | 儲存並確認 | 保存して確認 |
 
-You should see: Who to screen: the whole hospital.
+You should see: Who to screen: the whole hospital. The study is in start-up; Open is refused with words that send you to set-up; then the study has its type for SAE reporting.
+
+- investigator (PI / sub-I): the investigator cannot choose the type for SAE reporting: `POST /studies/MYSTUDY/setup/sae` refused: 403 and the page "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
+- data steward: the steward cannot choose the type for SAE reporting: `POST /studies/MYSTUDY/setup/sae` refused: 403 and the page "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
 
 ### Step 10 · study coordinator
 
-Run SCREEN on the new study. It takes about a minute.
+Run SCREEN on the new study: it fails, since the study is not open yet. Open the study on its state page, then run SCREEN again. It takes about a minute.
 
 | What you do | en | zh-TW | ja |
 | --- | --- | --- | --- |
 | Open the menu, then click | More → New request | 更多 → 新請求 | その他 → 新規リクエスト |
 | In the form of this button, choose `MYSTUDY`, then click | Find candidates for the next visits | 找出近期回診的候選者 | 次回受診の候補者を抽出 |
+| In the top bar, click | Reports | 報告 | レポート |
+| On the study's row, click | Open report | 開啟報告 | レポートを開く |
+| Open the menu, then click | More → MYSTUDY · Study set-up | 更多 → MYSTUDY · 試驗設定 | その他 → MYSTUDY · 試験の設定 |
+| Click | Study state and identifiers | 試驗狀態與識別編號 | 試験の状態と識別番号 |
+| Choose `open` in | Move to | 變更為 | 変更先 |
+| Click | Change state | 變更狀態 | 状態を変更 |
+| Open the menu, then click | More → New request | 更多 → 新請求 | その他 → 新規リクエスト |
+| In the form of this button, choose `MYSTUDY`, then click | Find candidates for the next visits | 找出近期回診的候選者 | 次回受診の候補者を抽出 |
 
-You should see: The SCREEN job, done, with its list.
+You should see: The first SCREEN job failed with the reason (the study is not open; the coordinator changes the state). The study is open. The second SCREEN job, done, with its list.
+
+- data steward: the steward cannot open the study: `POST /studies/MYSTUDY/state` refused: 403 and the page "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
+- administrator: the administrator cannot open the study: `POST /studies/MYSTUDY/state` refused: 403 and the page "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
 
 ### Step 11 · study coordinator
 
@@ -228,5 +251,7 @@ Every model answer on this box comes from the stub, `services/llm_stub/handlers.
 ## Where this comes from
 
 - D-1121 (this walk), D-1062 (steps mode), D-1063 (one sign-in with an acting role), D-540 (the steward names the PI
-  before the first approval), D-309 (a short label per criterion on a Chinese or Japanese page).
+  before the first approval), D-309 (a short label per criterion on a Chinese or Japanese page), D-1153 (a new study
+  starts in start-up), D-415 (it opens only with its type for SAE reporting), D-386 (lists only for an open study),
+  D-1106 (the walk follows D-1153).
 - The walk: `tests/e2e/new_study_walk_plan.py`, `tests/e2e/new_study_walk.js`, `tests/e2e/test_new_study_walk.py`.

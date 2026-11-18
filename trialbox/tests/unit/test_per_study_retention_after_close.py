@@ -147,7 +147,7 @@ def test_the_close_form_asks_for_the_period_and_the_page_says_until_when(sb: dic
     for bad in ("0", "31", "abc", "2.5"):
         r = _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out", keep_years=bad)
         assert r.status_code == 400 and _state(sb) == "open" and 'data-testid="state-error"' in r.text, bad
-    r = _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out", keep_years="15")
+    r = _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out", keep_years="15", confirm="yes")
     assert r.status_code == 303 and _state(sb) == "closed"
     cur = sb["app"].state.helpers.store.study_state("GZQO")
     assert cur.keep_years == 15
@@ -165,7 +165,9 @@ def test_a_close_without_the_field_takes_the_default(sb: dict[str, Any], clock: 
     _empty(sb)
     sb["app"].state.helpers.sae_open = lambda rid: 0
     crc, _ = login(sb["app"], "crc", PW)
-    assert _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out").status_code == 303
+    assert (
+        _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out", confirm="yes").status_code == 303
+    )
     assert sb["app"].state.helpers.store.study_state("GZQO").keep_years == STUDY_YEARS_AFTER_CLOSE
 
 
