@@ -117,6 +117,7 @@ routes:
   "GET /api/v1/studies/{rs}/visits": {actions: ["task.screen"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "GET /ask": {kind: signed_in, why: "the help page's question box; the answer is drawn for the account's own rights (T-317)"}
   "GET /audit": {actions: ["audit.browse"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
+  "GET /audit/provenance": {actions: ["audit.provenance"], mode: all, why: "D-1155: the provenance search; the steward, the privacy office and the administrator (audit.provenance)"}
   "GET /audit/patients": {actions: ["audit.browse"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "POST /audit/patients/by-chart": {actions: ["audit.browse"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "GET /audit/patients/{pid}": {actions: ["audit.browse"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}

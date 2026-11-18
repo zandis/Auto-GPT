@@ -529,3 +529,5 @@ PUT /api/v1/studies/{rs}/schedule crc
 PUT /api/v1/studies/{rs}/schedule smo_in
 PUT /api/v1/studies/{rs}/sources/redcap crc
 PUT /api/v1/studies/{rs}/sources/redcap smo_in
+POST /studies/{rs}/setup/sae crc  # V2-06: 500 in strict text mode, the page asks rc.err.LIFE-STEP (no catalogue entry)
+POST /studies/{rs}/setup/sae smo_in  # V2-06: the same

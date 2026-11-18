@@ -45,8 +45,8 @@ class RoleWalkFinding(AssertionError):
     """Raised only by the check a strict xfail names: a fixture error can never satisfy the mark."""
 
 
-def tagged_login(app: Any, user: str, pw: str) -> tuple[TestClient, str]:
-    c = TestClient(rw.Tagged(app))
+def tagged_login(app: Any, user: str, pw: str, raising: bool = False) -> tuple[TestClient, str]:
+    c = TestClient(rw.Tagged(app), raise_server_exceptions=raising)  # the walk: a 5xx is a cell (unclear)
     token = re.search(r'name="login_csrf" value="([^"]+)"', c.get("/login").text)
     assert token
     r = c.post("/login", data={"username": user, "password": pw, "login_csrf": token.group(1)}, follow_redirects=False)
@@ -66,7 +66,11 @@ def clients(b: dict[str, Any]) -> dict[str, tuple[TestClient, str, TestClient]]:
     out: dict[str, tuple[TestClient, str, TestClient]] = {}
     for col in rw.COLUMNS:
         if col.role is None:
-            out[col.name] = (TestClient(rw.Tagged(b["app"])), "", TestClient(rw.Tagged(b["app"])))
+            out[col.name] = (
+                TestClient(rw.Tagged(b["app"]), raise_server_exceptions=False),
+                "",
+                TestClient(rw.Tagged(b["app"]), raise_server_exceptions=False),
+            )
             continue
         name = {"admin": "admin", "viewer": "viewer"}.get(col.name, f"w{col.name.replace('_', '')}")
         pw = {"admin": ADMIN_PW, "viewer": VIEWER_PW}.get(col.name, PW)
@@ -76,7 +80,10 @@ def clients(b: dict[str, Any]) -> dict[str, tuple[TestClient, str, TestClient]]:
             users.set_scope(name, col.affiliation, col.studies, None)
         page, csrf = tagged_login(b["app"], name, pw)
         token, _ = users.new_session(users.get(name), via="api")
-        out[col.name] = (page, csrf, TestClient(rw.Tagged(b["app"]), headers={"Authorization": f"Bearer {token}"}))
+        api = TestClient(
+            rw.Tagged(b["app"]), headers={"Authorization": f"Bearer {token}"}, raise_server_exceptions=False
+        )
+        out[col.name] = (page, csrf, api)
     team = TeamStore()
     at = "2026-01-01T00:00:00+00:00"
     team.add_entry(rw.STUDY, username="wpi", name="Dr Walk PI", role="pi", tasks=(), start="2026-01-01", end=None,
@@ -285,7 +292,8 @@ def run_walk(b: dict[str, Any], tmp_path: Path, tracer: rw.Tracer | None = None)
 
 
 def pinned_unclear() -> set[str]:
-    return {ln.strip() for ln in UNCLEAR.read_text("utf-8").splitlines() if ln.strip() and not ln.startswith("#")}
+    lines = UNCLEAR.read_text("utf-8").splitlines()
+    return {ln.split("  #", 1)[0].strip() for ln in lines if ln.strip() and not ln.startswith("#")}  # "  # why"
 
 
 def unclear_now(rows: list[dict[str, Any]]) -> set[str]:
@@ -414,3 +422,23 @@ def test_v2_02_every_refusal_of_these_routes_is_in_the_audit_trail(box: dict[str
     tap.close()
     if silent:
         raise RoleWalkFinding("refused with no audit record: " + "; ".join(silent))
+
+
+@pytest.mark.xfail(strict=True, raises=RoleWalkFinding,
+                   reason="V2-06: the set-up page asks a text key no catalogue has (rc.err.LIFE-STEP)")  # fmt: skip
+def test_v2_06_a_refused_sae_rule_set_is_said_in_words(box: dict[str, Any], tmp_path: Path) -> None:  # noqa: F811
+    """A coordinator saves an empty SAE rule set; the orchestrator refuses it (LIFE-STEP) and the set-up page shows
+    the refusal through ``t('rc.err.' + code)``. D-1220: a key no catalogue has is an error in the tests' strict
+    mode; on a box the raw key shows."""
+    from console.i18n import MissingText
+
+    store = study_store(box, tmp_path)
+    next(store)
+    box["users"].create("wcrc6", "coordinator", PW, "wcrc6@hospa.test")
+    page, csrf = tagged_login(box["app"], "wcrc6", PW, raising=True)
+    try:
+        page.post(f"/studies/{rw.STUDY}/setup/sae", data={"csrf": csrf, "rule_set": ""}, follow_redirects=False)
+    except MissingText as exc:
+        raise RoleWalkFinding(str(exc)) from exc
+    finally:
+        next(store, None)
