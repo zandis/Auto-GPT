@@ -15,10 +15,9 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import sys
 from collections import Counter
 from pathlib import Path
-
-from ruff.__main__ import find_ruff_bin
 
 ROOT = Path(__file__).resolve().parents[2]
 PAGE = ROOT / "docs" / "handover" / "sql-sites-classified-2026-11-18.md"
@@ -28,15 +27,28 @@ CLASSES = {"1", "2", "3", "not SQL"}
 
 
 def _ruff_sites() -> list[tuple[str, int]]:
-    out = subprocess.run(  # noqa: S603  (a fixed argv, no shell)
-        [find_ruff_bin(), "check", "--isolated", "--select", "S608", "--output-format", "json", "--exit-zero",
-         "libs", "services", "deploy"],
-        cwd=ROOT, capture_output=True, text=True, check=True,
+    out = subprocess.run(  # a fixed argv, no shell
+        [
+            sys.executable,
+            "-m",
+            "ruff",
+            "check",
+            "--isolated",
+            "--select",
+            "S608",
+            "--output-format",
+            "json",
+            "--exit-zero",
+            "libs",
+            "services",
+            "deploy",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout
-    return [
-        (str(Path(d["filename"]).resolve().relative_to(ROOT)), d["location"]["row"])
-        for d in json.loads(out)
-    ]
+    return [(str(Path(d["filename"]).resolve().relative_to(ROOT)), d["location"]["row"]) for d in json.loads(out)]
 
 
 def _page_rows() -> list[tuple[str, int, list[str]]]:

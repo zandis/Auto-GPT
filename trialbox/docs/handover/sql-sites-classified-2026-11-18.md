@@ -1,5 +1,8 @@
 # The SQL sites built from strings, classified (10G-42 (c), lane H, 2026-11-18)
 
+**Reader:** the people who build TrialBox: the lane lead and the integrator, lane J (the fixes), the lanes that own
+the files (A2, B2, C2, D, E, W) and lane V (the findings register). For builders, so in one language.
+
 Plan 10 row 10G-42 ([plan 10](../plan/47-plan-10-2026-11-18.md), Track G, defect (g)) as the integrator narrowed it for
 lane H on 2026-11-18: each place that builds SQL from strings is classed as (1) values bound as parameters, (2) an
 identifier or fragment from a fixed set in code, or (3) reachable from input. Only the class 3 sites become findings
@@ -47,9 +50,9 @@ Notes on the count:
 No site was left "not determined".
 
 Path **P1** (the criterion IR, used by the compiler rows): a protocol document attached to a job → `compile_draft`
-(`services/orchestrator/scenarios/review.py:77`) or the ct.gov `_compiled` (`services/orchestrator/trials.py:53`) →
+(`services/orchestrator/scenarios/review.py:77`) or the ct.gov `_compiled` (`services/orchestrator/scenarios/trials.py:53`) →
 `POST /compile` (`services/criteria_compiler/app.py:137`) → `Compiler.compile` → the model's extraction → `postprocess`
-→ `CriterionIR.model_validate` (`services/criteria_compiler/postprocess.py:562`) → `build_artifacts` →
+→ `CriterionIR.model_validate` (`services/criteria_compiler/ir_extract/postprocess.py:562`) → `build_artifacts` →
 `SqlGenerator.render`. A reviewer's `edited_ir` and the rule-set files read by `overlay._render` and `variant_sql`
 reach the same point. Pydantic `Literal` types fix the domain, quantifier, derived score, sex, clinical status,
 operator and kind; the free-text fields are the value set name, `value.codes`, `value.unit` and the criterion text.
