@@ -1866,6 +1866,232 @@
    "logic": "presence",
    "expect": "runs",
    "source": "fresh"
+  },
+  {
+   "lang": "en",
+   "text": "Non-Hodgkin lymphoma",
+   "concept": "non-Hodgkin lymphoma",
+   "synonyms": [
+    "NHL"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3"
+  },
+  {
+   "lang": "en",
+   "text": "Peripheral T-cell lymphoma, not otherwise specified, confirmed by central pathology.",
+   "concept": "peripheral T-cell lymphoma",
+   "synonyms": [
+    "PTCL"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3"
+  },
+  {
+   "lang": "en",
+   "text": "Non-alcoholic steatohepatitis",
+   "concept": "steatohepatitis",
+   "synonyms": [
+    "NASH"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3"
+  },
+  {
+   "lang": "en",
+   "text": "Non-ST-elevation myocardial infarction",
+   "concept": "myocardial infarction",
+   "synonyms": [
+    "NSTEMI"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3"
+  },
+  {
+   "lang": "en",
+   "text": "Non-invasive bladder cancer",
+   "concept": "bladder cancer",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3"
+  },
+  {
+   "lang": "en",
+   "text": "Non-metastatic prostate cancer",
+   "concept": "prostate cancer",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3"
+  },
+  {
+   "lang": "en",
+   "text": "Nonsquamous non-small cell lung cancer",
+   "concept": "non-small cell lung cancer",
+   "synonyms": [
+    "NSCLC"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3"
+  },
+  {
+   "lang": "ja",
+   "text": "非ホジキンリンパ腫と診断されている。",
+   "concept": "non-Hodgkin lymphoma",
+   "synonyms": [
+    "非ホジキンリンパ腫"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3"
+  },
+  {
+   "lang": "ja",
+   "text": "びまん性大細胞型B細胞リンパ腫（非ホジキンリンパ腫）と診断されている。",
+   "concept": "diffuse large B-cell lymphoma",
+   "synonyms": [
+    "びまん性大細胞型B細胞リンパ腫"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3"
+  },
+  {
+   "lang": "ja",
+   "text": "無症状の胆石症を有する患者。",
+   "concept": "cholelithiasis",
+   "synonyms": [
+    "胆石症"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3"
+  },
+  {
+   "lang": "ja",
+   "text": "非アルコール性脂肪肝炎と診断された患者",
+   "concept": "steatohepatitis",
+   "synonyms": [
+    "脂肪肝炎"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3"
+  },
+  {
+   "lang": "ja",
+   "text": "非ST上昇型心筋梗塞の既往がある",
+   "concept": "myocardial infarction",
+   "synonyms": [
+    "心筋梗塞"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3"
+  },
+  {
+   "lang": "ja",
+   "text": "非浸潤性乳管癌",
+   "concept": "ductal carcinoma in situ",
+   "synonyms": [
+    "乳管癌"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3"
+  },
+  {
+   "lang": "ja",
+   "text": "非扁平上皮非小細胞肺癌",
+   "concept": "non-small cell lung cancer",
+   "synonyms": [
+    "非小細胞肺癌",
+    "肺癌"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3"
+  },
+  {
+   "lang": "zh",
+   "text": "非酒精性脂肪肝炎",
+   "concept": "steatohepatitis",
+   "synonyms": [
+    "脂肪肝炎"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3"
+  },
+  {
+   "lang": "zh",
+   "text": "非ST段上升心肌梗塞病史",
+   "concept": "myocardial infarction",
+   "synonyms": [
+    "心肌梗塞"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3"
+  },
+  {
+   "lang": "zh",
+   "text": "無症狀膽結石",
+   "concept": "cholelithiasis",
+   "synonyms": [
+    "膽結石"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3"
+  },
+  {
+   "lang": "zh",
+   "text": "非小細胞肺癌，非鱗狀細胞型",
+   "concept": "non-small cell lung cancer",
+   "synonyms": [
+    "非小細胞肺癌",
+    "肺癌"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3"
+  },
+  {
+   "lang": "zh",
+   "text": "非何杰金氏淋巴瘤",
+   "concept": "non-Hodgkin lymphoma",
+   "synonyms": [
+    "淋巴瘤"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3"
   }
  ]
 }

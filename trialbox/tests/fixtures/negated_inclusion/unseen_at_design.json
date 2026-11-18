@@ -1,5 +1,5 @@
 {
- "about": "Card 10A-1: inclusion lines written by lane J's reviewer before reading this card's table (unseen at design): the lines the reviewer's second review reported (17 negated lines that ran as presence, the cue-less absence words, and one over-hold with its English and Chinese equivalents). The reviewer's full set of 154 lines is not in this repository. Synthetic; no patient data. Fields as in lines.json.",
+ "about": "Card 10A-1: inclusion lines written by lane J's reviewer before reading this card's table (unseen at design): the lines the reviewer's second review reported (17 negated lines that ran as presence, the cue-less absence words, and one over-hold with its English and Chinese equivalents). The reviewer's full set of 154 lines is not in this repository. Synthetic; no patient data. Fields as in lines.json. 'over_held' marks a must-run row the fail-safe holds today (target of card 10A-1b); the reviewer reported 19 such lines, of which the three quoted are committed here.",
  "rows": [
   {
    "lang": "en",
@@ -277,6 +277,43 @@
    "logic": "presence",
    "expect": "runs",
    "source": "review-j2"
+  },
+  {
+   "lang": "en",
+   "text": "Prior surgery is required; no prior radiotherapy.",
+   "concept": "surgery",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: the negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "en",
+   "text": "type 2 diabetes mellitus without ketoacidosis",
+   "concept": "type 2 diabetes mellitus",
+   "synonyms": [
+    "T2DM"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: the negated second thing is not among the line's concept candidates (card 10A-1b)"
+  },
+  {
+   "lang": "ja",
+   "text": "手術歴はあるが、放射線治療歴はない。",
+   "concept": "surgery",
+   "synonyms": [
+    "手術"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j3",
+   "over_held": "the fail-safe holds it: the negated second thing is not among the line's concept candidates (card 10A-1b)"
   }
  ]
 }

@@ -112,10 +112,10 @@ def _score(rows: list[dict[str, Any]]) -> tuple[int, int, int, int]:
 
 
 def test_the_counts_the_pull_request_reports() -> None:
-    """This card's table: every negated line held; 8 of the 50 that should run are held by the fail-safe. The lines
-    unseen at design: every negated line held, none over-held."""
-    assert _score(ROWS) == (116, 116, 8, 50)
-    assert _score(UNSEEN) == (21, 21, 0, 3)
+    """This card's table: every negated line held; 8 of the 69 that should run are held by the fail-safe. The lines
+    unseen at design: every negated line held; 3 of the 6 that should run are held (card 10A-1b's target)."""
+    assert _score(ROWS) == (116, 116, 8, 69)
+    assert _score(UNSEEN) == (21, 21, 3, 6)
     assert {r["lang"] for r in ALL} == {"en", "ja", "zh"}
 
 

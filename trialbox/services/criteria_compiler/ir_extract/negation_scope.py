@@ -89,7 +89,10 @@ _EN_PSEUDO = (
     r"\b(?:no|not|never)\s+(?:more|greater|less|fewer|higher|lower|longer|older|younger|earlier|later|above|below|"
     r"over|under|exceed\w*|in\s+excess|beyond|until|before|after|only|change|increase|decrease|restriction\w*|"
     r"upper|lower|minimum|maximum)\b|\bnon[- ]?(?:small|hodgkin\w*|invasive|muscle|squamous|alcoholic|"
-    r"insulin|steroid\w*|melanoma)\b|\bgram[- ]negative\b|\bnot\s+specified\b|\bnot\s+applicable\b|"
+    r"insulin|steroid\w*|melanoma|metastatic|st[- ](?:segment[- ])?elevation|seminoma\w*|clear[- ]cell|"
+    r"tuberculous|valvular|ischemic|ischaemic|obstructive|functioning|secretory|hereditary)\b|"
+    r"\bgram[- ]negative\b|\bnot\s+(?:otherwise\s+)?specified\b|\bnot\s+elsewhere\s+classified\b|"
+    r"\bnot\s+applicable\b|"
     r"\bnone\s+other\b|\bnevertheless\b"
 )
 # a cue inside the concept word itself ("non-pregnant", "nonsmoker", "untreated", "ex-smoker")
@@ -111,7 +114,10 @@ _JA_BLOCK = r"増悪|進行|奏効|効果|反応|改善|適応|耐容|忍容|コ
 _JA_PSEUDO = (
     r"(?:を)?超えない|超えず|以上でない|以下でない|未満でない|を上回らない|を下回らない|未満|少ない|問わない|"
     r"限らない|に関わらず|かかわらず|制限(?:は)?なし|制限(?:は)?ない|上限(?:は)?なし|上限(?:は)?ない|非常|未来|未知|"
-    r"無作為|無料"
+    r"無作為|無料|"
+    # diagnosis names that only look negated ("非ホジキンリンパ腫", "無症状の胆石症"): descriptors, not negations
+    r"非ホジキン|非小細胞|非アルコール性|非ST上昇|非浸潤|非扁平上皮|非転移|非結核性|非弁膜症性|非虚血性|非定型|"
+    r"非代償性|非機能性|非遺伝性|無症状|無症候性|無症候"
 )
 # ------------------------------------------------------------------------------------------------ Chinese cues (own)
 _ZH_FORWARD = (
@@ -124,7 +130,9 @@ _ZH_BLOCK = r"惡化|恶化|進展|进展|反應|反应|效果|改善|控制|耐
 _ZH_PSEUDO = (
     r"(?:無|无|不|未|沒有|没有)[^，,。；;、]{0,12}?(?:大於|小於|高於|低於|超過|多於|少於|大于|小于|高于|低于|超过|"
     r"多于|少于|以上|以下)|無法|无法|無論|无论|無關|无关|未滿|未满|不限|無上限|无上限|無年齡上限|无年龄上限|"
-    r"非小細胞|非小细胞|非何杰金|非霍奇金|非常|未來|未来"
+    r"非小細胞|非小细胞|非何杰金|非霍奇金|非常|未來|未来|"
+    r"非酒精性|非ST段上升|非ST段抬高|非浸潤|非浸润|非鱗狀|非鳞状|非轉移|非转移|非結核|非结核|非瓣膜性|非缺血性|"
+    r"非典型|非功能性|無症狀|无症状"
 )
 _CJK_WINDOW = 8  # characters between a cue and its concept
 _CJK_BOUNDARY = r"[、。，,；;（）()「」\[\]【】\n]"  # a colon is not a boundary here ("化學治療:未曾接受")
