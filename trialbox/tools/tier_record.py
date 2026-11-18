@@ -1,4 +1,4 @@
-"""The tier record: one file per GPU profile that says what the box is (plan 10 row 10E-1, commitment C-4, D-TIERREC).
+"""The tier record: one file per GPU profile that says what the box is (plan 10 row 10E-1, commitment C-4, D-1320).
 
 ``deploy/tiers/<profile>.json`` (format ``tb-tier-record/1``, schema ``deploy/tiers/tier_record.schema.json``) holds
 what the gateway, the scheduler, the console, the host check, ``doctor`` and the capability page read about the box:

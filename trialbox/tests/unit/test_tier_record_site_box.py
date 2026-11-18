@@ -1,4 +1,4 @@
-"""The tier record (plan 10 row 10E-1, commitment C-4, D-TIERREC): complete, sourced, never filled in, never ballast."""
+"""The tier record (plan 10 row 10E-1, commitment C-4, D-1320): complete, sourced, never filled in, never ballast."""
 
 from __future__ import annotations
 

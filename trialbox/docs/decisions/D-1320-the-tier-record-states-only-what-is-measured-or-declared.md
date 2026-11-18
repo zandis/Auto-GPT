@@ -1,4 +1,4 @@
-# D-TIERREC The tier record states only what is measured or declared, and a stand-in is never one
+# D-1320 The tier record states only what is measured or declared, and a stand-in is never one
 
 - **Task:** lane H, plan 10 row 10E-1 (commitment C-4; review 13 card 13-2; review 19 section 5.1)
 - **Date:** 2026-11-18

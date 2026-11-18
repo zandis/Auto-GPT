@@ -1,6 +1,6 @@
 # Tier records
 
-`<profile>.json`: the tier record of one GPU profile (plan 10 row 10E-1, commitment C-4, D-TIERREC), format
+`<profile>.json`: the tier record of one GPU profile (plan 10 row 10E-1, commitment C-4, D-1320), format
 `tb-tier-record/1`, schema `tier_record.schema.json`, checked by `python3 tools/tier_record.py check`. One record per
 profile holds what the rest of the product reads about the box. Every field says its basis:
 
@@ -31,4 +31,4 @@ whose tier record is not written by this card.
 | 10G-11 host check per tier | `profile`, `tier`, `desk_side`, `arch` | `desk_side: true` fails a TPM-only disk unlock in VALIDATION and PRODUCTION |
 | 10K-3 live preflight (wizard, `doctor`) | `card_names`, `arch`, `card_memory_mib`, `driver`, `host_memory_gib_min`, `measured_on` | the GPU line checks the card against the record; `driver` not measured gives a line that says so, not a pass |
 | 10K-11 capability registry and page | `tier`, `console_promises`, `role_groups_on_box`, `protocol_route`, `ecc`, `measured_on` | rows such as "Protocol reading: not on this box, arrives as a signed package"; "not available: tier" |
-| the gateway's slots (C-4) | `judge_sequences`, `verifier_sequences` | the slots per endpoint, in place of the constant in `services/gateway/load.py` (not done by 10E-1: see D-TIERREC) |
+| the gateway's slots (C-4) | `judge_sequences`, `verifier_sequences` | the slots per endpoint, in place of the constant in `services/gateway/load.py` (not done by 10E-1: see D-1320) |
