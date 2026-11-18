@@ -316,8 +316,8 @@ def render(records: Iterable[Record]) -> str:
 
 def load(out: Path) -> list[Record]:
     order = {t.name: i for i, t in enumerate(TARGETS)}
-    recs = [Record.from_json(json.loads(p.read_text(encoding="utf-8"))) for p in sorted(out.glob("*.json"))]
-    recs = [r for r in recs if r.target in order]
+    raw = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(out.glob("*.json"))]
+    recs = [Record.from_json(d) for d in raw if isinstance(d, dict) and d.get("target") in order]
     return sorted(recs, key=lambda r: (order[r.target], r.run))
 
 

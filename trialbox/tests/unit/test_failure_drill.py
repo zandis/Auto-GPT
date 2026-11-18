@@ -132,6 +132,7 @@ def test_records_round_trip_and_render(tmp_path: Path) -> None:
                   mail=fd.check_mail([], [], []), audit=fd.check_audit(0, "", 1, 2, 0))  # fmt: skip
     (tmp_path / "adapter.json").write_text(json.dumps(r.to_json()), encoding="utf-8")
     (tmp_path / "db.json").write_text(json.dumps(fd.Record("db", "db", "db", "mailed", "w").to_json()), "utf-8")
+    (tmp_path / "control.json").write_text(json.dumps({"jobs": []}), encoding="utf-8")  # not a target's record
     recs = fd.load(tmp_path)
     assert [x.target for x in recs] == ["adapter", "db"]
     table = fd.render(recs)

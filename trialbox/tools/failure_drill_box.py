@@ -105,13 +105,39 @@ def write_settings(ingest_at: str = "02:00") -> None:
         SETTINGS.write_text(text, encoding="utf-8")
 
 
-def write_disk_override(size_mb: int) -> None:
-    """The database's data volume as a size-capped tmpfs (the disk target only)."""
-    DISK_OVERRIDE.write_text(
-        "volumes:\n  db-pg:\n    driver: local\n    driver_opts: {type: tmpfs, device: tmpfs, "
-        f'o: "size={size_mb}m,uid=999,gid=999,mode=0700"}}\n',
-        encoding="utf-8",
-    )
+DISK_IMAGE = Path.home() / ".cache" / "tb-drill-disk.img"
+DISK_MOUNT = Path.home() / ".cache" / "tb-drill-pg"
+
+
+def write_disk_override(size_mb: int) -> str:
+    """The database's data volume, small, for the disk target only. A loop-mounted ext4 file of ``size_mb`` bound as
+    the volume (needs root on the host: ``mount``); else a size-capped tmpfs, which does not survive a restart of
+    its container (a database that restarts after the disk filled comes back empty: the drill's medium, not the
+    product). Returns what was used."""
+    release_disk()
+    DISK_MOUNT.mkdir(parents=True, exist_ok=True)
+    made = subprocess.run(
+        f"truncate -s {size_mb}M {shlex.quote(str(DISK_IMAGE))} && mkfs.ext4 -q -F {shlex.quote(str(DISK_IMAGE))} "
+        f"&& mount -o loop {shlex.quote(str(DISK_IMAGE))} {shlex.quote(str(DISK_MOUNT))} "
+        f"&& mkdir {shlex.quote(str(DISK_MOUNT / 'pg'))} && chown 999:999 {shlex.quote(str(DISK_MOUNT / 'pg'))} "
+        f"&& chmod 700 {shlex.quote(str(DISK_MOUNT / 'pg'))}",  # a subfolder: initdb refuses ext4's lost+found
+        shell=True, capture_output=True, text=True, check=False,
+    )  # fmt: skip
+    if made.returncode == 0:
+        opts = f'{{type: none, o: bind, device: "{DISK_MOUNT / "pg"}"}}'
+        used = f"a {size_mb} MB ext4 file, loop-mounted on the host and bound as the volume"
+    else:
+        opts = f'{{type: tmpfs, device: tmpfs, o: "size={size_mb}m,uid=999,gid=999,mode=0700"}}'
+        used = f"a {size_mb} MB tmpfs (no loop mount here: {made.stderr.strip()[-120:]})"
+    DISK_OVERRIDE.write_text(f"volumes:\n  db-pg:\n    driver: local\n    driver_opts: {opts}\n", encoding="utf-8")
+    return used
+
+
+def release_disk() -> None:
+    """Unmount and remove the disk target's loop file (nothing when there is none)."""
+    if DISK_MOUNT.is_mount():
+        subprocess.run(["umount", str(DISK_MOUNT)], capture_output=True, check=False)
+    DISK_IMAGE.unlink(missing_ok=True)
 
 
 # ------------------------------------------------------------------------------------------------ the stack
@@ -123,6 +149,9 @@ def site_tz() -> ZoneInfo:
 
 def fresh_stack(disk: bool) -> None:
     dc("down", "-v", "--remove-orphans", disk=True, timeout=600)
+    if not disk:
+        release_disk()
+        DISK_OVERRIDE.unlink(missing_ok=True)
     shutil.rmtree(ROOT / "deploy" / ".objects", ignore_errors=True)  # the test stack's bind-mounted object folder
     write_settings((datetime.now(site_tz()) + timedelta(seconds=INGEST_AFTER_S)).strftime("%H:%M"))
     sh(["make", "--no-print-directory", "deploy/.env", ".cache/test-secrets/site_hmac.key", "objects-dir",
@@ -414,7 +443,7 @@ def recover(t: Target, rec: Record, at: float) -> None:
         rec.recovered_by = (
             f"Docker's restart policy (restarts: {restarts[0]})"
             if t.kind != "disk"
-            else "a person's step (the drill freed the space); no service went down"
+            else f"a person's step (the drill freed the space); the database's restarts: {restarts[0]}"
         )
         all_took = wait_healthy(every, at, RECOVER_S)
         rec.recover_s = all_took if all_took is not None else took
@@ -438,13 +467,25 @@ FILL = f"dd if=/dev/zero of={DATA}/drill-fill bs=1M 2>&1 | tail -1; df -h {DATA}
 
 
 def fill_disk(service: str) -> str:
-    out = dc("exec", "-T", "-u", "postgres", service, "sh", "-c", FILL, timeout=300, disk=True)
+    """Fill the disk that holds the database's volume. On the loop-mounted ext4: a file beside the database's
+    folder, written from the host (something else on the same disk grew, as on a site; the runbook forbids deleting
+    from the database volume). On the tmpfs fallback: a file inside the volume, from inside the container."""
+    if DISK_MOUNT.is_mount():
+        out = sh(["sh", "-c", f"dd if=/dev/zero of={shlex.quote(str(DISK_MOUNT / 'fill'))} bs=1M 2>&1 | tail -1; "
+                  f"df -h {shlex.quote(str(DISK_MOUNT))} | tail -1"], timeout=300)  # fmt: skip
+        where = "the disk that holds the database's volume, filled from the host by a file beside the database's folder"
+    else:
+        out = dc("exec", "-T", "-u", "postgres", service, "sh", "-c", FILL, timeout=300, disk=True)
+        where = "the database's data volume (tmpfs), filled from inside the container"
     said = "; ".join(" ".join(x.split()) for x in out.strip().splitlines())
-    return f"the database's data volume (tmpfs, capped) filled to no space from inside the container: {said}"
+    return f"{where} until no space was left: {said}"
 
 
 def free_disk(service: str) -> None:
-    dc("exec", "-T", "-u", "postgres", service, "rm", "-f", f"{DATA}/drill-fill", disk=True)
+    if DISK_MOUNT.is_mount():
+        (DISK_MOUNT / "fill").unlink(missing_ok=True)
+    else:
+        dc("exec", "-T", "-u", "postgres", service, "rm", "-f", f"{DATA}/drill-fill", disk=True)
 
 
 # ------------------------------------------------------------------------------------------------ one target
@@ -459,12 +500,16 @@ def one(t: Target | None, out: Path, run: int) -> dict[str, Any]:
     name = t.name if t else "control"
     log(f"{name}: fresh stack")
     disk = bool(t and t.kind == "disk")
+    medium = ""
     if disk:
-        write_disk_override(768)
+        dc("down", "-v", "--remove-orphans", disk=True, timeout=600)
+        medium = write_disk_override(1024)
     fresh_stack(disk)
     _stack().ensure_ingested(force=True)
     rec = Record(name, t.kind if t else "none", t.service if t else "", t.stage if t else "", t.when if t else "",
                  run=run)  # fmt: skip
+    if medium:
+        rec.notes.append(f"the data volume: {medium}")
     run_night(t, rec)
     snap = snapshot()
     snap["chain_at_kill"] = getattr(rec, "audit_at_kill", {})
@@ -509,9 +554,11 @@ def drill(out: Path, targets: Sequence[Target], run: int = 1) -> int:
         except Exception as exc:  # a target that cannot be run is said, and the drill goes on
             rec = Record(t.name, t.kind, t.service, t.stage, t.when, run=run, recovered_by="not run")
             rec.notes.append(f"could not be run here: {type(exc).__name__}: {str(exc)[-600:]}")
-            (out / f"{t.name}.json").write_text(json.dumps(rec.to_json(), indent=1), encoding="utf-8")
+            path = out / (f"{t.name}.json" if run == 1 else f"{t.name}-run{run}.json")
+            path.write_text(json.dumps(rec.to_json(), indent=1), encoding="utf-8")
             log(f"{t.name}: not run: {exc}")
     dc("down", "-v", "--remove-orphans", disk=True, timeout=600)
+    release_disk()
     from tools.failure_drill import load
 
     print(render(load(out)))
