@@ -546,6 +546,8 @@ def rescreen(
       (age on the index date, sex) from the answer key's birth date; else the cells the patient's stored coded
       age and sex verdicts, in any protocol of the set, allow, decided only where every such cell gives one verdict);
     * a line now a person's (``human``): ``pending_human``;
+    * a mixed inclusion its age or sex can meet alone (card 10A-2, ``semantics.codes_settle``): as the engine, the
+      notes decide it: the stored note verdict, else ``not_evaluated`` (open), never "pass, coded";
     * a stored note verdict: as stored, except an exclusion's "present" whose quote does not state the condition,
       which the current guard sends to review (F6, D-985: ``unknown``);
     * any other line: the stored verdict; a line the run never decided that now needs the notes or a coded check
@@ -554,6 +556,7 @@ def rescreen(
 
     The tier is ``excluded`` when a verdict fails (the stored answers hold that rule for every patient), else open
     or listed by the scorer's own rule."""
+    from criteria_compiler.semantics import codes_settle
     from matching.inferred import inferred
 
     out = Rescreen(answers=json.loads(json.dumps(answers)))
@@ -594,7 +597,7 @@ def rescreen(
             for cid, c in new.items():
                 v = stored.get(cid)
                 got: dict[str, Any] = dict(v) if v else {"id": cid, "verdict": "not_evaluated", "basis": None}
-                coded = c.class_ in CODED_CLASSES and _sql_of(c, r.rs) and is_demographic(c)
+                coded = c.class_ in CODED_CLASSES and _sql_of(c, r.rs) and is_demographic(c) and codes_settle(c)
                 if c.class_ == "human" or (c.review and c.review.status == "rejected"):
                     if c.class_ == "human":
                         got = {"id": cid, "verdict": "pending_human", "basis": "person", "quote": None}
@@ -609,6 +612,9 @@ def rescreen(
                         seen = {verdict_of(c.kind, tab.get(cell)) for cell in cells}
                         verdict = seen.pop() if len(seen) == 1 else "not_evaluated"
                     got = {"id": cid, "verdict": verdict, "basis": "coded", "quote": None}
+                elif not codes_settle(c):  # 10A-2: an age or sex part alone never meets a mixed inclusion
+                    if v is None or v.get("basis") not in ("notes", "pair", "single"):
+                        got = {"id": cid, "verdict": "not_evaluated", "basis": None, "quote": None}  # the notes'
                 elif v is not None and v.get("basis") in ("notes", "pair") and v.get("verdict") == "fail":
                     if c.kind == "exclusion" and inferred(str(v.get("quote") or ""), c.text):
                         got = {**v, "verdict": "unknown", "basis": "notes"}

@@ -21,7 +21,7 @@ Per protocol set, three parts:
   the criteria that carry ``qualifier_dropped`` are listed with their class before and after, and every criterion
   whose class moved is counted. The CQL translator and the FHIR server are not run, so a recompile's
   ``equivalence_fail`` flag says only that the step was not run; it is counted apart and never read as a finding.
-  The stored drafts' exclusions whose coded logic is an age or a sex alone (``postprocess.demographic_alone``), in a
+  The stored drafts' exclusions whose coded logic is an age or a sex alone (``semantics.demographic_alone``), in a
   class whose logic runs, are listed beside it: the lines the rule looks at.
 * **The concepts' coverage** (``tools.terminology_coverage``, the mapper with no model and no synonym dictionary):
   each ``extract_criteria`` call's non-demographic candidates, mapped or not, by which answer (the mapper's method and
@@ -89,7 +89,7 @@ def why_human(crit: dict[str, Any], drafted: dict[tuple[str, str], str]) -> list
 
 def demographic_alone_lines(answers: dict[str, Any]) -> list[dict[str, Any]]:
     """The stored drafts' exclusions in a class whose logic runs, whose coded logic is an age or a sex alone."""
-    from criteria_compiler.ir_extract.postprocess import demographic_alone
+    from criteria_compiler.semantics import demographic_alone
 
     from tools.public_accuracy.rerun import criterion_ir
 
