@@ -30,7 +30,7 @@ from tb_contracts.criterion_ir import ACTIVE_STATUSES
 from criteria_compiler import unit_check
 from criteria_compiler.ir_extract.negation_scope import negated_presence
 from criteria_compiler.ir_extract.polarity import is_negated, positive
-from criteria_compiler.semantics import FILTERED, JUDGED, CompileError, atoms, check_bool, kind
+from criteria_compiler.semantics import FILTERED, JUDGED, CompileError, atoms, check_bool, demographic_alone, kind
 from criteria_compiler.terminology.mapper import (
     Concept,
     ConceptMapLLM,
@@ -510,19 +510,6 @@ def hold_reused_negated(c: CriterionIR, valuesets: dict[str, dict[str, Any]]) ->
                                 "logic": Atom(domain="demographic", valueset="NONE"), "flags": flags})  # fmt: skip
     return held, (f"{c.id}: approved before, but its line may negate what its logic asks the presence of; kept for "
                   "a person to check")  # fmt: skip
-
-
-def demographic_alone(logic: Any) -> bool:
-    """Whether a criterion's coded logic is an age or a sex and nothing else: every atom demographic, none naming a
-    ValueSet or a derived value (P2b: an exclusion that compiled to this while its line named more lost its
-    qualifier)."""
-    if logic is None:
-        return False
-    got = list(atoms(logic))
-    return bool(got) and all(
-        a.domain == "demographic" and a.valueset in ("NONE", "", None) and not a.derived and (a.sex or a.age)
-        for a in got
-    )
 
 
 def postprocess(

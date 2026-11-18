@@ -18,7 +18,7 @@ $(foreach v,$(HOST_PORTS),$(eval export $(subst =, ?= ,$(v))))
 CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),)
 
 
-.PHONY: differential cross-card objects-dir embed-start public-data security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure guard test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models selftest canary poc poc-down poc-status rehearse-box runbook-install test-console test-console-e2e site site-preview clean \
+.PHONY: differential cross-card objects-dir embed-start public-data security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure guard test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models fetch-weights selftest canary poc poc-down poc-status rehearse-box runbook-install test-console test-console-e2e site site-preview clean \
 	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle supply-chain release-version release-tag media-linux
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
@@ -538,6 +538,14 @@ spark-e2e:
 # model robustness (survey 2026-11-07): re-check pinned weights; run the 54-question canary inside the orchestrator
 verify-models:
 	PYTHONPATH=libs:services:. $(PY) -m tools.pin_model --verify-all deploy/models
+
+# W-1: fetch a GPU profile's pinned weights into deploy/models (or TB_MODELS_DIR), verified file by file against the
+# pin record (models/registry.yaml and the measured record it names); runs only when asked, never at install or start.
+# GPU=rtxpro6000 by default; ARGS=--dry-run (no network) or ARGS=--verify-only. Without make (no venv needed):
+# python3 -m tools.fetch_weights --profile rtxpro6000
+GPU ?= rtxpro6000
+fetch-weights:
+	$(if $(wildcard $(PY)),$(PY),python3) -m tools.fetch_weights --profile $(GPU) $(ARGS)
 
 # the pair canary in the box with the box's own compose files (COMPOSE_FILE in deploy/.env; OPS-033). On a box
 # without make: `sudo python3 -m tools.trialbox selftest`
