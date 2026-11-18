@@ -21,12 +21,18 @@
     same audit events, the same forms, links and filters. So no role reads or does anything it did not before, and a
     role refused an old list is refused its view with the same answer. The old pages' templates are not changed; the
     strip is added above them.
-  - **Every old address redirects** (GET, 303) to its view with its query kept; a form posts where it posted before;
+  - **Every old address redirects** (GET, 303) to its view with its query kept, **for a reader its route lets in**.
+    Anyone else (no session, an ended one, a role the route refuses) reaches the old route and gets its answer and
+    its audit event there, as before: a gate reads the session without counting it as activity, makes no sign-in,
+    audits nothing and asks the strip's questions. So the role walks see the same refusals with the flag on. A form
+    posts where it posted before;
     a file (`.xlsx`, `.csv`), an action route and a person's own page keep their address. The view is in the path,
     so a page's relative filter links (`?list=`, `?show=`) stay in their view.
   - **One strip** above each view names the two lists and the views of the list shown, each only where the role may
     open it. The strip asks the questions the routes ask (the `phi.view` row and the delegation log; the `screen`
-    task; the registry's rule) as a yes or no, with no audit event and no patient read. From the menu: the list's
+    task; the registry's declared row, `phi.view` and `task.screen`) as a yes or no, with no audit event and no
+    patient read. The steward and the privacy office, who read the study registry page's counts without patient
+    rows, are offered no list: that page answers them at its address as before. From the menu: the list's
     first page (one step), a view (the second); every action of an old list is on its view.
   - **The menu** shows Candidates and Participants where it showed "This week's patients" and "Candidate registry"
     (the investigator's and the coordinator's top items; the study's own pages under More). `/people/candidates` and
