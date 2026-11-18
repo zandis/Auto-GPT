@@ -197,8 +197,12 @@ def main(argv: list[str] | None = None) -> int:
     u.add_argument("--target", choices=["compose", "demo"], default=os.environ.get("TB_UPDATE_TARGET", "compose"))
     u.add_argument("--deploy", type=Path, default=deploy)
     u.add_argument("--no-backup", action="store_true", help="skip the D-126 backup (audited; not for a real box)")
-    u.add_argument("--no-backup-reason", default=None, metavar="REASON",
-                   help="why --no-backup (required on a PRODUCTION box; audited as update.backup_skipped, D-1321)")
+    u.add_argument(
+        "--no-backup-reason",
+        default=None,
+        metavar="REASON",
+        help="why --no-backup (required on a PRODUCTION box; audited as update.backup_skipped, D-1321)",
+    )
     ps = sub.add_parser("pre-start", help="this release's host-side steps before its stack starts (an update runs it)")
     ps.add_argument("--deploy", type=Path, default=deploy)
     du = sub.add_parser("db-up", help="this release's steps once the database is up, before its services start")

@@ -43,7 +43,9 @@ def _sh(root: Path, tmp: Path, *opts: str) -> subprocess.CompletedProcess[str]:
 
 
 @pytest.mark.parametrize("env_line", ["TB_ENV=PRODUCTION", "TB_ENV=production", "TB_ENV=SOMETHING", None])
-def test_the_shell_entry_refuses_no_backup_without_a_reason_on_a_production_box(tmp_path: Path, env_line: str | None) -> None:
+def test_the_shell_entry_refuses_no_backup_without_a_reason_on_a_production_box(
+    tmp_path: Path, env_line: str | None
+) -> None:
     root = _install(tmp_path, env_line)
     r = _sh(root, tmp_path, "--no-backup")
     assert r.returncode == 2, r.stderr
@@ -98,7 +100,12 @@ def test_the_python_entry_refuses_no_backup_without_a_reason_on_a_production_box
     if env_line:
         (deploy / ".env").write_text(env_line + "\n", encoding="utf-8")
     called: list[Any] = []
-    monkeypatch.setattr(up, "main_apply", lambda *a, **k: called.append((a, k)) or 0)
+
+    def fake(*a: Any, **k: Any) -> int:
+        called.append((a, k))
+        return 0
+
+    monkeypatch.setattr(up, "main_apply", fake)
     assert tb_main.main(_cli(deploy, "--no-backup")) == 2
     assert "needs --no-backup-reason REASON" in capsys.readouterr().err and called == []
     assert tb_main.main(_cli(deploy, "--no-backup", "--no-backup-reason", "  ")) == 2 and called == []
@@ -116,7 +123,12 @@ def test_the_python_entry_takes_no_backup_as_before_off_production(
     deploy.mkdir()
     (deploy / ".env").write_text(env_line + "\n", encoding="utf-8")
     called: list[Any] = []
-    monkeypatch.setattr(up, "main_apply", lambda *a, **k: called.append(k) or 0)
+
+    def fake(*a: Any, **k: Any) -> int:
+        called.append(k)
+        return 0
+
+    monkeypatch.setattr(up, "main_apply", fake)
     assert tb_main.main(_cli(deploy, "--no-backup")) == 0
     assert called == [{"backup": False, "no_backup_reason": None}]
 
