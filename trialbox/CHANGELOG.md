@@ -72,6 +72,21 @@ new heading with the version and date, in the same pull request that sets the ve
   packages (`tools/fhir-packages.sha256`) and the report fonts (`tools/fetch_fonts.py`).
 - One Java version, in `.java-version`, read by CI and checked against the JVM image.
 
+### Known limits
+
+- SCREEN of the whole hospital stops at about 45,000 patients (H23b-01). The orchestrator's memory cap,
+  `TB_MEM_ORCH`, is 4 GiB as installed (3 GiB on the two-device workstation), and no installer step or compose
+  overlay raises it, whatever the machine's memory. SCREEN needs about 86 KB a patient, so a SCREEN job of a
+  hospital of about 45,000 patients or more is killed at the cap. What follows, read from the code (not yet seen
+  on an installed box): the orchestrator is killed and restarted, the job is run again from the start, and after
+  more restarts than `TB_JOB_MAX_RESTARTS` (3 unless set) it ends `failed` with "This job was interrupted by a
+  restart of the box ... times and was not started again ... Check the box's memory and logs (RUNBOOK §4)".
+  The basis (`docs/plan/measurements/size-test-2026-11-17.md`, H-23b): measured with the stub model on a 4-vCPU,
+  15 GiB container, SCREEN's peak was 2.03 GiB at 20,000 patients, and with the cap lifted 4.37 GiB at 50,000 and
+  8.22 GiB at 100,000. On the two-device workstation the limit is lower, not measured. The measurement lifted the
+  cap with `TB_MEM_ORCH=10g` (compose reads the same setting from `deploy/.env`); that is a measurement setting,
+  not a supported configuration. Sizing the cap from the site's patients and bounding SCREEN's memory are open.
+
 ## 1.0.0
 
 The first numbered version: the pilot appliance as built through plan v6 waves P and 1 (no site has installed it from

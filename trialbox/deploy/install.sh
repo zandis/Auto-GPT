@@ -1014,6 +1014,8 @@ cat <<EOT
   First ingest:       docker compose --project-directory deploy exec adapter python -m adapter.cli run   (or 02:00 nightly)
   Acceptance:         docs/RUNBOOK.md §6 before go-live;  updates: tools/apply_update.sh <bundle>
   Release gates:      $GATES_MODE
+  Known limit:        SCREEN of the whole hospital stops at about 45,000 patients (the orchestrator's memory cap,
+                      TB_MEM_ORCH; lower on the two-device workstation): CHANGELOG.md, "Known limits"
 EOT
 if [ "${#FAILS[@]}" -gt 0 ]; then
   printf 'install: FAIL: %s\n' "${FAILS[@]}" >&2
