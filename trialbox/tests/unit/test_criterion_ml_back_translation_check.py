@@ -19,7 +19,16 @@ EVAL = ROOT / "eval" / "criterion_ml"
 PAGE = ROOT / "docs" / "plan" / "measurements" / "back-translation-check-2026-11-18.md"
 RECORDS = PAGE.with_suffix("")
 LANGS = {"ja": "notes_ja.json", "zh-TW": "notes_zh-TW.json"}
-KINDS = {"number_or_unit", "negation", "time_window", "dropped_condition", "wrong_term", "added_detail", "certainty", "register"}
+KINDS = {
+    "number_or_unit",
+    "negation",
+    "time_window",
+    "dropped_condition",
+    "wrong_term",
+    "added_detail",
+    "certainty",
+    "register",
+}
 
 
 def _doc(lang: str) -> dict[str, Any]:
