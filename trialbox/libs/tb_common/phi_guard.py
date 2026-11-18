@@ -411,8 +411,10 @@ MASK_CHAR = "○"
 # recorded in lake_meta.note_mask; bump when the recognisers below change what they mask (2: English phones, D-744;
 # 3: dates of birth, addresses and chart labels, D-745; 4: ARC, 12-digit, bed and room numbers, staff and honorific
 # names without a listed surname, wider labelled values, D-756; 5: full addresses with spaces, D-756; 6: English
-# Taiwan charts, romanised and Han names after English words and the English form of an address, D-923)
-NOTE_MASK_VERSION = "6"
+# Taiwan charts, romanised and Han names after English words and the English form of an address, D-923; 7: Japanese
+# names in kana and old-form kanji, insurance 記号・番号・枝番, 公費 and 受給者 numbers, Japanese phones, postal codes,
+# era dates of birth and city addresses, 10C-1)
+NOTE_MASK_VERSION = "7"
 
 _CJK_N = "一-鿿"
 _KANA_N = "぀-ヿ"
@@ -575,6 +577,215 @@ ADDRESS_TW_EN_CN_ORDER = re.compile(
 #: the longest text ADDRESS_TW_EN can match after its anchor, and before it (the window's reach; a test checks it)
 ADDRESS_TW_EN_MAX, ADDRESS_TW_EN_BEFORE = 1600, 40
 
+# 10C-1 (plan 10, F3; review 11 JP-8): Japanese identifiers the rules above let through. The review's synthetic lines
+# kept a name in katakana (full- or half-width), a name in old-form kanji (髙, 﨑, 齋, 邊) before さん or 様, and the
+# health-insurance 記号 and 番号 unmasked; the probe set (eval/phi_synth/ja_guard_probes.json) adds 公費 and 受給者
+# numbers, full-width chart labels, Japanese phone and postal forms, era dates of birth and addresses without their
+# prefecture. Every class below is Japanese-only (kana, a Japanese honorific or label), so a Traditional Chinese or
+# English note matches none of them. Every quantifier is bounded. Group ``v``: the value; the label stays.
+_JA_KANJI = "一-鿿々〆ヶ豈-﫿\U00020000-\U0002ffff"  # with the compatibility forms (﨑 U+FA11) and 𠮷
+_JA_HIRA = "ぁ-ゖ"
+_JA_KATA = "ァ-ヺーｦ-ﾟ"  # full-width katakana and the long mark, half-width katakana and its sound marks
+_JA_KANA_WORD = rf"[ァ-ヺｦ-ﾝ][{_JA_KATA}]{{0,11}}"  # never starting with a long mark or a sound mark
+_JA_KANA_NAME = rf"{_JA_KANA_WORD}(?:[・･]{_JA_KANA_WORD}|[ \u3000]{{1,2}}{_JA_KANA_WORD})?"
+_JA_HIRA_NAME = rf"[{_JA_HIRA}]{{1,8}}(?:[ \u3000]{{1,2}}[{_JA_HIRA}]{{1,8}})?"
+# a kanji of a name: never an honorific (美津子様: the name ends before 様)
+_JA_NAME_KANJI = rf"(?:(?!様|殿|氏|君|先生|宛)[{_JA_KANJI}])"
+_JA_NAME_END = "[子美江恵代乃枝世香奈郎夫男雄]"  # the kanji a given name written partly in kana ends with
+# a word of a name: kanji (a kana part inside, as ゆき子 or ハナ子), or katakana with a kanji ending
+_JA_NAME_TOKEN = (
+    rf"(?:{_JA_NAME_KANJI}{{1,4}}(?:[{_JA_HIRA}ァ-ヺー]{{1,3}}{_JA_NAME_END})?"
+    rf"|{_JA_KANA_WORD}{_JA_NAME_END}?)"
+)
+_JA_NAME = rf"{_JA_NAME_TOKEN}(?:[ \u3000]{{1,2}}{_JA_NAME_TOKEN})?"
+#: the forms a listed surname is written in with old-form (旧字体) or variant kanji: each character's variants
+JA_KANJI_VARIANTS = {
+    "高": "髙",
+    "崎": "﨑嵜碕",
+    "斎": "齋齊斉",
+    "斉": "齊齋斎",
+    "辺": "邊邉",
+    "沢": "澤",
+    "島": "嶋嶌",
+    "浜": "濱",
+    "吉": "𠮷",
+    "桜": "櫻",
+    "広": "廣",
+    "国": "國",
+    "竜": "龍",
+    "条": "條",
+    "徳": "德",
+    "恵": "惠",
+    "富": "冨",
+    "関": "關",
+    "瀬": "瀨",
+    "真": "眞",
+    "黒": "黑",
+    "滝": "瀧",
+    "藤": "籐",
+}
+
+
+def _folded(names: list[str]) -> str:
+    return "|".join(
+        "".join(f"[{c}{JA_KANJI_VARIANTS[c]}]" if c in JA_KANJI_VARIANTS else c for c in s)
+        for s in sorted(names, key=len, reverse=True)
+    )
+
+
+_JP_FOLDED = _folded(list(JP_SURNAMES))
+_JP_FOLDED_2 = _folded([s for s in JP_SURNAMES if len(s) > 1])  # never 林 or 森 alone: Chinese names start so too
+#: the listed surnames as katakana (フリガナ) writes them
+JP_SURNAMES_KANA = (  # noqa: SIM905  (a list of 57 words reads better as text)
+    "サトウ スズキ タカハシ タナカ イトウ ワタナベ ヤマモト ナカムラ コバヤシ カトウ ヨシダ ヤマダ ササキ ヤマグチ "
+    "マツモト イノウエ キムラ ハヤシ サイトウ シミズ ヤマザキ モリ イケダ ハシモト アベ イシカワ ヤマシタ ナカジマ "
+    "イシイ オガワ マエダ オカダ ハセガワ フジタ ゴトウ コンドウ ムラカミ エンドウ アオキ サカモト フクダ オオタ "
+    "ニシムラ フジイ カネコ オカモト フジワラ ナカノ ミウラ ハラダ ナカガワ マツダ タケウチ オノ タムラ ナカヤマ ワダ"
+).split()
+_JP_KANA_LISTED = "|".join(sorted(JP_SURNAMES_KANA, key=len, reverse=True))
+_JA_HON = rf"(?:さん|さま|様(?![々子式態相])|くん|君|ちゃん|殿|氏(?![{_JA_KANJI}])|先生)"  # 橋本氏病: an eponym
+_JA_HON_KANJI = r"(?:さん|さま|様(?![々子式態相])|くん|ちゃん|殿)"  # never 先生, 氏, 君: Chinese says them too
+_JA_BOUNDARY = rf"(?:^|(?<=[\s、。，,：:；;（(「『【\[/・]|[{_JA_HIRA}]))"
+# a word before an honorific that names a role, a relative or a group, never a person: 患者様, お母さん, 看護師さん
+_JA_NOT_A_NAME_KANJI = (
+    r"(?!(?:患者|ご?家族|ご?本人|利用者|入居者|相談者|皆|奥|客|子|旦那|主人|娘|息子|孫|嫁|婿|母|父|祖父|祖母|兄|姉"
+    r"|弟|妹|夫|妻|嬢|両親|親|親族|兄弟|姉妹|家人|身内|看護師|看護婦|医師|先生|薬剤師|技師|職員|院長|部長|課長|医長"
+    r"|教授|担当者?|主治医|担当医|同|異|多|各|王|神|仏|苦労|世話|馳走|相手|先方|近所|隣|大工|業者|皆々|殿)"
+    rf"[ \u3000]?{_JA_HON_KANJI})"
+)
+_JA_NOT_A_NAME_KANA = (
+    r"(?!(?:ナース|ヘルパー|ケアマネ(?:ジャー|ージャー)?|ドクター|スタッフ|ママ|パパ|ベビー|セラピスト|ドライバー"
+    r"|ボランティア|ワーカー|ソーシャルワーカー|ケースワーカー|リハ|オペ|クライアント|ゲスト|メンバー|チーム|ﾅｰｽ|ﾍﾙﾊﾟｰ)"
+    rf"[ \u3000]?{_JA_HON})"
+)
+JA_NAME_KANA_HONORIFIC = re.compile(
+    rf"(?<![{_JA_KATA}・･]){_JA_NOT_A_NAME_KANA}(?P<v>{_JA_KANA_NAME})[ \u3000]?{_JA_HON}"
+)
+JA_NAME_LISTED_HONORIFIC = re.compile(
+    rf"(?P<v>(?:{_JP_FOLDED})"
+    rf"(?:[ \u3000]?(?:(?!さん|さま|様|くん|ちゃん|殿|先生)[{_JA_KANJI}{_JA_HIRA}ァ-ヺー]){{1,4}})?)"
+    rf"[ \u3000]?{_JA_HON}"
+)
+# a name of four kanji before 先生 (吉川花子先生): the Chinese rule (NAME_HONORIFIC) reads one to three
+JA_NAME_KANJI4_SENSEI = re.compile(rf"{_BOUNDARY}{_NOT_A_NAME}(?P<v>{_JA_NAME_KANJI}{{4}})先生")
+JA_NAME_KANJI_HONORIFIC = re.compile(
+    rf"(?m:{_JA_BOUNDARY}){_JA_NOT_A_NAME_KANJI}"
+    rf"(?P<v>{_JA_NAME_KANJI}{{1,4}}(?:[ \u3000]{_JA_NAME_KANJI}{{1,4}}|{_JA_NAME_KANJI}{{0,3}}))"
+    rf"[ \u3000]?{_JA_HON_KANJI}"
+)
+# a listed surname with a space and a given name (髙橋 一郎, 佐藤 花子), a two-character surname or longer; and the
+# katakana form of one (サトウ ミホコ)
+JA_NAME_LISTED_SPACED = re.compile(
+    rf"(?P<v>(?:{_JP_FOLDED_2})[ \u3000](?:{_JA_NAME_KANJI}{{1,3}}|{_JA_KANA_WORD}))"
+    rf"(?![{_JA_HIRA}{_JA_KATA}]|{_JA_NAME_KANJI})"
+)
+JA_NAME_KANA_LISTED = re.compile(
+    rf"(?<![{_JA_KATA}])(?P<v>(?:{_JP_KANA_LISTED})[ \u3000]{{1,2}}{_JA_KANA_WORD})(?![{_JA_KATA}])"
+)
+# a katakana name with an age or a sex after it (ヤマダ タロウ 68歳, ミホン ハナコ（女性）)
+JA_NAME_KANA_AGE = re.compile(
+    rf"(?<![{_JA_KATA}・･])(?P<v>{_JA_KANA_WORD}[ \u3000]{{1,2}}{_JA_KANA_WORD})[ \u3000、,]*[（(]?"
+    r"(?:[0-9０-９]{1,3}[ \u3000]?歳|男性|女性)"
+)
+# a name and its reading in brackets (山田 太郎（ヤマダ タロウ）): the reading after a name of two words
+JA_NAME_READING = re.compile(
+    rf"(?m:{_JA_BOUNDARY})[{_JA_KANJI}]{{1,4}}[ \u3000][{_JA_KANJI}]{{1,4}}[ \u3000]?[（(]"
+    rf"(?P<v>{_JA_KANA_WORD}[ \u3000]{{1,2}}{_JA_KANA_WORD}|{_JA_HIRA_NAME})[)）]"
+)
+# a name after its label. A label that names nothing else (氏名, フリガナ, 代諾者) takes a space or a colon and any
+# name; a role word (主治医, 担当看護師, 患者) only with its colon: 主治医から説明 is no name. A relative's word
+# between them (キーパーソン：長男 見本 次郎) stays; a relative's word alone, or a word that describes the patient
+# (患者：高齢女性, 氏名：不明), is no name. Hiragana is a name only after the reading's own label (ふりがな)
+_JA_RELATIVES = r"(?:[長次三][男女]|妻|夫|母|父|息子|娘|兄|姉|弟|妹|孫|嫁|本人|家族)"
+_JA_RELATIVE = rf"(?:{_JA_RELATIVES}[ \u3000]*)?"
+_JA_NOT_A_NAME_VALUE = (
+    rf"(?!{_JA_RELATIVES}(?![{_JA_KANJI}{_JA_KATA}])"
+    r"|(?:高齢|男性|女性|男児|女児|小児|成人|新生児|乳児|幼児|妊婦|不明|不詳|記載|同上|入院|外来|在宅|未記入))"
+)
+_JA_LABEL_TAIL = r"[ \t\u3000]*[:：]?[ \t\u3000]*"  # a table's tab too (氏名<TAB>大塚健一)
+# a listed surname after a staff or relative word (主治医の佐藤が実施, 長女 田中美咲) or before a staff word
+# (佐藤医師より)
+_JA_STAFF = r"(?:主治医|担当医|執刀医|担当看護師|看護師|医師|薬剤師|技師|担当)"
+_JA_GIVEN_KANJI = rf"(?:(?!医師|看護師|薬剤師|技師|先生|病|症)[{_JA_KANJI}])"  # 母の橋本病: a disease
+JA_NAME_LISTED_AFTER_ROLE = re.compile(
+    rf"(?:{_JA_RELATIVES}|{_JA_STAFF})[ \u3000]?の?[ \u3000]?(?P<v>(?:{_JP_FOLDED_2})(?![病症])"
+    rf"(?:[ \u3000]?{_JA_GIVEN_KANJI}{{1,3}})?)"
+)
+JA_NAME_LISTED_BEFORE_STAFF = re.compile(
+    rf"(?P<v>(?:{_JP_FOLDED_2})(?![病症])(?:[ \u3000]?{_JA_GIVEN_KANJI}{{1,3}})?)[ \u3000]?(?:医師|看護師|薬剤師|技師)"
+)
+JA_NAME_LABELLED = re.compile(
+    r"(?:患者氏名|患者名|カナ氏名|氏名カナ|氏名|フリガナ|ふりがな|ﾌﾘｶﾞﾅ|名前|被保険者氏名|記載者|記載医|代諾者|キーパーソン"
+    rf"|ｷｰﾊﾟｰｿﾝ|説明者|同席者|立会人|署名者){_JA_LABEL_TAIL}{_JA_RELATIVE}{_JA_NOT_A_NAME_VALUE}(?P<v>{_JA_NAME})"
+)
+JA_NAME_READING_LABELLED = re.compile(rf"(?:ふりがな|フリガナ|ﾌﾘｶﾞﾅ){_JA_LABEL_TAIL}(?P<v>{_JA_HIRA_NAME})")
+# after a label that names the person: a name in hiragana (two words) or in Latin letters (IMAI Taro, Yoko Yamada)
+JA_NAME_LABELLED_OTHER_SCRIPT = re.compile(
+    rf"(?:患者氏名|患者名|被保険者氏名|氏名|名前){_JA_LABEL_TAIL}(?!なし|ふめい)"
+    rf"(?P<v>[{_JA_HIRA}]{{1,8}}[ \u3000]{{1,2}}[{_JA_HIRA}]{{1,8}}"
+    r"|[A-Z][A-Za-z'\-]{1,20}(?:[ \u3000]{1,2}[A-Z][A-Za-z'\-]{1,20}){1,2})"
+)
+JA_NAME_ROLE_COLON = re.compile(
+    r"(?:患者|主治医|担当医|担当看護師|担当者|カナ|ｶﾅ)[ \u3000]*[:：][ \u3000]*"
+    rf"{_JA_RELATIVE}{_JA_NOT_A_NAME_VALUE}(?P<v>{_JA_NAME})"
+)
+# the health-insurance card: 記号 and 番号 (a kanji or two before the figures: 東１２), 枝番, 公費 and 受給者 numbers
+_JA_INS_VALUE = (
+    r"(?=[^\s、,，。（(]{0,6}?[0-9０-９])"
+    rf"(?:[{_JA_KANJI}]{{1,3}}[ \u3000]?)?[A-Za-z0-9０-９Ａ-Ｚａ-ｚ]{{1,12}}"
+    r"(?:[\-－‐・･.．/／][A-Za-z0-9０-９Ａ-Ｚａ-ｚ]{1,12}){0,3}"
+)
+_JA_IS = r"[ \u3000]*(?:は|[:：])?[ \u3000]*"
+JA_INSURANCE_SYMBOL = re.compile(rf"記号(?:[・･/／]?番号)?{_JA_IS}(?P<v>{_JA_INS_VALUE})")
+JA_INSURANCE_NUMBER = re.compile(rf"記号{_JA_IS}{_JA_INS_VALUE}[ \u3000、,，]*番号{_JA_IS}(?P<v>{_JA_INS_VALUE})")
+JA_INSURANCE_BRANCH = re.compile(rf"枝番(?:号)?[ \u3000]*[（(]?{_JA_IS}(?P<v>[0-9０-９]{{1,3}})(?![0-9０-９])")
+JA_PUBLIC_NUMBER = re.compile(
+    r"(?:公費負担者番号|公費受給者番号|公費番号|負担者番号|受給者証番号|受給者番号|保険証番号|被保険者証番号"
+    rf"|資格確認書番号|医療証番号){_JA_IS}(?P<v>{_JA_INS_VALUE})"
+)
+# a chart or patient number after a label written in full-width letters (患者ＩＤ, カルテＮｏ．)
+JA_MRN_FULLWIDTH = re.compile(
+    r"(?:患者|カルテ|診察券|病歴)(?:ＩＤ|Ｉｄ|ＮＯ|Ｎｏ)[．.]?[ \u3000]*[:：#＃]?[ \u3000]*"
+    r"(?P<v>(?=[^\s、,，。]{0,4}[0-9０-９])[A-Za-z0-9０-９Ａ-Ｚａ-ｚ][A-Za-z0-9０-９Ａ-Ｚａ-ｚ\-－]{2,15})"
+)
+# a Japanese telephone number as charts write it: full-width figures, the dashes of Japanese text (－ ‐ ー), the area
+# code in brackets, after it or before it, a mobile number without separators, the country code +81
+_JA_Z = "[0０]"
+_JA_DASH = "[-－‐‑–—ー―−]"
+JA_PHONE = re.compile(
+    rf"(?<![\d+＋])(?:{_JA_Z}[5-9５-９]{_JA_Z}{_JA_DASH}?\d{{4}}{_JA_DASH}?\d{{4}}"
+    rf"|{_JA_Z}\d{{1,4}}{_JA_DASH}\d{{1,4}}{_JA_DASH}\d{{4}}"
+    rf"|{_JA_Z}\d{{1,4}}[(（]\d{{1,4}}[)）]\d{{4}}"
+    rf"|[(（]{_JA_Z}\d{{1,4}}[)）][ \u3000]?\d{{1,4}}{_JA_DASH}?\d{{4}}"
+    rf"|[+＋][8８][1１][ \u3000]?{_JA_DASH}?[(（]?\d{{1,4}}[)）]?[ \u3000]?{_JA_DASH}?\d{{1,4}}"
+    rf"[ \u3000]?{_JA_DASH}?\d{{4}})"
+    r"(?!\d)"
+)
+# a postal code after 〒 or its word
+JA_POSTAL = re.compile(rf"(?:〒|郵便番号|郵便)[ \u3000]*[:：]?[ \u3000]*(?P<v>\d{{3}}{_JA_DASH}?\d{{4}})(?!\d)")
+# a date of birth in a Japanese era: the era's letter full-width too (Ｓ３１．３．１４), the year, month and day in
+# kanji numerals (昭和三十一年三月十四日), the western year in brackets after the era's (昭和31年（1956年）3月14日)
+_JA_ERA = "(?:明治|大正|昭和|平成|令和|[MTSHRＭＴＳＨＲ])"
+_JA_NUM = "(?:[0-9０-９]{1,2}|元|[一二三四五六七八九十]{1,3})"
+_JA_DOB_VALUE = (
+    rf"{_JA_ERA}[ \u3000]?{_JA_NUM}[年./．／][ \u3000]?(?:[（(][0-9０-９]{{4}}年?[)）][ \u3000]?)?"
+    rf"{_JA_NUM}[月./．／][ \u3000]?{_JA_NUM}日?"
+)
+JA_DOB_LABELLED = re.compile(rf"{_DOB_LABEL}(?P<v>{_JA_DOB_VALUE})")
+JA_DOB_BORN = re.compile(rf"(?P<v>{_JA_DOB_VALUE})[ \u3000]?(?=生まれ|生(?:$|[\s，,。、;；)）\]】]))")
+# an address that starts at its city (横浜市架空区見本町3-12-8), its prefecture optional, and the building and room
+# after the number (グリーンハイツ203号室)
+_JA_ADDR_NO = r"[0-9０-９一二三四五六七八九十]{1,4}(?:(?:丁目|番地?|号|[-－ー‐]|の)[0-9０-９]{0,4}){1,4}"
+JA_ADDRESS_CITY = re.compile(
+    rf"(?m:{_JA_BOUNDARY})(?:(?:東京都|北海道|大阪府|京都府|[{_JA_KANJI}]{{2,3}}県))?"
+    rf"[{_JA_KANJI}]{{1,4}}市(?:[{_JA_KANJI}]{{1,4}}区)?[{_JA_KANJI}{_JA_HIRA}ァ-ヺー]{{0,8}}?{_JA_ADDR_NO}"
+    rf"(?:[ \u3000]?[{_JA_KANJI}ァ-ヺーA-Za-zＡ-Ｚａ-ｚ]{{1,15}}[ \u3000]?[0-9０-９]{{1,4}}号室?)?"
+)
+JA_ADDRESS_ROOM = re.compile(
+    rf"(?<=[0-9０-９])(?P<v>[ \u3000]?[{_JA_KANJI}ァ-ヺーA-Za-zＡ-Ｚａ-ｚ]{{1,15}}[ \u3000]?[0-9０-９]{{1,4}}号室)"
+)
+_JA_HONORIFIC_ANCHOR = re.compile(r"さん|さま|様|くん|君|ちゃん|殿|氏|先生")
+
 _NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     # chart numbers after their label (the site pattern, unlabelled, is added per call)
     (
@@ -670,6 +881,32 @@ _NOTE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         "address",
         _windowed(ADDRESS_TW_EN_CN_ORDER, re.compile(r"\bNo\.?[ \t]?\d"), ADDRESS_TW_EN_MAX, 60, True),
     ),
+    # 10C-1: Japanese names, insurance and public-expense numbers, phones, postal codes, era dates, addresses
+    ("name", _windowed(JA_NAME_KANA_HONORIFIC, _JA_HONORIFIC_ANCHOR, 40, 3)),
+    ("name", _windowed(JA_NAME_LISTED_HONORIFIC, _JA_HONORIFIC_ANCHOR, 20, 3)),
+    ("name", _windowed(JA_NAME_KANJI_HONORIFIC, _JA_HONORIFIC_ANCHOR, 12, 3)),
+    ("name", _windowed(JA_NAME_KANJI4_SENSEI, re.compile("先生"), 8, 2)),
+    ("name", JA_NAME_LISTED_SPACED),
+    ("name", JA_NAME_KANA_LISTED),
+    ("name", JA_NAME_KANA_AGE),
+    ("name", JA_NAME_READING),
+    ("name", JA_NAME_LABELLED),
+    ("name", JA_NAME_READING_LABELLED),
+    ("name", JA_NAME_LABELLED_OTHER_SCRIPT),
+    ("name", JA_NAME_ROLE_COLON),
+    ("name", JA_NAME_LISTED_AFTER_ROLE),
+    ("name", JA_NAME_LISTED_BEFORE_STAFF),
+    ("id", JA_INSURANCE_SYMBOL),
+    ("id", JA_INSURANCE_NUMBER),
+    ("id", JA_INSURANCE_BRANCH),
+    ("id", JA_PUBLIC_NUMBER),
+    ("mrn", JA_MRN_FULLWIDTH),
+    ("phone", JA_PHONE),
+    ("address", JA_POSTAL),
+    ("dob", JA_DOB_LABELLED),
+    ("dob", JA_DOB_BORN),
+    ("address", JA_ADDRESS_CITY),
+    ("address", JA_ADDRESS_ROOM),
 )
 
 
@@ -711,6 +948,16 @@ _EN_PHONE_WORD = re.compile(
     r"(?i:\b(?:tel|phone|ph|mobile|mob|cell|fax|pager|landline|helpline|contact|call|dial|home|number))|\b[TM](?=\s*:)"
 )
 _NUMBER_BED = re.compile(r"\d[^\s床]{0,11}\s?號?床")
+_JA_KATA_RX = re.compile(f"[{_JA_KATA}]")
+_JA_NAME_LABELS = (
+    *("氏名", "患者名", "カナ氏名", "フリガナ", "ふりがな", "ﾌﾘｶﾞﾅ", "名前", "記載者", "記載医", "代諾者"),
+    *("キーパーソン", "ｷｰﾊﾟｰｿﾝ", "説明者", "同席者", "立会人", "署名者"),
+)
+_JA_RELATIVE_WORDS = (
+    *("男", "女", "妻", "夫", "母", "父", "息子", "娘"),
+    *("兄", "姉", "弟", "妹", "孫", "嫁", "本人", "家族"),
+)
+_JA_ROLE_LABELS = ("患者", "主治医", "担当医", "担当看護師", "担当者", "カナ", "ｶﾅ")
 _ROLE_WORDS = (
     "醫師",
     "醫生",
@@ -804,6 +1051,32 @@ _NOTE_GATES: tuple[Callable[[_Facts], bool], ...] = (
     lambda f: f.alpha and _HAN.search(f.text) is not None,
     lambda f: f.digit and f.has("No"),
     lambda f: f.digit and f.has("No"),
+    # 10C-1: the Japanese rules
+    lambda f: _JA_KATA_RX.search(f.text) is not None and _JA_HONORIFIC_ANCHOR.search(f.text) is not None,
+    lambda f: _JA_HONORIFIC_ANCHOR.search(f.text) is not None,
+    lambda f: f.has("さん", "さま", "様", "くん", "ちゃん", "殿"),
+    lambda f: f.has("先生"),
+    lambda f: f.has(" ", "\u3000"),
+    lambda f: f.has(" ", "\u3000") and _JA_KATA_RX.search(f.text) is not None,
+    lambda f: f.has("歳", "男性", "女性") and _JA_KATA_RX.search(f.text) is not None,
+    lambda f: f.has("（", "(") and f.has(" ", "\u3000"),
+    lambda f: f.has(*_JA_NAME_LABELS),
+    lambda f: f.has("ふりがな", "フリガナ", "ﾌﾘｶﾞﾅ"),
+    lambda f: f.has("氏名", "患者名", "名前"),
+    lambda f: f.has(":", "：") and f.has(*_JA_ROLE_LABELS),
+    lambda f: f.has(*_JA_RELATIVE_WORDS, "医", "看護師", "薬剤師", "技師", "担当"),
+    lambda f: f.has("医師", "看護師", "薬剤師", "技師"),
+    lambda f: f.digit and f.has("記号"),
+    lambda f: f.digit and f.has("記号"),
+    lambda f: f.digit and f.has("枝番"),
+    lambda f: f.digit and f.has("番号"),
+    lambda f: f.digit and f.has("ＩＤ", "Ｉｄ", "ＮＯ", "Ｎｏ"),
+    lambda f: f.digit,
+    lambda f: f.digit and f.has("〒", "郵便"),
+    lambda f: f.has("出生", "生日", "生年月日", "誕生日") or f.says("dob", "d.o.b", "birth", "born"),
+    lambda f: _BORN_WORD.search(f.text) is not None,
+    lambda f: f.has("市"),
+    lambda f: f.digit and f.has("号室"),
 )
 
 
