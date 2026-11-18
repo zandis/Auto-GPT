@@ -632,6 +632,9 @@ def postprocess(
         # logic asks a concept's presence is never run: a person checks it (rewriting it could be wrong as well)
         if ir.kind == "inclusion" and ir.class_ in FILTERED and line_is_negated(ir.text) and asks_presence(ir.logic):
             flags.append("negated_inclusion_presence")
+            why = notes_can_decide(ir.kind, ir.text, ir.note_question or "") if ir.class_ == "mixed" else None
+            if ir.note_question and why is not None:  # the reviewer sees why the notes cannot decide it either
+                flags.append(f"notes_cannot_decide_{why}")
             ir = ir.model_copy(update={"class_": "human", "human_question": ir.human_question or _question(ir.text),
                                        "logic": Atom(domain="demographic", valueset="NONE")})  # fmt: skip
             warnings.append(f"{cid}: its line is a negation but its logic asks the presence of what it negates; kept "
