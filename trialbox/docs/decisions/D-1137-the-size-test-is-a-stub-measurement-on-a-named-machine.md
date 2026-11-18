@@ -41,9 +41,32 @@ are superseded (validation reset of 2026-11-14) or measure one stage only (the b
 5. **The results file keeps only a summary.** The raw runs, the generated hospital and its databases are removed after
    each size. The committed results are the page `docs/plan/measurements/size-test-2026-11-17.md` and its small JSON.
 
+## Amendment (H-23b, 2026-11-18): a lifted cap, the run's conditions, the cascade's stages
+
+The integrator asked for the figures H-23 could not reach (2026-11-18 12:03 UTC, "H-23's size ladder finished").
+What the ladder measures changes in three ways; the rest of this decision stands.
+
+6. **A cap may be lifted for a measurement, and is then named.** A run may be given a compose memory setting from the
+   environment (`TB_MEM_ORCH`, `TB_MEM_LAKE`, `TB_MEM_ADAPTER`), as compose reads `deploy/.env`. No product file and
+   no shipped default changes. Each run records the caps in force, the settings that moved them and whether the night's
+   ingest ran the HL7 validator or the structural check alone. A row under a moved cap is its own row, marked
+   "lifted", and is quoted as "with the cap lifted to X", never as the shipped shape. The first-slow rule uses the
+   shipped cap's row at a size when that row finished, else the lifted row, and names the sizes it judged on a lifted
+   cap.
+7. **The gate's cascade may be traced stage by stage.** `--trace-cascade` runs the scale gate's own cascade child again
+   over a size kept with `--keep`. Each top-level stage of `run_cascade` (and the return of S1's row read) is timed,
+   with the process's resident peak within it. With `--trace-frames`, Python's tracer also reports the stage's traced
+   peak and the largest allocation sites still held. The tracer slows the run several times, so its times are not the
+   ladder's. The stages are wrapped in the child process only.
+8. **The validator is a condition, not noise.** The ingest's time and memory depend on whether the HL7 validator runs
+   (about 2 to 3 times the time). Figures are compared only between runs with the same validator.
+
 ## Tests
 
 `tests/unit/test_size_ladder.py`: the plan parser and its refusals; the shipped studies, cycled; the spread, the
 per-unit rates and the 1-, 5- and k-study marks; the first-slow rule (the factor, the 5-second floor, a single size);
 the stage rows and the summary on made-up runs; a failed job, and a job cut at its cap, shown as FAILED; a stage killed at its cap not judged for slowing; the results file's keys and compaction;
-the job child compiles; no run without `TB_TZ`. It needs no data and no processes, and runs in seconds.
+the job child compiles; no run without `TB_TZ`. H-23b adds: the conditions a run records (the caps, the settings that
+moved them, the validator); a lifted cap as its own row, marked, and named in the first-slow result; the trace child
+compiles with the gate's cascade and names stages that exist; the stage memory table; no run without a plan or a
+trace. It needs no data and no processes, and runs in seconds.
