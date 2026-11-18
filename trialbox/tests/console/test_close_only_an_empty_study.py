@@ -66,7 +66,7 @@ def test_an_open_sae_report_keeps_the_study_open(sb: dict[str, Any], clock: Any)
     _empty(sb)
     sb["app"].state.helpers.sae_open = lambda rid: 1  # the SAE register: one report still to send
     crc, _ = login(sb["app"], "crc", PW)
-    r = _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out")
+    r = _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out", confirm="yes")
     assert r.status_code == 409 and _state(sb) == "open" and 'data-testid="close-refused"' in r.text
 
 
@@ -78,7 +78,7 @@ def test_a_study_store_that_cannot_be_read_does_not_close(sb: dict[str, Any], cl
 
     sb["backend"].study_api = down
     crc, _ = login(sb["app"], "crc", PW)
-    r = _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out")
+    r = _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out", confirm="yes")
     assert r.status_code == 409 and _state(sb) == "open"
 
 
@@ -86,7 +86,9 @@ def test_an_empty_study_closes_and_its_pi_takes_it_back_the_same_day(sb: dict[st
     _empty(sb)
     sb["app"].state.helpers.sae_open = lambda rid: 0
     crc, _ = login(sb["app"], "crc", PW)
-    assert _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out").status_code == 303
+    assert (
+        _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out", confirm="yes").status_code == 303
+    )
     assert _state(sb) == "closed"
     # the coordinator may not take it back; the PI may, the same day, with a reason
     assert _post(crc, "/studies/GZQO/state/take-back", reason="closed by mistake").status_code == 403
@@ -104,7 +106,9 @@ def test_a_close_is_not_taken_back_on_a_later_day(sb: dict[str, Any], clock: Any
     _empty(sb)
     sb["app"].state.helpers.sae_open = lambda rid: 0
     crc, _ = login(sb["app"], "crc", PW)
-    assert _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out").status_code == 303
+    assert (
+        _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out", confirm="yes").status_code == 303
+    )
     clock["at"] = datetime(2026, 11, 5, 16, 30, tzinfo=UTC)  # 00:30 the next day in Taipei
     pi, _ = login(sb["app"], "drsato", PW)
     assert 'data-testid="take-back-form"' not in pi.get("/studies/GZQO/state").text
@@ -137,7 +141,9 @@ def test_a_closed_study_takes_no_subject_back_on_study(sb: dict[str, Any], clock
     _empty(sb)
     sb["app"].state.helpers.sae_open = lambda rid: 0
     crc, _ = login(sb["app"], "crc", PW)
-    assert _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out").status_code == 303
+    assert (
+        _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out", confirm="yes").status_code == 303
+    )
     page = crc.get(f"/studies/GZQO/subjects/{NO}").text
     r = crc.post(f"/studies/GZQO/subjects/{NO}/undo", data={"csrf": _csrf(page), "note": "by mistake"},
                  follow_redirects=False)  # fmt: skip
@@ -160,7 +166,7 @@ def test_a_register_that_fails_any_way_refuses_the_close_with_its_reason(sb: dic
 
     sb["app"].state.helpers.sae_open = broken
     crc, _ = login(sb["app"], "crc", PW)
-    r = _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out")
+    r = _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out", confirm="yes")
     assert r.status_code == 409 and _state(sb) == "open" and 'data-testid="state-error"' in r.text
 
 
@@ -173,7 +179,9 @@ def test_only_the_studys_pi_takes_back_and_the_step_is_audited(sb: dict[str, Any
     pi, _ = login(sb["app"], "drsato", PW)
     _log_pi_and_sub(sb, pi, ("screen", "enter_data"))  # a sub-investigator of the study, ticked for tasks
     crc, _ = login(sb["app"], "crc", PW)
-    assert _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out").status_code == 303
+    assert (
+        _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out", confirm="yes").status_code == 303
+    )
     sub, _ = login(sb["app"], "drkato", PW)
     assert _post(sub, "/studies/GZQO/state/take-back", reason="mine").status_code == 403
     assert _post(pi, "/studies/GZQO/state/take-back", reason="closed by mistake").status_code == 303
@@ -204,7 +212,9 @@ def test_the_api_twin_takes_back_for_the_pi_only(sb: dict[str, Any], clock: Any)
     _empty(sb)
     sb["app"].state.helpers.sae_open = lambda rid: 0
     crc, _ = login(sb["app"], "crc", PW)
-    assert _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out").status_code == 303
+    assert (
+        _post(crc, "/studies/GZQO/state", state="closed", reason="last patient out", confirm="yes").status_code == 303
+    )
 
     def api(user: str) -> TestClient:
         c = TestClient(sb["app"])
