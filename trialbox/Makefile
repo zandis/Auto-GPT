@@ -331,6 +331,12 @@ planted-faults:
 
 # H-29 (D-1103): one walk per module H-10 and H-20 do not cover (feasibility, safety, monitoring, amendment) on a local
 # steps-mode box, the roles that use each, three languages; reports findings. walk-<module> walks one module
+# H-35 (D-1101): every stated limit at the limit, one over and far over, on the in-process box; reports, fixes nothing
+.PHONY: limits-edge
+limits-edge:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e -n 0 tests/e2e/test_limits_edge_box.py
+
 .PHONY: walk-modules walk-feasibility walk-safety walk-monitoring walk-amendment
 walk-modules:
 	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
