@@ -467,8 +467,18 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         return refresh(svc, rid, nos, who.name)
 
     @r.get("/studies/{rs}/subjects", dependencies=[MONITOR_READ])
-    def get_subjects(rs: str, today: str = "") -> dict[str, Any]:
+    def get_subjects(rs: str, today: str = "", slim: bool = False) -> dict[str, Any]:
         svc, rid = get(), _rs(rs)
+        if slim:  # D-1221: the state only (the console's lists read each person's one state; no visit or consent view)
+            life = Lifecycle(svc.dc)
+            keep = ("record", "pid", "state", "since", "reason", "changed_by", "changed_at")
+            by_rec: dict[str, list[dict[str, Any]]] = {}
+            for st in life.steps(rid):  # one read: the steps that still stand ("ever reached", not undone)
+                by_rec.setdefault(str(st["record"]), []).append(st)
+            return {"study": rid, "subjects": [
+                {**{k: s.get(k, "") for k in keep},
+                 "ever": sorted({str(x["new"]) for x in lc.live_steps(by_rec.get(str(s["record"]), []))})}
+                for s in life.subjects(rid)]}  # fmt: skip
         life, day = Lifecycle(svc.dc), _today(svc, today)
         sched = life.schedule_on(rid, day)
         detail = life.screen_detail(rid)  # D-387: consent, enrolment and the criterion not met, for the screening log
