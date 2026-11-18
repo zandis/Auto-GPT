@@ -150,7 +150,10 @@ def _result(
 
 
 def run(db: Database, today: date | None = None) -> list[dict[str, Any]]:
-    today = today or date.today()
+    if today is None:
+        from tb_common.timeutil import today as site_today
+
+        today = site_today()  # 9l-7: the site's day, not the server's
     out: list[dict[str, Any]] = []
     with db.transaction() as tx:
 
