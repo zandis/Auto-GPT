@@ -60,9 +60,15 @@ TEMPLATE = ("JUDGE_CHAT_TEMPLATE", "chat-templates/gemma-4-26b-a4b-it/chat_templ
 BACKEND_NET = "trialbox-model-backend"  # deploy/docker-compose.yml model-backend-net (internal, fixed name)
 PROJECT = "trialbox"  # deploy/docker-compose.yml name:
 COMPAT_DIR = "/usr/local/cuda/compat"
+COMPOSE_VARS = {
+    "VLLM_IMAGE",
+    "VLLM_ENABLE_CUDA_COMPATIBILITY",
+}  # read by the overlay itself; the rest go in the run file
+CARD_OOM = re.compile(r"(?i)(CUDA out of memory|OutOfMemoryError|No available memory for the cache blocks|"
+                      r"larger than the available KV cache memory|Insufficient (?:GPU )?memory)")  # fmt: skip
 STORED_CANARY = "53 of 54 for the judge on the 96 GB card, 2026-11-08 (superseded record: a comparison, not evidence)"
 WITHHELD = "withheld (the owner's machine; a measuring run)"
-Runner = Callable[[list[str], int, dict[str, str] | None], tuple[int, str, str]]
+Runner = Callable[..., tuple[int, str, str]]  # (cmd, timeout, env=None, stream=False) -> (exit code, stdout, stderr)
 
 
 def load(path: Path = PROFILE) -> dict[str, Any]:
@@ -80,11 +86,13 @@ def option(doc: dict[str, Any], oid: str) -> dict[str, Any]:
 
 
 # ------------------------------------------------------------------------------------------------ the arithmetic
-def arith(doc: dict[str, Any], o: dict[str, Any], card_mib: int | None = None) -> dict[str, Any]:
-    """One option's card memory from the measured basis, in MiB (see the module's text)."""
+def arith(doc: dict[str, Any], o: dict[str, Any], card_mib: int | None = None, held_mib: int = 0) -> dict[str, Any]:
+    """One option's card memory from the measured basis, in MiB (see the module's text). ``held_mib`` is memory
+    something else already holds on the card (a desktop): vLLM's fractions are of the whole card, so it comes off
+    the spare, and vLLM refuses to start when the card has less free than its fraction."""
     card = int(card_mib or doc["card"]["memory_total_mib"])
     basis, env = doc["basis"], o.get("env") or {}
-    out: dict[str, Any] = {"option": o["id"], "card_mib": card, "servers": {}}
+    out: dict[str, Any] = {"option": o["id"], "card_mib": card, "held_mib": held_mib, "servers": {}}
     used = 0.0
     fits = True
     slack = []
@@ -114,7 +122,7 @@ def arith(doc: dict[str, Any], o: dict[str, Any], card_mib: int | None = None) -
             "one_sequence_mib": round(one_seq),
             "one_sequence_fits": ok,
         }
-    spare = card - used
+    spare = card - used - held_mib
     out["used_mib"] = round(used)
     out["spare_mib"] = round(spare)
     out["min_free_mib"] = basis["min_free_mib"]
@@ -122,6 +130,9 @@ def arith(doc: dict[str, Any], o: dict[str, Any], card_mib: int | None = None) -
     # how much more memory than on the measured card the servers may need before the option fails: within a budget
     # it comes out of the cache, outside the budgets out of the spare
     out["slack_mib"] = round(min([*slack, spare - basis["min_free_mib"]]))
+    # the judge's own margin: its cache past one full-context sequence (the likeliest thing to run short on Ampere)
+    j = out["servers"].get("judge")
+    out["judge_room_mib"] = j["cache_mib"] - j["one_sequence_mib"] if j else None
     return out
 
 
@@ -146,24 +157,42 @@ def planner(ram_gib: float, profile: str = "dgpu48") -> dict[str, Any]:
     return res
 
 
+def planner_held(ram_gib: float, model_caps_gib: float) -> dict[str, Any]:
+    """The rule the planner would need for this class (not in ``tools.box.plan``; a later card): the model servers'
+    caps held at a measured value, the services sharing what is left. Accepted when the services keep at least the
+    planner's floor (``MIN_SERVICE_SHARE``) of their defaults; the same reserve and fixed caps as ``memory_caps``."""
+    from tools.box import plan as bp
+
+    var, fixed = bp.compose_caps([bp.DEPLOY / "docker-compose.yml", bp.DEPLOY / "docker-compose.identity.yml"])
+    services = sum(v for k, v in var.items() if k not in ("TB_MEM_LLM", "TB_MEM_VERIFIER"))
+    reserve = max(4.0, ram_gib / 10)
+    share = (ram_gib - reserve - fixed - model_caps_gib) / services
+    return {"ram_gib": ram_gib, "model_caps_gib": model_caps_gib, "services_share": round(share, 3),
+            "accepted": share >= bp.MIN_SERVICE_SHARE,
+            "most_model_caps_gib": round(ram_gib - reserve - fixed - services * bp.MIN_SERVICE_SHARE, 1)}  # fmt: skip
+
+
 def arith_table(doc: dict[str, Any], card_mib: int | None = None) -> str:
     rows = [f"card {card_mib or doc['card']['memory_total_mib']:,} MiB; basis: the 96 GB card's figures "
             f"({doc['basis']['source']})", "",
             f"{'option':<18} {'server':<9} {'util':>5} {'budget':>8} {'cache':>7} {'tokens':>8} {'ctx':>6} "
-            f"{'1 seq':>6} {'used':>7} {'spare':>6} {'slack':>6} fits"]  # fmt: skip
+            f"{'1 seq':>6} {'used':>7} {'spare':>6} {'slack':>6} {'judge room':>10} fits"]  # fmt: skip
     for o in sorted(doc["options"], key=lambda x: x["order"]):
         a = arith(doc, o, card_mib)
         if not a["servers"]:
             rows.append(f"{o['id']:<18} {'-':<9} (not scripted: arithmetic in the profile's text only)")
             continue
         for i, (role, s) in enumerate(a["servers"].items()):
-            tail = (f"{a['used_mib']:>7,} {a['spare_mib']:>6,} {a['slack_mib']:>6,} {'yes' if a['fits'] else 'NO'}"
+            room = f"{a['judge_room_mib']:,}" if a["judge_room_mib"] is not None else "-"
+            tail = (f"{a['used_mib']:>7,} {a['spare_mib']:>6,} {a['slack_mib']:>6,} {room:>10} "
+                    f"{'yes' if a['fits'] else 'NO'}"
                     if i == 0 else "")  # fmt: skip
             rows.append(f"{o['id'] if i == 0 else '':<18} {role:<9} {s['util']:>5.2f} {s['budget_mib']:>8,} "
                         f"{s['cache_mib']:>7,} {s['cache_tokens']:>8,} {s['max_len']:>6} {s['one_sequence_mib']:>6,} "
                         f"{tail}")  # fmt: skip
     rows += ["", "MiB throughout. used = the budgets + each server's memory outside its budget; spare = card - used; "
-             "slack = how much more than on the 96 GB card the servers may need before the option fails."]  # fmt: skip
+             "slack = how much more than on the 96 GB card the servers may need before the option fails; judge room = "
+             "the judge's cache past one full-context sequence."]  # fmt: skip
     return "\n".join(rows)
 
 
@@ -172,10 +201,17 @@ class Refused(RuntimeError):
     pass
 
 
-def _real_runner(cmd: list[str], timeout: int, env: dict[str, str] | None = None) -> tuple[int, str, str]:
+def _real_runner(
+    cmd: list[str], timeout: int, env: dict[str, str] | None = None, stream: bool = False
+) -> tuple[int, str, str]:
+    """One command; ``stream`` shows its standard output as it comes (a download's progress) and keeps its errors."""
+    full = {**os.environ, **env} if env else None
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False,
-                           env={**os.environ, **env} if env else None)  # fmt: skip
+        if stream:
+            p = subprocess.run(cmd, stdout=None, stderr=subprocess.PIPE, text=True, timeout=timeout, check=False,
+                               env=full)  # fmt: skip
+            return p.returncode, "", p.stderr
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False, env=full)
     except FileNotFoundError as exc:
         return 127, "", str(exc)
     except subprocess.TimeoutExpired:
@@ -193,23 +229,37 @@ def models_dir(environ: dict[str, str], root: Path = ROOT) -> Path:
 
 
 def engine_from_probe(probe: dict[str, Any] | None, forced: str = "") -> dict[str, Any]:
-    """The engine form to run (the probe's verdict, or ``--engine``): its compose variables and whether it is the
-    pinned engine. Refused when the probe found none and nothing was forced."""
+    """The engine form to run: exactly the variant the probe passed (its verdict's image and environment, the library
+    path it ran with included), or ``--engine``. Refused when the probe found none and nothing was forced."""
     from tools import engine_probe as ep  # the same folder; standard library only
 
-    use = forced or ((probe or {}).get("verdict") or {}).get("use")
+    v = (probe or {}).get("verdict") or {}
+    use = forced or v.get("use")
     if not use:
-        raise Refused("the engine probe found no form of the engine that runs on this card (or no probe file): run "
-                      "tools/engine_probe.py first (RUNBOOK §29 step 2); --engine forces one")  # fmt: skip
-    forms = {
-        "pinned": {"env": {}, "libs_first": False, "pinned_engine": True},
-        "pinned+compat": {"env": {"VLLM_ENABLE_CUDA_COMPATIBILITY": "1"}, "libs_first": False, "pinned_engine": True},
-        "pinned+libs": {"env": {}, "libs_first": True, "pinned_engine": True},
-        "cu129": {"env": {"VLLM_IMAGE": ep.CU129}, "libs_first": False, "pinned_engine": False},
+        answer = str(v.get("answer"))
+        if answer == "inconclusive":
+            why = (f"the engine probe was inconclusive ({v.get('problem')}): {v.get('fix')}, then run it again "
+                   "(RUNBOOK §29 step 2)")  # fmt: skip
+        elif answer == "none":
+            why = "the engine probe found no form of the engine that computes on this card"
+        else:
+            why = "no engine probe result: run tools/engine_probe.py first (RUNBOOK §29 step 2)"
+        raise Refused(why + "; --engine forces one")
+    defaults = {
+        "pinned": ("pinned", {}),
+        "pinned+compat": ("pinned", {"VLLM_ENABLE_CUDA_COMPATIBILITY": "1"}),
+        "pinned+libs": ("pinned", {"LD_LIBRARY_PATH": COMPAT_DIR}),
+        "cu129": ("cu129", {}),
     }
-    if use not in forms:
-        raise Refused(f"unknown engine form {use!r}: one of {', '.join(forms)}")
-    return {"use": use, **forms[use]}
+    if use not in defaults:
+        raise Refused(f"unknown engine form {use!r}: one of {', '.join(defaults)}")
+    image_kind, env = defaults[use]
+    from_probe = not forced and v.get("use") == use
+    if from_probe:
+        env = dict(v.get("env") or env)
+    image = ep.CU129 if image_kind == "cu129" else ep.pinned_ref()
+    return {"use": use, "image": image, "env": env, "pinned_engine": image_kind == "pinned",
+            "from_probe": from_probe}  # fmt: skip
 
 
 def compose(files: list[str]) -> list[str]:
@@ -253,23 +303,23 @@ def preflight(
         tpl = models / (environ.get(TEMPLATE[0]) or TEMPLATE[1])
         if not tpl.is_file():
             raise Refused(f"no chat template {tpl} (RUNBOOK §27 'The weights')")
+    rc, out, _ = run(["nvidia-smi", "--query-gpu=display_active,memory.used", "--format=csv,noheader,nounits"],
+                     60, None)  # fmt: skip
+    disp = [c.strip() for c in out.strip().splitlines()[0].split(",")] if rc == 0 and out.strip() else []
+    used = int(disp[1]) if len(disp) > 1 and disp[1].isdigit() else 0
     return {"card": cells[0], "memory_total_mib": total, "driver": cells[2] if len(cells) > 2 else "",
-            "models": models}  # fmt: skip
+            "display_active": disp[0] if disp else None, "baseline_used_mib": used, "models": models}  # fmt: skip
 
 
-def libs_override(run: Runner, image: str, workdir: Path) -> Path:
-    """A compose file for this run only (in the output folder, not the checkout): the engine's compatibility
-    libraries first in its LD_LIBRARY_PATH, the image's own folders after them (the probe's ``pinned+libs``)."""
-    rc, out, _ = run(["docker", "image", "inspect", "--format", "{{json .Config.Env}}", image], 60, None)
-    own = ""
-    if rc == 0:
-        try:
-            own = next((e.split("=", 1)[1] for e in json.loads(out) if e.startswith("LD_LIBRARY_PATH=")), "")
-        except ValueError:
-            own = ""
-    value = f"{COMPAT_DIR}:{own}" if own else COMPAT_DIR
-    f = workdir / "dgpu48-libs-first.yml"
-    body = {"services": {s: {"environment": {"LD_LIBRARY_PATH": value}} for s in SERVICE.values()}}
+def run_override(engine: dict[str, Any], workdir: Path) -> Path:
+    """A compose file for this run only (in the output folder, not the checkout): no restart policy (a server that
+    fails stays failed, and nothing comes back after a reboot), and the container environment of the probe's variant
+    (``LD_LIBRARY_PATH`` exactly as the probe's check ran with it)."""
+    env = {k: v for k, v in engine["env"].items() if k not in COMPOSE_VARS}
+    body: dict[str, Any] = {"services": {}}
+    for s in SERVICE.values():
+        body["services"][s] = {"restart": "no", **({"environment": env} if env else {})}
+    f = workdir / "dgpu48-run.yml"
     f.write_text("# written by tools/dgpu48.py for one measuring run\n" + yaml.safe_dump(body), encoding="utf-8")
     return f
 
@@ -277,7 +327,10 @@ def libs_override(run: Runner, image: str, workdir: Path) -> Path:
 def plan_commands(o: dict[str, Any], engine: dict[str, Any], files: list[str], models: Path,
                   key: str = "") -> dict[str, Any]:  # fmt: skip
     """The run's commands and the environment compose reads: pure, so the dry run and the tests see them."""
-    env = {**{k: str(v) for k, v in (o.get("env") or {}).items()}, **engine["env"], "TB_MODELS_DIR": str(models)}
+    env = {**{k: str(v) for k, v in (o.get("env") or {}).items()},
+           **{k: v for k, v in engine["env"].items() if k in COMPOSE_VARS}, "TB_MODELS_DIR": str(models)}  # fmt: skip
+    if not engine["pinned_engine"]:
+        env["VLLM_IMAGE"] = engine["image"]
     services = [SERVICE[r] for r in o["serves"]]
     base = compose(files)
     up = [*base, "up", "-d", "--wait", "--wait-timeout", "2400"]
@@ -291,6 +344,7 @@ def plan_commands(o: dict[str, Any], engine: dict[str, Any], files: list[str], m
             canary += ["--verifier-url", f"http://{ALIAS['verifier']}:8000/v1"]
     return {
         "env": env,
+        "pull": ["docker", "pull", engine["image"]],
         "up": [*up, *services],
         "ps": [[*base, "ps", "-q", s] for s in services],
         "canary": canary,
@@ -330,12 +384,17 @@ def kv_lines(log: str) -> dict[str, Any]:
 
 
 class Sampler:
-    """Card memory every 2 s and each container's host memory every 10 s, highest seen (a thread)."""
+    """Card memory every 2 s, and the host memory of every container of the measuring run every 10 s (found by the
+    compose project's label, so a server that is still loading or has just failed is counted), highest seen; a line a
+    minute so a long load does not look hung (a thread)."""
 
-    def __init__(self, run: Runner, names: list[str]) -> None:
-        self.run, self.names = run, names
+    def __init__(self, run: Runner, say: Callable[[str], None] | None = None) -> None:
+        self.run, self.say = run, say
         self.card_peak_mib = 0
+        self.card_now_mib = 0
         self.host_peak_mib: dict[str, float] = {}
+        self.host_now_mib: dict[str, float] = {}
+        self.t0 = time.monotonic()
         self._stop = threading.Event()
         self._t = threading.Thread(target=self._loop, daemon=True)
 
@@ -346,20 +405,28 @@ class Sampler:
         self._stop.set()
         self._t.join(timeout=30)
 
-    def sample(self) -> None:
+    def card(self) -> None:
         rc, out, _ = self.run(["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"], 30, None)
         if rc == 0 and out.strip().splitlines() and out.strip().splitlines()[0].strip().isdigit():
-            self.card_peak_mib = max(self.card_peak_mib, int(out.strip().splitlines()[0]))
-        if not self.names:
+            self.card_now_mib = int(out.strip().splitlines()[0])
+            self.card_peak_mib = max(self.card_peak_mib, self.card_now_mib)
+
+    def host(self) -> None:
+        rc, out, _ = self.run(["docker", "ps", "-q", "--filter", f"label=com.docker.compose.project={PROJECT}"], 30,
+                              None)  # fmt: skip
+        ids = out.split() if rc == 0 else []
+        if not ids:
             return
-        rc, out, _ = self.run(["docker", "stats", "--no-stream", "--format", "{{.Name}} {{.MemUsage}}", *self.names],
-                              60, None)  # fmt: skip
+        rc, out, _ = self.run(["docker", "stats", "--no-stream", "--format", "{{.Name}} {{.MemUsage}}", *ids], 60, None)
         for line in out.splitlines() if rc == 0 else []:
             parts = line.split()
-            if len(parts) >= 2:
-                mib = to_mib(parts[1])
-                if mib is not None:
-                    self.host_peak_mib[parts[0]] = max(self.host_peak_mib.get(parts[0], 0.0), mib)
+            if len(parts) >= 2 and (mib := to_mib(parts[1])) is not None:
+                self.host_now_mib[parts[0]] = mib
+                self.host_peak_mib[parts[0]] = max(self.host_peak_mib.get(parts[0], 0.0), mib)
+
+    def sample(self) -> None:
+        self.card()
+        self.host()
 
     def _loop(self) -> None:
         n = 0
@@ -368,18 +435,15 @@ class Sampler:
                 if n % 5 == 0:
                     self.sample()
                 else:
-                    self._card_only()
+                    self.card()
+                if self.say and n and n % 30 == 0:
+                    gib = sum(self.host_now_mib.values()) / 1024
+                    self.say(f"    ... {round((time.monotonic() - self.t0) / 60)} min: card {self.card_now_mib:,} MiB "
+                             f"used, the model servers {gib:.1f} GiB of host memory")  # fmt: skip
             except Exception:  # a sample that fails is skipped; the run goes on
                 pass
             n += 1
             self._stop.wait(2)
-
-    def _card_only(self) -> None:
-        names, self.names = self.names, []
-        try:
-            self.sample()
-        finally:
-            self.names = names
 
 
 def to_mib(text: str) -> float | None:
@@ -393,7 +457,9 @@ def to_mib(text: str) -> float | None:
 def measure(run: Runner, oid: str, out_dir: Path, probe_file: Path | None, forced_engine: str = "",
             dry_run: bool = False, keep: bool = False, environ: dict[str, str] | None = None,
             say: Callable[[str], None] = print, root: Path = ROOT) -> dict[str, Any]:  # fmt: skip
-    """The measuring run of one option (see the module's text). Returns the summary written to measure.<option>.json."""
+    """The measuring run of one option (see the module's text). Returns the summary written to measure.<option>.json;
+    whatever happens after the checks (a failure, a timeout, Ctrl-C), the servers are stopped and the summary so far
+    is written."""
     environ = dict(os.environ if environ is None else environ)
     doc = load()
     o = option(doc, oid)
@@ -407,96 +473,133 @@ def measure(run: Runner, oid: str, out_dir: Path, probe_file: Path | None, force
         "option": oid,
         "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),  # noqa: UP017 (the host's Python 3.10)
         "engine": dict(engine),
+        "host_memory_caps": {k: (o.get("env") or {}).get(k) or "32g" for k in ("TB_MEM_LLM", "TB_MEM_VERIFIER")},
         "predicted": arith(doc, o),
     }
     out_dir.mkdir(parents=True, exist_ok=True)
-    files = ["deploy/docker-compose.yml", OVERLAY]
+    files = ["deploy/docker-compose.yml", OVERLAY, str(out_dir / "dgpu48-run.yml")]
     if dry_run:
         models = models_dir(environ, root)
-        if engine["libs_first"]:
-            files.append(str(out_dir / "dgpu48-libs-first.yml"))
         cmds = plan_commands(o, engine, files, models)
         say(f"dry run: option {oid}, engine {engine['use']}; nothing is started")
         say("environment: " + " ".join(f"{k}={shlex.quote(v)}" for k, v in sorted(cmds["env"].items())))
-        for key in ("up", "canary", "down"):
+        say(f"run file {files[-1]}: restart no; container environment {engine['env'] or 'none'}")
+        for key in ("pull", "up", "canary", "down"):
             if cmds[key]:
                 say(f"{key}: " + " ".join(shlex.quote(x) for x in cmds[key]))
         say(f"record: {sys.executable} tools/serving_config.py capture --container judge=<llm-service container> "
             f"--container verifier=<llm-verifier container> --models-dir {models} --out <record>")  # fmt: skip
         summary["dry_run"] = True
-        summary["commands"] = {k: cmds[k] for k in ("up", "canary", "down")}
+        summary["commands"] = {k: cmds[k] for k in ("pull", "up", "canary", "down")}
         return summary
     facts = preflight(run, doc, o, environ, root)
     models = facts["models"]
-    summary["card"] = {k: facts[k] for k in ("card", "memory_total_mib", "driver")}
-    summary["predicted"] = arith(doc, o, facts["memory_total_mib"])
-    if engine["libs_first"]:
-        image = environ.get("VLLM_IMAGE") or _pinned_image()
-        files.append(str(libs_override(run, image, out_dir)))
-    key = _vllm_key(root)
-    cmds = plan_commands(o, engine, files, models, key)
-    if engine["use"] == "cu129":
+    summary["card"] = {k: facts[k] for k in ("card", "memory_total_mib", "driver", "display_active",
+                                             "baseline_used_mib")}  # fmt: skip
+    summary["predicted"] = arith(doc, o, facts["memory_total_mib"], facts["baseline_used_mib"])
+    if facts["baseline_used_mib"]:
+        say(f"NOTE: the card already holds {facts['baseline_used_mib']:,} MiB before anything starts (display "
+            f"{facts['display_active']}): it comes off the predicted spare, now "
+            f"{summary['predicted']['spare_mib']:,} MiB; RUNBOOK §29 'Two limits' says how to free it")  # fmt: skip
+    run_override(engine, out_dir)
+    cmds = plan_commands(o, engine, files, models, _vllm_key(root))
+    if not engine["pinned_engine"]:
         say("NOTE: the engine is the CUDA 12.9 build, NOT the pinned one: this run is evidence for a model change only")
-    names: list[str] = []
-    sampler = Sampler(run, names)
+    sampler = Sampler(run, say)
     sampler.start()
-    t0 = time.monotonic()
-    say(f"starting {', '.join(SERVICE[r] for r in o['serves'])} (option {oid}); loading takes 5 to 35 minutes")
-    rc, _, err = run(cmds["up"], 2700, cmds["env"])
-    summary["start_seconds"] = round(time.monotonic() - t0)
-    summary["started"] = rc == 0
-    containers: dict[str, str] = {}
-    for role, ps in zip(o["serves"], cmds["ps"], strict=True):
-        prc, cid, _ = run(ps, 60, cmds["env"])
-        if prc == 0 and cid.strip():
-            nrc, name, _ = run(["docker", "inspect", "--format", "{{.Name}}|{{.RestartCount}}", cid.strip()], 60, None)
-            if nrc == 0 and "|" in name:
-                cname, restarts = name.strip().lstrip("/").rsplit("|", 1)
-                containers[role] = cname
-                names.append(cname)
-                summary.setdefault("restarts", {})[role] = int(restarts) if restarts.isdigit() else None
-            _, logs, logs_err = run(["docker", "logs", cid.strip()], 120, None)
-            summary.setdefault("engine_log", {})[role] = kv_lines(logs + logs_err)
-    if rc != 0:
-        summary["start_error"] = _tail(err)
-    sampler.sample()
-    if rc == 0 and containers:
-        rec_tmp = out_dir / f".serving_config.{oid}.raw.json"
-        unpinned = "" if engine["pinned_engine"] else " (not the pinned engine)"
-        notes = (f"dgpu48 UNMEASURED, option {oid} (deploy/dgpu48-profile.yaml); engine {engine['use']}{unpinned}; "
-                 "a measuring run, not a profile")  # fmt: skip
-        cap = [sys.executable, str(ROOT / "tools" / "serving_config.py"), "capture", "--models-dir", str(models),
-               "--notes", notes, "--out", str(rec_tmp)]  # fmt: skip
-        for role, cname in containers.items():
-            cap[3:3] = ["--container", f"{role}={cname}"]
-        say("taking the serving record (hashes every weight file: a few minutes)")
-        crc, cout, cerr = run(cap, 3600, None)
-        summary["record_complete"] = crc == 0
-        if rec_tmp.is_file():
-            rec = sanitize(json.loads(rec_tmp.read_text(encoding="utf-8")), models)
-            (out_dir / f"serving_config.dgpu48.{oid}.json").write_text(json.dumps(rec, indent=1, sort_keys=True) +
-                                                                        "\n", encoding="utf-8")  # fmt: skip
-            rec_tmp.unlink()
-            summary["memory_used_mib_at_record"] = rec.get("memory_used_mib")
-        else:
-            summary["record_error"] = _tail(cerr or cout)
-        if cmds["canary"]:
-            say("the pair canary (54 stored cases; tools/canary.py in trialbox-py)")
-            krc, kout, kerr = run(cmds["canary"], 3600, cmds["canary_env"])
-            (out_dir / f"canary.{oid}.json").write_text(kout, encoding="utf-8")
-            summary["canary"] = canary_summary(krc, kout, kerr)
-            summary["canary"]["stored_control"] = STORED_CANARY
-        else:
-            summary["canary"] = {"run": False, "why": "the option serves no judge; the canary's cases are the judge's"}
-    sampler.stop()
-    summary["card_peak_mib"] = sampler.card_peak_mib
-    summary["host_peak_mib"] = dict(sampler.host_peak_mib)
-    if not keep:
-        run(cmds["down"], 600, cmds["env"])
-    summary["outcome"] = outcome(summary)
-    (out_dir / f"measure.{oid}.json").write_text(json.dumps(summary, indent=1, sort_keys=True) + "\n",
-                                                  encoding="utf-8")  # fmt: skip
+    servers_started = False
+    try:
+        rc, _, _ = run(["docker", "image", "inspect", engine["image"]], 60, None)
+        if rc != 0:
+            say("downloading the engine image (10 to 12 GB; often 20 to 40 minutes; progress below)")
+            t0 = time.monotonic()
+            prc, _, perr = run(cmds["pull"], 7200, None, stream=True)
+            summary["pull_seconds"] = round(time.monotonic() - t0)
+            if prc != 0:
+                summary["pull_error"] = _tail(perr)
+                return summary
+        say(f"starting {', '.join(SERVICE[r] for r in o['serves'])} (option {oid}); loading takes 5 to 35 minutes")
+        servers_started = True
+        t0 = time.monotonic()
+        rc, _, err = run(cmds["up"], 2700, cmds["env"])
+        summary["start_seconds"] = round(time.monotonic() - t0)
+        summary["started"] = rc == 0
+        containers: dict[str, str] = {}
+        for role, ps in zip(o["serves"], cmds["ps"], strict=True):
+            prc, cid, _ = run(ps, 60, cmds["env"])
+            if prc != 0 or not cid.strip():
+                summary.setdefault("state", {})[role] = {"status": "not created"}
+                continue
+            fmt = ("{{.Name}}|{{.RestartCount}}|{{.State.Status}}|{{.State.ExitCode}}|{{.State.OOMKilled}}|"
+                   "{{if .State.Health}}{{.State.Health.Status}}{{end}}")  # fmt: skip
+            nrc, info, _ = run(["docker", "inspect", "--format", fmt, cid.strip()], 60, None)
+            parts = info.strip().lstrip("/").split("|") if nrc == 0 else []
+            if len(parts) >= 6:
+                containers[role] = parts[0]
+                summary.setdefault("state", {})[role] = {
+                    "status": parts[2], "exit_code": int(parts[3]) if parts[3].lstrip("-").isdigit() else None,
+                    "oom_killed": parts[4] == "true", "health": parts[5] or None,
+                    "restarts": int(parts[1]) if parts[1].isdigit() else None}  # fmt: skip
+            _, logs, logs_err = run(["docker", "logs", "--tail", "2000", cid.strip()], 120, None)
+            log = logs + logs_err
+            summary.setdefault("engine_log", {})[role] = {
+                **kv_lines(log),
+                "card_out_of_memory": bool(CARD_OOM.search(log)),
+            }
+            if rc != 0:
+                summary["engine_log"][role]["tail"] = _tail(log, 800)
+        if rc != 0:
+            summary["start_error"] = _tail(err)
+        sampler.sample()
+        if rc == 0 and containers:
+            record_and_canary(run, summary, oid, engine, containers, models, cmds, out_dir, say)
+    except KeyboardInterrupt:
+        summary["interrupted"] = True
+        say("interrupted: stopping the model servers and writing what was measured")
+    finally:
+        sampler.stop()
+        summary["card_peak_mib"] = sampler.card_peak_mib
+        summary["host_peak_mib"] = dict(sampler.host_peak_mib)
+        if servers_started and not keep:
+            run(cmds["down"], 600, cmds["env"])
+            summary["stopped"] = True
+        summary["outcome"] = outcome(summary)
+        (out_dir / f"measure.{oid}.json").write_text(json.dumps(summary, indent=1, sort_keys=True) + "\n",
+                                                      encoding="utf-8")  # fmt: skip
     return summary
+
+
+def record_and_canary(run: Runner, summary: dict[str, Any], oid: str, engine: dict[str, Any],
+                      containers: dict[str, str], models: Path, cmds: dict[str, Any], out_dir: Path,
+                      say: Callable[[str], None]) -> None:  # fmt: skip
+    """The serving record (tools/serving_config.py capture, scrubbed) and the canary, once the servers are healthy."""
+    rec_tmp = out_dir / f".serving_config.{oid}.raw.json"
+    unpinned = "" if engine["pinned_engine"] else " (not the pinned engine)"
+    notes = (f"dgpu48 UNMEASURED, option {oid} (deploy/dgpu48-profile.yaml); engine {engine['use']}{unpinned}; "
+             "a measuring run, not a profile")  # fmt: skip
+    cap = [sys.executable, str(ROOT / "tools" / "serving_config.py"), "capture", "--models-dir", str(models),
+           "--notes", notes, "--out", str(rec_tmp)]  # fmt: skip
+    for role, cname in containers.items():
+        cap[3:3] = ["--container", f"{role}={cname}"]
+    say("taking the serving record (hashes every weight file: a few minutes)")
+    crc, cout, cerr = run(cap, 3600, None)
+    summary["record_complete"] = crc == 0
+    if rec_tmp.is_file():
+        rec = sanitize(json.loads(rec_tmp.read_text(encoding="utf-8")), models)
+        (out_dir / f"serving_config.dgpu48.{oid}.json").write_text(json.dumps(rec, indent=1, sort_keys=True) + "\n",
+                                                                    encoding="utf-8")  # fmt: skip
+        rec_tmp.unlink()
+        summary["memory_used_mib_at_record"] = rec.get("memory_used_mib")
+    else:
+        summary["record_error"] = _tail(cerr or cout)
+    if cmds["canary"]:
+        say("the pair canary (54 stored cases; tools/canary.py in trialbox-py; 10 to 30 minutes)")
+        krc, kout, kerr = run(cmds["canary"], 3600, cmds["canary_env"])
+        (out_dir / f"canary.{oid}.json").write_text(kout, encoding="utf-8")
+        summary["canary"] = canary_summary(krc, kout, kerr)
+        summary["canary"]["stored_control"] = STORED_CANARY
+    else:
+        summary["canary"] = {"run": False, "why": "the option serves no judge; the canary's cases are the judge's"}
 
 
 def canary_summary(rc: int, out: str, err: str) -> dict[str, Any]:
@@ -513,17 +616,33 @@ def canary_summary(rc: int, out: str, err: str) -> dict[str, Any]:
 
 
 def outcome(s: dict[str, Any]) -> str:
+    """One line: what happened, told apart by cause, and what to do next."""
+    nxt = "send the files, then the next option of RUNBOOK §29 step 7"
     if s.get("dry_run"):
         return "dry run"
+    if s.get("pull_error"):
+        return "ENGINE IMAGE NOT DOWNLOADED: check the network and the disk, then run this again"
+    if s.get("interrupted") and not s.get("started"):
+        return "INTERRUPTED: the servers were stopped; run this again"
+    states = (s.get("state") or {}).values()
+    logs = (s.get("engine_log") or {}).values()
     if not s.get("started"):
-        return "DID NOT START: send measure.<option>.json; next, the next option of RUNBOOK §29"
-    if any((n or 0) > 0 for n in (s.get("restarts") or {}).values()):
+        if any(st.get("oom_killed") for st in states):
+            return f"OUT OF HOST MEMORY: a model server hit its host memory cap or the machine ran out; {nxt}"
+        if any(lg.get("card_out_of_memory") for lg in logs):
+            return f"OUT OF CARD MEMORY: a model did not fit the card with this option; {nxt}"
+        if any(st.get("status") in ("exited", "dead") for st in states):
+            return f"FAILED TO LOAD: a model server stopped while loading (its log's end is in the file); {nxt}"
+        return f"DID NOT START IN TIME: still loading after 45 minutes, no error seen; {nxt}"
+    if any((st.get("restarts") or 0) > 0 for st in states):
         return "STARTED AFTER A RESTART: a server failed once; send the files"
     if not s.get("record_complete"):
         return "STARTED, RECORD INCOMPLETE: send the files"
     can = s.get("canary") or {}
     if can.get("run") and not can.get("ok"):
         return "STARTED, CANARY FAILED: the servers run but the answers differ; send the files"
+    if s.get("interrupted"):
+        return "STARTED, INTERRUPTED before the end: send the files"
     return "STARTED, RECORD TAKEN" + (", CANARY PASSED" if can.get("ok") else "") + ": send the files"
 
 
@@ -531,12 +650,6 @@ def _tail(text: str, n: int = 600) -> str:
     from tools import engine_probe as ep
 
     return ep.scrub(text or "", n)
-
-
-def _pinned_image() -> str:
-    from tools import engine_probe as ep
-
-    return ep.pinned_ref()
 
 
 def _vllm_key(root: Path = ROOT) -> str:
@@ -564,11 +677,13 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--keep", action="store_true", help="leave the servers running afterwards")
     m.add_argument("--dry-run", action="store_true", help="print the commands; start nothing")
     a = ap.parse_args(argv)
+    os.chdir(ROOT)  # compose reads deploy/ relative to the checkout, wherever this was started from
     doc = load()
     if a.cmd == "arith":
         print(arith_table(doc, a.card_mib))
         if a.planner is not None:
             print(json.dumps(planner(a.planner), indent=1))
+            print(json.dumps(planner_held(a.planner, 22.0), indent=1))
         return 0
     try:
         option(doc, a.option)

@@ -68,8 +68,8 @@ def test_the_profile_is_unmeasured_and_names_only_registry_builds(doc: dict[str,
     ids = {b["build_id"] for b in reg["builds"]}
     assert "gemma-4-31b-it-qat-challenger" in ids  # the one other build the options name
     assert [o["order"] for o in doc["options"]] == sorted(o["order"] for o in doc["options"])
-    assert {o["id"] for o in doc["options"] if o["scripted"]} == {"pair-32k", "pair-16k", "judge-alone",
-                                                                  "verifier-alone"}  # fmt: skip
+    assert {o["id"] for o in doc["options"] if o["scripted"]} == {
+        "pair-32k", "pair-32k-host53", "pair-16k", "judge-alone", "verifier-alone"}  # fmt: skip
 
 
 def test_it_is_not_a_profile_anywhere() -> None:
@@ -130,7 +130,7 @@ def test_the_measuring_run_refuses_without_its_switch(tmp_path: Path) -> None:
         return 0, "", ""
 
     probe = tmp_path / "p.json"
-    probe.write_text(json.dumps({"verdict": {"use": "pinned"}}), encoding="utf-8")
+    probe.write_text(json.dumps({"verdict": {"answer": "pass", "use": "pinned", "env": {}}}), encoding="utf-8")
     with pytest.raises(dgpu48.Refused, match=f"{dgpu48.SWITCH}=1 is not set"):
         dgpu48.measure(run, "pair-32k", tmp_path / "out", probe, environ={}, say=lambda s: None, root=tmp_path)
     assert calls == []  # nothing asked of docker or the card
@@ -141,21 +141,34 @@ def test_the_measuring_run_refuses_without_its_switch(tmp_path: Path) -> None:
 
 
 def test_no_probe_or_a_probe_that_found_nothing_is_refused(tmp_path: Path) -> None:
-    with pytest.raises(dgpu48.Refused, match="engine probe found no form"):
+    with pytest.raises(dgpu48.Refused, match="no engine probe result"):
         dgpu48.engine_from_probe(None)
-    with pytest.raises(dgpu48.Refused, match="engine probe found no form"):
-        dgpu48.engine_from_probe({"verdict": {"use": None}})
-    assert dgpu48.engine_from_probe({"verdict": {"use": "pinned+compat"}})["env"] == {
-        "VLLM_ENABLE_CUDA_COMPATIBILITY": "1"
-    }
-    cu = dgpu48.engine_from_probe({"verdict": {"use": "cu129"}})
-    assert cu["env"] == {"VLLM_IMAGE": ep.CU129} and cu["pinned_engine"] is False
+    with pytest.raises(dgpu48.Refused, match="found no form of the engine"):
+        dgpu48.engine_from_probe({"verdict": {"answer": "none", "use": None}})
+    with pytest.raises(dgpu48.Refused, match="inconclusive .Docker has no NVIDIA runtime.: sudo nvidia-ctk"):
+        dgpu48.engine_from_probe({"verdict": {"answer": "inconclusive", "use": None, "problem":
+                                              "Docker has no NVIDIA runtime", "fix": ep.FIX_RUNTIME}})  # fmt: skip
+    compat = dgpu48.engine_from_probe({"verdict": {"answer": "pass", "use": "pinned+compat",
+                                                   "env": {"VLLM_ENABLE_CUDA_COMPATIBILITY": "1"}}})  # fmt: skip
+    assert compat["env"] == {"VLLM_ENABLE_CUDA_COMPATIBILITY": "1"} and compat["image"] == ep.pinned_ref()
+    cu = dgpu48.engine_from_probe({"verdict": {"answer": "pass", "use": "cu129", "env": {}}})
+    assert cu["image"] == ep.CU129 and cu["pinned_engine"] is False
     assert dgpu48.engine_from_probe(None, "pinned")["pinned_engine"] is True
+
+
+def test_the_libs_variant_is_exactly_what_the_probe_ran() -> None:
+    """Review of #1100, blocker 3: the library path the probe's check ran with, not the compat folder alone and not
+    an inspection of the image the probe already removed."""
+    lib = "/usr/local/cuda/compat:/usr/local/nvidia/lib64:/usr/local/cuda/lib64"
+    v = {"verdict": {"answer": "pass", "use": "pinned+libs", "env": {"LD_LIBRARY_PATH": lib}}}
+    eng = dgpu48.engine_from_probe(v)
+    assert eng["env"] == {"LD_LIBRARY_PATH": lib} and eng["from_probe"] is True
 
 
 # ------------------------------------------------------------------------------------------------ the arithmetic
 def test_the_pair_at_32k_is_review_19s_split(doc: dict[str, Any]) -> None:
     a = dgpu48.arith(doc, dgpu48.option(doc, "pair-32k"))
+    assert a["judge_room_mib"] == 5564
     j, v = a["servers"]["judge"], a["servers"]["verifier"]
     assert (j["budget_mib"], j["cache_mib"], v["budget_mib"], v["cache_mib"]) == (28010, 9090, 13268, 4268)
     assert a["used_mib"] == 45128 and a["spare_mib"] == 4012  # review 24 §2's table
@@ -184,11 +197,29 @@ def test_the_96_gb_profiles_split_does_not_fit_48_gb(doc: dict[str, Any]) -> Non
     assert not a["fits"]
 
 
+def test_the_16k_fallback_gives_the_judge_more_room_not_less(doc: dict[str, Any]) -> None:
+    """Review of #1100, item 6: the likeliest failure is the judge needing more memory on Ampere."""
+    a32 = dgpu48.arith(doc, dgpu48.option(doc, "pair-32k"))
+    a16 = dgpu48.arith(doc, dgpu48.option(doc, "pair-16k"))
+    assert a16["servers"]["judge"]["util"] == a32["servers"]["judge"]["util"]
+    assert a16["judge_room_mib"] > a32["judge_room_mib"]
+    assert a16["servers"]["verifier"]["util"] < a32["servers"]["verifier"]["util"] and a16["fits"]
+
+
+def test_the_host53_option_is_pair_32k_with_caps_that_fit_53_gib(doc: dict[str, Any]) -> None:
+    o, base = dgpu48.option(doc, "pair-32k-host53"), dgpu48.option(doc, "pair-32k")
+    assert {k: v for k, v in o["env"].items() if not k.startswith("TB_MEM_")} == base["env"]
+    caps = float(o["env"]["TB_MEM_LLM"].rstrip("g")) + float(o["env"]["TB_MEM_VERIFIER"].rstrip("g"))
+    held = dgpu48.planner_held(53, caps)
+    assert held["accepted"] and caps <= held["most_model_caps_gib"] == 22.2
+    assert not dgpu48.planner_held(53, 64)["accepted"]  # the overlay's own 32 + 32: refused
+
+
 def test_the_table_prints_every_option(doc: dict[str, Any]) -> None:
     out = dgpu48.arith_table(doc)
     for o in doc["options"]:
         assert o["id"] in out
-    assert "45,128  4,012" in out
+    assert "45,128  4,012" in out and "judge room" in out
 
 
 # ------------------------------------------------------------------------------------------------ the planner
@@ -204,46 +235,74 @@ def test_the_planner_refuses_the_whole_box_with_the_pair_on_53_gib() -> None:
     ]
 
 
+def test_the_profile_and_the_page_say_the_host_limit_plainly() -> None:
+    text = (ROOT / "deploy/dgpu48-profile.yaml").read_text(encoding="utf-8")
+    page = (ROOT / "docs/runbook/29-igx-orin-a6000-real-models.md").read_text(encoding="utf-8")
+    for doc_text in (text, page):
+        assert "63.9 GiB" in doc_text and "pair-32k-host53" in doc_text
+    assert "display_active" in page and "multi-user.target" in page
+
+
 # ------------------------------------------------------------------------------------------------ the measuring run
+PASS_COMPAT = {"verdict": {"answer": "pass", "use": "pinned+compat", "env": {"VLLM_ENABLE_CUDA_COMPATIBILITY": "1"}}}
+
+
 def test_the_dry_run_starts_nothing_and_names_the_commands(tmp_path: Path) -> None:
     probe = tmp_path / "p.json"
-    probe.write_text(json.dumps({"verdict": {"use": "pinned+compat"}}), encoding="utf-8")
+    probe.write_text(json.dumps(PASS_COMPAT), encoding="utf-8")
     said: list[str] = []
 
-    def run(cmd: list[str], timeout: int, env: dict[str, str] | None = None) -> tuple[int, str, str]:
+    def run(
+        cmd: list[str], timeout: int, env: dict[str, str] | None = None, stream: bool = False
+    ) -> tuple[int, str, str]:
         raise AssertionError(f"the dry run ran {cmd}")
 
     s = dgpu48.measure(run, "pair-32k", tmp_path / "out", probe, dry_run=True, environ={}, say=said.append,
                        root=tmp_path)  # fmt: skip
     up = s["commands"]["up"]
+    assert s["commands"]["pull"] == ["docker", "pull", ep.pinned_ref()]
     assert up[:4] == ["docker", "compose", "--project-directory", "deploy"]
-    assert "deploy/docker-compose.dgpu48.yml" in up and up[-2:] == ["llm-service", "llm-verifier"]
+    assert "deploy/docker-compose.dgpu48.yml" in up and str(tmp_path / "out" / "dgpu48-run.yml") in up
+    assert up[-2:] == ["llm-service", "llm-verifier"]
     assert "--verifier-url" in s["commands"]["canary"]
     text = "\n".join(said)
-    assert "VLLM_ENABLE_CUDA_COMPATIBILITY=1" in text and "JUDGE_GPU_MEM_UTIL=0.57" in text
+    assert "VLLM_ENABLE_CUDA_COMPATIBILITY=1" in text and "JUDGE_GPU_MEM_UTIL=0.57" in text and "restart no" in text
     assert "tools/serving_config.py capture" in text
-    # the verifier alone: no judge, no canary, no wait for a judge
     s = dgpu48.measure(run, "verifier-alone", tmp_path / "out", probe, dry_run=True, environ={}, say=said.append,
                        root=tmp_path)  # fmt: skip
     assert s["commands"]["canary"] is None and "--no-deps" in s["commands"]["up"]
-    # the judge alone: the canary without a verifier
     s = dgpu48.measure(run, "judge-alone", tmp_path / "out", probe, dry_run=True, environ={}, say=said.append,
                        root=tmp_path)  # fmt: skip
     assert "--verifier-url" not in s["commands"]["canary"] and s["commands"]["up"][-1] == "llm-service"
 
 
-def test_the_dry_run_runs_from_the_command_line(tmp_path: Path) -> None:
+def test_the_dry_run_runs_from_the_command_line_from_any_folder(tmp_path: Path) -> None:
+    """Review of #1100, item 10: compose reads deploy/ relative to the checkout; the tool sets the folder itself."""
     probe = tmp_path / "p.json"
-    probe.write_text(json.dumps({"verdict": {"use": "pinned"}}), encoding="utf-8")
+    probe.write_text(json.dumps(PASS_COMPAT), encoding="utf-8")
     env = {**os.environ, dgpu48.SWITCH: "1"}
-    res = subprocess.run(["python3", "tools/dgpu48.py", "measure", "--option", "pair-32k", "--probe", str(probe),
-                          "--out-dir", str(tmp_path / "o"), "--dry-run"], cwd=ROOT, env=env, capture_output=True,
-                         text=True, check=False)  # fmt: skip
+    res = subprocess.run(["python3", str(ROOT / "tools/dgpu48.py"), "measure", "--option", "pair-32k", "--probe",
+                          str(probe), "--out-dir", str(tmp_path / "o"), "--dry-run"], cwd=tmp_path, env=env,
+                         capture_output=True, text=True, check=False)  # fmt: skip
     assert res.returncode == 0, res.stderr
     assert "nothing is started" in res.stdout
 
 
-def _machine(tmp: Path) -> tuple[Path, Path]:
+def test_the_measuring_run_works_in_the_checkout_whatever_folder_it_is_started_from(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review of #1100, item 10: `docker compose --project-directory deploy -f deploy/...` is relative to the
+    checkout, so the tool moves there itself before it runs anything."""
+    probe = tmp_path / "p.json"
+    probe.write_text(json.dumps(PASS_COMPAT), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(dgpu48.SWITCH, "1")
+    args = ["measure", "--option", "pair-32k", "--probe", str(probe), "--out-dir", str(tmp_path / "o"), "--dry-run"]
+    assert dgpu48.main(args) == 0
+    assert Path.cwd() == ROOT
+
+
+def _machine(tmp: Path, verdict: dict[str, Any] | None = None) -> tuple[Path, Path]:
     """A checkout with deploy/.env, the weights folders and the template (fake files), and the probe's result."""
     root = tmp / "root"
     (root / "deploy").mkdir(parents=True)
@@ -257,36 +316,57 @@ def _machine(tmp: Path) -> tuple[Path, Path]:
     tpl.parent.mkdir(parents=True)
     tpl.write_text("{{ x }}", encoding="utf-8")
     probe = tmp / "probe.json"
-    probe.write_text(json.dumps({"verdict": {"use": "pinned+compat"}}), encoding="utf-8")
+    probe.write_text(json.dumps(verdict or PASS_COMPAT), encoding="utf-8")
     return root, probe
 
 
 class Box:
     """The machine's commands, answered: a 48 GB card, compose, docker, the record capture and the canary."""
 
-    def __init__(self, root: Path, card_mib: int = 49140, running: str = "", up_rc: int = 0) -> None:
-        self.root, self.card_mib, self.running, self.up_rc = root, card_mib, running, up_rc
+    def __init__(self, root: Path, card_mib: int = 49140, running: str = "", up_rc: int = 0, present: bool = False,
+                 state: str = "running|0|healthy|false", log: str = "", baseline: int = 0,
+                 interrupt_at: str = "", pull_rc: int = 0) -> None:  # fmt: skip
+        self.root, self.card_mib, self.running, self.up_rc, self.present = root, card_mib, running, up_rc, present
+        self.state, self.log, self.baseline = state, log, baseline
+        self.interrupt_at, self.pull_rc = interrupt_at, pull_rc
         self.calls: list[tuple[list[str], dict[str, str] | None]] = []
+        self.streamed: list[list[str]] = []
+        self.up = False
 
-    def __call__(self, cmd: list[str], timeout: int, env: dict[str, str] | None = None) -> tuple[int, str, str]:
+    def __call__(self, cmd: list[str], timeout: int, env: dict[str, str] | None = None,
+                 stream: bool = False) -> tuple[int, str, str]:  # fmt: skip
         self.calls.append((cmd, env))
+        if stream:
+            self.streamed.append(cmd)
+        if self.interrupt_at and self.interrupt_at in " ".join(cmd):
+            raise KeyboardInterrupt
         if cmd[0] == "nvidia-smi":
-            if "memory.used" in cmd[1]:
+            if cmd[1] == "--query-gpu=memory.used":
                 return 0, "45300\n", ""
+            if "display_active" in cmd[1]:
+                return 0, f"Enabled, {self.baseline}\n", ""
             return 0, f"NVIDIA RTX A6000, {self.card_mib}, 535.183.01\n", ""
         if cmd[:2] == ["docker", "ps"]:
-            return 0, self.running, ""
+            if not self.up:  # the preflight's question: is the box running
+                return 0, self.running, ""
+            return 0, "aaa\nbbb\n", ""
+        if cmd[:3] == ["docker", "image", "inspect"]:
+            return (0 if self.present else 1), "", ""
+        if cmd[:2] == ["docker", "pull"]:
+            return self.pull_rc, "", "" if self.pull_rc == 0 else "net/http: TLS handshake timeout"
         if cmd[:2] == ["docker", "compose"]:
             if "up" in cmd:
+                self.up = True
                 return self.up_rc, "", "" if self.up_rc == 0 else "container trialbox-llm-service-1 is unhealthy"
             if "ps" in cmd:
                 return 0, ("aaa" if cmd[-1] == "llm-service" else "bbb") + "\n", ""
             return 0, "", ""
         if cmd[:2] == ["docker", "inspect"]:
             name = "trialbox-llm-service-1" if cmd[-1] == "aaa" else "trialbox-llm-verifier-1"
-            return 0, f"/{name}|0\n", ""
+            status, restarts, health, oom = [*self.state.split("|"), "", "", "", ""][:4]
+            return 0, f"/{name}|{restarts}|{status}|{1 if status == 'exited' else 0}|{oom}|{health}\n", ""
         if cmd[:2] == ["docker", "logs"]:
-            return 0, "INFO Available KV cache memory: 8.61 GiB\nINFO GPU KV cache size: 81,920 tokens\n", ""
+            return 0, "INFO Available KV cache memory: 8.61 GiB\nINFO GPU KV cache size: 81,920 tokens\n" + self.log, ""
         if cmd[:2] == ["docker", "stats"]:
             return 0, "trialbox-llm-service-1 14.2GiB / 32GiB\ntrialbox-llm-verifier-1 6.5GiB / 32GiB\n", ""
         if cmd[:3] == ["docker", "run", "--rm"]:  # the canary
@@ -312,15 +392,25 @@ class Box:
             return 0, "wrote; complete", ""
         raise AssertionError(f"unexpected command {cmd}")
 
+    def index(self, *words: str) -> int:
+        return next(i for i, (c, _) in enumerate(self.calls) if all(w in f" {' '.join(c)} " for w in words))
+
+    def composed(self, word: str) -> bool:
+        return any(c[:2] == ["docker", "compose"] and word in c for c, _ in self.calls)
+
+
+def _measure(box: Box, root: Path, probe: Path, out: Path, option: str = "pair-32k") -> dict[str, Any]:
+    return dgpu48.measure(box, option, out, probe, environ={dgpu48.SWITCH: "1"}, say=lambda x: None, root=root)
+
 
 def test_a_faked_measuring_run_end_to_end(tmp_path: Path) -> None:
     root, probe = _machine(tmp_path)
     box = Box(root)
     out = tmp_path / "out"
-    s = dgpu48.measure(box, "pair-32k", out, probe, environ={dgpu48.SWITCH: "1"}, say=lambda x: None, root=root)
-    assert s["started"] and s["record_complete"] and s["canary"]["ok"]
+    s = _measure(box, root, probe, out)
+    assert s["started"] and s["record_complete"] and s["canary"]["ok"] and s["stopped"]
     assert s["outcome"] == "STARTED, RECORD TAKEN, CANARY PASSED: send the files"
-    assert s["engine_log"]["judge"] == {"kv_cache_gib": 8.61, "kv_cache_tokens": 81920}
+    assert s["engine_log"]["judge"]["kv_cache_tokens"] == 81920
     assert s["card_peak_mib"] == 45300 and s["host_peak_mib"]["trialbox-llm-service-1"] == 14540.8
     assert s["predicted"]["spare_mib"] == 4012
     _, up_env = next((c, e) for c, e in box.calls if c[:2] == ["docker", "compose"] and "up" in c)
@@ -328,33 +418,88 @@ def test_a_faked_measuring_run_end_to_end(tmp_path: Path) -> None:
     assert up_env["JUDGE_GPU_MEM_UTIL"] == "0.57" and up_env["TB_MODELS_DIR"] == str(root / "deploy/models")
     canary_cmd, canary_env = next((c, e) for c, e in box.calls if c[:3] == ["docker", "run", "--rm"])
     assert "--network" in canary_cmd and dgpu48.BACKEND_NET in canary_cmd
-    assert canary_env == {"TB_GPU_KEY": "key-that-must-not-show-0123"}  # from the servers' own file, by environment
+    assert canary_env == {"TB_GPU_KEY": "key-that-must-not-show-0123"}
     assert "key-that-must-not-show-0123" not in " ".join(canary_cmd)
-    assert any(c[:2] == ["docker", "compose"] and "rm" in c for c, _ in box.calls)  # the servers are stopped
-    # the record: the 96 GB record's shape, complete, nothing that names the machine
     rec = json.loads((out / "serving_config.dgpu48.pair-32k.json").read_text(encoding="utf-8"))
     assert serving_config.validate(rec) == []
     assert set(rec) == set(json.loads((ROOT / "deploy/measured/serving_config.rtxpro6000.json").read_text()))
-    assert rec["host"] == dgpu48.WITHHELD
-    assert rec["servers"][0]["gpu_devices"] == ["GPU-<withheld>"]
+    assert rec["host"] == dgpu48.WITHHELD and rec["servers"][0]["gpu_devices"] == ["GPU-<withheld>"]
     assert rec["servers"][0]["model_dir"] == "/models/gemma-4-26b-a4b-it-4bit"
     assert "not a profile" in rec["notes"] and "pinned+compat" in rec["notes"]
-    assert serving_config.measured_for(rec, "rtxpro6000")  # not a measurement of any profile
+    assert serving_config.measured_for(rec, "rtxpro6000")
     files = "".join(p.read_text(encoding="utf-8") for p in out.iterdir())
     for leak in ("igx-lab-07", "5f3c2a1b", str(root), "key-that-must-not-show"):
         assert leak not in files, leak
-    assert not list(out.glob(".serving_config.*"))  # the raw capture is not left behind
+    assert not list(out.glob(".serving_config.*"))
 
 
-def test_a_run_that_does_not_start_says_so_and_stops(tmp_path: Path) -> None:
+def test_the_engine_is_pulled_first_with_progress_and_its_own_limit(tmp_path: Path) -> None:
+    """Review of #1100, blocker 3: not a hidden pull inside compose up's 45-minute wait."""
     root, probe = _machine(tmp_path)
-    box = Box(root, up_rc=1)
-    s = dgpu48.measure(box, "pair-32k", tmp_path / "out", probe, environ={dgpu48.SWITCH: "1"}, say=lambda x: None,
-                       root=root)  # fmt: skip
-    assert not s["started"] and s["outcome"].startswith("DID NOT START")
-    assert "unhealthy" in s["start_error"]
+    box = Box(root)
+    _measure(box, root, probe, tmp_path / "out")
+    assert box.streamed == [["docker", "pull", ep.pinned_ref()]]
+    assert box.index("docker", "pull") < box.index("compose", " up ")
+    box = Box(root, present=True)
+    _measure(box, root, probe, tmp_path / "out2")
+    assert box.streamed == []
+    box = Box(root, pull_rc=1)
+    s = _measure(box, root, probe, tmp_path / "out3")
+    assert s["outcome"].startswith("ENGINE IMAGE NOT DOWNLOADED") and not box.composed("up")
+
+
+def test_the_run_file_has_no_restart_and_the_probes_library_path(tmp_path: Path) -> None:
+    """Review of #1100, items 3 and 4."""
+    lib = "/usr/local/cuda/compat:/usr/local/nvidia/lib64"
+    root, probe = _machine(tmp_path, {"verdict": {"answer": "pass", "use": "pinned+libs",
+                                                  "env": {"LD_LIBRARY_PATH": lib}}})  # fmt: skip
+    box = Box(root)
+    _measure(box, root, probe, tmp_path / "out")
+    body = yaml.safe_load((tmp_path / "out/dgpu48-run.yml").read_text(encoding="utf-8"))
+    for svc in ("llm-service", "llm-verifier"):
+        assert body["services"][svc]["restart"] == "no"
+        assert body["services"][svc]["environment"] == {"LD_LIBRARY_PATH": lib}
+    assert not any(c[:3] == ["docker", "image", "inspect"] and "--format" in c for c, _ in box.calls)
+
+
+@pytest.mark.parametrize(
+    ("state", "log", "said"),
+    [
+        ("exited|0||true", "", "OUT OF HOST MEMORY"),
+        ("exited|0||false", "torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB",
+         "OUT OF CARD MEMORY"),
+        ("exited|0||false", "ValueError: unsupported quantization scheme", "FAILED TO LOAD"),
+        ("running|0|starting|false", "", "DID NOT START IN TIME"),
+    ],
+)  # fmt: skip
+def test_a_start_that_fails_is_told_apart_and_everything_is_stopped(tmp_path: Path, state: str, log: str,
+                                                                    said: str) -> None:  # fmt: skip
+    root, probe = _machine(tmp_path)
+    box = Box(root, up_rc=1, state=state, log=log)
+    s = _measure(box, root, probe, tmp_path / "out")
+    assert not s["started"] and s["outcome"].startswith(said), s["outcome"]
     assert not any("capture" in c for c, _ in box.calls)
-    assert any(c[:2] == ["docker", "compose"] and "rm" in c for c, _ in box.calls)
+    assert box.index("compose", " rm ") > box.index("compose", " up ")
+    assert s["host_peak_mib"]  # host memory sampled while the servers loaded, kept when they failed
+    assert json.loads((tmp_path / "out/measure.pair-32k.json").read_text(encoding="utf-8"))["outcome"] == s["outcome"]
+
+
+def test_ctrl_c_stops_the_servers_and_writes_the_summary(tmp_path: Path) -> None:
+    """Review of #1100, item 4."""
+    root, probe = _machine(tmp_path)
+    box = Box(root, interrupt_at="tools.canary")
+    s = _measure(box, root, probe, tmp_path / "out")
+    assert s["interrupted"] and s["stopped"] and box.composed("rm")
+    assert (tmp_path / "out/measure.pair-32k.json").is_file()
+    assert "INTERRUPTED" in s["outcome"]
+
+
+def test_memory_the_desktop_holds_is_taken_off_the_prediction(tmp_path: Path) -> None:
+    root, probe = _machine(tmp_path)
+    s = _measure(Box(root, baseline=1200), root, probe, tmp_path / "out")
+    assert s["card"]["display_active"] == "Enabled" and s["card"]["baseline_used_mib"] == 1200
+    # vLLM's fractions are of the whole card: what the desktop holds comes off the spare, all of it
+    assert s["predicted"]["card_mib"] == 49140 and s["predicted"]["spare_mib"] == 4012 - 1200
 
 
 @pytest.mark.parametrize(
@@ -368,8 +513,7 @@ def test_the_wrong_machine_or_a_running_box_is_refused(tmp_path: Path, change: d
     root, probe = _machine(tmp_path)
     box = Box(root, **change)
     with pytest.raises(dgpu48.Refused, match=said):
-        dgpu48.measure(box, "pair-32k", tmp_path / "out", probe, environ={dgpu48.SWITCH: "1"}, say=lambda x: None,
-                       root=root)  # fmt: skip
+        _measure(box, root, probe, tmp_path / "out")
     assert not any(c[:2] == ["docker", "compose"] for c, _ in box.calls)
 
 
@@ -377,24 +521,27 @@ def test_missing_weights_are_refused(tmp_path: Path) -> None:
     root, probe = _machine(tmp_path)
     (root / "deploy/models/qwen3.5-9b-4bit/config.json").unlink()
     with pytest.raises(dgpu48.Refused, match="no verifier weights"):
-        dgpu48.measure(Box(root), "pair-32k", tmp_path / "out", probe, environ={dgpu48.SWITCH: "1"},
-                       say=lambda x: None, root=root)  # fmt: skip
-    # the judge alone does not need the verifier's folder
-    s = dgpu48.measure(Box(root), "judge-alone", tmp_path / "out", probe, environ={dgpu48.SWITCH: "1"},
-                       say=lambda x: None, root=root)  # fmt: skip
+        _measure(Box(root), root, probe, tmp_path / "out")
+    s = _measure(Box(root), root, probe, tmp_path / "out", "judge-alone")
     assert s["started"]
 
 
-def test_the_libs_first_form_writes_its_own_override_outside_the_checkout(tmp_path: Path) -> None:
-    def run(cmd: list[str], timeout: int, env: dict[str, str] | None = None) -> tuple[int, str, str]:
-        return 0, json.dumps(["PATH=/usr/bin", "LD_LIBRARY_PATH=/usr/local/nvidia/lib64"]), ""
-
-    f = dgpu48.libs_override(run, "img", tmp_path)
-    body = yaml.safe_load(f.read_text(encoding="utf-8"))
-    for svc in ("llm-service", "llm-verifier"):
-        assert (
-            body["services"][svc]["environment"]["LD_LIBRARY_PATH"] == "/usr/local/cuda/compat:/usr/local/nvidia/lib64"
-        )
+def test_error_text_in_the_files_is_scrubbed_of_this_machine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review of #1100, item 9: the measuring run's own error text (start error, log tail) names no host or user."""
+    monkeypatch.setattr("platform.node", lambda: "igx-lab-07")
+    monkeypatch.setenv("USER", "owner1")
+    root, probe = _machine(tmp_path)
+    box = Box(
+        root,
+        up_rc=1,
+        state="exited|0||false",
+        log="RuntimeError at host igx-lab-07 for owner1, bus 00000000:01:00.0, Serial Number 1423919000123",
+    )
+    s = _measure(box, root, probe, tmp_path / "out")
+    text = (tmp_path / "out/measure.pair-32k.json").read_text(encoding="utf-8")
+    for leak in ("igx-lab-07", "owner1", "01:00.0", "1423919000123"):
+        assert leak not in text, leak
+    assert s["outcome"].startswith("FAILED TO LOAD")
 
 
 def test_host_memory_text_is_read() -> None:

@@ -52,16 +52,18 @@ Not verified on any Arm machine. Page 29 (step 4) runs it after the engine probe
 
 | # | Step | Type or click | You should see | If not |
 | --- | --- | --- | --- | --- |
-| E1 | A tool to download | `python3 -m venv ~/hf && ~/hf/bin/pip install -U huggingface_hub` | no error | send the last lines |
+| E1 | A tool to download, at the version this page was written against | `python3 -m venv ~/hf && ~/hf/bin/pip install "huggingface_hub==2.4.0"` | no error | send the last lines |
 | E2 | The source and revision the release pins (read from the registry, so nothing is typed by hand) | `REPO=$(python3 -c "import yaml; print(next(b['repository'] for b in yaml.safe_load(open('models/registry.yaml'))['builds'] if b['build_id'] == 'e-embed-1'))")`; `REV=$(python3 -c "import yaml; print(next(b['revision'] for b in yaml.safe_load(open('models/registry.yaml'))['builds'] if b['build_id'] == 'e-embed-1'))")`; `echo $REPO $REV` | a repository name and `7b44caba5c06fd6f1ef1d2786261e636c38e4295` | send it |
-| E3 | Download into a folder of its own, without the three pickle files | `~/hf/bin/hf download "$REPO" --revision "$REV" --local-dir deploy/models/embedder.download --exclude pytorch_model.bin colbert_linear.pt sparse_linear.pt`; then `rm -rf deploy/models/embedder.download/.cache` | the files arrive (2.3 GB) | a network error: run it again (it continues) |
-| E4 | Check it is the pinned build before it goes in place | `docker run --rm -v "$PWD/deploy/models/embedder.download:/m:ro" trialbox-py:1.0.0 python -m tools.pin_model --build e-embed-1 --model-dir /m --endpoint embed --served-name e-embed-1 --out /tmp/check.yaml` | `pinned e-embed-1: sha256 e131f3203849…` (18 files) | any other line: send it, and do not go on |
-| E5 | Put it in place | `mv deploy/models/embedder.download deploy/models/embedder` | – | – |
-| E6 | Start with it | `deploy/poc.sh down`; then `TB_POC_EMBED=model deploy/poc.sh` | "embedder check", "building the embedder image", "pinning the embedder", and at the end "TrialBox POC (stub model, model embedder)" | "the synthetic lake was embedded with the hash embedder": the data of step 7 were made with the stand-in; `deploy/poc.sh reset` (deletes the PoC data), then E6 again. Anything else: send the `poc:` line |
+| E3 | See what will come, without downloading: one `--exclude` per file (with one `--exclude` and three names the tool downloads only the three names) | `~/hf/bin/hf download "$REPO" --revision "$REV" --local-dir deploy/models/embedder.download --exclude pytorch_model.bin --exclude colbert_linear.pt --exclude sparse_linear.pt --dry-run` | "Will download 20 files … 2.3G": `model.safetensors` (2.3G), `tokenizer.json`, `config.json` and the other small files, and no `pytorch_model.bin`, `colbert_linear.pt`, `sparse_linear.pt` or `onnx/` (two of the 20 are hidden files, `.gitattributes` and `imgs/.DS_Store`, which the check in E5 leaves out: it counts 18) | anything else: send it, and do not go on |
+| E4 | Download | the same command without `--dry-run`; then `rm -rf deploy/models/embedder.download/.cache` | the files arrive (2.3 GB; 5 to 30 minutes) | a network error: run it again (it continues) |
+| E5 | Check it is the pinned build before it goes in place | `docker run --rm -v "$PWD/deploy/models/embedder.download:/m:ro" trialbox-py:1.0.0 python -m tools.pin_model --build e-embed-1 --model-dir /m --endpoint embed --served-name e-embed-1 --out /tmp/check.yaml` | `pinned e-embed-1: sha256 e131f3203849…` (18 files) | any other line: send it, and do not go on |
+| E6 | Put it in place | `mv deploy/models/embedder.download deploy/models/embedder` | – | – |
+| E7 | Start again from nothing, once. Step 7 made the synthetic data with the stand-in embedder, and the real one cannot read it. `deploy/poc.sh reset` **deletes all the data of this proof of concept**: the synthetic hospital's database and lake, the test mailboxes, the console's accounts and the admin password. All of it is synthetic and is made again by the next start. It keeps `deploy/.env`, the images and the weights. Type it only if you agree | `deploy/poc.sh reset` | the containers and their volumes are removed | – |
+| E8 | Start with it | `TB_POC_EMBED=model deploy/poc.sh` | "embedder check", "building the embedder image", "pinning the embedder", **a new admin password, shown once: write it down**, and at the end "TrialBox POC (stub model, model embedder)" | "the synthetic lake was embedded with the hash embedder": E7 was skipped. Anything else: send the `poc:` line |
 
 The choice is kept in `deploy/.env` (`TB_POC_EMBED=model`): a later plain `deploy/poc.sh` keeps the real embedder. To
 go back, `deploy/poc.sh reset` and then `TB_POC_EMBED=hash deploy/poc.sh`. This manual download is replaced by the
-weights command of card W-1 once it is on master.
+weights command of card W-1 (pull request #1085) once it is on master.
 
 ## Only when we ask: the engine probe (no model)
 

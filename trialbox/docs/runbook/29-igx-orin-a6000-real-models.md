@@ -9,41 +9,70 @@ can run on this machine, and if they can, leaves a measured record. Why each ste
 with stand-ins for Docker and the card. Expect a surprise or two, and send every output. Synthetic data only: no
 patient record goes on this machine. Nothing here changes the NVIDIA driver; never install another driver on it.
 
-**What it decides.** Three questions, in this order, each stopping the page when the answer is no:
+**What it decides.** Three questions, in this order:
 
 1. Does the model engine compute on this card with driver 535 at all (step 2, about 1 hour, no model)?
 2. Does the real embedder run beside the stub (step 4; independent of 1, worth doing either way)?
-3. Do the pinned judge and verifier load and answer on this card (step 6, only when 1 said yes)?
+3. Do the pinned judge and verifier load and answer on this card, and within how much host memory (steps 6 and 7,
+   only when 1 said yes)?
 
 **What it does not do:** make this machine a supported box. A record from step 6 is the material for a later
 change; until then `deploy/install.sh` and `deploy/poc.sh` refuse the 48 GB draft profile (`dgpu48`), whatever is
 set.
 
 **Nothing you send identifies the machine.** The files below hold the card's model, its memory, the driver, the
-architecture and the results; the scripts leave out the host name, serials and device IDs, addresses, user names and
-any key. Look at each file before you send it (`cat <file>`); if you see something that names the machine or you,
+architecture and the results; the scripts leave out the host name, user name, serials, device and bus IDs, addresses
+and any key. Look at each file before you send it (`cat <file>`); if you see something that names the machine or you,
 remove it.
+
+## Two limits to know first
+
+**Host memory: even a run that works cannot become a box for this machine as things stand.** The draft profile caps
+each model server at 32 GiB of host memory (the repository's floor for a model server), 64 GiB for the two. On this
+machine's 53 GiB the box planner refuses that: it needs **at least 63.9 GiB** with every service at half its usual
+memory, and 123.9 GiB with none shrunk. The developer kit's memory cannot be extended. So step 7 runs a second option,
+`pair-32k-host53`: the same settings on the card, with the model servers capped at 12 and 10 GiB, the most a 53 GiB
+machine can give them beside the rest of the box. What it costs: every other service would run at half its usual
+memory cap (never measured there), and the planner would need a change to hold the model servers' caps instead of
+shrinking them with the rest (a later card). If a model server cannot live within those caps, the measuring run says
+"OUT OF HOST MEMORY", and the answer is that this machine cannot run the real models as a box.
+
+**The card may also drive your screen.** The arithmetic below counts the whole 49,140 MiB for the models. If the A6000
+also drives the desktop, the desktop's share comes off the spare (the models' fractions are of the whole card, and the
+engine refuses to start when less is free). Check before step 6:
+
+`nvidia-smi --query-gpu=display_active,memory.used --format=csv`
+
+`Disabled` and a small number (under about 100 MiB): nothing to do. `Enabled`, or a few hundred MiB or more used
+before anything runs: the measuring run takes it off its prediction and records it, but with under about 1,000 MiB
+left spare the first option may not start. Then run step 6 without the desktop: from another computer over `ssh`, or
+from a text console (Ctrl+Alt+F3), type `sudo systemctl isolate multi-user.target` (the desktop closes), run the step,
+then `sudo systemctl isolate graphical.target` to get the desktop back.
 
 ## The page
 
 | # | Step | Type | Time, disk | You should see | Then |
 | --- | --- | --- | --- | --- | --- |
 | 0 | The version | `cd ~/Auto-GPT/trialbox`; `git fetch`; `git checkout <the tag we send>`; `conda deactivate` until the prompt has no `(base)` | minutes | "HEAD is now at …"; `which python3` prints `/usr/bin/python3` | – |
-| 1 | Free the disk (below) | `df -h /` | – | at least **35 GB** free for steps 2 to 4, at least **70 GB** for step 6 | less: free more first (below); step 2 refuses to download with under 30 GB free |
-| 2 | The engine probe | `python3 tools/engine_probe.py run --out ~/tb-engine-probe.json` | about 1 hour (two downloads of 10 to 12 GB, one at a time; each removed after) | a table and a `verdict:` line (step 3) | send `~/tb-engine-probe.json` |
-| 3 | Read the table | `python3 tools/engine_probe.py show ~/tb-engine-probe.json` | – | see "Reading the probe" below | the verdict says whether step 6 is worth the disk |
-| 4 | Stub judge, real embedder | page 28, "Optional: the real embedder", rows E1 to E6 | 30 to 60 minutes; 2.3 GB of weights, about 2 GB of image | at the end "TrialBox POC (stub model, model embedder)" | send the lines from "embedder check" to the addresses, and `docker stats --no-stream` |
-| 5 | Only if step 3's verdict is not `none`: the two models' weights | page 27, "The weights": the judge's and the verifier's folders and the template, into `deploy/models` | 1 to 3 hours (about 28 GB) | the two folders and the template file | – |
-| 6 | Only if step 3's verdict is not `none`: the measuring run, first option | `deploy/poc.sh down`; then `TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure --option pair-32k --dry-run` (shows what it will do, starts nothing); then the same without `--dry-run` | 1 to 2 hours: the engine image (10 to 12 GB download, about 25 GB on disk) the first time, 5 to 35 minutes to load, a few minutes to hash the weights, 10 to 30 minutes of canary | an `outcome` line (below) | send the three files in `~/tb-dgpu48-pair-32k/` |
-| 7 | Only if step 6 said "DID NOT START": the next option | the same command with `--option pair-16k`, then `judge-alone`, then `verifier-alone`, stopping at the first that starts | about 1 hour each (the engine image is already there) | an `outcome` line | send each folder `~/tb-dgpu48-<option>/` |
-| 8 | Give the disk back | `docker image rm $(python3 -c "import json; e=json.load(open('deploy/images.lock'))['third_party']['vllm']; print(e['image'] + '@' + e['digest'])")`; `df -h /` | – | the engine image's 25 GB free again | then `deploy/poc.sh` for the stub box |
+| 1 | Free the disk (below) | `df -h /` | – | at least **35 GB** free for steps 2 to 4, at least **70 GB** for step 6 | less: free more first (below) |
+| 2 | The engine probe | `python3 tools/engine_probe.py run --out ~/tb-engine-probe.json` | up to about 1 hour (one or two downloads of 10 to 12 GB, one at a time, progress shown; each removed after) | a table, a `verdict:` line and one `next:` line | send `~/tb-engine-probe.json`; do what the `next:` line says |
+| 3 | Read it again any time | `python3 tools/engine_probe.py show ~/tb-engine-probe.json` | – | see "Reading the probe" below | – |
+| 4 | Stub judge, real embedder | page 28, "Optional: the real embedder", rows E1 to E8 (E7 deletes the synthetic data once: read it first) | 30 to 60 minutes; 2.3 GB of weights, about 2 GB of image | at the end "TrialBox POC (stub model, model embedder)" | send the lines from "embedder check" to the addresses, and `docker stats --no-stream` |
+| 5 | Only if the verdict is a form (not `none`, not `inconclusive`): the two models' weights | page 27, "The weights": the judge's and the verifier's folders and the template, into `deploy/models` | 1 to 3 hours (about 28 GB) | the two folders and the template file | – |
+| 6 | The same condition: the measuring run, first option | check the screen (above); `deploy/poc.sh down`; then `TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/dgpu48.py measure --option pair-32k --dry-run` (shows what it will do, starts nothing); then the same without `--dry-run` | 1 to 2 hours: the engine image download first (10 to 12 GB, about 25 GB on disk, progress shown), then 5 to 35 minutes of loading (a line a minute with the memory in use), a few minutes to hash the weights, 10 to 30 minutes of canary | an `outcome` line (below) | send the three files in `~/tb-dgpu48-pair-32k/` |
+| 7 | If step 6 started: the 53 GiB question. If it did not: the next option | started: the same command with `--option pair-32k-host53`. Did not start: `--option pair-16k`, then `judge-alone`, then `verifier-alone`, stopping at the first that starts | about 1 hour each (the engine image is already there) | an `outcome` line | send each folder `~/tb-dgpu48-<option>/` |
+| 8 | Give the disk back | `docker image rm $(python3 -c "import json; e=json.load(open('deploy/images.lock'))['third_party']['vllm']; print(e['image'] + '@' + e['digest'])")`; if the verdict was `cu129`, also `docker image rm $(python3 -c "import tools.engine_probe as p; print(p.CU129)")`; then `df -h /` | – | about 25 GB free again | then `deploy/poc.sh` for the stub box |
+
+Every script stops cleanly on Ctrl-C: the probe removes its running check and the image it downloaded; the measuring
+run stops the model servers and writes what it measured so far. The model servers of a measuring run have no restart
+policy: they do not come back after a reboot.
 
 ## Freeing the disk (step 1)
 
 Your root disk had 91 GB free of 879 GB (90 % used). This page needs, at its largest step (6): the engine image about
 25 GB, the two models' weights about 28 GB, the real embedder about 4.5 GB with its image, and room to work: **about
 70 GB free**, on top of what page 28's stub box uses (about 12 GB). Step 2 alone needs about 30 GB (one engine image
-at a time).
+at a time) and checks it before it downloads anything.
 
 Safe to remove (each command shows first, then removes):
 
@@ -61,67 +90,79 @@ above), the checkout's `deploy/.env` (it holds the stub box's passwords), or `de
 second disk is still the better answer for any model work (review 24, section 3): put Docker's folder and
 `TB_MODELS_DIR` on it.
 
-## Reading the probe (step 3)
+## Reading the probe (step 2)
 
-The probe tries the engine four ways, each without a model, and asks it to see the card, run a small calculation on
-it and load its compiled kernels:
+Before any download the probe checks that Docker answers, that you may use it, that Docker has the NVIDIA runtime
+and that the disk has room. Then it tries the engine in up to four forms, each without a model, and asks it to see
+the card, run a small calculation on it and load its compiled kernels. It stops at the first form that passes:
 
 | Test | What it is |
 | --- | --- |
 | `pinned` | the engine image the release pins (`deploy/images.lock`), as it is: built for a newer driver (580) than yours |
 | `pinned+compat` | the same image with the vendor's CUDA compatibility switch on |
-| `pinned+libs` | the same image with its CUDA compatibility libraries put first by hand |
+| `pinned+libs` | the same image with its CUDA compatibility libraries put first by hand (the exact library path is recorded) |
 | `cu129` | the same engine release built for CUDA 12.9, `vllm/vllm-openai:v0.32.0-cu129@sha256:bc0445dac61accbf1c3b17fbb524a71eee0b1b32f55ba45952095e3be8991c3f`: **not pinned**; tag and digest read from the registry on 2026-11-18, **to be verified on the machine** (the probe records the digests Docker reports) |
 
 | Status | Meaning |
 | --- | --- |
 | `PASS` | the engine sees the card, a calculation runs on it, its compiled kernels load |
-| `PARTIAL` | the card is seen but a calculation or the kernels fail: the detail column says which |
+| `PARTIAL` | the card is seen but a calculation or the kernels fail |
 | `DRIVER` | the CUDA inside the image refuses driver 535 |
-| `NO-GPU` | Docker gave the container no card: the NVIDIA container runtime is missing or not set up (`docker info \| grep -i runtime` should name `nvidia`) |
-| `PULL-FAILED`, `DISK`, `ERROR` | no answer about the card: the download failed, too little disk, or the check stopped (the detail says why); fix and run step 2 again |
+| `NO-GPU`, `PULL-FAILED`, `DISK`, `ERROR`, `NOT-RUN` | no answer about the card: Docker gave no card, the download failed, too little disk, the check stopped, or it was not tried |
+| `SKIPPED` | not needed: an earlier form passed |
 
-**The verdict** is the first `PASS` in the order of the first table:
+**The verdict** is one of three, and the `next:` line under it is the one thing to do:
 
-- `pinned`, `pinned+compat` or `pinned+libs`: the pinned engine runs in that form. Step 6 uses it (it reads the
-  verdict from `~/tb-engine-probe.json`) and records the form with the result.
-- `cu129`: only the unpinned build runs. Step 6 can still run with it and says so in every file: a result is then
+- **A form** (`pinned`, `pinned+compat`, `pinned+libs` or `cu129`): the engine runs in that form. Steps 5 to 7 use
+  exactly that form; they read it from `~/tb-engine-probe.json`. `cu129` is not the pinned engine: a result with it is
   evidence for a later change of the engine (a model change: requalify first), not for this release.
-- `none`: no form of this engine release computes on this card with this driver. **Stop here** and send the file:
-  the real models cannot run on this machine with this release, and step 6 would only spend disk. Step 4 (the real
-  embedder) does not depend on it.
+- **`inconclusive`** (exit code 3): something on this machine stopped the probe before it reached the card (Docker,
+  its NVIDIA runtime, the network, the disk). This says nothing about the card. The `next:` line gives the one command
+  that fixes it; then run step 2 again.
+- **`none`** (exit code 1): every form reached the card and none computes on it with driver 535. **Stop here** and
+  send the file: the real models cannot run on this machine with this engine release. Step 4 (the real embedder) does
+  not depend on it.
 
 ## The measuring run (steps 6 and 7)
 
 `tools/dgpu48.py measure` starts only the two model servers (not the box), from the draft overlay
-`deploy/docker-compose.dgpu48.yml`, with the option's settings; records card memory and each server's host memory at
-their highest; takes the serving record with the same tool that took the 96 GB card's record; runs the pair canary
-(54 stored cases) when the judge is up; and stops the servers. It refuses, before anything starts, without
-`TB_UNMEASURED_DGPU48_MEASURING_RUN=1`, on a card that is not about 48 GB, while the box runs, without the weights,
-or when the probe found no form of the engine.
+`deploy/docker-compose.dgpu48.yml`, with the option's settings and exactly the engine form the probe passed. It
+downloads the engine image first, with its progress shown; records card memory and each server's host memory from the
+moment they start loading (also when they fail); takes the serving record with the same tool that took the 96 GB
+card's record; runs the pair canary (54 stored cases) when the judge is up; and stops the servers, also on a failure
+or Ctrl-C. It refuses, before anything starts, without `TB_UNMEASURED_DGPU48_MEASURING_RUN=1`, on a card that is not
+about 48 GB, while the box runs, without the weights, or when the probe's verdict was not a form.
 
 The options, in the order to try them (`python3 tools/dgpu48.py arith` prints the arithmetic, from the 96 GB card's
-figures; nobody knows yet how much more the judge needs on this card):
+figures; nobody knows yet how much more the judge needs on this card; "judge room" is its cache past one
+full-length request):
 
-| Option | What | Card memory used of 49,140 MiB (predicted) | Gives up |
-| --- | --- | --- | --- |
-| `pair-32k` | both models resident at 32k | 45,128 MiB, 4,012 spare | nothing of the product's rule |
-| `pair-16k` | both at 16k with more room | 40,214 MiB, 8,926 spare | protocol reading at 32k |
-| `judge-alone` | the judge alone at 32k | 42,482 MiB, 6,658 spare | a note answer never excludes (one model) |
-| `verifier-alone` | the verifier alone (a check of engine and card with a model) | 20,336 MiB | the judge: not a way to run the product |
+| Option | What | Card memory used of 49,140 MiB (predicted) | Judge room | Gives up |
+| --- | --- | --- | ---: | --- |
+| `pair-32k` | both models resident at 32k | 45,128 MiB, 4,012 spare | 5,564 MiB | nothing of the product's rule |
+| `pair-32k-host53` | the same, the model servers capped at 12 + 10 GiB of host memory | the same | 5,564 MiB | every other service at half its memory cap; needs a planner change |
+| `pair-16k` | both at 16k; the judge keeps its share, the verifier's is smaller | 42,179 MiB, 6,961 spare | 7,327 MiB | protocol reading at 32k; the verifier's margin is small |
+| `judge-alone` | the judge alone at 32k | 42,482 MiB, 6,658 spare | 16,866 MiB | a note answer never excludes (one model) |
+| `verifier-alone` | the verifier alone (a check of engine and card with a model) | 20,336 MiB | – | the judge: not a way to run the product |
 
-**The `outcome` line:**
+**The `outcome` line** says what happened, told apart by cause:
 
-- "STARTED, RECORD TAKEN, CANARY PASSED": the option runs on this card. Send the three files; that record is what a
-  later change turns into a profile.
+- "STARTED, RECORD TAKEN, CANARY PASSED": the option runs on this card. Send the three files.
 - "STARTED, CANARY FAILED": the servers run but the judge's answers differ from the stored cases. Send the files:
   this is the Ampere question of review 24 (the judge's 4-bit format is not native on this card).
-- "STARTED, RECORD INCOMPLETE" or "STARTED AFTER A RESTART": send the files.
-- "DID NOT START": send the files, then step 7 with the next option.
+- "OUT OF CARD MEMORY": a model did not fit the card with this option. Send the files; then the next option.
+- "OUT OF HOST MEMORY": a model server hit its host memory cap or the machine ran out. For `pair-32k-host53` this is
+  the answer to the 53 GiB question. Send the files.
+- "FAILED TO LOAD": a server stopped while loading; the end of its log is in the file. Send the files; then the next
+  option.
+- "DID NOT START IN TIME": still loading after 45 minutes with no error. Send the files; then the next option.
+- "ENGINE IMAGE NOT DOWNLOADED": check the network and the disk, then run the same command again.
+- "STARTED, RECORD INCOMPLETE", "STARTED AFTER A RESTART", "INTERRUPTED": send the files.
 
-**What to send** from each `~/tb-dgpu48-<option>/`: `measure.<option>.json` (the summary: settings, engine form,
-start time, memory peaks, the engine's own cache figures, the canary's counts), `serving_config.dgpu48.<option>.json`
-(the record: the same fields as the 96 GB card's, host name and device ID withheld) and `canary.<option>.json`.
+**What to send** from each `~/tb-dgpu48-<option>/`: `measure.<option>.json` (the summary: settings, engine form, what
+the card held before, start time, memory peaks on the card and in the host, the engine's own cache figures, the
+canary's counts), `serving_config.dgpu48.<option>.json` (the record: the same fields as the 96 GB card's, host name
+and device ID withheld) and `canary.<option>.json`.
 
 ## What this page does not verify
 

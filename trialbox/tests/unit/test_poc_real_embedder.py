@@ -128,6 +128,8 @@ def test_a_folder_the_pin_refuses_stops_the_start(tmp_path: Path) -> None:
     assert res.returncode == 1, res.stdout
     assert "the embedder could not be pinned" in res.stderr and "not the pinned build e-embed-1" in res.stderr
     assert not any(" up -d " in f" {line} " for line in log)
+    # review of #1100, item 10: a failed pin leaves no kept choice behind (a later plain start stays on the hash one)
+    assert "TB_POC_EMBED" not in (root / "deploy/.env").read_text(encoding="utf-8")
 
 
 def test_gpu_mode_and_a_bad_word_are_refused(tmp_path: Path) -> None:
@@ -180,3 +182,19 @@ def test_the_start_refuses_what_the_embed_service_refuses() -> None:
     text = (ROOT / "deploy/poc.sh").read_text(encoding="utf-8")
     for suffix in REFUSED_SUFFIXES:
         assert f"-iname '*{suffix}'" in text, suffix
+
+
+def test_the_manual_download_excludes_each_pickle_file_with_its_own_flag() -> None:
+    """Review of #1100, item 2: `--exclude a b c` is read by the download tool as "download b and c" (it ignores the
+    exclude once file names are given); one `--exclude` per pattern, the tool at a pinned version."""
+    import re
+
+    page = (ROOT / "docs/runbook/28-igx-orin-a6000-without-a-model.md").read_text(encoding="utf-8")
+    downloads = [ln for ln in page.splitlines() if "hf download" in ln]
+    assert downloads
+    for ln in downloads:
+        for name in ("pytorch_model.bin", "colbert_linear.pt", "sparse_linear.pt"):
+            assert f"--exclude {name}" in ln, name
+        assert not re.search(r"--exclude [^ -][^ ]* [^ -]", ln.replace("`", " ")), ln
+    assert 'pip install "huggingface_hub==2.4.0"' in page
+    assert "--dry-run" in page and "18" in page

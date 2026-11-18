@@ -140,7 +140,7 @@ File: [runbook/28-igx-orin-a6000-without-a-model.md](runbook/28-igx-orin-a6000-w
 
 ## 29. An IGX Orin developer kit with an RTX A6000: do the real models run?
 
-File: [runbook/29-igx-orin-a6000-real-models.md](runbook/29-igx-orin-a6000-real-models.md). In it: [The page](runbook/29-igx-orin-a6000-real-models.md#the-page), [Freeing the disk (step 1)](runbook/29-igx-orin-a6000-real-models.md#freeing-the-disk-step-1), [Reading the probe (step 3)](runbook/29-igx-orin-a6000-real-models.md#reading-the-probe-step-3), [The measuring run (steps 6 and 7)](runbook/29-igx-orin-a6000-real-models.md#the-measuring-run-steps-6-and-7), [What this page does not verify](runbook/29-igx-orin-a6000-real-models.md#what-this-page-does-not-verify).
+File: [runbook/29-igx-orin-a6000-real-models.md](runbook/29-igx-orin-a6000-real-models.md). In it: [Two limits to know first](runbook/29-igx-orin-a6000-real-models.md#two-limits-to-know-first), [The page](runbook/29-igx-orin-a6000-real-models.md#the-page), [Freeing the disk (step 1)](runbook/29-igx-orin-a6000-real-models.md#freeing-the-disk-step-1), [Reading the probe (step 2)](runbook/29-igx-orin-a6000-real-models.md#reading-the-probe-step-2), [The measuring run (steps 6 and 7)](runbook/29-igx-orin-a6000-real-models.md#the-measuring-run-steps-6-and-7), [What this page does not verify](runbook/29-igx-orin-a6000-real-models.md#what-this-page-does-not-verify).
 
 <!-- end of the generated index -->
 

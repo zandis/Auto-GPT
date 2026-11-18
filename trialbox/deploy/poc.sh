@@ -225,11 +225,6 @@ if ! grep -q '^TB_SERVICE_TOKEN=' deploy/.env || grep -q '^TB_SERVICE_TOKEN=chan
   sed -i.bak '/^TB_SERVICE_TOKEN=/d' deploy/.env && rm -f deploy/.env.bak
   printf 'TB_SERVICE_TOKEN=%s\n' "$(rand 32)" >> deploy/.env
 fi
-# card 24-7: the embedder choice is kept for every later start (a lake embedded by the model is never read with the
-# hash embedder); hash is the default and is written only once model was kept
-if [ "$EMBED" = model ] || [ -n "$(envfile_get TB_POC_EMBED)" ]; then
-  [ "$(envfile_get TB_POC_EMBED)" = "$EMBED" ] || { envfile_set TB_POC_EMBED "$EMBED"; ok "the embedder choice ($EMBED) is kept in deploy/.env (TB_POC_EMBED)"; }
-fi
 if [ ! -s .cache/test-secrets/site_hmac.key ]; then  # pseudonymisation key of the synthetic site (test overlay mount)
   install -d -m 0777 .cache/test-secrets
   rand 48 > .cache/test-secrets/site_hmac.key && chmod 0644 .cache/test-secrets/site_hmac.key
@@ -308,6 +303,11 @@ if [ "$EMBED" = model ]; then
     python -m tools.pin_model --verify --build "$EMBED_BUILD" --model-dir "/m/${EMBED_DIR##*/}" --out "/d/${SITE_E#deploy/}/registry.site.yaml" \
     || { alive_stop; die "TB_POC_EMBED=model: $EMBED_DIR differs from its pin (above): put the pinned build back, or delete deploy/${SITE_E#deploy/}/registry.site.yaml and pin again"; }
   alive_stop
+fi
+# card 24-7: the embedder choice is kept for every later start (a lake embedded by the model is never read with the
+# hash embedder), and only once the pin above passed; hash is the default and is written only once model was kept
+if [ "$EMBED" = model ] || [ -n "$(envfile_get TB_POC_EMBED)" ]; then
+  [ "$(envfile_get TB_POC_EMBED)" = "$EMBED" ] || { envfile_set TB_POC_EMBED "$EMBED"; ok "the embedder choice ($EMBED) is kept in deploy/.env (TB_POC_EMBED)"; }
 fi
 
 # ------------------------------------------------------------------------------------------------ up

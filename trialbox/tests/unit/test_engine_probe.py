@@ -90,6 +90,7 @@ def test_the_verdict_takes_the_first_form_that_runs(statuses: dict[str, str], us
     v = ep.verdict(_results(**statuses))
     assert v["use"] == use
     assert v["pinned_engine"] is pinned
+    assert v["answer"] == ("pass" if use else "none")
     if use is None:
         assert "Stop here" in v["next"]
     if use == "cu129":
@@ -102,6 +103,41 @@ def test_a_partial_result_is_said_in_the_verdict() -> None:
     assert "pinned: the card is seen but a kernel fails" in ep.verdict(_results(pinned="PARTIAL"))["next"]
 
 
+@pytest.mark.parametrize(
+    ("status", "error", "fix"),
+    [
+        ("NO-GPU", "", "nvidia-ctk runtime configure"),
+        ("PULL-FAILED", "dial tcp: i/o timeout", "curl -sI https://registry-1.docker.io/v2/"),
+        ("PULL-FAILED", "no matching manifest for linux/arm64/v8", "send the file"),
+        ("DISK", "12 GB free", "runbook §29 step 1"),
+        ("ERROR", "timed out after 900 s", "run step 2 again once"),
+        ("NOT-RUN", "", "without --only"),
+    ],
+)
+def test_a_failure_that_never_reached_the_card_is_inconclusive_not_none(status: str, error: str, fix: str) -> None:
+    """Review of #1100, blocker 1: no docker, no runtime, a failed pull or a full disk is not 'the models cannot run'."""
+    results = _results(cu129=status)
+    results[-1]["error"] = error
+    v = ep.verdict(results)
+    assert v["answer"] == "inconclusive" and v["use"] is None
+    assert fix in v["fix"] and fix in v["next"]
+    assert "Stop here" not in v["next"] and "run step 2 again" in v["next"]
+
+
+def test_a_preflight_block_is_inconclusive_with_its_fix() -> None:
+    results = [{"name": t["name"], "status": "NOT-RUN"} for t in ep.TESTS]
+    v = ep.verdict(results, ("Docker has no NVIDIA runtime", ep.FIX_RUNTIME))
+    assert v["answer"] == "inconclusive" and ep.FIX_RUNTIME in v["next"] and ep.RERUN in v["next"]
+
+
+def test_the_libs_variant_records_the_library_path_it_ran_with() -> None:
+    """Review of #1100, blocker 3: the measuring run must use exactly what passed."""
+    results = _results(pinned_libs="PASS")
+    results[2]["probe"] = {**GOOD, "ld_library_path": "/usr/local/cuda/compat:/usr/local/nvidia/lib64:"}
+    v = ep.verdict(results)
+    assert v["env"] == {"LD_LIBRARY_PATH": "/usr/local/cuda/compat:/usr/local/nvidia/lib64"}
+
+
 # ------------------------------------------------------------------------------------------------ the run
 PULL_ERR = "Get https://registry-1.docker.io/v2/: dial tcp 10.0.0.7:443: i/o timeout"
 PINNED = "vllm/vllm-openai:v0.32.0@sha256:" + "be" * 32
@@ -111,23 +147,33 @@ class Fake:
     """Answers the probe's commands; ``outcomes`` maps a test name to (rc, stdout, stderr) of its check."""
 
     def __init__(self, outcomes: dict[str, tuple[int, str, str]], free_kb: int = 200 * 1048576,
-                 present: tuple[str, ...] = (), pull_rc: int = 0) -> None:  # fmt: skip
+                 present: tuple[str, ...] = (), pull_rc: int = 0, docker_rc: int = 0, docker_err: str = "",
+                 runtimes: str = '{"nvidia":{"path":"nvidia-container-runtime"},"runc":{}}', rm_rc: int = 0,
+                 interrupt_on: str = "") -> None:  # fmt: skip
         self.calls: list[list[str]] = []
+        self.streamed: list[list[str]] = []
         self.outcomes, self.free_kb, self.present, self.pull_rc = outcomes, free_kb, set(present), pull_rc
+        self.docker_rc, self.docker_err, self.runtimes, self.rm_rc = docker_rc, docker_err, runtimes, rm_rc
+        self.interrupt_on = interrupt_on
         self.pulled: set[str] = set()
 
-    def __call__(self, cmd: list[str], timeout: int) -> tuple[int, str, str]:
+    def __call__(self, cmd: list[str], timeout: int, stream: bool = False) -> tuple[int, str, str]:
         self.calls.append(cmd)
+        if stream:
+            self.streamed.append(cmd)
         if cmd[0] == "nvidia-smi":
+            if cmd[1] == "-L":
+                return 0, "GPU 0: NVIDIA RTX A6000 (UUID: GPU-5f3c2a1b-77aa-4d2e-9b10-0123456789ab)\n", ""
+            if "display_active" in cmd[1]:
+                return 0, "Enabled, 412\n", ""
             return 0, "NVIDIA RTX A6000, 49140, 535.183.01, 8.6\n", ""
         if cmd[0] == "df":
             return 0, f"Filesystem 1024-blocks Used Available Capacity Mounted\n/dev/x 9 9 {self.free_kb} 90% /\n", ""
         sub = cmd[1:3]
         if sub == ["version", "--format"]:
-            return 0, "27.3.1\n", ""
+            return (0, "27.3.1\n", "") if self.docker_rc == 0 else (self.docker_rc, "", self.docker_err)
         if sub == ["info", "--format"]:
-            return 0, ('{"nvidia":{"path":"nvidia-container-runtime"},"runc":{}}' if "Runtimes" in cmd[3]
-                       else "/var/lib/docker\n"), ""  # fmt: skip
+            return 0, (self.runtimes if "Runtimes" in cmd[3] else "/var/lib/docker\n"), ""
         if cmd[1] == "pull":
             self.pulled.add(cmd[2])
             return self.pull_rc, "", "" if self.pull_rc == 0 else PULL_ERR
@@ -137,6 +183,8 @@ class Fake:
                 return 0, json.dumps([ref.replace(":v0.32.0", "").replace(":v0.32.0-cu129", "")]) + "|24500000000\n", ""
             return (0 if ref in self.present or ref in self.pulled else 1), "", ""
         if sub == ["image", "rm"]:
+            return self.rm_rc, "", "" if self.rm_rc == 0 else "Error: image is being used by a stopped container"
+        if sub == ["rm", "-f"]:
             return 0, "", ""
         if cmd[1] == "run":
             env = " ".join(cmd)
@@ -144,93 +192,156 @@ class Fake:
             name = ("cu129" if ref == ep.CU129 else
                     "pinned+compat" if "VLLM_ENABLE_CUDA_COMPATIBILITY=1" in env else
                     "pinned+libs" if "LD_LIBRARY_PATH=" in cmd[-1] else "pinned")  # fmt: skip
+            if name == self.interrupt_on:
+                raise KeyboardInterrupt
             return self.outcomes.get(name, (0, line({"available": False, "vllm": "0.32.0"}), DRIVER_SAYS))
         raise AssertionError(f"unexpected command {cmd}")
 
 
 def _probe(fake: Fake, **kw: Any) -> dict[str, Any]:
-    return ep.probe(fake, pinned=PINNED, hostname="igx-lab-07", say=lambda s: None, **kw)
+    return ep.probe(fake, pinned=PINNED, hostname="igx-lab-07", say=lambda s: None, names=["owner1"], **kw)
+
+
+def _pulls(fake: Fake) -> list[str]:
+    return [c[2] for c in fake.calls if c[:2] == ["docker", "pull"]]
 
 
 def test_one_image_at_a_time_each_removed_before_the_next_pull() -> None:
-    fake = Fake({"pinned+compat": (0, line(GOOD), "")})
+    fake = Fake({"cu129": (0, line(GOOD), "")})
     rec = _probe(fake)
     order = [(c[1], c[-1]) for c in fake.calls if c[0] == "docker" and c[1] in ("pull", "image") and
              (c[1] == "pull" or c[2] == "rm")]  # fmt: skip
     assert order == [("pull", PINNED), ("image", PINNED), ("pull", ep.CU129), ("image", ep.CU129)]
+    assert fake.streamed == [["docker", "pull", PINNED], ["docker", "pull", ep.CU129]]  # progress is shown
     runs = [c for c in fake.calls if c[1] == "run"]
-    assert len(runs) == 4 and all("--network" in c and "none" in c and "--gpus" in c for c in runs)
-    assert [t["status"] for t in rec["tests"]] == ["DRIVER", "PASS", "DRIVER", "DRIVER"]
-    assert rec["verdict"]["use"] == "pinned+compat"
+    assert len(runs) == 4 and all("--network" in c and "none" in c and "--gpus" in c and "--name" in c for c in runs)
+    assert [t["status"] for t in rec["tests"]] == ["DRIVER", "DRIVER", "DRIVER", "PASS"]
+    assert rec["verdict"]["use"] == "cu129"
     assert rec["images"]["pinned"]["removed"] and rec["images"]["cu129"]["removed"]
-    assert rec["host"] == {"arch": rec["host"]["arch"], "card": "NVIDIA RTX A6000", "memory_total_mib": 49140,
-                           "driver": "535.183.01", "compute_cap": "8.6", "docker": "27.3.1",
-                           "nvidia_runtime": True, "free_gb_before": 200.0}  # fmt: skip
+    assert rec["host"]["display_active"] == "Enabled" and rec["host"]["memory_used_mib"] == 412
+    assert rec["host"]["card"] == "NVIDIA RTX A6000" and rec["host"]["driver"] == "535.183.01"
+
+
+def test_after_a_pinned_pass_nothing_more_is_tried_or_pulled() -> None:
+    """Review of #1100, blocker 1: a pinned pass is the answer; the second image is never pulled."""
+    fake = Fake({"pinned": (0, line(GOOD), "")})
+    rec = _probe(fake)
+    assert _pulls(fake) == [PINNED]
+    assert len([c for c in fake.calls if c[1] == "run"]) == 1
+    assert [t["status"] for t in rec["tests"]] == ["PASS", "SKIPPED", "SKIPPED", "SKIPPED"]
+    assert rec["verdict"]["use"] == "pinned" and ep.EXIT[rec["verdict"]["answer"]] == 0
+
+
+@pytest.mark.parametrize(
+    ("change", "fix"),
+    [
+        ({"docker_rc": 1, "docker_err": "permission denied while trying to connect to the Docker daemon socket"},
+         "usermod -aG docker"),
+        ({"docker_rc": 1, "docker_err": "Cannot connect to the Docker daemon. Is the docker daemon running?"},
+         "systemctl start docker"),
+        ({"docker_rc": 127}, "install Docker Engine"),
+        ({"runtimes": '{"runc":{}}'}, "nvidia-ctk runtime configure"),
+        ({"free_kb": 12 * 1048576}, "runbook §29 step 1"),
+    ],
+)  # fmt: skip
+def test_nothing_is_downloaded_when_docker_the_runtime_or_the_disk_is_missing(change: dict[str, Any], fix: str) -> None:
+    """Review of #1100, blocker 1: checked before any pull, not after an hour of downloads; inconclusive, exit 3."""
+    fake = Fake({}, **change)
+    rec = _probe(fake)
+    assert _pulls(fake) == [] and not any(c[1] == "run" for c in fake.calls)
+    v = rec["verdict"]
+    assert v["answer"] == "inconclusive" and fix in v["next"] and ep.EXIT["inconclusive"] == 3
+    assert {t["status"] for t in rec["tests"]} == {"NOT-RUN"}
 
 
 def test_an_image_that_was_there_is_left_and_not_pulled() -> None:
     fake = Fake({"pinned": (0, line(GOOD), "")}, present=(PINNED,))
     rec = _probe(fake, only=["pinned"])
-    assert not any(c[1] == "pull" for c in fake.calls)
+    assert _pulls(fake) == []
     assert not any(c[1:3] == ["image", "rm"] for c in fake.calls)
     assert rec["verdict"]["use"] == "pinned"
-    assert [t["status"] for t in rec["tests"]] == ["PASS", "NOT-RUN", "NOT-RUN", "NOT-RUN"]
 
 
-def test_too_little_disk_pulls_nothing() -> None:
-    fake = Fake({}, free_kb=12 * 1048576)
-    rec = _probe(fake)
-    assert not any(c[1] == "pull" for c in fake.calls)
-    assert {t["status"] for t in rec["tests"]} == {"DISK"}
-    assert rec["verdict"]["use"] is None
-
-
-def test_a_failed_pull_is_said_and_scrubbed() -> None:
+def test_a_failed_pull_is_inconclusive_said_and_scrubbed() -> None:
     rec = _probe(Fake({}, pull_rc=1))
     assert {t["status"] for t in rec["tests"]} == {"PULL-FAILED"}
     assert all("10.0.0.7" not in t["error"] and "<address>" in t["error"] for t in rec["tests"])
+    assert rec["verdict"]["answer"] == "inconclusive" and "registry-1.docker.io" in rec["verdict"]["fix"]
 
 
-def test_the_result_file_names_no_host_serial_uuid_address_or_user(tmp_path: Path) -> None:
-    leaky = ("RuntimeError: CUDA error on GPU-5f3c2a1b-77aa-4d2e-9b10-0123456789ab at /home/someone/x, host igx-lab-07 "
-             "addr 192.168.1.20 fe80::1ff:fe23:4567:890a mac 00:1b:44:11:3a:b7 serial: 1324021012345 "
-             "driver too old")  # fmt: skip
+def test_a_removal_that_fails_is_not_recorded_as_removed() -> None:
+    """Review of #1100, item 7."""
+    rec = _probe(Fake({"pinned": (0, line(GOOD), "")}, rm_rc=1))
+    info = rec["images"]["pinned"]
+    assert info["removed"] is False and "being used" in info["remove_failed"]
+    assert f"docker image rm {PINNED}" in ep.table(rec)
+
+
+def test_a_timed_out_check_has_its_container_removed() -> None:
+    """Review of #1100, item 7: a timeout ends the docker client only; the container is removed by name."""
+    fake = Fake({"pinned": (124, "", "timed out after 900 s")})
+    rec = _probe(fake, only=["pinned"])
+    removed = [c for c in fake.calls if c[:3] == ["docker", "rm", "-f"]]
+    assert ["docker", "rm", "-f", "tb-engine-probe-pinned"] in removed
+    assert rec["tests"][0]["status"] == "ERROR" and rec["verdict"]["answer"] == "inconclusive"
+
+
+def test_ctrl_c_removes_the_container_and_the_image_and_says_so() -> None:
+    fake = Fake({}, interrupt_on="pinned+compat")
+    rec = _probe(fake)
+    assert rec["interrupted"] is True
+    assert ["docker", "rm", "-f", "tb-engine-probe-pinned-compat"] in fake.calls
+    assert ["docker", "image", "rm", PINNED] in fake.calls
+    assert ep.CU129 not in _pulls(fake)
+    assert rec["verdict"]["answer"] == "inconclusive"
+
+
+def test_the_result_file_names_no_host_serial_uuid_address_pci_or_user(tmp_path: Path) -> None:
+    leaky = ("RuntimeError: CUDA error on GPU-5f3c2a1b-77aa-4d2e-9b10-0123456789ab at /home/someone/x, at host "
+             "igx-lab-07 addr 192.168.1.20 fe80::1ff:fe23:4567:890a mac 00:1b:44:11:3a:b7 serial: 1324021012345 "
+             "Serial Number 1423919000123 bus 00000000:01:00.0 user owner1 driver too old")  # fmt: skip
     fake = Fake({"pinned": (1, "", leaky), "cu129": (0, line({**GOOD, "matmul": None, "matmul_error": leaky}), "")})
     rec = _probe(fake)
-    text = json.dumps(rec)
-    for secret in ("5f3c2a1b", "someone", "igx-lab-07", "192.168.1.20", "fe80", "00:1b:44", "1324021012345"):
-        assert secret not in json.dumps(rec["tests"]), secret
-    assert "igx-lab-07" not in text
+    tests = json.dumps(rec["tests"])
+    for secret in ("5f3c2a1b", "someone", "igx-lab-07", "192.168.1.20", "fe80", "00:1b:44", "1324021012345",
+                   "1423919000123", "01:00.0", "owner1"):  # fmt: skip
+        assert secret not in tests, secret
+    assert "igx-lab-07" not in json.dumps(rec)
     assert set(rec) == {"schema", "at", "host", "images", "tests", "verdict"}
-    # the check's own result keeps the card's model and its numbers, not the leaky error unscrubbed
     cu = next(t for t in rec["tests"] if t["name"] == "cu129")
     assert cu["status"] == "PARTIAL" and cu["probe"]["device"] == "NVIDIA RTX A6000"
 
 
 def test_scrub_keeps_what_says_what_failed() -> None:
-    s = ep.scrub("ImportError: libcuda.so.1: cannot open shared object file (CUDA 12.9, sm_86) at 12:34:56")
-    assert "libcuda.so.1" in s and "12.9" in s and "sm_86" in s and "12:34:56" in s
-    assert len(ep.scrub("x" * 5000)) == 400
+    s = ep.scrub("ImportError: libcuda.so.1: cannot open shared object file (CUDA 12.9, sm_86) at 12:34:56.7 on "
+                 "the host driver", names=[])  # fmt: skip
+    assert "libcuda.so.1" in s and "12.9" in s and "sm_86" in s and "12:34:56.7" in s and "host driver" in s
+    assert len(ep.scrub("x" * 5000, names=[])) == 400
 
 
-def test_the_table_reads_the_record() -> None:
+def test_the_table_and_the_verdict_give_one_next_action() -> None:
     rec = _probe(Fake({"pinned+compat": (0, line(GOOD), "")}))
     out = ep.table(rec)
     assert "NVIDIA RTX A6000" in out and "535.183.01" in out
     assert "pinned+compat   PASS" in out and "verdict: pinned+compat" in out
+    assert out.count("next:") == 1 and "Next:" not in out.split("verdict:")[0]
+    rec = _probe(Fake({}, runtimes="{}"))
+    out = ep.table(rec)
+    assert "verdict: inconclusive" in out and out.count("next:") == 1 and ep.FIX_RUNTIME in out
 
 
 def test_the_run_command_passes_the_check_and_the_switch() -> None:
     compat = next(t for t in ep.TESTS if t["name"] == "pinned+compat")
     cmd = ep.run_command(compat, PINNED, ["--gpus", "all"])
-    assert cmd[:6] == ["docker", "run", "--rm", "--network", "none", "--gpus"]
+    assert cmd[:5] == ["docker", "run", "--rm", "--name", "tb-engine-probe-pinned-compat"]
     assert "VLLM_ENABLE_CUDA_COMPATIBILITY=1" in cmd and "ENGINE_PROBE_PY" in cmd
     libs = next(t for t in ep.TESTS if t["name"] == "pinned+libs")
     assert ep.run_command(libs, PINNED, [])[-1].startswith("LD_LIBRARY_PATH=/usr/local/cuda/compat:")
 
 
-def test_the_check_itself_is_valid_python() -> None:
+def test_the_check_itself_is_valid_python_and_reports_its_library_path() -> None:
     compile(ep.PROBE_PY, "<probe>", "exec")
+    assert '"ld_library_path": os.environ.get("LD_LIBRARY_PATH", "")' in ep.PROBE_PY
 
 
 def test_the_pinned_image_is_the_lock_and_cu129_is_not_in_it() -> None:
@@ -247,10 +358,10 @@ def test_dry_run_and_show_run_with_a_bare_host_python(tmp_path: Path) -> None:
                          capture_output=True, text=True, check=False)  # fmt: skip
     assert res.returncode == 0, res.stderr
     assert "docker pull vllm/vllm-openai:v0.32.0@sha256:" in res.stdout and ep.CU129 in res.stdout
-    rec = _probe(Fake({"cu129": (0, line(GOOD), "")}))
-    f = tmp_path / "probe.json"
-    f.write_text(json.dumps(rec), encoding="utf-8")
-    res = subprocess.run([sys.executable, "-S", "-s", "tools/engine_probe.py", "show", str(f)], cwd=ROOT, env=env,
-                         capture_output=True, text=True, check=False)  # fmt: skip
-    assert res.returncode == 0 and "verdict: cu129" in res.stdout
+    for fake, code in ((Fake({"cu129": (0, line(GOOD), "")}), 0), (Fake({}), 1), (Fake({}, pull_rc=1), 3)):
+        f = tmp_path / "probe.json"
+        f.write_text(json.dumps(_probe(fake)), encoding="utf-8")
+        res = subprocess.run([sys.executable, "-S", "-s", "tools/engine_probe.py", "show", str(f)], cwd=ROOT, env=env,
+                             capture_output=True, text=True, check=False)  # fmt: skip
+        assert res.returncode == code, res.stdout
     assert ep.main(["run", "--only", "nonsense"]) == 2
