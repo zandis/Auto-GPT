@@ -15,8 +15,8 @@ the findings register).
   `stop` 2.8 s, `restore` 7.5 s, `migrate` 12.6 s, `start` 14.9 s, the health wait about 32 s. The backup took
   8.4 s (15.5 MB). The second scenario (below) restored in 136.4 s.
 - **Stores:** every store **equal** by D-1122: 115 of 134 tables of the trial database and 57 of 60 of the FHIR
-  store's byte-for-byte equal, every other table changed only as D-1122 names; every file of nine volumes equal; the
-  lake's three missing files are those the backup leaves out.
+  store's equal by row count and row hashes, every other table changed only as D-1122 names; every file of nine
+  volumes equal; the lake's three missing files are those the backup leaves out.
 - **The audit chain:** head `b6a85f56…` (279 lines) before, `5b53034b…` (282 lines) after: the same three files
   grown by the restore's own events; `tools/audit_verify.py` passes on the whole chain before and after.
 - **Opt-outs:** the one event is equal; the opted-out patient is still withheld (17 listed, not the patient).
@@ -25,7 +25,7 @@ the findings register).
 - **Sign-in:** all four roles sign in after the restore with their password and a fresh code. **But the sessions
   opened before the wipe still work after it** (H33-05).
 
-Ten findings: 2 High, 4 Medium, 4 Low, all lane D (the table at the end; `restore-drill-2026-11-18/findings.json` in
+Ten findings: 2 High, 5 Medium, 3 Low, all lane D (the table at the end; `restore-drill-2026-11-18/findings.json` in
 the register's `--add-from` form).
 
 ## Where it ran, and what "wipe every volume" means here
@@ -114,9 +114,12 @@ D-1122 says what equal means; "changed as D-1122 names" lists each table with it
 | sign-in, four roles | each signs in with password and code | each signs in with password and a fresh code | **yes** |
 | a session from before the wipe | open (4) | **still works** (4 of 4: `/account` answers 200) | **no**: H33-05 |
 
-Each run of the card keeps the same shape: run A (before the wipe removed the backup job's left-over volume by name)
-gave the same comparison, 127.5 s for the restore and the same four old sessions answering 200. The record of run C
-is `restore-drill-2026-11-18/run.json` (counts and hashes only; no password, key, code, cookie, row or pseudonym).
+Each run of the card keeps the same shape. Run A (before the wipe removed the backup job's left-over volume by name)
+gave the same comparison, 127.5 s for the restore and the same four old sessions answering 200. Two more runs by
+`make restore-drill` on the branch's head `9602177d` (the tool as committed) gave the same six lifts, every store
+equal, the four old sessions answering 200, and 134.5 s and 126.8 s for the restore (part B: 139.2 s and 135.6 s; the
+job listed and failed, no second mail). The record of run C is `restore-drill-2026-11-18/run.json` (counts and hashes
+only; no password, key, code, cookie, row or pseudonym).
 
 ## A backup taken while a job runs (run C, part B)
 
