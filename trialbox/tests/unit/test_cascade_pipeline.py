@@ -311,6 +311,9 @@ def test_mixed_inclusion_is_never_met_on_its_age_or_sex_part_alone(
     met and never excluded."""
     from dataclasses import replace as rep
 
+    from criteria_compiler.compile_sql.generator import SqlGenerator
+    from criteria_compiler.semantics import compiled
+    from criteria_compiler.terminology.mapper import Terminology, ValueSets
     from tb_contracts import Atom
 
     rs = env["rs"]
@@ -323,9 +326,18 @@ def test_mixed_inclusion_is_never_met_on_its_age_or_sex_part_alone(
             "note_question": f"Do the notes document: {text}?",
         }
     )
-    rs2 = rep(rs, criteria=[mixed if c.id == target.id else c for c in rs.criteria])
+    crits = [mixed if c.id == target.id else c for c in rs.criteria]
+    # the ruleset's SQL compiled again with the swapped logic (the generator gives the stored GZQO SQL byte for
+    # byte), so the sex line reads the patients' sex column and the age line their birth dates
+    sql = SqlGenerator(rs.id, rs.version, ValueSets(rs.id, rs.valuesets, Terminology())).render(compiled(crits))
+    assert sql != rs.sql or "age" in logic  # the sex line is new SQL; INC-01 was already "aged 18 or older"
+    rs2 = rep(rs, criteria=crits, sql=sql)
     res = _run({**env, "rs": rs2}, RecordingJudge(), sample_per_stratum=None, absence_semantics=False)
     assert target.id in res.note_criteria
+    cfg = env["cfg"]
+    rows = env["lake"].query(sql, [[cfg.run_date.isoformat()], [t.pid for t in res.traces.values()]], cfg.snapshot)
+    coded = [r for r in rows.to_pylist() if r.get(f"C_{target.id}") is True]
+    assert coded, "the coded part must be true for some patient, or the test proves nothing"
     got = [t.outcomes[target.id] for t in res.traces.values() if target.id in t.outcomes]
     assert got, "the line must be answered for the patients who reach the notes"
     assert not [o for o in got if o.stage == "S1"], "the age or sex part alone settled the line at S1"

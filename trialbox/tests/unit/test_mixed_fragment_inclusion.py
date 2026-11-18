@@ -11,10 +11,10 @@ from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
-from criteria_compiler.semantics import codes_settle, demographic_alone
+from criteria_compiler.semantics import codes_settle, demographic_alone, met_on_demographics
 from orchestrator.scenarios.evaluate import NoteJudge, NoteResult, coded_settles, evaluate_patients
 from tb_common.ruleset import Ruleset
 from tb_contracts import Atom, BoolExpr, CriterionIR, PatientEvaluation
@@ -48,10 +48,35 @@ def test_a_mixed_inclusion_is_settled_by_its_codes_only_when_they_are_more_than_
     logic: Atom | BoolExpr, text: str, settles: bool
 ) -> None:
     c = _crit("inclusion", logic, text)
-    assert demographic_alone(c.logic) is not settles
+    assert demographic_alone(c.logic) is not settles  # these five: the age or sex alone or with a disease
     assert codes_settle(c) is settles
     ev = PatientEvaluation(pid="p", index_date=INDEX, engine="sql", results={c.id: True})
     assert coded_settles(c, ev) is settles
+
+
+def _b(op: str, *args: Atom | BoolExpr) -> BoolExpr:
+    return BoolExpr(op=op, args=list(args))  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("logic", "settles"),
+    [
+        # the lane J review: an "or" let the age through (codes_settle said yes while the age alone made it true)
+        (_b("or", AGE, GOUT), False),
+        (_b("or", AGE, _b("not", GOUT)), False),
+        (_b("or", _b("and", AGE, FEMALE), GOUT), False),
+        (_b("not", AGE), False),  # "under 18": an age alone, written negated
+        (_b("and", AGE, _b("or", FEMALE, GOUT)), False),
+        (_b("and", _b("or", AGE, GOUT), GOUT), True),  # gout is needed whatever the age
+        (_b("and", AGE, _b("not", _b("not", GOUT))), True),
+        (_b("or", _b("and", AGE, GOUT), _b("and", FEMALE, GOUT)), True),
+        (_b("not", GOUT), True),  # no age or sex in it: D-98 as before
+    ],
+)
+def test_nestings_of_and_or_and_not(logic: BoolExpr, settles: bool) -> None:
+    assert met_on_demographics(logic) is not settles
+    assert codes_settle(_crit("inclusion", logic, "a line")) is settles
+    assert codes_settle(_crit("exclusion", logic, "a line"))  # exclusions exactly as before
 
 
 def test_the_rule_leaves_exclusions_and_structured_lines_alone() -> None:
@@ -111,3 +136,99 @@ def test_the_scenario_path_asks_the_notes_and_answers_unknown_when_they_are_sile
     v = next(v for v in res["adult"].verdicts if v.id == mixed.id)
     assert v.verdict == "unknown"  # never met on the age or the sex
     assert res["adult"].tier != "excluded"  # and an unanswered part never excludes
+
+
+# ------------------------------------------------------------------- the other readers of a coded mixed answer
+def _rs_with(c: CriterionIR) -> Ruleset:
+    return replace(GZQO, criteria=[c if x.id == c.id else x for x in GZQO.criteria])
+
+
+class _SqlEngine:
+    values: ClassVar[dict[str, bool | None]] = {}
+
+    def __init__(self, lake: Any) -> None:
+        pass
+
+    def evaluate(self, rs: Ruleset, pids: list[str], today: date, ids: list[str]) -> dict[str, PatientEvaluation]:
+        return {p: PatientEvaluation(pid=p, index_date=today, engine="sql", results=dict(self.values)) for p in pids}
+
+
+@pytest.mark.parametrize(
+    ("logic", "coded", "verdict", "state"),
+    [
+        (AGE, True, "unknown", "needs"),  # was "met, coded" on the age alone
+        (FEMALE, True, "unknown", "needs"),  # the pregnancy line kept as "female"
+        (AGE, False, "unknown", "needs"),  # D-98: codes that do not show a mixed line leave it to the notes
+        (GOUT, True, "met", "ready"),  # codes that cover the line still settle it
+        (GOUT, False, "unknown", "needs"),  # was "not met": not eligible on silent codes
+    ],
+)
+def test_the_site_patient_check_never_meets_a_mixed_inclusion_on_its_age_or_sex(
+    monkeypatch: pytest.MonkeyPatch, logic: Atom, coded: bool, verdict: str, state: str
+) -> None:
+    from orchestrator.scenarios import evaluate
+    from sitesetup import readiness
+
+    c = _crit("inclusion", logic, "18 years or older with a clinical or genetic diagnosis of FAP")
+    rs = _rs_with(c)
+    others = {x.id: x.kind == "inclusion" for x in rs.active() if f'"C_{x.id}"' in rs.sql}
+    monkeypatch.setattr(_SqlEngine, "values", {**others, c.id: coded})
+    monkeypatch.setattr(evaluate, "SqlEngine", _SqlEngine)
+    svc = SimpleNamespace(
+        store=SimpleNamespace(facts=lambda ws: [{"pid": "P1"}], inputs=lambda ws, kind: []),
+        lake=lambda ws: SimpleNamespace(snapshot=lambda: "s1"),
+    )
+    (p,) = readiness.patient_check(svc, "ws", rs, INDEX)  # type: ignore[arg-type]
+    row = next(r for r in p["criteria"] if r["id"] == c.id)
+    assert row["verdict"] == verdict and p["state"] == state
+    assert row["reason"] == ("coded" if verdict == "met" else "not_evaluated")
+
+
+class _Tables:
+    def table(self, c: Any, rs_id: str) -> dict[tuple[int | None, str], Any]:
+        return {(age, sex): age >= 18 for age in range(0, 111) for sex in ("male", "female", "")}
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        ({"verdict": "pass", "basis": "coded"}, "not_evaluated"),  # P2b's "pass, coded" on the age: open now
+        ({"verdict": "pass", "basis": "pair", "quote": "FAP confirmed"}, "pass"),  # the notes' answer stands
+    ],
+)
+def test_the_replay_decides_such_a_line_as_the_engine_does(stored: dict[str, Any], expected: str) -> None:
+    from tools.public_accuracy.rerun import Recompiled, rescreen
+
+    c = _crit("inclusion", AGE, "18 years or older with a clinical or genetic diagnosis of FAP")
+    rs = SimpleNamespace(sql=f'"C_{c.id}"', active=lambda: [c])
+    draft = {"id": c.id, "kind": "inclusion", "class": "mixed", "text": c.text, "logic": AGE.model_dump()}
+    answers = {"gzqo": {"draft": [draft], "patients": {"P1": {"verdicts": [{"id": c.id, **stored}]}}}}
+    out = rescreen(answers, {"gzqo": Recompiled("GZQO", "compiled", rs=rs)}, _Tables(), {"P1": "M1"},  # type: ignore[arg-type]
+                   {"M1": (40, "female")})  # fmt: skip
+    (v,) = out.answers["gzqo"]["patients"]["P1"]["verdicts"]
+    assert v["verdict"] == expected
+    # the same line as a structured age line is still decided by the age table
+    s = c.model_copy(update={"class_": "structured"})
+    rs_s = SimpleNamespace(sql=f'"C_{s.id}"', active=lambda: [s])
+    out = rescreen(answers, {"gzqo": Recompiled("GZQO", "compiled", rs=rs_s)}, _Tables(), {"P1": "M1"},  # type: ignore[arg-type]
+                   {"M1": (40, "female")})  # fmt: skip
+    assert out.answers["gzqo"]["patients"]["P1"]["verdicts"][0] == {
+        "id": c.id, "verdict": "pass", "basis": "coded", "quote": None
+    }  # fmt: skip
+
+
+def test_the_candidate_workbook_says_the_notes_decide_such_a_line() -> None:
+    import io
+
+    from openpyxl import load_workbook
+    from orchestrator.reports import candidate_xlsx
+
+    from tests.unit.test_feas_unit import META as FEAS_META
+
+    fap = _crit("inclusion", AGE, "18 years or older with a clinical or genetic diagnosis of FAP")
+    gout = _crit("inclusion", GOUT, "Diagnosis of gout").model_copy(update={"id": "GZQO-INC-02"})
+    rs = replace(GZQO, criteria=[{fap.id: fap, gout.id: gout}.get(c.id, c) for c in GZQO.criteria])
+    wb = load_workbook(io.BytesIO(candidate_xlsx.render([], rs, FEAS_META, {}, {})))
+    how = {str(r[0]): str(r[5]) for r in wb["criteria"].iter_rows(min_row=2, values_only=True)}
+    assert how[fap.id].startswith("the notes: Is it so: 18 years") and "coded data first" not in how[fap.id]
+    assert how[gout.id].startswith("coded data first: ")  # a line its codes settle reads as before

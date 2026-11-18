@@ -63,6 +63,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from criteria_compiler.semantics import codes_settle
 from matching import coded_values
 from tb_common import provenance
 from tb_common.reasons import Reason
@@ -138,6 +139,12 @@ NOT_ASKED = (Reason.NOT_EVALUATED.value, Reason.MODEL_DOWN.value)
 
 def _not_asked(v: CriterionVerdict) -> bool:
     return v.verdict == "unknown" and v.evidence is not None and v.evidence.reason in NOT_ASKED
+
+
+def _fragment_pass(c: Any, prev: CriterionVerdict) -> bool:
+    """Card 10A-2: a stored "pass" of a mixed inclusion the codes gave on its age or sex alone (stored before the
+    rule): it never meant the line was met, so it does not stand when nobody was asked; the line is open."""
+    return c is not None and prev.verdict == "pass" and not codes_settle(c) and not is_note_answer(c, prev)
 
 
 def night_budget(ctx: Ctx) -> int:
@@ -428,7 +435,12 @@ def run(ctx: Ctx) -> Outcome:
             if v.id not in ts:
                 continue
             prev = old.get(v.id)
-            if prev is not None and prev.verdict in ("pass", "fail") and _not_asked(v):
+            if (
+                prev is not None
+                and prev.verdict in ("pass", "fail")
+                and _not_asked(v)
+                and not _fragment_pass(by_id.get(v.id), prev)
+            ):
                 continue  # D-642: nobody was asked (a hold, no judge, the model down): the stored answer stands
             if prev is None or prev.verdict != v.verdict:
                 changed.append(v.id)
