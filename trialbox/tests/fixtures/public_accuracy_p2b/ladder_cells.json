@@ -1,0 +1,5594 @@
+{
+"run": "box-20261117T073759Z-57263236",
+"codes": {
+"c": [
+"pass",
+"coded"
+],
+"C": [
+"fail",
+"coded"
+],
+"p": [
+"pass",
+"pair"
+],
+"N": [
+"fail",
+"notes"
+],
+"h": [
+"pending_human",
+"person"
+],
+"u": [
+"unknown",
+null
+]
+},
+"sets": {
+"sigir": {
+"lang": {
+"Sm3NCT00002897": "en",
+"Sm3NCT00015626": "en",
+"Sm3NCT00018408": "en",
+"Sm3NCT00021320": "en",
+"Sm3NCT00031369": "en",
+"Sm3NCT00149227": "en",
+"Sm3NCT00163709": "en",
+"Sm3NCT00170222": "en",
+"Sm3NCT00180739": "en",
+"Sm3NCT00223509": "en",
+"Sm3NCT00236912": "en",
+"Sm3NCT00256529": "en",
+"Sm3NCT00260091": "en",
+"Sm3NCT00263302": "en",
+"Sm3NCT00263380": "en",
+"Sm3NCT00264771": "en",
+"Sm3NCT00271427": "en",
+"Sm3NCT00277680": "en",
+"Sm3NCT00282269": "en",
+"Sm3NCT00439478": "en",
+"Sm3NCT00493103": "en",
+"Sm3NCT00535093": "en",
+"Sm3NCT00557219": "en",
+"Sm3NCT00582465": "en",
+"Sm3NCT00606840": "en",
+"Sm3NCT00647829": "en",
+"Sm3NCT00674726": "en",
+"Sm3NCT00703417": "en",
+"Sm3NCT00711399": "en",
+"Sm3NCT00721006": "en",
+"Sm3NCT00723788": "en",
+"Sm3NCT00774176": "en",
+"Sm3NCT00792220": "en",
+"Sm3NCT00841789": "en",
+"Sm3NCT00845988": "en",
+"Sm3NCT00910715": "en",
+"Sm3NCT00954200": "en",
+"Sm3NCT00957541": "en",
+"Sm3NCT00974064": "en",
+"Sm3NCT00986128": "en",
+"Sm3NCT00997100": "en",
+"Sm3NCT01007877": "en",
+"Sm3NCT01017081": "en",
+"Sm3NCT01141907": "en",
+"Sm3NCT01164046": "en",
+"Sm3NCT01181232": "en",
+"Sm3NCT01187901": "en",
+"Sm3NCT01227499": "en",
+"Sm3NCT01260532": "en",
+"Sm3NCT01260883": "en",
+"Sm3NCT01335594": "en",
+"Sm3NCT01397994": "en",
+"Sm3NCT01452971": "en",
+"Sm3NCT01520155": "en",
+"Sm3NCT01526382": "en",
+"Sm3NCT01551498": "en",
+"Sm3NCT01579942": "en",
+"Sm3NCT01594385": "en",
+"Sm3NCT01624545": "en",
+"Sm3NCT01660594": "en",
+"Sm3NCT01701453": "en",
+"Sm3NCT01713881": "en",
+"Sm3NCT01723137": "en",
+"Sm3NCT01745731": "en",
+"Sm3NCT01771861": "en",
+"Sm3NCT01784523": "en",
+"Sm3NCT01790477": "en",
+"Sm3NCT01829659": "en",
+"Sm3NCT01832753": "en",
+"Sm3NCT01855594": "en",
+"Sm3NCT01863628": "en",
+"Sm3NCT01866020": "en",
+"Sm3NCT01869855": "en",
+"Sm3NCT01935141": "en",
+"Sm3NCT01978834": "en",
+"Sm3NCT02023567": "en",
+"Sm3NCT02097186": "en",
+"Sm3NCT02127866": "en",
+"Sm3NCT02136875": "en",
+"Sm3NCT02219360": "en",
+"Sm3NCT02229695": "en",
+"Sm3NCT02238756": "en",
+"Sm3NCT02255487": "en",
+"Sm3NCT02261584": "en",
+"Sm3NCT02264769": "en",
+"Sm3NCT02264964": "en",
+"Sm3NCT02273232": "en",
+"Sm3NCT02329366": "en",
+"Sm3NCT02345564": "en",
+"Sm3NCT02374814": "en",
+"Sm3NCT02378311": "en",
+"Sm3NCT02380352": "en",
+"Sm3NCT02390596": "en",
+"Sm3NCT02410616": "en",
+"Sm3NCT02470741": "en",
+"Sm3NCT02490059": "en",
+"Sm3NCT02509286": "en",
+"Sm3NCT02512159": "en",
+"Sm3NCT02538406": "en",
+"Sm3NCT02556359": "en",
+"Sm3NCT02614443": "en",
+"Sm3NCT02618655": "en",
+"Sm3NCT02627768": "en",
+"Sm3NCT02631668": "en"
+},
+"rulesets": {
+"Sm3NCT00002897": {
+"criteria": [
+[
+"SM3NCT00002897-INC-01",
+"DISEASE CHARACTERISTICS: Histologically confirmed esophageal squamous cell cancer that is stage T2-3 Nx M0"
+],
+[
+"SM3NCT00002897-INC-02",
+"PATIENT CHARACTERISTICS: Age: 18 to 75 Performance status: WHO 0-2 Hematopoietic: Not specified Hepatic: Not specified Renal: Not specified Other: No second malignancy within 5 years except: Basal cell skin carcinoma Carcinoma in situ of the cervix"
+],
+[
+"SM3NCT00002897-INC-03",
+"PRIOR CONCURRENT THERAPY: No prior chemotherapy or radiotherapy"
+]
+],
+"patients": {
+"review:ucu": 1
+}
+},
+"Sm3NCT00015626": {
+"criteria": [
+[
+"SM3NCT00015626-EXC-01",
+"Critically ill patients, patients will congestive heart failure, renal or liver insufficiency"
+],
+[
+"SM3NCT00015626-EXC-02",
+"Inability to give consent."
+],
+[
+"SM3NCT00015626-EXC-03",
+"History of poor compliance with physician's recommendations"
+],
+[
+"SM3NCT00015626-INC-01",
+"Obese patients (wt > 95th percentile for age, for adults increased BMI > 27) greater than 5 years of age"
+],
+[
+"SM3NCT00015626-INC-02",
+"And/or presence of complications of insulin resistance such as acanthosis nigricans, dyslipidemia, elevated blood pressure, hyperandrogenism"
+],
+[
+"SM3NCT00015626-INC-03",
+"Siblings and parents of patients with insulin resistance. Siblings and parents will be included only in the case of documented insulin resistance in the index subject. Insulin resistance will be documented by OGTT and/or IVGTT."
+],
+[
+"SM3NCT00015626-INC-04",
+"Family history of type II diabetes."
+]
+],
+"patients": {
+"review:hhupuuu": 1
+}
+},
+"Sm3NCT00018408": {
+"criteria": [
+[
+"SM3NCT00018408-INC-01",
+"Age greater than or equal to 40 years"
+],
+[
+"SM3NCT00018408-INC-02",
+"Cigarette smoking greater than or equal to 30 pack years"
+],
+[
+"SM3NCT00018408-INC-03",
+"Obstructive Spirometry"
+],
+[
+"SM3NCT00018408-INC-04",
+"First degree relative with smoking history willing to participate"
+]
+],
+"patients": {
+"review:chuh": 1
+}
+},
+"Sm3NCT00021320": {
+"criteria": [
+[
+"SM3NCT00021320-EXC-01",
+"No malignant celiac node involvement"
+],
+[
+"SM3NCT00021320-EXC-02",
+"No cervical esophageal carcinoma"
+],
+[
+"SM3NCT00021320-INC-01",
+"DISEASE CHARACTERISTICS:"
+],
+[
+"SM3NCT00021320-INC-02",
+"Histologically confirmed adenocarcinoma, squamous cell, adenosquamous, or undifferentiated carcinoma of the esophagus or gastroesophageal junction"
+],
+[
+"SM3NCT00021320-INC-03",
+"Potentially resectable disease"
+],
+[
+"SM3NCT00021320-INC-04",
+"PATIENT CHARACTERISTICS:"
+],
+[
+"SM3NCT00021320-INC-05",
+"18 and over"
+],
+[
+"SM3NCT00021320-INC-06",
+"Performance status:"
+],
+[
+"SM3NCT00021320-INC-07",
+"ECOG 0-2"
+],
+[
+"SM3NCT00021320-INC-08",
+"Life expectancy:"
+],
+[
+"SM3NCT00021320-INC-09",
+"Not specified"
+],
+[
+"SM3NCT00021320-INC-10",
+"Hematopoietic:"
+],
+[
+"SM3NCT00021320-INC-11",
+"Absolute neutrophil count at least 1,800/mm^3"
+],
+[
+"SM3NCT00021320-INC-12",
+"Platelet count at least 100,000/mm^3"
+],
+[
+"SM3NCT00021320-INC-13",
+"Hepatic:"
+],
+[
+"SM3NCT00021320-INC-14",
+"Bilirubin no greater than 1.5 times upper limit of normal (ULN)"
+],
+[
+"SM3NCT00021320-INC-15",
+"AST no greater than 3 times ULN"
+],
+[
+"SM3NCT00021320-INC-16",
+"Renal:"
+],
+[
+"SM3NCT00021320-INC-17",
+"Creatinine no greater than 1.5 mg/dL OR"
+],
+[
+"SM3NCT00021320-INC-18",
+"Creatinine clearance at least 60 mL/min"
+],
+[
+"SM3NCT00021320-INC-19",
+"Other:"
+],
+[
+"SM3NCT00021320-INC-20",
+"No other malignancy within the past 3 years except nonmelanoma skin cancer or carcinoma in situ of the cervix"
+],
+[
+"SM3NCT00021320-INC-21",
+"No significant medical or psychiatric illness that would preclude study"
+],
+[
+"SM3NCT00021320-INC-22",
+"Not pregnant or nursing"
+],
+[
+"SM3NCT00021320-INC-23",
+"Fertile patients must use effective contraception during and for at least 3 months after study"
+],
+[
+"SM3NCT00021320-INC-24",
+"PRIOR CONCURRENT THERAPY:"
+],
+[
+"SM3NCT00021320-INC-25",
+"Biologic therapy:"
+],
+[
+"SM3NCT00021320-INC-26",
+"Not specified"
+],
+[
+"SM3NCT00021320-INC-27",
+"Chemotherapy:"
+],
+[
+"SM3NCT00021320-INC-28",
+"No prior chemotherapy for esophageal cancer"
+],
+[
+"SM3NCT00021320-INC-29",
+"Endocrine therapy:"
+],
+[
+"SM3NCT00021320-INC-30",
+"Not specified"
+],
+[
+"SM3NCT00021320-INC-31",
+"Radiotherapy:"
+],
+[
+"SM3NCT00021320-INC-32",
+"No prior thoracic radiotherapy"
+],
+[
+"SM3NCT00021320-INC-33",
+"Surgery:"
+],
+[
+"SM3NCT00021320-INC-34",
+"See Disease Characteristics"
+],
+[
+"SM3NCT00021320-INC-35",
+"No prior surgical resection of esophageal tumor"
+],
+[
+"SM3NCT00021320-INC-36",
+"Aged 18 years or older"
+]
+],
+"patients": {
+"review:hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh": 1
+}
+},
+"Sm3NCT00031369": {
+"criteria": [
+[
+"SM3NCT00031369-EXC-01",
+"The following subjects will be excluded:"
+],
+[
+"SM3NCT00031369-EXC-02",
+"Healthy volunteers with cognitive complaints, abnormal neurological exam or history of past neurological disease."
+],
+[
+"SM3NCT00031369-EXC-03",
+"Dystonia patients with the presence of a second neurological disease or condition; abnormal neurological findings on exam that are not related to primary focal dystonia."
+],
+[
+"SM3NCT00031369-EXC-04",
+"Subjects with past or present neuropsychiatric illness, head trauma with loss of consciousness, epilepsy, cerebro-vascular disease, migraine, past and present history of alcohol abuse, medical conditions that may alter cerebral structure."
+],
+[
+"SM3NCT00031369-EXC-05",
+"Subjects with abnormal MRI findings at visual inspection (prominent normal variants such as mega cisterna or cavum septum pellucidum, signs of severe cortical or subcortical atrophy, brain tumors, vascular diseases, trauma or AVMs)."
+],
+[
+"SM3NCT00031369-EXC-06",
+"Subjects with any metallic objects within them just prior to MR imaging (cardiac or neural pacemaker, aneurysm clips [metal clips on the wall of a large artery], metallic prostheses [including heart valves and cochlear implants] or shrapnel fragments. Welders and metal workers are also at risk for injury and may not take part in the study because of possible small metal fragments in the eye of which they may be unaware."
+],
+[
+"SM3NCT00031369-EXC-07",
+"Subjects not capable of giving an informed consent."
+],
+[
+"SM3NCT00031369-EXC-08",
+"Women who are pregnant"
+],
+[
+"SM3NCT00031369-EXC-09",
+"Children"
+],
+[
+"SM3NCT00031369-INC-01",
+"HEALTHY VOLUNTEERS: Healthy volunteers who consented to participate in the study and matched for age, sex, handedness with the group of patients with primary focal hand dystonia."
+],
+[
+"SM3NCT00031369-INC-02",
+"PATIENTS: Patient with primary focal dystonia from our dystonia patient database who consented to participate in the study. This criterion will be established by the preliminary screening in the Human Motor Control Outpatient Clinic."
+],
+[
+"SM3NCT00031369-INC-03",
+"Aged 18 years or older"
+]
+],
+"patients": {
+"review:hhhhhhhh-huc": 1
+}
+},
+"Sm3NCT00149227": {
+"criteria": [
+[
+"SM3NCT00149227-EXC-01",
+"Patients who have already been administered ARB"
+],
+[
+"SM3NCT00149227-EXC-02",
+"Patients with IHD within 6 months after percutaneous coronary intervention(PCI), and who are stable but are going to implement PCI or coronary artery bypass grafting(CABG)"
+],
+[
+"SM3NCT00149227-EXC-03",
+"Severe/malignant/secondary hypertensive patients"
+],
+[
+"SM3NCT00149227-EXC-04",
+"Pregnant women and women of childbearing potential"
+],
+[
+"SM3NCT00149227-EXC-05",
+"History of heart failure, unstable angina, myocardial infarction, PTCA, or CABG within the preceding 6 months"
+],
+[
+"SM3NCT00149227-EXC-06",
+"Arrhythmia needed to be treated or accompanied with symptoms, second or third degree AV block"
+],
+[
+"SM3NCT00149227-EXC-07",
+"Severe renal impairment (Serum creatinine >3.0 mg/dl)"
+],
+[
+"SM3NCT00149227-EXC-08",
+"Severe hepatic impairment (Hepatic failure, Cirrhosis, etc.)"
+],
+[
+"SM3NCT00149227-INC-01",
+"Clinical diagnosis of hypertension"
+],
+[
+"SM3NCT00149227-INC-02",
+"Clinical diagnosis of one or more risk factors, such as diabetes, smoking habit, lipid metabolism abnormality, history of ischemic heart disease (IHD) or cerebrovascular disease, obesity (BMI>25), chronic heart failure (NYHA II-III), and electrocardiogram (ECG) abnormality (LVH)"
+],
+[
+"SM3NCT00149227-INC-03",
+"Aged 20 years or older"
+],
+[
+"SM3NCT00149227-INC-04",
+"Age <= 79 years"
+]
+],
+"patients": {
+"review:uhuhhuhhuhcc": 1
+}
+},
+"Sm3NCT00163709": {
+"criteria": [
+[
+"SM3NCT00163709-EXC-01",
+"Patients presenting with a traumatic cause of dyspnea, patients with severe renal disease (serum creatinine level of more than 250 micro mmol/L, patients with cardiogenic shock, and patients who have an early transfer to another hospital (within 24 hrs) will be excluded."
+],
+[
+"SM3NCT00163709-INC-01",
+"We plan to include all patients presenting to the ED with shortness of breath that are over 40 years old and present with an emergency department triage category of 3 or higher."
+]
+],
+"patients": {
+"review:hh": 2
+}
+},
+"Sm3NCT00170222": {
+"criteria": [
+[
+"SM3NCT00170222-EXC-01",
+"Pregnant or lactating women, or women of childbearing age not using an acceptable method of contraception."
+],
+[
+"SM3NCT00170222-EXC-02",
+"Pretreatment ( > 24 hours) with an antibiotic for the present exacerbation."
+],
+[
+"SM3NCT00170222-EXC-03",
+"Pretreatment with corticosteroids (>30 mg for more than 4 days) for the present exacerbation."
+],
+[
+"SM3NCT00170222-EXC-04",
+"Progression or new radiographic abnormalities on the chest X-ray."
+],
+[
+"SM3NCT00170222-EXC-05",
+"Severe exacerbation that required mechanical ventilation."
+],
+[
+"SM3NCT00170222-EXC-06",
+"History of bronchiectasis"
+],
+[
+"SM3NCT00170222-EXC-07",
+"Recent or unresolved lung malignancy."
+],
+[
+"SM3NCT00170222-EXC-08",
+"Other disease likely to require antibiotic therapy."
+],
+[
+"SM3NCT00170222-EXC-09",
+"Significant gastrointestinal or other conditions that may affect study drug absorption."
+],
+[
+"SM3NCT00170222-EXC-10",
+"Class III or IV congestive heart failure or stroke."
+],
+[
+"SM3NCT00170222-EXC-11",
+"Immunodeficiency disorders such as AIDS, humoral immune defect, ciliary dysfunction etc. and the use of immunosuppressive drugs (>30 mg prednisolone maintenance dose or equivalent for more than 4 weeks)."
+],
+[
+"SM3NCT00170222-EXC-12",
+"Cystic fibrosis"
+],
+[
+"SM3NCT00170222-EXC-13",
+"Tuberculosis."
+],
+[
+"SM3NCT00170222-EXC-14",
+"Impaired renal function (creatinine clearance < 20 ml/min)."
+],
+[
+"SM3NCT00170222-INC-01",
+"Acute exacerbation of COPD type I or II according to GOLD"
+],
+[
+"SM3NCT00170222-INC-02",
+"Ability to perform lung function tests"
+],
+[
+"SM3NCT00170222-INC-03",
+"Ability to take oral medication"
+],
+[
+"SM3NCT00170222-INC-04",
+"Aged 45 years or older"
+]
+],
+"patients": {
+"review:huhpuuuuuuhuuuuhhc": 1
+}
+},
+"Sm3NCT00180739": {
+"criteria": [
+[
+"SM3NCT00180739-EXC-01",
+"Patient is pregnant as confirmed by pregnancy test at time of screening"
+],
+[
+"SM3NCT00180739-EXC-02",
+"Uterine size >20 weeks as evaluated by US or MR."
+],
+[
+"SM3NCT00180739-EXC-03",
+"Patients who are considered high risk pregnancy due to uterine factors (e.g. abnormal uterus, uterine scars, cerclage) except fibroids."
+],
+[
+"SM3NCT00180739-EXC-04",
+"Patients with fibroid that is more than 50% sub-mucosal or with hysteroscopically resectable"
+],
+[
+"SM3NCT00180739-EXC-05",
+"Patients with adenomyosis"
+],
+[
+"SM3NCT00180739-EXC-06",
+"Patient is on dialysis"
+],
+[
+"SM3NCT00180739-EXC-07",
+"Hematocrit is < 25"
+],
+[
+"SM3NCT00180739-EXC-08",
+"Patient has hemolytic anemia"
+],
+[
+"SM3NCT00180739-EXC-09",
+"Patient has unstable cardiac status including: § Unstable angina pectoris on medication§ Documented myocardial infarction within 6 months of protocol entry§ Congestive heart failure requiring medication (other than diuretic)§ Currently taking anti-arrhythmic drugs§ Severe hypertension (diastolic BP>100 on medication)§ Presence of cardiac pacemaker"
+],
+[
+"SM3NCT00180739-EXC-10",
+"Patient has an ASA score of >2"
+],
+[
+"SM3NCT00180739-EXC-11",
+"Patient has severe cerebrovascular disease (multiple CVA or CVA within 6 months)"
+],
+[
+"SM3NCT00180739-EXC-12",
+"Patient is on anti-coagulation therapy or has an underlying bleeding disorder"
+],
+[
+"SM3NCT00180739-EXC-13",
+"Evidence of uterine pathology other than leiomyoma"
+],
+[
+"SM3NCT00180739-EXC-14",
+"Patient has an active pelvic infection or history of pelvic inflammatory disease"
+],
+[
+"SM3NCT00180739-EXC-15",
+"Patient has an undiagnosed pelvic mass outside the uterus."
+],
+[
+"SM3NCT00180739-EXC-16",
+"Patient weight >110 kg"
+],
+[
+"SM3NCT00180739-EXC-17",
+"Subject with extensive abdominal scarring in an area of the abdomen directly anterior to the treatment area."
+],
+[
+"SM3NCT00180739-EXC-18",
+"Subject with standard contraindications for MR imaging such as non-MRI compatable implanted metallic devices."
+],
+[
+"SM3NCT00180739-EXC-19",
+"Known intolerance to the MRI contrast agent (e.g. Gadolinium or Magnevist)."
+],
+[
+"SM3NCT00180739-EXC-20",
+"Individuals who are not able or willing to tolerate the required prolonged stationary prone position during treatment (approximately 3 hours.)"
+],
+[
+"SM3NCT00180739-EXC-21",
+"Patient with an intrauterine contraceptive device anywhere in the treatment beam path."
+],
+[
+"SM3NCT00180739-EXC-22",
+"Women who are breast feeding."
+],
+[
+"SM3NCT00180739-EXC-23",
+"Five or more fibroids, bigger then 3cm diameter, each"
+],
+[
+"SM3NCT00180739-INC-01",
+"Subject with uterine fibroids, who desire pregnancy within 12 months and has the one of the following criteria: Women 20-40 age. Women age < 46 years old who plan to have egg donation. Women above 38 should test for normal ovarian function as judged by endocrinological evaluation. If the couple has failed to conceive for more that 1 year, the woman should test for normal ovarian function as judged by endocrinological evaluation, and the male must have adequate sperm test. Women undergoing fertility treatment or plan to have sperm donation."
+],
+[
+"SM3NCT00180739-INC-02",
+"Use or non use of non-steroidal treatments for excessive vaginal bleeding such as antifibrinolytic agents (e.g. Tranexamic acid) or non-steroidal anti-inflammatory drugs (e.g. Mefanamic Acid) has been maintained for the three months prior to the planned date of the study procedure and the patient has agreed to maintain this use or non-use through the 6-month follow-up period."
+],
+[
+"SM3NCT00180739-INC-03",
+"Clinically normal PAP smear within timing of National Guidelines in the country of the clinical site."
+],
+[
+"SM3NCT00180739-INC-04",
+"Able and willing to give consent and able to attend all study visits"
+],
+[
+"SM3NCT00180739-INC-05",
+"Able to communicate sensations during the MRgFUS procedure"
+],
+[
+"SM3NCT00180739-INC-06",
+"Having uterine fibroids that are device accessible (i.e., positioned in the uterus such that they can be accessed without being shielded by bowel or bone)."
+],
+[
+"SM3NCT00180739-INC-07",
+"Tumor(s) are clearly visible on non-contrast MRI."
+],
+[
+"SM3NCT00180739-INC-08",
+"Largest fibroid 8 cm in diameter or 12 cm if receiving GnRH"
+],
+[
+"SM3NCT00180739-INC-09",
+"Age <= 45 years"
+],
+[
+"SM3NCT00180739-INC-10",
+"Female participants only"
+]
+],
+"patients": {
+"review:uhuuuuhuuhhuuupuuuuhuhhhhuhhuuucc": 1
+}
+},
+"Sm3NCT00223509": {
+"criteria": [
+[
+"SM3NCT00223509-EXC-01",
+"illness precluding the use of LAM"
+],
+[
+"SM3NCT00223509-EXC-02",
+"Alcohol/drug dependence in the past one month"
+],
+[
+"SM3NCT00223509-EXC-03",
+"patients with a history of a rash on LAM"
+],
+[
+"SM3NCT00223509-EXC-04",
+"CNS neoplasms, demyelinating diseases, degenerative neurological condition or active CNS infection"
+],
+[
+"SM3NCT00223509-EXC-05",
+"history of seizure, known EEG with frank paroxysmal activity, known CT of brain showing gross structural abnormalities, cerebral vascular disease by history or structural brain damage from trauma"
+],
+[
+"SM3NCT00223509-EXC-06",
+"patients currently taking LAM"
+],
+[
+"SM3NCT00223509-INC-01",
+"In order to be included in the study patient must meet criteria A, C, D, E, F, G plus any 1 of the 3 criteria listed in section B."
+],
+[
+"SM3NCT00223509-INC-02",
+"A. Patients meeting DSM-IV diagnosis of bipolar disorder, I or II"
+],
+[
+"SM3NCT00223509-INC-03",
+"Patients meeting DSM-IV diagnostic criteria for a manic/hypomanic episode with the simultaneous presence of (or rapid alteration within minutes) of at least three DSM-IV depressive symptoms excluding psychomotor agitation or"
+],
+[
+"SM3NCT00223509-INC-04",
+"Patients meeting DSM-IV symptomatic criteria for a hypomanic/manic episode for a period of 2 days or longer, with the simultaneous presence of (or rapid alteration within minutes) of at least three DSM-IV depressive symptoms excluding psychomotor agitation or"
+],
+[
+"SM3NCT00223509-INC-05",
+"Patients meeting DSM-IV criteria for a depressive episode associated with at least three DSM-IV manic/hypomanic symptoms"
+],
+[
+"SM3NCT00223509-INC-06",
+"C.MADRS of ≥14"
+],
+[
+"SM3NCT00223509-INC-07",
+"D.YMRS of ≥ 14"
+],
+[
+"SM3NCT00223509-INC-08",
+"E. Age 13years to 75 years"
+],
+[
+"SM3NCT00223509-INC-09",
+"F. Male or female"
+],
+[
+"SM3NCT00223509-INC-10",
+"G. Outpatient"
+]
+],
+"patients": {
+"review:uhuuhuupuuuuuccu": 1
+}
+},
+"Sm3NCT00236912": {
+"criteria": [
+[
+"SM3NCT00236912-EXC-01",
+"History of allergy to any study medication"
+],
+[
+"SM3NCT00236912-EXC-02",
+"Life expectancy < 72 hours"
+],
+[
+"SM3NCT00236912-EXC-03",
+"APACHE II (health) score > 25"
+],
+[
+"SM3NCT00236912-EXC-04",
+"Neutropenic (low white blood cell count)"
+],
+[
+"SM3NCT00236912-EXC-05",
+"HIV positive with current or past CD4 count < 200/mm^3"
+],
+[
+"SM3NCT00236912-EXC-06",
+"Low platelet count (bleeds easily)"
+],
+[
+"SM3NCT00236912-EXC-07",
+"Malnourished with low albumin"
+],
+[
+"SM3NCT00236912-EXC-08",
+"Condition requiring use of major tranquilizers"
+],
+[
+"SM3NCT00236912-INC-01",
+"Two or more symptoms of acute appendicitis for at least 24 hours or radiologic evidence of complicated appendicitis"
+],
+[
+"SM3NCT00236912-INC-02",
+"Able to take medicine orally after recovering from surgery"
+],
+[
+"SM3NCT00236912-INC-03",
+"If female, using birth control"
+],
+[
+"SM3NCT00236912-INC-04",
+"Aged 18 years or older"
+]
+],
+"patients": {
+"excluded:-----------C": 1
+}
+},
+"Sm3NCT00256529": {
+"criteria": [
+[
+"SM3NCT00256529-EXC-01",
+"Contradiction to EGD and/or biopsies such as Boerhaave's syndrome, or history or bleeding disorder or elevated INR"
+],
+[
+"SM3NCT00256529-EXC-02",
+"Inability to provide informed consent"
+],
+[
+"SM3NCT00256529-EXC-03",
+"Esophageal varices"
+],
+[
+"SM3NCT00256529-INC-01",
+"Patients aged 18-90 presenting with dysphagia or food impaction"
+],
+[
+"SM3NCT00256529-INC-02",
+"Ability to undergo esophagogastroduodenoscopy and biopsies"
+],
+[
+"SM3NCT00256529-INC-03",
+"No significant cardiopulmonary disease, or other contraindication to EGD"
+]
+],
+"patients": {
+"review:uhuchu": 1
+}
+},
+"Sm3NCT00260091": {
+"criteria": [
+[
+"SM3NCT00260091-EXC-01",
+"Previous tubal reconstructive surgery in which the pelvis was not restored to functional."
+],
+[
+"SM3NCT00260091-EXC-02",
+"Unilateral or bilateral hydrosalpinx (a tube that is blocked at the end and filled with fluid) that has not had a tubal ligation performed at the junction of the uterus and fallopian tubes."
+],
+[
+"SM3NCT00260091-EXC-03",
+"A laparoscopy that demonstrated pelvic adhesions or endometriosis for which the pelvis could not be restored to normal by surgery or endometriosis was not ablated or excised. All patients with stages III and IV endometriosis."
+],
+[
+"SM3NCT00260091-EXC-04",
+"One or more prior ectopic pregnancies in which one or both tubes were rendered nonfunctional; two or more ectopic pregnancies, even if tubes are patent."
+],
+[
+"SM3NCT00260091-EXC-05",
+"Severe male factor (i.e.; semen analysis with a sperm concentration of <15 million total motile sperm, <1% normal forms by strict criteria, or <5 million total motile sperm on IUI prep). Couples using donor semen will be excluded."
+],
+[
+"SM3NCT00260091-EXC-06",
+"Previous treatment with IUI or IVF. Previous treatment of normal ovulation patients with gonadotropins."
+],
+[
+"SM3NCT00260091-EXC-07",
+"Inadequate ovarian reserve demonstrating FSH >15 mIU/mL or estradiol > 100 pg/mL."
+],
+[
+"SM3NCT00260091-EXC-08",
+"Patients requiring gamete intrafallopian tube transfer (GIFT), zygote intrafallopian tube transfer (ZIFT), or tubal embryo transfer (TET)."
+],
+[
+"SM3NCT00260091-EXC-09",
+"Female body mass index > 38."
+],
+[
+"SM3NCT00260091-INC-01",
+"Female partner age 21 up to 40th birthday, at the time of recruitment. Infertility is defined as failure to conceive a recognized pregnancy after one year (or 12 menstrual cycles) of unprotected intercourse."
+],
+[
+"SM3NCT00260091-INC-02",
+"Male partner has a normal semen analysis with a sperm concentration of >15 million total motile sperm, >1% normal forms by strict criteria, or >5 million total motile sperm on IUI prep."
+],
+[
+"SM3NCT00260091-INC-03",
+"Female patient has at least one ovary and at least one ipsilateral patent fallopian tube confirmed by HSG or laparoscopy; pelvic pathology amenable to operative laparoscopy (pelvis restored to functional). The open tube cannot have had a previous ectopic (tubal) pregnancy and the closed tube cannot be a hydrosalpinx (a tube that is blocked at the end and filled with fluid), unless a tubal ligation has been performed at the junction of the uterus and fallopian tube."
+],
+[
+"SM3NCT00260091-INC-04",
+"Patients with surgically corrected stages I and II endometriosis will be included."
+],
+[
+"SM3NCT00260091-INC-05",
+"Normal uterine cavity demonstrated by HSG, Sonohysterogram (SHG), or hysteroscopy; pathologies of uterine cavity amenable to operative hysteroscopy (cavity restored to normal and demonstrated by post operative study)."
+],
+[
+"SM3NCT00260091-INC-06",
+"Anovulatory patients who did not conceive after a minimum of three ovulatory cycles with any medications, not including gonadotropin therapy. Anovulatory patients unable to achieve ovulation at dosages up to 150 mg of clomiphene or standard dosages of other ovulation inducing medications (i.e. bromocriptine). Hypoestrogenic hypothalamic amenorrhea patients will qualify immediately for inclusion, prior to any gonadotropin therapy."
+],
+[
+"SM3NCT00260091-INC-07",
+"Normal ovarian reserve demonstrated in all patients i.e., cycle day 3 FSH/E2 values of <15 mIU/mL and <100 pg/mL, respectively. Normal TSH and prolactin."
+],
+[
+"SM3NCT00260091-INC-08",
+"Female body mass index ≤ 38."
+]
+],
+"patients": {
+"review:uuuuuuhuuhuhuuuuu": 1
+}
+},
+"Sm3NCT00263302": {
+"criteria": [
+[
+"SM3NCT00263302-EXC-01",
+"Patient refusal"
+],
+[
+"SM3NCT00263302-EXC-02",
+"Signs of infection"
+],
+[
+"SM3NCT00263302-INC-01",
+"Congestive heart failure patients due to any cause"
+],
+[
+"SM3NCT00263302-INC-02",
+"Patients with normal cortical function"
+],
+[
+"SM3NCT00263302-INC-03",
+"Congestive heart failure patients who are on diuretic therapy"
+],
+[
+"SM3NCT00263302-INC-04",
+"Clinically stable and body weight maintained the same for at least 3 days without signs of fluid retention"
+],
+[
+"SM3NCT00263302-INC-05",
+"Aged 18 years or older"
+],
+[
+"SM3NCT00263302-INC-06",
+"Age <= 80 years"
+]
+],
+"patients": {
+"review:huuuuhcc": 1
+}
+},
+"Sm3NCT00263380": {
+"criteria": [
+[
+"SM3NCT00263380-EXC-01",
+"age < 40 years"
+],
+[
+"SM3NCT00263380-EXC-02",
+"use of antibiotics, corticosteroids or beta-agonists"
+],
+[
+"SM3NCT00263380-INC-01",
+"clinical COPD"
+],
+[
+"SM3NCT00263380-INC-02",
+"smoking"
+],
+[
+"SM3NCT00263380-INC-03",
+"age > 40 years"
+]
+],
+"patients": {
+"review:chupc": 1
+}
+},
+"Sm3NCT00264771": {
+"criteria": [
+[
+"SM3NCT00264771-INC-01",
+"Informed consent will be obtained from all study participants. Children between 0 -17 years of age will be enrolled in the APSGN study. Children between 3-17 years of age and adults between 18-40 years will be enrolled in the ARF study. Children and adults of all ages will be enrolled in the RHD and invasive GAS studies."
+]
+],
+"patients": {
+"review:h": 1
+}
+},
+"Sm3NCT00271427": {
+"criteria": [
+[
+"SM3NCT00271427-EXC-01",
+"Any kind of drug use other than LT4 or any kind of known pathology which may effect GIS absorption."
+],
+[
+"SM3NCT00271427-INC-01",
+"Clinically approved AIT patients who do not use any medication other than LT4 to keep TSH in the lower half of normal range."
+],
+[
+"SM3NCT00271427-INC-02",
+"Aged 15 years or older"
+],
+[
+"SM3NCT00271427-INC-03",
+"Age <= 70 years"
+],
+[
+"SM3NCT00271427-INC-04",
+"Female participants only"
+]
+],
+"patients": {
+"review:uuccc": 1
+}
+},
+"Sm3NCT00277680": {
+"criteria": [
+[
+"SM3NCT00277680-EXC-01",
+"Malignancy"
+],
+[
+"SM3NCT00277680-EXC-02",
+"Current or planned pregnancy"
+],
+[
+"SM3NCT00277680-EXC-03",
+"Small submucous fibroids suitable for hysteroscopic resection"
+],
+[
+"SM3NCT00277680-EXC-04",
+"Postmenopausal women"
+],
+[
+"SM3NCT00277680-EXC-05",
+"Suspected or known adenomyosis"
+],
+[
+"SM3NCT00277680-EXC-06",
+"Uterus size exceeding the umbilical level"
+],
+[
+"SM3NCT00277680-EXC-07",
+"Contraindications against laparoscopic surgery"
+],
+[
+"SM3NCT00277680-INC-01",
+"Menorrhagia and/or bulk symptoms associated with uterine fibroids"
+],
+[
+"SM3NCT00277680-INC-02",
+"Aged 30 years or older"
+],
+[
+"SM3NCT00277680-INC-03",
+"Female participants only"
+]
+],
+"patients": {
+"review:uhuuuuuucc": 1
+}
+},
+"Sm3NCT00282269": {
+"criteria": [
+[
+"SM3NCT00282269-EXC-01",
+"are not randomized by 6 hours after injury"
+],
+[
+"SM3NCT00282269-EXC-02",
+"have penetrating brain injuries"
+],
+[
+"SM3NCT00282269-EXC-03",
+"have fixed dilated pupils and GCS = 3"
+],
+[
+"SM3NCT00282269-EXC-04",
+"have proven cervical spinal cord injury"
+],
+[
+"SM3NCT00282269-EXC-05",
+"have more than mild neurodevelopmental disability prior to injury"
+],
+[
+"SM3NCT00282269-EXC-06",
+"have an acute isolated epidural hematoma and are expected to recover rapidly after surgical removal"
+],
+[
+"SM3NCT00282269-EXC-07",
+"have had a post-traumatic seizure with a normal CT scan"
+],
+[
+"SM3NCT00282269-EXC-08",
+"have refractory shock, defined as systolic blood pressure more than 2 standard deviations (SD) below the mean for age despite 80ml/kg intravenous fluid resuscitation"
+],
+[
+"SM3NCT00282269-INC-01",
+"have a severe traumatic brain injury as defined by either a GCS ≤ 8 and an abnormal CT scan (intracranial hemorrhage, cerebral edema or diffuse axonal injury) or a motor score ≤ 3 and normal CT scan"
+],
+[
+"SM3NCT00282269-INC-02",
+"are aged between 1 and 16 years"
+],
+[
+"SM3NCT00282269-INC-03",
+"are mechanically ventilated"
+]
+],
+"patients": {}
+},
+"Sm3NCT00439478": {
+"criteria": [
+[
+"SM3NCT00439478-EXC-01",
+"anaplastic thyroid cancer"
+],
+[
+"SM3NCT00439478-INC-01",
+"histologically confirmed differentiated thyroid cancer"
+],
+[
+"SM3NCT00439478-INC-02",
+"status after total thyroidectomy"
+],
+[
+"SM3NCT00439478-INC-03",
+"status after subsequent high-dose radioiodine treatment"
+],
+[
+"SM3NCT00439478-INC-04",
+"regular follow-up by a board-certified dentist"
+],
+[
+"SM3NCT00439478-INC-05",
+"a minimum follow-up of 1 year after radioiodine therapy."
+]
+],
+"patients": {
+"review:uuuuhh": 1
+}
+},
+"Sm3NCT00493103": {
+"criteria": [
+[
+"SM3NCT00493103-EXC-01",
+"Patients with another disease."
+],
+[
+"SM3NCT00493103-INC-01",
+"Patients with congenital hypothyroidism due to thyroglobulin defective synthesis."
+]
+],
+"patients": {
+"review:uu": 1
+}
+},
+"Sm3NCT00535093": {
+"criteria": [
+[
+"SM3NCT00535093-EXC-01",
+"antibiotic treatment in preceding 7 days"
+],
+[
+"SM3NCT00535093-EXC-02",
+"no informed consent"
+],
+[
+"SM3NCT00535093-INC-01",
+"sore throat"
+],
+[
+"SM3NCT00535093-INC-02",
+"at least two Centor criteria:"
+],
+[
+"SM3NCT00535093-INC-03",
+"fever > 38 deg C or history of fever"
+],
+[
+"SM3NCT00535093-INC-04",
+"enlarged cervical lymph nodes"
+],
+[
+"SM3NCT00535093-INC-05",
+"tonsillar exudate"
+],
+[
+"SM3NCT00535093-INC-06",
+"lack of cough"
+],
+[
+"SM3NCT00535093-INC-07",
+"age 3-14 years"
+]
+],
+"patients": {
+"review:uhuhhhhhh": 1
+}
+},
+"Sm3NCT00557219": {
+"criteria": [
+[
+"SM3NCT00557219-EXC-01",
+"refused or none consent"
+],
+[
+"SM3NCT00557219-EXC-02",
+"chronic renal failure with chronic renal replacement therapy"
+],
+[
+"SM3NCT00557219-EXC-03",
+"chronic increase of serum creatinine > 2 mg/dl"
+],
+[
+"SM3NCT00557219-INC-01",
+"cardiac surgery"
+],
+[
+"SM3NCT00557219-INC-02",
+"at least one risk factor for acute renal failure:"
+],
+[
+"SM3NCT00557219-INC-03",
+"oliguria < 0.5 ml/kg/hour for over 3 hours despite adequate blood volume and furosemide intravenously"
+],
+[
+"SM3NCT00557219-INC-04",
+"at least 60 mg furosemide/12 hours iv to maintain diuresis > 1 ml/kg/hour"
+],
+[
+"SM3NCT00557219-INC-05",
+"Aged 18 years or older"
+]
+],
+"patients": {
+"review:hhhuhhhh": 1
+}
+},
+"Sm3NCT00582465": {
+"criteria": [
+[
+"SM3NCT00582465-DOC-01",
+"Subjects receiving calcium or vitamin D supplementation will not be excluded but this information will be recorded and evaluated further in the dietary/nutritional assessment."
+],
+[
+"SM3NCT00582465-EXC-01",
+"Neonatal SLE or drug-induced Systemic Lupus Erythematosus"
+],
+[
+"SM3NCT00582465-EXC-02",
+"Subjects who are pregnant, and subjects weighing over 300 pounds, as the densitometry techniques are not reliable above this weight."
+],
+[
+"SM3NCT00582465-INC-01",
+"Systemic Lupus Erythematosus subjects 4/11 of the American College of Rheumatology criteria for SLE (23), age less than 22 years."
+],
+[
+"SM3NCT00582465-INC-02",
+"Aged 7 years or older"
+]
+],
+"patients": {
+"review:-uhhc": 1
+}
+},
+"Sm3NCT00606840": {
+"criteria": [
+[
+"SM3NCT00606840-EXC-01",
+"BMI outside of range specified"
+],
+[
+"SM3NCT00606840-EXC-02",
+"Age outside of range specified"
+],
+[
+"SM3NCT00606840-EXC-03",
+"History of or current eating disorder or substance abuse"
+],
+[
+"SM3NCT00606840-EXC-04",
+"Recent weight loss greater than 5% of weight"
+],
+[
+"SM3NCT00606840-EXC-05",
+"Currently in another research study that would interfere"
+],
+[
+"SM3NCT00606840-INC-01",
+"Age 18-35"
+],
+[
+"SM3NCT00606840-INC-02",
+"Body mass index between 23 and 30"
+],
+[
+"SM3NCT00606840-INC-03",
+"Interested in preventing weight gain"
+]
+],
+"patients": {
+"review:uhhhhcuh": 1
+}
+},
+"Sm3NCT00647829": {
+"criteria": [
+[
+"SM3NCT00647829-EXC-01",
+"Patients who used throat lozenges, throat spray, cough drops or menthol-containing products within 2 hours, short-acting analgesics/antipyretics (eg, ibuprofen) or any form of cold medication within 8 hours, antibiotics for acute disease within 24 hours of first dose of study medication, or presumed diagnosis of infectious mononucleosis, known allergy or hypersensitivity to NSAIDs, COX-2 specific inhibitors, sulfonamides, or acetaminophen were excluded."
+],
+[
+"SM3NCT00647829-INC-01",
+"Included patients had moderate to severe pain, as measured by the Sore Throat Pain Intensity Scale (STPIS) on swallowing ≥66 mm on a 100-mm visual analogue scale (VAS) and a minimum of 4 points on the 10-point Tonsillo-Pharyngitis Score (TPS) but who were not coughing or experiencing any evidence of mouth-breathing."
+],
+[
+"SM3NCT00647829-INC-02",
+"Aged 18 years or older"
+]
+],
+"patients": {
+"review:huc": 1
+}
+},
+"Sm3NCT00674726": {
+"criteria": [
+[
+"SM3NCT00674726-EXC-01",
+"Other acute abdominal diseases"
+],
+[
+"SM3NCT00674726-INC-01",
+"Patients with acute appendicitis"
+],
+[
+"SM3NCT00674726-INC-02",
+"Patients with acute gastroenteritis"
+],
+[
+"SM3NCT00674726-INC-03",
+"Patients older than 15 years of age"
+]
+],
+"patients": {
+"excluded:---C": 1
+}
+},
+"Sm3NCT00703417": {
+"criteria": [
+[
+"SM3NCT00703417-EXC-01",
+"Severe neuropathic disease such as neurogenic osteoarthropathies (i.e., Charcot joints) of the foot"
+],
+[
+"SM3NCT00703417-EXC-02",
+"Steroid users or have disease conditions that could play a significant role in the development of osteoporosis such as idiopathic osteoporosis, immobilization, hyperparathyroidism, or hyperthyroidism"
+],
+[
+"SM3NCT00703417-EXC-03",
+"Diseases that may affect bone metabolism: alcoholism, chronic drug use, chronic gastrointestinal disease, renal or hepatic impairment"
+],
+[
+"SM3NCT00703417-EXC-04",
+"Chronic treatment with antacids, estrogen, adrenal or anabolic steroids, anticonvulsants, anticoagulants, or pharmacologic doses of Vitamin A supplements 6 months prior"
+],
+[
+"SM3NCT00703417-EXC-05",
+"Diabetic patients on rosiglitazone or pioglitazone medications"
+],
+[
+"SM3NCT00703417-EXC-06",
+"high energy trauma, e.g., due to motor vehicle accidents"
+],
+[
+"SM3NCT00703417-EXC-07",
+"Pathological fractures of other origin, i.e., tumor, tumor-like lesions as well as focal demineralization visualized on radiographs"
+],
+[
+"SM3NCT00703417-EXC-08",
+"History of fluoride, bisphosphonate, calcitonin or tamoxifen use"
+],
+[
+"SM3NCT00703417-EXC-09",
+"History of unstable cardiovascular disease or uncontrolled hypertension"
+],
+[
+"SM3NCT00703417-EXC-10",
+"MRI contraindications"
+],
+[
+"SM3NCT00703417-EXC-11",
+"Body mass index greater than 35"
+],
+[
+"SM3NCT00703417-INC-01",
+"Postmenopausal female, 55-75 years old"
+],
+[
+"SM3NCT00703417-INC-02",
+"History of Type II diabetes, as defined by the American Diabetes Association for more than 5 years that is either insulin requiring or treated with oral therapies such as sulfonylureas and metformin"
+],
+[
+"SM3NCT00703417-INC-03",
+"Body mass index (BMI) of 19-35"
+],
+[
+"SM3NCT00703417-INC-04",
+"Able to move without walkers and without a history of long periods (>3 months) of inactivity"
+],
+[
+"SM3NCT00703417-INC-05",
+"Additional inclusion criteria for fracture participants:"
+],
+[
+"SM3NCT00703417-INC-06",
+"Fractures of the proximal humerus and femur as well as the ankle and foot should have occurred after the onset of diabetes and should have been caused by a low energy trauma such as falling from standing height. All fractures will be verified by radiographs."
+],
+[
+"SM3NCT00703417-INC-07",
+"Female participants only"
+]
+],
+"patients": {}
+},
+"Sm3NCT00711399": {
+"criteria": [
+[
+"SM3NCT00711399-EXC-01",
+"Chest tubes"
+],
+[
+"SM3NCT00711399-EXC-02",
+"Skin lesions precluding attachment of sensors"
+],
+[
+"SM3NCT00711399-EXC-03",
+"Respiratory distress"
+],
+[
+"SM3NCT00711399-EXC-04",
+"Pregnant women"
+],
+[
+"SM3NCT00711399-INC-01",
+"Patient and/or parents/guardian signed informed consent"
+],
+[
+"SM3NCT00711399-INC-02",
+"Patients with cough or shortness of breath"
+],
+[
+"SM3NCT00711399-INC-03",
+"Aged 1 year or older"
+],
+[
+"SM3NCT00711399-INC-04",
+"Age <= 45 years"
+]
+],
+"patients": {
+"excluded:--N-----": 1
+}
+},
+"Sm3NCT00721006": {
+"criteria": [
+[
+"SM3NCT00721006-EXC-01",
+"Inability to provide informed consent."
+],
+[
+"SM3NCT00721006-EXC-02",
+"Previous angiogenic therapy."
+],
+[
+"SM3NCT00721006-EXC-03",
+"Known sensitivity to gentamycin and/or amphotericin B."
+],
+[
+"SM3NCT00721006-EXC-04",
+"Use or expected use of antineoplastic drugs."
+],
+[
+"SM3NCT00721006-EXC-05",
+"Any illness, which might affect the patient's survival after enrollment in the protocol."
+],
+[
+"SM3NCT00721006-EXC-06",
+"Any illness or significant laboratory abnormality, which in the investigator's judgment will interfere with the patient's ability to comply with the protocol, compromise the patient's safety, or interfere with the interpretation of the study results."
+],
+[
+"SM3NCT00721006-EXC-07",
+"No evidence of acute infection"
+],
+[
+"SM3NCT00721006-EXC-08",
+"WBC > 15000."
+],
+[
+"SM3NCT00721006-EXC-09",
+"WBC < 4000."
+],
+[
+"SM3NCT00721006-EXC-10",
+"Serum Creatinine > 3.0 mg/dL in patients who are not in hemodialysis."
+],
+[
+"SM3NCT00721006-EXC-11",
+"Pregnant women or women planning to become pregnant or unwilling to use appropriate birth control methods before and 2 months after cell infusion."
+],
+[
+"SM3NCT00721006-EXC-12",
+"Recent myocardial infarction within 3 months prior to screening."
+],
+[
+"SM3NCT00721006-INC-01",
+"Males or females older than 18 years of age."
+],
+[
+"SM3NCT00721006-INC-02",
+"Limb ischemia with ABI of < 0.7 in the index lower extremity in two consecutive examinations done at least 1 week apart."
+],
+[
+"SM3NCT00721006-INC-03",
+"Limb ischemia with resting ischemic pain and/or claudication at 100 meters and/or non-healing ulcers."
+],
+[
+"SM3NCT00721006-INC-04",
+"Claudication"
+],
+[
+"SM3NCT00721006-INC-05",
+"Patients not considered candidates for surgical or percutaneous revascularization, due to poor target vessels, inability to cross total occlusions, or a morbidity which precludes general anesthesia."
+],
+[
+"SM3NCT00721006-INC-06",
+"Aged 19 years or older"
+]
+],
+"patients": {
+"review:huupuuuuuuhhchhpuc": 1
+}
+},
+"Sm3NCT00723788": {
+"criteria": [
+[
+"SM3NCT00723788-EXC-01",
+"Failure to pass MRI metal screening. Claustrophobia or need for sedation due to inability to hold still."
+],
+[
+"SM3NCT00723788-INC-01",
+"Age 8-18 years, referred from emergency department for suspected appendicitis and receiving either CT scan or ultrasound of the abdomen for diagnosis"
+]
+],
+"patients": {
+"review:hh": 1
+}
+},
+"Sm3NCT00774176": {
+"criteria": [
+[
+"SM3NCT00774176-EXC-01",
+"< 20 pack-yr. smoking history"
+],
+[
+"SM3NCT00774176-EXC-02",
+"Diagnosis of pulmonary fibrosis, bronchiectasis, mediastinal mass, or presence of a pulmonary mass"
+],
+[
+"SM3NCT00774176-EXC-03",
+"Asthma"
+],
+[
+"SM3NCT00774176-EXC-04",
+"FEV1 > 70% or FEV1/FVC >70%"
+],
+[
+"SM3NCT00774176-INC-01",
+"Phase 1 & Gene Expression: --Current hospitalization for COPD exacerbation"
+],
+[
+"SM3NCT00774176-INC-02",
+"Phase 1 & 2: COPD & ONE of the following criteria:"
+],
+[
+"SM3NCT00774176-INC-03",
+"History of hospitalization for COPD exacerbation, OR"
+],
+[
+"SM3NCT00774176-INC-04",
+"Currently on supplemental oxygen, OR"
+],
+[
+"SM3NCT00774176-INC-05",
+"History of evaluation for lung transplant or LVRS, OR"
+],
+[
+"SM3NCT00774176-INC-06",
+">/= 6 months post-LVRS"
+],
+[
+"SM3NCT00774176-INC-07",
+"Phase 1 or 2:"
+],
+[
+"SM3NCT00774176-INC-08",
+"Current or former smoker, >/= 20 pack-yr. smoking history"
+],
+[
+"SM3NCT00774176-INC-09",
+"FEV1 </= 70%; FEV1/FVC </= 70%"
+],
+[
+"SM3NCT00774176-INC-10",
+"Life expectancy of > 6 months"
+],
+[
+"SM3NCT00774176-INC-11",
+"Aged 40 years or older"
+],
+[
+"SM3NCT00774176-INC-12",
+"Age <= 80 years"
+]
+],
+"patients": {
+"review:huhhhhhhhhhhhhhh": 1
+}
+},
+"Sm3NCT00792220": {
+"criteria": [
+[
+"SM3NCT00792220-EXC-01",
+"Age younger than 18 or older than 80 years"
+],
+[
+"SM3NCT00792220-EXC-02",
+"Non-acute onset of symptoms"
+],
+[
+"SM3NCT00792220-EXC-03",
+"No focal stroke-like symptoms"
+],
+[
+"SM3NCT00792220-EXC-04",
+"Pregnant patients"
+],
+[
+"SM3NCT00792220-INC-01",
+"Age between 18 and 80 years"
+],
+[
+"SM3NCT00792220-INC-02",
+"Onset of symptoms until call at least 30 min prior to the end of the approved time window for thrombolysis (and not after awakening)"
+],
+[
+"SM3NCT00792220-INC-03",
+"Clinical signs of ischemic stroke with suddenly occurring, measurable neurological deficits defined as impairment of language, motor function, facial palsy or asymmetry"
+],
+[
+"SM3NCT00792220-INC-04",
+"Patient is willing to participate voluntarily and to sign a written informed consent. Informed consent will be obtained from each patient or the subject's legally authorized representative or relative."
+],
+[
+"SM3NCT00792220-INC-05",
+"Patients who are unable to sign but who are able to understand the meaning of participation in the study may give an oral witnessed informed consent. These patients have to make undoubtfully clear that they are willing to participate voluntarily and must be able to understand an explanation of the contents of the information sheet."
+]
+],
+"patients": {
+"excluded:------N--": 1
+}
+},
+"Sm3NCT00841789": {
+"criteria": [
+[
+"SM3NCT00841789-EXC-01",
+"Laboratory Criteria: Any laboratory toxicity, at the time of the screening visit or at any time during the study that in the opinion of the Investigator would preclude participation in the study or:"
+],
+[
+"SM3NCT00841789-EXC-02",
+"Platelet count < 100,000/mm3"
+],
+[
+"SM3NCT00841789-EXC-03",
+"WBC count < 3,000 cells/mm3"
+],
+[
+"SM3NCT00841789-EXC-04",
+"Hemoglobin, hematocrit, or red blood cell count outside 30% of the upper or lower limits of normal for the Lab"
+],
+[
+"SM3NCT00841789-EXC-05",
+"Subject is currently enrolled in another investigational device or drug trial(s), or subject has received other investigational agent(s) within 28 days of baseline visit."
+],
+[
+"SM3NCT00841789-EXC-06",
+"Female subjects diagnosed with KD 12 years of age and older."
+],
+[
+"SM3NCT00841789-EXC-07",
+"Subjects who have known hypersensitivity to Enbrel or any of its components or who is known to have antibodies to etanercept"
+],
+[
+"SM3NCT00841789-EXC-08",
+"Prior or concurrent cyclophosphamide therapy"
+],
+[
+"SM3NCT00841789-EXC-09",
+"Prior treatment with any TNF alpha antagonist or steroid within 48 hours prior to initiation of IVIG"
+],
+[
+"SM3NCT00841789-EXC-10",
+"Concurrent sulfasalazine therapy"
+],
+[
+"SM3NCT00841789-EXC-11",
+"Active severe infections within 4 weeks before screening visit, or between the screening and baseline visits."
+],
+[
+"SM3NCT00841789-EXC-12",
+"SLE, history of multiple sclerosis, transverse myelitis, optic neuritis, or chronic seizure disorder"
+],
+[
+"SM3NCT00841789-EXC-13",
+"Known HIV-positive status or known history of any other immuno-suppressing disease."
+],
+[
+"SM3NCT00841789-EXC-14",
+"Any mycobacterial disease or high risk factors for tuberculosis, such as family member with TB or taking INH"
+],
+[
+"SM3NCT00841789-EXC-15",
+"Untreated Lyme disease"
+],
+[
+"SM3NCT00841789-EXC-16",
+"Severe comorbidities (diabetes mellitus requiring insulin, CHF of any severity, MI, CVA or TIA within 3 months of screening visit, unstable angina pectoris, uncontrolled hypertension (sitting systolic BP > 160 or diastolic BP > 100 mm Hg), oxygen-dependent severe pulmonary disease, history of cancer within 5 years [other than resected cutaneous basal or squamous cell carcinoma or in situ cervical cancer])"
+],
+[
+"SM3NCT00841789-EXC-17",
+"Exposure to hepatitis B or hepatitis C or high risk factors such as intravenous drug abuse in patient's mother, or history of jaundice (other than neonatal jaundice). SLE, history of multiple sclerosis, transverse myelitis, optic neuritis or chronic seizure disorder."
+],
+[
+"SM3NCT00841789-EXC-18",
+"Use of a live vaccine (Measles Mumps Rubella or Varicella) 30 days prior to or during this study."
+],
+[
+"SM3NCT00841789-EXC-19",
+"Any condition judged by the patient's physician to cause this clinical trial to be detrimental to the patient"
+],
+[
+"SM3NCT00841789-EXC-20",
+"History of non-compliance with other therapies"
+],
+[
+"SM3NCT00841789-EXC-21",
+"Must not have received immunosuppressive agents for at least three months prior to enrollment."
+],
+[
+"SM3NCT00841789-INC-01",
+"Male Age 2 months to 20 years of age Female Age 2 months to 11 years of age"
+],
+[
+"SM3NCT00841789-INC-02",
+"Provision of Parental Consent"
+],
+[
+"SM3NCT00841789-INC-03",
+"Kawasaki Disease Presentation"
+]
+],
+"patients": {
+"review:hhhhhhhhhhhhhhhhhhhhhhhu": 1
+}
+},
+"Sm3NCT00845988": {
+"criteria": [
+[
+"SM3NCT00845988-EXC-01",
+"diagnosis of eating disorder, substance abuse, and psychotic disorder"
+],
+[
+"SM3NCT00845988-EXC-02",
+"history of neurological and medical illness"
+],
+[
+"SM3NCT00845988-EXC-03",
+"pregnant or breast feeding women"
+],
+[
+"SM3NCT00845988-INC-01",
+"patients with bipolar disorders (I, II, NOS) diagnosed with DSM-IV criteria"
+],
+[
+"SM3NCT00845988-INC-02",
+"age between 18 and 65"
+],
+[
+"SM3NCT00845988-INC-03",
+"Decisional capacity is adequate to provide informed consent or has an authorized appropriate surrogate decision maker. in a syndromal remission state at least for 2 months : CGI - BP ≤ 3"
+],
+[
+"SM3NCT00845988-INC-04",
+"patients who have exhibited a clinically significant increase in body weight after starting the administration of their current antipsychotic (ie >7% weight gain)"
+]
+],
+"patients": {
+"review:hhhuchh": 1
+}
+},
+"Sm3NCT00910715": {
+"criteria": [
+[
+"SM3NCT00910715-EXC-01",
+"a history of Lyme borreliosis in the past"
+],
+[
+"SM3NCT00910715-EXC-02",
+"pregnancy or lactation"
+],
+[
+"SM3NCT00910715-EXC-03",
+"immunocompromised status"
+],
+[
+"SM3NCT00910715-EXC-04",
+"serious adverse event to doxycycline"
+],
+[
+"SM3NCT00910715-EXC-05",
+"taking antibiotic with antiborrelial activity within 10 days"
+],
+[
+"SM3NCT00910715-EXC-06",
+"multiple erythema migrans or extracutaneous manifestations of Lyme borreliosis"
+],
+[
+"SM3NCT00910715-INC-01",
+"solitary erythema migrans in patients > 15 years"
+],
+[
+"SM3NCT00910715-INC-02",
+"Aged 15 years or older"
+]
+],
+"patients": {
+"excluded:-------C": 1
+}
+},
+"Sm3NCT00954200": {
+"criteria": [
+[
+"SM3NCT00954200-EXC-01",
+"children with immune deficiency"
+],
+[
+"SM3NCT00954200-EXC-02",
+"allergy to NSAIDS"
+],
+[
+"SM3NCT00954200-EXC-03",
+"previous exacerbation of asthma due to NSAIDS"
+],
+[
+"SM3NCT00954200-EXC-04",
+"fever on the day of the examination"
+],
+[
+"SM3NCT00954200-EXC-05",
+"current antibiotic treatment"
+],
+[
+"SM3NCT00954200-INC-01",
+"under twelve years of age"
+],
+[
+"SM3NCT00954200-INC-02",
+"all patients undergoing bronchoscopy and bronchoalveolar lavage"
+],
+[
+"SM3NCT00954200-INC-03",
+"Age <= 12 years"
+]
+],
+"patients": {
+"review:uuuuuhuh": 1
+}
+},
+"Sm3NCT00957541": {
+"criteria": [
+[
+"SM3NCT00957541-EXC-01",
+"Any contraindication for standard cardiac pacing"
+],
+[
+"SM3NCT00957541-EXC-02",
+"Any contraindication for ICD therapy"
+],
+[
+"SM3NCT00957541-EXC-03",
+"Abdominal implantation site"
+],
+[
+"SM3NCT00957541-EXC-04",
+"Hypertrophic or obstructive cardiomyopathy"
+],
+[
+"SM3NCT00957541-EXC-05",
+"Acute myocarditis"
+],
+[
+"SM3NCT00957541-EXC-06",
+"Unstable coronary symptoms (unstable angina or myocardial infarction) within the last month"
+],
+[
+"SM3NCT00957541-EXC-07",
+"Recent (within the last month) or planned cardiac revascularization or coronary angioplasty"
+],
+[
+"SM3NCT00957541-EXC-08",
+"Correctable valvular disease that is the primary cause of heart failure"
+],
+[
+"SM3NCT00957541-EXC-09",
+"Mechanical tricuspid valve"
+],
+[
+"SM3NCT00957541-EXC-10",
+"Receiving continuous intra-venous infusion of positive inotropic therapy or intermittent therapy (intravenous infusion) more than twice per week"
+],
+[
+"SM3NCT00957541-EXC-11",
+"Heart transplant recipient"
+],
+[
+"SM3NCT00957541-EXC-12",
+"Renal insufficiency requiring dialysis"
+],
+[
+"SM3NCT00957541-EXC-13",
+"Already included in another clinical study"
+],
+[
+"SM3NCT00957541-EXC-14",
+"Life expectancy less than 12 months"
+],
+[
+"SM3NCT00957541-EXC-15",
+"Inability to understand the purpose of the study or refusal to cooperate"
+],
+[
+"SM3NCT00957541-EXC-16",
+"Inability or refusal to provide informed consent or HIPAA"
+],
+[
+"SM3NCT00957541-EXC-17",
+"Unavailability for scheduled follow-up at the implanting center"
+],
+[
+"SM3NCT00957541-EXC-18",
+"Known sensitivity to 1mg dexamethasone sodium phosphate (DSP)"
+],
+[
+"SM3NCT00957541-EXC-19",
+"Under guardianship"
+],
+[
+"SM3NCT00957541-EXC-20",
+"Age of less than 18 years"
+],
+[
+"SM3NCT00957541-EXC-21",
+"Pregnancy"
+],
+[
+"SM3NCT00957541-INC-01",
+"Subject eligible for implantation of a CRT-D device according to current available guidelines for cardiac resynchronization therapy"
+],
+[
+"SM3NCT00957541-INC-02",
+"Subject has severe heart failure (NYHA Class III or IV)"
+],
+[
+"SM3NCT00957541-INC-03",
+"Subject has experienced at least one heart failure event within six months prior to enrollment"
+],
+[
+"SM3NCT00957541-INC-04",
+"Subject continues to have heart failure symptoms despite receiving optimal medical therapy"
+],
+[
+"SM3NCT00957541-INC-05",
+"Schedule for implant of a PARADYM CRT-D (Model 8770)"
+],
+[
+"SM3NCT00957541-INC-06",
+"Subject has signed and dated an informed consent form"
+]
+],
+"patients": {
+"review:uuuuuhhuuhuuhuhhhhhcuuhuuhh": 1
+}
+},
+"Sm3NCT00974064": {
+"criteria": [
+[
+"SM3NCT00974064-EXC-01",
+"Groups A - E"
+],
+[
+"SM3NCT00974064-EXC-02",
+"Individuals unable to provide proper informed consent"
+],
+[
+"SM3NCT00974064-EXC-03",
+"Habitual use of drugs and/or alcohol within the past six months (Acceptable: Marijuana one time in three months; average of two alcoholic beverages per day; drug and/or alcohol abuse is defined as per the DSM-IV Substance Abuse Criteria)"
+],
+[
+"SM3NCT00974064-EXC-04",
+"Individuals with asthma and with recurrent or recent (within three months) and/or acute pulmonary infection"
+],
+[
+"SM3NCT00974064-EXC-05",
+"Individuals with allergy to lidocaine"
+],
+[
+"SM3NCT00974064-EXC-06",
+"Significant kidney disease or subjects on dialysis"
+],
+[
+"SM3NCT00974064-EXC-07",
+"Females who are pregnant or lactating or intending to become pregnant in the next 12 months"
+],
+[
+"SM3NCT00974064-EXC-08",
+"Subjects who are HIV positive"
+],
+[
+"SM3NCT00974064-EXC-09",
+"Subjects that have unstable coronary artery disease as evidenced by unstable angina, >Class II New York Heart Association (NYHA) cardiac status, history of congestive heart failure or MI within the last 12 months"
+],
+[
+"SM3NCT00974064-EXC-10",
+"Subjects who are contraindicated for undergoing bronchoscopy"
+],
+[
+"SM3NCT00974064-EXC-11",
+"Subjects having any medical condition that in the opinion of the investigator would preclude the subject from entering the study"
+],
+[
+"SM3NCT00974064-EXC-12",
+"Groups D and E"
+],
+[
+"SM3NCT00974064-EXC-13",
+"Subjects may not have evidence of respiratory failure such as SpO2 <90% or PaO2 <60 mmHg"
+],
+[
+"SM3NCT00974064-EXC-14",
+"Groups C and E"
+],
+[
+"SM3NCT00974064-EXC-15",
+"Current major depression or other significant psychiatric disorder"
+],
+[
+"SM3NCT00974064-EXC-16",
+"Subjects currently taking anti-depressant medication"
+],
+[
+"SM3NCT00974064-INC-01",
+"Group A: Healthy nonsmokers"
+],
+[
+"SM3NCT00974064-INC-02",
+"All study individuals should be enrolled in the Airway protocol #1204012331 Collection of Airway, Blood and/or Urine Specimens from Subjects for Research Studies"
+],
+[
+"SM3NCT00974064-INC-03",
+"Willing and able to provide informed consent for the long term follow up study with repeated bronchoscopies"
+],
+[
+"SM3NCT00974064-INC-04",
+"Male and Female subject ≥18 years of age"
+],
+[
+"SM3NCT00974064-INC-05",
+"Never smokers is defined as someone who has smoked < 100 cigarettes per lifetime and whose urine nicotine <2 ng/mL and/or urine cotinine <5 ng/mL, at entry into the study"
+],
+[
+"SM3NCT00974064-INC-06",
+"Group B: Healthy current smokers Inclusion:"
+],
+[
+"SM3NCT00974064-INC-07",
+"All study individuals should be enrolled in the Airway protocol"
+],
+[
+"SM3NCT00974064-INC-08",
+"Willing and able to provide informed consent for the long term follow up study with repeated bronchoscopies"
+],
+[
+"SM3NCT00974064-INC-09",
+"Male and Female subject ≥18 years of age"
+],
+[
+"SM3NCT00974064-INC-10",
+"Active smoker as evidenced by self-report and urine nicotine >30 ng/mL and/or urine cotinine >50 ng/mL"
+],
+[
+"SM3NCT00974064-INC-11",
+"Group C: Healthy smokers who elect to stop smoking Inclusion:"
+],
+[
+"SM3NCT00974064-INC-12",
+"All study individuals should be enrolled in the Airway protocol"
+],
+[
+"SM3NCT00974064-INC-13",
+"Willing and able to provide informed consent for the long term follow up study with repeated bronchoscopies"
+],
+[
+"SM3NCT00974064-INC-14",
+"Male and Female subject ≥18 years of age"
+],
+[
+"SM3NCT00974064-INC-15",
+"Current smoker as evidenced by self-report and urine nicotine >30 ng/mL and/or urine cotinine >50 ng/mL"
+],
+[
+"SM3NCT00974064-INC-16",
+"Be a current smoker willing to stop smoking"
+],
+[
+"SM3NCT00974064-INC-17",
+"Group D - Current smokers with COPD Inclusion:"
+],
+[
+"SM3NCT00974064-INC-18",
+"All study subjects will be enrolled in the Airway protocol #1204012331 Collection of Airway, Blood and/or Urine Specimens from Subjects for Research Studies"
+],
+[
+"SM3NCT00974064-INC-19",
+"All study subjects should meet the lung disease criteria for having COPD may be of any stage (GOLD I - IV), be ambulatory and have no evidence of respiratory failure"
+],
+[
+"SM3NCT00974064-INC-20",
+"All study subjects should be able to provide informed consent for the long term follow up study with repeated bronchoscopies"
+],
+[
+"SM3NCT00974064-INC-21",
+"Male and Female subject ≥18 years of age"
+],
+[
+"SM3NCT00974064-INC-22",
+"Active smokers as evidenced by urine nicotine >30 ng/mL and/or urine cotinine >50 ng/mL"
+],
+[
+"SM3NCT00974064-INC-23",
+"Group E - Current smokers with COPD who elect to stop smoking Inclusion:"
+],
+[
+"SM3NCT00974064-INC-24",
+"All study subjects will be enrolled in the Airway protocol #1204012331 Collection of Airway, Blood and/or Urine Specimens from Subjects for Research Studies"
+],
+[
+"SM3NCT00974064-INC-25",
+"All study subjects should meet the lung disease criteria for having COPD may be of any stage (GOLD I - IV), be ambulatory and have no evidence of respiratory failure"
+],
+[
+"SM3NCT00974064-INC-26",
+"All study subjects should be able to provide informed consent for the long term follow up study with repeated bronchoscopies"
+],
+[
+"SM3NCT00974064-INC-27",
+"Male and Female subject ≥18 years of age"
+],
+[
+"SM3NCT00974064-INC-28",
+"Active smokers as evidenced by urine nicotine >30 ng/mL and/or urine cotinine >50 ng/mL"
+],
+[
+"SM3NCT00974064-INC-29",
+"Be a current smoker willing to stop smoking"
+]
+],
+"patients": {}
+},
+"Sm3NCT00986128": {
+"criteria": [
+[
+"SM3NCT00986128-EXC-01",
+"Patients with a history of an acquired or hereditary neurologic disease, e.g., epilepsy or significant brain trauma"
+],
+[
+"SM3NCT00986128-EXC-02",
+"Patients on depot medications, including but not limited to haloperidol, decanoate and Depo-Provera"
+],
+[
+"SM3NCT00986128-EXC-03",
+"Patients who had taken acetazolamide, zonisamide, triamterene, dichlorphenamide, chronic antacids, or calcium supplements, or any medication associated with nephrolithiasis (kidney stone formation) in the month prior to beginning topiramate titration"
+],
+[
+"SM3NCT00986128-INC-01",
+"Patients meeting DSM-IV criteria for either Bipolar I, Bipolar II, Cyclothymic Disorder, or Bipolar Disorder NOS"
+],
+[
+"SM3NCT00986128-INC-02",
+"Patients on monotherapy treatment with lithium carbonate at steady state level for a minimum of two weeks prior to study treatment assignment"
+],
+[
+"SM3NCT00986128-INC-03",
+"Women are postmenopausal for at least 1 year, or surgically incapable of childbearing, or practicing an acceptable method of birth control (hormonal contraception, intrauterine device, or barrier with spermicide were acceptable) and not pregnant at baseline"
+],
+[
+"SM3NCT00986128-INC-04",
+"Aged 18 years or older"
+],
+[
+"SM3NCT00986128-INC-05",
+"Age <= 60 years"
+]
+],
+"patients": {
+"review:puhhhucc": 1
+}
+},
+"Sm3NCT00997100": {
+"criteria": [
+[
+"SM3NCT00997100-EXC-01",
+"Active severe SLE flare with central nervous system (CNS) manifestations, active renal lupus, systemic vasculitis, active pericarditis, active pleuritis, active peritonitis or other SLE manifestations requiring treatment not allowed by the study protocol."
+],
+[
+"SM3NCT00997100-EXC-02",
+"Severe renal impairment (estimated or measured GFR <50%)"
+],
+[
+"SM3NCT00997100-EXC-03",
+"Oral treatment with corticosteroids (>15 mg/day prednisolone or equivalent) or changes in corticosteroid dosing within 30 days prior to the first dose of study medication. This also includes intraarticular steroid injections or topical treatment for SLE symptoms. Inhaled or topical steroids may be given for reasons other than SLE disease activity (such as asthma, contact dermatitis) as clinically indicated."
+],
+[
+"SM3NCT00997100-EXC-04",
+"Intravenous corticosteroids within 3 months prior to the first dose of study medication."
+],
+[
+"SM3NCT00997100-EXC-05",
+"Intravenous cyclophosphamide within 6 months prior to the first dose of study medication."
+],
+[
+"SM3NCT00997100-EXC-06",
+"Treatment with anti-rheumatic/immunosuppressive drugs within 3 months prior to first dose of study medication, other than the following medications at stable doses: methotrexate (≤25 mg/week), azathioprine (≤2.5 mg/kg/day), hydroxychloroquine and mycophenolate mofetil (≤3000 mg/day)."
+],
+[
+"SM3NCT00997100-EXC-07",
+"B-cell depletion therapy (such as treatment with Rituximab) within 12 months prior to the first dose of study medication."
+],
+[
+"SM3NCT00997100-EXC-08",
+"Potent inhibitors or inducers of CYP3A4 intravenously or orally within 14 days prior to first dose of study medication."
+],
+[
+"SM3NCT00997100-EXC-09",
+"History of myocardial infarction or current uncontrolled angina, severe uncontrolled ventricular arrhythmias, symptomatic congestive heart failure, unstable angina pectoris, or electrocardiographic evidence of acute ischemia."
+],
+[
+"SM3NCT00997100-EXC-10",
+"Marked baseline prolongation of QT/QTc interval (eg, repeated demonstration of a QTc interval >450 milliseconds"
+],
+[
+"SM3NCT00997100-EXC-11",
+"History of additional risk factors for torsade de pointes (eg, heart failure, hypokalemia, family history of long QT syndrome)"
+],
+[
+"SM3NCT00997100-EXC-12",
+"Treatment with concomitant medications that prolong the QT interval."
+],
+[
+"SM3NCT00997100-EXC-13",
+"History of, or current, ischemic CNS disease."
+],
+[
+"SM3NCT00997100-EXC-14",
+"Current malignancy. A 5-year cancer-free period is required with the exception of skin basal or squamous cell carcinoma or cervical cancer in situ that has been excised."
+],
+[
+"SM3NCT00997100-EXC-15",
+"Current severe infection"
+],
+[
+"SM3NCT00997100-EXC-16",
+"Positive result on screening for hepatitis B surface antigen, hepatitis C antibodies or human immunodeficiency virus (HIV) antibodies."
+],
+[
+"SM3NCT00997100-EXC-17",
+"Drug abuse."
+],
+[
+"SM3NCT00997100-EXC-18",
+"Major surgery within 3 weeks prior to study entry."
+],
+[
+"SM3NCT00997100-EXC-19",
+"Known or suspected hypersensitivity to ABR-215757 or excipients."
+],
+[
+"SM3NCT00997100-EXC-20",
+"Female subject of child-bearing potential who is not using a medically accepted safe method of contraception. All female subjects of child-bearing potential must have a negative urine pregnancy test at the Screening and Baseline Visits. As interaction studies between ABR-215757 and oral contraceptives have not yet been performed, women using the contraceptive pill must also use a complementary contraceptive device, i.e. barrier method, during the treatment period and for at least 1 month thereafter."
+],
+[
+"SM3NCT00997100-EXC-21",
+"Female subject of child-bearing potential who is pregnant or lactating."
+],
+[
+"SM3NCT00997100-EXC-22",
+"Simultaneous participation or participation within 4 months or 5 half lives (whichever is longer) prior to study entry in any other study involving investigational drugs or other experimental therapy."
+],
+[
+"SM3NCT00997100-EXC-23",
+"Other significant, unstable medical disease not related to SLE that in the investigator's opinion would confound the study result or put the patient at risk."
+],
+[
+"SM3NCT00997100-EXC-24",
+"Patients likely to receive oral or intravenous steroids or immunosuppressant for other non-SLE condition during the study duration, as this will confound the study result."
+],
+[
+"SM3NCT00997100-EXC-25",
+"Vaccination within 4 weeks prior to the first dose of study medication."
+],
+[
+"SM3NCT00997100-INC-01",
+"Age > 18 years at the time of signing the informed consent form"
+],
+[
+"SM3NCT00997100-INC-02",
+"Fulfil at least 4 criteria for SLE as defined by the American College of Rheumatology (ACR)"
+],
+[
+"SM3NCT00997100-INC-03",
+"Present with active SLE disease with at least one of the following symptoms:"
+],
+[
+"SM3NCT00997100-INC-04",
+"Arthritis - > 2 joints with pain and signs of inflammation (i.e. tenderness, swelling, or effusion) ii) Inflammatory-type skin rash iii) Oral ulcers"
+],
+[
+"SM3NCT00997100-INC-05",
+"Laboratory values as follows"
+],
+[
+"SM3NCT00997100-INC-06",
+"Hemoglobin ≥ 100 g/L"
+],
+[
+"SM3NCT00997100-INC-07",
+"Absolute neutrophil count ≥ 1.0 x 109/L"
+],
+[
+"SM3NCT00997100-INC-08",
+"Total bilirubin ≤ 1.5 x upper limit of normal (ULN)"
+],
+[
+"SM3NCT00997100-INC-09",
+"AST (SGOT) / ALT (SGPT) ≤ 2.5 x ULN"
+],
+[
+"SM3NCT00997100-INC-10",
+"Ability to take and retain oral medication"
+],
+[
+"SM3NCT00997100-INC-11",
+"Ability to sign and date a written informed consent prior to entering the study"
+],
+[
+"SM3NCT00997100-INC-12",
+"Willingness and ability to comply with the protocol for the duration of the study"
+]
+],
+"patients": {
+"excluded:--------------------C----------------": 1
+}
+},
+"Sm3NCT01007877": {
+"criteria": [
+[
+"SM3NCT01007877-EXC-01",
+"Current drug use (positive urine drug screen on the presence of amphetamines (including MDMA), barbiturates, cannabinoids, benzodiazepines, cocaine, and opiates) as will be assessed by a urine drug test"
+],
+[
+"SM3NCT01007877-EXC-02",
+"Use of psychoactive medication"
+],
+[
+"SM3NCT01007877-EXC-03",
+"Pregnancy"
+],
+[
+"SM3NCT01007877-EXC-04",
+"Positive alcohol breath test"
+],
+[
+"SM3NCT01007877-EXC-05",
+"Prior enrolment in the same study"
+],
+[
+"SM3NCT01007877-EXC-06",
+"Physical or mental illness"
+],
+[
+"SM3NCT01007877-EXC-07",
+"Excessive alcohol use (>21 alcoholic drinks per week)"
+],
+[
+"SM3NCT01007877-EXC-08",
+"Intake of caffeine-containing beverages under 2 or over 4 glasses per day"
+],
+[
+"SM3NCT01007877-EXC-09",
+"Regular consumption of Energy Drinks (>1 per month)"
+],
+[
+"SM3NCT01007877-EXC-10",
+"Shift worker (or no regular sleep pattern)"
+],
+[
+"SM3NCT01007877-EXC-11",
+"Epworth Sleepiness Score (ESS) > 10"
+],
+[
+"SM3NCT01007877-INC-01",
+"He/she is aged between 21 and 35 years old"
+],
+[
+"SM3NCT01007877-INC-02",
+"BMI between 21 and 30,"
+],
+[
+"SM3NCT01007877-INC-03",
+"55-85 kg body weight"
+],
+[
+"SM3NCT01007877-INC-04",
+"Non smoker"
+],
+[
+"SM3NCT01007877-INC-05",
+"Written informed consent"
+],
+[
+"SM3NCT01007877-INC-06",
+"Normal static binocular acuity, corrected or uncorrected"
+],
+[
+"SM3NCT01007877-INC-07",
+"Normal hearing"
+],
+[
+"SM3NCT01007877-INC-08",
+"Possession of a valid driver's license for at least 3 years"
+],
+[
+"SM3NCT01007877-INC-09",
+"Regular driver (> 5000 km / year)"
+],
+[
+"SM3NCT01007877-INC-10",
+"Be considered as reliable and mentally capable of adhering to the protocol."
+]
+],
+"patients": {
+"review:huuuhhuuuuucuhuhuuhhh": 1
+}
+},
+"Sm3NCT01017081": {
+"criteria": [
+[
+"SM3NCT01017081-EXC-01",
+"Severely ill patients (hospitalized in intensive care units)"
+],
+[
+"SM3NCT01017081-EXC-02",
+"Pleural effusion treated with chest drainage"
+],
+[
+"SM3NCT01017081-EXC-03",
+"Atelectasis detected by x-ray"
+],
+[
+"SM3NCT01017081-EXC-04",
+"Pneumonia or pleural effusion in the previous six months"
+],
+[
+"SM3NCT01017081-EXC-05",
+"Other pulmonary underlying disease, heart disease, cerebral palsy or immune deficiency"
+],
+[
+"SM3NCT01017081-INC-01",
+"Children aged 1 to 12 years with acute community-acquired pneumonia (cough, tachypnea, fever and with a chest radiography with lobar, segmental or bronchopneumonia within the first 48 hours)"
+]
+],
+"patients": {
+"review:uuuhuc": 1
+}
+},
+"Sm3NCT01141907": {
+"criteria": [
+[
+"SM3NCT01141907-EXC-01",
+"cannot speak or understand English"
+],
+[
+"SM3NCT01141907-EXC-02",
+"severe renal insufficiency requiring dialysis"
+],
+[
+"SM3NCT01141907-EXC-03",
+"acute myocardial infarction within preceding 30 days"
+],
+[
+"SM3NCT01141907-EXC-04",
+"receiving home care services for HF post discharge"
+],
+[
+"SM3NCT01141907-EXC-05",
+"legally blind or have major hearing loss"
+],
+[
+"SM3NCT01141907-EXC-06",
+"screen positive for cognitive impairment on the Mini-cog at baseline"
+],
+[
+"SM3NCT01141907-EXC-07",
+"unable to stand independently on a weight scale (limited ability to participate in HAT system)"
+],
+[
+"SM3NCT01141907-EXC-08",
+"weigh more than 325 pounds (exceed scale capacity)"
+],
+[
+"SM3NCT01141907-EXC-09",
+"serious or terminal condition such as psychosis or cancer (actively receiving chemo or radiation)"
+],
+[
+"SM3NCT01141907-EXC-10",
+"pregnant"
+],
+[
+"SM3NCT01141907-INC-01",
+"hospitalized with admitting diagnosis of heart failure in prior 8 weeks"
+],
+[
+"SM3NCT01141907-INC-02",
+"self-identified as African American"
+],
+[
+"SM3NCT01141907-INC-03",
+"community-dwelling (i.e., not in a long-term care facility)"
+],
+[
+"SM3NCT01141907-INC-04",
+"residence within a predefined radius in Baltimore City"
+],
+[
+"SM3NCT01141907-INC-05",
+"working telephone in their home"
+],
+[
+"SM3NCT01141907-INC-06",
+"provide signed informed consent"
+],
+[
+"SM3NCT01141907-INC-07",
+"Aged 21 years or older"
+]
+],
+"patients": {
+"review:huhuhuhhhuuhhhhhc": 1
+}
+},
+"Sm3NCT01164046": {
+"criteria": [
+[
+"SM3NCT01164046-EXC-01",
+"Legal age limitations (country specific), minimum age at least 18 years"
+],
+[
+"SM3NCT01164046-EXC-02",
+"Indications for anticoagulant therapy other than DVT or PE"
+],
+[
+"SM3NCT01164046-EXC-03",
+"Any contraindication listed in the local labeling of LMWH or VKA"
+],
+[
+"SM3NCT01164046-EXC-04",
+"Childbearing potential without proper contraceptive measures, pregnancy or breastfeeding"
+],
+[
+"SM3NCT01164046-EXC-05",
+"Life expectancy <3 months"
+],
+[
+"SM3NCT01164046-INC-01",
+"Patients with cancer and confirmed pulmonary embolism (PE) or deep vein thrombosis (DVT) of the leg who have been treated for minimally 6 and maximally 12 months with therapeutic doses of anticoagulants, i.e. LMWH or VKA or a new anticoagulant in a trial"
+],
+[
+"SM3NCT01164046-INC-02",
+"Written informed consent"
+],
+[
+"SM3NCT01164046-INC-03",
+"Indication for long-term anticoagulant therapy (e.g. because of metastasized disease, chemotherapy)"
+]
+],
+"patients": {
+"review:hhuhuuhu": 1
+}
+},
+"Sm3NCT01181232": {
+"criteria": [
+[
+"SM3NCT01181232-EXC-01",
+"Patients with sleep apnea syndrome, narcolepsy, presence or suspicion of periodic leg movement or restless leg syndrome"
+],
+[
+"SM3NCT01181232-EXC-02",
+"Patients with hepatic failure, myasthenia gravis, or hypersensitivity to zolpidem"
+],
+[
+"SM3NCT01181232-EXC-03",
+"Patients who are known to be current drug or alcohol abuser or likely to concomitantly consume alcoholic beverages (more than 3 times/week)"
+],
+[
+"SM3NCT01181232-EXC-04",
+"Patients who have received antihistamines or antipsychotics will not allow to discontinue the previous medication throughout the study"
+],
+[
+"SM3NCT01181232-EXC-05",
+"Patients who are pregnant, lactating or intend to become pregnant during the study period"
+],
+[
+"SM3NCT01181232-EXC-06",
+"Patients who have received antidepressants or anxiolytics will not allow to change the dose or discontinue the previous medication throughout the study"
+],
+[
+"SM3NCT01181232-EXC-07",
+"Any clinically significant condition, which in the opinion of the investigator makes the patients unsuitable for the trial"
+],
+[
+"SM3NCT01181232-EXC-08",
+"Participation in any clinical trial within 1 month prior to randomization"
+],
+[
+"SM3NCT01181232-INC-01",
+"Diagnosis of primary insomnia based on DSM-IV criteria (307.42)"
+],
+[
+"SM3NCT01181232-INC-02",
+"Written informed consent has been obtained"
+],
+[
+"SM3NCT01181232-INC-03",
+"Aged 18 years or older"
+],
+[
+"SM3NCT01181232-INC-04",
+"Age <= 64 years"
+]
+],
+"patients": {
+"review:uuhuhuuuhhcc": 1
+}
+},
+"Sm3NCT01187901": {
+"criteria": [
+[
+"SM3NCT01187901-EXC-01",
+"Prior treatment with any investigational drug within the preceding 4 weeks."
+],
+[
+"SM3NCT01187901-EXC-02",
+"Malignancies within the past 3 years except for adequately treated carcinoma of the cervix or basal or squamous cell carcinomas of the skins."
+],
+[
+"SM3NCT01187901-EXC-03",
+"Patients who have any severe and/or uncontrolled medical conditions or other conditions that could affect their participation in the study as determined by the Principal Investigator such as:"
+],
+[
+"SM3NCT01187901-EXC-04",
+"Unstable angina pectoris, symptomatic congestive heart failure, myocardial infarction ≤ 6 months prior to first study treatment, serious uncontrolled cardiac arrhythmia"
+],
+[
+"SM3NCT01187901-EXC-05",
+"Severely impaired lung function"
+],
+[
+"SM3NCT01187901-EXC-06",
+"Any active (acute or chronic) or uncontrolled infection/ disorders."
+],
+[
+"SM3NCT01187901-EXC-07",
+"Nonmalignant medical illnesses that are uncontrolled or whose control may be jeopardized by the treatment with the study therapy"
+],
+[
+"SM3NCT01187901-EXC-08",
+"Liver disease such as cirrhosis, chronic active hepatitis or chronic persistent hepatitis"
+],
+[
+"SM3NCT01187901-EXC-09",
+"Screening clinical laboratory values that indicate any of the following:"
+],
+[
+"SM3NCT01187901-EXC-10",
+"anemia"
+],
+[
+"SM3NCT01187901-EXC-11",
+"thrombocytopenia"
+],
+[
+"SM3NCT01187901-EXC-12",
+"leucopenia"
+],
+[
+"SM3NCT01187901-EXC-13",
+"elevations of transaminases greater than 2X ULN"
+],
+[
+"SM3NCT01187901-EXC-14",
+"elevation of bilirubin > 1.5 X ULN"
+],
+[
+"SM3NCT01187901-EXC-15",
+"alkaline phosphatase elevation > 1.5 X ULN"
+],
+[
+"SM3NCT01187901-EXC-16",
+"increased creatinine, urinary protein, or urinary casts outside the clinically normal range."
+],
+[
+"SM3NCT01187901-EXC-17",
+"Gastrointestinal bleeding (symptoms including dyspnea, fatigue, angina, weakness, malaise, melena, hematochezia, hematemesis, anemia or abdominal pain will require clinical assessment to rule out gastrointestinal bleeding)."
+],
+[
+"SM3NCT01187901-EXC-18",
+"Patient who is currently taking any anti-coagulation medication."
+],
+[
+"SM3NCT01187901-EXC-19",
+"Women who are pregnant or breast feeding."
+],
+[
+"SM3NCT01187901-EXC-20",
+"Patients with a known hypersensitivity to sulindac or erlotinib or to their excipients"
+],
+[
+"SM3NCT01187901-INC-01",
+"Patients who are 18 years or older with a clinical or genetic diagnosis of FAP or attenuated FAP."
+],
+[
+"SM3NCT01187901-INC-02",
+"Presence of duodenal polyps with a sum of diameters ≥ 5mm."
+],
+[
+"SM3NCT01187901-INC-03",
+"Minimum of two weeks since any major surgery"
+],
+[
+"SM3NCT01187901-INC-04",
+"WHO performance status ≤1"
+],
+[
+"SM3NCT01187901-INC-05",
+"Adequate bone marrow function as show by: normal leukocyte count, platelet count ≥ 120 x 109/L, Hgb > 12 g/dL"
+],
+[
+"SM3NCT01187901-INC-06",
+"Adequate liver function as shown by: normal serum bilirubin(≤ 1.5 Upper Limit Normal {ULN}) and serum transaminases (≤ 2.0 ULN)"
+],
+[
+"SM3NCT01187901-INC-07",
+"Patient must discontinue taking any Nonsteroidal anti-inflammatory drugs (NSAIDS) within one month of treatment initiation."
+],
+[
+"SM3NCT01187901-INC-08",
+"Patients must be able to provide written informed consent."
+],
+[
+"SM3NCT01187901-INC-09",
+"Aged 18 years or older"
+],
+[
+"SM3NCT01187901-INC-10",
+"Age <= 69 years"
+]
+],
+"patients": {
+"review:uphhhhhhhhhhhhhhhhhhcuuuhuuhcc": 1
+}
+},
+"Sm3NCT01227499": {
+"criteria": [
+[
+"SM3NCT01227499-EXC-01",
+"unwilling"
+],
+[
+"SM3NCT01227499-EXC-02",
+"taking antithyroid drug or beta receptor blocker"
+],
+[
+"SM3NCT01227499-EXC-03",
+"taking foods or medicine rich in iodine in 8 weeks"
+],
+[
+"SM3NCT01227499-EXC-04",
+"women with pregnant or lactation"
+],
+[
+"SM3NCT01227499-INC-01",
+"newly diagnosed without taking any antithyroid drug or beta receptor blocker with TSH level below the lower limits of reference range"
+],
+[
+"SM3NCT01227499-INC-02",
+"is willing to be enrolled"
+],
+[
+"SM3NCT01227499-INC-03",
+"Aged 15 years or older"
+],
+[
+"SM3NCT01227499-INC-04",
+"Age <= 85 years"
+]
+],
+"patients": {
+"excluded:---C----": 1
+}
+},
+"Sm3NCT01260532": {
+"criteria": [
+[
+"SM3NCT01260532-INC-01",
+"Autoimmune thyroid patients"
+],
+[
+"SM3NCT01260532-INC-02",
+"patients who cut Nodular Goiter in Wanfang Hospital"
+],
+[
+"SM3NCT01260532-INC-03",
+"Aged 20 years or older"
+]
+],
+"patients": {
+"review:uuc": 1
+}
+},
+"Sm3NCT01260883": {
+"criteria": [
+[
+"SM3NCT01260883-EXC-01",
+"Bleeding history in infant or family"
+],
+[
+"SM3NCT01260883-EXC-02",
+"Coagulopathy"
+],
+[
+"SM3NCT01260883-EXC-03",
+"Gastrointestinal bleeding history"
+],
+[
+"SM3NCT01260883-EXC-04",
+"Renal or hepatic disease assessed by history and by pre-drug blood tests"
+],
+[
+"SM3NCT01260883-EXC-05",
+"Premature birth (<36 weeks gestation)"
+],
+[
+"SM3NCT01260883-INC-01",
+"Non-prematurely-born infants admitted to hospital following surgery ages 2-18 months, studied by age group 12-18 months, 6-12 months, < 6 months"
+],
+[
+"SM3NCT01260883-INC-02",
+"Aged 2 months or older"
+]
+],
+"patients": {
+"review:uuuuuhh": 1
+}
+},
+"Sm3NCT01335594": {
+"criteria": [
+[
+"SM3NCT01335594-EXC-01",
+"other causes of dysphagia"
+],
+[
+"SM3NCT01335594-EXC-02",
+"pharyngeal surgery"
+],
+[
+"SM3NCT01335594-EXC-03",
+"prior treatment for obstructive sleep apnea"
+],
+[
+"SM3NCT01335594-INC-01",
+"diagnosis of obstructive sleep apnea syndrome"
+],
+[
+"SM3NCT01335594-INC-02",
+"Aged 18 years or older"
+]
+],
+"patients": {
+"excluded:----C": 1
+}
+},
+"Sm3NCT01397994": {
+"criteria": [
+[
+"SM3NCT01397994-EXC-01",
+"Hypertension of > 170/100 mm of Hg"
+],
+[
+"SM3NCT01397994-EXC-02",
+"Valvular heart disease and cardiomyopathy"
+],
+[
+"SM3NCT01397994-EXC-03",
+"Myocardial infarction in < 6 months"
+],
+[
+"SM3NCT01397994-EXC-04",
+"Unstable angina"
+],
+[
+"SM3NCT01397994-EXC-05",
+"Congestive cardiac failure"
+],
+[
+"SM3NCT01397994-EXC-06",
+"Severe anemia (Hb 7G/dl)"
+],
+[
+"SM3NCT01397994-EXC-07",
+"Cardiac arrhythmias or II or III degree AV block"
+],
+[
+"SM3NCT01397994-EXC-08",
+"Significant liver or renal dysfunction"
+],
+[
+"SM3NCT01397994-EXC-09",
+"IDDM (Type-1 diabetes mellitus)"
+],
+[
+"SM3NCT01397994-EXC-10",
+"Systolic blood pressure < 100 mm Hg"
+],
+[
+"SM3NCT01397994-EXC-11",
+"Pregnant and nursing women"
+],
+[
+"SM3NCT01397994-EXC-12",
+"Known hypersensitivity to nicorandil"
+],
+[
+"SM3NCT01397994-EXC-13",
+"On calcium channel blockers"
+],
+[
+"SM3NCT01397994-EXC-14",
+"Patients not eligible for Tc 99m SPECT"
+],
+[
+"SM3NCT01397994-EXC-15",
+"Patients in whom beta blockers are contraindicated"
+],
+[
+"SM3NCT01397994-EXC-16",
+"Geographical inaccessibility for treatment or follow-up evaluations"
+],
+[
+"SM3NCT01397994-INC-01",
+"Patients of chronic stable angina with abnormal Exercise Myocardial Perfusion Spect Scan with reversible and partially reversible ischemic changes."
+],
+[
+"SM3NCT01397994-INC-02",
+"Male and female"
+],
+[
+"SM3NCT01397994-INC-03",
+"Age 25 to 65 years"
+],
+[
+"SM3NCT01397994-INC-04",
+"Patient must understand and be willing, able and likely to comply with all study procedures and restrictions and comprehends the diary cards."
+],
+[
+"SM3NCT01397994-INC-05",
+"Patient must be able to give voluntary written informed consent."
+]
+],
+"patients": {
+"excluded:-----------------C---": 1
+}
+},
+"Sm3NCT01452971": {
+"criteria": [
+[
+"SM3NCT01452971-EXC-01",
+"Participant is under 18 years old."
+],
+[
+"SM3NCT01452971-EXC-02",
+"Participant is not a lung cancer patient."
+],
+[
+"SM3NCT01452971-INC-01",
+"Participant is a lung cancer patient."
+]
+],
+"patients": {
+"review:cuu": 1
+}
+},
+"Sm3NCT01520155": {
+"criteria": [
+[
+"SM3NCT01520155-EXC-01",
+"Patients without systemic Lupus erythematosus"
+],
+[
+"SM3NCT01520155-INC-01",
+"Patients with systemic Lupus erythematosus"
+],
+[
+"SM3NCT01520155-INC-02",
+"Aged 18 years or older"
+],
+[
+"SM3NCT01520155-INC-03",
+"Age <= 90 years"
+]
+],
+"patients": {
+"review:uucc": 1
+}
+},
+"Sm3NCT01526382": {
+"criteria": [
+[
+"SM3NCT01526382-EXC-01",
+"Patients were moribund."
+],
+[
+"SM3NCT01526382-EXC-02",
+"signed do-not-resuscitation odor."
+],
+[
+"SM3NCT01526382-INC-01",
+"Patients were included if they were diagnosed with Shock, Acute respiratory distress syndrome (ARDS), or both."
+],
+[
+"SM3NCT01526382-INC-02",
+"Shock was defined by the presence 4 criteria:"
+],
+[
+"SM3NCT01526382-INC-03",
+"Heart rate of at least 90/min;"
+],
+[
+"SM3NCT01526382-INC-04",
+"A respiratory rate of at least 20/min or a PaCO2 of 32mmHg or lower or the use of mechanical ventilation;"
+],
+[
+"SM3NCT01526382-INC-05",
+"The use of vasopressors to maintain a systolic blood pressure of at least 90mmHg despite fluid resuscitation, low dose of dopamine (≤ 5 μg/kg per minute), or dobutamine;"
+],
+[
+"SM3NCT01526382-INC-06",
+"at least 1 of 3 signs of hypoperfusion (urine output < 0.5mL/kg of body weight per hour for 1 hour or more; neurologic dysfunction defined by confusion, psychosis, or a Glasgow coma scale score of ≤ 6; plasma lactate higher than the upper limit of the normal value)."
+],
+[
+"SM3NCT01526382-INC-07",
+"Acute respiratory distress syndrome："
+],
+[
+"SM3NCT01526382-INC-08",
+"the presence of acute decrease in PaO2/FIO2 to 200mmHg or lower,"
+],
+[
+"SM3NCT01526382-INC-09",
+"bilateral pulmonary infiltrates or a chest radiograph consistent with edema;"
+],
+[
+"SM3NCT01526382-INC-10",
+"no clinical evidence of left atrial hypertension; and requirement for positive pressure ventilation."
+],
+[
+"SM3NCT01526382-INC-11",
+"Aged 18 years or older"
+],
+[
+"SM3NCT01526382-INC-12",
+"Age <= 80 years"
+]
+],
+"patients": {
+"review:uhuhhhhhhhhhhh": 1
+}
+},
+"Sm3NCT01551498": {
+"criteria": [
+[
+"SM3NCT01551498-EXC-01",
+"having evidence of end-stage thyroiditis"
+],
+[
+"SM3NCT01551498-EXC-02",
+"being a current smoker or smokeless tobacco user"
+],
+[
+"SM3NCT01551498-EXC-03",
+"be taking systemic glucocorticoids, interferon-alpha, anti-CD20 antibody, or anti-CTLA-4 antibody"
+],
+[
+"SM3NCT01551498-EXC-04",
+"be taking any medication for treatment of autoimmune thyroiditis other than L-thyroxine or equivalent"
+],
+[
+"SM3NCT01551498-INC-01",
+"adults 18-70 years of age"
+],
+[
+"SM3NCT01551498-INC-02",
+"having positive antibodies against thyroid peroxidase"
+],
+[
+"SM3NCT01551498-INC-03",
+"having sonographic evidence consistent with a diagnosis of Hashimoto's thyroiditis"
+]
+],
+"patients": {
+"review:uuhucuu": 1
+}
+},
+"Sm3NCT01579942": {
+"criteria": [
+[
+"SM3NCT01579942-EXC-01",
+"Other primary diagnoses including major depressive disorder with psychotic features, bipolar disorder, schizoaffective disorder, schizophrenia, dementia, attention deficit hyperactivity disorder (ADHD)."
+],
+[
+"SM3NCT01579942-EXC-02",
+"Substance use disorder (abuse or dependence with active use within the last 6 months)."
+],
+[
+"SM3NCT01579942-EXC-03",
+"Significant sensory deficits such as deafness or blindness."
+],
+[
+"SM3NCT01579942-EXC-04",
+"Severe or unstable medical illness, including history of closed head injury resulting in loss of consciousness, seizure disorder; history of neurological disorders."
+],
+[
+"SM3NCT01579942-EXC-05",
+"Pregnant or nursing females who are not using an accepted method of contraception (birth control pill, IUD, combination of barrier methods)"
+],
+[
+"SM3NCT01579942-EXC-06",
+"Clinically significant abnormal laboratory values or electrocardiogram For Healthy Controls"
+],
+[
+"SM3NCT01579942-EXC-07",
+"Males and females, aged 18-55 years"
+],
+[
+"SM3NCT01579942-EXC-08",
+"Subjects who do not meet full criteria for any of the major psychiatric diagnosis including MDD, bipolar disorder, schizophrenia, substance abuse/dependence, attention deficit hyperactivity disorder (ADHD), as determined by clinical evaluation and structured diagnostic interview, completed by the study clinician."
+],
+[
+"SM3NCT01579942-EXC-09",
+"Right handed, normal (corrected) vision and normal hearing"
+],
+[
+"SM3NCT01579942-INC-01",
+"For Patients with Major Depressive Disorder"
+],
+[
+"SM3NCT01579942-INC-02",
+"Male and female outpatients, aged 18-55 years"
+],
+[
+"SM3NCT01579942-INC-03",
+"Subjects meeting full criteria for the diagnosis of current Major Depressive Disorder (MDD) without psychotic features, as determined by clinical evaluation and Mood Module of structured diagnostic interview (SCID), completed by the study clinician."
+],
+[
+"SM3NCT01579942-INC-04",
+"HAM-D17 score of 14 or higher"
+],
+[
+"SM3NCT01579942-INC-05",
+"Able to provide informed consent"
+],
+[
+"SM3NCT01579942-INC-06",
+"Right handed, normal (corrected) vision and normal hearing"
+]
+],
+"patients": {
+"review:hhhhhhhhhucuuhu": 1
+}
+},
+"Sm3NCT01594385": {
+"criteria": [
+[
+"SM3NCT01594385-EXC-01",
+"Prisoners"
+],
+[
+"SM3NCT01594385-EXC-02",
+"Pregnant patients"
+],
+[
+"SM3NCT01594385-EXC-03",
+"Younger than 18 years of age"
+],
+[
+"SM3NCT01594385-INC-01",
+"Trauma patients undergoing DC/OA management for traumatic injury"
+],
+[
+"SM3NCT01594385-INC-02",
+"Age 18+"
+],
+[
+"SM3NCT01594385-INC-03",
+"Life expectancy longer than 48 hours"
+],
+[
+"SM3NCT01594385-INC-04",
+"Age <= 89 years"
+]
+],
+"patients": {
+"review:uu-uchc": 1
+}
+},
+"Sm3NCT01624545": {
+"criteria": [
+[
+"SM3NCT01624545-EXC-01",
+"Moribund state of health prohibiting surgery"
+],
+[
+"SM3NCT01624545-EXC-02",
+"Foreseeable difficulties in follow-up due to geographic reasons (e.g. patients living abroad)"
+],
+[
+"SM3NCT01624545-EXC-03",
+"Recurrent hematoma if the first surgery was performed before study start"
+],
+[
+"SM3NCT01624545-EXC-04",
+"CSH due to spontaneous spinal CSF fistula or meningeosis carcinomatosa"
+],
+[
+"SM3NCT01624545-EXC-05",
+"Pregnancy"
+],
+[
+"SM3NCT01624545-EXC-06",
+"Patient with Metastatic Disease and a high possibility to pass away in the next 6 month"
+],
+[
+"SM3NCT01624545-INC-01",
+"Newly diagnosed chronic subdural hematoma by CT scan or MRI, operated within the last 48 hours"
+],
+[
+"SM3NCT01624545-INC-02",
+"Age 18 years or older"
+],
+[
+"SM3NCT01624545-INC-03",
+"Written informed consent from the patient to participate in the study"
+]
+],
+"patients": {
+"review:uhuuuuhch": 1
+}
+},
+"Sm3NCT01660594": {
+"criteria": [
+[
+"SM3NCT01660594-EXC-01",
+"previous coronary disease i.e., myocardial infarction or revascularization"
+],
+[
+"SM3NCT01660594-INC-01",
+"non-acute chest pain"
+],
+[
+"SM3NCT01660594-INC-02",
+"those who underwent CT calcium scoring"
+],
+[
+"SM3NCT01660594-INC-03",
+"availability of all relevant risk factor information"
+],
+[
+"SM3NCT01660594-INC-04",
+"Aged 40 years or older"
+],
+[
+"SM3NCT01660594-INC-05",
+"Age <= 80 years"
+]
+],
+"patients": {
+"review:huuhcc": 1
+}
+},
+"Sm3NCT01701453": {
+"criteria": [
+[
+"SM3NCT01701453-EXC-01",
+"The patient has a known hypersensitivity or contraindication to any of the following medications: Heparin, Aspirin, Clopidogrel, Biolimus, Everolimus, Zotarolimus, and Contrast media (Patients with documented sensitivity to contrast media which can be effectively premedicated with steroids and diphenhydramine [e.g. rash] may be enrolled. Those with true anaphylaxis to prior contrast media, however, should not be enrolled.)"
+],
+[
+"SM3NCT01701453-EXC-02",
+"Patients with active pathologic bleeding"
+],
+[
+"SM3NCT01701453-EXC-03",
+"Gastrointestinal or genitourinary bleeding within the prior 3 months, or major surgery within 2 months."
+],
+[
+"SM3NCT01701453-EXC-04",
+"Systemic (intravenous) Biolimus, everolimus, zotarolimus use within 12 months."
+],
+[
+"SM3NCT01701453-EXC-05",
+"Female of childbearing potential, unless a recent pregnancy test is negative, who possibly plan to become pregnant any time after enrollment into this study."
+],
+[
+"SM3NCT01701453-EXC-06",
+"History of bleeding diathesis, known coagulopathy (including heparin-induced thrombocytopenia), or will refuse blood transfusions"
+],
+[
+"SM3NCT01701453-EXC-07",
+"Noncardiac comorbid conditions are present with life expectancy <1 year or that may result in protocol noncompliance (per site investigator's medical judgment)."
+],
+[
+"SM3NCT01701453-EXC-08",
+"An elective surgical procedure is planned that would necessitate interruption of clopidogrel during the first 12 months post enrollment."
+],
+[
+"SM3NCT01701453-EXC-09",
+"Patients who are actively participating in another drug or device investigational study, which have not completed the primary endpoint follow-up period."
+],
+[
+"SM3NCT01701453-INC-01",
+"Subject must be ≥ 20 years."
+],
+[
+"SM3NCT01701453-INC-02",
+"Subject is able to verbally confirm understandings of risks, benefits and treatment alternatives of receiving percutaneous coronary intervention and he/she or his/her legally authorized representative provides written informed consent prior to any study related procedure."
+],
+[
+"SM3NCT01701453-INC-03",
+"Subject must have a culprit lesion in a native coronary artery with significant stenosis (>50% by visual estimate) eligible for stent implantation."
+],
+[
+"SM3NCT01701453-INC-04",
+"Subject must have clinical diagnosis of ACS that includes unstable angina and MI. The specific definitions of ACS, as follows; 1) ST-segment elevation MI (STEMI) : elevation of ST-segment more than 0.1 mV in 2 or more contiguous electrocardiographic (ECG) leads or new left bundle-branch block with elevated biomarkers of myocardial necrosis 2) Non-ST-segment elevation MI (NSTEMI) : Elevated biomarkers of myocardial necrosis (troponin or CK-MB > upper reference limit) with one of the following; (a) Transient ST-segment elevation or depression, or T-wave changes consistent with myocardial ischemia, (b) Identification of a culprit lesion at coronary angiography 3) Unstable angina : An accelerating pattern or recurrent episodes of chest pain at rest or with minimal effort and new ST-segment depression of at least 0.05 mV, or T wave inversion of at least 0.3 mV in at least 2 leads. The ECG criteria for unstable angina were based on the TACTICS-TIMI 18 trial."
+],
+[
+"SM3NCT01701453-INC-05",
+"Target lesion(s) must be located in a native coronary artery with visually estimated diameter of ≥ 2.25 mm and ≤ 4.25 mm."
+],
+[
+"SM3NCT01701453-INC-06",
+"Target lesion(s) must be amenable for percutaneous coronary intervention"
+],
+[
+"SM3NCT01701453-INC-07",
+"Aged 20 years or older"
+]
+],
+"patients": {
+"excluded:--------------N-": 1
+}
+},
+"Sm3NCT01713881": {
+"criteria": [
+[
+"SM3NCT01713881-EXC-01",
+"Less than 18 years old"
+],
+[
+"SM3NCT01713881-EXC-02",
+"Diagnosis of IBD"
+],
+[
+"SM3NCT01713881-INC-01",
+"Any adenoma found on screening/surveillance colonoscopy (ICD9-211.3, Procedure code 45385 or 45380)"
+],
+[
+"SM3NCT01713881-INC-02",
+"Greater than 18 years old"
+]
+],
+"patients": {
+"review:cpuc": 1
+}
+},
+"Sm3NCT01723137": {
+"criteria": [
+[
+"SM3NCT01723137-EXC-01",
+"Less than 18 years of age"
+],
+[
+"SM3NCT01723137-EXC-02",
+"Decreased level of consciousness"
+],
+[
+"SM3NCT01723137-EXC-03",
+"Inability to answer questions"
+],
+[
+"SM3NCT01723137-EXC-04",
+"Prisoner"
+],
+[
+"SM3NCT01723137-INC-01",
+"Reported pain greater than or equal to 3 out of 10"
+]
+],
+"patients": {
+"review:cuhhu": 1
+}
+},
+"Sm3NCT01745731": {
+"criteria": [
+[
+"SM3NCT01745731-EXC-01",
+"Different tumor records current disease or any disease hematologic."
+],
+[
+"SM3NCT01745731-EXC-02",
+"Patients with uncontrolled hypertension."
+],
+[
+"SM3NCT01745731-EXC-03",
+"Severe heart failure (NYHA IV)."
+],
+[
+"SM3NCT01745731-EXC-04",
+"Patients with malignant ventricular arrhythmias or unstable angina."
+],
+[
+"SM3NCT01745731-EXC-05",
+"Diagnosis of deep vein thrombosis in the previous 3 months."
+],
+[
+"SM3NCT01745731-EXC-06",
+"Adjunctive therapy including hyperbaric oxygen, vasoactive substances, agents or angiogenesis inhibitors against Cox-II."
+],
+[
+"SM3NCT01745731-EXC-07",
+"BMI> 40 kg/m2."
+],
+[
+"SM3NCT01745731-EXC-08",
+"Patients with alcoholic with active alcoholism."
+],
+[
+"SM3NCT01745731-EXC-09",
+"Proliferative retinopathy."
+],
+[
+"SM3NCT01745731-EXC-10",
+"Concomitant disease that reduces life expectancy to less than a year."
+],
+[
+"SM3NCT01745731-EXC-11",
+"Difficulty in monitoring."
+],
+[
+"SM3NCT01745731-EXC-12",
+"Heart failure or ejection fraction (EF) <30%."
+],
+[
+"SM3NCT01745731-EXC-13",
+"Stroke or myocardial infarction within the last 3 months."
+],
+[
+"SM3NCT01745731-EXC-14",
+"Pregnant women or women of childbearing age who do not have adequate contraception."
+],
+[
+"SM3NCT01745731-INC-01",
+"Patients of both sexes aged ≥ 18 years."
+],
+[
+"SM3NCT01745731-INC-02",
+"Standard analytical parameters, defined by: Leukocytes ≥ 3000 Neutrophils ≥ 1500 Platelets ≥ 100,000 Aspartate aminotransferase (AST) / Alanine aminotransferase (ALT) ≤ 1.5 standard range institution creatinine ≤ 1.5 mg / dl"
+],
+[
+"SM3NCT01745731-INC-03",
+"Patients with liver space occupying lesion (LOE) that require extended hepatic resection. Patient selection should be cautious, covering basically 5 types of liver damage which must be submitted prior to liver volumetry: Metastatic Disease subsidiary right hepatectomy extended to segment IV Metastatic Disease subsidiary right hepatectomy with suspected diseased liver (neoadjuvant chemotherapy) (in cases of doubt may be used liver function test indocyanine green) Bilobar liver metastases with multiple nodules in the right lobe and more than 3 nodules greater than 30 mm in the left hepatic lobe (LHI) will perform lumpectomies the LHI + right portal branch ligation (or postoperative percutaneous embolization) in order to make right hepatectomy 4-6 weeks (two stage surgery) Subsidiary Hepatocarcinoma extended right hepatectomy Liver Injury benign / malignant (Hemangiomas, hydratid cysts or liver tumors / primary bile hepatoblastoma), which by extension threatens the viability of the remaining liver tissue. 4 - Patients give their written informed consent for participation in the study and provide sufficient guarantees adherence to protocol according to the opinion of the investigator in charge of the patient care."
+]
+],
+"patients": {
+"review:puhuuhhuuuhuhpchh": 1
+}
+},
+"Sm3NCT01771861": {
+"criteria": [
+[
+"SM3NCT01771861-EXC-01",
+"secondary admittance(transfers)>24 post injury"
+],
+[
+"SM3NCT01771861-INC-01",
+"all patients admitted with the trauma team"
+],
+[
+"SM3NCT01771861-INC-02",
+"all patients admitted with Injury Severity Score >15"
+],
+[
+"SM3NCT01771861-INC-03",
+"Age <= 100 years"
+]
+],
+"patients": {
+"review:huuc": 1
+}
+},
+"Sm3NCT01784523": {
+"criteria": [
+[
+"SM3NCT01784523-EXC-01",
+"History of thrombosis (arterial, venous, and/or biopsy proven microthrombosis"
+],
+[
+"SM3NCT01784523-EXC-02",
+"History of Transient Ischemic Attack Confirmed by a Neurologist"
+],
+[
+"SM3NCT01784523-EXC-03",
+"SLE Diagnosis based on the ACR Classification Criteria > 4/11"
+],
+[
+"SM3NCT01784523-EXC-04",
+"Other Systemic Autoimmune Diseases diagnosed based on ACR Classification Criteria"
+],
+[
+"SM3NCT01784523-EXC-05",
+"Current Hydroxychloroquine or another antimalarial treatment (-3 months)"
+],
+[
+"SM3NCT01784523-EXC-06",
+"Current warfarin treatment (-3 months)"
+],
+[
+"SM3NCT01784523-EXC-07",
+"Current heparin therapy( -3 months)"
+],
+[
+"SM3NCT01784523-EXC-08",
+"Current pregnancy"
+],
+[
+"SM3NCT01784523-EXC-09",
+"History of Hydroxychloroquine eye toxicity"
+],
+[
+"SM3NCT01784523-EXC-10",
+"History of Hydroxychloroquine allergy"
+],
+[
+"SM3NCT01784523-EXC-11",
+"Known glucose-6-phosphate dehydrogenase deficiency"
+],
+[
+"SM3NCT01784523-INC-01",
+"Persistent(at least 12 weeks apart)aPL-positivity within 12 months prior to the screening defined as:"
+],
+[
+"SM3NCT01784523-INC-02",
+"aCL IgG/M (>40U,medium-to-high titer,and/or greater than the 99th percentile)and/or"
+],
+[
+"SM3NCT01784523-INC-03",
+"aβ2GPI IgG/M(>40U, medium-to-high titer, and/or greater than the 99th percentile)and/or"
+],
+[
+"SM3NCT01784523-INC-04",
+"Positive LA test based on the International Society of Thrombosis & Haematosis Recommendations"
+],
+[
+"SM3NCT01784523-INC-05",
+"Selected"
+],
+[
+"SM3NCT01784523-INC-06",
+"Aged 18 years or older"
+],
+[
+"SM3NCT01784523-INC-07",
+"Age <= 60 years"
+]
+],
+"patients": {
+"review:uuuuhuuuuuuhhhhhhh": 1
+}
+},
+"Sm3NCT01790477": {
+"criteria": [
+[
+"SM3NCT01790477-EXC-01",
+"Any patient with prior use of acupuncture"
+],
+[
+"SM3NCT01790477-EXC-02",
+"Individuals under age 18"
+],
+[
+"SM3NCT01790477-EXC-03",
+"Tonsillectomy performed with other surgical procedures, i.e UPPP, adenoidectomy,"
+],
+[
+"SM3NCT01790477-EXC-04",
+"Patients with a known personal or family history of a bleeding disorder will be excluded."
+],
+[
+"SM3NCT01790477-EXC-05",
+"Patients with a history of kidney or liver problems will also be excluded."
+],
+[
+"SM3NCT01790477-EXC-06",
+"Patients found to be pregnant will be excluded from participation."
+],
+[
+"SM3NCT01790477-EXC-07",
+"Patients unwilling to enroll in the study will have the tonsillectomy with or without adenoidectomy performed according to current practice standards."
+],
+[
+"SM3NCT01790477-INC-01",
+"Any adult patient who meets criteria and is scheduled for tonsillectomy"
+]
+],
+"patients": {
+"excluded:-------C": 1
+}
+},
+"Sm3NCT01829659": {
+"criteria": [
+[
+"SM3NCT01829659-EXC-01",
+"Any indication (atrial fibrillation, mitral stenosis or prosthetic heart valve, PE, DVT) for antithrombotic treatment during study period."
+],
+[
+"SM3NCT01829659-EXC-02",
+"Fibrinolytic therapy within 48 hours before randomization"
+],
+[
+"SM3NCT01829659-EXC-03",
+"Concomitant therapy with a drug having possible interaction with ticagrelor. (concomitant therapy with a strong cytochrome P-450 3A inhibitor or inducer)"
+],
+[
+"SM3NCT01829659-EXC-04",
+"Increased bleeding risk including: recent (<30 days) GI bleeding, any history of intracranial, intraocular, retroperitoneal, or spinal bleeding, recent (<30 days of dosing) major trauma, sustained uncontrolled hypertension (systolic blood pressure [SBP]>180mmHg or diastolic blood pressure [DBP]>100mmHg), history of hemorrhagic disorders that can increase the risk of bleeding, platelet count less than 100,000 mm3 or hemoglobin <10 g/dL."
+],
+[
+"SM3NCT01829659-EXC-05",
+"Any history of hemorrhagic stroke."
+],
+[
+"SM3NCT01829659-EXC-06",
+"Contraindication or other reason that ASA or ticagrelor should not be administered (e.g., hypersensitivity, active bleeding, major surgery within 30 days of dosing)."
+],
+[
+"SM3NCT01829659-EXC-07",
+"Severe renal failure (creatinine clearance <30mL/min or patient requires dialysis)"
+],
+[
+"SM3NCT01829659-EXC-08",
+"History of moderate or severe hepatic impairment with aspartate amino transferace, alanine amino transferase or total bilirubin > 1.5 x upper limit of the reference range."
+],
+[
+"SM3NCT01829659-EXC-09",
+"Pregnant or lactating women."
+],
+[
+"SM3NCT01829659-EXC-10",
+"Patients receiving any glycoprotein IIb/IIIa inhibitors <8 hours before platelet reactivity testing."
+],
+[
+"SM3NCT01829659-INC-01",
+"Female (post menopausal or surgically sterile) and/or male aged 18 years or older"
+],
+[
+"SM3NCT01829659-INC-02",
+"Presenting with ACS fulfilling the following:"
+],
+[
+"SM3NCT01829659-INC-03",
+"Symptoms or new ECG changes (ST segment elevation or depression of at least 1 mm in 2 or more contiguous leads on EKG)"
+],
+[
+"SM3NCT01829659-INC-04",
+"Elevation of biomarkers (CK-MB ≥2 ULN or troponin ≥ ULN)"
+],
+[
+"SM3NCT01829659-INC-05",
+"Self-identified as African-American"
+],
+[
+"SM3NCT01829659-INC-06",
+"Treatment with 75-100mg ASA daily"
+]
+],
+"patients": {
+"review:puuupuuuhuchhhhh": 1
+}
+},
+"Sm3NCT01832753": {
+"criteria": [
+[
+"SM3NCT01832753-EXC-01",
+"Pregnancy"
+],
+[
+"SM3NCT01832753-EXC-02",
+"Type 1/Type 2 diabetes"
+],
+[
+"SM3NCT01832753-EXC-03",
+"Chronic medical conditions or medication use that can affect growth, nutrition, blood glucose, insulin secretion, or thyroid function (such as lithium or certain seizure medications)"
+],
+[
+"SM3NCT01832753-EXC-04",
+"Current use of levothyroxine or anti-thyroid hormone"
+],
+[
+"SM3NCT01832753-EXC-05",
+"Cyanotic congenital heart disease, or pulmonary hypertension (as described by last echo report in subjects with CHD), or congenital heart disease considered medically unstable by the study cardiologists"
+],
+[
+"SM3NCT01832753-INC-01",
+"Males and females, ages 8 - 20 years"
+],
+[
+"SM3NCT01832753-INC-02",
+"Diagnosis of Down syndrome"
+],
+[
+"SM3NCT01832753-INC-03",
+"Subclinical hypothyroidism: TSH level between 5 - 10 mIU/L, normal T4"
+],
+[
+"SM3NCT01832753-INC-04",
+"Parental/guardian permission (informed consent) and if appropriate, child assent"
+],
+[
+"SM3NCT01832753-INC-05",
+"Females who are at least 11 years of age or who are menarchal must have a negative urine/serum pregnancy test"
+],
+[
+"SM3NCT01832753-INC-06",
+"Committed to adherence to levothyroxine treatment and study completion"
+]
+],
+"patients": {
+"excluded:-----C-----": 1
+}
+},
+"Sm3NCT01855594": {
+"criteria": [
+[
+"SM3NCT01855594-EXC-01",
+"Significant renal, cardiovascular, hepatic, infectious or psychiatric disease;"
+],
+[
+"SM3NCT01855594-EXC-02",
+"Significant brain injury with neurological deficits;"
+],
+[
+"SM3NCT01855594-EXC-03",
+"Debilitation or dehydration;"
+],
+[
+"SM3NCT01855594-EXC-04",
+"Addison's disease;"
+],
+[
+"SM3NCT01855594-EXC-05",
+"Recent (within 1 week) or current use of anti-diuretics or other drugs that interacts with lithium, such as tricyclic antidepressants, nonsteroidal antiinflammatory drug and tetracyclines;"
+],
+[
+"SM3NCT01855594-EXC-06",
+"A history of substance or alcohol abuse within past 1 year;"
+],
+[
+"SM3NCT01855594-EXC-07",
+"A need for elective surgery involving preoperative or postoperative analgesics or anesthetics during the study period;"
+],
+[
+"SM3NCT01855594-EXC-08",
+"Current pregnant or breast feeding, or female who has childbearing potential but is not willing to use an approved method of birth control;"
+],
+[
+"SM3NCT01855594-EXC-09",
+"Participation in any drug study in the last three months;"
+],
+[
+"SM3NCT01855594-EXC-10",
+"History of oral lithium intake for any reason; or"
+],
+[
+"SM3NCT01855594-EXC-11",
+"any criteria, which in the opinion of the investigator, suggests that the subject would not be compliant with the study protocol."
+],
+[
+"SM3NCT01855594-INC-01",
+"Age 18 - 65;"
+],
+[
+"SM3NCT01855594-INC-02",
+"Diagnosis of traumatic spinal cord injury;"
+],
+[
+"SM3NCT01855594-INC-03",
+"Clinically diagnosed neuropathic pain;"
+],
+[
+"SM3NCT01855594-INC-04",
+"Pain severity is at least 4 on a 11-point numeric rating scale at screening;"
+],
+[
+"SM3NCT01855594-INC-05",
+"Pain present regularly for at least 6 weeks before enrollment;"
+],
+[
+"SM3NCT01855594-INC-06",
+"Able to understand instructions and provide reliable pain assessments;"
+],
+[
+"SM3NCT01855594-INC-07",
+"Subjects who are voluntarily signed and dated an Ethics Committee approved informed consent form;"
+]
+],
+"patients": {
+"review:hhuuhuhhhuhcuuuhhh": 1
+}
+},
+"Sm3NCT01863628": {
+"criteria": [
+[
+"SM3NCT01863628-EXC-01",
+"DSM-IV defined Axis I disorders;"
+],
+[
+"SM3NCT01863628-EXC-02",
+"Serious general medical illness;"
+],
+[
+"SM3NCT01863628-EXC-03",
+"mental retardation;"
+],
+[
+"SM3NCT01863628-EXC-04",
+"was/is treated with antipsychotic drugs;"
+],
+[
+"SM3NCT01863628-EXC-05",
+"unable to complete neuropsychological tests due to physical conditions;"
+],
+[
+"SM3NCT01863628-EXC-06",
+"in pregnancy and lactation;"
+],
+[
+"SM3NCT01863628-EXC-07",
+"was taking thyroxine therapy in the last three months or is taking hormone therapy"
+],
+[
+"SM3NCT01863628-INC-01",
+"have at least one biological parent diagnosed as bipolar disorder (bipolar I or II)"
+],
+[
+"SM3NCT01863628-INC-02",
+"have at least one of the following syndromes i) two or more DSM-IV defined hypomania/mania symptoms, lasting for at least 4 days; ii) two or more DSM defined major depressive symptoms, lasting for 1 week; iii) at least one of the psychotic symptoms, lasting at least 10 min for each manifestation, and 2-7 manifestations a week for at least 3 months, including: ideas of reference; odd ideas, odd belief, unusual perceptual experiences, bizarre thought or speech, Grandiosity, suspicious ideas, paranoid idea, odd mannerisms, hallucination, disorganized/catatonic behavior; iv)two or more of the DSM-IV defined Attention deficit hyperactivity disorder (ADHD)symptoms; and there must be clear evidence of clinically significant impairment in social, academic, or occupational functioning due to ADHD symptoms"
+],
+[
+"SM3NCT01863628-INC-03",
+"Aged 10 years or older"
+],
+[
+"SM3NCT01863628-INC-04",
+"Age <= 25 years"
+]
+],
+"patients": {
+"excluded:-----C----C": 1
+}
+},
+"Sm3NCT01866020": {
+"criteria": [
+[
+"SM3NCT01866020-EXC-01",
+"no inform consent"
+],
+[
+"SM3NCT01866020-EXC-02",
+"age < 18 years"
+],
+[
+"SM3NCT01866020-INC-01",
+"> 18 years"
+],
+[
+"SM3NCT01866020-INC-02",
+"positive aspergillus culture in respiratory tract sample OR"
+],
+[
+"SM3NCT01866020-INC-03",
+"positive aspergillus galactomannan in respiratory tract sample"
+]
+],
+"patients": {
+"review:hccuu": 1
+}
+},
+"Sm3NCT01869855": {
+"criteria": [
+[
+"SM3NCT01869855-EXC-01",
+"The surgeon decides based on intraoperative conditions to perform a craniotomy (e.g. acute hematoma indicating a craniotomy)"
+],
+[
+"SM3NCT01869855-EXC-02",
+"Chronic subdural hematoma caused by another underlying illness (e.g. caused by over-drainage of a vp-shunt)"
+],
+[
+"SM3NCT01869855-EXC-03",
+"no informed consent"
+],
+[
+"SM3NCT01869855-INC-01",
+"Patient at least 18 years of age presenting with a symptomatic chronic subdural hematoma"
+],
+[
+"SM3NCT01869855-INC-02",
+"Chronic subdural hematoma verified on cranial CT or MRI"
+]
+],
+"patients": {
+"review:uhhcu": 1
+}
+},
+"Sm3NCT01935141": {
+"criteria": [
+[
+"SM3NCT01935141-EXC-01",
+"Class 3 or 4 Congestive Heart Failure"
+],
+[
+"SM3NCT01935141-EXC-02",
+"Supraventricular tachycardia"
+],
+[
+"SM3NCT01935141-EXC-03",
+"History of contrast allergy"
+],
+[
+"SM3NCT01935141-EXC-04",
+"Unable to give informed consent"
+],
+[
+"SM3NCT01935141-EXC-05",
+"Patients with serum creatinine >1.28 mg/dl without referring physician approval"
+],
+[
+"SM3NCT01935141-INC-01",
+"Patients referred for CT pulmonary angiogram to exclude pulmonary embolus"
+],
+[
+"SM3NCT01935141-INC-02",
+"Aged 18 years or older"
+]
+],
+"patients": {
+"review:uuuhuuc": 1
+}
+},
+"Sm3NCT01978834": {
+"criteria": [
+[
+"SM3NCT01978834-EXC-01",
+"Those who have opted out of being contacted for research on their general Park Nicollet clinic consent will not be recruited by mail"
+],
+[
+"SM3NCT01978834-EXC-02",
+"Inability to sign consent form due to cognitive impairment. Those with dementia (ICD-9 diagnosis codes 331.0, 294.1, 294.10, 294.11, or 294.8) will excluded from mailed recruitment"
+],
+[
+"SM3NCT01978834-EXC-03",
+"Measurement of hip BMD is not feasible (for example, those who have had bilateral hip replacement surgeries or who cannot have central DXA because of their body weight)"
+],
+[
+"SM3NCT01978834-EXC-04",
+"Open leg or arm wounds at sites where ultrasound measurements are supposed to be taken, precluding such measurements"
+],
+[
+"SM3NCT01978834-INC-01",
+"Female sex"
+],
+[
+"SM3NCT01978834-INC-02",
+"Age 50 to 89 years"
+],
+[
+"SM3NCT01978834-INC-03",
+"Female participants only"
+]
+],
+"patients": {
+"review:huuuccc": 1
+}
+},
+"Sm3NCT02023567": {
+"criteria": [
+[
+"SM3NCT02023567-EXC-01",
+"Current psychopathology or a history of neurologic conditions, including alcohol/substances dependence, the diagnosis of cognition impairment;"
+],
+[
+"SM3NCT02023567-EXC-02",
+"Severe somatic diseases, such as severe cardio-cerebral vascular diseases, respiratory diseases, liver diseases, kidney diseases, or malignant tumors;"
+],
+[
+"SM3NCT02023567-EXC-03",
+"Not signed the informed consent;"
+],
+[
+"SM3NCT02023567-EXC-04",
+"Been engaging other studies."
+],
+[
+"SM3NCT02023567-EXC-05",
+"For Healthy control group"
+],
+[
+"SM3NCT02023567-EXC-06",
+"age between 18 and 55 years at the time of enrollment;"
+],
+[
+"SM3NCT02023567-EXC-07",
+"providing written confirmation of informed consent prior to engaging the study."
+],
+[
+"SM3NCT02023567-INC-01",
+"For MDD group:"
+],
+[
+"SM3NCT02023567-INC-02",
+"Age between 18-55, male or female;"
+],
+[
+"SM3NCT02023567-INC-03",
+"The diagnosis of MDD consistent with DSM-IV (M.I.N.I)"
+],
+[
+"SM3NCT02023567-INC-04",
+"First-episode or relapsed;"
+],
+[
+"SM3NCT02023567-INC-05",
+"Certain ability of reading and writing to complete the questionnaire survey and psychological assessment."
+],
+[
+"SM3NCT02023567-INC-06",
+"All participants provide written confirmation of informed consent prior to engaging the study protocol."
+]
+],
+"patients": {
+"review:uphhhhhhhhhhh": 1
+}
+},
+"Sm3NCT02097186": {
+"criteria": [
+[
+"SM3NCT02097186-EXC-01",
+"Pregnancy"
+],
+[
+"SM3NCT02097186-EXC-02",
+"Significant upper limb peripheral arterial disease"
+],
+[
+"SM3NCT02097186-EXC-03",
+"Previous history of upper limb deep vein thrombosis"
+],
+[
+"SM3NCT02097186-EXC-04",
+"Patients on glibenclamide or nicorandil (these medications may interfere with RIPC) Patients with an estimated pre-operative glomerular filtration rate < 30mls/min/1.73m2"
+],
+[
+"SM3NCT02097186-EXC-05",
+"Patients with a known history of myocarditis, pericarditis or amyloidosis"
+],
+[
+"SM3NCT02097186-EXC-06",
+"Patients with an estimated pre-operative glomerular filtration rate < 30mls/min/1.73m2."
+],
+[
+"SM3NCT02097186-EXC-07",
+"Patients with severe hepatic disease defined as an international normalised ratio >2 in the absence of systemic anticoagulation"
+],
+[
+"SM3NCT02097186-EXC-08",
+"Patients with severe respiratory disease (for the trial, defined as patients requiring home oxygen therapy)"
+],
+[
+"SM3NCT02097186-EXC-09",
+"Patients previously enrolled in the trial representing for a further procedure"
+],
+[
+"SM3NCT02097186-EXC-10",
+"Patients with previous axillary surgery"
+],
+[
+"SM3NCT02097186-INC-01",
+"Age greater than 18 years"
+],
+[
+"SM3NCT02097186-INC-02",
+"Patient willing to give full informed consent for participation"
+],
+[
+"SM3NCT02097186-INC-03",
+"Patients undergoing elective carotid endarterectomy or"
+],
+[
+"SM3NCT02097186-INC-04",
+"Patients undergoing open abdominal aortic aneurysm repair or"
+],
+[
+"SM3NCT02097186-INC-05",
+"Patients undergoing endovascular abdominal aneurysm repair or"
+],
+[
+"SM3NCT02097186-INC-06",
+"Patients undergoing surgical lower limb revascularisation (suprainguinal or infrainguinal)"
+]
+],
+"patients": {
+"review:hpuuuuuuuuchuuuu": 1
+}
+},
+"Sm3NCT02127866": {
+"criteria": [
+[
+"SM3NCT02127866-EXC-01",
+"Pregnant or lactating women"
+],
+[
+"SM3NCT02127866-EXC-02",
+"Diagnosis of COPD"
+],
+[
+"SM3NCT02127866-EXC-03",
+"Patients treated for asthma exacerbations in the 4 weeks prior to study entry"
+],
+[
+"SM3NCT02127866-EXC-04",
+"Patients who are in therapy for gastroesophageal reflux disease"
+],
+[
+"SM3NCT02127866-EXC-05",
+"Patients who have a clinically significant cardiovascular condition"
+],
+[
+"SM3NCT02127866-INC-01",
+"Male or female patients aged >=18 years"
+],
+[
+"SM3NCT02127866-INC-02",
+"Uncontrolled asthma on medium doses of ICS+LABA with ACQ >=1.5"
+],
+[
+"SM3NCT02127866-INC-03",
+"Pre-bronchodilator FEV1 ≥40% and <80% of their predicted normal value"
+]
+],
+"patients": {
+"excluded:-----C--": 1
+}
+},
+"Sm3NCT02136875": {
+"criteria": [
+[
+"SM3NCT02136875-EXC-01",
+"History of asthma or allergic rhinitis before the age of 40;"
+],
+[
+"SM3NCT02136875-EXC-02",
+"Regular use of oxygen, oral corticosteroids, antibiotics;"
+],
+[
+"SM3NCT02136875-EXC-03",
+"Unstable or life threatening co-morbid condition;"
+],
+[
+"SM3NCT02136875-EXC-04",
+"Medical conditions or taking medications known to affect tremor and/or heart rate (HR)."
+],
+[
+"SM3NCT02136875-EXC-05",
+"Pre-existing medical conditions or on concomitant medications contraindicated with salmeterol or fluticasone propionate (e.g. monoamine oxidase inhibitors and tricyclic antidepressants, beta-adrenergic receptor blocking agents, non potassium-sparing diuretics, inhibitors of cytochrome P450 (ritonavir, ketoconazole));"
+],
+[
+"SM3NCT02136875-EXC-06",
+"On theophyllines."
+],
+[
+"SM3NCT02136875-EXC-07",
+"Colonized with pseudomonas aeruginosa."
+],
+[
+"SM3NCT02136875-INC-01",
+"Diagnosis of stable COPD;"
+],
+[
+"SM3NCT02136875-INC-02",
+"40 years or older;"
+],
+[
+"SM3NCT02136875-INC-03",
+"Smoking history of at least 10 pack-years;"
+],
+[
+"SM3NCT02136875-INC-04",
+"Forced Expiratory Volume in one second (FEV1) ≤ 70 % of predicted value and FEV1 / Forced Vital Capacity (FVC) < 0.70;"
+],
+[
+"SM3NCT02136875-INC-05",
+"Dyspnea ≥ 2 on the Medical Research Council (MRC) scale;"
+],
+[
+"SM3NCT02136875-INC-06",
+"At least 2 exacerbations requiring prednisone treatment in the past 3 years;"
+],
+[
+"SM3NCT02136875-INC-07",
+"Using a written action plan and having demonstrated adequate use of the self-administered antibiotic & prednisone (adequate use defined as prednisone started by the patient within 72 hours of symptom worsening and patient called the case-manager as recommended for following the response);"
+],
+[
+"SM3NCT02136875-INC-08",
+"Already on Advair BID (twice a day) as a maintenance therapy or able to switch over to Advair if already taking another combination medication (Symbicort) as maintenance therapy for COPD."
+]
+],
+"patients": {
+"review:uuuuhuuuchhhuhu": 1
+}
+},
+"Sm3NCT02219360": {
+"criteria": [
+[
+"SM3NCT02219360-EXC-01",
+"The first diagnosis which caused hospitalization is not acute exacerbation of chronic obstructive pulmonary disease"
+],
+[
+"SM3NCT02219360-EXC-02",
+"Chest radiography shows congestive heart failure"
+],
+[
+"SM3NCT02219360-EXC-03",
+"Chest CT shows lung cancer, active pulmonary tuberculosis, pulmonary thromboembolism or interstitial lung diseases"
+],
+[
+"SM3NCT02219360-EXC-04",
+"Serious cardiac failure, renal insufficiency or hepatic dysfunction"
+],
+[
+"SM3NCT02219360-INC-01",
+"Hospitalized patients with acute exacerbation of chronic obstructive pulmonary disease"
+],
+[
+"SM3NCT02219360-INC-02",
+"Age≥ 40years old"
+]
+],
+"patients": {
+"review:hphhuc": 1
+}
+},
+"Sm3NCT02229695": {
+"criteria": [
+[
+"SM3NCT02229695-EXC-01",
+"Patients that according to the surgeon estimates will not survive 24 hours."
+],
+[
+"SM3NCT02229695-INC-01",
+"Adults male or female over 18 year old undergoing emergency laparotomy. Patients that have their abdominal wall closed at the end of surgery by a temporary closure technique."
+],
+[
+"SM3NCT02229695-INC-02",
+"Age <= 90 years"
+]
+],
+"patients": {
+"review:ucc": 1
+}
+},
+"Sm3NCT02238756": {
+"criteria": [
+[
+"SM3NCT02238756-EXC-01",
+"Use of any investigational or non-registered product (adjuvant, drug) other than CV8102 within 4 weeks preceding the administration of the CV8102, or planned use of any such agent during the trial period"
+],
+[
+"SM3NCT02238756-EXC-02",
+"Subject has received any licensed or non-licensed vaccines within 4 weeks prior to the administration of CV8102 alone or in combination with the licensed rabies vaccine or planned vaccinations during the trial period"
+],
+[
+"SM3NCT02238756-EXC-03",
+"Any treatment with immunosuppressants or other immune-modifying drugs within 6 months prior to the administration of CV8102 alone or in combination with the licensed rabies vaccine. The use of inhaled and nasal steroids, as well as topical steroids outside the vaccination area, will be permitted"
+],
+[
+"SM3NCT02238756-EXC-04",
+"Any medically diagnosed or suspected immune deficient condition based on medical history and physical examination"
+],
+[
+"SM3NCT02238756-EXC-05",
+"History of autoimmune disease or suspected autoimmune disease based on medical history and physical examination that cannot be ruled out based on further examinations"
+],
+[
+"SM3NCT02238756-EXC-06",
+"Administration of immunoglobulins (Igs) and/or any blood products within the 3 months preceding the administration of CV8102 or licensed rabies vaccine"
+],
+[
+"SM3NCT02238756-EXC-07",
+"Acute disease at the time of enrolment. Acute disease is defined as the presence of any acute condition including but not limited to non-febrile or febrile common colds, urinary tract infections, inflammatory, allergic or traumatic conditions that may interfere with safety assessment of the investigational products"
+],
+[
+"SM3NCT02238756-EXC-08",
+"Presence or evidence of significant acute or chronic disease, in particular heart disease including coronary artery disease and chronic pulmonary diseases (e.g., chronic obstructive pulmonary disease [COPD]); uncontrolled medical or psychiatric illness (subjects with uncomplicated chronic diagnoses stable and treated for ≥ 3 months e.g., mild hypertension well-controlled with medication, may be enrolled - provided the condition and its therapy are known not to be associated with an immunocompromised state or an autoimmune disease)"
+],
+[
+"SM3NCT02238756-EXC-09",
+"Major congenital defects"
+],
+[
+"SM3NCT02238756-EXC-10",
+"Known allergy to any component (or closely related substance) of the licensed rabies vaccine product"
+],
+[
+"SM3NCT02238756-EXC-11",
+"Known type I allergy to beta-lactam antibiotics"
+],
+[
+"SM3NCT02238756-EXC-12",
+"Evidence of current alcohol or drug abuse"
+],
+[
+"SM3NCT02238756-EXC-13",
+"History of any neurological disorders or seizures"
+],
+[
+"SM3NCT02238756-EXC-14",
+"Known seropositivity for human immunodeficiency virus (HIV), hepatitis B virus (HBV) (except in subjects previously vaccinated against HBV) or hepatitis C virus (HCV)"
+],
+[
+"SM3NCT02238756-EXC-15",
+"Foreseeable non-compliance with protocol as judged by the Investigator"
+],
+[
+"SM3NCT02238756-EXC-16",
+"History of any life-threatening anaphylactic reactions"
+],
+[
+"SM3NCT02238756-EXC-17",
+"Subjects with impaired coagulation in whom an IM injection is contraindicated."
+],
+[
+"SM3NCT02238756-EXC-18",
+"Additional"
+],
+[
+"SM3NCT02238756-INC-01",
+"Compliant with protocol procedures and available for clinical F/U until the protocol-defined end of the trial"
+],
+[
+"SM3NCT02238756-INC-02",
+"Physical examination and laboratory results without clinically significant findings"
+],
+[
+"SM3NCT02238756-INC-03",
+"Body Mass Index (BMI) ≥ 18.0 and ≤ 32.0 kg/m2"
+],
+[
+"SM3NCT02238756-INC-04",
+"Subjects must use reliable forms of contraception (barrier method with spermicidal agent or true abstinence) and must refrain from sperm donation during treatment and the 4-week F/U period after the last treatment."
+],
+[
+"SM3NCT02238756-INC-05",
+"Aged 18 years or older"
+],
+[
+"SM3NCT02238756-INC-06",
+"Age <= 40 years"
+],
+[
+"SM3NCT02238756-INC-07",
+"Male participants only"
+]
+],
+"patients": {
+"excluded:------------------------C": 1
+}
+},
+"Sm3NCT02255487": {
+"criteria": [
+[
+"SM3NCT02255487-EXC-01",
+"Known allergy to Chlorhexidine Gluconate (CHG)"
+],
+[
+"SM3NCT02255487-EXC-02",
+"Estimated Abbreviated Injury Scale (AIS) score of six (6) at the time of surgery, for all trauma patients"
+],
+[
+"SM3NCT02255487-EXC-03",
+"American Society of Anesthesiologists Physical Status Classification (ASA) score of five (5) or greater (As ASA scoring is a subjective measure, if the PI finds the patient stable enough for study participation despite a score of 5, enrollment may continue.)"
+],
+[
+"SM3NCT02255487-EXC-04",
+"Female volunteers who are pregnant and/or breast feeding"
+],
+[
+"SM3NCT02255487-EXC-05",
+"Damage control laparotomy"
+],
+[
+"SM3NCT02255487-EXC-06",
+"Abdominal incision created prior to operating room (i.e. incision made in trauma bay to cross clamp the aorta)"
+],
+[
+"SM3NCT02255487-EXC-07",
+"Currently enrolled in an ongoing, interventional, randomized clinical trial"
+],
+[
+"SM3NCT02255487-INC-01",
+"Is male or female, 18 years of age or older"
+],
+[
+"SM3NCT02255487-INC-02",
+"Has provided written informed consent or has surrogate consent provided by a Legally Authorized Representative (LAR)"
+],
+[
+"SM3NCT02255487-INC-03",
+"Has experienced abdominal trauma, blunt or penetrating, requiring open abdominal laparotomy with primary closure or"
+],
+[
+"SM3NCT02255487-INC-04",
+"Has experienced acute surgical abdomen requiring open abdominal laparotomy with primary closure"
+]
+],
+"patients": {
+"review:uhhuuuhchuu": 1
+}
+},
+"Sm3NCT02261584": {
+"criteria": [
+[
+"SM3NCT02261584-EXC-01",
+"Patients with bad performance scale."
+],
+[
+"SM3NCT02261584-EXC-02",
+"Patients with hepatic encephalopathy and tense ascites."
+],
+[
+"SM3NCT02261584-EXC-03",
+"Patient with active esophageal variceal bleeding ."
+],
+[
+"SM3NCT02261584-EXC-04",
+"Patients with hypocellular bone marrow (BM)."
+],
+[
+"SM3NCT02261584-EXC-05",
+"Patients with renal failure."
+],
+[
+"SM3NCT02261584-INC-01",
+"Liver Cirrhosis"
+],
+[
+"SM3NCT02261584-INC-02",
+"Hypersplenism"
+],
+[
+"SM3NCT02261584-INC-03",
+"Aged 18 years or older"
+],
+[
+"SM3NCT02261584-INC-04",
+"Age <= 75 years"
+]
+],
+"patients": {
+"review:uuuuuuucc": 1
+}
+},
+"Sm3NCT02264769": {
+"criteria": [
+[
+"SM3NCT02264769-EXC-01",
+"Refusal to give written informed consent."
+],
+[
+"SM3NCT02264769-EXC-02",
+"Allergy or hypersensitivity to carbetocin or oxytocin."
+],
+[
+"SM3NCT02264769-EXC-03",
+"Conditions that predispose to uterine atony and postpartum hemorrhage, such as placenta previa, multiple gestation, preeclampsia, eclampsia, macrosomia, polyhydramnios, uterine fibroids, previous history of uterine atony and postpartum bleeding, or bleeding diathesis."
+],
+[
+"SM3NCT02264769-EXC-04",
+"Hepatic, renal, and vascular disease."
+],
+[
+"SM3NCT02264769-INC-01",
+"Elective cesarean delivery under spinal anesthesia."
+],
+[
+"SM3NCT02264769-INC-02",
+"Written informed consent to participate in this study."
+],
+[
+"SM3NCT02264769-INC-03",
+"Term pregnancy"
+],
+[
+"SM3NCT02264769-INC-04",
+"Aged 18 years or older"
+],
+[
+"SM3NCT02264769-INC-05",
+"Age <= 50 years"
+],
+[
+"SM3NCT02264769-INC-06",
+"Female participants only"
+]
+],
+"patients": {
+"review:huhuuhuccc": 1
+}
+},
+"Sm3NCT02264964": {
+"criteria": [
+[
+"SM3NCT02264964-EXC-01",
+"No medical history of central vena catheterization."
+],
+[
+"SM3NCT02264964-EXC-02",
+"Had been performed central venous puncture or catheterization before."
+],
+[
+"SM3NCT02264964-EXC-03",
+"Can not use heparin."
+],
+[
+"SM3NCT02264964-EXC-04",
+"Refused to sign the informed consent."
+],
+[
+"SM3NCT02264964-EXC-05",
+"Advanced cancer patients."
+],
+[
+"SM3NCT02264964-EXC-06",
+"With or will take arteriovenous fistula surgery in right arm."
+],
+[
+"SM3NCT02264964-EXC-07",
+"Other inappropriate situation"
+],
+[
+"SM3NCT02264964-INC-01",
+"Chronic renal failure requiring hemodialysis."
+],
+[
+"SM3NCT02264964-INC-02",
+"Maintenance hemodialysis after central vena catheterization."
+],
+[
+"SM3NCT02264964-INC-03",
+"Signed informed consent."
+],
+[
+"SM3NCT02264964-INC-04",
+"Aged 18 years or older"
+]
+],
+"patients": {
+"review:upuhuupuuhc": 1
+}
+},
+"Sm3NCT02273232": {
+"criteria": [
+[
+"SM3NCT02273232-EXC-01",
+"Known upper limb PVD"
+],
+[
+"SM3NCT02273232-EXC-02",
+"Severe cardiac condition"
+],
+[
+"SM3NCT02273232-EXC-03",
+"Risk classification for exercise training: class C and above"
+],
+[
+"SM3NCT02273232-EXC-04",
+"Severe respiratory condition"
+],
+[
+"SM3NCT02273232-EXC-05",
+"Previous history of upper limb deep vein thrombosis"
+],
+[
+"SM3NCT02273232-EXC-06",
+"Patients on glibenclamide or nicorandil- May affect RIPC"
+],
+[
+"SM3NCT02273232-EXC-07",
+"Raynaud's Disease"
+],
+[
+"SM3NCT02273232-EXC-08",
+"Contra indications for MRA"
+],
+[
+"SM3NCT02273232-EXC-09",
+"Pregnancy"
+],
+[
+"SM3NCT02273232-EXC-10",
+"Previous major limb amputation affect ability to exercise"
+],
+[
+"SM3NCT02273232-INC-01",
+"Known moderate PVD"
+],
+[
+"SM3NCT02273232-INC-02",
+"New claudication patient with Rutherford stage 2 and Fontaine stage 2a symptoms"
+],
+[
+"SM3NCT02273232-INC-03",
+"Aged 18 years or older"
+]
+],
+"patients": {
+"review:uuuuuuuuhuuhc": 1
+}
+},
+"Sm3NCT02329366": {
+"criteria": [
+[
+"SM3NCT02329366-EXC-01",
+"Any experimental drugs taken orally or topically within 4 weeks of study entry"
+],
+[
+"SM3NCT02329366-EXC-02",
+"Malignant disease at/or in proximity to the DFU"
+],
+[
+"SM3NCT02329366-EXC-03",
+"Target wound of malignant origin"
+],
+[
+"SM3NCT02329366-EXC-04",
+"Failure to satisfy at least one inclusion criterion for one of the two study groups."
+],
+[
+"SM3NCT02329366-INC-01",
+"Male or female, age ≥ 18"
+],
+[
+"SM3NCT02329366-INC-02",
+"Type 2 Diabetes"
+],
+[
+"SM3NCT02329366-INC-03",
+"A break in the skin on the foot ≥ 0.5cm2 and is Grade 1 or 2 as defined by the Wagner grading system"
+],
+[
+"SM3NCT02329366-INC-04",
+"Hemoglobin A1c ≥ 5.9%"
+],
+[
+"SM3NCT02329366-INC-05",
+"Ability to provide written informed consent"
+]
+],
+"patients": {
+"excluded:------N--": 1
+}
+},
+"Sm3NCT02345564": {
+"criteria": [
+[
+"SM3NCT02345564-EXC-01",
+"multiple osteochondral lesions"
+],
+[
+"SM3NCT02345564-EXC-02",
+"pre-existing injuries/arthropathies"
+],
+[
+"SM3NCT02345564-INC-01",
+"single osteochondral lesion in knee/ankle (2-4 sq cm)"
+],
+[
+"SM3NCT02345564-INC-02",
+"Aged 16 years or older"
+],
+[
+"SM3NCT02345564-INC-03",
+"Age <= 65 years"
+]
+],
+"patients": {
+"excluded:---C-": 1
+}
+},
+"Sm3NCT02374814": {
+"criteria": [
+[
+"SM3NCT02374814-EXC-01",
+"Subject is pregnant, or lactating, or of childbearing potential (to be considered of non-childbearing potential, a female must be post- menopausal for at least 1 year, surgically sterile, or using an effective method of contraception or abstinence from at least 4 weeks prior to the first vaccination and until at least 4 weeks after the last vaccination)."
+],
+[
+"SM3NCT02374814-EXC-02",
+"Participation in the 4 weeks preceding the first trial vaccination, or planned participation during the present trial period, in another clinical trial investigating a vaccine, drug, medical device, or medical procedure."
+],
+[
+"SM3NCT02374814-EXC-03",
+"Previous history of receiving the rabies vaccine."
+],
+[
+"SM3NCT02374814-EXC-04",
+"Previous history of receiving rabies immune globulin."
+],
+[
+"SM3NCT02374814-EXC-05",
+"Any major psychiatric disorder, such as severe depression, severe anxiety disorder, psychosis, schizophrenia, other major psychiatric disorders, or seizures. History of mild depression or anxiety disorder that is well controlled is not an"
+],
+[
+"SM3NCT02374814-INC-01",
+"Male and non-pregnant females aged ≥ 18 to ≤ 60 years on the day of inclusion Able to comprehend and give informed consent Able to attend all scheduled visits and to comply with all trial procedures Subject in good health, based on medical history and physical examination"
+]
+],
+"patients": {
+"review:uuuuuh": 1
+}
+},
+"Sm3NCT02378311": {
+"criteria": [
+[
+"SM3NCT02378311-EXC-01",
+"Incidents where the injured child was involved in a motor vehicle collision"
+],
+[
+"SM3NCT02378311-EXC-02",
+"Incidents where the injured child was injured by another rider (e.g. injured child run over by a cyclist)"
+],
+[
+"SM3NCT02378311-EXC-03",
+"Incidents involving a bicycle fitted with 'bull bars'"
+],
+[
+"SM3NCT02378311-EXC-04",
+"Patients for whom neither parent / guardian is fluent in English (if the history is clear from a parent, the patient will be eligible for inclusion)"
+],
+[
+"SM3NCT02378311-EXC-05",
+"If an eligible patient is dead on arrival the family will not be invited to participate, and they will not subsequently be contacted"
+],
+[
+"SM3NCT02378311-EXC-06",
+"If an eligible patient dies during their admission, they will be withdrawn from further involvement in the study and the family will not be contacted"
+],
+[
+"SM3NCT02378311-INC-01",
+"Children 0-15 years inclusive"
+],
+[
+"SM3NCT02378311-INC-02",
+"Presenting to either of the study hospitals for assessment or treatment"
+],
+[
+"SM3NCT02378311-INC-03",
+"Sustained an injury or suspected to have sustained an injury (i.e. AIS >=0)"
+],
+[
+"SM3NCT02378311-INC-04",
+"Due to an incident involving any non-motorized bicycle, tricycle or kick scooter"
+],
+[
+"SM3NCT02378311-INC-05",
+"Aged 1 day or older"
+],
+[
+"SM3NCT02378311-INC-06",
+"Age <= 15 years"
+]
+],
+"patients": {
+"review:ppuhuuchpphc": 1
+}
+},
+"Sm3NCT02380352": {
+"criteria": [
+[
+"SM3NCT02380352-EXC-01",
+"Children will be excluded if they have any of the following: cystic fibrosis, anatomic lung disease, bronchiectasis, congenital heart disease, history of repeated aspiration or velopharyngeal incompetence, malignancy, conditions requiring treatment with immune suppressants, primary immunodeficiency, advanced HIV infection, prolonged admissions (>48 h) to hospital within the past 2 months, pneumonia previously diagnosed within the past month, lung abscess diagnosed within the past six months, receipt of > 24 hours of beta-lactam antibiotic therapy already received at presentation to the ED, receipt of at least a 5 day course of amoxicillin < 72h prior to presenting to the ED, receipt of an intravenous cephalosporin or azithromycin in the ED, or suspected allergy to penicillin. Children will not be eligible to participate more than once."
+],
+[
+"SM3NCT02380352-INC-01",
+"Children aged 6 months to 10 years presenting with CAP will be eligible. CAP will be defined if all of the four following numeric criteria are met:"
+],
+[
+"SM3NCT02380352-INC-02",
+"fever (>37.5 C axillary, > 37.7 C oral, or >38 C rectal) recorded in the ED or at home in the 48h prior to presentation;"
+],
+[
+"SM3NCT02380352-INC-03",
+"any one of:"
+],
+[
+"SM3NCT02380352-INC-04",
+"tachypnoea on exam (>60 bpm for age <1 y, >50 bpm for 1-2 y of age, >40 bpm for 2-4 y of age, and >30 bpm for >4 y of age);"
+],
+[
+"SM3NCT02380352-INC-05",
+"cough on exam or by history;"
+],
+[
+"SM3NCT02380352-INC-06",
+"increased work of breathing on exam; or"
+],
+[
+"SM3NCT02380352-INC-07",
+"auscultatory findings (focal crackles, bronchial breathing, etc.) consistent with pneumonia;"
+],
+[
+"SM3NCT02380352-INC-08",
+"infiltrates on chest radiograph consistent with bacterial CAP as judged by the ED physician; and"
+],
+[
+"SM3NCT02380352-INC-09",
+"the attending ED physician diagnoses the child with primary CAP. (Children treated with systemic steroids in the ED will be presumed to have primary asthma exacerbation with possible infection and therefore will not meet inclusion criteria.)"
+],
+[
+"SM3NCT02380352-INC-10",
+"Participants must be well enough to be treated as outpatients (discharged home by the ED physician, adequate volume status, able to tolerate oral medication, oxygen saturation > 90%, no evidence of impending respiratory failure), and have no evidence of empyaema or necrotizing pneumonia on chest radiograph."
+]
+],
+"patients": {
+"review:hhhhhhhhhhh": 1
+}
+},
+"Sm3NCT02390596": {
+"criteria": [
+[
+"SM3NCT02390596-EXC-01",
+"Preterm and neonates, pregnancy"
+],
+[
+"SM3NCT02390596-EXC-02",
+"Patients suspected with another diagnosis"
+],
+[
+"SM3NCT02390596-EXC-03",
+"Patients with overt concomitant bacterial infection"
+],
+[
+"SM3NCT02390596-EXC-04",
+"Patients previously treated with another biotherapy"
+],
+[
+"SM3NCT02390596-EXC-05",
+"Patients with any type of immunodeficiency or cancer"
+],
+[
+"SM3NCT02390596-EXC-06",
+"Patients with increased risk of TB infection"
+],
+[
+"SM3NCT02390596-EXC-07",
+"Recent tuberculosis infection or with active TB"
+],
+[
+"SM3NCT02390596-EXC-08",
+"Close contact with a patient with TB"
+],
+[
+"SM3NCT02390596-EXC-09",
+"Patients recently arrived less than 3 months from a country with high prevalence of TB"
+],
+[
+"SM3NCT02390596-EXC-10",
+"A chest radiograph suggestive of TB"
+],
+[
+"SM3NCT02390596-EXC-11",
+"Patients with end stage renal disease: NKF stages ≥4; eGFR≤29mL/min/1.73 m2 or diabetes mellitus or neutropenia <1500/mm3 or liver failure"
+],
+[
+"SM3NCT02390596-EXC-12",
+"Hypersensitivity to the active substance or to any of the excipients (citric acid and anhydrous; sodium chloride disodium edetate dehydrate polysorbate 80; sodium hydroxide; water for injections)"
+],
+[
+"SM3NCT02390596-EXC-13",
+"Patient already included in a biomedical research other than observational (e.g.; cohort, registry)"
+],
+[
+"SM3NCT02390596-INC-01",
+"Patients, male and female, at any age ≥ 3 months (5 kg) of life, with KD according to the American Heart Association definition for complete or incomplete KD. fever ≥ 5 days and ≥ 4 of 5 main clinical signs: modification of the extremities, polymorphic exanthema, bilateral bulbar not exudative conjunctivitis, erythema of the lips or oral cavity, and cervical lymph nodes usually unilateral > 1.5 cm in diameter. In the presence of less than 4 clinical criteria and 5 days of fever, the diagnosis of disease KD is proposed in case of coronary abnormalities (at least one dilated coronary artery with internal diameter ≥ 2,5 SD from the mean normalized for body surface area (Z score) as determined by echocardiography. For indicative purpose, in case of incomplete KD, other biological supportive criteria for incomplete KD can help to ensure the diagnosis: leucocytosis, elevated CRP, elevated ESR, anaemia, hyponatremia, elevated ASAT, ALAT and gGT, hyperlipidaemia."
+],
+[
+"SM3NCT02390596-INC-02",
+"Patients who failed to respond to standard therapy of KD:, e.g. Persistence or recrudescence of fever ≥ 38°C, 48 hours after the infusion of 2g/kg of IV Ig,"
+],
+[
+"SM3NCT02390596-INC-03",
+"Weight ≥5Kg"
+],
+[
+"SM3NCT02390596-INC-04",
+"Patient, parent or legal guardian's written informed consent is required"
+],
+[
+"SM3NCT02390596-INC-05",
+"Patient with health insurance"
+],
+[
+"SM3NCT02390596-INC-06",
+"Patient agrees to have effective contraception for the duration of participation in the research"
+],
+[
+"SM3NCT02390596-INC-07",
+"Age <= 18 years"
+]
+],
+"patients": {
+"review:hupuhuuuuuuhhphhhuhc": 1
+}
+},
+"Sm3NCT02410616": {
+"criteria": [
+[
+"SM3NCT02410616-EXC-01",
+"Current high risk for suicide according to the MINI Interview section C"
+],
+[
+"SM3NCT02410616-EXC-02",
+"Serious psychiatric co-morbidity: substance dependence, bipolar affective disorder, psychotic illness, obsessive compulsive disorder, as established at the MINI interview"
+],
+[
+"SM3NCT02410616-EXC-03",
+"Currently receiving psychological treatment for depression"
+],
+[
+"SM3NCT02410616-EXC-04",
+"Being unable to comprehend the spoken and written language (German)"
+],
+[
+"SM3NCT02410616-EXC-05",
+"Not having access to a PC and fast Internet connection (i.e. broadband or comparable)."
+],
+[
+"SM3NCT02410616-EXC-06",
+"Not having a Smartphone that is compatible with the mobile component of the intervention that is offered or not willing to carry a Smartphone during the duration of treatment"
+],
+[
+"SM3NCT02410616-INC-01",
+"Being 18 years of age or older"
+],
+[
+"SM3NCT02410616-INC-02",
+"Meet DSM-IV diagnostic criteria for MDD confirmed by MINI International Neuropsychiatric Interview version 5.0"
+],
+[
+"SM3NCT02410616-INC-03",
+"Informed Consent"
+],
+[
+"SM3NCT02410616-INC-04",
+"Having access to a PC and Internet connection"
+],
+[
+"SM3NCT02410616-INC-05",
+"Having a Smartphone that is compatible with the mobile component of the intervention"
+],
+[
+"SM3NCT02410616-INC-06",
+"Understanding of the German language spoken and written"
+]
+],
+"patients": {
+"review:uuuhhhcuhhhh": 1
+}
+},
+"Sm3NCT02470741": {
+"criteria": [
+[
+"SM3NCT02470741-EXC-01",
+"Fibroids treated by surgery, radiologic procedure, or GnRH agonist or antagonist in the last 3 months"
+],
+[
+"SM3NCT02470741-EXC-02",
+"Any submucosal fibroid ≥2cm that is >50% in uterine cavity (FIGO Type 0 or Type 1 fibroids) amenable to hysteroscopic resection"
+],
+[
+"SM3NCT02470741-EXC-03",
+"Use of exogenous estrogen and/or progestin in the last month. (for 3 month long-acting depoprovera injection, no use in last 3 months)"
+],
+[
+"SM3NCT02470741-EXC-04",
+"Pregnant, lactating, or planning to become pregnant in the next 6 months"
+],
+[
+"SM3NCT02470741-EXC-05",
+"Hematocrit <27% or visit to emergency room or hospitalization for fibroid symptoms in the last 3 months (cannot be safely randomized to a placebo)"
+],
+[
+"SM3NCT02470741-EXC-06",
+"History of osteopenia or osteoporosis"
+],
+[
+"SM3NCT02470741-EXC-07",
+"History of hyperlipidemia"
+],
+[
+"SM3NCT02470741-EXC-08",
+"Current liver or kidney disease"
+],
+[
+"SM3NCT02470741-EXC-09",
+"Unable or unwilling to attend 4 study visits"
+],
+[
+"SM3NCT02470741-EXC-10",
+"Pelvic imaging concerning for gynecologic cancer or cancer of the genitourinary or gastrointestinal system"
+],
+[
+"SM3NCT02470741-EXC-11",
+"Does not have primary care provider or gynecologist"
+],
+[
+"SM3NCT02470741-INC-01",
+"≥21 years old"
+],
+[
+"SM3NCT02470741-INC-02",
+"Premenopausal (at least one menses in last 3 months)"
+],
+[
+"SM3NCT02470741-INC-03",
+"Symptomatic fibroids (fibroids visualized on ultrasound or MRI and heavy uterine bleeding, pelvic pressure or discomfort, urinary or bowel abnormalities, dyspareunia)"
+],
+[
+"SM3NCT02470741-INC-04",
+"Fibroids that are ≤4 in total number or Fibroids that are ≤7 in total number if all fibroids are less than 4cm (40 mm) each"
+],
+[
+"SM3NCT02470741-INC-05",
+"Fibroids that are ≤7cm in maximum diameter, on screening imaging, if ≤4 fibroids in total number(fibroid is defined as any mass with radiographic characteristics of fibroid >2cm)"
+],
+[
+"SM3NCT02470741-INC-06",
+"Up to date in Pap smear screening and surveillance"
+],
+[
+"SM3NCT02470741-INC-07",
+"Endometrial biopsy (required if age>45 years with irregular bleeding) does not indicate premalignant or malignant cells"
+],
+[
+"SM3NCT02470741-INC-08",
+"Agree to use non-hormonal barrier method of contraception during study period if at risk for pregnancy"
+],
+[
+"SM3NCT02470741-INC-09",
+"Has primary care provider or gynecologist"
+],
+[
+"SM3NCT02470741-INC-10",
+"Agrees not to start new medications/treatments for fibroids during the study"
+],
+[
+"SM3NCT02470741-INC-11",
+"Able to give informed consent"
+],
+[
+"SM3NCT02470741-INC-12",
+"Female participants only"
+]
+],
+"patients": {
+"review:uuuhhuuuhhhcuuhhuhhuhhc": 1
+}
+},
+"Sm3NCT02490059": {
+"criteria": [
+[
+"SM3NCT02490059-EXC-01",
+"missing informed consent"
+],
+[
+"SM3NCT02490059-INC-01",
+"Pulmonary nodule on a recent CT"
+],
+[
+"SM3NCT02490059-INC-02",
+"non-visible on standard-size bronchoscopy"
+],
+[
+"SM3NCT02490059-INC-03",
+"Aged 18 years or older"
+]
+],
+"patients": {
+"review:huuc": 1
+}
+},
+"Sm3NCT02509286": {
+"criteria": [
+[
+"SM3NCT02509286-EXC-01",
+"No prior abdominal or thoracic radiotherapy"
+],
+[
+"SM3NCT02509286-EXC-02",
+"Tumors of squamous or other non-adenocarcinoma histology"
+],
+[
+"SM3NCT02509286-EXC-03",
+"Patients with advanced inoperable or metastatic esophageal adenocarcinoma"
+],
+[
+"SM3NCT02509286-EXC-04",
+"Stage cT1N0 and cT4b"
+],
+[
+"SM3NCT02509286-EXC-05",
+"Gastric carcinoma"
+],
+[
+"SM3NCT02509286-EXC-06",
+"Prior chemotherapy for cancer,"
+],
+[
+"SM3NCT02509286-EXC-07",
+"Clinically significant (i.e. active) cardiac disease (e.g. symptomatic coronary artery disease or myocardial infarction within last 12 months)"
+],
+[
+"SM3NCT02509286-EXC-08",
+"Clinical significant lung disease (FEV1 <65% of predicted)"
+],
+[
+"SM3NCT02509286-EXC-09",
+"Peripheral neuropathy Grade >1"
+],
+[
+"SM3NCT02509286-INC-01",
+"Histologically verified adenocarcinoma of the esophagus according to the UICC definition (TNM7)"
+],
+[
+"SM3NCT02509286-INC-02",
+"Pre-treatment stage cT1N+, M0 or cT2-4a, N0/+, M0"
+],
+[
+"SM3NCT02509286-INC-03",
+"Age ≥18 years"
+],
+[
+"SM3NCT02509286-INC-04",
+"ECOG Performance status 0-2"
+],
+[
+"SM3NCT02509286-INC-05",
+"Adequate cardiac function ( Patients with a cardiac history (e.g. myocardial infarction, heart failure, coronary artery disease) should have a cardiology review)"
+],
+[
+"SM3NCT02509286-INC-06",
+"Adequate bone marrow function (WBC>3x10^9/l; Hb>9g/dl; platelets >100x10^9/l)"
+],
+[
+"SM3NCT02509286-INC-07",
+"Adequate respiratory function. Symptomatic Patients should have pulmonary function tests with FEV1 >65% of predicted)"
+],
+[
+"SM3NCT02509286-INC-08",
+"Adequate renal function (GFR >60ml/min)"
+],
+[
+"SM3NCT02509286-INC-09",
+"Adequate liver function (serum bilirubin <1.5x Upper level of Normal (ULN); AST <2.5x ULN and ALT <3x ULN (ULN as per institutional standard)"
+],
+[
+"SM3NCT02509286-INC-10",
+"written informed consent"
+]
+],
+"patients": {
+"review:uuuuuuuuuuucuuhhuhh": 1
+}
+},
+"Sm3NCT02512159": {
+"criteria": [
+[
+"SM3NCT02512159-EXC-01",
+"Hemodynamically unstable patients."
+],
+[
+"SM3NCT02512159-EXC-02",
+"Patients with septic shock from any source."
+],
+[
+"SM3NCT02512159-EXC-03",
+"Patients with deep skin ulcers with exposed some organ, data osteomyelitis, vascular-nervous exposure."
+],
+[
+"SM3NCT02512159-EXC-04",
+"Patients with secondary cutaneous ulcer enteral fistula."
+],
+[
+"SM3NCT02512159-EXC-05",
+"Patients with cutaneous ulcer or cancer tumors."
+],
+[
+"SM3NCT02512159-EXC-06",
+"Patients with cutaneous ulcer with active bleeding."
+],
+[
+"SM3NCT02512159-EXC-07",
+"Patients with cutaneous ulcer necrosis."
+],
+[
+"SM3NCT02512159-EXC-08",
+"Patients with cutaneous ulcer leishmania, insect bite."
+],
+[
+"SM3NCT02512159-EXC-09",
+"Patients with cutaneous ulcer burns."
+],
+[
+"SM3NCT02512159-EXC-10",
+"Patients who do not accept their participation in the study through informed consent."
+],
+[
+"SM3NCT02512159-INC-01",
+"Patients with cutaneous leg ulcers due to diabetes mellitus, venous stasis and arterial insufficiency requiring healing or tissue debrided sent to managing their disease to regional general hospital No. 17, Instituto Mexicano del Seguro Social, Benito Juárez, Quintana Roo."
+],
+[
+"SM3NCT02512159-INC-02",
+"Patients of both sexes."
+],
+[
+"SM3NCT02512159-INC-03",
+"Patients over 18 years."
+],
+[
+"SM3NCT02512159-INC-04",
+"Patients that have basic laboratory at admission (complete blood count with differential)."
+],
+[
+"SM3NCT02512159-INC-05",
+"Patients with comorbidities associated as Diabetes Mellitus , Hypertension, stroke, heart disease, nephropathy, venous insufficiency and arterial insufficiency, etc."
+],
+[
+"SM3NCT02512159-INC-06",
+"Aged 18 years or older"
+],
+[
+"SM3NCT02512159-INC-07",
+"Age <= 80 years"
+]
+],
+"patients": {
+"review:uuuuuuuuuhuhcupcc": 1
+}
+},
+"Sm3NCT02538406": {
+"criteria": [
+[
+"SM3NCT02538406-EXC-01",
+"Patients with a prior history of colonic surgeries"
+],
+[
+"SM3NCT02538406-EXC-02",
+"Patient with Crohns colitis or ulcerative colitis"
+],
+[
+"SM3NCT02538406-EXC-03",
+"Patient with prior history of colon cancer"
+],
+[
+"SM3NCT02538406-EXC-04",
+"Patient with poor bowel preparation"
+],
+[
+"SM3NCT02538406-EXC-05",
+"Pregnant women"
+],
+[
+"SM3NCT02538406-INC-01",
+"Adult patients (18-80 years) who are undergoing colonoscopy for screening or surveillance purposes."
+],
+[
+"SM3NCT02538406-INC-02",
+"Aged 18 years or older"
+],
+[
+"SM3NCT02538406-INC-03",
+"Age <= 80 years"
+]
+],
+"patients": {
+"review:phpuupcc": 1
+}
+},
+"Sm3NCT02556359": {
+"criteria": [
+[
+"SM3NCT02556359-EXC-01",
+"Refusal to consent."
+],
+[
+"SM3NCT02556359-INC-01",
+"Immune Deficiency and early BMF in childhood"
+],
+[
+"SM3NCT02556359-INC-02",
+"Common Variable Immunodeficiency (CVID)"
+],
+[
+"SM3NCT02556359-INC-03",
+"Genetic patients"
+]
+],
+"patients": {
+"review:huuu": 1
+}
+},
+"Sm3NCT02614443": {
+"criteria": [
+[
+"SM3NCT02614443-EXC-01",
+"Students who currently are in face-to-face therapy at UCCS or BHS will be excluded. Students who score in the red zone in terms of risk of self-harm on the screening questions routinely used at UCCS will not be referred to the study. Students who score greater than 0 on the PHQ-9 self-harm item during the initial screening phase will be automatically directed to be further evaluated and alerted that a counselor will try to reach them. Based on this further evaluation, they may be recommended to seek help from their health/counseling service and may/may not be eligible to participate in the study. They will be telephoned within 1 working day and contacted by email if they cannot be reached by phone."
+],
+[
+"SM3NCT02614443-INC-01",
+"Participants must be at least 18 years of age. Participants must have self-reported mild to severe symptoms of depression (5-27+) according to PHQ-9, self-reported mild to severe symptoms of anxiety (5-21+) according to GAD-7, or self-reported mild to severe symptoms of stress (15-34+) according to the stress sub-scale of DASS-21."
+]
+],
+"patients": {
+"review:uu": 1
+}
+},
+"Sm3NCT02618655": {
+"criteria": [
+[
+"SM3NCT02618655-EXC-01",
+"fever for non-infectious diseases such as rheumatic autoimmune disease or with tumor"
+],
+[
+"SM3NCT02618655-EXC-02",
+"we find that the patient selected does not meet the selection criteria within the observation period"
+],
+[
+"SM3NCT02618655-EXC-03",
+"patients leave with automatic discharge"
+],
+[
+"SM3NCT02618655-INC-01",
+"patients have fever more than one week"
+],
+[
+"SM3NCT02618655-INC-02",
+"temperature is higher than 38℃ Celsius degree"
+],
+[
+"SM3NCT02618655-INC-03",
+"full of physical examination and laboratory examination have been carried out after one week，but still cannot make a definite diagnosis"
+]
+],
+"patients": {
+"excluded:---N--": 1
+}
+},
+"Sm3NCT02627768": {
+"criteria": [
+[
+"SM3NCT02627768-EXC-01",
+"Participant is starting STELARA or a TNFi therapy as fourth or further line of biologic treatment"
+],
+[
+"SM3NCT02627768-EXC-02",
+"Participant is unwilling or unable to participate in long-term data collection"
+],
+[
+"SM3NCT02627768-EXC-03",
+"Participant has received an investigational drug (including investigational vaccines) or used an invasive investigational medical device within 30 days before the start of the study or the first data collection time point"
+],
+[
+"SM3NCT02627768-EXC-04",
+"Participant is currently enrolled in an interventional study"
+],
+[
+"SM3NCT02627768-INC-01",
+"Must have a confirmed diagnosis of psoriatic arthritis (PsA) as determined by a rheumatologist according to ClASsification criteria for Psoriatic Arthritis (CASPAR) criteria"
+],
+[
+"SM3NCT02627768-INC-02",
+"Must be starting either STELARA or any new approved tumor necrosis factor alpha inhibitor (TNFi) (including TNFi biosimilar) as a new biologic disease-modifying antirheumatic drug (bDMARD) therapy in a first, second or third line of bDMARD therapy for PsA at the time of enrollment into the observational study or within a maximum 2-month window after the baseline visit"
+],
+[
+"SM3NCT02627768-INC-03",
+"Must sign a participation agreement/informed consent form (ICF) allowing data collection and source data verification in accordance with local requirements"
+],
+[
+"SM3NCT02627768-INC-04",
+"Aged 18 years or older"
+]
+],
+"patients": {
+"review:hhuhuhhc": 1
+}
+},
+"Sm3NCT02631668": {
+"criteria": [
+[
+"SM3NCT02631668-EXC-01",
+"Pregnant women; drug allergy; the patients with serious gastrorrhagia, other peptic ulcers, active bleeding, hepatic insufficiency, heart disease or renal insufficiency; those patients can't tolerate the medicine orally, or participate in other clinical study, or refuse to sign a Informed consent Form."
+],
+[
+"SM3NCT02631668-INC-01",
+"Hemoglobin (Hb) < 120 g/L in men and Hb < 110 g/L in women; Mean Corpuscular Volume(MCV) < 80 fl, Mean Corpuscular Hemoglobin(MCH) < 27 pg, and Mean Corpuscular Hemoglobin Concentration(MCHC) < 0.32; the blood biochemical examination: serum ferritin < 12 g/L, serum iron < 8.95 mol/L, transferrin saturation <15%, and total iron binding capacity>64.44 mol/L; with a history of Menorrhagia, monophagia or eating disorders; Willing to sign a Informed consent form."
+],
+[
+"SM3NCT02631668-INC-02",
+"Aged 18 years or older"
+],
+[
+"SM3NCT02631668-INC-03",
+"Age <= 65 years"
+]
+],
+"patients": {
+"excluded:N---": 1
+}
+}
+}
+},
+"jmed": {
+"lang": {
+"Mm3JMED-DM": "ja",
+"Mm3JMED-HT": "ja"
+},
+"rulesets": {
+"Mm3JMED-DM": {
+"criteria": [
+[
+"MM3JMED-DM-EXC-01",
+"糖尿病の既往がある患者"
+],
+[
+"MM3JMED-DM-INC-01",
+"20歳以上"
+]
+],
+"patients": {
+"review:uc": 261,
+"review:uu": 1,
+"excluded:-C": 35
+}
+},
+"Mm3JMED-HT": {
+"criteria": [
+[
+"MM3JMED-HT-EXC-01",
+"高血圧症の既往がある患者"
+],
+[
+"MM3JMED-HT-INC-01",
+"20歳以上"
+]
+],
+"patients": {
+"review:uc": 261,
+"review:uu": 1,
+"excluded:-C": 35
+}
+}
+}
+},
+"tcga": {
+"lang": {
+"Gm3TCGA-BRCA": "en",
+"Gm3TCGA-COAD": "en",
+"Gm3TCGA-HNSC": "en",
+"Gm3TCGA-KIRC": "en",
+"Gm3TCGA-LIHC": "en",
+"Gm3TCGA-LUAD": "en",
+"Gm3TCGA-LUSC": "en",
+"Gm3TCGA-PRAD": "en",
+"Gm3TCGA-THCA": "en",
+"Gm3TCGA-UCEC": "en"
+},
+"rulesets": {
+"Gm3TCGA-BRCA": {
+"criteria": [
+[
+"GM3TCGA-BRCA-INC-01",
+"Histologically confirmed invasive breast carcinoma"
+]
+],
+"patients": {
+"high:p": 48,
+"review:u": 73,
+"excluded:N": 379
+}
+}
+}
+}
+}
+}
