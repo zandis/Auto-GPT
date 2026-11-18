@@ -544,6 +544,14 @@ def _crc_first_list(s: Site, st: dict[str, Any]) -> None:
     setup = s.get(crc, f"/studies/{NEW_RS}/setup")  # the new study's set-up page opens for its coordinator
     r = s.post(crc, f"/studies/{NEW_RS}/setup/scope", {"mode": "hospital"}, setup.text)
     assert r.status_code == 200 and 'data-testid="who-now"' in r.text, (r.status_code, js.text(r.text)[-300:])
+    # WALK-1 (D-1153, F-14): a new study starts in start-up and opens through its SAE check: the type, then Open
+    setup = s.get(crc, f"/studies/{NEW_RS}/setup")
+    r = s.post(crc, f"/studies/{NEW_RS}/setup/sae", {"rule_set": "tw_trial"}, setup.text)
+    assert r.status_code == 200 and r.url.params.get("saved") == "sae", (r.url, js.text(r.text)[-300:])
+    page = s.get(crc, f"/studies/{NEW_RS}/state")
+    assert 'data-state="startup"' in page.text, js.text(page.text)[:300]
+    r = s.post(crc, f"/studies/{NEW_RS}/state", {"state": "open"}, page.text)
+    assert r.status_code == 200 and 'data-state="open"' in r.text, (r.status_code, js.text(r.text)[-300:])
     res = cd.screen({"crc": s.c[user("crc")], "box": s.box, "h": s.h}, NEW_RS)
     assert res["job"].ruleset_version == "1.0.0", res["job"].ruleset_version
     page = s.c[user("crc")].get(f"/studies/{NEW_RS}/week")
@@ -730,7 +738,7 @@ def _pi_close(s: Site, st: dict[str, Any]) -> None:
     name, rs = user("pi"), "GZQO"
     why = "the sponsor stopped recruitment at every site"
     page = s.get(name, f"/studies/{rs}/state")
-    r = s.post(name, f"/studies/{rs}/state", {"state": "closed", "reason": why}, page.text)
+    r = s.post(name, f"/studies/{rs}/state", {"state": "closed", "reason": why, "confirm": "yes"}, page.text)
     assert r.status_code == 200 and 'data-state="closed"' in r.text, (r.status_code, js.text(r.text)[-300:])
     assert why in js.text(r.text)
     log = js.text(s.get(name, f"/studies/{rs}/screening-log").text)

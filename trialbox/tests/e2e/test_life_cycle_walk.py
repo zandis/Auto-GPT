@@ -186,8 +186,15 @@ def test_every_text_is_a_key_of_the_console_catalogue() -> None:
 def test_the_findings_are_well_formed() -> None:
     steps = {st.n: st for st in lp.all_steps()}
     ids = [f.id for f in lp.FINDINGS]
-    # ids stay as first given (F-20, the erase not running, was settled by H-25 and left the list)
-    assert ids == sorted(set(ids)) and all(re.fullmatch(r"F-\d\d", i) for i in ids), ids
+    fixed = [x[0] for x in lp.FIXED]
+    assert ids == sorted(set(ids)) and fixed == sorted(set(fixed)) and not set(ids) & set(fixed), (ids, fixed)
+    # a finding the walk no longer sees keeps its id (decisions cite it): the ids still run on with no gap (F-20, the
+    # erase not running, was settled by H-25, D-1124)
+    every = sorted(ids + fixed)
+    assert every == [f"F-{i:02d}" for i in range(1, len(every) + 1)], every
+    for fid, step, by, now in lp.FIXED:
+        assert step in steps and now and re.fullmatch(r"D-\d+", by), fid
+        assert list((ROOT / "docs" / "decisions").glob(f"{by}-*.md")), (fid, by)
     for f in lp.FINDINGS:
         assert f.step in steps and f.severity in lp.SEVERITIES and f.lane in lp.LANES, f
         assert f.role in nw.ROLES and f.path.startswith("/") and f.showed and f.expected and f.source, f
@@ -198,6 +205,43 @@ def test_the_findings_are_well_formed() -> None:
     assert used - {"F-00"} <= set(ids), used
     for n, what, why in lp.NOT_COMPLETED:
         assert n in steps and what and why, n
+
+
+def _keys(st: object) -> set[str]:
+    out = set()
+    for a in st.acts:  # type: ignore[attr-defined]
+        for t in (getattr(a, "text", None), getattr(a, "label", None)):
+            if isinstance(t, nw.Marked):
+                out.add(t.hint)
+            if isinstance(t, nw.Said):
+                out.add("said:" + t.state)
+            if isinstance(t, nw.T) and t.key:
+                out.add(t.key)
+        if isinstance(a, nw.See):
+            out.add("see:" + a.kind)
+        if isinstance(a, lp.Act):
+            out.add("act:" + a.kind)
+    return out
+
+
+def test_what_a_fixed_finding_asked_for_is_asserted_by_the_walk() -> None:
+    """A finding leaves the plan only where the walk asserts the changed behaviour (D-1153; F-20 D-1124): the step that
+    saw it now checks it."""
+    steps = {st.n: st for st in lp.all_steps()}
+    asked = {
+        "F-11": (16, {"life.step.reason_required", "confirm.title", "life.confirm.final", "confirm.yes"}),
+        "F-14": (9, {"sstate.now", "see:gone", "sstate.sae_type", "sae.setup.save"}),
+        "F-15": (17, {"sstate.reason_required", "confirm.title", "sstate.confirm.close", "confirm.yes"}),
+        "F-16": (17, {"sstate.kept_until", "see:years"}),
+        "F-20": (
+            21,
+            {"nav.audit", "audit.title", "act:worker_ran"},
+        ),  # H-25 (D-1124): the worker's run after the opt-out
+    }
+    assert set(asked) == {x[0] for x in lp.FIXED}
+    for fid, (n, keys) in asked.items():
+        assert keys <= _keys(steps[n]), (fid, keys - _keys(steps[n]))
+    assert "said:startup" in _keys(steps[10]) and "sstate.changed" in _keys(steps[10])  # F-14: SCREEN before Open
 
 
 def test_the_page_holds_the_findings_the_plan_has() -> None:
