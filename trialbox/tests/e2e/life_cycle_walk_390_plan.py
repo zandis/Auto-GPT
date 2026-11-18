@@ -119,13 +119,13 @@ FINDINGS: tuple[Finding, ...] = (
             "the feasibility funnel is 488 to 506 px wide, the reports list 448 to 518 px and, in ja, the barriers "
             "table 400 px; " + TABLES,
             "S3 report readable on a phone", SPEC + " §10 (phone 390–767 px: S3 report)",
-            "cosmetic", "C2", pages=("/reports",)),
+            "cosmetic", "C2", also=(10,), pages=("/reports",)),
     Finding("P-06", 9, "coordinator", "/studies/{rs}/feasibility", "target under 44 px",
             "in zh-TW and ja the report's five step links (\"狀態 1\" … , \"状況 1\" …) are 40 and 31 px wide by 44 "
             "px; in en they are wider",
             "44 px controls on a phone (the card's size; the spec asks 24 px except for the PI's marks)",
-            SPEC + " (2.5.8)", "cosmetic", "C2"),
-    Finding("P-07", 11, "operator", "/home", "target under 24 px",
+            SPEC + " (2.5.8)", "cosmetic", "C2", also=(10,)),
+    Finding("P-07", 10, "operator", "/home", "target under 24 px",
             "the administrator's home: the tabs and links \"Jobs\", \"Services and models\", \"Sources and "
             "licences\", \"Open\", \"Mail notices\" (seven in all) are 20 px high",
             "targets at least 24 x 24 px", SPEC + " (2.5.8 Target size (minimum))", "slows the tester", "C2"),
@@ -148,10 +148,11 @@ FINDINGS: tuple[Finding, ...] = (
             "coordinator taps Back first to reach the menu and My studies",
             "the menu reachable from every page", "D-133 (Back, Next and the menu on the phone's sheet)",
             "slows the tester", "C2"),
-    Finding("P-12", 17, "coordinator", "/studies/{rs}/state", "table wider than the screen",
-            "in en the study's state history is 413 px wide; " + TABLES,
+    Finding("P-12", 9, "coordinator", "/studies/{rs}/state", "table wider than the screen",
+            "the study's state history is 395 to 445 px wide (since train 82 the new study is opened on this page, "
+            "steps 9 and 10, and closed in steps 17 and 18); " + TABLES,
             "not among the phone's pages: no expectation for a phone", SPEC + " §10 (phone's pages)",
-            "cosmetic", "C2", also=(18,)),
+            "cosmetic", "C2", also=(10, 17, 18)),
     Finding("P-13", 19, "steward", "/site/opt-outs", "table wider than the screen",
             "the opt-out register's list is 467 to 565 px wide; " + TABLES,
             "not among the phone's pages: no expectation for a phone", SPEC + " §10 (phone's pages)",
