@@ -179,8 +179,8 @@ def test_the_scorer_reads_the_target_without_the_marks_and_lists_each_with_the_b
 def test_a_key_that_marks_nothing_keeps_the_report_as_it_was() -> None:
     out = score.score_pairs(IDS, PAIRS, _answers(), SITE_KEY, CRITS, {"marks": None, "from": "v1"})
     assert "conflicted" not in out and "eligible_lost_without_conflicted" not in out["summary"]["en"]
-    # layout 3 added the conflicted pairs (H-6); 4 adds the attempts (H-14, D-1129)
-    assert out["label_conflicts"]["pairs"] == 3 and score.SCHEMA_VERSION == 4
+    # layout 3 added the conflicted pairs (H-6); 4 adds the attempts (H-14, D-1129); 5 adds the ladder (10A-3)
+    assert out["label_conflicts"]["pairs"] == 3 and score.SCHEMA_VERSION == 5
 
 
 def test_the_drivers_score_summary_names_the_conflicted_pairs(tmp_path: Path) -> None:
