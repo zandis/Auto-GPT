@@ -339,6 +339,17 @@ walk-life-cycle-390:
 	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
 	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e tests/e2e/test_life_cycle_walk_390.py
 
+# H-34 (D-1100): imperfect hospital data (cut-off files, the same file twice, wrong column counts, Big5, ROC and
+# placeholder dates, a long note, unknown codes, chart numbers, empty exports, line endings) through the box's own
+# `adapter run`, in every source format the adapter reads; reports and fixes nothing. Results in
+# $(TB_TEST_ROOT)/imperfect-feed/results.json; TABLE=1 prints the page's table. About two minutes
+.PHONY: imperfect-feed
+imperfect-feed:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	rm -rf "$(TB_TEST_ROOT)/imperfect-feed"
+	TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m tools.imperfect_feed --out "$(TB_TEST_ROOT)/imperfect-feed" \
+		$(if $(TABLE),--table,)
+
 # root + nftables + iproute2 + the running test stack (docs/SECURITY.md §2)
 test-egress:
 	TB_EGRESS_TEST=1 $(PY) -m pytest -q -m egress tests/integration/test_egress.py
