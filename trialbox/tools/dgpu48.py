@@ -673,7 +673,7 @@ def check_weights(run: Runner, o: dict[str, Any], models: Path, environ: dict[st
         cmd = ["docker", "run", "--rm", "-v", f"{models}:/m:ro", "-v", f"{root / 'tools'}:/app/tools:ro",
                "-v", f"{root / 'models'}:/app/models:ro", "trialbox-py:1.0.0", "python", "-m", "tools.pin_model",
                "--build", build, "--model-dir", f"/m/{folder}", "--endpoint", endpoint, "--served-name", served,
-               "--out", "/tmp/dgpu48-check.yaml"]  # fmt: skip
+               "--out", "/home/tb/dgpu48-check.yaml"]  # the image user's home (useradd --create-home)  # fmt: skip
         if role == "judge":
             cmd[-2:-2] = ["--chat-template", f"/m/{environ.get(TEMPLATE[0]) or TEMPLATE[1]}"]
         rc, out, err = run(cmd, 3600, None)
