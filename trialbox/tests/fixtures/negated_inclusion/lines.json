@@ -1,0 +1,1863 @@
+{
+ "about": "Card 10A-1: synthetic criterion lines (inclusions) for the negated-inclusion rule. Each row's logic is built by the test: 'presence' is any-of the concept, 'value' is the latest value of an observation within a bound. 'expect' is 'held' (a person checks it) or 'runs' (the coded logic runs). 'source': p2b (review 15's two lines, public protocol text), card-v1 (this card's first table), review-1 (an adversarial review of the first version), review-j (lane J's review). Written for the test; no patient data.",
+ "rows": [
+  {
+   "lang": "en",
+   "text": "PRIOR CONCURRENT THERAPY: No prior chemotherapy or radiotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "p2b"
+  },
+  {
+   "lang": "en",
+   "text": "No significant cardiopulmonary disease, or other contraindication to EGD",
+   "concept": "cardiopulmonary disease",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "p2b"
+  },
+  {
+   "lang": "en",
+   "text": "No prior chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "no previous chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "NO PRIOR CHEMOTHERAPY.",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "- No history of chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "1. Not previously treated with chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Never received chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Without prior chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Absence of prior chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Free of prior chemotherapy for 5 years",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "None of the following: chemotherapy, radiotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Lack of prior chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Chemotherapy-naive",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Chemotherapy naïve patients",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Patients with no prior chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Subjects without prior chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Patients who have not received chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Participants who have never received chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Must not have received chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Has not had chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法歴なし",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法の治療歴がない",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法の既往がないこと",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法の既往のない患者",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法を受けていない",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法を受けたことがない者",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "ja",
+   "text": "前治療として化学療法を認めない。",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法を受けていません",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法未施行",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法歴無し",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "zh",
+   "text": "無化學治療病史",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "zh",
+   "text": "沒有接受過化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "zh",
+   "text": "未曾接受化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "zh",
+   "text": "未接受過化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "zh",
+   "text": "從未接受化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "zh",
+   "text": "不曾接受化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "zh",
+   "text": "病人無化學治療病史",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "zh",
+   "text": "患者未曾接受化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Patient has not received chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "en",
+   "text": "Patients must not have received prior chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "en",
+   "text": "Patients that haven't received chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "en",
+   "text": "The patient has no history of chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "en",
+   "text": "Prior chemotherapy not allowed",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "en",
+   "text": "Chemotherapy is not permitted",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "en",
+   "text": "Prior chemotherapy - none",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "en",
+   "text": "Previously untreated",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "en",
+   "text": "Must be chemotherapy-naive",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "en",
+   "text": "Treatment-naïve for HCC",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法治療歴なし（ただし術後補助療法は除く）",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法を受けていない（6ヶ月以内）",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法歴が無い",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法未施行例",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法ナイーブ",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "zh",
+   "text": "過去未曾接受化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "zh",
+   "text": "先前未接受化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "zh",
+   "text": "之前沒有接受過化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "zh",
+   "text": "病患未曾接受化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "zh",
+   "text": "參與者未曾接受化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "zh",
+   "text": "不得曾接受化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "en",
+   "text": "Patients must not be pregnant",
+   "concept": "pregnancy",
+   "synonyms": [
+    "pregnant"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "en",
+   "text": "Non-pregnant, non-lactating women",
+   "concept": "pregnancy",
+   "synonyms": [
+    "pregnant"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "en",
+   "text": "Female patients who are not pregnant",
+   "concept": "pregnancy",
+   "synonyms": [
+    "pregnant"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "ja",
+   "text": "妊娠中ではない女性",
+   "concept": "pregnancy",
+   "synonyms": [
+    "pregnant",
+    "妊娠"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "zh",
+   "text": "未懷孕",
+   "concept": "pregnancy",
+   "synonyms": [
+    "pregnant",
+    "懷孕"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "zh",
+   "text": "非懷孕",
+   "concept": "pregnancy",
+   "synonyms": [
+    "pregnant",
+    "懷孕"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "zh",
+   "text": "受試者未懷孕",
+   "concept": "pregnancy",
+   "synonyms": [
+    "pregnant",
+    "懷孕"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "en",
+   "text": "Nonsmoker",
+   "concept": "smoking",
+   "synonyms": [
+    "smoker"
+   ],
+   "domain": "observation",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-1"
+  },
+  {
+   "lang": "en",
+   "text": "Has no prior chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "Must have no history of chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "Patients must have had no prior chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "Patients must be free of prior chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "Prior chemotherapy is prohibited",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "Prior chemotherapy not allowed within 4 weeks",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "Chemotherapy has not been administered",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "Patient is chemotherapy-naive",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "[1] No prior chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "PATIENT CHARACTERISTICS: Chemotherapy: No prior chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "Histologically confirmed NSCLC without prior chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "Age 18+ with no prior chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法歴のない者とする",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法の既往歴がない患者であること",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法を受けておらず、PS 0-1",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法歴なし。ただし術後補助は可",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "ja",
+   "text": "未治療の患者",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "zh",
+   "text": "必須未曾接受化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "zh",
+   "text": "須未曾接受化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "zh",
+   "text": "尚未接受化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "zh",
+   "text": "並未接受化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "zh",
+   "text": "不可曾接受化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "zh",
+   "text": "沒接受過化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "zh",
+   "text": "受試者必須沒有接受過化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "zh",
+   "text": "年滿20歲且未曾接受化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "zh",
+   "text": "化學治療未曾施行",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "No ALT above 2x ULN",
+   "concept": "alanine aminotransferase",
+   "synonyms": [
+    "ALT"
+   ],
+   "domain": "observation",
+   "logic": "value",
+   "expect": "runs",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "Not more than 2 x ULN: ALT",
+   "concept": "alanine aminotransferase",
+   "synonyms": [
+    "ALT"
+   ],
+   "domain": "observation",
+   "logic": "value",
+   "expect": "runs",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "Bilirubin: no greater than 1.5 mg/dL",
+   "concept": "bilirubin",
+   "synonyms": [],
+   "domain": "observation",
+   "logic": "value",
+   "expect": "runs",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "Creatinine: no greater than 1.5 mg/dL",
+   "concept": "creatinine",
+   "synonyms": [],
+   "domain": "observation",
+   "logic": "value",
+   "expect": "runs",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "Platelet count: no less than 100,000/mm3",
+   "concept": "platelet count",
+   "synonyms": [],
+   "domain": "observation",
+   "logic": "value",
+   "expect": "runs",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "No QTc prolongation > 470 ms",
+   "concept": "QTc interval",
+   "synonyms": [
+    "QTc"
+   ],
+   "domain": "observation",
+   "logic": "value",
+   "expect": "runs",
+   "source": "review-j"
+  },
+  {
+   "lang": "ja",
+   "text": "総ビリルビンが1.5 mg/dLを超えないこと",
+   "concept": "bilirubin",
+   "synonyms": [
+    "総ビリルビン"
+   ],
+   "domain": "observation",
+   "logic": "value",
+   "expect": "runs",
+   "source": "review-j"
+  },
+  {
+   "lang": "ja",
+   "text": "クレアチニンが1.5 mg/dL以上でない",
+   "concept": "creatinine",
+   "synonyms": [
+    "クレアチニン"
+   ],
+   "domain": "observation",
+   "logic": "value",
+   "expect": "runs",
+   "source": "review-j"
+  },
+  {
+   "lang": "zh",
+   "text": "無膽紅素大於 1.5 mg/dL",
+   "concept": "bilirubin",
+   "synonyms": [
+    "膽紅素"
+   ],
+   "domain": "observation",
+   "logic": "value",
+   "expect": "runs",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "No renal impairment",
+   "concept": "creatinine",
+   "synonyms": [],
+   "domain": "observation",
+   "logic": "value",
+   "expect": "runs",
+   "source": "review-1"
+  },
+  {
+   "lang": "en",
+   "text": "No more than 2 prior lines of chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "Not more than 12 weeks since prior chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "No longer responding to chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "Patients who have not responded to chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "No restriction on prior chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j"
+  },
+  {
+   "lang": "en",
+   "text": "No upper age limit; prior chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j"
+  },
+  {
+   "lang": "zh",
+   "text": "無年齡上限，曾接受化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j"
+  },
+  {
+   "lang": "zh",
+   "text": "無法切除之肝癌，曾接受化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法歴があり、手術適応がない",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-j"
+  },
+  {
+   "lang": "zh",
+   "text": "無法手術切除的肝癌",
+   "concept": "liver cancer",
+   "synonyms": [
+    "肝癌"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-1"
+  },
+  {
+   "lang": "zh",
+   "text": "未經治療的晚期肺癌",
+   "concept": "lung cancer",
+   "synonyms": [
+    "肺癌"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-1"
+  },
+  {
+   "lang": "zh",
+   "text": "無症狀之腦轉移",
+   "concept": "brain metastasis",
+   "synonyms": [
+    "腦轉移"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "review-1"
+  },
+  {
+   "lang": "en",
+   "text": "Histologically confirmed adenocarcinoma, not amenable to surgery",
+   "concept": "adenocarcinoma",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Subjects meeting full criteria for the diagnosis of current Major Depressive Disorder (MDD) without psychotic features",
+   "concept": "major depressive disorder",
+   "synonyms": [
+    "MDD"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Anovulatory patients who did not conceive after a minimum of three ovulatory cycles",
+   "concept": "anovulation",
+   "synonyms": [
+    "anovulatory"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Patients with cutaneous leg ulcers due to diabetes mellitus, not healing after 4 weeks",
+   "concept": "leg ulcer",
+   "synonyms": [
+    "ulcers"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Non-small cell lung cancer",
+   "concept": "non-small cell lung cancer",
+   "synonyms": [
+    "NSCLC"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Noninvasive breast cancer",
+   "concept": "breast cancer",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Nonsmokers with asthma",
+   "concept": "asthma",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Treatment-naive HIV infection",
+   "concept": "HIV infection",
+   "synonyms": [
+    "HIV"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "Notable history of chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-v1"
+  },
+  {
+   "lang": "ja",
+   "text": "非小細胞肺癌",
+   "concept": "non-small cell lung cancer",
+   "synonyms": [
+    "非小細胞肺癌"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-v1"
+  },
+  {
+   "lang": "ja",
+   "text": "未満18歳の化学療法歴のある患者",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-v1"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法歴のある患者（転移なし）",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-v1"
+  },
+  {
+   "lang": "zh",
+   "text": "未滿75歲且曾接受化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-v1"
+  },
+  {
+   "lang": "ja",
+   "text": "非小細胞肺癌の患者で化学療法を受けたもの",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "card-v1"
+  },
+  {
+   "lang": "en",
+   "text": "No known history of HIV infection",
+   "concept": "HIV infection",
+   "synonyms": [
+    "HIV"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "en",
+   "text": "Absence of active hepatitis B infection",
+   "concept": "hepatitis B",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "en",
+   "text": "Patient must not have undergone major surgery",
+   "concept": "major surgery",
+   "synonyms": [
+    "surgery"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "en",
+   "text": "Should not have received any investigational drug",
+   "concept": "investigational drug",
+   "synonyms": [],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "en",
+   "text": "No evidence of metastatic disease",
+   "concept": "metastatic disease",
+   "synonyms": [
+    "metastases"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "en",
+   "text": "Without a diagnosis of dementia",
+   "concept": "dementia",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "en",
+   "text": "Has never smoked",
+   "concept": "smoking",
+   "synonyms": [
+    "smoked"
+   ],
+   "domain": "observation",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "en",
+   "text": "Insulin is not permitted",
+   "concept": "insulin",
+   "synonyms": [],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "en",
+   "text": "Free from active infection",
+   "concept": "infection",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "en",
+   "text": "No concurrent radiotherapy",
+   "concept": "radiotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "en",
+   "text": "Patients not receiving dialysis",
+   "concept": "dialysis",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "en",
+   "text": "No prior exposure to anti-PD-1 therapy",
+   "concept": "anti-PD-1 therapy",
+   "synonyms": [
+    "PD-1 inhibitor"
+   ],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "ja",
+   "text": "透析を受けていない患者",
+   "concept": "dialysis",
+   "synonyms": [
+    "透析"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "ja",
+   "text": "活動性の感染症を有しない",
+   "concept": "infection",
+   "synonyms": [
+    "感染症"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "ja",
+   "text": "脳転移を認めない",
+   "concept": "brain metastasis",
+   "synonyms": [
+    "脳転移"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "ja",
+   "text": "インスリン使用歴なし",
+   "concept": "insulin",
+   "synonyms": [
+    "インスリン"
+   ],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "ja",
+   "text": "喫煙歴がない者",
+   "concept": "smoking",
+   "synonyms": [
+    "喫煙"
+   ],
+   "domain": "observation",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "zh",
+   "text": "無活動性感染",
+   "concept": "infection",
+   "synonyms": [
+    "感染"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "zh",
+   "text": "未曾接受透析治療",
+   "concept": "dialysis",
+   "synonyms": [
+    "透析"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "zh",
+   "text": "無腦轉移",
+   "concept": "brain metastasis",
+   "synonyms": [
+    "腦轉移"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "zh",
+   "text": "病人不得使用胰島素",
+   "concept": "insulin",
+   "synonyms": [
+    "胰島素"
+   ],
+   "domain": "medication",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "zh",
+   "text": "沒有糖尿病病史",
+   "concept": "diabetes",
+   "synonyms": [
+    "糖尿病"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "held",
+   "source": "fresh"
+  },
+  {
+   "lang": "en",
+   "text": "History of type 2 diabetes, not on insulin",
+   "concept": "type 2 diabetes",
+   "synonyms": [
+    "diabetes"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "fresh"
+  },
+  {
+   "lang": "en",
+   "text": "Measurable disease per RECIST, not previously irradiated",
+   "concept": "measurable disease",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "fresh"
+  },
+  {
+   "lang": "en",
+   "text": "Hypertension not controlled by two agents",
+   "concept": "hypertension",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "fresh"
+  },
+  {
+   "lang": "en",
+   "text": "Asthma that has not responded to inhaled steroids",
+   "concept": "asthma",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "fresh"
+  },
+  {
+   "lang": "en",
+   "text": "Received at least one prior line of chemotherapy",
+   "concept": "chemotherapy",
+   "synonyms": [],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "fresh"
+  },
+  {
+   "lang": "en",
+   "text": "Diagnosis of rheumatoid arthritis; no other autoimmune disease",
+   "concept": "rheumatoid arthritis",
+   "synonyms": [],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "fresh"
+  },
+  {
+   "lang": "ja",
+   "text": "2型糖尿病と診断され、インスリンを使用していない",
+   "concept": "type 2 diabetes",
+   "synonyms": [
+    "2型糖尿病"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "fresh"
+  },
+  {
+   "lang": "ja",
+   "text": "高血圧の既往がある",
+   "concept": "hypertension",
+   "synonyms": [
+    "高血圧"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "fresh"
+  },
+  {
+   "lang": "ja",
+   "text": "化学療法の前治療歴を有する",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化学療法"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "fresh"
+  },
+  {
+   "lang": "zh",
+   "text": "第二型糖尿病，未使用胰島素",
+   "concept": "type 2 diabetes",
+   "synonyms": [
+    "第二型糖尿病"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "fresh"
+  },
+  {
+   "lang": "zh",
+   "text": "曾接受至少一線化學治療",
+   "concept": "chemotherapy",
+   "synonyms": [
+    "化學治療"
+   ],
+   "domain": "procedure",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "fresh"
+  },
+  {
+   "lang": "zh",
+   "text": "確診類風濕性關節炎",
+   "concept": "rheumatoid arthritis",
+   "synonyms": [
+    "類風濕性關節炎"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "fresh"
+  },
+  {
+   "lang": "zh",
+   "text": "高血壓且未受控制",
+   "concept": "hypertension",
+   "synonyms": [
+    "高血壓"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "fresh"
+  },
+  {
+   "lang": "en",
+   "text": "Non-alcoholic fatty liver disease",
+   "concept": "fatty liver disease",
+   "synonyms": [
+    "NAFLD"
+   ],
+   "domain": "condition",
+   "logic": "presence",
+   "expect": "runs",
+   "source": "fresh"
+  }
+ ]
+}
