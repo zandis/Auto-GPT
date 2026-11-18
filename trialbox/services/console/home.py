@@ -550,6 +550,10 @@ def register(app: FastAPI, h: Helpers) -> None:
         h.delegated(sess, rid, path)
 
     # ------------------------------------------------------------------ homes
+    def recent_jobs() -> list[Job]:
+        """The jobs both forms of the opening page read (J-6 shares the coordinator home's one read)."""
+        return list(bk.list_jobs(limit=500))
+
     @app.get("/home")
     def home(request: Request, view: str = "", today: str = "") -> Response:
         sess = h.need(request)
@@ -562,7 +566,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if sess.user.is_admin and view != "studies":
             admin_page = getattr(h, "admin_page", None)  # step 4: S13 with its tabs (console.step4)
             return admin_page(request, sess, "health") if admin_page else admin_home(request, sess)
-        jobs = bk.list_jobs(limit=500)
+        jobs = recent_jobs()
         cards = [study_card(sess, r, jobs) for r in trials(sess)]
         tasks = sorted((tk for c in cards for tk in c["tasks"]), key=lambda tk: (tk["due"], tk["rs"]))
         clinic = sorted((v for c in cards for v in c["clinic"]), key=lambda v: v["visit_text"])
@@ -578,7 +582,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         task ``screen`` (as the week, participant and visit pages ask); serious AEs with ``sae.view``; visits with the
         task ``enter_data``; a role without patient-level rows reads the feasibility report and its monitor grant."""
         user = sess.user
-        jobs = bk.list_jobs(limit=500)
+        jobs = recent_jobs()
         day = h.today()
 
         def allow(action: str, rid: str | None = None) -> bool:
