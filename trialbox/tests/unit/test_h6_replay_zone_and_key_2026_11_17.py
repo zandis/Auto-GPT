@@ -147,7 +147,7 @@ def test_no_figure_of_the_replay_is_ever_met(native: dict[str, Any]) -> None:
     assert b2["sigir"]["numerator"] == 0 and b2["jmed"]["numerator"] > 0
     within = t["eligible_wrongly_excluded"]["b"]["v2"]["within_target"]
     assert r["within_target"]["eligible_wrongly_excluded"] is within
-    assert r["schema_version"] == 2
+    assert r["schema_version"] == 3  # layout 2 added these keys; 3 adds the ladder (10A-3)
     said = replay.render(r)
     assert said.count("met only by a launch") >= 3 and "none is met by this replay" in said
     assert not re.search(r"(: | )met(;|$)", said, re.M)  # no figure is called met
