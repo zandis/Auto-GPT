@@ -322,6 +322,13 @@ walk-life-cycle:
 	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
 	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m e2e tests/e2e/test_life_cycle_walk.py
 
+# H-32 (D-1110): plant the seven faults of plan 8's V17 on the in-process box, one at a time, and record the first
+# page, the mail, /metrics and the runbook as a person meets them (as root the backup target and the disk are mounts)
+.PHONY: planted-faults
+planted-faults:
+	@PYTHONPATH=libs:services:. $(PY) -m tools.pglocal mark "$(TB_TEST_ROOT)" >/dev/null
+	TB_INTEGRATION=1 TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -m integration tests/e2e/test_planted_faults.py
+
 # H-29 (D-1103): one walk per module H-10 and H-20 do not cover (feasibility, safety, monitoring, amendment) on a local
 # steps-mode box, the roles that use each, three languages; reports findings. walk-<module> walks one module
 .PHONY: walk-modules walk-feasibility walk-safety walk-monitoring walk-amendment
