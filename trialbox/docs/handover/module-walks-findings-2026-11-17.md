@@ -106,12 +106,18 @@ Roles: coordinator, investigator, steward, operator. Study: a new study per lang
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | SAF-01 | 16 | coordinator | `/studies/{rs}/entry` | 1 | the participant's page offers "Add an adverse event" in a new study that has no forms; the link opens the data-entry page, which says "This study has no forms yet. Add the built-in forms or import a REDCap data dictionary on the page: Forms" | the AE form opens from the participant's page, or the page says the study's forms are to be added first (D-129 (the built-in forms), D-134; `life.ae.add`) | blocks the step | C2 |
 | SAF-03 | 17 | coordinator | `/studies/{rs}/forms` | 15 | after adding the forms, no link leads back to the participant; the walk goes to My studies and the study card's "Participants" (as H-20 F-07) | a way back to the page the coordinator came from (the participant) (D-133 (three ways on), D-134) | slows the tester | C2 |
-| SAF-04 | 17 | coordinator | `/studies/{rs}/subjects/{record}` | 15 | the AE line says "Reporting clock: no due date yet: enter the onset or the day the site learned of it" though both days were entered; the cause is the study's missing SAE rule set | the clock names its cause: the study's rule set is not chosen (`sae.flag.unconfirmed`) (`life.clock.nostart`, D-277) | slows the tester | C2 |
-| SAF-02 | 18 | coordinator | `/studies/{rs}/sae/{record}/ae1` | 3 | the new SAE has no report and no deadline: "TrialBox tracks no report for this kind of SAE", "The study has not chosen its SAE rule set". The new study counts as open with no state recorded, so its type for SAE reporting was never asked (as H-20 F-14) | a trial does not open until its type for SAE reporting is chosen, so a serious AE of an open trial always has its deadlines (D-415 rule 3, D-277, D-386) | blocks the step | C2 |
+| SAF-09 | 17 | coordinator | `/studies/{rs}/subjects/{record}` | 15 | the AE line's reporting clock names the regulator "Regulator (PMDA / TFDA)" in en and "規制当局（PMDA）" in ja for a study whose SAE rule set is Taiwan's (TFDA); the case page (step 18) says "Regulator (TFDA)", and zh-TW says TFDA on both | the clock names the regulator of the study's rule set, as the case page does (`life.clock.party.regulator`; D-277) | slows the tester | C2 |
 | SAF-08 | 18 | coordinator | `/sae` | 3 | the steps-mode box has no trial office mailbox: the register says "This box has no trial office mailbox (TB_SAE_OFFICE_MAILBOX): a new serious adverse event is mailed to the study's PI only" | the steps-mode box set up as a site is (a test mailbox for the trial office), so the office's copy can be walked (FIT-025, D-764; `tools/demo.py`) | cosmetic | integrator |
-| SAF-05 | 19 | coordinator | `/studies/{rs}/state` | 5 | the type check of D-415 is reached only by pausing the study (its lists and list mails stop) and opening it again: a study with no state recorded offers no "Open" | the type is asked when the study is first opened (or the set-up says it is missing) (D-415 rule 3, D-386) | slows the tester | C2 |
 | SAF-06 | 23 | steward | `/audit` | 2 | the notice the box recorded reads "page=office_copy to=<the PI's mailbox> event=ae1": the action is labelled "page" and given as a code, in every language | the audit row says in words that the new SAE was notified, and to whom (D-764, FIT-025; `console.sae`) | cosmetic | C2 |
 | SAF-07 | 24 | investigator | `/notices/received` | 2 | Notices received lists the morning lists only: the SAE notice the box recorded as mailed to the PI (audit `office_copy`, step 23) is not there | "The notices TrialBox mailed you, newest first": the SAE notice among them (`received.help`, D-764) | blocks the step | C2 |
+
+#### Safety: no longer seen
+
+| Id | Step | What an earlier run saw | What the walk sees now | Changed by |
+| --- | --- | --- | --- | --- |
+| SAF-02 | 18 | the new SAE had no report and no deadline ("TrialBox tracks no report for this kind of SAE", "The study has not chosen its SAE rule set"): the new study counted as open, so its SAE type was never asked | the case lists its three first reports with their due days (sponsor, IRB, regulator) | D-1153 (WALK-1): a new study starts in start-up and opens only through D-415's SAE-type check |
+| SAF-04 | 17 | the AE line said "Reporting clock: no due date yet: enter the onset or the day the site learned of it" though both days were entered (no SAE rule set) | the AE line gives each party's due day | D-1153 (WALK-1): the rule set is chosen before the study opens |
+| SAF-05 | 19 | D-415's type check was reached only by pausing the study and opening it again: a study with no state recorded offered no "Open" | the study opens from start-up and the type is asked then (the imported steps); the state page reads open | D-1153 (WALK-1) |
 
 #### Safety: cannot complete on a steps-mode box
 
@@ -187,25 +193,27 @@ Roles: coordinator, investigator, steward. Study: a new study per language (AMEN
 | Module | Steps | Refusals | blocks the step | slows the tester | cosmetic | Lanes |
 | --- | --- | --- | --- | --- | --- | --- |
 | feasibility | 7 | 5 | 1 | 0 | 0 | D 1 |
-| safety | 9 | 9 | 3 | 3 | 2 | C2 7, integrator 1 |
+| safety | 9 | 9 | 2 | 2 | 2 | C2 5, integrator 1 |
 | monitoring | 7 | 10 | 1 | 2 | 1 | C2 4 |
 | amendment | 6 | 4 | 0 | 2 | 4 | C2 6 |
 
 <!-- module-walks: end of findings -->
 
-## When lane C2's WALK-1 is on master
+## After lane C2's WALK-1 (D-1153)
 
-WALK-1 (D-1153, lane C2's #1013) was not on master when these walks ran (master `7da6edd3`). Once it lands, a study
-the box does not know starts in start-up, opens only through "Study state and identifiers" → Open after its type for
-SAE reporting is chosen, SCREEN is refused until it is open, and Withdraw, Screen fail and Close ask for confirmation.
-These steps change then:
+WALK-1 is on master since train 83 (`a4aa0be1`): a study the box does not know starts in start-up and opens only
+through "Study state and identifiers" → Open after its type for SAE reporting is chosen; SCREEN is refused until it
+is open; Withdraw, Screen fail and Close ask for confirmation. The first runs of these walks (master `7da6edd3`) were
+before it. What changed (card H-29b):
 
-- **Safety and amendment, steps 1 to 15** (H-20's, imported): H-10's SCREEN (step 10) needs the study opened first;
-  the walks follow whatever H-30 makes of H-20's plan, since they import it.
-- **Safety, steps 19 and 20**: the walk pauses the study to reach D-415's check (SAF-05) and then chooses the type and
-  opens it. With WALK-1 the type is chosen and the study opened before SCREEN, so steps 19 and 20 become a read of
-  the open state, and SAF-02 and SAF-05 are to be walked again (they should close).
-- **Feasibility and monitoring** walk seeded studies and do not change.
+- **Safety and amendment, steps 1 to 15** are H-20's as H-30 made them, imported: the study is opened through the SAE
+  type before H-10's SCREEN.
+- **Safety, steps 19 and 20** no longer pause the study and open it again to reach D-415's check: step 19 reads the
+  open state, step 20 the SAE rule set chosen at opening; step 18 expects the case's reports.
+- **SAF-02, SAF-04 and SAF-05 are no longer seen** (the safety walk's "no longer seen" table): the case has its
+  reports and due days, the AE line its due days, and the type is asked when the study opens. Their ids are not
+  given again. With the clock running, the walk sees a new one, SAF-09 (the regulator the clock names).
+- **Feasibility, monitoring and the amendment's own steps** are unchanged.
 
 ## The findings register
 

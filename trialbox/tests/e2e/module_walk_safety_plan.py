@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from tests.e2e.module_walk_common import Act, F, Finding, K, M, Module, See, Step, Stop, T, refuse
+from tests.e2e.module_walk_common import Act, Closed, F, Finding, K, M, Module, See, Step, Stop, T, refuse
 from tests.e2e.new_study_walk_plan import Do
 
 #: the reason in the steward's refused pause (step 19's refusal; any text will do)
@@ -116,7 +116,8 @@ STEPS: tuple[Step, ...] = (
             See("h1", T("sae.title")),
             Do("row_link", T("sae.open"), within=REC),
             See("h1", T(None, prefix=REC)),
-            Stop("says", "SAF-02", T("sae.flag.unconfirmed")),
+            See("shown", value="sae-reports"),
+            See("absent", T("sae.flag.unconfirmed")),
             Act("read", label="reports", within="[data-testid=sae-reports]"),
         ),
         (
@@ -259,18 +260,6 @@ FINDINGS: tuple[Finding, ...] = (
         "C2",
     ),
     Finding(
-        "SAF-02",
-        18,
-        "coordinator",
-        "/studies/{rs}/sae/{record}/ae1",
-        "stop",
-        'the new SAE has no report and no deadline: "TrialBox tracks no report for this kind of SAE", "The study has not chosen its SAE rule set". The new study counts as open with no state recorded, so its type for SAE reporting was never asked (as H-20 F-14)',
-        "a trial does not open until its type for SAE reporting is chosen, so a serious AE of an open trial always has its deadlines",
-        "D-415 rule 3, D-277, D-386",
-        "blocks the step",
-        "C2",
-    ),
-    Finding(
         "SAF-03",
         17,
         "coordinator",
@@ -279,30 +268,6 @@ FINDINGS: tuple[Finding, ...] = (
         'after adding the forms, no link leads back to the participant; the walk goes to My studies and the study card\'s "Participants" (as H-20 F-07)',
         "a way back to the page the coordinator came from (the participant)",
         "D-133 (three ways on), D-134",
-        "slows the tester",
-        "C2",
-    ),
-    Finding(
-        "SAF-04",
-        17,
-        "coordinator",
-        "/studies/{rs}/subjects/{record}",
-        "other",
-        'the AE line says "Reporting clock: no due date yet: enter the onset or the day the site learned of it" though both days were entered; the cause is the study\'s missing SAE rule set',
-        "the clock names its cause: the study's rule set is not chosen (`sae.flag.unconfirmed`)",
-        "`life.clock.nostart`, D-277",
-        "slows the tester",
-        "C2",
-    ),
-    Finding(
-        "SAF-05",
-        19,
-        "coordinator",
-        "/studies/{rs}/state",
-        "other",
-        'the type check of D-415 is reached only by pausing the study (its lists and list mails stop) and opening it again: a study with no state recorded offers no "Open"',
-        "the type is asked when the study is first opened (or the set-up says it is missing)",
-        "D-415 rule 3, D-386",
         "slows the tester",
         "C2",
     ),
@@ -341,6 +306,46 @@ FINDINGS: tuple[Finding, ...] = (
         "FIT-025, D-764; `tools/demo.py`",
         "cosmetic",
         "integrator",
+    ),
+    Finding(
+        "SAF-09",
+        17,
+        "coordinator",
+        "/studies/{rs}/subjects/{record}",
+        "term",
+        'the AE line\'s reporting clock names the regulator "Regulator (PMDA / TFDA)" in en and "規制当局（PMDA）" in ja for a study whose SAE rule set is Taiwan\'s (TFDA); the case page (step 18) says "Regulator (TFDA)", and zh-TW says TFDA on both',
+        "the clock names the regulator of the study's rule set, as the case page does",
+        "`life.clock.party.regulator`; D-277",
+        "slows the tester",
+        "C2",
+    ),
+)
+
+#: findings the first runs saw (before WALK-1 was on master) and the walk no longer sees; their ids are not given again
+CLOSED: tuple[Closed, ...] = (
+    Closed(
+        "SAF-02",
+        18,
+        'the new SAE had no report and no deadline ("TrialBox tracks no report for this kind of SAE", "The study has '
+        'not chosen its SAE rule set"): the new study counted as open, so its SAE type was never asked',
+        "the case lists its three first reports with their due days (sponsor, IRB, regulator)",
+        "D-1153 (WALK-1): a new study starts in start-up and opens only through D-415's SAE-type check",
+    ),
+    Closed(
+        "SAF-04",
+        17,
+        'the AE line said "Reporting clock: no due date yet: enter the onset or the day the site learned of it" though '
+        "both days were entered (no SAE rule set)",
+        "the AE line gives each party's due day",
+        "D-1153 (WALK-1): the rule set is chosen before the study opens",
+    ),
+    Closed(
+        "SAF-05",
+        19,
+        "D-415's type check was reached only by pausing the study and opening it again: a study with no state "
+        'recorded offered no "Open"',
+        "the study opens from start-up and the type is asked then (the imported steps); the state page reads open",
+        "D-1153 (WALK-1)",
     ),
 )
 
@@ -473,5 +478,6 @@ MODULE = Module(
     rulesets={"en": "SAFEWALK", "zh-TW": "SAFEWALKZH", "ja": "SAFEWALKJA"},
     prefix=True,
     summary=SUMMARY,
+    closed=CLOSED,
     sources="D-191, D-277, D-415, D-764, FIT-025, UX-028",
 )
