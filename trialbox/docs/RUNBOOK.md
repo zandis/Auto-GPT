@@ -130,6 +130,14 @@ File: [runbook/25-leavers.md](runbook/25-leavers.md). In it: [A member of the tr
 
 File: [runbook/26-platform-day-2.md](runbook/26-platform-day-2.md). In it: [What runs](runbook/26-platform-day-2.md#what-runs), [Where patient data lives and who can read it](runbook/26-platform-day-2.md#where-patient-data-lives-and-who-can-read-it), [Backup](runbook/26-platform-day-2.md#backup), [Restore (and the drill)](runbook/26-platform-day-2.md#restore-and-the-drill), [Logs and the audit archive](runbook/26-platform-day-2.md#logs-and-the-audit-archive), [Updates and rollback](runbook/26-platform-day-2.md#updates-and-rollback), [Noisy neighbours](runbook/26-platform-day-2.md#noisy-neighbours), [Moving the database to block storage](runbook/26-platform-day-2.md#moving-the-database-to-block-storage), [On kind](runbook/26-platform-day-2.md#on-kind).
 
+## 27. Installing on a workstation with an RTX PRO 6000-class card (reserved for B25)
+
+Not written yet: the number is held in the table below.
+
+## 28. An IGX Orin developer kit with an RTX A6000: the product without a model
+
+File: [runbook/28-igx-orin-a6000-without-a-model.md](runbook/28-igx-orin-a6000-without-a-model.md). In it: [Every day after](runbook/28-igx-orin-a6000-without-a-model.md#every-day-after), [Only when we ask: the engine probe (no model)](runbook/28-igx-orin-a6000-without-a-model.md#only-when-we-ask-the-engine-probe-no-model).
+
 <!-- end of the generated index -->
 
 ## Section numbers
@@ -170,3 +178,5 @@ build TrialBox; OPS-073: [Developing](DEVELOPING.md) lists them, D-390).
 | 24 | Patch policy | on master | IT, Aimedics |
 | 25 | Leavers | on master | owner |
 | 26 | Platform day 2 | on master | IT (other install form) |
+| 27 | Installing on a workstation with an RTX PRO 6000-class card | B25 | owner (other install form) |
+| 28 | An IGX Orin developer kit with an RTX A6000: the product without a model | on master | owner (other install form) |
