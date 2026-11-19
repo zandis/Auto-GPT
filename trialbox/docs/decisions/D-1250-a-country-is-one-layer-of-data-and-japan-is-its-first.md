@@ -73,13 +73,29 @@ seventeenth switch without anyone noticing.
    not changed. **The `terminology.site_profile_load` audit event is unchanged** for every country:
    the audit's shape is lane C2's (the lane J lead's ruling of 2026-11-19); a test holds a Japanese load's event to
    master's keys. A country without a layer writes nothing new.
-7. **No seventeenth switch unnoticed.** `tests/unit/test_japan_profile_layer.py` lists P1 to P16 by name, names the
-   parts declared but not built (P4 Roles, P6 Forms, P12 Money, P13 Registries, P15 Procurement and security), and
-   scans product code (`libs/`, `services/`, the box's set-up tools) for every string that names Japan (`JP`, `jp`,
-   `jpn`, `Japan`, `Asia/Tokyo`, in any case, whole, implicitly concatenated or added from two pieces). Each one left
-   is pinned by its file and whole line with its reason (the zone reading, data labels, the country answers). A new
-   line, or a pinned line changed, fails with its file and line and how to register a reader in the layer. Reusing a
-   pinned line's place for a new test does not pass.
+7. **No seventeenth switch unnoticed: a tripwire, not a proof.** `tests/unit/test_japan_profile_layer.py` lists P1
+   to P16 by name and names the parts declared but not built (P4 Roles, P6 Forms, P12 Money, P13 Registries, P15
+   Procurement and security).
+   - **What it scans:** the code that ships. That is Python under `libs/` and `services/`, the box's set-up
+     (`tools/box/`, `tools/settings_wizard.py`), and the templates, YAML and JS under `libs/` and `services/`, with
+     their comments left out.
+   - **What words:** the country's words, whole and in any case (`jp`, `jpn`, `japan`, `日本`, `asia/tokyo`, `tokyo`,
+     `jst`), and any string starting `jp_`.
+   - **Pins:** each word found is pinned by its file and the exact text of its line (not its line number), under one
+     of seven categories, each with one reason:
+     - the reading of a zone or a language as a country;
+     - the layer's own index;
+     - data labels and file names;
+     - JP Core and SS-MIX2, which follow the source type;
+     - the words of the country question;
+     - shipped mapping data and the synthetic profile;
+     - not yet a layer reader.
+   - **What fails:** a new word, or a pinned line whose text changes (a label reused for a test), fails with its file
+     and line and how to register a reader in the layer.
+   - **What it cannot see:** a string built by other means (a join, `chr`, a slice); the rest of `tools/` (dev,
+     bench and synthetic-data tools, which do not ship); and the language words (`ja`, `ja-JP`, `Japanese`).
+     Language is not country: the one place a language decides a country (`derived.country_of`, and the legacy
+     wizard line) is pinned.
 8. **The values moved are master's.** One test per moved value compares the layer with master's constant (the
    committees by the digest of master's block), and the goldens are unchanged.
 9. **A layer that cannot be used reaches its own country only, and says so.** A missing, unreadable or refused file
@@ -115,6 +131,12 @@ seventeenth switch without anyone noticing.
 No behaviour, default or stored value of any site. Each part not built stays declared (the card that builds it adds
 its values and readers). The guard (P10), the device-claims lint (P5) and the CJK layout rules (P16) stay on for
 every site by the text's characters or language: the layer lists them as "On everywhere, not switched by country". No route, export, role or reader of patient data is added.
+
+## What remains
+
+- `services/sitesetup/mapping.py` (the site set-up's code suggestions) loads Japan's shipped code tables (病名 to
+  ICD-10, JLAC10 to LOINC, YJ to ATC) beside Taiwan's for every site, by folder name rather than through the layer.
+  It is pinned as "not yet a layer reader", and the lane J lead plans it as a follow-up card.
 
 ## Open questions with the owner (the layer carries today's behaviour)
 

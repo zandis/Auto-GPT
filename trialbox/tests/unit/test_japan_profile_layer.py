@@ -16,6 +16,7 @@ import ast
 import dataclasses
 import importlib
 import json
+import re
 import sys
 from collections import Counter
 from collections.abc import Callable, Iterator
@@ -596,63 +597,107 @@ def test_a_country_without_a_layer_records_exactly_what_it_did_before(tmp_path: 
 
 
 # ------------------------------------------------------------------- no Japan behaviour outside the layer
-# Every string in product code (libs/, services/, and the box's set-up in tools/box/ and tools/settings_wizard.py)
-# that names Japan ("JP", "jp", "jpn", "Japan", "Asia/Tokyo" in any case; written whole, implicitly concatenated or
-# added from two pieces), pinned by its file and its whole line, with why it is not a Japan behaviour of its own. A new
-# line, or a pinned line changed (a literal renamed or moved), fails with its file and line and what to do.
+# A tripwire, not a proof (D-1250 point 7). It scans the code that ships: Python under libs/ and services/, the box's
+# set-up (tools/box/, tools/settings_wizard.py), and the templates, YAML and JS under libs/ and services/ (their
+# comments left out: a comment is not behaviour). Not the rest of tools/ (dev, bench and synthetic-data tools, which
+# do not ship). It looks for the country's words, whole and in any case: "jp", "jpn", "japan", "日本", "asia/tokyo",
+# "tokyo", "jst", and any string starting "jp_" (a rule set or file named for Japan). In Python a string counts when it
+# is written whole, implicitly concatenated or added from two pieces; a string built otherwise (a join, chr, a slice)
+# is not seen. Language words ("ja", "ja-JP", "Japanese") are not country words: the one place a language decides a
+# country (derived.country_of and the legacy wizard line) is pinned below. Each word found is pinned by its file and
+# the exact text of its line (not its line number, so an edit elsewhere does not move it), with its category. A new
+# one, or a pinned line changed, fails with its file and line and what to do.
+DATA_LABEL = "a data label or file name: a reference table's, rule set's or code system's own name for Japan"
+SOURCE_TYPE = "JP Core and SS-MIX2: switched by the source type a site reads (ssmix2), not by its country"
+QUESTION = "the words of the country question and its answers (jp = Japan)"
+SHIPPED_DATA = "shipped mapping data and the synthetic Japanese hospital's profile (data, read as data)"
+READING = "the one reading of a zone or a language as a country, and the answers file written before 10K-1 (LEGACY)"
+LAYER_INDEX = "the layer's own index: which country each shipped layer file is"
+NOT_YET = "not yet a layer reader (D-1250, what remains): the follow-up card moves it into the layer"
 ALLOWED: dict[tuple[str, str], tuple[int, str]] = {
-    ("libs/tb_common/derived.py", 'return "JP"'): (1, "country_of: the one reading of a zone as a country"),
-    ("libs/tb_common/derived.py",
-     'return "JP" if loc.startswith("ja") else "TW" if loc in ("zh-tw", "zh_tw", "zh-hant") else None'):
-        (1, "country_of: the page language as a country, when the zone names none"),
-    ("libs/tb_common/derived.py", 'if tz in ("Asia/Tokyo", "Japan"):'): (2, "country_of: Japan's zone and its alias"),
-    **{("libs/tb_common/refdata_jp.py", line): (1, "P7 masters: a Japanese reference file's own country label")
-       for line in (
-        'country="JP", decision="D-173", derived_from="icd10cm", parse=parse_icd10_who_cm_bridge,',
-        'country="JP", decision="D-173", fetch=False, parse=parse_medis_byomei,',
-        '"jp_yj_atc.csv", country="JP", decision="D-174", parse=parse_jp_yj_atc, version_of=yj_version,',
-        'country="JP", decision="D-174", fetch=False, parse=parse_jlac10_loinc,',
-        '"ctcae-v5.0.xlsx", country="JP", decision="D-174", parse=parse_ctcae_v5_en, version_of=ctcae_en_version,',
-        'country="JP", decision="D-174", fetch=False, parse=parse_ctcae_v5_ja, version_of=ctcae_ja_version,',
-        '"ja_clinical_synonyms.csv", country="JP", decision="D-175", parse=parse_ja_synonyms,',
-        'country="JP", decision="D-317", fetch=False, parse=parse_jrct,',
+    **{(f, line): (n, READING) for f, line, n in (
+        ('libs/tb_common/derived.py', 'if tz in ("Asia/Tokyo", "Japan"):', 2),
+        ('libs/tb_common/derived.py', 'return "JP"', 1),
+        ('libs/tb_common/derived.py', 'return "JP" if loc.startswith("ja") else "TW" if loc in ("zh-tw", "zh_tw", "zh-hant") else None', 1),
+        ('tools/box/plan.py', 'return "jp" if tz == "Asia/Tokyo" else "tw"', 2),
+        ('tools/settings_wizard.py', '"jp" if str(a.get("locale", "zh-TW")).startswith("ja") else "tw"', 1),
     )},
-    ("libs/tb_common/refdata_jp.py", '"countries": ["Japan"], "inclusion": _cell(row, idx, "inclusion"),'):
-        (1, "P13: a jRCT record's country, as the registry states it"),
-    ("libs/tb_common/retention.py", '"jp": {**_COMMON, "mail_log_days": 5 * 365},'):
-        (1, "P1: the retention rules the layer names (P1 retention_rules: jp)"),
-    ("libs/tb_common/site_country.py", 'COUNTRIES = ("jp", "tw", "us", "other")'): (1, "the wizards' country answers"),
-    ("libs/tb_common/country_layer.py",
-     'FILES = {"JP": "japan_profile.json"}  # the layers shipped: a country and its file (the file must name that country)'):
-        (1, "the layer's own index: which country each shipped layer file is"),
-    ("services/console/i18n_firstrun.py", '"firstrun.country.jp": "Japan",'): (1, "the country question's words"),
-    ("services/datacore/lifecycle.py",
-     'RULE_ALIASES = {"jp": "jp_gcp_ii", "tw": "tw_trial"}  # the box-wide names before D-277 (TB_SAE_RULES)'):
-        (1, "P2: the rule sets' box-wide names before D-277"),
-    **{("services/datacore/lifecycle.py", line): (1, "P2: an SAE rule set's own country label (data)")
-       for line in (
-        '"jp_gcp": RuleSet("jp_gcp", "JP", "PMDA", {"sponsor": (1, 1), "irb": (1, 1), "regulator": (0, 0)}),',
-        '"jp_gcp_ii", "JP", "PMDA", {"sponsor": (1, 1), "irb": (1, 1), "regulator": (7, 15), '
-        'EXPECTED_REGULATOR: (15, 0)}',
-        '"jp_crb": RuleSet("jp_crb", "JP", "MHLW", {"sponsor": (0, 0), "irb": (7, 15), "regulator": (7, 15)}),',
-        '"jp_guideline": RuleSet("jp_guideline", "JP", "MHLW", {"sponsor": (0, 0), "irb": (1, 1), "regulator": (0, 0)}),',
+    **{(f, line): (n, LAYER_INDEX) for f, line, n in (
+        ('libs/tb_common/country_layer.py', 'FILES = {"JP": "japan_profile.json"}  # the layers shipped: a country and its file (the file must name that country)', 1),
     )},
-    ("services/orchestrator/scenarios/consent.py",
-     'code = {"en": "en", "ja": "ja", "jp": "ja", "zh": "zh-TW", "zh-tw": "zh-TW", "tw": "zh-TW"}.get(tok.lower())'):
-        (1, "a language word: jp read as ja"),
-    ("services/sitesetup/ocr.py", 'LANGS = ("jpn", "chi_tra", "eng")'): (1, "the OCR engine's language name"),
-    ("tools/box/plan.py", 'return "jp" if tz == "Asia/Tokyo" else "tw"'):
-        (2, "an answers file without a country: retention rules from the zone, as before 10K-1 (LEGACY)"),
-    ("tools/settings_wizard.py", '"jp" if str(a.get("locale", "zh-TW")).startswith("ja") else "tw"'):
-        (1, "an answers file without a country: retention rules from the language (LEGACY)"),
+    **{(f, line): (n, DATA_LABEL) for f, line, n in (
+        ('libs/tb_common/refdata_jp.py', '"countries": ["Japan"], "inclusion": _cell(row, idx, "inclusion"),', 1),
+        ('libs/tb_common/refdata_jp.py', '"ctcae-v5.0.xlsx", country="JP", decision="D-174", parse=parse_ctcae_v5_en, version_of=ctcae_en_version,', 1),
+        ('libs/tb_common/refdata_jp.py', '"ja_clinical_synonyms.csv", country="JP", decision="D-175", parse=parse_ja_synonyms,', 1),
+        ('libs/tb_common/refdata_jp.py', '"jp_yj_atc", "YJ code (7-character stem) -> ATC (TrialBox, stems from the MHLW 薬価基準収載品目リスト)",', 1),
+        ('libs/tb_common/refdata_jp.py', '"jp_yj_atc.csv", country="JP", decision="D-174", parse=parse_jp_yj_atc, version_of=yj_version,', 2),
+        ('libs/tb_common/refdata_jp.py', 'REPO_YJ_ATC = SRC / "jp_yj_atc.csv"', 1),
+        ('libs/tb_common/refdata_jp.py', 'country="JP", decision="D-173", derived_from="icd10cm", parse=parse_icd10_who_cm_bridge,', 1),
+        ('libs/tb_common/refdata_jp.py', 'country="JP", decision="D-173", fetch=False, parse=parse_medis_byomei,', 1),
+        ('libs/tb_common/refdata_jp.py', 'country="JP", decision="D-174", fetch=False, parse=parse_ctcae_v5_ja, version_of=ctcae_ja_version,', 1),
+        ('libs/tb_common/refdata_jp.py', 'country="JP", decision="D-174", fetch=False, parse=parse_jlac10_loinc,', 1),
+        ('libs/tb_common/refdata_jp.py', 'country="JP", decision="D-317", fetch=False, parse=parse_jrct,', 1),
+        ('libs/tb_common/retention.py', '"jp": {**_COMMON, "mail_log_days": 5 * 365},', 1),
+        ('services/console/i18n_demoja.py', '"jp_yj_atc": "YJ code (7-character stem) -> ATC (TrialBox, stems from the MHLW 薬価基準収載品目リスト)",', 1),
+        ('services/console/i18n_demoja.py', '"jp_yj_atc": "YJ コード（先頭7桁）→ ATC（TrialBox、厚生労働省 薬価基準収載品目リストから作成）",', 1),
+        ('services/console/i18n_demoja.py', '"jp_yj_atc": "YJ 代碼（前7碼）→ ATC（TrialBox，取自日本厚生勞動省 薬価基準収載品目リスト）",', 1),
+        ('services/datacore/lifecycle.py', '"jp_crb": RuleSet("jp_crb", "JP", "MHLW", {"sponsor": (0, 0), "irb": (7, 15), "regulator": (7, 15)}),', 3),
+        ('services/datacore/lifecycle.py', '"jp_gcp": RuleSet("jp_gcp", "JP", "PMDA", {"sponsor": (1, 1), "irb": (1, 1), "regulator": (0, 0)}),', 3),
+        ('services/datacore/lifecycle.py', '"jp_gcp_ii", "JP", "PMDA", {"sponsor": (1, 1), "irb": (1, 1), "regulator": (7, 15), EXPECTED_REGULATOR: (15, 0)}', 2),
+        ('services/datacore/lifecycle.py', '"jp_gcp_ii": RuleSet(', 1),
+        ('services/datacore/lifecycle.py', '"jp_guideline": RuleSet("jp_guideline", "JP", "MHLW", {"sponsor": (0, 0), "irb": (1, 1), "regulator": (0, 0)}),', 3),
+        ('services/datacore/lifecycle.py', 'RULE_ALIASES = {"jp": "jp_gcp_ii", "tw": "tw_trial"}  # the box-wide names before D-277 (TB_SAE_RULES)', 2),
+        ('services/guard/recognisers.py', 'yield Finding("JP_MY_NUMBER" if ok else "ID_NUMBER", m.start(), m.end(), ok)', 1),
+        ('services/orchestrator/scenarios/consent.py', 'code = {"en": "en", "ja": "ja", "jp": "ja", "zh": "zh-TW", "zh-tw": "zh-TW", "tw": "zh-TW"}.get(tok.lower())', 1),
+        ('services/sitesetup/ocr.py', 'LANGS = ("jpn", "chi_tra", "eng")', 1),
+    )},
+    **{(f, line): (n, SOURCE_TYPE) for f, line, n in (
+        ('services/adapter/pipeline.py', '"jp_core": {"sampled": psum.sampled, "failed": psum.errors} if psum is not None else None,', 1),
+        ('services/adapter/pipeline.py', '(out_dir / "jp_core_validation.json").write_text(', 1),
+        ('services/adapter/sources/ssmix2/source.py', 'JP_CORE = Path(__file__).resolve().parents[2] / "mapping" / "jp_core"', 1),
+        ('services/adapter/validate/jpcore.py', 'RULES = Path(__file__).resolve().parent / "jp_core_rules.json"', 1),
+    )},
+    **{(f, line): (n, QUESTION) for f, line, n in (
+        ('libs/tb_common/site_country.py', 'COUNTRIES = ("jp", "tw", "us", "other")', 1),
+        ('services/console/i18n_firstrun.py', '"firstrun.country.jp": "Japan",', 1),
+        ('services/console/i18n_firstrun.py', '"firstrun.country.jp": "日本",', 2),
+    )},
+    **{(f, line): (n, SHIPPED_DATA) for f, line, n in (
+        ('services/adapter/mapping/jp_core/ssmix2_site.yaml', 'tz: Asia/Tokyo', 1),
+        ('services/adapter/mapping/profile/synthetic-jp-ss/profile.yaml', 'country: jp', 1),
+        ('services/adapter/mapping/profile/synthetic-jp-ss/profile.yaml', 'jp_core: 1.1.0       # the profiles the mapping puts on the resources (mapping/jp_core/ssmix2_site.yaml)', 1),
+    )},
+    **{(f, line): (n, NOT_YET) for f, line, n in (
+        ('services/sitesetup/mapping.py', '("drug", MAPPING_DIR / "jp_core" / "yj_to_atc.csv", "yj_code"),', 1),
+        ('services/sitesetup/mapping.py', '("drug", MAPPING_DIR / "jp_core" / "yj_to_atc.csv", "yj_code", "atc", "name"),', 1),
+        ('services/sitesetup/mapping.py', '("dx", MAPPING_DIR / "jp_core" / "byomei_to_icd10.csv", "code"),', 1),
+        ('services/sitesetup/mapping.py', '("dx", MAPPING_DIR / "jp_core" / "byomei_to_icd10.csv", "code", "icd10", "name"),', 1),
+        ('services/sitesetup/mapping.py', '("lab", MAPPING_DIR / "jp_core" / "jlac10_to_loinc.csv", "local_code"),', 1),
+        ('services/sitesetup/mapping.py', '("lab", MAPPING_DIR / "jp_core" / "jlac10_to_loinc.csv", "local_code", "code", "display"),', 1),
+        ('services/sitesetup/mapping.py', 'path = MAPPING_DIR / "jp_core" / "byomei_to_icd10.csv"', 1),
+    )},
 }  # fmt: skip
-JAPAN = ("jp", "jpn", "japan", "asia/tokyo")
+JAPAN = ("jp", "jpn", "japan", "日本", "asia/tokyo", "tokyo", "jst")
+_WORD = re.compile(r"(?<![\w/-])(?:jp|jpn|japan|asia/tokyo|tokyo|jst|jp_[a-z0-9_]+)(?![\w/-])|日本", re.I)
+_COMMENTS = {
+    ".html": re.compile(r"\{#.*?#\}|<!--.*?-->", re.S),
+    ".js": re.compile(r"/\*.*?\*/|(?<![:\\])//[^\n]*", re.S),
+    ".yaml": re.compile(r"(?:^|(?<=\s))#[^\n]*", re.M),
+}
+_COMMENTS[".yml"] = _COMMENTS[".yaml"]
 HOW = (
     "A Japan behaviour belongs in the country layer: put its value in libs/tb_common/japan_profile.json under its "
     "part (P1 to P16, 'values'), name the function that reads it in that part's 'readers' ('module:function'), and "
     "read it there with tb_common.country_layer.value(country, part, key, default). If the line is not a behaviour "
     "(a data label, a language word), pin it in ALLOWED in tests/unit/test_japan_profile_layer.py with the reason."
 )
+
+
+def _shipped_files() -> list[Path]:
+    py = [*sorted((ROOT / "libs").rglob("*.py")), *sorted((ROOT / "services").rglob("*.py")),
+          *sorted((ROOT / "tools" / "box").rglob("*.py")), ROOT / "tools" / "settings_wizard.py"]  # fmt: skip
+    text = [f for base in ("libs", "services") for f in sorted((ROOT / base).rglob("*")) if f.suffix in _COMMENTS]
+    return [f for f in (*py, *text) if f.is_file() and "generated" not in f.parts and "tests" not in f.parts]
 
 
 def _text(node: ast.AST) -> str | None:
@@ -666,19 +711,24 @@ def _text(node: ast.AST) -> str | None:
 
 
 def _japan_lines() -> list[tuple[str, int, str]]:
-    """Every (file, line number, whole line) where product code writes a string that names Japan."""
+    """Every (file, line number, whole line) where shipped code writes a word naming Japan (one entry per word)."""
     out: list[tuple[str, int, str]] = []
-    files = [*sorted((ROOT / "libs").rglob("*.py")), *sorted((ROOT / "services").rglob("*.py")),
-             *sorted((ROOT / "tools" / "box").rglob("*.py")), ROOT / "tools" / "settings_wizard.py"]  # fmt: skip
-    for f in files:
-        if "generated" in f.parts or "tests" in f.parts or not f.is_file():
-            continue
+    for f in _shipped_files():
         src = f.read_text(encoding="utf-8")
         lines = src.splitlines()
-        for node in ast.walk(ast.parse(src)):
-            v = _text(node)
-            if v is not None and v.strip().lower() in JAPAN and isinstance(node, ast.expr):
-                out.append((f.relative_to(ROOT).as_posix(), node.lineno, lines[node.lineno - 1].strip()))
+        rel = f.relative_to(ROOT).as_posix()
+        if f.suffix == ".py":
+            for node in ast.walk(ast.parse(src)):
+                v = _text(node)
+                if v is not None and isinstance(node, ast.expr):
+                    t = v.strip().lower()
+                    if t in JAPAN or t.startswith("jp_"):
+                        out.append((rel, node.lineno, lines[node.lineno - 1].strip()))
+            continue
+        # comments blanked to spaces (newlines kept), so a word's line number is its line in the file
+        bare = _COMMENTS[f.suffix].sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), src)
+        for n, line in enumerate(bare.splitlines(), 1):
+            out += [(rel, n, lines[n - 1].strip())] * len(_WORD.findall(line))
     return out
 
 
@@ -705,6 +755,9 @@ def test_no_japan_behaviour_is_added_outside_the_layer() -> None:
         'def f(country):\n    return country == "J" "P"\n',
         'def f(country):\n    return country == "J" + "P"\n',
         'JAPAN = {"Asia/Tokyo": 1}\n',
+        'def f(country):\n    return country == "日本"\n',
+        'def f(tz):\n    return tz == "JST"\n',
+        'def f(rules):\n    return rules == "jp_new_rules"\n',
     ],
 )
 def test_the_guard_sees_a_seventeenth_switch_and_names_its_file_and_line(code: str, tmp_path: Path,
@@ -715,6 +768,39 @@ def test_the_guard_sees_a_seventeenth_switch_and_names_its_file_and_line(code: s
     monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
     got = _unpinned()
     assert len(got) == 1 and got[0].startswith("libs/tb_common/new_switch.py:") and got[0].split(":")[1] in "23"
+
+
+@pytest.mark.parametrize(
+    ("name", "text", "found"),
+    [
+        ("services/console/templates/new.html", "{# the Japan profile #}\n{% if country == 'JP' %}x{% endif %}\n", 2),
+        ("services/console/templates/new.html", "<!-- for Japan -->\n{# JP only #}\n<p>x</p>\n", 0),
+        ("services/adapter/mapping/new/site.yaml", "# Japan's mapping\nsource: x\ntz: Asia/Tokyo\n", 3),
+        ("services/adapter/mapping/new/site.yaml", "# tz: Asia/Tokyo\nsource: x   # jp\n", 0),
+        ("services/console/static/new.js", "// JP\nif (c === 'jp') { go(); }\n", 2),
+        ("services/console/static/new.js", "/* jp */\nlet lang = 'ja';\n", 0),
+    ],
+)  # fmt: skip
+def test_the_guard_reads_templates_yaml_and_js_but_not_their_comments(name: str, text: str, found: int,
+                                                                       tmp_path: Path,
+                                                                       monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """A country word in a template, a YAML file or a script is seen with its file and line; a comment, and a language
+    word ("ja"), are not."""
+    f = tmp_path / name
+    f.parent.mkdir(parents=True)
+    f.write_text(text, encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    got = _unpinned()
+    assert len(got) == min(found, 1) and all(g.startswith(f"{name}:{found}:") for g in got)
+
+
+def test_the_rest_of_tools_and_language_words_are_not_scanned(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Dev, bench and synthetic-data tools do not ship; "ja" is a language, not a country."""
+    for name, code in (("tools/synth/new_gen.py", 'STYLE = "JP"\n'), ("libs/tb_common/new_lang.py", 'LANG = "ja"\n')):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(code, encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    assert _unpinned() == []
 
 
 def test_renaming_a_pinned_literal_in_place_is_not_enough(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -731,5 +817,6 @@ def test_renaming_a_pinned_literal_in_place_is_not_enough(tmp_path: Path, monkey
     (dst / "lifecycle.py").write_text(swapped, encoding="utf-8")
     monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
     got = _unpinned()
-    assert got == [f"services/datacore/lifecycle.py:{swapped.splitlines().index('    return country == \"JP\"') + 1}: "
-                   'return country == "JP"']  # fmt: skip
+    at = swapped.splitlines().index('    return country == "JP"') + 1
+    assert f'services/datacore/lifecycle.py:{at}: return country == "JP"' in got  # the new switch is seen
+    assert len(got) == 2  # and the label's changed line too (its rule-set names still name Japan)

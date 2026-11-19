@@ -3,9 +3,12 @@
 One file per country describes everything a site of that country gets that a site elsewhere does not. Japan's is
 ``japan_profile.json`` beside this module (review 11 section 8: parts P1 to P16). The site's country turns it on: the
 same reading the site profile's ``country`` is checked against (``tb_common.derived.country_of``, D-1233). Every
-behaviour reads its part through :func:`value`. ``tests/unit/test_japan_profile_layer.py`` holds a tripwire on new
-country strings in the code: it catches a literal written whole, implicitly concatenated or added from two pieces, not
-one built by other means (a join, ``chr``, a slice). It is a tripwire, not a proof.
+behaviour reads its part through :func:`value`. ``tests/unit/test_japan_profile_layer.py`` holds a tripwire, not a
+proof, on new country words in the code that ships. It scans Python under ``libs/`` and ``services/``, the box's
+set-up tools, and the templates, YAML and JS under ``libs/`` and ``services/`` (their comments left out). It looks for
+``jp``, ``jpn``, ``japan``, ``日本``, ``asia/tokyo``, ``tokyo``, ``jst`` and strings starting ``jp_``. It cannot see:
+a string built by other means (a join, ``chr``, a slice), the dev and synthetic-data tools (which do not ship), or a
+language word (``ja``: a language is not a country).
 
 **A layer that cannot be used reaches its own country only.** A layer is read the first time a site of its country
 asks, never at import and never for another country. A file that is missing, unreadable, not whole (:func:`parse`,
