@@ -1221,3 +1221,12 @@ from console.i18n_person import ZH as _PS_ZH  # noqa: E402
 EN.update(_PS_EN)
 JA.update(_PS_JA)
 ZH.update(_PS_ZH)
+
+# D-1245 (10E-13): the progress lines of a job page (the first load's new patients still waiting)
+from console.i18n_progress import EN as _PG_EN  # noqa: E402
+from console.i18n_progress import JA as _PG_JA  # noqa: E402
+from console.i18n_progress import ZH as _PG_ZH  # noqa: E402
+
+EN.update(_PG_EN)
+JA.update(_PG_JA)
+ZH.update(_PG_ZH)

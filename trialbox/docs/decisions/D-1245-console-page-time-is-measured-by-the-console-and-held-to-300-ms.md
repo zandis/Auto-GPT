@@ -52,11 +52,33 @@
   13's S-1 (the walk with `curl` on the compose stub at 5,000 and 50,000 patients) is still owed by its own row.
 - **Page bodies unchanged.** The header changes no body: `test_the_header_changes_no_page_body` takes the timing
   middleware out of the app and compares the ten bodies byte for byte. The audit trail is compared without its rows,
-  because it lists its own reads.
-- **Tier.** The rules and the planted page run on every pull request (`tests/console`, a few seconds). The walk itself,
-  `tests/perf/test_console_timing_walk.py`, is marked `perf`, so it is not in `make test` or the pull-request shards;
-  where it runs is in the PR's text, as agreed with the coordinator.
-- **Progress for the protocol parts and the first load:** see the pull request; this section is completed with the
-  card.
+  because it lists its own reads. The job page's two new blocks add nothing when there is no progress to say
+  (`test_a_job_page_without_progress_is_byte_for_byte_the_page_without_the_new_blocks`). Rendered on master and on
+  this branch, the ten pages and a weekly run's page with the re-check card were byte for byte the same (csrf values
+  normalised; only the audit row's wall-clock time and hash differed).
+- **Tier** (the coordinator's ruling). Every pull request runs the rules and the planted page
+  (`tests/console/test_console_timing.py`, a few seconds; no pull request gets slower). The walk itself
+  (`tests/perf/test_console_timing_walk.py`, marker `perf`, `make console-timing`) is one more step of the nightly
+  `perf-5k` job (`trialbox-e2e.yml`), with its report in the step summary and the job's artifact. **The 300 ms budget
+  is held nightly, not per pull request.**
+- **Progress while a protocol is read** (review 13 section 7.1: "part 2 of 3 read"). While a FEAS job is parsing or
+  compiling and its compile has started, the job page says how many answers the language model has given so far:
+  the `llm.call` rows after the job's latest `compile.start`, among the audit rows the page already shows the same
+  accounts. It says plainly that this is not a count of parts. **Known limit:** the page cannot say "part n of N".
+  The audit rows the console keeps (`console.backend.read_audit`) do not carry a call's `prompt_version`, so an
+  `ir_extract` call cannot be told from a `concept_map` call. The number of parts is known only inside
+  `criteria_compiler.service._extract`. The one-integer change it would need: the compiler writes `parts: N` into the
+  detail of its existing `compile.start` event, and the console keeps `parts` and the call's prompt. That is a follow-up
+  for whoever holds the audit area; this card does not touch the compiler or an audit event.
+- **Progress of the first load** (review 13: "first load: 1,840 of 60,000 patients, about 3 more nights"). A finished
+  SCREEN or MICROBATCH run's page says how many new patients this run screened and how many are still waiting. It
+  also gives, as an estimate from this run's night budget, about how many more nights that is (waiting / budget,
+  rounded up). The page says the estimate changes with a night shared with other studies or with new patients
+  arriving. The figures come from the run's own `microbatch.budget` event, which the page already reads for the
+  re-check card. `read_recheck_share` now also keeps `budget`, `new_screened` and `new_carried`, whole numbers from
+  the same event. The rule is the re-check card's: only the accounts that read the study's list. Nothing is shown when
+  a figure is missing, when nobody waits, or before the run is done. The words are `job.firstload.*` and
+  `job.compile.answers*` in en, ja and zh-TW (`console.i18n_progress`). **Not done:** the review wanted the first load
+  on the **home page**. That would be a new reader of the event on another page, so it is left to the owner.
 - **Not widened:** no new route, export, column or reader of existing data; no change to the permission matrix,
   sign-in, the audit schema or break-glass.

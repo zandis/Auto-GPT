@@ -1725,6 +1725,8 @@ def create_app(
             case=case,
             screen=_screen_card(job, sess, revealed, bg=grant is not None),
             recheck=_recheck_share(job, sess, bg=grant is not None),
+            first_load=_first_load(job, sess, bg=grant is not None),
+            compile_answers=_compile_answers(job, audit_recs),
             breakglass=grant,
         )
 
@@ -1758,6 +1760,36 @@ def create_app(
             after = "nopass" if runs is None else "pass" if runs > 1 else None
         return {"n": again, "scope": scope, "carried": carried, "share": share, "kept": kept, "percent": percent,
                 "after": after, "runs": runs}  # fmt: skip
+
+    def _compile_answers(job: Job, recs: list[Any]) -> int | None:
+        """D-1245 (review 13 item 13-14): while a protocol is read, how many answers the language model has given for
+        it so far: the ``llm.call`` rows after the job's latest ``compile.start`` among the audit rows this page
+        already shows (the same rows, the same accounts). Not parts: the rows do not say which prompt a call was for,
+        and the number of parts is known to the compiler alone (the page says so). None when the job is not reading
+        a protocol or no compile has started."""
+        if job.type != "FEAS" or job.state not in ("parsing", "compiling"):
+            return None
+        ordered = sorted(recs, key=lambda r: r.ts)
+        starts = [i for i, r in enumerate(ordered) if r.event == "compile.start"]
+        if not starts:
+            return None
+        return sum(1 for r in ordered[starts[-1] + 1 :] if r.event == "llm.call")
+
+    def _first_load(job: Job, sess: Session, bg: bool = False) -> dict[str, int] | None:
+        """D-1245 (review 13 item 13-14): how far the study's new patients have come on a finished screening run, from
+        the run's ``microbatch.budget`` event (the event and the rule of :func:`_recheck_share`: the accounts that read
+        the study's list). Only when new patients are still waiting, and only with every number present: the new
+        patients screened on this run, those still waiting, the run's night budget, and an estimate of the nights
+        left at that budget (rounded up). None otherwise: the page shows nothing."""
+        if job.type not in ("SCREEN", "MICROBATCH") or job.state != "done":
+            return None
+        if not (helpers.reads(sess.user, job.ruleset) or bg):
+            return None
+        ev = bk.recheck_share(job.job_id) or {}
+        n, waiting, budget = ev.get("new_screened"), ev.get("new_carried"), ev.get("budget")
+        if n is None or waiting is None or budget is None or waiting == 0 or budget == 0:
+            return None
+        return {"n": n, "waiting": waiting, "budget": budget, "nights": -(-waiting // budget)}
 
     _case_pids: dict[str, str] = {}  # job id -> its subject's pseudonym: a job's chart number never changes
 

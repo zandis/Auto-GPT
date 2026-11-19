@@ -4,7 +4,8 @@
 <h1>{{ job.type }} {{ job.ruleset or '' }}{% if job.ruleset_version %} v{{ job.ruleset_version }}{% endif %} <span class="state s-{{ job.state }}" data-testid="job-state" data-state="{{ job.state }}">{{ state(job.state) }}</span></h1>
 <p class="mono">{{ t('col.job') }} {{ job.job_id }} · {{ t('col.by') }} {{ job.requested_by }} · {{ t('col.received') }} {{ job.received_at.strftime('%Y-%m-%d %H:%M:%S') }}</p>
 <p>{{ t('job.line') }}: <code data-testid="job-line">{{ line }}</code></p>
-{% if refresh %}<p class="hint" role="status">{{ t('job.refresh') }}</p>{% endif %}
+{% if refresh %}<p class="hint" role="status">{{ t('job.refresh') }}</p>{% endif %}{% if compile_answers is not none %}
+<p role="status" data-testid="compile-answers">{{ t('job.compile.answers', n=compile_answers) }} <span class="hint">{{ t('job.compile.answers.what') }}</span></p>{% endif %}
 {% if job.error %}<p class="error" role="alert">{{ t('job.error', step=job.error.step) }}: {{ job.error.message }}</p>{% endif %}
 
 {% if review %}
@@ -56,7 +57,12 @@
 </section>
 {% endif %}
 
-{% if recheck %}
+{% if first_load %}<section class="card" data-testid="first-load">
+<h2>{{ t('job.firstload.title') }}</h2>
+<p data-testid="first-load-line">{{ t('job.firstload.line', n=first_load.n, waiting=first_load.waiting) }}</p>
+<p class="hint" data-testid="first-load-nights">{{ t('job.firstload.nights', budget=first_load.budget, nights=first_load.nights) }}</p>
+</section>
+{% endif %}{% if recheck %}
 <section class="card" data-testid="recheck-share">
 <h2>{{ t('job.recheck.title') }}</h2>
 <p data-testid="recheck-reached">{{ t('job.recheck.reached', n=recheck.n, scope=recheck.scope) }}{% if not recheck.carried %} {{ t('job.recheck.all') }}{% endif %}</p>
