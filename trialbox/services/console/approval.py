@@ -175,6 +175,8 @@ def register(app: FastAPI, h: Helpers, submit: Callable[[Session, str, list[tupl
         if sess.user.aggregate_only:
             raise h.problem(403, "forbidden")
         seen = bk.get_job(job_id) if _ULID.match(job_id) else None
+        if seen is not None and seen.ruleset and sess.user.sees_study(seen.ruleset):
+            h.on_log(sess, seen.ruleset.upper(), request.url.path)  # D-1258: before the redirect of a decided round
         if (
             seen is not None
             and seen.ruleset

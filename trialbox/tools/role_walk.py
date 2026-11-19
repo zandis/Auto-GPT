@@ -379,24 +379,42 @@ ALLOWED_X, REFUSED_X = "ALLOWED-BUT-MATRIX-REFUSES", "REFUSED-BUT-MATRIX-ALLOWS"
 #: the committed table of what each console route must ask (one row per route; the walk never infers)
 DECLARED = ROOT / "tests" / "console" / "data" / "route_actions.yaml"
 KINDS = ("actions", "public", "signed_in", "scope")
+LOGS = ("", "on_log")  # D-1258: a row's ``log``
+
+
+def on_log(col: Column) -> bool:
+    """D-1258 (10C-3c): does the study's delegation log admit the column to a page of the study? For a role whose
+    ``task.*`` rows the log decides (the matrix's conditions), only with one of those tasks in its standing; every
+    other role passes. Read from the matrix and the column's standing, as :func:`expected` reads its gate."""
+    from tb_common.authz import STUDY_TASKS, conditional
+
+    if col.role is None:
+        return False
+    if not any(conditional(str(col.role), f"task.{t}") for t in STUDY_TASKS):
+        return True
+    return any(_permit(col, f"task.{t}") for t in STUDY_TASKS)
 
 
 @dataclass(frozen=True)
 class Declared:
     """One row of :data:`DECLARED`: the matrix action(s) a route must ask (``mode`` all or any; ``!row`` for a
     restriction row such as ``report.aggregate_only``), or ``public`` (anyone), ``signed_in`` (every signed-in
-    account) or ``scope`` (every account that sees the study), with ``why``: the decision or document."""
+    account) or ``scope`` (every account that sees the study), with ``why``: the decision or document. ``log``
+    (D-1258): ``on_log`` when the route also asks the study's delegation log for the roles it decides
+    (:func:`on_log`)."""
 
     kind: str
     actions: tuple[str, ...] = ()
     mode: str = "all"
     why: str = ""
+    log: str = ""
 
     def gate(self) -> Gate:
         return Gate(self.actions, "any" if self.mode == "any" else ("all" if len(self.actions) > 1 else "one"))
 
     def label(self) -> str:
-        return self.gate().label() if self.kind == "actions" else f"({self.kind})"
+        base = self.gate().label() if self.kind == "actions" else f"({self.kind})"
+        return f"{base} & on the log" if self.log else base
 
 
 def load_declared(path: Path = DECLARED) -> dict[tuple[str, str], Declared]:
@@ -414,7 +432,10 @@ def load_declared(path: Path = DECLARED) -> dict[tuple[str, str], Declared]:
         bad = [a for a in acts if a.lstrip("!") not in MATRIX]
         if bad:
             raise ValueError(f"{key}: not rows of the matrix: {bad}")
-        out[(method, route)] = Declared(kind, acts, str(row.get("mode") or "all"), str(row["why"]))
+        log = str(row.get("log") or "")
+        if log not in LOGS:
+            raise ValueError(f"{key}: log is one of {', '.join(LOGS[1:])}, or left out")
+        out[(method, route)] = Declared(kind, acts, str(row.get("mode") or "all"), str(row["why"]), log)
     return out
 
 
@@ -432,6 +453,8 @@ def expected_of(col: Column, method: str, path: str, d: Declared) -> bool:
     if d.kind == "public":
         return True
     if col.role is None:
+        return False
+    if d.log and not on_log(col):
         return False
     return expected(col, path, d.gate() if d.kind == "actions" else Gate(()), method)
 
@@ -472,7 +495,7 @@ def judge_declared(raw: list[dict[str, Any]], declared: dict[tuple[str, str], De
                            "shows": c.get("shows", []), "backend": bool(c.get("backend")) if got == "R" else None,
                            "probe": c.get("probe")}  # fmt: skip
         out.append({**{k: v for k, v in r.items() if k != "cells"}, "gate": {"kind": d.kind, "actions": list(d.actions),
-                    "mode": d.mode}, "gate_label": d.label(), "why": d.why, "cells": cells})  # fmt: skip
+                    "mode": d.mode, "log": d.log}, "gate_label": d.label(), "why": d.why, "cells": cells})  # fmt: skip
     return out
 
 

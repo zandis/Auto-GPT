@@ -28,7 +28,7 @@ from datacore.lifecycle import CONTACT_ATTEMPTS, CONTACT_DEFAULT, contact_check
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
-from tb_common.authz import NO_STANDING, Decision, conditional, study_bound
+from tb_common.authz import NO_STANDING, STUDY_TASKS, Decision, conditional, study_bound
 from tb_common.authz import permit as permit_row
 from tb_common.erased import Gone, GoneOn
 from tb_common.retention import STUDY_YEARS_AFTER_CLOSE
@@ -232,6 +232,14 @@ class Helpers:
             self.au.append("console.denied", actor=self.actor(sess), detail={"action": path[:80]})
             raise self.problem(403, "forbidden")
 
+    def on_log(self, sess: Session, rid: str, path: str) -> None:
+        """D-1258 (10C-3c): the study-level pages of one study (its job and approval pages, its state, feasibility,
+        set-up, forms, sources, IRB record, consent forms and delegation log, on the page and on ``/api/v1``) ask
+        D-147's rule of :meth:`delegated` with any study task: an investigator the study's log does not name is
+        refused them as its week and patient pages refuse it (403, audited). The roles the log does not decide pass
+        and meet their own rows on the page."""
+        self.delegated(sess, rid, path, STUDY_TASKS)
+
     def need_rows(self, sess: Session, rid: str, path: str) -> None:
         """ROLE-017 (T-102c, D-425): who reads one study's patient-level rows. A page, its XLSX and its ``/api/v1``
         twin ask this one question (the ``phi.view`` row, then the study's delegation log), so they never disagree; a
@@ -343,12 +351,15 @@ def register(app: FastAPI, h: Helpers) -> None:
         return s28.load(bk, store, rs, st.study_defaults(rs, kind))
 
     def approvals(sess: Session) -> list[Job]:
-        """Criteria waiting for approval in the studies this account sees (the investigator's S20 queue)."""
+        """Criteria waiting for approval in the studies this account sees (the investigator's S20 queue); D-1258:
+        only where the approval page admits the account (``Helpers.on_log``: on the study's log, for the roles it
+        decides)."""
         return [
             j
             for j in bk.list_jobs(limit=500)
             if j.state == "awaiting_approval" and j.ruleset and sess.user.sees_study(j.ruleset)
             and any(o.filename.startswith("review_") and o.filename.endswith(".xlsx") for o in j.outputs or [])
+            and h.delegated_ok(sess.user, j.ruleset.upper(), STUDY_TASKS)
         ]  # fmt: skip
 
     def study_or_404(sess: Session, rs: str) -> str:
@@ -662,6 +673,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         grants = {g[0]: g for g in (h.monitor_grants(user) if h.monitor_grants else [])}
         for r in studies:
             rs = r.id
+            if not h.delegated_ok(user, rs, STUDY_TASKS):  # D-1258: a study off the account's log is not named
+                continue
             if rs not in readable:  # no patient-level read in this study: the aggregate reads only
                 step = home_today.report_step(report=st.latest_job(jobs, rs, ("FEAS",)) is not None,
                                               grant=grants.get(rs))  # fmt: skip
@@ -757,6 +770,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         jobs = bk.list_jobs(limit=500)
         rows = []
         for r in trials(sess):
+            if not h.delegated_ok(sess.user, r.id, STUDY_TASKS):  # D-1258: as the study's feasibility page
+                continue
             job = st.latest_job(jobs, r.id, ("FEAS",))
             res = load(job, "feasibility_", ".json", "aggregate")
             summary = None
@@ -804,6 +819,7 @@ def register(app: FastAPI, h: Helpers) -> None:
     def feasibility(request: Request, rs: str, view: str = "", saved: str = "", refreshed: str = "") -> Response:
         sess = h.need(request)
         rid = study_or_404(sess, rs)
+        h.on_log(sess, rid, request.url.path)  # D-1258
         sponsor = view == "sponsor" or sess.user.sponsor_form
         rep = feas_bundle(sess, rid, sponsor)
         site = store.profile(rid)

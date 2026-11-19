@@ -714,6 +714,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         rid = log_or_404(sess, rs)
         if sess.user.aggregate_only:
             raise deny(sess, request.url.path)
+        h.on_log(sess, rid, request.url.path)  # D-1258
         s = stand(sess.user, rid)
         entries = team.entries(rid)
         writable = log_roles_for(sess, s)
@@ -848,6 +849,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         rid = study_or_404(sess, rs)
         if sess.user.aggregate_only:
             raise deny(sess, request.url.path)
+        h.on_log(sess, rid, request.url.path)  # D-1258
         rec = team.irb(rid)
         on = optout.effective()
         # D-380: the overrides name patients (pseudonyms): only a patient-level reader sees them, never the admin
@@ -967,6 +969,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         rid = study_or_404(sess, rs)
         if sess.user.aggregate_only:
             raise deny(sess, request.url.path)
+        h.on_log(sess, rid, request.url.path)  # D-1258
         return {"study": rid, "versions": [icf_json(v) for v in team.icf_list(rid)],
                 "history": [icf_json(v) for v in team.icf_history(rid)]}  # fmt: skip
 
@@ -1224,6 +1227,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         rid = study_or_404(sess, rs)
         if sess.user.aggregate_only:
             raise deny(sess, request.url.path)
+        h.on_log(sess, rid, request.url.path)  # D-1258
         s = stand(sess.user, rid)
         return {
             "study": rid,
@@ -1308,6 +1312,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         rid = study_or_404(sess, rs)
         if sess.user.aggregate_only:
             raise deny(sess, request.url.path)
+        h.on_log(sess, rid, request.url.path)  # D-1258
         rec = team.irb(rid)
         return {"study": rid, **{k: getattr(rec, k) or None for k in IRB_FIELDS},
                 "warnings": rec.warnings(today())}  # fmt: skip

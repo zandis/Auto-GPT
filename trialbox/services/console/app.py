@@ -44,7 +44,7 @@ from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
-from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_allowed, role_rights
+from tb_common.authz import BEST_STANDING, STUDY_TASKS, admin_allowed, permit, role_allowed, role_rights
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
@@ -1739,7 +1739,18 @@ def create_app(
     def job_view(request: Request, job_id: str) -> Response:
         sess = need(request)
         job = _job_or_404(job_id)
+        _on_log_or_grant(request, sess, job)
         return _job_page(request, sess, job)
+
+    def _on_log_or_grant(request: Request, sess: Session, job: Job) -> None:
+        """D-1258 (10C-3c): the job page of a study asks the study's other pages' rule (``Helpers.on_log``); an
+        account with an open break-glass grant for this job keeps the page (D-280, D-430), whose use ``_job_page``
+        records as before. A job with no study is as before."""
+        if not job.ruleset or helpers.delegated_ok(sess.user, job.ruleset, STUDY_TASKS):
+            return
+        if helpers.breakglass_find is not None and helpers.breakglass_find(sess, job_id=job.job_id) is not None:
+            return
+        helpers.on_log(sess, job.ruleset, request.url.path)
 
     def _bg(sess: Session, job: Job, what: str) -> Any:
         """D-280 (OD-5): the open break-glass grant for this job (one audited use), else None. T-309 (D-430): asked
