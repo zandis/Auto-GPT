@@ -29,6 +29,14 @@ def test_the_gb10_overlay_and_its_profile_say_the_same_6_gb() -> None:
     assert profile["memory"]["embed-service"]["limit_gib"] == 6
 
 
+def test_the_64_gb_overlay_keeps_the_documented_6_gb_cap() -> None:
+    """The CPU embedder is unchanged on gb10-64. One load is about 3.5 GB; 4 GB was too tight (D-890), so the cap is 6 GB."""
+    overlay = yaml.safe_load((ROOT / "deploy" / "docker-compose.gb10-64.yml").read_text(encoding="utf-8"))
+    profile = yaml.safe_load((ROOT / "deploy" / "gb10-64-profile.yaml").read_text(encoding="utf-8"))
+    assert overlay["services"]["embed-service"]["mem_limit"] == "6g"
+    assert profile["memory"]["embed-service"]["limit_gib"] == 6
+
+
 def test_no_compose_file_still_gives_the_embedder_4_gb() -> None:
     for f in sorted((ROOT / "deploy").rglob("docker-compose*.yml")):
         text = f.read_text(encoding="utf-8")

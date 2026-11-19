@@ -209,6 +209,9 @@ esac
 # rtx4090 = the judge alone on a 24 GB card, note answers never exclude; default = base llm-service
 if [ "$MODE" = gpu ] && [ "$GPU" = auto ]; then
   GPU="$(sh "$ROOT/deploy/gpu_profile.sh")"
+  # A box already installed as gb10 (only its own serving_config.gb10.json) stays gb10 on a re-run.
+  # Automatic selection must not look for serving_config.gb10-64.json and stop. --gpu gb10-64 still switches.
+  GPU="$(sh "$ROOT/deploy/gpu_profile.sh" keep-installed "$GPU" "$ROOT/deploy/site")"
 fi
 case "$GPU" in  # a B200 is never an appliance (D-211, D-409): two MIG instances on a platform, RUNBOOK §17
   shared-quota) die "this card has MIG on (shared-quota): install.sh does not serve it; use deploy/platform (RUNBOOK §17)" ;;

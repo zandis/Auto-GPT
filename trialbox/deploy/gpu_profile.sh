@@ -30,7 +30,22 @@
 #   default     any other card: the base llm-service only
 # The RTX PRO 6000 is matched before the 32 GB cards: its name also contains "RTX PRO". MIG is read first: with MIG
 # on, nvidia-smi reports the parent card's name.
+#
+#   sh deploy/gpu_profile.sh keep-installed <detected> <site-dir>
+# install.sh, on automatic selection only: a box that already has serving_config.gb10.json and no
+# serving_config.gb10-64.json stays gb10. A re-run must not look for the 64 GB record and stop.
 set -eu
+if [ "${1:-}" = "keep-installed" ]; then
+  detected="${2:-}"
+  site="${3:-}"
+  if [ "$detected" = "gb10-64" ] && [ -f "$site/serving_config.gb10.json" ] \
+    && [ ! -f "$site/serving_config.gb10-64.json" ]; then
+    echo gb10
+  else
+    echo "$detected"
+  fi
+  exit 0
+fi
 mem_gib=""
 if [ $# -ge 2 ]; then
   arch="$1"; name="$2"; mig="${3:-}"; mem_gib="${4:-}"

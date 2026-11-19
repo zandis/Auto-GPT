@@ -29,31 +29,32 @@ driver_hold:
   next_retest_by: 2026-12-09
   retest_by: the operations engineer of lane 2E (deploy, release, operations), on the bench Spark
 
-# Docker memory limits (compose mem_limit), GiB. Planning only. The model caps are the 128 GB profile's fractions
-# of this device (0.30 and 0.15) plus that profile's 3.6 GiB host-process allowance (42 - 0.30*128), rounded to a
-# whole GiB. They are not raised to the 32 GiB sleeping-model floor: that floor does not fit, and both stay resident.
-# The other services are a planning share of the 20 GiB left after those model caps and the 8 GiB OS reserve. The
-# 128 GB profile's non-model caps (excluding link) sum to 44.25 GiB; these are that share, rounded to 0.25 GiB, and
-# sum to 19.75 GiB. Whether a vLLM process's GPU allocations are charged to its cgroup is unmeasured, as on the
-# 128 GB profile.
+# Docker memory limits (compose mem_limit), GiB. Planning only. Two floors are taken from decisions that are not
+# measurements of this host: the CPU embedder stays at 6 GiB (D-890: one load about 3.5 GB, and 4 GiB was too tight)
+# and the adapter stays at the compose validator heap of 3g plus 1 GiB for the process. The FHIR heap is a fixed 2g,
+# not HAPI_XMX, so a 6g heap left from the 128 GB profile cannot pass the cap. The model caps are still the 128 GB
+# profile's fractions of this device (0.30 and 0.15) plus that profile's 3.6 GiB host-process allowance, rounded to
+# a whole GiB; they are not raised to the 32 GiB sleeping-model floor. The other services are a planning share of
+# what remains after those floors and the 8 GiB OS reserve. Nothing here was measured on a 64 GB host. Whether a
+# vLLM process's GPU allocations are charged to its cgroup is unmeasured, as on the 128 GB profile.
 memory:
   llm-service:       {limit_gib: 23, measured_peak_gib: null, basis: "0.30 of 64 GiB (19.2) + 3.6 GiB host-process allowance, rounded to 23; not the 32 GiB floor; not measured"}
   llm-verifier:      {limit_gib: 13, measured_peak_gib: null, basis: "0.15 of 64 GiB (9.6) + 3.6 GiB host-process allowance, rounded to 13; not the 32 GiB floor; not measured"}
-  gateway:           {limit_gib: 1, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
-  model-guard:       {limit_gib: 0.5, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
+  gateway:           {limit_gib: 0.25, measured_peak_gib: null, basis: "planning share of what remains after the documented floors; not measured"}
+  model-guard:       {limit_gib: 0.25, measured_peak_gib: null, basis: "planning share of what remains after the documented floors; not measured"}
   link:              {limit_gib: 1, measured_peak_gib: null, basis: "two-device form only: the TLS relay; not measured"}
-  db:                {limit_gib: 3.5, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
-  fhir-store:        {limit_gib: 3.5, measured_peak_gib: null, basis: "HAPI heap 2g plus JVM margin, cap at least 1 GiB over -Xmx; not measured"}
-  lake:              {limit_gib: 2.5, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
-  embed-service:     {limit_gib: 2.5, measured_peak_gib: null, basis: "planning share; the 128 GB profile's 6 GiB cap does not fit; not measured"}
-  orchestrator:      {limit_gib: 1.25, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
-  adapter:           {limit_gib: 1.25, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
-  doc-parser:        {limit_gib: 1, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
-  criteria-compiler: {limit_gib: 0.5, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
-  console:           {limit_gib: 1, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
-  mail-gateway:      {limit_gib: 0.5, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
-  audit-writer:      {limit_gib: 0.25, measured_peak_gib: null, basis: "planning share of the 20 GiB left after the model caps; not measured"}
-  llm-stub:          {limit_gib: 0.5, measured_peak_gib: null, basis: "stub profile only, never beside vLLM; not measured"}
+  db:                {limit_gib: 1, measured_peak_gib: null, basis: "planning share of what remains after the documented floors; not measured"}
+  fhir-store:        {limit_gib: 3.5, measured_peak_gib: null, basis: "fixed heap 2g (not HAPI_XMX) plus JVM margin, cap at least 1 GiB over -Xmx; not measured"}
+  lake:              {limit_gib: 2, measured_peak_gib: null, basis: "planning share of what remains after the documented floors; not measured"}
+  embed-service:     {limit_gib: 6, measured_peak_gib: null, basis: "D-890: the unchanged CPU embedder, one load about 3.5 GB, 4 GB too tight, cap 6 GB; not measured on this class"}
+  orchestrator:      {limit_gib: 1, measured_peak_gib: null, basis: "planning share of what remains after the documented floors; not measured"}
+  adapter:           {limit_gib: 4, measured_peak_gib: null, basis: "compose validator heap 3g plus 1 GiB for the adapter process; not measured on this class"}
+  doc-parser:        {limit_gib: 0.5, measured_peak_gib: null, basis: "planning share of what remains after the documented floors; not measured"}
+  criteria-compiler: {limit_gib: 0.25, measured_peak_gib: null, basis: "planning share of what remains after the documented floors; not measured"}
+  console:           {limit_gib: 0.25, measured_peak_gib: null, basis: "planning share of what remains after the documented floors; not measured"}
+  mail-gateway:      {limit_gib: 0.25, measured_peak_gib: null, basis: "planning share of what remains after the documented floors; not measured"}
+  audit-writer:      {limit_gib: 0.25, measured_peak_gib: null, basis: "planning share of what remains after the documented floors; not measured"}
+  llm-stub:          {limit_gib: 0.25, measured_peak_gib: null, basis: "stub profile only, never beside vLLM; not measured"}
 
 # Same device split as the 128 GB profile. The Spark still holds the gateway and the models, never the repository.
 devices:

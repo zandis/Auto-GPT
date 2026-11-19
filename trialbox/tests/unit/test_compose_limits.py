@@ -181,6 +181,11 @@ def test_the_jvm_caps_are_above_their_heaps() -> None:
         assert _bytes(fhir["mem_limit"]) >= (xmx + 1) * 2**30, stack
     adapter = _merge((BASE,))["adapter"]
     assert _bytes(adapter["mem_limit"]) >= (int(adapter["environment"]["TB_VALIDATOR_XMX"].rstrip("g")) + 1) * 2**30
+    # The 64 GB overlay is a later file on the GB10 stack. Its adapter cap has to clear the validator heap the
+    # render still inherits, plus 1 GiB for the adapter process. The base stack above does not see that overlay.
+    small = _merge((BASE, "docker-compose.gb10.yml", "docker-compose.gb10-64.yml"))["adapter"]
+    small_heap = int(str(small["environment"]["TB_VALIDATOR_XMX"]).rstrip("g"))
+    assert _bytes(small["mem_limit"]) >= (small_heap + 1) * 2**30
 
 
 def test_caddy_health_site_is_loopback_only() -> None:
@@ -250,6 +255,16 @@ def test_compose_config_renders_the_limits(tmp_path: Path, stack: tuple[str, ...
 
 
 @pytest.mark.skipif(not _compose(), reason="needs the docker compose plugin")
+@pytest.mark.skipif(not _compose(), reason="needs the docker compose plugin")
+def test_the_64_gb_fhir_heap_does_not_honor_a_larger_profile_override(tmp_path: Path) -> None:
+    """HAPI_XMX=6g is the 128 GB profile's heap. The 3.5 GiB cap must not let that heap through."""
+    stack = (BASE, "docker-compose.secrets.yml", "docker-compose.gb10.yml", "docker-compose.gb10-64.yml")
+    fhir = _render(tmp_path, stack, ("gpu",), "HAPI_XMX=6g\n")["services"]["fhir-store"]
+    opts = fhir["environment"]["JAVA_TOOL_OPTIONS"]
+    assert "-Xmx2g" in opts and "-Xmx6g" not in opts
+    assert int(fhir["mem_limit"]) >= 3 * 2**30
+
+
 def test_a_site_setting_moves_a_cap(tmp_path: Path) -> None:
     services = _render(tmp_path, (BASE,), ("gpu",), "TB_MEM_LLM=96g\nTB_MEM_LAKE=16g\n")["services"]
     assert int(services["llm-service"]["mem_limit"]) == 96 * 2**30

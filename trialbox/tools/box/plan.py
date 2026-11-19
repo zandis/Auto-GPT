@@ -79,6 +79,7 @@ class Hardware:
     lan: str = ""  # the box's network, CIDR; with IPv6 two, space-separated (192.0.2.0/24 2001:db8::/64), D-629
     hostname: str = "trialbox"
     host_tz: str = ""
+    ram_class_gib: int = 0  # MemTotal//2**20, the shell's whole GiB; 0: classify from ram_gib
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> Hardware:
@@ -116,8 +117,9 @@ def gpu_profile(
 ) -> str:
     """deploy/gpu_profile.sh's answer for this machine: one rule, shared with install.sh.
 
-    ``ram_gib`` is the host's memory in whole GiB when this process already read it (a 64 GB Spark is ``gb10-64``).
-    Omitted, the script treats memory as unknown and a GB10 stays ``gb10``.
+    ``ram_gib`` is the host's memory in whole GiB, the same integer division as the script's ``MemTotal``
+    (``kib // 1024 // 1024``). A figure rounded to one decimal crosses 96 a KiB early and selects ``gb10``.
+    Omitted or 0, the script treats memory as unknown and a GB10 stays ``gb10``.
     """
     if not gpu_name:
         return "none"
@@ -160,6 +162,7 @@ def detect(deploy: Path = DEPLOY, host_root: Path = Path("/")) -> Hardware:  # p
     )[:3]
     meminfo = (host_root / "proc/meminfo").read_text(encoding="utf-8") if (host_root / "proc/meminfo").exists() else ""
     kib = re.search(r"MemTotal:\s+(\d+)", meminfo)
+    kib_n = int(kib.group(1)) if kib else 0
     tz = ""
     with_tz = host_root / "etc/timezone"
     if with_tz.is_file():
@@ -169,7 +172,7 @@ def detect(deploy: Path = DEPLOY, host_root: Path = Path("/")) -> Hardware:  # p
     return Hardware(
         arch=platform.machine(),
         cpu_count=os.cpu_count() or 1,
-        ram_gib=round(int(kib.group(1)) / 1024**2, 1) if kib else 0.0,
+        ram_gib=round(kib_n / 1024**2, 1) if kib else 0.0,
         disk_free_gib=round(shutil.disk_usage(deploy).free / 1024**3, 1),
         gpu_name=name,
         gpu_mem_gib=round(float(mem) / 1024, 1) if re.fullmatch(r"[0-9.]+", mem or "") else 0.0,
@@ -183,6 +186,7 @@ def detect(deploy: Path = DEPLOY, host_root: Path = Path("/")) -> Hardware:  # p
         ),
         hostname=socket.gethostname().split(".")[0].lower() or "trialbox",
         host_tz=tz,
+        ram_class_gib=(kib_n // 1024 // 1024) if kib else 0,
     )
 
 
@@ -476,7 +480,8 @@ def hardening_conf(hw: Hardware, *, mdns: bool = False) -> str:
 def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
     """Everything the installer needs, from the owner's answers and this machine (pure but for reading the compose
     files and running deploy/gpu_profile.sh)."""
-    profile = gpu_profile(hw.arch, hw.gpu_name, hw.mig, deploy, hw.ram_gib)
+    # The shell divides MemTotal in whole GiB. ram_gib is rounded for display and is 96.0 one KiB under 96 GiB.
+    profile = gpu_profile(hw.arch, hw.gpu_name, hw.mig, deploy, hw.ram_class_gib or hw.ram_gib)
     if profile in REFUSED_PROFILES:
         raise PlanError(
             f"this GPU ({hw.gpu_name}) serves TrialBox only on a shared platform (RUNBOOK §17), not as a box"

@@ -9,23 +9,27 @@ services:
   llm-service: {mem_limit: 23g}
   llm-verifier: {mem_limit: 13g}
   gateway:
-    mem_limit: 1g
+    mem_limit: 256m
     environment:
       TB_PROFILE: P-GB10-64
-  model-guard: {mem_limit: 512m}
-  db: {mem_limit: 3.5g}
+  model-guard: {mem_limit: 256m}
+  db: {mem_limit: 1g}
   fhir-store:
     mem_limit: 3.5g
     environment:
-      # integer -Xmx so the cap stays at least 1 GiB above the heap (T-108a). Not measured.
-      JAVA_TOOL_OPTIONS: "-Xmx${HAPI_XMX:-2g} -Duser.timezone=${TB_TZ:?set TB_TZ in deploy/.env to site.tz (D-315)}"
-  lake: {mem_limit: 2.5g}
-  embed-service: {mem_limit: 2.5g}
-  orchestrator: {mem_limit: 1280m}
-  adapter: {mem_limit: 1280m}
-  doc-parser: {mem_limit: 1g}
-  criteria-compiler: {mem_limit: 512m}
-  console: {mem_limit: 1g}
-  mail-gateway: {mem_limit: 512m}
+      # Fixed 2g. ${HAPI_XMX} would take a 6g heap left from the 128 GB profile and pass this cap. Not measured.
+      # The cap stays at least 1 GiB above the heap (T-108a).
+      JAVA_TOOL_OPTIONS: "-Xmx2g -Duser.timezone=${TB_TZ:?set TB_TZ in deploy/.env to site.tz (D-315)}"
+  lake: {mem_limit: 2g}
+  embed-service: {mem_limit: 6g}   # D-890: the CPU embedder is unchanged; one load about 3.5 GB, 4g was too tight
+  orchestrator: {mem_limit: 1g}
+  adapter:
+    mem_limit: 4g   # the validator heap below plus 1 GiB for the adapter process; not measured
+    environment:
+      TB_VALIDATOR_XMX: 3g
+  doc-parser: {mem_limit: 512m}
+  criteria-compiler: {mem_limit: 256m}
+  console: {mem_limit: 256m}
+  mail-gateway: {mem_limit: 256m}
   audit-writer: {mem_limit: 256m}
-  llm-stub: {mem_limit: 512m}
+  llm-stub: {mem_limit: 256m}
