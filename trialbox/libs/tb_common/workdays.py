@@ -28,6 +28,7 @@ Standard library only, Python 3.10: the settings wizard imports it with the host
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import os
 import re
@@ -44,6 +45,9 @@ DAY_OFF_KINDS = (*KINDS, "new_year", "site")  # why a weekday is off (:meth:`Cal
 NEW_YEAR_BREAK: dict[str, tuple[tuple[int, int], tuple[int, int]]] = {"JP": ((12, 29), (1, 3))}
 ENV_BREAK, ENV_OFF, ENV_OPEN = "TB_NEW_YEAR_BREAK", "TB_DAYS_OFF", "TB_DAYS_OPEN"
 _MD = re.compile(r"^(\d{2})-(\d{2})$")
+_ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")  # strict YYYY-MM-DD: the same on every Python (3.11 widened fromisoformat)
+MAX_BREAK_DAYS = 14  # a New Year break starts in December, ends in January and lasts at most this many days
+WARN_AHEAD_DAYS = 90  # the holiday list is said to run out this many days before its last day
 
 
 @dataclass(frozen=True)
@@ -73,19 +77,45 @@ def holidays(country: str) -> Holidays | None:
 
 
 def parse_break(text: str) -> tuple[tuple[int, int], tuple[int, int]] | None:
-    """``MM-DD/MM-DD`` (the first and last day off, across the year end), or ``none``. Raises ValueError."""
+    """``MM-DD/MM-DD``, the first day off in December and the last in January, at most :data:`MAX_BREAK_DAYS` days
+    in all; or ``none``. Anything else raises ValueError with a plain sentence (never a year-long "break")."""
     t = (text or "").strip().lower()
     if t in ("none", "-"):
         return None
     a, sep, b = t.partition("/")
     ma, mb = _MD.match(a.strip()), _MD.match(b.strip())
+    bad = (f"the New Year break is MM-DD/MM-DD from a day in December to a day in January, at most {MAX_BREAK_DAYS} "
+           f"days (for example 12-29/01-03), or none: {text!r}")  # fmt: skip
     if not sep or ma is None or mb is None:
-        raise ValueError(f"the New Year break is MM-DD/MM-DD or none: {text!r}")
+        raise ValueError(bad)
     first = (int(ma.group(1)), int(ma.group(2)))
     last = (int(mb.group(1)), int(mb.group(2)))
-    for m, d in (first, last):
-        date(2024, m, d)  # a real day (2024: 02-29 exists)
+    if first[0] != 12 or last[0] != 1:
+        raise ValueError(bad)
+    try:
+        days = (date(2001, 1, last[1]) - date(2000, 12, first[1])).days + 1
+    except ValueError:
+        raise ValueError(bad) from None
+    if days > MAX_BREAK_DAYS:
+        raise ValueError(bad)
     return first, last
+
+
+def settings_problems(env: Mapping[str, str]) -> list[str]:
+    """What cannot be read in the site's three working-day settings, one plain sentence each (empty: all readable).
+    ``tb_common.config`` refuses to start with any; :func:`for_country` lists them and leaves them out."""
+    out: list[str] = []
+    raw = (env.get(ENV_BREAK) or "").strip()
+    if raw:
+        try:
+            parse_break(raw)
+        except ValueError as exc:
+            out.append(f"{ENV_BREAK}: {exc}")
+    bad: list[str] = []
+    off, open_ = _days(env.get(ENV_OFF) or "", bad), _days(env.get(ENV_OPEN) or "", bad)
+    out += [f"{ENV_OFF}/{ENV_OPEN}: {b!r} is not a day (YYYY-MM-DD)" for b in bad]
+    out += [f"{ENV_OFF} and {ENV_OPEN} both name {d.isoformat()}" for d in sorted(off & open_)]
+    return out
 
 
 def _days(text: str, problems: list[str]) -> frozenset[date]:
@@ -93,10 +123,13 @@ def _days(text: str, problems: list[str]) -> frozenset[date]:
     for part in (text or "").replace(";", ",").split(","):
         if not part.strip():
             continue
+        p = part.strip()
         try:
-            out.add(date.fromisoformat(part.strip()))
+            if not _ISO.match(p):
+                raise ValueError(p)
+            out.add(date.fromisoformat(p))
         except ValueError:
-            problems.append(part.strip()[:20])
+            problems.append(p[:20])
     return frozenset(out)
 
 
@@ -118,11 +151,9 @@ class Calendar:
     def _in_break(self, d: date) -> bool:
         if self.new_year is None:
             return False
-        (m1, d1), (m2, d2) = self.new_year
+        first, last = self.new_year  # December to January (parse_break)
         md = (d.month, d.day)
-        if (m1, d1) <= (m2, d2):
-            return (m1, d1) <= md <= (m2, d2)
-        return md >= (m1, d1) or md <= (m2, d2)
+        return md >= first or md <= last
 
     def day_off(self, d: date) -> str:
         """Why ``d`` is a day off at this site ("" when it is not one): ``holiday``, ``substitute``, ``citizens``,
@@ -165,6 +196,17 @@ class Calendar:
                 left -= 1
         raise ValueError("too few working days: check TB_DAYS_OFF")
 
+    def runs_out(self, today: date) -> str:
+        """Whether the holiday list ends too soon for ``today``: "" (it covers the next :data:`WARN_AHEAD_DAYS` days),
+        ``soon`` (it ends within them) or ``past`` (today is after its last day: holidays now count as working days).
+        """
+        until = self.holidays.until if self.holidays is not None else None
+        if until is None:
+            return ""
+        if today > until:
+            return "past"
+        return "soon" if today + timedelta(days=WARN_AHEAD_DAYS) > until else ""
+
     def days_off(self, start: date, end: date) -> list[tuple[date, str, str]]:
         """The weekday days off from ``start`` to ``end`` (both included): (day, why, name)."""
         out = []
@@ -187,18 +229,32 @@ def for_country(country: str, environ: Mapping[str, str] | None = None) -> Calen
     if hol is None:
         return WEEKDAYS_ONLY
     env = os.environ if environ is None else environ
-    problems: list[str] = []
+    problems = settings_problems(env)
     new_year = NEW_YEAR_BREAK.get(code)
     raw = (env.get(ENV_BREAK) or "").strip()
     if raw:
-        try:
+        with contextlib.suppress(ValueError):  # in ``problems``; the country's break stands
             new_year = parse_break(raw)
-        except ValueError:
-            problems.append(f"{ENV_BREAK}={raw[:20]}")
     bad: list[str] = []
     off, open_ = _days(env.get(ENV_OFF) or "", bad), _days(env.get(ENV_OPEN) or "", bad)
-    problems += [f"{ENV_OFF}/{ENV_OPEN}: {b}" for b in bad]
     return Calendar(code, hol, new_year, off, open_, tuple(problems))
+
+
+def health(cal: Calendar, today: date) -> tuple[str, str] | None:
+    """The calendar's line for the box's health (``ok``/``warn``/``red``, one plain sentence), None for a site with
+    no holiday list. Red once the list has run out; warn when it runs out within 90 days or a setting is unreadable."""
+    if cal.holidays is None:
+        return None
+    until = cal.holidays.until.isoformat() if cal.holidays.until else "?"
+    out = cal.runs_out(today)
+    if out == "past":
+        return "red", (f"the {cal.country} holiday list ended on {until}: public holidays now count as working days "
+                       "until an update brings the next list")  # fmt: skip
+    if cal.problems:
+        return "warn", "working-day settings not used: " + "; ".join(cal.problems)
+    if out == "soon":
+        return "warn", f"the {cal.country} holiday list ends on {until}: an update must bring the next year's list"
+    return "ok", f"{cal.country} holiday list to {until}"
 
 
 def for_zone(tz: str | None, environ: Mapping[str, str] | None = None) -> Calendar:

@@ -248,6 +248,10 @@ def load_env(dotenv: Path | None = None, environ: dict[str, str] | None = None) 
         raise ConfigError("ATTACH_PASSWORD_MODE must be link, smime or zip")
     if env.llm_mode not in ("vllm", "llamacpp", "stub", "openai"):
         raise ConfigError("TB_LLM_MODE must be vllm, llamacpp, openai or stub")
+    from tb_common.workdays import settings_problems  # 10C-14: a working-day setting is readable or the box stops
+
+    if bad := settings_problems(merged):
+        raise ConfigError("; ".join(bad))
     return env
 
 

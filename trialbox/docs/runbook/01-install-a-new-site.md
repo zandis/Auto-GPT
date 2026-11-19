@@ -90,6 +90,17 @@ for every image a bundle carries; the dated exceptions and open findings are in 
 (SECURITY.md §8). On Windows the box runs in WSL2: `docs/handover/OFFLINE-MEDIA.md`,
 `docs/handover/WINDOWS-INSTALL-CHECKLIST.md` and `deploy/windows/preflight.ps1`.
 
+**Working days** (10C-14, D-1230). A site in Japan counts working days without its national holidays and its New
+Year break: no coordinator digest on those days (the overdue SAE reports still go), and a visit window the protocol
+counts in working days skips them. The break is 12-29 to 01-03 unless the answers say otherwise (`new_year_break`,
+written as `TB_NEW_YEAR_BREAK`: `MM-DD/MM-DD` from December to January, at most 14 days, or `none`); the hospital's
+own days off and the holidays it works go in the answers' `env_extra` as `TB_DAYS_OFF` and `TB_DAYS_OPEN`
+(`YYYY-MM-DD`, comma separated). A value that cannot be read stops the box with a plain message. The schedule page
+lists the coming days off. The holiday list ships in the update bundle; each year, when the Cabinet Office publishes
+the next year (February), the vendor downloads `syukujitsu.csv`, records its sha256 in the licence register row
+`jp-holidays` and runs `python3 -m tools.holidays_import syukujitsu.csv --sha256 <hex> --years <first>-<last>`; the
+health line warns 90 days before the list runs out and is red after it.
+
 **The same, step by step.**
 
 1. **Host.** Ubuntu 24.04 LTS on LUKS2 with TPM2 unlock, swap off, Docker Engine 27+ with its compose plugin

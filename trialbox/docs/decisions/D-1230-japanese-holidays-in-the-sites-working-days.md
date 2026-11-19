@@ -23,21 +23,28 @@ holiday list existed only for plan dates (`tools/gen_calendar.py`).
    (holiday, substitute, citizens). It ships inside the images of the signed update bundle beside TrialBox's other
    own reference files; it is read from there, not from the reference-data pack in the database, because its readers
    (the console's mails, the orchestrator's visit windows) run on every request and the pack is optional on a box.
-   A new year's list comes with an update; the schedule page says how far the list goes.
+   A new year's list comes with an update, written by `tools/holidays_import.py` from the file as published (its
+   sha256 checked against the register row); the schedule page and the health line warn 90 days before the list
+   ends, and the health line is red once it has ended (holidays would then count as working days).
 2. **The country is the site's** (`derived.country_of(site.tz)`). A site with no country, or of a country with no
    file, has Monday to Friday exactly as before, and the site's changes below are not read.
 3. **The New Year break** is the country's default (Japan: 12-29 to 01-03) and the site's to change, with its own
    days off and the holidays it works: `TB_NEW_YEAR_BREAK` (`MM-DD/MM-DD` or `none`), `TB_DAYS_OFF`,
-   `TB_DAYS_OPEN` (declared settings in `deploy/.env`). The settings wizard asks the break for a country with a
-   holiday list and writes it only when it differs; the other two go through the answers file's `env_extra`. A value
-   that cannot be read is shown on the schedule page and not used.
+   `TB_DAYS_OPEN` (declared settings in `deploy/.env`). A break starts in December, ends in January and lasts at
+   most 14 days; days are strict `YYYY-MM-DD`; a day both off and open is a problem. The settings wizard asks the
+   break for a country with a holiday list and writes it only when it differs; the other two go through the answers
+   file's `env_extra`. A value that cannot be read is refused by the wizard and stops the box at start-up
+   (`tb_common.config`); a calendar built without it lists it and leaves it out.
 4. **The mails.** On a day off the coordinator's digest is what a weekend gives (the overdue SAE reports only, logged
    `N2-SAE`), and the full digest comes on the next working day; the investigator's weekly list (clinic days
    unknown) goes on the week's first working day. The administrators' health mail stays daily.
 5. **Safety is not delayed.** The SAE clocks never read the calendar: deadlines stay calendar days, and the SAE mails
-   (N1's count, N2's reports, the case mailed at once) go every day.
+   (N1's count, N2's reports, the case mailed at once) go every day. No calendar fault can stop one: a builder that
+   fails on the site's calendar is built again with Monday to Friday, and one person's mail that cannot be built does
+   not stop the others' in the round.
 6. **Visit windows** count working days only for a visit the protocol counts that way (a per-visit choice on the
-   schedule page, stored with the schedule: the data core's version 10). Its days before and after are the site's
+   schedule page, shown only at a site whose country has a holiday list, stored with the schedule: the data core's
+   version 10). Its days before and after are the site's
    working days; the due day stays the protocol's day number. Other visits count calendar days as before. The
    possible-deviation check reads the same windows.
 

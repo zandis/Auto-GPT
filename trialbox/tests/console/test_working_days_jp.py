@@ -19,6 +19,7 @@ import shutil
 import subprocess
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -182,13 +183,16 @@ def test_the_schedule_page_stores_working_days_and_lists_the_days_off(
     sched = {"csrf": csrf, "action": "save", "visit": ["v1", "v2", ""], "label": ["", "", ""], "day": ["7", "28", ""],
              "before": ["1", "2", ""], "after": ["1", "3", ""], "anchor": ["enrolment"] * 3,
              "unit": ["days", "working", "days"]}  # fmt: skip
+    # the test box is in Taipei: no holiday list, so no unit column and no days-off section (as on master)
+    page = c.get("/studies/GZQO/schedule").text
+    assert 'name="unit"' not in page and 'data-testid="days-off"' not in page and "Window counted in" not in page
+    assert page.count("<th>") == 6
+    # a site in Japan: the column, the next 90 days off with the holiday's own name
+    monkeypatch.setattr(workdays, "for_zone", lambda _tz, env=None: for_country("JP", {"TB_DAYS_OFF": "x"}))
     r = c.post("/studies/GZQO/schedule", data=sched, follow_redirects=True)
     assert 'data-testid="schedule-saved"' in r.text
     assert re.search(r'data-testid="sched-unit-1"[^>]*>.*?<option value="working" selected>', r.text)
     assert not re.search(r'data-testid="sched-unit-0"[^>]*>.*?<option value="working" selected>', r.text)
-    assert 'data-testid="days-off"' not in r.text  # the test box is in Taipei: no holiday list, no section
-    # a site in Japan: the next 90 days off, with the holiday's own name
-    monkeypatch.setattr(workdays, "for_zone", lambda _tz, env=None: for_country("JP", {"TB_DAYS_OFF": "x"}))
     lb["clock"]["now"] = datetime(2026, 11, 18, 1, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
     for lang, title, why in (("en", "Days off at this site", "public holiday"), ("ja", "この施設の休日", "祝日"),
                              ("zh-TW", "本院休假日", "國定假日")):  # fmt: skip
@@ -227,3 +231,126 @@ def test_the_schedule_page_with_its_days_off_fits_a_phone_in_three_languages(
     )  # fmt: skip
     res = json.loads(r.stdout.strip().splitlines()[-1])
     assert r.returncode == 0 and res["failed"] == 0, (res.get("results"), r.stderr[-2000:])
+
+
+def test_the_schedule_page_says_when_the_holiday_list_runs_out(
+    lb: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(workdays, "for_zone", lambda _tz, env=None: for_country("JP", {}))
+    c, _csrf = login(lb["app"], "crc", PW)
+    for now, words in ((datetime(2027, 6, 1, 1, 0, tzinfo=ZoneInfo("Asia/Tokyo")), None),
+                       (datetime(2027, 11, 1, 1, 0, tzinfo=ZoneInfo("Asia/Tokyo")), "must bring the next year"),
+                       (datetime(2028, 2, 1, 1, 0, tzinfo=ZoneInfo("Asia/Tokyo")), "now count as working days")):  # fmt: skip
+        lb["clock"]["now"] = now
+        page = c.get("/studies/GZQO/schedule").text
+        assert ('data-testid="days-off-runs-out"' in page) == (words is not None)
+        assert words is None or (words in page and "2027-12-31" in page)
+
+
+# ---------------------------------------------------------------------------------------------- the review of #1126
+TOKYO_BK = {"cfg": SimpleNamespace(settings=SimpleNamespace(site=SimpleNamespace(tz="Asia/Tokyo")))}
+
+
+def _tokyo(life: dict[str, Any] | None = None) -> Any:
+    from console.sitestore import SiteStore
+
+    from tests.console.test_study_state_d386 import _helpers
+
+    store = SiteStore()
+    store.save_notify_person(NotifyPerson("pi", None, lang="en"))
+    store.save_notify_person(NotifyPerson("crc", None, lang="en"))
+    h = _helpers(store, life=life)
+    h.bk = SimpleNamespace(registry_rows=lambda _rs: [], **TOKYO_BK)
+    rows = [_row("1" * 16, "2026-11-24T09:00:00+09:00"), _row("2" * 16, "2026-11-26T10:00:00+09:00")]
+    h.week_bundle = lambda _sess, _rs: {"rows": [dict(r) for r in rows], "cl": None}
+    return h
+
+
+def test_collect_reads_the_sites_calendar_for_a_tokyo_site() -> None:
+    """The review's mutation: ``site_calendar`` returning Monday to Friday always went unseen. The real round, a
+    Tokyo site: 勤労感謝の日 2026-11-23 (a Monday) gives no list and no digest; Tuesday gives both."""
+    h = _tokyo()
+    assert notify.site_calendar(h).country == "JP"
+    assert notify.collect(h, date(2026, 11, 23)) == []
+    got = {n.kind: n for n in notify.collect(h, date(2026, 11, 24))}
+    assert set(got) == {"N1", "N2"} and "first working day" in got["N1"].body
+    h.bk = SimpleNamespace(registry_rows=lambda _rs: [])  # no site zone: Monday to Friday, as before
+    assert {n.kind for n in notify.collect(h, date(2026, 11, 23))} == {"N1"}  # the Monday list (no visit that day)
+
+
+def test_an_investigator_without_clinic_days_gets_the_sae_mail_on_a_holiday() -> None:
+    life = {"today": [], "week": [], "overdue": [], "reports": [], "sae": 1}
+    for day in (LABOUR_DAY, NEW_YEAR, BREAK, SEIJIN, date(2027, 1, 13)):
+        n1 = notify.build_n1(PI, NotifyPerson("pi", None, lang="en"), day, [("GZQO", [])], {"GZQO": life}, cal=JP)
+        assert n1 is not None and n1.counts["sae"] == 1, day
+    got = notify.collect(_tokyo(life), SEIJIN, ("N1",))
+    assert len(got) == 1 and got[0].counts["sae"] == 1
+
+
+class _Broken(workdays.Calendar):
+    """A calendar that cannot answer (a fault in the site's days off): the safety mails must not depend on it."""
+
+    def next_working_day(self, d: date) -> date:
+        raise ValueError("no working day")
+
+    def is_working_day(self, d: date) -> bool:
+        raise ValueError("no working day")
+
+
+def test_a_calendar_fault_never_stops_a_safety_mail() -> None:
+    life = {"today": [], "week": [], "overdue": [], "sae": 1,
+            "reports": [{"short": "aaaaaaaa", "due": "2027-01-10", "party": "sponsor"}]}  # fmt: skip
+    broken = _Broken("JP", workdays.holidays("JP"))
+    n1 = notify.build_n1(PI, NotifyPerson("pi", None, lang="en"), SEIJIN, [("GZQO", [])], {"GZQO": life}, cal=broken)
+    assert n1 is not None and n1.counts["sae"] == 1
+    h = _tokyo(life)
+    original = notify.site_calendar
+    try:
+        notify.site_calendar = lambda _h: broken  # type: ignore[assignment]
+        got = {n.kind: n for n in notify.collect(h, SEIJIN)}
+    finally:
+        notify.site_calendar = original
+    assert got["N1"].counts["sae"] == 1 and got["N2"].counts["sae_reports"] == 1  # built again, Monday to Friday
+
+
+def test_one_mail_that_cannot_be_built_does_not_stop_the_others(monkeypatch: pytest.MonkeyPatch) -> None:
+    h = _tokyo()
+
+    def boom(*_a: Any, **_k: Any) -> None:
+        raise RuntimeError("one builder fails")
+
+    monkeypatch.setattr(notify, "build_n1", boom)
+    got = notify.collect(h, date(2026, 11, 24))
+    assert [n.kind for n in got] == ["N2"]
+
+
+def test_the_health_line_carries_the_calendar(lb: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    h = lb["app"].state.helpers
+    assert all(c.name != "calendar" for c in h.health().checks)  # Taipei: no line, as before
+    monkeypatch.setattr(workdays, "for_zone", lambda _tz, env=None: for_country("JP", {}))
+    lb["clock"]["now"] = datetime(2028, 1, 4, 1, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
+    line = next(c for c in h.health().checks if c.name == "calendar")
+    assert line.level == "red" and "2027-12-31" in line.text and h.health().level == "red"
+
+
+def test_the_data_core_upgrade_adds_the_working_days_column(db_url: str) -> None:
+    """A data core at version 9 (master before 10C-14), with a saved schedule, is migrated by the next start: the
+    column is added, the old schedule reads as calendar days, and a working-days visit can be saved."""
+    from datacore import lifecycle as life_mod
+    from datacore import sponsor
+    from datacore import store as dstore
+    from tb_common.db import Database
+
+    with Database.connect(db_url, "datacore") as db:
+        db.migrate([dstore.SCHEMA, life_mod.SCHEMA, *life_mod.SAE_MIGRATIONS, sponsor.SCHEMA, dstore.HISTORY_REASON])
+        db.execute("INSERT INTO schedule (study, visit, seq, labels, anchor, day, win_before, win_after, origin, at) "
+                   "VALUES ('UPG', 'v1', 0, '{}', 'enrolment', 7, 1, 1, 'trialbox', '2026-11-01')")  # fmt: skip
+    dc = dstore.DataCore(db_url)
+    try:
+        life = life_mod.Lifecycle(dc)
+        assert life.schedule("UPG") == [Visit("v1", 7, 1, 1)]
+        life.set_schedule("UPG", [Visit("v1", 7, 1, 1, working_days=True)], "trialbox", "2026-11-19")
+        assert life.schedule("UPG")[0].working_days and life.schedule_on("UPG", date(2027, 1, 1))[0].working_days
+    finally:
+        dc.close()

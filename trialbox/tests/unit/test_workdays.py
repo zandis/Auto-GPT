@@ -106,11 +106,76 @@ def test_a_site_changes_its_break_and_its_own_days() -> None:
 
 def test_settings_that_cannot_be_read_are_shown_not_guessed() -> None:
     cal = for_country("JP", {"TB_NEW_YEAR_BREAK": "29 Dec", "TB_DAYS_OFF": "2027-02-30,2027-08-13"})
-    assert cal.problems == ("TB_NEW_YEAR_BREAK=29 Dec", "TB_DAYS_OFF/TB_DAYS_OPEN: 2027-02-30")
+    assert len(cal.problems) == 2 and cal.problems[0].startswith("TB_NEW_YEAR_BREAK: the New Year break is MM-DD")
+    assert cal.problems[1] == "TB_DAYS_OFF/TB_DAYS_OPEN: '2027-02-30' is not a day (YYYY-MM-DD)"
     assert cal.day_off(date(2026, 12, 29)) == "new_year"  # the country's break stands
     assert cal.day_off(date(2027, 8, 13)) == "site"  # the readable part is used
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["01-03/12-29", "12-28/12-27", "12-01/01-31", "11-30/01-03", "12-29/02-01", "12-32/01-03", "12-29", "13-01/01-03"],
+)
+def test_a_new_year_break_is_december_to_january_and_at_most_14_days(text: str) -> None:
+    """The review of #1126 (1): 01-03/12-29 read as 360 days off and 12-28/12-27 as 365, with no problem said."""
+    with pytest.raises(ValueError, match="from a day in December to a day in January, at most 14 days"):
+        workdays.parse_break(text)
+    cal = for_country("JP", {"TB_NEW_YEAR_BREAK": text})
+    assert cal.problems and cal.new_year == ((12, 29), (1, 3))  # shown, and the country's break stands
+    assert cal.next_working_day(date(2027, 6, 7)) == date(2027, 6, 7)
+
+
+def test_the_longest_break_allowed() -> None:
+    assert workdays.parse_break("12-21/01-03") == ((12, 21), (1, 3))  # 14 days
     with pytest.raises(ValueError):
-        workdays.parse_break("13-01/01-03")
+        workdays.parse_break("12-20/01-03")  # 15 days
+    assert workdays.parse_break(" none ") is None
+
+
+@pytest.mark.parametrize("text", ["20261228", "2026-W52-1", "2026-12-28T00:00", "2026-1-5", "26-12-28"])
+def test_a_day_off_is_written_yyyy_mm_dd_on_every_python(text: str) -> None:
+    """3.11 widened ``date.fromisoformat`` (20261228, 2026-W52-1); 3.10 refuses them. One strict pattern for both."""
+    cal = for_country("JP", {"TB_DAYS_OFF": text})
+    assert cal.off == frozenset() and cal.problems == (f"TB_DAYS_OFF/TB_DAYS_OPEN: {text!r} is not a day (YYYY-MM-DD)",)
+
+
+def test_a_day_both_off_and_open_is_a_problem() -> None:
+    cal = for_country("JP", {"TB_DAYS_OFF": "2027-08-13", "TB_DAYS_OPEN": "2027-08-13"})
+    assert cal.problems == ("TB_DAYS_OFF and TB_DAYS_OPEN both name 2027-08-13",)
+
+
+def test_the_box_does_not_start_with_an_unreadable_working_day_setting() -> None:
+    from tb_common.config import ConfigError, load_env
+
+    for env in ({"TB_NEW_YEAR_BREAK": "01-03/12-29"}, {"TB_DAYS_OFF": "20261228"},
+                {"TB_DAYS_OFF": "2027-08-13", "TB_DAYS_OPEN": "2027-08-13"}):  # fmt: skip
+        with pytest.raises(ConfigError, match="TB_"):
+            load_env(environ=env)
+    load_env(environ={"TB_NEW_YEAR_BREAK": "12-30/01-03", "TB_DAYS_OFF": "2027-08-13", "TB_DAYS_OPEN": "2027-01-04"})
+
+
+# ---------------------------------------------------------------------------------------------- the list runs out
+@pytest.mark.parametrize(
+    ("today", "runs_out", "level"),
+    [(date(2027, 9, 1), "", "ok"), (date(2027, 10, 3), "soon", "warn"), (date(2027, 12, 31), "soon", "warn"),
+     (date(2028, 1, 1), "past", "red"), (date(2028, 3, 20), "past", "red")],
+)  # fmt: skip
+def test_the_holiday_list_says_before_it_runs_out(today: date, runs_out: str, level: str) -> None:
+    """The review of #1126 (2): the file ends with 2027; from 90 days before, the schedule page and the health line
+    say so, and from 2028-01-01 (when 2028's holidays would count as working days) the line is red."""
+    assert JP.runs_out(today) == runs_out
+    line = workdays.health(JP, today)
+    assert line is not None and line[0] == level and ("2027-12-31" in line[1])
+    assert workdays.health(WEEKDAYS_ONLY, today) is None  # no list, no line
+    assert JP.is_working_day(date(2028, 3, 20))  # 春分の日 2028: not in the list, hence the red line
+
+
+def test_unreadable_settings_are_a_health_warning() -> None:
+    cal = for_country("JP", {"TB_DAYS_OFF": "x"})
+    assert workdays.health(cal, date(2027, 6, 1)) == (
+        "warn",
+        "working-day settings not used: TB_DAYS_OFF/TB_DAYS_OPEN: 'x' is not a day (YYYY-MM-DD)",
+    )
 
 
 # ---------------------------------------------------------------------------------------------- unchanged elsewhere
@@ -153,7 +218,7 @@ def test_the_module_imports_under_python_3_10() -> None:
     tree = ast.parse(src)
     imported = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
     imported |= {(n.module or "").split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-    assert imported <= {"__future__", "csv", "os", "re", "collections", "dataclasses", "datetime", "functools",
+    assert imported <= {"__future__", "contextlib", "csv", "os", "re", "collections", "dataclasses", "datetime", "functools",
                         "pathlib", "tb_common"}  # fmt: skip
 
 
@@ -175,3 +240,50 @@ def test_the_wizard_asks_the_new_year_break_for_japan_only() -> None:
     assert errors == []
     assert sw.new_year_env("jp", "Dec 28", errors) == {} and errors[-1].startswith("new_year_break:")
     assert sw.new_year_env("tw", "12-28/01-04", errors) == {} and "no holiday list" in errors[-1]
+    for bad in ("01-03/12-29", "12-28/12-27"):  # the review of #1126 (1): never written
+        assert sw.new_year_env("jp", bad, errors) == {} and "at most 14 days" in errors[-1]
+
+
+# ---------------------------------------------------------------------------------------------- the yearly import
+def _published(rows: list[tuple[str, str]]) -> bytes:
+    """A file in the Cabinet Office's layout (CP932, its header); made here, nothing is fetched."""
+    from tools.holidays_import import HEADER
+
+    text = ",".join(HEADER) + "\r\n" + "".join(f"{d},{n}\r\n" for d, n in rows)
+    return text.encode("cp932")
+
+
+def test_the_importer_writes_the_file_from_the_published_csv(tmp_path: Path) -> None:
+    import hashlib
+
+    from tools import holidays_import as hi
+
+    src = tmp_path / "syukujitsu.csv"
+    src.write_bytes(_published([("2026/5/3", "憲法記念日"), ("2026/5/4", "みどりの日"), ("2026/5/5", "こどもの日"),
+                                ("2026/5/6", "休日"), ("2026/9/21", "敬老の日"), ("2026/9/22", "休日"),
+                                ("2026/9/23", "秋分の日"), ("2029/1/1", "元日")]))  # fmt: skip
+    sha = hashlib.sha256(src.read_bytes()).hexdigest()
+    out = tmp_path / "holidays_jp.csv"
+    assert hi.main([str(src), "--sha256", sha, "--years", "2026-2028", "--out", str(out)]) == 0
+    assert out.read_text(encoding="utf-8").splitlines() == [
+        "date,name,kind", "2026-05-03,憲法記念日,holiday", "2026-05-04,みどりの日,holiday",
+        "2026-05-05,こどもの日,holiday", "2026-05-06,休日,substitute", "2026-09-21,敬老の日,holiday",
+        "2026-09-22,休日,citizens", "2026-09-23,秋分の日,holiday",
+    ]  # fmt: skip
+    assert hi.main([str(src), "--sha256", sha, "--years", "2026-2028", "--out", str(out), "--check"]) == 0
+    assert hi.main([str(src), "--sha256", "0" * 64, "--years", "2026-2028", "--out", str(out)]) == 2  # not the file
+    (tmp_path / "bad.csv").write_bytes("date,name\n".encode("cp932"))
+    bad_sha = hashlib.sha256((tmp_path / "bad.csv").read_bytes()).hexdigest()
+    assert hi.main([str(tmp_path / "bad.csv"), "--sha256", bad_sha, "--years", "2026", "--out", str(out)]) == 2
+
+
+def test_the_committed_file_is_in_the_importers_form() -> None:
+    """The committed list is what the importer writes (its order, its kinds); the source file itself was checked
+    against the register's sha256 when it was imported (2026-11-19, ``--check``: matches)."""
+    from tools import holidays_import as hi
+
+    path = ROOT / "libs/tb_common/refdata_src/holidays_jp.csv"
+    rows = {date.fromisoformat(r["date"]): r["name"] for r in csv.DictReader(path.open(encoding="utf-8"))}
+    assert hi.render(rows, 2025, 2027) == path.read_text(encoding="utf-8")
+    reg = (ROOT / "docs/licences/register.csv").read_text(encoding="utf-8")
+    assert "jp-holidays," in reg and "cec37a743c96995cdb9cb52b685c9003634682a9b0e1a640a6b9b96881fe964a" in reg

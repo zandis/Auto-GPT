@@ -1047,9 +1047,13 @@ def visit_status(v: Visit, anchor: date | None, vals: dict[str, str], state: str
     """One visit's window and state on ``today`` (the site's local date); ``cal``, the site's working days, counts
     the window of a visit whose protocol says working days (10C-14)."""
     due = anchor + timedelta(days=v.day) if anchor else None
+    start: date | None = None
+    end: date | None = None
     if due is not None and v.working_days:
-        start: date | None = cal.add_working_days(due, -v.before)
-        end: date | None = cal.add_working_days(due, v.after)
+        try:
+            start, end = cal.add_working_days(due, -v.before), cal.add_working_days(due, v.after)
+        except ValueError:  # a site's days off leave no working day (TB_DAYS_OFF): calendar days, never no window
+            start, end = due - timedelta(days=v.before), due + timedelta(days=v.after)
     else:
         start = due - timedelta(days=v.before) if due else None
         end = due + timedelta(days=v.after) if due else None

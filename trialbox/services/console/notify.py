@@ -45,6 +45,7 @@ Run on a schedule with ``python -m console.notify --at 07:00`` (N1) and ``--at 0
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -64,6 +65,7 @@ from console.i18n import LANGS, translate
 from console.sitestore import NotifyPerson
 from console.timefmt import site_zone
 
+log = logging.getLogger(__name__)
 MAX_ROWS = 10  # per digest section; the rest is one line and the link
 # D-386 (LIFE-008): the states whose enrolled participants' visits and serious AEs are still mailed. Screening rows
 # (the list, marks, calls, new pre-screens) go out only for an open study (``StudyState.runs``); a paused study keeps
@@ -155,8 +157,11 @@ def build_n1(
         why = translate(lang, "n1.why.clinic", day=today.isoformat()) if mine else translate(lang, "n1.why.sae")
     else:
         monday = today - timedelta(days=today.weekday())
-        first = cal.next_working_day(monday)  # Monday, or the week's first working day after a holiday (10C-14)
-        week_day = today == first and first - monday < timedelta(days=7)
+        try:  # Monday, or the week's first working day after a holiday (10C-14)
+            first = cal.next_working_day(monday)
+            week_day = today == first and first - monday < timedelta(days=7)
+        except ValueError:  # the calendar cannot say: Monday, as before; the SAE alert below never waits on it
+            week_day = today.weekday() == 0
         if not week_day and not alert:
             return None
         mine = all_rows if week_day else []
@@ -344,12 +349,10 @@ def site_calendar(h: Any) -> Calendar:
     ``TB_DAYS_OFF``, ``TB_DAYS_OPEN``). A test app with no zone has Monday to Friday."""
     from tb_common.workdays import for_zone
 
-    zone = getattr(h, "zone", None)
-    if zone is None:
-        try:
-            zone = site_zone(h.bk)
-        except Exception:  # a bare test app: no site, no days off
-            return WEEKDAYS_ONLY
+    try:
+        zone = site_zone(h.bk)
+    except Exception:  # no readable zone: the box does not start (D-270); a bare test app has no days off
+        return WEEKDAYS_ONLY
     return for_zone(str(getattr(zone, "key", "") or ""))
 
 
@@ -444,11 +447,23 @@ def _collect(h: Any, today: date, kinds: Sequence[str] = ("N1", "N2")) -> list[N
                 refs = [x for x in team.latest_referrals(r.id).values() if x.open and x.pid in listed] if team else []
                 studies.append((r.id, wk_rows, {"marks": store.all_marks(r.id), "retry": retry, "registry": reg,
                                                 "nos": nos, "referrals": refs}))  # fmt: skip
-        n = (
-            build_n1(u, person, today, studies, life, cal)
-            if kind == "N1"
-            else build_n2(u, person, today, studies, store.last_notice("N2", u.username), life, health_now(), cal)
-        )
+        last = store.last_notice("N2", u.username) if kind == "N2" else None
+
+        def build(c: Calendar, k: str = kind, who: User = u, p: NotifyPerson = person, st: list[Any] = studies,
+                  lf: dict[str, dict[str, Any]] = life, before: str | None = last) -> Notice | None:  # fmt: skip
+            if k == "N1":
+                return build_n1(who, p, today, st, lf, c)
+            return build_n2(who, p, today, st, before, lf, health_now(), c)
+
+        try:
+            n = build(cal)
+        except Exception:  # 10C-14: a calendar fault never stops a mail; the health line says what is wrong with it
+            log.exception("notice %s for one person: built again without the site's days off", kind)
+            try:
+                n = build(WEEKDAYS_ONLY)
+            except Exception:  # one person's mail that cannot be built does not stop the others' in this round
+                log.exception("notice %s for one person could not be built", kind)
+                continue
         if n is not None:
             out.append(n)
     return out

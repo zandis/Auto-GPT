@@ -565,6 +565,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         until = cal.holidays.until.isoformat() if cal.holidays and cal.holidays.until else ""
         return h.page(request, "life_schedule.html", sess, rs=rid, schedule=sched, blank=SCHEDULE_ROWS, conns=conns,
                       days_off=off, days_off_until=until, days_off_problems=list(cal.problems),
+                      days_off_runs_out=cal.runs_out(day), units=cal.has_days_off,
                       editable=can_enter(sess.user), saved=saved[:10], refused=err[:300])  # fmt: skip
 
     @app.post("/studies/{rs}/schedule")
