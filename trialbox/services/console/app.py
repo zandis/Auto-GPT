@@ -42,6 +42,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from tb_common import prefilter
 from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
 from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_allowed, role_rights
@@ -105,6 +106,8 @@ from console.timefmt import local_time, local_today, site_zone
 HERE = Path(__file__).resolve().parent
 #: D-1245: how far back a protocol's audit rows are read while it is compiled (the model answers since its start)
 COMPILE_ROWS = 5000
+#: 10E-12 (D-1259): how many of a study's newest finished nightly jobs the night's funnel reads (the orchestrator's cap)
+NIGHT_JOBS = 500
 COOKIE = "tb_console"
 LOGIN_COOKIE = "tb_console_login"
 LANG_COOKIE = "tb_console_lang"  # D-133: the language picked on the sign-in page (a preference, not a secret)
@@ -1804,6 +1807,7 @@ def create_app(
             screen=_screen_card(job, sess, revealed, bg=grant is not None),
             recheck=_recheck_share(job, sess, bg=grant is not None, read=budget_event),
             first_load=_first_load(job, sess, read=budget_event),
+            night=_night_funnel(job, sess),
             compile_answers=_compile_answers(job, recs_all) if reading else None,
             breakglass=grant,
         )
@@ -1881,6 +1885,33 @@ def create_app(
         if n > 0:
             out["nights"] = -(-waiting // n)
         return out
+
+    def _night_funnel(job: Job, sess: Session) -> dict[str, Any] | None:
+        """10E-12 (D-1259): the night's pre-filter funnel of the job's study, on a finished nightly job's page: the
+        pre-filter records (``JobMetrics.prefilter``) of the study's finished MICROBATCH jobs of this job's
+        ``run_date``, summed (``tb_common.prefilter.night_funnel``). Exact counts: an internal page (D-99). Only to an
+        account the study's own candidate list admits (the first-load card's rule, ``Helpers.admits_candidates``; no
+        break-glass grant opens it), asked before any other job is read. None, and nothing on the page, when the job
+        is not a finished nightly job with a record, or when the night's jobs cannot all be read (the newest
+        :data:`NIGHT_JOBS` of the study all belong to this night or a later one): no block, never a short count."""
+        rec = job.metrics.prefilter if job.metrics is not None else None
+        if job.type != "MICROBATCH" or job.state != "done" or rec is None or not job.ruleset or job.run_date is None:
+            return None
+        admits = helpers.admits_candidates
+        if admits is None or not admits(sess.user, job.ruleset):
+            return None
+        night = job.run_date
+        jobs = bk.list_jobs(NIGHT_JOBS, "done", ruleset=job.ruleset, type_="MICROBATCH")
+        if len(jobs) >= NIGHT_JOBS and all(j.run_date is None or j.run_date >= night for j in jobs):
+            return None
+        mine = {j.job_id: j for j in [*jobs, job]}
+        f = prefilter.night_funnel(mine.values(), job.ruleset, night)
+        if f is None:
+            return None
+        drops = prefilter.STAGES[:-1]  # the last stage is what is left: listed
+        rows = [{"key": s, "removed": f.drops[s], "left": f.remaining[i + 1]} for i, s in enumerate(drops)]
+        return {"study": f.ruleset, "date": night.isoformat(), "jobs": f.jobs, "in_scope": f.in_scope,
+                "rows": rows, "listed": f.listed}  # fmt: skip
 
     _case_pids: dict[str, str] = {}  # job id -> its subject's pseudonym: a job's chart number never changes
 

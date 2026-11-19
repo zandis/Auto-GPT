@@ -66,7 +66,7 @@ from typing import Any
 
 from criteria_compiler.semantics import codes_settle
 from matching import coded_values
-from tb_common import provenance
+from tb_common import prefilter, provenance
 from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
@@ -82,7 +82,7 @@ from tb_contracts import (
     dump,
 )
 
-from orchestrator import answer_store, prefilter
+from orchestrator import answer_store
 from orchestrator import excluded as excluded_lines
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
@@ -166,7 +166,7 @@ NOT_READ = (*NOT_ASKED, Reason.NO_NOTES.value, Reason.REFUSED.value, Reason.HUMA
 def prefilter_stage(
     rs: Ruleset, pv: PatientVerdicts | None, consent_out: frozenset[str], read: list[CriterionVerdict] | None = None
 ) -> str:
-    """10E-12 (D-1259): the stage an evaluated patient left the night's funnel at (``orchestrator.prefilter``).
+    """10E-12 (D-1259): the stage an evaluated patient left the night's funnel at (``tb_common.prefilter``).
     ``read``: the answers this evaluation gave, when they are fewer than the row's (the re-check answers some
     criteria and keeps the stored rest: only its own answers say whether the model read the notes tonight). No
     evaluation (``pv`` None: the register removed the patient inside the screen) is an opt-out."""

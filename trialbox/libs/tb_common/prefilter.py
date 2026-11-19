@@ -28,9 +28,10 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+from tb_contracts import PrefilterRecord
+
 from tb_common.reasons import Reason
 from tb_common.smallcell import funnel_drops_publishable
-from tb_contracts import PrefilterRecord
 
 #: the drops, in the funnel's order; ``listed`` is what is left at the end
 STAGES = ("opted_out", "not_due", "carried", "coded_excluded", "no_model", "model_not_listed", "listed")

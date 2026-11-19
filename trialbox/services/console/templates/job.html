@@ -62,6 +62,14 @@
 <p data-testid="first-load-line">{{ t('job.firstload.line', n=first_load.n, waiting=first_load.waiting) }}</p>
 {% if first_load.nights %}<p class="hint" data-testid="first-load-nights">{{ t('job.firstload.nights', n=first_load.n, nights=first_load.nights) }}</p>
 {% endif %}</section>
+{% endif %}{% if night %}<section class="card" data-testid="night-funnel">
+<h2>{{ t('job.prefilter.title') }}</h2>
+<p class="hint" data-testid="night-funnel-what">{{ t('job.prefilter.what', study=night.study, date=night.date, jobs=night.jobs) }}</p>
+<table data-testid="night-funnel-table"><thead><tr><th scope="col">{{ t('job.prefilter.stage') }}</th><th scope="col">{{ t('job.prefilter.removed') }}</th><th scope="col">{{ t('job.prefilter.left') }}</th></tr></thead>
+<tbody><tr data-stage="in_scope"><th scope="row">{{ t('job.prefilter.in_scope') }}</th><td></td><td>{{ night.in_scope }}</td></tr>
+{% for r in night.rows %}<tr data-stage="{{ r.key }}"><th scope="row">{{ t('job.prefilter.' ~ r.key) }}</th><td>{{ r.removed }}</td><td>{{ r.left }}</td></tr>
+{% endfor %}<tr data-stage="listed"><th scope="row">{{ t('job.prefilter.listed') }}</th><td></td><td>{{ night.listed }}</td></tr></tbody></table>
+</section>
 {% endif %}{% if recheck %}
 <section class="card" data-testid="recheck-share">
 <h2>{{ t('job.recheck.title') }}</h2>

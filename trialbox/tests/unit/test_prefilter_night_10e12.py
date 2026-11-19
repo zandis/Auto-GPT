@@ -18,9 +18,9 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from orchestrator import prefilter
 from orchestrator.scenarios import microbatch
 from orchestrator.scenarios.evaluate import PatientVerdicts, row
+from tb_common import prefilter
 from tb_common.smallcell import funnel_drops_publishable
 from tb_contracts import CriterionVerdict, Evidence, JobMetrics, PrefilterRecord
 
