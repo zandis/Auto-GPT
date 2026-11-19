@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://trialbox.local/schemas/v1/study_protocol.schema.json",
+  "title": "StudyProtocol",
+  "description": "The protocol part of a study manifest (10D-2, D-1366; review 14 M14-1): what the coordinating centre fixes for every site, read from rulesets/<ID>/ by tb_common.study_manifest. Its canonical serialisation (keys sorted, no spaces, UTF-8) hashes to criteria_sha256, the same on every site that adopts it; a site edit to any of it is refused. The canonical form is written in D-1366. Schema version 1.0.0.",
+  "type": "object",
+  "required": ["schema", "criteria_sha256", "manifest", "files"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "tb-study-protocol/1"},
+    "criteria_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the canonical serialisation of schema, manifest and files (every key but this one)"},
+    "manifest": {
+      "type": "object",
+      "description": "the protocol fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it (as the file writes it, no default added, nulls left out); models carries only judge_prompt, the judge's prompt pin of a manifest without prompt_pins (which model serves is the site's)",
+      "propertyNames": {
+        "enum": [
+          "id", "kind", "title", "trial_alias", "sponsor", "version", "source_documents", "protocol_version",
+          "protocol_date", "language", "index_date_rule", "library", "criteria", "thresholds", "variants", "twpas",
+          "docx_template", "cohort", "population", "nct_id", "terminology_release", "prompt_pins", "derived_pins",
+          "source_last_update", "models"
+        ]
+      }
+    },
+    "files": {
+      "type": "object",
+      "description": "the protocol's files of rulesets/<ID>/ by relative path (ir/*.json, valuesets/*.json, every file under cql/elm/, cql/*.cql, sql/*.sql, labels.yaml, tests/patients.ndjson, tests/expected.json, and the file docx_template names), each the sha256 of its canonical bytes (D-1366); a criterion IR file without the site's review record (who, when, comment, approved or draft); no other file is hashed",
+      "additionalProperties": {"type": "string", "description": "lowercase hex sha256; the key is a path relative to rulesets/<ID>/, never absolute and never with .."}
+    }
+  }
+}
