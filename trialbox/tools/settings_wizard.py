@@ -148,13 +148,6 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ),
     ("tls_cert_file", "Hospital certificate and chain, PEM (hospital mode)", "", "str"),
     ("tls_key_file", "Its key, PEM (hospital mode)", "", "str"),
-    # 10K-21 (D-1365): asked for Caddy's own CA only; recorded with today's date (tls_root_confirmed_on in a file)
-    (
-        "tls_root_confirmed_by",
-        "Name of the hospital IT person who confirmed Caddy's root certificate is on every clinic PC (empty: not yet)",
-        "",
-        "str",
-    ),
     # D-138: log retention per country (tb_common.retention.DEFAULTS); "" = from the report language (ja -> jp)
     (
         "retention_rules",
@@ -304,8 +297,6 @@ def _asked(key: str, cd: site_country.CountryDefaults, out: dict[str, Any]) -> b
         return str(out.get("data_source_type")) == "ssmix2"
     if key in NO_RULES_DAYS:
         return _no_rules(cd, out)
-    if key == "tls_root_confirmed_by":  # 10K-21: Caddy's own CA only
-        return str(out.get("tls_mode") or "").strip().lower() == "internal"
     if key == "new_year_break":
         return workdays.holidays(cd.country) is not None
     return True
@@ -619,7 +610,7 @@ def build(
                 "policy), and personal devices cannot open the console; the hospital's certificate is the first "
                 "choice (RUNBOOK §12)"
             )
-            tls_env |= root_confirmation(a, errors, warnings)
+            tls_env |= root_confirmation(a, warnings)
     else:
         warnings.append("tls_hostname is empty: install.sh asks for it (a PRODUCTION box runs only behind https)")
     sae_to = str(a.get("sae_office_mailbox") or "").strip()
@@ -797,28 +788,22 @@ NAME_RULE = (  # 10K-21: tb_common.box_answers.person_name, said
 )
 
 
-def root_confirmation(a: dict[str, Any], errors: list[str], warnings: list[str]) -> dict[str, str]:
-    """10K-21 (D-1365): with Caddy's own CA, who in hospital IT confirmed its root certificate is on every clinic PC,
-    and on which day (``tls_root_confirmed_on``, else today). Not answered is a warning, never a refusal: a new box
-    makes its root at Caddy's first start; ``doctor`` (named_choices) reports it until it is recorded."""
-    from tb_common.box_answers import confirmed_on, person_name
+def root_confirmation(a: dict[str, Any], warnings: list[str]) -> dict[str, str]:
+    """10K-21 (D-1365): with Caddy's own CA, IT's confirmation that its root certificate is on every clinic PC.
 
-    by = person_name(a.get("tls_root_confirmed_by"))
-    if by is None:
-        errors.append(f"tls_root_confirmed_by is not one plain name ({NAME_RULE})")
-        return {}
-    if not by:
-        warnings.append(
-            "tls_mode internal: nobody from hospital IT has confirmed that Caddy's root certificate is on every clinic "
-            "PC (tls_root_confirmed_by is empty); doctor warns until TB_TLS_ROOT_CONFIRMED_BY and "
-            "TB_TLS_ROOT_CONFIRMED_ON are in deploy/.env (RUNBOOK §12)"
-        )
-        return {}
-    on = confirmed_on(a.get("tls_root_confirmed_on"))
-    if on is None:
-        errors.append("tls_root_confirmed_on must be a day (YYYY-MM-DD), today or before")
-        return {}
-    return {"TB_TLS_ROOT_CONFIRMED_BY": by, "TB_TLS_ROOT_CONFIRMED_ON": on}
+    Review of #1175, S3: the wizard runs before Caddy's first start, when the root does not exist yet, so nothing it
+    is told can be a confirmation: it records none (an answer ``tls_root_confirmed_by`` is not written, and it says
+    so) and says the next action. The confirmation is recorded once the root exists: the box's first-run page (served
+    through Caddy, so its root is there), or ``TB_TLS_ROOT_CONFIRMED_BY`` and ``_ON`` in ``deploy/.env`` after IT has
+    pushed it; until then ``doctor`` (named_choices) WARNs on a PRODUCTION box. Never a refusal."""
+    given = str(a.get("tls_root_confirmed_by") or "").strip()
+    warnings.append(
+        "tls_mode internal: Caddy makes its root certificate at its first start; once hospital IT has pushed it to "
+        "every clinic PC, put TB_TLS_ROOT_CONFIRMED_BY (who in IT confirmed it) and TB_TLS_ROOT_CONFIRMED_ON "
+        "(YYYY-MM-DD) in deploy/.env; doctor warns until then (RUNBOOK §12)"
+        + ("; tls_root_confirmed_by in the answers is not recorded: the root does not exist yet" if given else "")
+    )
+    return {}
 
 
 def watcher_problem(

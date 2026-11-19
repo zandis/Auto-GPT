@@ -123,7 +123,7 @@
     <select id="chartno_kind" name="chartno_kind"><option value=""{% if not values.get('chartno_kind') %} selected{% endif %}>{{ t('firstrun.chartno.kind.none') }}</option>{% for k in chartno_kinds %}<option value="{{ k }}"{% if values.get('chartno_kind') == k %} selected{% endif %}>{{ t('firstrun.chartno.kind.' + k) }}</option>{% endfor %}</select>
     <label for="chartno_width">{{ t('firstrun.chartno.width') }}</label>
     <input id="chartno_width" name="chartno_width" inputmode="numeric" maxlength="2" value="{{ values.get('chartno_width', '') }}">{{ err('chartno_rule') }}
-  </fieldset>{% else %}{% if chartno_unread %}<p class="warn" data-testid="firstrun-chartno-unread">{{ t('firstrun.chartno.unread') }}</p>{% endif %}{{ err('chartno_rule') }}{% endif %}
+  </fieldset>{% else %}{% if chartno_unread %}<p class="warn" data-testid="firstrun-chartno-unread">{{ t('firstrun.chartno.unread.production' if production else 'firstrun.chartno.unread') }}</p>{% endif %}{{ err('chartno_rule') }}{% endif %}
   {% if not tpm %}<fieldset><legend>{{ t('firstrun.kek') }}</legend>
     <p class="hint">{{ t('firstrun.kek.help') }}</p>
     <label for="kek">{{ t('firstrun.kek.pass') }}</label>

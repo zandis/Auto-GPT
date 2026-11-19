@@ -299,7 +299,10 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
             if held is not False:  # D-710: "could not be read" is said as that, not as "holds patients"
                 errors["chartno_rule"] = "chartno_locked" if held else "chartno_unread"
         if answers is not None and h.production:  # 10K-21 (D-1365): what a PRODUCTION box may not leave silent
-            asked = bool(answers.chartno_rule) or box_holds_patients() is False  # not asked: the box's rule stays
+            held = None if answers.chartno_rule else box_holds_patients()
+            if not answers.chartno_rule and held is None:  # review of #1175, S2: unread is not "not asked"
+                errors.setdefault("chartno_rule", "chartno_unread_production")
+            asked = bool(answers.chartno_rule) or held is False  # held: not asked, the box's rule stays
             for gap in box_answers.production_gaps(answers, chartno_asked=asked):
                 errors.setdefault(gap.field, gap.code)
         pw = data.get("password", "")

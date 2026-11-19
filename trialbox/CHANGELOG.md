@@ -13,11 +13,11 @@ new heading with the version and date, in the same pull request that sets the ve
 - Silent set-up choices guarded (10K-21): a new PRODUCTION site must answer the chart-number question (choosing
   "as written" is an answer; leaving it empty is not), in the settings wizard and on the box's first-run page. A box
   names the person who opens its health page every working day (its backup alert route); the name is shown with the
-  route. With the box's own certificate authority both wizards ask who in hospital IT confirmed its root is on the
-  clinic PCs and record who and when. **An installed site is not stopped by the upgrade**: `doctor` warns, with the
-  line to add to `deploy/.env`, for each of the three it lacks (D-1365). A typed name holds letters, digits, single
-  spaces and a few marks only, and the wizard writes no `deploy/.env` value with a line break or control character
-  in it, so a name can never add or change another setting.
+  route. With the box's own certificate authority, who in hospital IT confirmed its root is on the clinic PCs, and
+  when, is recorded once the root exists (the box's first-run page, or two lines in `deploy/.env`). **An installed
+  site is not stopped by the upgrade**: `doctor` warns, with the line to add to `deploy/.env`, for each of the three
+  it lacks (D-1365). A typed name holds letters, digits, single spaces and a few marks only, and the wizard writes no
+  `deploy/.env` value with a line break or control character in it, so a name can never add or change a setting.
 - Dates on printed pages and the fiscal year 年度 (10C-13, 10C-15): a site may print dates in Western form (ISO, as
   before), Japanese era (令和8年11月18日) or both (2026年（令和8年）11月18日) on the feasibility report, the NHI
   navigation summary and application form, the CASE sheet and the released consent page (`site.printed_dates`); the

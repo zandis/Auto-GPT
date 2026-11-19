@@ -23,7 +23,6 @@ hospital IT must push the new root to the PCs again (§12, TLS step 3).
    the new end date.
 5. Delete the old key file. If the old key may have been copied, ask hospital IT to revoke the old certificate.
 
-**Internal CA: IT's confirmation (D-1365).** Record who in hospital IT confirmed Caddy's root is on the clinic PCs,
-and the day, as `TB_TLS_ROOT_CONFIRMED_BY` and `TB_TLS_ROOT_CONFIRMED_ON` (YYYY-MM-DD) in `deploy/.env` (the wizards
-ask it at set-up; the name follows the same rule as `TB_BACKUP_ALERT_WATCHER`, page 05). `doctor` (`named_choices`)
-WARNs on a PRODUCTION box until both are there.
+**Recording IT's confirmation** (D-1365). Once IT has pushed Caddy's root to the PCs, put `TB_TLS_ROOT_CONFIRMED_BY`
+(who) and `TB_TLS_ROOT_CONFIRMED_ON` (YYYY-MM-DD) in `deploy/.env`; the box's first-run page also asks it. `doctor`
+(`named_choices`) warns on a PRODUCTION box until both are there.

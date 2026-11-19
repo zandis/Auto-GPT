@@ -318,12 +318,15 @@ fi
 # WIZARD-ENV (D-1365): the wizard is told the site's environment, so PRODUCTION refuses a silent chart-number rule
 # and an unnamed health-page watcher. As ENVIRONMENT below decides it: --environment, a rehearsal's VALIDATION, a
 # TB_ENV written before, else PRODUCTION (D-127). A box's first-run page asks them itself (TB_BOX=1): not told there
+# Review of #1175, S1: a value that is not one of the four stops the install here, before anything is written (a
+# typo must not run the wizard unguarded and leave a settings.yaml the next run keeps)
 WIZ_ARGS=()
-if [ "${TB_BOX:-0}" != 1 ]; then
-  WIZ_ENV="$ENVIRONMENT"; [ -n "$WIZ_ENV" ] || { [ "$REHEARSAL" != 1 ] || WIZ_ENV=VALIDATION; }
-  WIZ_ENV="$(printf '%s' "${WIZ_ENV:-${PRE_ENV:-PRODUCTION}}" | tr '[:lower:]' '[:upper:]')"
-  case "$WIZ_ENV" in DEV|TEST|VALIDATION|PRODUCTION) WIZ_ARGS=(--environment "$WIZ_ENV") ;; esac
-fi
+WIZ_ENV="$ENVIRONMENT"; [ -n "$WIZ_ENV" ] || { [ "$REHEARSAL" != 1 ] || WIZ_ENV=VALIDATION; }
+WIZ_ENV="$(printf '%s' "${WIZ_ENV:-${PRE_ENV:-PRODUCTION}}" | tr '[:lower:]' '[:upper:]')"
+case "$WIZ_ENV" in
+  DEV|TEST|VALIDATION|PRODUCTION) [ "${TB_BOX:-0}" = 1 ] || WIZ_ARGS=(--environment "$WIZ_ENV") ;;
+  *) die "the environment '$WIZ_ENV' (--environment, or TB_ENV in deploy/.env) is not DEV, TEST, VALIDATION or PRODUCTION: nothing was written" ;;
+esac
 # ---- end of WIZARD-ENV (D-1365)
 SETTINGS_NEW=0
 if [ ! -f deploy/settings.yaml ]; then

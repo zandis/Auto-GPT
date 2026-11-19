@@ -179,6 +179,5 @@ health line warns 90 days before the list runs out and is red after it.
 `TB_CONSOLE_SSO_ROLE_HEADER` and `TB_CONSOLE_SSO_ROLE_MAP=ad-group:admin,crc-group:coordinator`. Behind TLS set
 `TB_CONSOLE_SECURE_COOKIE=1`; the doctor check fails without it in PRODUCTION (D-121).
 
-**Chart-number rule on a PRODUCTION site (D-1365).** On a PRODUCTION site the wizard (and a box's first-run page)
-does not keep `asis` silently: it refuses to finish until the chart-number question is answered (`asis` typed is
-an answer, recorded as `TB_CHARTNO_RULE_ANSWERED=yes`). Elsewhere it keeps `asis` and warns, as before.
+**Choices a PRODUCTION site answers** (D-1365). The wizard refuses an empty `chartno_rule` on a PRODUCTION site
+(`asis` is an answer); `doctor` (`named_choices`) warns a site installed before, with the line to add.
