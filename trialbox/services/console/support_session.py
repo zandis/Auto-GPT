@@ -74,7 +74,7 @@ class SupportGuard:
         event failed before) are written here, each once (``SupportSessionStore.audit_end``); one that fails again
         is tried at the next request, and the request goes on."""
         try:
-            live, unaudited = self.store.current(self.h.clock())
+            live, unaudited = self.store.current(self.h.clock(), self.moved_event)
         except Exception as e:
             log.warning("support session: state not read (%s); patient pages stay closed", type(e).__name__)
             return None, True
@@ -84,6 +84,11 @@ class SupportGuard:
             except Exception as e:
                 log.warning("support session %s: end event not written (%s); tried again", s.id, type(e).__name__)
         return live, False
+
+    def moved_event(self, before: SupportSession, after: SupportSession) -> None:
+        """A start later than the clock (the clock was moved back) set to the request's time: the trail says so."""
+        self.h.au.append("console.support_session_moved", actor=SYSTEM,
+                         detail={**_detail(after), "started_at_was": before.started_at})  # fmt: skip
 
     def end_event(self, s: SupportSession) -> None:
         actor = f"console:{s.ended_by}" if s.how == "hand" and s.ended_by else SYSTEM
@@ -169,7 +174,9 @@ def register(app: FastAPI, h: Helpers, store: SupportSessionStore | None = None)
         if confirm != "yes":  # runbook 21 rules 1 and 2, ticked: a form posted without it starts nothing
             return RedirectResponse(f"{PAGE}?err=support.err.confirm", status_code=303)
 
-        def audit(s: SupportSession) -> None:  # inside the insert's transaction: no event, no session
+        # run before the insert commits: no event, no session. The audit trail is its own store, not this
+        # transaction: a commit that fails after the append leaves a start event with no session (D-1364)
+        def audit(s: SupportSession) -> None:
             h.au.append("console.support_session_start", actor=h.actor(sess), detail=_detail(s))
 
         try:

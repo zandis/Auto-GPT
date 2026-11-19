@@ -400,3 +400,146 @@ def test_runbook_21_support_session(box: dict[str, Any]) -> None:  # noqa: F811
     start, end = _events(box, "console.support_session_start"), _events(box, "console.support_session_end")
     assert [e["detail"]["ticket"] for e in start] == [ticket] and [e["detail"]["how"] for e in end] == ["hand"]
     assert crc.get(f"/studies/GZQO/patients/{A}").status_code == 200
+
+
+# ---------------------------------------------------------------------------------------------- the review's round
+def _on(admin: Any) -> None:
+    """Start a session from this administrator's own client (its one-time secrets are kept for its session)."""
+    r = admin.post(PAGE, data={"csrf": _csrf(admin.get(PAGE).text), "ticket": "SUP-7", "confirm": "yes"},
+                   follow_redirects=False)  # fmt: skip
+    assert r.headers["location"] == f"{PAGE}?done=start"
+
+
+def _denied(b: dict[str, Any], action: str) -> list[dict[str, Any]]:
+    return [e for e in _events(b, "console.denied") if e["detail"].get("action") == action]
+
+
+def test_the_feedback_file_is_closed_during_a_session(box: dict[str, Any]) -> None:  # noqa: F811
+    crc, _ = login_crc(box)
+    csrf = _csrf(crc.get("/account").text)
+    crc.post("/feedback", data={"csrf": csrf, "path": f"/studies/GZQO/patients/{A}", "comment": "slow page"},
+             follow_redirects=False)  # fmt: skip
+    admin, _ = login(box["app"])
+    r = admin.get("/feedback/export.csv")
+    assert r.status_code == 200 and A in r.text  # off: the administrator's file, a patient page's path in it
+    _on(admin)
+    r = admin.get("/feedback/export.csv")
+    assert r.status_code == 403 and ON_EN in r.text and A not in r.text and "slow page" not in r.text
+    assert len(_denied(box, "/feedback/export.csv")) == 1  # audited as every closed page
+    assert len(_events(box, "feedback.export")) == 1  # the one export before the session
+    assert _end(admin).status_code == 303
+    assert admin.get("/feedback/export.csv").status_code == 200
+
+
+def test_a_new_account_or_a_reset_password_is_not_shown_during_a_session(box: dict[str, Any]) -> None:  # noqa: F811
+    admin, csrf = login(box["app"])
+    add = {"csrf": csrf, "action": "add", "role": "viewer", "affiliation": "hospital", "studies": ""}
+    r = admin.post("/ops/users", data={**add, "username": "vw1"})
+    assert r.status_code == 200 and 'data-testid="users-pw-field"' in r.text  # off: the one-time password, once
+    r = admin.post("/ops/users", data={"csrf": csrf, "action": "reset", "username": "vw1", "confirm": "yes"})
+    assert 'data-testid="users-pw-field"' in r.text
+    # a password made just before the session started, not yet read: kept, not shown while support watches
+    assert admin.post("/ops/users", data={**add, "username": "vw2"}, follow_redirects=False).status_code == 303
+    _on(admin)
+    page = admin.get("/ops/users")
+    assert page.status_code == 200 and 'data-testid="users-made"' not in page.text  # the list stays open
+    for action, data in (("add", {**add, "username": "vw3"}),
+                         ("reset", {"csrf": csrf, "action": "reset", "username": "vw1", "confirm": "yes"})):  # fmt: skip
+        r = admin.post("/ops/users", data=data)
+        assert r.status_code == 403 and ON_EN in r.text and 'data-testid="users-pw-field"' not in r.text, action
+        assert len(_denied(box, f"/ops/users {action}")) == 1, action
+    assert box["users"].get("vw3") is None
+    assert _end(admin).status_code == 303
+    assert 'data-testid="users-pw-field"' in admin.get("/ops/users").text  # after the end it is shown, once
+
+
+def test_an_enrolment_code_is_not_shown_during_a_session(box: dict[str, Any]) -> None:  # noqa: F811
+    box["users"].create("vw1", "viewer", PW, "vw1@hospa.test")
+    admin, _ = login(box["app"])
+    form = {"csrf": _csrf(admin.get("/ops/identity").text), "action": "enrol_code", "username": "vw1"}
+    r = admin.post("/ops/identity", data=form)
+    assert r.status_code == 200 and 'data-testid="identity-code-value"' in r.text  # off: the code, once
+    _on(admin)
+    for action in ("enrol_code", "reset_totp"):
+        r = admin.post("/ops/identity", data={**form, "action": action, "confirm": "yes"})
+        assert r.status_code == 403 and ON_EN in r.text and 'data-testid="identity-code"' not in r.text, action
+        assert len(_denied(box, f"/ops/identity {action}")) == 1, action
+    assert admin.get("/ops/identity").status_code == 200  # the list, and unlocking, stay open
+    r = admin.post("/ops/identity", data={**form, "action": "unlock"}, follow_redirects=False)
+    assert r.status_code == 303  # nobody is locked out by the switch
+
+
+def test_a_confirmation_that_shows_a_secret_waits_for_the_end_of_the_session(box: dict[str, Any]) -> None:  # noqa: F811
+    stw = _user(box, "stw1", "steward")
+    admin, csrf = login(box["app"])
+    for name in ("cr1", "cr2"):  # a protected account: a request the second person confirms
+        r = admin.post("/ops/users", data={"csrf": csrf, "action": "add", "username": name, "role": "coordinator",
+                                           "affiliation": "hospital", "studies": ""})  # fmt: skip
+        assert 'data-testid="account-requested"' in r.text
+    ids = re.findall(r'name="request" value="([^"]+)"', stw.get("/ops/accounts/requests").text)
+    assert len(ids) == 2
+    scsrf = _csrf(stw.get("/ops/accounts/requests").text)
+    r = stw.post("/ops/accounts/requests", data={"csrf": scsrf, "request": ids[0], "decision": "confirm"})
+    assert r.status_code == 200 and 'data-testid="request-secret"' in r.text  # off: the code, once
+    _on(admin)
+    assert stw.get("/ops/accounts/requests").status_code == 200  # the list stays open
+    r = stw.post("/ops/accounts/requests", data={"csrf": scsrf, "request": ids[1], "decision": "confirm"})
+    assert r.status_code == 403 and ON_EN in r.text and 'data-testid="request-secret"' not in r.text
+    assert [e["detail"]["reason"] for e in _denied(box, "/ops/accounts/requests")] == ["support_session"]
+    assert box["users"].get_request(ids[1])["state"] == "pending"  # nothing decided: confirmed after the session
+    # the administrator still signs out and ends the session; a person still signs in
+    assert _end(admin).headers["location"] == f"{PAGE}?done=end"
+    _on(admin)
+    assert login_crc(box)[0].get("/home").status_code == 200
+    assert _end(admin).headers["location"] == f"{PAGE}?done=end"
+    _on(admin)
+    out = admin.post("/logout", data={"csrf": _csrf(admin.get("/account").text)}, follow_redirects=False)
+    assert out.status_code == 303 and _events(box, "console.logout")
+
+
+def test_a_pi_lists_no_grant_of_their_study_during_a_session(box: dict[str, Any]) -> None:  # noqa: F811
+    from tests.console.test_console_app import name_pi
+
+    _done_screen(box["backend"], _ulid(984))
+    pi = _user(box, "drsato", "investigator")
+    name_pi(box, "drsato")
+    admin, _ = login(box["app"])
+    form = {"csrf": _csrf(admin.get("/breakglass").text), "reason": "support", "note": "support call about one patient",
+            "kind": "patient", "ruleset": "GZQO", "pid": A}  # fmt: skip
+    assert admin.post("/breakglass", data=form, follow_redirects=False).status_code == 303
+    gid = _events(box, "console.breakglass_open")[-1]["detail"]["grant"]
+    r = pi.get("/breakglass")
+    assert r.status_code == 200 and f'data-grant="{gid}"' in r.text  # off: the PI reads the grants of its study
+    _on(admin)
+    r = pi.get("/breakglass")
+    assert r.status_code == 403 and f'data-grant="{gid}"' not in r.text and A[:8] not in r.text
+
+
+def test_a_start_moved_to_the_clock_is_an_audit_event(box: dict[str, Any]) -> None:  # noqa: F811
+    crc, _ = login_crc(box)
+    _start(box)
+    store = box["app"].state.support_guard.store
+    sid = store.recent()[0].id
+    later = (box["app"].state.helpers.clock() + timedelta(days=1)).isoformat(timespec="seconds")
+    store.db.execute("UPDATE support_sessions SET started_at = ? WHERE id = ?", (later, sid))
+    crc.get("/home")
+    crc.get("/home")  # moved once
+    moved = _events(box, "console.support_session_moved")
+    assert len(moved) == 1 and moved[0]["actor"] == "console:support-session"
+    assert moved[0]["detail"]["started_at_was"] == later and moved[0]["detail"]["session"] == sid
+    assert moved[0]["detail"]["started_at"] == store.get(sid).started_at < later
+
+
+def test_a_file_of_counts_only_stays_open_and_a_patient_level_file_does_not(box: dict[str, Any]) -> None:  # noqa: F811
+    """Runbook 21 rule 3 as written: a FEAS job's aggregate files (counts only) stay downloadable; the sponsor pack
+    (it asks the request right, closed) and the patient-level file do not."""
+    from tests.console.test_console_app import _done_feas
+
+    job = _done_feas(box["backend"])
+    crc, _ = login_crc(box)
+    stem = f"/pilot/jobs/{job.job_id}/files/feasibility_GZQO_v1.0.0_2026-10-04"
+    assert crc.get(f"{stem}.pdf").status_code == 200
+    _start(box)
+    assert crc.get(f"{stem}.pdf").status_code == 200  # counts only
+    assert crc.get(f"/pilot/jobs/{job.job_id}/sponsor-pack.zip").status_code == 403  # asks a closed row
+    assert crc.get(f"{stem}.raw.json").status_code in (403, 404)  # the patient-level file: not given

@@ -115,6 +115,8 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     # 10K-15 (D-1364): the support-session switch
     "console.support_session_start": ("Support session started", "サポートセッションの開始", "開始支援作業時段"),
     "console.support_session_end": ("Support session ended", "サポートセッションの終了", "結束支援作業時段"),
+    "console.support_session_moved": ("Support session start moved to the clock", "サポートセッション開始時刻の補正",
+                                      "支援作業時段開始時間校正"),
     # exports and downloads
     "console.export": ("Export downloaded", "エクスポートのダウンロード", "下載匯出檔"),
     "console.first_run": ("First-run set-up completed", "初回セットアップの完了", "完成首次設定"),

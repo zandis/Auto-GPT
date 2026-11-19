@@ -11,9 +11,10 @@ new heading with the version and date, in the same pull request that sets the ve
 ## Unreleased
 
 - The support-session switch (10K-15, D-1364): before a supervised screen share (runbook 21) the administrator turns
-  it on at **Support session** in the menu. While it runs, every patient page, list, export and break-glass grant is
-  refused to every account, with a page in English, Japanese and Traditional Chinese that says until when; the
-  administrator's pages show a banner. It ends by hand or by itself 2 hours after it started; the start and the end
+  it on at **Support session** in the menu. While it runs, every patient page, list, patient-level export, the
+  feedback file and break-glass grant is refused to every account, and so is every answer that would show a
+  one-time password or an enrolment code or link, with a page in English, Japanese and Traditional Chinese that says
+  until when; the administrator's pages show a banner. It ends by hand or by itself 2 hours after it started; the start and the end
   are in the audit trail. Nothing changes on a box where nobody turns it on.
 - Operations drills (10K-9): each operations page of the RUNBOOK names a drill only where a test rehearses it (§12
   certificate renewal, §20 close-out, §22 moving the box, §23 lost-box list, §25 leavers); the other pages say that

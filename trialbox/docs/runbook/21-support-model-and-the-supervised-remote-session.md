@@ -87,10 +87,12 @@ screen share. The rules:
 3. **What may be on screen:** a terminal on the box, the administrator's Operations page (§15), the Jobs page, the
    health tab, `doctor`, logs (they hold pseudonyms only). **Never** a patient page, a patient list, a mail with a
    list, an export or the pid map. The administrator role opens no patient data on its routine pages (D-280, T-102;
-   one patient or one job only under a break-glass grant), and while the switch is on **every** patient page, list,
-   export and break-glass grant is refused to **every** account, the administrator included: the page says a support
-   session is running and when it ends at the latest; the administrator's pages show a banner. The hospital's person
-   still closes any other window that shows patient data (a mail, a file).
+   one patient or one job only under a break-glass grant), and while the switch is on **every** patient page,
+   patient list, patient-level export, the feedback file (`/feedback/export.csv`) and break-glass grant is refused to
+   **every** account, the administrator included, and so is every answer that would show a sign-in secret (a new
+   one-time password, an enrolment code or link): the page says a support session is running and when it ends at the
+   latest; the administrator's pages show a banner. A file of counts only (a feasibility job's report) can still be
+   downloaded. The hospital's person still closes any other window that shows patient data (a mail, a file).
 4. **No recording, no file transfer** by Aimedics. A file Aimedics needs is sent through the ticket, scanned first.
 5. **The record.** The hospital's person writes in the ticket: the ticket number, the start and end time (site
    time), the hospital person, the Aimedics person, and what was done. The box keeps its own record: the audit

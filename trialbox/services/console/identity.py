@@ -46,6 +46,7 @@ from cryptography.exceptions import InvalidTag
 from fastapi import FastAPI, Form, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from tb_common.audit import AuditLog
+from tb_common.authz import in_support_session
 
 from console import next_page, totp
 from console.account_rules import protected_account
@@ -684,6 +685,9 @@ def register(app: FastAPI, ident: Identity, h: Hooks) -> None:
             return RedirectResponse("/ops/identity?done=unlock", status_code=303)
         if action not in ("reset_totp", "enrol_code"):
             raise h.problem(400, "request.refused", reason="unknown action")
+        if in_support_session():  # 10K-15 (D-1364): both show a code once; unlocking stays open
+            au.append("console.denied", actor=actor, detail={"action": f"/ops/identity {action}"})
+            raise h.problem(403, "forbidden")
         if name == sess.user.username:
             raise h.problem(400, "request.refused", reason="another administrator does this for your account")
         if us.is_sso(name):

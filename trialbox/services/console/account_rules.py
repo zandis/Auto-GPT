@@ -34,7 +34,7 @@ from typing import Any
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import RedirectResponse, Response
-from tb_common.authz import permit
+from tb_common.authz import in_support_session, permit
 
 from console.auth import AuthError, PasswordRejected, User, UserStore, check_password_policy, random_password
 
@@ -47,6 +47,9 @@ CLASS_OF: dict[str, str] = {
     "viewer": "aggregate",
     "cro": "aggregate",
 }
+# the requests whose confirmation answers with a secret shown once (an enrolment code and link, a one-time password,
+# a new authenticator's code): refused during a support session (10K-15, D-1364); a scope change shows none
+SHOWS_SECRET = frozenset({"create", "password", "totp"})
 
 
 def account_class(role: str) -> str:
@@ -333,6 +336,10 @@ def register(app: FastAPI, rules: Rules, h: Hooks) -> None:
             return _list(request, sess, done="refused")
         if decision != "confirm":
             raise h.problem(400, "request.refused", reason="unknown decision")
+        if kind in SHOWS_SECRET and in_support_session():  # 10K-15 (D-1364): its answer shows a secret once
+            why = {"action": "/ops/accounts/requests", "request": req["id"], "reason": "support_session"}
+            au.append("console.denied", actor=f"console:{me}", detail=why)
+            raise h.problem(403, "forbidden")
         if kind in ("password", "totp"):
             factor = kind
             if rules.refuse_held(name, factor, me) is not None:

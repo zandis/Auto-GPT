@@ -319,7 +319,8 @@ class SupportSessionStore:
     :meth:`current` at every request, which also ends a session whose 2 hours are over (once: the row says so).
 
     The audit trail (D-1364, the review's S1): a start is committed only after its audit event is written (the event
-    is written inside the insert's transaction, so a failed event rolls the row back), and so is an end by hand; an
+    is written before the insert commits, so a failed event rolls the row back; the audit trail is its own store, so
+    a commit that fails after the event leaves a start event with no session), and so is an end by hand; an
     automatic end is a row change first, and its event is written by :meth:`audit_end`, again at every request until
     it is written (``end_audited``)."""
 
@@ -329,11 +330,14 @@ class SupportSessionStore:
     def close(self) -> None:
         self.db.close()
 
-    def current(self, now: datetime) -> tuple[SupportSession | None, list[SupportSession]]:
+    def current(self, now: datetime, on_moved: Callable[[SupportSession, SupportSession], None] | None = None
+                ) -> tuple[SupportSession | None, list[SupportSession]]:  # fmt: skip
         """The open session (None when there is none) and the ended sessions whose end event is not written yet.
         A session whose 2 hours are over is ended here at its latest end (``ends_at``), ``how`` "auto". A start
         later than ``now`` (the clock was moved back) is set to ``now``: the session then lasts at most 2 hours from
-        this request, never 2 hours from a time the clock has not reached."""
+        this request, never 2 hours from a time the clock has not reached. ``on_moved(before, after)`` (its audit
+        event) runs inside that update's transaction: when it fails the start is not moved and the error goes to the
+        caller (the console then answers as on doubt, closed), so a start never moves without its event."""
         rows = self.db.fetchall(f"SELECT {_SCOLS} FROM support_sessions WHERE ended_at IS NULL OR NOT end_audited "
                                 "ORDER BY id")  # fmt: skip
         live: SupportSession | None = None
@@ -344,8 +348,14 @@ class SupportSessionStore:
                 continue
             st = s.start
             if st is not None and st > now:
-                self.db.execute("UPDATE support_sessions SET started_at = ? WHERE id = ? AND ended_at IS NULL",
-                                (_iso(now), s.id))  # fmt: skip
+                with self.db.transaction() as tx:  # a second process moving the same start at once: one moves it
+                    row = tx.fetchone(f"SELECT {_SCOLS} FROM support_sessions WHERE id = ? AND ended_at IS NULL "
+                                      "AND started_at = ? FOR UPDATE SKIP LOCKED", (s.id, s.started_at))  # fmt: skip
+                    if row is not None:
+                        tx.execute("UPDATE support_sessions SET started_at = ? WHERE id = ?", (_iso(now), s.id))
+                        after = _session(tx.fetchone(f"SELECT {_SCOLS} FROM support_sessions WHERE id = ?", (s.id,)))
+                        if on_moved is not None:
+                            on_moved(_session(row), after)
                 s = self.get(s.id) or s
             if s.active(now):
                 live = s

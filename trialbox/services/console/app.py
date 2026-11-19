@@ -44,7 +44,7 @@ from markupsafe import Markup
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from tb_common.audit import ID_IN_TEXT, ID_KEYS, AuditLog, mask_ids
 from tb_common.audit_writer import open_audit
-from tb_common.authz import BEST_STANDING, admin_allowed, permit, role_rights
+from tb_common.authz import BEST_STANDING, admin_allowed, in_support_session, permit, role_rights
 from tb_common.config import environment_name
 from tb_common.crypto import sha256_bytes
 from tb_common.feas_notes import notes_for as feas_notes
@@ -1250,7 +1250,9 @@ def create_app(
         sess = need(request)
         if not sess.user.is_admin:
             raise _Problem(403, "forbidden")
-        made, pw, _ = one_time.pop(sess.token_sha, ("", "", 0.0))
+        # 10K-15 (D-1364): a one-time password or enrolment code kept before a support session started is not shown
+        # while one runs (a support person may be watching the screen); it stays kept, for its 10 minutes
+        made, pw, _ = ("", "", 0.0) if in_support_session() else one_time.pop(sess.token_sha, ("", "", 0.0))
         code = pw[5:] if pw.startswith("code:") else ""  # D-719: a protected account's enrolment code, no password
         pw = "" if code else pw
         rows = [(u, us.is_sso(u.username)) for u in us.users()]
@@ -1293,6 +1295,9 @@ def create_app(
         name = username.strip().lower()[:32]
         perm = {"reset": "account.reset", "disable": "account.disable", "enable": "account.enable"}.get(action)
         if perm and not admin_allowed(sess.user.role, perm):  # D-178: the one role table (tb_common.authz)
+            au.append("console.denied", actor=actor(sess), detail={"action": f"/ops/users {action}"})
+            raise _Problem(403, "forbidden")
+        if action in ("add", "reset") and in_support_session():  # 10K-15 (D-1364): each shows a secret once
             au.append("console.denied", actor=actor(sess), detail={"action": f"/ops/users {action}"})
             raise _Problem(403, "forbidden")
         try:

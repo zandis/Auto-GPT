@@ -22,6 +22,25 @@
     (`report.aggregate_only`, `report.sponsor_form`), which keep their answer because refusing a restriction would
     widen what a viewer or CRO account sees. Every open row but the two restrictions is an administrator row, and the
     administrator has no patient-level row (D-280). An open row keeps its answer exactly: nothing is widened.
+  - **What is reachable during a session, exactly** (the role-route walk with a session on, every route of the
+    router table, `test_the_matrix_walk_finds_no_patient_route_open_during_a_session`; the review's leak walk found no
+    patient marker in any 2xx answer): (1) aggregate pages and files with counts only: the feasibility report,
+    `/reports`, the sponsor form, a SCREEN or FEAS job's page (its counts, no row) and a FEAS job's aggregate files;
+    (2) the session's own page `/ops/support-session` (start, end); (3) signing in, the first sign-in `/enrol`, the
+    TOTP step, `/account` and its password change, and signing out (`/logout`); (4) the administrator's operations,
+    accounts, identity and site-setup pages (`/admin…`, `/ops/…`, `/site…`, `/data-ops`, `/metrics`), without the
+    answers that show a secret (below); (5) pages that hold no patient row: home, Help, About, the notice settings,
+    the feedback form, `/jobs` (see the known limits), a study's team, IRB, forms and sources pages (staff and study
+    documents), and the week, registry and mailbox pages, whose patient rows ask closed rows and are not shown.
+  - **Closed besides the matrix rows** (checks that only narrow, each refused like a closed page: 403, the support
+    page, a `console.denied` event; no row of their own): the feedback file `/feedback/export.csv` (the paths of the
+    pages an entry was given on, a patient page's pseudonym among them, and free text); and every answer that shows a
+    sign-in secret once: `POST /ops/users` `add` and `reset` (a one-time password, or a protected account's enrolment
+    code and one-time link), `POST /ops/identity` `enrol_code` and `reset_totp` (an enrolment code), `POST
+    /ops/accounts/requests` `confirm` of a `create`, `password` or `totp` request (a code, a link or a password; the
+    request stays pending, to be confirmed after the session). `GET /ops/users` does not show a one-time password kept
+    from before the start (it stays kept for its 10 minutes). Unlocking an account, disabling it, a scope change, a
+    refusal of a request, signing in and the first sign-in stay open: nobody is locked out by the switch.
   - **Aggregate pages stay open.** Report pages that show counts only (the feasibility report, the reports list, the
     sponsor form) stay open to the roles that have them: they ask no closed row, and the two rows they do ask are the
     restrictions above, which keep their answer so that a viewer or a CRO account is not shown more. A SCREEN or FEAS
@@ -38,7 +57,9 @@
     `console.support_session_end` (`how`: `hand` with the administrator as actor, or `auto` with
     `console:support-session`, and the end time). The rows are the `support_sessions` table, schema `breakglass`
     version 3 (record R-12, no patient data). **A session is never on without its start event:** the event is written
-    inside the insert's transaction, and a failed write rolls the row back (the page says nothing changed). An end by
+    before the insert commits, and a failed write rolls the row back (the page says nothing changed). The audit trail
+    is its own store, not that database transaction: if the commit itself fails after the event was written, the trail
+    holds a start event with no session (the safe direction: never a session without its event). An end by
     hand is the same: a failed event leaves the session on (closed) and the end can be tried again. **An automatic
     end is never lost:** the row is ended first (so the pages open on time), with `end_audited` false; the event is
     written at the next requests, inside a transaction that sets `end_audited` (`FOR UPDATE SKIP LOCKED`: one writer),
@@ -47,7 +68,10 @@
     start time, never from a timer or a stored end: a restart keeps it on until then, a stopped scheduler cannot keep
     it on longer. The first request after the end closes the row at its latest end (not when seen). **A start later
     than the request's time** (the clock was moved back) is set to the request's time, so the session lasts at most
-    2 hours from the first request that sees it, not until the clock reaches the stored start. **A start that cannot
+    2 hours from the first request that sees it, not until the clock reaches the stored start; the move is the audit
+    event `console.support_session_moved` (the start it had, the start it has, the new latest end), written in the
+    update's transaction (`FOR UPDATE SKIP LOCKED`: one process moves it once); a failed event leaves the start
+    unmoved and the request answers as on doubt (closed). **A start that cannot
     be read** (a damaged row) keeps the session on (closed on doubt) until the administrator ends it: the page lists
     every row not ended, and the end reads no stored time.
   - **Fail direction:** closed. When the state cannot be read (the trial database does not answer), the request runs
@@ -57,13 +81,27 @@
   and not stopped: the morning-mail timer and its notices, the nightly REDCap read (`rc_read`), the orchestrator's
   own jobs and its mail (a mailed CASE). The orchestrator does not read the switch; it refuses a patient read the
   console did not sign, and the console signs none during a session. A terminal on the box (runbook 21 rule 3) is
-  outside the switch: what it shows is the hospital person's care. `/feedback/export.csv` (the administrator's
-  free-text feedback file, comments scanned by `tools.data_scan`, guarded by the operator check, not a matrix row)
-  stays open: closing it needs a row of its own, and this card adds no row but the switch (left to the owner). The
-  support bundle's Docker drill (runbook 21) is not part of the new drill.
+  outside the switch: what it shows is the hospital person's care. The support bundle's Docker drill (runbook 21) is
+  not part of the new drill. `python -m console.cli` (on the box's terminal) can still issue an enrolment code.
+- **Known limits:**
+  - A `support_sessions` row deleted by hand (in the database) ends the session with no end event: the trail holds a
+    start with no end. The console cannot write an event for a row it no longer sees; the steward's review of the
+    trail is where it shows.
+  - A clock moved forward ends a session early (the pages open while support may still watch); one moved back is
+    re-anchored and audited (above). Both are the clock's, not the switch's.
+  - `/jobs` and the administrator's home list a CASE job's row (its id, type, ruleset, requester and time) during a
+    session. It is not patient-level: the id is a random job id the box makes, and it holds no pseudonym, chart
+    number or clinical fact; every route of that job is refused during a session with no job id in the body.
+  - A data-ops batch step shows a steward's free-text reason, which could name a patient if a steward wrote one.
+  - The person's own sign-in steps (`/enrol`, the TOTP step's new authenticator) stay open: closing them would lock
+    a person out; the hospital's person signs in with the screen share paused.
+  - Windows rendered before the start stay on screen; reload and back are covered by `Cache-Control: no-store`.
 - **Held by:** `tests/console/test_10k15_support_session.py` (a patient page refused during a session in three
   languages and through `/api/v1`; two audit events; the auto-end on a frozen clock; closed on doubt; only the
   administrator; a failing audit append at the start, at an end by hand and at an automatic end; a damaged and a
   future start; a CASE job page refused; the role-route walk with a session on finds no patient-level route open and nothing widened;
-  `test_runbook_21_support_session`); `tests/console/test_role_route_matrix.py` (the three new routes, the
+  `test_runbook_21_support_session`; the feedback file, a new account or reset password, an enrolment code and a
+  confirmation that shows a secret, each shown with the session off and refused with it on, the refusal audited;
+  sign-out, sign-in and the end still work; a PI lists no grant of its study (`breakglass.study`); a moved start is
+  one audit event; a FEAS job's file of counts stays open); `tests/console/test_role_route_matrix.py` (the three new routes, the
   administrator's only); `tests/unit/test_migrations.py` (breakglass version 3).
