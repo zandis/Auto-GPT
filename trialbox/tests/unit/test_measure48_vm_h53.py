@@ -335,7 +335,8 @@ def test_a_stage_that_does_not_fit_before_the_line_ends_the_run(rig: Rig) -> Non
 
 
 def test_the_stop_line_interrupts_a_running_measure(rig: Rig) -> None:
-    rig.resume_after("s07-ballast", used_s=LINE_MIN * 60 - int(0.8 * 3600))
+    # 0.8 h (stage 6 high) plus 1,800 s of slack: 3 s real at x600, so a loaded machine still reaches the ladder in time
+    rig.resume_after("s07-ballast", used_s=LINE_MIN * 60 - int(0.8 * 3600) - 1800)
     r = rig.boot(M48_HANG="pair-32k", TB_M48_TIME_SCALE="600")
     assert r.returncode == 0, r.stdout[-2000:]
     assert "the stop line" in (rig.up / "vm.log").read_text()
