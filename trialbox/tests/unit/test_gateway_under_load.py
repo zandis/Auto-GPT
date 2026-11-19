@@ -11,6 +11,7 @@ estimated token counts and the model key's two copies. All data is synthetic.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import socket
 import threading
@@ -95,6 +96,9 @@ def _silent_gw(tmp_path: Path, port: int) -> Gateway:
 
 
 FRONT = {**CHAT_H, "X-TB-Data-Class": "D0"}  # the front desk's classifier (an interactive role)
+#: whose call asked the queue: set around the front desk's own requests (the context follows each request into its
+#: worker thread); the 100 batch calls were created before it is set, so they carry the default
+ASKER: contextvars.ContextVar[str] = contextvars.ContextVar("asker", default="batch")
 
 
 def test_a_server_that_never_answers_100_parallel_calls(tmp_path: Path) -> None:
@@ -104,12 +108,24 @@ def test_a_server_that_never_answers_100_parallel_calls(tmp_path: Path) -> None:
     # what each call asked the endpoint's queue for (D-635: the test says what it means by orderings and by what the
     # gateway asked for, not by wall-clock bounds, which measured the runner: 1.06 s against 1.0 s on a loaded one)
     lane = gw.load.get("stub")
-    waits: list[float] = []
+    waits: list[tuple[str, float]] = []
     real_acquire = lane.acquire
 
     def acquire(wait_s: float) -> int | None:
-        waits.append(wait_s)
+        waits.append((ASKER.get(), wait_s))
         return real_acquire(wait_s)
+
+    def front_waits() -> list[float]:
+        """What the front desk's own calls asked the queue for. A batch call whose worker thread starts late asks
+        while the front desk's call is in flight too (job 135099756380: [2.99..., 0.5]); it is not the front desk's."""
+        return [w for who, w in waits if who == "front"]
+
+    async def front(c: httpx.AsyncClient) -> httpx.Response:
+        token = ASKER.set("front")
+        try:
+            return await c.post("/v1/chat/completions", json=CHAT_BODY, headers=FRONT)
+        finally:
+            ASKER.reset(token)
 
     lane.acquire = acquire  # type: ignore[method-assign]
     stop = threading.Event()
@@ -129,9 +145,8 @@ def test_a_server_that_never_answers_100_parallel_calls(tmp_path: Path) -> None:
             health = await c.get("/healthz")
             ready = await c.get("/readyz")
             hanging = sum(1 for call in calls if not call.done())  # health answered while calls still hang
-            n = len(waits)
-            busy = await c.post("/v1/chat/completions", json=CHAT_BODY, headers=FRONT)
-            busy_waits = waits[n:]
+            busy = await front(c)
+            busy_waits = front_waits()
             opened_at = None
             while time.monotonic() - t0 < 10:
                 r = (await c.get("/readyz")).json()
@@ -140,9 +155,8 @@ def test_a_server_that_never_answers_100_parallel_calls(tmp_path: Path) -> None:
                     opened_at = time.monotonic() - t0
                     break
                 await asyncio.sleep(0.05)
-            n = len(waits)
-            after = await c.post("/v1/chat/completions", json=CHAT_BODY, headers=FRONT)
-            after_waits = waits[n:]
+            after = await front(c)
+            after_waits = front_waits()[len(busy_waits) :]
             done = await asyncio.gather(*calls)
             # the 100 are over; the breaker is still open: a batch call is not sent either
             batch_after = await c.post("/v1/chat/completions", json=_judge_body(), headers=H())

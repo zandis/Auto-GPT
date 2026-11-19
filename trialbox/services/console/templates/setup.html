@@ -97,7 +97,18 @@
 </section>
 {% endif %}
 
-{% if sae_rule is not none %}{# D-277 (LIFE-023): the study's SAE reporting rules, one field; who saved it confirmed it #}
+{% if consent_ages and consent_ages.on %}{# 10C-19 (D-1232): the study's ages for consent by a representative and for assent #}
+<section class="card" id="consent-ages" data-testid="setup-consent-ages">
+<h2>{{ t('setup.consent_ages.title') }}</h2>
+<p class="hint">{{ t('setup.consent_ages.help') }}</p>
+<p data-testid="setup-consent-ages-now">{{ t('setup.consent_ages.now', m=consent_ages.majority, lo=consent_ages.assent_from, hi=consent_ages.assent_to) }}{% if consent_ages.set_by %} {{ t('sae.rule.by', who=consent_ages.set_by|who, at=consent_ages.set_at|local) }}{% else %} <span class="hint">{{ t('setup.consent_ages.default') }}</span>{% endif %}</p>
+{% if editable %}<form method="post" action="/studies/{{ rs }}/setup/consent-ages" class="markform"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label for="ca_majority">{{ t('setup.consent_ages.majority') }}</label><input id="ca_majority" name="majority" type="number" min="0" max="30" value="{{ consent_ages.majority }}" data-testid="setup-consent-ages-majority">
+<label for="ca_from">{{ t('setup.consent_ages.from') }}</label><input id="ca_from" name="assent_from" type="number" min="0" max="30" value="{{ consent_ages.assent_from }}" data-testid="setup-consent-ages-from">
+<label for="ca_to">{{ t('setup.consent_ages.to') }}</label><input id="ca_to" name="assent_to" type="number" min="0" max="30" value="{{ consent_ages.assent_to }}" data-testid="setup-consent-ages-to">
+<button type="submit" data-testid="setup-consent-ages-save">{{ t('setup.consent_ages.save') }}</button></form>{% endif %}
+</section>
+{% endif %}{% if sae_rule is not none %}{# D-277 (LIFE-023): the study's SAE reporting rules, one field; who saved it confirmed it #}
 <section class="card" id="sae" data-testid="setup-sae">
 <h2>{{ t('sae.setup.title') }}</h2>
 <p class="hint">{{ t('sae.setup.help') }}</p>

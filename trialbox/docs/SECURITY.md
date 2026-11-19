@@ -56,4 +56,12 @@ File: [security/09-privacy-documents-and-the-incident-plan.md](security/09-priva
 
 File: [security/10-key-ceremony-and-escrow.md](security/10-key-ceremony-and-escrow.md). In it: [1. What is made, and who keeps it](security/10-key-ceremony-and-escrow.md#1-what-is-made-and-who-keeps-it), [2. Who attends](security/10-key-ceremony-and-escrow.md#2-who-attends), [3. The back end: the box owner's and hospital IT's choice at the ceremony](security/10-key-ceremony-and-escrow.md#3-the-back-end-the-box-owners-and-hospital-its-choice-at-the-ceremony), [4. The ceremony, in order](security/10-key-ceremony-and-escrow.md#4-the-ceremony-in-order), [5. Escrow: where each thing is kept](security/10-key-ceremony-and-escrow.md#5-escrow-where-each-thing-is-kept), [6. Rotation and compromise](security/10-key-ceremony-and-escrow.md#6-rotation-and-compromise).
 
+## 11. Secure development: the SSDF and IEC 81001-5-1 mapping
+
+File: [security/11-secure-development-mapping.md](security/11-secure-development-mapping.md). In it: [What it covers](security/11-secure-development-mapping.md#what-it-covers), [How to read a row](security/11-secure-development-mapping.md#how-to-read-a-row), [Summary by group](security/11-secure-development-mapping.md#summary-by-group), [The gaps, by weight](security/11-secure-development-mapping.md#the-gaps-by-weight), [What closing them costs](security/11-secure-development-mapping.md#what-closing-them-costs), [Keeping it current](security/11-secure-development-mapping.md#keeping-it-current).
+
+## 12. Threat model
+
+File: [security/12-threat-model.md](security/12-threat-model.md). In it: [Assets](security/12-threat-model.md#assets), [Actors](security/12-threat-model.md#actors), [Trust boundaries](security/12-threat-model.md#trust-boundaries), [Threats per boundary](security/12-threat-model.md#threats-per-boundary), [Not in this version](security/12-threat-model.md#not-in-this-version), [Findings of this page](security/12-threat-model.md#findings-of-this-page).
+
 <!-- end of the generated index -->

@@ -37,7 +37,7 @@ no runbook page.
 | Fault | How it was planted | Real or stand-in |
 | --- | --- | --- |
 | backup target gone | the NAS target (a tmpfs) unmounted, a night run; then mounted again read-only, a night run, `backup-status` | real (root); chmod 0555 when not root |
-| disk nearly full | a 16 MiB tmpfs named in `TB_HEALTH_DISKS` (the product's own setting) filled to 94 % | real (root); a stand-in for `shutil.disk_usage` when not root |
+| disk nearly full | a 16 MiB tmpfs named in `TB_HEALTH_DISKS` (the product's own setting) filled to 94 % | real (root); when not root a stand-in for `shutil.disk_usage` that answers 94 % for every path on the watched folder's device (H-39) |
 | morning mail not sent | the 07:00 and 07:30 timers do not run on the fault's day (timers held back) | real |
 | certificate near its end | `TB_TLS_MODE=hospital`, a synthetic certificate that ends in 12 days | real |
 | clock off | `TB_NTP_SERVER` names this tool's SNTP server, which answers 600 s behind; the box's own clock not changed | real offset, stand-in time server |

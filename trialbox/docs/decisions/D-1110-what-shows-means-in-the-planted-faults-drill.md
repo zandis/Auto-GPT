@@ -49,3 +49,14 @@ For this drill (`tools/planted_faults.py`, `tests/e2e/test_planted_faults.py`):
 - A fault that the product has no check for (the morning mail, the clock on the health surfaces, the feed) is "not
   shown" on every surface; that is a finding, not a gap in the drill.
 - The rule is for this drill. The console's own rule for banners (plan 9, DS-9) is lane J's.
+
+## Amended 2026-11-19 (card H-39)
+
+- Not as root the disk's stand-in answered 94 % only for the watched folder's own path, and the product never asks for
+  it: the folder is no mount there, so it shares the deploy folder's device, and `tb_common.metrics.disk_paths` keeps
+  one path per device (the first, `/` or the deploy folder). The nightly's runner is not root, so `/metrics` read "not
+  shown" for the full disk there, and "shown" as root. A full device is full for every path on it, so the stand-in now
+  answers for the device; the product's gauge then reads it as it would a real full disk, and the drill's table is the
+  same as root and not as root (`tests/unit/test_planted_faults_fast.py`, the stand-in reaching the gauge). The
+  product's check is unchanged and true: on a real box a watched disk that is its own mount is measured by its own
+  path, and a folder that is not shares the device of a path measured before it, which fills with it.

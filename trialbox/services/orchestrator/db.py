@@ -231,7 +231,58 @@ ALTER TABLE cohort_stored ADD COLUMN IF NOT EXISTS signed_sha256 TEXT;
 UPDATE cohort_tables SET verified_by = 'own' WHERE received_from LIKE 'self:%';
 UPDATE cohort_stored SET verified_by = 'own' WHERE received_from LIKE 'self:%'
 """
-MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6)
+# D-1360 (plan 10 card 10A-4, commitment C-5): the answer store. The latest answer of each patient on each criterion
+# of a ruleset version, written by every screening run (SCREEN, MICROBATCH) and read by the services
+# (``orchestrator.answer_store``). By pseudonym; the snapshot it read is a column, so an opt-out deletes the patient's
+# rows and the snapshots' retention (D-452) takes a row with the notes its quote came from. Class D3: never exported,
+# never in a support bundle.
+SCHEMA_V7 = """
+CREATE TABLE IF NOT EXISTS answers (
+  pid TEXT NOT NULL,
+  ruleset TEXT NOT NULL,
+  version TEXT NOT NULL,
+  criterion TEXT NOT NULL,
+  status TEXT NOT NULL,
+  reason TEXT,
+  rung TEXT,
+  basis TEXT,
+  final BOOLEAN,
+  quote TEXT,
+  quote_date TEXT,
+  flip_date TEXT,
+  index_date TEXT NOT NULL,
+  snapshot TEXT NOT NULL,
+  job_id TEXT NOT NULL,
+  at TEXT NOT NULL,
+  PRIMARY KEY (pid, ruleset, version, criterion)
+);
+CREATE INDEX IF NOT EXISTS answers_snapshot ON answers (snapshot);
+CREATE INDEX IF NOT EXISTS answers_ruleset ON answers (ruleset, version)
+"""
+MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7)
+#: the answer store's columns, in the order of :data:`_ANSWER_PUT` and :data:`_ANSWERS_OF`
+ANSWER_COLUMNS = (
+    "pid", "ruleset", "version", "criterion", "status", "reason", "rung", "basis", "final", "quote", "quote_date",
+    "flip_date", "index_date", "snapshot", "job_id", "at",
+)  # fmt: skip
+#: a stored answer gives way to one of the same or a later index date; an older run's (a re-run of a past day) never
+#: replaces a newer one
+_ANSWER_PUT = (
+    "INSERT INTO answers (pid, ruleset, version, criterion, status, reason, rung, basis, final, quote, quote_date, "
+    "flip_date, index_date, snapshot, job_id, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+    "ON CONFLICT (pid, ruleset, version, criterion) DO UPDATE SET status = EXCLUDED.status, reason = EXCLUDED.reason, "
+    "rung = EXCLUDED.rung, basis = EXCLUDED.basis, final = EXCLUDED.final, quote = EXCLUDED.quote, "
+    "quote_date = EXCLUDED.quote_date, flip_date = EXCLUDED.flip_date, index_date = EXCLUDED.index_date, "
+    "snapshot = EXCLUDED.snapshot, job_id = EXCLUDED.job_id, at = EXCLUDED.at "
+    "WHERE answers.index_date <= EXCLUDED.index_date"
+)
+#: an answer nobody gave (not evaluated, the model down: D-642) is stored only where no decided answer is: it never
+#: replaces a "met" or "not met" a run gave before
+_ANSWER_PUT_OPEN = _ANSWER_PUT + " AND answers.status NOT IN ('pass', 'fail')"
+_ANSWERS_OF = (
+    "SELECT pid, ruleset, version, criterion, status, reason, rung, basis, final, quote, quote_date, flip_date, "
+    "index_date, snapshot, job_id, at FROM answers WHERE pid = ? AND ruleset = ? AND version = ? ORDER BY criterion"
+)
 SCHEMA_NAME = "orch"
 
 TERMINAL = ("done", "failed")
@@ -601,6 +652,37 @@ class JobDB:
 
     def pair_count(self) -> int:
         return int(self._db.fetchval("SELECT count(*) FROM judged_pairs") or 0)
+
+    # ------------------------------------------------------------------ the answer store (D-1360, card 10A-4)
+    def answer_store_put(self, rows: list[tuple[Any, ...]], open_only: list[tuple[Any, ...]] | None = None) -> None:
+        """Store answers, one tuple per :data:`ANSWER_COLUMNS`, in one transaction; ``open_only``: answers nobody gave,
+        stored only where no decided answer is (:data:`_ANSWER_PUT_OPEN`)."""
+        if not rows and not open_only:
+            return
+        with self.tx() as con:
+            con.executemany(_ANSWER_PUT, rows)
+            con.executemany(_ANSWER_PUT_OPEN, open_only or [])
+
+    def answer_store_of(self, pid: str, ruleset: str, version: str) -> list[dict[str, Any]]:
+        """The stored answers of one patient on one ruleset version, by criterion id."""
+        rows = self._db.fetchall(_ANSWERS_OF, (pid, ruleset, version))
+        return [dict(zip(ANSWER_COLUMNS, r, strict=True)) for r in rows]
+
+    def answer_store_snapshots(self) -> list[str]:
+        return [str(r[0]) for r in self._db.fetchall("SELECT DISTINCT snapshot FROM answers")]
+
+    def answer_store_drop_snapshots(self, keep: list[str]) -> int:
+        """Delete the answers of every snapshot not in ``keep`` (the snapshots' retention, D-452)."""
+        with self.tx() as con:
+            return int(con.execute("DELETE FROM answers WHERE NOT (snapshot = ANY(?))", (list(keep),)))
+
+    def answer_store_drop_pids(self, pids: list[str]) -> int:
+        """Delete every answer about these patients (an opt-out, D-513)."""
+        with self.tx() as con:
+            return int(con.execute("DELETE FROM answers WHERE pid = ANY(?)", (list(pids),)))
+
+    def answer_store_count(self) -> int:
+        return int(self._db.fetchval("SELECT count(*) FROM answers") or 0)
 
     def unfinished(self, type_: str, ruleset: str | None) -> list[str]:
         """The jobs of ``type_`` for ``ruleset`` (none: the box-wide jobs, INGEST and RETENTION) that are queued or
