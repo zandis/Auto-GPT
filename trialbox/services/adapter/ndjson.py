@@ -17,6 +17,7 @@ import json
 import os
 import re
 import shutil
+from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import IO, Any
@@ -442,6 +443,67 @@ def _write_type(
             flush()
     tmp.replace(directory / f"{rtype}.ndjson")
     return n, sorted(gone)
+
+
+#: D-1253: a reference in a snapshot's canonical line, and the source table of its record (``meta.source``)
+_LINK = re.compile(r'"reference":"([A-Z][A-Za-z]+)/([^"]+)"')
+_SOURCE_TABLE = re.compile(r'"source":"[^"/]*/([^"#/]+)#')
+#: the types whose records are not a patient's, never counted as a link to a record not in the lake
+_NOT_LINKED = frozenset({"Patient", "Practitioner", "PractitionerRole", "Organization", "Location", "HealthcareService",
+                         "Medication", "Device", "Substance", "Group"})  # fmt: skip
+
+
+def absent_links(directory: Path, run_bytes: int | None = None) -> dict[str, dict[str, int]]:
+    """D-1253: per source table and record type, the links in the snapshot ``directory`` to a patient's record the
+    snapshot does not hold (a visit number the feed never sent for that patient). Order-free: it reads the merged
+    snapshot, whatever order tonight's tables and rows came in. In bounded memory: one pass writes every link to a
+    run file per target type, each is sorted in runs of at most ``run_bytes`` (:func:`_sorted`, as the merge) and
+    merged with the target type's file, which is sorted by id. Counts only."""
+    budget = run_bytes or sort_run_bytes()
+    work = directory / ".links"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True)
+    out: Counter[tuple[str, str]] = Counter()
+    try:
+        files: dict[str, IO[str]] = {}
+        try:
+            for path in sorted(directory.glob("*.ndjson")):
+                with path.open(encoding="utf-8") as fh:
+                    for line in fh:
+                        found = [(t, i) for t, i in _LINK.findall(line) if t not in _NOT_LINKED]
+                        if not found:
+                            continue
+                        m = _SOURCE_TABLE.search(line)
+                        table = m.group(1) if m else path.stem
+                        for t, i in found:
+                            f = files.get(t)
+                            if f is None:
+                                f = files[t] = (work / f"{t}.links").open("w", encoding="utf-8")
+                            f.write(json.dumps([i, table]) + "\n")
+        finally:
+            for f in files.values():
+                f.close()
+        for target in sorted(p.stem for p in work.glob("*.links")):
+
+            def items(t: str = target) -> Iterator[_Item]:
+                with (work / f"{t}.links").open(encoding="utf-8") as fh:
+                    for n, raw in enumerate(fh):
+                        rid, table = json.loads(raw)
+                        yield rid, n, table
+
+            have = (str(r["id"]) for r in read_type(directory, target))
+            cur = next(have, None)
+            for rid, _n, table in _sorted(items(), budget, work / f"{target}.runs"):
+                while cur is not None and cur < rid:
+                    cur = next(have, None)
+                if cur != rid:
+                    out[(table, target)] += 1
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    result: dict[str, dict[str, int]] = {}
+    for (table, target), n in sorted(out.items()):
+        result.setdefault(table, {})[target] = n
+    return result
 
 
 def tombstone_count(directory: Path) -> int:

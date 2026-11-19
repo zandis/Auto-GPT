@@ -72,7 +72,7 @@ DETAIL_KEYS = (
     # D-1253: per record type or table, counts only: rows of one id with other content, links by number left out
     # because the number was only another patient's, deletes that named no patient
     "id_collisions",
-    "references_to_another_patient",
+    "links_to_absent_records",
     "deletes_without_patient",
     "rejected_no_patient",
     "unmapped",

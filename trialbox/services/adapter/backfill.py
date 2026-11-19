@@ -250,7 +250,6 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                 concept_map=asks,
                 mrn_regex=cfg.mrn_regex,  # CGRD-A4 (D-816, lane E's hunk): a masked text uses the site's pattern
             )  # fmt: skip
-            mapper.numbers_on_disk(root / ".numbers.sqlite")  # D-1253: flat in memory, as the night's
             source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
             for res in mapper.static_resources():
                 emit(res)
@@ -318,10 +317,6 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                 if table in tables:  # only a table that was read has an entry (its rows, its presence)
                     tables[table]["unmapped"] = by_lookup
             unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name
-            for table, by_type in mapper.references_refused().items():  # D-1253, as the night: counts only
-                if table in tables:
-                    tables[table]["references_to_another_patient"] = by_type
-            mapper.close_numbers()
         if patients:
             held = {"Patient": [r for _, r in patients]}
             apply_aliases(held, aliases)

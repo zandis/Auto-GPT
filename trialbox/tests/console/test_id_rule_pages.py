@@ -26,7 +26,7 @@ from tests.console.test_role_pages import _user
 from tests.unit.test_edc import _confirm_all
 
 AT = "2026-11-11T02:00:00+09:00"
-IDS = {"id_collisions": {"Condition": 2, "Observation": 5}, "references_to_another_patient": {"diagnosis": 1},
+IDS = {"id_collisions": {"Condition": 2, "Observation": 5}, "links_to_absent_records": {"diagnosis": 1},
        "deletes_without_patient": {"diagnosis": 3}, "rejected_no_patient": {"lab": 4}}  # fmt: skip
 
 
@@ -55,7 +55,7 @@ def test_the_night_shows_its_id_counts_largest_first_counts_only(box: dict[str, 
     rows = re.findall(r'data-kind="([a-z_]+)" data-where="([A-Za-z_]+)"><td>[^<]*</td><td class="mono">[^<]*</td>'
                       r'<td class="num">([0-9,]+)</td>', m.group(1))  # fmt: skip
     assert rows == [("collisions", "Observation", "5"), ("collisions", "Condition", "2"),
-                    ("crossing", "diagnosis", "1"), ("deletes", "diagnosis", "3"), ("no_patient", "lab", "4")]  # fmt: skip
+                    ("absent", "diagnosis", "1"), ("deletes", "diagnosis", "3"), ("no_patient", "lab", "4")]  # fmt: skip
     assert i18n_dataops.EN["dataops.ids.title"] in page
 
 

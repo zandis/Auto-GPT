@@ -348,16 +348,42 @@ def _mapper(path: Path = BASE) -> tuple[Mapping, Mapper]:
     return m, Mapper(m, KEY, "T")
 
 
-def test_a_reference_by_number_names_the_same_patients_record() -> None:
-    """Patient A's diagnosis names visit E1; E1 is only patient B's visit in tonight's feed: no link to it."""
+@pytest.mark.parametrize("visits_first", [True, False])
+def test_a_reference_by_number_is_always_the_rows_own_patients_record_in_any_order(visits_first: bool) -> None:
+    """Patient A's diagnosis names visit E1, and E1 is only patient B's visit: the link is to A's E1, whatever order
+    the tables come in, and never to B's visit (it is a link to a record the lake does not hold, counted by the night
+    over the merged snapshot: :func:`test_a_link_to_a_record_not_in_the_lake_is_counted_over_the_merged_snapshot`)."""
+    from adapter.mapping.engine import patient_resource_id
+
     _m, mp = _mapper()
-    enc_b = canonical(B)["encounter"][0]
-    (visit,) = [r for r in mp.map_table("encounter", iter([enc_b])) if r["resourceType"] == "Encounter"]
-    diag_a = canonical(A)["diagnosis"][0]
+    enc_b, diag_a = canonical(B)["encounter"][0], canonical(A)["diagnosis"][0]
+    if visits_first:
+        (visit,) = [r for r in mp.map_table("encounter", iter([enc_b])) if r["resourceType"] == "Encounter"]
     (cond,) = [r for r in mp.map_table("diagnosis", iter([diag_a])) if r["resourceType"] == "Condition"]
-    assert cond.get("encounter", {}).get("reference") != f"Encounter/{visit['id']}"
-    assert "encounter" not in cond
-    assert mp.references_refused() == {"diagnosis": {"Encounter": 1}}
+    if not visits_first:
+        (visit,) = [r for r in mp.map_table("encounter", iter([enc_b])) if r["resourceType"] == "Encounter"]
+    assert cond["encounter"]["reference"] == f"Encounter/{patient_resource_id(KEY, 'Encounter', PID[A], 'E1')}"
+    assert cond["encounter"]["reference"] != f"Encounter/{visit['id']}"
+
+
+def test_a_link_to_a_record_not_in_the_lake_is_counted_over_the_merged_snapshot(tmp_path: Path) -> None:
+    """Order-free: the night counts, over the merged snapshot, each link to a patient's record it does not hold, per
+    source table and type; a delta night whose visit came an earlier night links and counts nothing."""
+    rows = canonical(A)
+    rows["encounter"] = []  # A's diagnosis, order and note name visit E1, which the feed never sent for A
+    night(tmp_path, "csv", rows, "2026-10-01")
+    comp = json.loads((snapshot_dir(tmp_path / "lake", "2026-10-01") / "completeness.json").read_text())
+    assert comp["links_to_absent_records"] == {"diagnosis": {"Encounter": 1}, "medication": {"Encounter": 1},
+                                               "note": {"Encounter": 1}}  # fmt: skip
+    full = canonical(A)
+    night(tmp_path / "b", "csv", full, "2026-10-01")  # the visit on the first night
+    late = canonical(A)
+    for t in late:
+        if t != "patient":
+            late[t] = [{**r, "updated_at": "2026-10-02"} for r in late[t]] if t != "encounter" else full[t]
+    night(tmp_path / "b", "csv", late, "2026-10-02", since="2026-10-01")
+    comp = json.loads((snapshot_dir(tmp_path / "b" / "lake", "2026-10-02") / "completeness.json").read_text())
+    assert "links_to_absent_records" not in comp
 
 
 def test_a_row_whose_patient_cannot_be_derived_is_refused_never_given_a_shared_id() -> None:
@@ -423,7 +449,7 @@ def test_two_rows_of_one_patient_with_one_number_and_other_content_are_counted(t
     assert night_event["detail"]["id_collisions"] == {"Condition": 1}
     from datacore.dataops import DETAIL_KEYS
 
-    assert {"id_collisions", "references_to_another_patient", "deletes_without_patient"} <= set(DETAIL_KEYS)
+    assert {"id_collisions", "links_to_absent_records", "deletes_without_patient"} <= set(DETAIL_KEYS)
 
 
 def test_one_row_sent_twice_is_not_a_collision(tmp_path: Path) -> None:

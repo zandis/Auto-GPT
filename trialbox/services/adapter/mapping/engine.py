@@ -258,15 +258,17 @@ def resource_id(site_key: bytes, rtype: str, value: str) -> str:
     return hmac.new(site_key, f"{rtype}|{value}".encode(), hashlib.sha256).hexdigest()[:32]
 
 
-def patient_resource_id(site_key: bytes, rtype: str, pid: str, value: str) -> str:
+def patient_resource_id(site_key: bytes, rtype: str, pid: str, value: str, suffix: str = "") -> str:
     """D-1253: the id of a record that belongs to a patient, from the source's number **and** the patient. Hospital
     systems reuse such numbers across patients (an SS-MIX2 order number is unique per patient, day and data type
     only): without the patient two patients' "RX1" were one id, and one patient's record took the other's place.
-    ``pid`` is the patient's pseudonym (:func:`tb_common.crypto.pid_for_mrn`, fixed-length hex: it holds no ``|``,
-    so the three parts are read back one way only)."""
+    ``pid`` is the patient's pseudonym (:func:`tb_common.crypto.pid_for_mrn`, fixed-length hex) and ``suffix`` the
+    id spec's own suffix (``-HT``): neither holds a ``|`` (the loader refuses a suffix that does), so
+    ``<type>|<pid>|<suffix>|<number>`` reads back one way only, and a suffixed id never equals the id of a plain number
+    that happens to end so (a vital ``V1`` with ``-HT`` is not a result numbered ``V1-HT``)."""
     if not PID_SHAPE.fullmatch(pid):
         raise MappingError(f"{rtype}: the patient part of an id is not a pseudonym")
-    return hmac.new(site_key, f"{rtype}|{pid}|{value}".encode(), hashlib.sha256).hexdigest()[:32]
+    return hmac.new(site_key, f"{rtype}|{pid}|{suffix}|{value}".encode(), hashlib.sha256).hexdigest()[:32]
 
 
 PID_SHAPE = re.compile(r"[0-9a-f]{16,64}")
@@ -1022,47 +1024,6 @@ _CLASS_MARK = "\x00class:"
 _ICD9_NUMERIC = re.compile(r"(\d{3})(?:\.(\d{1,2}))?|(\d{4,5})")
 
 
-class _Numbers:
-    """D-1253: which patients' records a number names tonight, by (type, the number's site-wide hash). In memory, or
-    (:meth:`on_disk`, the nightly pipeline) in a scratch SQLite file, so a night's memory does not grow with its
-    patients (T-692, D-473)."""
-
-    def __init__(self) -> None:
-        self._mem: dict[tuple[str, str], set[str]] = {}
-        self._con: Any = None
-
-    def on_disk(self, path: Path) -> None:
-        import sqlite3
-
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.unlink(missing_ok=True)
-        self._con = sqlite3.connect(path, isolation_level=None)
-        self._con.execute("PRAGMA journal_mode = OFF")
-        self._con.execute("PRAGMA synchronous = OFF")
-        self._con.execute("PRAGMA temp_store = FILE")
-        # a scratch table of the night, gone with the file: not a record (TEMP says so)
-        self._con.execute("CREATE TEMP TABLE n (t TEXT, k TEXT, pid TEXT, PRIMARY KEY (t, k, pid)) WITHOUT ROWID")
-        for (t, k), pids in self._mem.items():
-            self._con.executemany("INSERT OR IGNORE INTO n VALUES (?, ?, ?)", [(t, k, p) for p in pids])
-        self._mem = {}
-
-    def add(self, t: str, k: str, pid: str) -> None:
-        if self._con is None:
-            self._mem.setdefault((t, k), set()).add(pid)
-        else:
-            self._con.execute("INSERT OR IGNORE INTO n VALUES (?, ?, ?)", (t, k, pid))
-
-    def owners(self, t: str, k: str) -> set[str]:
-        if self._con is None:
-            return self._mem.get((t, k), set())
-        return {str(r[0]) for r in self._con.execute("SELECT pid FROM n WHERE t = ? AND k = ?", (t, k))}
-
-    def close(self) -> None:
-        if self._con is not None:
-            self._con.close()
-            self._con = None
-
-
 class Mapper:
     """Applies a :class:`Mapping` to source rows."""
 
@@ -1074,6 +1035,7 @@ class Mapper:
         ingest_time: str | None = None,
         concept_map: Callable[[str, str], list[dict[str, Any]] | None] | None = None,
         mrn_regex: str | None = None,
+        aliases: dict[str, str] | None = None,
     ) -> None:
         self.mrn_regex = mrn_regex  # CGRD-A4 (D-816): the site's chart number pattern, for ``masked: true``
         # D-593: the reference data's map (code system, code → its rows), when the caller has it: the night and the
@@ -1109,13 +1071,12 @@ class Mapper:
         # 10B-6 (D-1233): the site profile's rows still to verify, by table; the facts tagged per table
         self.verify_rules: dict[str, list[VerifyRule]] = {}
         self.from_verify: Counter[str] = Counter()
-        # D-1253: the patient records named by number, by (type, the number's site-wide hash) -> the patients whose
-        # record it is tonight, filled as they are made; the links refused because the number is only another
-        # patient's, by (table, type); the deleted rows that name no patient, by table. Counts only
-        self._targets = {t for r in mapping.resources for t in _hid_targets(r.elements) if t not in SITE_WIDE_TYPES}
-        self._numbers = _Numbers()
-        self.refused: Counter[tuple[str, str]] = Counter()
+        # D-1253: the deleted rows that name no patient, by table (counts only); the chart merges (an absorbed
+        # chart's pid -> the surviving chart's pid, ``pidmap.aliases``) a patient's record id is made under, as the
+        # Patient's own id is; the record types whose numbers the mapping declares unique across the site
         self.dead_without_patient: Counter[str] = Counter()
+        self.aliases: dict[str, str] = dict(aliases or {})
+        self.site_unique = {r.type for r in mapping.resources if r.id.get("unique") == "site"}
 
     # ------------------------------------------------------------------ scalar conversion
     def _parse_dt(self, raw: str) -> datetime:
@@ -1237,7 +1198,10 @@ class Mapper:
         return pid_for_mrn(self.key, str(raw))
 
     def hid(self, rtype: str, row: Row, col: str, rs: ResourceSpec) -> str:
-        return self.number_id(rtype, rs, row, str(row[col]))
+        """``{hid: <col>}`` as a value (an identifier) or ``{hid:T:col}`` in a template: the id the record of that
+        number has, made as its own id is (the record's own column takes its spec's suffix)."""
+        suffix = str(rs.id.get("suffix", "")) if rtype == rs.type and rs.id.get("hid") == col else ""
+        return self.number_id(rtype, rs, row, str(row[col]), suffix)
 
     def patient_of(self, rs: ResourceSpec, row: Row) -> str:
         """D-1253: the pseudonym of the record's patient (:meth:`pid` of its patient column). A row without one is
@@ -1249,22 +1213,20 @@ class Mapper:
         raw = row.get(col)
         if raw is None or str(raw).strip() == "":
             raise MappingError(f"{rs.type} from {rs.table}: no patient ({col} is empty)")
-        return pid_for_mrn(self.key, str(raw))
+        pid = pid_for_mrn(self.key, str(raw))
+        return self.aliases.get(pid, pid)  # a merged chart's records are the surviving chart's, as its Patient is
 
-    def number_id(self, rtype: str, rs: ResourceSpec, row: Row, value: str) -> str:
-        """The id of the ``rtype`` record with the source number ``value``, as ``rs``'s row names it (D-1253): a
-        patient's record is that row's patient's; a record of no patient (:data:`SITE_WIDE_TYPES`) is the site's."""
-        if rtype in SITE_WIDE_TYPES:
-            return resource_id(self.key, rtype, value)
-        return patient_resource_id(self.key, rtype, self.patient_of(rs, row), value)
+    def number_id(self, rtype: str, rs: ResourceSpec, row: Row, value: str, suffix: str = "") -> str:
+        """The id of the ``rtype`` record with the source number ``value``, as ``rs``'s row names it (D-1253),
+        whatever the order the tables or rows come in:
 
-    def references_refused(self) -> dict[str, dict[str, int]]:
-        """Per table and record type, the links by number left out because tonight that number is only another
-        patient's record (D-1253). Counts only."""
-        out: dict[str, dict[str, int]] = {}
-        for (table, rtype), n in sorted(self.refused.items()):
-            out.setdefault(table, {})[rtype] = n
-        return out
+        * a patient's record is always the **row's own patient's** (``<type>|<pid>|<suffix>|<number>``): a link by
+          number can never name another patient's record;
+        * a record of no patient (:data:`SITE_WIDE_TYPES`), or of a type whose numbers the mapping declares unique
+          across the site (``id: {hid: ..., unique: site}``), is the site's: ``<type>|<number><suffix>``."""
+        if rtype in SITE_WIDE_TYPES or rtype in self.site_unique:
+            return resource_id(self.key, rtype, f"{value}{suffix}")
+        return patient_resource_id(self.key, rtype, self.patient_of(rs, row), value, suffix)
 
     def tombstones_without_patient(self) -> dict[str, int]:
         """Per table, the deleted rows that name no patient: they remove nothing (D-1253: which patient's record
@@ -1367,16 +1329,8 @@ class Mapper:
         raw = row.get(col)
         if raw is None or str(raw).strip() == "":
             return None
-        if "hid" in spec:
-            if rtype in SITE_WIDE_TYPES:
-                return f"{rtype}/{resource_id(self.key, rtype, str(raw))}"
-            pid = self.patient_of(rs, row)
-            theirs = self._numbers.owners(rtype, resource_id(self.key, rtype, str(raw)))
-            if theirs and pid not in theirs:
-                # D-1253: tonight that number is another patient's record only: never a link across patients
-                self.refused[(rs.table, rtype)] += 1
-                return None
-            return f"{rtype}/{patient_resource_id(self.key, rtype, pid, str(raw))}"
+        if "hid" in spec:  # D-1253: the row's own patient's record, by construction (a link never crosses patients)
+            return f"{rtype}/{self.number_id(rtype, rs, row, str(raw), str(spec.get('suffix', '')))}"
         return f"{rtype}/{raw}"
 
     def value(self, expr: Any, row: Row, rs: ResourceSpec) -> Any:
@@ -1769,11 +1723,8 @@ class Mapper:
             # CGRD-A1 (D-812): an empty key gave every such row one record id, and all but one were lost. Refused:
             # the row is rejected and counted where rejected rows are
             raise MappingError(f"{rs.type} from {rs.table}: no key ({col} is empty)")
-        if "hid" in rs.id:
-            number = f"{value}{rs.id.get('suffix', '')}"
-            if rs.patient is None:  # declared site-wide (D-1253): a record of no patient
-                return resource_id(self.key, rs.type, number)
-            return patient_resource_id(self.key, rs.type, self.patient_of(rs, row), number)
+        if "hid" in rs.id:  # D-1253: as every link by number to it is made (:meth:`number_id`)
+            return self.number_id(rs.type, rs, row, str(value), str(rs.id.get("suffix", "")))
         return str(value)
 
     def tombstones(self, table: str, rows: Iterator[Row], deleted: bool = True) -> Iterator[tuple[str, str]]:
@@ -1934,21 +1885,6 @@ class Mapper:
                 index.setdefault(key, set()).add(rid or f"\x00{len(index)}:{sum(map(len, index.values()))}")
         return rid
 
-    def _number_made(self, rs: ResourceSpec, row: Row) -> None:
-        """D-1253: the record of this number is this patient's tonight (what a link by number may name)."""
-        col = rs.id.get("hid") or ""
-        number = f"{row.get(col)}{rs.id.get('suffix', '')}"
-        # the number's hash: no source value is kept
-        self._numbers.add(rs.type, resource_id(self.key, rs.type, number), self.patient_of(rs, row))
-
-    def numbers_on_disk(self, path: Path) -> None:
-        """Keep tonight's numbers of patients' records in a scratch file at ``path`` (the nightly pipeline: a
-        night's memory does not grow with its patients). :meth:`close_numbers` removes it."""
-        self._numbers.on_disk(path)
-
-    def close_numbers(self) -> None:
-        self._numbers.close()
-
     def map_table(self, table: str, rows: Iterator[Row]) -> Iterator[Resource]:
         specs = [r for r in self.m.resources if r.table == table]
         try:
@@ -1960,8 +1896,6 @@ class Mapper:
                     if res is not None:
                         if rid:
                             self._made.add((rs.type, rid))
-                        if rs.type in self._targets and rs.patient is not None and "hid" in rs.id:
-                            self._number_made(rs, row)
                         yield res
         finally:
             self._row_seen = None

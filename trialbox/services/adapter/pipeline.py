@@ -33,6 +33,7 @@ from adapter.instants import to_site_offset
 from adapter.mapping.engine import Mapper, Mapping, pivot_rows, resource_id
 from adapter.ndjson import (
     Spool,
+    absent_links,
     alias_patient,
     alias_references,
     is_deleted_flag,
@@ -748,8 +749,6 @@ def _run_ingest(
             concept_map=reference_maps(mapping, cfg.db_url),  # D-665: a map that is not loaded is "not asked"
             mrn_regex=cfg.mrn_regex,  # CGRD-A4 (D-816, lane E's hunk): a masked text uses the site's pattern
         )  # fmt: skip
-        mapper.numbers_on_disk(spool.root / ".numbers.sqlite")  # D-1253: scratch of the night, flat in memory
-        cleanup.callback(mapper.close_numbers)
         fhir_profiles = mapping.fhir_profiles
         if profile is not None:  # 10B-6 (D-1233): a fact from a row still to verify carries D-135's basis tag
             from adapter.site_profile import verify_rules
@@ -923,10 +922,6 @@ def _run_ingest(
             tables[table]["implausible_dates"] = by_element
         for table, by_map in mapper.mapped_summary().items():  # D-689: rows that gained a mapped code, by map
             tables[table]["mapped"] = by_map
-        for table, by_type in mapper.references_refused().items():  # D-1253: counts only
-            tables[table]["references_to_another_patient"] = by_type
-            log.warning("%s: links by number left out, the number being only another patient's record tonight: %s",
-                        table, by_type)  # fmt: skip
         for table, n in mapper.tombstones_without_patient().items():  # D-1253: counts only
             tables[table]["deletes_without_patient"] = n
             log.warning("%s: %d deleted rows name no patient: they remove nothing", table, n)
@@ -1030,6 +1025,9 @@ def _run_ingest(
         out_dir, spool, base, tombstones, transform=night, left_out=left_out, removed=removed,
         aliases=aliases if base is not None else None, moved=carried_moved, collisions=collisions,
     )  # fmt: skip
+    absent = absent_links(out_dir)  # D-1253: order-free, over the merged snapshot, in bounded memory
+    if absent:
+        log.warning("links to a patient's record the lake does not hold (per table and type): %s", absent)
     if collisions:
         log.warning("records of tonight that had the id of another row of tonight, with other content (the last "
                     "row kept): %s", dict(sorted(collisions.items())))  # fmt: skip
@@ -1055,6 +1053,8 @@ def _run_ingest(
     gaps, completeness = completeness_check(cfg, tables, out_dir, last_good, full=not since)
     if collisions:  # D-1253: counts per record type only
         completeness["id_collisions"] = dict(sorted(collisions.items()))
+    if absent:  # D-1253: links to a patient's record the snapshot does not hold, per table and type
+        completeness["links_to_absent_records"] = absent
     (out_dir / COMPLETENESS).write_text(
         json.dumps(completeness, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -1302,12 +1302,7 @@ def _run_ingest(
                 # D-1253: two of tonight's rows with one id and other content (the last kept), per record type; links
                 # by number left out because the number was only another patient's; deletes that named no patient
                 "id_collisions": dict(sorted(collisions.items())) or None,
-                "references_to_another_patient": {
-                    t: sum(v["references_to_another_patient"].values())
-                    for t, v in sorted(tables.items())
-                    if v.get("references_to_another_patient")
-                }
-                or None,
+                "links_to_absent_records": {t: sum(by.values()) for t, by in sorted(absent.items())} or None,
                 "rejected_no_patient": {
                     t: v["rejected_no_patient"] for t, v in sorted(tables.items()) if v.get("rejected_no_patient")
                 }
