@@ -862,3 +862,118 @@ def test_free_notes_stay_and_a_date_field_holds_a_date(tmp_path: Path, site_env:
     with pytest.raises(ExportRefused, match="source_last_update is not a date"):
         export(_head_with(tmp_path / "b", lambda d: plant(d, "CNRY last update by x")), "GZQO",
                compiled_on(HEAD_RELEASE))  # fmt: skip
+
+
+# ------------------------------------------------------------------------------------------ the re-check of #1174
+ELM_GZQO = "cql/elm/TB_GZQO_v1_0.json"
+
+
+def _plant_elm(change: Any) -> Any:
+    def plant(d: Path) -> None:
+        f = d / ELM_GZQO
+        e = json.loads(f.read_text(encoding="utf-8"))
+        change(e)
+        f.write_text(json.dumps(e), encoding="utf-8")
+
+    return plant
+
+
+@pytest.mark.parametrize(
+    "change, where",
+    [(lambda e: e["library"].update(x_patients=["CNRY-ELMLIB synthetic person"]), "library.'x_patients'"),
+     (lambda e: e["library"]["statements"]["def"][0].update(x_note="CNRY-ELMDEF"),
+      r"library.statements.def\[0\].'x_note'"),
+     (lambda e: e.update(x_top="CNRY-ELMTOP"), "'x_top': ELM holds the key library only at its top")],
+)  # fmt: skip
+def test_recheck_an_elm_key_off_the_allow_list_refuses_the_export(
+    tmp_path: Path, site_env: None, change: Any, where: str
+) -> None:
+    """Blocker 1: ELM travels by allow-lists (top ``library``; the library's keys; the compiler's node keys), never by
+    removing ``annotation`` alone: an extra library key, a key on a statement definition or an extra top-level key
+    refuses the export, naming the key's path; nothing is written."""
+    with pytest.raises(ExportRefused, match=f"{ELM_GZQO} {where}"):
+        export(_head_with(tmp_path, _plant_elm(change)), "GZQO", compiled_on(HEAD_RELEASE))
+
+
+@pytest.mark.parametrize(
+    "change, where",
+    [(lambda e: e["library"].update(x_patients=["CNRY-IMP"]), "library.'x_patients'"),
+     (lambda e: e["library"]["statements"]["def"][0].update(x_note="CNRY-IMP"),
+      r"library.statements.def\[0\].'x_note'"),
+     (lambda e: e.update(x="CNRY-IMP"), "'x': ELM holds the key library only at its top"),
+     (lambda e: e["library"].update(annotation=[{"s": "CNRY-IMP"}]), "library.'annotation'"),
+     (lambda e: e["library"]["statements"]["def"][0].update(annotation=[{"s": "CNRY-IMP"}]),
+      r"library.statements.def\[0\].'annotation'")],
+)  # fmt: skip
+def test_recheck_a_resealed_part_with_an_elm_key_off_the_list_is_refused(
+    head: RulesetRepo, tmp_path: Path, change: Any, where: str
+) -> None:
+    """Blocker 1, the receiving box: a part resealed with a right record and hash whose ELM holds a key off the lists
+    (an annotation too) is refused naming the key's path, never installed with the key dropped."""
+    part = make_part(head, tmp_path / "p.zip").read_bytes()
+    files = open_part(part)[1]
+    e = json.loads(files[ELM_GZQO])
+    change(e)
+    files = {**files, ELM_GZQO: json.dumps(e, ensure_ascii=False, separators=(",", ":")).encode("utf-8")}
+    box, _updates = site_box(tmp_path)
+    with pytest.raises(ImportRefused, match=f"rule-set part refused: {ELM_GZQO} {where}"):
+        install(RulesetRepo(box.repo_dir), _reseal(part, files), "update:x")
+    assert "GZQO/v1.0.0" not in RulesetRepo(box.repo_dir).tags()
+
+
+def test_recheck_every_shipped_elm_passes_the_allow_lists_and_the_part_holds_only_them() -> None:
+    """The node keys were derived from the compiled fixtures and the translator's output: every shipped ELM file
+    passes the export's lists, and what the export writes passes the receiving box's lists unchanged."""
+    from tb_common.ruleset_part import ELM_LIBRARY_KEYS, elm_allowed, neutral_elm
+
+    root = Path(__file__).resolve().parents[2] / "rulesets"
+    shipped = sorted(root.glob("*/cql/elm/*.json"))
+    assert len(shipped) >= 16
+    for f in shipped:
+        out = json.loads(neutral_elm(f.read_bytes(), f"cql/elm/{f.name}"))
+        assert set(out) == {"library"} and set(out["library"]) <= ELM_LIBRARY_KEYS and out["library"]["statements"]
+        assert elm_allowed(out, f.name, strip=False) == out
+
+
+def test_recheck_the_site_profile_names_the_person_who_ran_it(
+    tmp_path: Path, site_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Finding 3: ``--site-profile`` without ``--by`` audits ``approve.site_profile_set`` as ``host:<user>`` (as the
+    export does), never the generic "offline-update"."""
+    import getpass
+    from types import SimpleNamespace
+
+    import tb_common.audit_writer
+    import tb_common.config
+    from criteria_compiler import import_ruleset
+
+    seed = copy_rulesets(tmp_path / "seed", "GZQO", "GZQO.yaml")
+    RulesetRepo(tmp_path / "s", seed)
+    cfg = SimpleNamespace(env=SimpleNamespace(rulesets_path=tmp_path / "s", audit_path=tmp_path / "audit", tz="UTC"))
+    monkeypatch.setattr(tb_common.config, "load", lambda: cfg)
+    monkeypatch.setattr(tb_common.audit_writer, "open_audit", lambda path, _tz: AuditLog(path))
+    monkeypatch.setattr(getpass, "getuser", lambda: "opsuser")
+    prof = tmp_path / "profile.yaml"
+    prof.write_text(yaml.safe_dump(SITE_PROFILE), encoding="utf-8")
+    assert import_ruleset.main(["--site-profile", "GZQO", str(prof)]) == 0
+    (ev,) = [e for e in audit_events(tmp_path / "audit") if e["event"] == "approve.site_profile_set"]
+    assert ev["actor"] == "host:opsuser"
+    assert import_ruleset.main(["--site-profile", "GZQO", str(prof), "--by", "named.operator"]) == 0
+    assert [e["actor"] for e in audit_events(tmp_path / "audit") if e["event"] == "approve.site_profile_set"] == [
+        "host:opsuser", "named.operator"]  # fmt: skip
+
+
+def test_recheck_a_repeat_is_the_tags_own_hash_field_only(head: RulesetRepo, tmp_path: Path) -> None:
+    """Finding 4: the same part again is a no-op only when the tag's last field is ``part sha256 <its hash>``; the
+    hash written anywhere else in the tag's message (a person's or a bundle's words) does not make it a repeat."""
+    from tb_common.ruleset_part import part_sha_on_tag
+
+    part = make_part(head, tmp_path / "p.zip").read_bytes()
+    h = open_part(part)[3]["part_sha256"]
+    assert part_sha_on_tag(f"GZQO/v1.0.0 (offline update, x); stuff; part sha256 {h}\n") == h
+    assert part_sha_on_tag(f"GZQO/v1.0.0 (offline update, part sha256 {h}); approved here") is None
+    box, _updates = site_box(tmp_path)
+    repo = RulesetRepo(box.repo_dir)
+    repo.tag("GZQO/v1.0.0", "main", f"GZQO/v1.0.0 (offline update, part sha256 {h} by someone); approved here")
+    with pytest.raises(ImportRefused, match="already exists on this box with other content"):
+        install(repo, part, "update:x")

@@ -21,6 +21,7 @@ with no routing or no scope (the form a part's manifest has), is refused: a part
 from __future__ import annotations
 
 import argparse
+import getpass
 import hashlib
 import io
 import json
@@ -32,7 +33,15 @@ from typing import Any
 
 import yaml
 from tb_common.ruleset import SEEDED_TAG
-from tb_common.ruleset_part import RULESET_ID, PartRefused, load_yaml, open_part, origin_of, tag_note
+from tb_common.ruleset_part import (
+    RULESET_ID,
+    PartRefused,
+    load_yaml,
+    open_part,
+    origin_of,
+    part_sha_on_tag,
+    tag_note,
+)
 from tb_common.zipcap import ZipRefused, check_ruleset_zip
 
 from criteria_compiler.repo import RulesetRepo
@@ -191,7 +200,7 @@ def _install_part(
     if newest is not None and _semver(version) < _semver(newest):
         raise ImportRefused(f"{tag} is older than the approved {rid} v{newest} on this box: a part never goes back")
     if f"refs/tags/{tag}".encode() in repo.refs:
-        if f"part sha256 {origin['part_sha256']}" in repo.tag_message(tag):
+        if part_sha_on_tag(repo.tag_message(tag)) == origin["part_sha256"]:
             return tag  # the same part again: nothing to do
         raise ImportRefused(
             f"{tag} already exists on this box with other content (a part of another hash, a "
@@ -260,7 +269,8 @@ def main(argv: list[str] | None = None) -> int:
 
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("zip", nargs="?")
-    ap.add_argument("--by", default="offline-update")
+    ap.add_argument("--by", help="who runs it (default: offline-update for a zip; for --site-profile the user the "
+                    "command runs as, host:<user>)")
     ap.add_argument(
         "--site-profile",
         nargs=2,
@@ -275,7 +285,8 @@ def main(argv: list[str] | None = None) -> int:
 
         rid, path = args.site_profile
         with open(path, "rb") as fh:
-            sha = put_site_profile(repo, rid, fh.read(), args.by, audit=open_audit(cfg.env.audit_path, cfg.env.tz))
+            by = args.by or f"host:{getpass.getuser()}"  # a person, as export_part names one (the re-check of #1174)
+            sha = put_site_profile(repo, rid, fh.read(), by, audit=open_audit(cfg.env.audit_path, cfg.env.tz))
         print(json.dumps({"site_profile": rid, "sha256": sha}))
         return 0
     if not args.zip:
@@ -283,7 +294,7 @@ def main(argv: list[str] | None = None) -> int:
     gate = float(cfg.settings.thresholds.equivalence_min_pct or 98.0) if cfg.settings.thresholds else 98.0
     with open(args.zip, "rb") as fh:
         data = fh.read()
-    tag = install(repo, data, args.by, gate, box_pins_problem)
+    tag = install(repo, data, args.by or "offline-update", gate, box_pins_problem)
     hits = negated_hits(data)
     for h in hits:  # card 10A-1: installed as approved; a person recompiles these lines (the scan lists them again)
         print(f"WARNING {h}: its line may negate what its logic asks the presence of; recompile and approve",

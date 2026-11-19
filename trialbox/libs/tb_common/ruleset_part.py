@@ -25,12 +25,17 @@ A part is a zip of the ``import_ruleset`` form (one folder ``<ID>/``) with one m
     YAML (no comment survives);
   - **each criterion**: the fields of :data:`IR_KEYS` only (the criterion schema's but ``provenance``; ``review``
     keeps its status), checked against the criterion schema; a flag is one word of the compiler's;
-  - **value sets**: the keys the compiler writes (:data:`VALUESET_KEYS`) only, else refused; **ELM**: its
-    ``annotation`` entries (the translator's copy of the CQL source, its options and messages) removed, its library
-    identifier ``id`` and ``version`` only; **labels**: their keys only, written again as YAML;
+  - **value sets**: the keys the compiler writes (:data:`VALUESET_KEYS`) only, else refused; **ELM**
+    (:func:`elm_allowed`): the top level ``library`` only, the library's keys of :data:`ELM_LIBRARY_KEYS`, every key
+    below of :data:`ELM_NODE_KEYS` (the keys the compiler's translator writes), any other key refused naming its path
+    (at the export and at the receiving box); its ``annotation`` entries (the translator's copy of the CQL source, its
+    options and messages) and the library's ``localId`` removed by the export, refused at the receiving box; its
+    library identifier ``id`` and ``version`` only; **labels**: their keys only, written again as YAML;
   - **CQL and SQL**: carried as their bytes, every comment held against the compiler's own
     (``criteria_compiler.part_text``): another comment refuses the export with the file and the line (a comment is
-    never stripped from code).
+    never stripped from code). **String literals are not checked**: they are free text the approver may have typed
+    and travel as written (in the CQL and SQL, and as ELM literal values), like the criterion text (D-1369, "What
+    travels").
 
 * **The part's hash** (:func:`part_sha256`) covers every carried file (path and bytes) and every field of
   ``ORIGIN.json`` but the hash itself. No time is in it: the same approved version exported again from the same
@@ -96,6 +101,32 @@ VALUESET_EXTENSION_KEYS = {"url", "valueString"}
 CODE_FAMILY = "https://trialbox.local/fhir/StructureDefinition/code-family"
 LABEL_ENTRY_KEYS = {"source", "todo_source", "en", "ja", "zh-TW"}
 LABEL_LANG_KEYS = {"label", "text", "todo"}
+#: ELM (D-1369 decision 1, allow-lists): the keys of its ``library``
+ELM_LIBRARY_KEYS = frozenset({"identifier", "schemaIdentifier", "usings", "includes", "parameters", "codeSystems",
+                              "valueSets", "codes", "concepts", "contexts", "statements"})  # fmt: skip
+#: ELM: every key that may stand anywhere below the library's keys. Derived (10D-28, the re-check of #1174) as the
+#: union of the dict keys, ``annotation`` left out, of (a) the repository's compiled ELM fixtures
+#: ``rulesets/*/cql/elm/*.json`` (8 rule sets, 16 files) and (b) the translator's own output (the pinned
+#: ``.cache/jvm/cql-translator`` jars, ``compile_cql.translator.Translator``) for each rule set's CQL, the generator's
+#: snapshot ``tests/fixtures/ir/snapshots/ATOMS.cql`` (every atom) and ``render_common()``; (a) and (b) gave the same
+#: 81 keys. A key the compiler starts to write after a template change refuses the export, naming it: add it here
+#: then, from the translator's output, never by hand from a part.
+ELM_NODE_KEYS = frozenset({
+    "accessLevel", "alias", "asType", "asTypeSpecifier", "by", "caseItem", "choice", "code", "codeComparator",
+    "codeFilter", "codeProperty", "codeSystem", "codeSystems", "codes", "comparand", "condition", "context",
+    "contexts", "dataType", "dateFilter", "day", "def", "default", "direction", "element", "elementType", "else",
+    "expression", "high", "highClosed", "id", "identifier", "include", "includes", "isTypeSpecifier", "let",
+    "libraryName", "localId", "localIdentifier", "locator", "low", "lowClosed", "month", "name", "operand",
+    "operandTypeSpecifier", "otherFilter", "parameterTypeSpecifier", "parameters", "path", "pointType", "precision",
+    "preserve", "relationship", "resultTypeName", "resultTypeSpecifier", "return", "schemaIdentifier", "scope",
+    "separator", "signature", "sort", "source", "statements", "strict", "stringToSplit", "suchThat", "templateId",
+    "then", "type", "unit", "uri", "usings", "value", "valueSets", "valueType", "valueset", "version", "when",
+    "where", "year",
+})  # fmt: skip
+#: the translator's bookkeeping the export removes (the receiving box refuses it like any other key): ``annotation``
+#: at any depth (the translator's copy of the CQL source, its options and messages) and the library's ``localId``
+ELM_STRIPPED_ANYWHERE = frozenset({"annotation"})
+ELM_STRIPPED_LIBRARY = frozenset({"localId"})
 #: how deep a part's JSON or YAML may nest (the compiler's ELM reaches about 90)
 MAX_DEPTH = 256
 
@@ -281,25 +312,64 @@ def check_valueset(data: bytes, path: str) -> None:
             raise PartRefused(f"{path} extension[{i}] is not the compiler's code family")
 
 
-def _without_annotation(node: Any) -> Any:
+def _elm_key(key: Any) -> str:
+    return repr(str(key)[:40])
+
+
+def _elm_node(node: Any, path: str, where: str, strip: bool) -> Any:
+    """``node`` with every key in :data:`ELM_NODE_KEYS`, at every depth; ``annotation`` removed when ``strip`` (the
+    export), refused when not (the receiving box); any other key refused, naming its path."""
     if isinstance(node, dict):
-        return {k: _without_annotation(v) for k, v in node.items() if k != "annotation"}
+        out = {}
+        for k, v in node.items():
+            if strip and k in ELM_STRIPPED_ANYWHERE:
+                continue
+            if k not in ELM_NODE_KEYS:
+                raise PartRefused(f"{path} {where}.{_elm_key(k)}: a key the compiler's ELM does not hold; a part "
+                                  "carries the compiler's ELM keys only")  # fmt: skip
+            out[k] = _elm_node(v, path, f"{where}.{k}", strip)
+        return out
     if isinstance(node, list):
-        return [_without_annotation(v) for v in node]
+        return [_elm_node(v, path, f"{where}[{i}]", strip) for i, v in enumerate(node)]
     return node
 
 
-def neutral_elm(data: bytes, path: str) -> bytes:
-    """ELM without its ``annotation`` entries (the translator's copy of the CQL source text, its options and its
-    messages: nothing of what runs), its library identifier ``id`` and ``version`` only, written compact."""
-    elm = _without_annotation(load_json(data, path))
-    lib = elm.get("library") if isinstance(elm, dict) else None
+def elm_allowed(elm: Any, path: str, strip: bool) -> dict[str, Any]:
+    """ELM by allow-lists, never a deny-list: the top level ``library`` only, the library's keys of
+    :data:`ELM_LIBRARY_KEYS` only, every key below them of :data:`ELM_NODE_KEYS`. With ``strip`` (the export) the
+    translator's bookkeeping (:data:`ELM_STRIPPED_ANYWHERE`, :data:`ELM_STRIPPED_LIBRARY`) is removed first; without
+    it (the receiving box) that bookkeeping is refused like any other key. Any other key is refused with its path,
+    never dropped."""
+    if not isinstance(elm, dict):
+        raise PartRefused(f"{path} is not ELM (no library)")
+    extra = [k for k in elm if k != "library" and not (strip and k in ELM_STRIPPED_ANYWHERE)]
+    if extra:
+        raise PartRefused(f"{path} {_elm_key(extra[0])}: ELM holds the key library only at its top")
+    lib = elm.get("library")
     if not isinstance(lib, dict):
         raise PartRefused(f"{path} is not ELM (no library)")
-    if "identifier" in lib:  # the translator always writes it (a test's stand-in translator does not)
+    out: dict[str, Any] = {}
+    for k, v in lib.items():
+        if strip and (k in ELM_STRIPPED_ANYWHERE or k in ELM_STRIPPED_LIBRARY):
+            continue
+        if k not in ELM_LIBRARY_KEYS:
+            raise PartRefused(f"{path} library.{_elm_key(k)}: a key the compiler's ELM library does not hold; a part "
+                              "carries the compiler's ELM keys only")  # fmt: skip
+        out[k] = _elm_node(v, path, f"library.{k}", strip)
+    return {"library": out}
+
+
+def neutral_elm(data: bytes, path: str) -> bytes:
+    """ELM by :func:`elm_allowed`: without its ``annotation`` entries (the translator's copy of the CQL source text,
+    its options and its messages: nothing of what runs) and the library's ``localId``, every other key on the
+    allow-lists or the export is refused; its library identifier ``id`` and ``version`` only, written compact."""
+    raw = load_json(data, path)
+    lib = raw.get("library") if isinstance(raw, dict) else None
+    if isinstance(lib, dict) and "identifier" in lib:  # the translator always writes it (a stand-in may not)
         ident = _keys(lib["identifier"], {"id", "version"}, f"{path} library.identifier")
         if ident.get("id") != _stem(path):
             raise PartRefused(f"{path}: its library is not {_stem(path)}")
+    elm = elm_allowed(raw, path, strip=True)
     return json.dumps(elm, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
@@ -384,7 +454,11 @@ def neutral_files(files: dict[str, bytes]) -> dict[str, bytes]:
 
 def check_neutral(files: dict[str, bytes]) -> None:
     """Refuse a part whose files are not exactly what the export writes: a site or staff field, a key or file nobody
-    placed, an annotation, a comment the compiler does not write (a part not made by the export)."""
+    placed, an annotation, a comment the compiler does not write (a part not made by the export). Each ELM file is
+    first held against the ELM allow-lists as it stands (:func:`elm_allowed` without stripping): a key off them is
+    refused naming its path, never dropped."""
+    for path in sorted(p for p in files if kind_of(p) == "elm"):
+        elm_allowed(load_json(files[path], path), path, strip=False)
     clean = neutral_files(files)
     if clean.keys() != files.keys():
         raise PartRefused(f"the part holds files a part does not carry: {sorted(set(files) - set(clean))[:5]}")
@@ -554,6 +628,14 @@ def tag_note(origin: dict[str, Any], by: str) -> str:
     Only fields :func:`check_origin` accepted, one line."""
     return (f"{ARRIVED_MARK}: {by}; compiled and approved on another box, release {release_of(origin)}, "
             f"its tag {origin['approval_tag']}; part sha256 {origin['part_sha256']}")  # fmt: skip
+
+
+def part_sha_on_tag(tag_message: str) -> str | None:
+    """The part sha256 an approval tag records, from its last field only (``; part sha256 <hash>``, as
+    :func:`tag_note` ends it); None when the tag ends otherwise. Never a match anywhere in the message: the person and
+    the bundle named before it are not read as a hash."""
+    m = re.search(r"; part sha256 ([0-9a-f]{64})\Z", tag_message.rstrip())
+    return m.group(1) if m else None
 
 
 def arrived(tag_message: str) -> bool:

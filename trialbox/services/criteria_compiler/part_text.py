@@ -9,6 +9,10 @@ criterion text of the part's own IR, as the generator writes it), and the fixed 
 line; the receiving box checks the same.
 
 The scanner knows the two languages' strings and quoted names (a ``//`` inside ``'http://loinc.org'`` is no comment).
+
+Only comments are checked. **String literals are not**: no literal grammar is held against the compiler's, so a
+literal is free text the approver may have typed (``define "X": 'any words'``, ``SELECT 'any words'``) and travels as
+written, like the criterion text and the other free-text fields D-1369 names under "What travels".
 """
 
 from __future__ import annotations

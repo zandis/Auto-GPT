@@ -77,9 +77,17 @@
    - **value sets** hold the compiler's keys only, at every level (`resourceType id name title url version status
      compose extension`; `compose.include[]`: `system concept`; `concept[]`: `code display`; `extension[]`: the
      code-family `url` and `valueString`), else the export is refused naming file and key; their bytes travel;
-   - **ELM**: every `annotation` entry is removed (the translator's copy of the CQL source, its options and messages;
-     not read by the engine), its `library.identifier` may hold `id` and `version` only (else refused); written again
-     as compact JSON. ELM is not regenerated: the translator's jars are not on every box;
+   - **ELM**, by allow-lists at both ends (`tb_common.ruleset_part.elm_allowed`; the re-check of #1174): the top
+     level holds `library` only; the library holds `identifier schemaIdentifier usings includes parameters
+     codeSystems valueSets codes concepts contexts statements` only; every key below them is one of
+     `ELM_NODE_KEYS`, the 81 keys the compiler's ELM holds (the union over the repository's compiled ELM fixtures and
+     the pinned translator's output for every rule set's CQL, the generator's `ATOMS` snapshot and `TB_Common`; the
+     constant's comment says how). Any other key refuses the export, naming its path (`library.statements.def[0].x`);
+     the export removes only the translator's bookkeeping, every `annotation` entry (its copy of the CQL source, its
+     options and messages; not read by the engine) and the library's `localId`. The receiving box holds each ELM file
+     against the same lists as it stands and refuses any key off them, an annotation included, naming its path: it
+     never drops one. Its `library.identifier` may hold `id` and `version` only (else refused); written again as
+     compact JSON. ELM is not regenerated: the translator's jars are not on every box;
    - **labels.yaml**: its keys only (`ruleset`, `criteria.<criterion id>.{source, todo_source, en|ja|zh-TW.{label,
      text, todo}}`), text values only, written again as YAML (its comments go);
    - **CQL and SQL** travel as their bytes and are **never stripped** (removing text from code could change what it
@@ -181,8 +189,12 @@ compiler's by purpose, any of it typed or edited by a person on the head box:
 - `labels.yaml`: per criterion `source`, `todo_source` and their translations (`label`, `text`, `todo` in en, ja,
   zh-TW).
 - `valuesets/*.json`: `title` and each concept's `display` (code system names), besides the codes.
-- `cql/*.cql` and `sql/*.sql`: the compiler's comments, which repeat each criterion's `text`; string literals in
-  the code (codes, units, code system URLs); ELM: define and value set names, without annotations.
+- `cql/*.cql` and `sql/*.sql`: the compiler's comments, which repeat each criterion's `text`; **string literals
+  are free text typed by the approver and travel as written**: besides the codes, units and code system URLs the
+  compiler writes, a CQL or SQL string literal (`define "X": 'any words'`, `SELECT 'any words'`) is not checked
+  (comments are; no literal grammar is held against the compiler's), so whatever a person typed into one on the head
+  box leaves it, as does the same text in the ELM's literal values; ELM: define and value set names and those
+  literals, without annotations, by its key allow-lists.
 - `ORIGIN.json`: the bundle id, release_seq and commit of the compiling release (no free words: `--release` takes a
   bundle id), the pins, the file names (criterion ids, value set and library names).
 
@@ -223,7 +235,9 @@ directly can be valid longer. This predates the card and is not changed by it.
   The third review: a file off the per-file list refuses the export (six shapes) and the import (three, resealed); a
   CQL `//` or `/* */`, a `TB_Common` or an SQL `--` comment the compiler does not write refuses the export with file
   and line, and the import; YAML comments and ELM annotations are in no byte of the part; an ELM identifier key, a
-  value-set key or a nested one refuses; a free file name refuses; the criterion stripper is an allow-list equal to
+  value-set key or a nested one refuses; an ELM key off the allow-lists (an extra library key, a key on a statement
+  definition, an extra top-level key) refuses the export naming its path, and a part resealed with one is refused at
+  the receiving box naming its path; a free file name refuses; the criterion stripper is an allow-list equal to
   the schema less `provenance`, and a part holding an unknown key is refused; a part without `ORIGIN.json`, or with it
   moved, is refused; the shipped example profile and a hand-edited one do not count; `approve.site_profile_set` is
   written before the profile and a failed audit writes nothing; a re-export is the same part and installs as a
