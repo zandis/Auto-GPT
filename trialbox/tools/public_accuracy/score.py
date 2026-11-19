@@ -52,6 +52,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
+from tools import gold_kind
 from tools.public_accuracy import key as answer_keys
 
 #: the report's layout: 2 adds ``protocols``, ``pathology``, ``unjudged_exclusions`` and the denominators (card H-3);
@@ -937,6 +938,7 @@ def score(built: Path, work: Path, key: bytes | None = None) -> dict[str, Any]:
     if not (work / "answers.json").exists():  # D-1108: a set that did not run is "not scored", by name
         ids = json.loads((built / "gold" / "ids.json").read_text(encoding="utf-8"))
         miss: dict[str, Any] = {"schema_version": SCHEMA_VERSION, "set": ids.get("set"),
+                                "gold_kind": gold_kind.of_set(ids.get("set")),  # 10G-38, D-1326
                                 "not_scored_because": "no answers.json: the set did not run",
                                 "protocols": score_protocols(ids, {})}  # fmt: skip
         miss["answer_key"] = answer_keys.describe(built)
@@ -953,6 +955,7 @@ def score(built: Path, work: Path, key: bytes | None = None) -> dict[str, Any]:
     out: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "set": ids.get("set"),
+        "gold_kind": gold_kind.of_set(ids.get("set")),  # 10G-38 (D-1326): what the gold is; None: not stated
         "what": "joined by ids after the run; the gold was not in the box",
         "answer_key": answer_keys.describe(built),  # D-1104: every score names the key it was scored on
     }

@@ -1,0 +1,20 @@
+{
+ "card": "H10G3",
+ "title": "the security page's audit, retention and updates section (plan 10 row 10G-3)",
+ "date": "2026-11-18",
+ "source": "docs/security/06-audit-retention-updates.md",
+ "note": "basis 'shown' means shown by reading the code, not by running a prune. Severity Low: the folders are deleted by the stated retention (logs_days, 365 by default) and the daily run prints the days it deleted to its own output; the audit chain and its archive are never deleted. What is missing is an audit event that says which days were deleted, by what rule and when, as retention.deleted and retention.mail do for job files and mail-log rows.",
+ "findings": [
+  {
+   "id": "H10G3-01",
+   "severity": "Low",
+   "claim": "the host's service-log folders past logs_days (and the third-party folders past their days) are deleted with no audit event: tools/trialbox/logs.py:313 shutil.rmtree in prune, called by `logs prune` and `logs daily` (:444, :446), which only print the days deleted; job files and mail-log rows are audited when deleted (retention.deleted, retention.mail)",
+   "lane": "D",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/trialbox/logs.py:306-315 (prune), :443-447 (the CLI)",
+   "expected": "a deletion by retention leaves an audit event naming what was deleted and by which rule, as the other retention deletions do",
+   "happened": "the folders are removed and the day names printed to the cron run's output; no event in the audit chain"
+  }
+ ]
+}

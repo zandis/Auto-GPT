@@ -10,14 +10,21 @@ This folder holds material under two licences and one set of terms. Read 2026-11
   published by CSIRO: https://researchdata.edu.au/a-test-collection-clinical-trials/664508
 - Copyright notice as published: "All Rights (including copyright) CSIRO, U.S. National Institute of Standards,
   U.S. National Institutes of Health 2016."
+- Citation as the publisher gives it (read 2026-11-19, card 10H-1): Koopman, Bevan; Zuccon, Guido (2017): A Test
+  Collection for Matching Patient to Clinical Trials. v4. Commonwealth Scientific and Industrial Research
+  Organisation. https://doi.org/10.4225/08/58e2e83d92c2b
 - Licence: Creative Commons Attribution-ShareAlike 4.0 International, https://creativecommons.org/licenses/by-sa/4.0/
   (legal code: https://creativecommons.org/licenses/by-sa/4.0/legalcode). The material is provided as-is, without
   warranties, as the licence's Section 5 states.
 - Obtained through the NCBI TrialGPT release (Hugging Face `ncbi/TrialGPT-Criterion-Annotations`, the `note` field).
-- Changes made here: `notes_en.json` stores each note as a list of sentences, in the numbering NCBI's evidence ids refer to; the words are unchanged.
-  `notes_zh-TW.json`, `notes_ja.json` and `notes_mixed.json` are machine translations made for TrialBox in
-  October 2026, sentence for sentence, not clinician-verified. These three files are adapted material and are
-  offered under CC BY-SA 4.0.
+- Changes made upstream, by NCBI's TrialGPT benchmark: every one of the 53 notes ends with a sentence NCBI added,
+  "The patient will provide informed consent, and will comply with the trial protocol without any practical
+  issues." It is not part of CSIRO's descriptions; it is kept because NCBI's evidence ids count it.
+- Changes made by this project: `notes_en.json` stores each note (with NCBI's added sentence) as a list of
+  sentences, in the numbering NCBI's evidence ids refer to; no other word is changed. `notes_ja.json`,
+  `notes_zh-TW.json` and `notes_mixed.json` were translated by this project (machine translations, October 2026,
+  sentence for sentence, not clinician-verified; `mixed` is a Taiwanese code-mixed rendering). These three files
+  are adapted material, offered under CC BY-SA 4.0 with the attribution and copyright line above.
 
 ## TrialGPT criterion annotations — U.S. Government work (public domain notice)
 

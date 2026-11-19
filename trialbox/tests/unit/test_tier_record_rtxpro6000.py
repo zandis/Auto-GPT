@@ -21,7 +21,7 @@ def test_the_rtxpro6000_record_is_complete_and_sound() -> None:
     rec = load(RECORD)
     assert tr.problems(rec, "rtxpro6000") == []
     jsonschema.validate(rec, tr.schema())
-    assert tr.counts(rec) == {"measured": 7, "declared": 13, "not_measured": 8}
+    assert tr.counts(rec) == {"measured": 8, "declared": 13, "not_measured": 7}
 
 
 def test_each_measured_value_is_the_serving_records_figure() -> None:
@@ -47,12 +47,13 @@ def test_each_measured_value_is_the_serving_records_figure() -> None:
         "context_tokens",
         "gpu_memory_utilization",
         "models_on_card",
+        "free_memory_at_peak_mib",  # from the peak record (10E-1d), checked in test_tier_record_peak_source.py
     }
 
 
 def test_no_rate_or_peak_is_filled_in_from_outside_the_record() -> None:
     f = load(RECORD)["fields"]
-    for name in ("judge_calls_per_second", "free_memory_at_peak_mib", "night_budget_patients", "first_load_nights"):
+    for name in ("judge_calls_per_second", "night_budget_patients", "first_load_nights"):
         assert f[name]["basis"] == "not_measured" and f[name]["value"] is None
 
 
