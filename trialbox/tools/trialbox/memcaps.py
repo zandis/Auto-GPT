@@ -1,4 +1,5 @@
-"""Memory caps of the adapter and the lake sized from the patient count (T-692, D-473; scale review F-05, OD-10).
+"""Memory caps of the adapter, the lake and the orchestrator sized from the patient count (T-692, D-473; scale review
+F-05, OD-10; H23b-01, D-1005).
 
 The night's ingest and the lake rebuild stream (D-473), so what they need grows only slowly with the hospital: a fixed
 part (the interpreter, the libraries, the batches, the held samples) and a small part per patient (the patient rows
@@ -8,14 +9,22 @@ settings: the adapter's FHIR validator heap (``TB_VALIDATOR_XMX``) and the share
 take (``adapter.ndjson.sort_run_bytes``, a sixteenth); the lake's DuckDB takes 40 % of the lake's cap
 (``lake.store.memory_limit``), so the Python part must fit in the rest. A cap is never below the compose default.
 
+The orchestrator's SCREEN and FEAS hold the whole hospital's rows (the size test H-23b, D-1137): its need is a line
+over the peaks of the size ladder (``tools/size_ladder.py``), recorded in ``deploy/measured/orchestrator_memory.json``
+by ``--from-ladder``. The line's slope is the least-squares slope of the peaks, and its fixed part is raised until the
+line lies on or above every measured peak; a run killed at its cap is left out (its peak is the cap, not the need).
+``TB_MEM_ORCH`` is written only when the need is above the compose default (4 GiB), so a small hospital keeps the
+shipped shape (the two-device workstation's 3 GiB included); one this tool wrote and no longer needs is removed.
+
 The patient count is the lake's ``CURRENT`` snapshot (its ``Patient.ndjson``) when there is one, else
 ``TB_SITE_PATIENTS`` (the hospital's size, set before the first night). ``deploy/install.sh`` calls ``--write``: it
-writes ``TB_MEM_ADAPTER`` and ``TB_MEM_LAKE`` into ``deploy/.env`` unless the operator set one by hand (a value that
-is not the one this tool wrote, recorded in its marker line). ``trialbox doctor`` (``check_memory_caps``) fails when
-a cap is below what the patient count needs.
+writes ``TB_MEM_ADAPTER``, ``TB_MEM_LAKE`` and (above the default) ``TB_MEM_ORCH`` into ``deploy/.env`` unless the
+operator set one by hand (a value that is not the one this tool wrote, recorded in its marker line). ``trialbox
+doctor`` (``check_memory_caps``) fails when a cap is below what the patient count needs.
 
     python -m tools.trialbox.memcaps --env-file deploy/.env [--lake DIR] [--write]
     python -m tools.trialbox.memcaps --measure [--sizes 500 2000]
+    python -m tools.trialbox.memcaps --from-ladder docs/plan/measurements/size-test-2026-11-17.json
 """
 
 from __future__ import annotations
@@ -39,6 +48,10 @@ COMPOSE = ROOT / "deploy" / "docker-compose.yml"
 FORMAT = "tb-ingest-memory/1"
 #: the services sized here and the cap variable of each
 CAPS = {"adapter": "TB_MEM_ADAPTER", "lake": "TB_MEM_LAKE"}
+#: the orchestrator's cap, sized from the size ladder's peaks (H23b-01, D-1005)
+ORCH, ORCH_VAR = "orchestrator", "TB_MEM_ORCH"
+ORCH_RECORD = ROOT / "deploy" / "measured" / "orchestrator_memory.json"
+ORCH_FORMAT = "tb-orchestrator-memory/1"
 MARKER = "# memcaps:"
 SORT_SHARE = 16  # adapter.ndjson.sort_run_bytes: a sixteenth of the cap
 LAKE_DUCKDB_SHARE = 0.4  # lake.store.memory_limit: 40 % of the cap
@@ -72,6 +85,14 @@ def load_record(path: Path = RECORD) -> dict[str, Any]:
     return dict(doc)
 
 
+def load_orch_record(path: Path = ORCH_RECORD) -> dict[str, Any]:
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    part = doc.get("services", {}).get(ORCH, {}) if doc.get("format") == ORCH_FORMAT else {}
+    if not {"fixed_mb", "per_patient_kb"} <= set(part):
+        raise ValueError(f"{path}: not a {ORCH_FORMAT} record of {ORCH}")
+    return dict(doc)
+
+
 def patients(env: Mapping[str, str], lake: Path | None) -> tuple[int | None, str]:
     """The patient count and where it came from: the lake's CURRENT snapshot, else ``TB_SITE_PATIENTS``."""
     if lake is not None and (lake / "CURRENT").is_file():
@@ -88,9 +109,21 @@ def patients(env: Mapping[str, str], lake: Path | None) -> tuple[int | None, str
     return None, "no CURRENT snapshot and no TB_SITE_PATIENTS"
 
 
-def need_mb(n: int, record: Mapping[str, Any], env: Mapping[str, str], compose: Path = COMPOSE) -> dict[str, int]:
-    """The cap each service needs for ``n`` patients, in MB, never below its compose default."""
+def need_mb(
+    n: int,
+    record: Mapping[str, Any],
+    env: Mapping[str, str],
+    compose: Path = COMPOSE,
+    orch: Mapping[str, Any] | None = None,
+) -> dict[str, int]:
+    """The cap each service needs for ``n`` patients, in MB, never below its compose default (the orchestrator's
+    too, when its record ``orch`` is given)."""
     out: dict[str, int] = {}
+    orch_mb: int | None = None
+    if orch is not None:
+        part = orch["services"][ORCH]
+        mb = float(part["fixed_mb"]) + float(part["per_patient_kb"]) * n / 1024
+        orch_mb = max(math.ceil(mb), size_mb(compose_default(ORCH_VAR, compose)))
     for svc, var in CAPS.items():
         part = record["services"][svc]
         python = float(part["fixed_mb"]) + float(part["per_patient_kb"]) * n / 1024
@@ -100,6 +133,8 @@ def need_mb(n: int, record: Mapping[str, Any], env: Mapping[str, str], compose: 
         else:
             mb = python / (1 - LAKE_DUCKDB_SHARE)
         out[svc] = max(math.ceil(mb), size_mb(compose_default(var, compose)))
+    if orch_mb is not None:
+        out[ORCH] = orch_mb
     return out
 
 
@@ -115,12 +150,23 @@ def _marker(env_text: str) -> dict[str, str]:
     return {}
 
 
-def plan(env_text: str, n: int, record: Mapping[str, Any], compose: Path = COMPOSE) -> dict[str, str]:
-    """The caps ``--write`` sets: each service's need, except a cap the operator set by hand (kept)."""
+def plan(
+    env_text: str, n: int, record: Mapping[str, Any], compose: Path = COMPOSE, orch: Mapping[str, Any] | None = None
+) -> dict[str, str | None]:
+    """The caps ``--write`` sets: each service's need, except a cap the operator set by hand (kept). The orchestrator's
+    only above its compose default; ``None``: a value this tool wrote that is no longer needed, removed."""
     env = _parse_env(env_text)
     ours = _marker(env_text)
-    need = need_mb(n, record, env, compose)
-    out: dict[str, str] = {}
+    need = need_mb(n, record, env, compose, orch)
+    out: dict[str, str | None] = {}
+    if ORCH in need:
+        have = env.get(ORCH_VAR)
+        mine = have is not None and ours.get(ORCH_VAR) == have
+        if need[ORCH] > size_mb(compose_default(ORCH_VAR, compose)):
+            if have is None or mine:
+                out[ORCH_VAR] = f"{need[ORCH]}m"
+        elif mine:
+            out[ORCH_VAR] = None
     for svc, var in CAPS.items():
         have = env.get(var)
         if have is not None and ours.get(var) != have:
@@ -139,31 +185,41 @@ def _parse_env(text: str) -> dict[str, str]:
     return env
 
 
-def write(env_file: Path, caps: Mapping[str, str], n: int, source: str) -> None:
+def write(env_file: Path, caps: Mapping[str, str | None], n: int, source: str) -> None:
+    """Set each cap of ``caps`` in ``env_file`` (``None``: remove it) and record what this tool wrote."""
     lines = [ln for ln in env_file.read_text(encoding="utf-8").splitlines() if not ln.startswith(MARKER)]
     lines = [ln for ln in lines if ln.split("=", 1)[0].strip() not in caps]
-    lines += [f"{k}={v}" for k, v in caps.items()]
+    lines += [f"{k}={v}" for k, v in caps.items() if v is not None]
     recorded = {**_marker(env_file.read_text(encoding="utf-8")), **caps}
+    recorded = {k: v for k, v in recorded.items() if v is not None}
     lines.append(f"{MARKER} " + " ".join(f"{k}={v}" for k, v in sorted(recorded.items())) + f" n={n} ({source})")
     env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def check(
-    env: Mapping[str, str], lake: Path | None, record_path: Path = RECORD, compose: Path = COMPOSE
+    env: Mapping[str, str],
+    lake: Path | None,
+    record_path: Path = RECORD,
+    compose: Path = COMPOSE,
+    orch_path: Path | None = None,
 ) -> tuple[str, str]:
-    """``(status, detail)`` for ``trialbox doctor``: FAIL when a cap is below what the patient count needs."""
+    """``(status, detail)`` for ``trialbox doctor``: FAIL when a cap is below what the patient count needs (the
+    orchestrator's too when ``orch_path``, its record, is given)."""
     n, source = patients(env, lake)
     if n is None:
         return "WARN", f"{source}: the memory caps were not compared with the hospital's size"
     record = load_record(record_path)
-    need = need_mb(n, record, env, compose)
-    have = {svc: size_mb(env.get(var) or compose_default(var, compose)) for svc, var in CAPS.items()}
-    low = [f"{CAPS[s]} {have[s]} MB < {need[s]} MB" for s in CAPS if have[s] < need[s]]
+    orch = load_orch_record(orch_path) if orch_path is not None else None
+    need = need_mb(n, record, env, compose, orch)
+    names = {**CAPS, **({ORCH: ORCH_VAR} if orch is not None else {})}
+    have = {svc: size_mb(env.get(var) or compose_default(var, compose)) for svc, var in names.items()}
+    low = [f"{names[s]} {have[s]} MB < {need[s]} MB" for s in names if have[s] < need[s]]
     facts = f"{n} patients ({source}); measured record {record_path.name} ({record.get('measured_at', '?')})"
     if low:
         fix = "re-run deploy/install.sh (it sizes them) or set them in deploy/.env"
-        return "FAIL", f"{'; '.join(low)} for {facts}: the night's ingest or rebuild may be killed; {fix}"
-    return "PASS", f"{', '.join(f'{CAPS[s]} {have[s]} MB (needs {need[s]})' for s in CAPS)} for {facts}"
+        what = "the night's ingest, the rebuild or a SCREEN of the whole hospital may be killed"
+        return "FAIL", f"{'; '.join(low)} for {facts}: {what}; {fix}"
+    return "PASS", f"{', '.join(f'{names[s]} {have[s]} MB (needs {need[s]})' for s in names)} for {facts}"
 
 
 # ------------------------------------------------------------------------------------------------ the measurement
@@ -282,6 +338,64 @@ def measure(sizes: tuple[int, int]) -> dict[str, Any]:
     }
 
 
+# ------------------------------------------------------------------------------------------------ the orchestrator
+def _tables(doc: Mapping[str, Any]) -> list[tuple[list[Mapping[str, Any]], Mapping[str, Any]]]:
+    """Each size ladder table of a results file (its ``table``) or of a combined record (the ``table`` of each part),
+    with the part that holds it (its ``commit`` and ``written``)."""
+    out = [(doc["table"], doc)] if isinstance(doc.get("table"), list) else []
+    return out + [(v["table"], v) for v in doc.values() if isinstance(v, dict) and isinstance(v.get("table"), list)]
+
+
+def ladder_peaks(docs: list[Mapping[str, Any]]) -> tuple[dict[int, float], list[str]]:
+    """The orchestrator's peak per patient count, in MB, over the size ladder's tables, and what was left out. A
+    patient count where any of the orchestrator's stages did not finish is left out of that table: the stage was
+    killed at its cap, so its peak is the cap and the count's need is not known from that table."""
+    peaks: dict[int, float] = {}
+    left: list[str] = []
+    for table, _part in (t for d in docs for t in _tables(d)):
+        rows = [r for r in table if r.get("service") == ORCH]
+        killed = {int(r["patients"]) for r in rows if not r.get("ok")}
+        for n in sorted(killed):
+            stages = ", ".join(sorted(str(r["stage"]) for r in rows if int(r["patients"]) == n and not r.get("ok")))
+            left.append(f"{n} patients: {stages} killed at the cap")
+        for r in rows:
+            n = int(r["patients"])
+            if n not in killed:
+                peaks[n] = max(peaks.get(n, 0.0), int(r["peak"]) / 2**20)
+    return peaks, left
+
+
+def from_ladder(paths: list[Path]) -> dict[str, Any]:
+    """The orchestrator's record from size ladder results: a line on or above every peak (see the module text)."""
+    docs = [json.loads(p.read_text(encoding="utf-8")) for p in paths]
+    peaks, left = ladder_peaks(docs)
+    if len(peaks) < 2:
+        raise ValueError(f"{', '.join(map(str, paths))}: the orchestrator's peaks at two patient counts are needed")
+    xs, ys = list(peaks), list(peaks.values())
+    mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+    slope = max(0.0, sum((x - mx) * (y - my) for x, y in zip(xs, ys, strict=True)) / sum((x - mx) ** 2 for x in xs))
+    fixed = max(y - slope * x for x, y in peaks.items())
+    parts = [part for d in docs for _t, part in _tables(d)]
+    return {
+        "format": ORCH_FORMAT,
+        "how": "python -m tools.trialbox.memcaps --from-ladder: the orchestrator's peak resident memory per patient "
+        "count over every stage of the size ladder (tools/size_ladder.py; SCREEN and FEAS of the whole hospital), "
+        "a count with a stage killed at its cap left out, the least-squares slope, the fixed part raised until the "
+        "line lies on or above every peak",
+        "measured_at": max((str(p.get("written") or "") for p in parts), default="") or None,
+        "sources": [p.name for p in paths],
+        "commits": sorted({str(p.get("commit") or "?") for p in parts}),
+        "left_out": sorted(set(left)),
+        "services": {
+            ORCH: {
+                "fixed_mb": math.ceil(fixed * 10) / 10,
+                "per_patient_kb": math.ceil(slope * 1024 * 1000) / 1000,
+                "peak_mb": {str(n): round(peaks[n], 1) for n in sorted(peaks)},
+            }
+        },
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="memcaps", description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--env-file", type=Path, default=ROOT / "deploy" / ".env")
@@ -289,11 +403,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--write", action="store_true", help="write the caps into --env-file")
     ap.add_argument("--measure", action="store_true", help="measure and write deploy/measured/ingest_memory.json")
     ap.add_argument("--sizes", type=int, nargs=2, default=(5000, 10000), help="patients (above INSERT_BATCH notes)")
-    ap.add_argument("--out", type=Path, default=RECORD, help="where --measure writes the record")
+    ap.add_argument("--out", type=Path, default=None, help="where --measure or --from-ladder writes its record")
+    ap.add_argument("--from-ladder", type=Path, nargs="+", default=None, metavar="RESULTS",
+                    help="write deploy/measured/orchestrator_memory.json from size ladder results")  # fmt: skip
     a = ap.parse_args(argv)
+    if a.from_ladder:
+        doc = from_ladder(a.from_ladder)
+        (a.out or ORCH_RECORD).write_text(json.dumps(doc, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps(doc["services"], sort_keys=True))
+        return 0
     if a.measure:
         doc = measure((a.sizes[0], a.sizes[1]))
-        a.out.write_text(json.dumps(doc, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+        (a.out or RECORD).write_text(json.dumps(doc, indent=1, sort_keys=True) + "\n", encoding="utf-8")
         print(json.dumps(doc["services"], sort_keys=True))
         return 0
     text = a.env_file.read_text(encoding="utf-8") if a.env_file.is_file() else ""
@@ -302,8 +423,11 @@ def main(argv: list[str] | None = None) -> int:
     if n is None:
         print(f"memcaps: {source}: the compose defaults stay (set TB_SITE_PATIENTS to size them)")
         return 0
-    caps = plan(text, n, load_record())
-    print(f"memcaps: {n} patients ({source}): " + (", ".join(f"{k}={v}" for k, v in caps.items()) or "set by hand"))
+    orch = load_orch_record(ORCH_RECORD) if ORCH_RECORD.is_file() else None
+    caps = plan(text, n, load_record(), orch=orch)
+    gone = "removed (the compose default fits)"
+    said = ", ".join(f"{k}={v}" if v is not None else f"{k} {gone}" for k, v in caps.items())
+    print(f"memcaps: {n} patients ({source}): " + (said or "set by hand"))
     if a.write and caps:
         write(a.env_file, caps, n, source)
     return 0
