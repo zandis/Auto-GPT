@@ -49,7 +49,7 @@ joined by a link word ("no response to X") or, in Chinese, a verbal negator clos
 reused approved path reads the ruleset's ValueSet titles (each a candidate's name) as the line's other
 concepts. (5) "No. 17" is a number. Measured, missed and held unnecessarily, before and after: card 10A-1's table
 0/116 and 8/69, unchanged; the lines unseen at design 0/21 and 20/23, unchanged; card 10A-1b's 80 lines 12/40 and
-18/40 to 0/40 and 17/40; the coordinator's 44 lines 34/36 and 0/8 to 0/36 and 0/8; P2b's stored `ir_extract` replies
+18/40 to 0/40 and 17/40; the coordinator's 44 lines 22/36 and 5/8 to 0/36 and 0/8; P2b's stored `ir_extract` replies
 (377 coded inclusions) 14 held, 6 unnecessarily, to 14 and 6 ("No. 17" runs; a line whose coded name is
 written in another word order is held by R0). Exclusions are byte for byte the same with the rule on
 and off. Lines: `tests/fixtures/negated_inclusion/card_10a1b.json`, `review_10a1b.json`.
