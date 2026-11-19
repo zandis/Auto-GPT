@@ -10,6 +10,13 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- Updates from a stick at the box (10K-7, D-1363): the Operations page's update tab lists the bundles on an update
+  stick the host mounts read-only (`/media/trialbox-update`, or `TB_UPDATE_STICK`), verifies one after copying it to
+  the box, shows its Japanese release note and change-impact sheet (change classes CC1 to CC6, minutes down,
+  migration, re-approval), and asks for the apply in the box's quiet hour. Every bundle now carries
+  `RELEASE-NOTE.ja.md` and `CHANGE-IMPACT.json` (`tools/make_bundle.sh` refuses to build one without them); a bundle
+  without them is still verified and applied, with a warning. Going back to the previous release is shown on the
+  page and stays the older-release path of the runbook at the box.
 - Dates on printed pages and the fiscal year 年度 (10C-13, 10C-15): a site may print dates in Western form (ISO, as
   before), Japanese era (令和8年11月18日) or both (2026年（令和8年）11月18日) on the feasibility report, the NHI
   navigation summary and application form, the CASE sheet and the released consent page (`site.printed_dates`); the

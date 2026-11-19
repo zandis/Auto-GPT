@@ -514,6 +514,8 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "firstrun.year_basis.": _values("tb_common.dates", "YEAR_BASES"),  # 10C-15
     # J-2 (D-1221): a person's one state, every name and the state of facts that could not be read
     "person.state.": _union(_values("console.person_state", "STATES"), lambda: ["unknown"]),
+    # 10K-7 (D-1363): the change classes of a bundle's change-impact sheet (docs/validation/change-control.md §2)
+    "ops.update.cc.": _values("tools.release_note", "CLASSES"),
 }
 
 _RUN = "a value of stored data or of a service's answer (a state, a kind, a source): no one list in the code holds it"

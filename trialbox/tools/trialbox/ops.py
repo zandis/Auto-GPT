@@ -10,7 +10,10 @@ writes ``status.json``, which is what the console's screens show. No operation i
 ==================  ==========================================================================================
 ``backup``          ``trialbox backup`` (on a box: the update path's one-off backup container, ``ComposeBox``)
 ``backup_check``    ``trialbox backup-check`` of the newest backup in every target (no key) and the copies compared
-``update_check``    ``tools/apply_update.sh <bundle> --dry-run``: signature and hashes verified, nothing changes
+``update_check``    ``tools/apply_update.sh <bundle> --dry-run``: signature and hashes verified, nothing changes;
+                    with ``from: stick`` (10K-7, D-1363) the bundle is first copied from the update stick
+                    (``TB_UPDATE_STICK``, read only) into the incoming folder, and the verified bundle's Japanese
+                    release note and change-impact sheet are kept in ``<ops>/notes/`` for the console
 ``update_apply``    ``tools/apply_update.sh <bundle>``: backup first, rollback point, automatic rollback; with
                     ``when: quiet`` (T-730b, D-731) it waits for the quiet hour and for no job running
 ``logs_collect``    ``trialbox logs collect`` (yesterday's service logs)
@@ -66,6 +69,9 @@ MAX_AGE_MIN = 60  # a request older than this when the runner reaches it is not 
 # comes within a day; two hours more for a night that ran long), then it expires as any old request does
 QUIET_WAIT_H = 26
 QUIET_DEFAULT_AT, QUIET_DEFAULT_HOURS = "05:00", "2"  # the box's quiet hour unless the site sets one (D-731)
+# 10K-7 (D-1363): where the host mounts an update stick inserted at the box, read only, unless TB_UPDATE_STICK says
+STICK_DEFAULT = "/media/trialbox-update"
+STICK_MARGIN = 1.05  # the copy into the incoming folder needs the bundle's size and 5 % more free
 Runner = Callable[[Sequence[str], int | None], str]  # (argv, timeout seconds) -> combined output; raises OpsFailed
 
 
@@ -190,6 +196,11 @@ class OpsDir:
     def network(self) -> Path:
         return self.root / "network"
 
+    @property
+    def notes(self) -> Path:
+        """10K-7 (D-1363): the verified bundles' release notes and change-impact sheets (root's, the runner's)."""
+        return self.root / "notes"
+
     def submit(self, action: str, by: str, args: Mapping[str, str] | None = None) -> str:
         if action not in ACTIONS:
             raise OpsFailed(f"unknown action {action!r}")
@@ -294,13 +305,24 @@ class Box:
     def incoming(self) -> Path:
         return Path(self.env.get("TB_UPDATE_INCOMING") or self.deploy / "updates" / "incoming")
 
+    def stick(self) -> Path:
+        """10K-7 (D-1363): the update stick's mount point (a read-only mount; the runner never writes there)."""
+        return Path(self.env.get("TB_UPDATE_STICK") or STICK_DEFAULT)
+
     def log_dir(self) -> Path:
         return Path(self.env.get("TB_LOG_DIR") or self.deploy / "logs")
 
 
 def _env_only(env: Mapping[str, str]) -> dict[str, str]:
     """The few variables an operator may set for the runner (never a password)."""
-    keep = ("TB_BACKUP_TARGETS", "TB_BACKUP_PUBKEY", "TB_UPDATE_INCOMING", "TB_LOG_DIR", "TB_OPS_DIR")
+    keep = (
+        "TB_BACKUP_TARGETS",
+        "TB_BACKUP_PUBKEY",
+        "TB_UPDATE_INCOMING",
+        "TB_UPDATE_STICK",
+        "TB_LOG_DIR",
+        "TB_OPS_DIR",
+    )
     return {k: v for k, v in env.items() if k in keep and v}
 
 
@@ -625,9 +647,71 @@ class OpsRunner:
         return p
 
     def do_update_check(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
+        source = args.get("from")
+        if source not in (None, "", "stick"):
+            raise OpsFailed(f"refused: from is {str(source)[:20]!r}; it is 'stick' or left out. Ask again")
+        copied, fresh = self._take_from_stick(str(args.get("bundle") or "")) if source == "stick" else ("", False)
         p = self._bundle(args)
-        out = self.box.run(["sh", str(ROOT / "tools" / "apply_update.sh"), str(p), "--dry-run"], 1800)
-        return f"{p.name}: signature and every file verified; nothing was changed", out.strip().splitlines()
+        try:
+            out = self.box.run(["sh", str(ROOT / "tools" / "apply_update.sh"), str(p), "--dry-run"], 1800)
+        except Exception:
+            if fresh:  # a bundle this check copied from the stick and the verifier refused does not stay on the box
+                with contextlib.suppress(OSError):
+                    p.unlink()
+            raise
+        lines = ([copied] if copied else []) + out.strip().splitlines() + self._keep_note(p)
+        return f"{p.name}: signature and every file verified; nothing was changed", lines
+
+    def _take_from_stick(self, name: str) -> tuple[str, bool]:
+        """10K-7 (D-1363): the bundle ``name`` copied from the update stick into the incoming folder, where verify and
+        apply read it. Only a regular file of a bundle's name directly on the stick (never a link: the stick is
+        anyone's), copied under a temporary name and renamed when whole; a different file of that name already on
+        the box is refused, the same one is kept. The stick is only read. Returns the line to show and whether this
+        call made the copy."""
+        if not BUNDLE.match(name):
+            raise OpsFailed(f"refused: {name[:60]!r} is not a bundle's name (a .tar)")
+        src = self.box.stick() / name
+        try:
+            fd = os.open(src, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+        except OSError as exc:
+            raise OpsFailed(f"no bundle {name!r} on the update stick ({self.box.stick()}): is it inserted?") from exc
+        inc = self.box.incoming()
+        with os.fdopen(fd, "rb") as fh:
+            st = os.fstat(fh.fileno())
+            if not stat.S_ISREG(st.st_mode):
+                raise OpsFailed(f"refused: {name!r} on the stick is not a regular file")
+            inc.mkdir(parents=True, exist_ok=True)
+            dest, tmp = inc / name, inc / f".{name}.part"
+            if dest.exists() or dest.is_symlink():
+                if dest.is_symlink() or not dest.is_file():
+                    raise OpsFailed(f"refused: {dest} is not a regular file")
+                if dest.stat().st_size == st.st_size and _sha_file(dest) == _sha_stream(fh):
+                    return f"{name}: the same bundle is already on the box ({inc}); not copied again", False
+                raise OpsFailed(f"refused: a different bundle named {name} is already on the box ({inc}); "
+                                "remove it there or rename the one on the stick, then ask again")  # fmt: skip
+            free = shutil.disk_usage(inc).free
+            if free < st.st_size * STICK_MARGIN:
+                raise OpsFailed(f"not copied: the bundle needs {st.st_size * STICK_MARGIN / 1e9:.2f} GB free in {inc}, "
+                                f"free {free / 1e9:.2f} GB")  # fmt: skip
+            with contextlib.suppress(FileNotFoundError):
+                tmp.unlink()
+            with open(tmp, "xb") as out:
+                shutil.copyfileobj(fh, out, 1 << 20)
+                out.flush()
+                os.fsync(out.fileno())
+        tmp.replace(dest)
+        return f"{name}: copied from the update stick ({self.box.stick()}) into {inc}", True
+
+    def _keep_note(self, p: Path) -> list[str]:
+        """10K-7 (D-1363): the verified bundle's Japanese release note and change-impact sheet, kept for the console
+        (``<ops>/notes/<bundle>.json``, with the file's size and time: a bundle replaced since shows no note)."""
+        from tools import release_note
+
+        got = release_note.read_from_bundle(p)
+        st = p.stat()
+        _write_json(self.ops.notes / f"{p.name}.json", {"bundle": p.name, "bytes": st.st_size, "mtime": st.st_mtime,
+                                                         "verified_at": _now(), **got})  # fmt: skip
+        return [f"warning: {w}" for w in got["warnings"]]
 
     def apply_limit(self) -> int | None:
         """T-695 (D-752, F-09): the update's limit from the databases' size (``ComposeBox.apply_limit_s``); a local
@@ -671,6 +755,8 @@ class OpsRunner:
     # -------------------------------------------------------------------------------------------- status
     def write_status(self) -> dict[str, Any]:
         st = snapshot(self.box)
+        st["notes"] = self._notes(st.get("incoming") or [])  # 10K-7 (D-1363)
+        st["quiet"] = quiet_facts(self.box.env)
         st["waiting"] = [  # T-730b (D-731): the updates that wait for the quiet hour, and why
             {"id": r.get("id"), "action": r.get("action"), "by": r.get("by", ""), "at": r.get("at"),
              "bundle": _args(r).get("bundle"), "why": self.quiet_reason(r) or "runs in the next round"}
@@ -679,6 +765,62 @@ class OpsRunner:
         ]  # fmt: skip
         _write_json(self.ops.root / "status.json", st)
         return st
+
+    def _notes(self, incoming: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+        """The kept notes of the bundles in the incoming folder now, each only while the file is the one verified."""
+        out: dict[str, Any] = {}
+        for b in incoming:
+            name = str(b.get("name") or "")
+            rec = _read_json(self.ops.notes / f"{name}.json") if BUNDLE.match(name) else None
+            with contextlib.suppress(OSError):
+                now = (self.box.incoming() / name).stat()
+                if rec and rec.get("bytes") == now.st_size and rec.get("mtime") == now.st_mtime:
+                    out[name] = {k: rec.get(k) for k in ("bundle_id", "release_seq", "note_ja", "impact", "warnings",
+                                                          "verified_at")}  # fmt: skip
+        return out
+
+
+def _sha_stream(fh: Any) -> str:
+    """The sha256 of an open file from its start; the file is put back at its start."""
+    import hashlib
+
+    h = hashlib.sha256()
+    fh.seek(0)
+    while block := fh.read(1 << 20):
+        h.update(block)
+    fh.seek(0)
+    return h.hexdigest()
+
+
+def _sha_file(p: Path) -> str:
+    with p.open("rb") as fh:
+        return _sha_stream(fh)
+
+
+def quiet_facts(env: Mapping[str, str]) -> dict[str, Any]:
+    """10K-7: the quiet hour as the console shows it (D-731's settings), and the setting that does not read."""
+    got = _quiet_setting(env)
+    return {"at": (env.get("TB_UPDATE_QUIET_AT") or QUIET_DEFAULT_AT).strip(),
+            "hours": (env.get("TB_UPDATE_QUIET_HOURS") or QUIET_DEFAULT_HOURS).strip(),
+            "zone": (env.get("TB_TZ") or "").strip(), "wait_h": QUIET_WAIT_H,
+            "bad": got if isinstance(got, str) else ""}  # fmt: skip
+
+
+def stick_listing(box: Box) -> dict[str, Any]:
+    """10K-7 (D-1363): the bundles directly on the update stick (regular files of a bundle's name; a link is not
+    listed), and whether the vendor's ``.sha256`` sidecar is beside each. No file on the stick is opened here."""
+    root = box.stick()
+    out: dict[str, Any] = {"path": str(root), "mounted": root.is_dir(), "bundles": []}
+    if not out["mounted"]:
+        return out
+    with contextlib.suppress(OSError):
+        for p in sorted(root.iterdir())[:50]:
+            with contextlib.suppress(OSError):
+                st = p.lstat()
+                if BUNDLE.match(p.name) and stat.S_ISREG(st.st_mode):
+                    out["bundles"].append({"name": p.name, "bytes": st.st_size, "at": _mtime(p),
+                                           "sidecar": (root / f"{p.name}.sha256").is_file()})  # fmt: skip
+    return out
 
 
 def _newest_backup(target: Path) -> Path | None:
@@ -728,6 +870,7 @@ def snapshot(box: Box) -> dict[str, Any]:
     updates = box.deploy / "updates"
     hist = _history(updates)
     applied = [h for h in hist if h.get("step") == "audited update.applied" and h.get("ok")]
+    previous = applied[-2].get("bundle") if len(applied) > 1 else ""  # 10K-7: the release before the current one
     bundles: dict[str, dict[str, Any]] = {}
     for h in hist:  # one line per bundle: its last step and whether the update ended applied or rolled back
         b = str(h.get("bundle") or "")
@@ -794,7 +937,9 @@ def snapshot(box: Box) -> dict[str, Any]:
             "trialbox": _version(),
             "bundle": applied[-1].get("bundle") if applied else "",
             "applied_at": applied[-1].get("at") if applied else "",
+            "previous": previous,
         },
+        "stick": stick_listing(box),
         "updates": sorted(bundles.values(), key=lambda r: str(r.get("last")), reverse=True)[:10],
         "rollback_points": points[-10:],
         "incoming": incoming,
@@ -839,7 +984,14 @@ def health_facts(box: Box) -> dict[str, Any]:
 def prepare(ops: OpsDir, uid: int | None = SERVICE_UID) -> None:
     """The folders; ``requests/`` is writable by the console's user (uid 10001 in the image), the rest only by root.
     As a non-root user (a test, the in-process box) the folders are only made."""
-    for sub, mode in (("requests", 0o770), ("results", 0o755), ("running", 0o755), ("network", 0o755), ("seen", 0o755)):
+    for sub, mode in (
+        ("requests", 0o770),
+        ("results", 0o755),
+        ("running", 0o755),
+        ("network", 0o755),
+        ("seen", 0o755),
+        ("notes", 0o755),
+    ):
         d = ops.root / sub
         d.mkdir(parents=True, exist_ok=True)
         if hasattr(os, "geteuid") and os.geteuid() == 0:

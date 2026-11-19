@@ -13,6 +13,14 @@ The console never runs an operation itself: it writes a request into the operati
 command the runbook names and writes the result and the status back (``tools/trialbox/ops.py``). With
 ``TB_OPS_RUNNER=inline`` (the in-process box, the demo, the tests) the same runner runs at once in this process.
 
+10K-7 (D-1363, review 18 SO-7): the update tab also shows the **update stick** inserted at the box (the bundles the
+host's runner finds on its read-only mount), verifies a bundle from it (the runner copies it into the incoming folder
+first: ``update_stick_check``, the right ``ops.update_check``), shows each verified bundle's result, its Japanese
+release note and change-impact sheet, and asks for the apply **in the quiet hour** (``update_quiet``: D-731's
+``when: quiet``, the right ``ops.update_apply``); the updates waiting for it are listed with why. "Return to the
+previous release" is shown (which release, whether its bundle is here) but not offered as a button: an older
+release's apply from the console needs the owner's decision (D-1363).
+
 Who may: :func:`tb_common.authz.admin_allowed` (the administrator only); everyone else gets 403 on every page, action
 and ``/api/v1/admin/ops``, audited as ``console.denied``.
 """
@@ -41,8 +49,15 @@ ACTIONS: dict[str, tuple[str, str]] = {
     "backup_check": ("ops.backup_check", "backups"),
     "update_check": ("ops.update_check", "update"),
     "update_apply": ("ops.update_apply", "update"),
+    "update_stick_check": ("ops.update_check", "update"),  # 10K-7: the same verify, the bundle copied from the stick
+    "update_quiet": ("ops.update_apply", "update"),  # 10K-7: the same apply, in the quiet hour (D-731)
     "logs_collect": ("ops.logs", "logs"),
     "network_sheet": ("ops.network", "network"),
+}
+# 10K-7 (D-1363): a console action the runner knows by another name, with the arguments that make it so
+RUNS: dict[str, tuple[str, dict[str, str]]] = {
+    "update_stick_check": ("update_check", {"from": "stick"}),
+    "update_quiet": ("update_apply", {"when": "quiet"}),
 }
 SECRET_KEYS = ("name", "present", "age_days", "registered")  # what a secrets row may show; never a value
 _SHEET = re.compile(r"^network-sheet\.(en|ja|zh-TW)\.(html|md)$")
@@ -147,6 +162,12 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             mine = next((r for r in ops.history(200) if r.get("id") == req), None)
         secrets_rows = [{k: r.get(k) for k in SECRET_KEYS} for r in st.get("secrets") or []]
         sheets = sorted(p.name for p in ops.network.glob("network-sheet.*") if _SHEET.match(p.name))
+        busy = {str(r.get("action")) for r in ops.pending()}
+        checks: dict[str, Any] = {}  # 10K-7: each staged bundle's newest finished verification
+        for r in ops.history(200):
+            b = str((r.get("args") or {}).get("bundle") or "")
+            if r.get("action") == "update_check" and r.get("result") and b not in checks:
+                checks[b] = r["result"]
         return h.page(
             request,
             "admin_ops.html",
@@ -156,7 +177,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             st=st,
             sm=summary(),
             history=ops.history(30),
-            pending=[r.get("action") for r in ops.pending()],
+            pending=[a for a in ACTIONS if RUNS.get(a, (a, {}))[0] in busy],
+            checks=checks,
             running=[r.get("id") for r in ops.running()],
             mine=mine,
             secrets_rows=secrets_rows,
@@ -178,25 +200,32 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         sess = need_ops(request, perm)
         if not h.csrf_ok(sess, csrf):
             raise h.problem(400, "csrf")
+        run_as, extra = RUNS.get(action, (action, {}))
         args: dict[str, str] = {}
-        if action in ("update_check", "update_apply"):
+        if run_as in ("update_check", "update_apply"):
             if not _BUNDLE.match(bundle):
                 raise h.problem(400, "request.refused", reason="choose a staged bundle")
             args["bundle"] = bundle
         if action == "backup":  # D-455: the snapshot backup; no service is stopped or paused
             args["mode"] = "running"
-        if action in [r.get("action") for r in ops.pending()]:
+        if run_as in [r.get("action") for r in ops.pending()]:
             raise h.problem(409, "ops.busy")
         if confirm != "yes" and h.confirm is not None:  # WS-14.7: each action names its consequence first
-            text = translate(sess.lang, f"ops.confirm.{action}", bundle=bundle)
+            q = status().get("quiet") or {}
+            at, hours = q.get("at") or tb_ops.QUIET_DEFAULT_AT, q.get("hours") or tb_ops.QUIET_DEFAULT_HOURS
+            text = translate(sess.lang, f"ops.confirm.{action}", bundle=bundle, at=at, hours=hours,
+                             wait=tb_ops.QUIET_WAIT_H)  # fmt: skip
             return h.confirm(request, sess, text, request.url.path, args, f"/admin/ops?tab={tab}")
+        args.update(extra)  # 10K-7: ``from: stick`` or ``when: quiet``, never from the form
         try:
-            rid = ops.submit(action, h.actor(sess), args)
+            rid = ops.submit(run_as, h.actor(sess), args)
         except OSError as exc:  # the folder is not there or not writable: the host runner has never prepared it
             raise h.problem(503, "ops.unavailable") from exc
         au.append("console.ops", actor=h.actor(sess), detail={"action": action, "request": rid, **args})
-        if runner is not None:
-            res = runner.run_one({"id": rid, "action": action, "by": h.actor(sess), "args": args})
+        if runner is not None and args.get("when") == "quiet":
+            runner.write_status()  # D-731: it waits for the quiet hour; the host's runner takes it then
+        elif runner is not None:
+            res = runner.run_one({"id": rid, "action": run_as, "by": h.actor(sess), "args": args})
             runner.write_status()
             au.append("console.ops", actor=h.actor(sess),
                       detail={"action": f"{action}.done", "request": rid, "ok": bool(res.get("ok"))})  # fmt: skip
