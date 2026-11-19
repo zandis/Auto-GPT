@@ -68,4 +68,8 @@ File: [data/13-redcap-and-the-edc-backend.md](data/13-redcap-and-the-edc-backend
 
 File: [data/14-edc-integration-handoff.md](data/14-edc-integration-handoff.md). In it: [What the EDC is](data/14-edc-integration-handoff.md#what-the-edc-is), [Already matched](data/14-edc-integration-handoff.md#already-matched), [How the EDC delivers events](data/14-edc-integration-handoff.md#how-the-edc-delivers-events), [Sign-in](data/14-edc-integration-handoff.md#sign-in), [The gap that was open on TrialBox, now closed](data/14-edc-integration-handoff.md#the-gap-that-was-open-on-trialbox-now-closed), [Contract test and the release](data/14-edc-integration-handoff.md#contract-test-and-the-release), [Checklist](data/14-edc-integration-handoff.md#checklist).
 
+## 15. The site profile
+
+File: [data/15-the-site-profile.md](data/15-the-site-profile.md). In it: [What a profile is](data/15-the-site-profile.md#what-a-profile-is), [Where each site-specific fact lives](data/15-the-site-profile.md#where-each-site-specific-fact-lives), [Loading, validation and the `verify` state](data/15-the-site-profile.md#loading-validation-and-the-verify-state), [Versions, audit, roll-out and roll-back](data/15-the-site-profile.md#versions-audit-roll-out-and-roll-back), [Coverage lines and the work list](data/15-the-site-profile.md#coverage-lines-and-the-work-list), [The proof](data/15-the-site-profile.md#the-proof), [Seams left for the cards that wait](data/15-the-site-profile.md#seams-left-for-the-cards-that-wait).
+
 <!-- end of the generated index -->
