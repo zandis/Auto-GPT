@@ -45,7 +45,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from tb_common.site_profile import MANIFEST, VERIFIED, VERIFY, Profile, ProfileError, load
+from tb_common.site_profile import MANIFEST, VERIFIED, VERIFY, Profile, ProfileError, content_sha, load
 
 RECORD = "site_profile.json"  # in the lake folder: the active profile and its history; beside a snapshot: the night's
 STATES = "site_profile.states.json"  # in the lake folder: every row's state as last activated
@@ -252,13 +252,16 @@ def activate(
         "rows_changed": len(changes),  # rows added, removed or whose state changed, each by `by` at `at`
         "row_changes": changes[:MAX_CHANGES_IN_EVENT],
     }
+    copy = profile.to_json()
+    copy["copy_sha"] = change["copy_sha"] = content_sha(copy)  # the kept copy, as every night will ask it again
     from tb_common.audit_writer import open_audit
 
     open_audit(audit_dir, tz).append(EVENT, actor=by, output_sha=profile.digest, detail=change)
-    entry = {**profile.stamp(), "at": at, "by": by, "direction": direction, "rows_changed": len(changes)}
+    entry = {**profile.stamp(), "at": at, "by": by, "direction": direction, "rows_changed": len(changes),
+             "copy_sha": change["copy_sha"]}  # fmt: skip
     lake_dir.mkdir(parents=True, exist_ok=True)
     (lake_dir / KEPT).mkdir(exist_ok=True)
-    _write(lake_dir / KEPT / f"{profile.digest}.json", profile.to_json())  # what the night reads: this version only
+    _write(lake_dir / KEPT / f"{profile.digest}.json", copy)  # what the night reads: this version only
     _write(lake_dir / STATES, now)
     _write(lake_dir / RECORD, {"active": entry, "history": [*rec.get("history", []), entry]})
     return {**change, "at": at, "by": by}
@@ -273,13 +276,30 @@ def night_profile(night_dir: Path) -> dict[str, Any] | None:
     return rec.get("profile") if isinstance(rec, dict) else None
 
 
-def kept(lake_dir: Path, digest: str) -> Profile:
-    """The version a person loaded (:func:`activate`), as it was loaded and checked."""
+COPY_REFUSED = "site_profile.copy_refused"
+
+
+def kept(lake_dir: Path, digest: str, copy_sha: str | None = None) -> Profile:
+    """The version a person loaded (:func:`activate`), as it was loaded and checked: its content is hashed again and
+    must be what was recorded and audited at the load, and every row is checked again; else :class:`ProfileError`."""
     path = lake_dir / KEPT / f"{digest}.json"
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         raise ProfileError(str(path), "the loaded version is not kept here: load the profile again") from None
+    except (ValueError, UnicodeDecodeError):
+        raise ProfileError(
+            str(path), "the kept copy of the loaded version is not readable: load the profile again"
+        ) from None
+    sha = content_sha(doc) if isinstance(doc, dict) else ""
+    if (
+        not isinstance(doc, dict)
+        or doc.get("digest") != digest
+        or sha != doc.get("copy_sha")
+        or (copy_sha is not None and sha != copy_sha)
+    ):
+        raise ProfileError(str(path), "the kept copy changed since it was loaded (it is not what the audit recorded): "
+                                      "load the profile again")  # fmt: skip
     return Profile.from_json(doc, lake_dir / KEPT)
 
 
@@ -322,8 +342,13 @@ def for_night(
     except ProfileError as exc:
         on_disk = str(exc)
     disk_digest = on_disk.digest if isinstance(on_disk, Profile) else None
-    if active and disk_digest == active.get("digest"):
-        return kept(lake_dir, str(active["digest"])), note
+    if not active:
+        raise ProfileError(str(folder / MANIFEST), "a profile folder is on the box and no person has loaded it: load "
+                           "it (python -m adapter.site_profile load --by <name>) or take it away; the night stops "
+                           "rather than read without it")  # fmt: skip
+    loaded = _kept_or_refuse(lake_dir, active, audit_dir, tz)
+    if disk_digest == active.get("digest"):
+        return loaded, note
     pending = disk_digest or "unreadable"
     note["pending"] = {"digest": pending[:12], "why": on_disk if isinstance(on_disk, str) else "not loaded by a person"}
     if rec.get("pending_said") != pending and audit_dir is not None:
@@ -333,7 +358,20 @@ def for_night(
                   "why": note["pending"]["why"]}  # fmt: skip
         open_audit(audit_dir, tz).append(NOT_LOADED, actor="adapter", detail=detail)
         _write(lake_dir / RECORD, {**rec, "pending_said": pending})
-    return (kept(lake_dir, str(active["digest"])) if active else None), note
+    return loaded, note
+
+
+def _kept_or_refuse(lake_dir: Path, active: dict[str, Any], audit_dir: Path | None, tz: str) -> Profile:
+    """The loaded version, or the night stops: a kept copy that is not what was loaded is audited and refused."""
+    try:
+        return kept(lake_dir, str(active["digest"]), active.get("copy_sha"))
+    except ProfileError as exc:
+        if audit_dir is not None:
+            from tb_common.audit_writer import open_audit
+
+            open_audit(audit_dir, tz).append(COPY_REFUSED, actor="adapter", detail={
+                "profile": active.get("id"), "version": active.get("version"), "why": exc.why})  # fmt: skip
+        raise
 
 
 # ----------------------------------------------------------------------------------- coverage and work list

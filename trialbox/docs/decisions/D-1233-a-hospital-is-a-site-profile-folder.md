@@ -32,8 +32,11 @@ hospital meant changing code or the image. Shipped sample rows marked `verify` w
    site and held to an allowlist of its columns. Adding a row needs no code; adding a kind of table adds one `used_by`
    word. Empty tables are refused; free text holds no `://`, `@` or token.
 4. **Only a version a person loaded is applied.** `load --by` keeps the checked profile in the lake folder; the night
-   reads that copy, never the raw files; a folder nobody loaded is not applied (said each night, audited once); a
-   folder taken away is audited and the night reads without one; a delta night after a change reads whole.
+   reads that copy, never the raw files, and checks it again each night (its content hash must be the audited
+   one); a folder whose content is not the loaded version is not applied (said each night, audited once); a folder
+   taken away is audited and the night reads without one; a delta night after a change reads whole. **A profile that
+   cannot be applied stops the night** (a kept copy that is refused, a folder nobody has loaded): a night read
+   without the site's codes could miss patients with no sign, so the box keeps serving the night before.
    **Versions and audit.** A new digest is recorded (who, when, old and new version, both digests, direction, and
    every row whose state changed) in `site_profile.json` in the lake folder and as one `site_profile.load` audit
    event; with no audit destination nothing is activated; an id and version read before (anywhere in the history)

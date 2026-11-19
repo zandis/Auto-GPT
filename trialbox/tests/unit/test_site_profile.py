@@ -24,7 +24,7 @@ from adapter.mapping.engine import BASIS, VERIFY_BASIS, Mapping, MappingError
 from adapter.ndjson import snapshot_dir
 from adapter.pipeline import AdapterConfig, make_source, run_ingest
 from tb_common.audit import _day_files
-from tb_common.site_profile import SHIPPED_ROOT, VERIFIED, VERIFY, ProfileError, load, state_of
+from tb_common.site_profile import SHIPPED_ROOT, VERIFIED, VERIFY, Profile, ProfileError, check_code, load, state_of
 from tb_contracts import RebuildResult
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -600,22 +600,22 @@ def test_a_fact_from_a_verify_row_stays_coded_and_is_listed_as_resting_on_one(
     assert ids <= coded and {listed[i] for i in ids} == {VERIFY_BASIS}
 
 
-def test_a_refused_profile_is_never_loaded_and_the_night_does_not_apply_it(tmp_path: Path, pg_cluster_url: str) -> None:
+def test_a_refused_profile_is_never_loaded_and_the_night_stops_rather_than_read_without_it(
+    tmp_path: Path, pg_cluster_url: str
+) -> None:
+    """D-1233 (the lane lead's point 4): a profile that cannot be applied ends the night, as before profiles had
+    versions: the box keeps serving the night before, and no night screens silently without the site's codes."""
     folder = _profile(tmp_path / "p")
     (folder / "codes/lab.csv").write_text(
         "local_code,system,code,verified\nUA,loinc,3084-1,perhaps\n", encoding="utf-8"
     )
     with pytest.raises(ProfileError, match="codes/lab.csv:2"):
         load(folder)
-    feed = tmp_path / "feed"
-    shutil.copytree(SITE_A, feed, ignore=shutil.ignore_patterns("*.json"))
-    rep = run_ingest(_cfg(tmp_path, pg_cluster_url, "x", folder, loaded=False), "csv", str(feed), snapshot=NIGHT,
-                     load_fhir=False, validate=False)  # fmt: skip
-    assert rep.passed
-    nd = snapshot_dir(tmp_path / "lake-x", NIGHT)
-    said = json.loads((nd / sp.RECORD).read_text(encoding="utf-8"))
-    assert said["profile"] is None and "codes/lab.csv:2" in said["note"]["pending"]["why"]
-    assert not any(_untagged(x)[1] for x in (nd / "Observation.ndjson").read_text(encoding="utf-8").splitlines())
+    feed = _feed(tmp_path)
+    with pytest.raises(ProfileError, match="no person has loaded it"):
+        run_ingest(_cfg(tmp_path, pg_cluster_url, "x", folder, loaded=False), "csv", str(feed), snapshot=NIGHT,
+                   load_fhir=False, validate=False)  # fmt: skip
+    assert not snapshot_dir(tmp_path / "lake-x", NIGHT).joinpath("Observation.ndjson").exists()
 
 
 def test_the_box_finds_its_profile_in_the_site_mapping_folder_only(
@@ -822,10 +822,10 @@ def test_6_a_folder_nobody_loaded_is_not_applied_and_the_mismatch_is_said_and_au
     assert [e["actor"] for e in events if e["event"] == sp.EVENT] == ["steward-t"]
     done = [e for e in events if e["event"] == "ingest.done"][-1]
     assert done["detail"]["site_profile"]["pending"] == load(folder).digest[:12]
-    # a folder on a box where nobody ever loaded one: not applied at all
+    # a folder on a box where nobody ever loaded one is not applied: the night stops (D-1233, point 4)
     other = _cfg(tmp_path, pg_cluster_url, "n", _profile(tmp_path / "q"), loaded=False)
-    run_ingest(other, "csv", str(feed), snapshot=NIGHT, load_fhir=False, validate=False)
-    assert sp.night_profile(snapshot_dir(tmp_path / "lake-n", NIGHT)) is None
+    with pytest.raises(ProfileError, match="no person has loaded it"):
+        run_ingest(other, "csv", str(feed), snapshot=NIGHT, load_fhir=False, validate=False)
 
 
 def test_8_a_result_in_a_unit_its_row_does_not_give_is_a_problem_line(tmp_path: Path, pg_cluster_url: str) -> None:
@@ -861,3 +861,77 @@ def test_minor_a_header_with_blanks_around_a_name_reads(tmp_path: Path) -> None:
     text = (f / "codes/lab.csv").read_text(encoding="utf-8")
     (f / "codes/lab.csv").write_text(text.replace("local_code,", " local_code ,", 1), encoding="utf-8")
     assert load(f).tables["lab"].rows["UA"].target == "3084-1"
+
+
+# ------------------------------------------------------------------------- the lane lead's re-probe of a63d3582
+@pytest.mark.parametrize("spelling", ["LOINC", "Loinc", "loinc"])
+def test_r1_a_system_name_in_any_case_is_kept_in_the_one_spelling_the_mapping_reads(
+    tmp_path: Path, pg_cluster_url: str, spelling: str
+) -> None:
+    folder = _profile(tmp_path / "p")
+    text = (folder / "codes/lab.csv").read_text(encoding="utf-8")
+    (folder / "codes/lab.csv").write_text(text.replace("HBA1C,loinc,", f"HBA1C,{spelling},"), encoding="utf-8")
+    assert load(folder).tables["lab"].rows["HBA1C"].row["system"] == "loinc"
+    run_ingest(_cfg(tmp_path, pg_cluster_url, "s", folder), "csv", str(_feed(tmp_path)), snapshot=NIGHT,
+               load_fhir=False, validate=False)  # fmt: skip
+    nd = snapshot_dir(tmp_path / "lake-s", NIGHT)
+    codes = [c.get("code") for x in (nd / "Observation.ndjson").read_text(encoding="utf-8").splitlines()
+             for c in json.loads(x)["code"]["coding"]]  # fmt: skip
+    assert codes.count("4548-4") == 465
+
+
+@pytest.mark.parametrize(("system", "code"), [("SCORE", "TJC28"), ("Score", "TJC28")])
+def test_r1_other_systems_are_kept_in_one_spelling_too(tmp_path: Path, system: str, code: str) -> None:
+    folder = _profile(tmp_path / "p")
+    text = (folder / "codes/lab.csv").read_text(encoding="utf-8")
+    (folder / "codes/lab.csv").write_text(text.replace(f"{code},score,", f"{code},{system},"), encoding="utf-8")
+    assert load(folder).tables["lab"].rows[code].row["system"] == "score"
+
+
+@pytest.mark.parametrize("damage", ["edit", "truncate", "garbage"])
+def test_r2_a_kept_copy_changed_after_the_load_stops_the_night_and_is_audited(
+    tmp_path: Path, pg_cluster_url: str, damage: str
+) -> None:
+    folder = _profile(tmp_path / "p")
+    cfg = _cfg(tmp_path, pg_cluster_url, "k", folder)
+    copy = tmp_path / "lake-k" / sp.KEPT / f"{load(folder).digest}.json"
+    text = copy.read_text(encoding="utf-8")
+    if damage == "edit":  # still valid JSON, still valid codes: UA made another LOINC
+        doc = json.loads(text)
+        for r in doc["tables"]["lab"]["rows"]:
+            if r["row"]["local_code"] == "UA":
+                r["row"]["code"] = "2160-0"
+        copy.write_text(json.dumps(doc), encoding="utf-8")
+    elif damage == "truncate":
+        copy.write_text(text[: len(text) // 2], encoding="utf-8")
+    else:
+        copy.write_bytes(b"\xff\xfe not json")
+    with pytest.raises(ProfileError, match="kept copy"):
+        run_ingest(cfg, "csv", str(_feed(tmp_path)), snapshot=NIGHT, load_fhir=False, validate=False)
+    events = [
+        json.loads(x) for f in _day_files(tmp_path / "audit-k") for x in f.read_text(encoding="utf-8").splitlines()
+    ]
+    assert [e["event"] for e in events if e["event"] == sp.COPY_REFUSED] == [sp.COPY_REFUSED]
+    assert not snapshot_dir(tmp_path / "lake-k", NIGHT).joinpath("Observation.ndjson").exists()
+
+
+def test_r2_a_kept_copy_whose_code_is_no_longer_a_code_is_refused(tmp_path: Path) -> None:
+    folder = _profile(tmp_path / "p")
+    lake, audit = tmp_path / "lake", tmp_path / "audit"
+    sp.activate(load(folder), lake, site_id="T", by="s", audit_dir=audit)
+    copy = lake / sp.KEPT / f"{load(folder).digest}.json"
+    doc = json.loads(copy.read_text(encoding="utf-8"))
+    doc["tables"]["lab"]["rows"][0]["row"]["code"] = "NOT A CODE"
+    doc["copy_sha"] = __import__("tb_common.site_profile", fromlist=["content_sha"]).content_sha(doc)
+    copy.write_text(json.dumps(doc), encoding="utf-8")
+    with pytest.raises(ProfileError, match="kept copy"):  # its hash is not the one the load recorded, either way
+        sp.kept(lake, load(folder).digest, sp.read_record(lake)["active"]["copy_sha"])
+    with pytest.raises(ProfileError, match="is not a loinc code"):  # and its rows are checked again
+        Profile.from_json(doc, lake)
+
+
+@pytest.mark.parametrize(("system", "code", "ok"), [("loinc", "03084-1", False), ("loinc", "3084-1", True),
+                                                    ("icd10", "U07.1", True), ("icd10", "U09.9", True),
+                                                    ("icd10", "E11.9", True), ("icd10", "11.9", False)])  # fmt: skip
+def test_r3_loinc_has_no_leading_zero_and_icd10_has_u_codes(system: str, code: str, ok: bool) -> None:
+    assert (check_code(system, code) is None) is ok

@@ -83,8 +83,8 @@ MAX_ROWS = 200_000  # a code table larger than any hospital master: a wrong file
 #: (``sitesetup.mapping._ICD``), the full ATC level of every medication value set, and TrialBox's own score codes. A
 #: system outside these is refused: the product reads no other, and the licence register says which must never ship
 SYSTEM_SHAPES = {
-    "loinc": re.compile(r"[0-9]{1,7}-[0-9]"),
-    "icd10": re.compile(r"[A-TV-Z][0-9][0-9A-Z](\.[0-9A-Z]{1,4})?"),
+    "loinc": re.compile(r"[1-9][0-9]{0,6}-[0-9]"),  # a LOINC number has no leading zero
+    "icd10": re.compile(r"[A-Z][0-9][0-9A-Z](\.[0-9A-Z]{1,4})?"),  # U codes too (U07.1, U09.9)
     "atc": re.compile(r"[A-Z][0-9]{2}[A-Z]{2}[0-9]{2}"),
     "score": re.compile(r"[A-Z0-9][A-Z0-9-]{0,31}"),
 }
@@ -195,12 +195,18 @@ class Profile:
 
     @classmethod
     def from_json(cls, doc: dict[str, Any], folder: Path) -> Profile:
-        """A profile kept by :meth:`to_json` (already checked when it was loaded)."""
+        """A profile kept by :meth:`to_json`. Every row is checked again (its state, its standard code against its
+        system), so a kept copy edited by hand is refused, never read."""
         tables = {}
         for n, t in doc["tables"].items():
             rows = {}
+            fixed = next((SYSTEM_OF_USE[u] for u in t["used_by"] if u in SYSTEM_OF_USE), None)
             for r in t["rows"]:
                 cells = {str(k): str(v) for k, v in r["row"].items()}
+                system = cells.get("system") if "system" in t["columns"] else fixed
+                why = check_code(str(system), cells.get(t["target"], ""))
+                if why or r["state"] not in STATES:
+                    raise ProfileError(f"{n}:{r['line']}", f"the kept copy: {why or 'not a state'}")
                 rows[cells[t["key"]]] = CodeRow(cells[t["key"]], cells[t["target"]], str(r["state"]), int(r["line"]),
                                                 cells)  # fmt: skip
             path = folder / t["file"].replace(SHIPPED, "shipped/")
@@ -283,6 +289,13 @@ def _table_path(folder: Path, file: str, where: str) -> Path:
     if not path.is_file():
         raise ProfileError(where, f"{file}: no such table file")
     return path
+
+
+def content_sha(doc: dict[str, Any]) -> str:
+    """The SHA-256 of a kept copy's content (:meth:`Profile.to_json`, its own ``copy_sha`` left out): recorded when a
+    person loads the profile and asked again by every night."""
+    body = {k: v for k, v in doc.items() if k != "copy_sha"}
+    return hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
 def loinc_check_digit_ok(code: str) -> bool:
@@ -374,10 +387,12 @@ def read_table(name: str, spec: dict[str, Any], folder: Path, where: str) -> tup
             raise ProfileError(
                 f"{shown}:{n}", f"state {word!r} is not one of {', '.join(sorted(STATE_WORDS))} (verified or verify)"
             )
-        system = (r.get("system") or "").lower() if "system" in cols else str(fixed)
+        system = r["system"].lower() if "system" in cols else str(fixed)
         why = check_code(system, tgt)
         if why:
             raise ProfileError(f"{shown}:{n}", f"column {target}: {why}")
+        if "system" in cols:
+            r["system"] = system  # the one spelling the mapping reads (``LOINC``, ``Loinc``: ``loinc``)
         row = CodeRow(code, tgt, STATE_WORDS[word], n, r)
         rows[code] = folded[fold_key(code)] = row
     if not rows:

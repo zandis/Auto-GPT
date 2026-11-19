@@ -94,9 +94,11 @@ file, the line and the reason:
   code: `tb_common.codekey.fold_key`, the same fold the mapping's look-up uses), an empty target, or a state that is
   not one of the words above;
 - a standard code that is not a code of its system, named by file, line and column. The system is the row's
-  `system` column or the reader's (ICD-10 for diagnoses, ATC for medicines). Checked: LOINC (digits, a hyphen and
-  its Mod-10 check digit), the WHO ICD-10 shape site set-up accepts, the 7-character ATC, TrialBox's score codes; all
-  ASCII (a full-width `４５４８-４` is refused). Any other system (SNOMED CT, say) is refused, and the licence
+  `system` column or the reader's (ICD-10 for diagnoses, ATC for medicines). Checked: LOINC (a number with no leading zero,
+  a hyphen and its Mod-10 check digit), the WHO ICD-10 shape (U codes such as U07.1 included), the 7-character ATC,
+  TrialBox's score codes; all ASCII (a full-width `４５４８-４` is refused). The system's name is kept in one spelling
+  (`LOINC`, `Loinc` and `loinc` are all kept as `loinc`, the word the mapping reads), so a row's standard code is
+  never lost at night for the way its system was written. Any other system (SNOMED CT, say) is refused, and the licence
   register's row for it is named;
 - a table the SS-MIX2 reader would read by other columns;
 - two tables for one `used_by`;
@@ -155,12 +157,19 @@ history.
   its table, code, old and new state; who and when are the event's. The rows' states as last activated are kept in
   `site_profile.states.json` beside the record.
 - **No audit, no profile.** Without an audit folder nothing is activated (the night and `load` refuse).
+- **The kept copy is checked every night.** Its content is hashed again and must be what was recorded and audited
+  when it was loaded, and every row is checked again. A copy edited by hand, cut short or unreadable is refused with
+  one `site_profile.copy_refused` event.
+- **A profile that cannot be applied stops the night** (as before versions existed): a kept copy that is refused, or
+  a folder on a box where nobody has loaded one, ends the night with `ingest.failed`, and the box keeps serving the
+  night before. Why: a night read without the site's profile would leave its codes unread and could miss patients
+  with no sign on any list. Only a folder taken away on purpose (audited) lets the nights read without a profile.
 - **Only a version a person loaded is applied.** `load --by <name>` keeps the profile as loaded and checked in the
   lake folder (`site_profile/<digest>.json`); the night reads that copy (its tables written trimmed to the lake's
   scratch), never the raw files. A folder whose content is not the loaded version (a file dropped in, an edit, an
   unreadable table) is not applied: the night reads the loaded version, says so on its record and on the night's
   page, and the audit has one `site_profile.not_loaded` event per content. A folder on a box where nobody loaded one
-  is not applied at all.
+  stops the night (above).
 - **Taking it off.** A folder taken away takes the profile off the box: one `site_profile.removed` event, the record's
   active profile is empty and that night's record says so. `unload --by <name>` does the same by name.
 - **A delta night after a change reads whole.** When the night a delta merges over was read with another profile
@@ -252,8 +261,12 @@ mapper's `verify` rule if its codes reach the lake):
 
 - A night read under one version is not read again, nor flagged, when a later version changes a mapping: the next
   full night reads with the new one, and each night says which version read it.
-- An SS-MIX2 code is tagged by the reader's own exact match (the reader is not changed here): a code the reader
-  could not match is not tagged, and is in the unmapped counts instead.
+- An SS-MIX2 code is tagged by the reader's own exact match (the reader is not changed here). The reader does not
+  fold: a code written in lower case or with a trailing blank in a message stays uncoded there, and is in the
+  unmapped counts instead.
+- The one fold (`tb_common.codekey.fold_key`) trims every blank Python counts as one, the no-break and ideographic
+  spaces, tabs and newlines in a quoted cell included, and it folds the Kelvin sign (U+212A) to `k`: two spellings
+  that fold alike are one code, both in the table check and in the look-up, so the tag stays consistent.
 - The record in the lake folder is read, changed and written without a lock: two loads at the same moment can lose
   one history entry (the audit chain keeps both events).
 - #1095 (the SS-MIX2 reader to the specification) changes the default visit key and the goldens, and touches
