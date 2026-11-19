@@ -178,8 +178,8 @@ class Rules:
                 },
             )
 
-        return self.users.set_scope(name, payload.get("affiliation") or "hospital", payload.get("studies") or "",
-                                    payload.get("expires") or None, before_commit=told)  # fmt: skip
+        return self.users.set_scope_told(name, payload.get("affiliation") or "hospital", payload.get("studies") or "",
+                                         payload.get("expires") or None, told)  # fmt: skip
 
     def request(self, kind: str, name: str, payload: dict[str, str], by: str, role: str) -> str:
         rid = self.users.add_request(kind, name, payload, by)

@@ -654,7 +654,7 @@ class TeamStore:
         return rec
 
     def save_irb(self, ruleset: str, rec: Irb, by: str, at: str,
-                 before_commit: Callable[[Irb], None] | None = None) -> Irb:  # fmt: skip
+                 before_commit: Callable[[Irb], object] | None = None) -> Irb:  # fmt: skip
         """The study's IRB record. ``before_commit`` (the caller's audit append, given the record as saved) runs
         inside the save's transaction, so a record whose audit event fails is not saved (D-1159)."""
         approved = _day(rec.approved_on, "the approval date") or ""

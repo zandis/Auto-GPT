@@ -491,13 +491,18 @@ class UserStore:
         return None if self._expired(user) else user
 
     def set_scope(
+        self, username: str, affiliation: str = "hospital", studies: str = "", expires: str | None = None
+    ) -> User:
+        """As :meth:`set_scope_told`, with no audit append (the command line and the demos audit their own)."""
+        return self.set_scope_told(username, affiliation, studies, expires, None)
+
+    def set_scope_told(
         self,
         username: str,
-        affiliation: str = "hospital",
-        studies: str = "",
-        expires: str | None = None,
-        *,
-        before_commit: Callable[[User], None] | None = None,
+        affiliation: str,
+        studies: str,
+        expires: str | None,
+        before_commit: Callable[[User], object] | None,
     ) -> User:
         """Affiliation, study scope and end date of an account (D-104). An SMO coordinator is normally scoped to
         the studies on its contract with an end date; a CRO account is aggregate-only whatever its scope. D-380
@@ -526,8 +531,8 @@ class UserStore:
         *,
         must_change: bool = False,
         scope: tuple[str, str, str | None] | None = None,
-        before_commit: Callable[[User], None] | None = None,
-        also: Callable[[Tx], None] | None = None,
+        before_commit: Callable[[User], object] | None = None,
+        also: Callable[[Tx], object] | None = None,
     ) -> User:
         """A local account. ``must_change``: the password was set by someone other than the owner (an
         administrator's page, the command line), so the owner must replace it before anything else (D-279).
@@ -655,7 +660,7 @@ class UserStore:
         *,
         must_change: bool = False,
         owner: bool = False,
-        before_commit: Callable[[], None] | None = None,
+        before_commit: Callable[[], object] | None = None,
     ) -> None:
         """A new password; the account signs out everywhere. ``must_change=True`` when someone other than the owner
         set it (an administrator's reset, the command line): the owner then replaces it at the next sign-in. The
@@ -685,7 +690,7 @@ class UserStore:
             if before_commit is not None:  # D-1159: the caller's audit append; if it fails, nothing is kept
                 before_commit()
 
-    def disable(self, username: str, *, before_commit: Callable[[], None] | None = None) -> None:
+    def disable(self, username: str, *, before_commit: Callable[[], object] | None = None) -> None:
         """``before_commit`` (the caller's audit append) runs inside the transaction (D-1159)."""
         with self.db.transaction() as tx:
             tx.execute("UPDATE users SET disabled = 1 WHERE username = ?", (username,))
@@ -694,7 +699,7 @@ class UserStore:
             if before_commit is not None:
                 before_commit()
 
-    def enable(self, username: str, *, before_commit: Callable[[], None] | None = None) -> None:
+    def enable(self, username: str, *, before_commit: Callable[[], object] | None = None) -> None:
         """D-178 (review J-14): the undo of :meth:`disable`. The password is the one the account had; its sessions
         stay ended (the person signs in again). ``before_commit`` as in :meth:`disable` (D-1159)."""
         with self.db.transaction() as tx:
@@ -981,7 +986,7 @@ class UserStore:
         )
         return n == 1
 
-    def reset_totp(self, username: str, before_commit: Callable[[], None] | None = None) -> str:
+    def reset_totp(self, username: str, before_commit: Callable[[], object] | None = None) -> str:
         """An administrator clears an account's authenticator (a lost phone; the caller audits it). The account
         signs out everywhere; the returned enrolment code (shown to the administrator once) is needed, with the
         password, to set up the new authenticator within ``ENROL_TTL`` (D-192, review H2)."""
@@ -1000,7 +1005,7 @@ class UserStore:
                 before_commit()
         return code
 
-    def issue_enrol_code(self, username: str, before_commit: Callable[[], None] | None = None) -> str:
+    def issue_enrol_code(self, username: str, before_commit: Callable[[], object] | None = None) -> str:
         """A one-time enrolment code for an account without an authenticator (its first one, e.g. every account
         after the upgrade): shown to the administrator once, valid for ``ENROL_TTL``, only its hash stored."""
         code = random_password(4)
@@ -1082,7 +1087,7 @@ class UserStore:
         shown_to: str,
         *,
         scope: tuple[str, str, str | None] | None = None,
-        before_commit: Callable[[User], None] | None = None,
+        before_commit: Callable[[User], object] | None = None,
     ) -> str:
         """A protected account nobody knows a password of: the returned enrolment code (shown once to
         ``shown_to``) lets its holder choose the password and set up the authenticator (``redeem``). ``scope`` and

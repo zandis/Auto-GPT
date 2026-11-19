@@ -1374,7 +1374,7 @@ def create_app(
                         },
                     )
 
-                us.set_scope(name, affiliation, studies, expires or None, before_commit=scoped)
+                us.set_scope_told(name, affiliation, studies, expires or None, scoped)
                 return RedirectResponse("/ops/users", status_code=303)
             if action == "disable":
                 if name == sess.user.username:

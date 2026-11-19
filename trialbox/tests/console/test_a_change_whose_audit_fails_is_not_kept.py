@@ -13,7 +13,8 @@ from console.teamstore import TeamStore
 from tb_common.audit import AuditFull
 
 from tests.console.test_console_app import _done_screen, _ulid, box, login  # noqa: F401 - the fixture by name
-from tests.console.test_d280_breakglass import A, _csrf, _open, _shift, _user
+from tests.console.test_d280_breakglass import A, _open, _shift
+from tests.console.test_role_pages import _csrf, _user
 
 FULL = str(2**40)  # TB_AUDIT_MIN_FREE_MB: no volume has that much free, so every append raises AuditFull
 

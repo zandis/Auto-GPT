@@ -126,7 +126,7 @@ def _grant(r: Any) -> Grant:
                  r[14])  # fmt: skip
 
 
-Told = Callable[[Grant, list[Grant]], None]  # the caller's audit appends, given a grant opened and the grants it ends
+Told = Callable[[Grant, list[Grant]], object]  # the caller's audit appends, given a grant opened and the grants it ends
 
 
 class BreakGlassStore:
@@ -223,7 +223,7 @@ class BreakGlassStore:
             out[int(r[0])].append(Use(int(r[0]), r[1], r[2], r[3], r[4], r[5]))
         return out
 
-    def end(self, gid: int, username: str, now: datetime, before_commit: Callable[[], None] | None = None) -> Grant:
+    def end(self, gid: int, username: str, now: datetime, before_commit: Callable[[], object] | None = None) -> Grant:
         """``before_commit`` (the caller's audit append) runs inside the transaction that ends it (D-1159)."""
         g = self.get(gid)
         if g is None or g.username != username:
@@ -238,7 +238,7 @@ class BreakGlassStore:
         return got
 
     def review(self, gid: int, by: str, note: str, now: datetime,
-               before_commit: Callable[[Grant], None] | None = None) -> Grant:  # fmt: skip
+               before_commit: Callable[[Grant], object] | None = None) -> Grant:  # fmt: skip
         """``before_commit`` (the caller's audit append, given the reviewed grant) runs inside the transaction."""
         g = self.get(gid)
         if g is None:
