@@ -144,8 +144,15 @@ json.dump({"head": c, "subject": g("log","-1","--format=%s",c), "dirty": False},
 git -C "$ROOT/.." archive --format=tar.gz --add-file="$OUT/TB_HEAD.json" -o "$OUT/src.tgz" "$COMMIT" trialbox
 SRC_SHA="$(sha256sum "$OUT/src.tgz" | cut -d' ' -f1)"
 echo "source: $COMMIT, $(wc -c < "$OUT/src.tgz") bytes, sha256 $SRC_SHA"
-# the weights' pinned list (free, no network): the VM fetches exactly these from the public hub, with no token
-PYTHONPATH=. "$PY" -m tools.fetch_weights --profile rtxpro6000 --dry-run > "$OUT/weights-dry-run.txt" \
+# the weights' pinned list (free, no network): the VM fetches exactly these from the public hub, with no token. They
+# go to the VM's empty 100 GB disk, not to this machine: the list is made for an empty folder and that disk (DISK_GB),
+# so a short disk here (Cloud Shell's 5 GB, a CI runner) does not refuse the run; the VM's s04 guard checks its own
+mkdir -p "$OUT/vm-models"
+PYTHONPATH=. "$PY" -c 'import sys
+from pathlib import Path
+from tools import fetch_weights as f, measure48_vm as m
+sys.exit(f.run("rtxpro6000", Path(sys.argv[1]), dry_run=True, free_bytes=lambda _p: m.DISK_GB * 10**9))' \
+  "$OUT/vm-models" > "$OUT/weights-dry-run.txt" \
   || { echo "measure48-run: refused: tools/fetch_weights.py --dry-run fails here (above)" >&2; exit 2; }
 tail -n 1 "$OUT/weights-dry-run.txt"
 gc_start
