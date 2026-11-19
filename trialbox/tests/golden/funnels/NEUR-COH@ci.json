@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "be80e5a12dae221208e82de578d818e6dac47612",
+  "head": "44973dfcde47eefc12bfda7df193143b171f122a",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-616 (D-400): patient.deceased column, lake schema 4, base cohort leaves out a deceased patient with no date",
+  "reason": "D-1253: lake ids are per patient. Every id of a patient's record holds the patient, so every id column and every id-derived value moves once (proved by tools/goldens_id_proof.py: one one-to-one id map per data set makes every row, funnel, candidate list and outcome equal). The -deletes set's next night now chooses records by content, not by their place in the id-sorted snapshot (tools/golden_nights.py). New set ssmix2-jp-per-patient: numbers repeat across patients.",
   "ref_date": "2026-11-01",
   "ruleset": "NEUR-COH",
   "ruleset_version": "1.0.0",
@@ -32,6 +32,25 @@
    }
   },
   "ssmix2-jp": {
+   "first_eligible": {},
+   "prevalent": 0,
+   "prevalent_pids_sha": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "remaining": {
+    "NEUR-COH-INC-01": 0,
+    "NEUR-COH-INC-02": 0,
+    "NEUR-COH-INC-03": 0
+   },
+   "start": 400,
+   "unknown": {
+    "NEUR-COH-INC-01": 0,
+    "NEUR-COH-INC-02": 0,
+    "NEUR-COH-INC-03": 0
+   },
+   "variants": {
+    "unknown_as_pass": 0
+   }
+  },
+  "ssmix2-jp-per-patient": {
    "first_eligible": {},
    "prevalent": 0,
    "prevalent_pids_sha": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",

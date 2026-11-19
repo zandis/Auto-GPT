@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
+  "head": "44973dfcde47eefc12bfda7df193143b171f122a",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
+  "reason": "D-1253: lake ids are per patient. Every id of a patient's record holds the patient, so every id column and every id-derived value moves once (proved by tools/goldens_id_proof.py: one one-to-one id map per data set makes every row, funnel, candidate list and outcome equal). The -deletes set's next night now chooses records by content, not by their place in the id-sorted snapshot (tools/golden_nights.py). New set ssmix2-jp-per-patient: numbers repeat across patients.",
   "ref_date": "2026-11-01",
   "ruleset": "RA-BIO",
   "ruleset_version": "1.0.0",
@@ -90,6 +90,45 @@
     "unknown_as_pass": 16
    }
   },
+  "ssmix2-jp-per-patient": {
+   "first_eligible": {},
+   "prevalent": 0,
+   "prevalent_pids_sha": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+   "remaining": {
+    "RA-BIO-EXC-01": 2,
+    "RA-BIO-EXC-02": 1,
+    "RA-BIO-EXC-03": 1,
+    "RA-BIO-EXC-04": 1,
+    "RA-BIO-EXC-05": 1,
+    "RA-BIO-EXC-06": 0,
+    "RA-BIO-EXC-07": 0,
+    "RA-BIO-INC-01": 381,
+    "RA-BIO-INC-02": 80,
+    "RA-BIO-INC-03": 31,
+    "RA-BIO-INC-04": 20,
+    "RA-BIO-INC-05": 14,
+    "RA-BIO-INC-06": 3
+   },
+   "start": 400,
+   "unknown": {
+    "RA-BIO-EXC-01": 0,
+    "RA-BIO-EXC-02": 1,
+    "RA-BIO-EXC-03": 0,
+    "RA-BIO-EXC-04": 0,
+    "RA-BIO-EXC-05": 0,
+    "RA-BIO-EXC-06": 0,
+    "RA-BIO-EXC-07": 0,
+    "RA-BIO-INC-01": 0,
+    "RA-BIO-INC-02": 0,
+    "RA-BIO-INC-03": 0,
+    "RA-BIO-INC-04": 0,
+    "RA-BIO-INC-05": 3,
+    "RA-BIO-INC-06": 10
+   },
+   "variants": {
+    "unknown_as_pass": 16
+   }
+  },
   "synthetic-jp-a": {
    "first_eligible": {
     "2026-08": 4,
@@ -135,30 +174,31 @@
   },
   "synthetic-jp-a-deletes": {
    "first_eligible": {
-    "2026-08": 2,
-    "2026-09": 5
+    "2026-08": 3,
+    "2026-09": 1,
+    "2026-10": 4
    },
-   "prevalent": 5,
-   "prevalent_pids_sha": "5f376459d32e32edb467abb8501effc4f79f176687fdaea69fd678a824d60ff8",
+   "prevalent": 6,
+   "prevalent_pids_sha": "b459350f2a9e740c0f110104de08720b8bf305130694148d46ac51a6a1642e55",
    "remaining": {
     "RA-BIO-EXC-01": 13,
     "RA-BIO-EXC-02": 12,
     "RA-BIO-EXC-03": 11,
-    "RA-BIO-EXC-04": 10,
-    "RA-BIO-EXC-05": 9,
-    "RA-BIO-EXC-06": 8,
-    "RA-BIO-EXC-07": 7,
-    "RA-BIO-INC-01": 2407,
-    "RA-BIO-INC-02": 504,
-    "RA-BIO-INC-03": 288,
-    "RA-BIO-INC-04": 152,
-    "RA-BIO-INC-05": 84,
-    "RA-BIO-INC-06": 16
+    "RA-BIO-EXC-04": 11,
+    "RA-BIO-EXC-05": 10,
+    "RA-BIO-EXC-06": 9,
+    "RA-BIO-EXC-07": 8,
+    "RA-BIO-INC-01": 2406,
+    "RA-BIO-INC-02": 501,
+    "RA-BIO-INC-03": 285,
+    "RA-BIO-INC-04": 154,
+    "RA-BIO-INC-05": 83,
+    "RA-BIO-INC-06": 13
    },
    "start": 2493,
    "unknown": {
     "RA-BIO-EXC-01": 0,
-    "RA-BIO-EXC-02": 7,
+    "RA-BIO-EXC-02": 5,
     "RA-BIO-EXC-03": 2,
     "RA-BIO-EXC-04": 0,
     "RA-BIO-EXC-05": 0,
@@ -168,11 +208,11 @@
     "RA-BIO-INC-02": 0,
     "RA-BIO-INC-03": 0,
     "RA-BIO-INC-04": 0,
-    "RA-BIO-INC-05": 33,
-    "RA-BIO-INC-06": 59
+    "RA-BIO-INC-05": 45,
+    "RA-BIO-INC-06": 67
    },
    "variants": {
-    "unknown_as_pass": 120
+    "unknown_as_pass": 129
    }
   },
   "synthetic-tw-a": {

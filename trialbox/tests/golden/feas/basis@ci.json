@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "a2e95567927aaaee2fb6e4e90b61bea81d6ce2fd",
+  "head": "44973dfcde47eefc12bfda7df193143b171f122a",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "T-201 (D-426): a conflict is not withdrawn when one source goes silent; the deletes night keeps the site's patients so both lakes agree",
+  "reason": "D-1253: lake ids are per patient. Every id of a patient's record holds the patient, so every id column and every id-derived value moves once (proved by tools/goldens_id_proof.py: one one-to-one id map per data set makes every row, funnel, candidate list and outcome equal). The -deletes set's next night now chooses records by content, not by their place in the id-sorted snapshot (tools/golden_nights.py). New set ssmix2-jp-per-patient: numbers repeat across patients.",
   "ref_date": "2026-11-01",
   "seed": 42,
   "written_with_source": "legacy+omop"
@@ -18,6 +18,10 @@
      "unknown_system": {}
     },
     "ssmix2-jp": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "ssmix2-jp-per-patient": {
      "basis": {},
      "unknown_system": {}
     },
@@ -70,7 +74,7 @@
       },
       "AD-MAB-INC-01": {
        "coded": 1363,
-       "confirmed": 8,
+       "confirmed": 7,
        "proposed": 9
       },
       "AD-MAB-INC-02": {
@@ -121,6 +125,10 @@
      "unknown_system": {}
     },
     "ssmix2-jp": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "ssmix2-jp-per-patient": {
      "basis": {},
      "unknown_system": {}
     },
@@ -223,11 +231,11 @@
       },
       "EMPULSE-INC-01": {
        "coded": 2392,
-       "confirmed": 15,
+       "confirmed": 14,
        "proposed": 5
       },
       "EMPULSE-INC-02": {
-       "coded": 12,
+       "coded": 9,
        "confirmed": 0,
        "proposed": 20
       },
@@ -317,6 +325,10 @@
      "basis": {},
      "unknown_system": {}
     },
+    "ssmix2-jp-per-patient": {
+     "basis": {},
+     "unknown_system": {}
+    },
     "synthetic-jp-a": {
      "basis": {
       "GOUT-COH-INC-01": {
@@ -360,37 +372,37 @@
     "synthetic-jp-a-deletes": {
      "basis": {
       "GOUT-COH-INC-01": {
-       "coded": 693,
-       "confirmed": 7,
-       "proposed": 11
+       "coded": 701,
+       "confirmed": 8,
+       "proposed": 12
       },
       "GOUT-COH-INC-02": {
-       "coded": 498,
-       "confirmed": 6,
+       "coded": 504,
+       "confirmed": 7,
        "proposed": 13
       },
       "GOUT-COH-INC-03": {
-       "coded": 339,
+       "coded": 342,
        "confirmed": 3,
-       "proposed": 15
+       "proposed": 16
       },
       "GOUT-COH-INC-04": {
-       "coded": 97,
-       "confirmed": 3,
+       "coded": 98,
+       "confirmed": 1,
        "proposed": 19
       },
       "GOUT-COH-INC-05": {
-       "coded": 19,
+       "coded": 22,
        "confirmed": 0,
        "proposed": 20
       },
       "GOUT-COH-INC-06": {
-       "coded": 8,
+       "coded": 5,
        "confirmed": 0,
        "proposed": 20
       },
       "GOUT-COH-INC-07": {
-       "coded": 3,
+       "coded": 2,
        "confirmed": 0,
        "proposed": 20
       }
@@ -447,6 +459,10 @@
      "unknown_system": {}
     },
     "ssmix2-jp": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "ssmix2-jp-per-patient": {
      "basis": {},
      "unknown_system": {}
     },
@@ -548,94 +564,94 @@
     "synthetic-jp-a-deletes": {
      "basis": {
       "GZQO-EXC-01": {
-       "coded": 44,
+       "coded": 41,
        "confirmed": 0,
-       "proposed": 18
+       "proposed": 20
       },
       "GZQO-EXC-02": {
-       "coded": 40,
-       "confirmed": 0,
-       "proposed": 18
-      },
-      "GZQO-EXC-03": {
-       "coded": 37,
-       "confirmed": 0,
-       "proposed": 19
-      },
-      "GZQO-EXC-04": {
-       "coded": 37,
-       "confirmed": 0,
-       "proposed": 19
-      },
-      "GZQO-EXC-05": {
        "coded": 36,
        "confirmed": 0,
        "proposed": 20
       },
+      "GZQO-EXC-03": {
+       "coded": 34,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "GZQO-EXC-04": {
+       "coded": 33,
+       "confirmed": 0,
+       "proposed": 20
+      },
+      "GZQO-EXC-05": {
+       "coded": 32,
+       "confirmed": 0,
+       "proposed": 20
+      },
       "GZQO-EXC-06": {
-       "coded": 29,
+       "coded": 28,
        "confirmed": 0,
        "proposed": 20
       },
       "GZQO-EXC-07": {
-       "coded": 29,
+       "coded": 26,
        "confirmed": 0,
        "proposed": 20
       },
       "GZQO-EXC-08": {
-       "coded": 29,
+       "coded": 26,
        "confirmed": 0,
        "proposed": 20
       },
       "GZQO-EXC-09": {
-       "coded": 27,
+       "coded": 24,
        "confirmed": 0,
        "proposed": 20
       },
       "GZQO-EXC-10": {
-       "coded": 27,
+       "coded": 24,
        "confirmed": 0,
        "proposed": 20
       },
       "GZQO-EXC-13": {
-       "coded": 25,
+       "coded": 23,
        "confirmed": 0,
        "proposed": 20
       },
       "GZQO-INC-01": {
        "coded": 2392,
-       "confirmed": 15,
+       "confirmed": 14,
        "proposed": 5
       },
       "GZQO-INC-02": {
-       "coded": 672,
-       "confirmed": 4,
+       "coded": 677,
+       "confirmed": 5,
        "proposed": 12
       },
       "GZQO-INC-03": {
-       "coded": 287,
+       "coded": 293,
        "confirmed": 1,
-       "proposed": 15
+       "proposed": 16
       },
       "GZQO-INC-04": {
        "coded": 177,
        "confirmed": 0,
-       "proposed": 18
+       "proposed": 19
       },
       "GZQO-INC-06": {
-       "coded": 82,
+       "coded": 86,
        "confirmed": 0,
-       "proposed": 18
+       "proposed": 19
       },
       "GZQO-INC-08": {
        "coded": 51,
        "confirmed": 0,
-       "proposed": 18
+       "proposed": 20
       },
       "GZQO-INC-09": {
-       "coded": 49,
+       "coded": 48,
        "confirmed": 0,
-       "proposed": 18
+       "proposed": 20
       }
      },
      "unknown_system": {}
@@ -748,6 +764,10 @@
      "basis": {},
      "unknown_system": {}
     },
+    "ssmix2-jp-per-patient": {
+     "basis": {},
+     "unknown_system": {}
+    },
     "synthetic-jp-a": {
      "basis": {
       "NEUR-COH-INC-01": {
@@ -821,6 +841,10 @@
      "basis": {},
      "unknown_system": {}
     },
+    "ssmix2-jp-per-patient": {
+     "basis": {},
+     "unknown_system": {}
+    },
     "synthetic-jp-a": {
      "basis": {
       "ONC-OSI-EXC-01": {
@@ -849,22 +873,22 @@
     "synthetic-jp-a-deletes": {
      "basis": {
       "ONC-OSI-EXC-01": {
-       "coded": 42,
+       "coded": 48,
        "confirmed": 0,
        "proposed": 20
       },
       "ONC-OSI-INC-01": {
        "coded": 2392,
-       "confirmed": 15,
+       "confirmed": 14,
        "proposed": 5
       },
       "ONC-OSI-INC-02": {
-       "coded": 92,
+       "coded": 95,
        "confirmed": 0,
        "proposed": 20
       },
       "ONC-OSI-INC-03": {
-       "coded": 53,
+       "coded": 60,
        "confirmed": 0,
        "proposed": 20
       }
@@ -906,6 +930,10 @@
      "unknown_system": {}
     },
     "ssmix2-jp": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "ssmix2-jp-per-patient": {
      "basis": {},
      "unknown_system": {}
     },
@@ -982,8 +1010,8 @@
     "synthetic-jp-a-deletes": {
      "basis": {
       "RA-BIO-EXC-01": {
-       "coded": 12,
-       "confirmed": 1,
+       "coded": 13,
+       "confirmed": 0,
        "proposed": 20
       },
       "RA-BIO-EXC-02": {
@@ -997,53 +1025,53 @@
        "proposed": 20
       },
       "RA-BIO-EXC-04": {
-       "coded": 10,
+       "coded": 11,
        "confirmed": 0,
        "proposed": 20
       },
       "RA-BIO-EXC-05": {
-       "coded": 9,
+       "coded": 10,
        "confirmed": 0,
        "proposed": 20
       },
       "RA-BIO-EXC-06": {
-       "coded": 8,
+       "coded": 9,
        "confirmed": 0,
        "proposed": 20
       },
       "RA-BIO-EXC-07": {
-       "coded": 7,
+       "coded": 8,
        "confirmed": 0,
        "proposed": 20
       },
       "RA-BIO-INC-01": {
        "coded": 2392,
-       "confirmed": 15,
+       "confirmed": 14,
        "proposed": 5
       },
       "RA-BIO-INC-02": {
-       "coded": 501,
+       "coded": 498,
        "confirmed": 3,
        "proposed": 19
       },
       "RA-BIO-INC-03": {
-       "coded": 285,
+       "coded": 282,
        "confirmed": 3,
        "proposed": 19
       },
       "RA-BIO-INC-04": {
-       "coded": 151,
+       "coded": 153,
        "confirmed": 1,
        "proposed": 20
       },
       "RA-BIO-INC-05": {
        "coded": 83,
-       "confirmed": 1,
+       "confirmed": 0,
        "proposed": 20
       },
       "RA-BIO-INC-06": {
-       "coded": 15,
-       "confirmed": 1,
+       "coded": 13,
+       "confirmed": 0,
        "proposed": 20
       }
      },
@@ -1132,6 +1160,10 @@
      "basis": {},
      "unknown_system": {}
     },
+    "ssmix2-jp-per-patient": {
+     "basis": {},
+     "unknown_system": {}
+    },
     "synthetic-jp-a": {
      "basis": {
       "RA-COH-INC-01": {
@@ -1170,19 +1202,19 @@
     "synthetic-jp-a-deletes": {
      "basis": {
       "RA-COH-INC-01": {
-       "coded": 587,
+       "coded": 579,
        "confirmed": 4,
        "proposed": 18
       },
       "RA-COH-INC-02": {
-       "coded": 464,
+       "coded": 455,
        "confirmed": 3,
        "proposed": 19
       },
       "RA-COH-INC-03": {
-       "coded": 238,
-       "confirmed": 2,
-       "proposed": 19
+       "coded": 232,
+       "confirmed": 1,
+       "proposed": 20
       },
       "RA-COH-INC-04": {
        "coded": 0,
@@ -1247,6 +1279,10 @@
      "unknown_system": {}
     },
     "ssmix2-jp": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "ssmix2-jp-per-patient": {
      "basis": {},
      "unknown_system": {}
     },
@@ -1318,48 +1354,48 @@
     "synthetic-jp-a-deletes": {
      "basis": {
       "RA-JAK-EXC-01": {
-       "coded": 139,
-       "confirmed": 2,
-       "proposed": 19
+       "coded": 141,
+       "confirmed": 0,
+       "proposed": 20
       },
       "RA-JAK-EXC-02": {
-       "coded": 116,
-       "confirmed": 2,
-       "proposed": 19
+       "coded": 111,
+       "confirmed": 0,
+       "proposed": 20
       },
       "RA-JAK-EXC-04": {
-       "coded": 109,
-       "confirmed": 1,
-       "proposed": 19
+       "coded": 106,
+       "confirmed": 0,
+       "proposed": 20
       },
       "RA-JAK-EXC-05": {
-       "coded": 108,
-       "confirmed": 1,
-       "proposed": 19
+       "coded": 105,
+       "confirmed": 0,
+       "proposed": 20
       },
       "RA-JAK-EXC-08": {
-       "coded": 105,
-       "confirmed": 1,
-       "proposed": 19
+       "coded": 100,
+       "confirmed": 0,
+       "proposed": 20
       },
       "RA-JAK-EXC-09": {
-       "coded": 101,
-       "confirmed": 1,
-       "proposed": 19
+       "coded": 97,
+       "confirmed": 0,
+       "proposed": 20
       },
       "RA-JAK-EXC-10": {
-       "coded": 97,
-       "confirmed": 1,
+       "coded": 96,
+       "confirmed": 0,
        "proposed": 20
       },
       "RA-JAK-EXC-11": {
-       "coded": 97,
-       "confirmed": 1,
+       "coded": 96,
+       "confirmed": 0,
        "proposed": 20
       },
       "RA-JAK-INC-01": {
        "coded": 2152,
-       "confirmed": 14,
+       "confirmed": 13,
        "proposed": 5
       },
       "RA-JAK-INC-02": {
@@ -1368,14 +1404,14 @@
        "proposed": 19
       },
       "RA-JAK-INC-03": {
-       "coded": 355,
+       "coded": 351,
        "confirmed": 3,
        "proposed": 19
       },
       "RA-JAK-INC-04": {
-       "coded": 206,
-       "confirmed": 2,
-       "proposed": 19
+       "coded": 192,
+       "confirmed": 1,
+       "proposed": 20
       }
      },
      "unknown_system": {}
@@ -1455,6 +1491,10 @@
      "unknown_system": {}
     },
     "ssmix2-jp": {
+     "basis": {},
+     "unknown_system": {}
+    },
+    "ssmix2-jp-per-patient": {
      "basis": {},
      "unknown_system": {}
     },
@@ -1547,7 +1587,7 @@
       },
       "STARRT-AKI-INC-01": {
        "coded": 2392,
-       "confirmed": 15,
+       "confirmed": 14,
        "proposed": 5
       },
       "STARRT-AKI-INC-02": {

@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "2d35403676d1afe8c82724a28b53d0502ddd7a83",
+  "head": "44973dfcde47eefc12bfda7df193143b171f122a",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "D-914: an inclusion's FALSE (or an exclusion's TRUE under none) for a patient with no coded record of the atom's kind reads unknown (no_record_of_kind), never an exclusion",
+  "reason": "D-1253: lake ids are per patient. Every id of a patient's record holds the patient, so every id column and every id-derived value moves once (proved by tools/goldens_id_proof.py: one one-to-one id map per data set makes every row, funnel, candidate list and outcome equal). The -deletes set's next night now chooses records by content, not by their place in the id-sorted snapshot (tools/golden_nights.py). New set ssmix2-jp-per-patient: numbers repeat across patients.",
   "ref_date": "2026-11-01",
   "ruleset": "NEUR-COH",
   "ruleset_version": "1.0.0",
@@ -68,6 +68,34 @@
     }
    }
   },
+  "ssmix2-jp-per-patient": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "105c3c75a0e9ce306d02040f477fb1686cfaa612b07ff5754d309412534679ad",
+   "patients": 400,
+   "structured_criteria": [
+    "NEUR-COH-INC-01",
+    "NEUR-COH-INC-02",
+    "NEUR-COH-INC-03"
+   ],
+   "verdicts": {
+    "NEUR-COH-INC-01": {
+     "met": 0,
+     "not_met": 367,
+     "unknown": 33
+    },
+    "NEUR-COH-INC-02": {
+     "met": 0,
+     "not_met": 400,
+     "unknown": 0
+    },
+    "NEUR-COH-INC-03": {
+     "met": 280,
+     "not_met": 120,
+     "unknown": 0
+    }
+   }
+  },
   "synthetic-jp-a": {
    "candidate_pids": [],
    "candidates": 0,
@@ -98,10 +126,10 @@
   },
   "synthetic-jp-a-deletes": {
    "candidate_pids": [
-    "4610fae88ac442bad2486780c1c55ef5"
+    "9ffb52ec408d6413c6a77d3e506a0d1f"
    ],
    "candidates": 1,
-   "outcomes_sha": "ef05fbab67498c4e5341523fb2f8a420221d12edcbf4caba6f160d1789fe06a5",
+   "outcomes_sha": "99817e8d01834659883d1399b2c5769f3fe644c124ff2cbaa2261847407aba54",
    "patients": 2500,
    "structured_criteria": [
     "NEUR-COH-INC-01",
@@ -111,13 +139,13 @@
    "verdicts": {
     "NEUR-COH-INC-01": {
      "met": 0,
-     "not_met": 2257,
-     "unknown": 243
+     "not_met": 2246,
+     "unknown": 254
     },
     "NEUR-COH-INC-02": {
      "met": 0,
-     "not_met": 2497,
-     "unknown": 3
+     "not_met": 2499,
+     "unknown": 1
     },
     "NEUR-COH-INC-03": {
      "met": 1760,

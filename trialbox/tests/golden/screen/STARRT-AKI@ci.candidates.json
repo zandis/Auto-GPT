@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "2d35403676d1afe8c82724a28b53d0502ddd7a83",
+  "head": "44973dfcde47eefc12bfda7df193143b171f122a",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "D-914: an inclusion's FALSE (or an exclusion's TRUE under none) for a patient with no coded record of the atom's kind reads unknown (no_record_of_kind), never an exclusion",
+  "reason": "D-1253: lake ids are per patient. Every id of a patient's record holds the patient, so every id column and every id-derived value moves once (proved by tools/goldens_id_proof.py: one one-to-one id map per data set makes every row, funnel, candidate list and outcome equal). The -deletes set's next night now chooses records by content, not by their place in the id-sorted snapshot (tools/golden_nights.py). New set ssmix2-jp-per-patient: numbers repeat across patients.",
   "ref_date": "2026-11-01",
   "ruleset": "STARRT-AKI",
   "ruleset_version": "1.0.0",
@@ -85,7 +85,77 @@
   "ssmix2-jp": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "4ed2c674d881a945431b69a4f820a9aa357707325ef83bf4afa9b5820143a156",
+   "outcomes_sha": "980aa881268bcd791ce0834a0e5175f2f08937ab5ad34eb8fe472d37b843dcfe",
+   "patients": 400,
+   "structured_criteria": [
+    "STARRT-AKI-INC-01",
+    "STARRT-AKI-INC-02",
+    "STARRT-AKI-INC-03",
+    "STARRT-AKI-INC-04",
+    "STARRT-AKI-EXC-01",
+    "STARRT-AKI-EXC-02",
+    "STARRT-AKI-EXC-05",
+    "STARRT-AKI-EXC-06",
+    "STARRT-AKI-EXC-07",
+    "STARRT-AKI-EXC-08"
+   ],
+   "verdicts": {
+    "STARRT-AKI-EXC-01": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 400
+    },
+    "STARRT-AKI-EXC-02": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 400
+    },
+    "STARRT-AKI-EXC-05": {
+     "met": 0,
+     "not_met": 0,
+     "unknown": 400
+    },
+    "STARRT-AKI-EXC-06": {
+     "met": 0,
+     "not_met": 400,
+     "unknown": 0
+    },
+    "STARRT-AKI-EXC-07": {
+     "met": 0,
+     "not_met": 400,
+     "unknown": 0
+    },
+    "STARRT-AKI-EXC-08": {
+     "met": 0,
+     "not_met": 400,
+     "unknown": 0
+    },
+    "STARRT-AKI-INC-01": {
+     "met": 381,
+     "not_met": 19,
+     "unknown": 0
+    },
+    "STARRT-AKI-INC-02": {
+     "met": 0,
+     "not_met": 400,
+     "unknown": 0
+    },
+    "STARRT-AKI-INC-03": {
+     "met": 8,
+     "not_met": 9,
+     "unknown": 383
+    },
+    "STARRT-AKI-INC-04": {
+     "met": 1,
+     "not_met": 16,
+     "unknown": 383
+    }
+   }
+  },
+  "ssmix2-jp-per-patient": {
+   "candidate_pids": [],
+   "candidates": 0,
+   "outcomes_sha": "5cd67f599393209d3130bdc8c8e258e57001073f82e39328fd658d116caecb62",
    "patients": 400,
    "structured_criteria": [
     "STARRT-AKI-INC-01",
@@ -155,7 +225,7 @@
   "synthetic-jp-a": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "1311c1a8ed8051c9945adee64ce2da05814d8ed9892b14b93914e6233d797499",
+   "outcomes_sha": "32d69d9df3707370e089aace4182cae4890734d43c2b56ee1178b99b84a83160",
    "patients": 2500,
    "structured_criteria": [
     "STARRT-AKI-INC-01",
@@ -224,12 +294,10 @@
   },
   "synthetic-jp-a-deletes": {
    "candidate_pids": [
-    "4610fae88ac442bad2486780c1c55ef5",
-    "71f359bf630263403421477ca9630f61",
-    "97e45bf416f59d0e453b851f19073984"
+    "9ffb52ec408d6413c6a77d3e506a0d1f"
    ],
-   "candidates": 3,
-   "outcomes_sha": "8daff083c1fd76c2bde32e9a332d887499667358f364ace29f45daa2e734e7ae",
+   "candidates": 1,
+   "outcomes_sha": "33747f9a343deee2b8612756af83aaf1af30d5206f50541d09c0a163a6669f78",
    "patients": 2500,
    "structured_criteria": [
     "STARRT-AKI-INC-01",
@@ -281,25 +349,25 @@
     },
     "STARRT-AKI-INC-02": {
      "met": 0,
-     "not_met": 2497,
-     "unknown": 3
+     "not_met": 2499,
+     "unknown": 1
     },
     "STARRT-AKI-INC-03": {
-     "met": 29,
-     "not_met": 52,
-     "unknown": 2419
+     "met": 28,
+     "not_met": 55,
+     "unknown": 2417
     },
     "STARRT-AKI-INC-04": {
      "met": 6,
-     "not_met": 75,
-     "unknown": 2419
+     "not_met": 77,
+     "unknown": 2417
     }
    }
   },
   "synthetic-tw-a": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "ef13c2060a4d4a069a7e437e3471d19adba01ca604f6e70fb9ca629ab1a6d654",
+   "outcomes_sha": "4dbc32d9f787d46600a78d802de64cc4125db2aeb9567cf72e37a047523982a6",
    "patients": 2500,
    "structured_criteria": [
     "STARRT-AKI-INC-01",
