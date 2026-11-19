@@ -1237,6 +1237,15 @@ EN.update(_OPS_EN)
 JA.update(_OPS_JA)
 ZH.update(_OPS_ZH)
 
+# 10K-7 (D-1363): the update stick, the release note and change-impact sheet, the apply in the quiet hour
+from console.i18n_update_stick import EN as _STICK_EN  # noqa: E402
+from console.i18n_update_stick import JA as _STICK_JA  # noqa: E402
+from console.i18n_update_stick import ZH as _STICK_ZH  # noqa: E402
+
+EN.update(_STICK_EN)
+JA.update(_STICK_JA)
+ZH.update(_STICK_ZH)
+
 # T-684 (D-361): the clinical layout fixes (second skip link, folded procedure and SAE banners, registry words)
 from console.i18n_layout import EN as _LAY_EN  # noqa: E402
 from console.i18n_layout import JA as _LAY_JA  # noqa: E402

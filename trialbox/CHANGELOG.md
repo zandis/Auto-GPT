@@ -14,6 +14,14 @@ new heading with the version and date, in the same pull request that sets the ve
   certificate renewal, §20 close-out, §22 moving the box, §23 lost-box list, §25 leavers); the other pages say that
   no test rehearses them. Two steps corrected: when the host name changes, run `check-tls` with the new values of
   `deploy/.env` (§22); at close-out, write down the head after `--sign-head` (§20).
+- Updates from a stick at the box (10K-7, D-1363): the Operations page's update tab lists the bundles on an update
+  stick the host mounts read-only (`/media/trialbox-update`, or `TB_UPDATE_STICK`), verifies one after copying it to
+  the box, shows its Japanese release note and change-impact sheet (change classes CC1 to CC6, minutes down,
+  migration, re-approval), and asks for the apply in the box's quiet hour for exactly the file that was verified (a
+  waiting one can be cancelled there). Mount the stick `ro,nodev,nosuid,noexec`. Every bundle now carries
+  `RELEASE-NOTE.ja.md` and `CHANGE-IMPACT.json` (`tools/make_bundle.sh` refuses to build one without them); a bundle
+  without them is still verified and applied, with a warning. Going back to the previous release is shown on the
+  page and stays the older-release path of the runbook at the box.
 - ClinicalTrials.gov intake widened (10D-15, D-1367): a study read from the registry (live, offline pack or
   cassette) now carries its sites with their recruitment status, its secondary ids (a jRCT, JapicCTI or UMIN-CTR
   number is recognised as such), arms, interventions, primary and secondary outcomes and the design (allocation,
