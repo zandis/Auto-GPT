@@ -39,7 +39,9 @@ SOURCE_FORMAT = "trialbox-release-note/1"
 IMPACT_FORMAT = "trialbox-change-impact/1"
 NOTE = "RELEASE-NOTE.ja.md"
 IMPACT = "CHANGE-IMPACT.json"
-MAX_BYTES = 256 * 1024  # a note and a sheet are a few kilobytes
+#: the largest note and sheet a bundle may carry (a few kilobytes is usual): build refuses more, the box shows no
+#: more (10K-7 review: the console's record of them must stay small)
+MAX_BYTES = {"note_ja": 32 * 1024, "impact": 16 * 1024}
 #: the change classes of docs/validation/change-control.md §2 (D-344), in their order, with their Japanese names
 CLASSES: dict[str, str] = {
     "CC1": "モデルに影響する変更",
@@ -182,10 +184,16 @@ def build(source: Path, bundle_id: str, release_seq: int, out_dir: Path) -> tupl
     if problems:
         raise NoteError(f"{source}: " + "; ".join(problems))
     sheet = impact_sheet(src, bundle_id, release_seq)
-    out_dir.mkdir(parents=True, exist_ok=True)
     note, imp = out_dir / NOTE, out_dir / IMPACT
-    note.write_text(render_note(sheet, src["summary_ja"]), encoding="utf-8")
-    imp.write_text(json.dumps(sheet, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    note_text = render_note(sheet, src["summary_ja"])
+    sheet_text = json.dumps(sheet, ensure_ascii=False, indent=1, sort_keys=True) + "\n"
+    for what, text, key in ((NOTE, note_text, "note_ja"), (IMPACT, sheet_text, "impact")):
+        if len(text.encode("utf-8")) > MAX_BYTES[key]:
+            raise NoteError(f"{source}: {what} would be {len(text.encode('utf-8'))} bytes; at most {MAX_BYTES[key]} "
+                            "(shorten the summary or the changes)")  # fmt: skip
+    out_dir.mkdir(parents=True, exist_ok=True)
+    note.write_text(note_text, encoding="utf-8")
+    imp.write_text(sheet_text, encoding="utf-8")
     return note, imp
 
 
@@ -213,8 +221,12 @@ def read_from_bundle(bundle: Path) -> dict[str, Any]:
                 except KeyError:
                     out["warnings"].append(f"{name} is listed but not in the bundle")
                     continue
-                fh = tf.extractfile(m) if m.isfile() and m.size <= MAX_BYTES else None
-                body = fh.read(MAX_BYTES + 1) if fh is not None else b""
+                cap = MAX_BYTES[key]
+                if m.isfile() and m.size > cap:
+                    out["warnings"].append(f"{name} is too large to show ({m.size} bytes, at most {cap})")
+                    continue
+                fh = tf.extractfile(m) if m.isfile() else None
+                body = fh.read(cap + 1) if fh is not None else b""
                 if (
                     fh is None
                     or len(body) != entry.get("size")

@@ -105,6 +105,7 @@ def test_every_operations_page_and_action_is_refused_to_other_roles(ob: dict[str
         "network_sheet",
         "update_stick_check",
         "update_quiet",
+        "update_cancel",
     ):
         r = c.post(f"/admin/ops/{action}", data={"csrf": csrf, "confirm": "yes", "bundle": "x.tar"})
         assert r.status_code == 403, (role, action)
@@ -175,7 +176,9 @@ def test_update_check_and_apply_ask_first_and_apply_is_refused_off_a_site_box(ob
     inc.mkdir(parents=True)
     (inc / "trialbox-1.0.1.tar").write_bytes(b"not a real bundle")
     page = c.get("/admin/ops?tab=update").text
-    assert "trialbox-1.0.1.tar" in page and 'data-testid="ops-update_apply-trialbox-1.0.1.tar"' in page
+    assert "trialbox-1.0.1.tar" in page  # 10K-7: an unverified bundle is offered "verify" only, never "apply"
+    assert 'data-testid="ops-update_check-trialbox-1.0.1.tar"' in page
+    assert 'data-testid="ops-update_apply-trialbox-1.0.1.tar"' not in page
     r = c.post("/admin/ops/update_apply", data={"csrf": csrf, "bundle": "trialbox-1.0.1.tar"})
     assert 'data-testid="confirm-text"' in r.text and "rolls back" in r.text
     assert 'name="bundle" value="trialbox-1.0.1.tar"' in r.text  # the sheet posts the same bundle again
@@ -595,60 +598,117 @@ def test_the_update_stick_is_shown_and_a_bundle_is_verified_from_it(ob: dict[str
     assert c.post("/admin/ops/update_stick_check", data={"csrf": csrf, "bundle": "../x"}).status_code == 400
 
 
+def _verified_by_the_host(ob: dict[str, Any], f: Path, got: dict[str, Any]) -> str:
+    """What the host's runner writes after a passed check of ``f`` (``OpsRunner._keep``): the verified record and the
+    note record, both carrying the file's sha256; then the status is written again from them."""
+    import hashlib
+
+    runner = tb_ops.OpsRunner(tb_ops.Box.local(ob["deploy"], {}), tb_ops.OpsDir(ob["dir"] / "ops"))
+    sha = hashlib.sha256(f.read_bytes()).hexdigest()
+    st = f.stat()
+    runner._keep(f, sha, (st.st_size, st.st_mtime_ns, st.st_ino, st.st_dev),
+                 {"bundle_id": None, "release_seq": None, "note_ja": None, "impact": None, "warnings": [], **got})  # fmt: skip
+    _fresh_status(ob)
+    return sha
+
+
+SHEET = {"format": "trialbox-change-impact/1", "bundle_id": "2026.12-1", "release_seq": 7,
+         "classes": [{"class": cc, "name_ja": "x", "changed": cc == "CC4", "what_ja": "画面の文言を変更" if cc == "CC4"
+                      else ""} for cc in ("CC1", "CC2", "CC3", "CC4", "CC5", "CC6")],
+         "downtime_minutes": 20, "database_migration": False, "ruleset_reapproval": True}  # fmt: skip
+
+
 def test_a_verified_bundle_shows_its_result_its_japanese_note_and_its_change_classes(ob: dict[str, Any]) -> None:
     c, _csrf = login(ob["app"])
     f = _stage(ob, "trialbox-2026.12-1.tar")
     page = c.get("/admin/ops?tab=update").text
-    assert "not verified yet" in page and "Verify the bundle to see its release note" in page
-    ops = tb_ops.OpsDir(ob["dir"] / "ops")
-    req = {"id": ops.submit("update_check", "console:admin", {"bundle": f.name, "from": "stick"}),
-           "action": "update_check", "by": "console:admin"}  # fmt: skip
-    ops.write_result(req, True, f"{f.name}: signature and every file verified; nothing was changed", [], "")
-    sheet = {"format": "trialbox-change-impact/1", "bundle_id": "2026.12-1", "release_seq": 7,
-             "classes": [{"class": cc, "name_ja": "x", "changed": cc == "CC4",
-                          "what_ja": "画面の文言を変更" if cc == "CC4" else ""} for cc in
-                         ("CC1", "CC2", "CC3", "CC4", "CC5", "CC6")],
-             "downtime_minutes": 20, "database_migration": False, "ruleset_reapproval": True}  # fmt: skip
-    (ob["dir"] / "ops" / "notes").mkdir(parents=True, exist_ok=True)
-    (ob["dir"] / "ops" / "notes" / f"{f.name}.json").write_text(json.dumps({
-        "bundle": f.name, "bytes": f.stat().st_size, "mtime": f.stat().st_mtime, "bundle_id": "2026.12-1",
-        "release_seq": 7, "note_ja": "# 合成リリース\n<script>alert(1)</script>\n", "impact": sheet, "warnings": []},
-        ensure_ascii=False))  # fmt: skip
-    _fresh_status(ob)
+    item = page[page.index(f'data-bundle="{f.name}"') :]
+    assert "not verified yet" in item and "Verify the bundle to see its release note" in item
+    assert f'ops-update_apply-{f.name}"' not in item and f'ops-update_quiet-{f.name}"' not in item  # review 9
+    sha = _verified_by_the_host(ob, f, {"bundle_id": "2026.12-1", "release_seq": 7, "impact": SHEET,
+                                        "note_ja": "# 合成リリース\n<script>alert(1)</script>\n"})  # fmt: skip
     page = c.get("/admin/ops?tab=update").text
     item = page[page.index(f'data-bundle="{f.name}"') :]
-    assert '<span class="pill ok">verified</span>' in item
+    assert '<span class="pill ok">verified</span>' in item and sha[:12] in item
     assert 'data-testid="ops-note"' in item and "# 合成リリース" in item
     assert "<script>alert(1)</script>" not in page and "&lt;script&gt;" in item  # the vendor's text, escaped
     assert re.findall(r'data-class="(CC\d)"', item) == ["CC1", "CC2", "CC3", "CC4", "CC5", "CC6"]
     assert 'data-class="CC4" data-changed="yes"' in item and "UI and text" in item and "about 20 minutes" in item
     assert 'data-testid="ops-note-none"' not in item
-    f.write_bytes(b"another file of the same name")  # replaced since it was verified: its note is not shown
+    assert f'ops-update_apply-{f.name}"' in item and f'ops-update_quiet-{f.name}"' in item  # verified: offered
+    status = json.loads((ob["dir"] / "ops" / "status.json").read_text())
+    assert "note_ja" not in json.dumps(status) and status["verified"][f.name]["sha256"] == sha  # review 2
+    f.write_bytes(b"another file of the same name")  # replaced since it was verified: neither note nor "verified"
     _fresh_status(ob)
-    assert 'data-testid="ops-note"' not in c.get("/admin/ops?tab=update").text
+    item = c.get("/admin/ops?tab=update").text
+    assert 'data-testid="ops-note"' not in item and '<span class="pill ok">verified</span>' not in item
+    assert f'ops-update_apply-{f.name}"' not in item  # review 8, 9
 
 
-def test_apply_in_the_quiet_hour_asks_first_waits_and_is_audited(ob: dict[str, Any]) -> None:
+def test_a_verified_bundle_without_a_readable_note_says_so(ob: dict[str, Any]) -> None:
+    """Review 7: a passed check with no note (an older bundle), or a note record too large, is said, never blank."""
+    c, _csrf = login(ob["app"])
+    f = _stage(ob, "trialbox-2026.11-1.tar")
+    _verified_by_the_host(ob, f, {"bundle_id": "2026.11-1", "warnings": ["no RELEASE-NOTE.ja.md in this bundle"]})
+    item = c.get("/admin/ops?tab=update").text
+    assert 'data-testid="ops-note-none"' in item and "Ask the vendor for them" in item
+    (ob["dir"] / "ops" / "notes" / f"{f.name}.json").unlink()  # no record at all
+    item = c.get("/admin/ops?tab=update").text
+    assert 'data-testid="ops-note-none"' in item
+    (ob["dir"] / "ops" / "notes" / f"{f.name}.json").write_text(" " * (tb_ops.NOTE_RECORD_MAX + 1))
+    item = c.get("/admin/ops?tab=update").text
+    assert 'data-testid="ops-note-too-large"' in item and "too large to show" in item
+
+
+@pytest.mark.parametrize("name", ["trialbox-1.tar\n", "aリリース.tar", "trialbox-1.tar\r"])
+def test_a_bundle_name_with_a_newline_or_a_look_alike_is_refused(ob: dict[str, Any], name: str) -> None:
+    c, csrf = login(ob["app"])
+    for action in ("update_check", "update_stick_check", "update_apply", "update_quiet"):
+        r = c.post(f"/admin/ops/{action}", data={"csrf": csrf, "bundle": name, "confirm": "yes"})
+        assert r.status_code == 400, (action, name)
+    assert not (ob["dir"] / "ops" / "requests").exists() or not list((ob["dir"] / "ops" / "requests").glob("*"))
+
+
+def test_apply_in_the_quiet_hour_asks_first_waits_is_audited_and_can_be_cancelled(ob: dict[str, Any]) -> None:
     c, csrf = login(ob["app"])
     f = _stage(ob, "trialbox-2026.12-1.tar")
+    sha = _verified_by_the_host(ob, f, {"bundle_id": "2026.12-1", "impact": SHEET, "note_ja": "# 合成\n"})
     page = c.get("/admin/ops?tab=update").text
     assert f'data-testid="ops-update_quiet-{f.name}"' in page
     r = c.post("/admin/ops/update_quiet", data={"csrf": csrf, "bundle": f.name})
     assert 'data-testid="confirm-text"' in r.text and "quiet hour (05:00, for 2 hours)" in r.text
     assert "without anyone at the box" in r.text and f"within {tb_ops.QUIET_WAIT_H} hours" in r.text
-    assert 'name="when"' not in r.text and not _events(ob["audit"], "console.ops")
+    assert 'name="when"' not in r.text and 'name="sha256"' not in r.text and not _events(ob["audit"], "console.ops")
     r = c.post("/admin/ops/update_quiet", data={"csrf": csrf, "bundle": f.name, "confirm": "yes"},
                follow_redirects=True)  # fmt: skip
     assert 'data-action="update_apply" data-state="waiting"' in r.text  # not run now: the runner takes it then
     reqs = [json.loads(p.read_text()) for p in (ob["dir"] / "ops" / "requests").glob("*.json")]
-    assert [(q["action"], q["args"]) for q in reqs] == [("update_apply", {"bundle": f.name, "when": "quiet"})]
+    assert [(q["action"], q["args"]) for q in reqs] == [
+        ("update_apply", {"bundle": f.name, "when": "quiet", "sha256": sha})  # the verified file only (review 3)
+    ]
+    rq = reqs[0]["id"]
     page = c.get("/admin/ops?tab=update").text
-    waiting = page[page.index('data-testid="ops-waiting"') :][:600]
-    assert f.name in waiting and "waits" in waiting
+    waiting = page[page.index('data-testid="ops-waiting"') :][:1500]
+    assert f.name in waiting and "waits" in waiting and f'data-testid="ops-update_cancel-{rq}"' in waiting
     assert re.search(rf'disabled data-testid="ops-update_quiet-{re.escape(f.name)}"', page)  # busy while it waits
     assert c.post("/admin/ops/update_quiet", data={"csrf": csrf, "bundle": f.name, "confirm": "yes"}).status_code == 409
+    # review 10: withdrawn on the console, under the same right (ops.update_apply), audited
+    assert c.post("/admin/ops/update_cancel", data={"csrf": csrf, "target": "20990101T000000Z-abcdef",
+                                                    "confirm": "yes"}).status_code == 400  # fmt: skip
+    r = c.post("/admin/ops/update_cancel", data={"csrf": csrf, "target": rq})
+    assert 'data-testid="confirm-text"' in r.text and f.name in r.text and "will not run" in r.text
+    assert f'name="target" value="{rq}"' in r.text
+    r = c.post("/admin/ops/update_cancel", data={"csrf": csrf, "target": rq, "confirm": "yes"}, follow_redirects=True)
+    assert 'data-action="update_cancel" data-state="done"' in r.text
+    res = tb_ops.OpsDir(ob["dir"] / "ops").result(rq)
+    assert res is not None and res["state"] == "cancelled" and res["ok"] is False
+    page = c.get("/admin/ops?tab=update").text
+    assert 'data-testid="ops-waiting"' not in page
     ev = [e["detail"] for e in _events(ob["audit"], "console.ops")]
-    assert ev == [{"action": "update_quiet", "request": ev[0]["request"], "bundle": f.name, "when": "quiet"}]
+    assert [e["action"] for e in ev] == ["update_quiet", "update_cancel", "update_cancel.done"]
+    assert ev[0] == {"action": "update_quiet", "request": rq, "bundle": f.name, "when": "quiet", "sha256": sha}
+    assert ev[1] == {"action": "update_cancel", "request": ev[1]["request"], "target": rq} and ev[1]["request"] != rq
+    assert ev[2]["ok"] is True
     assert all(e["actor"] == "console:admin" for e in _events(ob["audit"], "console.ops"))
 
 
@@ -664,11 +724,8 @@ def test_the_previous_release_is_named_and_not_offered_as_a_button(ob: dict[str,
              for i, b in ((5, "2026.11-1"), (8, "2026.12-1"))]  # fmt: skip
     (upd / "history.jsonl").write_text("\n".join(json.dumps(x) for x in lines), encoding="utf-8")
     f = _stage(ob, "trialbox-2026.11-1.tar")
-    (ob["dir"] / "ops" / "notes").mkdir(parents=True, exist_ok=True)
-    (ob["dir"] / "ops" / "notes" / f"{f.name}.json").write_text(json.dumps({
-        "bundle": f.name, "bytes": f.stat().st_size, "mtime": f.stat().st_mtime, "bundle_id": "2026.11-1",
-        "release_seq": 1, "note_ja": None, "impact": None, "warnings": ["no RELEASE-NOTE.ja.md in this bundle"]}))  # fmt: skip
-    _fresh_status(ob)
+    _verified_by_the_host(ob, f, {"bundle_id": "2026.11-1", "release_seq": 1,
+                                  "warnings": ["no RELEASE-NOTE.ja.md in this bundle"]})  # fmt: skip
     page = c.get("/admin/ops?tab=update").text
     prev = page[page.index('data-testid="ops-previous"') :][:900]
     assert 'data-testid="ops-previous-id">2026.11-1<' in prev and f.name in prev and "RUNBOOK §5" in prev

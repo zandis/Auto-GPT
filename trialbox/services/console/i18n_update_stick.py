@@ -6,6 +6,14 @@ itself is the vendor's Japanese text and is shown as it is in every language."""
 from __future__ import annotations
 
 EN: dict[str, str] = {
+    "ops.action.update_cancel": "Cancel this update",
+    "ops.confirm.update_cancel": "Cancel the update {bundle} that waits for the quiet hour? It will not run; no"
+    "thing on the box changes. You can ask for it again.",
+    "ops.state.cancelled": "cancelled",
+    "ops.stick.cut": "The stick holds more files than are listed here: only the first bundles by name are shown.",
+    "ops.stick.refused": "{n} .tar files on the stick are not listed: their names have letters outside A to Z, "
+    "digits, _ . - or a control character, which a bundle's name never has.",
+    "ops.update.note.too_large": "The release note kept for this bundle is too large to show here. Ask the vendor.",
     "ops.action.update_stick_check": "Verify and copy to the box",
     "ops.action.update_quiet": "Apply in the quiet hour",
     "ops.confirm.update_stick_check": "Copy the bundle {bundle} from the update stick to the box and verify it? Its "
@@ -29,7 +37,6 @@ EN: dict[str, str] = {
     "ops.update.note.none": "This bundle carries no Japanese release note or change-impact sheet that could be read "
     "(a bundle built before they were required). Ask the vendor for them before you apply it.",
     "ops.update.note.verify_first": "Verify the bundle to see its release note and change-impact sheet.",
-    "ops.update.note.trimmed": "The release note is too long to show here; it is in the bundle (RELEASE-NOTE.ja.md).",
     "ops.status.unreadable": "Status unreadable: the box's operations status file is too large or damaged, so nothing "
     "of it is shown. It is written again within a minute; if this stays, see RUNBOOK §5.",
     "ops.update.impact": "Change-impact sheet",
@@ -58,6 +65,16 @@ EN: dict[str, str] = {
 }
 
 JA: dict[str, str] = {
+    "ops.action.update_cancel": "この更新を取り消す",
+    "ops.confirm.update_cancel": "静かな時間帯を待っている更新 {bundle} を取り消しますか？実行されず、機器では"
+    "何も変わりません。あとで改めて依頼できます。",
+    "ops.state.cancelled": "取り消し済み",
+    "ops.stick.cut": "USBメモリにはここに表示しきれないファイルがあります。名前順で最初のバンドルだけを表示して"
+    "います。",
+    "ops.stick.refused": "USBメモリ上の .tar ファイル {n} 件は表示していません。名前に A〜Z、数字、_ . - 以外の"
+    "文字または制御文字が含まれ、バンドルの名前ではありません。",
+    "ops.update.note.too_large": "このバンドルのリリースノートは大きすぎてここに表示できません。ベンダーに問い"
+    "合わせてください。",
     "ops.action.update_stick_check": "検証して機器にコピー",
     "ops.action.update_quiet": "静かな時間帯に適用",
     "ops.confirm.update_stick_check": "バンドル {bundle} を更新用USBメモリから機器にコピーして検証しますか？"
@@ -82,8 +99,6 @@ JA: dict[str, str] = {
     "ops.update.note.none": "このバンドルには読み取れる日本語のリリースノートまたは変更影響シートがありません（必須に"
     "なる前に作られたバンドルです）。適用する前にベンダーに求めてください。",
     "ops.update.note.verify_first": "バンドルを検証すると、リリースノートと変更影響シートが表示されます。",
-    "ops.update.note.trimmed": "リリースノートが長すぎるため、ここには表示しません。バンドル内の RELEASE-NOTE.ja.md "
-    "を参照してください。",
     "ops.status.unreadable": "状態を読み取れません。機器の運用状態ファイルが大きすぎるか壊れているため、"
     "何も表示しません。1分以内に書き直されます。この表示が続く場合は RUNBOOK §5 を参照してください。",
     "ops.update.impact": "変更影響シート",
@@ -113,6 +128,14 @@ JA: dict[str, str] = {
 }
 
 ZH: dict[str, str] = {
+    "ops.action.update_cancel": "取消此更新",
+    "ops.confirm.update_cancel": "要取消等待安靜時段的更新 {bundle} 嗎？它不會執行，本機不會有任何變更。之後可"
+    "以重新申請。",
+    "ops.state.cancelled": "已取消",
+    "ops.stick.cut": "隨身碟上的檔案比此處列出的多：只依名稱顯示最前面的更新包。",
+    "ops.stick.refused": "隨身碟上有 {n} 個 .tar 檔案未列出：其名稱含有 A 到 Z、數字、_ . - 以外的字元或控制字"
+    "元，不是更新包的名稱。",
+    "ops.update.note.too_large": "此更新包保存的版本說明太大，無法在此顯示。請洽詢供應商。",
     "ops.action.update_stick_check": "驗證並複製到本機",
     "ops.action.update_quiet": "於安靜時段套用",
     "ops.confirm.update_stick_check": "要將更新包 {bundle} 從更新用隨身碟複製到本機並驗證嗎？將檢查其簽章與每個檔案。"
@@ -134,7 +157,6 @@ ZH: dict[str, str] = {
     "ops.update.note.none": "此更新包沒有可讀取的日文版本說明或變更影響表（在其成為必要之前建立的更新包）。套用前"
     "請向供應商索取。",
     "ops.update.note.verify_first": "驗證更新包後即可看到其版本說明與變更影響表。",
-    "ops.update.note.trimmed": "版本說明過長，無法在此顯示；請參閱更新包中的 RELEASE-NOTE.ja.md。",
     "ops.status.unreadable": "無法讀取狀態：本機的維運狀態檔過大或已損壞，因此不顯示其內容。一分鐘內會重新寫入；"
     "若持續出現，請參閱 RUNBOOK §5。",
     "ops.update.impact": "變更影響表",

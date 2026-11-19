@@ -9,9 +9,13 @@ same name on the box is refused). The console's update page is ``tests/console/t
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import subprocess
 import tarfile
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +38,7 @@ def test_the_drill_inserts_verifies_applies_in_the_quiet_hour_and_rolls_back(tmp
     names = " | ".join(name for name, _, _ in out["checks"])
     for step in ("insert:", "verify:", "quiet hour", "roll back:", "change classes CC1 to CC6"):
         assert step in names, step
-    assert len(out["checks"]) == 12
+    assert len(out["checks"]) == 13
 
 
 def test_the_drill_runs_from_the_command_line(
@@ -99,7 +103,7 @@ def test_make_bundle_requires_the_note_and_carries_both_files() -> None:
     sh = (ROOT / "tools" / "make_bundle.sh").read_text(encoding="utf-8")
     first_image = sh.index('echo "==> images"')
     assert sh.index("-m tools.release_note build") < first_image  # refused before minutes of image export
-    assert "docs/releases/next-release.ja.yaml" in sh and "--release-note) NOTE_SRC=" in sh
+    assert "docs/releases/next-release.ja.yaml" in sh and 'NOTE_SRC="$2"' in sh
     assert '"other:$STAGE/note/RELEASE-NOTE.ja.md=RELEASE-NOTE.ja.md"' in sh
     assert '"other:$STAGE/note/CHANGE-IMPACT.json=CHANGE-IMPACT.json"' in sh
     assert sh.index("CHANGE-IMPACT.json=CHANGE-IMPACT.json") < sh.index("-m tools.release build")  # in release.json
@@ -181,7 +185,7 @@ def _check(r: _Runner, name: str) -> dict[str, Any]:
 def test_no_stick_is_said_and_nothing_is_copied(tmp_path: Path) -> None:
     r, calls = _runner(tmp_path)
     st = r.write_status()
-    assert st["stick"] == {"path": str(tmp_path / "stick"), "mounted": False, "bundles": []}
+    assert st["stick"] == {"path": str(tmp_path / "stick"), "mounted": False, "bundles": [], "cut": False, "refused": 0}
     res = _check(r, "trialbox-1.tar")
     assert res["ok"] is False and "is it inserted?" in res["summary"] and calls == []
     assert tb_ops.Box("compose", tmp_path, {}).stick() == Path(tb_ops.STICK_DEFAULT)
@@ -199,10 +203,15 @@ def test_a_bundle_on_the_stick_is_copied_verified_and_its_note_kept(tmp_path: Pa
     assert res["ok"] is True and "copied from the update stick" in res["lines"][0]
     assert calls[0][-1] == "--dry-run" and calls[0][-2] == str(tmp_path / "incoming" / bundle.name)
     st = json.loads((tmp_path / "ops" / "status.json").read_text(encoding="utf-8"))
-    assert st["notes"][bundle.name]["bundle_id"] == "2026.12-1" and "ドリル用" in st["notes"][bundle.name]["note_ja"]
+    sha = hashlib.sha256(bundle.read_bytes()).hexdigest()
+    assert st["verified"][bundle.name]["sha256"] == sha and st["verified"][bundle.name]["bundle_id"] == "2026.12-1"
+    assert "notes" not in st and "note_ja" not in json.dumps(st)  # the note stays out of the status
+    state, rec = r.ops.note_record(bundle.name, sha)  # the file the console reads, bound to the sha256
+    assert state == "ok" and rec is not None and "ドリル用" in rec["note_ja"]
+    assert r.ops.note_record(bundle.name, "0" * 64) == ("none", None)  # another file's sha256: no note
     assert _check(r, bundle.name)["lines"][0].endswith("not copied again")  # the same file: kept
-    os.utime(tmp_path / "incoming" / bundle.name, (1, 1))  # the file on the box changed since: its note is not shown
-    assert bundle.name not in r.write_status()["notes"]
+    os.utime(tmp_path / "incoming" / bundle.name, (1, 1))  # the file on the box changed since: not "verified"
+    assert bundle.name not in r.write_status()["verified"]
 
 
 def test_a_different_bundle_of_the_same_name_on_the_box_is_refused(tmp_path: Path) -> None:
@@ -245,7 +254,217 @@ def test_the_status_says_the_quiet_hour_and_the_setting_that_does_not_read(tmp_p
     assert r.write_status()["quiet"]["bad"] == "" and r.write_status()["quiet"]["zone"] == "Asia/Tokyo"
 
 
-# ------------------------------------------------------- review C: a file name on the stick is checked before use
+# ------------------------------------------------------------------------------------------------ the review (D-1363)
+@pytest.mark.parametrize(
+    "name", ["x.tar\n", "x.tar\r", "a\x00b.tar", "aリリース.tar", "x.tar ", "ｘ.tar", ".x.tar", "x.TAR"]
+)
+def test_a_name_with_a_newline_a_control_character_or_a_look_alike_is_no_bundle(tmp_path: Path, name: str) -> None:
+    """Review B3: ``$`` matched before a trailing newline (``x.tar\n`` was copied, and apply_update.sh's basename
+    verified the genuine ``x.tar``), and ``\\w`` took any letter."""
+    assert not tb_ops.bundle_name(name)
+    r, calls = _runner(tmp_path)
+    rid = r.ops.submit("update_check", "console:admin", {"bundle": name, "from": "stick"})
+    r.run_pending()
+    res = r.ops.result(rid)
+    assert res is not None and res["ok"] is False and calls == [] and not (tmp_path / "incoming").exists()
+
+
+def test_a_name_refused_on_the_stick_is_not_listed_and_is_counted(tmp_path: Path) -> None:
+    stick = tmp_path / "stick"
+    stick.mkdir()
+    for n in ("trialbox-1.tar", "x.tar\n", "aリリース.tar"):
+        (stick / n).write_bytes(b"x")
+    st = _runner(tmp_path)[0].write_status()["stick"]
+    assert [b["name"] for b in st["bundles"]] == ["trialbox-1.tar"] and st["refused"] == 2 and st["cut"] is False
+
+
+def test_the_status_stays_readable_with_many_verified_bundles_through_the_file(tmp_path: Path) -> None:
+    """Review B2: the notes were copied into status.json, which the console reads with a 64 KiB cap; 26 bundles made
+    the whole Operations page lose its status. Read here as the console reads it: the file, not the runner's dict."""
+    priv, _ = keygen(tmp_path / "k")
+    bundle = update_drill.stick_bundle(tmp_path, priv, "2026.12-1", 3)
+    (tmp_path / "incoming").mkdir()
+    r, _ = _runner(tmp_path)
+    for n in range(1, 41):
+        (tmp_path / "incoming" / f"trialbox-{n}.tar").write_bytes(bundle.read_bytes())
+        r.ops.submit("update_check", "console:admin", {"bundle": f"trialbox-{n}.tar"})
+    r.run_pending()
+    st = tb_ops.OpsDir(tmp_path / "ops").status()  # what the console's status() reads
+    assert st is not None and len(st["verified"]) == 40 and st["version"]["trialbox"]
+    assert (tmp_path / "ops" / "status.json").stat().st_size < tb_ops.MAX_JSON
+
+
+def test_a_note_too_large_is_said_and_never_built(tmp_path: Path) -> None:
+    ops = tb_ops.OpsDir(tmp_path / "ops")
+    ops.notes.mkdir(parents=True)
+    (ops.notes / "trialbox-1.tar.json").write_text(
+        json.dumps({"sha256": "a" * 64, "note_ja": "x" * tb_ops.NOTE_RECORD_MAX})
+    )
+    assert ops.note_record("trialbox-1.tar", "a" * 64) == ("too_large", None)
+    f = tmp_path / "note.yaml"
+    f.write_text(json.dumps(_source(summary_ja="長い" * 20000), ensure_ascii=False), encoding="utf-8")
+    with pytest.raises(release_note.NoteError, match="at most"):
+        release_note.build(f, "B1", 1, tmp_path / "out")
+    big = tmp_path / release_note.NOTE
+    big.write_text("# 大きい\n" + "あ" * 20000, encoding="utf-8")
+    bundle, _pub = _plain_bundle(tmp_path, [("other", big, release_note.NOTE)])
+    got = release_note.read_from_bundle(bundle)
+    assert got["note_ja"] is None and any("too large" in w for w in got["warnings"])
+
+
+def test_a_verified_file_replaced_or_failing_later_is_no_longer_verified(tmp_path: Path) -> None:
+    (tmp_path / "incoming").mkdir()
+    f = tmp_path / "incoming" / "trialbox-1.tar"
+    f.write_bytes(b"first")
+    r, _ = _runner(tmp_path)
+    r.ops.submit("update_check", "console:admin", {"bundle": f.name})
+    r.run_pending()
+    assert r.write_status()["verified"][f.name]["sha256"] == hashlib.sha256(b"first").hexdigest()
+    f.write_bytes(b"other")  # replaced under the same name: the record is of the other file
+    assert f.name not in r.write_status()["verified"]
+    bad, _ = _runner(tmp_path, verified=False)
+    bad.ops.submit("update_check", "console:admin", {"bundle": f.name})
+    bad.run_pending()
+    assert not (tmp_path / "ops" / "verified" / f"{f.name}.json").exists()  # a failed check leaves no pass
+
+
+def test_an_apply_for_a_verified_sha256_refuses_another_file(tmp_path: Path) -> None:
+    (tmp_path / "incoming").mkdir()
+    f = tmp_path / "incoming" / "trialbox-1.tar"
+    f.write_bytes(b"verified bytes")
+    r, calls = _runner(tmp_path)
+    good = hashlib.sha256(b"verified bytes").hexdigest()
+    assert r.do_update_apply({"bundle": f.name, "sha256": good})[0].endswith("applied") and len(calls) == 1
+    with pytest.raises(tb_ops.OpsFailed, match="not the file that was verified"):
+        r.do_update_apply({"bundle": f.name, "sha256": "b" * 64})
+    with pytest.raises(tb_ops.OpsFailed, match="not the file that was verified"):
+        r.do_update_apply({"bundle": f.name, "sha256": "not a sha"})
+    assert len(calls) == 1
+
+
+def test_a_quiet_apply_of_another_file_than_the_verified_one_is_refused(tmp_path: Path) -> None:
+    (tmp_path / "incoming").mkdir()
+    f = tmp_path / "incoming" / "trialbox-1.tar"
+    f.write_bytes(b"what is staged")
+    r, calls = _runner(tmp_path)
+    r.box.env.update(update_drill.STICK_ENV)
+    r.now = lambda: datetime.fromisoformat(update_drill.STICK_QUIET)  # type: ignore[method-assign]
+    r.jobs_running = lambda: 0  # type: ignore[method-assign]
+    rid = r.ops.submit("update_apply", "console:admin", {"bundle": f.name, "when": "quiet", "sha256": "c" * 64})
+    r.run_pending()
+    res = r.ops.result(rid)
+    assert res is not None and "not the file that was verified" in res["summary"] and calls == []
+
+
+def test_the_copy_keeps_a_minimum_free_and_says_the_numbers(tmp_path: Path) -> None:
+    (tmp_path / "stick").mkdir()
+    (tmp_path / "stick" / "trialbox-1.tar").write_bytes(b"x" * 1000)
+    r, calls = _runner(tmp_path)
+    r.disk_free = lambda path: tb_ops.STICK_MIN_FREE + 500  # type: ignore[method-assign]
+    res = _check(r, "trialbox-1.tar")
+    assert res["ok"] is False and "must stay free" in res["summary"] and calls == []
+    assert not list((tmp_path / "incoming").iterdir())
+
+
+class _Slow:
+    """A stick file whose reads hang (a stick that stops answering), or give more than its size."""
+
+    def __init__(self, hang: bool, data: bytes = b"") -> None:
+        self.hang, self.data, self.closed = hang, data, False
+
+    def read(self, n: int) -> bytes:
+        if self.hang:
+            time.sleep(30)
+            return b""
+        return self.data[:n] if self.data else b"y" * n  # never ends by itself
+
+    def seek(self, _n: int) -> None:
+        return None
+
+    def close(self) -> None:
+        self.closed = True
+
+    def __enter__(self) -> _Slow:
+        return self
+
+    def __exit__(self, *_a: object) -> None:
+        self.close()
+
+
+def test_a_stick_that_hangs_is_stopped_and_the_runner_goes_on(tmp_path: Path) -> None:
+    (tmp_path / "stick").mkdir()
+    real = tmp_path / "stick" / "trialbox-1.tar"
+    real.write_bytes(b"x" * 4096)
+    r, calls = _runner(tmp_path)
+    r.stall_s = 0.5
+    r._open_stick = lambda src: (_Slow(hang=True), os.stat(real))  # type: ignore[method-assign]
+    t0 = time.monotonic()
+    res = _check(r, "trialbox-1.tar")
+    assert res["ok"] is False and "gave no byte" in res["summary"] and time.monotonic() - t0 < 10 and calls == []
+    assert not list((tmp_path / "incoming").glob("*"))  # the part file is removed
+    rid = r.ops.submit("backup_check", "console:admin")  # the lock is free: the next request runs
+    r.run_pending()
+    assert r.ops.result(rid) is not None
+
+
+def test_the_copy_stops_at_the_size_seen_at_open(tmp_path: Path) -> None:
+    (tmp_path / "stick").mkdir()
+    real = tmp_path / "stick" / "trialbox-1.tar"
+    real.write_bytes(b"x" * 3000)
+    r, _calls = _runner(tmp_path)
+    r._open_stick = lambda src: (_Slow(hang=False), os.stat(real))  # type: ignore[method-assign]
+    res = _check(r, "trialbox-1.tar")
+    assert res["ok"] is True and (tmp_path / "incoming" / "trialbox-1.tar").stat().st_size == 3000
+
+
+def test_a_folder_or_a_pipe_named_like_a_bundle_is_refused_without_opening_it(tmp_path: Path) -> None:
+    (tmp_path / "stick" / "trialbox-1.tar").mkdir(parents=True)
+    os.mkfifo(tmp_path / "stick" / "trialbox-2.tar")  # opened, a pipe would block the runner
+    r, calls = _runner(tmp_path)
+    assert "is a folder, not a bundle" in _check(r, "trialbox-1.tar")["summary"]
+    assert "not a regular file" in _check(r, "trialbox-2.tar")["summary"] and calls == []
+    assert r.write_status()["stick"]["bundles"] == []
+
+
+def test_the_real_bundle_is_found_among_thousands_of_other_files_and_a_cut_list_says_so(tmp_path: Path) -> None:
+    stick = tmp_path / "stick"
+    stick.mkdir()
+    for i in range(3000):
+        (stick / f"aaa-{i:04d}.txt").write_bytes(b"")
+    (stick / "trialbox-2026.12-1.tar").write_bytes(b"x")
+    st = _runner(tmp_path)[0].write_status()["stick"]
+    assert [b["name"] for b in st["bundles"]] == ["trialbox-2026.12-1.tar"] and st["cut"] is False
+    for i in range(tb_ops.STICK_LIST_MAX + 5):
+        (stick / f"trialbox-{i:03d}.tar").write_bytes(b"x")
+    st = _runner(tmp_path)[0].write_status()["stick"]
+    assert len(st["bundles"]) == tb_ops.STICK_LIST_MAX and st["cut"] is True
+
+
+def test_a_waiting_quiet_update_can_be_cancelled_and_then_never_runs(tmp_path: Path) -> None:
+    (tmp_path / "incoming").mkdir()
+    (tmp_path / "incoming" / "trialbox-1.tar").write_bytes(b"x")
+    r, calls = _runner(tmp_path)
+    r.box.env.update(update_drill.STICK_ENV)
+    r.now = lambda: datetime.fromisoformat(update_drill.STICK_QUIET)  # type: ignore[method-assign]
+    r.jobs_running = lambda: 0  # type: ignore[method-assign]
+    rq = r.ops.submit("update_apply", "console:admin", {"bundle": "trialbox-1.tar", "when": "quiet"})
+    rc = r.ops.submit("update_cancel", "console:admin", {"target": rq})
+    r.run_pending()  # in the quiet hour: the cancel is taken first, the update does not run
+    res, cres = r.ops.result(rq), r.ops.result(rc)
+    assert res is not None and res["state"] == "cancelled" and cres is not None and cres["ok"] is True
+    assert calls == [] and r.write_status()["waiting"] == []
+    again = r.ops.submit("update_cancel", "console:admin", {"target": rq})
+    r.run_pending()
+    assert "nothing to cancel" in (r.ops.result(again) or {})["summary"]
+
+
+def test_make_bundle_says_how_to_give_the_release_note() -> None:
+    r = subprocess.run(["bash", str(ROOT / "tools" / "make_bundle.sh"), "--release-note"], check=False,
+                       capture_output=True, text=True, timeout=60)  # fmt: skip
+    assert r.returncode == 2 and "--release-note needs a file" in r.stderr
+
+
+# --------------------------------------------- the second review: C (names on the stick) and B (the status file)
 GOOD = "trialbox-2026.12-1.tar"
 BAD_NAMES = {
     "newline at the end": "trialbox-1.tar\n",
@@ -254,17 +473,16 @@ BAD_NAMES = {
     "a control character (NUL-like)": "trialbox-\x01.tar",
     "DEL": "trialbox-\x7f.tar",
     "two dots": "trialbox..1.tar",
+    "two dots before tar": "trialbox-1..tar",
     "leading dash": "-rf.tar",
     "leading dot": ".hidden.tar",
-    "not ASCII": "trialbox-１.tar",
     "very long": "t" * 200 + ".tar",
 }
 
 
 @pytest.mark.parametrize("name", list(BAD_NAMES.values()), ids=list(BAD_NAMES))
 def test_a_bad_name_is_not_a_bundle_name(name: str) -> None:
-    assert tb_ops.BUNDLE.match(name) is None
-    assert tb_ops.BUNDLE.match(GOOD) is not None
+    assert not tb_ops.bundle_name(name) and tb_ops.bundle_name(GOOD)
 
 
 def _stick_with_bad_names(tmp: Path) -> Path:
@@ -273,10 +491,8 @@ def _stick_with_bad_names(tmp: Path) -> Path:
     (stick / GOOD).write_bytes(b"a bundle")
     for name in BAD_NAMES.values():
         (stick / name).write_bytes(b"x")
-    outside = tmp / "outside.tar"
-    outside.write_bytes(b"a file outside the stick")
-    (stick / "link-outside.tar").symlink_to(outside)
-    (stick / f"{GOOD}.sha256").unlink(missing_ok=True)
+    (tmp / "outside.tar").write_bytes(b"a file outside the stick")
+    (stick / "link-outside.tar").symlink_to(tmp / "outside.tar")
     (stick / "folder.tar").mkdir()
     return stick
 
@@ -295,17 +511,8 @@ def test_a_linked_sidecar_does_not_count(tmp_path: Path) -> None:
     stick = _stick_with_bad_names(tmp_path)
     (stick / f"{GOOD}.sha256").symlink_to(tmp_path / "outside.tar")
     r, _ = _runner(tmp_path)
-    assert r.write_status()["stick"]["bundles"][0]["sidecar"] is False
-
-
-def test_more_than_fifty_other_files_do_not_hide_a_bundle(tmp_path: Path) -> None:
-    stick = tmp_path / "stick"
-    stick.mkdir()
-    for i in range(60):
-        (stick / f"0-not-a-bundle-{i:02}\n.tar").write_bytes(b"x")
-    (stick / "zz-trialbox.tar").write_bytes(b"a bundle")
-    r, _ = _runner(tmp_path)
-    assert [b["name"] for b in r.write_status()["stick"]["bundles"]] == ["zz-trialbox.tar"]
+    (row,) = [b for b in r.write_status()["stick"]["bundles"] if b["name"] == GOOD]
+    assert row["sidecar"] is False
 
 
 @pytest.mark.parametrize("name", [*BAD_NAMES.values(), "link-outside.tar", "folder.tar"],
@@ -316,10 +523,9 @@ def test_a_bad_file_on_the_stick_is_never_copied_or_passed_to_a_command(tmp_path
     res = _check(r, name)
     assert res["ok"] is False and calls == []
     assert not (tmp_path / "incoming").exists() or list((tmp_path / "incoming").iterdir()) == []
-    assert "\n" not in res["summary"] and "\r" not in res["summary"] and "\x01" not in res["summary"]
+    assert not any(c in res["summary"] for c in "\n\r\x01\x7f")
 
 
-# ---------------------------------------------- review B: the status file is read bounded, and unreadable is said
 def _status_file(tmp: Path, kind: str) -> Path:
     p = tmp / "ops" / "status.json"
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -350,7 +556,6 @@ STATUS_KINDS = ["64 KiB + 1", "a FIFO", "a folder", "not UTF-8", "nested past th
                 "nested deeper than the runner writes", "not an object", "a link"]  # fmt: skip
 
 
-@pytest.mark.timeout(20)
 @pytest.mark.parametrize("kind", STATUS_KINDS)
 def test_a_status_file_that_is_not_a_small_object_is_unreadable_never_a_crash(tmp_path: Path, kind: str) -> None:
     p = _status_file(tmp_path, kind)
@@ -366,20 +571,3 @@ def test_a_missing_status_is_missing_and_a_good_one_reads(tmp_path: Path) -> Non
     p.parent.mkdir(parents=True)
     p.write_text('{"at": "2026-11-19T00:00:00+00:00"}', encoding="utf-8")
     assert ops.status_state() == ({"at": "2026-11-19T00:00:00+00:00"}, "")
-
-
-def test_a_status_with_long_release_notes_stays_readable(tmp_path: Path) -> None:
-    r, _ = _runner(tmp_path)
-    big: dict[str, Any] = {f"trialbox-{i}.tar": {"bundle_id": f"2026.12-{i}", "note_ja": "長い説明。" * 4000, "impact": None,
-                                 "warnings": []} for i in range(3)}  # fmt: skip
-    r._notes = lambda incoming: json.loads(json.dumps(big))  # type: ignore[method-assign]
-    st = r.write_status()
-    p = tmp_path / "ops" / "status.json"
-    assert p.stat().st_size <= tb_ops.MAX_JSON
-    got, why = r.ops.status_state()
-    assert why == "" and got is not None and got["notes"]["trialbox-0.tar"]["note_trimmed"] is True
-    assert st["notes"]["trialbox-0.tar"]["note_ja"] is None
-    huge = {f"trialbox-{i}.tar": {"bundle_id": "x" * 2000, "warnings": ["w" * 2000] * 4} for i in range(20)}
-    r._notes = lambda incoming: json.loads(json.dumps(huge))  # type: ignore[method-assign]
-    st = r.write_status()
-    assert p.stat().st_size <= tb_ops.MAX_JSON and st["notes"] == {} and st["notes_trimmed"] is True

@@ -13,9 +13,12 @@ writes ``status.json``, which is what the console's screens show. No operation i
 ``update_check``    ``tools/apply_update.sh <bundle> --dry-run``: signature and hashes verified, nothing changes;
                     with ``from: stick`` (10K-7, D-1363) the bundle is first copied from the update stick
                     (``TB_UPDATE_STICK``, read only) into the incoming folder, and the verified bundle's Japanese
-                    release note and change-impact sheet are kept in ``<ops>/notes/`` for the console
+                    release note and change-impact sheet are kept in ``<ops>/notes/`` for the console, its sha256
+                    in ``<ops>/verified/`` (the status lists those records, never the notes)
 ``update_apply``    ``tools/apply_update.sh <bundle>``: backup first, rollback point, automatic rollback; with
-                    ``when: quiet`` (T-730b, D-731) it waits for the quiet hour and for no job running
+                    ``when: quiet`` (T-730b, D-731) it waits for the quiet hour and for no job running; with
+                    ``sha256`` (10K-7) it applies that file only
+``update_cancel``   (10K-7) withdraws an update that waits for the quiet hour, before it starts
 ``logs_collect``    ``trialbox logs collect`` (yesterday's service logs)
 ``network_sheet``   ``tools/network_sheet.py`` into ``<ops>/network/`` (en, ja, zh-TW)
 ==================  ==========================================================================================
@@ -57,13 +60,15 @@ ACTIONS: tuple[str, ...] = (
     "update_apply",
     "logs_collect",
     "network_sheet",
+    "update_cancel",  # 10K-7 (D-1363): withdraw an update that waits for the quiet hour
 )
 COMPOSE_ONLY = frozenset({"update_apply", "logs_collect"})
 REQ_ID = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{6}$")
-# A bundle's file name, checked before it is shown, logged, audited or passed to any command (10K-7 review C): ASCII
-# letters, digits, ``.``, ``_`` and ``-`` only, a letter or digit first (never ``-`` or ``.``), no ``..``, ``.tar`` at
-# the end of the string (``\Z``: ``$`` would also match before a trailing newline), at most 125 characters.
-BUNDLE = re.compile(r"\A[A-Za-z0-9](?!.*\.\.)[A-Za-z0-9._-]{0,120}\.tar\Z", re.ASCII)
+# 10K-7 (review B3): ASCII letters, digits, ``_ . -`` and ``.tar``, matched WHOLE (``bundle_name``): ``$`` matched
+# before a trailing newline, and ``\w`` took look-alike letters, so a forged stick file passed for a bundle's name
+# (the second review, C): never ``..`` anywhere, and a letter or digit first (never ``-`` or ``.``)
+BUNDLE = re.compile(r"[A-Za-z0-9](?!.*\.\.)[A-Za-z0-9_.\-]{0,120}\.tar", re.ASCII)
+SHA256 = re.compile(r"[0-9a-f]{64}", re.ASCII)
 BACKUP_FILE = re.compile(r"^trialbox-[\w\-]+-(\d{8}T\d{6}Z)\.tbbak$")
 SERVICE_UID = 10001  # the ``tb`` user of the trialbox-py image (svc_secrets.SERVICE_UID)
 STALE_HOURS = 36  # WS-08.5: the backup tile turns red 36 hours after the last backup
@@ -74,12 +79,23 @@ QUIET_WAIT_H = 26
 QUIET_DEFAULT_AT, QUIET_DEFAULT_HOURS = "05:00", "2"  # the box's quiet hour unless the site sets one (D-731)
 # 10K-7 (D-1363): where the host mounts an update stick inserted at the box, read only, unless TB_UPDATE_STICK says
 STICK_DEFAULT = "/media/trialbox-update"
-STICK_MARGIN = 1.05  # the copy into the incoming folder needs the bundle's size and 5 % more free
+STICK_MARGIN = 1.05  # the copy into the incoming folder needs the bundle's size and 5 % more free ...
+STICK_MIN_FREE = 10 * 1024**3  # ... and leaves at least 10 GiB free on that disk (the databases and the audit share it)
+STICK_COPY_MAX_S = 2 * 3600  # a copy from the stick that takes longer is stopped (a 25 GB bundle at 5 MB/s: 85 min)
+STICK_STALL_S = 120  # ... and one that moves no byte for 2 minutes (a stick that hangs)
+STICK_GRACE_S, STICK_MIN_RATE = 300, 1_000_000  # after 5 minutes, slower than 1 MB/s on average is stopped
+STICK_LIST_MAX, STICK_SCAN_MAX = 50, 20_000  # bundles listed; entries of the stick looked at
+NOTE_RECORD_MAX = 192 * 1024  # a kept note record above this is "too large" on the page (release_note caps the note)
 Runner = Callable[[Sequence[str], int | None], str]  # (argv, timeout seconds) -> combined output; raises OpsFailed
 
 
 class OpsFailed(RuntimeError):
     pass
+
+
+def bundle_name(name: object) -> bool:
+    """A bundle's file name, matched whole: no control character, no letter outside ASCII (10K-7, D-1363)."""
+    return isinstance(name, str) and BUNDLE.fullmatch(name) is not None
 
 
 def _now() -> str:
@@ -116,6 +132,8 @@ def _write_json(path: Path, data: Mapping[str, Any]) -> None:
 
 
 MAX_JSON = 64 * 1024  # a request, a result or the status is a few kilobytes
+
+
 MAX_JSON_DEPTH = 32  # nothing the runner writes nests deeper than a few levels
 
 
@@ -131,12 +149,12 @@ def _depth_ok(data: Any, limit: int = MAX_JSON_DEPTH) -> bool:
     return True
 
 
-def read_json_state(path: Path) -> tuple[dict[str, Any] | None, str]:
+def read_json_state(path: Path, limit: int = MAX_JSON) -> tuple[dict[str, Any] | None, str]:
     """A small JSON object from a regular file, and why not: ``(data, "")``, ``(None, "missing")`` or
     ``(None, "unreadable")``. The runner reads ``requests/`` as root and the console's user can write there, so a
-    link (to a file it may not read), a pipe or a folder (never waited on), a file over :data:`MAX_JSON` (at most
-    that much is read, never parsed when cut), text that is not UTF-8, JSON nested deeper than
-    :data:`MAX_JSON_DEPTH` or anything but an object is unreadable; nothing here raises."""
+    link (to a file it may not read), a pipe or a folder (never waited on), a file over ``limit`` (at most that much
+    is read, and a file that grew past it is never parsed cut), text that is not UTF-8, JSON nested deeper than
+    :data:`MAX_JSON_DEPTH` (no RecursionError) or anything but an object is unreadable; nothing here raises."""
     try:
         fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
     except FileNotFoundError:
@@ -145,11 +163,11 @@ def read_json_state(path: Path) -> tuple[dict[str, Any] | None, str]:
         return None, "unreadable"
     try:
         st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode) or st.st_size > MAX_JSON:
+        if not stat.S_ISREG(st.st_mode) or st.st_size > limit:
             return None, "unreadable"
         with os.fdopen(fd, "rb", closefd=False) as f:
-            raw = f.read(MAX_JSON + 1)
-        if len(raw) > MAX_JSON:  # it grew after the size was read: never parse a cut file
+            raw = f.read(limit + 1)
+        if len(raw) > limit:
             return None, "unreadable"
         data = json.loads(raw.decode("utf-8"))
     except (OSError, ValueError, RecursionError, MemoryError):
@@ -161,9 +179,9 @@ def read_json_state(path: Path) -> tuple[dict[str, Any] | None, str]:
     return data, ""
 
 
-def _read_json(path: Path) -> dict[str, Any] | None:
+def _read_json(path: Path, limit: int = MAX_JSON) -> dict[str, Any] | None:
     """:func:`read_json_state`'s object, or None when it is missing or unreadable."""
-    return read_json_state(path)[0]
+    return read_json_state(path, limit)[0]
 
 
 def _quiet_setting(env: Mapping[str, str]) -> tuple[Any, int, int, float] | str:
@@ -228,8 +246,32 @@ class OpsDir:
 
     @property
     def notes(self) -> Path:
-        """10K-7 (D-1363): the verified bundles' release notes and change-impact sheets (root's, the runner's)."""
+        """10K-7 (D-1363): the verified bundles' release notes and change-impact sheets (root's, the runner's). The
+        console reads them one by one (:meth:`note_record`); they are never copied into ``status.json``, which must
+        stay small enough to read (``MAX_JSON``)."""
         return self.root / "notes"
+
+    @property
+    def verified(self) -> Path:
+        """10K-7: one small record per verified bundle (its sha256 and the file's identity), root's."""
+        return self.root / "verified"
+
+    def note_record(self, name: str, sha256: str) -> tuple[str, dict[str, Any] | None]:
+        """The kept note of the bundle verified with ``sha256``: ``("ok", record)``, ``("none", None)`` (no record,
+        or one of another file), ``("too_large", None)`` or ``("unreadable", None)``."""
+        if not bundle_name(name) or not SHA256.fullmatch(sha256 or ""):
+            return "none", None
+        path = self.notes / f"{name}.json"
+        try:
+            size = path.lstat().st_size
+        except OSError:
+            return "none", None
+        if size > NOTE_RECORD_MAX:
+            return "too_large", None
+        rec = _read_json(path, NOTE_RECORD_MAX)
+        if rec is None:
+            return "unreadable", None
+        return ("ok", rec) if rec.get("sha256") == sha256 else ("none", None)
 
     def submit(self, action: str, by: str, args: Mapping[str, str] | None = None) -> str:
         if action not in ACTIONS:
@@ -284,8 +326,8 @@ class OpsDir:
         return _read_json(self.root / "status.json")
 
     def status_state(self) -> tuple[dict[str, Any] | None, str]:
-        """10K-7 review B: the status and why it is not there (``missing`` or ``unreadable``: :func:`read_json_state`),
-        so the console can say "status unreadable" instead of showing nothing or misreading a cut file."""
+        """The status and why it is not there (``missing`` or ``unreadable``: :func:`read_json_state`), so the
+        console says "status unreadable" instead of showing nothing or misreading a cut file (the second review, B)."""
         return read_json_state(self.root / "status.json")
 
     def write_result(
@@ -293,7 +335,8 @@ class OpsDir:
     ) -> None:
         """``state``: ``done``, ``failed``, ``interrupted`` (it started and was cut off), ``expired`` (it waited
         longer than :data:`MAX_AGE_MIN`, or a quiet update :data:`QUIET_WAIT_H`) or ``superseded`` (a quiet update
-        another update overtook, D-731); the last three never ran to the end and are not run again."""
+        another update overtook, D-731) or ``cancelled`` (a quiet update withdrawn on the console, 10K-7); the last four
+        never ran to the end and are not run again."""
         if not REQ_ID.match(str(req.get("id"))):
             raise OpsFailed(f"bad request id {str(req.get('id'))[:40]!r}")
         _write_json(
@@ -404,7 +447,7 @@ class OpsRunner:
         import hashlib
 
         p = self.box.incoming() / str(_args(req).get("bundle") or "")
-        if not BUNDLE.match(p.name) or not p.is_file():
+        if not bundle_name(p.name) or not p.is_file():
             return None
         h = hashlib.sha256()
         with p.open("rb") as fh:
@@ -460,7 +503,10 @@ class OpsRunner:
                 return []
             try:
                 done = []
-                for req in self.ops.pending():
+                # 10K-7: a cancel is taken before the update it withdraws, which then is not run
+                for req in sorted(self.ops.pending(), key=lambda r: r.get("action") != "update_cancel"):
+                    if self.ops.result(str(req.get("id"))) is not None:
+                        continue
                     res = self._one(req)
                     if res is None:
                         continue  # T-730b (D-731): it waits for the quiet hour; the status says why
@@ -493,6 +539,10 @@ class OpsRunner:
         seen = self._seen(req)
         if seen.get("sha256") != self._bundle_sha(req):
             msg = "refused: the staged bundle changed since the update was asked for; check it and ask again"
+            self.ops.write_result(req, False, msg, [], _now())
+            return self.ops.result(str(req.get("id")))
+        if "sha256" in args and seen.get("sha256") != args.get("sha256"):  # 10K-7: the file that was verified
+            msg = "refused: the staged bundle is not the file that was verified; verify it again and ask again"
             self.ops.write_result(req, False, msg, [], _now())
             return self.ops.result(str(req.get("id")))
         return self.run_one(req)
@@ -677,76 +727,181 @@ class OpsRunner:
     def _bundle(self, args: Mapping[str, str]) -> Path:
         name = str(args.get("bundle") or "")
         p = self.box.incoming() / name
-        if not BUNDLE.match(name) or not p.is_file():
+        if not bundle_name(name) or not p.is_file():
             raise OpsFailed(f"no staged bundle {name!r} in {self.box.incoming()}")
         return p
 
     def do_update_check(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
+        """``apply_update.sh --dry-run`` of a staged bundle; with ``from: stick`` copied from the stick first (10K-7).
+        The check is bound to the file's bytes (D-1363, review B3): its sha256 is taken before the verify (while it
+        is copied, for a copy) and the file's identity (size, time, inode) must not change until the note is read;
+        the verified record and the note carry that sha256, and an apply asked for it applies only that file."""
         source = args.get("from")
         if source not in (None, "", "stick"):
             raise OpsFailed(f"refused: from is {str(source)[:20]!r}; it is 'stick' or left out. Ask again")
-        copied, fresh = self._take_from_stick(str(args.get("bundle") or "")) if source == "stick" else ("", False)
+        name = str(args.get("bundle") or "")
+        if not bundle_name(name):
+            raise OpsFailed(f"refused: {name[:60]!r} is not a bundle's name (ASCII letters, digits, _ . - and .tar)")
+        copied, fresh, sha = self._take_from_stick(name) if source == "stick" else ("", False, None)
         p = self._bundle(args)
         try:
+            before = _file_id(p)
+            sha = sha or _sha_file(p)
             out = self.box.run(["sh", str(ROOT / "tools" / "apply_update.sh"), str(p), "--dry-run"], 1800)
+            from tools import release_note
+
+            got = release_note.read_from_bundle(p)
+            if _file_id(p) != before:
+                raise OpsFailed("refused: the bundle changed while it was verified; ask again")
         except Exception:
+            self._forget(name)  # a failed check leaves no record of an earlier pass of that name
             if fresh:  # a bundle this check copied from the stick and the verifier refused does not stay on the box
                 with contextlib.suppress(OSError):
                     p.unlink()
             raise
-        lines = ([copied] if copied else []) + out.strip().splitlines() + self._keep_note(p)
-        return f"{p.name}: signature and every file verified; nothing was changed", lines
+        self._keep(p, sha, before, got)
+        lines = ([copied] if copied else []) + out.strip().splitlines() + [f"sha256 {sha}"]
+        lines += [f"warning: {w}" for w in got["warnings"]]
+        return f"{p.name}: signature and every file verified (sha256 {sha[:12]}); nothing was changed", lines
 
-    def _take_from_stick(self, name: str) -> tuple[str, bool]:
-        """10K-7 (D-1363): the bundle ``name`` copied from the update stick into the incoming folder, where verify and
-        apply read it. Only a regular file of a bundle's name directly on the stick (never a link: the stick is
-        anyone's), copied under a temporary name and renamed when whole; a different file of that name already on
-        the box is refused, the same one is kept. The stick is only read. Returns the line to show and whether this
-        call made the copy."""
-        if not BUNDLE.match(name):
-            raise OpsFailed(f"refused: {name[:60]!r} is not a bundle's name (a .tar)")
-        src = self.box.stick() / name
+    def _open_stick(self, src: Path) -> tuple[Any, os.stat_result]:
+        """The stick's file, looked at before it is opened: a regular file only (never a link, a folder, a device or
+        a pipe), then opened without following a link and checked to be the same file."""
+        try:
+            st = os.lstat(src)
+        except OSError as exc:
+            raise OpsFailed(f"no bundle {src.name!r} on the update stick ({src.parent}): is it inserted?") from exc
+        if stat.S_ISDIR(st.st_mode):
+            raise OpsFailed(f"refused: {src.name!r} on the stick is a folder, not a bundle")
+        if not stat.S_ISREG(st.st_mode):
+            raise OpsFailed(f"refused: {src.name!r} on the stick is not a regular file (a link or a device)")
         try:
             fd = os.open(src, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
         except OSError as exc:
-            raise OpsFailed(f"no bundle {name!r} on the update stick ({self.box.stick()}): is it inserted?") from exc
+            raise OpsFailed(f"refused: {src.name!r} on the stick cannot be opened ({exc.strerror})") from exc
+        fh = os.fdopen(fd, "rb")
+        now = os.fstat(fh.fileno())
+        if (now.st_dev, now.st_ino) != (st.st_dev, st.st_ino) or not stat.S_ISREG(now.st_mode):
+            fh.close()
+            raise OpsFailed(f"refused: {src.name!r} on the stick changed while it was opened; ask again")
+        return fh, now
+
+    def disk_free(self, path: Path) -> int:
+        return shutil.disk_usage(path).free
+
+    def _take_from_stick(self, name: str) -> tuple[str, bool, str | None]:
+        """10K-7 (D-1363): the bundle ``name`` copied from the update stick into the incoming folder, where verify and
+        apply read it. Only a regular file of a bundle's name directly on the stick, copied under a temporary name
+        and renamed when whole; exactly the size seen at open is copied, and the copy stops (and is removed) when it
+        would leave less than :data:`STICK_MIN_FREE` free, moves no byte for :data:`STICK_STALL_S`, runs over
+        :data:`STICK_COPY_MAX_S` or is slower than :data:`STICK_MIN_RATE` after :data:`STICK_GRACE_S`. A different
+        file of that name already on the box is refused, the same one is kept. The stick is only read. Returns the
+        line to show, whether this call made the copy, and the copied bytes' sha256."""
+        fh, st = self._open_stick(self.box.stick() / name)
         inc = self.box.incoming()
-        with os.fdopen(fd, "rb") as fh:
-            st = os.fstat(fh.fileno())
-            if not stat.S_ISREG(st.st_mode):
-                raise OpsFailed(f"refused: {name!r} on the stick is not a regular file")
+        with fh:
             inc.mkdir(parents=True, exist_ok=True)
             dest, tmp = inc / name, inc / f".{name}.part"
             if dest.exists() or dest.is_symlink():
                 if dest.is_symlink() or not dest.is_file():
                     raise OpsFailed(f"refused: {dest} is not a regular file")
-                if dest.stat().st_size == st.st_size and _sha_file(dest) == _sha_stream(fh):
-                    return f"{name}: the same bundle is already on the box ({inc}); not copied again", False
+                if dest.stat().st_size == st.st_size:
+                    here = _sha_file(dest)
+                    if here == _sha_stream(fh):
+                        return f"{name}: the same bundle is already on the box ({inc}); not copied again", False, here
                 raise OpsFailed(f"refused: a different bundle named {name} is already on the box ({inc}); "
                                 "remove it there or rename the one on the stick, then ask again")  # fmt: skip
-            free = shutil.disk_usage(inc).free
-            if free < st.st_size * STICK_MARGIN:
-                raise OpsFailed(f"not copied: the bundle needs {st.st_size * STICK_MARGIN / 1e9:.2f} GB free in {inc}, "
-                                f"free {free / 1e9:.2f} GB")  # fmt: skip
+            free, need = self.disk_free(inc), int(st.st_size * STICK_MARGIN)
+            if free - need < STICK_MIN_FREE:
+                keep = STICK_MIN_FREE / 1e9
+                raise OpsFailed(f"not copied: the bundle needs {need / 1e9:.2f} GB in {inc} and {keep:.2f} GB must "
+                                f"stay free there (the databases, the audit), free {free / 1e9:.2f} GB")  # fmt: skip
             with contextlib.suppress(FileNotFoundError):
                 tmp.unlink()
-            with open(tmp, "xb") as out:
-                shutil.copyfileobj(fh, out, 1 << 20)
-                out.flush()
-                os.fsync(out.fileno())
-        tmp.replace(dest)
-        return f"{name}: copied from the update stick ({self.box.stick()}) into {inc}", True
+            try:
+                sha = self._copy(fh, tmp, st.st_size)
+                tmp.replace(dest)
+            except BaseException:
+                with contextlib.suppress(OSError):
+                    tmp.unlink()
+                raise
+        return f"{name}: copied from the update stick ({self.box.stick()}) into {inc}", True, sha
 
-    def _keep_note(self, p: Path) -> list[str]:
-        """10K-7 (D-1363): the verified bundle's Japanese release note and change-impact sheet, kept for the console
-        (``<ops>/notes/<bundle>.json``, with the file's size and time: a bundle replaced since shows no note)."""
-        from tools import release_note
+    def _copy(self, fh: Any, tmp: Path, size: int) -> str:
+        """``size`` bytes of ``fh`` into ``tmp`` (created new), their sha256. The reads run in a thread the runner
+        watches: a stick that hangs inside a read cannot hold the runner (and its lock, so every backup) for ever."""
+        import hashlib
+        import threading
 
-        got = release_note.read_from_bundle(p)
-        st = p.stat()
-        _write_json(self.ops.notes / f"{p.name}.json", {"bundle": p.name, "bytes": st.st_size, "mtime": st.st_mtime,
-                                                         "verified_at": _now(), **got})  # fmt: skip
-        return [f"warning: {w}" for w in got["warnings"]]
+        state: dict[str, Any] = {"done": 0, "err": None, "sha": None}
+        stop = threading.Event()
+
+        def work() -> None:
+            h = hashlib.sha256()
+            try:
+                with open(tmp, "xb") as out:
+                    while state["done"] < size and not stop.is_set():
+                        block = fh.read(min(1 << 20, size - state["done"]))
+                        if not block:
+                            raise OpsFailed("not copied: the file on the stick ended before its size (removed?)")
+                        out.write(block)
+                        h.update(block)
+                        state["done"] += len(block)
+                    if not stop.is_set():
+                        out.flush()
+                        os.fsync(out.fileno())
+                        state["sha"] = h.hexdigest()
+            except BaseException as exc:  # handed to the runner's thread
+                state["err"] = exc
+
+        t = threading.Thread(target=work, name="stick-copy", daemon=True)
+        start = moved_at = time.monotonic()
+        seen = 0
+        t.start()
+        while t.is_alive():
+            t.join(0.2)
+            now = time.monotonic()
+            if state["done"] != seen:
+                seen, moved_at = state["done"], now
+            why = ""
+            if now - moved_at > self.stall_s:
+                why = f"the stick gave no byte for {self.stall_s:.0f} s"
+            elif now - start > self.copy_max_s:
+                why = f"the copy took over {self.copy_max_s / 60:.0f} minutes"
+            elif now - start > self.grace_s and state["done"] / (now - start) < self.min_rate:
+                why = f"the stick reads slower than {self.min_rate / 1e6:.1f} MB/s"
+            if why and t.is_alive():
+                stop.set()
+                raise OpsFailed(f"not copied: {why} ({state['done']} of {size} bytes); try another stick or port")
+        if state["err"] is not None:
+            raise state["err"]
+        if state["sha"] is None:
+            raise OpsFailed("not copied: the copy stopped")
+        return str(state["sha"])
+
+    stall_s: float = STICK_STALL_S
+    copy_max_s: float = STICK_COPY_MAX_S
+    grace_s: float = STICK_GRACE_S
+    min_rate: float = STICK_MIN_RATE
+
+    def _keep(self, p: Path, sha: str, ident: tuple[int, int, int, int], got: Mapping[str, Any]) -> None:
+        """10K-7 (D-1363): the verified record (``verified/<bundle>.json``: the sha256 and the file's identity) and
+        the bundle's note and sheet (``notes/<bundle>.json``, with the same sha256), for the console."""
+        size, mtime_ns, ino, dev = ident
+        rec = {"bundle": p.name, "sha256": sha, "bytes": size, "mtime_ns": mtime_ns, "ino": ino, "dev": dev,
+               "verified_at": _now(), "bundle_id": str(got.get("bundle_id") or "")[:120],
+               "release_seq": got.get("release_seq") if isinstance(got.get("release_seq"), int) else None,
+               "note": got.get("note_ja") is not None and got.get("impact") is not None,
+               "warnings": [str(w)[:200] for w in (got.get("warnings") or [])][:5]}  # fmt: skip
+        _write_json(self.ops.notes / f"{p.name}.json", {**rec, "note_ja": got.get("note_ja"),
+                                                         "impact": got.get("impact")})  # fmt: skip
+        _write_json(self.ops.verified / f"{p.name}.json", rec)
+
+    def _forget(self, name: str) -> None:
+        if bundle_name(name):
+            for d in (self.ops.verified, self.ops.notes):
+                with contextlib.suppress(OSError):
+                    (d / f"{name}.json").unlink()
 
     def apply_limit(self) -> int | None:
         """T-695 (D-752, F-09): the update's limit from the databases' size (``ComposeBox.apply_limit_s``); a local
@@ -757,8 +912,25 @@ class OpsRunner:
 
     def do_update_apply(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
         p = self._bundle(args)
+        want = args.get("sha256")
+        if want is not None and (not SHA256.fullmatch(str(want)) or _sha_file(p) != want):
+            # 10K-7 (D-1363): an apply asked for a verified file applies that file only (apply_update.sh verifies
+            # it again in any case)
+            raise OpsFailed("refused: the staged bundle is not the file that was verified; verify it again, ask again")
         out = self.box.run(["sh", str(ROOT / "tools" / "apply_update.sh"), str(p)], self.apply_limit())
         return f"{p.name}: applied", out.strip().splitlines()
+
+    def do_update_cancel(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
+        """10K-7 (D-1363): withdraw an update that waits for the quiet hour (never one that has started)."""
+        rid = str(args.get("target") or "")
+        target = next((r for r in self.ops.pending() if r.get("id") == rid), None) if REQ_ID.fullmatch(rid) else None
+        if target is None or target.get("action") != "update_apply" or _args(target).get("when") != "quiet":
+            raise OpsFailed(f"nothing to cancel: {rid[:40]!r} is not an update waiting for the quiet hour")
+        if self.ops.marker(rid).is_file():
+            raise OpsFailed("not cancelled: this update has started; it runs to its end or rolls back by itself")
+        msg = "cancelled on the console before it ran; nothing was changed. Ask again if it is still wanted"
+        self.ops.write_result(target, False, msg, [], _now(), state="cancelled")
+        return f"update {rid} ({_args(target).get('bundle')}) cancelled before it ran", []
 
     def do_logs_collect(self, args: Mapping[str, str]) -> tuple[str, list[str]]:
         from tools.trialbox import logs as tb_logs
@@ -790,7 +962,7 @@ class OpsRunner:
     # -------------------------------------------------------------------------------------------- status
     def write_status(self) -> dict[str, Any]:
         st = snapshot(self.box)
-        st["notes"] = self._notes(st.get("incoming") or [])  # 10K-7 (D-1363)
+        st["verified"] = self._verified(st.get("incoming") or [])  # 10K-7 (D-1363): small; the notes are apart
         st["quiet"] = quiet_facts(self.box.env)
         st["waiting"] = [  # T-730b (D-731): the updates that wait for the quiet hour, and why
             {"id": r.get("id"), "action": r.get("action"), "by": r.get("by", ""), "at": r.get("at"),
@@ -798,41 +970,26 @@ class OpsRunner:
             for r in self.ops.pending()
             if _args(r).get("when") == "quiet" and r.get("action") == "update_apply"
         ]  # fmt: skip
-        _bound_status(st)
         _write_json(self.ops.root / "status.json", st)
         return st
 
-    def _notes(self, incoming: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-        """The kept notes of the bundles in the incoming folder now, each only while the file is the one verified."""
+    def _verified(self, incoming: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+        """The bundles in the incoming folder whose last check passed, each only while the file is the one verified
+        (size, time to the nanosecond, inode): its sha256, when, the bundle id and whether a note came with it."""
         out: dict[str, Any] = {}
-        for b in incoming:
+        for b in list(incoming)[:STICK_LIST_MAX]:
             name = str(b.get("name") or "")
-            rec = _read_json(self.ops.notes / f"{name}.json") if BUNDLE.match(name) else None
+            rec = _read_json(self.ops.verified / f"{name}.json") if bundle_name(name) else None
             with contextlib.suppress(OSError):
-                now = (self.box.incoming() / name).stat()
-                if rec and rec.get("bytes") == now.st_size and rec.get("mtime") == now.st_mtime:
-                    out[name] = {k: rec.get(k) for k in ("bundle_id", "release_seq", "note_ja", "impact", "warnings",
-                                                          "verified_at")}  # fmt: skip
+                if (
+                    rec
+                    and SHA256.fullmatch(str(rec.get("sha256")))
+                    and _file_id(self.box.incoming() / name)
+                    == (rec.get("bytes"), rec.get("mtime_ns"), rec.get("ino"), rec.get("dev"))
+                ):
+                    out[name] = {k: rec.get(k) for k in ("sha256", "verified_at", "bundle_id", "release_seq", "note",
+                                                          "warnings")}  # fmt: skip
         return out
-
-
-def _status_bytes(st: Mapping[str, Any]) -> int:
-    return len(json.dumps(st, indent=1, ensure_ascii=False, sort_keys=True).encode("utf-8"))
-
-
-def _bound_status(st: dict[str, Any]) -> None:
-    """10K-7 review B: the status stays readable (at most :data:`MAX_JSON` with room to spare). The release notes are
-    its only large part: their Japanese text goes first (``note_trimmed``; the verify result still shows the sheet),
-    then the notes altogether (``notes_trimmed``)."""
-    room = MAX_JSON - 4096
-    notes = st.get("notes") or {}
-    if _status_bytes(st) <= room or not notes:
-        return
-    for rec in notes.values():
-        if isinstance(rec, dict) and rec.get("note_ja"):
-            rec["note_ja"], rec["note_trimmed"] = None, True
-    if _status_bytes(st) > room:
-        st["notes"], st["notes_trimmed"] = {}, True
 
 
 def _sha_stream(fh: Any) -> str:
@@ -850,6 +1007,11 @@ def _sha_stream(fh: Any) -> str:
 def _sha_file(p: Path) -> str:
     with p.open("rb") as fh:
         return _sha_stream(fh)
+
+
+def _file_id(p: Path) -> tuple[int, int, int, int]:
+    st = os.stat(p)
+    return st.st_size, st.st_mtime_ns, st.st_ino, st.st_dev
 
 
 def quiet_facts(env: Mapping[str, str]) -> dict[str, Any]:
@@ -870,22 +1032,34 @@ def _regular(p: Path) -> bool:
 
 
 def stick_listing(box: Box) -> dict[str, Any]:
-    """10K-7 (D-1363): the bundles directly on the update stick (regular files whose name passes :data:`BUNDLE`; a
-    link, a folder or any other name is not listed, so no name with a newline or a control character reaches the
-    page, a log or a command), and whether the vendor's ``.sha256`` sidecar is beside each (itself a regular file).
-    No file on the stick is opened here."""
+    """10K-7 (D-1363): the bundles directly on the update stick: regular files of a bundle's name (never a link or a
+    folder), the first :data:`STICK_LIST_MAX` by name, found among any number of other files (up to
+    :data:`STICK_SCAN_MAX` entries looked at); ``cut`` when the list is not all of them, ``refused`` the ``.tar``
+    files whose names are not a bundle's (non-ASCII, a control character). No file on the stick is opened here."""
     root = box.stick()
-    out: dict[str, Any] = {"path": str(root), "mounted": root.is_dir(), "bundles": []}
+    out: dict[str, Any] = {"path": str(root), "mounted": root.is_dir(), "bundles": [], "cut": False, "refused": 0}
     if not out["mounted"]:
         return out
-    with contextlib.suppress(OSError):  # the names checked first, so other files cannot push a bundle off the list
-        for p in sorted(q for q in root.iterdir() if BUNDLE.match(q.name))[:50]:
+    found: list[tuple[str, os.stat_result]] = []
+    with contextlib.suppress(OSError), os.scandir(root) as it:
+        for i, e in enumerate(it):
+            if i >= STICK_SCAN_MAX:
+                out["cut"] = True
+                break
             with contextlib.suppress(OSError):
-                st = p.lstat()
-                if BUNDLE.match(p.name) and stat.S_ISREG(st.st_mode):
-                    out["bundles"].append({"name": p.name, "bytes": st.st_size,
-                                           "at": datetime.fromtimestamp(st.st_mtime, UTC).isoformat(timespec="seconds"),
-                                           "sidecar": _regular(root / f"{p.name}.sha256")})  # fmt: skip
+                if bundle_name(e.name):
+                    st = e.stat(follow_symlinks=False)
+                    if stat.S_ISREG(st.st_mode):
+                        found.append((e.name, st))
+                elif e.name.lower().rstrip().endswith(".tar"):
+                    out["refused"] += 1
+    found.sort()
+    if len(found) > STICK_LIST_MAX:
+        out["cut"] = True
+    for name, st in found[:STICK_LIST_MAX]:
+        at = datetime.fromtimestamp(st.st_mtime, UTC).isoformat(timespec="seconds")
+        out["bundles"].append({"name": name, "bytes": st.st_size, "at": at,
+                               "sidecar": _regular(root / f"{name}.sha256")})  # fmt: skip
     return out
 
 
@@ -968,7 +1142,7 @@ def snapshot(box: Box) -> dict[str, Any]:
     inc = box.incoming()
     if inc.is_dir():
         for p in sorted(inc.glob("*.tar")):
-            if BUNDLE.match(p.name):
+            if bundle_name(p.name):
                 incoming.append({"name": p.name, "bytes": p.stat().st_size, "at": _mtime(p)})
     targets = []
     newest = ""
@@ -1057,6 +1231,7 @@ def prepare(ops: OpsDir, uid: int | None = SERVICE_UID) -> None:
         ("network", 0o755),
         ("seen", 0o755),
         ("notes", 0o755),
+        ("verified", 0o755),
     ):
         d = ops.root / sub
         d.mkdir(parents=True, exist_ok=True)
