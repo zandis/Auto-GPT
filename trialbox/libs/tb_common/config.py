@@ -668,6 +668,9 @@ DECLARED: dict[str, Declared] = {
     "TB_GATEWAY_VERIFIER_URL": Declared("str", "", "the gateway URL of the verifier"),
     "TB_GATEWAY_WATCH_S": Declared("float", "5", "gateway: how often the stall watch looks"),
     "TB_GPU_KEY": Declared("str", "", "GPU profile tool: GPU key"),
+    "TB_UNMEASURED_DGPU48_MEASURING_RUN": Declared(
+        "bool", "", "tools/dgpu48.py measure: 1 lets the measuring run start the UNMEASURED 48 GB draft (card 24-5)"
+    ),
     "TB_GPU_PROFILE": Declared("str", "", "platform: GPU profile"),
     "TB_GUARD_ADMIN": Declared("bool", "", "model guard: allow admin routes"),
     "TB_GUARD_ROUTES": Declared("str", "", "model guard: host=upstream:port routes, comma-separated (D-177)"),
@@ -779,6 +782,9 @@ DECLARED: dict[str, Declared] = {
         "int", "", "heavy jobs a sender may start a day, overriding settings.yaml; 0: no limit (D-146, D-775)"
     ),
     "TB_LOG_DIR": Declared("path", "deploy/logs", "host folder of collected logs"),
+    # D-927: the masker reads about 1 µs a character in the log scrubber (a 50 kB traceback, 56 ms) under the
+    # handler's lock; a longer line keeps its first and last halves, the middle never written
+    "TB_LOG_SCRUB_MAX_CHARS": Declared("int", "65536", "log lines longer than this are cut before scrubbing"),
     "TB_LOG_MAX_FILE": Declared("int", "10", "container log files kept per service (provisional, D-389)"),
     "TB_LOG_MAX_SIZE": Declared("str", "100m", "size of one container log file (provisional, D-389)"),
     "TB_MAIL_AUTHSERV_ID": Declared("str", "", "authserv-id trusted in mail auth results (unset: none, D-369)"),
