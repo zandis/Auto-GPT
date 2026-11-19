@@ -147,23 +147,53 @@ the supersession core held, and 75 runs were dangerous in these classes, each no
 Kept stricter, as lane J ruled: ties, a newest flag 2 over an older flag 1, an empty PRB-1, PRB-13 holding only a
 table name, a one-character 修飾語区分, a repeated identical ZPR, a locally coded diagnosis with a ZPR.
 
+### D. The second tester's round (lane J, at `5ae5593f`)
+
+- **The delta window (class A).** Every row of every type the reader reads carries the newest 発生日時 of the files that
+  decide its record: its versions (flag 2 and deleted ones included), for an order number filed on several days all
+  of them, and for ADT-52 and OMP-11/12 the record they change. A newer version written after the window opened is
+  sent whatever its clinical dates (ORC-9, the sample time, the visit time), and a re-keyed record (two lines to
+  one; a number on a second day) is sent on the night its old key is tombstoned. Before this, a cancelled order or a
+  corrected lab result written on a delta night was not sent (also on master `8bfebd70`). The proof is
+  `tests/unit/test_ssmix2_10b2b_delta.py`: night 2 as a delta gives the lake night 2 in full gives, for orders, labs,
+  a snapshot and a discharge (`pipeline.check_delta` keeps exempting SS-MIX2: these tests are why).
+- **Fields (class B).** PRB is read in fields 1 to 4, 7, 9, 10 and 13 to 18, and 25 (S 表3-47; the specification's own
+  example fills 25, the confidentiality code); any other field holding data (11, 12, 19 certainty, 20 probability,
+  21 to 24, 5, 6, 8), or a component beyond those read (PRB-3 component 7 and on, such as its original text;
+  PRB-17 component 2; PRB-14 component 4 and on), makes the diagnosis unknown. ZPR-8 and on, and an ORC after a PRB
+  whose ORC-1 is not NW (the specification's example) or that fills a field the reader does not read, the same. A
+  second MSH before the first PRB makes the snapshot unknown; a PPR-01 file whose MSH-9 is not PPR^ZD1 is set aside.
+  The order segments (ORC, RXE, TQ1 of OMP-01/02) are not given such a list in this card: their status comes only
+  from ORC-1 and ORC-5 by allow-lists (#1095), and their other fields describe the drug, the dose and the timing.
+- **Class C.** A ZPR whose disease is not its PRB's makes that diagnosis unknown and also any diagnosis of the
+  message it names.
+- **Class D.** 修飾語区分 must be eight digits (M (2)⑦), else the class is not read. One 病名管理番号 on two different
+  rows of the disease table is read for neither; the loader reads neither row of a MEDIS code given twice with
+  different content (an identical repeat keeps the row, as before). Under the master rule, an ICD-10 in PRB-10 (or
+  PRB-3's ICD-10 triple) that is not the master's for the disease makes it unknown.
+- **Class E.** Tombstones of an older snapshot are compared by patient. Files of a type the reader does not read
+  (OML-01, OMG-01, ...) are counted by type.
+- **Class F.** Without the master, PRB-3's 病名交換用コード and ZPR-2's 病名管理番号 are linked only by ZPR-5 (the
+  exchange code); without that link the reason is "ZPR-2 and PRB-3 cannot be compared without the master".
+
 ## Measurement (named inputs: `tests/ssmix2_probes.py`)
 
-Three sets, each labelled before the reading it measures: 232 supersession cases (328 ids), 292 modifier cases (146
-diagnoses without and with a synthetic master, the mixed site included) and "independent set 1" (102 cases, 118 ids,
-written from lane J's description of the tester's classes). Wrong / dangerous (an id read confirmed and active where
-it is not), on #1095's head `5a4ee5f9`, on `2bc79278` (before section C) and on this card's head:
+Four sets, each labelled before the reading it measures: 232 supersession cases (328 ids), 300 modifier cases (150
+diagnoses without and with a synthetic master, the mixed site included), "independent set 1" (102 cases, 118 ids)
+and "independent set 2" (45 cases, 51 ids, the correct-site shapes included), the last two written from lane J's
+descriptions of the testers' classes. Wrong / dangerous (an id read confirmed and active where it is not):
 
-| Set | #1095 head | 2bc79278 | this head |
+| Set | #1095 head `5a4ee5f9` | `5ae5593f` | this head |
 | --- | --- | --- | --- |
 | Supersession | 106 / 57 | 0 / 0 | 0 / 0 |
-| Modifiers | 130 / 95 | 53 / 53 | 43 / 43 |
-| Independent set 1 | 69 / 64 | 79 / 77 | 0 / 0 |
+| Modifiers | 130 / 95 | 47 / 47 | 43 / 43 |
+| Independent set 1 | 69 / 64 | 0 / 0 | 0 / 0 |
+| Independent set 2 | 28 / 22 | 27 / 26 | 0 / 0 |
 
 The 43 left are all the stated limit (doubt only in the display text of a diagnosis read without the master: none
-loaded, or coded only locally); outside it 0 and 0. Moved toward confirmed against #1095's head: without the master,
-10 (ZPR naming only PRB-3's own disease) and 2 (a snapshot superseding an older per-diagnosis file); with the master,
-29, each by the master's own tables. `make e2e-simple` with all four licensed samples loaded (both MEDIS tables): the
+loaded, or coded only locally); outside it 0 and 0. Against `5ae5593f` the reading moved toward unknown only in the
+second tester's classes and for the two malformed 修飾語区分 rows, and toward confirmed once (class F's link). The
+correct-site shapes read confirmed with the master. `make e2e-simple` with all four licensed samples loaded: the
 GOUT-COH funnel from SS-MIX2 equals its CSV export.
 
 ## How to revert
@@ -176,8 +206,11 @@ Part A: `resolve`, `_record_rows`, `_snapshots`, `_across_days` and `_uncertain_
 
 - Verifying `jp_core/prb14_outcome.csv` against C 表34 (HL7 0241) and 表96 (JHSD0006): it turns unknown outcomes into
   recognised ones and needs its own measurement (a follow-up card).
-- The other message types (ADT, OML-11) keep #1095's reading of a newest flag 2 (set aside) and of an unreadable
-  newest file (skipped); a cross-day number of OML-11 is counted only.
+- The other message types (ADT-00, 12, 22, 52, OMP-11/12, OML-11) keep #1095's reading of a newest flag 2 (set
+  aside) and of an unreadable newest file (skipped); a cross-day number of OML-11 is counted only; two OML-11 files
+  with one 発生日時 are read by file name order (not read as unknown). Their rows pass the delta window by the rule
+  of section D.
+- Field allow-lists for the order segments (ORC, RXE, TQ1); the MSH-9 check covers PPR-01 only.
 - The modifiers are kept as text in `modifiers`; FHIR `bodySite` and laterality are not written.
 - The lake's resource ids are made of the key column alone (`rx_no`, `diag_no`); SS-MIX2 numbers are unique only
   with the patient (reported to lane J, outside this card).

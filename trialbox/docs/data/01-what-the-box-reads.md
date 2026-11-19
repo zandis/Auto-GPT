@@ -84,6 +84,11 @@ pins any of it as right:
   `MDCDX2` code; one coded only locally keeps the limit even then. No word list is kept.
 - The modifier classes 4 経過表現 and 5 状態表現 read as unknown even where a modifier leaves the diagnosis current:
   the master's documentation defines no finer class than the second character of 修飾語区分.
+- **Delta nights:** every row carries the newest 発生日時 of the files that decide its record (flag 2 and deleted
+  versions included), so a newer version is sent on the night it is written whatever its clinical dates (D-1252).
+- **Fields:** a diagnosis is confirmed only when its PRB, ZPR and any ORC hold data only in the fields the reader
+  reads (PRB 1-4, 7, 9, 10, 13-18, 25; ZPR 1-7; ORC-1 NW); the order segments of OMP have no such list (their status
+  comes from ORC-1 and ORC-5).
 - **Scope:** the unknown reading of a record with no version in force (D-1252 P3 to P6) applies to PPR-01, OMP-01
   and OMP-02 only. The other types read keep #1095's reading: ADT-00, ADT-12, ADT-22 and ADT-52 (a newest file of
   flag 2 is set aside; a newest file that cannot be read is skipped, so a visit stored on an earlier night stays as
