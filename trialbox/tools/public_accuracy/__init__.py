@@ -16,6 +16,8 @@ turns the public sets the catalogues mark usable by a product vendor into what a
 * :mod:`.score`    the box's per-patient answers against the gold: eligible lost, excluded caught, wrong exclusions,
   unanswered, per language and stratum, with exact (Clopper-Pearson) intervals; the compile agreement of the same
   trial in zh-Hant and English.
+* :mod:`.weights`  a set whose gold rows are a sample of a larger frame (``sampling`` in ``ids.json``, card 10G-37):
+  each rate weighted to the frame by stratum, with a conservative interval that holds when a rare stratum is not drawn.
 * :mod:`.box`      the plumbing proof on the stand-in models: an in-process box, the hospital CSV ingest, the
   compiler and SCREEN through a PRODUCTION gateway, behind model-guard, to the strict vLLM stand-ins. Never an
   accuracy result: the stand-ins answer from ``services/llm_stub``.

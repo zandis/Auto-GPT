@@ -69,8 +69,8 @@ The profile keeps the *codes and habits*.
 | Note section labels (【既往歴】, SOAP, ＃n) | One heading pattern in `services/matching/excerpts.py` | Unchanged | 10C-23 (`sections.yaml`) |
 | DPC codes and payloads | Not read | Unchanged | 10B-12 |
 | Older-records boundary per source | Not modelled | Unchanged | 10C-22 |
-| National calendar, words, legal pack | Spread across the code | Unchanged | 10C-25 (the Japan profile, the layer above this one) |
-| Non-working days of the site | Not modelled anywhere | Unchanged | 10C-25 (national calendar), with site days as an override after it |
+| National calendar, words, legal pack | Spread across the code | The country layer above this profile (`libs/tb_common/japan_profile.json`, `tb_common.country_layer`, D-1250): the holiday list and the New Year break (P9) read from it; words and the legal pack declared there, not built | **Moved** by 10C-25 (calendar); the cards of P1 and P5 build the rest |
+| Non-working days of the site | Not modelled anywhere | Unchanged: the site's own days stay `TB_DAYS_OFF` and `TB_DAYS_OPEN` (D-1230), which win over the country layer's | A site key after 10C-25, if a site asks |
 | Unit spellings and default units per analyte | The mapping's `unit_spellings` (D-590) and `unit_defaults` (D-149) | Unchanged | No card names it; proposed with 10B-16 (the second synthetic profile) |
 | Department codes → names | `settings.departments` | Unchanged | 10B-19 |
 | Site set-up's suggestions | Read the image's `jp_core` and `tw_core` samples | Unchanged, but a suggestion from a `verify` row says so (below) | 10B-19 (read the site's profile instead) |
@@ -245,7 +245,7 @@ mapper's `verify` rule if its codes reach the lake):
 | --- | --- | --- |
 | 10B-4 | `codes/usage.csv` (用法 → doses per day), the hospital drug master | `ssmix2.usage` and `ssmix2.drug_master` in the schema's list, passed by `adapter.pipeline.make_source` (the reader already takes `drug_master`) |
 | 10B-12 | DPC readers | A `door` value and its tables with their own `used_by`; `data_types` and the coverage lines need nothing new |
-| 10C-25 | The Japan layer (C-7) | `country` names the layer and is checked against the settings. A country profile sits above; the site profile overrides only listed keys |
+| 10C-25 | The Japan layer (C-7), **done** (D-1250) | `country` names the layer and is checked against the settings. The layer is `tb_common.country_layer` (parts P1 to P16); its version and digest are written in the profile's record at each load (the audit event is unchanged). A setting the site made wins over the layer |
 
 **Without a seam yet** (each needs a manifest key, a schema version 1.1.0, and code that reads it):
 

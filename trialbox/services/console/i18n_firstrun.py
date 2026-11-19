@@ -288,7 +288,7 @@ ZH: dict[str, str] = {
     "firstrun.year_basis.calendar": "曆年（1月1日至12月31日）",
     "firstrun.year_basis.fiscal": "會計年度（4月1日至隔年3月31日）",
     "firstrun.owner": "您，這台機器的負責人",
-    "firstrun.owner.help": "您保管這台機器上的資料（資料管理人），也負責維護這台機器（管理者）。TrialBox 會為您建立兩個帳號，共用同一組密碼與同一個驗證器：{steward} 用於資料相關作業，{admin} 用於維護機器。",
+    "firstrun.owner.help": "您保管這台機器上的資料（資料管理員），也負責維護這台機器（管理者）。TrialBox 會為您建立兩個帳號，共用同一組密碼與同一個驗證器：{steward} 用於資料相關作業，{admin} 用於維護機器。",
     "firstrun.owner_full_name": "您的姓名",
     "firstrun.owner_username": "使用者名稱",
     "firstrun.owner_email": "您的電子郵件地址",

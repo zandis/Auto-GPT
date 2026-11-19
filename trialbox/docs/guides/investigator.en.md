@@ -1,4 +1,4 @@
-# TrialBox guide for the investigator (PI / sub-I)
+# TrialBox guide for the investigator (PI / sub-investigator)
 
 Made from the help TrialBox shows on each page, so it says what the screens say. Print it for training; Help shows the latest one.
 

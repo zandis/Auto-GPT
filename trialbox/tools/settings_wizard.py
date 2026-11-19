@@ -828,9 +828,10 @@ def watcher_problem(
 
 
 def new_year_default(country: str) -> str:
-    """The country's New Year break as the question shows it (``12-29/01-03`` for Japan); "" for none."""
-    nb = workdays.NEW_YEAR_BREAK.get((country or "").upper())
-    return f"{nb[0][0]:02d}-{nb[0][1]:02d}/{nb[1][0]:02d}-{nb[1][1]:02d}" if nb else ""
+    """The country's New Year break as the question shows it (``12-29/01-03`` for Japan: its country layer's, D-1250);
+    "" for none."""
+    nb = workdays.country_break((country or "").upper())
+    return workdays.break_text(nb) if nb else ""
 
 
 def new_year_env(country: str, answer: Any, errors: list[str]) -> dict[str, str]:

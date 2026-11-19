@@ -20,6 +20,22 @@ new heading with the version and date, in the same pull request that sets the ve
   `deploy/.env` value with a line break, a control character or a byte that is not UTF-8 in it, so a name can never
   add or change a setting; O'Brien and full-width brackets are names. An unknown `--environment` stops the installer
   before it loads or writes anything.
+- The one page for hospital IT (10K-18, D-1378) is made from the box's own preflight list, one page per delivered
+  form, in en, ja and zh-TW: for a box its supplier prepared it asks IT for six things (name and certificate, clock,
+  mail relay, backup share, audit share, data feed) with the words the box shows on a red line, and names the three
+  the supplier prepared; for a box IT installs (`it-one-page.it-form.<lang>.md`) it asks for all nine. It no longer
+  says "only three things".
+- One spelling for each core word (9k-16, D-1371): the console says 候補者 / 候選者 for a candidate everywhere, and in
+  Japanese 治験依頼者 (not スポンサー), データ管理責任者 (not データスチュワード) and 治験分担医師・治験協力者リスト
+  (not 責任分担表); in Chinese 授權紀錄表, 試驗委託者 and 病人代碼; in English "sub-investigator". The words are a
+  data file (`services/console/core_words.yaml`) that `make lint` holds every console text to, and the job mails,
+  the PDF titles and the refusal sentences too (the Japanese feasibility mail and report say 実施可能性, not
+  フィージビリティ; the zh-TW steward is 資料管理員). No setting changes; no row has yet been read by a native reader.
+- The console and the device (9f-11, 9f-6, 9g-19; D-1370): one minute before the idle lock a page warns, with
+  "Stay signed in" (the idle and the absolute limits are unchanged; what was typed stays on the page); a hospital
+  sign-in refused because the person's directory groups give two roles names the two groups for the hospital's IT;
+  the console's policy now forbids service workers by name (`worker-src 'none'`), written down with the rest of the
+  rule that nothing of a clinical page is kept on a device.
 - The console's colours and type are named values (9k-1, 9k-2, D-1368): form fields have a darker border that meets
   the 3:1 contrast for controls, the amber "needs attention" row is readable in dark mode (and a little paler in
   light mode), and Japanese and Traditional Chinese pages have a taller line height (1.7) with strict line breaking.

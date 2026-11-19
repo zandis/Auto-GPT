@@ -46,6 +46,12 @@ DEPLOY = ROOT / "deploy"
 PAIR_PROFILES = ("rtxpro6000", "gb10", "rtx5090")  # judge and verifier (D-124)
 WORKSTATION_PROFILES = ("rtxpro6000", "rtx5090", "rtx4090", "default")
 REFUSED_PROFILES = ("shared-quota", "b200-no-mig")  # install.sh refuses them: a platform, not a box (D-211, D-409)
+# card 10E-5 (D-1335): a DGX Spark under 96 GiB (gb10-64) is planned as a stub box, as install.sh refuses its GPU mode
+SMALL_SPARK = (
+    "this DGX Spark has under 96 GiB of memory (the 64 GB class): TrialBox does not serve the model pair on it (the "
+    "gb10 profile is sized for 128 GB and no 64 GB profile is measured), so the box is planned without a model: "
+    "structured criteria only"
+)
 # where the box keeps its backups and its first-run answers; the folders are the box's own, never the owner's choice
 SECOND_DISK_MOUNT = "/srv/trialbox-backup"
 SHARE_MOUNT = "/mnt/trialbox-share"
@@ -79,6 +85,7 @@ class Hardware:
     lan: str = ""  # the box's network, CIDR; with IPv6 two, space-separated (192.0.2.0/24 2001:db8::/64), D-629
     hostname: str = "trialbox"
     host_tz: str = ""
+    mem_total_kib: int = 0  # /proc/meminfo's MemTotal as read (ram_gib is rounded); 0: unknown (card 10E-5)
 
     @classmethod
     def from_json(cls, d: dict[str, Any]) -> Hardware:
@@ -111,12 +118,16 @@ class PlanError(ValueError):
 
 
 # ------------------------------------------------------------------------------------------------ hardware
-def gpu_profile(arch: str, gpu_name: str, mig: str = "", deploy: Path = DEPLOY) -> str:
-    """deploy/gpu_profile.sh's answer for this machine: one rule, shared with install.sh."""
+def gpu_profile(arch: str, gpu_name: str, mig: str = "", deploy: Path = DEPLOY, mem_kib: int = 0) -> str:
+    """deploy/gpu_profile.sh's answer for this machine: one rule, shared with install.sh. ``mem_kib`` is MemTotal in
+    kB (0: unknown); a GB10 under 96 GiB is ``gb10-64`` (card 10E-5, D-1335)."""
     if not gpu_name:
         return "none"
     out = subprocess.run(
-        ["sh", str(deploy / "gpu_profile.sh"), arch, gpu_name, mig], capture_output=True, text=True, check=True
+        ["sh", str(deploy / "gpu_profile.sh"), arch, gpu_name, mig, str(mem_kib) if mem_kib > 0 else ""],
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return out.stdout.strip()
 
@@ -176,6 +187,7 @@ def detect(deploy: Path = DEPLOY, host_root: Path = Path("/")) -> Hardware:  # p
         ),
         hostname=socket.gethostname().split(".")[0].lower() or "trialbox",
         host_tz=tz,
+        mem_total_kib=int(kib.group(1)) if kib else 0,
     )
 
 
@@ -469,14 +481,18 @@ def hardening_conf(hw: Hardware, *, mdns: bool = False) -> str:
 def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
     """Everything the installer needs, from the owner's answers and this machine (pure but for reading the compose
     files and running deploy/gpu_profile.sh)."""
-    profile = gpu_profile(hw.arch, hw.gpu_name, hw.mig, deploy)
+    # the memory as read, never the rounded ram_gib: 96.0 GiB shown can be a KiB under the line (card 10E-5)
+    mem_kib = hw.mem_total_kib or int(hw.ram_gib * 1024**2)
+    profile = gpu_profile(hw.arch, hw.gpu_name, hw.mig, deploy, mem_kib)
     if profile in REFUSED_PROFILES:
         raise PlanError(
             f"this GPU ({hw.gpu_name}) serves TrialBox only on a shared platform (RUNBOOK §17), not as a box"
         )
     mode = "gpu" if profile in (*PAIR_PROFILES, "rtx4090") else "stub"
     warnings: list[str] = []
-    if mode == "stub":
+    if profile == "gb10-64":
+        warnings.append(SMALL_SPARK)
+    elif mode == "stub":
         warnings.append(f"no GPU of a TrialBox profile ({hw.gpu_name or 'none'}): structured criteria only")
     caps, notes = memory_caps(hw.ram_gib, profile if mode == "gpu" else "stub", deploy)
     warnings += notes
