@@ -568,6 +568,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         team = getattr(h, "team", None)
         irb_done = team is not None and not team.irb(rid).warnings(h.today())
         out = [("irb", f"/studies/{rid}/irb", irb_done)]
+        if committee_status(rid) is not None:  # 10C-4 (D-1227): the Japan profile
+            out.append(("committee", f"/studies/{rid}/committee", not committee_missing(rid)))
         # the SAE type only where the study reports serious adverse events (D-415: a registry study is not gated)
         if s28.has_api(bk) and s28.load(bk, store, rid, defaults(rid)).study_type in SAE_STUDY_TYPES:
             out.insert(0, ("sae", f"/studies/{rid}/setup#sae", not sae_type_missing(rid)))
@@ -584,6 +586,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             rs=rid,
             cur=cur,
             before_open=before_open(rid) if cur.state == "startup" else [],
+            committee=committee_status(rid) if cur.state == "open" else None,  # 10C-4: held or waiting (Japan)
             moves=STATE_MOVES.get(cur.state, ()),
             states=STUDY_STATES,
             history=list(reversed(store.state_history(rid))),
@@ -644,6 +647,16 @@ def register(app: FastAPI, h: Helpers) -> None:
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
 
+    def committee_status(rid: str) -> dict[str, Any] | None:
+        return h.committee_status(rid) if h.committee_status is not None else None
+
+    def committee_missing(rid: str) -> list[str]:
+        """10C-4 (D-1227): what the Japan profile's committee record lacks for a move into open at this site
+        (``tb_common.committees.at_open``: the study kind, the committee's approval of the current protocol version;
+        for a 指針 study this site's head-of-institution permission for it), or []. Outside the profile always []."""
+        st = committee_status(rid)
+        return list(st["open"]) if st else []
+
     def sae_type_missing(rid: str) -> str:
         """T-629 (FIT-U06, D-415): why the study may not open yet, or "". A study that reports serious adverse events
         opens only with its type for SAE reporting chosen and confirmed on the set-up page, since the type selects
@@ -690,6 +703,8 @@ def register(app: FastAPI, h: Helpers) -> None:
             return state_page(request, sess, rid, status=400, err="sstate.need_reason")
         if state == "open" and (refused := sae_type_missing(rid)):
             return state_page(request, sess, rid, status=409, err=refused)
+        if state == "open" and (missing := committee_missing(rid)):  # 10C-4 (D-1227): the Japan profile only
+            return state_page(request, sess, rid, status=409, err="sstate.committee", bad=[f"cmt.{m}" for m in missing])
         years: int | None = None
         if state == "closed":
             raw = keep_years.strip()
@@ -718,6 +733,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                                   keep_years=years)  # fmt: skip
         except ValueError:  # another person changed it first
             return state_page(request, sess, rid, status=409, err="sstate.bad_move")
+        if state == "open" and h.committee_opened is not None:  # 10C-4: the kind and version it opened with
+            h.committee_opened(rid, h.actor(sess))
         return RedirectResponse(f"/studies/{rid}/state?saved=state", status_code=303)
 
     @app.post("/studies/{rs}/state/take-back")
@@ -745,6 +762,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         cur = store.study_state(rid)
         if not take_back_open(cur):
             return 409, "sstate.take_back_late"
+        if cur.prev == "open" and committee_missing(rid):  # 10C-4 (D-1227): back to open is a move into open
+            return 409, "sstate.committee_back"
 
         def audit(new: StudyState) -> None:
             au.append("console.study_state", ruleset=rid, actor=h.actor(sess),
@@ -755,6 +774,8 @@ def register(app: FastAPI, h: Helpers) -> None:
                                   take_back=True)  # fmt: skip
         except ValueError:  # another person changed it first
             return 409, "sstate.take_back_late"
+        if cur.prev == "open" and h.committee_opened is not None:  # 10C-4: back to open is an opening
+            h.committee_opened(rid, h.actor(sess))
         return 200, ""
 
     def first_take_back(sess: Session, request: Request) -> None:

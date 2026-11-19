@@ -509,7 +509,13 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "prov.f.": lambda: ("model", "build_sha", "prompt_sha", "prompt_id", "prompt_version"),
     "prov.event.": lambda: ("used", "confirmed"),
     # the study state page's list of what comes before Open (WALK-2, D-1154): the SAE type and the IRB record
-    "sstate.before.": lambda: ("sae", "irb"),
+    "sstate.before.": lambda: ("sae", "irb", "committee"),  # 10C-4 (D-1227): the Japan profile's committee
+    # 10C-4 (D-1227): the Japan profile's committee page (kinds, committees, findings, refused fields)
+    "cmt.kind.": _union(_values("tb_common.committees", "KINDS"), lambda: ["none"]),
+    "cmt.permission_is.": _values("tb_common.committees", "KINDS"),
+    "cmt.committee.": _values("tb_common.committees", "COMMITTEES"),
+    "cmt.f.": _values("tb_common.committees", "CODES"),
+    "cmt.bad.": _values("tb_common.committees", "BAD_FIELDS"),
     "help.page.": _union(_values("console.step4", "HELP_SLUGS"), _guide_pages),
     "guide.page.": _guide_pages,
     "life.gloss.": _values("console.guides", "GLOSSARY"),
@@ -539,6 +545,7 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "people.": _values("console.people_lists", "LISTS"),
     "people.view.": _view_keys,
     "people.side.": _values("console.people_lists", "LISTS"),
+    "tier.lacks.": _values("console.tier_words", "WORDED"),  # 10E-17 (D-1244): the tier's worded absences
 }
 
 _RUN = "a value of stored data or of a service's answer (a state, a kind, a source): no one list in the code holds it"

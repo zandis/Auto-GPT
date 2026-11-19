@@ -59,6 +59,7 @@ from zoneinfo import ZoneInfo
 import yaml
 from tb_common import dates as tb_dates
 from tb_common import labvalue
+from tb_common.codekey import HALF_WIDTH, fold_key
 from tb_common.crypto import pid_for_mrn
 
 Row = dict[str, Any]
@@ -70,6 +71,22 @@ _TOKEN_RE = re.compile(r"\{([^{}]+)\}")
 # T-616 (STD-015): a source date-time that states its own offset (``+09:00``, ``+0900``, ``Z``) after a time of day
 _OFFSET_RE = re.compile(r"\d[T ]\d{2}:?\d{2}(?::?\d{2}(?:\.\d+)?)?\s*(?:Z|[+-]\d{2}:?\d{2})$", re.IGNORECASE)
 MAPPING_VERSION = "urn:trialbox:mapping-version"  # the meta.tag system of the mapping version (lake.flatten)
+# D-135's basis tag (lake.flatten.BASIS). 10B-6 (D-1233): a fact whose standard code comes from a site-profile row
+# still to verify carries ``verify``: it stays coded (only ``proposed`` is kept out of the coded tables) and the lake
+# lists it in ``site_fact``, so how much rests on unverified rows can be counted
+BASIS = "urn:trialbox:basis"
+VERIFY_BASIS = "verify"
+
+
+@dataclass(frozen=True)
+class VerifyRule:
+    """10B-6: a row of ``table`` whose ``column`` holds one of ``codes`` takes its standard code from a profile row
+    still to verify; with ``target`` set, only when the row's ``target`` column holds that row's code."""
+
+    table: str
+    column: str
+    codes: dict[str, str]
+    target: str | None = None
 
 
 # the earliest year a feed date may carry. Reason, not a tuning value: no person alive was born before it (the
@@ -238,10 +255,7 @@ def resource_id(site_key: bytes, rtype: str, value: str) -> str:
     return hmac.new(site_key, f"{rtype}|{value}".encode(), hashlib.sha256).hexdigest()[:32]
 
 
-# full-width ASCII (U+FF01 to U+FF5E) and the ideographic space, to their half-width forms: what a Taiwanese or
-# Japanese system writes for the same code. Not Unicode NFKC: that also turns ``㎎`` into ``mg``, ``①`` into ``1``
-# and ``Ⅳ`` into ``IV``, which are other signs, not another width of the same code.
-_HALF_WIDTH = {**{c: c - 0xFEE0 for c in range(0xFF01, 0xFF5F)}, 0x3000: 0x20}
+_HALF_WIDTH = HALF_WIDTH  # tb_common.codekey: the one fold of a code (10B-6)
 # what a code looks like when it is written into a report (D-580): printable ASCII with no blank inside, and no
 # longer than this. Reason for the length: the longest code a look-up of this product is keyed by is JLAC10 (17
 # characters); a site's own prefix or suffix fits in the rest. A longer value, or one with a blank or a letter of
@@ -249,12 +263,6 @@ _HALF_WIDTH = {**{c: c - 0xFEE0 for c in range(0xFF01, 0xFF5F)}, 0x3000: 0x20}
 CODE_MAX = 40
 _CODE_SHAPE = re.compile(rf"[!-~]{{1,{CODE_MAX}}}")
 NO_CODE, NOT_A_CODE = "(no code)", "(not a code)"
-
-
-def fold_key(key: object) -> str:
-    """A look-up key as a person reads it (D-580): no blanks around it, full-width letters and digits made
-    half-width, lower case."""
-    return ("" if key is None else str(key)).translate(_HALF_WIDTH).strip().lower()
 
 
 KEY_JOIN = "|"  # F10 (D-809): the parts of a key of several columns, joined (``CBC|072``)
@@ -335,6 +343,11 @@ class Lookup:
     key: str
     rows: dict[str, Row]
     _folded: dict[str, Row | None] | None = field(default=None, repr=False, compare=False)
+    columns: tuple[str, ...] = ()  # the file's header (10B-6: a site profile's table is held to it)
+    # 10B-6 (D-1233): the keys of rows a site profile says are still to verify, and whether the row :meth:`find`
+    # matched since the mapper last asked was one of them: the tag is decided by the row the look-up matched
+    unverified: frozenset[str] = frozenset()
+    hit_unverified: bool = field(default=False, compare=False)
 
     @classmethod
     def load(cls, name: str, path: Path, key: str | list[str]) -> Lookup:
@@ -359,7 +372,7 @@ class Lookup:
                 if all(values):
                     r[joined] = KEY_JOIN.join(values)
                     rows[r[joined]] = r
-        return cls(name, joined, rows)
+        return cls(name, joined, rows, columns=tuple(reader.fieldnames or ()))
 
     def find(self, key: object) -> Row | None:
         """The row of ``key`` (NEW-DIN-6, D-580): as written first; else by its folded form (:func:`fold_key`) when
@@ -368,14 +381,19 @@ class Lookup:
         text = "" if key is None else str(key)
         hit = self.rows.get(text)
         if hit is not None or not text.strip():
-            return hit
+            return self._mark(hit)
         if self._folded is None:
             folded: dict[str, Row | None] = {}
             for k, row in self.rows.items():
                 fk = fold_key(k)
                 folded[fk] = None if fk in folded else row
             self._folded = folded
-        return self._folded.get(fold_key(text))
+        return self._mark(self._folded.get(fold_key(text)))
+
+    def _mark(self, row: Row | None) -> Row | None:
+        if row is not None and self.unverified and str(row.get(self.key) or "") in self.unverified:
+            self.hit_unverified = True
+        return row
 
 
 @dataclass
@@ -543,7 +561,10 @@ class Mapping:
         return doc
 
     @classmethod
-    def load(cls, path: Path) -> Mapping:
+    def load(cls, path: Path, lookup_files: dict[str, Path] | None = None) -> Mapping:
+        """``lookup_files`` (10B-6, D-1233): a site profile's code table read in place of the look-up of that name
+        (``used_by: [mapping.<name>]``); the mapping must declare the look-up, and its key column stays the mapping's.
+        The mapping's version is its YAML's (as before): the profile's digest is recorded beside each night."""
         doc = cls._read(path)
         digest = hashlib.sha256(path.read_bytes())
         lookup_dirs = {name: path.parent for name in (doc.get("lookups") or {})}
@@ -578,9 +599,12 @@ class Mapping:
                 raise MappingError(f"{path}: overlay for {ov['type']}/{ov['table']} matches no resource")
             for r in hits:
                 r["elements"] = {**(r.get("elements") or {}), **(ov.get("elements") or {})}
+        declared = doc.get("lookups") or {}
+        for name in sorted(set(lookup_files or {}) - set(declared)):
+            raise MappingError(f"{path}: the site profile names look-up {name!r}, which this mapping does not declare")
         lookups = {
-            name: Lookup.load(name, lookup_dirs[name] / spec["file"], spec["key"])
-            for name, spec in (doc.get("lookups") or {}).items()
+            name: Lookup.load(name, (lookup_files or {}).get(name) or lookup_dirs[name] / spec["file"], spec["key"])
+            for name, spec in declared.items()
         }
         resources = [
             ResourceSpec(
@@ -937,6 +961,9 @@ class Mapper:
         # F9 (D-811): dates left out because no life is that long, by (table, element): counts only
         self.implausible: Counter[tuple[str, str]] = Counter()
         self._element = ""
+        # 10B-6 (D-1233): the site profile's rows still to verify, by table; the facts tagged per table
+        self.verify_rules: dict[str, list[VerifyRule]] = {}
+        self.from_verify: Counter[str] = Counter()
 
     # ------------------------------------------------------------------ scalar conversion
     def _parse_dt(self, raw: str) -> datetime:
@@ -1590,6 +1617,8 @@ class Mapper:
         return dict(sorted(self.disputed.items()))
 
     def map_row(self, rs: ResourceSpec, row: Row) -> Resource | None:
+        for lk in self.m.lookups.values():  # 10B-6: which look-up rows this resource's codes come from
+            lk.hit_unverified = False
         for v in row.values():  # D-589: an unread date of a declared calendar refuses the row, whoever reads it
             _refuse_declared(v)
         if rs.where and not self.cond(rs.where, row):
@@ -1605,6 +1634,10 @@ class Mapper:
             self._element = path  # F9 (D-811): what a count names
             self.set_path(res, path, self.value(expr, row, rs))
         self._settle_atc(rs, res)
+        if any(lk.hit_unverified for lk in self.m.lookups.values()) or self._rests_on_verify(rs.table, row):
+            meta = res.setdefault("meta", {})
+            meta["tag"] = [*(meta.get("tag") or []), {"system": BASIS, "code": VERIFY_BASIS}]
+            self.from_verify[rs.table] += 1
         if self.ingest_time:
             meta = res.setdefault("meta", {})
             meta["source"] = f"{self.site_id}/{rs.table}#{self.row_hash(row)}"
@@ -1612,6 +1645,17 @@ class Mapper:
             meta["tag"] = [*(meta.get("tag") or []), {"system": MAPPING_VERSION, "code": self.m.version}]
         pruned: Resource = self.prune(res)
         return pruned
+
+    def _rests_on_verify(self, table: str, row: Row) -> bool:
+        """An SS-MIX2 row whose code the reader looked up in a profile table (the reader's own exact match) and whose
+        standard code is that row's (:class:`VerifyRule`); a mapping's look-up is asked by :meth:`Lookup.find`."""
+        for rule in self.verify_rules.get(table, ()):
+            code = str(row.get(rule.column) or "")
+            if code in rule.codes and (
+                rule.target is None or str(row.get(rule.target) or "").strip() == rule.codes[code]
+            ):
+                return True
+        return False
 
     def _note_unmapped(self, table: str, name: str, code: str) -> None:
         """One dropped or unknown code, once per source row and name (``self._row_seen`` is the row's set while
