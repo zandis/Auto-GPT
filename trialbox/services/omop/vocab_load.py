@@ -371,7 +371,7 @@ def parquet_sha(term_dir: Path) -> str:
 def read_parquet_tables(term_dir: Path) -> dict[str, list[dict[str, Any]]]:
     import pyarrow.parquet as pq
 
-    return {n: pq.read_table(term_dir / f"{n}.parquet").to_pylist() for n in TERM_FILES
+    return {n: pq.read_table(term_dir / f"{n}.parquet", use_threads=False).to_pylist() for n in TERM_FILES
             if (term_dir / f"{n}.parquet").is_file()}  # fmt: skip
 
 
