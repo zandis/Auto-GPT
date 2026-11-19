@@ -680,6 +680,288 @@ def test_build_dir_refuses_links_and_files_that_are_not_regular(tmp_path: Path, 
         sp.build_dir(study, PRIV, DAY)
 
 
+#: the second review of 0a0f65b5 (PR 1183): lines the allow-list let through or answered with a TypeError, or whose
+#: refusal repeated a key or a type; all synthetic, each carries PROBE (or a name-like word) the refusal must not repeat
+_APPT = "Appointment"
+_LOINC = "http://loinc.org"
+_SHAPES: dict[str, bytes] = {
+    "dotted keys under serviceType": json.dumps(
+        {"resourceType": _APPT, "serviceType": [{"coding.system": _DEPT, "coding.code": "PROBEWARD"}]}
+    ).encode(),
+    "dotted keys at the top": json.dumps(
+        {"resourceType": _APPT, "serviceType.coding.system": _DEPT, "serviceType.coding.code": "PROBEWARD7"}
+    ).encode(),
+    "dotted reference key": json.dumps({"resourceType": "Observation", "subject.reference": "Patient/a"}).encode(),
+    "system a list": json.dumps(
+        {"resourceType": "Observation", "code": {"coding": [{"system": [_LOINC], "code": "PROBE"}]}}
+    ).encode(),
+    "department system a list": json.dumps(
+        {"resourceType": _APPT, "serviceType": [{"coding": [{"system": [_DEPT], "code": "PROBEWARD"}]}]}
+    ).encode(),
+    "department code a list": json.dumps(
+        {"resourceType": _APPT, "serviceType": [{"coding": [{"system": _DEPT, "code": ["RHEU", "PROBEWARD"]}]}]}
+    ).encode(),
+    "code an object": json.dumps(
+        {"resourceType": "Observation", "code": {"coding": [{"system": _LOINC, "code": {"x": "PROBE"}}]}}
+    ).encode(),
+    "code a number": json.dumps(
+        {"resourceType": "Observation", "code": {"coding": [{"system": _LOINC, "code": 4548}]}}
+    ).encode(),
+    "code null": json.dumps(
+        {"resourceType": "Observation", "code": {"coding": [{"system": _LOINC, "code": None}]}, "id": "PROBE"}
+    ).encode(),
+    "array of arrays": json.dumps(
+        {"resourceType": "Observation", "code": {"coding": [[{"system": _LOINC, "code": "PROBE-AA"}]]}}
+    ).encode(),
+    "array at a leaf": json.dumps({"resourceType": "Patient", "id": ["PROBE-LIST", "b"]}).encode(),
+    "single value where an array is": json.dumps(
+        {"resourceType": "Observation", "code": {"coding": {"system": _LOINC, "code": "PROBE"}}}
+    ).encode(),
+    "empty array": json.dumps({"resourceType": "Patient", "id": "a", "identifier": []}).encode(),
+    "null leaf": json.dumps({"resourceType": "Patient", "id": None, "birthDate": "PROBE"}).encode(),
+    "number id": b'{"resourceType":"Patient","id":12345678901234567890}',
+    "boolean where a number is": b'{"resourceType":"Observation","valueQuantity":{"value":true,"unit":"PROBE"}}',
+    "text where a number is": b'{"resourceType":"Observation","valueQuantity":{"value":"PROBE"}}',
+    "a sequence not an integer": b'{"resourceType":"Claim","item":[{"sequence":1.5}],"use":"PROBE"}',
+    "a number where a boolean is": b'{"resourceType":"Claim","insurance":[{"focal":1,"sequence":1}],"use":"PROBE"}',
+    "infinite number": b'{"resourceType":"Observation","valueQuantity":{"value":1e999999,"unit":"PROBE"}}',
+    "absurd number": b'{"resourceType":"Observation","valueQuantity":{"value":1e300,"unit":"PROBE"}}',
+    "byte-order mark inside": b'\xef\xbb\xbf{"resourceType":"Patient","id":"PROBE"}',
+    "escaped byte-order mark in a text": b'{"resourceType":"DiagnosticReport","conclusion":"\\ufeffPROBE"}',
+    "a long text": json.dumps({"resourceType": "DiagnosticReport", "conclusion": "PROBE " + "x" * 5000}).encode(),
+    "a line separator in an id": '{"resourceType":"Patient","id":"a PROBE"}'.encode(),
+    "an id with a space": json.dumps({"resourceType": "Patient", "id": "PROBE Chen"}).encode(),
+    "an id over 64": json.dumps({"resourceType": "Patient", "id": "PROBE" + "x" * 64}).encode(),
+    "a reference with a trailing newline": json.dumps(
+        {"resourceType": "Observation", "subject": {"reference": "Patient/a\n"}}
+    ).encode(),
+    "a key with a look-alike letter": json.dumps({"resourceType": "Patient", "іd": "PROBE"}).encode(),
+    "an empty key": json.dumps({"resourceType": "Patient", "": "PROBE"}).encode(),
+    "an unknown key that reads as a name": json.dumps({"resourceType": "Patient", "PROBEChenMeiLing": "a"}).encode(),
+    "an unknown deep key that reads as a name": json.dumps(
+        {"resourceType": "Observation", "code": {"coding": [{"system": _LOINC, "PROBEChenMeiLing": "y"}]}}
+    ).encode(),
+    "an unknown type that reads as a name": json.dumps({"resourceType": "PROBEChenMeiLing", "id": "a"}).encode(),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_SHAPES))
+def test_test_patients_of_a_wrong_shape_are_refused_in_one_sentence(case: str) -> None:
+    files = _small()
+    files["tests/patients.ndjson"] = b'{"resourceType":"Patient","id":"syn-1"}\n' + _SHAPES[case] + b"\n"
+    with pytest.raises(
+        ValueError, match=r"^the study folder cannot be packaged: (line 2 of )?tests/patients\.ndjson "
+    ) as e:
+        sp.build(files, PRIV, DAY)
+    message = str(e.value)
+    assert type(e.value) is ValueError and "\n" not in message
+    assert "PROBE" not in message and "Chen" not in message  # never a value, an unknown key or an unknown type
+
+
+def test_the_test_patients_shapes_are_measured() -> None:
+    """The leaf types, the arrays and the caps are measured from the shipped test patients: each non-text leaf has the
+    type the allow-list states, each array is where it states, every key is an element name, no file holds a
+    byte-order mark, and the longest text and the largest number are within the caps."""
+    types: dict[tuple[str, str], set[str]] = {}
+    lists: dict[str, set[str]] = {}
+    longest, largest = 0, 0.0
+
+    def walk(node: Any, path: str, kind: str) -> None:
+        nonlocal longest, largest
+        if isinstance(node, dict):
+            for key, value in node.items():
+                assert re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", key)
+                walk(value, f"{path}.{key}" if path else key, kind)
+        elif isinstance(node, list):
+            lists.setdefault(kind, set()).add(path)
+            for item in node:
+                assert not isinstance(item, list)
+                walk(item, path, kind)
+        elif path != "resourceType":
+            name = {bool: "boolean", int: "integer", float: "number", str: "text"}[type(node)]
+            types.setdefault((kind, path), set()).add(name)
+            if isinstance(node, str):
+                longest = max(longest, len(node))
+            else:
+                largest = max(largest, abs(float(node)))
+
+    for path in sorted(SEED_RULESETS.glob("*/tests/patients.ndjson")):
+        data = path.read_bytes()
+        assert b"\xef\xbb\xbf" not in data
+        for line in data.splitlines():
+            if line.strip():
+                resource = json.loads(line)
+                walk(resource, "", resource["resourceType"])
+    non_text = {k: v for k, v in types.items() if v != {"text"}}
+    stated = {k: {"number": {"integer", "number"}}.get(v, {v}) for k, v in sp.TEST_PATIENT_NON_TEXT.items()}
+    assert set(non_text) == set(stated) and all(non_text[k] <= stated[k] for k in stated)
+    assert {k: frozenset(v) for k, v in lists.items()} == sp.TEST_PATIENT_LISTS
+    assert longest == 92 and longest * 2 <= sp.TEST_PATIENT_MAX_TEXT
+    assert largest < 1000 < sp.TEST_PATIENT_MAX_NUMBER
+
+
+def _vs_with(**extra: Any) -> dict[str, bytes]:
+    files = _small()
+    doc = json.loads(files["valuesets/VS_HBSAG.json"])
+    files["valuesets/VS_HBSAG.json"] = json.dumps({**doc, **extra}).encode()
+    return files
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"extension": [{"url": "https://example.org/PROBE/reviewer", "valueString": "PROBE Dr Example"}]},
+        {"extension": [{"url": sp.FAMILY_EXT, "valueString": "PROBE reviewed by Dr Example"}]},
+        {"extension": [{"url": sp.FAMILY_EXT, "valueString": "http://hl7.org/fhir/sid/icd-10-cm|M05 PROBE"}]},
+        {"extension": [{"url": sp.FAMILY_EXT, "valueInteger": 3}]},
+        {"meta": {"tag": [{"system": "https://example.org/PROBE/site", "code": "needs_review"}]}},
+        {"meta": {"tag": [{"system": sp.REVIEW_TAG_SYSTEM, "code": "PROBE-reviewer"}]}},
+    ],
+    ids=["extension url", "family free text", "family with a space", "family value type", "tag system", "tag code"],
+)
+def test_a_value_sets_extension_and_tag_are_the_compilers(extra: dict[str, Any]) -> None:
+    from criteria_compiler.terminology import mapper
+
+    assert (sp.FAMILY_EXT, sp.REVIEW_TAG_SYSTEM) == (mapper.FAMILY_EXT, mapper.REVIEW_TAG_SYSTEM)
+    with pytest.raises(ValueError, match="does not load as a value set") as e:
+        sp.build(_vs_with(**extra), PRIV, DAY)
+    assert "PROBE" not in str(e.value)
+    good = _vs_with(
+        extension=[{"url": sp.FAMILY_EXT, "valueString": "http://hl7.org/fhir/sid/icd-10-cm|M05"}],
+        meta={"tag": [{"system": sp.REVIEW_TAG_SYSTEM, "code": "needs_review"}]},
+    )
+    assert sp.verify(sp.build(good, PRIV, DAY), [PUB])
+
+
+@pytest.mark.parametrize(
+    ("body", "says"),
+    [
+        ({"site_notes": "PROBE reviewer"}, "is not a compiled ELM library"),
+        ({"library": {"identifier": {"id": "TB_X"}}, "notes": "PROBE"}, "is not a compiled ELM library"),
+        ({"library": {"identifier": {"id": "TB_X"}, "reviewer": "PROBE"}}, "is not a compiled ELM library"),
+        ({"library": ["PROBE"]}, "is not a compiled ELM library"),
+        ([{"library": {}}], "is not a compiled ELM library"),
+    ],
+    ids=["other key", "second top key", "library extra key", "library a list", "a list"],
+)
+def test_cql_elm_is_a_library_of_the_standard_keys(body: Any, says: str) -> None:
+    """The top-level shape of ``cql/elm/*.json`` only; the ELM node allow-list is 10D-28's (``ruleset_part``)."""
+    files = {**_small(), "cql/elm/TB_X.json": json.dumps(body).encode()}
+    with pytest.raises(ValueError, match=f"cql/elm/TB_X.json {says}") as e:
+        sp.build(files, PRIV, DAY)
+    assert "PROBE" not in str(e.value)
+    for path in SEED_RULESETS.glob("*/cql/elm/*.json"):
+        doc = json.loads(path.read_bytes())
+        assert set(doc) == {"library"} and set(doc["library"]) <= sp.ELM_LIBRARY_KEYS
+
+
+@pytest.mark.parametrize(
+    ("extra", "says"),
+    [
+        ({"provenance": {"calls": ["01JPROBE"], "model_route": "PROBE-route"}}, "provenance"),
+        ({"provenance": {"calls": ["PROBE call Dr Example"]}}, "provenance"),
+        ({"provenance": {"calls": "01JPROBE"}}, "provenance"),
+        ({"flags": ["PROBE reviewed by Dr Example"]}, "flag"),
+        ({"flags": "needs_review"}, "flag"),
+        ({"time_sensitive": "yes"}, "does not load as a criterion"),
+    ],
+    ids=["provenance other field", "call id with spaces", "calls a text", "flag free text", "flags a text", "lax"],
+)
+def test_an_irs_flags_provenance_and_types_are_strict(extra: dict[str, Any], says: str) -> None:
+    with pytest.raises(ValueError, match=f"ir/RA-JAK-INC-01.json .*{says}") as e:
+        sp.build(_ir_with(**extra), PRIV, DAY)
+    assert "PROBE" not in str(e.value)
+
+
+def test_an_ir_field_by_its_python_name_is_refused() -> None:
+    files = _small()
+    doc = json.loads(files["ir/RA-JAK-INC-01.json"])
+    doc["class_"] = doc.pop("class")
+    files["ir/RA-JAK-INC-01.json"] = json.dumps(doc).encode()
+    with pytest.raises(ValueError, match="does not load as a criterion"):
+        sp.build(files, PRIV, DAY)
+    carried = sp.verify(
+        sp.build(_ir_with(flags=["needs_review"], provenance={"calls": ["01JABCDEF"]}), PRIV, DAY), [PUB]
+    )
+    assert b"01JABCDEF" in carried.files["ir/RA-JAK-INC-01.json"]  # call ids travel (D-1372, for the owner)
+
+
+def _swap_on_open(monkeypatch: pytest.MonkeyPatch, study: Path, name: str, evil: Path) -> None:
+    """Simulate a race: the first time ``name`` is opened in a folder descriptor, ``study/ir`` is moved away and a
+    symbolic link to ``evil`` takes its place (as the reviewer's probe does)."""
+    real_open = os.open
+    done: list[bool] = []
+
+    def racing(path: Any, flags: int, *args: Any, **kwargs: Any) -> int:
+        if path == name and kwargs.get("dir_fd") is not None and not done:
+            done.append(True)
+            os.rename(study / "ir", study.parent / "ir-moved")
+            os.symlink(evil, study / "ir")
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", racing)
+
+
+@pytest.mark.parametrize("when", ["before ir/ is opened", "after ir/ is opened"])
+def test_build_dir_does_not_follow_a_folder_swapped_for_a_link(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, when: str
+) -> None:
+    study = tmp_path / "RA-JAK"
+    _write_folder(study, _small())
+    evil = tmp_path / "evil"
+    evil.mkdir()
+    doc = json.loads((study / "ir" / "RA-JAK-INC-01.json").read_bytes())
+    for name in ("RA-JAK-INC-01.json", "RA-JAK-EXC-01.json"):
+        (evil / name).write_text(json.dumps({**doc, "label": "PROBE-RACE"}))
+    _swap_on_open(monkeypatch, study, "ir" if when.startswith("before") else "RA-JAK-EXC-01.json", evil)
+    if when.startswith("before"):
+        with pytest.raises(ValueError, match="cannot be packaged: ir is a symbolic link or changed while read"):
+            sp.build_dir(study, PRIV, DAY)
+    else:  # the folder's descriptor is held: the file read is the one listed, not the link's
+        assert b"PROBE-RACE" not in sp.build_dir(study, PRIV, DAY)
+
+
+@pytest.mark.parametrize("kind", ["root link", "hard link", "over the cap", "unread"])
+def test_build_dir_reads_by_descriptor_only_what_it_carries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    study = tmp_path / "RA-JAK"
+    _write_folder(study, _small())
+    read: list[int] = []
+    real_read = os.read
+
+    def counted(fd: int, n: int) -> bytes:
+        data = real_read(fd, n)
+        read.append(len(data))
+        return data
+
+    monkeypatch.setattr(os, "read", counted)
+    if kind == "root link":
+        (tmp_path / "link").symlink_to(study, target_is_directory=True)
+        with pytest.raises(ValueError, match="cannot be packaged: the folder is a symbolic link"):
+            sp.build_dir(tmp_path / "link", PRIV, DAY)
+    elif kind == "hard link":
+        (tmp_path / "outside.yaml").write_bytes(b"x: PROBE-HARDLINK\n")
+        os.link(tmp_path / "outside.yaml", study / "labels.yaml")
+        with pytest.raises(ValueError, match=r"cannot be packaged: labels\.yaml has another name on this disk"):
+            sp.build_dir(study, PRIV, DAY)
+    elif kind == "over the cap":
+        monkeypatch.setattr(sp, "STUDY_PACKAGE_MAX_MEMBER_BYTES", 10)
+        (study / "labels.yaml").write_bytes(b"x: " + b"y" * 100 + b"\n")
+        with pytest.raises(
+            ValueError, match=r"cannot be packaged: labels\.yaml is 104 bytes; a carried file may be at most"
+        ):
+            sp.read_folder(study)
+        assert sum(read) == len((study / "manifest.yaml").read_bytes())  # labels.yaml was not read
+    else:
+        (study / "notes.bin").write_bytes(b"\0" * 5_000_000)
+        (study / "tests" / "equivalence.json").write_bytes(b'{"by": "PROBE"}')
+        got = sp.read_folder(study)
+        assert "notes.bin" not in got and "tests/equivalence.json" not in got
+        assert sum(read) == sum(len(b) for b in got.values())  # nothing else was read
+        assert set(got) == set(_small())
+
+
 def test_the_writer_gives_the_date() -> None:
     for bad in ("2026-13-01", "20261119", ""):
         with pytest.raises(ValueError):

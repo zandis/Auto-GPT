@@ -18,6 +18,7 @@ yet**: import, the register of coordinating-centre keys and the audit are 10D-4'
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import re
 import stat
@@ -32,7 +33,7 @@ from typing import Any, Literal
 import yaml
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, field_validator
 from tb_contracts import CriterionIR
 
 from tb_common import study_manifest as sm
@@ -180,8 +181,49 @@ _TEST_PATIENT_INNER: dict[str, frozenset[str]] = {
     kind: frozenset(p.rsplit(".", i)[0] for p in paths for i in range(1, p.count(".") + 1))
     for kind, paths in TEST_PATIENT_ELEMENTS.items()
 }
-_REFERENCE = re.compile(r"^([A-Za-z]+)/([A-Za-z0-9.-]{1,64})$")
-_RESOURCE_NAME = re.compile(r"^[A-Za-z]{1,64}$")
+#: the test patients' leaves that are not texts (measured): each one's JSON type; every other leaf is a text
+TEST_PATIENT_NON_TEXT: dict[tuple[str, str], Literal["boolean", "integer", "number"]] = {
+    ("Claim", "insurance.focal"): "boolean",
+    ("Claim", "insurance.sequence"): "integer",
+    ("Claim", "item.sequence"): "integer",
+    ("Observation", "component.valueQuantity.value"): "number",
+    ("Observation", "valueQuantity.value"): "number",
+}
+#: the elements the test patients hold as a JSON array (measured); an array anywhere else, an array inside an array, an
+#: empty array and a single value where these hold an array are refused
+TEST_PATIENT_LISTS: dict[str, frozenset[str]] = {
+    kind: frozenset(paths.split())
+    for kind, paths in {
+        "Appointment": "participant serviceType serviceType.coding",
+        "Claim": "insurance item item.productOrService.coding priority.coding subType.coding type.coding",
+        "ClaimResponse": "type.coding",
+        "Condition": "category category.coding clinicalStatus.coding code.coding meta.profile",
+        "Consent": "category category.coding policyRule.coding scope.coding",
+        "Coverage": "payor",
+        "DiagnosticReport": "category category.coding code.coding meta.profile",
+        "Encounter": "identifier meta.profile participant serviceType.coding",
+        "MedicationRequest": "dosageInstruction medicationCodeableConcept.coding meta.profile",
+        "Observation": "category category.coding code.coding component component.code.coding meta.profile "
+        "valueCodeableConcept.coding",
+        "Patient": "identifier meta.profile",
+        "Procedure": "code.coding meta.profile",
+    }.items()
+}
+#: the longest text a test patient's leaf may hold, in characters: the longest in the shipped files is 92 (an
+#: ``Observation.meta.profile``), so 200 leaves room for a longer display or profile and none for a narrative
+TEST_PATIENT_MAX_TEXT = 200
+#: the largest magnitude a test patient's number may have (the shipped files' largest is 416.21); an integer
+#: (``sequence``) is also at least 1
+TEST_PATIENT_MAX_NUMBER = 1_000_000_000
+#: a key of a test patient, at every depth: a FHIR element name (ASCII letters and digits, a letter first), so no
+#: ``.``, no ``_``, no space and no look-alike letter can make a key read as a path
+_KEY = re.compile(r"[A-Za-z][A-Za-z0-9]*")
+#: a FHIR id (``Resource.id`` and the id of a reference), matched whole
+_ID = re.compile(r"[A-Za-z0-9.\-]{1,64}")
+_REFERENCE = re.compile(r"([A-Za-z]+)/([A-Za-z0-9.\-]{1,64})")
+#: characters no test patient text holds: controls, the line and paragraph separators and the byte-order mark
+_NOT_TEXT = re.compile("[\x00-\x1f\x7f-\x9f\u2028\u2029\ufeff]")
+_BOM = b"\xef\xbb\xbf"
 #: the protocol files a package may carry (``files/<path>``): ``study_manifest.PROTOCOL_FILES`` narrowed to one
 #: file directly in its folder, not hidden, with that folder's one extension (``cql/elm/`` only ``.json``). The
 #: criteria hash still covers every file the engine reads (D-1366); a folder whose hash covers any other file is not
@@ -227,14 +269,29 @@ class _Compose(_Strict):
     include: list[_Include]
 
 
+#: the one extension a compiled value set carries and the one tag (``criteria_compiler.terminology.mapper``
+#: ``FAMILY_EXT`` and ``REVIEW_TAG_SYSTEM``; a test holds them equal, the library does not import the compiler)
+FAMILY_EXT = "https://trialbox.local/fhir/StructureDefinition/code-family"
+REVIEW_TAG_SYSTEM = "https://trialbox.local/fhir/CodeSystem/review-flag"
+#: a code family as the mapper writes it: ``<system>|<code prefix>``
+_FAMILY = re.compile(r"https?://[A-Za-z0-9._~/:-]{1,200}\|[A-Za-z0-9.\-]{1,32}")
+
+
 class _Extension(_Strict):
-    url: str
+    url: Literal["https://trialbox.local/fhir/StructureDefinition/code-family"]
     valueString: str
+
+    @field_validator("valueString")
+    @classmethod
+    def _family(cls, value: str) -> str:
+        if not _FAMILY.fullmatch(value):
+            raise ValueError("not a code family")
+        return value
 
 
 class _Coding(_Strict):
-    system: str
-    code: str
+    system: Literal["https://trialbox.local/fhir/CodeSystem/review-flag"]
+    code: Literal["needs_review"]
 
 
 class _Meta(_Strict):
@@ -662,13 +719,13 @@ def verify_file(path: Path, trusted_keys: Iterable[bytes]) -> Package:
 
 
 # ---------------------------------------------------------------------------------------------- write
-def _reference_refusal(ref: Any) -> str | None:
-    match = _REFERENCE.match(ref) if isinstance(ref, str) else None
+def _reference_refusal(ref: str) -> str | None:
+    match = _REFERENCE.fullmatch(ref)
     if match is None or match[1] not in TEST_PATIENT_REFERENCE_TYPES:
         return (
             "has a reference that is not written <type>/<id> with a type the shipped test patients refer to ("
             + ", ".join(sorted(TEST_PATIENT_REFERENCE_TYPES))
-            + "; exact case, no address, no '#', no space)"
+            + "; exact case, an id of letters, digits, '.' and '-', no address, no '#', no space)"
         )
     if match[1] == "Practitioner" and match[2] not in PLACEHOLDER_PRACTITIONERS:
         return "names a practitioner that is not one of the synthetic placeholders (P12345 and the like)"
@@ -677,69 +734,134 @@ def _reference_refusal(ref: Any) -> str | None:
     return None
 
 
+def _keys_refusal(resource: dict[str, Any]) -> str | None:
+    """Every key of a test patient, at every depth, is a FHIR element name (:data:`_KEY`), checked before any path is
+    looked up, so a key holding ``.`` cannot read as a path."""
+    stack: list[Any] = [resource]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            if not all(_KEY.fullmatch(key) for key in node):
+                return (
+                    "has a key that is not an element name (ASCII letters and digits, a letter first: no '.', '_', "
+                    "space or other letter)"
+                )
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    return None
+
+
+def _leaf_refusal(kind: str, path: str, node: Any) -> str | None:
+    """Why one leaf of a test patient may not leave the box, or None: its type (:data:`TEST_PATIENT_NON_TEXT`, else
+    a text), its size, and for an id, a reference, a system and a profile, its form."""
+    where = f"{kind}.{path}"
+    want = TEST_PATIENT_NON_TEXT.get((kind, path), "text")
+    if node is None:
+        return f"holds null at {where}, where the shipped synthetic test patients hold a {want}"
+    if want == "boolean":
+        return None if isinstance(node, bool) else f"holds a value at {where} that is not a boolean"
+    if want in ("integer", "number"):
+        if (
+            isinstance(node, bool)
+            or not isinstance(node, int | float)
+            or (want == "integer" and isinstance(node, float))
+        ):
+            return f"holds a value at {where} that is not a{'n' if want == 'integer' else ''} {want}"
+        if not math.isfinite(node) or abs(node) > TEST_PATIENT_MAX_NUMBER or (want == "integer" and node < 1):
+            return (
+                f"holds a number at {where} that is not finite or is out of range (at most "
+                f"{TEST_PATIENT_MAX_NUMBER:,} in magnitude; a sequence at least 1)"
+            )
+        return None
+    if not isinstance(node, str):
+        return f"holds a value at {where} that is not a text"
+    if not node or len(node) > TEST_PATIENT_MAX_TEXT or _NOT_TEXT.search(node):
+        return (
+            f"holds a text at {where} that is empty, longer than {TEST_PATIENT_MAX_TEXT} characters, or holds a "
+            "control character, a line separator or a byte-order mark"
+        )
+    last = path.rsplit(".", 1)[-1]
+    if path == "id" and not _ID.fullmatch(node):
+        return f"has an id at {where} that is not a FHIR id (letters, digits, '.' and '-', at most 64)"
+    if last == "reference":
+        return _reference_refusal(node)
+    if last == "system" and node not in TEST_PATIENT_SYSTEMS:
+        return (
+            f"names a system at {where} that is not one of the test patients' systems (the standard terminologies "
+            "and the named placeholder systems, written exactly)"
+        )
+    if path == "meta.profile" and node not in TEST_PATIENT_PROFILES:
+        return f"names a profile at {where} that is not one of the test patients' profiles"
+    return None
+
+
 def _resource_refusal(resource: dict[str, Any]) -> str | None:
-    """Why one test patient resource may not leave the box, or None: the allow-list of D-1372 over its whole tree."""
+    """Why one test patient resource may not leave the box, or None: the allow-list of D-1372 over its whole tree.
+    A refusal names the last element the allow-list knows, never a key or a type it does not know."""
+    why = _keys_refusal(resource)
+    if why:
+        return why
     kind = resource.get("resourceType")
     if not isinstance(kind, str) or kind not in TEST_PATIENT_ELEMENTS:
-        shown = kind if isinstance(kind, str) and _RESOURCE_NAME.match(kind) else "another"
         return (
-            f"is a {shown} record, which a package does not carry (the test patients hold only the resource types of "
-            "the shipped studies, exact case)"
+            "is a record of a resource type a package does not carry (the test patients hold only the resource types "
+            "of the shipped studies, exact case)"
         )
-    leaves, inner = TEST_PATIENT_ELEMENTS[kind], _TEST_PATIENT_INNER[kind]
-    stack: list[tuple[str, Any]] = [("", resource)]
+    leaves, inner, lists = TEST_PATIENT_ELEMENTS[kind], _TEST_PATIENT_INNER[kind], TEST_PATIENT_LISTS[kind]
+    stack: list[tuple[str, Any, bool]] = [("", resource, False)]
     while stack:
-        path, node = stack.pop()
+        path, node, in_list = stack.pop()
+        where = f"{kind}.{path}" if path else kind
         if isinstance(node, list):
-            stack.extend((path, item) for item in node)
+            if in_list or path not in lists:
+                return f"holds an array at {where}, where the shipped synthetic test patients hold no array there"
+            if not node:
+                return f"holds an empty array at {where}"
+            stack.extend((path, item, True) for item in node)
             continue
+        if path in lists and not in_list:
+            return f"holds a single value at {where}, where the shipped synthetic test patients hold an array"
         if isinstance(node, dict):
             if path and path not in inner:
-                return f"holds an object at {kind}.{path}, which the shipped synthetic test patients never carry there"
-            if "reference" in node and ("display" in node or "identifier" in node):
-                return (
-                    f"has a reference at {kind}.{path} with a display or an identifier, which a package does not carry"
-                )
-            if node.get("system") in SITE_LOCAL_CODE_SYSTEMS and node.get("code") not in PLACEHOLDER_DEPARTMENTS:
-                return (
-                    f"holds a code of the hospital's own system {node['system']} that is not one of the synthetic "
-                    "placeholders"
-                )
-            for key, value in node.items():
-                if key.startswith("_"):
-                    return f"has the element {key} (an extension of a value), which a package does not carry"
-                if key == "contained":
-                    return "holds a contained resource, which a package does not carry"
+                return f"holds an object at {where}, which the shipped synthetic test patients never carry there"
+            if not node:
+                return f"holds an empty object at {where}"
+            for key in node:
                 child = f"{path}.{key}" if path else key
-                if child == "resourceType":
-                    continue
-                if child not in leaves and child not in inner:
-                    return f"holds the element {kind}.{child}, which the shipped synthetic test patients never carry"
-                stack.append((child, value))
+                if child != "resourceType" and child not in leaves and child not in inner:
+                    return f"holds an element under {where} that the shipped synthetic test patients never carry"
+            if "reference" in node and ("display" in node or "identifier" in node):
+                return f"has a reference at {where} with a display or an identifier, which a package does not carry"
+            system, code = node.get("system"), node.get("code")
+            system = system if isinstance(system, str) else None
+            if system in SITE_LOCAL_CODE_SYSTEMS and not (isinstance(code, str) and code in PLACEHOLDER_DEPARTMENTS):
+                return (
+                    f"holds a code of the hospital's own system {system} that is not one of the synthetic placeholders"
+                )
+            stack.extend(
+                (f"{path}.{key}" if path else key, value, False)
+                for key, value in node.items()
+                if key != "resourceType" or path
+            )
             continue
         if path not in leaves:
-            return f"holds a value at {kind}.{path} where the shipped synthetic test patients hold an object"
-        last = path.rsplit(".", 1)[-1]
-        if last == "reference":
-            why = _reference_refusal(node)
-            if why:
-                return why
-        elif last == "system" and node not in TEST_PATIENT_SYSTEMS:
-            return (
-                f"names a system at {kind}.{path} that is not one of the test patients' systems (the standard "
-                "terminologies and the named placeholder systems, written exactly)"
-            )
-        elif path == "meta.profile" and node not in TEST_PATIENT_PROFILES:
-            return f"names a profile at {kind}.{path} that is not one of the test patients' profiles"
+            return f"holds a value at {where} where the shipped synthetic test patients hold an object"
+        why = _leaf_refusal(kind, path, node)
+        if why:
+            return why
     return None
 
 
 def _test_patients_refusal(data: bytes) -> str | None:
-    """Why the test patients may not leave the box, or None: each line a JSON object that passes the allow-list of
-    D-1372 (:func:`_resource_refusal`)."""
+    """Why the test patients may not leave the box, or None: no byte-order mark, each line a JSON object that passes
+    the allow-list of D-1372 (:func:`_resource_refusal`). The file travels as its text form (D-1366), not
+    re-serialised: the criteria hash covers that form, and 828 of the shipped files' 30,551 lines are not RFC 8785."""
     why = _depth_refusal(TEST_PATIENTS, data)
     if why:
         return why
+    if _BOM in data:
+        return f"{TEST_PATIENTS} holds a byte-order mark; it is written as UTF-8 without one"
     for number, line in enumerate(data.splitlines(), 1):
         if not line.strip():
             continue
@@ -755,14 +877,91 @@ def _test_patients_refusal(data: bytes) -> str | None:
     return None
 
 
+#: the keys of a compiled ELM library (``cql/elm/*.json``): the file is ``{"library": {...}}`` with only these (the
+#: ELM standard's library keys and ``localId``, which the shipped files carry); the keys inside them are not checked
+#: here (the ELM node allow-list is 10D-28's, ``ruleset_part``)
+ELM_LIBRARY_KEYS = frozenset(
+    {
+        "annotation",
+        "codeSystems",
+        "codes",
+        "concepts",
+        "contexts",
+        "identifier",
+        "includes",
+        "localId",
+        "parameters",
+        "schemaIdentifier",
+        "statements",
+        "usings",
+        "valueSets",
+    }
+)
+
+
+def _elm_refusal(path: str, doc: Any) -> str | None:
+    library = doc.get("library") if isinstance(doc, dict) and set(doc) == {"library"} else None
+    if not isinstance(library, dict) or not set(library) <= ELM_LIBRARY_KEYS:
+        return (
+            f"{path} is not a compiled ELM library: an object whose one key is library, holding only the ELM "
+            "library's keys"
+        )
+    return None
+
+
+_FLAG = re.compile(r"[a-z][a-z0-9_]{0,63}")
+
+
+def _ir_refusal(path: str, doc: Any) -> str | None:
+    """An IR's ``flags`` are words of the compiler's (``needs_review``, ``compile_error``: as the rule-set export of
+    10D-28 takes them), and its ``provenance`` holds only ``calls`` (D-989; nothing writes its other fields), each a
+    call id."""
+    if not isinstance(doc, dict):
+        return None
+    flags = doc.get("flags")
+    if flags is not None and not (
+        isinstance(flags, list) and all(isinstance(f, str) and _FLAG.fullmatch(f) for f in flags)
+    ):
+        return f"{path} holds a flag that is not one word of the compiler's (lower-case letters, digits and '_')"
+    prov = doc.get("provenance")
+    if prov is None:
+        return None
+    calls = prov.get("calls") if isinstance(prov, dict) and set(prov) <= {"calls"} else None
+    if not isinstance(calls, list) or not all(isinstance(c, str) and _ID.fullmatch(c) for c in calls):
+        return (
+            f"{path} holds a provenance that is not a list of call ids (calls only; letters, digits, '.' and '-', at "
+            "most 64 each)"
+        )
+    return None
+
+
 #: the folders whose files the engine reads as the study's (``Ruleset.from_files``)
 _ENGINE_DIRS = ("ir/", "valuesets/", "cql/", "sql/")
+
+
+def _not_carried(path: str) -> str:
+    return (
+        f"it holds {path}, which a package does not carry (a hidden file, a file in a subfolder, or an "
+        "extension that folder does not take: cql/elm/ takes only .json); remove it from the folder"
+    )
+
+
+def _hashed(path: str, docx: str | None) -> bool:
+    """Whether the criteria hash covers ``path`` (``study_manifest.PROTOCOL_FILES``, the template, not a site file)."""
+    if path in sm.SITE_FILES:
+        return False
+    return path == docx or any(
+        path == prefix if suffix is None else path.startswith(prefix) and path.endswith(suffix)
+        for prefix, suffix, _ in sm.PROTOCOL_FILES
+    )
 
 
 def _folder_refusal(files: Mapping[str, bytes]) -> str | None:
     """Why the protocol files of a study folder may not be packed, or None: each file the criteria hash covers is one
     a package carries (:data:`PACKAGE_FILES`); each JSON file is JSON; each ``ir/*.json`` loads as a ``CriterionIR``
-    and each ``valuesets/*.json`` as a :class:`ValueSetFile` (both refuse a field they do not have)."""
+    and each ``valuesets/*.json`` as a :class:`ValueSetFile` (both refuse a field they do not have; the IR strictly,
+    as JSON, by its field names: no lax type, no Python name for an aliased field); each ``cql/elm/*.json`` is a
+    library of :data:`ELM_LIBRARY_KEYS`; an IR's flags are compiler words and its ``provenance`` only call ids."""
     if sm.MANIFEST not in files:
         return None  # split says so
     try:
@@ -774,23 +973,24 @@ def _folder_refusal(files: Mapping[str, bytes]) -> str | None:
         if path == docx:
             continue
         if (path in hashed or path.startswith(_ENGINE_DIRS)) and not carriable(path):
-            return (
-                f"it holds {path}, which a package does not carry (a hidden file, a file in a subfolder, or an "
-                "extension that folder does not take: cql/elm/ takes only .json); remove it from the folder"
-            )
+            return _not_carried(path)
         if path not in hashed or not path.endswith(".json"):
             continue
         try:
             doc = sm.load_json(files[path])
         except (ValueError, UnicodeDecodeError):
             return f"{path} is not JSON"
+        why = _elm_refusal(path, doc) if path.startswith("cql/elm/") else None
+        why = why or (_ir_refusal(path, doc) if path.startswith("ir/") else None)
+        if why:
+            return why
         try:
             if path.startswith("ir/"):
-                CriterionIR.model_validate(doc)
-                CriterionIR.model_validate(sm.load_json(sm.carried(path, files[path]) or b""))
+                for body in (sm.dumps(doc), sm.carried(path, files[path]) or b""):
+                    CriterionIR.model_validate_json(body, strict=True, by_alias=True, by_name=False)
             elif path.startswith("valuesets/"):
                 ValueSetFile.model_validate(doc)
-        except ValidationError:
+        except ValueError:  # a ValidationError, or a number RFC 8785 cannot write
             model = "a criterion (CriterionIR)" if path.startswith("ir/") else "a value set"
             return (
                 f"{path} does not load as {model}: it holds a field the model does not have, or a value it does "
@@ -877,39 +1077,144 @@ def build(files: Mapping[str, bytes], private_pem: bytes, created: str) -> bytes
     return data
 
 
+_DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+_FILE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
+
+
+def _read_fd(dir_fd: int, name: str, rel: str, cap: int, seen: os.stat_result) -> bytes:
+    """One file opened by name in its folder's descriptor without following a link, checked on the open descriptor
+    (the file listed, a regular file, one link) and against ``cap`` before a byte is read."""
+    fd = os.open(name, _FILE_FLAGS, dir_fd=dir_fd)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or (st.st_dev, st.st_ino) != (seen.st_dev, seen.st_ino):
+            raise ValueError(f"the study folder cannot be packaged: {rel} is not a regular file, or changed while read")
+        if st.st_nlink > 1:
+            raise ValueError(
+                f"the study folder cannot be packaged: {rel} has another name on this disk (a hard link); a package "
+                "is written from the folder's own files only"
+            )
+        if st.st_size > cap:
+            raise ValueError(
+                f"the study folder cannot be packaged: {rel} is {st.st_size:,} bytes; a carried file may be at most "
+                f"{cap:,} bytes"
+            )
+        chunks: list[bytes] = []
+        left = cap + 1
+        while left > 0:
+            chunk = os.read(fd, min(left, 1 << 20))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            left -= len(chunk)
+        data = b"".join(chunks)
+        if len(data) > cap:
+            raise ValueError(f"the study folder cannot be packaged: {rel} grew past {cap:,} bytes while read")
+        return data
+    finally:
+        os.close(fd)
+
+
 def read_folder(folder: Path) -> dict[str, bytes]:
-    """The files of a study folder on disk as ``{relative path: bytes}``, read as ``Ruleset.load`` reads it but
-    refused (``ValueError``, one sentence) when anything inside it is a symbolic link (a file or a folder) or not a
-    regular file: a package is written from the folder's own files only."""
+    """The files of a study folder on disk that a package needs, as ``{relative path: bytes}``: ``manifest.yaml``
+    and each file a package carries (:func:`carriable`), nothing else is read. The folder is opened once, as a
+    directory descriptor that is not a symbolic link, and walked by descriptor (``dir_fd``, ``O_NOFOLLOW`` on every
+    component), so a folder or file swapped for a link while it is read is refused, not followed. Refused
+    (``ValueError``, one sentence): the folder itself a link; anything inside it a symbolic link (a file or a folder)
+    or not a regular file or folder; a file it would read with another name on the disk (a hard link) or over its
+    size cap (checked before it is read: 4 MiB for the manifest, 100,000,000 bytes for a protocol file, 200,000,000
+    together); the docx template; a file the criteria hash covers or under ``ir/``, ``valuesets/``, ``cql/``, ``sql/``
+    that a package does not carry. The path to the folder itself is resolved as usual."""
+    try:
+        root = os.open(folder, _DIR_FLAGS)
+    except OSError as error:
+        if os.path.islink(folder):
+            raise ValueError(
+                "the study folder cannot be packaged: the folder is a symbolic link; give the folder itself"
+            ) from None
+        raise ValueError(
+            f"the study folder cannot be packaged: it cannot be opened as a folder ({error.strerror})"
+        ) from None
     files: dict[str, bytes] = {}
-
-    def fail(error: OSError) -> None:
-        raise error
-
-    for root, dirs, names in os.walk(folder, onerror=fail, followlinks=False):
-        here = Path(root)
-        for name in sorted(dirs + names):
-            entry = here / name
-            rel = entry.relative_to(folder).as_posix()
-            mode = os.lstat(entry).st_mode
-            if stat.S_ISLNK(mode):
+    total = 0
+    try:
+        try:
+            seen = os.stat(sm.MANIFEST, dir_fd=root, follow_symlinks=False)
+        except FileNotFoundError:
+            seen = None
+        docx = None
+        if seen is not None and stat.S_ISREG(seen.st_mode):
+            files[sm.MANIFEST] = _read_fd(root, sm.MANIFEST, sm.MANIFEST, STUDY_PACKAGE_MAX_META_BYTES, seen)
+            total = len(files[sm.MANIFEST])
+            try:
+                loaded = yaml.safe_load(files[sm.MANIFEST].decode("utf-8")) or {}
+            except (ValueError, yaml.YAMLError):
                 raise ValueError(
-                    f"the study folder cannot be packaged: {rel} is a symbolic link; a package is written from the "
-                    "folder's own files only"
-                )
-            if stat.S_ISDIR(mode):
-                continue
-            if not stat.S_ISREG(mode):
-                raise ValueError(f"the study folder cannot be packaged: {rel} is not a regular file")
-            fd = os.open(entry, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
-            with os.fdopen(fd, "rb") as fh:
-                if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):  # pragma: no cover - changed while read
-                    raise ValueError(f"the study folder cannot be packaged: {rel} is not a regular file")
-                files[rel] = fh.read()
+                    "the study folder cannot be packaged: its manifest.yaml is not a YAML mapping"
+                ) from None
+            docx = loaded.get("docx_template") if isinstance(loaded, dict) else None
+        stack: list[tuple[int, str]] = [(root, "")]
+        opened: list[int] = []
+        try:
+            while stack:
+                dfd, prefix = stack.pop()
+                with os.scandir(dfd) as listing:
+                    names = sorted(entry.name for entry in listing)
+                for name in names:
+                    rel = prefix + name
+                    st = os.stat(name, dir_fd=dfd, follow_symlinks=False)
+                    if stat.S_ISLNK(st.st_mode):
+                        raise ValueError(
+                            f"the study folder cannot be packaged: {rel} is a symbolic link; a package is written "
+                            "from the folder's own files only"
+                        )
+                    if stat.S_ISDIR(st.st_mode):
+                        try:
+                            child = os.open(name, _DIR_FLAGS, dir_fd=dfd)
+                        except OSError:
+                            raise ValueError(
+                                f"the study folder cannot be packaged: {rel} is a symbolic link or changed while read"
+                            ) from None
+                        opened.append(child)
+                        cst = os.fstat(child)
+                        if (cst.st_dev, cst.st_ino) != (st.st_dev, st.st_ino):
+                            raise ValueError(f"the study folder cannot be packaged: {rel} changed while read")
+                        stack.append((child, rel + "/"))
+                        continue
+                    if not stat.S_ISREG(st.st_mode):
+                        raise ValueError(f"the study folder cannot be packaged: {rel} is not a regular file")
+                    if rel == sm.MANIFEST:
+                        continue
+                    if docx and rel == docx:
+                        raise ValueError(
+                            f"the study folder holds its template {docx}: a v1 package does not carry a template "
+                            "(its bytes would travel as they are, with whatever names its document properties hold)"
+                        )
+                    if rel in sm.SITE_FILES or not carriable(rel):
+                        if _hashed(rel, docx) or rel.startswith(_ENGINE_DIRS):
+                            raise ValueError(f"the study folder cannot be packaged: {_not_carried(rel)}")
+                        continue  # not carried and not hashed: not read
+                    try:
+                        files[rel] = _read_fd(dfd, name, rel, STUDY_PACKAGE_MAX_MEMBER_BYTES, st)
+                    except OSError:
+                        raise ValueError(
+                            f"the study folder cannot be packaged: {rel} is a symbolic link or changed while read"
+                        ) from None
+                    total += len(files[rel])
+                    if total > STUDY_PACKAGE_MAX_BYTES:
+                        raise ValueError(
+                            f"the study folder cannot be packaged: its files are more than {STUDY_PACKAGE_MAX_BYTES:,} "
+                            "bytes together"
+                        )
+        finally:
+            for fd in opened:
+                os.close(fd)
+    finally:
+        os.close(root)
     return files
 
 
 def build_dir(folder: Path, private_pem: bytes, created: str) -> bytes:
-    """:func:`build` of a study folder on disk (``rulesets/<ID>/``), read by :func:`read_folder` (no symbolic link,
-    no file that is not a regular file)."""
+    """:func:`build` of a study folder on disk (``rulesets/<ID>/``), read by :func:`read_folder` (by descriptor, no
+    symbolic link, no hard link, no file that is not a regular file, caps before reading, only what is carried)."""
     return build(read_folder(folder), private_pem, created)
