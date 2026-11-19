@@ -134,10 +134,10 @@ def test_the_tables_are_the_layers_value_asked_by_one_call() -> None:
     from tb_common import country_layer
 
     names = country_layer.value("JP", "P7", "code_tables")
-    assert list(names) == [str(p.relative_to(mapping.MAPPING_DIR)) for _k, p, *_c in mapping.code_tables("JP")]
+    assert list(names) == [p.relative_to(mapping.MAPPING_DIR).as_posix() for _k, p, *_c in mapping.code_tables("JP")]
     for country in ("TW", "US", "", None):
         assert country_layer.value(country, "P7", "code_tables") is None
-        assert [str(p.relative_to(mapping.MAPPING_DIR)) for _k, p, *_c in mapping.code_tables(country)] == list(
+        assert [p.relative_to(mapping.MAPPING_DIR).as_posix() for _k, p, *_c in mapping.code_tables(country)] == list(
             mapping.OTHER_COUNTRY_TABLES
         )
     assert "sitesetup.mapping:code_tables" in country_layer.layer("JP").parts["P7"].readers
@@ -152,9 +152,9 @@ def test_the_same_layer_under_another_country_code_gives_the_same_tables() -> No
     doc["parts"]["P7"]["values"]["code_tables"] = doc["parts"]["P7"]["values"]["code_tables"][:2]
     xq = country_layer.parse(json.dumps(doc, ensure_ascii=False).encode(), "xq_profile.json")
     with _layers({"XQ": xq}):
-        got = [str(p.relative_to(mapping.MAPPING_DIR)) for _k, p, *_c in mapping.code_tables("XQ")]
+        got = [p.relative_to(mapping.MAPPING_DIR).as_posix() for _k, p, *_c in mapping.code_tables("XQ")]
         assert got == doc["parts"]["P7"]["values"]["code_tables"]  # the layer's data, whatever its country code
-        assert [str(p.relative_to(mapping.MAPPING_DIR)) for _k, p, *_c in mapping.code_tables("JP")] == list(
+        assert [p.relative_to(mapping.MAPPING_DIR).as_posix() for _k, p, *_c in mapping.code_tables("JP")] == list(
             mapping.OTHER_COUNTRY_TABLES
         )  # and Japan, without its layer, is a country without one
 
@@ -271,9 +271,6 @@ if __name__ == "__main__":  # run in a worktree of master: writes master's answe
         raise SystemExit("usage: python tests/unit/test_sitesetup_code_tables_layer.py --capture")
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True)
     FIXTURE.parent.mkdir(parents=True, exist_ok=True)
-    FIXTURE.write_text(
-        json.dumps({"captured_from": head.stdout.strip(), "answers": capture()}, ensure_ascii=False, indent=1,
-                   sort_keys=True) + "\n",  # fmt: skip
-        encoding="utf-8",
-    )
+    doc = {"captured_from": head.stdout.strip(), "answers": capture()}
+    FIXTURE.write_text(json.dumps(doc, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     print(f"wrote {FIXTURE}")
