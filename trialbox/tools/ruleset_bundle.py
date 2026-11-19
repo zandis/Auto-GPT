@@ -87,7 +87,7 @@ def pinned_compat(bundle_id: str, origins: list[dict[str, Any]]) -> tuple[dict[s
 
 
 def main(argv: list[str] | None = None) -> int:
-    for p in (str(ROOT / "libs"), str(ROOT)):
+    for p in (str(ROOT / "libs"), str(ROOT / "services"), str(ROOT)):  # services: the compiler's comment check
         if p not in sys.path:
             sys.path.insert(0, p)
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)

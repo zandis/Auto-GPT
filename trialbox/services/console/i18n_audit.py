@@ -412,13 +412,14 @@ EVENTS: dict[str, tuple[str, str, str]] = {
     "update.downgrade": ("Downgrade", "ダウングレード", "降版"),
     "update.backup_skipped": ("Update without a backup", "バックアップなしの更新", "未備份即更新"),
     "update.rolled_back": ("Update rolled back", "更新の差し戻し", "更新已還原"),
-    # D-1369 (10D-28): a rule set exported for a vendor bundle; a site's own routing and scope for one that arrives
-    "ruleset.part_exported": (
+    # D-1369 (10D-28): a rule set exported for a vendor bundle; a site's own routing and scope for one that arrives.
+    # In the approval family: the criteria compiler writes them, and that family is its own (audit_writer.ROLE_EVENTS)
+    "approve.part_exported": (
         "Rule set exported for a vendor bundle (interim)",
         "ベンダー更新バンドル用に基準を書き出し（暫定）",
         "匯出條件供廠商更新包使用（暫行）",
     ),
-    "ruleset.site_profile_set": (
+    "approve.site_profile_set": (
         "Site routing and scope set for a rule set",
         "基準の施設別送付先・対象範囲を設定",
         "設定條件的本院寄送對象與範圍",

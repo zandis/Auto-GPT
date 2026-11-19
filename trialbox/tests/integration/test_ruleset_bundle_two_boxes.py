@@ -16,8 +16,9 @@ Two in-process boxes (``tests/inproc_box.py``) read the same synthetic hospital.
    are not the shipped version's: the second box screened with what the bundle carried, not with a rule set that was
    on it already. The matching engine is not changed by the card.
 
-The part carries no routing or scope (D-1369): the second box screens with its own, from its repository's
-``profiles/GZQO.yaml`` (the synthetic site's, the same hospital here). A box that holds a version already refuses a
+The part carries no routing or scope (D-1369): the second box screens with its own, which its operator sets first
+with ``import_ruleset --site-profile`` (audited; here the synthetic site's people, the same hospital; the example
+profile the box ships with does not count). A box that holds a version already refuses a
 part of that version with other content; for the dry run the head box exports a new id or version, as here.
 Not done here: the container box's steps (backup, images, restart: ``tools/trialbox/update.py`` ``ComposeBox``,
 unchanged). Synthetic data only.
@@ -33,6 +34,7 @@ import pytest
 import tb_contracts as c
 import yaml
 from criteria_compiler.export_part import compiled_on, export
+from criteria_compiler.import_ruleset import put_site_profile
 from criteria_compiler.repo import RulesetRepo
 from tb_common.audit import AuditLog
 from tb_common.crypto import pid_for_mrn
@@ -122,6 +124,10 @@ def test_a_rule_set_from_the_head_box_screens_the_same_on_the_site_box(
     updates.mkdir()
     (updates / "installed.json").write_text(json.dumps({"format": "trialbox-installed/1", "release_seq": 3,
                                                         "bundle_id": "2026.11-1", "state": {}}))  # fmt: skip
+    site_repo = RulesetRepo(tmp_path / "site" / "repo")
+    shipped = yaml.safe_load(site_repo.read("main", "profiles/GZQO.yaml") or b"")
+    own = {"routing": shipped["routing"], "scopes": shipped["scopes"]}  # the operator's own file, the same people
+    put_site_profile(site_repo, "GZQO", yaml.safe_dump(own).encode(), "operator", audit=AuditLog(tmp_path / "s-audit"))
     box = ScreenOnlyBox(tmp_path / "site" / "repo", AuditLog(tmp_path / "update-audit"))
     assert apply_bundle(tmp_path / "rs.tar", pub, box, updates, tmp_path / "stage")["ok"]
     assert arrived_in_bundle(tmp_path / "site" / "repo", "GZQO", "1.0.1")

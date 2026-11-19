@@ -302,14 +302,15 @@ Until the coordinating centre's study package exists, a study compiled and appro
 screen-only site box in a vendor bundle:
 
 1. On the head box: `python -m criteria_compiler.export_part <ID> --out <ID>-<version>.part.zip --installed
-   installed.json` (in the criteria compiler's container; audited `ruleset.part_exported`). The part carries criteria
-   and codes only: no routing, scope, approver, reviewer, IRB record or site code table.
+   installed.json` (in the criteria compiler's container; audited `approve.part_exported`). The part carries criteria
+   and codes only: no routing, scope, approver, reviewer, IRB record, site code table, file off the list or comment.
 2. The vendor: `python -m tools.ruleset_bundle --key <vendor key> --id <id> --release-seq <N> --out <bundle>.tar
    <part>`. **A rule-set bundle uses one number of the vendor's `release_seq`**, like a release: the next release
    takes the number after it. It is valid 30 days (`--valid-days`, at most 90).
 3. On the site box, once, before the bundle: the site's own routing and screening scope for the study,
-   `python -m criteria_compiler.import_ruleset --site-profile <ID> <file>` (a YAML file with `routing` and `scopes`,
-   as in `rulesets/profiles/`; audited `ruleset.site_profile_set`). Without them the bundle is refused and rolled back.
+   `python -m criteria_compiler.import_ruleset --site-profile <ID> <file>` (a YAML file with `routing` and `scopes`
+   only; the example profile shipped with the box does not count; audited `approve.site_profile_set`). Without them
+   the bundle is refused and rolled back.
 4. `sudo tools/apply_update.sh <bundle>.tar` as for any update. The box keeps the release it runs (`apply_update.sh
    status` shows it as `release (code)`); the console lists the study as "arrived in a vendor bundle (interim)".
 

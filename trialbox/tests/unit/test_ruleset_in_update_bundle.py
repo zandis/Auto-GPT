@@ -21,7 +21,7 @@ import io
 import json
 import tarfile
 import zipfile
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -163,7 +163,8 @@ def site_box(tmp_path: Path, profile: bool = True, keep: tuple[str, ...] = ()) -
     repo = RulesetRepo(tmp_path / "site", seed)
     approve_at_site(tmp_path / "site", by="pi@site.test")
     if profile:
-        put_site_profile(repo, "GZQO", yaml.safe_dump(SITE_PROFILE).encode(), "operator")
+        put_site_profile(repo, "GZQO", yaml.safe_dump(SITE_PROFILE).encode(), "operator",
+                         audit=AuditLog(tmp_path / "site-audit"))  # fmt: skip
     updates = tmp_path / "updates"
     updates.mkdir()
     (updates / "installed.json").write_text(json.dumps({**HEAD_RELEASE, "commit": "b" * 40}))
@@ -227,18 +228,23 @@ def test_the_part_carries_criteria_and_codes_only(head: RulesetRepo, tmp_path: P
     assert origin["pins"]["judge_prompt"] == "judge_v4"
     ir = json.loads(files["ir/GZQO-INC-01.json"])
     assert ir["review"] == {"status": "approved"} and "provenance" not in ir
-    at = datetime(2026, 11, 19, tzinfo=UTC)  # the same approved version and time give the same bytes
-    assert (
-        export(head, "GZQO", compiled_on(HEAD_RELEASE), at)[0] == export(head, "GZQO", compiled_on(HEAD_RELEASE), at)[0]
-    )
+    # S5: the part holds no time: the same approved version exported again is the same part, byte for byte
+    assert export(head, "GZQO", compiled_on(HEAD_RELEASE))[0] == part.read_bytes()
+    assert "exported_at" not in origin
 
 
-def test_a_file_or_field_nobody_placed_refuses_the_export() -> None:
+def test_a_file_or_field_nobody_placed_refuses_the_export(head: RulesetRepo) -> None:
+    files = _head_files(head)
     with pytest.raises(PartRefused, match="patients.csv"):
-        neutral_files({"manifest.yaml": b"id: X\n", "patients.csv": b"mrn\n"})
+        neutral_files({**files, "patients.csv": b"mrn\n"})
     with pytest.raises(PartRefused, match="not placed"):
-        neutral_files({"manifest.yaml": b"id: X\nnew_site_field: 1\n"})
-    assert list(neutral_files({"manifest.yaml": b"id: X\n", "tests/patients.ndjson": b"{}"})) == ["manifest.yaml"]
+        neutral_files({**files, "manifest.yaml": files["manifest.yaml"] + b"new_site_field: 1\n"})
+    out = neutral_files({**files, "tests/patients.ndjson": b"{}"})
+    assert "manifest.yaml" in out and not [p for p in out if p.startswith("tests/")]
+
+
+def _head_files(head: RulesetRepo) -> dict[str, bytes]:
+    return {p[len("GZQO/") :]: b for p, b in head.files("refs/tags/GZQO/v1.0.0", "GZQO/").items()}
 
 
 def test_only_the_boxs_own_approval_is_exported_and_it_is_audited(tmp_path: Path, site_env: None) -> None:
@@ -255,7 +261,7 @@ def test_only_the_boxs_own_approval_is_exported_and_it_is_audited(tmp_path: Path
     repo.retag("GZQO/v1.0.0", "GZQO v1.0.0 approved by pi@head.test", "pi@head.test")
     audit = AuditLog(tmp_path / "head-audit")
     _data, origin = export(repo, "GZQO", compiled_on(HEAD_RELEASE), audit=audit, by="host:operator")
-    (ev,) = [e for e in audit_events(tmp_path / "head-audit") if e["event"] == "ruleset.part_exported"]
+    (ev,) = [e for e in audit_events(tmp_path / "head-audit") if e["event"] == "approve.part_exported"]
     assert (ev["actor"], ev["ruleset"], ev["ruleset_version"]) == ("host:operator", "GZQO", "1.0.0")
     assert ev["output_sha"] == origin["part_sha256"] and ev["detail"]["files"] == len(origin["files"])
 
@@ -372,11 +378,12 @@ def _versioned(head: RulesetRepo, version: str, out: Path, terminology: str | No
     m["version"] = version
     if terminology:
         m["terminology_release"] = terminology
+    pins = {"judge_prompt": m["models"]["judge_prompt"], "terminology_release": m.get("terminology_release")}
     files["manifest.yaml"] = yaml.safe_dump(m, allow_unicode=True, sort_keys=False).encode()
+    files["sql/GZQO.sql"] = files["sql/GZQO.sql"].replace(b"-- GZQO v1.0.0 ", f"-- GZQO v{version} ".encode(), 1)
     origin = {"format": "trialbox-ruleset-part/1", "ruleset": "GZQO", "version": version, "left_out": ["tests/"],
               "approval_tag": f"GZQO/v{version}", "compiled_on": {"bundle_id": "2026.11-1", "release_seq": 3},
-              "pins": {"judge_prompt": "judge_v4", "terminology_release": terminology},
-              "exported_at": "2026-11-19T00:00:00+00:00"}  # fmt: skip
+              "pins": pins}  # fmt: skip
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(build_part("GZQO", files, origin))
     return out
@@ -437,9 +444,12 @@ def test_the_same_version_with_another_hash_is_refused(head: RulesetRepo, tmp_pa
     box, _updates = site_box(tmp_path)
     repo = RulesetRepo(box.repo_dir)
     install(repo, make_part(head, tmp_path / "a.zip").read_bytes(), "update:a")
-    later = export(head, "GZQO", compiled_on(HEAD_RELEASE), datetime(2030, 1, 1, tzinfo=UTC))[0]  # another record
+    # S5: exported again later from the same release: the same part, a repeat (not "other content")
+    again = export(head, "GZQO", compiled_on(HEAD_RELEASE))[0]
+    assert install(repo, again, "update:again") == "GZQO/v1.0.0"
+    other = export(head, "GZQO", {"bundle_id": "2026.12-1", "release_seq": 5})[0]  # another record: another hash
     with pytest.raises(ImportRefused, match="already exists on this box with other content"):
-        install(repo, later, "update:b")
+        install(repo, other, "update:b")
 
 
 @pytest.mark.parametrize(
@@ -561,3 +571,294 @@ def test_the_sponsor_pack_says_it_arrived_instead_of_an_approver() -> None:
     assert "arrived in a vendor bundle (interim)" in readme and "Approved by:" not in readme
     detail = {"title": "t", "review": {"approved_by": "pi@site.test"}}
     assert "Approved by: pi@site.test" in members(build_sponsor_pack(job, [], detail, None))["README.txt"].decode()  # type: ignore[arg-type]
+
+
+# ------------------------------------------------------------------------------------------------ the third review
+def _head_with(tmp_path: Path, change: Any) -> RulesetRepo:
+    """A head box whose GZQO folder ``change(folder)`` altered before it was approved at that box."""
+    seed = copy_rulesets(tmp_path / "seed3")
+    _plant(seed)
+    change(seed / "GZQO")
+    repo = RulesetRepo(tmp_path / "head3", seed)
+    approve_at_site(tmp_path / "head3", by=PLANTED[0])
+    return repo
+
+
+def _reseal(part: bytes, files: dict[str, bytes], origin: dict[str, Any] | None = None) -> bytes:
+    """A part's members with ``files`` as its folder and its record re-hashed (only the content can refuse it)."""
+    rid, _f, _m, o = open_part(part)
+    o = {**(origin or o), "files": sorted(files)}
+    o["part_sha256"] = part_sha256(files, o)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for p, b in files.items():
+            z.writestr(f"{rid}/{p}", b)
+        z.writestr(ORIGIN, json.dumps(o))
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize("name", ["sql/patients.csv", "cql/notes.md", "valuesets/README.txt", "ir/x.txt",
+                                  "cql/elm/sub/TB_Common.json", "labels.yml"])  # fmt: skip
+def test_b2_a_file_off_the_list_refuses_the_export(tmp_path: Path, site_env: None, name: str) -> None:
+    """B2: the list is per file (master's PROTOCOL_FILES), not per folder: any other file refuses the export."""
+
+    def plant(d: Path) -> None:
+        (d / name).parent.mkdir(parents=True, exist_ok=True)
+        (d / name).write_text("mrn,name\nCNRY-B2,Planted Person\n", encoding="utf-8")
+
+    with pytest.raises(ExportRefused, match=f"{name}: not a file a rule-set part carries.*any other file refuses"):
+        export(_head_with(tmp_path, plant), "GZQO", compiled_on(HEAD_RELEASE))
+
+
+@pytest.mark.parametrize("name", ["sql/patients.csv", "cql/notes.md", "tests/patients.ndjson"])
+def test_b2_the_import_refuses_a_member_off_the_list(head: RulesetRepo, tmp_path: Path, name: str) -> None:
+    """B2: resealed with a right record and hash, a member off the list is still refused; nothing is installed."""
+    part = make_part(head, tmp_path / "p.zip").read_bytes()
+    files = {**open_part(part)[1], name: b"mrn\n12345678\n"}
+    box, _updates = site_box(tmp_path)
+    with pytest.raises(ImportRefused, match="files a part does not carry"):
+        install(RulesetRepo(box.repo_dir), _reseal(part, files), "update:x")
+    assert "GZQO/v1.0.0" not in RulesetRepo(box.repo_dir).tags()
+
+
+@pytest.mark.parametrize(
+    "path, text, line",
+    [("cql/TB_GZQO_v1_0.cql", "// CNRY-CQL reviewer note\n", 1),
+     ("cql/TB_GZQO_v1_0.cql", "/* CNRY-CQL-BLOCK */\n", 1),
+     ("cql/TB_Common.cql", "\n\n/* CNRY-COMMON */\n", 3),
+     ("sql/GZQO.sql", "-- CNRY-SQL 审阅\n", 1)],
+)  # fmt: skip
+def test_b2_a_comment_the_compiler_does_not_write_refuses_the_export(
+    tmp_path: Path, site_env: None, path: str, text: str, line: int
+) -> None:
+    """B2: a comment in code is never stripped (it could change what the code means): the export is refused, with the
+    file and the line."""
+
+    def plant(d: Path) -> None:
+        (d / path).write_text(text + (d / path).read_text(encoding="utf-8"), encoding="utf-8")
+
+    with pytest.raises(ExportRefused, match=f"a comment the compiler does not write, at {path} line {line}"):
+        export(_head_with(tmp_path, plant), "GZQO", compiled_on(HEAD_RELEASE))
+
+
+def test_b2_the_compilers_own_comments_travel_and_a_planted_one_never_does(head: RulesetRepo, tmp_path: Path) -> None:
+    """The generated headers and criterion lines pass (the shipped GZQO exports); a comment hidden in a part made past
+    the export is refused at the receiving box."""
+    part = make_part(head, tmp_path / "p.zip").read_bytes()
+    files = open_part(part)[1]
+    assert b"-- GZQO-INC-01 (inclusion): " in files["sql/GZQO.sql"]
+    sql = files["sql/GZQO.sql"].replace(b"\nSELECT", b"\n-- CNRY-HIDDEN\nSELECT", 1)
+    assert sql != files["sql/GZQO.sql"]
+    box, _updates = site_box(tmp_path)
+    with pytest.raises(ImportRefused, match="a comment the compiler does not write, at sql/GZQO.sql line"):
+        install(RulesetRepo(box.repo_dir), _reseal(part, {**files, "sql/GZQO.sql": sql}), "update:x")
+
+
+def test_b2_yaml_comments_annotations_and_unknown_keys_never_travel(tmp_path: Path, site_env: None) -> None:
+    """B2: YAML is written again (its comments go); ELM loses its annotations (the translator's copy of the source);
+    an ELM identifier key, a value-set key or a nested one nobody placed refuses the export."""
+
+    def plant(d: Path) -> None:
+        lab = d / "labels.yaml"
+        lab.write_text("# CNRY-LABEL reviewed by someone\n" + lab.read_text(encoding="utf-8"), encoding="utf-8")
+        mf = d / "manifest.yaml"
+        mf.write_text("# CNRY-MANIFEST comment\n" + mf.read_text(encoding="utf-8"), encoding="utf-8")
+        elm = d / "cql" / "elm" / "TB_GZQO_v1_0.json"
+        e = json.loads(elm.read_text(encoding="utf-8"))
+        e["library"]["annotation"].append({"type": "Annotation", "s": {"value": ["/* CNRY-ELM */"]}})
+        elm.write_text(json.dumps(e), encoding="utf-8")
+
+    data, _origin = export(_head_with(tmp_path, plant), "GZQO", compiled_on(HEAD_RELEASE))
+    blobs = [data, *members(data).values()]
+    for canary in (b"CNRY-LABEL", b"CNRY-MANIFEST", b"CNRY-ELM", b"CqlToElmInfo", b"translatorOptions"):
+        assert not [b for b in blobs if canary in b], canary
+    elm = json.loads(members(data)["GZQO/cql/elm/TB_GZQO_v1_0.json"])
+    assert "annotation" not in elm["library"] and elm["library"]["statements"]  # what runs is kept
+    assert yaml.safe_load(members(data)["GZQO/labels.yaml"])["criteria"]["GZQO-INC-01"]["source"]
+
+    for i, (where, change) in enumerate(
+        (
+            ("library.identifier holds keys", lambda e: e["library"]["identifier"].update(system="CNRY-LIBID")),
+            ("VS_GOUT.json holds keys", "publisher"),
+            ("concept\\[0\\] holds keys", "designation"),
+        )
+    ):
+
+        def plant2(d: Path, change: Any = change) -> None:
+            if callable(change):
+                elm = d / "cql" / "elm" / "TB_GZQO_v1_0.json"
+                e = json.loads(elm.read_text(encoding="utf-8"))
+                change(e)
+                elm.write_text(json.dumps(e), encoding="utf-8")
+                return
+            vs = d / "valuesets" / "VS_GOUT.json"
+            v = json.loads(vs.read_text(encoding="utf-8"))
+            if change == "publisher":
+                v["publisher"] = "CNRY-PUBLISHER"
+            else:
+                v["compose"]["include"][0]["concept"][0]["designation"] = [{"value": "CNRY-NESTED"}]
+            vs.write_text(json.dumps(v), encoding="utf-8")
+
+        with pytest.raises(ExportRefused, match=where):
+            export(_head_with(tmp_path / str(i), plant2), "GZQO", compiled_on(HEAD_RELEASE))
+
+
+def test_b2_a_file_name_is_a_library_criterion_or_value_set_name(tmp_path: Path, site_env: None) -> None:
+    """A file named with free words never travels: an ELM without its CQL, a criterion file not named by its id."""
+
+    def elm(d: Path) -> None:
+        (d / "cql" / "elm" / "CNRYfilename.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ExportRefused, match="CNRYfilename.json: no cql/CNRYfilename.cql beside it"):
+        export(_head_with(tmp_path / "a", elm), "GZQO", compiled_on(HEAD_RELEASE))
+
+    def ir(d: Path) -> None:
+        (d / "ir" / "GZQO-INC-01.json").rename(d / "ir" / "CNRYname.json")
+
+    with pytest.raises(ExportRefused, match="ir/CNRYname.json: its id and rule set are not CNRYname"):
+        export(_head_with(tmp_path / "b", ir), "GZQO", compiled_on(HEAD_RELEASE))
+
+
+def test_s1_the_criterion_stripper_is_an_allow_list(head: RulesetRepo, tmp_path: Path) -> None:
+    """S1: an unknown key is dropped by the export's stripper, and a part that still holds one is refused."""
+    from tb_common.ruleset_part import IR_KEYS, neutral_ir
+    from tb_contracts import CriterionIR
+
+    assert set(IR_KEYS) == {f.alias or n for n, f in CriterionIR.model_fields.items()} - {"provenance"}
+    c = {"id": "GZQO-INC-01", "reviewer_note": "CNRY-NOTE", "review": {"status": "approved", "by": "x"}}
+    assert neutral_ir(c) == {"id": "GZQO-INC-01", "review": {"status": "approved"}}
+    with pytest.raises(PartRefused, match="a flag is not one word"):
+        neutral_ir({"id": "GZQO-INC-01", "flags": ["needs_review", "CNRY flag item"]})
+    part = make_part(head, tmp_path / "p.zip").read_bytes()
+    files = open_part(part)[1]
+    ir = json.loads(files["ir/GZQO-INC-01.json"])
+    ir["reviewer_note"] = "CNRY-NOTE"
+    files["ir/GZQO-INC-01.json"] = json.dumps(ir, ensure_ascii=False, indent=1, sort_keys=True).encode() + b"\n"
+    with pytest.raises(PartRefused, match="ir/GZQO-INC-01.json holds a reviewer's record, provenance, a key nobody"):
+        open_part(_reseal(part, files))
+
+
+def test_s2_a_part_without_its_record_never_installs(head: RulesetRepo, tmp_path: Path) -> None:
+    """S2: the export's part with ORIGIN.json removed (routing and scope empty), or moved into the folder: refused,
+    on a box without a site profile too; nothing installed."""
+    part = make_part(head, tmp_path / "p.zip")
+    box, _updates = site_box(tmp_path, profile=False)
+    repo = RulesetRepo(box.repo_dir)
+    removed = repart(part, tmp_path / "r.zip", lambda n, b: None if n == ORIGIN else b).read_bytes()
+    with pytest.raises(ImportRefused, match="no routing or no screening scope .*without its ORIGIN.json"):
+        install(repo, removed, "update:r")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for n, b in members(part.read_bytes()).items():
+            z.writestr("GZQO/ORIGIN.json" if n == ORIGIN else n, b)
+    with pytest.raises(ImportRefused, match="GZQO/ORIGIN.json: a part's ORIGIN.json stands at the root"):
+        install(repo, buf.getvalue(), "update:m")
+    assert "GZQO/v1.0.0" not in repo.tags()
+
+
+def test_s3_the_shipped_example_profile_is_no_site_profile(head: RulesetRepo, tmp_path: Path) -> None:
+    """S3: a box seeded with the shipped profiles/GZQO.yaml, or whose profile was edited by hand after --site-profile
+    wrote it, refuses the part: only the profile the site set (and the audit recorded) counts."""
+    seed = copy_rulesets(tmp_path / "s-seed", "GZQO")  # profiles/GZQO.yaml (the example's people) kept
+    repo = RulesetRepo(tmp_path / "s", seed)
+    approve_at_site(tmp_path / "s", by="pi@site.test")
+    assert repo.read("main", "profiles/GZQO.yaml")
+    part = make_part(head, tmp_path / "p.zip").read_bytes()
+    with pytest.raises(ImportRefused, match="an example profile shipped with the box does not count"):
+        install(repo, part, "update:e")
+    put_site_profile(repo, "GZQO", yaml.safe_dump(SITE_PROFILE).encode(), "operator", audit=AuditLog(tmp_path / "a"))
+    edited = {p[len("profiles/") :]: b for p, b in repo.files("main", "profiles/").items()}
+    edited["GZQO.yaml"] = edited["GZQO.yaml"].replace(b"pi@site.test", b"someone@else.test")
+    repo.write_dir("main", "main", "profiles/", edited, "hand edit")
+    with pytest.raises(ImportRefused, match="no routing .* of its own"):
+        install(repo, part, "update:h")
+    assert "GZQO/v1.0.0" not in repo.tags()
+
+
+def test_s4_the_site_profile_is_audited_first(tmp_path: Path, site_env: None) -> None:
+    """S4: ``approve.site_profile_set`` (who, when, the profile's sha256) is written before the profile; when it cannot
+    be written nothing is; a profile with any key but routing and scopes is refused."""
+    seed = copy_rulesets(tmp_path / "seed", "GZQO", "GZQO.yaml")
+    repo = RulesetRepo(tmp_path / "s", seed)
+    body = yaml.safe_dump(SITE_PROFILE).encode()
+
+    class Broken:
+        def append(self, *_a: Any, **_k: Any) -> None:
+            raise OSError("the audit cannot be written")
+
+    with pytest.raises(OSError, match="cannot be written"):
+        put_site_profile(repo, "GZQO", body, "operator", audit=Broken())
+    assert repo.read("main", "profiles/GZQO.yaml") is None and repo.read("main", "profiles/GZQO.site-set.json") is None
+    audit = AuditLog(tmp_path / "audit")
+    sha = put_site_profile(repo, "GZQO", body, "operator", audit=audit)
+    (ev,) = [e for e in audit_events(tmp_path / "audit") if e["event"] == "approve.site_profile_set"]
+    assert (ev["actor"], ev["ruleset"], ev["input_sha"]) == ("operator", "GZQO", sha) and ev["ts"]
+    import hashlib
+
+    assert hashlib.sha256(repo.read("main", "profiles/GZQO.yaml") or b"").hexdigest() == sha
+    with pytest.raises(ImportRefused, match="holds thresholds, title: it sets routing and scopes only"):
+        put_site_profile(repo, "GZQO", yaml.safe_dump({**SITE_PROFILE, "thresholds": {}, "title": "x"}).encode(),
+                         "operator", audit=audit)  # fmt: skip
+
+
+def test_the_seeded_tag_is_refused_even_where_a_seeded_approval_loads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The third review's M15: on a DEV box the seeded approval loads, and the export still refuses it."""
+    monkeypatch.setenv("TB_ENV", "DEV")
+    repo = RulesetRepo(tmp_path / "seeded", copy_rulesets(tmp_path / "seed"))
+    assert load_approved(repo.path, "GZQO").version == "1.0.0"
+    with pytest.raises(ExportRefused, match="names nobody at this box"):
+        export(repo, "GZQO", compiled_on(HEAD_RELEASE))
+
+
+def test_the_record_pins_what_the_manifest_pins(head: RulesetRepo, tmp_path: Path) -> None:
+    """Note 2: a record whose pins are not its manifest's is refused (the bundle's compat.json is built from them)."""
+    part = make_part(head, tmp_path / "p.zip").read_bytes()
+    _rid, files, _m, origin = open_part(part)
+    forged = {**origin, "pins": {"judge_prompt": "judge_v4", "terminology_release": "TR-ffffffffffff"}}
+    with pytest.raises(PartRefused, match="pins.terminology_release is not the manifest's"):
+        open_part(_reseal(part, files, forged))
+
+
+def test_deep_json_or_yaml_is_refused_not_a_recursion_error(head: RulesetRepo, tmp_path: Path) -> None:
+    """Note 3: nesting is counted before parsing."""
+    part = make_part(head, tmp_path / "p.zip")
+    deep = repart(part, tmp_path / "d.zip", lambda n, b: b"[" * 200000 + b"]" * 200000 if n == ORIGIN else b)
+    with pytest.raises(PartRefused, match="ORIGIN.json nests deeper than 256"):
+        open_part(deep.read_bytes())
+    files = open_part(part.read_bytes())[1]
+    files["manifest.yaml"] = b"a: " + b"[" * 50000 + b"]" * 50000 + b"\n"
+    box, _updates = site_box(tmp_path)
+    with pytest.raises(ImportRefused, match="manifest.yaml nests deeper than 256"):
+        install(RulesetRepo(box.repo_dir), _reseal(part.read_bytes(), files), "update:y")
+
+
+def test_no_free_words_of_the_operator_travel(head: RulesetRepo) -> None:
+    """Notes: ``--release`` takes a bundle id (and release_seq) only; the protocol's file names stay at the head box."""
+    assert compiled_on(None, "2026.11-1 (release_seq 3)") == {"bundle_id": "2026.11-1", "release_seq": 3}
+    with pytest.raises(ExportRefused, match="--release takes a bundle id"):
+        compiled_on(None, "2026.11-1 built by Dr Planted")
+    data, _origin = export(head, "GZQO", compiled_on(None, "2026.11-1"))
+    m = yaml.safe_load(members(data)["GZQO/manifest.yaml"])
+    assert "source_documents" not in m and b"GZQO_protocol_v3.pdf" not in data
+
+
+def test_free_notes_stay_and_a_date_field_holds_a_date(tmp_path: Path, site_env: None) -> None:
+    """Notes: ``population.notes`` stays at the head box (the population's stage and arm travel);
+    ``source_last_update`` is a date or the export is refused."""
+
+    def plant(d: Path, last: str) -> None:
+        mf = d / "manifest.yaml"
+        m = yaml.safe_load(mf.read_text(encoding="utf-8"))
+        m["population"] = {"disease_stage": "gout", "notes": "CNRY-POPNOTES レビュー担当コメント"}
+        m["source_last_update"] = last
+        mf.write_text(yaml.safe_dump(m, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+    data, _o = export(_head_with(tmp_path / "a", lambda d: plant(d, "2026-10-01")), "GZQO", compiled_on(HEAD_RELEASE))
+    m = yaml.safe_load(members(data)["GZQO/manifest.yaml"])
+    assert m["population"] == {"disease_stage": "gout"} and str(m["source_last_update"]) == "2026-10-01"
+    assert b"CNRY-POPNOTES" not in data and not [b for b in members(data).values() if b"CNRY-POPNOTES" in b]
+    with pytest.raises(ExportRefused, match="source_last_update is not a date"):
+        export(_head_with(tmp_path / "b", lambda d: plant(d, "CNRY last update by x")), "GZQO",
+               compiled_on(HEAD_RELEASE))  # fmt: skip

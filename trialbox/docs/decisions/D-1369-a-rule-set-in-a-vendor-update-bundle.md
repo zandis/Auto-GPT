@@ -52,28 +52,56 @@
 ## Decision
 
 
-1. **The part: criteria and codes only.** `python -m criteria_compiler.export_part <ID> --out <file> (--installed
-   installed.json | --release "<words>") [--by NAME]` exports the version of the box's own approval tag as a zip of
-   the `import_ruleset` form plus `ORIGIN.json` (`tb_common.ruleset_part`). Before anything is hashed, every staff or
-   site field is removed, following the protocol/site split of D-1366 (10D-2, PR #1165, read for the split, not used
-   as code):
-   - the manifest keeps D-1366's protocol fields and `status`; it loses `routing` and `scopes` (left as empty
-     objects, which the schema requires), `review` (the approver, how, when), `effective_from`, `irb_reference`,
-     `irb_approved_on`, `terminology_tables` and `terminology_refused` (the site's own code tables); `models` keeps
-     `judge_prompt` only (the serving model is the site's); `equivalence` keeps its numbers (`overall_pct`,
-     `sample_size`, `per_criterion`, `failing`), which the receiving import's gate reads. This is the one site field
-     carried, numbers and criterion ids only. A manifest field placed in neither part refuses the export;
-   - each criterion keeps its review **status** (approved or rejected) and loses who, when and the comment, and its
-     `provenance`;
-   - `labels.yaml`, `valuesets/`, `cql/`, `sql/` travel as compiled (D-1366: none of the shipped compiled files names
-     a person, a department or an address); `tests/` is left out; any other file refuses the export.
+1. **The part: criteria and codes only, by allow-lists** (the third review: by file and by key, never by folder or
+   deny-list). `python -m criteria_compiler.export_part <ID> --out <file> (--installed installed.json | --release
+   "<bundle id> [(release_seq N)]") [--by NAME]` exports the version of the box's own approval tag as a zip of the
+   `import_ruleset` form plus `ORIGIN.json` (`tb_common.ruleset_part`), following the protocol/site split of D-1366
+   (10D-2; its field lists are imported from `tb_common.study_manifest`, not copied):
+   - **files**, exactly master's `study_manifest.PROTOCOL_FILES` that are criteria and codes, one per name:
+     `manifest.yaml`, `labels.yaml`, `ir/<criterion id>.json` (named by its own id), `valuesets/<name>.json` (named
+     by its `name`), `cql/<library>.cql` and `cql/elm/<library>.json` (the manifest's `library` and `TB_Common` only;
+     an ELM file only beside its CQL), `sql/<ID>.sql`. `tests/` is left out. **Any other file refuses the export**
+     (a stray `sql/patients.csv`, `cql/notes.md`, `valuesets/README.txt`, a sub-folder), and the import refuses any
+     other member, with a correct record and hash too;
+   - **the manifest** keeps D-1366's protocol fields and `status`, but `source_documents` and `docx_template` (file
+     names someone chose; the docx is not carried) and `population.notes` (free notes); `source_last_update` must be
+     a date, else refused. It loses `routing` and `scopes` (left as empty objects, which the schema requires),
+     `review`, `effective_from`, `irb_reference`, `irb_approved_on`, `terminology_tables`, `terminology_refused`;
+     `models` keeps `judge_prompt` only; `equivalence` keeps `overall_pct`, `sample_size`, `per_criterion`,
+     `failing`, and a criterion id is the only text it may hold (else refused). A field placed in neither part
+     refuses; the result must pass the manifest schema (no unknown key at any depth) and is written again as YAML,
+     so no comment travels;
+   - **each criterion** keeps the fields of `ruleset_part.IR_KEYS` only (the criterion schema's, held equal to it by
+     a test, but `provenance`); any other key is dropped; `review` keeps its status (no who, when or comment); a flag
+     must be one word of the compiler's (`[a-z][a-z0-9_]*`); the result must pass the criterion schema;
+   - **value sets** hold the compiler's keys only, at every level (`resourceType id name title url version status
+     compose extension`; `compose.include[]`: `system concept`; `concept[]`: `code display`; `extension[]`: the
+     code-family `url` and `valueString`), else the export is refused naming file and key; their bytes travel;
+   - **ELM**: every `annotation` entry is removed (the translator's copy of the CQL source, its options and messages;
+     not read by the engine), its `library.identifier` may hold `id` and `version` only (else refused); written again
+     as compact JSON. ELM is not regenerated: the translator's jars are not on every box;
+   - **labels.yaml**: its keys only (`ruleset`, `criteria.<criterion id>.{source, todo_source, en|ja|zh-TW.{label,
+     text, todo}}`), text values only, written again as YAML (its comments go);
+   - **CQL and SQL** travel as their bytes and are **never stripped** (removing text from code could change what it
+     means): every comment is held against what the compiler writes (`criteria_compiler.part_text`: the generated
+     header, each criterion's line with that criterion's id, kind and text from the part's own IR, and `TB_Common`'s
+     own comments); any other comment refuses the export, naming the file and the line. The scanner knows the
+     languages' strings and quoted names.
+   - **depth**: a JSON or YAML file nested deeper than 256 is refused before it is parsed (no `RecursionError`).
    The record holds the rule set and version, the file list, what was left out, the approval tag's name, the
-   compiling box's release (bundle id, release_seq, commit, from its installed record), the judge prompt and
-   terminology pins, the time, and `part_sha256`: the sha256 over every carried file (path and bytes) and every other
-   field of the record. The export refuses a draft, a version with no approval tag, an approval that names nobody
-   here (a seeded example), and **any version that arrived in an update** (a part or any offline update: only a box's
-   own approval is carried). It is audited on the head box as `ruleset.part_exported` (who, the rule set and version,
-   `part_sha256`, the file count).
+   compiling box's release (bundle id, release_seq, commit, from its installed record or from `--release`, which
+   takes a bundle id and an optional `(release_seq N)`, nothing else), and the judge prompt and terminology pins,
+   **which must equal the manifest's**. It holds **no time**: `part_sha256` (every carried file, path and bytes, and
+   every other field of the record) is the same for the same approved version exported again from the same release,
+   so the receiving box takes the repeat as the same part. The export refuses a draft, a version with no approval
+   tag, an approval that names nobody here (a seeded example, also on a DEV box where it loads), and **any version
+   that arrived in an update**. It is audited on the head box, before the part is handed out, as
+   **`approve.part_exported`** (who, when, the rule set and version, `part_sha256`, the file count, the release).
+   **The approval family** carries both events of this card: the criteria compiler, which runs the export and the
+   site-profile command, writes `ai`, `approve`, `compile`, `ctgov` and `llm` (`audit_writer.ROLE_EVENTS`, unchanged);
+   a `ruleset` family would be written by a role that may not write it, and the journal would mark each event
+   foreign. Exporting an approved version and setting the site's routing and scope for one are acts on an approval;
+   no role and no row of `ROLE_EVENTS` changed.
 2. **The bundle, vendor key only.** `python -m tools.ruleset_bundle --key <vendor key> --id .. --release-seq ..
    --out .. <part>...` reads each part as the receiving box will and signs with `tools/sign_bundle.py` (Ed25519, the
    vendor key; no new key type, no new payload kind, no schema change). It is valid 30 days by default, at most 90 (a
@@ -83,18 +111,25 @@
    first; then the update path. Before writing anything, `import_ruleset` checks a part
    (`tb_common.ruleset_part.open_part`): every zip member is in `<ID>/` or is `ORIGIN.json`; every record field has
    its strict form (id and version patterns, the approval tag exactly `<ID>/v<version>`, a bundle id, a 40-hex
-   commit, one line of at most 200 characters for a release in words, no control character anywhere, no unknown
-   field); the record lists exactly the part's files; `part_sha256` matches; the manifest and criteria hold no site or
-   staff field. Then: a part older than the box's newest approved version of the id is refused; the same version
+   commit, no control character anywhere, no unknown field); its pins are the manifest's; the record lists exactly
+   the part's files; `part_sha256` matches; every file is exactly what the export writes (the export's allow-lists run
+   again on the part and must give back the same bytes: a site field, an unknown key, an annotation, a comment the
+   compiler does not write, a file off the list are refused). **A part never installs without its record**: a member
+   named `ORIGIN.json` anywhere but the zip's root is refused, and a rule set zip with no record whose manifest has no
+   routing or no screening scope (the form of a part's manifest) is refused on the plain path too; every rule set the
+   vendor ships has both. Then: a part older than the box's newest approved version of the id is refused; the same version
    again is a no-op only when its tag holds the same `part_sha256`, else refused (a local approval or a shipped
    example of that version included: the dry run uses a new id or version). Any refusal rolls the update back
    (`update.rolled_back`); nothing is tagged.
 4. **The receiving site's own routing and scope.** The part has none, and a rule set from another box must never
-   screen and send on another site's people or scope. The import takes `routing` and `scopes` from the receiving
-   repository's `profiles/<ID>.yaml` (the site profile the box's own compile reads, `Compiler._profile`) and refuses
-   the part when they are missing (`routing.list_to` and `scopes.screen` both needed), naming the command that writes
-   them: `python -m criteria_compiler.import_ruleset --site-profile <ID> FILE` (checked against the manifest schema,
-   audited `ruleset.site_profile_set`). The installed manifest is the part's with the site's routing and scopes.
+   screen and send on another site's people or scope. The import takes `routing` and `scopes` only from a profile the
+   receiving site set itself: `python -m criteria_compiler.import_ruleset --site-profile <ID> FILE` writes
+   `profiles/<ID>.yaml` (routing and scopes only: any other key is refused; checked against the manifest schema) and
+   beside it `profiles/<ID>.site-set.json`, which records that file's sha256. The example `profiles/<ID>.yaml` a box
+   ships with has no such record, and a profile changed by hand since no longer matches it: both are refused, as is a
+   missing `routing.list_to` or `scopes.screen`, naming the command. The command writes **`approve.site_profile_set`**
+   (who, when, the rule set, the profile's sha256) **before** the profile: when the audit write fails, nothing is
+   written. The installed manifest is the part's with the site's routing and scopes.
 5. **The tag and the audit.** The tag of an installed part reads `<ID>/v<version> (offline update, update:<bundle>);
    arrived in a vendor bundle (interim): update:<bundle>; compiled and approved on another box, release <bundle id>
    (release_seq N, commit C), its tag <ID>/v<version>; part sha256 <hash>`, built from checked fields only.
@@ -125,9 +160,40 @@
    restarted, `doctor --weights` on a GPU box (up to an hour): a full quiet-hour downtime, and one number of the
    vendor's `release_seq`. This card does not skip the backup or the restart (runbook §5 says so).
 10. **Who may do it.** No new role, route, console action or matrix row: exporting and writing a site profile are
-   commands in the compiler's container (whoever runs host commands there), both audited; signing is the vendor's;
+   commands in the compiler's container (whoever runs host commands there), both audited in the approval family the
+   compiler already writes; signing is the vendor's;
    applying is the existing `apply_update.sh` act of the operator. The part holds criteria and codes only; it reads
    no patient data.
+
+## What travels (for the owner to rule on)
+
+Everything not in this list stays on the head box. Free text that still leaves it, all of it the protocol's or the
+compiler's by purpose, any of it typed or edited by a person on the head box:
+
+- `manifest.yaml`: `title`, `trial_alias`, `sponsor`, `protocol_version`, `protocol_date`, `language`, `nct_id`,
+  `source_last_update` (a date only), `population.disease_stage`, `population.study_arm`, `cohort.disease`,
+  `cohort.disease_label`, `cohort.ctgov_condition`, `variants` (named sensitivity variants), `twpas` (NHI form
+  settings), `library`, `terminology_release`, `models.judge_prompt`, `prompt_pins`, `derived_pins`; the criteria
+  ids, thresholds and equivalence numbers.
+- each `ir/<id>.json`: `text`, `label`, `source_ref` (the protocol's section and item, as the parser read it),
+  `action` (the suggested to-do), `note_question`, `note_question_source`, `human_question`, `fallback`,
+  `suggested_order`, `flags` (compiler words only), `review.status`; the logic's value set names and codes.
+- `labels.yaml`: per criterion `source`, `todo_source` and their translations (`label`, `text`, `todo` in en, ja,
+  zh-TW).
+- `valuesets/*.json`: `title` and each concept's `display` (code system names), besides the codes.
+- `cql/*.cql` and `sql/*.sql`: the compiler's comments, which repeat each criterion's `text`; string literals in
+  the code (codes, units, code system URLs); ELM: define and value set names, without annotations.
+- `ORIGIN.json`: the bundle id, release_seq and commit of the compiling release (no free words: `--release` takes a
+  bundle id), the pins, the file names (criterion ids, value set and library names).
+
+Removed or refused, for the record: `source_documents`, `docx_template`, `population.notes`, every site field above,
+each criterion's reviewer, time, comment and `provenance`, `tests/`, every comment the compiler does not write, ELM
+annotations, any key or file nobody placed.
+
+**Where the 30/90-day cap is enforced.** Only when the bundle is signed, in `tools/ruleset_bundle.py`
+(`--valid-days`, 30 by default, at most 90). The import does not see the bundle's manifest, and the verifier
+(`tools/verify_update.py`) checks `not_after` but no cap: a rule-set-only bundle signed with `tools/sign_bundle.py`
+directly can be valid longer. This predates the card and is not changed by it.
 
 ## Not in this card, and what the dry run must know
 
@@ -154,14 +220,23 @@
   another hash, the version of a shipped example, a record of the wrong form (each field), a record changed without
   its hash, a stray member, a site field put back, a changed criterion are refused; a bundle changed after signing is
   rejected; the sponsor pack says it arrived.
+  The third review: a file off the per-file list refuses the export (six shapes) and the import (three, resealed); a
+  CQL `//` or `/* */`, a `TB_Common` or an SQL `--` comment the compiler does not write refuses the export with file
+  and line, and the import; YAML comments and ELM annotations are in no byte of the part; an ELM identifier key, a
+  value-set key or a nested one refuses; a free file name refuses; the criterion stripper is an allow-list equal to
+  the schema less `provenance`, and a part holding an unknown key is refused; a part without `ORIGIN.json`, or with it
+  moved, is refused; the shipped example profile and a hand-edited one do not count; `approve.site_profile_set` is
+  written before the profile and a failed audit writes nothing; a re-export is the same part and installs as a
+  repeat; the record's pins must be the manifest's; deep JSON and YAML are refused; `--release` takes no free words;
+  `population.notes` stays and `source_last_update` is a date.
   Also: the bundle's compatibility table carries the part's terminology release and the compiling release as its
   floor, and the verifier refuses a box on another vocabulary release or an older release; the import refuses a part
   whose terminology release is not the box's.
 - `tests/integration/test_ruleset_bundle_two_boxes.py`: two in-process boxes on the same synthetic hospital. The head
   box screens the shipped GZQO v1.0.0, then approves v1.0.1, which is not shipped (GZQO-INC-01 at age 60; the draft
   is written by the test, the approval is the compiler's own, which rebuilds the SQL), and screens it; it exports
-  v1.0.1, the vendor signs it alone, a box that never held GZQO applies it and screens v1.0.1 by e-mail with its own
-  routing and scope. Every listed patient, tier and criterion answer equals the head box's v1.0.1 answers and differs
+  v1.0.1, the vendor signs it alone, a box that never held GZQO applies it and screens v1.0.1 by e-mail with the
+  routing and scope its operator set with `--site-profile` (the synthetic site's people). Every listed patient, tier and criterion answer equals the head box's v1.0.1 answers and differs
   from the shipped version's. A mutant import that writes the repository's own shipped GZQO files instead of the
   zip's fails it (run once by hand).
 - `tests/console/test_ruleset_arrived_in_bundle.py`: the overview marks such a version in en, ja and zh-TW; the

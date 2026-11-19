@@ -23,11 +23,14 @@ new heading with the version and date, in the same pull request that sets the ve
   Nothing to do.
 - A rule set from the head box in a vendor update bundle (10D-28, interim, for the dry run only): the box that
   compiled and approved a study exports it as a rule-set part (`python -m criteria_compiler.export_part`, audited):
-  the protocol's criteria, codes and compiled files, with the routing, scope, approver and reviewer records, IRB
-  fields and the site's code tables removed, and its hash and the release that compiled it. The vendor signs it with
+  the protocol's criteria, codes and compiled files, by a list of files and keys (any other file, key or comment
+  refuses the export), with the routing, scope, approver and reviewer records, IRB fields, the site's code tables,
+  the protocol's file names and free population notes removed, and its hash (no time in it) and the release that
+  compiled it. The vendor signs it with
   the vendor key, alone (`python -m tools.ruleset_bundle`, valid 30 days, one number of the vendor's release
   sequence) or beside a release; `tools/apply_update.sh` installs it on a screen-only site box as any update, once the
-  site has set its own routing and scope for the study (`python -m criteria_compiler.import_ruleset --site-profile`).
+  site has set its own routing and scope for the study (`python -m criteria_compiler.import_ruleset --site-profile`,
+  audited; the example profile a box ships with does not count).
   The site box refuses a part whose record or content does not match its hash, an older version, or a version it
   holds with other content; names the rule set in `update.applied`; keeps the release it runs. Every rule set that
   arrived in an update is now listed as "arrived in a vendor bundle (interim): approved elsewhere, not on this box"

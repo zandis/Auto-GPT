@@ -9,8 +9,10 @@ A rule-set part (``ORIGIN.json`` at the zip's root: a rule set compiled and appr
 vendor-signed bundle for the dry run, D-1369) is checked first (``tb_common.ruleset_part.open_part``: every member,
 the record's form, the part's sha256, no site or staff field); it is refused when older than the box's newest approved
 version of the id, or when its version is on the box with other content; it takes this box's own routing and scopes
-(``profiles/<ID>.yaml``, written with ``--site-profile``) and is refused without them; its tag records that it
-arrived in a vendor bundle, from which release, with which hash.
+(``profiles/<ID>.yaml`` as ``--site-profile`` wrote it, audited as ``approve.site_profile_set``; a profile shipped as
+an example or edited by hand since does not count) and is refused without them; its tag records that it arrived in a
+vendor bundle, from which release, with which hash. A zip whose ``ORIGIN.json`` is not at its root, or a rule set
+with no routing or no scope (the form a part's manifest has), is refused: a part never installs without its record.
 
     python -m criteria_compiler.import_ruleset ruleset.zip --by update:2026.10-1
     python -m criteria_compiler.import_ruleset --site-profile GZQO site-GZQO.yaml --by operator
@@ -19,6 +21,7 @@ arrived in a vendor bundle, from which release, with which hash.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import sys
@@ -29,7 +32,7 @@ from typing import Any
 
 import yaml
 from tb_common.ruleset import SEEDED_TAG
-from tb_common.ruleset_part import RULESET_ID, PartRefused, open_part, origin_of, tag_note
+from tb_common.ruleset_part import RULESET_ID, PartRefused, load_yaml, open_part, origin_of, tag_note
 from tb_common.zipcap import ZipRefused, check_ruleset_zip
 
 from criteria_compiler.repo import RulesetRepo
@@ -51,7 +54,12 @@ def read_zip(data: bytes) -> tuple[str, dict[str, bytes], dict[str, Any]]:
         prefix = str(PurePosixPath(manifests[0]).parent)
         prefix = "" if prefix == "." else prefix + "/"
         files = {n[len(prefix) :]: z.read(n) for n in names if n.startswith(prefix)}
-    manifest = yaml.safe_load(files["manifest.yaml"].decode("utf-8")) or {}
+    try:  # bounded: a manifest nested too deep is refused, never a RecursionError
+        manifest = load_yaml(files["manifest.yaml"], "manifest.yaml") or {}
+    except PartRefused as exc:
+        raise ImportRefused(str(exc)) from exc
+    if not isinstance(manifest, dict):
+        raise ImportRefused("manifest.yaml is not a mapping")
     rid = str(manifest.get("id") or "")
     if not rid or (prefix and prefix.rstrip("/") != rid):
         raise ImportRefused("manifest id does not match the ruleset directory")
@@ -77,6 +85,13 @@ def install(
     tag = f"{rid}/v{m.get('version')}"
     if origin is not None:
         return _install_part(repo, rid, files, m, origin, by, pins_problem)
+    if not m.get("routing") or not m.get("scopes"):
+        # D-1369 (the third review's S2): a part's manifest without its ORIGIN.json; no rule set the vendor ships
+        # has no routing or scope, and none is screened without them
+        raise ImportRefused(
+            f"{rid}: a rule set with no routing or no screening scope (a rule-set part without its ORIGIN.json?) is "
+            "never installed through an update; nothing was installed"
+        )
     message = f"{tag} (offline update, {by})"
     if f"refs/tags/{tag}".encode() in repo.refs:
         existing = {p[len(rid) + 1 :]: b for p, b in repo.files(f"refs/tags/{tag}", f"{rid}/").items()}
@@ -126,18 +141,35 @@ def _semver(v: str) -> tuple[int, ...]:
         return (-1,)
 
 
+#: written beside ``profiles/<ID>.yaml`` by ``--site-profile`` alone: the sha256 of the profile it wrote
+PROFILE_MARK = "profiles/{rid}.site-set.json"
+PROFILE_MARK_FORMAT = "trialbox-site-profile/1"
+
+
 def site_profile(repo: RulesetRepo, rid: str) -> dict[str, Any]:
-    """This box's own ``routing`` and ``scopes`` for ``rid``: ``profiles/<ID>.yaml`` on ``main`` of its repository,
-    the site profile its own compile reads (``Compiler._profile``). Refused when either is missing: a rule set that
-    arrived from another box is never screened and sent with another site's people or scope (D-1369)."""
+    """This box's own ``routing`` and ``scopes`` for ``rid``: ``profiles/<ID>.yaml`` on ``main`` of its repository as
+    ``--site-profile`` wrote it (its mark records the profile's sha256; a shipped example profile, or one changed by
+    hand since, has none that matches). Refused without them: a rule set that arrived from another box is never
+    screened and sent with another site's people or scope (D-1369)."""
     raw = repo.read("main", f"profiles/{rid}.yaml")
-    prof = (yaml.safe_load(raw.decode("utf-8")) if raw else None) or {}
+    mark_raw = repo.read("main", PROFILE_MARK.format(rid=rid))
+    try:
+        mark = json.loads(mark_raw) if mark_raw else {}
+    except ValueError:
+        mark = {}
+    set_here = (
+        raw is not None
+        and isinstance(mark, dict)
+        and mark.get("format") == PROFILE_MARK_FORMAT
+        and mark.get("sha256") == hashlib.sha256(raw).hexdigest()
+    )
+    prof = (yaml.safe_load(raw.decode("utf-8")) if raw and set_here else None) or {}
     routing, scopes = prof.get("routing"), prof.get("scopes")
     if not (isinstance(routing, dict) and routing.get("list_to") and isinstance(scopes, dict) and scopes.get("screen")):
         raise ImportRefused(
-            f"{rid}: this box has no routing (list_to) and screening scope of its own for {rid}: write them with "
-            f"python -m criteria_compiler.import_ruleset --site-profile {rid} FILE, then apply the bundle again; "
-            "nothing was installed"
+            f"{rid}: this box has no routing (list_to) and screening scope of its own for {rid} (an example profile "
+            f"shipped with the box does not count): write them with python -m criteria_compiler.import_ruleset "
+            f"--site-profile {rid} FILE, then apply the bundle again; nothing was installed"
         )
     return {"routing": routing, "scopes": scopes}
 
@@ -177,16 +209,25 @@ def _install_part(
     return tag
 
 
-def put_site_profile(repo: RulesetRepo, rid: str, data: bytes, by: str) -> None:
-    """``--site-profile``: write this box's own routing and scopes for ``rid`` (``profiles/<ID>.yaml`` on ``main``),
-    checked against the manifest schema's routing and scopes, before a part of ``rid`` is applied."""
+def put_site_profile(repo: RulesetRepo, rid: str, data: bytes, by: str, *, audit: Any) -> str:
+    """``--site-profile``: write this box's own routing and scopes for ``rid`` (``profiles/<ID>.yaml`` on ``main``,
+    with its mark), checked against the manifest schema's routing and scopes, before a part of ``rid`` is applied. The
+    file holds ``routing`` and ``scopes`` only (any other key is refused). Audited first
+    (``approve.site_profile_set``: who, when, the rule set, the profile's sha256): when the audit cannot be written,
+    nothing is. Returns that sha256."""
     from tb_contracts import RulesetManifest
 
     if not RULESET_ID.match(rid):
         raise ImportRefused(f"{rid!r} is not a rule set id")
-    prof = yaml.safe_load(data.decode("utf-8")) or {}
+    try:
+        prof = load_yaml(data, "the site profile") or {}
+    except PartRefused as exc:
+        raise ImportRefused(str(exc)) from exc
     if not isinstance(prof, dict):
         raise ImportRefused("the site profile is not a YAML mapping")
+    extra = sorted(str(k) for k in prof if k not in ("routing", "scopes"))
+    if extra:
+        raise ImportRefused(f"the site profile holds {', '.join(extra[:5])}: it sets routing and scopes only")
     RulesetManifest.model_validate(
         {
             "id": rid,
@@ -200,9 +241,18 @@ def put_site_profile(repo: RulesetRepo, rid: str, data: bytes, by: str) -> None:
             "routing": prof.get("routing") or {},
         }
     )
+    body = yaml.safe_dump({"routing": prof.get("routing") or {}, "scopes": prof.get("scopes") or {}},
+                          allow_unicode=True, sort_keys=False).encode("utf-8")  # fmt: skip
+    sha = hashlib.sha256(body).hexdigest()
+    audit.append("approve.site_profile_set", actor=by, ruleset=rid, input_sha=sha,
+                 detail={"profile": f"profiles/{rid}.yaml"})  # fmt: skip
     current = {p[len("profiles/") :]: b for p, b in repo.files("main", "profiles/").items()}
-    current[f"{rid}.yaml"] = data
+    current[f"{rid}.yaml"] = body
+    current[PROFILE_MARK.format(rid=rid)[len("profiles/") :]] = (
+        json.dumps({"format": PROFILE_MARK_FORMAT, "ruleset": rid, "sha256": sha}, sort_keys=True) + "\n"
+    ).encode("utf-8")
     repo.write_dir("main", "main", "profiles/", current, f"site profile {rid} ({by})", author=by.replace(" ", "_"))
+    return sha
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -221,13 +271,12 @@ def main(argv: list[str] | None = None) -> int:
     cfg = load()
     repo = RulesetRepo(cfg.env.rulesets_path)
     if args.site_profile:
-        rid, path = args.site_profile
-        with open(path, "rb") as fh:
-            put_site_profile(repo, rid, fh.read(), args.by)
         from tb_common.audit_writer import open_audit
 
-        open_audit(cfg.env.audit_path, cfg.env.tz).append("ruleset.site_profile_set", actor=args.by, ruleset=rid)
-        print(json.dumps({"site_profile": rid}))
+        rid, path = args.site_profile
+        with open(path, "rb") as fh:
+            sha = put_site_profile(repo, rid, fh.read(), args.by, audit=open_audit(cfg.env.audit_path, cfg.env.tz))
+        print(json.dumps({"site_profile": rid, "sha256": sha}))
         return 0
     if not args.zip:
         ap.error("a rule set zip, or --site-profile ID FILE")
