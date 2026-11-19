@@ -42,6 +42,11 @@ except ImportError:  # pragma: no cover - script mode
     import tiers  # type: ignore[no-redef,import-not-found]
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "libs") not in sys.path:
+    sys.path.insert(0, str(ROOT / "libs"))
+
+from tb_common import tier_value  # noqa: E402  (the one bounded read of a tier record, card H-51)
+
 TIERS_DIR = ROOT / "models" / "tiers"
 SCHEMA_PATH = TIERS_DIR / "tier_record.schema.json"
 FORMAT = "tb-tier-record/1"
@@ -291,11 +296,16 @@ def counts(rec: dict[str, Any]) -> dict[str, int]:
 
 
 def load(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8"))
+    """The record at ``path``, read the same bounded way the services read it (``tier_value.read_record``)."""
+    return tier_value.read_record(path)
+
+
+TOO_DEEP = "nested too deep to check (a tier record is a flat object of fields)"
 
 
 def check(paths: list[Path]) -> dict[Path, list[str]]:
-    """The problems of each record named (the profile is the file's stem)."""
+    """The problems of each record named (the profile is the file's stem); a record that cannot be read or walked is
+    a problem, never a traceback (card H-51)."""
     out: dict[Path, list[str]] = {}
     for p in paths:
         try:
@@ -303,7 +313,10 @@ def check(paths: list[Path]) -> dict[Path, list[str]]:
         except (OSError, ValueError) as exc:
             out[p] = [f"not readable JSON ({exc})"]
             continue
-        out[p] = problems(rec, p.stem)
+        try:
+            out[p] = problems(rec, p.stem)
+        except RecursionError:
+            out[p] = [TOO_DEEP]
     return out
 
 
@@ -316,13 +329,17 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("record", type=Path)
     a = ap.parse_args(argv)
     if a.cmd == "summary":
-        rec = load(a.record)
-        n = counts(rec)
-        print(f"{a.record}: measured {n['measured']}, declared {n['declared']}, not measured {n['not_measured']}")
-        for name, f in (rec.get("fields") or {}).items():
-            shown = f.get("value") if f.get("basis") != "not_measured" else f"(not measured: {f.get('measured_by')})"
-            print(f"  {name}\t{f.get('basis')}\t{json.dumps(shown, ensure_ascii=False)}")
-        why = problems(rec, a.record.stem)
+        why = check([a.record])[a.record]
+        rec = load(a.record) if why[:1] != [TOO_DEEP] and not (why and why[0].startswith("not readable")) else None
+        fields = rec.get("fields") if isinstance(rec, dict) else None
+        if isinstance(fields, dict):  # a record that is not one is refused below with its problems, unsummarized
+            n = counts(rec)  # type: ignore[arg-type]
+            print(f"{a.record}: measured {n['measured']}, declared {n['declared']}, not measured {n['not_measured']}")
+            for name, field in fields.items():
+                f = field if isinstance(field, dict) else {}
+                gap = f"(not measured: {f.get('measured_by')})"
+                shown = f.get("value") if f.get("basis") != "not_measured" else gap
+                print(f"  {name}\t{f.get('basis')}\t{json.dumps(shown, ensure_ascii=False)}")
         for w in why:
             print(f"tier record: refused: {a.record}: {w}", file=sys.stderr)
         return REFUSED if why else 0
