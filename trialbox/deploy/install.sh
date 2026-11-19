@@ -155,7 +155,8 @@ case "$CTGOV" in ""|live|offline) ;; *) echo "install: --ctgov must be live or o
 
 # ------------------------------------------------------------------------------------------------ 0. tier
 # D-138: before anything is loaded or started. The record rule is tools/serving_config.py's (D-112, D-124).
-# TB_TIER_TEST_ARCH / TB_TIER_TEST_CARD stand in for uname and nvidia-smi in the tests only.
+# TB_TIER_TEST_ARCH / TB_TIER_TEST_CARD stand in for uname and nvidia-smi in the tests only, TB_TEST_MEM_KIB for
+# /proc/meminfo's MemTotal (card 10E-5: a GB10 under 96 GiB is not tier medium).
 TIER_RECORD=""
 if [ -n "$TIER" ]; then
   [ "$GPU_SET" = 0 ] || die "--tier and --gpu: give one (a tier names its GPU profile)"
@@ -163,7 +164,8 @@ if [ -n "$TIER" ]; then
   command -v python3 >/dev/null || die "--tier needs python3 on the host to read the serving records"
   set +e
   TIER_OUT="$(python3 "$ROOT/tools/tiers.py" check --tier "$TIER" --deploy "$ROOT/deploy" \
-    ${TB_TIER_TEST_ARCH:+--arch "$TB_TIER_TEST_ARCH"} ${TB_TIER_TEST_CARD:+--card "$TB_TIER_TEST_CARD"})"
+    ${TB_TIER_TEST_ARCH:+--arch "$TB_TIER_TEST_ARCH"} ${TB_TIER_TEST_CARD:+--card "$TB_TIER_TEST_CARD"} \
+    ${TB_TEST_MEM_KIB:+--mem-kib "$TB_TEST_MEM_KIB"})"
   rc=$?
   set -e
   [ "$rc" = 0 ] || exit 3   # the reason is on stderr: what is missing and how to get a record
@@ -203,15 +205,23 @@ case "$MODE" in
   *) die "--mode must be gpu or stub" ;;
 esac
 # GPU profile (D-95, D-124; deploy/gpu_profile.sh detects it from the card): rtxpro6000 = judge and verifier both
-# resident on a 96 GB card at 32k; gb10 = the same pair resident on a DGX Spark at 16k; rtx5090 = the same pair on one
+# resident on a 96 GB card at 32k; gb10 = the same pair resident on a 128 GB DGX Spark at 16k (a Spark under 96 GiB
+# is gb10-64, refused: D-1335); rtx5090 = the same pair on one
 # 32 GB card with the sleep swap at 8k; all three exclude on a note only when both models agree. rtx4090 = the judge
 # alone on a 24 GB card, note answers never exclude; default = base llm-service
 if [ "$MODE" = gpu ] && [ "$GPU" = auto ]; then
   GPU="$(sh "$ROOT/deploy/gpu_profile.sh")"
 fi
+# card 10E-5 (D-1335): gb10 is the 128 GB Spark. A host under 96 GiB of memory is the 64 GB class however gb10 was
+# chosen (detected, --gpu, TB_GPU_PROFILE, --tier medium, a rehearsal): refused below. TB_TEST_MEM_KIB stands in for
+# /proc/meminfo's MemTotal in the tests only
+if [ "$MODE" = gpu ] && [ "$GPU" = gb10 ]; then
+  GPU="$(sh "$ROOT/deploy/gpu_profile.sh" memory-class "${TB_TEST_MEM_KIB:-}")"
+fi
 case "$GPU" in  # a B200 is never an appliance (D-211, D-409): two MIG instances on a platform, RUNBOOK §17
   shared-quota) die "this card has MIG on (shared-quota): install.sh does not serve it; use deploy/platform (RUNBOOK §17)" ;;
   b200-no-mig) die "a B200 serves TrialBox only as two MIG instances: enable MIG, make the two instances, use deploy/platform (RUNBOOK §17)" ;;
+  gb10-64) die "this DGX Spark has under 96 GiB of memory (the 64 GB class): TrialBox does not serve the model pair on it. The gb10 profile is sized for 128 GB (its model servers alone are capped at 74 GiB), and no profile of the 64 GB class is measured, so none is guessed (card 10E-5, D-1335). Install with --mode stub (structured criteria only; note criteria wait for a GPU), or use a 128 GB Spark or another measured box" ;;
   arm64-dgpu) die "an Arm 64-bit host with a discrete card that is not a GB10 has no TrialBox profile (unmeasured, root review 24): install with --mode stub, or see RUNBOOK §28" ;;
   # cards 24-5 and 24-6: the 48 GB draft is never installed, whatever is set; TB_UNMEASURED_DGPU48_MEASURING_RUN=1 is
   # honoured by its measuring run alone (tools/dgpu48.py), which starts only the model servers and installs nothing
