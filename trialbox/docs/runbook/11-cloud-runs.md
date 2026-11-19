@@ -472,7 +472,12 @@ Owner's yes first for anything but `--estimate` and `--dry-run`.
   reader of the secret `TB_VENDOR_KEY_SM_NAME` (default `tb-vendor-signing-key`). The metadata holds the secret's
   name and version, never the key. The release gates run in enforcing mode first; only then is the key written by
   gcloud itself to a tmpfs file of mode 600, used by `tools/make_bundle.sh` and shredded (a trap, and again after
-  the step). The bundle is verified with the vendor PUBLIC key (`tools/verify_update.py`) and read as a PRODUCTION
+  the step). Before the key is read, b05 places the site bundle's weights as the start places them (the VM's model
+  cache, the judge's template and `embedder/` from the file list `r2/models/e-embed-1.sha256`, each file checked
+  against its sha256) and passes them to `tools/make_bundle.sh --models` with either key: `release check` refuses a
+  site bundle without `embedder/` (D-998), so a VM without the weights stops at b05 (`TB-NO-WEIGHTS`,
+  `TB-NO-EMBEDDER`; H-43). The bundle is verified with the vendor PUBLIC key (`tools/verify_update.py`) and read
+  as a PRODUCTION
   box reads its release record (no rehearsal mark, D-726; not dirty and the declared commit, D-633), then uploaded
   with its `.sha256` to `$TB_BUCKET/r2/<ID>/`. The git bundle of the release commit and the public key must be in
   the bucket first (`r2/<ID>/src.bundle`, `r2/keys/vendor_ed25519.pub`); the owner's one-time steps make the secret
