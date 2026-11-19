@@ -228,6 +228,11 @@ fields). No licensed questionnaire text is shipped (catalogue/README.md). Two in
   PHQ-9: developed by Drs. Robert L. Spitzer, Janet B.W. Williams, Kurt Kroenke and colleagues, with an
     educational grant from Pfizer Inc. No permission required to reproduce, translate, display or distribute.
 
+services/criteria_compiler/ir_extract/negation_scope.py adapts the English negation cue words of medspaCy 1.3.1's
+ConText rules (resources/en/context_rules.json; https://pypi.org/project/medspacy/1.3.1/), themselves from pyConText
+and NegEx (Harkema H et al., J Biomed Inform 2009;42(5):839-51). MIT License, Copyright (c) 2020 medspacy: the full
+notice is in that file's header. The Japanese and Chinese cues are TrialBox's own.
+
 
 ===============================================================================================================
 4. PUBLIC DATA SETS
