@@ -1,0 +1,24 @@
+# 10K-1: a Japan site's answers as the settings wizard took them before it asked the country (synthetic). No `country`
+# key: it must read exactly as before (tests/unit/test_site_country.py compares with legacy_settings.json).
+site_id: DEMO-J
+site_name: 架空病院J (synthetic)
+tz: Asia/Tokyo
+locale: ja
+contact: it-ops@hospj.test
+internal_domains: [hospj.test]
+intake_address: trialbox@hospj.test
+senders: [crc@hospj.test]
+physicians: [pi@hospj.test]
+reviewers: [crc@hospj.test]
+data_source_type: ssmix2
+data_source_path: /data/source/site
+data_source_host_dir: /srv/ssmix2
+mapping: mapping/jp_core/ssmix2_site.yaml
+mrn_regex: '^\d{10}$'
+chartno_rule: digits:10
+llm_mode: stub
+console_url: https://trialbox.hospj.test
+mta_authserv_id: mx.hospj.test
+tls_hostname: trialbox.hospj.test
+tls_mode: internal
+sae_office_mailbox: trial-office@hospj.test

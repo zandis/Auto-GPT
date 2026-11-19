@@ -64,12 +64,22 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from criteria_compiler.semantics import codes_settle
 from matching import coded_values
 from tb_common import provenance, tier_value
 from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
-from tb_contracts import CandidateList, CandidateRow, CriterionVerdict, Judging, ScreenRunScope, TierSummary, dump
+from tb_contracts import (
+    CandidateList,
+    CandidateRow,
+    CriterionVerdict,
+    Evidence,
+    Judging,
+    ScreenRunScope,
+    TierSummary,
+    dump,
+)
 
 from orchestrator import excluded as excluded_lines
 from orchestrator.clients import StepFailed
@@ -139,6 +149,17 @@ NOT_ASKED = (Reason.NOT_EVALUATED.value, Reason.MODEL_DOWN.value)
 
 def _not_asked(v: CriterionVerdict) -> bool:
     return v.verdict == "unknown" and v.evidence is not None and v.evidence.reason in NOT_ASKED
+
+
+def _fragment_pass(c: Any, prev: CriterionVerdict) -> bool:
+    """Card 10A-2: a stored "pass" of a mixed inclusion the codes gave on its age or sex alone (stored before the
+    rule): it never meant the line was met, so it does not stand when nobody was asked; the line is open."""
+    return c is not None and prev.verdict == "pass" and not codes_settle(c) and not is_note_answer(c, prev)
+
+
+def _opened(cid: str) -> CriterionVerdict:
+    """The open answer that replaces a :func:`_fragment_pass`: not evaluated, a person looks."""
+    return CriterionVerdict(id=cid, verdict="unknown", evidence=Evidence(resource_refs=[], reason=NOT_ASKED[0]))
 
 
 def night_budget(ctx: Ctx) -> int:
@@ -428,13 +449,20 @@ def run(ctx: Ctx) -> Outcome:
             else v
             for k, v in old.items()
         }
-        new = dict(old)
+        # card 10A-2: every pool row, re-checked or left by the night budget, is re-tiered without a "pass" its
+        # codes gave on an age or sex alone (the re-checked ones then take the fresh answer below)
+        new = {k: _opened(k) if _fragment_pass(by_id.get(k), v) else v for k, v in old.items()}
         changed: list[str] = []
         for v in fresh[p["pid"]].verdicts if p["pid"] in fresh else []:
             if v.id not in ts:
                 continue
             prev = old.get(v.id)
-            if prev is not None and prev.verdict in ("pass", "fail") and _not_asked(v):
+            if (
+                prev is not None
+                and prev.verdict in ("pass", "fail")
+                and _not_asked(v)
+                and not _fragment_pass(by_id.get(v.id), prev)
+            ):
                 continue  # D-642: nobody was asked (a hold, no judge, the model down): the stored answer stands
             if prev is None or prev.verdict != v.verdict:
                 changed.append(v.id)

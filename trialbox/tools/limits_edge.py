@@ -526,6 +526,58 @@ STATED: tuple[Stated, ...] = (
         constants=("services/mail_gateway/gateway.py:MAX_ATTEMPTS", "services/mail_gateway/gateway.py:RETRY_MAX_S"),
         lane="C2",
     ),
+    Stated(
+        "L36",
+        "members of a rule-set zip (the offline install, the draft read)",
+        "2000",
+        "members",
+        "docs/decisions/D-1102-rule-set-zip-caps.md",
+        "at most **2,000 members**",
+        "libs/tb_common/zipcap.py:check_infos",
+        "an operator installing an offline update; the orchestrator",
+        driver="ruleset_zip_members",
+        constants=("libs/tb_common/zipcap.py:RULESET_ZIP_MAX_MEMBERS",),
+        lane="B2",
+    ),
+    Stated(
+        "L37",
+        "one member of a rule-set zip, uncompressed",
+        "100000000",
+        "bytes",
+        "docs/decisions/D-1102-rule-set-zip-caps.md",
+        "each member at most **100,000,000 bytes**",
+        "libs/tb_common/zipcap.py:check_infos",
+        "an operator installing an offline update; the orchestrator",
+        driver="ruleset_zip_member_bytes",
+        constants=("libs/tb_common/zipcap.py:RULESET_ZIP_MAX_MEMBER_BYTES",),
+        lane="B2",
+    ),
+    Stated(
+        "L38",
+        "all members of a rule-set zip, uncompressed",
+        "200000000",
+        "bytes",
+        "docs/decisions/D-1102-rule-set-zip-caps.md",
+        "all members together at most **200,000,000 bytes**",
+        "libs/tb_common/zipcap.py:check_infos",
+        "an operator installing an offline update; the orchestrator",
+        driver="ruleset_zip_total_bytes",
+        constants=("libs/tb_common/zipcap.py:RULESET_ZIP_MAX_TOTAL_BYTES",),
+        lane="B2",
+    ),
+    Stated(
+        "L39",
+        "how far one member of a rule-set zip may expand (members over 1 MB)",
+        "200",
+        "times its compressed size",
+        "docs/decisions/D-1102-rule-set-zip-caps.md",
+        "at most **200 times**",
+        "libs/tb_common/zipcap.py:check_infos",
+        "an operator installing an offline update; the orchestrator",
+        driver="ruleset_zip_ratio",
+        constants=("libs/tb_common/zipcap.py:RULESET_ZIP_MAX_RATIO",),
+        lane="B2",
+    ),
 )
 
 
@@ -857,6 +909,98 @@ def _odm(ctx: Ctx) -> list[Case]:
         judge_words(c, ("5000000", "5 MB", "5MB"))
         out.append(c)
     return out
+
+
+# ------------------------------------------------------------------------------- the rule-set zip caps (10G-6, D-1102)
+def declared_zip(entries: list[tuple[str, int, int]]) -> bytes:
+    """A stored zip of empty members whose central directory declares each (name, uncompressed, compressed) size:
+    a few kB that declare much (nothing large is written)."""
+    import struct
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
+        for name, _u, _c in entries:
+            z.writestr(zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0)), b"")
+    data = bytearray(buf.getvalue())
+    at = data.index(b"PK\x01\x02")
+    for _name, u, c in entries:  # a central directory record: compressed size at +20, uncompressed at +24
+        struct.pack_into("<II", data, at + 20, c, u)
+        n, x, k = struct.unpack_from("<HHH", data, at + 28)
+        at += 46 + n + x + k
+    return bytes(data)
+
+
+def _zip_cases(sizes: tuple[str, ...], build: Callable[[str], list[tuple[str, int, int]]]) -> list[Case]:
+    import zipfile
+
+    from tb_common.zipcap import ZipRefused, check_ruleset_zip
+
+    class Counted(zipfile.ZipFile):
+        reads = 0
+
+        def open(self, name: Any, *a: Any, **k: Any) -> Any:
+            self.reads += 1
+            return super().open(name, *a, **k)
+
+    out = []
+    for label in ("at", "one_over", "far_over"):
+        entries = build(label)
+        c = Case(label, f"{len(entries)} members, {sum(u for _n, u, _c in entries)} bytes declared", accepted=False)
+        with Counted(io.BytesIO(declared_zip(entries))) as z, _timed(c):
+            try:
+                check_ruleset_zip(z)
+                c.accepted = True
+            except ZipRefused as e:
+                c.status = e.code
+                c.words = {"en": str(e)}
+                c.before_work = z.reads == 0  # no member was read
+                c.note = "an operator's command line and the job's failure text: English only"
+        judge_words(c, sizes)
+        out.append(c)
+    return out
+
+
+@driver("ruleset_zip_members", "function: tb_common.zipcap.check_ruleset_zip on a zip built in memory")
+def _zip_members(ctx: Ctx) -> list[Case]:
+    from tb_common import zipcap
+
+    m = zipcap.RULESET_ZIP_MAX_MEMBERS
+    n = {"at": m, "one_over": m + 1, "far_over": 10 * m}
+    return _zip_cases(("2000",), lambda lb: [(f"X/v/{i}.json", 0, 0) for i in range(n[lb])])
+
+
+@driver("ruleset_zip_member_bytes", "function: tb_common.zipcap.check_ruleset_zip; sizes declared, not stored")
+def _zip_member(ctx: Ctx) -> list[Case]:
+    from tb_common import zipcap
+
+    m = zipcap.RULESET_ZIP_MAX_MEMBER_BYTES
+    n = {"at": m, "one_over": m + 1, "far_over": 10 * m}
+    return _zip_cases(("100000000",), lambda lb: [("X/sql/a.sql", n[lb], n[lb] // 100)])
+
+
+@driver("ruleset_zip_total_bytes", "function: tb_common.zipcap.check_ruleset_zip; sizes declared, not stored")
+def _zip_total(ctx: Ctx) -> list[Case]:
+    from tb_common import zipcap
+
+    each, m = zipcap.RULESET_ZIP_MAX_MEMBER_BYTES, zipcap.RULESET_ZIP_MAX_TOTAL_BYTES
+
+    def build(lb: str) -> list[tuple[str, int, int]]:
+        total = {"at": m, "one_over": m + 1, "far_over": 10 * m}[lb]
+        k = -(-total // each)
+        return [(f"X/sql/{i}.sql", total // k + (1 if i < total % k else 0), each // 100) for i in range(k)]
+
+    return _zip_cases(("200000000",), build)
+
+
+@driver("ruleset_zip_ratio", "function: tb_common.zipcap.check_ruleset_zip; sizes declared, not stored")
+def _zip_ratio(ctx: Ctx) -> list[Case]:
+    from tb_common import zipcap
+
+    r = zipcap.RULESET_ZIP_MAX_RATIO
+    c = 10_000
+    n = {"at": r * c, "one_over": r * c + 1, "far_over": 10 * r * c}
+    return _zip_cases(("200",), lambda lb: [("X/valuesets/v.json", n[lb], c)])
 
 
 def edc_page_words(code: str) -> dict[str, str]:
