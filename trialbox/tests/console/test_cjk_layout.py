@@ -146,9 +146,9 @@ def test_week_page_first_screen_folds_procedure_and_sae_banners(box: dict[str, A
 def test_other_pages_keep_the_full_sae_banner() -> None:
     """The fold is for the week page only: the coordinator's home and the study picker call the banners unfolded."""
     tpl = ROOT / "services" / "console" / "templates"
-    for name in ("home_crc.html", "week_pick.html"):
+    for name, call in (("home_crc.html", "sae_body(life.sae)"), ("week_pick.html", "sae_banner(life.sae)")):
         text = (tpl / name).read_text(encoding="utf-8")
-        assert "sae_banner(life.sae)" in text and "compact" not in text, name
+        assert call in text and "compact" not in text, name
 
 
 @pytest.mark.parametrize("lang", LANGS)
@@ -244,7 +244,7 @@ def test_screenshots_ja_and_zh_tw_no_one_character_wrapping(box: dict[str, Any],
             "/studies/GZQO/week",
             lang,
             DESKTOP,
-            ["row-first-screen", "worklist-fits"],
+            ["row-first-screen", "worklist-fits", "sae-fold"],
         )
         put(pi, f"pi-{lang}-week-phone.html", "/studies/GZQO/week", lang, PHONE, [])
         put(pi, f"pi-{lang}-sheet-phone.html", f"/studies/GZQO/week?pid={B}", lang, PHONE, [])

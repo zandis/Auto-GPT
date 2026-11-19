@@ -8,7 +8,8 @@
 //   * the page does not scroll sideways;
 //   * every link and button of the patient panel starts inside the window (the clipped "ask the doctor" link);
 //   * on the full patient page the mark bar is on the first screen (sticky at the bottom);
-//   * on the week page the first patient row starts on the first screen of a desktop, and the worklist fits its box.
+//   * on the week page the first patient row starts on the first screen of a desktop, the worklist fits its box,
+//     and opening the SAE fold reveals the subject link.
 //
 //   node tests/console/cjk_layout.js '{"dir": "...", "pages": [{"file", "width", "height", "checks": [...]}], "shots": ""}'
 //
@@ -117,6 +118,12 @@ async function measure(page) {
         } else if (c === "worklist-fits") {
           check(m.worklist && m.worklist.scrollWidth <= m.worklist.clientWidth + 1,
             `${name}: the worklist scrolls sideways inside its box (${JSON.stringify(m.worklist)})`);
+        } else if (c === "sae-fold") {
+          const fold = page.locator("[data-testid=sae-fold]");
+          const subject = fold.locator('a[href="/studies/GZQO/subjects/S-0001"]');
+          check(await subject.count() === 1 && !await subject.isVisible(), `${name}: the SAE link starts folded`);
+          await fold.locator("summary").click();
+          check(await subject.isVisible(), `${name}: opening the SAE fold reveals its subject link`);
         } else if (c === "row-first-screen") {
           check(m.firstRow !== undefined && m.firstRow < m.innerHeight * 0.6,
             `${name}: the first patient row starts at y=${m.firstRow} of ${m.innerHeight}`);

@@ -71,6 +71,10 @@ form.inline select { width: auto; min-height: 28px; padding: 2px 6px; }
 .error { background: var(--bad-bg); color: var(--bad); padding: 8px 12px; border-radius: 6px; }
 .warn { background: var(--warn-bg); color: var(--warn); padding: 8px 12px; border-radius: 6px; }
 .ok { background: var(--ok-bg); color: var(--ok); padding: 8px 12px; border-radius: 6px; }
+/* DS-9: spacing for grouped notice bodies. */
+.bn { margin-bottom: 16px; }
+.bn > p:first-child { margin-top: 0; }
+.bn > p:last-child { margin-bottom: 0; }
 .pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: var(--t-meta); font-weight: 700; }
 .pill.ok { background: var(--ok-bg); color: var(--ok); padding: 1px 8px; }
 .pill.bad { background: var(--bad-bg); color: var(--bad); padding: 1px 8px; }
@@ -459,8 +463,8 @@ ul.vlist li.vrow:first-child { border-top: 0; }
 .vrow .vact .button { margin: 0; }
 .sae { border: 2px solid var(--bad); }
 .sae h2 { color: var(--bad); }
-.sae li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
-.sae li .button { margin: 0; }
+.sae-rows li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
+.sae-rows li .button { margin: 0; }
 table.sched input.short { width: 5em; }
 @media (max-width: 760px) {
   ul.vlist li.vrow { flex-direction: column; align-items: stretch; }

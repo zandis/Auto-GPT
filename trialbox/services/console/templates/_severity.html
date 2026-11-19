@@ -1,0 +1,23 @@
+{# DS-9: pass (tone, rendered body) pairs. Empty bodies are ignored. #}
+{% macro severity_banners(notices) -%}
+{% set styles = {'urgent': 'error', 'warn': 'warn', 'info': 'card', 'done': 'ok'} %}
+{% set roles = {'urgent': 'alert', 'done': 'status'} %}
+{% set groups = [] %}
+{% for tone in styles %}
+  {% set bodies = notices|selectattr('0', 'equalto', tone)|map(attribute=1)|select|list %}
+  {% if bodies %}{% set _ = groups.append((tone, bodies)) %}{% endif %}
+{% endfor %}
+{# The highest present tone gets its own container. All remaining tones share the second. #}
+{% for tone, bodies in groups[:2] %}
+<div class="bn {{ styles[tone] }}" data-sev="{{ tone }}"{% if tone in roles %} role="{{ roles[tone] }}"{% endif %}>
+  {% for body in bodies %}{{ body }}{% endfor %}
+  {% if loop.index == 2 %}
+    {% for lower_tone, lower_bodies in groups[2:] %}
+      {% if lower_tone in roles %}<div role="{{ roles[lower_tone] }}">{% endif %}
+      {% for body in lower_bodies %}{{ body }}{% endfor %}
+      {% if lower_tone in roles %}</div>{% endif %}
+    {% endfor %}
+  {% endif %}
+</div>
+{% endfor %}
+{%- endmacro %}
