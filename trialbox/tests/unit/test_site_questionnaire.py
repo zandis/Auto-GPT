@@ -175,6 +175,7 @@ BAD = [
     (("tables", "lab", "rows", 0, "unit"), _DROP, "unit_missing"),
     (("tables", "lab", "rows", 0, "factor"), "0", "factor"),
     (("tables", "lab", "rows", 0, "factor"), "1e9", "factor"),
+    (("tables", "lab", "rows", LAB_CONVERTED, "factor"), "5000", "factor"),  # a plain decimal above 1000
     (("tables", "lab", "rows", 0, "factor"), "10", "factor_same"),
     (("tables", "lab", "rows", 0, "source_unit"), "g/L", "factor_wrong"),
     (("tables", "lab", "rows", LAB_CONVERTED, "factor"), "100", "factor_wrong"),
@@ -500,6 +501,7 @@ def test_the_command_refuses_an_existing_folder_and_the_live_mapping_folders(
 ) -> None:
     (tmp_path / "there").mkdir()
     assert _run("--out", str(tmp_path / "there")) == 2
+    assert _run("--out", str(tmp_path / "there"), "--check-only") == 2  # said before anything is written
     assert "profileform" not in capsys.readouterr().err
     live = tmp_path / "site-mapping"
     live.mkdir()
