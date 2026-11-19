@@ -326,6 +326,7 @@ BARE_PUBLIC_DOMAIN = re.compile(r"(?<!license_name: )public[ -]domain(?![ -]noti
 #: text files that can hold note text or state a licence; a .gz is read decompressed
 TEXT = (".json", ".jsonl", ".jsonl.gz", ".json.gz", ".md", ".csv", ".tsv", ".txt", ".yaml", ".yml", ".py")
 LICENCE_FILES = ("README.md", "NOTICE.md", "PROVENANCE.md")
+DATA_DOC_ROOTS = ("eval", "tests/fixtures")  # where data sets and their READMEs live
 
 
 def dataset_problems(root: Path, rows: list[Row]) -> list[str]:
@@ -422,6 +423,15 @@ def sigir_problems(root: Path = ROOT, files: list[str] | None = None) -> list[st
             out.append(f"{d}: beside SIGIR 2016 note text (CC BY-SA 4.0, CSIRO), says public domain")
         elif "sigir" in text.lower() and "cc by-sa 4.0" not in text.lower():
             out.append(f"{d}: names SIGIR beside its note text but not its licence, CC BY-SA 4.0")
+    # the data-set READMEs that name SIGIR without holding its text (outcomes, cells, scores) state its licence too
+    for top in DATA_DOC_ROOTS:
+        for p in sorted((root / top).rglob("*")) if (root / top).is_dir() else []:
+            d = p.relative_to(root).as_posix()
+            if p.name not in LICENCE_FILES or d in docs or d in files:
+                continue
+            text = _read_text(p).lower()
+            if "sigir" in text and ("cc by-sa 4.0" not in text or BARE_PUBLIC_DOMAIN.search(text)):
+                out.append(f"{d}: names SIGIR 2016 but not as CC BY-SA 4.0 (CSIRO), or calls it public domain")
     return out
 
 

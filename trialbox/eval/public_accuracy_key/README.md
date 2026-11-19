@@ -17,5 +17,5 @@ written into a protocol, in `built/site`). It is not committed. `MANIFEST.json` 
 A built folder names its version in `gold/key.json` (none: v1). `python -m tools.public_accuracy key-diff OLD NEW`
 lists every row that differs between two built folders, and why. See `tools/public_accuracy/key.py`.
 
-The ids are the public sources' own: SIGIR 2016 (NCBI TrialGPT copy, see `eval/criterion_ml/LICENSE.NCBI`) and
+The ids are the public sources' own: SIGIR 2016 (CC BY-SA 4.0, Koopman and Zuccon, CSIRO; NCBI TrialGPT copy, see `eval/criterion_ml/NOTICE.md`) and
 JMED-Personas by Sociocom (NAIST), CC BY 4.0. No note text is kept here.

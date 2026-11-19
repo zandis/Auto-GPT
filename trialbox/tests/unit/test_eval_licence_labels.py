@@ -120,3 +120,17 @@ def test_a_data_set_whose_licence_disagrees_with_its_rows_fails(tmp_path: Path) 
     got = lr.dataset_problems(root, _load(root))
     assert "eval/DATASETS.yaml m: register row no-such-row does not exist" in got
     assert "eval/DATASETS.yaml m: licence does not say 'CC BY 4.0', as register row medtxt (CC-BY-4.0) does" in got
+
+
+def test_a_data_set_readme_that_names_sigir_states_its_licence(tmp_path: Path) -> None:
+    """A README under eval/ or tests/fixtures/ that names SIGIR, even beside no note text (outcomes, cells)."""
+    entry = {"kind": "open", "licence": "SIGIR 2016, CC BY-SA 4.0 (CSIRO)", "register": [lr.SIGIR_ROW]}
+    root = _sigir_tree(tmp_path, "SIGIR CC BY-SA 4.0\n", entry)
+    outcomes = root / "eval/outcomes"
+    outcomes.mkdir()
+    (outcomes / "README.md").write_text("Outcomes of the SIGIR set (NCBI, LICENSE.NCBI).\n", encoding="utf-8")
+    assert lr.sigir_problems(root) == [
+        "eval/outcomes/README.md: names SIGIR 2016 but not as CC BY-SA 4.0 (CSIRO), or calls it public domain"
+    ]
+    (outcomes / "README.md").write_text("Outcomes of the SIGIR set (CC BY-SA 4.0, CSIRO).\n", encoding="utf-8")
+    assert lr.sigir_problems(root) == []
