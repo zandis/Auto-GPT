@@ -11,6 +11,7 @@ routine access, which closes patient pages instead of opening one."""
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -66,6 +67,7 @@ CREATE INDEX uses_grant ON uses (grant_id, id)
 """
 # 10K-15 (D-1364, owner decision 99): the support sessions the hospital's administrator starts; the console reads the
 # open one at every request (``console.support_session``). No patient data: who, when, the ticket, how it ended.
+# ``end_audited``: the end's audit event is written (an automatic end whose event failed is written again later).
 SCHEMA_V3 = """
 CREATE TABLE support_sessions (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -74,7 +76,8 @@ CREATE TABLE support_sessions (
   ticket TEXT NOT NULL DEFAULT '',
   ended_at TEXT COLLATE "C",
   ended_by TEXT,
-  how TEXT
+  how TEXT,
+  end_audited BOOLEAN NOT NULL DEFAULT false
 );
 CREATE INDEX support_sessions_open ON support_sessions (ended_at, id)
 """
@@ -259,9 +262,11 @@ class BreakGlassStore:
 
 
 # ---------------------------------------------------------------------------------------------- 10K-15 (D-1364)
-_TICKET = re.compile(r"^[A-Za-z0-9#._/-]{0,40}$")  # a ticket number, never a name or a sentence
+# the shape of a ticket number: an optional short prefix of letters, then digits in up to four groups ("TB-2026-0117",
+# "SUP-0042", "#4711"). A pattern cannot prove that no name is typed; it keeps the field to what a number looks like
+_TICKET = re.compile(r"^(?:#|[A-Za-z]{1,6}[-#]?)?[0-9]{1,12}(?:[-/.][0-9]{1,12}){0,3}$")
 HOWS = ("hand", "auto")  # ended by the administrator, or by itself after SUPPORT_SESSION_MINUTES
-_SCOLS = "id, started_by, started_at, ticket, ended_at, ended_by, how"
+_SCOLS = "id, started_by, started_at, ticket, ended_at, ended_by, how, end_audited"
 
 
 class SupportError(ValueError):
@@ -277,23 +282,45 @@ class SupportSession:
     ended_at: str | None
     ended_by: str | None
     how: str | None
+    end_audited: bool = False
+
+    @property
+    def start(self) -> datetime | None:
+        """The stored start as a time, None when it cannot be read (a damaged row)."""
+        try:
+            t = datetime.fromisoformat(self.started_at)
+        except (TypeError, ValueError):
+            return None
+        return t if t.tzinfo is not None else t.replace(tzinfo=UTC)
 
     @property
     def ends_at(self) -> str:
-        """The latest end: the stored start plus ``SUPPORT_SESSION_MINUTES`` (no stored end that could drift)."""
-        return _iso(datetime.fromisoformat(self.started_at) + timedelta(minutes=SUPPORT_SESSION_MINUTES))
+        """The latest end: the stored start plus ``SUPPORT_SESSION_MINUTES`` (no stored end that could drift); ""
+        when the start cannot be read."""
+        st = self.start
+        return _iso(st + timedelta(minutes=SUPPORT_SESSION_MINUTES)) if st is not None else ""
 
     def active(self, now: datetime) -> bool:
-        return self.ended_at is None and now < datetime.fromisoformat(self.ends_at)
+        """Not ended and inside its 2 hours. A start that cannot be read keeps it on (closed on doubt) until the
+        administrator ends it by hand (:meth:`SupportSessionStore.end` reads no time)."""
+        if self.ended_at is not None:
+            return False
+        st = self.start
+        return st is None or now < st + timedelta(minutes=SUPPORT_SESSION_MINUTES)
 
 
 def _session(r: Any) -> SupportSession:
-    return SupportSession(int(r[0]), r[1], r[2], r[3] or "", r[4], r[5], r[6])
+    return SupportSession(int(r[0]), r[1], r[2], r[3] or "", r[4], r[5], r[6], bool(r[7]))
 
 
 class SupportSessionStore:
     """The ``support_sessions`` table of schema ``breakglass``. At most one session is open; the console asks
-    :meth:`current` at every request, which also ends a session whose 2 hours are over (once: the row says so)."""
+    :meth:`current` at every request, which also ends a session whose 2 hours are over (once: the row says so).
+
+    The audit trail (D-1364, the review's S1): a start is committed only after its audit event is written (the event
+    is written inside the insert's transaction, so a failed event rolls the row back), and so is an end by hand; an
+    automatic end is a row change first, and its event is written by :meth:`audit_end`, again at every request until
+    it is written (``end_audited``)."""
 
     def __init__(self, url: str | None = None) -> None:
         self.db = open_db(url, "breakglass", MIGRATIONS)
@@ -302,19 +329,50 @@ class SupportSessionStore:
         self.db.close()
 
     def current(self, now: datetime) -> tuple[SupportSession | None, list[SupportSession]]:
-        """The open session (None when there is none) and the sessions this call ended because their time was over:
-        each is ended at its latest end (``ends_at``), with ``how`` "auto", by exactly one caller."""
-        rows = self.db.fetchall(f"SELECT {_SCOLS} FROM support_sessions WHERE ended_at IS NULL ORDER BY id")
-        lapsed: list[SupportSession] = []
+        """The open session (None when there is none) and the ended sessions whose end event is not written yet.
+        A session whose 2 hours are over is ended here at its latest end (``ends_at``), ``how`` "auto". A start
+        later than ``now`` (the clock was moved back) is set to ``now``: the session then lasts at most 2 hours from
+        this request, never 2 hours from a time the clock has not reached."""
+        rows = self.db.fetchall(f"SELECT {_SCOLS} FROM support_sessions WHERE ended_at IS NULL OR NOT end_audited "
+                                "ORDER BY id")  # fmt: skip
         live: SupportSession | None = None
+        unaudited: list[SupportSession] = []
         for s in (_session(r) for r in rows):
+            if s.ended_at is not None:
+                unaudited.append(s)
+                continue
+            st = s.start
+            if st is not None and st > now:
+                self.db.execute("UPDATE support_sessions SET started_at = ? WHERE id = ? AND ended_at IS NULL",
+                                (_iso(now), s.id))  # fmt: skip
+                s = self.get(s.id) or s
             if s.active(now):
                 live = s
                 continue
             if self.db.execute("UPDATE support_sessions SET ended_at = ?, ended_by = '', how = 'auto' "
                                "WHERE id = ? AND ended_at IS NULL", (s.ends_at, s.id)):  # fmt: skip
-                lapsed.append(self.get(s.id) or s)
-        return live, lapsed
+                got = self.get(s.id)
+                if got is not None and not got.end_audited:
+                    unaudited.append(got)
+        return live, unaudited
+
+    def audit_end(self, sid: int, write: Callable[[SupportSession], None]) -> bool:
+        """Write the end event of ended session ``sid`` once: ``write`` runs inside the transaction that marks the
+        row ``end_audited``, so a failing ``write`` leaves it to the next request, and two requests never both write
+        it. True when this call wrote it."""
+        with self.db.transaction() as tx:
+            row = tx.fetchone(f"SELECT {_SCOLS} FROM support_sessions WHERE id = ? AND ended_at IS NOT NULL "
+                              "AND NOT end_audited FOR UPDATE SKIP LOCKED", (sid,))  # fmt: skip
+            if row is None:
+                return False
+            write(_session(row))
+            tx.execute("UPDATE support_sessions SET end_audited = true WHERE id = ?", (sid,))
+        return True
+
+    def open_rows(self) -> list[SupportSession]:
+        """The sessions not ended, read without their times (the page offers each one's end, even a damaged row)."""
+        rows = self.db.fetchall(f"SELECT {_SCOLS} FROM support_sessions WHERE ended_at IS NULL ORDER BY id DESC")
+        return [_session(r) for r in rows]
 
     def get(self, sid: int) -> SupportSession | None:
         row = self.db.fetchone(f"SELECT {_SCOLS} FROM support_sessions WHERE id = ?", (sid,))
@@ -325,10 +383,13 @@ class SupportSessionStore:
         rows = self.db.fetchall(f"SELECT {_SCOLS} FROM support_sessions ORDER BY id DESC")
         return [_session(r) for r in rows]
 
-    def start(self, username: str, ticket: str, now: datetime) -> SupportSession:
-        """Start a session for ``username`` (the administrator); refused while one is open."""
+    def start(self, username: str, ticket: str, now: datetime,
+              before_commit: Callable[[SupportSession], None]) -> SupportSession:  # fmt: skip
+        """Start a session for ``username`` (the administrator); refused while one is open. ``before_commit`` (the
+        start's audit event) runs inside the insert's transaction: when it fails nothing is stored, so a session is
+        never on without its start event."""
         ticket = (ticket or "").strip()
-        if not _TICKET.match(ticket):
+        if ticket and not _TICKET.match(ticket):
             raise SupportError("support.err.ticket")
         with self.db.transaction() as tx:
             tx.execute("LOCK TABLE support_sessions IN EXCLUSIVE MODE")  # two starts at once: one wins
@@ -337,18 +398,20 @@ class SupportSessionStore:
                     raise SupportError("support.err.on")
             sid = int(tx.fetchval("INSERT INTO support_sessions (started_by, started_at, ticket) VALUES (?, ?, ?) "
                                   "RETURNING id", (username, _iso(now), ticket)))  # fmt: skip
-        got = self.get(sid)
-        assert got is not None
+            got = _session(tx.fetchone(f"SELECT {_SCOLS} FROM support_sessions WHERE id = ?", (sid,)))
+            before_commit(got)
         return got
 
-    def end(self, sid: int, by: str, now: datetime) -> SupportSession:
-        """End the open session ``sid`` by hand; refused when it is not open (ended, or its time is over)."""
-        s = self.get(sid)
-        if s is None or not s.active(now):
-            raise SupportError("support.err.none")
-        if not self.db.execute("UPDATE support_sessions SET ended_at = ?, ended_by = ?, how = 'hand' "
-                               "WHERE id = ? AND ended_at IS NULL", (_iso(now), by, sid)):  # fmt: skip
-            raise SupportError("support.err.none")
-        got = self.get(sid)
-        assert got is not None
+    def end(self, sid: int, by: str, now: datetime,
+            before_commit: Callable[[SupportSession], None]) -> SupportSession:  # fmt: skip
+        """End the open session ``sid`` by hand; refused when it is already ended. Reads no stored time, so a row
+        whose start cannot be read is ended too. ``before_commit`` (the end's audit event) runs inside the update's
+        transaction: when it fails the session stays on (closed) and the end can be tried again."""
+        with self.db.transaction() as tx:
+            done = tx.execute("UPDATE support_sessions SET ended_at = ?, ended_by = ?, how = 'hand', "
+                              "end_audited = true WHERE id = ? AND ended_at IS NULL", (_iso(now), by, sid))  # fmt: skip
+            if not done:
+                raise SupportError("support.err.none")
+            got = _session(tx.fetchone(f"SELECT {_SCOLS} FROM support_sessions WHERE id = ?", (sid,)))
+            before_commit(got)
         return got

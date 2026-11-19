@@ -26,6 +26,7 @@ It narrows only: the one new row (``support.session``) is the administrator's, t
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -47,6 +48,10 @@ PAGE = "/ops/support-session"
 ON = "support.session_on"  # the refusal while a session runs
 UNKNOWN = "support.session_unknown"  # the refusal when the state could not be read (closed on doubt)
 SYSTEM = "console:support-session"  # the actor of an automatic end
+# the pages of one job: a CASE job is about one patient (its sheet, its counts by criterion), so during a session its
+# pages are refused like a patient page, whatever the role (the review of D-1364)
+_JOB_PAGE = re.compile(r"^/pilot/jobs/([0-9A-HJKMNP-TV-Z]{26})(?:/|$)")
+ONE_PATIENT_JOBS = frozenset({"CASE"})
 
 for _lang, _cat in (("en", i18n_support.EN), ("ja", i18n_support.JA), ("zh-TW", i18n_support.ZH)):
     CATALOGUES[_lang].update(_cat)
@@ -65,16 +70,25 @@ class SupportGuard:
         self.store = store
 
     def state(self) -> tuple[SupportSession | None, bool]:
-        """(the open session, closed on doubt). An automatic end found here is audited by this call only."""
+        """(the open session, closed on doubt). The end events not yet written (an automatic end, or one whose
+        event failed before) are written here, each once (``SupportSessionStore.audit_end``); one that fails again
+        is tried at the next request, and the request goes on."""
         try:
-            live, lapsed = self.store.current(self.h.clock())
+            live, unaudited = self.store.current(self.h.clock())
         except Exception as e:
             log.warning("support session: state not read (%s); patient pages stay closed", type(e).__name__)
             return None, True
-        for s in lapsed:
-            self.h.au.append("console.support_session_end", actor=SYSTEM,
-                             detail={**_detail(s), "how": "auto", "ended_at": s.ended_at})  # fmt: skip
+        for s in unaudited:
+            try:
+                self.store.audit_end(s.id, self.end_event)
+            except Exception as e:
+                log.warning("support session %s: end event not written (%s); tried again", s.id, type(e).__name__)
         return live, False
+
+    def end_event(self, s: SupportSession) -> None:
+        actor = f"console:{s.ended_by}" if s.how == "hand" and s.ended_by else SYSTEM
+        self.h.au.append("console.support_session_end", actor=actor,
+                         detail={**_detail(s), "how": s.how or "auto", "ended_at": s.ended_at})  # fmt: skip
 
     def session(self, request: Request) -> Any:
         from console.app import COOKIE  # console.app imports this module
@@ -85,12 +99,26 @@ class SupportGuard:
             return None
 
     def refusal(self, request: Request, live: SupportSession | None) -> Response:
-        key = ON if live is not None else UNKNOWN
-        until = local_time(live.ends_at, site_zone(self.h.bk), 16) if live is not None else ""
+        key = ON if live is not None and live.ends_at else UNKNOWN
+        until = local_time(live.ends_at, site_zone(self.h.bk), 16) if live is not None and live.ends_at else ""
         if request.url.path.startswith("/api/"):
             return JSONResponse({"error": key, "detail": {"until": live.ends_at if live else ""}}, status_code=403)
-        return self.h.page(request, "problem.html", self.session(request), status=403, key=key,
+        # the page is rendered as if at "/": the refused URL (a study, a pseudonym) is not repeated on it, in a
+        # link, a form's way back or the feedback control
+        bare = Request({**request.scope, "path": "/", "raw_path": b"/", "query_string": b""}, request.receive)
+        return self.h.page(bare, "problem.html", self.session(request), status=403, key=key,
                            values={"until": until})  # fmt: skip
+
+    def one_patient_job(self, path: str) -> bool:
+        """A job page about one patient (a CASE job): a patient page, closed during a session to every role."""
+        m = _JOB_PAGE.match(path)
+        if not m:
+            return False
+        try:
+            job = self.h.bk.get_job(m.group(1))
+        except Exception:
+            return True  # closed on doubt
+        return job is not None and str(getattr(job, "type", "")) in ONE_PATIENT_JOBS
 
     async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         if request.url.path.startswith("/static/"):
@@ -98,10 +126,13 @@ class SupportGuard:
         live, unknown = await run_in_threadpool(self.state)
         request.state.support_session = live  # the banner (templates/_support_banner.html)
         request.state.support_unknown = unknown
-        token = authz.support_session_begin(live is not None or unknown)
+        marked = live is not None or unknown
+        token = authz.support_session_begin(marked)
         try:
+            if marked and await run_in_threadpool(self.one_patient_job, request.url.path):
+                return self.refusal(request, live)
             resp = await call_next(request)
-            if (live is not None or unknown) and resp.status_code == 403:
+            if marked and resp.status_code == 403:
                 resp = self.refusal(request, live)  # rendered under the mark: its menu offers no patient page
         finally:
             authz.support_session_end(token)
@@ -127,8 +158,8 @@ def register(app: FastAPI, h: Helpers, store: SupportSessionStore | None = None)
     @app.get(PAGE)
     def page(request: Request, done: str = "", err: str = "") -> Response:
         sess = admin(request)
-        live = getattr(request.state, "support_session", None)
-        return h.page(request, "support_session.html", sess, live=live, recent=st.recent(),
+        # every row not ended, read without its times, so that a damaged row can always be ended from here
+        return h.page(request, "support_session.html", sess, open_rows=st.open_rows(), recent=st.recent(),
                       minutes=authz.SUPPORT_SESSION_MINUTES, done=done if done in ("start", "end") else "",
                       err=err if err.startswith("support.err.") else "")  # fmt: skip
 
@@ -137,22 +168,29 @@ def register(app: FastAPI, h: Helpers, store: SupportSessionStore | None = None)
         sess = admin(request, csrf)
         if confirm != "yes":  # runbook 21 rules 1 and 2, ticked: a form posted without it starts nothing
             return RedirectResponse(f"{PAGE}?err=support.err.confirm", status_code=303)
+
+        def audit(s: SupportSession) -> None:  # inside the insert's transaction: no event, no session
+            h.au.append("console.support_session_start", actor=h.actor(sess), detail=_detail(s))
+
         try:
-            s = st.start(sess.user.username, ticket[:80], h.clock())
+            st.start(sess.user.username, ticket[:80], h.clock(), audit)
         except SupportError as exc:
             return RedirectResponse(f"{PAGE}?err={exc}", status_code=303)
-        h.au.append("console.support_session_start", actor=h.actor(sess), detail=_detail(s))
+        except Exception as exc:  # the audit trail refused the event: nothing was started
+            log.warning("support session not started: the start event was not written (%s)", type(exc).__name__)
+            return RedirectResponse(f"{PAGE}?err=support.err.audit", status_code=303)
         return RedirectResponse(f"{PAGE}?done=start", status_code=303)
 
     @app.post(PAGE + "/end")
     def end(request: Request, csrf: str = Form(""), session: int = Form(0)) -> Response:
         sess = admin(request, csrf)
         try:
-            s = st.end(session, sess.user.username, h.clock())
+            st.end(session, sess.user.username, h.clock(), guard.end_event)
         except SupportError as exc:
             return RedirectResponse(f"{PAGE}?err={exc}", status_code=303)
-        h.au.append("console.support_session_end", actor=h.actor(sess),
-                    detail={**_detail(s), "how": "hand", "ended_at": s.ended_at})  # fmt: skip
+        except Exception as exc:  # the audit trail refused the event: the session stays on; end it again
+            log.warning("support session not ended: the end event was not written (%s)", type(exc).__name__)
+            return RedirectResponse(f"{PAGE}?err=support.err.audit", status_code=303)
         return RedirectResponse(f"{PAGE}?done=end", status_code=303)
 
     return st
