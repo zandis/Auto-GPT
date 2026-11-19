@@ -414,8 +414,12 @@ CLAIM_FIND_ZH: tuple[str, ...] = (
     "判別",
     "揪出",
     "挖掘",
+    "察覺",
+    "發覺",
+    "分辨",
+    "標示",
 )
-CLAIM_RATE_ZH: tuple[str, ...] = ("預測", "風險", "危險", "評分", "分數", "機率", "疑似")
+CLAIM_RATE_ZH: tuple[str, ...] = ("預測", "推估", "預估", "風險", "危險", "評分", "分數", "機率", "疑似")
 CLAIM_JUDGE_ZH: tuple[str, ...] = ("判斷", "研判")
 
 CLAIM_DISEASE_ZH: tuple[str, ...] = (
@@ -441,8 +445,11 @@ CLAIM_DISEASE_ZH: tuple[str, ...] = (
     "中風",
     "失智",
     "死亡",
+    "存活",
+    "結節",
+    "症",
 )
-CLAIM_EARLY_ZH: tuple[str, ...] = ("早期", "及早", "提早", "潛在", "隱藏", "漏診")
+CLAIM_EARLY_ZH: tuple[str, ...] = ("早期", "及早", "提早", "提前", "更早", "潛在", "隱藏", "漏診", "傾向")
 # not 候選者 / 候選人: a candidate for a study is the product's own word, as in Japanese
 CLAIM_PATIENTS_ZH: tuple[str, ...] = ("病人", "病患", "患者", "受試者", "個案", "就診者", "民眾", "族群")
 CLAIM_ACTORS_ZH: tuple[str, ...] = (
@@ -481,13 +488,15 @@ CLAIM_ALLOWED_ZH: dict[str, tuple[str, ...]] = {
     "風險": (
         r"(?:偏差|偏倚|偏誤)風險",
         r"(?:試驗|研究|參與|參加|計畫)(?:可能|主要|潛在)?(?:的|之)?(?:主要|可能|潛在)?風險",
+        r"(?:試驗|研究)(?:可能|可|會|將)?(?:為|對|給)(?:受試者|參與者|病人)(?:帶來|造成)(?:的|之)?風險",
         r"風險\s*(?:與|和|及|、)\s*(?:好處|益處|利益)",
         r"(?:好處|益處|利益)\s*(?:與|和|及|、)\s*(?:主要|可能|潛在)?風險",
     ),
     # a study's enrolment forecast (feasibility) is a count, not a patient's outcome
     "預測": (
-        r"(?:收案|招募|納入|隨機分派|同意)(?:人?數)?(?:的|之)?預測",
-        r"預測(?:的是)?(?:收案|招募|納入|隨機分派|同意)",
+        r"(?:收案|招募|納入|隨機分派|同意)(?:人?數)?(?:的|之)?預(?:測|估)",
+        r"預(?:測|估)(?:的是)?(?:可|將|可以)?(?:收案|招募|納入|隨機分派|同意)",
+        r"預(?:測|估)(?:的)?人數",  # a head count
     ),
     # a lab's detection limit
     "偵測": (r"(?:偵測|檢測|檢出)(?:極限|下限|上限|限值)",),
@@ -507,7 +516,9 @@ _LIGHT_ZH = (
 _NEG_VERBAL_WORDS_ZH = r"(?:並未|並不|絕不|從不|從未|不再|無法|不|未|無)"
 _NEG_VERBAL_ZH = re.compile(_NEG_VERBAL_WORDS_ZH + r"(?=\s*" + _AUX_ZH + r"\s*" + _LIGHT_ZH + ")")
 # an existential or copular negator covers the rest of its clause
-_NEG_WHOLE_ZH = re.compile(r"並不是|不是|並非|絕非|而非|亦非|也非|沒有|並無|毫無|不具|不含|不包含")
+_NEG_WHOLE_ZH = re.compile(
+    r"並不是|不是|並非|絕非|而非|亦非|也非|沒有|並無|毫無|不具|不含|不包含|請勿|切勿|勿|不得|禁止"
+)
 _ACTORS_ZH = "(?<![A-Za-z])(?:" + "|".join(re.escape(a) for a in CLAIM_ACTORS_ZH) + ")(?!性)"
 _NOT_ATTRIBUTIVE_ZH = r"(?!\s*(?:的|之|所|產生|輸出|結果))"
 # a patient or a disease straight before an existential negator: 病人沒有風險 is said about the patient
@@ -532,7 +543,12 @@ def deny_masked_zh(text: str) -> str:
         start = max((e.end() for e in _CLAUSE_END_ZH.finditer(text, 0, m.start())), default=0)
         before = text[start : m.start()]
         # the negator's verb may be the claim word itself (無法辨識), so its lookahead reads past ``before``
-        n = sum(1 for neg in _NEG_VERBAL_ZH.finditer(text, start, m.end()) if neg.start() < m.start())
+        whole = [(w.start() + start, w.end() + start) for w in _NEG_WHOLE_ZH.finditer(before)]
+        n = sum(
+            1
+            for neg in _NEG_VERBAL_ZH.finditer(text, start, m.end())
+            if neg.start() < m.start() and not any(a <= neg.start() < b for a, b in whole)
+        )
         for neg in _NEG_WHOLE_ZH.finditer(before):
             # 病人沒有風險 is said about the patient, not a denial of the product's claim
             if not _ABOUT_ZH.search(before[: neg.start()]):

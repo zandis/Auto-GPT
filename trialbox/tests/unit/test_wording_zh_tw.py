@@ -92,6 +92,52 @@ FRESH_1_LEGITIMATE = [
 ]
 
 
+# Written after the zh-TW rule was final (card 10C-5b step 4): 20 claims, then 20 legitimate lines. Kept as written.
+FRESH_2_CLAIMS = [
+    "透過機器學習，系統能提前發現病人的急性腎損傷。",
+    "TrialBox 可協助醫院找出罹患罕病卻未被診斷的病人。",
+    "本產品為每位病人產生心血管事件風險。",
+    "系統會依據檢驗值推估病人的存活期。",
+    "AI 判讀胸部 X 光並標示可能的肺結節。",
+    "我們的演算法能比醫師更早察覺敗血症。",
+    "本軟體能分辨哪些病人有憂鬱傾向。",
+    "系統自動標記高風險病人供醫師追蹤。",
+    "提供每位受試者的疾病進展預測。",
+    "本工具可篩出可能罹患糖尿病的民眾。",
+    "AI 計算每位病人的再住院機率。",
+    "系統能早期辨識心房顫動。",
+    "演算法會判斷病人是否需要轉診。",
+    "本軟體可偵測藥物不良反應的徵兆。",
+    "TrialBox 的評分模型可區分輕症與重症病人。",
+    "讓 AI 揪出被忽略的癌症個案。",
+    "根據病歷預測病人未來一年發生中風的可能。",
+    "系統提供個人化的疾病風險報告。",
+    "本系統可協助診斷早期阿茲海默症。",
+    "AI 會自動找出病歷中被漏掉的癌前病變。",
+]
+FRESH_2_LEGITIMATE = [
+    "系統找出符合年齡與檢驗條件的候選者，交由主持人確認。",
+    "本月預測可收案 8 位受試者。",
+    "同意書說明參與研究可能的不適與風險。",
+    "若無法辨識病歷號，請聯絡管理員。",
+    "系統偵測到磁碟空間不足，已暫停匯入。",
+    "研究護理師判斷病人是否已簽署同意書。",
+    "請勿將本軟體用於臨床診斷。",
+    "這不是疾病篩檢工具，而是研究收案輔助軟體。",
+    "監測人員記錄訪視時發現的問題。",
+    "分數欄位僅接受 0 到 10 的整數。",
+    "請匯入計畫書中的 NIHSS 評分項目。",
+    "本系統不會產生任何病人風險分數。",
+    "收案預測依過去十二個月的就診人數計算。",
+    "資安風險評估每年進行一次。",
+    "主持人可在名單中找到每位病人的依據紀錄。",
+    "試驗結束後，系統識別碼仍保留十年。",
+    "備份檢查未發現任何問題。",
+    "篩選漏斗顯示各階段的候選者人數。",
+    "若模型無法判斷，該條件列為需要更多資訊。",
+    "研究可能為受試者帶來的風險，由 IRB 審查。",
+]
+
 # The rule's classes in zh-TW, one or more sentences per form (D-1228's classes; D-1247's table). Each must fail.
 CLAIMING_ZH = [
     # compound claim nouns, refused outright
@@ -205,6 +251,7 @@ PINNED_ZH = [
     ("風險", "病人研究的偏差風險為低。", "病人的風險為低。"),
     ("預測", "每月新病人與收案預測", "每月新病人與發病預測"),
     ("預測", "預測隨機分派病人數。", "預測病人數值的惡化。"),
+    ("預測", "符合條件的病人數，以及每月預估人數。", "每月預估病人的死亡人數。"),
     ("偵測", "腫瘤標記低於偵測極限。", "偵測腫瘤標記的異常。"),
 ]
 
@@ -238,6 +285,9 @@ def test_an_actor_word_is_what_makes_a_zh_tw_judgement_a_claim() -> None:
         "TrialBox 無法辨識疾病代碼時，條件列為未知。",
         "本工具不會預測病人的風險，也不給予任何分數。",
         "系統不提供風險評分。",
+        "本產品不具疾病篩檢功能。",  # 不具 is one negator, not 不 and 具 counted twice
+        "這不是疾病篩檢工具。",
+        "請勿將本軟體用於診斷。",  # a prohibition
     ],
 )
 def test_a_zh_tw_denial_in_its_common_forms_passes(text: str) -> None:
@@ -302,4 +352,15 @@ def test_every_fresh_claim_of_the_first_set_fails(text: str) -> None:
 
 @pytest.mark.parametrize("text", FRESH_1_LEGITIMATE)
 def test_every_fresh_legitimate_line_of_the_first_set_passes(text: str) -> None:
+    assert check(text) == []
+
+
+@pytest.mark.parametrize("text", FRESH_2_CLAIMS)
+def test_every_fresh_claim_of_the_second_set_fails(text: str) -> None:
+    assert check(text) != []
+    assert check_page(f"<p>{text}</p>") != []
+
+
+@pytest.mark.parametrize("text", FRESH_2_LEGITIMATE)
+def test_every_fresh_legitimate_line_of_the_second_set_passes(text: str) -> None:
     assert check(text) == []
