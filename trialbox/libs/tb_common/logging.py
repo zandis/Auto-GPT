@@ -1,10 +1,16 @@
 """Structured JSON logging to stdout with a PHI scrubber (SPEC §4, §10.1 "No PHI in logs (pids only)").
 
 T-212d (D-450, PV-10): :func:`setup_logging`, which every TrialBox service runs at start, switches every rule on:
-the identifier patterns below, the site's chart-number pattern (``settings.mrn_regex``; the contract's default when
+the privacy guard's identifier rules (10C-1c: ``tb_common.phi_guard``, every language it knows; this module has no
+identifier pattern of its own), the site's chart-number pattern (``settings.mrn_regex``; the contract's default when
 no site configuration is readable, so the rule is never off), and the secrets: a value written after a secret's
 name (``token=...``, ``"api_key": "..."``, ``Authorization: Bearer ...``) and every secret value the process itself
 holds (the environment variables and ``*_FILE`` files named like a password, key, token or secret).
+
+The scrubber is the second line of defence: patient content is not logged at all (SPEC NFR-72, "Logs are structured
+JSON and PHI-free"; pids, counts and kinds only). It runs in the one handler every service writes through (the root
+logger's, so third-party libraries' loggers too), on the message with its arguments, the extra fields, the exception
+and its traceback; a record it cannot scrub within :data:`SCRUB_BUDGET_S` is written as "scrub failed", never as is.
 """
 
 from __future__ import annotations
@@ -14,26 +20,24 @@ import logging
 import os
 import re
 import sys
+import threading
+import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-_D = "[0-9０-９]"  # ASCII or full-width digits (Japanese forms often use full-width)
-_SEP = "[-\\s‐－ー]?"
-_PHI_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"(?<![A-Za-z0-9])[A-Z][12]\d{8}(?!\d)"), "[TWID]"),
-    # Japan (D-121): マイナンバー (12 digits, 4-4-4), insurer and insured numbers after their label, 〒 postcodes,
-    # +81 and domestic phone numbers. Labelled numbers go first so the bare-digit rules do not split them.
-    (re.compile(rf"(?:個人番号|マイナンバー)[\s:：]*{_D}{{4}}{_SEP}{_D}{{4}}{_SEP}{_D}{{4}}"), "[MYNUMBER]"),
-    (re.compile(rf"(?<!{_D}){_D}{{4}}[-\s‐－]{_D}{{4}}[-\s‐－]{_D}{{4}}(?!{_D})"), "[MYNUMBER]"),
-    (re.compile(rf"(?:保険者番号|被保険者番号|記号番号|記号|番号)[\s:：]*(?:{_D}|[・･\-－]){{6,12}}"), "[INSURANCE]"),
-    (re.compile(rf"〒[\s]?{_D}{{3}}{_SEP}{_D}{{4}}"), "[POSTCODE]"),
-    (re.compile(rf"(?<!{_D})\+81{_SEP}\(?{_D}{{1,4}}\)?{_SEP}{_D}{{1,4}}{_SEP}{_D}{{4}}(?!{_D})"), "[PHONE]"),
-    (re.compile(rf"(?<!{_D})[0０][5-9５-９]0{_SEP}{_D}{{4}}{_SEP}{_D}{{4}}(?!{_D})"), "[PHONE]"),
-    (re.compile(r"(?<!\d)(?:\+886[-\s]?|0)9\d{2}[-\s]?\d{3}[-\s]?\d{3}(?!\d)"), "[PHONE]"),
-    (re.compile(r"(?<!\d)\(?0\d{1,2}\)?[-\s]?\d{3,4}[-\s]?\d{4}(?!\d)"), "[PHONE]"),
-    (re.compile(rf"(?<!{_D})[0０]{_D}{{1,3}}[-‐－]{_D}{{1,4}}[-‐－]{_D}{{4}}(?!{_D})"), "[PHONE]"),
-]
+#: 10C-1c: the identifier rules are the privacy guard's (``tb_common.phi_guard.note_spans``: names, phone numbers, chart,
+#: ID and insurance numbers, dates of birth, addresses, email addresses, bed and room numbers, in Traditional Chinese,
+#: Japanese and English), the same spans the note masker masks and the check before a model call refuses. This module
+#: holds no identifier pattern of its own; it only names what the guard found (:func:`_token`). The guard is imported
+#: on the first record scrubbed (about 0.2 s of regular expressions), not when this module is.
+_GUARD: Any = None
+#: the longest text of one field that is scrubbed; the rest is cut and not logged (the guard is linear in the length:
+#: at most about 2.5 microseconds a character on the adversarial inputs of its own tests, so 16k characters take at
+#: most about 40 ms)
+MAX_FIELD = 16384
+#: the time one record may take to scrub; a record over it is replaced by :func:`failed_line`, never written unscrubbed
+SCRUB_BUDGET_S = 0.25
 _EXTRA_MRN: list[re.Pattern[str]] = []
 #: a value written after a secret's name; the name stays, the value goes
 _SECRET_LABEL = re.compile(
@@ -102,20 +106,124 @@ def site_rule_on() -> str:
     return pattern
 
 
-def redact(text: str) -> str:
-    """Replace Taiwan IDs, Japanese My Number / insurance numbers / postcodes, phone numbers, MRN-shaped tokens and
-    secrets (a value after a secret's name, a bearer token, a secret value the process holds)."""
+def _guard() -> Any:
+    global _GUARD
+    if _GUARD is None:
+        from tb_common import phi_guard
+
+        _GUARD = phi_guard
+    return _GUARD
+
+
+def _token(kind: str, text: str, s: int, e: int) -> str:
+    """The name a span is replaced by: the guard's kind, with the older names of the log scrubber kept where the guard's
+    own definitions tell them apart (a Taiwan ID, twelve digits, a number after an insurance or My Number label, a
+    postal code after 〒). A name only: what is replaced is decided by the guard alone."""
+    pg, before = _guard(), text[max(0, s - 8) : s]
+    if kind == "id":
+        value = text[s:e]
+        if pg.TW_ID.fullmatch(value):
+            return "[TWID]"
+        if pg.TWELVE_DIGITS_ANY.fullmatch(value) or "個人番号" in before or "マイナンバー" in before:
+            return "[MYNUMBER]"
+        if "保険" in before:
+            return "[INSURANCE]"
+    if kind == "address" and ("〒" in before[-2:] or "郵便" in before):
+        return "[POSTCODE]"
+    return f"[{kind.upper()}]"
+
+
+def scrub_identifiers(text: str, mrn: re.Pattern[str] | None = None) -> tuple[str, int]:
+    """Every span the guard finds (and the site's chart-number pattern ``mrn``) replaced by its name; the text and the
+    number of spans replaced."""
+    if not text:
+        return text, 0
+    found = list(_guard().note_spans(text))
+    if mrn is not None:
+        found.extend(("mrn", m.start(), m.end()) for m in mrn.finditer(text))
+    if not found:
+        return text, 0
+    merged: list[tuple[str, int, int]] = []
+    for kind, s, e in sorted(found, key=lambda f: (f[1], -f[2])):
+        if merged and s < merged[-1][2]:
+            merged[-1] = (merged[-1][0], merged[-1][1], max(merged[-1][2], e))
+        elif e > s:
+            merged.append((kind, s, e))
+    out, pos = [], 0
+    for kind, s, e in merged:
+        out += [text[pos:s], _token(kind, text, s, e)]
+        pos = e
+    out.append(text[pos:])
+    return "".join(out), len(merged)
+
+
+def redact_secrets(text: str) -> str:
+    """A value after a secret's name, a bearer token, a URL's password, a secret value the process holds."""
     for v in _SECRET_VALUES:
         if v in text:
             text = text.replace(v, "[SECRET]")
     text = _SECRET_LABEL.sub(lambda m: m.group(1) + "[SECRET]", text)
     text = _BEARER.sub(lambda m: m.group(1) + " [SECRET]", text)
-    text = _URL_PASSWORD.sub(lambda m: m.group(1) + "[SECRET]@", text)
-    for pat, repl in _PHI_PATTERNS:
-        text = pat.sub(repl, text)
-    for pat in _EXTRA_MRN:
-        text = pat.sub("[MRN]", text)
-    return text
+    return _URL_PASSWORD.sub(lambda m: m.group(1) + "[SECRET]@", text)
+
+
+def redact(text: str) -> str:
+    """Secrets (:func:`redact_secrets`), then every identifier the privacy guard finds and the site's chart number
+    (:func:`scrub_identifiers`)."""
+    return scrub_identifiers(redact_secrets(text), _EXTRA_MRN[0] if _EXTRA_MRN else None)[0]
+
+
+def _cut(text: str, keep_end: bool = False) -> str:
+    """At most :data:`MAX_FIELD` characters, cut at a line break or a space so no word is split; a traceback keeps its
+    end (the exception), anything else its start."""
+    if len(text) <= MAX_FIELD:
+        return text
+    if keep_end:
+        part = text[-MAX_FIELD:]
+        i = max(part.find("\n"), 0) if "\n" in part[:2048] else max(part.find(" "), 0)
+        return f"[cut: {len(text) - len(part) + i} characters not logged]" + part[i:]
+    part = text[:MAX_FIELD]
+    i = part.rfind("\n", MAX_FIELD - 2048)
+    i = i if i > 0 else max(part.rfind(" "), 0) or MAX_FIELD
+    return part[:i] + f"[cut: {len(text) - i} characters not logged]"
+
+
+class _Overrun(Exception):
+    pass
+
+
+def _scrub_value(val: Any, deadline: float) -> Any:
+    """A field of the record scrubbed: text, and the text inside a dict, list or tuple (ENG-008); numbers and other
+    values as they are."""
+    if time.perf_counter() > deadline:
+        raise _Overrun
+    if isinstance(val, str):
+        out = redact(_cut(val))
+        if time.perf_counter() > deadline:
+            raise _Overrun
+        return out
+    if isinstance(val, Mapping):
+        return {redact(str(k)): _scrub_value(v, deadline) for k, v in val.items()}
+    if isinstance(val, list | tuple | set | frozenset):
+        return [_scrub_value(v, deadline) for v in val]
+    if isinstance(val, int | float | bool) or val is None:
+        return val
+    return _scrub_value(str(val), deadline)
+
+
+def failed_line(service: str, record: logging.LogRecord) -> str:
+    """What is written instead of a record that could not be scrubbed in time or at all: its time, level and logger
+    and "scrub failed", nothing of its text."""
+    return json.dumps(
+        {
+            "ts": datetime.fromtimestamp(record.created, tz=UTC).isoformat(timespec="milliseconds"),
+            "level": record.levelname,
+            "service": service,
+            "logger": record.name,
+            "msg": "scrub failed",
+        },
+        ensure_ascii=False,
+    )
 
 
 class JsonFormatter(logging.Formatter):
@@ -124,19 +232,44 @@ class JsonFormatter(logging.Formatter):
         self.service = service
 
     def format(self, record: logging.LogRecord) -> str:
-        payload: dict[str, Any] = {
-            "ts": datetime.fromtimestamp(record.created, tz=UTC).isoformat(timespec="milliseconds"),
-            "level": record.levelname,
-            "service": self.service,
-            "logger": record.name,
-            "msg": redact(record.getMessage()),
-        }
-        for key, val in record.__dict__.items():
-            if key not in _RESERVED and not key.startswith("_"):
-                payload[key] = redact(val) if isinstance(val, str) else val
-        if record.exc_info:
-            payload["exc"] = redact(self.formatException(record.exc_info))
-        return json.dumps(payload, ensure_ascii=False, default=str)
+        """The record as one JSON line, every text in it scrubbed: the message with its arguments, the extra fields
+        (inside dicts and lists too), the exception with its traceback and the stack. A record that raises while it
+        is formatted or scrubbed, or takes more than :data:`SCRUB_BUDGET_S`, is written as :func:`failed_line`."""
+        deadline = time.perf_counter() + SCRUB_BUDGET_S
+        try:
+            payload: dict[str, Any] = {
+                "ts": datetime.fromtimestamp(record.created, tz=UTC).isoformat(timespec="milliseconds"),
+                "level": record.levelname,
+                "service": self.service,
+                "logger": record.name,
+                "msg": _scrub_value(record.getMessage(), deadline),
+            }
+            for key, val in record.__dict__.items():
+                if key not in _RESERVED and not key.startswith("_"):
+                    payload[key] = _scrub_value(val, deadline)
+            if record.exc_info:
+                payload["exc"] = redact(_cut(self.formatException(record.exc_info), keep_end=True))
+            if record.stack_info:
+                payload["stack"] = redact(_cut(self.formatStack(record.stack_info), keep_end=True))
+            if time.perf_counter() > deadline:
+                raise _Overrun
+            return json.dumps(payload, ensure_ascii=False, default=str)
+        except Exception:  # an overrun, a guard error, a message whose arguments do not format: never the raw text
+            return failed_line(self.service, record)
+
+
+def _log_uncaught(kind: type[BaseException], value: BaseException, tb: Any) -> None:
+    if issubclass(kind, KeyboardInterrupt):
+        sys.__excepthook__(kind, value, tb)
+        return
+    logging.getLogger("uncaught").critical("uncaught %s", kind.__name__, exc_info=(kind, value, tb))
+
+
+def _log_uncaught_thread(args: threading.ExceptHookArgs) -> None:
+    if args.exc_value is not None:
+        logging.getLogger("uncaught").critical(
+            "uncaught %s in a thread", args.exc_type.__name__, exc_info=(args.exc_type, args.exc_value, args.exc_traceback)
+        )
 
 
 def setup_logging(service: str, level: str = "INFO") -> logging.Logger:
@@ -149,6 +282,10 @@ def setup_logging(service: str, level: str = "INFO") -> logging.Logger:
     handler.setFormatter(JsonFormatter(service))
     root.addHandler(handler)
     root.setLevel(level.upper())
+    # 10C-1c: an uncaught exception and a warning go through the scrubber too, not straight to stderr
+    sys.excepthook = _log_uncaught
+    threading.excepthook = _log_uncaught_thread
+    logging.captureWarnings(True)
     for noisy in ("httpx", "httpcore", "urllib3", "matplotlib", "fontTools", "apscheduler"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):

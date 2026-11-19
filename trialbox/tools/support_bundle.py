@@ -29,7 +29,8 @@ vLLM: they log statement values and prompts unscrubbed, OPS-035). An ``--add`` p
 refused and nothing is written.
 
 How it is kept free of patient data: the logs and added files go through the log scrubber
-(``tb_common.logging.redact``: Taiwan IDs, マイナンバー, insurer numbers, postcodes, phone numbers) and the site's
+(``tb_common.logging.scrub_identifiers``: every identifier the privacy guard finds, names, phone numbers, ID, insurance
+and chart numbers, dates of birth, addresses, in Traditional Chinese, Japanese and English; 10C-1c) and the site's
 chart-number pattern (``settings.yaml`` ``mrn_regex``); a credential of a well-known shape that no setting names (a
 private key block, a cloud or chat token, a web token: :data:`CREDENTIALS`) is replaced, as detect-secrets would
 find it; then every file is read by the data-handling scan
@@ -293,17 +294,17 @@ def mrn_pattern(deploy: Path) -> re.Pattern[str] | None:
 
 
 def scrub(text: str, mrn: re.Pattern[str] | None) -> tuple[str, int]:
-    """The log scrubber's patterns, then the site's chart number; returns the text and the number replaced."""
-    from tb_common.logging import _PHI_PATTERNS  # the same patterns the services log through
+    """The log scrubber's rules, which are the privacy guard's (10C-1c: every identifier ``tb_common.phi_guard`` finds,
+    in every language it knows), and the site's chart number; returns the text and the number replaced. Line by line:
+    a collected log is one record a line, and the guard's cost then stays per line however long the file."""
+    from tb_common.logging import scrub_identifiers  # the same rules the services log through
 
     n = 0
-    for pat, repl in _PHI_PATTERNS:
-        text, k = pat.subn(repl, text)
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        lines[i], k = scrub_identifiers(line, mrn)
         n += k
-    if mrn is not None:
-        text, k = mrn.subn("[MRN]", text)
-        n += k
-    return text, n
+    return "\n".join(lines), n
 
 
 # ------------------------------------------------------------------------------------------------ what is refused

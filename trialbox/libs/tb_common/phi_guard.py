@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from tb_common import dates
-from tb_common.crypto import sha256_text
 
 # ~100 most frequent ROC surnames (covers > 95 % of the population) + common compound surnames
 ROC_SURNAMES = set(
@@ -400,6 +399,8 @@ def scan(text: str, mrn_regex: str | None = None) -> PhiScan:
     findings.extend((_SCAN_KIND.get(kind, kind), _mask(text[s:e])) for kind, s, e in note_spans(text))
     if findings:
         return PhiScan(True, findings, None)
+    from tb_common.crypto import sha256_text  # 10C-1c: here, so the log scrubber loads the guard without `cryptography`
+
     return PhiScan(False, [], PhiClearance(sha256_text(text)))
 
 
