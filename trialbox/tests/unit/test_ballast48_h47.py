@@ -13,7 +13,8 @@ from typing import Any
 
 import pytest
 
-from tools import ballast, ballast48 as b48, dgpu48, serving_config
+from tools import ballast, dgpu48, serving_config
+from tools import ballast48 as b48
 
 pytestmark = pytest.mark.nodb
 
@@ -33,8 +34,13 @@ class Card:
         self.calls.append((list(cmd), env))
         if cmd[0] == "nvidia-smi":
             fields = cmd[1].split("=", 1)[1].split(",")
-            val = {"name": "NVIDIA RTX PRO 6000 Blackwell Server Edition", "memory.total": str(PRO6000),
-                   "memory.used": str(self.used), "driver_version": "580.95.05", "display_active": "Disabled"}
+            val = {
+                "name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+                "memory.total": str(PRO6000),
+                "memory.used": str(self.used),
+                "driver_version": "580.95.05",
+                "display_active": "Disabled",
+            }
             return 0, ", ".join(val[f] for f in fields) + "\n", ""
         if cmd[:2] == ["docker", "ps"] and any("tb-ballast" in c for c in cmd):
             return 0, ("abc123\n" if self.ballast_up else ""), ""
@@ -87,13 +93,21 @@ def test_the_record_is_capped_and_never_a_tier_record() -> None:
 
 @pytest.mark.parametrize(
     ("card", "why"),
-    [(Card(ballast_up=False), "no tb-ballast"), (Card(used=1000), "not 49140"), (Card(used=PRO6000 - TARGET - 900),
-                                                                                 "not 49140")],
+    [
+        (Card(ballast_up=False), "no tb-ballast"),
+        (Card(used=1000), "not 49140"),
+        (Card(used=PRO6000 - TARGET - 900), "not 49140"),
+    ],
 )
 def test_it_refuses_without_the_ballast_holding_the_target(card: Card, why: str, tmp_path: Path) -> None:
-    called = []
+    called: list[tuple[Any, ...]] = []
+
+    def spy(*a: Any, **_: Any) -> dict[str, Any]:
+        called.append(a)
+        return {}
+
     with pytest.raises(b48.Refused, match=why):
-        b48.measure(card, "pair-32k", tmp_path, "pinned", False, False, measure_fn=lambda *a, **k: called.append(a) or {})
+        b48.measure(card, "pair-32k", tmp_path, "pinned", False, False, measure_fn=spy)
     assert not called  # refused before lane J's measure is asked anything
 
 
@@ -101,7 +115,9 @@ def test_measure_runs_lane_js_measure_and_marks_the_summary(tmp_path: Path) -> N
     card = Card()
     got: dict[str, Any] = {}
 
-    def fake_measure(run: Any, oid: str, out_dir: Path, probe: Any, engine: str, dry: bool, keep: bool, **_: Any) -> dict:
+    def fake_measure(
+        run: Any, oid: str, out_dir: Path, probe: Any, engine: str, dry: bool, keep: bool, **_: Any
+    ) -> dict[str, Any]:
         got.update(oid=oid, engine=engine, probe=probe, keep=keep)
         run(["nvidia-smi", "--query-gpu=name,memory.total,driver_version", "--format=csv,noheader,nounits"], 60)
         run(["docker", "compose", "-f", dgpu48.OVERLAY, "up", "-d", "llm-service"], 60, {"JUDGE_GPU_MEM_UTIL": "0.57"})
@@ -120,7 +136,7 @@ def test_measure_runs_lane_js_measure_and_marks_the_summary(tmp_path: Path) -> N
 def test_a_lost_ballast_is_said(tmp_path: Path) -> None:
     card = Card()
 
-    def fake_measure(*_: Any, **__: Any) -> dict:
+    def fake_measure(*_: Any, **__: Any) -> dict[str, Any]:
         card.ballast_up = False
         return {"started": True, "outcome": "STARTED"}
 
@@ -132,7 +148,7 @@ def test_a_lost_ballast_is_said(tmp_path: Path) -> None:
 def test_during_records_wall_time_and_free_at_peak(tmp_path: Path) -> None:
     card = Card()
 
-    def fake_cmd(cmd: list[str], check: bool) -> subprocess.CompletedProcess:
+    def fake_cmd(cmd: list[str], check: bool) -> subprocess.CompletedProcess[bytes]:
         card.used = PRO6000 - TARGET + 44000  # the screen's peak
         return subprocess.CompletedProcess(cmd, 0)
 
