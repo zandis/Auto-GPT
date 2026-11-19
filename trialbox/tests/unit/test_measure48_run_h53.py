@@ -165,13 +165,16 @@ def test_mask_dir_reads_every_secret_file(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------- the quota
-def _quota_dir(tmp: Path, hdb: tuple[float, float] | None) -> Path:
+def _quota_dir(tmp: Path, hdb: tuple[float, float] | None, rows: int = 0) -> Path:
+    """``rows``: the region's list padded to that many rows with synthetic metrics (H-59: the integrator's asia-east1
+    list had 113 rows and no HDB_TOTAL_GB)."""
     q = tmp / "q"
     q.mkdir()
     (q / "project.json").write_text(json.dumps({"quotas": [{"metric": "GPUS_ALL_REGIONS", "limit": 2, "usage": 0}]}))
     quotas = [{"metric": "CPUS", "limit": 200, "usage": 0}, {"metric": "PREEMPTIBLE_CPUS", "limit": 0, "usage": 0}]
     if hdb:
         quotas.append({"metric": "HDB_TOTAL_GB", "limit": hdb[0], "usage": hdb[1]})
+    quotas += [{"metric": f"SYNTHETIC_METRIC_{i:03d}", "limit": 10, "usage": 0} for i in range(rows - len(quotas))]
     (q / "region-asia-east1.json").write_text(json.dumps({"quotas": quotas}))
     return q
 
@@ -187,8 +190,60 @@ def test_quota_hdb_short_is_refused(tmp_path: Path) -> None:
     assert m48.quota(_quota_dir(tmp_path / "b", (500, 400)), "asia-east1-a", 250)  # the sheet's 250 GB: refused
 
 
-def test_quota_hdb_unreadable_is_a_problem(tmp_path: Path) -> None:
-    assert any("not readable" in b for b in m48.quota(_quota_dir(tmp_path, None), "asia-east1-a", 100))
+ABSENT = (
+    "quota: asia-east1: HDB_TOTAL_GB is not in the region's quota list (113 rows), so the 100 GB disk quota "
+    "cannot be checked beforehand; the create call itself refuses if it is short (--hdb-free-gb N gives the "
+    "free figure by hand)"
+)
+
+
+def test_quota_hdb_absent_is_said_and_goes_on(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """H-59: a well-formed list of 113 rows with no HDB_TOTAL_GB row: said in one line, the quota step passes."""
+    q = _quota_dir(tmp_path, None, rows=113)
+    assert len(json.loads((q / "region-asia-east1.json").read_text())["quotas"]) == 113
+    bad, notes = m48.quota_check(q, "asia-east1-a", 100)
+    assert bad == [] and len(notes) == 1
+    assert m48.main(["quota", str(q), "--zone", "asia-east1-a", "--disk-gb", "100"]) == 0
+    out = capsys.readouterr()
+    assert out.out.splitlines()[0] == ABSENT and out.err == ""
+    assert "its 100 GB disk: not checked (above)" in out.out
+
+
+@pytest.mark.parametrize(("given", "ok"), [("100", True), ("250.5", True), ("99", False), ("0", False)])
+def test_quota_hdb_free_by_hand_is_checked_like_a_row(tmp_path: Path, given: str, ok: bool) -> None:
+    """H-59: --hdb-free-gb N, checked against the need exactly like a listed row (the row absent)."""
+    q = _quota_dir(tmp_path, None, rows=113)
+    rc = m48.main(["quota", str(q), "--zone", "asia-east1-a", "--disk-gb", "100", "--hdb-free-gb", given])
+    assert rc == (0 if ok else 4)
+    assert bool(m48.quota(q, "asia-east1-a", 100, float(given))) is not ok
+
+
+def test_quota_hdb_by_hand_does_not_hide_a_short_row(tmp_path: Path) -> None:
+    assert m48.quota(_quota_dir(tmp_path, (500, 450)), "asia-east1-a", 100, 300.0)
+
+
+@pytest.mark.parametrize("given", ["abc", "", "-5", "nan", "inf"])
+def test_quota_hdb_free_by_hand_not_a_number_is_refused(tmp_path: Path, given: str) -> None:
+    q = _quota_dir(tmp_path, None, rows=113)
+    with pytest.raises(SystemExit) as exc:
+        m48.main(["quota", str(q), "--zone", "asia-east1-a", "--hdb-free-gb", given])
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize("region_text", ["", "ERROR: (gcloud) not json", "[]", '{"quotas": "x"}', '{"quotas": [1]}',
+                                         '{"name": "asia-east1"}'])  # fmt: skip
+def test_quota_unparseable_output_still_refuses(tmp_path: Path, region_text: str) -> None:
+    """H-59: only a well-formed list without the row goes on; output that is not a quota list refuses."""
+    q = _quota_dir(tmp_path, None, rows=113)
+    (q / "region-asia-east1.json").write_text(region_text)
+    assert m48.quota(q, "asia-east1-a", 100)
+    assert m48.main(["quota", str(q), "--zone", "asia-east1-a", "--hdb-free-gb", "200"]) == 4
+
+
+def test_quota_missing_output_still_refuses(tmp_path: Path) -> None:
+    q = _quota_dir(tmp_path, (500, 400))
+    (q / "project.json").unlink()
+    assert m48.quota(q, "asia-east1-a", 100)
 
 
 # ---------------------------------------------------------------- the collect's summary
@@ -228,19 +283,23 @@ echo "gcloud $*" >> "$M48_CALLS"
 case "$*" in
   "auth print-access-token") exit 0 ;;
   "compute instances describe"*"--format=json"*) [ -f "${M48_DESCRIBE:-/nonexistent}" ] || exit 1; cat "$M48_DESCRIBE" ;;
-  "compute instances describe"*) [ -n "${M48_STATUS:-}" ] || { echo "ERROR: not found" >&2; exit 1; }; echo "$M48_STATUS" ;;
+  "compute instances describe"*) [ ! -f "${M48_CREATE_LEAVES:-/nonexistent}" ] || { echo STAGING; exit 0; }
+    [ -n "${M48_STATUS:-}" ] || { echo "ERROR: not found" >&2; exit 1; }; echo "$M48_STATUS" ;;
   "compute instances delete"*|"compute instances stop"*|"compute instances start"*|"compute instances set-scheduling"*) exit 0 ;;
   "storage rsync"*) [ -d "${M48_GCS:-/nonexistent}" ] && cp -a "$M48_GCS/." "$5/" ; exit 0 ;;
   "compute project-info describe"*) cat "$M48_Q/project.json" ;;
-  "compute regions describe"*) cat "$M48_Q/region-asia-east1.json" ;;
-  "storage ls"*) exit 0 ;;
+  "compute regions describe"*) [ -z "${M48_REGION_FAIL:-}" ] || { echo "ERROR: (gcloud) denied" >&2; exit 1; }
+    cat "$M48_Q/region-asia-east1.json" ;;
+  "storage ls"*|"storage cp"*) exit 0 ;;
+  "compute instances create"*) [ -z "${M48_CREATE_LEAVES:-}" ] || touch "$M48_CREATE_LEAVES"
+    [ -z "${M48_CREATE_ERR:-}" ] || { echo "$M48_CREATE_ERR" >&2; exit 1; }; exit 0 ;;
   *) echo "stand-in gcloud: not expected: $*" >&2; exit 3 ;;
 esac
 """
 
 
 def _driver(
-    tmp: Path, *args: str, hdb: tuple[float, float] = (500, 400), **extra: str
+    tmp: Path, *args: str, hdb: tuple[float, float] | None = (500, 400), rows: int = 0, **extra: str
 ) -> subprocess.CompletedProcess[str]:
     b = tmp / "bin"
     b.mkdir(exist_ok=True)
@@ -248,7 +307,7 @@ def _driver(
     (b / "gcloud").chmod(0o755)
     if not (tmp / "quota").exists():
         (tmp / "quota").mkdir()
-        _quota_dir(tmp / "quota", hdb)
+        _quota_dir(tmp / "quota", hdb, rows)
     q = tmp / "quota" / "q"
     env = {k: v for k, v in os.environ.items() if k not in ("PYTHONUNBUFFERED", "TB_SA_KEY_FILE", "GC_DRY")}
     env.update({"PATH": f"{b}:{env['PATH']}", "TB_BUCKET": "gs://bk", "TB_M48_DIR": str(tmp / "local"),
@@ -287,6 +346,65 @@ def test_driver_preflight_reads_only(tmp_path: Path) -> None:
 def test_driver_preflight_refuses_a_short_disk_quota(tmp_path: Path) -> None:
     r = _driver(tmp_path, "--preflight", hdb=(500, 450))
     assert r.returncode == 4 and "HDB_TOTAL_GB" in r.stderr
+
+
+def test_driver_preflight_goes_on_without_the_hdb_row(tmp_path: Path) -> None:
+    """H-59: the integrator's preflight (113 rows, no HDB_TOTAL_GB) refused with exit 4; now it says so and goes on."""
+    r = _driver(tmp_path, "--preflight", hdb=None, rows=113)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert ABSENT in r.stdout.splitlines() and "preflight: the launch's checks passed" in r.stdout
+    assert "instances create" not in (tmp_path / "calls.txt").read_text()
+
+
+@pytest.mark.parametrize(("given", "rc"), [("100", 0), ("50", 4)])
+def test_driver_preflight_takes_the_free_figure_by_hand(tmp_path: Path, given: str, rc: int) -> None:
+    r = _driver(tmp_path, "--preflight", "--hdb-free-gb", given, hdb=None, rows=113)
+    assert r.returncode == rc, r.stdout + r.stderr
+    assert f"free {given} GB (given by hand, --hdb-free-gb)" in r.stdout + r.stderr
+
+
+def test_driver_refuses_a_free_figure_that_is_not_a_number(tmp_path: Path) -> None:
+    r = _driver(tmp_path, "--preflight", "--hdb-free-gb", "lots", hdb=None, rows=113)
+    assert r.returncode == 2 and "--hdb-free-gb takes a number of GB" in r.stderr
+    assert not (tmp_path / "calls.txt").exists()
+
+
+def test_driver_preflight_refuses_when_gcloud_fails(tmp_path: Path) -> None:
+    """H-59: a failed regions describe is not "the row is absent": refused."""
+    r = _driver(tmp_path, "--preflight", hdb=None, rows=113, M48_REGION_FAIL="1")
+    assert r.returncode == 4 and "regions describe asia-east1 failed" in r.stderr
+    assert "preflight: the launch's checks passed" not in r.stdout
+
+
+def test_driver_preflight_refuses_unparseable_output(tmp_path: Path) -> None:
+    (tmp_path / "quota").mkdir()
+    (_quota_dir(tmp_path / "quota", None, 113) / "region-asia-east1.json").write_text("<html>error</html>")
+    r = _driver(tmp_path, "--preflight")
+    assert r.returncode == 4 and "not readable" in r.stderr
+
+
+def test_driver_launch_ends_cleanly_when_the_create_is_refused(tmp_path: Path) -> None:
+    """H-59: the row absent, the launch goes on to the create call; the create is refused for the disk quota: the
+    run ends with gcloud's reason shown, exit 5, and the driver has checked that no VM by the name is left."""
+    err = "ERROR: (gcloud.compute.instances.create) Quota 'HDB_TOTAL_GB' exceeded. Limit: 500.0 in region asia-east1."
+    r = _driver(tmp_path, hdb=None, rows=113, M48_CREATE_ERR=err)
+    assert r.returncode == 5, r.stdout + r.stderr
+    assert "Quota 'HDB_TOTAL_GB' exceeded" in r.stderr
+    assert "the create call was refused (its reason above): no VM or disk was made" in r.stderr
+    calls = (tmp_path / "calls.txt").read_text().splitlines()
+    i = next(n for n, c in enumerate(calls) if "compute instances create" in c)
+    assert any("compute instances describe tb-h47-48gb" in c for c in calls[i + 1 :])  # checked afterwards
+    assert not any(w in c for c in calls for w in ("instances start", "instances delete", "disks create"))
+    assert "started on" not in r.stdout
+
+
+def test_driver_launch_create_failed_but_a_vm_is_there(tmp_path: Path) -> None:
+    """A create that fails yet leaves a VM (a time-out, say) is not reported as "nothing made": the delete is named."""
+    r = _driver(tmp_path, hdb=None, rows=113, M48_CREATE_ERR="ERROR: timed out",
+                M48_CREATE_LEAVES=str(tmp_path / "left"))  # fmt: skip
+    assert r.returncode == 5, r.stdout + r.stderr
+    assert "a VM tb-h47-48gb is there (STAGING)" in r.stderr and "--delete m48-test" in r.stderr
+    assert "no VM or disk was made" not in r.stderr
 
 
 def test_driver_dry_run_launch(tmp_path: Path) -> None:
