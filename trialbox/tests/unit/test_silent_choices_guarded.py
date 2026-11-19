@@ -149,7 +149,10 @@ def test_an_unknown_environment_stops_the_install_before_the_wizard(var: dict[st
     """Review of #1175, S1: a typo never runs the wizard unguarded (it would leave a settings.yaml the next run
     keeps): the block stops before the wizard's docker run (the installer stopped it before anything, below)."""
     res = _wiz_run(**var)
-    assert res.returncode == 1 and "is not DEV, TEST, VALIDATION or PRODUCTION: the settings wizard was not run" in res.stderr
+    assert (
+        res.returncode == 1
+        and "is not DEV, TEST, VALIDATION or PRODUCTION: the settings wizard was not run" in res.stderr
+    )
     assert res.stdout == ""
     assert INSTALL.index("# ---- end of WIZARD-ENV (D-1365)") < INSTALL.index("SETTINGS_NEW=0")
 

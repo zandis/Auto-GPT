@@ -948,9 +948,8 @@ def write(settings: dict[str, Any], env: dict[str, str], out: Path, env_out: Pat
     load_settings(out)  # the same validation the services run at start-up
     if env_out is not None:
         env_out.parent.mkdir(parents=True, exist_ok=True)
-        _write_replacing(
-            env_out, "# TrialBox environment — written by tools/settings_wizard.py (secrets generated); root only.\n" + body
-        )
+        head = "# TrialBox environment — written by tools/settings_wizard.py (secrets generated); root only.\n"
+        _write_replacing(env_out, head + body)
 
 
 def _write_replacing(path: Path, text: str) -> None:

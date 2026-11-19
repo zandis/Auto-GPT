@@ -159,7 +159,8 @@ def _s(raw: Any, limit: int = 200) -> str:
 # An allow-list, not a deny-list: letters, combining marks and digits of any script (山田 太郎, 陳 大文, José Ñúñez),
 # single spaces between words (the ASCII or the ideographic space) and the few marks a name, or a role beside it,
 # holds. Everything else is refused: control characters (CR, LF, NUL, tab), the Unicode line and paragraph
-# separators, double quotes, an apostrophe first or last, $, backquote, backslash, #, =, ;, &, |, <, >, braces and the like
+# separators, double quotes, an apostrophe first or last, $, backquote, backslash, #, =, ;, &, |, <, >, braces and
+# the like
 PERSON_MAX = 100
 # dot, comma, hyphen, brackets (and the full-width ones a Japanese IME types), slash, ’ and ' (O’Brien, O'Brien),
 # the two middle dots, the wave dashes 〜 and ～. The ASCII apostrophe only inside a name, never first or last:
