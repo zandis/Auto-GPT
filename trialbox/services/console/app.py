@@ -1404,7 +1404,7 @@ def create_app(
         audit_hooks.doors["provenance"] = prov_db
     app.state.audit_hooks = audit_hooks
     audit_page.register(app, audit_hooks)
-    phone.register(app)  # J-3 (D-1222): the phone-first flag per request, the web manifest and the icons
+    phone.register(app, boot)  # J-3 (D-1222): the layout flags per request (D-1225: read at start), manifest, icons
 
     # ------------------------------------------------------------------ pilot workspace
     if not settings.pilot:

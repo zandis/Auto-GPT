@@ -31,11 +31,12 @@ from pydantic import BaseModel, Field
 from tb_common.authz import NO_STANDING, Decision, conditional, study_bound
 from tb_common.authz import permit as permit_row
 from tb_common.erased import Gone, GoneOn
+from tb_common.retention import STUDY_YEARS_AFTER_CLOSE
 from tb_common.service_auth import bind_session
 from tb_contracts import Job
 
 from console import actor as console_actor
-from console import ai_confirm, coded_view, s28, terminology_refused
+from console import ai_confirm, coded_view, home_today, s28, terminology_refused
 from console import person_state as ps
 from console import studies as st
 from console.api_first import before_body, page_twin
@@ -127,7 +128,15 @@ class Helpers:
     settings_of: Callable[[str], StudySettings] | None = None
     api_session: Callable[[Request], Session] | None = None  # set by register(): bearer sign-in for /api/v1
     # set by console.lifecycle_pages (D-134): the home page's visits and serious AEs; the visits for N1/N2
-    life_home: Callable[[Session], dict[str, Any]] | None = None
+    life_home: Callable[..., dict[str, Any]] | None = None
+    #: set by console.lifecycle_pages (J-6, D-1225): the participant pages' rule of who reads a study's participants,
+    #: and the overdue SAE reports of one study from the data core's answer
+    reads_participants: Callable[[Any, str], bool] | None = None
+    life_reports_of: Callable[[Any], list[dict[str, Any]]] | None = None
+    #: set by console.sae_pages (J-6, D-1225): the SAE pages' rule of who reads a study's serious AEs, and one study's
+    #: serious AEs for the opening page from the SAE pages' own answer
+    reads_saes: Callable[[Any, str], bool] | None = None
+    home_saes: Callable[[str], dict[str, Any]] | None = None
     life_mail: Callable[[str, date], dict[str, Any]] | None = None
     life_sae: Callable[[str], list[dict[str, Any]]] | None = None  # one study's unacknowledged SAEs (the week page)
     life_reports: Callable[[str], list[dict[str, Any]]] | None = None  # one study's overdue SAE reports (P-03)
@@ -253,7 +262,9 @@ class Helpers:
         not see, or no log store: no standing, so no condition holds (fails closed; the team fallback is gone)."""
         standing = NO_STANDING
         if rid and self.stand is not None and user.sees_study(rid):
-            standing = self.stand(user, rid).grant()
+            stand = self.stand
+            # once per page view and study (J-6, D-1225): a page that asks several rows reads the log once
+            standing = ps.per_view(f"standing:{user.username}:{user.role}", rid, lambda: stand(user, rid).grant())
         return permit_row(user.role, action, standing)
 
     def may_run(self, user: Any, rid: str | None, command: str) -> bool:
@@ -545,6 +556,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             # state of each person; the opening page's layout changes only behind card J-7's flag
             "pipeline": ps.funnel(people, [str(w["pid"]) for w in rows]),
             "people_readable": people.readable,
+            "people": people,  # J-6 (D-1225): the Next line reads the same states as the funnel
             "tasks": tasks,
             "clinic": clinic,
             "feas": feas,
@@ -574,9 +586,15 @@ def register(app: FastAPI, h: Helpers) -> None:
         h.delegated(sess, rid, path)
 
     # ------------------------------------------------------------------ homes
+    def recent_jobs() -> list[Job]:
+        """The jobs both forms of the opening page read (J-6 shares the coordinator home's one read)."""
+        return list(bk.list_jobs(limit=500))
+
     @app.get("/home")
-    def home(request: Request, view: str = "") -> Response:
+    def home(request: Request, view: str = "", today: str = "") -> Response:
         sess = h.need(request)
+        if getattr(request.state, "home_today", False) and sess.user.role in home_today.ROLES:  # J-6 (D-1225)
+            return today_home(request, sess, every=today == "all")
         # T-102c (D-425): each role starts on the page of its first right in this order (the matrix's rows)
         for action, start in HOME_STARTS:
             if permit_row(sess.user.role, action):
@@ -584,7 +602,7 @@ def register(app: FastAPI, h: Helpers) -> None:
         if sess.user.is_admin and view != "studies":
             admin_page = getattr(h, "admin_page", None)  # step 4: S13 with its tabs (console.step4)
             return admin_page(request, sess, "health") if admin_page else admin_home(request, sess)
-        jobs = bk.list_jobs(limit=500)
+        jobs = recent_jobs()
         cards = [study_card(sess, r, jobs) for r in trials(sess)]
         tasks = sorted((tk for c in cards for tk in c["tasks"]), key=lambda tk: (tk["due"], tk["rs"]))
         clinic = sorted((v for c in cards for v in c["clinic"]), key=lambda v: v["visit_text"])
@@ -592,6 +610,104 @@ def register(app: FastAPI, h: Helpers) -> None:
         return h.page(
             request, "home_crc.html", sess, cards=cards, tasks=tasks, clinic=clinic if phi else [], steps=st.STEPS,
             pipeline_keys=st.PIPELINE, models=bk.models(), life=h.life_home(sess) if h.life_home and phi else None,
+        )  # fmt: skip
+
+    def today_home(request: Request, sess: Session, every: bool) -> Response:
+        """J-6 (D-1225): "Needs you today" and one "Next" line per study (``console.home_today``). A study's
+        patient-level sources (its people, visits and serious AEs) are read only where the participant pages would let
+        this account read them (``lifecycle_pages.reads_participants``, the rule of their ``study_or_404``); within
+        those, visits with the task ``enter_data`` and the card's tasks with ``request.prepare`` (none for a closed
+        study). Serious AEs are read where the SAE pages would show them (``sae_pages.sae_scope``), once. Every
+        other study gets its Next from the reads the account already has (the feasibility report, a monitor grant), so
+        no read is made that a page would refuse. The account's standing in each study's log is read once per page
+        view (``Helpers.permit``)."""
+        user = sess.user
+        jobs = recent_jobs()
+        day = h.today()
+
+        def allow(action: str, rid: str | None = None) -> bool:
+            return bool(h.permit(user, action, rid).allowed)
+
+        def mine_of(step: str, rid: str) -> bool:
+            """Whether this account does ``step`` itself: the row its page asks (asked for the step shown only)."""
+            if step == "approve":
+                return bool(h.may_approve(user, rid)) if h.may_approve else allow("criteria.approve", rid)
+            if step in ("feas", "screen"):
+                return h.may_run(user, rid, "FEAS" if step == "feas" else "SCREEN")
+            if step in ("review", "contact"):  # the week page: its row, then the study's log (task "screen")
+                row = "list.mark" if step == "review" else "request.prepare"
+                return allow(row, rid) and h.delegated_ok(user, rid)
+            if step in ("consent", "conduct"):
+                return allow("task.enter_data", rid)
+            return step in ("startup", "close", "paused") and allow("study.state", rid)
+
+        studies = trials(sess)
+        readable = [r.id for r in studies if h.reads_participants is not None and h.reads_participants(user, r.id)]
+        states = {rs: store.study_state(rs) for rs in readable}
+        # a closed study has no visits, tasks or site fields to do; its serious AEs keep their reporting clocks
+        visit_studies = [rs for rs in readable if states[rs].state != "closed" and allow("task.enter_data", rs)]
+        # the SAE pages' own rule (sae_pages.sae_scope), not the participant pages': their serious AEs are read for
+        # the opening page only where those pages show them to this account
+        sae_studies = [r.id for r in studies if h.reads_saes is not None and h.reads_saes(user, r.id)]
+        life = (h.life_home(sess, only=visit_studies, visits=visit_studies, saes=())
+                if h.life_home and visit_studies else None)  # fmt: skip
+        coordinator_card = allow("request.prepare")  # the study card with its tasks and funnel, as on today's home
+        cards: list[dict[str, Any]] = []
+        lines: list[home_today.TodayLine] = []
+        nexts: list[home_today.NextLine] = []
+        failed: list[str] = []
+        grants = {g[0]: g for g in (h.monitor_grants(user) if h.monitor_grants else [])}
+        for r in studies:
+            rs = r.id
+            if rs not in readable:  # no patient-level read in this study: the aggregate reads only
+                step = home_today.report_step(report=st.latest_job(jobs, rs, ("FEAS",)) is not None,
+                                              grant=grants.get(rs))  # fmt: skip
+                g = grants.get(rs) or ("", "", "")
+                nexts.append(home_today.next_line(rs, step, step != "report_none", home_today.href_of(step, rs),
+                                                  visit=g[1] or "–", end=g[2] or "–"))  # fmt: skip
+                continue
+            state = states[rs]
+            if coordinator_card:
+                card = study_card(sess, r, jobs)
+                cards.append(card)
+                people = card["people"]
+                step_no = card["step"]
+                if state.state != "closed":
+                    lines += home_today.task_lines(card["tasks"], day)
+            else:
+                people = ps.read(h, rs)
+                step_no = study_step(rs, people)
+            screen_done = st.latest_job(jobs, rs, SCREEN_TYPES) is not None
+            step = home_today.life_step(state=state.state, step=step_no, screen_done=screen_done,
+                                        counts=people.counts() if people.readable else None)  # fmt: skip
+            waiting = st.latest_job(jobs, rs, ("FEAS", "SCREEN", "COMPILE"), state="awaiting_approval")
+            href = home_today.href_of(step, rs, approval=f"/pilot/jobs/{waiting.job_id}/approval" if waiting else "")
+            mine = bool(href) and mine_of(step, rs)
+            nexts.append(home_today.next_line(rs, step, mine, href,
+                                              years=state.keep_years or STUDY_YEARS_AFTER_CLOSE))  # fmt: skip
+            if rs in visit_studies and life is not None:
+                for v in life["studies"]:
+                    if v["rs"] == rs:
+                        lines += home_today.visit_lines(rs, len(v["overdue"]), len(v["today"]), day)
+        for rs in sae_studies:  # one read of the study's serious AEs, the SAE pages' own (sae_pages.home_saes)
+            got: dict[str, Any] = (h.home_saes(rs) if h.home_saes is not None
+                                   else {"unacked": [], "reports": [], "failed": True})  # fmt: skip
+            lines += home_today.sae_lines(rs, got["unacked"], got["reports"], acknowledges=allow("sae.ack", rs))
+            if got["failed"]:
+                failed.append(rs)
+        lines = home_today.ordered(lines)
+        shown = lines if every else lines[: home_today.LIMIT]
+        home_today.mark_in_today(nexts, shown)
+        # the "This week" link only where the week page itself admits this account (``Helpers.reads``: its phi.view
+        # and delegation checks): straight to the study's week when there is one, else the week picker
+        weeks = [r.id for r in studies if h.reads(user, r.id)]
+        week_href = f"/studies/{weeks[0]}/week" if len(weeks) == 1 else "/week" if weeks else ""
+        template = "home_crc.html" if coordinator_card else "home_today.html"
+        return h.page(
+            request, template, sess, today=True, every=every, lines=shown, more=len(lines) - len(shown),
+            total=len(lines), nexts=nexts, today_failed=failed, cards=cards, tasks=[], clinic=[], steps=st.STEPS,
+            pipeline_keys=st.PIPELINE, models=bk.models() if coordinator_card else None, life=None,
+            week_href=week_href,
         )  # fmt: skip
 
     def admin_home(request: Request, sess: Session) -> Response:
