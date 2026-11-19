@@ -10,16 +10,22 @@ returns a copy of the record without:
   recruitment status stay;
 * ``sponsorCollaboratorsModule.responsibleParty`` ``investigatorFullName``, ``investigatorTitle`` and
   ``oldNameTitle`` (the responsible party's type and affiliation stay);
+* the ``name`` of the lead sponsor and of each collaborator whose ``class`` is ``INDIV`` (a person as sponsor);
+  an organisation's name stays;
 * ``resultsSection.moreInfoModule.pointOfContact`` (a person's name, phone and e-mail for the results);
 * ``citation`` of every reference (the authors' names); the PMID and the reference type stay.
 
-Every other field is kept as the registry gave it. The reference data pack is built from stripped records
-(``tools/refdata_fetch.py``), the store strips again when it loads a pack (an older pack) and its schema version 4
-strips the rows stored before (``tb_common.refdata``); the criteria compiler's study (``CtgovStudy``) reads none of
-these fields.
+Every other field is kept as the registry gave it. **Not cleaned** (D-1367): free text (summaries, descriptions,
+eligibility text), ``seeAlsoLinks`` labels and a facility named after a person may still hold a name; old pack
+tarballs already on a box keep the records they were built with until a new pack replaces them.
 
-**Other registries' ids.** :func:`registry_of` names the registry of a secondary id that is a jRCT, JapicCTI or UMIN-CTR
-number, and gives the number in its registry's own spelling; the jRCT intake (10D-16) joins on it.
+Where it applies: the reference data pack is built from stripped records (``tools/refdata_fetch.py``), the store
+strips again when it loads a pack (an older pack), and its schema version 4 (``refdata.DDL_V4``, which names every
+path and key below; a test holds it to them) strips the rows stored before; the criteria compiler's study
+(``CtgovStudy``) reads none of these fields, and gives no sponsor name when the lead sponsor is a person.
+
+**Other registries' ids.** :func:`registry_of` names the registry of a secondary id that is one jRCT, JapicCTI or
+UMIN-CTR number, and gives the number in its registry's own spelling; the jRCT intake (10D-16) joins on it.
 """
 
 from __future__ import annotations
@@ -28,8 +34,10 @@ import copy
 import re
 from typing import Any
 
+Path_ = tuple[str, ...]
+
 #: paths (from the record's root) dropped whole
-DROPPED_PATHS: tuple[tuple[str, ...], ...] = (
+DROPPED_PATHS: tuple[Path_, ...] = (
     ("protocolSection", "contactsLocationsModule", "centralContacts"),
     ("protocolSection", "contactsLocationsModule", "overallOfficials"),
     ("protocolSection", "sponsorCollaboratorsModule", "responsibleParty", "investigatorFullName"),
@@ -38,21 +46,30 @@ DROPPED_PATHS: tuple[tuple[str, ...], ...] = (
     ("resultsSection", "moreInfoModule", "pointOfContact"),
 )
 #: (path to a list, key dropped from each of its items)
-DROPPED_IN_LISTS: tuple[tuple[tuple[str, ...], str], ...] = (
+DROPPED_IN_LISTS: tuple[tuple[Path_, str], ...] = (
     (("protocolSection", "contactsLocationsModule", "locations"), "contacts"),
     (("protocolSection", "referencesModule", "references"), "citation"),
 )
+#: a party whose ``class`` is ``INDIV`` is a person: its ``name`` is dropped (an object, and each item of a list)
+INDIV = "INDIV"
+PERSON_OBJECTS: tuple[Path_, ...] = (("protocolSection", "sponsorCollaboratorsModule", "leadSponsor"),)
+PERSON_LISTS: tuple[Path_, ...] = (("protocolSection", "sponsorCollaboratorsModule", "collaborators"),)
 
-# jRCT: "jRCT" + 10 digits, or a category letter + 9 or 10 digits ("jRCTs031180001", "jRCT1031230456"); JapicCTI:
-# "JapicCTI-" + 6 digits; UMIN-CTR: "UMIN" + 9 digits. Matched anywhere in the id text, any case, spaces ignored.
-_REGISTRIES: tuple[tuple[str, re.Pattern[str], str], ...] = (
-    ("jRCT", re.compile(r"jRCT([a-z]?)(\d{9,10})(?!\d)", re.IGNORECASE), "jRCT{0}{1}"),
-    ("JapicCTI", re.compile(r"JapicCTI-?(\d{6})(?!\d)", re.IGNORECASE), "JapicCTI-{0}"),
-    ("UMIN-CTR", re.compile(r"UMIN(?:-CTR)?(\d{9})(?!\d)", re.IGNORECASE), "UMIN{0}"),
+# The jRCT forms in the repository's own Japan data and its registry check (services/console/sitestore.py):
+# "jRCT" + 10 digits (jRCT1031230456, jRCT2031210123) or "jRCTs" + 9 digits (jRCTs031180001). The letter "s" is the
+# only category letter those data show; another letter is assumed not to exist and is not recognised. JapicCTI:
+# "JapicCTI-" + 6 digits; UMIN-CTR: "UMIN" + 9 digits. Any case, one optional space or hyphen after the prefix; the
+# number must stand on its own (no letter or digit before or after it).
+_B = r"(?<![A-Za-z0-9])"
+_E = r"(?![A-Za-z0-9])"
+_REGISTRIES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("jRCT", re.compile(_B + r"jRCT[ -]?(?:(s)(\d{9})|(\d{10}))" + _E, re.IGNORECASE)),
+    ("JapicCTI", re.compile(_B + r"JapicCTI[ -]?(\d{6})" + _E, re.IGNORECASE)),
+    ("UMIN-CTR", re.compile(_B + r"UMIN(?:-CTR)?[ -]?(\d{9})" + _E, re.IGNORECASE)),
 )
 
 
-def _get(node: Any, path: tuple[str, ...]) -> Any:
+def _get(node: Any, path: Path_) -> Any:
     for key in path:
         if not isinstance(node, dict):
             return None
@@ -74,16 +91,25 @@ def strip_names(study: dict[str, Any]) -> dict[str, Any]:
             for item in items:
                 if isinstance(item, dict):
                     item.pop(key, None)
+    parties = [_get(out, p) for p in PERSON_OBJECTS]
+    for p in PERSON_LISTS:
+        items = _get(out, p)
+        parties += items if isinstance(items, list) else []
+    for party in parties:
+        if isinstance(party, dict) and party.get("class") == INDIV:
+            party.pop("name", None)
     return out
 
 
+def _forms(m: re.Match[str], name: str) -> str:
+    if name == "jRCT":
+        return f"jRCTs{m.group(2)}" if m.group(1) else f"jRCT{m.group(3)}"
+    return {"JapicCTI": "JapicCTI-{}", "UMIN-CTR": "UMIN{}"}[name].format(m.group(1))
+
+
 def registry_of(secondary_id: str) -> tuple[str, str] | None:
-    """``(registry, id)`` when the text is a jRCT, JapicCTI or UMIN-CTR number (``("jRCT", "jRCT2031210123")``),
-    else None."""
-    text = re.sub(r"\s+", "", secondary_id or "")
-    for name, pattern, form in _REGISTRIES:
-        m = pattern.search(text)
-        if m:
-            groups = [g.lower() if i == 0 and name == "jRCT" else g for i, g in enumerate(m.groups())]
-            return name, form.format(*groups)
-    return None
+    """``(registry, id)`` when the text holds exactly one jRCT, JapicCTI or UMIN-CTR number
+    (``("jRCT", "jRCT2031210123")``), else None. A field naming two different numbers (``"UMIN000012345 and
+    jRCT2031260123"``) is not recognised: which one the field stands for is not known; its text stays in ``id``."""
+    found = {(name, _forms(m, name)) for name, pat in _REGISTRIES for m in pat.finditer(secondary_id or "")}
+    return found.pop() if len(found) == 1 else None

@@ -13,8 +13,10 @@ new heading with the version and date, in the same pull request that sets the ve
 - ClinicalTrials.gov intake widened (10D-15, D-1367): a study read from the registry (live, offline pack or
   cassette) now carries its sites with their recruitment status, its secondary ids (a jRCT, JapicCTI or UMIN-CTR
   number is recognised as such), arms, interventions, primary and secondary outcomes and the design (allocation,
-  masking, model). Contact persons, officials, investigators and citations are no longer kept: the reference data
-  store drops them from the records it holds when the box upgrades (refdata schema version 4). Nothing to do.
+  masking, model). Contact persons, officials, investigators, a person named as sponsor or collaborator, and
+  citations are no longer kept: the reference data store drops them from the records it holds when the box upgrades
+  (refdata schema version 4, which rewrites only the records holding one). Free text in a record is not cleaned.
+  Nothing to do.
 - Dates on printed pages and the fiscal year 年度 (10C-13, 10C-15): a site may print dates in Western form (ISO, as
   before), Japanese era (令和8年11月18日) or both (2026年（令和8年）11月18日) on the feasibility report, the NHI
   navigation summary and application form, the CASE sheet and the released consent page (`site.printed_dates`); the

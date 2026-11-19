@@ -29,7 +29,11 @@
             "investigatorAffiliation": "Synthetic Medical Center Taipei",
             "oldNameTitle": "Synthetic Investigator Gamma, MD"
           },
-          "leadSponsor": {"name": "Synthetic Pharma Co. (fictional)", "class": "INDUSTRY"}
+          "leadSponsor": {"name": "Synthetic Pharma Co. (fictional)", "class": "INDUSTRY"},
+          "collaborators": [
+            {"name": "Synthetic Sponsor Person Iota", "class": "INDIV"},
+            {"name": "Synthetic University (fictional)", "class": "OTHER"}
+          ]
         },
         "conditionsModule": {"conditions": ["Gout"], "keywords": ["hyperuricaemia"]},
         "designModule": {
@@ -107,6 +111,24 @@
         }
       },
       "hasResults": true
+    },
+    {
+      "protocolSection": {
+        "identificationModule": {
+          "nctId": "NCT99000102",
+          "secondaryIdInfos": [{"id": "UMIN000012345 and jRCT2031260123", "type": "OTHER"}],
+          "briefTitle": "[SYNTHETIC] A Person as Lead Sponsor: Investigator-Initiated Gout Study"
+        },
+        "statusModule": {"overallStatus": "RECRUITING", "lastUpdatePostDateStruct": {"date": "2026-10-21", "type": "ACTUAL"}},
+        "sponsorCollaboratorsModule": {
+          "responsibleParty": {"type": "SPONSOR_INVESTIGATOR", "investigatorFullName": "Synthetic Sponsor Person Kappa"},
+          "leadSponsor": {"name": "Synthetic Sponsor Person Kappa", "class": "INDIV"}
+        },
+        "conditionsModule": {"conditions": ["Gout"]},
+        "designModule": {"studyType": "OBSERVATIONAL", "designInfo": {"observationalModel": "COHORT", "timePerspective": "PROSPECTIVE"}},
+        "eligibilityModule": {"eligibilityCriteria": "Inclusion Criteria:\n\n* Gout", "sex": "ALL"},
+        "contactsLocationsModule": {"locations": [{"facility": "Synthetic Clinic Kaohsiung", "city": "Kaohsiung", "country": "Taiwan"}]}
+      }
     }
   ]
 }

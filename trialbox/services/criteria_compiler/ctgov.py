@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import httpx
-from tb_common.ctgov_record import registry_of
+from tb_common.ctgov_record import INDIV, registry_of
 from tb_common.http import EgressRefused, guarded_client
 from tb_contracts import (
     CtgovArm,
@@ -56,31 +56,43 @@ def slug(condition: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", condition.lower()).strip("-")
 
 
+def _d(v: Any) -> dict[str, Any]:
+    """A module or part of the record: a dict, else empty (a malformed record never stops a search, D-1367)."""
+    return v if isinstance(v, dict) else {}
+
+
+def _items(v: Any) -> list[dict[str, Any]]:
+    """The dict items of a list (anything else in it, or a non-list, is left out)."""
+    return [x for x in v if isinstance(x, dict)] if isinstance(v, list) else []
+
+
 def _s(v: Any) -> str | None:
-    return str(v) if v not in (None, "") else None
+    return v if isinstance(v, str) and v else None
 
 
 def _strs(v: Any) -> list[str]:
-    return [str(x) for x in v or [] if x not in (None, "")]
+    """A list of strings; one string is a list of one (never split into characters); anything else is empty."""
+    if isinstance(v, str):
+        return [v] if v else []
+    return [x for x in v if isinstance(x, str) and x] if isinstance(v, list) else []
 
 
 def _design(design: dict[str, Any]) -> CtgovDesign | None:
-    info = design.get("designInfo") or {}
-    mask = info.get("maskingInfo") or {}
+    info = _d(design.get("designInfo"))
+    mask = _d(info.get("maskingInfo"))
     out = CtgovDesign(
         study_type=_s(design.get("studyType")),
         allocation=_s(info.get("allocation")),
-        model=_s(info.get("interventionModel") or info.get("observationalModel")),
+        model=_s(info.get("interventionModel")) or _s(info.get("observationalModel")),
         primary_purpose=_s(info.get("primaryPurpose")),
         masking=_s(mask.get("masking")),
         who_masked=_strs(mask.get("whoMasked")) or None,
-        enrollment_type=_s((design.get("enrollmentInfo") or {}).get("type")),
+        enrollment_type=_s(_d(design.get("enrollmentInfo")).get("type")),
     )
     return out if out.model_dump(exclude_none=True) else None
 
 
-def _secondary_id(x: dict[str, Any]) -> CtgovSecondaryId:
-    sid = str(x.get("id") or "")
+def _secondary_id(sid: str, x: dict[str, Any]) -> CtgovSecondaryId:
     found = registry_of(sid)
     return CtgovSecondaryId(
         id=sid,
@@ -93,56 +105,59 @@ def _secondary_id(x: dict[str, Any]) -> CtgovSecondaryId:
 
 def _widened(ps: dict[str, Any]) -> dict[str, Any]:
     """10D-15 (D-1367): sites, secondary ids, arms, interventions, outcomes and design. No contact person, official
-    or investigator is read (``tb_common.ctgov_record`` lists what a stored record drops)."""
-    locs = (ps.get("contactsLocationsModule") or {}).get("locations") or []
-    arms = ps.get("armsInterventionsModule") or {}
-    outcomes = ps.get("outcomesModule") or {}
+    or investigator is read (``tb_common.ctgov_record`` lists what a stored record drops). A part that is not of the
+    API's shape (a string where a list of objects belongs) is left out; it never fails the search."""
+    arms = _d(ps.get("armsInterventionsModule"))
+    outcomes = _d(ps.get("outcomesModule"))
 
-    def outcome(o: dict[str, Any]) -> CtgovOutcome:
-        return CtgovOutcome(measure=str(o["measure"]), description=_s(o.get("description")),
-                            time_frame=_s(o.get("timeFrame")))  # fmt: skip
+    def outcome_list(key: str) -> list[CtgovOutcome]:
+        return [
+            CtgovOutcome(measure=m, description=_s(o.get("description")), time_frame=_s(o.get("timeFrame")))
+            for o in _items(outcomes.get(key))
+            if (m := _s(o.get("measure")))
+        ]
 
     parts: dict[str, Any] = {
         "locations": [
             CtgovLocation(
-                facility=str(x["facility"]),
+                facility=f,
                 city=_s(x.get("city")),
                 state=_s(x.get("state")),
                 country=_s(x.get("country")),
                 status=_s(x.get("status")),
             )
-            for x in locs
-            if x.get("facility")
+            for x in _items(_d(ps.get("contactsLocationsModule")).get("locations"))
+            if (f := _s(x.get("facility")))
         ],
         "secondary_ids": [
-            _secondary_id(x)
-            for x in (ps.get("identificationModule") or {}).get("secondaryIdInfos") or []
-            if x.get("id")
+            _secondary_id(i, x)
+            for x in _items(_d(ps.get("identificationModule")).get("secondaryIdInfos"))
+            if (i := _s(x.get("id")))
         ],
         "arms": [
             CtgovArm(
-                label=str(a["label"]),
+                label=label,
                 type=_s(a.get("type")),
                 description=_s(a.get("description")),
                 intervention_names=_strs(a.get("interventionNames")),
             )
-            for a in arms.get("armGroups") or []
-            if a.get("label")
+            for a in _items(arms.get("armGroups"))
+            if (label := _s(a.get("label")))
         ],
         "interventions": [
             CtgovIntervention(
-                name=str(i["name"]),
+                name=name,
                 type=_s(i.get("type")),
                 description=_s(i.get("description")),
                 arm_labels=_strs(i.get("armGroupLabels")),
                 other_names=_strs(i.get("otherNames")),
             )
-            for i in arms.get("interventions") or []
-            if i.get("name")
+            for i in _items(arms.get("interventions"))
+            if (name := _s(i.get("name")))
         ],
-        "primary_outcomes": [outcome(o) for o in outcomes.get("primaryOutcomes") or [] if o.get("measure")],
-        "secondary_outcomes": [outcome(o) for o in outcomes.get("secondaryOutcomes") or [] if o.get("measure")],
-        "design": _design(ps.get("designModule") or {}),
+        "primary_outcomes": outcome_list("primaryOutcomes"),
+        "secondary_outcomes": outcome_list("secondaryOutcomes"),
+        "design": _design(_d(ps.get("designModule"))),
     }
     return {k: v or None for k, v in parts.items()}  # a module the record lacks is absent, not empty
 
@@ -152,28 +167,34 @@ def registry_ids(study: CtgovStudy, registry: str) -> list[str]:
     return [x.registry_id for x in study.secondary_ids or [] if x.registry == registry and x.registry_id]
 
 
+def _sponsor(ps: dict[str, Any]) -> str | None:
+    """The lead sponsor's name; none when the sponsor is a person (class INDIV, D-1367)."""
+    lead = _d(_d(ps.get("sponsorCollaboratorsModule")).get("leadSponsor"))
+    return None if lead.get("class") == INDIV else _s(lead.get("name"))
+
+
 def to_study(raw: dict[str, Any]) -> CtgovStudy | None:
-    ps = raw.get("protocolSection") or {}
-    ident = ps.get("identificationModule") or {}
-    status = ps.get("statusModule") or {}
-    elig = ps.get("eligibilityModule") or {}
+    ps = _d(_d(raw).get("protocolSection"))
+    ident = _d(ps.get("identificationModule"))
+    status = _d(ps.get("statusModule"))
+    elig = _d(ps.get("eligibilityModule"))
     text = elig.get("eligibilityCriteria") or ""
     nct = ident.get("nctId") or ""
-    last = ((status.get("lastUpdatePostDateStruct") or {}).get("date") or "")[:10]
+    last = str(_d(status.get("lastUpdatePostDateStruct")).get("date") or "")[:10]
     if not (nct and text and re.match(r"^\d{4}-\d{2}-\d{2}$", last)):
         return None  # no usable eligibility text (or a partial month-only date)
-    design = ps.get("designModule") or {}
-    locs = (ps.get("contactsLocationsModule") or {}).get("locations") or []
+    design = _d(ps.get("designModule"))
+    locs = _items(_d(ps.get("contactsLocationsModule")).get("locations"))
     return CtgovStudy(
         nct_id=nct,
         title=ident.get("briefTitle") or ident.get("officialTitle") or nct,
-        phases=list(design.get("phases") or []),
-        conditions=list((ps.get("conditionsModule") or {}).get("conditions") or []),
+        phases=_strs(design.get("phases")),
+        conditions=_strs(_d(ps.get("conditionsModule")).get("conditions")),
         overall_status=str(status.get("overallStatus") or ""),
         last_update=date.fromisoformat(last),
-        enrollment=(design.get("enrollmentInfo") or {}).get("count"),
-        sponsor=((ps.get("sponsorCollaboratorsModule") or {}).get("leadSponsor") or {}).get("name"),
-        countries=sorted({str(x.get("country")) for x in locs if x.get("country")}),
+        enrollment=_d(design.get("enrollmentInfo")).get("count"),
+        sponsor=_sponsor(ps),
+        countries=sorted({c for x in locs if (c := _s(x.get("country")))}),
         eligibility_text=text,
         minimum_age=elig.get("minimumAge"),
         maximum_age=elig.get("maximumAge"),

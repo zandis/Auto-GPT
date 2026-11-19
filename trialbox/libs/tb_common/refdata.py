@@ -135,27 +135,67 @@ CREATE TABLE IF NOT EXISTS withdrawn (source_id TEXT NOT NULL, name TEXT NOT NUL
   reason TEXT NOT NULL, records BIGINT NOT NULL, withdrawn_at TEXT NOT NULL, withdrawn_by TEXT NOT NULL,
   PRIMARY KEY (source_id, withdrawn_at))
 """
-# D-1367: version 4 drops the personal names from the CT.gov records stored before (tb_common.ctgov_record); a pack
-# loaded from now on is stripped as it is loaded (ctgov_row). The paths are ctgov_record.DROPPED_PATHS/_IN_LISTS.
+# D-1367: version 4 drops the personal names from the CT.gov records stored before, as strip_names does, in one
+# UPDATE that rewrites only the rows holding one (steps chained by LATERAL; no ";" and no "?" in it). A pack loaded
+# from now on is stripped as it is loaded (ctgov_row). Every path and key of tb_common.ctgov_record is in this text
+# (tests/unit/test_ctgov_widened.py); a later change of those paths is a new version, never an edit of this one.
 DDL_V4 = """
-UPDATE ctgov_study SET study = study #- '{protocolSection,contactsLocationsModule,centralContacts}'
-  #- '{protocolSection,contactsLocationsModule,overallOfficials}'
-  #- '{protocolSection,sponsorCollaboratorsModule,responsibleParty,investigatorFullName}'
-  #- '{protocolSection,sponsorCollaboratorsModule,responsibleParty,investigatorTitle}'
-  #- '{protocolSection,sponsorCollaboratorsModule,responsibleParty,oldNameTitle}'
-  #- '{resultsSection,moreInfoModule,pointOfContact}';
-UPDATE ctgov_study SET study = jsonb_set(study, '{protocolSection,contactsLocationsModule,locations}',
-  (SELECT COALESCE(jsonb_agg(CASE WHEN jsonb_typeof(e.v) = 'object' THEN e.v - 'contacts' ELSE e.v END
-                             ORDER BY e.n), '[]'::jsonb)
-   FROM jsonb_array_elements(study #> '{protocolSection,contactsLocationsModule,locations}')
+UPDATE ctgov_study AS t SET study = s4.x FROM ctgov_study AS o
+  CROSS JOIN LATERAL (SELECT o.study
+    #- '{protocolSection,contactsLocationsModule,centralContacts}'
+    #- '{protocolSection,contactsLocationsModule,overallOfficials}'
+    #- '{protocolSection,sponsorCollaboratorsModule,responsibleParty,investigatorFullName}'
+    #- '{protocolSection,sponsorCollaboratorsModule,responsibleParty,investigatorTitle}'
+    #- '{protocolSection,sponsorCollaboratorsModule,responsibleParty,oldNameTitle}'
+    #- '{resultsSection,moreInfoModule,pointOfContact}' AS x) AS s0
+  CROSS JOIN LATERAL (SELECT CASE
+    WHEN jsonb_typeof(s0.x #> '{protocolSection,contactsLocationsModule,locations}') = 'array'
+    THEN jsonb_set(s0.x, '{protocolSection,contactsLocationsModule,locations}', (SELECT COALESCE(jsonb_agg(
+      CASE WHEN jsonb_typeof(e.v) = 'object' THEN e.v - 'contacts' ELSE e.v END ORDER BY e.n), '[]'::jsonb)
+      FROM jsonb_array_elements(s0.x #> '{protocolSection,contactsLocationsModule,locations}')
         WITH ORDINALITY AS e(v, n)))
-  WHERE jsonb_typeof(study #> '{protocolSection,contactsLocationsModule,locations}') = 'array';
-UPDATE ctgov_study SET study = jsonb_set(study, '{protocolSection,referencesModule,references}',
-  (SELECT COALESCE(jsonb_agg(CASE WHEN jsonb_typeof(e.v) = 'object' THEN e.v - 'citation' ELSE e.v END
-                             ORDER BY e.n), '[]'::jsonb)
-   FROM jsonb_array_elements(study #> '{protocolSection,referencesModule,references}')
+    ELSE s0.x END AS x) AS s1
+  CROSS JOIN LATERAL (SELECT CASE
+    WHEN jsonb_typeof(s1.x #> '{protocolSection,referencesModule,references}') = 'array'
+    THEN jsonb_set(s1.x, '{protocolSection,referencesModule,references}', (SELECT COALESCE(jsonb_agg(
+      CASE WHEN jsonb_typeof(e.v) = 'object' THEN e.v - 'citation' ELSE e.v END ORDER BY e.n), '[]'::jsonb)
+      FROM jsonb_array_elements(s1.x #> '{protocolSection,referencesModule,references}')
         WITH ORDINALITY AS e(v, n)))
-  WHERE jsonb_typeof(study #> '{protocolSection,referencesModule,references}') = 'array'
+    ELSE s1.x END AS x) AS s2
+  CROSS JOIN LATERAL (SELECT CASE
+    WHEN jsonb_typeof(s2.x #> '{protocolSection,sponsorCollaboratorsModule,collaborators}') = 'array'
+    THEN jsonb_set(s2.x, '{protocolSection,sponsorCollaboratorsModule,collaborators}', (SELECT COALESCE(jsonb_agg(
+      CASE WHEN jsonb_typeof(e.v) = 'object' AND e.v ->> 'class' = 'INDIV' THEN e.v - 'name' ELSE e.v END
+      ORDER BY e.n), '[]'::jsonb)
+      FROM jsonb_array_elements(s2.x #> '{protocolSection,sponsorCollaboratorsModule,collaborators}')
+        WITH ORDINALITY AS e(v, n)))
+    ELSE s2.x END AS x) AS s3
+  CROSS JOIN LATERAL (SELECT CASE
+    WHEN s3.x #>> '{protocolSection,sponsorCollaboratorsModule,leadSponsor,class}' = 'INDIV'
+    THEN jsonb_set(s3.x, '{protocolSection,sponsorCollaboratorsModule,leadSponsor}',
+      (s3.x #> '{protocolSection,sponsorCollaboratorsModule,leadSponsor}') - 'name')
+    ELSE s3.x END AS x) AS s4
+  WHERE t.nct_id = o.nct_id AND (
+    o.study #> '{protocolSection,contactsLocationsModule,centralContacts}' IS NOT NULL
+    OR o.study #> '{protocolSection,contactsLocationsModule,overallOfficials}' IS NOT NULL
+    OR o.study #> '{protocolSection,sponsorCollaboratorsModule,responsibleParty,investigatorFullName}' IS NOT NULL
+    OR o.study #> '{protocolSection,sponsorCollaboratorsModule,responsibleParty,investigatorTitle}' IS NOT NULL
+    OR o.study #> '{protocolSection,sponsorCollaboratorsModule,responsibleParty,oldNameTitle}' IS NOT NULL
+    OR o.study #> '{resultsSection,moreInfoModule,pointOfContact}' IS NOT NULL
+    OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE
+      WHEN jsonb_typeof(o.study #> '{protocolSection,contactsLocationsModule,locations}') = 'array'
+      THEN o.study #> '{protocolSection,contactsLocationsModule,locations}' ELSE '[]'::jsonb END) AS e(v)
+      WHERE e.v -> 'contacts' IS NOT NULL)
+    OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE
+      WHEN jsonb_typeof(o.study #> '{protocolSection,referencesModule,references}') = 'array'
+      THEN o.study #> '{protocolSection,referencesModule,references}' ELSE '[]'::jsonb END) AS e(v)
+      WHERE e.v -> 'citation' IS NOT NULL)
+    OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE
+      WHEN jsonb_typeof(o.study #> '{protocolSection,sponsorCollaboratorsModule,collaborators}') = 'array'
+      THEN o.study #> '{protocolSection,sponsorCollaboratorsModule,collaborators}' ELSE '[]'::jsonb END) AS e(v)
+      WHERE jsonb_typeof(e.v) = 'object' AND e.v ->> 'class' = 'INDIV' AND e.v -> 'name' IS NOT NULL)
+    OR (o.study #>> '{protocolSection,sponsorCollaboratorsModule,leadSponsor,class}' = 'INDIV'
+      AND o.study #> '{protocolSection,sponsorCollaboratorsModule,leadSponsor,name}' IS NOT NULL))
 """
 MIGRATIONS = (DDL, DDL_V2, DDL_V3, DDL_V4)  # D-317: version 3, the record of withdrawn sources; D-1367: version 4
 TABLES = ("ctgov_study", "trial", "term", "concept_map", "synonym")
