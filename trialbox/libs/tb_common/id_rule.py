@@ -56,18 +56,17 @@ class Store:
     name: str
     schema: str
     table: str
-    where: str = "TRUE"
-
-    @property
-    def holds(self) -> str:
-        return f"SELECT 1 FROM {self.table} WHERE {self.where} LIMIT 1"  # noqa: S608 - the names are this module's
+    where: str
+    #: the store's own question, written out (no SQL is built from strings here): any lake id of its table
+    holds: str
 
 
-OMOP = Store("omop", "omop", "tb_record", "source_kind = 'feed' AND resource_type <> 'Patient'")
-DERIVED = Store("derived", "derived", "score_row")
-VEC = Store("vec", "vec", "note_chunk")
-TWIN = Store("profile", "profile", "tb_patient_profile")
-POOL = Store("orch", "orch", "pool")
+OMOP = Store("omop", "omop", "tb_record", "source_kind = 'feed' AND resource_type <> 'Patient'",
+             "SELECT 1 FROM tb_record WHERE source_kind = 'feed' AND resource_type <> 'Patient' LIMIT 1")  # fmt: skip
+DERIVED = Store("derived", "derived", "score_row", "TRUE", "SELECT 1 FROM score_row LIMIT 1")
+VEC = Store("vec", "vec", "note_chunk", "TRUE", "SELECT 1 FROM note_chunk LIMIT 1")
+TWIN = Store("profile", "profile", "tb_patient_profile", "TRUE", "SELECT 1 FROM tb_patient_profile LIMIT 1")
+POOL = Store("orch", "orch", "pool", "TRUE", "SELECT 1 FROM pool LIMIT 1")
 STORES = (OMOP, DERIVED, VEC, TWIN, POOL)
 #: the EDC drafts keep the rule per study (``edc.store``'s ``tb_id_rule_study``): a study whose decided, signed or sent
 #: values cite rows of the earlier rule is frozen for prefill, the others go on; nothing of the trail is ever cleared

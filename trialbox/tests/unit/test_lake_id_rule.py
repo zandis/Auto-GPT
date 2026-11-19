@@ -309,3 +309,13 @@ def test_the_candidate_pool_refuses_verdicts_beside_verdicts_of_the_earlier_rule
         )
     _stopped(caught.value, "orch")
     assert jobs.pool_count(["p1", "p2"]) == 1
+
+
+@pytest.mark.parametrize("store", id_rule.STORES, ids=lambda s: s.name)
+def test_each_stores_written_out_question_is_its_table_and_its_filter(store: id_rule.Store) -> None:
+    """D-1253 (D-1338): ``Store.holds`` is written out per store, not built from strings; it asks the store's own
+    table with the same filter the probe composes, so the two never drift apart."""
+    words = store.holds.split()
+    assert words[:4] == ["SELECT", "1", "FROM", store.table] and words[-2:] == ["LIMIT", "1"]
+    asked = " ".join(words[4:-2])
+    assert asked == ("" if store.where == "TRUE" else "WHERE " + store.where)

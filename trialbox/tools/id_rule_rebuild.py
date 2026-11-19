@@ -99,6 +99,13 @@ COUNTS: dict[str, tuple[str, ...]] = {
     "orch": ("pool",),
 }
 OMOP_FEED = "source_kind = 'feed' AND resource_type <> 'Patient'"
+#: the OMOP feed records of patients' clinical data (``OMOP_FEED``), written out: what the plan counts and the rebuild
+#: clears table by table
+OMOP_FEED_COUNT = "SELECT count(*) FROM tb_record WHERE source_kind = 'feed' AND resource_type <> 'Patient'"
+OMOP_FEED_TABLES = (
+    "SELECT DISTINCT cdm_table FROM tb_record WHERE source_kind = 'feed' AND resource_type <> 'Patient' AND "
+    "cdm_table IS NOT NULL"
+)
 #: the derived conflicts a person resolved, and every conflict they were carried from: kept
 KEPT_CONFLICTS = (
     "WITH RECURSIVE k(id) AS (SELECT id FROM conflict WHERE resolution IS NOT NULL UNION SELECT c.carried_from FROM "
@@ -307,9 +314,9 @@ def plan(lake: Path, url: str | None, today: date | None = None) -> dict[str, An
         row: dict[str, Any] = {"schema": full, "present": True, "rule": id_rule.probe(where, store, name)}
         with Database.connect(where, name) as db:
             if store is id_rule.OMOP and _has(db, "tb_record"):
-                row["cleared"] = {"feed_records": int(db.fetchval(f"SELECT count(*) FROM tb_record WHERE {OMOP_FEED}"))}
+                row["cleared"] = {"feed_records": int(db.fetchval(OMOP_FEED_COUNT))}
             else:
-                row["cleared"] = {t: int(db.fetchval(f"SELECT count(*) FROM {t}")) for t in COUNTS.get(name, ())
+                row["cleared"] = {t: int(db.fetchval(_q("SELECT count(*) FROM {}", t))) for t in COUNTS.get(name, ())
                                   if _has(db, t)}  # fmt: skip
                 if name == "derived" and _has(db, "conflict") and "resolution" in _columns(db, "conflict"):
                     kept = len(db.fetchall(KEPT_CONFLICTS))
@@ -318,7 +325,7 @@ def plan(lake: Path, url: str | None, today: date | None = None) -> dict[str, An
         out[store.name] = row
     if prefix + "dataops" in present:
         with Database.connect(url, "dataops") as db:
-            out["dataops"] = {"cleared": {t: int(db.fetchval(f"SELECT count(*) FROM {t}"))
+            out["dataops"] = {"cleared": {t: int(db.fetchval(_q("SELECT count(*) FROM {}", t)))
                                           for t in ("built", "built_kept") if _has(db, t)}}  # fmt: skip
     if prefix + "edc" in present:
         with Database.connect(url, "edc") as db:
@@ -423,7 +430,7 @@ def _clear_omop(db: Any) -> dict[str, int]:
     counts: dict[str, int] = {}
     with db.transaction() as tx:
         tables = [str(r[0]) for r in tx.fetchall(
-            f"SELECT DISTINCT cdm_table FROM tb_record WHERE {OMOP_FEED} AND cdm_table IS NOT NULL")]  # fmt: skip
+            OMOP_FEED_TABLES)]  # fmt: skip
         for t in sorted(tables):
             col = ID_COL.get(t)
             if col is None:
