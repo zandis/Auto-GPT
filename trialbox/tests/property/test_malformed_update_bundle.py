@@ -21,11 +21,10 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
-import pytest
 from hypothesis import example, given
 from hypothesis import strategies as st
 
-from tests.malformed_kit import SETTINGS, Escaped, returns_or_refuses
+from tests.malformed_kit import SETTINGS, returns_or_refuses
 from tools import verify_update as vu
 from tools.sign_bundle import build, keygen
 
@@ -146,7 +145,5 @@ def test_verify_returns_or_rejects_signed_manifests(data: bytes) -> None:
 @SETTINGS
 @given(truncated())
 @example(_tar([("a", "file", b"x")])[:512])
-@pytest.mark.xfail(strict=True, raises=Escaped, reason="H10G43-04: a bundle cut inside a member raises tarfile.ReadError from "
-                                       "tf.getmembers(), not Rejected")  # fmt: skip
 def test_h10g43_04_a_cut_bundle(data: bytes) -> None:
     returns_or_refuses(lambda: _verify(data), (vu.Rejected,))
