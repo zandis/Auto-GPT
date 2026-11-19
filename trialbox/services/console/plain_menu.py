@@ -53,7 +53,6 @@ SAME_FOR_ALL: dict[str, str] = {
     "admin.create": "users.add",
     "home.send_protocol": "protocol.title",
     "site.link.protocol": "protocol.title",
-    "team.scope.change": "setup.who.title",
     "home.open_report": "feas.title",
     "home.open_week": "nav.week",
     "adm.users.identity": "identity.title",
