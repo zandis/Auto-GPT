@@ -51,7 +51,7 @@ from criteria_compiler.compile_cql.translator import TranslationError, Translato
 from criteria_compiler.compile_sql.generator import SqlGenerator
 from criteria_compiler.ctgov import CtGov, CtgovError
 from criteria_compiler.equivalence.gate import run_gate, unproven, without_pseudonyms
-from criteria_compiler.ir_extract.postprocess import KIND_CODE, postprocess
+from criteria_compiler.ir_extract.postprocess import KIND_CODE, hold_reused_negated, postprocess
 from criteria_compiler.repo import RulesetRepo
 from criteria_compiler.review import draft_zip, json_bytes, review_html, review_xlsx
 from criteria_compiler.semantics import FILTERED, CompileError, atoms, class_split, compiled
@@ -921,6 +921,10 @@ class Compiler:
         for ln in lines:
             hit = reuse.get((ln["kind"], _norm(str(ln["text"]))))
             if hit:
+                # card 10A-1: an approved inclusion whose line negates what its logic asks is not reused as it was
+                hit, held = hold_reused_negated(hit, valuesets)
+                if held:
+                    warnings.append(held)
                 reused.add(len(criteria))
                 criteria.append(hit.model_copy(update={"review": CriterionReview(status="draft")}))
                 continue
