@@ -6,7 +6,8 @@ command runs it against
 
 * the models of this environment (``TB_GATEWAY_URL`` ..., as the orchestrator would), or
 * two OpenAI-compatible servers given directly (``--judge-url``, ``--verifier-url``; bearer key in ``TB_GPU_KEY``),
-  with ``--swap`` when they time-share one GPU (vLLM sleep mode: each is woken in turn, the judge left awake).
+  with ``--swap`` when they time-share one GPU (vLLM sleep mode: each is woken in turn, the judge left awake);
+  ``--judge-url`` alone checks the judge alone (no pair).
 
 It also runs the six-case wake check on each model after its wake (the check a one-GPU run does after every swap).
 
@@ -31,11 +32,16 @@ VERIFIER = "local/qwen3.5-9b-awq"
 
 
 def direct_clients(judge_url: str, verifier_url: str, key: str) -> tuple[Any, Any]:
+    """Clients of the two servers; no verifier URL gives no verifier (the judge alone: card 24-5's judge-alone run;
+    the self-test then checks the judge only and no pair)."""
     import httpx
     from tb_common.llm import LlmClient
 
-    out = []
+    out: list[Any] = []
     for url, name in ((judge_url, JUDGE), (verifier_url, VERIFIER)):
+        if not url:
+            out.append(None)
+            continue
         c = LlmClient(url, name, timeout=600.0)
         c.http = httpx.Client(timeout=600.0, headers={"Authorization": f"Bearer {key}"})
         out.append(c)
@@ -56,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.judge_url:
         key = os.environ["TB_GPU_KEY"]  # from the environment only, never a flag
         llm, verifier = direct_clients(a.judge_url, a.verifier_url, key)
-        if a.swap:
+        if a.swap and verifier is not None:
             from gateway.swap import ModelSwap, SwapError
             from tb_common.llm import LlmError
 

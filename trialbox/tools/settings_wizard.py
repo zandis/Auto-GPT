@@ -36,6 +36,7 @@ ROOT = Path(__file__).resolve().parents[1]
 for _p in ("libs", "services"):
     sys.path.insert(0, str(ROOT / _p))
 from tb_common import site_country, workdays  # noqa: E402 - libs is on the path only from here
+from tb_common.dates import PRINTED_STYLES, YEAR_BASES  # noqa: E402
 
 EXAMPLE = ROOT / "deploy" / "settings.example.yaml"
 MAPPING_ROOT = ROOT / "services" / "adapter"
@@ -58,6 +59,19 @@ QUESTIONS: list[tuple[str, str, Any, str]] = [
     ("site_name", "Site name", None, "str"),
     ("tz", "Time zone (IANA, e.g. Asia/Tokyo; the mapping's tz)", "", "str"),  # no default zone (D-315)
     ("locale", "Report language (en | ja | zh-TW)", "zh-TW", "str"),
+    # 10C-13, 10C-15 (D-1229): the defaults are the country's (Japan: both, fiscal)
+    (
+        "printed_dates",
+        f"Dates on printed pages ({' | '.join(PRINTED_STYLES)}; era = 令和8年11月18日)",
+        "western",
+        "str",
+    ),
+    (
+        "year_basis",
+        f"The year in yearly reports ({' | '.join(YEAR_BASES)}; fiscal = 年度, 1 April to 31 March)",
+        "calendar",
+        "str",
+    ),
     ("contact", "Box contact e-mail (operations)", None, "str"),
     ("internal_domains", "Internal mail domains (comma separated)", None, "list"),
     ("intake_address", "Intake mailbox address of the box", None, "str"),
@@ -236,6 +250,8 @@ COUNTRY_KEYS = {
     "data_source_type": "data_source_type",
     "mapping": "mapping",
     "retention_rules": "retention_rules",
+    "printed_dates": "printed_dates",
+    "year_basis": "year_basis",
 }
 NO_DEFAULT = "no default for this country: please answer"
 NO_RULES_DAYS = ("outputs_days", "attachments_days")  # asked only where the country has no retention rules here
@@ -603,6 +619,15 @@ def build(
         retention = defaults_for(rules, days) if rules else site_own(days)
     except ValueError as exc:
         errors.append(str(exc))
+    # 10C-13, 10C-15 (D-1229): a new site gets its country's defaults written out; an answers file without a country
+    # (an installed box, a file from before) writes them only when answered, so its prints and years do not change
+    dated: dict[str, str] = {}
+    for k, allowed in (("printed_dates", PRINTED_STYLES), ("year_basis", YEAR_BASES)):
+        v = str(a.get(k) or "") if legacy else str(by_country(k) or "")
+        if v and v not in allowed:
+            errors.append(f"{k}: one of {', '.join(allowed)}")
+        elif v:
+            dated[k] = v
     extra = env_extra(a.get("env_extra"), errors)
     if errors:
         raise WizardError("; ".join(errors))
@@ -614,6 +639,7 @@ def build(
             "tz": tz,
             "locale": locale,
             "contact": str(get("contact")),
+            **dated,  # 10C-13, 10C-15 (D-1229)
         },
         "internal_domains": domains,
         "allowlist": {

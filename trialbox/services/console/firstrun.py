@@ -35,7 +35,7 @@ from zoneinfo import available_timezones
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import RedirectResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from tb_common import box_answers, chartno, firstrun, site_country
+from tb_common import box_answers, chartno, dates, firstrun, site_country
 from tb_common.audit import AuditLog
 from tb_common.retention import OVERRIDABLE
 
@@ -64,7 +64,7 @@ def country_on(env: Mapping[str, str]) -> bool:
 SS_FIELDS = ("ssmix2_root", "ssmix2_order_numbers")
 FORM_FIELDS = ("site_name", "tz", "language", "owner_full_name", "owner_username", "owner_email", "box_name",
                "backup_kind", "backup_disk", "backup_share", "source", "chartno_kind", "chartno_width", *SS_FIELDS,
-               *OVERRIDABLE)  # fmt: skip
+               *OVERRIDABLE, "printed_dates", "year_basis")  # fmt: skip
 
 
 def offered_sources(country: str, asks_country: bool) -> list[str]:
@@ -85,6 +85,7 @@ def country_values(country: str, hw: dict[str, Any]) -> dict[str, str]:
     except ValueError:
         return {}
     out = {"country": cd.country, "tz": cd.tz or str(hw.get("host_tz", ""))}
+    out |= {"printed_dates": cd.printed_dates, "year_basis": cd.year_basis}  # 10C-13, 10C-15: shown chosen
     if cd.locale:
         out["language"] = cd.locale
     if cd.data_source_type == "ssmix2":
@@ -203,7 +204,9 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
             mapped_later=bool(country) and not cd.mapping,
             steward=user, admin=user + box_answers.ADMIN_SUFFIX, ask_country=asks_country, country=country,
             countries=site_country.COUNTRIES, ss_orders=site_country.SSMIX2_ORDER_NUMBERS,
-            ask_retention=ask_retention, retention_keys=OVERRIDABLE, **ctx,
+            ask_retention=ask_retention, retention_keys=OVERRIDABLE, printed_styles=dates.PRINTED_STYLES,
+            country_dates=(cd.printed_dates, cd.year_basis),
+            year_bases=dates.YEAR_BASES, **ctx,
         )  # fmt: skip
 
     @app.get(PATH)
@@ -273,7 +276,7 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
         data = {k: str(v)[:512] for k, v in (await request.form()).items() if isinstance(v, str)}
         lang(request, data.get("lang", ""))
         if not h.country:  # 10K-1: asked only behind the flag; a posted answer makes nothing then
-            for k in ("country", *OVERRIDABLE):
+            for k in ("country", *OVERRIDABLE, "printed_dates", "year_basis"):  # 10C-13/15: asked with the country
                 data.pop(k, None)
         folder = gate()
         state = pending(request, folder)
@@ -330,6 +333,8 @@ def register(app: FastAPI, h: FirstRunHooks) -> None:
             "step": "done", "accounts": [a.username for a in plans], "roles": [a.role for a in plans],
             "source": answers.source.value, "backup": answers.backup.kind.value,
             "chartno_rule": answers.chartno_rule,
+            # 10C-13, 10C-15 (D-1229): asked with the country; recorded only when answered (the flag off: as before)
+            **{k: v for k, v in (("printed_dates", answers.printed_dates), ("year_basis", answers.year_basis)) if v},
         })  # fmt: skip
         resp = h.page(request, "firstrun.html", None, step="done", steward=plans[0].username)
         resp.delete_cookie(COOKIE, httponly=True, samesite="strict", secure=h.secure)  # the flags it was set with

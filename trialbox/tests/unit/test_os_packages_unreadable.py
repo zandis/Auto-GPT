@@ -135,4 +135,4 @@ def test_the_release_gates_pass_the_entry_to_the_report() -> None:
 
 def test_the_shipped_list_has_the_one_image_the_owner_ruled_on() -> None:
     allow, _ = allowlist.load(today=None)
-    assert [(e.image, e.review_by) for e in allow.os_packages_unreadable] == [(IMAGE, dt.date(2026, 12, 10))]
+    assert [(e.image, e.review_by) for e in allow.os_packages_unreadable] == [(IMAGE, dt.date(2027, 1, 10))]

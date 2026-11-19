@@ -61,6 +61,10 @@ which the site puts in `deploy/.env` before the first install) and the measured 
 `deploy/measured/ingest_memory.json` (`python -m tools.trialbox.memcaps --measure` re-measures it). The compose
 defaults are the floor; a cap set by hand is kept. `trialbox doctor` (`memory_caps`) fails when a cap is below what
 the patient count needs; `python -m tools.trialbox.memcaps --env-file deploy/.env --write` sizes them again.
+SCREEN and FEAS of the whole hospital hold its rows in the orchestrator, so `TB_MEM_ORCH` grows with the hospital: the
+installer writes it from `deploy/measured/orchestrator_memory.json` (the size ladder's peaks, H23b-01, D-1005) once the
+need passes the compose default of 4 GiB, from about 45,000 patients (about 8.3 GiB at 100,000). Below that the box
+keeps the shipped cap. The machine needs that memory beside the other services'.
 
 **The chart-number format** (D-579). The answers file says how the hospital writes a chart number, in
 `chartno_rule`: `digits:8` for eight digits with leading zeros, `hex:8` for a hexadecimal key, `asis` when the number
