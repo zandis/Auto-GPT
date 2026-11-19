@@ -19,6 +19,9 @@ new card: a trial boot on a rehearsal box (D-726; an unmeasured card is accepted
 override keeps the real model servers, not the stand-ins), then on the box
 `python3 tools/serving_config.py capture --container judge=trialbox-llm-service-1 --container
 verifier=trialbox-llm-verifier-1 --models-dir deploy/models --out deploy/site/serving_config.<profile>.json`.
+`capture` needs Docker: it reads each server's settings from Docker's inspect output (`tools/serving_config.py:36-38`), so
+a rented GPU without Docker (a pod) cannot make the record; use a VM with Docker and Compose (review 19 §4.2).
+The `rtx5090` record may come from an RTX 5090 or from the RTX PRO 4500, its fallback card (plan 10 decision 106).
 The trial box stays a rehearsal box (TB_ENV VALIDATION with its mark, doctor says "REHEARSAL BOX"): empty it before
 the site's install (RUNBOOK §16, "A rehearsal box"), keeping the record.
 `python -m tools.gpu_sizing` prints the hardware estimate. Feasibility needs no GPU; notes need one. The tier
