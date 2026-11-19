@@ -20,7 +20,7 @@ HEADER = ",".join(lr.COLUMNS) + "\n"
 def _row(rid: str, paths: str = "", kind: str = "code-system", status: str = "cleared", **over: str) -> str:
     base = {c: "x" for c in lr.COLUMNS}
     base.update(id=rid, kind=kind, status=status, checked="2026-11-10", text_sha256="", athena="", paths=paths)
-    base.update({"class": "", "athena_never": ""})  # the licence class columns (card 22-2): empty unless given
+    base.update({"class": "", "athena_never": "", "excepts": ""})  # card 22-2 columns and excepts: empty unless given
     base.update(over)
     return ",".join(base[c] for c in lr.COLUMNS) + "\n"
 

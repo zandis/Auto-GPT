@@ -229,7 +229,7 @@ def test_a_reviewed_exception_row_turns_its_files_into_warnings_only(tmp_path: P
     row = {c: "x" for c in lr.COLUMNS}
     row.update(id="pending-file", kind=lr.EXCEPTION_KIND, status=lr.PENDING, checked="2026-11-18", text_sha256="",
                athena="", athena_never="", paths="data/excepted.csv")  # fmt: skip
-    row["class"] = ""
+    row["class"] = row["excepts"] = ""
     reg.write_text(text + ",".join(row[c] for c in lr.COLUMNS) + "\n", encoding="utf-8")
     bad = "code,vocabulary_id\nNOT-A-CODE-1,SNOMED\n"
     excepted, other = _write(tmp_path / "data/excepted.csv", bad), _write(tmp_path / "data/other.csv", bad)
@@ -237,6 +237,61 @@ def test_a_reviewed_exception_row_turns_its_files_into_warnings_only(tmp_path: P
     assert [p.split(":")[0] for p in rep.problems] == [str(other)]
     assert len(rep.warnings) == 1 and rep.warnings[0].startswith(f"WARNING {excepted}: 1 row(s) of vocabulary 'SNOMED'")
     assert "register row pending-file (owner decision pending)" in rep.warnings[0]
+
+
+def _approved(tmp_path: Path, excepts: str, paths: str) -> Path:
+    reg = tmp_path / "docs/licences/register.csv"
+    reg.parent.mkdir(parents=True, exist_ok=True)
+    text = (ROOT / "docs/licences/register.csv").read_text(encoding="utf-8")
+    text = "".join(ln for ln in text.splitlines(keepends=True) if not ln.startswith("catalogue-evidence-concept-ids,"))
+    row = {c: "x" for c in lr.COLUMNS}
+    row.update(id="approved-file", kind=lr.EXCEPTION_KIND, status=lr.APPROVED, checked="2026-11-19", text_sha256="",
+               athena="", athena_never="", paths=paths, excepts=excepts)  # fmt: skip
+    row["class"] = ""
+    reg.write_text(text + ",".join(row[c] for c in lr.COLUMNS) + "\n", encoding="utf-8")
+    return reg
+
+
+def test_an_owner_approved_exception_lets_through_the_ids_of_its_vocabularies_only(tmp_path: Path) -> None:
+    reg = _approved(tmp_path, "SNOMED;CPT4", "data/*.json;data/*.csv")
+    ids = {"c": [{"concept_id": 900001, "vocabulary": "SNOMED", "set": "Invented set", "domain": "Condition"},
+                 {"concept_id": 900002, "vocabulary": "cpt4"}]}  # fmt: skip
+    ok = _write(tmp_path / "data/ids.json", json.dumps(ids))
+    rep = vbc.check([ok], register=reg, root=tmp_path)
+    assert rep.problems == [] and rep.warnings == []
+    assert [n for n in rep.notes if "ids only, allowed by register row approved-file (owner-approved)" in n]
+    other = _write(tmp_path / "data/other.json", json.dumps({"c": [{"concept_id": 3, "vocabulary": "ICDO3"}]}))
+    assert [p for p in vbc.check([other], register=reg, root=tmp_path).problems if "'ICDO3'" in p]
+    table = _write(tmp_path / "data/ids.csv", "concept_id,vocabulary_id\n900001,SNOMED\n")
+    assert [p for p in vbc.check([table], register=reg, root=tmp_path).problems if "'SNOMED'" in p]
+
+
+def test_an_owner_approved_exception_fails_a_labelled_object_that_carries_text(tmp_path: Path) -> None:
+    reg = _approved(tmp_path, "SNOMED;CPT4", "data/*.json")
+    for key in ("name", "concept_name", "display", "description", "synonyms"):
+        doc = {"c": [{"concept_id": 900001, "vocabulary": "SNOMED", key: "Invented finding"}]}
+        f = _write(tmp_path / f"data/{key}.json", json.dumps(doc))
+        got = vbc.check([f], register=reg, root=tmp_path).problems
+        assert [p for p in got if f"an object of vocabulary 'SNOMED' carries text in {key!r}" in p], key
+    empty = _write(
+        tmp_path / "data/empty.json", json.dumps({"c": [{"concept_id": 1, "vocabulary": "CPT4", "name": ""}]})
+    )
+    assert vbc.check([empty], register=reg, root=tmp_path).problems == []
+
+
+def test_excepts_belongs_to_an_approved_exception_and_names_must_not_ship_vocabularies(tmp_path: Path) -> None:
+    raw = {c: "x" for c in lr.COLUMNS}
+    raw.update(checked="2026-11-19", text_sha256="", athena="", athena_never="", excepts="")
+    approved = lr.Row("e1", lr.EXCEPTION_KIND, lr.APPROVED, "s", "x", (), ("data/a.json",), raw, excepts=("SNOMED",))
+    bare = lr.Row("e2", lr.EXCEPTION_KIND, lr.APPROVED, "s", "x", (), ("data/a.json",), raw)
+    pending = lr.Row("e3", lr.EXCEPTION_KIND, lr.PENDING, "s", "x", (), ("data/a.json",), raw, excepts=("SNOMED",))
+    loadable = lr.Row("e4", lr.EXCEPTION_KIND, lr.APPROVED, "s", "x", (), ("data/a.json",), raw, excepts=("LOINC",))
+    never = lr.Row("n", "code-system", "removed", "s", "x", (), (), {**raw, "athena_never": "SNOMED"}, "c", ("SNOMED",))
+    got = lr.row_problems([approved, bare, pending, loadable, never])
+    assert not [p for p in got if "e1" in p]
+    assert any("e2: a owner-approved row names the vocabularies" in p for p in got)
+    assert any("e3: excepts only on a bundle-exception row with status owner-approved" in p for p in got)
+    assert any("row e4: excepts 'LOINC', which no row names in athena_never" in p for p in got)
 
 
 def test_an_exception_row_must_be_pending_and_name_its_files() -> None:
@@ -247,12 +302,8 @@ def test_an_exception_row_must_be_pending_and_name_its_files() -> None:
     wrong = lr.Row("e3", "code-system", lr.PENDING, "s", "x", (), (), raw)
     got = lr.row_problems([no_paths, wrong])
     assert any("e2: a bundle-exception row names the files" in p for p in got)
-    assert any("e3: kind bundle-exception and status decision-pending go together" in p for p in got)
-
-
-def test_the_register_holds_no_exception_row_today() -> None:
-    """An exception is the owner's decision (rule: no scan allow-list entry is added by a card)."""
-    assert not [r.id for r in lr.load() if r.kind == lr.EXCEPTION_KIND]
+    assert any("e3: kind bundle-exception and status decision-pending or owner-approved go together" in p
+               for p in got)  # fmt: skip
 
 
 # ------------------------------------------------------------------------------------------------ the wiring

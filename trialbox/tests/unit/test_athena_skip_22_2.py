@@ -191,7 +191,8 @@ def test_never_wins_and_the_rows_class_and_status_govern(tmp_path: Path) -> None
     row = {c: "x" for c in lr.COLUMNS}
 
     def line(**kw: str) -> str:
-        return ",".join({**row, "athena": "", "athena_never": "", "class": "", **kw}[c] for c in lr.COLUMNS)
+        full = {**row, "athena": "", "athena_never": "", "class": "", "excepts": "", **kw}
+        return ",".join(full[c] for c in lr.COLUMNS)
 
     reg.write_text("\n".join([
         head,
@@ -288,7 +289,8 @@ def _register(tmp_path: Path, *rows: dict[str, str]) -> Path:
     base = {c: "x" for c in lr.COLUMNS}
     lines = [",".join(lr.COLUMNS)]
     for r in rows:
-        full = {**base, "athena": "", "athena_never": "", "class": "", "paths": "", "text_sha256": "", **r}
+        empty = {"athena": "", "athena_never": "", "class": "", "excepts": "", "paths": "", "text_sha256": ""}
+        full = {**base, **empty, **r}
         lines.append(",".join(full[c] for c in lr.COLUMNS))
     reg.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return reg

@@ -31,7 +31,9 @@ The check fails when:
   ``own-work``; a build past ``candidate`` needs ``verified: true``;
 * a vocabulary the OMOP Athena loader allows (``omop.vocab_load.ATHENA_ALLOW``, when it exists) has no row;
 * a ``bundle-exception`` row (card 22-4: files ``tools.vocab_bundle_check`` warns about instead of failing, while an
-  owner decision is pending) lacks status ``decision-pending`` or paths, or has a class or vocabularies;
+  owner decision is pending) lacks status ``decision-pending`` or ``owner-approved`` or paths, or has a class or
+  vocabularies; an ``owner-approved`` row (the owner ruled) names in ``excepts`` the must-not-ship vocabularies whose
+  concept ids, and nothing else of them, its files may carry; no other row has ``excepts``;
 * a row's class is not one of ``a b c d open``; a row naming Athena vocabularies has no class; a class ``c`` row names
   a vocabulary in ``athena`` (the loader would load it) or a row of another class names one in ``athena_never``; a
   vocabulary is named twice;
@@ -69,14 +71,18 @@ ROOT = Path(__file__).resolve().parents[1]
 REGISTER = ROOT / "docs/licences/register.csv"
 MODELS = ROOT / "models/registry.yaml"
 COLUMNS = ("id", "kind", "standard", "version", "source", "licence", "spdx", "obligation", "holder", "status",
-           "checked", "evidence", "text_sha256", "athena", "paths", "class", "athena_never")  # fmt: skip
+           "checked", "evidence", "text_sha256", "athena", "paths", "class", "athena_never", "excepts")  # fmt: skip
 CLASSES = frozenset({"a", "b", "c", "d", "open"})  # root review 22, section 2; empty: not an Athena vocabulary row
 MUST_NOT_SHIP = "c"
 KINDS = frozenset({"code-system", "map", "data-set", "fhir", "model", "software", "bundle-exception"})
-# card 22-4: a reviewed exception to tools.vocab_bundle_check for shipped files whose owner decision is pending
-EXCEPTION_KIND, PENDING = "bundle-exception", "decision-pending"
+# card 22-4: a reviewed exception to tools.vocab_bundle_check for shipped files whose owner decision is pending;
+# owner-approved: the owner ruled, and the row names the must-not-ship vocabularies whose concept ids (ids only) the
+# files may carry (column excepts; the owner's ruling of 2026-11-19 on catalogue evidence)
+EXCEPTION_KIND, PENDING, APPROVED = "bundle-exception", "decision-pending", "owner-approved"
+EXCEPTION_STATUSES = frozenset({PENDING, APPROVED})
 IMAGE = ROOT / "deploy/docker/backup.Dockerfile"  # where a software row's tool is pinned (D-968)
-STATUSES = frozenset({"cleared", "own-work", "synthetic", "site-loaded", "permission-to-ask", "removed", PENDING})
+STATUSES = frozenset({"cleared", "own-work", "synthetic", "site-loaded", "permission-to-ask", "removed", PENDING,
+                      APPROVED})  # fmt: skip
 SHIPS_NOTHING = frozenset({"site-loaded", "removed"})
 MODEL_OK = frozenset({"cleared", "own-work"})
 PAST_CANDIDATE = frozenset({"qualified", "champion", "shadow"})
@@ -105,6 +111,7 @@ class Row:
     raw: dict[str, str]
     klass: str = ""
     never: tuple[str, ...] = ()
+    excepts: tuple[str, ...] = ()
 
 
 def load(path: Path = REGISTER) -> list[Row]:
@@ -125,6 +132,7 @@ def load(path: Path = REGISTER) -> list[Row]:
             r,
             r["class"],
             tuple(e.split("|")[0].strip() for e in _split(r["athena_never"])),
+            _split(r["excepts"]),
         )
         for r in rows
     ]
@@ -274,6 +282,12 @@ def row_problems(rows: list[Row]) -> list[str]:
             if key in named and named[key] != r.id:
                 out.append(f"Athena vocabulary {v!r} named by rows {named[key]} and {r.id}")
             named.setdefault(key, r.id)
+    never = {fold(n.strip()) for r in rows for e in _split(r.raw.get("athena_never", "")) for n in e.split("|")}
+    for r in rows:
+        for v in r.excepts:
+            if fold(v) not in never:
+                out.append(f"row {r.id}: excepts {v!r}, which no row names in athena_never (only must-not-ship "
+                           "vocabularies need an exception)")  # fmt: skip
     return out
 
 
@@ -287,10 +301,14 @@ def _class_problems(r: Row, where: str) -> list[str]:
         out.append(f"{where}: class {r.klass}, status {r.status}: its vocabularies go in athena_never, not athena")
     if r.never and r.klass != MUST_NOT_SHIP:
         out.append(f"{where}: athena_never on a row of class {r.klass or '(none)'} (only class c never loads)")
-    if (r.kind == EXCEPTION_KIND) != (r.status == PENDING):
-        out.append(f"{where}: kind {EXCEPTION_KIND} and status {PENDING} go together")
+    if (r.kind == EXCEPTION_KIND) != (r.status in EXCEPTION_STATUSES):
+        out.append(f"{where}: kind {EXCEPTION_KIND} and status {PENDING} or {APPROVED} go together")
     if r.kind == EXCEPTION_KIND and (not r.paths or r.klass or r.athena or r.never):
         out.append(f"{where}: a {EXCEPTION_KIND} row names the files it excepts in paths, and no class or vocabulary")
+    if r.excepts and r.status != APPROVED:
+        out.append(f"{where}: excepts only on a {EXCEPTION_KIND} row with status {APPROVED}")
+    if r.status == APPROVED and not r.excepts:
+        out.append(f"{where}: a {APPROVED} row names the vocabularies whose concept ids it lets through in excepts")
     return out
 
 

@@ -29,8 +29,12 @@ images (rule-set zips, reference data packs, the models folder): run directly, a
 check the tree.
 
 **Exceptions.** A register row of kind ``bundle-exception`` (status ``decision-pending``: an owner decision is
-pending) names shipped files in ``paths``; a hit in such a file is printed as a warning, not a failure. The register
-holds the rows; this tool holds no list of its own.
+pending) names shipped files in ``paths``; a hit in such a file is printed as a warning, not a failure. A row of status
+``owner-approved`` (the owner ruled) names in ``excepts`` the vocabularies whose concept ids, and nothing else of them,
+its files may carry: in those files a JSON or YAML object labelled with an excepted vocabulary passes, as a note, only
+while it carries no text (no key naming a name, display, description, definition, title, synonym, designation, term or
+text with a value); a hit of any other vocabulary, a labelled object with text, and a hit in any other kind of file
+(a table, other text) still fail. The register holds the rows; this tool holds no list of its own.
 """
 
 from __future__ import annotations
@@ -107,13 +111,28 @@ Hits = dict[tuple[str, str], int]  # (vocabulary, register row) -> rows
 
 
 @dataclass(frozen=True)
+class ExceptionRow:
+    """A register row of kind bundle-exception: its id, path patterns, status and (owner-approved) the register
+    vocabulary ids whose concept ids its files may carry."""
+
+    row: str
+    patterns: tuple[str, ...]
+    status: str = lr.PENDING
+    excepts: frozenset[str] = frozenset()
+
+
+# the keys of a labelled object that carry a concept's text, not its id (folded: lower case, no punctuation)
+TEXT_KEY = re.compile(r"name|display|description|definition|title|synonym|designation|term|text")
+
+
+@dataclass(frozen=True)
 class Rules:
     """The must-not-ship names (folded) -> (vocabulary, register row); the URIs and OIDs searched for in text; the
     exception rows (id, path patterns)."""
 
     names: dict[str, tuple[str, str]]
     needles: dict[str, tuple[str, str]]
-    exceptions: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    exceptions: tuple[ExceptionRow, ...] = ()
 
 
 def rules(register: Path = REGISTER) -> Rules:
@@ -138,7 +157,11 @@ def rules(register: Path = REGISTER) -> Rules:
                 if "://" in f or f.startswith("urn:oid:") or OID.fullmatch(f):
                     needles.setdefault(f, (v, c.row))
                     names.setdefault(fold(f), (v, c.row))
-    exceptions = tuple((r.id, r.paths) for r in rows if r.kind == lr.EXCEPTION_KIND)
+    exceptions = tuple(
+        ExceptionRow(r.id, r.paths, r.status, frozenset(names[fold(v)][0] for v in r.excepts if fold(v) in names))
+        for r in rows
+        if r.kind == lr.EXCEPTION_KIND
+    )
     return Rules(names, needles, exceptions)
 
 
@@ -148,6 +171,14 @@ class Report:
     warnings: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     artefacts: int = 0
+
+
+def _documents(text: str, *, yaml_: bool) -> list[Any]:
+    """The parsed documents of a JSON or YAML text; none when it does not parse (reported by the reader)."""
+    try:
+        return list(yaml.safe_load_all(text)) if yaml_ else [json.loads(text)]
+    except (ValueError, yaml.YAMLError):
+        return []
 
 
 def _decode(blob: bytes) -> str | None:
@@ -179,17 +210,17 @@ class Checker:
         for f in files:
             self.data(str(f), f.read_bytes(), mode, 0, self._exception(f))
 
-    def _exception(self, f: Path) -> str | None:
+    def _exception(self, f: Path) -> ExceptionRow | None:
         try:
             rel = f.resolve().relative_to(self.root).as_posix()
         except ValueError:
             return None
-        for rid, patterns in self.r.exceptions:
-            if any(re.fullmatch(lr._glob_rx(pat), rel) for pat in patterns):
-                return rid
+        for e in self.r.exceptions:
+            if any(re.fullmatch(lr._glob_rx(pat), rel) for pat in e.patterns):
+                return e
         return None
 
-    def data(self, name: str, blob: bytes, mode: str, depth: int, exception: str | None = None) -> None:
+    def data(self, name: str, blob: bytes, mode: str, depth: int, exception: ExceptionRow | None = None) -> None:
         low = name.lower()
         if depth > NESTED_LIMIT:
             return self.cannot(name, "containers nested too deep")
@@ -209,6 +240,7 @@ class Checker:
             return None
         self.report.artefacts += 1
         hits: dict[tuple[str, str], int] = {}
+        texts: list[str] = []  # in an owner-approved exception: labelled objects that carry text
         if low.endswith(".parquet"):
             self._parquet(name, blob, mode, hits)
         else:
@@ -228,14 +260,41 @@ class Checker:
             else:  # SQL, CQL, a dump, any other text: its delimited fields, and the URIs and OIDs it mentions
                 self._fields(text, hits)
                 self._mentions(text, hits, skip=hits)
+            if exception and exception.excepts and low.endswith((*JSON_DOC, *YAML)):
+                for doc in _documents(text, yaml_=low.endswith(YAML)):
+                    self._texts(doc, exception.excepts, texts)
+        structured = low.endswith((*JSON_DOC, *YAML))
         for (vocab, row), n in sorted(hits.items()):
             line = f"{name}: {n} row(s) of vocabulary {vocab!r}, licence class c, must not ship (register row {row})"
-            if exception:
-                self.report.warnings.append(f"WARNING {line}; allowed for now by register row {exception} "
+            if exception and exception.status == lr.PENDING:
+                self.report.warnings.append(f"WARNING {line}; allowed for now by register row {exception.row} "
                                             "(owner decision pending)")  # fmt: skip
+            elif exception and vocab in exception.excepts and structured:
+                self.report.notes.append(f"{name}: {n} concept id(s) of vocabulary {vocab!r}, ids only, allowed by "
+                                         f"register row {exception.row} (owner-approved)")  # fmt: skip
             else:
                 self.report.problems.append(line)
+        for t in texts:
+            self.report.problems.append(f"{name}: {t}; register row {exception.row if exception else ''} lets "
+                                        "through concept ids only, never their text")  # fmt: skip
         return None
+
+    def _texts(self, node: Any, excepts: frozenset[str], out: list[str]) -> None:
+        """Objects labelled with an excepted vocabulary that carry a concept's text (an owner-approved exception
+        covers ids only)."""
+        if isinstance(node, dict):
+            vocab = next((self.r.names[fold(v)][0] for k, v in node.items()
+                          if isinstance(v, str) and v and (is_vocab_key(k) or is_system_key(k))
+                          and fold(v) in self.r.names and self.r.names[fold(v)][0] in excepts), None)  # fmt: skip
+            if vocab is not None:
+                for k, v in node.items():
+                    if TEXT_KEY.search(_key(k)) and v not in (None, "", [], {}):
+                        out.append(f"an object of vocabulary {vocab!r} carries text in {k!r}")
+            for v in node.values():
+                self._texts(v, excepts, out)
+        elif isinstance(node, list):
+            for v in node:
+                self._texts(v, excepts, out)
 
     def cannot(self, name: str, why: str) -> None:
         self.report.problems.append(f"{name}: cannot be checked: {why}")
