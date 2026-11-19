@@ -139,8 +139,8 @@ def test_the_users_match_the_images_and_the_installer() -> None:
 #: host -> container copies (``compose cp HOST SERVICE:PATH``) in the installer and the update path: docker cp
 #: refuses to write into a read-only root, and a tmpfs /tmp is no volume to it (box rehearsal, CI run 44458900188:
 #: the reference data pack was never loaded). Copies out of a container (``SERVICE:PATH HOST``) still work.
-_CP_IN = re.compile(r'''\bcp\b[^\n]*?\s["']?([a-z][a-z-]+):/''')
-_CP_IN_PY = re.compile(r'''_c\(\s*"cp"\s*,[^\n]*?"([a-z][a-z-]+):/''')
+_CP_IN = re.compile(r"""\bcp\b[^\n]*?\s["']?([a-z][a-z-]+):/""")
+_CP_IN_PY = re.compile(r"""_c\(\s*"cp"\s*,[^\n]*?"([a-z][a-z-]+):/""")
 
 
 def test_nothing_copies_a_file_into_a_read_only_service() -> None:
