@@ -371,7 +371,7 @@ ADDED: dict[str, tuple[str, ...]] = {
     # 10D-15 (D-1367): refdata version 4, the personal names dropped from the stored CT.gov records
     "refdata": (
         "9e976b5878b8d5a8d1a89e417b61450471874a0e1122e43764d755d11662af83",
-        "3451f2d848576fe7991f3c8b9be2d807a884237efc4416ae55dcb1fadd4e735b",
+        "56d5e8ed0c119af8df2858bda6b552e048d98eaab4508c757183a5a1f5e760ac",
     ),
     # D-279: users.must_change, login_failures.source, sessions.via
     # T-209c (D-406): users.last_login, for the unused-account report

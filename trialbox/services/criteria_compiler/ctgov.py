@@ -22,6 +22,7 @@ wizard write the hospital's choice (a box installed before D-140 has ``live`` in
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from datetime import UTC, date, datetime
@@ -29,7 +30,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import httpx
-from tb_common.ctgov_record import INDIV, registry_of
+from tb_common.ctgov_record import is_person, registry_of
 from tb_common.http import EgressRefused, guarded_client
 from tb_contracts import (
     CtgovArm,
@@ -43,6 +44,7 @@ from tb_contracts import (
     CtgovStudy,
 )
 
+log = logging.getLogger(__name__)
 CASSETTES = Path(__file__).resolve().parent / "cassettes" / "ctgov"
 DEFAULT_BASE = "https://clinicaltrials.gov/api/v2"
 MODES = ("live", "offline", "cassette")
@@ -170,7 +172,7 @@ def registry_ids(study: CtgovStudy, registry: str) -> list[str]:
 def _sponsor(ps: dict[str, Any]) -> str | None:
     """The lead sponsor's name; none when the sponsor is a person (class INDIV, D-1367)."""
     lead = _d(_d(ps.get("sponsorCollaboratorsModule")).get("leadSponsor"))
-    return None if lead.get("class") == INDIV else _s(lead.get("name"))
+    return None if is_person(lead) else _s(lead.get("name"))
 
 
 def to_study(raw: dict[str, Any]) -> CtgovStudy | None:
@@ -316,7 +318,13 @@ class CtGov:
         wanted = {c.lower() for c in req.locations or []}
         studies = []
         for r in self.raw(req):
-            s = to_study(r)
+            try:
+                s = to_study(r)
+            except ValueError:  # pydantic's ValidationError, a bad date: one record the contract refuses (D-1367)
+                nct = _nct(r) if isinstance(r, dict) else ""
+                log.warning("ctgov: record %s left out: not of the registry's shape",
+                            nct if re.fullmatch(r"NCT\d{8}", nct) else "(no NCT id)")  # fmt: skip
+                continue
             if s is None:
                 continue
             if not req.nct_id:  # one study asked for by its id comes back whatever its status and sites

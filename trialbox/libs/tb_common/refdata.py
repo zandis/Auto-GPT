@@ -165,13 +165,13 @@ UPDATE ctgov_study AS t SET study = s4.x FROM ctgov_study AS o
   CROSS JOIN LATERAL (SELECT CASE
     WHEN jsonb_typeof(s2.x #> '{protocolSection,sponsorCollaboratorsModule,collaborators}') = 'array'
     THEN jsonb_set(s2.x, '{protocolSection,sponsorCollaboratorsModule,collaborators}', (SELECT COALESCE(jsonb_agg(
-      CASE WHEN jsonb_typeof(e.v) = 'object' AND e.v ->> 'class' = 'INDIV' THEN e.v - 'name' ELSE e.v END
+      CASE WHEN jsonb_typeof(e.v) = 'object' AND upper(btrim(e.v ->> 'class')) = 'INDIV' THEN e.v - 'name' ELSE e.v END
       ORDER BY e.n), '[]'::jsonb)
       FROM jsonb_array_elements(s2.x #> '{protocolSection,sponsorCollaboratorsModule,collaborators}')
         WITH ORDINALITY AS e(v, n)))
     ELSE s2.x END AS x) AS s3
   CROSS JOIN LATERAL (SELECT CASE
-    WHEN s3.x #>> '{protocolSection,sponsorCollaboratorsModule,leadSponsor,class}' = 'INDIV'
+    WHEN upper(btrim(s3.x #>> '{protocolSection,sponsorCollaboratorsModule,leadSponsor,class}')) = 'INDIV'
     THEN jsonb_set(s3.x, '{protocolSection,sponsorCollaboratorsModule,leadSponsor}',
       (s3.x #> '{protocolSection,sponsorCollaboratorsModule,leadSponsor}') - 'name')
     ELSE s3.x END AS x) AS s4
@@ -193,8 +193,8 @@ UPDATE ctgov_study AS t SET study = s4.x FROM ctgov_study AS o
     OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE
       WHEN jsonb_typeof(o.study #> '{protocolSection,sponsorCollaboratorsModule,collaborators}') = 'array'
       THEN o.study #> '{protocolSection,sponsorCollaboratorsModule,collaborators}' ELSE '[]'::jsonb END) AS e(v)
-      WHERE jsonb_typeof(e.v) = 'object' AND e.v ->> 'class' = 'INDIV' AND e.v -> 'name' IS NOT NULL)
-    OR (o.study #>> '{protocolSection,sponsorCollaboratorsModule,leadSponsor,class}' = 'INDIV'
+      WHERE jsonb_typeof(e.v) = 'object' AND upper(btrim(e.v ->> 'class')) = 'INDIV' AND e.v -> 'name' IS NOT NULL)
+    OR (upper(btrim(o.study #>> '{protocolSection,sponsorCollaboratorsModule,leadSponsor,class}')) = 'INDIV'
       AND o.study #> '{protocolSection,sponsorCollaboratorsModule,leadSponsor,name}' IS NOT NULL))
 """
 MIGRATIONS = (DDL, DDL_V2, DDL_V3, DDL_V4)  # D-317: version 3, the record of withdrawn sources; D-1367: version 4

@@ -296,3 +296,57 @@ def test_a_single_string_is_one_value_not_its_characters() -> None:
     s = to_study(raw)
     assert s is not None and s.design is not None
     assert s.design.who_masked == ["PARTICIPANT"] and s.phases == ["PHASE3"]
+
+
+def test_one_record_the_contract_refuses_is_left_out_and_the_search_goes_on(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A field read before this card in a shape the contract refuses (pydantic) drops that record only; the log names
+    the NCT id and nothing of the record."""
+    bad: list[dict[str, Any]] = []
+    for i, (module, key, value) in enumerate((
+        ("eligibilityModule", "minimumAge", 20),
+        ("designModule", "enrollmentInfo", {"count": "many"}),
+        ("eligibilityModule", "sex", ["ALL"]),
+        ("identificationModule", "briefTitle", 123),
+    )):  # fmt: skip
+        raw = copy.deepcopy(RAW)
+        raw["protocolSection"]["identificationModule"]["nctId"] = f"NCT9900020{i}"
+        raw["protocolSection"][module][key] = value
+        bad.append(raw)
+    (tmp_path / "gout.json").write_text(json.dumps({"studies": [bad[0], RAW, *bad[1:]]}), encoding="utf-8")
+    with caplog.at_level("WARNING", logger="criteria_compiler.ctgov"):
+        res = CtGov(mode="cassette", cassette_dir=tmp_path).search(CtgovSearchRequest(condition="gout", locations=[]))
+    assert [s.nct_id for s in res.studies] == [NCT]
+    assert [r.getMessage() for r in caplog.records] == [
+        f"ctgov: record NCT9900020{i} left out: not of the registry's shape" for i in range(4)
+    ]
+    assert "many" not in caplog.text and "Synthetic" not in caplog.text
+
+
+@pytest.mark.parametrize("cls", ["indiv", " INDIV ", "Indiv"])
+def test_a_person_is_known_in_any_case_and_spacing(cls: str, db_url: str) -> None:
+    raw = copy.deepcopy(RAW_INDIV)
+    sc = raw["protocolSection"]["sponsorCollaboratorsModule"]
+    sc["leadSponsor"]["class"] = cls
+    sc["collaborators"] = [{"name": "Synthetic Sponsor Person Iota", "class": cls},
+                           {"name": "Synthetic Body Without Class (fictional)"}]  # fmt: skip
+    out = strip_names(raw)["protocolSection"]["sponsorCollaboratorsModule"]
+    assert out["leadSponsor"] == {"class": cls}
+    assert out["collaborators"] == [{"class": cls}, {"name": "Synthetic Body Without Class (fictional)"}]  # no class
+    s = to_study(raw)
+    assert s is not None and s.sponsor is None
+    db = Database.connect(db_url, rd.SCHEMA)
+    try:
+        db.migrate(list(rd.MIGRATIONS[:3]))
+        with db.transaction() as tx:
+            tx.execute(
+                "INSERT INTO ctgov_study (nct_id, title, overall_status, conditions, countries, last_update, study, "
+                "source_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (NCT_INDIV, "t", "RECRUITING", "|gout|", "|taiwan|", "2026-10-21", json.dumps(raw), "ctgov"),
+            )
+        db.migrate(list(rd.MIGRATIONS))  # version 4 does what strip_names does
+    finally:
+        db.close()
+    with rd.RefStore(db_url) as st:
+        assert st.ctgov_study(NCT_INDIV) == strip_names(raw)

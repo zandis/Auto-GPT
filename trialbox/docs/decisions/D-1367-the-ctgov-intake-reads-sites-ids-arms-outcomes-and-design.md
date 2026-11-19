@@ -12,10 +12,12 @@
     allocation, model, primary purpose, masking, who is masked, enrolment type). Phases and the enrolment count stay
     where they were. `criteria_compiler.ctgov.to_study` fills them from the API v2 record in every mode (live,
     offline, cassette); a module the record lacks gives no field (absent, not an empty list).
-  - **A malformed record never stops a search:** a module or part that is not an object is read as empty, an item of
-    a list that is not an object is left out, a text field that is not a string is left out (a facility that is not
-    a string drops that site), and one string where a list of strings belongs is a list of one (never split into
-    characters).
+  - **A malformed record drops only itself:** in the widened fields a module or part that is not an object is read as
+    empty, an item of a list that is not an object is left out, a text field that is not a string is left out (a
+    facility that is not a string drops that site), and one string where a list of strings belongs is a list of one
+    (never split into characters). A record whose fields read before this card are of a shape the contract refuses
+    (a number as age or title, a word as enrolment count, a list as sex, a bad date) is left out of the search's
+    answer, with a warning that names its NCT id and nothing of its content; the other records are answered.
   - **Other registries' ids** (`tb_common.ctgov_record.registry_of`), from the forms the repository's own Japan data
     and registry check show (`services/console/sitestore.py`, the jRCT samples in the fixtures): jRCT = `jRCT` + 10
     digits, or `jRCTs` + 9 digits; JapicCTI = `JapicCTI-` + 6 digits; UMIN-CTR = `UMIN` + 9 digits. **Assumed:** `s`
@@ -26,12 +28,14 @@
     neither: which number the field stands for is not known, and a wrong join is worse than none; its text stays in
     `id`. The same number written twice is one. `ctgov.registry_ids(study, "jRCT")` lists them. EudraCT and CTIS
     numbers keep the registry's own `type` and no `registry`. The jRCT intake (10D-16) joins on this; it is not
-    built here.
+    built here. **For 10D-16:** only the category letter `s` is recognised here, while
+    `services/console/sitestore.py:257` accepts any letter; whether jRCT issues other letters is not verified.
   - **No personal names are stored.** `tb_common.ctgov_record.strip_names` drops, from the record TrialBox keeps:
     `centralContacts` and `overallOfficials` (names, roles, phones, e-mails); every location's `contacts`; the
     responsible party's `investigatorFullName`, `investigatorTitle` and `oldNameTitle` (its type and affiliation
-    stay); the `name` of the lead sponsor and of each collaborator whose `class` is `INDIV` (a person; an
-    organisation's name stays); `resultsSection.moreInfoModule.pointOfContact`; and every reference's `citation` (the
+    stay); the `name` of the lead sponsor and of each collaborator whose `class` is `INDIV` (a person), in any case and
+    with spaces around it ignored, alike in Python and in version 4's SQL (an organisation's name stays, and a party
+    with no class is kept as an organisation, the API's default); `resultsSection.moreInfoModule.pointOfContact`; and every reference's `citation` (the
     authors' names; the PMID and type stay). The study's `sponsor` is none when the lead sponsor is a person, in every
     mode. It is applied where a record is kept: the reference data pack is built from stripped records
     (`tools/refdata_fetch.py parse_ctgov`), the store strips again when it loads a pack (an older pack), and
@@ -57,4 +61,5 @@
 - **Held by:** `tests/unit/test_ctgov_widened.py` (cassette → pack → store → read back equal for every widened field;
   a jRCT id found and look-alikes refused; no name in the pack or the store, an older pack's names stripped on load;
   version 4 strips the rows stored before and rewrites no clean row; its SQL names every path; malformed parts and a
-  single string read safely); `tests/unit/test_migrations.py` (refdata version 4).
+  single string read safely; a record the contract refuses left out alone; a person known in any case and spacing);
+  `tests/unit/test_migrations.py` (refdata version 4).

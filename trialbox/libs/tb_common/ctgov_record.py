@@ -77,6 +77,13 @@ def _get(node: Any, path: Path_) -> Any:
     return node
 
 
+def is_person(party: Any) -> bool:
+    """A sponsor or collaborator whose ``class`` is ``INDIV`` in any case, spaces around it ignored (as version 4's
+    ``upper(btrim(...))``). A party without a class is kept as an organisation (the API's default is a body)."""
+    cls = party.get("class") if isinstance(party, dict) else None
+    return isinstance(cls, str) and cls.strip(" ").upper() == INDIV
+
+
 def strip_names(study: dict[str, Any]) -> dict[str, Any]:
     """A copy of the API v2 record without the personal names listed in the module's text; the record passed is not
     changed."""
@@ -96,7 +103,7 @@ def strip_names(study: dict[str, Any]) -> dict[str, Any]:
         items = _get(out, p)
         parties += items if isinstance(items, list) else []
     for party in parties:
-        if isinstance(party, dict) and party.get("class") == INDIV:
+        if is_person(party):
             party.pop("name", None)
     return out
 
