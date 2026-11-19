@@ -62,7 +62,7 @@
       {% else %}{{ t('home.week.none') }}{% endif %}</dd>
   </dl>
   <p class="chartlinks">{% if user.can_request %}<a href="/studies/{{ c.id }}/setup" data-testid="setup-{{ c.id }}">{{ t('home.setup') }}</a> {% endif %}{% if user.can_view_phi %}<a href="/studies/{{ c.id }}/subjects" data-testid="subjects-{{ c.id }}">{{ t('life.to.subjects') }}</a> <a href="/studies/{{ c.id }}/visits" data-testid="visits-{{ c.id }}">{{ t('life.to.visits') }}</a> <a href="/studies/{{ c.id }}/enrolment" data-testid="enrolment-{{ c.id }}">{{ t('life.to.report') }}</a> <a href="/studies/{{ c.id }}/not-matched" data-testid="excluded-{{ c.id }}">{{ t('ex.link') }}</a>{% endif %}</p>
-  {#J6#}{% if today is defined and today %}{% for n in nexts if n.rs == c.id %}{{ next_line(n) }}{% endfor %}{% else %}{#/J6#}<div class="next" data-testid="next-{{ c.id }}"><span>{{ t('next.' + c.next[0]) }}</span><a class="button small" href="{{ c.next[1] }}">{{ t('next.go') }}</a></div>{#J6#}{% endif %}{#/J6#}
+  {#J6#}{% if today is defined and today %}{% for n in nexts if n.rs == c.id %}{{ next_line(n) }}{% endfor %}{% else %}{#/J6#}<div class="next" data-testid="next-{{ c.id }}"><span>{{ t('next.' + c.next[0]) }}</span><a class="button small-btn" href="{{ c.next[1] }}">{{ t('next.go') }}</a></div>{#J6#}{% endif %}{#/J6#}
 </section>
 {% endfor %}
 {#J6#}{% if today is defined and today %}{% set carded = cards|map(attribute='id')|list %}{% set rest = nexts|rejectattr('rs', 'in', carded)|list %}{% if rest %}<section class="card" data-testid="nexts">{% for n in rest %}{{ next_line(n) }}{% endfor %}</section>{% endif %}{% endif %}{#/J6#}<p class="hint">{{ t('home.more') }}</p>

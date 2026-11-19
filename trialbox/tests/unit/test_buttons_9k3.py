@@ -38,7 +38,7 @@ SIX = (
     "button.secondary, .button.secondary",
     "button.quiet, .button.quiet",
     "button.danger, .button.danger",
-    "button.small, .button.small",
+    "button.small, .button.small, .next .button",  # the next-step link of a study card is small (9k-3)
     'button[disabled], button[aria-busy="true"], .button[aria-disabled="true"]',
 )
 
@@ -163,9 +163,10 @@ def test_9k3_the_d133_layer_re_sets_nothing() -> None:
 
 
 def test_9k3_templates_use_only_the_four_variants_and_the_small_size() -> None:
-    """A button or button-styled link in a template takes no class of look but these (``small-btn``, a class nothing
-    styled, is gone). Layout and test classes are free; the check reads literal class lists only."""
-    look_like = re.compile(r"(?:^|[-_])(btn|primary|ghost|outline|link-?button|tiny|large|big)(?:$|[-_])")
+    """A button or button-styled link in a template takes no class of look but the variants: no second naming of a
+    primary, outline, ghost, link-like, tiny or large button. Layout and test classes are free (``small-btn`` of the
+    study card's next-step link styles nothing; the rule ``.next .button`` makes it small); literal class lists only."""
+    look_like = re.compile(r"(?:^|[-_])(primary|ghost|outline|link-?button|tiny|large|big)(?:$|[-_])")
     bad = []
     for path in sorted(TEMPLATES.glob("*.html")):
         text = path.read_text(encoding="utf-8")

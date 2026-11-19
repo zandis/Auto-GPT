@@ -69,7 +69,7 @@ button, .button { display: inline-flex; align-items: center; justify-content: ce
 button.secondary, .button.secondary { background: transparent; color: var(--accent); }
 button.quiet, .button.quiet { background: transparent; color: var(--accent); border-color: transparent; text-decoration: underline; }
 button.danger, .button.danger { color: var(--bad); border-color: var(--bad); }
-button.small, .button.small { padding: 8px 14px; margin: 0; font-weight: 500; }
+button.small, .button.small, .next .button { padding: 8px 14px; margin: 0; font-weight: 500; }
 button[disabled], button[aria-busy="true"], .button[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: 3px solid var(--accent); outline-offset: 2px; }

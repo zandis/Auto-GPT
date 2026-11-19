@@ -16,7 +16,8 @@
     CJK no-wrap rule for pills and buttons (T-684) are rules for more than buttons and stay.
   - **The class names stay** (`secondary`, `small`, `danger`; review 09 proposed `.btn`, `.sec`, `.sm`): renaming
     them touches about 180 tags in 60 templates that the open lane pull requests also edit, for no change a person
-    sees. `small-btn`, a class nothing styled (two links), became `small`.
+    sees. No template changes: the study card's next-step link (`button small-btn`; `small-btn` styles nothing, and
+    lane J's open J-7 edits that line) is made small by `.next .button` in the small rule, as `.next .button` was.
   - **Every target is at least 44 px** in the base itself (`min-height` and `min-width`), the small size included
     (8 px 14 px padding, as D-133 made it); no rule that reaches a button sets a pixel size under 44.
   - **The D-133 layer is folded into the rules it re-set**, value for value, so the pages look as they did: field
@@ -29,13 +30,13 @@
     and radio (over `.markform input`'s width) and the list of links that are targets on their own.
   - **Looked at:** the 72 first screens of 9k-17 (12 pages, desktop and phone, en, ja, zh-TW), shot before and after on
     this machine: 72 of 72 the same pixels. Off those pages, three small changes are meant: the "Next step" link of a
-    coordinator's study card (`small` now: 8 px 14 px and weight 500, it was 8 px 14 px and 600), the "Open" link of
+    coordinator's study card (the small rule now: weight 500, it was 600; its size is as before), the "Open" link of
     the approval page (`button small` was never small: now it is, without the top margin), and `.pipe` counts, which
     D-133 had already turned from a grid into a row (kept as a row).
 - **The proof:** `tests/unit/test_buttons_9k3.py` (a guard, no database): the six rules by name and in order, the
   counter catching a container that paints its buttons, no pixel size under 44 on a button rule, the re-set sizes
-  declared once, what is left under the D-133 heading, no class of look in a template but the variants, danger always
-  secondary. `tests/console/test_button_targets_9k3.py`: every visible button and button-styled link on the 72 pages
+  declared once, what is left under the D-133 heading, no second naming of a button's look in a template, danger
+  always secondary. `tests/console/test_button_targets_9k3.py`: every visible button and button-styled link on the 72 pages
   measured in Chromium at 44 x 44 px or more, and a planted 28 px rule caught. `tests/unit/test_console_tokens_and_type.py`
   now holds that no body rule sets a second font size (it pinned the line the layer had).
 - **Not in this card:** the page header and one primary act (9k-5), the confirm and Undo pages (9k-7), the bottom bar
