@@ -241,4 +241,6 @@ def test_9_a_record_whose_newest_version_carries_flag_2_is_set_aside(tmp_path: P
     src = _source(st)
     assert list(src.rows("encounter", "encounter", None, None)) == []
     assert list(src.deleted_rows("encounter", "encounter", None, None)) == []
-    assert src.stats["ADT-12:set aside (condition flag 2, meaning not verified)"] == 1
+    # D-1252: flag 2 is cited now (過去履歴, 構築ガイドライン Ver.1.2j 表3.1-3 No.7): a newest version of flag 2 means
+    # no version is in force; for the types D-1252 does not read as unknown the record is still set aside
+    assert src.stats["ADT-12:set aside (no version in force: the newest carries flag 2)"] == 1

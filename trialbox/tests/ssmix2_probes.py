@@ -319,7 +319,8 @@ def supersession_cases() -> list[Case]:
         ("a newer live version", "1", 1, False, "NC", "CA"),
         ("an older live version", "1", -1, False, "CA", "NC"),
         ("a past-history file only", "2", 1, False, "NC", "NC"),
-        ("an unreadable newer file", "1", 1, True, "NC", "NC"),
+        # day B's only file cannot be read: it names nothing (no row of day B), and day A is not in force
+        ("an unreadable newer file", "1", 1, True, "NC", "GONE"),
     ]
     for what, bflag, rank, raw, la, lb in cross:
         for b_night, arrival in ((0, "one night"), (1, "day B later"), (2, "day B much later")):

@@ -112,6 +112,7 @@ TYPES = {
     "lab": ("OML-11",),
 }
 _RECORD_TYPES = frozenset(t for types in TYPES.values() for t in types)
+_TABLE_OF = {t: table for table, types in TYPES.items() for t in types}
 ORDER_KEY_ENV = "TB_SSMIX2_ORDER_NUMBERS"
 ORDER_KEYS = ("unique", "per_day")  # D-594
 DEFAULT_ORDER_KEY = "per_day"  # the specification's key (D-1000, amends D-594's default "unique")
@@ -249,6 +250,58 @@ def _newer(sf: StoredFile, cur: StoredFile) -> bool:
     """Whether ``sf`` replaces ``cur``: the later 発生日時; on the same time a deletion wins, so the answer never
     depends on the order a folder lists its files (review of PR #1095 item 7)."""
     return sf.stamp > cur.stamp or (sf.stamp == cur.stamp and sf.deleted and not cur.deleted)
+
+
+SNAPSHOT = "*"  # the day part of a PPR-01 snapshot group's key: every day folder of the patient (D-1252)
+#: the types whose records with no version in force are read as unknown (D-1252 P3, P4); the others keep #1095's
+#: reading (a newest flag 2 set aside, an unreadable newest skipped), stated as a limit
+VERSIONED_TYPES = ("PPR-01", "OMP-01", "OMP-02")
+#: the order types whose number filed on several days makes the older day's record unknown (D-1252 P6)
+CROSS_DAY_TYPES = ("OMP-01", "OMP-02")
+_KEY_OF = {"diagnosis": "diag_no", "medication": "rx_no"}
+DOUBT = {
+    "tie": "two versions with one 発生日時",  # D-1252 P5
+    "past": "no version in force (the newest carries flag 2)",  # D-1252 P3
+}
+
+
+def key_part(value: str) -> str:
+    """A part of a record's key as the reader compares it (D-1252 P8): NFKC (full-width digits and letters become
+    half-width) and blanks removed, so ``ＲＸ０１`` and ``RX01`` are one order number. Case is kept."""
+    return "".join(unicodedata.normalize("NFKC", value or "").split())
+
+
+def resolve(versions: list[StoredFile]) -> tuple[str, StoredFile, list[StoredFile], list[StoredFile]]:
+    """One record's versions resolved by the guideline (SS-MIX2 標準化ストレージ 構成の説明と構築ガイドライン
+    Ver.1.2j, JAMI 2026-08-14, 3.1.4(2)⑥ and (3)①; D-1252): ``(state, file, candidates, older)``.
+
+    The order is the 発生日時 (表3.1-3 No.5), never the order files arrive in. ``deleted``: the newest file
+    carries flag 0, on a tie too (a deletion renames every version to 0, ⑥2)); ``live``: the newest carries flag
+    1 and is in force; ``tie``: two newest files share one 発生日時 and none is a deletion (P5); ``past``: the
+    newest carries flag 2, "過去履歴", a version some newer one replaced, so none is in force (P3). ``candidates``:
+    the other versions newer than the last deletion, newest first (what could be in force if the file cannot be
+    read, P4); ``older``: every older version (what a newer version or a deletion supersedes)."""
+    vs = sorted(versions, key=lambda s: (s.stamp, s.deleted, s.path.name))
+    newest, older = vs[-1], vs[:-1]
+    if newest.deleted:
+        return "deleted", newest, [], older
+    last_delete = max((s.stamp for s in vs if s.deleted), default="")
+    live = [s for s in reversed(vs) if not s.deleted and s.stamp > last_delete]
+    if sum(s.stamp == newest.stamp for s in vs) > 1:
+        return "tie", newest, live[1:], older
+    return ("past" if newest.flag == "2" else "live"), newest, live[1:], older
+
+
+def _folder_problem(sf: StoredFile) -> bool:
+    """Whether a file sits in other folders than its name says (``<pid 1-3>/<pid 4-6>/<pid>/<day>/<type>``)."""
+    parts = sf.path.parts
+    return len(parts) < 6 or (parts[-6], parts[-5], parts[-4], parts[-3], parts[-2]) != (
+        sf.patient[0:3],
+        sf.patient[3:6],
+        sf.patient,
+        sf.day,
+        sf.type,
+    )
 
 
 def storage_dir(root: Path, patient: str, day: str, typ: str) -> Path:
@@ -602,8 +655,9 @@ def order_no(sf: StoredFile, orc: hl7.Segment) -> str:
     ``<file order>:<ORC-2>``; ORC-2 alone for a file whose order number is "ALL9" or "-". Empty when neither says:
     the caller quarantines the message."""
     placer = orc.comp(2, 1).strip()
-    filed = "" if sf.order in ("-", ALL9) else sf.order
-    if filed and placer and placer != filed:
+    # compared and written as the key compares them (D-1252 P8): "ＲＸ０１" in a file name is the order RX01
+    filed = "" if sf.order in ("-", ALL9) else key_part(sf.order)
+    if filed and placer and key_part(placer) != filed:
         return f"{filed}:{placer}"
     return filed or placer
 
@@ -740,10 +794,13 @@ class Ssmix2Source:
             raise ValueError(f"{ORDER_KEY_ENV}={self.order_key!r}: the key is one of {', '.join(ORDER_KEYS)}")
         hl7.site_encoding()  # an unknown TB_SSMIX2_ENCODING stops the reader here (third review of PR #1095 item 2)
         self._index: dict[str, list[StoredFile]] | None = None
-        self._repeated: set[tuple[str, str, str]] = set()  # (patient, type, order no) live on several days
+        self._repeated: set[tuple[str, str, str]] = set()  # (patient, type, order no) filed on several days
+        self._plain: dict[tuple[str, str, str], list[StoredFile]] = {}  # their files: the plain key is tombstoned
+        self._plain_keys = False  # while True, an order line is keyed without its day (to tombstone the plain key)
         self._gone: dict[str, list[StoredFile]] = {}  # newest version deleted (flag 0), by message type
-        self._prev: dict[Path, StoredFile] = {}  # a current version -> the live version before it
-        self._dx_older: dict[Path, list[StoredFile]] = {}  # the newest PPR-01 snapshot -> the live ones it supersedes
+        self._older: dict[Path, list[StoredFile]] = {}  # a record's newest file -> every version it supersedes
+        self._fallback: dict[Path, list[StoredFile]] = {}  # -> the versions that could be in force (D-1252 P4)
+        self._doubt: dict[Path, str] = {}  # a record with no version in force -> why (read as unknown, D-1252)
         self._rx_dead: list[Row] = []  # drug lines a newer version of their order no longer holds: tombstones
         self._deleted_docs: list[Row] = []  # extended-storage documents whose newest version is deleted
         self.quarantine_max_pct = quarantine_max_pct
@@ -784,122 +841,245 @@ class Ssmix2Source:
                     yield f
 
     def _files(self) -> dict[str, list[StoredFile]]:
-        """The current version of every record by message type (latest timestamp wins, flag 0 = deleted)."""
+        """The version in force of every record, by message type (D-1252). Every file of the storage is grouped by
+        the specification's key (patient, 診療日, データ種別, オーダNo; 構築ガイドライン Ver.1.2j 3.1.2(3)③ and
+        3.1.4(3)②2)), the order number compared after :func:`key_part`, and each group is resolved by
+        :func:`resolve`: the newest by 発生日時 (表3.1-3 No.5) decides; a group whose newest file carries flag 0
+        is deleted, exactly that group's records (3.1.4(2)⑥2)); a newer version replaces the whole record, an
+        order with all its lines (3.1.2(2)). What the guideline does not settle (two versions with one 発生日時; a
+        newest file of flag 2; a newest file that cannot be read) is no version in force: for the diagnosis and
+        medication types every version that could be in force is read, and its rows go out as unknown with the
+        reason (``version_note``), never as confirmed and active. PPR-01 under "ALL9" (or "-") is one group per
+        patient: the patient's whole problem list (3.1.2(2)), whatever its day folder."""
         if self._index is None:
-            latest: dict[tuple[str, str, str, str], StoredFile] = {}
-            versions: dict[tuple[str, str, str, str], list[StoredFile]] = {}
-            per_day: dict[tuple[str, str, str, str], StoredFile] = {}  # the newest version in each day folder
+            groups: dict[tuple[str, str, str, str], list[StoredFile]] = {}
             for f in self._walk():
                 sf = parse_name(f)
                 if sf is None:
                     continue
-                # D-1000 (amends D-594): the specification's key (patient, 診療日, データ種別,
-                # オーダNo; 構築ガイドライン 3.1.4, review 12 F1) is the default; ``unique`` is a site's
-                # declared exception, and even then "ALL9" (data not managed by an order) and the ADT
-                # types (a per-day sequence, not an order number) keep their day
+                order = key_part(sf.order)
+                if order != sf.order:
+                    self.stats["storage:order number written in another width or with a blank (one key)"] += 1
+                # D-1000 (amends D-594): the specification's key is the default; ``unique`` is a site's declared
+                # exception, and even then "ALL9" (data not managed by an order) and the ADT types (a per-day
+                # sequence, not an order number) keep their day
                 by_day = sf.order in ("-", ALL9) or self.order_key == "per_day" or sf.type.startswith("ADT-")
-                key = (sf.patient, sf.type, sf.order, sf.day if by_day else "")
-                versions.setdefault(key, []).append(sf)
-                cur = latest.get(key)
-                if cur is None or _newer(sf, cur):
-                    latest[key] = sf
-                if sf.order not in ("-", ALL9) and sf.type in _RECORD_TYPES:
-                    on = (sf.patient, sf.type, sf.order, sf.day)
-                    if on not in per_day or _newer(sf, per_day[on]):
-                        per_day[on] = sf
-            # counted either way, so the site check shows whether a storage's order numbers come back on another
-            # day: live versions of the record types only (a change message names an earlier order by design)
-            days: Counter[tuple[str, str, str]] = Counter()
-            for (patient, typ, order, _day), sf in per_day.items():
-                if not sf.deleted:
-                    days[(patient, typ, order)] += 1
-            for (_patient, typ, _order), n in days.items():
-                if n > 1:
-                    self.stats[f"{typ}:order number on several days"] += 1
-            self._repeated = {k for k, n in days.items() if n > 1}
-            # a delete that has no record on its own day while the number is live on another day: under the day key
-            # it reaches nothing and the order stays live. Counted for the site check (review of PR #1095 item 8);
-            # which record such a delete means is not guessed
-            for (patient, typ, order, day), sf in per_day.items():
-                if sf.deleted and any(
-                    (patient, typ, order, d) in per_day and not per_day[(patient, typ, order, d)].deleted
-                    for d in {k[3] for k in per_day if k[:3] == (patient, typ, order)} - {day}
-                ):
-                    self.stats[f"{typ}:delete filed under another day (order left live)"] += 1
+                if sf.type == "PPR-01" and sf.order in ("-", ALL9):
+                    key = (sf.patient, sf.type, ALL9, SNAPSHOT)
+                else:
+                    key = (sf.patient, sf.type, order, sf.day if by_day else "")
+                groups.setdefault(key, []).append(sf)
             index: dict[str, list[StoredFile]] = {}
             gone: dict[str, list[StoredFile]] = {}
-            prev: dict[Path, StoredFile] = {}
-            for key, sf in latest.items():
-                older = [o for o in versions[key] if o.stamp < sf.stamp and not o.deleted and o.flag != "2"]
-                if older:
-                    prev[sf.path] = max(older, key=lambda o: (o.stamp, o.path.name))
-            superseded = self._supersede_snapshots(latest, prev)
-            for sf in sorted(latest.values(), key=lambda s: (s.type, s.patient, s.day, s.order)):
-                if sf.path in superseded:
+            self._doubt, self._fallback, self._older = {}, {}, {}
+            chosen: dict[tuple[str, str, str, str], StoredFile] = {}
+            for key, versions in sorted(groups.items()):
+                state, sf, candidates, older = resolve(versions)
+                typ = sf.type
+                chosen[key] = sf
+                valid = [v for v in versions if v.flag == "1"]
+                if len(valid) > 1:  # the writer did not rename the older version to 2 (D-1252 P1)
+                    self.stats[f"{typ}:several valid versions of one record (the newest decides)"] += 1
+                if state == "deleted":
+                    if any(v.flag == "1" for v in older):  # D-1252 P2: deleted all the same
+                        self.stats[f"{typ}:deleted while an older valid file remains"] += 1
+                    gone.setdefault(typ, []).append(sf)
+                    self._older[sf.path] = older
                     continue
-                if sf.flag == "2":
-                    # flag 2's meaning ("past history", review 12 §4.4) is not cited from the specification: a record
-                    # whose newest version carries it is set aside, neither read nor deleted (second review of PR
-                    # #1095 item 9), and listed for the owner's Japanese reader
-                    self.stats[f"{sf.type}:set aside (condition flag 2, meaning not verified)"] += 1
+                if typ in VERSIONED_TYPES:
+                    if state != "live":
+                        self._doubt[sf.path] = DOUBT[state]
+                        self.stats[f"{typ}:{DOUBT[state]} (read as unknown)"] += 1
+                    else:
+                        self._older[sf.path] = older
+                    self._fallback[sf.path] = candidates
+                elif state == "past":
+                    # #1095's reading kept for the other types: a record whose newest version carries flag 2 is set
+                    # aside, neither read nor deleted (D-1252 states it as a limit)
+                    self.stats[f"{typ}:set aside (no version in force: the newest carries flag 2)"] += 1
                     continue
-                (gone if sf.deleted else index).setdefault(sf.type, []).append(sf)
-            self._prev = prev
+                elif state == "tie":
+                    self.stats[f"{typ}:two versions with one 発生日時 (one read)"] += 1
+                index.setdefault(typ, []).append(sf)
+            self._count_days(groups)
+            self._snapshots(groups, chosen, index, gone)
+            self._across_days(groups, chosen)
             self._index = index
             self._gone = gone
         return self._index
 
-    def _supersede_snapshots(
-        self, latest: dict[tuple[str, str, str, str], StoredFile], prev: dict[Path, StoredFile]
-    ) -> set[Path]:
-        """A PPR-01 filed under order number "ALL9" is one snapshot of all of a patient's diagnoses (標準化ストレージ
-        仕様書, as review 12 §4.4 records it): the newest (by 発生日時; on a tie the deletion) supersedes every other
-        snapshot of the patient, whatever its day folder (third review of PR #1095 item 8). The others are not read
-        as current; what they hold and the newest does not becomes a tombstone (:meth:`_diagnosis`). Returns the
-        superseded files."""
-        by_patient: dict[str, list[StoredFile]] = {}
-        for sf in latest.values():
-            # the snapshot form only: order number "ALL9" (or "-"); a file per diagnosis under its own number (the
-            # layout TrialBox's exporter and older vendors write) is a record of its own, as before
-            if sf.type == "PPR-01" and sf.flag != "2" and sf.order in (ALL9, "-"):
-                by_patient.setdefault(sf.patient, []).append(sf)
-        superseded: set[Path] = set()
-        self._dx_older = {}
-        for files in by_patient.values():
-            newest = files[0]
-            for sf in files[1:]:
-                if _newer(sf, newest):
-                    newest = sf
-            older = [sf for sf in files if sf is not newest]
-            for sf in older:
-                superseded.add(sf.path)
-                self.stats["PPR-01:snapshot superseded by a newer one"] += 1
-            live = [sf for sf in older if not sf.deleted]
-            if newest.path in prev:
-                live.append(prev[newest.path])
-            if live:
-                self._dx_older[newest.path] = live
-        return superseded
+    def _count_days(self, groups: dict[tuple[str, str, str, str], list[StoredFile]]) -> None:
+        """Counted whatever the key, so the site check shows whether a storage's order numbers come back on another
+        day: numbers whose newest file of a day is live on several days, of the record types only (a change message
+        names an earlier order by design). A delete with no record on its own day while the number is live on
+        another day is counted too (review of PR #1095 item 8)."""
+        per_day: dict[tuple[str, str, str, str], StoredFile] = {}
+        for versions in groups.values():
+            for sf in versions:
+                if sf.order in ("-", ALL9) or sf.type not in _RECORD_TYPES:
+                    continue
+                on = (sf.patient, sf.type, key_part(sf.order), sf.day)
+                if on not in per_day or _newer(sf, per_day[on]):
+                    per_day[on] = sf
+        live: Counter[tuple[str, str, str]] = Counter(k[:3] for k, sf in per_day.items() if not sf.deleted)
+        for (_patient, typ, _order), n in live.items():
+            if n > 1:
+                self.stats[f"{typ}:order number on several days"] += 1
+        for (patient, typ, order, _day), sf in per_day.items():
+            if sf.deleted and live[(patient, typ, order)] > 0:
+                self.stats[f"{typ}:delete filed under another day"] += 1
 
-    def _older_diagnoses(self, sf: StoredFile) -> list[Row]:
-        """The diagnoses of the snapshots ``sf`` supersedes, read only to name them: what that read counts, and the
-        tombstones it would add, are put back."""
+    def _snapshots(
+        self,
+        groups: dict[tuple[str, str, str, str], list[StoredFile]],
+        chosen: dict[tuple[str, str, str, str], StoredFile],
+        index: dict[str, list[StoredFile]],
+        gone: dict[str, list[StoredFile]],
+    ) -> None:
+        """D-1252 P9: the guideline defines one PPR-01 file per patient holding all the diagnoses (構築ガイドライン
+        3.1.2(2)); TrialBox's exporter writes one file per diagnosis under its own number, which is read as a record
+        of its own. Beside a snapshot, a per-diagnosis record whose newest file is older than the snapshot in force
+        is superseded by it (what it holds and the snapshot does not becomes a tombstone); one that is newer is read
+        as unknown (which list is current cannot be told)."""
+        for (patient, typ, _order, day), snap in chosen.items():
+            if typ != "PPR-01" or day != SNAPSHOT:
+                continue
+            for key, versions in groups.items():
+                if key[0] != patient or key[1] != "PPR-01" or key[3] == SNAPSHOT:
+                    continue
+                sf = chosen[key]
+                if max(v.stamp for v in versions) < snap.stamp:
+                    for files in (index.get(typ, []), gone.get(typ, [])):
+                        if sf in files:
+                            files.remove(sf)
+                    self._doubt.pop(sf.path, None)
+                    self._older.setdefault(snap.path, []).extend(versions)
+                    self._fallback.setdefault(snap.path, []).extend(
+                        sorted((v for v in versions if not v.deleted), key=lambda v: v.stamp, reverse=True)
+                    )
+                    self.stats["PPR-01:per-diagnosis file superseded by a newer snapshot"] += 1
+                elif sf in index.get(typ, []) and sf.path not in self._doubt:
+                    self._doubt[sf.path] = "a per-diagnosis file newer than the patient's snapshot"
+                    self.stats["PPR-01:a per-diagnosis file newer than the patient's snapshot (read as unknown)"] += 1
+
+    def _across_days(
+        self,
+        groups: dict[tuple[str, str, str, str], list[StoredFile]],
+        chosen: dict[tuple[str, str, str, str], StoredFile],
+    ) -> None:
+        """An order number filed on several days (D-1252 P6). Under the specification's key the day is part of the
+        record, so a delete filed under another day deletes nothing there (a deletion of exactly the keyed record).
+        The reader's own caution, not the guideline's rule: for the order types (OMP-01, OMP-02; not "ALL9", not the
+        ADT types), a record of one day whose number another day holds with a newer file (a newer version, a delete,
+        a file of flag 2 or one that cannot be read) is read as unknown. Each day's lines are keyed
+        ``<number>@<day>`` once the number is filed on several days (any flag), so an id never changes when another
+        day's file appears; the plain key an earlier night may have stored is tombstoned. Under ``unique`` the days
+        are one record already. Counted either way."""
+        days: dict[tuple[str, str, str], list[tuple[str, str, str, str]]] = {}
+        for key in groups:
+            patient, typ, order, day = key
+            if typ in _RECORD_TYPES and order not in ("-", ALL9) and day not in ("", SNAPSHOT):
+                days.setdefault((patient, typ, order), []).append(key)
+        self._repeated, self._plain = set(), {}
+        for number, keys in days.items():
+            if len(keys) < 2:
+                continue
+            typ = number[1]
+            if number[1] not in CROSS_DAY_TYPES:
+                continue
+            self.stats[f"{typ}:order number filed on several days (keyed by its day)"] += 1
+            self._repeated.add(number)
+            self._plain[number] = [v for k in keys for v in groups[k]]
+            for key in keys:
+                sf = chosen[key]
+                if sf.deleted or sf.path in self._doubt:
+                    continue
+                if any(max(v.stamp for v in groups[k]) > sf.stamp for k in keys if k != key):
+                    self._doubt[sf.path] = "the order number is filed on another day with a newer file"
+                    self.stats[f"{typ}:order number on another day with a newer file (read as unknown)"] += 1
+
+    def _quiet(self, fn: Callable[[], list[Row]]) -> list[Row]:
+        """``fn()`` with what it counts and the tombstones it adds put back: an older version read only to name or
+        mark its rows (D-1252)."""
+        counts = (self.stats.copy(), self.missed.copy(), self.drug_lines.copy(), list(self.quarantined))
+        marks = (len(self._dx_dead), len(self._rx_dead), len(self._lab_dead))
+        try:
+            return fn()
+        except Exception:  # an older version that cannot be read names nothing
+            log.debug("ssmix2: an older version could not be read")
+            return []
+        finally:
+            self.stats, self.missed, self.drug_lines, self.quarantined = counts
+            del self._dx_dead[marks[0] :]
+            del self._rx_dead[marks[1] :]
+            del self._lab_dead[marks[2] :]
+
+    def _version_rows(self, typ: str, sf: StoredFile) -> list[Row]:
+        """The rows one version names, read quietly (nothing counted, quarantined or tombstoned)."""
+        build: Callable[[StoredFile, hl7.Message], Iterator[Row]] = getattr(self, f"_{_TABLE_OF[typ]}_rows")
+
+        def read() -> list[Row]:
+            text, _codec = hl7.decode_bytes(sf.path.read_bytes())
+            msg = hl7.parse(text)
+            if self._identity_problem(sf, msg) or hl7.offset_problem(text):
+                return []
+            return list(build(sf, msg))
+
+        return self._quiet(read)
+
+    def _union(self, typ: str, files: list[StoredFile]) -> list[Row]:
+        """Every row the versions name, the newest version's row first for each key (D-1252 P3, P4)."""
+        col = _KEY_OF[_TABLE_OF[typ]]
+        seen: set[str] = set()
         out: list[Row] = []
-        counts = (self.stats.copy(), self.missed.copy())
-        mark = len(self._dx_dead)
-        for old in self._dx_older.get(sf.path, []):
-            try:
-                out.extend(self._diagnosis_rows(old, hl7.parse(hl7.decode(old.path.read_bytes()))))
-            except Exception:  # an older snapshot that cannot be read names nothing
-                log.debug("ssmix2: an older PPR-01 snapshot could not be read")
-        del self._dx_dead[mark:]
-        self.stats, self.missed = counts
+        for sf in files:
+            for row in self._version_rows(typ, sf):
+                if str(row[col]) not in seen:
+                    seen.add(str(row[col]))
+                    out.append(row)
         return out
+
+    def _as_unknown(self, typ: str, rows: list[Row], why: str) -> list[Row]:
+        """Rows of a record with no version in force, read as unknown with the reason (D-1252 P3, P4): a diagnosis
+        status ``U`` and certainty ``U``; an order line status ``unknown``. Their text is kept as read."""
+        for row in rows:
+            if _TABLE_OF[typ] == "diagnosis":
+                row["status"], row["suspected"] = "U", "U"
+            else:
+                row["status"] = "unknown"
+            row["version_note"] = why
+            self.stats[f"{typ}:row read as unknown ({why})"] += 1
+        return rows
+
+    def _record_rows(
+        self, typ: str, sf: StoredFile, build: Callable[[StoredFile, hl7.Message], Iterator[Row]]
+    ) -> list[Row]:
+        """The rows of one record's version in force; for a record with no version in force (D-1252 P3, P5, P6, P9)
+        or whose newest version cannot be read (P4), the rows of every version that could be in force, as unknown.
+        An older version is never read as in force while a newer one exists."""
+        doubt = self._doubt.get(sf.path, "")
+        if doubt:
+            self._message(typ, sf)  # counted, and quarantined as usual when it cannot be read
+            return self._as_unknown(typ, self._union(typ, [sf, *self._fallback.get(sf.path, [])]), doubt)
+        msg = self._message(typ, sf)
+        if msg is not None:
+            mark = len(self.quarantined)
+            rows = list(build(sf, msg))
+            if len(self.quarantined) == mark:
+                return rows
+        older = self._fallback.get(sf.path, [])
+        if typ not in VERSIONED_TYPES or not older:
+            return []
+        why = "the newest version could not be read"
+        return self._as_unknown(typ, self._union(typ, older), why)
 
     def deleted_rows(self, table: str, source_name: str, delta_column: str | None, since: str | None) -> Iterator[Row]:
         """The rows of records whose newest version carries flag ``0`` (deleted at the hospital), so the adapter can
-        tombstone what an earlier night stored (dataflow review P0-1). A delete message is read like any other; one
-        that cannot be read is counted and skipped (the next full run removes it anyway)."""
+        tombstone what an earlier night stored (dataflow review P0-1): the deleted file's own rows and every row an
+        older version of the same record named (D-1252: a deletion of exactly the keyed record, all of it). A delete
+        message is read like any other; one that cannot be read is counted and skipped (the next full run removes it
+        anyway). For the order types, the plain key of an order number filed on several days is tombstoned too: its
+        records are keyed by their day (D-1252 P6)."""
         if table == "note":
             yield from self._deleted_docs
             return
@@ -916,6 +1096,7 @@ class Ssmix2Source:
         # a deleted file is read only to name its records: what that read appends to the tombstone lists is taken
         # here and removed again, so the lists never grow or repeat on another call (review of PR #1095)
         marks = (len(self._dx_dead), len(self._lab_dead), len(self._rx_dead))
+        col = _KEY_OF.get(table, "")
         for typ in TYPES[table]:
             for sf in self._gone.get(typ, []):
                 dead = len(self._dx_dead)
@@ -928,13 +1109,42 @@ class Ssmix2Source:
                     rows += self._dx_dead[dead:]  # a deleted file's DE diagnoses are gone too
                 except Exception:  # a bare delete marker without a readable message
                     self.stats[f"{typ}:deleted unreadable"] += 1
-                    continue
+                    # the flag is in the name: the older versions are deleted with it when the file is filed in its
+                    # own patient's folders (D-1252); else nothing is applied
+                    if not self._older.get(sf.path) or _folder_problem(sf):
+                        continue
+                    rows = []
                 self.stats[f"{typ}:deleted"] += 1
+                if typ in VERSIONED_TYPES and col:
+                    named = {str(r[col]) for r in rows}
+                    for old in self._older.get(sf.path, []):
+                        for row in self._version_rows(typ, old):
+                            if str(row[col]) not in named:
+                                named.add(str(row[col]))
+                                rows.append(row)
+                                self.stats[f"{typ}:deleted with the record (an older version named it)"] += 1
                 for row in rows:
                     row.pop("_same", None)
                     row.pop("_order", None)
                     row.pop("_changed", None)
                     yield row
+            if typ in CROSS_DAY_TYPES:
+                for number, files in sorted(self._plain.items()):
+                    if number[1] != typ:
+                        continue
+                    seen: set[str] = set()
+                    self._plain_keys = True
+                    try:
+                        for old in files:
+                            for row in self._version_rows(typ, old):
+                                if str(row[col]) not in seen:
+                                    seen.add(str(row[col]))
+                                    row.pop("_order", None)
+                                    row.pop("_changed", None)
+                                    self.stats[f"{typ}:plain key of an order number on several days tombstoned"] += 1
+                                    yield row
+                    finally:
+                        self._plain_keys = False
         del self._dx_dead[marks[0] :]
         del self._lab_dead[marks[1] :]
         del self._rx_dead[marks[2] :]
@@ -951,32 +1161,38 @@ class Ssmix2Source:
         self.quarantined.append((typ, where, f"{why}: {said}"))
         log.warning("ssmix2: a %s file quarantined: %s", typ, why)  # the path names a patient: kept in memory
 
+    def _message(self, typ: str, sf: StoredFile) -> hl7.Message | None:
+        """One file's message, or None when it is quarantined (STD-020): a file no codec reads, or that is not HL7,
+        or whose patient or times are not certain, is counted, listed and skipped."""
+        try:
+            text, codec = hl7.decode_bytes(sf.path.read_bytes())
+            msg = hl7.parse(text)
+        except hl7.Undecodable as exc:  # the reader's own sentence (D-682): which reading failed, MSH-18's name
+            self._quarantine(typ, sf, "unreadable bytes", str(exc))
+            return None
+        except (OSError, ValueError) as exc:  # "no MSH segment" is a ValueError
+            # D-682: the error's type; an OS error's text holds the whole path
+            self._quarantine(typ, sf, "not an HL7 message", type(exc).__name__)
+            return None
+        why = self._identity_problem(sf, msg)
+        if why:
+            self._quarantine(typ, sf, "patient", why)
+            return None
+        why = hl7.offset_problem(text)
+        if why:
+            self._quarantine(typ, sf, "time", why)
+            return None
+        self.stats[typ] += 1
+        if codec not in ("iso2022_jp", "ascii", "utf-8"):
+            self.stats[f"{typ}:read as {codec}"] += 1
+        return msg
+
     def _messages(self, typ: str) -> Iterator[tuple[StoredFile, hl7.Message]]:
-        """The current messages of one type. A file no codec reads, or that is not HL7, is quarantined (STD-020):
-        counted, listed, skipped; the other files go on."""
+        """The current messages of one type (:meth:`_message` for each)."""
         for sf in self._files().get(typ, []):
-            try:
-                text, codec = hl7.decode_bytes(sf.path.read_bytes())
-                msg = hl7.parse(text)
-            except hl7.Undecodable as exc:  # the reader's own sentence (D-682): which reading failed, MSH-18's name
-                self._quarantine(typ, sf, "unreadable bytes", str(exc))
-                continue
-            except (OSError, ValueError) as exc:  # "no MSH segment" is a ValueError
-                # D-682: the error's type; an OS error's text holds the whole path
-                self._quarantine(typ, sf, "not an HL7 message", type(exc).__name__)
-                continue
-            why = self._identity_problem(sf, msg)
-            if why:
-                self._quarantine(typ, sf, "patient", why)
-                continue
-            why = hl7.offset_problem(text)
-            if why:
-                self._quarantine(typ, sf, "time", why)
-                continue
-            self.stats[typ] += 1
-            if codec not in ("iso2022_jp", "ascii", "utf-8"):
-                self.stats[f"{typ}:read as {codec}"] += 1
-            yield sf, msg
+            msg = self._message(typ, sf)
+            if msg is not None:
+                yield sf, msg
 
     def _identity_problem(self, sf: StoredFile, msg: hl7.Message) -> str:
         """Why a message's patient is not certain, empty when it is (third review of PR #1095 item 3, fourth review
@@ -1062,8 +1278,12 @@ class Ssmix2Source:
             self._rx_dead = []
         out: list[Row] = []
         for typ in TYPES[table]:
-            for sf, msg in self._messages(typ):
-                out.extend(build(sf, msg))
+            for sf in self._files().get(typ, []):
+                out.extend(self._record_rows(typ, sf, build))
+            if typ in VERSIONED_TYPES:
+                out.extend(self._uncertain_deletes(typ))
+        if table == "diagnosis":
+            self._one_number_one_record(out)
         if table == "encounter":
             out = self._encounter_changes(out)
         elif table == "medication":
@@ -1078,9 +1298,39 @@ class Ssmix2Source:
             row.pop("_order", None)
             cols = (delta_column, "class_changed_at", "end_datetime", "end_date")
             stamp = max([str(row.get(c) or "") for c in cols if c] + [changed])
-            if delta_column and not after(stamp or None, since):
+            # a row read as unknown (D-1252) is sent on every night: what an earlier night stored as in force must
+            # change, whatever the dates the row itself carries
+            if delta_column and not row.get("version_note") and not after(stamp or None, since):
                 continue
             yield row
+
+    def _uncertain_deletes(self, typ: str) -> list[Row]:
+        """A delete (flag 0) whose message names another patient, or none, is not applied (third review of PR
+        #1095 item 3); the version before it is then not in force either (D-1252 P4): its rows as unknown."""
+        out: list[Row] = []
+        for sf in self._gone.get(typ, []):
+
+            def uncertain(sf: StoredFile = sf) -> list[Row]:
+                text, _codec = hl7.decode_bytes(sf.path.read_bytes())
+                problem = self._identity_problem(sf, hl7.parse(text))
+                return [{"problem": problem}] if problem else []
+
+            if not self._quiet(uncertain):
+                continue
+            older = self._older.get(sf.path, [])
+            last = max((v.stamp for v in older if v.deleted), default="")
+            candidates = sorted((v for v in older if not v.deleted and v.stamp > last), key=lambda v: v.stamp)
+            out += self._as_unknown(typ, self._union(typ, candidates[::-1]), "a delete whose patient is not certain")
+        return out
+
+    def _one_number_one_record(self, rows: list[Row]) -> None:
+        """One diagnosis number given by two records of one patient (two per-diagnosis files under two numbers or
+        days, TrialBox's exporter's layout; D-1252 P9): which is current cannot be told, so every such row is read
+        as unknown. The lake would keep whichever came last."""
+        seen: Counter[tuple[str, str]] = Counter((str(r["mrn"]), diag_key(str(r["diag_no"]))) for r in rows)
+        for row in rows:
+            if seen[(str(row["mrn"]), diag_key(str(row["diag_no"])))] > 1 and not row.get("version_note"):
+                self._as_unknown("PPR-01", [row], "one diagnosis number in two records")
 
     # ------------------------------------------------------------------ code lookups
     def _icd(self, byomei: str) -> str:
@@ -1186,10 +1436,11 @@ class Ssmix2Source:
         return rows
 
     def _diagnosis(self, sf: StoredFile, msg: hl7.Message) -> Iterator[Row]:
-        """:meth:`_diagnosis_rows`, and the supersession of older snapshots (third review of PR #1095 item 8): a
-        diagnosis an older snapshot of the patient holds and this one does not is a tombstone (all of them when this
-        newest snapshot is itself deleted). The lake removes a tombstoned diagnosis, as it does one deleted by
-        ``DE``."""
+        """:meth:`_diagnosis_rows`, and the supersession of older versions (third review of PR #1095 item 8, D-1252):
+        a diagnosis an older version of the record holds and this one does not is a tombstone: an older snapshot of
+        the patient, a per-diagnosis file this snapshot supersedes, or an older version of the same file (all of
+        them when the newest is itself deleted, :meth:`deleted_rows`). The lake removes a tombstoned diagnosis, as it
+        does one deleted by ``DE``."""
         mark = len(self._dx_dead)
         rows = list(self._diagnosis_rows(sf, msg))
         numbers = [diag_key(str(r["diag_no"])) for r in [*rows, *self._dx_dead[mark:]]]
@@ -1198,7 +1449,8 @@ class Ssmix2Source:
             self._quarantine(sf.type, sf, "duplicate key", "two diagnoses carry one diagnosis number (PRB-4)")
             return
         present = {r["diag_no"] for r in rows} | {r["diag_no"] for r in self._dx_dead}
-        for old in self._older_diagnoses(sf):
+        older = [] if sf.deleted else self._older.get(sf.path, [])
+        for old in (row for version in older for row in self._version_rows(sf.type, version)):
             if old["diag_no"] not in present:  # a deleted snapshot's own rows are tombstones already
                 old.pop("_changed", None)
                 self._dx_dead.append(old)
@@ -1362,8 +1614,10 @@ class Ssmix2Source:
         if not atc:
             self.missed[f"medication:{source}"] += 1
         rx_no = order_no(sf, orc)
-        if rx_no and self.order_key == "per_day" and (sf.patient, sf.type, sf.order) in self._repeated:
-            rx_no = f"{rx_no}@{sf.day}"  # one number on two days is two orders: two keys (review of PR #1095 item 8)
+        if rx_no and not self._plain_keys and (sf.patient, sf.type, key_part(sf.order)) in self._repeated:
+            # one number on two days is two records: two keys, from the first night it is filed on a second day
+            # (review of PR #1095 item 8, D-1252 P6; under ``unique`` the days are one record and nothing is added)
+            rx_no = f"{rx_no}@{sf.day}"
         return {
             "rx_no": rx_no,
             "mrn": sf.patient,
@@ -1389,21 +1643,17 @@ class Ssmix2Source:
         if any(not r["rx_no"] for r in rows):
             self._quarantine(sf.type, sf, "no order key", "neither the file name nor ORC-2 gives an order number")
             return
-        prev = self._prev.get(sf.path)
-        if prev is not None and not sf.deleted:
-            # a line the newer version no longer holds is a tombstone (second review of PR #1095 item 4)
+        if not sf.deleted:
+            # a line no newer version holds is a tombstone (second review of PR #1095 item 4): the order is the unit
+            # of change and a newer version replaces all its lines (構築ガイドライン 3.1.2(2), D-1252)
             keys = {r["rx_no"] for r in rows}
-            counts = (self.stats.copy(), self.drug_lines.copy(), self.missed.copy())
-            try:  # read only to name its lines: what that read counts is put back
-                old = self._medication_rows(prev, hl7.parse(hl7.decode(prev.path.read_bytes())), count=False)
-            except Exception:  # an older version that cannot be read names no line
-                old = []
-            self.stats, self.drug_lines, self.missed = counts
-            for row in old:
-                if row["rx_no"] not in keys:
-                    row.pop("_order", None)
-                    self._rx_dead.append(row)
-                    self.stats[f"{sf.type}:drug line gone from a newer version"] += 1
+            for version in self._older.get(sf.path, []):
+                for row in self._version_rows(sf.type, version):
+                    if row["rx_no"] not in keys:
+                        keys.add(row["rx_no"])
+                        row.pop("_order", None)
+                        self._rx_dead.append(row)
+                        self.stats[f"{sf.type}:drug line gone from a newer version"] += 1
         yield from rows
 
     def _medication_rows(self, sf: StoredFile, msg: hl7.Message, count: bool = True) -> list[Row]:

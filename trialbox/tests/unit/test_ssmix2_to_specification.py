@@ -473,11 +473,12 @@ def test_review_8_one_order_number_on_two_days_gives_two_keys_and_a_misfiled_can
                 f"ORC|NW|RX1||1|IP||||{day}0900", "|".join(rxe)]  # fmt: skip
         kit._write(st, kit.P1, day, "OMP-01", "RX1", kit._stamp(day, stamp), segs, flag=flag)
     src = _source(st)
-    assert sorted(r["rx_no"] for r in src.rows("medication", "medication", None, None)) == [
-        "RX1@20261001",
-        "RX1@20261002",
-    ]
-    assert src.stats["OMP-01:delete filed under another day (order left live)"] == 1
+    rows = list(src.rows("medication", "medication", None, None))
+    assert sorted(r["rx_no"] for r in rows) == ["RX1@20261001", "RX1@20261002"]
+    # D-1252 P6: the delete filed on the third day deletes nothing on the other two (a deletion of exactly the keyed
+    # record), and neither of them is left active: both are read as unknown, and the delete is counted
+    assert {r["status"] for r in rows} == {"unknown"}
+    assert src.stats["OMP-01:delete filed under another day"] == 1
 
 
 def test_review_tombstones_never_grow_or_repeat_on_another_call(storage: kit.Storage) -> None:
