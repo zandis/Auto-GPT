@@ -413,6 +413,8 @@ CLAIM_OUTRIGHT_ZH: tuple[str, ...] = (
     "疑似個案",
     "疑似病例",
     "可能發病",
+    "誤診",
+    "臨床決策",
 )
 # FORBIDDEN's zh-TW words, refused there in Traditional; the zh-TW table refuses their Simplified forms (诊断)
 FORBIDDEN_SIMPLIFIED_ZH: tuple[str, ...] = ("診斷", "建議治療")
@@ -435,6 +437,7 @@ CLAIM_FIND_ZH: tuple[str, ...] = (
     "察覺",
     "發覺",
     "分辨",
+    "區分",
     "標示",
     "分流",
     # "miss": 不會遺漏任何癌症病人 claims completeness (a negated miss denies nothing, see deny_masked_zh)
@@ -444,9 +447,77 @@ CLAIM_FIND_ZH: tuple[str, ...] = (
     "漏看",
     "放過",
 )
-CLAIM_RATE_ZH: tuple[str, ...] = ("預測", "推估", "預估", "風險", "危險", "評分", "分數", "機率", "疑似")
+CLAIM_RATE_ZH: tuple[str, ...] = ("預測", "推估", "預估", "預知", "風險", "危險", "評分", "分數", "機率", "疑似")
 CLAIM_WARN_ZH: tuple[str, ...] = ("警示", "示警", "警訊", "警報")
+# 提醒 (remind) is the product's own word for a visit or a task (回診提醒, 提醒您確認同意書), so it is a warning only
+# about a disease or an early case in the rest of its clause, never about a patient alone
+CLAIM_REMIND_ZH: tuple[str, ...] = ("提醒",)
 CLAIM_JUDGE_ZH: tuple[str, ...] = ("判斷", "研判")
+# acting on a disease (醫療器材管理法 第 3 條: diagnosis, treatment, mitigation, prevention): a claim when the product
+# is a subject before it and its object is a disease or an early case, or the product stands straight before it
+# (本產品的療效). A treatment the record holds is not the product's act (接受治療, 治療紀錄, 治療組).
+CLAIM_ACT_ZH: tuple[str, ...] = (
+    "治療",
+    "治癒",
+    "醫治",
+    "根治",
+    "治好",
+    "療效",
+    "預防",
+    "防止",
+    "避免",
+    "減少",
+    "降低",
+    "減低",
+    "確診",
+)
+_ACT_RECORD_BEFORE_ZH: tuple[str, ...] = ("接受", "正在", "曾", "已", "先前", "過去", "既往", "之前", "尚未")
+_ACT_RECORD_AFTER_ZH: tuple[str, ...] = (
+    "組",
+    "史",
+    "紀錄",
+    "記錄",
+    "線",
+    "經驗",
+    "期間",
+    "中的",
+    "中之",
+    "日期",
+    "名稱",
+)
+# telling a patient's state (確定是否罹患, 告訴您是否罹患, 評估病情, 算出罹患的可能性): a claim when the product is
+# the subject and a word of the patient's state follows within the window; 確定收案人數, 評估可行性 are not
+CLAIM_STATE_ZH: tuple[str, ...] = ("確定", "告訴", "算出", "評估", "得知")
+_STATE_WORDS_ZH: tuple[str, ...] = (
+    "罹患",
+    "罹病",
+    "患有",
+    "得了",
+    "會得",
+    "感染",
+    "發病",
+    "病情",
+    "病況",
+    "復發",
+    "惡化",
+    "生病",
+)
+# deciding or recommending for the clinician: a claim when the product is the subject and a treatment is its object;
+# 系統建議您先匯出名單 is not
+CLAIM_DECIDE_ZH: tuple[str, ...] = ("決定", "決策", "建議", "推薦", "選擇", "指示")
+_TREATMENT_ZH: tuple[str, ...] = (
+    "治療",
+    "療法",
+    "療程",
+    "用藥",
+    "藥物",
+    "劑量",
+    "開刀",
+    "手術",
+    "處方",
+    "處置",
+    "開藥",
+)
 
 CLAIM_DISEASE_ZH: tuple[str, ...] = (
     "疾病",
@@ -487,7 +558,9 @@ CLAIM_DISEASE_ZH: tuple[str, ...] = (
 # a noun of the disease class: it ends in one of these (糖尿病, 肺炎, 心衰竭, 肺癌); the words that only look so are
 # excluded by what follows 病 (病人, 病歷, 病程 ...) or precedes 症 (適應症, the indication of a drug); the class is
 # written in both scripts at once
-_DISEASE_CLASS_ZH = r"(?:病(?![人患歷历史房名床例號号友理程])|(?<!適應)(?<!适应)症|炎|癌|瘤|衰竭|梗塞|感染)"
+_DISEASE_CLASS_ZH = (
+    r"(?:病(?![人患歷历史房名床例號号友理程])|(?<!適應)(?<!适应)症|炎|癌|瘤|衰竭|梗塞|感染|(?:硬|纖維|纤维|鈣|钙)化)"
+)
 CLAIM_EARLY_ZH: tuple[str, ...] = ("早期", "及早", "提早", "提前", "更早", "潛在", "隱藏", "漏診", "傾向")
 # not 候選者 / 候選人: a candidate for a study is the product's own word, as in Japanese
 CLAIM_PATIENTS_ZH: tuple[str, ...] = (
@@ -512,6 +585,9 @@ CLAIM_ACTORS_ZH: tuple[str, ...] = (
     "本工具",
     "本機",
     "本平台",
+    "這套工具",
+    "這個工具",
+    "此工具",
     "我們",
     "AI",
     "人工智慧",
@@ -520,7 +596,9 @@ CLAIM_ACTORS_ZH: tuple[str, ...] = (
 )
 CLAIM_PERSONS_ZH: tuple[str, ...] = (
     "人員",
+    "團隊",
     "醫師",
+    "醫生",
     "主持人",
     "研究護理師",
     "護理師",
@@ -643,6 +721,9 @@ _LIGHT_LIST_ZH = (
     "支援",
     "協助",
     "涉及",
+    "參與",
+    "取代",
+    "代替",
     "屬於",
     "是",
     "有",
@@ -663,6 +744,7 @@ _SIMPLIFIED_PAIRS = (
     "狀状現现產产畫画當当療疗發发眾众確确節节篩筛納纳級级結结絕绝給给統统經经義义腫肿臨临與与處处號号視视"
     "覺觉計计訊讯訪访診诊評评試试誤误請请識识議议護护變变貧贫軟软輸输進进過过適适選选遺遗醫医錯错間间隨随"
     "險险隱隐須须預预顯显風风驗验體体鬱郁國国濕湿脈脉關关際际類类鬆松齊齐顫颤"
+    "劑剂區区團团擇择決决減减癒愈稱称紀纪組组維维線线纖纤薦荐藥药術术記记訴诉這这錄录鈣钙開开隊队"
 )
 _SIMPLIFIED: dict[str, str] = dict(zip(_SIMPLIFIED_PAIRS[::2], _SIMPLIFIED_PAIRS[1::2], strict=True))
 _SAME_ZH = (
@@ -670,6 +752,7 @@ _SAME_ZH = (
     "可台史同名向含和品喘在型塞外天失好存定察就尿工差平年床度建律得心性患您情意感慧成我房所找折招持指挖掉"
     "掘接推提揪援支收放整族日早明是智更曾有期未本果染查案梗模止死比毫民治法活派流涉漏演灶炎然率理生用疑疾"
     "病症瘤癌的益直看研示禁程究竭等算管糖系罕罹群者而能自藏血行衰被要警辨送造重限非骨高"
+    "了代低先免刀去取告套少尚已往手效方既替根正此知硬物策置醒量防降避"
 )
 # words that differ in Simplified by more than their characters
 _ZH_LEXICAL: dict[str, str] = {"人工智慧": "人工智能", "演算法": "算法", "軟體": "软件", "醫師": "医生", "篩檢": "筛查"}
@@ -701,7 +784,11 @@ _DENIABLE_ZH_RX = re.compile(
             *CLAIM_FIND_ZH,
             *CLAIM_RATE_ZH,
             *CLAIM_WARN_ZH,
+            *CLAIM_REMIND_ZH,
             *CLAIM_JUDGE_ZH,
+            *CLAIM_ACT_ZH,
+            *CLAIM_STATE_ZH,
+            *CLAIM_DECIDE_ZH,
             "判定",
         )
     )
@@ -712,16 +799,40 @@ _CLAUSE_END_ZH = re.compile(
 _AUX_ZH = _zh_alt(_AUX_LIST_ZH) + "*"
 _LIGHT_ZH = "(?:" + _zh_alt(_LIGHT_LIST_ZH) + "|" + _DENIABLE_ZH_RX.pattern + ")"
 _MISS_ZH = re.compile(r"\s*" + _AUX_ZH + r"\s*" + _zh_alt(_MISS_LIST_ZH))
-# a verbal negator counts only when a light verb or a claim word follows it (after its auxiliaries)
-_NEG_VERBAL_ZH = re.compile(_zh_alt(_NEG_VERBAL_LIST_ZH) + r"(?=\s*" + _AUX_ZH + r"\s*" + _LIGHT_ZH + ")")
+# a verbal negator counts only when a light verb or a claim word follows it (after its auxiliaries, and an opening
+# quote: 不能「診斷癌症」)
+_NEG_VERBAL_ZH = re.compile(
+    _zh_alt(_NEG_VERBAL_LIST_ZH) + r"(?=\s*" + _AUX_ZH + r"\s*[「『“\"'(]*\s*" + _LIGHT_ZH + ")"
+)
 # an existential, copular or prohibitive negator covers the rest of its clause
 _NEG_WHOLE_ZH = re.compile(_zh_alt(_NEG_WHOLE_LIST_ZH))
+# a negator AFTER the claim word, at the end of its clause: 與病人的疾病風險無關
+_NEG_AFTER_ZH = re.compile(_zh_alt(("無關", "無涉", "不相關", "沒有關係", "毫無關係")))
 _ACTORS_ZH = "(?<![A-Za-z])" + _zh_alt(CLAIM_ACTORS_ZH) + "(?!性)"
 _NOT_ATTRIBUTIVE_ZH = r"(?!\s*" + _zh_alt(_ATTRIBUTIVE_LIST_ZH) + ")"
+_PERSONS_ZH = "(?:" + _zh_alt(p for p in CLAIM_PERSONS_ZH if p != "人") + r"|(?<![病個个選选])人)"
+_ACTOR_SUBJECT_ZH = re.compile(_ACTORS_ZH + _NOT_ATTRIBUTIVE_ZH)
+_PERSON_SUBJECT_ZH = re.compile(_PERSONS_ZH + _NOT_ATTRIBUTIVE_ZH)
+# a person's own judgement or diagnosis: 醫師的判斷
+_PERSON_POSSESSOR_ZH = re.compile(_PERSONS_ZH + r"\s*" + _zh_alt(("的", "之")) + r"\s*$")
+# the product helping a person (協助醫師判斷) is still the product's act
+_HELPS_ZH = re.compile(_zh_alt(("協助", "輔助", "幫助", "幫", "支援")))
 _DISEASE_ZH = re.compile(_zh_alt(CLAIM_DISEASE_ZH) + "|" + _DISEASE_CLASS_ZH)  # the class names both scripts
+_EARLY_ZH = re.compile(_zh_alt(CLAIM_EARLY_ZH))
 # a patient or a disease straight before an existential negator: 病人沒有風險 is said about the patient
 _ABOUT_ZH = re.compile("(?:" + _zh_alt(CLAIM_PATIENTS_ZH) + "|" + _DISEASE_ZH.pattern + r")\s*$")
 _ACTOR_NON_ZH = re.compile(_ACTORS_ZH + r"\s*" + _zh_alt(("非",)) + "(?!常)")
+_CLAUSE_MARKS_ZH = "、，,；;。！？!?\n"
+# FORBIDDEN's 診斷 and 判定 in text named zh-TW are not the product's verdict when they name a record field
+# (診斷日期, 診斷碼), a passive by a qualified person (經診斷為, 經醫師診斷) or a person's own act (醫師依病歷診斷,
+# 研究團隊依計畫書判定); D-351 names a record's own field so
+_VERDICT_ZH = re.compile(_zh_alt(("診斷", "判定")))
+_FIELD_AFTER_ZH = re.compile(
+    r"\s*" + _zh_alt(("日期", "碼", "代碼", "名稱", "紀錄", "記錄", "欄位", "欄", "時間", "年齡", "年份", "類別"))
+)
+_PASSIVE_BEFORE_ZH = re.compile(
+    _zh_alt(("經由", "經過", "經")) + r"\s*(?:" + _PERSONS_ZH + "|" + _zh_alt(("病理", "影像", "臨床")) + r")?\s*$"
+)
 
 
 def _zh_allowed() -> dict[str, tuple[str, ...]]:
@@ -733,14 +844,57 @@ def _zh_allowed() -> dict[str, tuple[str, ...]]:
     }
 
 
+def _zh_subject(s: str, start: int, end: int) -> str | None:
+    """Who does the act of the word at ``s[start:end]``: "actor" (the product, the AI, a model), "person", or None.
+    Chinese marks a subject by position, so the nearest subject before the word in its clause decides; an actor of an
+    earlier clause holds unless a person is a subject in the word's own clause (本系統僅顯示資料，判斷由人負責). A
+    person's own act (醫師的判斷) is the person's; the product helping a person (協助醫師判斷) is still the
+    product's."""
+    if _PERSON_POSSESSOR_ZH.search(s, 0, start):
+        return "person"
+    cs = max(s.rfind(c, 0, start) for c in _CLAUSE_MARKS_ZH) + 1
+    ce = min((i for i in (s.find(c, end) for c in _CLAUSE_MARKS_ZH) if i >= 0), default=len(s))
+    actors = [a.end() for a in _ACTOR_SUBJECT_ZH.finditer(s, 0, start)]
+    persons = [p.end() for p in _PERSON_SUBJECT_ZH.finditer(s, cs, start)]
+    last_actor = actors[-1] if actors else -1
+    if persons and persons[-1] > last_actor:
+        helps = last_actor >= 0 and _HELPS_ZH.search(s, last_actor, persons[-1])
+        return "actor" if helps else "person"
+    if last_actor < 0:
+        return None
+    if last_actor > cs or not _PERSON_SUBJECT_ZH.search(s, end, ce):
+        return "actor"
+    return "person"
+
+
+def _record_masked_zh(text: str) -> str:
+    """``text`` with FORBIDDEN's 診斷 and 判定 blanked where they are not the product's verdict: a record field
+    (診斷日期), a passive by a qualified person (經醫師診斷為), or a person as the subject (醫師依病歷診斷). The
+    product as the subject (本系統依病歷診斷) is not blanked."""
+    out = list(text)
+    for m in _VERDICT_ZH.finditer(text):
+        cs = max(text.rfind(c, 0, m.start()) for c in _CLAUSE_MARKS_ZH) + 1
+        if (
+            _FIELD_AFTER_ZH.match(text, m.end())
+            or _PASSIVE_BEFORE_ZH.search(text, cs, m.start())
+            or _zh_subject(text, m.start(), m.end()) == "person"
+        ):
+            out[m.start() : m.end()] = _MASK * (m.end() - m.start())
+    return "".join(out)
+
+
 def deny_masked_zh(text: str) -> str:
     """``text`` with every denied zh claim word blanked: the part of its clause before it carries an odd number of
     attached negators (本軟體不用於疾病之篩檢或診斷, 不做診斷、預測或風險分層, 無法辨識的代碼系統, 系統沒有疾病預測功能,
-    本工具並非用於發現疾病). Two negatives cancel; a negated miss (沒有漏掉) counts for nothing. Read only for text the
-    caller names zh-TW (:func:`deny_masked`)."""
+    本工具並非用於發現疾病), or its clause ends in one (與病人的疾病風險無關). Two negatives cancel; a negated miss
+    (沒有漏掉) counts for nothing. The disease and early words of a denied clause are blanked with it
+    (本系統不篩檢疾病，只篩選候選受試者: 疾病 is the object of the denial, not of 篩選). Read only for text the caller
+    names zh-TW (:func:`deny_masked`)."""
     out = list(text)
+    ends = [(e.start(), e.end()) for e in _CLAUSE_END_ZH.finditer(text)]  # read on the whole text: 、 continues a list
     for m in _DENIABLE_ZH_RX.finditer(text):
-        start = max((e.end() for e in _CLAUSE_END_ZH.finditer(text, 0, m.start())), default=0)
+        start = max((b for _, b in ends if b <= m.start()), default=0)
+        stop = min((a for a, _ in ends if a >= m.end()), default=len(text))
         before = text[start : m.start()]
         whole = [(w.start() + start, w.end() + start) for w in _NEG_WHOLE_ZH.finditer(before)]
         # the negator's verb may be the claim word itself (無法辨識), so its lookahead reads past ``before``; a verbal
@@ -758,8 +912,12 @@ def deny_masked_zh(text: str) -> str:
                 n += 1
         # 非 alone is copular only straight after the product's name (本軟體非醫療器材); 非小細胞肺癌 is a disease name
         n += len(_ACTOR_NON_ZH.findall(before))
+        n += len(_NEG_AFTER_ZH.findall(text, m.end(), stop))
         if n % 2 == 1:
             out[m.start() : m.end()] = _MASK * (m.end() - m.start())
+            for rx in (_DISEASE_ZH, _EARLY_ZH):
+                for o in rx.finditer(text, m.end(), stop):
+                    out[o.start() : o.end()] = _MASK * (o.end() - o.start())
     return "".join(out)
 
 
@@ -771,7 +929,18 @@ def deny_masked(text: str, lang: str | None = None) -> str:
     """``text`` with every denied claim word blanked: Japanese (:func:`deny_masked_ja`) always, zh-TW
     (:func:`deny_masked_zh`) when the caller names the text zh-TW."""
     text = deny_masked_ja(text)
-    return deny_masked_zh(text) if _is_zh(lang) else text
+    return _record_masked_zh(deny_masked_zh(text)) if _is_zh(lang) else text
+
+
+# a space inside a Chinese word (診　斷, 早 期 發 現) hides it from the rule; text named zh-TW is read without it
+_HAN_SPACE_ZH = re.compile(r"(?<=[\u3400-\u9fff])[ \u3000]+(?=[\u3400-\u9fff])")
+
+
+def clean(text: str, lang: str | None = None) -> str:
+    """D-1228's cleaning (:func:`clean_ja`) and, for text named zh-TW, the spaces between two Chinese characters
+    removed."""
+    text = clean_ja(text)
+    return _HAN_SPACE_ZH.sub("", text) if _is_zh(lang) else text
 
 
 @dataclass(frozen=True)
@@ -792,6 +961,12 @@ class ClaimTable:
     actor_subject: re.Pattern[str]
     person_subject: re.Pattern[str]
     warn: tuple[str, ...] = ()
+    # zh-TW only so far (D-1247): a warning only about a disease or an early case; acting on a disease; telling a
+    # patient's state; deciding a treatment. The Japanese table has none of these classes yet.
+    remind: tuple[str, ...] = ()
+    act: tuple[str, ...] = ()
+    state: tuple[str, ...] = ()
+    decide: tuple[str, ...] = ()
 
 
 CLAIM_TABLES: tuple[ClaimTable, ...] = (
@@ -823,13 +998,34 @@ CLAIM_TABLES: tuple[ClaimTable, ...] = (
         + r"\s*(?:"
         + _zh_alt(("的", "之", "所", "產生的", "計算的", "給出的", "提供的"))
         + r")?\s*$",
-        actor_subject=re.compile(_ACTORS_ZH + _NOT_ATTRIBUTIVE_ZH),
-        person_subject=re.compile(
-            "(?:" + _zh_alt(p for p in CLAIM_PERSONS_ZH if p != "人") + r"|(?<![病個个選选])人)" + _NOT_ATTRIBUTIVE_ZH
-        ),
+        actor_subject=_ACTOR_SUBJECT_ZH,
+        person_subject=_PERSON_SUBJECT_ZH,
         warn=_zh_both(CLAIM_WARN_ZH),
+        remind=_zh_both(CLAIM_REMIND_ZH),
+        act=_zh_both(CLAIM_ACT_ZH),
+        state=_zh_both(CLAIM_STATE_ZH),
+        decide=_zh_both(CLAIM_DECIDE_ZH),
     ),
 )
+
+
+_CANDIDATE_ZH = re.compile(
+    r".{0,8}?(?:"
+    + _zh_alt(("符合", "适合", "適合"))
+    + r".{0,10}?"
+    + _zh_alt(("條件", "資格", "標準", "收案"))
+    + "|"
+    + _zh_alt(("候選",))
+    + ")"
+)
+_ACT_RECORD_ZH = re.compile(
+    "(?:" + _zh_alt(("接受",)) + r"[^、，,；;。]{0,10}|" + _zh_alt(_ACT_RECORD_BEFORE_ZH) + r")\s*$"
+)
+_ACT_RECORD_AFTER_RX_ZH = re.compile(
+    r"\s*(?:" + _zh_alt(_ACT_RECORD_AFTER_ZH) + "|" + _zh_alt(("的", "之")) + r"\s*" + _zh_alt(CLAIM_PATIENTS_ZH) + ")"
+)
+_STATE_ZH = re.compile(_zh_alt(_STATE_WORDS_ZH))
+_TREATMENT_RX_ZH = re.compile(_zh_alt(_TREATMENT_ZH))
 
 
 def _tables(lang: str | None) -> tuple[ClaimTable, ...]:
@@ -842,6 +1038,10 @@ def check_claims(text: str, lang: str | None = None) -> list[Hit]:
     """Every device claim in ``text``: one rule (D-1228), one table per language (D-1247). ``lang`` is the text's
     language as the caller knows it; without one, only the Japanese table reads it, as before. An empty list means
     no claim."""
+    return _check_claims(clean(text, lang), lang)
+
+
+def _check_claims(text: str, lang: str | None) -> list[Hit]:
     text = deny_masked(clean_ja(text), lang)
     hits: list[Hit] = []
     for sentence in _SENTENCE.findall(text):
@@ -874,7 +1074,9 @@ def _claims_in(sentence: str, table: ClaimTable) -> list[Hit]:
             hit(m, word)
     for word in table.find:
         for m in re.finditer(re.escape(word), masked):
-            if near(m, table.disease) or near(m, table.early):
+            # finding candidates who meet a study's criteria early is the product's purpose, not an early case
+            early = near(m, table.early) and not (table.lang != "ja" and _CANDIDATE_ZH.match(masked, m.end()))
+            if near(m, table.disease) or early:
                 hit(m, word)
     for word in table.rate:
         for m in re.finditer(re.escape(word), masked):
@@ -884,8 +1086,38 @@ def _claims_in(sentence: str, table: ClaimTable) -> list[Hit]:
         for m in re.finditer(re.escape(word), masked):
             if near(m, table.patient) or near(m, table.disease) or near(m, table.early):
                 hit(m, word)
+    for word in table.remind:
+        for m in re.finditer(re.escape(word), masked):
+            # what it reminds of runs to the end of its clause (提醒醫師注意病人可能的心臟衰竭)
+            ce = min((i for i in (masked.find(c, m.end()) for c in _CLAUSE_MARKS_ZH) if i >= 0), default=len(masked))
+            if table.disease.search(masked, m.end(), ce) or table.early.search(masked, m.end(), ce):
+                hit(m, word)
+    for word in table.act:
+        for m in re.finditer(re.escape(word), masked):
+            if _ACT_RECORD_ZH.search(masked, 0, m.start()) or _ACT_RECORD_AFTER_RX_ZH.match(masked, m.end()):
+                continue  # a treatment the record holds (接受糖尿病治療, 治療紀錄)
+            on_disease = near(m, table.disease) or near(m, table.early)
+            if re.search(table.actor_before, masked[: m.start()]) or (
+                on_disease and _zh_subject(masked, m.start(), m.end()) == "actor"
+            ):
+                hit(m, word)
+    for word in table.state:
+        for m in re.finditer(re.escape(word), masked):
+            if (
+                _STATE_ZH.search(masked, m.end(), m.end() + CLAIM_WINDOW)
+                and _zh_subject(masked, m.start(), m.end()) == "actor"
+            ):
+                hit(m, word)
+    for word in table.decide:
+        for m in re.finditer(re.escape(word), masked):
+            if near(m, _TREATMENT_RX_ZH) and _zh_subject(masked, m.start(), m.end()) == "actor":
+                hit(m, word)
     for word in table.judge:
         for m in re.finditer(re.escape(word), masked):
+            if table.lang != "ja":
+                if _zh_subject(masked, m.start(), m.end()) == "actor":
+                    hit(m, word)
+                continue
             # the clause the judgement is in: a person as its subject there clears an actor of an earlier
             # clause (モデルが読み、人が判断します), never an actor of the same clause
             start = max(masked.rfind(c, 0, m.start()) for c in "、，,") + 1
@@ -940,13 +1172,13 @@ def check(
     masked = text
     for phrase in allowed:
         masked = masked.replace(phrase, " ")
-    masked = deny_masked(clean_ja(masked), lang)  # a denial says what the product does not do (D-1228, D-1247)
+    masked = deny_masked(clean(masked, lang), lang)  # a denial says what the product does not do (D-1228, D-1247)
     hits: list[Hit] = []
     for word in words:
         for m in _pattern(word).finditer(masked):
             ctx = masked[max(0, m.start() - 30) : m.end() + 30].replace("\n", " ")
             hits.append(Hit(word=word, context=ctx.strip()))
-    return hits + (check_claims(masked, lang) if claims else [])
+    return hits + (_check_claims(masked, lang) if claims else [])
 
 
 _BLOCK = re.compile(

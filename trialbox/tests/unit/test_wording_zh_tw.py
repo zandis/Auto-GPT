@@ -536,6 +536,14 @@ def test_the_simplified_map_covers_every_character_the_table_uses() -> None:
         *w.CLAIM_RATE_ZH,
         *w.CLAIM_WARN_ZH,
         *w.CLAIM_JUDGE_ZH,
+        *w.CLAIM_REMIND_ZH,
+        *w.CLAIM_ACT_ZH,
+        *w._ACT_RECORD_BEFORE_ZH,
+        *w._ACT_RECORD_AFTER_ZH,
+        *w.CLAIM_STATE_ZH,
+        *w._STATE_WORDS_ZH,
+        *w.CLAIM_DECIDE_ZH,
+        *w._TREATMENT_ZH,
         *w.CLAIM_DISEASE_ZH,
         *w.CLAIM_EARLY_ZH,
         *w.CLAIM_PATIENTS_ZH,
@@ -566,6 +574,8 @@ def test_the_known_limits_are_what_d1247_says() -> None:
     assert zh("以疑似亂數決定患者的顯示順序。") != []  # a false alarm (pseudo-random numbers), refused
     assert zh("病人是否罹患肺癌？系統會告訴您。") == []  # a claim split across two sentences, not seen
     assert zh("揪出藏在病歷裡的病人。") == []  # a metaphor with no claim word, not seen
+    assert zh("可治療憂鬱症。") == []  # an act on a disease with no subject, not seen
+    assert zh("已診斷類風濕關節炎。") != []  # a criterion's 診斷 with no subject, still refused by FORBIDDEN
 
 
 def test_a_catalogue_instrument_is_named_by_its_own_name() -> None:
@@ -594,3 +604,126 @@ def test_every_fresh_claim_of_the_third_set_fails(text: str) -> None:
 @pytest.mark.parametrize("text", FRESH_3_LEGITIMATE)
 def test_every_fresh_legitimate_line_of_the_third_set_passes(text: str) -> None:
     assert zh(text) == []
+
+
+# The second review (lane J, an independent set of 300 sentences on 8f2bc3db): its sentences and more in kind, by
+# class. Claims first (each with a word its hit names), then the honest lines that must pass.
+REVIEW_2_CLAIMS = [
+    # treat, cure, efficacy (醫療器材管理法 第 3 條; TFDA guidance 三(三))
+    ("這套工具可治療憂鬱症。", "治療"),
+    ("TrialBox 可協助醫師治療氣喘病人。", "治療"),
+    ("TrialBox 能幫助病人治癒 C 型肝炎。", "治癒"),
+    ("本產品的療效已經臨床證實。", "療效"),
+    ("本系统可治疗高血压。", "治疗"),
+    # prevent or reduce an outcome
+    ("使用本系統可預防心肌梗塞。", "預防"),
+    ("本系統能預防院內感染。", "預防"),
+    ("使用 TrialBox，可減少中風復發。", "減少"),
+    ("研究顯示，本系統可降低死亡率。", "降低"),
+    ("本系統雖非醫療器材，仍能有效預防中風。", "預防"),
+    ("本系統不用於治療，但用於預防糖尿病。", "預防"),
+    ("本系统能预防心肌梗塞。", "预防"),
+    # decide or recommend for the clinician
+    ("系統會自動決定病人應接受哪種治療。", "決定"),
+    ("由 AI 決定病人是否需要開刀。", "決定"),
+    ("系統直接替醫師做出臨床決策。", "臨床決策"),
+    ("本系統建議最適合病人的治療方案。", "建議"),
+    ("本系統會為每位病人推薦用藥劑量。", "推薦"),
+    # 提醒 with a condition is a warning
+    ("系統會提醒醫師哪些病人可能罹患敗血症。", "提醒"),
+    ("系統提醒醫師注意病人可能的心臟衰竭。", "提醒"),
+    # verbs that are a claim with their object
+    ("本系統可確診早期肺癌。", "確診"),
+    ("系統可以確定病人是否感染流感。", "確定"),
+    ("AI 能預知病人何時中風。", "預知"),
+    ("模型可區分良性與惡性腫瘤。", "區分"),
+    ("系統會告訴您是否罹患糖尿病。", "告訴"),
+    ("本系統可大幅減少誤診。", "誤診"),
+    ("系統會評估每位病人的病情。", "評估"),
+    ("系統依病歷算出病人罹患心臟病的可能性。", "算出"),
+    ("系統可偵測肝硬化。", "偵測"),
+    ("AI 能及時辨識肺纖維化。", "辨識"),
+    # a space inside a word
+    ("本系統可協助診　斷肺癌。", "診斷"),
+    ("本系統可協助診 斷肺癌。", "診斷"),
+    ("系統可早 期 發 現癌症。", "早期發現"),
+]
+REVIEW_2_LEGITIMATE = [
+    # a denial whose list continues after 、 or 或
+    "本系統不做診斷、風險分層。",
+    "本軟體不用於篩檢、偵測疾病。",
+    "本系統不做診斷或風險分層。",
+    "本軟體不用於篩檢或偵測疾病。",
+    "本系統不提供診斷、治療或預後資訊。",
+    "本系統不能「診斷癌症」。",
+    "本欄位與病人的疾病風險無關。",
+    "本系統不用於預防或治療疾病。",
+    "本系統不會告訴病人任何診斷結果。",
+    # a person judges, decides or diagnoses
+    "本系統不取代醫師的判斷。",
+    "本系統僅顯示資料，判斷由人負責。",
+    "本系統列出紀錄，醫師再自行判斷。",
+    "醫師參考病歷後自行判斷是否收案。",
+    "研究團隊會依計畫書判定受試者是否完成試驗。",
+    "由醫師決定是否給予治療。",
+    "本系統提供資料，由醫師決定治療方式。",
+    # 診斷 as a record field, a criterion, or a person's act
+    "請填寫診斷日期。",
+    "納入條件：經診斷為第二型糖尿病至少一年。",
+    "醫師依病歷診斷後，再由研究人員確認。",
+    # finding candidates, not disease
+    "本系統不篩檢疾病，只篩選候選受試者。",
+    "本系統幫助研究團隊更早找到可能符合條件的受試者。",
+    # the new classes' ordinary words
+    "列出正在接受糖尿病治療的病人。",
+    "顯示病人的治療紀錄與用藥。",
+    "本系統可減少研究人員抄寫資料的時間。",
+    "系統會提醒您於回診前確認病人的同意書。",
+    "系統建議您先匯出名單再寄送。",
+    "試驗計畫書規定的治療方案請見附件。",
+    "研究團隊會評估受試者是否符合收案條件。",
+    "系統計算符合條件的病人數。",
+    "系统会提醒研究人员核对患者的同意书。",
+]
+
+
+@pytest.mark.parametrize(("text", "word"), REVIEW_2_CLAIMS)
+def test_a_claim_of_the_second_review_fails(text: str, word: str) -> None:
+    hits = zh(text)
+    assert hits and any(word in h.word or word in h.context.replace(" ", "").replace("　", "") for h in hits), hits
+    assert zh_page(f"<p>{text}</p>") != []
+
+
+@pytest.mark.parametrize("text", REVIEW_2_LEGITIMATE)
+def test_an_honest_line_of_the_second_review_passes(text: str) -> None:
+    assert zh(text) == []
+    assert zh_page(f"<p>{text}</p>") == []
+
+
+def test_the_new_classes_are_zh_tw_only_and_the_japanese_table_lacks_them() -> None:
+    """D-1247: treat / prevent (act), a patient's state, deciding a treatment and 提醒 are classes of the zh-TW table
+    only. The Japanese table (D-1228) has none of them, and English has no claim table at all; widening those is
+    outside card 10C-5b, so the gap is recorded here and in D-1247."""
+    ja, zh_table = CLAIM_TABLES
+    assert (ja.act, ja.state, ja.decide, ja.remind, ja.warn) == ((), (), (), (), ())
+    assert zh_table.act and zh_table.state and zh_table.decide and zh_table.remind
+    assert check_claims_ja("本システムは糖尿病を治療します。") == []  # recorded: a Japanese treat claim is not seen
+
+
+def test_a_person_clears_a_judgement_only_as_the_nearest_subject() -> None:
+    """The nearest subject before the word decides; the product helping a person judge is still the product's."""
+    assert zh("本系統提供資料，由醫師判斷。") == []
+    assert zh("醫師的判斷優先。") == []
+    assert zh("AI 協助醫師判斷病情。") != []
+    assert zh("本系統判斷，醫師確認。") != []
+    assert zh("醫師使用本系統判斷病情。") != []
+
+
+def test_a_diagnosis_is_the_products_only_with_the_product_as_subject() -> None:
+    """FORBIDDEN's 診斷 / 判定 in text named zh-TW: a record field, a passive by a qualified person and a person's own
+    act pass; the product as the subject is refused. Text not named zh-TW reads 診斷 as before (refused)."""
+    for text in ("診斷碼與診斷日期。", "經醫師診斷為肺炎。", "研究人員依計畫書判定。"):
+        assert zh(text) == [], text
+        assert check(text) != [], text  # unnamed: FORBIDDEN as before
+    for text in ("本系統依病歷診斷肺炎。", "AI 判定病人是否符合。", "AI 協助醫師診斷肺炎。"):
+        assert zh(text) != [], text
