@@ -92,19 +92,61 @@
   - `SITE_LOCAL_CODE_SYSTEMS` names `https://trialbox.local/fhir/CodeSystem/department` as a hospital's own code
     system, not a protocol's: a criterion that uses it (GZQO `VS_RHEUMATOLOGY_OR_METABOLISM_CLINIC_VISIT`, NEUR-COH
     `VS_MEMORY_CLINIC_VISIT`) names codes each site maps to its own (10D-4). Such a value set still travels as it is;
-    the format and the verifier are unchanged.
-  - `build` refuses, with one sentence, a study whose `tests/patients.ndjson` holds a line that is not a JSON object,
-    a `Practitioner` or `PractitionerRole` record, a `Practitioner/` or `PractitionerRole/` reference to anything but
-    the synthetic placeholders (`PLACEHOLDER_PRACTITIONERS`: `P12345` … `P89012` of `tools.synth.catalog`, `P90001`
-    to `P90003` of `tools.synth.ad`), or a coding of a site-local system with a code other than the placeholders
-    (`PLACEHOLDER_DEPARTMENTS`: `RHEU`, `META`, `NEPH`, `CARD`, `FM`, `ONC`, `ORTH`, `NEUR`, `PSY`); nesting deeper
-    than 200 is refused first. All shipped studies pack. Only the writer checks; a package from elsewhere is not
-    refused for it (the verifier's checks and their order are as above).
+    the format is unchanged.
+  - **The writer's guard (an allow-list; review of 50a07a81 on PR 1183).** `build` refuses, with one sentence that
+    names the line and the element but never repeats the value, a study whose `tests/patients.ndjson` holds: nesting
+    deeper than 200 (first); a line that is not a JSON object; a `resourceType` other than the twelve the shipped test
+    patients hold, exact case (`Appointment`, `Claim`, `ClaimResponse`, `Condition`, `Consent`, `Coverage`,
+    `DiagnosticReport`, `Encounter`, `MedicationRequest`, `Observation`, `Patient`, `Procedure`); `contained`; any key
+    beginning with `_`; any element outside `TEST_PATIENT_ELEMENTS` (for each type, the paths of keys the shipped
+    files carry, an array's items taking the array's path; an object where they carry a value, or a value where they
+    carry an object, is refused too, so a `resourceType` inside an element is refused); a `reference` not written
+    exactly `<type>/<id>` (type one of `Claim`, `Coverage`, `Encounter`, `Organization`, `Patient`, `Practitioner`,
+    exact case; id of letters, digits, `.` and `-`, at most 64; so no URL, no `#`, no space); a `Practitioner/` id
+    outside `PLACEHOLDER_PRACTITIONERS`; an `Organization/` id other than `hospital` and `nhi`
+    (`PLACEHOLDER_ORGANIZATIONS`); a reference object with a `display` or an `identifier`; a `system` that is not
+    exactly one of the 21 of `TEST_PATIENT_SYSTEMS` (the standard terminologies ICD-10-CM, LOINC, UCUM, ATC and eight
+    `terminology.hl7.org` code systems; the placeholder systems under `trialbox.local` and the reserved `.test`
+    domain); a `meta.profile` other than the ten TW Core profiles (`TEST_PATIENT_PROFILES`); a code of the site-local
+    department system other than exactly a `PLACEHOLDER_DEPARTMENTS` code (no trimming). The lists are measured from
+    the five shipped files, and a test measures them again and requires equality. A test refuses each of the
+    reviewer's fourteen bypasses and seven more (telecom, address, note, a profile, a nested resource, an object or a
+    value in the wrong place); all eight shipped studies still pack.
+  - **What the guard cannot prove:** that the test patients are synthetic. It holds them to the shape of the shipped
+    synthetic files, not to their origin. These travel **as typed**, unchecked against any real record: every `id`
+    and `reference` id, `Patient.birthDate` and `Patient.gender`, `Patient.identifier.value` and
+    `Encounter.identifier.value`, every date and time, every `code` and `display` of a coding (but the department
+    system's), `MedicationRequest.medicationCodeableConcept.text` and `dosageInstruction.text`,
+    `Observation.valueCodeableConcept.text`, quantities and units, `DiagnosticReport.conclusion` (free text: a
+    report's conclusion) and `ClaimResponse.disposition`. The shipped files carry no name, telecom, address, contact,
+    photo or note, and those are refused. A coordinating centre that types real patients into those fields gets them
+    packed: the export is safe only when the test patients are generated (`tools.synth`), which is the owner's call,
+    not something the writer can see.
+  - **Protocol files a package carries (`PACKAGE_FILES`, `carriable`).** The criteria hash (D-1366,
+    `study_manifest.PROTOCOL_FILES`, unchanged) covers every file the engine reads, including any file under
+    `cql/elm/` and files in subfolders, so that a planted file changes the hash. A package carries only one file name
+    directly in its folder, not hidden (no leading `.`), of ASCII letters, digits, `.`, `_` and `-`: `ir/*.json`,
+    `valuesets/*.json`, `cql/elm/*.json`, `cql/*.cql`, `sql/*.sql`, and `labels.yaml`, `tests/patients.ndjson`,
+    `tests/expected.json`. `build` refuses a folder holding a file that the hash covers, or that sits under `ir/`,
+    `valuesets/`, `cql/` or `sql/`, and is not one of these (a hidden file, a subfolder, `cql/elm/` other than
+    `.json`); the verifier's member rule (check 1, "only allowed names") takes the same narrower set. Each JSON file
+    the hash covers must parse; each `ir/*.json` must load as `CriterionIR` (extra fields forbidden at every depth),
+    as written and as carried; each `valuesets/*.json` as `ValueSetFile` (strict, extra fields forbidden: what
+    `criteria_compiler.terminology.mapper.valueset` writes; no product model of the file existed).
+  - **The folder on disk.** `build_dir` reads through `read_folder`: a symbolic link anywhere inside the folder (a
+    file or a folder) and anything that is not a regular file or folder (a pipe, a device, a socket) refuse it; files
+    are opened without following links.
+  - Only the writer checks the test patients and the models; a package from elsewhere is not refused for them (the
+    verifier's checks and their order are as above). 10D-4's import should run the same guard.
 - **What leaves the box** in a package: `protocol.json` (the D-1366 protocol part: identity, versions, criteria,
   thresholds, variants, pins, the protocol files' hashes and the criteria hash), the protocol files under `files/`
-  (`ir/*.json` without the review record but `rejected`, `valuesets/*.json`, `cql/`, `cql/elm/`, `sql/*.sql`,
-  `labels.yaml`, and the synthetic `tests/patients.ndjson` and `tests/expected.json` where the folder holds them), `hashes.json`,
-  `header.json` (with the writer's date and the key id) and `signature.ed25519`. Nothing else.
+  exactly as `PACKAGE_FILES` names them (`ir/*.json` that load as `CriterionIR`, without the review record but
+  `rejected`; `valuesets/*.json` that load as `ValueSetFile`; `cql/*.cql`; `cql/elm/*.json` that parse; `sql/*.sql`;
+  `labels.yaml`; and `tests/patients.ndjson` within the allow-list above and `tests/expected.json` where the folder
+  holds them), `hashes.json`, `header.json` (with the writer's date and the key id) and `signature.ed25519`. Nothing
+  else. Free text inside those files travels as written: the test patients' fields listed above, a criterion's text
+  and questions, a value set's titles and displays, comments in CQL and SQL, any JSON in `tests/expected.json`, and
+  the manifest's protocol fields (a `title`, `models.judge_prompt`).
 - **Stopped on (rule 11), for the owner, not changed here:**
   - `tests/patients.ndjson` is a protocol file (D-1366 rule 4), and in five shipped studies (GOUT-COH, GZQO,
     ONC-OSI, RA-BIO, RA-COH) its synthetic `Appointment` resources name practitioners `Practitioner/P12345` …

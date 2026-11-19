@@ -18,17 +18,22 @@ yet**: import, the register of coordinating-centre keys and the audit are 10D-4'
 from __future__ import annotations
 
 import hashlib
+import os
 import re
+import stat
 import struct
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from itertools import accumulate
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
+import yaml
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from pydantic import BaseModel, ConfigDict, ValidationError
+from tb_contracts import CriterionIR
 
 from tb_common import study_manifest as sm
 from tb_common.crypto import ed25519_public_of, ed25519_sign, ed25519_verify
@@ -82,7 +87,116 @@ PLACEHOLDER_PRACTITIONERS = frozenset(
     {"P12345", "P23456", "P34567", "P45678", "P56789", "P67890", "P78901", "P89012", "P90001", "P90002", "P90003"}
 )
 PLACEHOLDER_DEPARTMENTS = frozenset({"RHEU", "META", "NEPH", "CARD", "FM", "ONC", "ORTH", "NEUR", "PSY"})
-_PRACTITIONER_TYPES = ("Practitioner", "PractitionerRole")
+#: the organisations a test patient's ``Organization/`` reference may point at (the shipped studies' placeholders)
+PLACEHOLDER_ORGANIZATIONS = frozenset({"hospital", "nhi"})
+#: the test patients' allow-list (D-1372), measured from the shipped studies' ``tests/patients.ndjson`` (GOUT-COH,
+#: GZQO, ONC-OSI, RA-BIO, RA-COH; a test measures them again): each resource type they hold and, for each, every
+#: element they carry, as a path of keys from the resource (an array's items take the array's path). Any other
+#: resource type, element or depth is refused.
+TEST_PATIENT_ELEMENTS: dict[str, frozenset[str]] = {
+    kind: frozenset(paths.split())
+    for kind, paths in {
+        "Appointment": "end id participant.actor.reference participant.status serviceType.coding.code "
+        "serviceType.coding.system start status",
+        "Claim": "created id insurance.coverage.reference insurance.focal insurance.sequence "
+        "item.productOrService.coding.code item.productOrService.coding.system item.sequence patient.reference "
+        "priority.coding.code priority.coding.system provider.reference status subType.coding.code "
+        "subType.coding.system type.coding.code type.coding.system use",
+        "ClaimResponse": "created disposition id insurer.reference outcome patient.reference preAuthPeriod.end "
+        "preAuthPeriod.start request.reference status type.coding.code type.coding.system use",
+        "Condition": "category.coding.code category.coding.system clinicalStatus.coding.code "
+        "clinicalStatus.coding.system code.coding.code code.coding.system encounter.reference id meta.profile "
+        "onsetDateTime recordedDate subject.reference",
+        "Consent": "category.coding.code category.coding.system dateTime id patient.reference policyRule.coding.code "
+        "policyRule.coding.system provision.type scope.coding.code scope.coding.system status",
+        "Coverage": "beneficiary.reference id payor.reference status",
+        "DiagnosticReport": "category.coding.code category.coding.system code.coding.code code.coding.display "
+        "code.coding.system conclusion effectiveDateTime id meta.profile status subject.reference",
+        "Encounter": "class.code class.system id identifier.system identifier.value meta.profile "
+        "participant.individual.reference period.start serviceType.coding.code serviceType.coding.system status "
+        "subject.reference",
+        "MedicationRequest": "authoredOn dispenseRequest.validityPeriod.end dispenseRequest.validityPeriod.start "
+        "dosageInstruction.text id intent medicationCodeableConcept.coding.code "
+        "medicationCodeableConcept.coding.display medicationCodeableConcept.coding.system "
+        "medicationCodeableConcept.text meta.profile status subject.reference",
+        "Observation": "category.coding.code category.coding.system code.coding.code code.coding.display "
+        "code.coding.system component.code.coding.code component.code.coding.display component.code.coding.system "
+        "component.valueQuantity.code component.valueQuantity.system component.valueQuantity.unit "
+        "component.valueQuantity.value effectiveDateTime id meta.profile status subject.reference "
+        "valueCodeableConcept.coding.code valueCodeableConcept.coding.display valueCodeableConcept.coding.system "
+        "valueCodeableConcept.text valueQuantity.code valueQuantity.system valueQuantity.unit valueQuantity.value",
+        "Patient": "birthDate gender id identifier.system identifier.value meta.profile",
+        "Procedure": "code.coding.code code.coding.display code.coding.system id meta.profile performedDateTime status "
+        "subject.reference",
+    }.items()
+}
+#: the types a test patient's ``reference`` may name, written exactly ``<type>/<id>`` (no address, no ``#``)
+TEST_PATIENT_REFERENCE_TYPES = frozenset({"Claim", "Coverage", "Encounter", "Organization", "Patient", "Practitioner"})
+#: every ``system`` a test patient may name, exactly (measured): standard terminologies and the named placeholder
+#: systems (``trialbox.local`` and the reserved ``.test`` domain)
+TEST_PATIENT_SYSTEMS = frozenset(
+    {
+        "http://hl7.org/fhir/sid/icd-10-cm",
+        "http://loinc.org",
+        "http://terminology.hl7.org/CodeSystem/claim-type",
+        "http://terminology.hl7.org/CodeSystem/condition-category",
+        "http://terminology.hl7.org/CodeSystem/condition-clinical",
+        "http://terminology.hl7.org/CodeSystem/consentscope",
+        "http://terminology.hl7.org/CodeSystem/observation-category",
+        "http://terminology.hl7.org/CodeSystem/processpriority",
+        "http://terminology.hl7.org/CodeSystem/v2-0074",
+        "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+        "http://unitsofmeasure.org",
+        "http://www.whocc.no/atc",
+        "https://hospa.test/fhir/CodeSystem/exam-local",
+        "https://hospa.test/fhir/CodeSystem/lab-local",
+        "https://trialbox.local/fhir/CodeSystem/clinical-score",
+        "https://trialbox.local/fhir/CodeSystem/department",
+        "https://trialbox.local/fhir/CodeSystem/nhi-apply-type",
+        "https://trialbox.local/fhir/CodeSystem/nhi-drug",
+        "https://trialbox.local/fhir/CodeSystem/nhi-order",
+        "https://trialbox.local/fhir/sid/encounter",
+        "https://trialbox.local/fhir/sid/pid/DEMO-A",
+    }
+)
+#: every ``meta.profile`` a test patient may name, exactly (measured: the TW Core profiles)
+TEST_PATIENT_PROFILES = frozenset(
+    "https://twcore.mohw.gov.tw/ig/twcore/StructureDefinition/" + name
+    for name in (
+        "Condition-twcore",
+        "DiagnosticReport-twcore",
+        "Encounter-twcore",
+        "MedicationRequest-twcore",
+        "Observation-bloodPressure-twcore",
+        "Observation-body-height-twcore",
+        "Observation-body-weight-twcore",
+        "Observation-laboratoryResult-twcore",
+        "Patient-twcore",
+        "Procedure-twcore",
+    )
+)
+#: the inner elements of each allowed resource type: the paths that lead to an allowed element
+_TEST_PATIENT_INNER: dict[str, frozenset[str]] = {
+    kind: frozenset(p.rsplit(".", i)[0] for p in paths for i in range(1, p.count(".") + 1))
+    for kind, paths in TEST_PATIENT_ELEMENTS.items()
+}
+_REFERENCE = re.compile(r"^([A-Za-z]+)/([A-Za-z0-9.-]{1,64})$")
+_RESOURCE_NAME = re.compile(r"^[A-Za-z]{1,64}$")
+#: the protocol files a package may carry (``files/<path>``): ``study_manifest.PROTOCOL_FILES`` narrowed to one
+#: file directly in its folder, not hidden, with that folder's one extension (``cql/elm/`` only ``.json``). The
+#: criteria hash still covers every file the engine reads (D-1366); a folder whose hash covers any other file is not
+#: packaged.
+PACKAGE_FILES: tuple[tuple[str, str | None], ...] = (
+    ("ir/", ".json"),
+    ("valuesets/", ".json"),
+    ("cql/elm/", ".json"),
+    ("cql/", ".cql"),
+    ("sql/", ".sql"),
+    ("labels.yaml", None),
+    ("tests/patients.ndjson", None),
+    ("tests/expected.json", None),
+)
+_FILE_NAME = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]*$")
 _PART = re.compile(r"^[A-Za-z0-9._-]+$")
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _KEY_ID = re.compile(r"^ed25519:[0-9a-f]{16}$")
@@ -93,6 +207,55 @@ _MAGIC = b"ustar\x0000"
 _META = frozenset({HASHES, HEADER, SIGNATURE})
 _JSON_STRING = re.compile(rb'"(?:[^"\\]++|\\.)*+"', re.DOTALL)
 _NOT_BRACKET = bytes(c for c in range(256) if c not in b"[]{}")
+
+
+class _Strict(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class _Concept(_Strict):
+    code: str
+    display: str
+
+
+class _Include(_Strict):
+    system: str
+    concept: list[_Concept]
+
+
+class _Compose(_Strict):
+    include: list[_Include]
+
+
+class _Extension(_Strict):
+    url: str
+    valueString: str
+
+
+class _Coding(_Strict):
+    system: str
+    code: str
+
+
+class _Meta(_Strict):
+    tag: list[_Coding]
+
+
+class ValueSetFile(_Strict):
+    """A study's ``valuesets/<name>.json`` as the compiler writes it (``criteria_compiler.terminology.mapper.valueset``)
+    and nothing more: the writer loads each one through this model before it packs it (no product model of the file
+    existed; ``Ruleset`` reads it as a plain dict)."""
+
+    resourceType: Literal["ValueSet"]
+    id: str
+    url: str
+    version: str
+    name: str
+    title: str
+    status: str
+    compose: _Compose
+    extension: list[_Extension] | None = None
+    meta: _Meta | None = None
 
 
 class PackageRefused(ValueError):
@@ -263,9 +426,20 @@ def read_tar(data: bytes) -> dict[str, bytes]:
 
 
 # ---------------------------------------------------------------------------------------------- members
+def carriable(path: str) -> bool:
+    """Whether a package may carry the protocol file at ``path`` of the study folder (:data:`PACKAGE_FILES`)."""
+    for prefix, suffix in PACKAGE_FILES:
+        if suffix is None:
+            if path == prefix:
+                return True
+        elif path.startswith(prefix) and path.endswith(suffix) and _FILE_NAME.match(path[len(prefix) :]):
+            return True
+    return False
+
+
 def _allowed(name: str, docx: str | None) -> bool:
-    """A name a v1 package may hold: its four fixed members, or ``files/`` + a path of the protocol's files
-    (``study_manifest.PROTOCOL_FILES``; never a site file or the docx template)."""
+    """A name a v1 package may hold: its four fixed members, or ``files/`` + a path a package carries
+    (:func:`carriable`; never a site file or the docx template)."""
     if name in _META or name == PROTOCOL:
         return True
     if not name.startswith(FILES):
@@ -273,10 +447,7 @@ def _allowed(name: str, docx: str | None) -> bool:
     path = name[len(FILES) :]
     if path in sm.SITE_FILES or path == docx:
         return False
-    return any(
-        path == prefix if suffix is None else path.startswith(prefix) and path.endswith(suffix)
-        for prefix, suffix, _kind in sm.PROTOCOL_FILES
-    )
+    return carriable(path)
 
 
 def json_depth(data: bytes) -> int:
@@ -491,10 +662,81 @@ def verify_file(path: Path, trusted_keys: Iterable[bytes]) -> Package:
 
 
 # ---------------------------------------------------------------------------------------------- write
+def _reference_refusal(ref: Any) -> str | None:
+    match = _REFERENCE.match(ref) if isinstance(ref, str) else None
+    if match is None or match[1] not in TEST_PATIENT_REFERENCE_TYPES:
+        return (
+            "has a reference that is not written <type>/<id> with a type the shipped test patients refer to ("
+            + ", ".join(sorted(TEST_PATIENT_REFERENCE_TYPES))
+            + "; exact case, no address, no '#', no space)"
+        )
+    if match[1] == "Practitioner" and match[2] not in PLACEHOLDER_PRACTITIONERS:
+        return "names a practitioner that is not one of the synthetic placeholders (P12345 and the like)"
+    if match[1] == "Organization" and match[2] not in PLACEHOLDER_ORGANIZATIONS:
+        return "names an organisation that is not one of the synthetic placeholders (hospital, nhi)"
+    return None
+
+
+def _resource_refusal(resource: dict[str, Any]) -> str | None:
+    """Why one test patient resource may not leave the box, or None: the allow-list of D-1372 over its whole tree."""
+    kind = resource.get("resourceType")
+    if not isinstance(kind, str) or kind not in TEST_PATIENT_ELEMENTS:
+        shown = kind if isinstance(kind, str) and _RESOURCE_NAME.match(kind) else "another"
+        return (
+            f"is a {shown} record, which a package does not carry (the test patients hold only the resource types of "
+            "the shipped studies, exact case)"
+        )
+    leaves, inner = TEST_PATIENT_ELEMENTS[kind], _TEST_PATIENT_INNER[kind]
+    stack: list[tuple[str, Any]] = [("", resource)]
+    while stack:
+        path, node = stack.pop()
+        if isinstance(node, list):
+            stack.extend((path, item) for item in node)
+            continue
+        if isinstance(node, dict):
+            if path and path not in inner:
+                return f"holds an object at {kind}.{path}, which the shipped synthetic test patients never carry there"
+            if "reference" in node and ("display" in node or "identifier" in node):
+                return (
+                    f"has a reference at {kind}.{path} with a display or an identifier, which a package does not carry"
+                )
+            if node.get("system") in SITE_LOCAL_CODE_SYSTEMS and node.get("code") not in PLACEHOLDER_DEPARTMENTS:
+                return (
+                    f"holds a code of the hospital's own system {node['system']} that is not one of the synthetic "
+                    "placeholders"
+                )
+            for key, value in node.items():
+                if key.startswith("_"):
+                    return f"has the element {key} (an extension of a value), which a package does not carry"
+                if key == "contained":
+                    return "holds a contained resource, which a package does not carry"
+                child = f"{path}.{key}" if path else key
+                if child == "resourceType":
+                    continue
+                if child not in leaves and child not in inner:
+                    return f"holds the element {kind}.{child}, which the shipped synthetic test patients never carry"
+                stack.append((child, value))
+            continue
+        if path not in leaves:
+            return f"holds a value at {kind}.{path} where the shipped synthetic test patients hold an object"
+        last = path.rsplit(".", 1)[-1]
+        if last == "reference":
+            why = _reference_refusal(node)
+            if why:
+                return why
+        elif last == "system" and node not in TEST_PATIENT_SYSTEMS:
+            return (
+                f"names a system at {kind}.{path} that is not one of the test patients' systems (the standard "
+                "terminologies and the named placeholder systems, written exactly)"
+            )
+        elif path == "meta.profile" and node not in TEST_PATIENT_PROFILES:
+            return f"names a profile at {kind}.{path} that is not one of the test patients' profiles"
+    return None
+
+
 def _test_patients_refusal(data: bytes) -> str | None:
-    """Why the test patients may not leave the box, or None: each line a JSON object; no Practitioner or
-    PractitionerRole resource; a ``Practitioner/`` or ``PractitionerRole/`` reference only to a placeholder; a coding
-    of a site-local code system only with a placeholder code."""
+    """Why the test patients may not leave the box, or None: each line a JSON object that passes the allow-list of
+    D-1372 (:func:`_resource_refusal`)."""
     why = _depth_refusal(TEST_PATIENTS, data)
     if why:
         return why
@@ -507,30 +749,53 @@ def _test_patients_refusal(data: bytes) -> str | None:
             return f"line {number} of {TEST_PATIENTS} is not JSON, so its codes cannot be checked"
         if not isinstance(resource, dict):
             return f"line {number} of {TEST_PATIENTS} is not a FHIR resource"
-        if resource.get("resourceType") in _PRACTITIONER_TYPES:
-            kind = resource["resourceType"]
-            return f"line {number} of {TEST_PATIENTS} is a {kind} record, which a package does not carry"
-        stack: list[Any] = [resource]
-        while stack:
-            node = stack.pop()
-            if isinstance(node, list):
-                stack.extend(node)
-                continue
-            if not isinstance(node, dict):
-                continue
-            stack.extend(node.values())
-            ref = node.get("reference")
-            kind, _, ident = ref.partition("/") if isinstance(ref, str) else ("", "", "")
-            if kind in _PRACTITIONER_TYPES and ident not in PLACEHOLDER_PRACTITIONERS:
-                return (
-                    f"line {number} of {TEST_PATIENTS} names a practitioner that is not one of the synthetic "
-                    "placeholders (P12345 and the like)"
-                )
-            if node.get("system") in SITE_LOCAL_CODE_SYSTEMS and node.get("code") not in PLACEHOLDER_DEPARTMENTS:
-                return (
-                    f"line {number} of {TEST_PATIENTS} holds a code of the hospital's own system {node['system']} "
-                    "that is not one of the synthetic placeholders"
-                )
+        why = _resource_refusal(resource)
+        if why:
+            return f"line {number} of {TEST_PATIENTS} {why}"
+    return None
+
+
+#: the folders whose files the engine reads as the study's (``Ruleset.from_files``)
+_ENGINE_DIRS = ("ir/", "valuesets/", "cql/", "sql/")
+
+
+def _folder_refusal(files: Mapping[str, bytes]) -> str | None:
+    """Why the protocol files of a study folder may not be packed, or None: each file the criteria hash covers is one
+    a package carries (:data:`PACKAGE_FILES`); each JSON file is JSON; each ``ir/*.json`` loads as a ``CriterionIR``
+    and each ``valuesets/*.json`` as a :class:`ValueSetFile` (both refuse a field they do not have)."""
+    if sm.MANIFEST not in files:
+        return None  # split says so
+    try:
+        docx = (yaml.safe_load(files[sm.MANIFEST].decode("utf-8")) or {}).get("docx_template")
+    except (ValueError, yaml.YAMLError, AttributeError):
+        return "its manifest.yaml is not a YAML mapping"
+    hashed = sm.hashed_paths(files)
+    for path in sorted(files):
+        if path == docx:
+            continue
+        if (path in hashed or path.startswith(_ENGINE_DIRS)) and not carriable(path):
+            return (
+                f"it holds {path}, which a package does not carry (a hidden file, a file in a subfolder, or an "
+                "extension that folder does not take: cql/elm/ takes only .json); remove it from the folder"
+            )
+        if path not in hashed or not path.endswith(".json"):
+            continue
+        try:
+            doc = sm.load_json(files[path])
+        except (ValueError, UnicodeDecodeError):
+            return f"{path} is not JSON"
+        try:
+            if path.startswith("ir/"):
+                CriterionIR.model_validate(doc)
+                CriterionIR.model_validate(sm.load_json(sm.carried(path, files[path]) or b""))
+            elif path.startswith("valuesets/"):
+                ValueSetFile.model_validate(doc)
+        except ValidationError:
+            model = "a criterion (CriterionIR)" if path.startswith("ir/") else "a value set"
+            return (
+                f"{path} does not load as {model}: it holds a field the model does not have, or a value it does "
+                "not take"
+            )
     return None
 
 
@@ -538,8 +803,9 @@ def build(files: Mapping[str, bytes], private_pem: bytes, created: str) -> bytes
     """The package of one study folder given as ``{relative path: bytes}``, signed with the coordinating centre's
     Ed25519 private key (PEM); ``created`` is the writer's date, YYYY-MM-DD (the library reads no clock). Refused
     (``ValueError``, one sentence) for a study whose folder holds its docx template, has no ``protocol_version``,
-    test patients that name a practitioner or a site-local code other than the synthetic placeholders,
-    or a protocol file whose path a v1 package cannot carry. The result is verified before it is returned."""
+    holds a file the criteria hash covers or the engine reads that a package does not carry (:data:`PACKAGE_FILES`),
+    a JSON file that is not JSON, an IR or value set file that does not load through its model, or test patients
+    outside the allow-list of D-1372 (:func:`_resource_refusal`). The result is verified before it is returned."""
     try:
         public_pem = ed25519_public_of(private_pem)
     except (TypeError, ValueError):
@@ -550,6 +816,9 @@ def build(files: Mapping[str, bytes], private_pem: bytes, created: str) -> bytes
         why = _depth_refusal(path, files[path]) if path.endswith(".json") and _allowed(FILES + path, None) else None
         if why:
             raise ValueError(f"the study folder cannot be packaged: {why}")
+    why = _folder_refusal(files)
+    if why:
+        raise ValueError(f"the study folder cannot be packaged: {why}")
     parts = sm.split(files)
     protocol = parts.protocol
     manifest = protocol["manifest"]
@@ -608,7 +877,39 @@ def build(files: Mapping[str, bytes], private_pem: bytes, created: str) -> bytes
     return data
 
 
+def read_folder(folder: Path) -> dict[str, bytes]:
+    """The files of a study folder on disk as ``{relative path: bytes}``, read as ``Ruleset.load`` reads it but
+    refused (``ValueError``, one sentence) when anything inside it is a symbolic link (a file or a folder) or not a
+    regular file: a package is written from the folder's own files only."""
+    files: dict[str, bytes] = {}
+
+    def fail(error: OSError) -> None:
+        raise error
+
+    for root, dirs, names in os.walk(folder, onerror=fail, followlinks=False):
+        here = Path(root)
+        for name in sorted(dirs + names):
+            entry = here / name
+            rel = entry.relative_to(folder).as_posix()
+            mode = os.lstat(entry).st_mode
+            if stat.S_ISLNK(mode):
+                raise ValueError(
+                    f"the study folder cannot be packaged: {rel} is a symbolic link; a package is written from the "
+                    "folder's own files only"
+                )
+            if stat.S_ISDIR(mode):
+                continue
+            if not stat.S_ISREG(mode):
+                raise ValueError(f"the study folder cannot be packaged: {rel} is not a regular file")
+            fd = os.open(entry, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+            with os.fdopen(fd, "rb") as fh:
+                if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):  # pragma: no cover - changed while read
+                    raise ValueError(f"the study folder cannot be packaged: {rel} is not a regular file")
+                files[rel] = fh.read()
+    return files
+
+
 def build_dir(folder: Path, private_pem: bytes, created: str) -> bytes:
-    """:func:`build` of a study folder on disk (``rulesets/<ID>/``), read as ``Ruleset.load`` reads it."""
-    files = {p.relative_to(folder).as_posix(): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
-    return build(files, private_pem, created)
+    """:func:`build` of a study folder on disk (``rulesets/<ID>/``), read by :func:`read_folder` (no symbolic link,
+    no file that is not a regular file)."""
+    return build(read_folder(folder), private_pem, created)

@@ -416,7 +416,7 @@ def test_test_patients_name_only_placeholders() -> None:
             {**good, "participant": [{"actor": {"reference": "Practitioner/PLANTPRAC77"}}]},
             "practitioner",
         ),
-        "role": ({**good, "participant": [{"actor": {"reference": "PractitionerRole/R9"}}]}, "practitioner"),
+        "role": ({**good, "participant": [{"actor": {"reference": "PractitionerRole/R9"}}]}, "<type>/<id>"),
         "department": (
             {**good, "serviceType": [{"coding": [{"system": dept, "code": "PLANTDEPT9"}]}]},
             "hospital's own",
@@ -433,6 +433,251 @@ def test_test_patients_name_only_placeholders() -> None:
     files["tests/patients.ndjson"] = b"[" * 300 + b"]" * 300 + b"\n"
     with pytest.raises(ValueError, match="nests deeper"):
         sp.build(files, PRIV, DAY)
+
+
+_DEPT = "https://trialbox.local/fhir/CodeSystem/department"
+#: the review of 50a07a81 (PR 1183): each line the deny-list let through; all synthetic, each carries PROBE
+_BYPASSES: dict[str, dict[str, Any]] = {
+    "contained practitioner": {
+        "resourceType": "Appointment",
+        "contained": [{"resourceType": "Practitioner", "id": "c1", "name": [{"text": "PROBE Dr Example"}]}],
+        "participant": [{"actor": {"reference": "#c1"}}],
+    },
+    "absolute URL reference": {
+        "resourceType": "Appointment",
+        "participant": [{"actor": {"reference": "https://hosp.example/fhir/Practitioner/PROBEDR1"}}],
+    },
+    "lower-case reference": {
+        "resourceType": "Appointment",
+        "participant": [{"actor": {"reference": "practitioner/PROBEDR2"}}],
+    },
+    "leading space reference": {
+        "resourceType": "Appointment",
+        "participant": [{"actor": {"reference": " Practitioner/PROBEDR3"}}],
+    },
+    "placeholder with a display": {
+        "resourceType": "Appointment",
+        "participant": [{"actor": {"reference": "Practitioner/P12345", "display": "PROBE Dr Example"}}],
+    },
+    "logical identifier reference": {
+        "resourceType": "Appointment",
+        "participant": [{"actor": {"type": "Practitioner", "identifier": {"value": "PROBESTAFF9"}}}],
+    },
+    "department system with a slash": {
+        "resourceType": "Encounter",
+        "serviceType": [{"coding": [{"system": _DEPT + "/", "code": "PROBEDEPT1"}]}],
+    },
+    "department system in upper case": {
+        "resourceType": "Encounter",
+        "serviceType": [{"coding": [{"system": _DEPT.upper(), "code": "PROBEDEPT2"}]}],
+    },
+    "department code with a space": {
+        "resourceType": "Encounter",
+        "serviceType": [{"coding": [{"system": _DEPT, "code": "RHEU "}]}],
+    },
+    "another hospital-local system": {
+        "resourceType": "Encounter",
+        "serviceType": [{"coding": [{"system": "https://hosp.example/codes/ward", "code": "PROBEWARD7"}]}],
+    },
+    "organisation with a display": {
+        "resourceType": "Encounter",
+        "serviceProvider": {"reference": "Organization/PROBEHOSP", "display": "PROBE Example Hospital"},
+    },
+    "organisation not a placeholder": {
+        "resourceType": "Coverage",
+        "payor": [{"reference": "Organization/PROBEHOSP"}],
+    },
+    "patient with a name": {
+        "resourceType": "Patient",
+        "id": "x",
+        "name": [{"family": "PROBEFAMILY", "given": ["Example"]}],
+        "birthDate": "1950-01-01",
+    },
+    "practitioner record, lower case": {"resourceType": "practitioner", "id": "z", "name": [{"text": "PROBE"}]},
+    "_reference extension": {
+        "resourceType": "Appointment",
+        "participant": [{"actor": {"_reference": {"extension": [{"valueString": "Practitioner/PROBEEXT"}]}}}],
+    },
+    "patient telecom": {"resourceType": "Patient", "id": "x", "telecom": [{"value": "PROBE-000"}]},
+    "patient address": {"resourceType": "Patient", "id": "x", "address": [{"text": "PROBE street"}]},
+    "a note": {"resourceType": "Condition", "id": "x", "note": [{"text": "PROBE note"}]},
+    "a resource inside an element": {
+        "resourceType": "Encounter",
+        "subject": {"reference": "Patient/syn-1", "resourceType": "Practitioner"},
+    },
+    "a profile not measured": {
+        "resourceType": "Patient",
+        "id": "x",
+        "meta": {"profile": ["https://example.org/PROBE"]},
+    },
+    "an object where a value is": {"resourceType": "Patient", "id": "x", "gender": {"text": "PROBE"}},
+    "a value where an object is": {"resourceType": "Encounter", "subject": "PROBE Example"},
+}
+
+
+@pytest.mark.parametrize("case", sorted(_BYPASSES))
+def test_test_patients_outside_the_allow_list_are_refused(case: str) -> None:
+    files = _small()
+    line = json.dumps(_BYPASSES[case]).encode()
+    files["tests/patients.ndjson"] = b'{"resourceType":"Patient","id":"syn-1"}\n' + line + b"\n"
+    with pytest.raises(
+        ValueError, match=r"^the study folder cannot be packaged: line 2 of tests/patients\.ndjson "
+    ) as e:
+        sp.build(files, PRIV, DAY)
+    assert "PROBE" not in str(e.value) and "\n" not in str(e.value)  # the refusal does not repeat the data
+
+
+def test_the_allow_list_is_what_the_shipped_test_patients_hold() -> None:
+    """The allow-list is measured: exactly the resource types, elements, systems, profiles and reference types of the
+    shipped studies' test patients."""
+    elements: dict[str, set[str]] = {}
+    systems: set[str] = set()
+    profiles: set[str] = set()
+    types: set[str] = set()
+
+    def walk(node: Any, path: str, kind: str) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                walk(value, f"{path}.{key}" if path else key, kind)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item, path, kind)
+        elif path != "resourceType":
+            elements.setdefault(kind, set()).add(path)
+            if path.endswith("system"):
+                systems.add(node)
+            elif path == "meta.profile":
+                profiles.add(node)
+            elif path.endswith("reference"):
+                types.add(node.split("/")[0])
+
+    shipped = sorted(SEED_RULESETS.glob("*/tests/patients.ndjson"))
+    assert len(shipped) == 5
+    for path in shipped:
+        for line in path.read_bytes().splitlines():
+            if line.strip():
+                resource = json.loads(line)
+                walk(resource, "", resource["resourceType"])
+    assert {k: frozenset(v) for k, v in elements.items()} == sp.TEST_PATIENT_ELEMENTS
+    assert systems == sp.TEST_PATIENT_SYSTEMS and len(systems) == 21
+    assert profiles == sp.TEST_PATIENT_PROFILES
+    assert types == sp.TEST_PATIENT_REFERENCE_TYPES
+    assert len(sp.TEST_PATIENT_ELEMENTS) == 12
+
+
+def _ir_with(**extra: Any) -> dict[str, bytes]:
+    files = _small()
+    doc = json.loads(files["ir/RA-JAK-INC-01.json"])
+    files["ir/RA-JAK-INC-01.json"] = json.dumps({**doc, **extra}).encode()
+    return files
+
+
+@pytest.mark.parametrize(
+    ("change", "says"),
+    [
+        (lambda f: _ir_with(reviewer_note="PROBE-IRNOTE"), "does not load as a criterion"),
+        (lambda f: _ir_with(review_history=[{"by": "PROBE-HIST"}]), "does not load as a criterion"),
+        (lambda f: _ir_with(review={"status": "approved", "note": "PROBE"}), "does not load as a criterion"),
+        (lambda f: {**f, "ir/RA-JAK-INC-09.json": b"{not json"}, "is not JSON"),
+        (
+            lambda f: {**f, "valuesets/VS_X.json": json.dumps({"id": "x", "publisher": "PROBE-VS"}).encode()},
+            "value set",
+        ),
+        (
+            lambda f: {
+                **f,
+                "valuesets/VS_HBSAG.json": json.dumps(
+                    {**json.loads(f["valuesets/VS_HBSAG.json"]), "publisher": "PROBE-VS"}
+                ).encode(),
+            },
+            "does not load as a value set",
+        ),
+    ],
+    ids=["ir extra key", "ir review history", "ir review extra key", "ir not json", "valueset", "valueset extra"],
+)
+def test_ir_and_value_sets_load_through_their_models(
+    change: Callable[[dict[str, bytes]], dict[str, bytes]], says: str
+) -> None:
+    with pytest.raises(ValueError, match=f"cannot be packaged: .*{says}"):
+        sp.build(change(_small()), PRIV, DAY)
+    # every shipped value set loads through the model
+    for path in SEED_RULESETS.glob("*/valuesets/*.json"):
+        sp.ValueSetFile.model_validate(json.loads(path.read_bytes()))
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "cql/elm/NOTES",
+        "cql/elm/.reviewer-notes.txt",
+        "cql/elm/cc_ed25519.key",
+        "cql/elm/TB_RA_JAK_v1_0.xml",
+        "cql/elm/.hidden.json",
+        "cql/elm/sub/Other.json",
+        "cql/elm/Other.cql",
+        "cql/.Hidden.cql",
+        "cql/sub/Other.cql",
+        "ir/.hidden.json",
+        "ir/sub/deep.json",
+        "ir/notes.txt",
+        "valuesets/.VS_X.json",
+        "valuesets/sub/VS_X.json",
+        "sql/.x.sql",
+        "sql/sub/x.sql",
+        "sql/notes.txt",
+    ],
+)
+def test_only_the_protocol_files_a_package_takes_are_packed(path: str) -> None:
+    """A file the criteria hash covers or the engine reads but a package does not carry refuses the folder: under
+    cql/elm/ only .json, no hidden file, no subfolder, each folder its one extension."""
+    files = {**_small(), path: b'{"x": "PROBE"}'}
+    with pytest.raises(ValueError, match=f"it holds {re.escape(path)}, which a package does not carry"):
+        sp.build(files, PRIV, DAY)
+    assert not sp.carriable(path)
+
+
+def test_cql_elm_json_must_be_json_and_the_verifier_takes_only_carriable_names(small: bytes) -> None:
+    files = {**_small(), "cql/elm/TB_X.json": b"PROBE not json"}
+    with pytest.raises(ValueError, match="cql/elm/TB_X.json is not JSON"):
+        sp.build(files, PRIV, DAY)
+    files = {**_small(), "cql/elm/TB_X.json": b'{"library": {"identifier": {"id": "TB_X"}}}'}
+    assert "cql/elm/TB_X.json" in sp.verify(sp.build(files, PRIV, DAY), [PUB]).files
+    members = _members(small)
+    for name in ("files/cql/elm/NOTES", "files/cql/elm/.x.json", "files/ir/sub/deep.json"):
+        got = _refused(_resigned({**members, name: b"{}"}))
+        assert got.step == "tar" and "not a member a v1 package may hold" in str(got)
+
+
+def _write_folder(root: Path, files: dict[str, bytes]) -> None:
+    for path, data in files.items():
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_bytes(data)
+
+
+@pytest.mark.parametrize("kind", ["file link", "folder link", "link inside", "fifo"])
+def test_build_dir_refuses_links_and_files_that_are_not_regular(tmp_path: Path, kind: str) -> None:
+    study = tmp_path / "RA-JAK"
+    _write_folder(study, _small())
+    assert sp.verify(sp.build_dir(study, PRIV, DAY), [PUB])
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "x.json").write_bytes(b'{"PROBE": 1}')
+    if kind == "file link":
+        (study / "cql" / "elm").mkdir(parents=True)
+        (study / "cql" / "elm" / "TB_X.json").symlink_to(outside / "x.json")
+        says = "cql/elm/TB_X.json is a symbolic link"
+    elif kind == "folder link":
+        (study / "cql").mkdir()
+        (study / "cql" / "elm").symlink_to(outside, target_is_directory=True)
+        says = "cql/elm is a symbolic link"
+    elif kind == "link inside":
+        (study / "notes.txt").symlink_to(study / "manifest.yaml")
+        says = "notes.txt is a symbolic link"
+    else:
+        os.mkfifo(study / "tests" / "expected.json")
+        says = "tests/expected.json is not a regular file"
+    with pytest.raises(ValueError, match=f"cannot be packaged: {re.escape(says)}"):
+        sp.build_dir(study, PRIV, DAY)
 
 
 def test_the_writer_gives_the_date() -> None:
