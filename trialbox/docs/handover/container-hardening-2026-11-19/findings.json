@@ -27,7 +27,7 @@
    "claim": "the overlay services outside the base file's 15 carry none or only some of the four controls: llm-verifier, judge-sleep-init, judge-wake-init, model-swap-init, caddy, authelia, prometheus, doctor (tests/unit/test_container_hardening.py OUTSIDE_THE_15)",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed 2e3febfb6abea4eb67949f64b09a3711b04aafeb"
   },
   {
    "id": "H10G1-04",
@@ -35,7 +35,7 @@
    "claim": "a reference data pack that fails to load at install is only a stderr warning (deploy/install.sh, the deploy/refdata/pending loop's 'install: warning: reference data ... not loaded' line) and install goes on; under the 10G-1 read-only root the pack's 'compose cp' into criteria-compiler failed that way and only the box rehearsal's later check noticed (CI run 44458900188); the load is fixed (a one-off compose run with the pack bind-mounted), the quiet failure is open",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed 6fdb1319fb4d41baadd0c8c0635c333ce3d8b8df"
   },
   {
    "id": "H10G1-05",
