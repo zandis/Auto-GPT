@@ -7,6 +7,8 @@ rented card): lane J's ``tools/dgpu48.py measure`` run unchanged on a larger car
     TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/ballast48.py measure --option pair-32k [--keep] [--dry-run]
     python3 tools/ballast48.py during --out <file.json> -- <command> ...    # a command's wall time and card peak
     python3 tools/ballast48.py down --out-dir <the measure's folder>        # after --keep: stop the two servers
+    python3 tools/ballast48.py verifier-flag --out-dir <folder> [--off]     # after --keep: the verifier alone again,
+                                                                            # with (or without) H-49's server flag
 
 Why a wrapper. ``tools/dgpu48.py measure`` refuses a card whose total is outside 44,000 to 52,000 MiB, and vLLM's
 utilisations are shares of the card's total. Under the ballast the card still reports its own total (97,887 MiB on
@@ -39,6 +41,8 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:  # `python3 tools/ballast48.py` on the host
@@ -257,6 +261,39 @@ def down(out_dir: Path, run: Runner) -> int:
     return 0 if rc == 0 else 1
 
 
+FLAG = '--structured-outputs-config={"backend":"xgrammar","disable_any_whitespace":true}'  # H-49, option 1
+
+
+def flag_override(out_dir: Path, overlay: Path | None = None) -> Path:
+    """A one-off compose file (in the run's folder, never under deploy/) that gives ``llm-verifier`` the overlay's own
+    command with H-49's flag added; compose replaces a service's command list, so the whole list is restated."""
+    doc = yaml.safe_load((overlay or ROOT / dgpu48.OVERLAY).read_text(encoding="utf-8"))
+    cmd = [str(c) for c in doc["services"]["llm-verifier"]["command"]]
+    f = out_dir / "verifier-flag.yml"
+    f.write_text("# H-47 optional stage: a measurement, not a serving change (written by tools/ballast48.py)\n"
+                 + yaml.safe_dump({"services": {"llm-verifier": {"command": [*cmd, FLAG]}}}, sort_keys=False),
+                 encoding="utf-8")  # fmt: skip
+    return f
+
+
+def verifier_flag(out_dir: Path, run: Runner, on: bool = True) -> int:
+    """Recreate only the verifier of a ``measure --keep`` run, with the flag (or without it), at the same settings."""
+    f = out_dir / "down.json"
+    if not f.is_file():
+        print(f"no {f}: run measure --keep first", file=sys.stderr)
+        return 2
+    d = json.loads(f.read_text(encoding="utf-8"))
+    base = d["cmd"][: d["cmd"].index("rm")]
+    if on:
+        base = [*base, "-f", str(flag_override(out_dir).resolve())]
+    cmd = [*base, "up", "-d", "--wait", "--wait-timeout", str(dgpu48.WAIT_S), "--no-deps", "--force-recreate",
+           "llm-verifier"]  # fmt: skip
+    rc, _, err = run(cmd, dgpu48.WAIT_S + 240, d.get("env"))
+    if rc != 0:
+        print(dgpu48._tail(err), file=sys.stderr)
+    return 0 if rc == 0 else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python3 tools/ballast48.py", description=__doc__.split("\n\n")[0])
     ap.add_argument("--target-mib", type=int, default=TARGET_MIB)
@@ -273,6 +310,9 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("command", nargs=argparse.REMAINDER)
     w = sub.add_parser("down", help="stop the servers a measure --keep left running")
     w.add_argument("--out-dir", type=Path, required=True)
+    v = sub.add_parser("verifier-flag", help="after measure --keep: recreate the verifier with H-49's flag")
+    v.add_argument("--out-dir", type=Path, required=True)
+    v.add_argument("--off", action="store_true", help="recreate it without the flag (as measured)")
     a = ap.parse_args(argv)
     os.chdir(ROOT)  # compose reads deploy/ relative to the checkout
     run = dgpu48._real_runner
@@ -304,6 +344,8 @@ def main(argv: list[str] | None = None) -> int:
             rec = during(cmd, a.out, run, a.target_mib)
             print(json.dumps(rec, indent=1, sort_keys=True))
             return int(rec["exit_code"] != 0)
+        if a.cmd == "verifier-flag":
+            return verifier_flag(a.out_dir, run, on=not a.off)
         return down(a.out_dir, run)
     except (Refused, dgpu48.Refused, KeyError) as exc:
         print(f"ballast48: refused: {exc}", file=sys.stderr)

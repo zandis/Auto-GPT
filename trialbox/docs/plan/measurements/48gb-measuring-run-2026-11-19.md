@@ -24,6 +24,10 @@ lane H wrapper made for this card (`tools/ballast48.py`, section 4). It records:
 | Seconds per judged call | the 54-case pair canary, one call at a time (`services/orchestrator/selftest.py` `check_model`, sequential): `canary.<option>.json` judge `seconds` / `cases` | the head box's judge speed at one in flight |
 | A small screen's wall time | the hospital part of `tools/complete_run.py` (the e2e path: data in, criteria, approval, SCREEN, lists) on a synthetic hospital of 1,000 patients, Japanese, study GZQO, 16 calls in flight, against the class's two servers; `parts/hospital-ja.json` (`wall_seconds`, model calls, calls a second) and `screen-during.json` (wall time, card peak during the screen) | the head box screening a small synthetic site, beside the measured 5,000-patient rows of `tools/complete_run.py` `HOSPITAL_MEASURED` |
 
+**Optional (stage O, H-49):** the verifier's wasted `judge@5` calls on the stored P2b tcga set, without and with the
+server flag `disable_any_whitespace`: flagged calls (`tools.public_accuracy.waste`), seconds per call, and verdicts
+that differ on the calls neither run flagged. A measurement, not a serving change.
+
 It **cannot** prove:
 
 - **A tier record.** Every record says `capped_to: "48 GB class (49,140 MiB), by ballast"`;
@@ -196,6 +200,11 @@ export TB_GPU_KEY="${TB_GPU_KEY:-measuring-run-no-key}"
 python3 tools/ballast48.py during --out ~/h47/screen-during.json -- \
   .venv/bin/python -m tools.complete_run --dir ~/h47-screen --model pair --patients 1000 --langs ja \
   --only prepare hospital-ja --llm-concurrency 16 --judge-url "http://$J:8000/v1" --verifier-url "http://$V:8000/v1"   # NEW wrapper
+```
+
+Then, **unless the optional stage O below is taken now** (it needs the kept servers):
+
+```sh
 docker network disconnect bridge trialbox-llm-service-1; docker network disconnect bridge trialbox-llm-verifier-1
 python3 tools/ballast48.py down --out-dir ~/tb-dgpu48-pair-32k                       # NEW (the option step 6 kept)
 ```
@@ -204,6 +213,50 @@ The screen's records: `~/h47-screen/parts/prepare.json`, `~/h47-screen/parts/hos
 `wall_seconds`, its calls and calls a second, its checks) and `~/h47/screen-during.json` (the wrapper: wall time,
 exit code, card peak, free at peak, whether the ballast still held). A part check that fails does not void the wall
 time; write it on the form.
+
+**O. OPTIONAL: the verifier's whitespace flag (H-49), on the kept servers.** The integrator takes it or leaves it;
+it has its own line in the estimate. **A measurement, not a serving change:** no compose file under `deploy/` is
+edited, the flag lives only in a one-off file in the run's folder, and every figure is by ballast and never a tier
+record. Purpose: H-49 (branch `claude/lane-h-49-verifier-constrained-decoding`,
+`docs/plan/measurements/verifier-constrained-decoding-2026-11-19.md`) found that the verifier's wasted calls of H-40
+(prompt `judge@5`, tcga, launches P2b and P3) pad whitespace between JSON tokens after a string closes early, and that
+on the pinned image the one control is a verifier start-up flag,
+`--structured-outputs-config={"backend":"xgrammar","disable_any_whitespace":true}` (read from the server's source at
+the pinned tag, never run). This stage sends the same stored verifier calls to the verifier without and with the
+flag. Input: the stored **P2b** tcga set (`tcga.tgz`, the integrator's copy; public TCGA reports; 5 flagged calls as
+stored; P3's may be added the same way). Free first, on the integrator's machine: `.venv/bin/python -m
+tools.verifier_replay plan <P2b>/tcga.tgz` prints how many calls it sends (NEW). Then copy it up:
+`gcloud compute scp --zone asia-east1-a <P2b>/tcga.tgz tb-h47-48gb:~/h47-in-tcga-p2b.tgz`. On the VM, the servers of
+step 6 still running and connected to the bridge (step 8):
+
+```sh
+cd ~/Auto-GPT/trialbox
+V=$(docker inspect -f '{{.NetworkSettings.Networks.bridge.IPAddress}}' trialbox-llm-verifier-1)
+.venv/bin/python -m tools.verifier_replay run ~/h47-in-tcga-p2b.tgz --url "http://$V:8000/v1" --label off --out ~/h47-vreplay   # NEW
+python3 tools/ballast48.py verifier-flag --out-dir ~/tb-dgpu48-pair-32k                                     # NEW: the verifier alone, with the flag
+docker network connect bridge trialbox-llm-verifier-1
+V=$(docker inspect -f '{{.NetworkSettings.Networks.bridge.IPAddress}}' trialbox-llm-verifier-1)
+.venv/bin/python -m tools.verifier_replay run ~/h47-in-tcga-p2b.tgz --url "http://$V:8000/v1" --label on --out ~/h47-vreplay    # NEW
+.venv/bin/python -m tools.public_accuracy.waste ~/h47-vreplay/off --json ~/h47/waste-off.json
+.venv/bin/python -m tools.public_accuracy.waste ~/h47-vreplay/on --json ~/h47/waste-on.json
+.venv/bin/python -m tools.verifier_replay compare ~/h47-vreplay/off ~/h47-vreplay/on --json ~/h47/vreplay-compare.json   # NEW
+cp ~/h47-vreplay/off/work/replay.json ~/h47/vreplay-off.json && cp ~/h47-vreplay/on/work/replay.json ~/h47/vreplay-on.json
+docker network disconnect bridge trialbox-llm-service-1; docker network disconnect bridge trialbox-llm-verifier-1
+python3 tools/ballast48.py down --out-dir ~/tb-dgpu48-pair-32k
+```
+
+It records: flagged calls per label by `tools.public_accuracy.waste` (`sets.tcga-off` and `sets.tcga-on`,
+`by_model.v-verifier`: cut, loop, outside the schema, flagged); seconds per call with and without the flag (mean,
+median, total; one call at a time, straight to the server, not through the gateway); calls that ended at the token
+limit (the finish reason, which the stored traces lack); and the count of verdicts that differ between the two on the
+calls neither run flagged (`verdicts_differ`, `unflagged_in_both`). How the calls are sent (`tools/verifier_replay.py`,
+NEW): the stored messages of each verifier `judge@5` call that got an answer, with the body the box's client builds
+(`libs/tb_common/llm.py`: the served model, temperature 0, `max_tokens` 1024, `response_format` `json_schema` with the
+registered schema, strict), no retry with more room. If the verifier does not start with the flag (`verifier-flag`
+exits 1), write it down and run `python3 tools/ballast48.py verifier-flag --out-dir ~/tb-dgpu48-pair-32k --off`
+before `down`: that is a result too (the flag as written is refused by this release). It cannot show: the gateway's
+own path (its retry with four times the room, its schema binding), the judge with the flag, or a serving change's
+effect on the recorded-answer gates.
 
 **9. One more option, if the clock allows** (the stop line, section 5): if `pair-32k` started, the 53 GiB question,
 `TB_UNMEASURED_DGPU48_MEASURING_RUN=1 python3 tools/ballast48.py measure --option pair-32k-host53` (NEW wrapper; no
@@ -225,6 +278,8 @@ gcloud compute instances delete tb-h47-48gb --zone asia-east1-a --quiet
 ```
 
 **Never brought back:** `~/h47-raw` (the stub start's output, with the administrator's password), `deploy/.env`,
+the optional stage's `~/h47-vreplay` and `~/h47-in-tcga-p2b.tgz` (the answers' and notes' text; its counts are in
+`~/h47`),
 `deploy/secrets/`, `down.json`, the containers' logs, the screen's work folders and screenshots. The records hold no
 key: `tools/dgpu48.py` scrubs the record and the canary (`sanitize`, `scrub_json_text`: host name and device ID
 withheld); the wrapper writes the command line without the environment. Look at them before posting anyway.
@@ -245,6 +300,12 @@ than the 49,140 MiB the ballast leaves free. The wrapper runs lane J's `measure`
 - writes a `ballast` block into `measure.<option>.json` (card, target, held, scaled utils, `tier_record: false`,
   whether the ballast still held at the end, free at peak) and prefixes the `outcome` with "BY BALLAST" (or "BALLAST
   LOST").
+
+For the optional stage O, `verifier-flag` recreates only the verifier of a `--keep` run at the same settings (from
+`down.json`), with a one-off compose file in the run's folder (`verifier-flag.yml`: the overlay's own verifier command
+restated, since compose replaces a command list, plus H-49's flag); `--off` recreates it without. And
+`tools/verifier_replay.py` (NEW, lane H) sends a stored set's verifier calls again (section 3, stage O) and compares
+two runs; tests: `tests/unit/test_verifier_replay_h47.py`, on stand-ins.
 
 It refuses before lane J's `measure` is called when no `tb-ballast` container runs or the card's free memory is not
 49,140 within 512 MiB. `during` runs a command and records its wall time and the card's peak; `down` replays the stop
@@ -267,12 +328,15 @@ measured elsewhere say where.
 | 6. `pair-32k` with `--keep` | 0.13 h | 0.25 h | 0.80 h | weights hashed twice (check and record) at 140 to 440 MB/s, 63 to 200 s each; the servers ready in 199 s on this card (`gpu-run-2026-11-08/fit.json`), at most the overlay's 35 min; the canary 124 to 300 s (`CANARY_SECONDS`) |
 | 7. The screen's tools | 0.15 h | 0.25 h | 0.40 h | `tools/complete_run.py --estimate`'s "VM setup: packages, venv, browser, fonts", 0.25 h; 0 when done during stage 3 |
 | 8. The screen, 1,000 patients, ja, 16 in flight | 0.12 h | 0.20 h | 0.50 h | `--estimate` (run here): 0.13 h from the measured 5,000-patient rows (run `20261113T044219Z-2b9eec74`) scaled; the synthetic hospital's generation not measured |
+| O. OPTIONAL: the verifier flag (H-49) | 0.15 h | 0.30 h | 0.70 h | **not measured**: two replays of the stored calls one at a time (P2b's verifier answered about 55,302 output tokens in all, H-49) and one verifier restart (the pair was ready in 199 s, `fit.json`); `verifier_replay plan` gives the call count before the launch |
 | 9. One more option | 0.13 h | 0.25 h | 0.80 h | as stage 6 (the image is there) |
 | 10. Records back, VM deleted | 0.03 h | 0.05 h | 0.10 h | not measured |
-| **In all** | **1.04 h, US$2.85** | **2.18 h, US$5.97** | **5.37 h, US$14.71** | |
+| **In all, without O** | **1.04 h, US$2.85** | **2.18 h, US$5.97** | **5.37 h, US$14.71** | |
+| **In all, with O** | **1.19 h, US$3.26** | **2.48 h, US$6.80** | **6.07 h, US$16.63** | |
 
-- **The estimate to post: US$6.0 (2.2 h).**
-- **The stop line, 50 % over the estimate: US$9.0 (3.3 h).** At the stop line: Ctrl-C whatever runs (the measuring
+- **The estimate to post: US$6.0 (2.2 h) without the optional stage; US$6.8 (2.5 h) with it.**
+- **The stop line, 50 % over the estimate: US$9.0 (3.3 h) without O; US$10.2 (3.7 h) with O.** O runs only when
+  the clock at its start leaves its high (0.7 h) before the stop line; else skip it. At the stop line: Ctrl-C whatever runs (the measuring
   run stops its servers and writes what it measured), then step 10. Stages 5 and 6 (the memory records) come before
   the screen, so a stop at the line still brings them back.
 - **The cap: `--max-run-duration 4h`**, US$10.96 SPOT; the VM stops (not deleted) at the cap. Copying the records
@@ -296,6 +360,7 @@ measured elsewhere say where.
 | 6 option(s) and each `outcome` | | | |
 | 7 screen tools | | | |
 | 8 screen (`wall_seconds`, failed checks) | | | |
+| O optional: verifier flag (taken or not; started with the flag or not) | | | |
 | 9 one more option, `outcome` | | | |
 | 10 records, ballast `released`, delete | | | |
 
@@ -311,6 +376,7 @@ measured elsewhere say where.
   this card). Is that the form you want for a Blackwell card, or should the probe run first (up to 1 h)?
 - **J-3 (lane J):** is "full-context sequences that fit = `kv_cache_tokens` / max context" the reading you want for
   "sequences that fit", or should a later option raise `*_MAX_SEQS` past 16 to try it?
+- **I-2 (integrator):** take the optional stage O or not; where the stored P2b `tcga.tgz` is, to copy it up.
 - **I-1 (integrator):** the VM name `tb-h47-48gb`, the zone and the 250 GB disk; who runs it; `<sha>` once merged.
 
 ## 8. Not shown
