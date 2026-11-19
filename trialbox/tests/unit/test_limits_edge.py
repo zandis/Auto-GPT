@@ -91,7 +91,9 @@ def test_verdict() -> None:
     assert le.verdict("X", [*ok[:2], {"case": "far_over", "accepted": True}]) == "far_over accepted"
 
 
-@pytest.mark.parametrize("row_id", ["L02", "L03", "L06", "L09", "L12", "L14", "L15", "L16", "L17", "L18"])
+@pytest.mark.parametrize(
+    "row_id", ["L02", "L03", "L06", "L09", "L12", "L14", "L15", "L16", "L17", "L18", "L36", "L37", "L38", "L39"]
+)
 def test_the_function_drivers_run_and_the_limit_holds(row_id: str, tmp_path: Path) -> None:
     """The drivers on functions and stand-ins need no database; each holds today (the words are judged on the page)."""
     row = next(r for r in le.STATED if r.id == row_id)

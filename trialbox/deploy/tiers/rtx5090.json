@@ -1,0 +1,156 @@
+{
+  "schema": "tb-tier-record/1",
+  "profile": "rtx5090",
+  "tier": "small",
+  "measured_on": {
+    "serving_record": null,
+    "qualification_record": null
+  },
+  "fields": {
+    "box_role": {
+      "basis": "declared",
+      "value": "site",
+      "source": "docs/plan/47-plan-10-2026-11-18.md:375 commitment C-14 (decision 104): the site box screens its own patients against imported, signed packages and never reads a protocol"
+    },
+    "card_names": {
+      "basis": "declared",
+      "value": ["5090", "RTX PRO 4500"],
+      "source": "deploy/gpu_profile.sh:36 the card names that give this profile"
+    },
+    "arch": {
+      "basis": "declared",
+      "value": "x86_64",
+      "source": "deploy/docker-compose.rtx5090.yml:1 one RTX 5090 (32 GB, x86-64)"
+    },
+    "card_memory_mib": {
+      "basis": "declared",
+      "value": 32607,
+      "source": "deploy/docker-compose.rtx5090.yml:30 a 5090's 32,607 MiB (stated, not read from a card of ours)"
+    },
+    "driver": {
+      "basis": "not_measured",
+      "value": null,
+      "measured_by": "R-1, the first real-card record (plan 10 row 10E-30); then the delivered machine's own record (10E-35)"
+    },
+    "ecc": {
+      "basis": "not_measured",
+      "value": null,
+      "measured_by": "the card's own nvidia-smi on R-1 (10E-30); the maker's page does not state it (docs/reviews/2026-11-root/13-tiers-and-tuning.md:239)"
+    },
+    "desk_side": {
+      "basis": "declared",
+      "value": true,
+      "source": "docs/reviews/2026-11-root/16-security-certification-customisation.md:162 a desk-side 5090 workstation"
+    },
+    "host_memory_gib_min": {
+      "basis": "declared",
+      "value": 64,
+      "source": "deploy/docker-compose.rtx5090.yml:20 Host RAM: 64 GB or more"
+    },
+    "judge_sequences": {
+      "basis": "declared",
+      "value": 4,
+      "source": "deploy/docker-compose.rtx5090.yml:105 --max-num-seqs default 4 (16 waits for R-1's A1, plan 10 row 10E-3)"
+    },
+    "verifier_sequences": {
+      "basis": "declared",
+      "value": 4,
+      "source": "deploy/docker-compose.rtx5090.yml:132 --max-num-seqs default 4"
+    },
+    "screen_concurrency": {
+      "basis": "declared",
+      "value": 4,
+      "source": "deploy/docker-compose.rtx5090.yml:178 TB_SCREEN_LLM_CONCURRENCY follows the judge's sequences"
+    },
+    "context_tokens": {
+      "basis": "declared",
+      "value": 8192,
+      "source": "deploy/docker-compose.rtx5090.yml:104,131 --max-model-len default 8192"
+    },
+    "gpu_memory_utilization": {
+      "basis": "declared",
+      "value": 0.81,
+      "source": "deploy/docker-compose.rtx5090.yml:107,134 each server's utilisation, one awake at a time"
+    },
+    "models_on_card": {
+      "basis": "declared",
+      "value": "pair_sleep_swap_one_awake",
+      "source": "deploy/docker-compose.rtx5090.yml:13 one model awake at a time (TB_MODEL_SWAP=sleep)"
+    },
+    "note_rule": {
+      "basis": "declared",
+      "value": "both_agree",
+      "source": "deploy/install.sh:482 a note criterion excludes only when both models agree"
+    },
+    "judge_calls_per_second": {
+      "basis": "not_measured",
+      "value": null,
+      "measured_by": "R-1 acceptance A3 (plan 10 row 10E-30; docs/reviews/2026-11-root/19-first-site-consumer-card.md section 4.5); the figure taken on a capped larger card is not a measurement of this card"
+    },
+    "free_memory_at_peak_mib": {
+      "basis": "not_measured",
+      "value": null,
+      "measured_by": "R-1 acceptance A1 (plan 10 row 10E-30)"
+    },
+    "wake_seconds_p95": {
+      "basis": "not_measured",
+      "value": null,
+      "measured_by": "R-1 acceptance A2, 500 swaps (plan 10 row 10E-30)"
+    },
+    "startup_minutes": {
+      "basis": "not_measured",
+      "value": null,
+      "measured_by": "plan 10 row 10E-14 (start-up and idle memory per tier)"
+    },
+    "idle_memory_mib": {
+      "basis": "not_measured",
+      "value": null,
+      "measured_by": "plan 10 row 10E-14 (start-up and idle memory per tier)"
+    },
+    "power_limit_watts": {
+      "basis": "not_measured",
+      "value": null,
+      "measured_by": "plan 10 row 10E-37 (a power limit at boot, from R-1's measured loss)"
+    },
+    "role_groups_on_box": {
+      "basis": "declared",
+      "value": ["patient", "converse"],
+      "source": "docs/reviews/2026-11-root/19-first-site-consumer-card.md:472 roles on the box: patient and converse groups only (groups of models/routing.yaml)"
+    },
+    "protocol_route": {
+      "basis": "declared",
+      "value": "package_from_coordinating_box",
+      "source": "docs/plan/47-plan-10-2026-11-18.md:375 commitment C-14: protocols are read on the head box and arrive as a signed package"
+    },
+    "interactive_lane": {
+      "basis": "declared",
+      "value": "when_no_run_holds_the_card",
+      "source": "services/gateway/swap.py:13-17 while a run holds the card an interactive call to the sleeping model gets model_busy"
+    },
+    "busy_wait_seconds": {
+      "basis": "declared",
+      "value": 30,
+      "source": "deploy/docker-compose.rtx5090.yml:20 chat during the verifier pass gets busy, try again within 30 s"
+    },
+    "night_budget_patients": {
+      "basis": "not_measured",
+      "value": null,
+      "measured_by": "plan 10 row 10E-11 (night plan per tier), sized from judge_calls_per_second once R-1 measures it; the code default of services/orchestrator/scenarios/microbatch.py is not a tier value"
+    },
+    "first_load_nights": {
+      "basis": "not_measured",
+      "value": null,
+      "measured_by": "plan 10 rows 10E-33 and 10E-20, from judge_calls_per_second once R-1 measures it"
+    },
+    "console_promises": {
+      "basis": "declared",
+      "value": [
+        {"capability": "protocol_reading", "status": "not_on_this_box", "because": "arrives_as_a_signed_package"},
+        {"capability": "note_exclusion", "status": "available", "because": "two_models_agree_one_at_a_time"},
+        {"capability": "chat_during_a_screening_run", "status": "busy_until_the_run_releases_the_card", "because": "one_model_awake"},
+        {"capability": "card_memory_error_correction", "status": "not_measured", "because": "ecc_not_measured"}
+      ],
+      "source": "docs/reviews/2026-11-root/19-first-site-consumer-card.md:473 the site box's capability rows (plan 10 rows 10E-33, 10K-11)"
+    }
+  }
+}

@@ -1170,6 +1170,7 @@ def create_app(
             seal=ident.box.seal,
             secure=settings.secure_cookie,
             folder=Path(fr_dir) if fr_dir else None,
+            country=firstrun.country_on(_env_map(env)),  # 10K-1: TB_FIRSTRUN_COUNTRY, off by default
         ),
     )
 

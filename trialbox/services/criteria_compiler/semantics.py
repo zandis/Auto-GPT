@@ -162,6 +162,56 @@ FILTERED = ("structured", "mixed")  # classes whose logic is compiled to CQL/SQL
 JUDGED = ("note", "mixed")  # classes whose note_question goes to the model
 
 
+def demographic_alone(logic: Atom | BoolExpr | None) -> bool:
+    """Whether a criterion's coded logic is an age or a sex and nothing else: every atom demographic, none naming a
+    ValueSet or a derived value (P2b: an exclusion that compiled to this while its line named more lost its
+    qualifier; a mixed inclusion that compiled to this was met on its age alone, card 10A-2)."""
+    if logic is None:
+        return False
+    got = atoms(logic)
+    return bool(got) and all(_demographic(a) for a in got)
+
+
+def _demographic(a: Atom) -> bool:
+    """An age or sex atom (as :func:`demographic_alone` reads one)."""
+    return a.domain == "demographic" and a.valueset in ("NONE", "", None) and not a.derived and bool(a.sex or a.age)
+
+
+def met_on_demographics(logic: Atom | BoolExpr | None) -> bool:
+    """Whether a criterion's coded logic can be true on its age and sex atoms alone: true for some answer of its age
+    and sex atoms while every other record is absent (an atom false, a ``none`` atom true; card 10A-2: ``age``,
+    ``age and sex``, ``age or gout``, ``age or not gout``, ``age and no gout record`` and ``not age`` can; ``gout``
+    and ``age and gout`` cannot). A logic with more than 12 age or sex atoms
+    is read as one that can (never seen; the answer that keeps the notes asked)."""
+    if logic is None:
+        return False
+    demo = [a for a in atoms(logic) if _demographic(a)]
+    if not demo:
+        return False
+    if len(demo) > 12:
+        return True
+
+    def ev(e: Atom | BoolExpr, on: dict[int, bool]) -> bool:
+        if isinstance(e, Atom):  # a record's absence ("none") is true when every other record is taken as absent
+            return on.get(id(e), e.quantifier == "none")
+        if e.op == "not":
+            return not ev(e.args[0], on)
+        got = [ev(x, on) for x in e.args]
+        return all(got) if e.op == "and" else any(got)
+
+    return any(ev(logic, {id(a): bool(n >> i & 1) for i, a in enumerate(demo)}) for n in range(1 << len(demo)))
+
+
+def codes_settle(c: CriterionIR) -> bool:
+    """Whether a ``mixed`` criterion's coded part, when true, settles the line without its note question (D-98).
+    Card 10A-2 (review 15, P2b: 6 of 81 mixed inclusions): an inclusion whose coded part can be true on an age or a
+    sex alone ("18 years or older with a diagnosis of FAP", "women with a negative pregnancy test" kept as
+    ``female``, or an age in an "or") is not met on that part: the notes decide the rest, and with no answer from
+    them the line stays unknown, never met and never excluded. An exclusion keeps D-98 (the compiler's
+    ``qualifier_dropped`` rule keeps an age-or-sex-alone exclusion from running)."""
+    return not (c.class_ == "mixed" and c.kind == "inclusion" and met_on_demographics(c.logic))
+
+
 def class_split(criteria: list[CriterionIR]) -> dict[str, int]:
     """How many active (not rejected) inclusion/exclusion criteria each class checks (D-101)."""
     out = {"structured": 0, "mixed": 0, "note": 0, "human": 0}
