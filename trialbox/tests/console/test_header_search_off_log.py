@@ -200,18 +200,80 @@ def test_on_the_log_every_source_is_still_found(box: dict[str, Any], name: str) 
     assert (r.status_code, r.headers.get("location")) == (303, f"/studies/GZQO/patients/{BOTH}")
 
 
-def test_a_break_glass_grant_finds_the_one_patient_the_page_opens_and_uses_nothing(box: dict[str, Any]) -> None:  # noqa: F811
-    """Narrow only: where the patient page admits the off-log investigator (an open grant for that patient, T-309), the
-    search finds that patient, as before; the others of study B stay absent. The search records no use of the grant."""
+def test_a_break_glass_grant_changes_nothing_in_the_search(box: dict[str, Any]) -> None:  # noqa: F811
+    """D-1241 (lane J lead's ruling on #1138): the search asks no grant. An off-log investigator holding an open grant
+    for a patient of study B gets for that patient what it got before the patient existed, and no grant use is
+    recorded; the grant opens the patient from the patient page, which records the use (D-430)."""
     accounts = _accounts(box)
     c = accounts["subi_a"]
     nos = _numbers()
-    absent = {q: _answer(box, c, q) for q in (NUMBERED[:12], nos[NUMBERED], REGISTERED[:12])}
+    queries = (WEEK[:8], WEEK[:12], WEEK, NUMBERED[:12], nos[NUMBERED], REGISTERED[:12])
+    absent = {q: _answer(box, c, q) for q in queries}
     _seed(box)
     assert _open(c, kind="patient", ruleset="GZQO", pid=WEEK).status_code == 303
     uses = sum(x.get("event") == "console.breakglass_use" for x in _audit(box))
-    r = c.get("/cmd", params={"q": WEEK[:12]}, follow_redirects=False)
-    assert (r.status_code, r.headers.get("location")) == (303, f"/studies/GZQO/patients/{WEEK}")
-    assert sum(x.get("event") == "console.breakglass_use" for x in _audit(box)) == uses  # found, not used
     for q, before in absent.items():
         assert _answer(box, c, q) == before, q
+    assert sum(x.get("event") == "console.breakglass_use" for x in _audit(box)) == uses  # the search used nothing
+    assert c.get(f"/studies/GZQO/patients/{WEEK}", follow_redirects=False).status_code == 200  # the control: the page
+    assert sum(x.get("event") == "console.breakglass_use" for x in _audit(box)) == uses + 1
+
+
+def test_no_role_without_phi_view_finds_a_patient_not_even_with_a_grant(box: dict[str, Any]) -> None:  # noqa: F811
+    """The ``phi.view`` guard: the administrator (with an open grant for a patient of study B) and every other role
+    without ``phi.view`` find no patient by any input, in either study: the answer of a number that does not exist."""
+    accounts = _accounts(box)
+    nos = _numbers()
+    queries = _queries(nos)
+    names = [f"r_{r}" for r in ROLES if r not in ("coordinator", "investigator")]
+    absent = {(n, q): _answer(box, accounts[n], q) for n in names for q in queries}
+    _seed(box)
+    assert _open(accounts["r_admin"], kind="patient", ruleset="GZQO", pid=WEEK).status_code == 303
+    assert accounts["r_admin"].get(f"/studies/GZQO/patients/{WEEK}").status_code == 200  # the grant holds
+    for n in names:
+        for q in queries:
+            assert _answer(box, accounts[n], q) == absent[(n, q)], (n, q)
+
+
+SHORT = "a5" * 16  # study B's number under a short prefix: "B-0004", 6 characters
+
+
+def test_a_screening_number_shorter_than_eight_characters(box: dict[str, Any]) -> None:  # noqa: F811
+    """A number under the 8 characters of a pseudonym query (``B-0004``) is answered off the log as one that does not
+    exist, and found on the log as before."""
+    accounts = _accounts(box)
+    off, on = accounts["subi_a"], accounts["subi_b"]
+    queries = ("B-0004", "b-0004")
+    absent = {q: _answer(box, off, q) for q in queries}
+    _seed(box)
+    store = box["app"].state.helpers.store
+    assert store.assign_screening_no("GZQO", SHORT, StudySettings(screening_prefix="B-"), AT) == "B-0004"
+    for q in queries:
+        assert _answer(box, off, q) == absent[q], q
+        r = on.get("/cmd", params={"q": q}, follow_redirects=False)
+        assert (r.status_code, r.headers.get("location")) == (303, f"/studies/GZQO/patients/{SHORT}"), q
+
+
+def test_the_search_asks_the_patient_pages_own_question(box: dict[str, Any], monkeypatch: Any) -> None:  # noqa: F811
+    """The search asks ``Helpers.reads`` (the patient page's question), once per study, and follows its answer: a copied
+    rule would not follow it when it changes."""
+    accounts = _accounts(box)
+    _seed(box)
+    h = box["app"].state.helpers
+    real = h.reads
+    asked: list[tuple[str, str | None]] = []
+
+    def spy(user: Any, rid: str | None) -> bool:
+        asked.append((user.username, rid))
+        return bool(real(user, rid))
+
+    monkeypatch.setattr(h, "reads", spy)
+    r = accounts["subi_a"].get("/cmd", params={"q": WEEK[:12]}, follow_redirects=False)
+    assert r.status_code == 200 and ("subi_a", "GZQO") in asked and ("subi_a", "RA-BIO") in asked
+    # the answer flips with it: refused, the coordinator finds nothing; admitted, the off-log investigator finds B's
+    monkeypatch.setattr(h, "reads", lambda user, rid: user.username != "r_coordinator" and bool(real(user, rid)))
+    r = accounts["r_coordinator"].get("/cmd", params={"q": WEEK[:12]}, follow_redirects=False)
+    assert r.status_code == 200 and WEEK not in r.text
+    monkeypatch.setattr(h, "reads", lambda user, rid: True)
+    r = accounts["subi_a"].get("/cmd", params={"q": WEEK[:12]}, follow_redirects=False)
+    assert (r.status_code, r.headers.get("location")) == (303, f"/studies/GZQO/patients/{WEEK}")

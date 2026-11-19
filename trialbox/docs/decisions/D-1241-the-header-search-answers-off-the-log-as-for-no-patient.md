@@ -23,19 +23,22 @@ page listing it). No chart data, but the existence of the number and the pseudon
 1. **The patient page's own question.** For each study, the search asks `Helpers.reads(user, study)`, the question
    the patient page asks first (the `phi.view` row, then the study's delegation log: `Helpers.delegated_ok`, D-147,
    D-273). No second rule is written.
-2. **Where it says no**, a patient of that study is found only when an open break-glass grant covers that patient
-   (`Helpers.breakglass_find`, the patient page's other way in, D-430). The grant is found, not used: a search opens
-   nothing, so no use is recorded. Every other match of that study is dropped.
-3. **A dropped match is a miss.** The answer is the answer for a number or prefix that does not exist: the same
+2. **Where it says no, grant or no grant**, no patient of that study is looked for. The search makes no break-glass
+   call at all: a search that confirmed a number-to-pseudonym link for a grant holder would do so without the use
+   row the patient page writes (`Helpers.breakglass`, D-430: every use is listed). The person holding a grant opens
+   the patient from the grant's own page, where the use is recorded. Break-glass stays wholly lane C2's. (Ruled by
+   lane J's lead in the review of PR #1138; the first version found a grant-covered patient without recording a
+   use, and is withdrawn.)
+3. **A refused study is a miss.** The answer is the answer for a number or prefix that does not exist: the same
    status, headers, body and template, and the same `console.command` audit row (`intent` and `action` only, as
-   before; no refusal is audited, since nothing was asked of that study's pages). A miss in such a study asks the
-   grants once, as a refused match does, so a single hit and a miss do the same reads.
+   before; no refusal is audited, since nothing was asked of that study's pages). The study is skipped before any of
+   its sources is read, so a hit and a miss in it do the same work.
 4. **Nothing else changes.** Accounts the patient page admits (a coordinator; an investigator on the log; any account
    in a study whose log the matrix does not condition) get byte for byte what they got before. The matrix
    (`libs/tb_common/authz_matrix.yaml`), the role and route tables, sign-in, accounts, the audit schema, notices and
    break-glass are untouched. Roles without `phi.view` found no patient before and find none now; the administrator
-   still finds none, even with a grant (the search never gave the administrator patients; widening it is not this
-   card's).
+   still finds none, even with a grant. The `phi.view` guard before the loop stays; `Helpers.reads` asks `phi.view`
+   too, so the two hold the same line twice.
 5. **Study names stay as they are.** A study-name hit lists the studies of the account's scope (`User.sees_study`),
    the same list S22 My account shows (`studies_of`). D-147 and D-273 restrict a study's patient rows, not its
    name, so an investigator off a study's log still sees the study's name where the scope gives it.
