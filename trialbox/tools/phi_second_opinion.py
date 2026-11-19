@@ -21,8 +21,8 @@ Three sets, all synthetic or public:
   Taiwan IDs, phones and addresses, DOB in Western and ROC forms, and decoys (eponyms, drugs, departments).
 * ``phi_synth-en``: the 40 English notes of ``eval/phi_synth`` (labelled; their facility, age and visit dates are
   not what the note masker masks, so only names, IDs, phones, addresses, DOB and e-mail are scored).
-* ``sigir-en`` and ``sigir-mixed``: the 53 public-domain SIGIR notes of ``eval/criterion_ml`` in English and in the
-  code-mixed form (no identifier planted): every span flagged is a candidate false positive.
+* ``sigir-en`` and ``sigir-mixed``: the 53 SIGIR notes of ``eval/criterion_ml`` (CC BY-SA 4.0, CSIRO; see its
+  ``NOTICE.md``) in English and in the code-mixed form (no identifier planted): every span flagged is a candidate false positive.
 
 A planted identifier is ``found`` when the flagged spans cover all of its non-space characters, ``partial`` when
 some, ``missed`` when none. A decoy flagged is a false hit."""

@@ -212,7 +212,11 @@ def verify(
         raise Rejected(f"not a tar bundle: {exc}") from exc
     with tf:
         members = {}
-        for m in tf.getmembers():
+        try:
+            listing = tf.getmembers()
+        except tarfile.TarError as exc:  # H10G43-04: a bundle cut inside a member fails here, not at open
+            raise Rejected(f"a damaged or cut-short tar bundle: {exc}") from exc
+        for m in listing:
             if m.isdir():
                 _safe(m.name.rstrip("/"))
                 continue

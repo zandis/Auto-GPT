@@ -22,6 +22,7 @@ names. Every record is written by the pull request or the tool that does the wor
 | [`record-inventory.md`](record-inventory.md) | every record the box makes or holds: class, system of record, keeper, retention, export, audit events; the store map | T-643 |
 | [`erasure-registry.md`](erasure-registry.md) | generated from `libs/tb_common/erasure.py`: what an opt-out erases, keeps (with the decision) and still owes, per table, lake folder and store | T-727 |
 | [`soa.csv`](soa.csv) | the statement of applicability: ISO/IEC 27001:2022 Annex A, 93 controls, who each applies to (product, Aimedics, hospital), evidence or a reason | T-649c |
+| [`ssdf-iec81001.csv`](ssdf-iec81001.csv) | the secure-development mapping: NIST SSDF v1.1 (19 practices, 42 tasks) and IEC 81001-5-1 clauses 4 to 9 (own-word titles, unverified against the standard's text), each with a status, evidence, the gap and the card that would close it; a self-assessment, no claim (page: `docs/security/11-secure-development-mapping.md`, D-1240) | 10G-19 |
 | [`edc-data-flow.md`](edc-data-flow.md) | TrialBox to the sponsor's EDC: the data-flow description for a sponsor's data-management plan (TFDA §4.7) | EDC-023 |
 | `protocols/` | IQ, OQ, PQ protocols, only under TB-PLAN-06 §0.3 item 2 (planned) | T-315b |
 

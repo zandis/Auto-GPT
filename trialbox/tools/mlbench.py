@@ -2,10 +2,11 @@
 
 Task: one patient note + one eligibility criterion → label + evidence sentence ids, the TrialBox S3 judge task.
 
-Data: NCBI TrialGPT-Criterion-Annotations (1,015 patient–criterion pairs labelled by physicians, public domain;
-Jin et al., Nat Commun 2024), with each of its 53 SIGIR patient notes also rendered in Traditional Chinese (zh-TW),
-Japanese (ja) and Taiwanese code-mixed EMR style (mixed). Translations keep the sentence order and count, so the
-expert's evidence sentence ids hold in every language. Criteria stay in English, as protocols arrive.
+Data: NCBI TrialGPT-Criterion-Annotations (1,015 patient–criterion pairs; the labels carry NCBI's public domain notice,
+Jin et al., Nat Commun 2024); its 53 SIGIR patient notes (CC BY-SA 4.0, CSIRO) are also rendered in
+Traditional Chinese (zh-TW), Japanese (ja) and Taiwanese code-mixed EMR style (mixed). Translations keep the
+sentence order and count, so the expert's evidence sentence ids hold in every language.
+Criteria stay in English, as protocols arrive.
 
 Models: any OpenAI-compatible endpoint. Default is OpenRouter (``OPENROUTER_API_KEY``) to compare open-weight models
 before buying hardware; the same code points at the box's vLLM (``--base-url http://llm-service:8000/v1``).
@@ -211,7 +212,7 @@ class Client:
             "response_format": {"type": "json_object"},
         }
         if self.openrouter:
-            # public-domain synthetic data, but keep the habit: no provider training on prompts; report cost
+            # public data (SIGIR notes, CC BY-SA 4.0); keep the habit: no provider training on prompts; report cost
             b["provider"] = {"data_collection": "deny"}
             b["usage"] = {"include": True}
             b["reasoning"] = {"effort": "low", "exclude": True}

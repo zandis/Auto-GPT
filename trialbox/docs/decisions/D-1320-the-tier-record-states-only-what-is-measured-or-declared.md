@@ -5,6 +5,15 @@
 - **Status:** proposed
 - **Builds on:** D-112 and D-124 (a profile installs only from a serving record of its own uncapped card), D-138
   (tiers from measured records only)
+- **Amended 2026-11-18 (10E-1c):** the records, schema and page moved from `deploy/tiers/` to `models/tiers/`,
+  which `deploy/docker/python.Dockerfile` copies into the trialbox-py image (`COPY models /app/models`), so the
+  gateway and the orchestrator find them at the same path relative to the code as on the host. Readers take a value
+  from the record only when its field is measured (D-1322).
+- **Amended 2026-11-19 (10E-1d):** a second kind of measured source, `measured_on.peak_record` (a card-memory peak
+  file with its origin stated in the tier record), may be the source of `free_memory_at_peak_mib` only, and only
+  when its origin names the same profile, an uncapped card whose memory total equals the serving record's, every
+  origin fact (or "not stated in the file"), what the peak is not, and a configuration that day equal to the serving
+  record's; the value is `total_mib - peak_mib`. A ballast, capped, other-card or other-configuration peak is refused.
 
 ## Context
 
@@ -17,8 +26,8 @@ on the card itself: the only stored figures were taken on a larger card capped t
 
 ## Decision
 
-1. **One file per GPU profile.** `deploy/tiers/<profile>.json`, format `tb-tier-record/1`, schema
-   `deploy/tiers/tier_record.schema.json`. The file's name is the profile `deploy/gpu_profile.sh` prints; `tier` is
+1. **One file per GPU profile.** `models/tiers/<profile>.json`, format `tb-tier-record/1`, schema
+   `models/tiers/tier_record.schema.json`. The file's name is the profile `deploy/gpu_profile.sh` prints; `tier` is
    the name `tools/tiers.py` gives that profile.
 2. **Every field states its basis.** `measured` (from `measured_on.serving_record`, which must pass
    `tools/serving_config.py`'s rule for the profile), `declared` (a repository file and line, which the checker opens),
@@ -29,9 +38,9 @@ on the card itself: the only stored figures were taken on a larger card capped t
    that leaves one out is refused; "not measured" is a complete answer.
 4. **A stand-in is never a tier record.** A record whose text says "by ballast", or whose serving record was taken on
    a capped card (ballast or utilisation), is refused by name.
-5. **The 32 GB site box's record is the first.** `deploy/tiers/rtx5090.json`: 0 measured, 18 declared, 10 not
+5. **The 32 GB site box's record is the first.** `models/tiers/rtx5090.json`: 0 measured, 18 declared, 10 not
    measured. It changes only by a new measurement (R-1, row 10E-30) or a changed declaration.
-6. **What reads it.** `deploy/tiers/README.md` lists, per waiting row (10E-33, 10E-11, 10E-17, 10G-11, 10K-3,
+6. **What reads it.** `models/tiers/README.md` lists, per waiting row (10E-33, 10E-11, 10E-17, 10G-11, 10K-3,
    10K-11), the fields it reads. Moving the existing readers onto the record (the gateway's slot constant, the night
    budget default, the console) is their owners' change and is not made by this record.
 
