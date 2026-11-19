@@ -9,20 +9,12 @@ box's profile comes from ``TB_PROFILE``, the label the installer writes (``deplo
 ``declared`` or ``not_measured`` field, a missing or malformed record and an unknown label give no value, and the
 reader keeps the value it had before the record existed (its named fallback). :class:`TierValue` says which case it
 was, for the reader's start-up log line. A box never fails to start because of its tier record.
-
-**Never raises (card H-51, finding H51-01).** An operator can replace the file, so :func:`measured` answers
-``malformed`` with a fixed reason (never the file's content) for any file it cannot read as a record: over
-:data:`TIER_RECORD_MAX_BYTES` (refused before it is parsed), not UTF-8, not JSON, nested too deep for the parser
-(``RecursionError``), a directory, a named pipe or a device (not a regular file: refused without blocking), a
-symbolic-link loop, no permission. :func:`read_record` is the one bounded read;
-the checker (``tools/tier_record.py``) uses it too and fails loudly where this reader keeps its fallback.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import stat
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,73 +25,7 @@ PROFILE_OF_LABEL = {"P-PRO6000": "rtxpro6000", "P-5090": "rtx5090"}
 # the gateway's slots per endpoint when no record, setting or measured tier value says otherwise (before 10E-1c the
 # module constant ``SLOTS`` of services/gateway/load.py)
 FALLBACK_SLOTS = 16
-# the largest tier record read (bytes): the shipped records are under 8 kB; a file over this is refused unread, so a
-# replaced file cannot make a reader (the gateway at start, a console page) hold an unbounded file in memory
-TIER_RECORD_MAX_BYTES = 1_000_000
 CASES = ("measured", "declared", "not_measured", "no_record", "malformed", "unknown_profile")
-
-
-class TierRecordUnreadable(ValueError):
-    """A tier record file that is not readable as one; the message is fixed words and the file's name only."""
-
-
-class _NotANumber(ValueError):
-    """``NaN`` or ``Infinity`` in a record read strictly (the checker)."""
-
-
-def _no_constant(name: str) -> Any:
-    raise _NotANumber(f"{name} is not a number")
-
-
-def read_record(path: Path, max_bytes: int = TIER_RECORD_MAX_BYTES, *, constants: bool = True) -> Any:
-    """The parsed JSON of the tier record at ``path``, read at most ``max_bytes`` bytes.
-
-    The file is opened without blocking (``O_NONBLOCK``) and must be a regular file after any symbolic link is
-    followed, so a named pipe, a device or a socket at the path is refused at once instead of hanging the reader.
-    ``constants=False`` (the checker) refuses ``NaN`` and ``Infinity``; the services keep them readable and
-    :func:`positive_int` turns them into no value.
-
-    Raises ``FileNotFoundError`` when there is no file, and :class:`TierRecordUnreadable` for any other file that
-    cannot be read as JSON (the other ``OSError`` cases, not a regular file, a file over the cap, not UTF-8, not JSON,
-    nested too deep).
-    """
-    try:
-        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
-    except FileNotFoundError:
-        raise
-    except (OSError, ValueError) as exc:  # ValueError: a NUL in the path
-        raise TierRecordUnreadable(f"{path.name[:80]}: not readable ({type(exc).__name__})") from None
-    try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise TierRecordUnreadable(f"{path.name[:80]}: not a regular file")
-        with os.fdopen(fd, "rb", closefd=False) as fh:
-            raw = fh.read(max_bytes + 1)
-    except OSError as exc:
-        raise TierRecordUnreadable(f"{path.name[:80]}: not readable ({type(exc).__name__})") from None
-    finally:
-        os.close(fd)
-    if len(raw) > max_bytes:
-        raise TierRecordUnreadable(f"{path.name[:80]}: over {max_bytes} bytes")
-    try:
-        text = raw.decode("utf-8")
-        return json.loads(text) if constants else json.loads(text, parse_constant=_no_constant)
-    except UnicodeDecodeError:
-        raise TierRecordUnreadable(f"{path.name[:80]}: not UTF-8") from None
-    except RecursionError:
-        raise TierRecordUnreadable(f"{path.name[:80]}: nested too deep to read") from None
-    except _NotANumber as exc:
-        raise TierRecordUnreadable(f"{path.name[:80]}: {exc} (NaN and Infinity are not JSON numbers)") from None
-    except ValueError as exc:
-        raise TierRecordUnreadable(f"{path.name[:80]}: not JSON ({type(exc).__name__})") from None
-
-
-def _shown(v: Any) -> str:
-    """``repr`` of a record's value for a log line, bounded; fixed words when it cannot be shown."""
-    try:
-        r = repr(v)
-    except (RecursionError, ValueError):
-        return "(a value that cannot be shown)"
-    return r if len(r) <= 80 else r[:77] + "..."
 
 
 @dataclass(frozen=True)
@@ -117,26 +43,19 @@ class TierValue:
         """The start-up log text: which case, and the value used."""
         where = f"tier record {self.profile}" if self.profile else "tier record"
         if self.case == "measured":
-            return f"{where}: {self.field} = {_shown(self.value)} (measured)"
+            return f"{where}: {self.field} = {self.value!r} (measured)"
         if self.case == "declared":
             return (
-                f"{where}: {self.field} is declared {_shown(self.declared)}, not measured: {fallback!r} kept (the "
-                "record and the running value differ)"
-                if not _same(self.declared, fallback)
-                else f"{where}: {self.field} is declared {_shown(self.declared)}, not measured: {fallback!r} kept"
+                f"{where}: {self.field} is declared {self.declared!r}, not measured: {fallback!r} kept (the record "
+                "and the running value differ)"
+                if self.declared != fallback
+                else f"{where}: {self.field} is declared {self.declared!r}, not measured: {fallback!r} kept"
             )
         if self.case == "not_measured":
             return f"{where}: {self.field} not measured: {fallback!r} kept"
         if self.case == "unknown_profile":
             return f"no tier record for TB_PROFILE {self.why or '(unset)'}: {self.field} {fallback!r} kept"
         return f"{where}: {self.case} ({self.why}): {self.field} {fallback!r} kept"
-
-
-def _same(a: Any, b: Any) -> bool:
-    try:
-        return bool(a == b)
-    except (RecursionError, ValueError):
-        return False
 
 
 def profile_of(env: Mapping[str, str] | None = None) -> str | None:
@@ -153,11 +72,11 @@ def measured(field: str, env: Mapping[str, str] | None = None, tiers_dir: Path |
         return TierValue(field, "unknown_profile", why=repr((e.get("TB_PROFILE") or "").strip()))
     path = (tiers_dir or TIERS_DIR) / f"{profile}.json"
     try:
-        doc = read_record(path)
+        doc = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return TierValue(field, "no_record", profile, why=f"no {path.name}")
-    except TierRecordUnreadable as exc:
-        return TierValue(field, "malformed", profile, why=str(exc))
+    except (OSError, ValueError) as exc:
+        return TierValue(field, "malformed", profile, why=f"{path.name}: {type(exc).__name__}")
     fields = doc.get("fields") if isinstance(doc, dict) else None
     f = fields.get(field) if isinstance(fields, dict) else None
     if not isinstance(f, dict) or f.get("basis") not in ("measured", "declared", "not_measured"):
