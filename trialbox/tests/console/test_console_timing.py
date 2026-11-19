@@ -198,15 +198,23 @@ def _fill(template: str) -> str:
     return re.sub(r"\{(\w+)(?::\w+)?\}", lambda m: values.get(m.group(1), "x0"), template)
 
 
-def test_no_route_outside_the_allow_list_ever_carries_the_header(box: dict[str, Any]) -> None:
+@pytest.mark.parametrize("profile", ["taipei", "japan"])
+def test_no_route_outside_the_allow_list_ever_carries_the_header(request: pytest.FixtureRequest,
+                                                                  monkeypatch: pytest.MonkeyPatch,
+                                                                  profile: str) -> None:  # fmt: skip
     """Every registered route of the console (FastAPI's, Starlette's plain ones and the ``/static`` mount), asked with
     every method it takes by a coordinator, an administrator, a refused account (a viewer) and a signed-out client:
-    only a ``GET`` of a route of ``TIMED`` may carry the header. A route added later is untimed until listed."""
+    only a ``GET`` of a route of ``TIMED`` may carry the header. A route added later is untimed until listed. On both
+    profiles: the Japan one registers its own routes (the committee pages, 10C-4)."""
     from fastapi.testclient import TestClient
     from starlette.routing import Mount, Route
 
     from tests.console.test_console_app import VIEWER_PW
 
+    if profile == "japan":
+        monkeypatch.setenv("TB_TZ", "Asia/Tokyo")
+        monkeypatch.setenv("TB_SITE_ID", "SAMPLE-A")
+    box: dict[str, Any] = request.getfixturevalue("box")
     cs = clients(box)
     signed_out = TestClient(box["app"])
     askers = (cs["coordinator"], cs["admin"], login(box["app"], "viewer", VIEWER_PW)[0], signed_out)
@@ -228,6 +236,7 @@ def test_no_route_outside_the_allow_list_ever_carries_the_header(box: dict[str, 
                 assert template in timing.TIMED and method == "GET" and r.status_code == 200, (method, template)
     assert len(asks) > 300 and served > 100 and timed >= len(timing.TIMED) - 2  # the walk was not vacuous
     assert any(t.startswith("/static") for t, _, _ in asks)
+    assert any("committee" in t for t, _, _ in asks) is (profile == "japan")  # the Japan routes were asked
 
 
 def test_a_post_answered_200_on_a_listed_path_is_not_timed(box: dict[str, Any]) -> None:
