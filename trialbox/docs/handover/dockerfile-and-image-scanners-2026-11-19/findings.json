@@ -43,7 +43,7 @@
    "claim": "deploy/docker/embed.Dockerfile: the SC2086 ignore sat above three comment lines, so it reached no instruction (hadolint applies a pragma to the line under it), and pip install had no --no-cache-dir (DL3042, warning; the base sets PIP_NO_CACHE_DIR=1, so the image is unchanged); the pragma now sits on the RUN (embed.Dockerfile:23) and the flag is at :26",
    "lane": "H",
    "basis": "hypothesis",
-   "state": "open"
+   "state": "fixed 9433b52f70db541774745221e88cb5f5ad85df98"
   },
   {
    "id": "H10G41-06",
