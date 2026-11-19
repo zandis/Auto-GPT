@@ -97,21 +97,31 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
         au.append("console.denied", actor=h.actor(sess), detail={"action": path[:80]})
         return h.problem(403, "forbidden")
 
-    def delegated(sess: Session, rid: str) -> bool:
-        """D-147: once a study's delegation log names a PI, an investigator sees its patients only as the PI or a
-        sub-investigator ticked for "screen" (as on the week and candidate pages)."""
-        return h.delegated_ok(sess.user, rid)
+    def sae_scope(user: Any, rid: str, action: str) -> str | None:
+        """Why this account may not take ``action`` on study ``rid``'s serious AEs, or None when it may: the one rule
+        of the SAE pages, which :func:`scope` turns into a 404 or a 403, the worklist into the studies it lists and
+        the opening page into the studies whose serious AEs it reads (J-6, D-1225). "notfound": not a study the
+        account sees (or a sponsor copy); "role": the matrix's ``sae.*`` row; "enter_data": recording needs the study
+        task; "delegation": the delegation log (D-147, the week and candidate pages' rule)."""
+        if not _RS.match(rid) or not user.sees_study(rid) or user.sponsor_form or not known_study(bk, rid):
+            return "notfound"
+        if not sae_allowed(user.role, action):
+            return "role"
+        if action == "record" and not h.permit(user, "task.enter_data", rid):
+            return "enter_data"
+        return None if h.delegated_ok(user, rid) else "delegation"
+
+    def reads_saes(user: Any, rid: str) -> bool:
+        """:func:`sae_scope` for viewing, as a yes or no, with nothing audited."""
+        return sae_scope(user, rid, "view") is None
 
     def scope(sess: Session, rs: str, action: str, path: str) -> str:
         """The study, after the study scope (404) and the role table (403); recording also needs ``enter_data``."""
         rid = rs.strip().upper()
-        if not _RS.match(rid) or not sess.user.sees_study(rid) or sess.user.sponsor_form or not known_study(bk, rid):
+        why = sae_scope(sess.user, rid, action)
+        if why == "notfound":
             raise h.problem(404, "notfound")
-        if not sae_allowed(sess.user.role, action):
-            raise deny(sess, path)
-        if action == "record" and not h.permit(sess.user, "task.enter_data", rid):
-            raise deny(sess, path)
-        if not delegated(sess, rid):
+        if why is not None:
             raise deny(sess, path)
         return rid
 
@@ -279,6 +289,26 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
 
     h.sae_open = sae_open
 
+    def home_saes(rid: str) -> dict[str, Any]:
+        """J-6 (D-1225): one study's serious AEs for the opening page, from the SAE pages' own answer, read once: the
+        ones not acknowledged, and the overdue reports (the first reports as the life-cycle pages count them, and the
+        register's follow-ups, as :func:`life_reports`). ``failed`` when the orchestrator did not answer (CR-010)."""
+        day = today()
+        try:
+            out = fetch(rid, day)
+        except (Problem, Unavailable):
+            return {"unacked": [], "reports": [], "failed": True}
+        views, _lost = views_of(rid, day, out)
+        first = list(h.life_reports_of(out)) if h.life_reports_of is not None else []
+        follow = [{"record": v["record"], "event": v["event"], "pid": v["pid"], "party": r["party"], "due": r["due"],
+                   "kind": "followup"}
+                  for v in views for r in v["reports"]
+                  if r["kind"] == "followup" and r["state"] == "overdue"]  # fmt: skip
+        return {"unacked": list(out.get("unacked") or []), "reports": first + follow, "failed": False}
+
+    h.reads_saes = reads_saes
+    h.home_saes = home_saes
+
     def context(rules_by: dict[str, dict[str, Any]]) -> dict[str, Any]:
         return {"study_rules": rules_by, "fu_rules": followup_rules(os.environ.get("TB_SAE_FOLLOWUP_DAYS", "")),
                 "tz": str(getattr(tz, "key", "UTC")), "parties": PARTIES}  # fmt: skip
@@ -294,7 +324,7 @@ def register(app: FastAPI, h: Helpers, store: SaeStore | None = None) -> None:
         failed: list[str] = []
         rules_by: dict[str, dict[str, Any]] = {}
         for r in h.trials(sess) if h.trials is not None else []:
-            if sess.user.sponsor_form or not known_study(bk, r.id) or not delegated(sess, r.id):
+            if not reads_saes(sess.user, r.id):  # the same rule as a study's own SAE pages
                 continue
             try:
                 got, gone, rules_by[r.id] = load(r.id, day)

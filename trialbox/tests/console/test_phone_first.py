@@ -394,7 +394,7 @@ def test_a_flag_store_that_is_down_costs_one_attempt_per_five_seconds(box: dict[
     tries: list[float] = []
     now = [1000.0]
 
-    def down() -> bool:
+    def down() -> dict[str, bool]:
         tries.append(now[0])
         raise ConnectionError("the flag store is down")
 
@@ -419,10 +419,10 @@ def test_a_hanging_flag_store_delays_no_page(box: dict[str, Any], monkeypatch: A
     """A read that blocks 5 s (a connect that hangs): 20 pages at once all answer at once, one read runs."""
     tries: list[int] = []
 
-    def hangs() -> bool:
+    def hangs() -> dict[str, bool]:
         tries.append(1)
         time.sleep(5)
-        return True
+        return {phone.FLAG: True, phone.HOME_FLAG: False}  # one read answers both layout flags (D-1225)
 
     monkeypatch.setattr(phone, "_read", hangs)
     phone.clear_cache()
