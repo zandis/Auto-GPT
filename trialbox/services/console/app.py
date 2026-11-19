@@ -870,7 +870,6 @@ def create_app(
             "t": t,
             "tp": tp,
             "pm": plain,
-            "menu_shows": plain_menu.menu_shows,
             "may_act": (lambda target: may_act(sess, target)) if sess else (lambda target: False),
             "t_or": t_or,
             "population": lambda value: population_words(lang, value, plain),

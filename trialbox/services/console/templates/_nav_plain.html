@@ -1,5 +1,5 @@
 {# J-7 (D-1251, flag layout.plain_menu): the menu with "More" pruned. Every entry that left "More" is a copy of another
-   entry, the Admin page's own tab, or is linked from the page it belongs to (menu_shows asks the same question there).
+   entry, the Admin page's own tab, or is linked from the page it belongs to (shown there by the page's own rule, may_act).
    The rules that show an entry are the menu's own; a menu is not a permission: no route answers differently. #}
 {% set r = user.role %}{% set pf = request is defined and request.state is defined and request.state.phone_first %}{% set pl = request is defined and request.state is defined and request.state.people_lists %}{% set pnow = (request.state.people or {}).get('list', '') if pl else '' %}
 {% set clinical = r in ('coordinator', 'investigator', 'viewer') %}
@@ -76,7 +76,7 @@
         <a href="/pilot/consent">{{ tp('nav.consent') }}</a>
         {% if not user.studies and settings.source_dir is not none and settings.source_dir.joinpath('patient.csv').is_file() %}<a href="/pilot/cascade" data-testid="more-cascade">{{ t('nav.cascade') }}</a>{% endif %}
         {% endif %}
-        {% if menu_shows(user, 'case') %}<a href="/pilot/case">{{ tp('nav.case') }}</a>{% endif %}{% endif %}
+        {% if not user.aggregate_only %}<a href="/pilot/case">{{ tp('nav.case') }}</a>{% endif %}{% endif %}
         {% if not user.aggregate_only and not top_registry %}<a href="/pilot/registry">{{ tp('nav.registry') }}</a>{% endif %}
         {% if settings.test_smtp and not user.studies and r == 'admin' %}<a href="/pilot/mailbox">{{ t('nav.mailbox') }}</a>{% endif %}{% endset %}{{ grp(pf, 'lists', g) }}
         {% set g %}<a href="/settings/notices">{{ t('notices.title') }}</a>

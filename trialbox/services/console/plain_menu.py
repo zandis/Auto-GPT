@@ -6,17 +6,16 @@ variable name on a clinical page, behind the flag ``layout.plain_menu``.
   ``request.state.plain_menu``. Off, every page is as before, byte for byte.
 * **The menu** (``templates/_nav.html``, between ``{#J7#}`` and ``{#/J7#}``): duplicates, "Overview", the Admin page's
   own tabs and the legacy pilot entries leave "More"; each page that leaves is reached from the page it belongs to
-  (three links on existing pages: "New request" on the feasibility reports, "Consent explainer" on the study's IRB
-  page, "Check one patient" on the weekly list, each shown by the same ``permit`` question as the menu entry was); the
-  steward's top bar has four entries. A menu is not a permission: no route, guard or ``permit`` row changes.
+  (links on existing pages: "New request" on the feasibility reports, "Consent explainer" on the study's IRB page,
+  "Check one patient" on the weekly list and the candidate registry, each shown by ``console.app.may_act``, the rule
+  the target page uses to offer its action); the steward's top bar has four entries. A menu is not a permission: no
+  route, guard or ``permit`` row changes.
 * **One name per page** and **plain words**: :func:`key` swaps a text key for its plain one (:data:`SAME_FOR_ALL`,
   every role) or, for a clinical role, for one without a variable name (:data:`CLINICAL_ONLY`; the administrator
   keeps the name of the setting to change). Templates ask ``tp(key)``; with the flag off ``tp`` is ``t``.
 """
 
 from __future__ import annotations
-
-from typing import Any
 
 from console import i18n_plain
 from console.i18n import CATALOGUES
@@ -87,16 +86,3 @@ def key(on: bool, role: str | None, text_key: str) -> str:
 
 for _lang, _cat in (("en", i18n_plain.EN), ("ja", i18n_plain.JA), ("zh-TW", i18n_plain.ZH)):
     CATALOGUES[_lang].update(_cat)
-
-
-def menu_shows(user: Any, entry: str) -> bool:
-    """Whether the menu's entry ``entry`` is shown to ``user`` (the rule the menu has always asked, in one place):
-    the menu asks it for the administrator's entries and each page that links a page that left "More" asks it for the
-    link (Q4 of the checkpoint: one function, not a copy of the condition)."""
-    if entry == "request":  # New request: who may ask for a count or a list; T-512 the investigator
-        return bool(user.can_request) or user.role == "investigator"
-    if entry == "consent":  # Consent explainer
-        return bool(user.can_request)
-    if entry == "case":  # Check one patient: an account that reads patient-level rows
-        return not user.aggregate_only
-    raise ValueError(f"no menu entry {entry!r}")

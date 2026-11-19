@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import html
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -621,14 +621,18 @@ MASTER_ACTIONS: dict[str, tuple[bool | int, bool | int, bool | int]] = {  # requ
     "privacy": (False, False, False),
 }
 ACTION_TARGETS = ("/pilot/request", "/pilot/case", "/pilot/consent")
+#: who master's "More" showed each entry to (``templates/_nav.html`` on master, copied: the oracle for the new links)
+OLD_MENU: dict[str, Callable[[Any], bool]] = {
+    "request": lambda u: bool(u.can_request) or u.role == "investigator",  # T-512
+    "consent": lambda u: bool(u.can_request),
+    "case": lambda u: not u.aggregate_only,
+}
 
 
 def test_the_action_pages_offer_each_role_what_they_offered_on_master(box: dict[str, Any]) -> None:
     """The coordinator's condition on Q4: factoring the pages' own rules into ``may_act`` changes no page's
     behaviour; each role is offered each action exactly as on master, with the flag off and on. And no new link is
-    shown to an account the old menu did not show the entry to (the old rule, ``plain_menu.menu_shows``)."""
-    from console import plain_menu
-
+    shown to an account the old menu did not show the entry to (:data:`OLD_MENU`, master's ``_nav.html``)."""
     _done_feas(box["backend"])
     _done_screen(box["backend"], _ulid(990))
     clients = _clients(box)
@@ -647,7 +651,7 @@ def test_the_action_pages_offer_each_role_what_they_offered_on_master(box: dict[
         for where, testid, target in NEW_LINKS:
             r = page.get(where)
             if r.status_code == 200 and f'data-testid="{testid}"' in r.text:
-                assert plain_menu.menu_shows(users.get(name), entry[target]), (col, where, target)
+                assert OLD_MENU[entry[target]](users.get(name)), (col, where, target)
 
 
 def _recorded(calls: list[str], name: str, fn: Any) -> Any:

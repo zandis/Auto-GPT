@@ -35,7 +35,7 @@
   - **The new links ask the page's own rule.** Each link that takes the place of an entry asks `may_act`, the rule its
     target page uses to offer its form or enable its button. So it is shown exactly where the page answers 200 *and*
     offers the account its action. A link never leads to a refusal or to a page with nothing to do.
-    The administrator's and the steward's remaining entries keep the menu's old rule (`plain_menu.menu_shows`).
+    The administrator's and the steward's remaining entries keep the menu's old rule (the old menu's conditions).
     The factoring changes no page: each role is offered each action exactly as on master, with the flag off and on.
     No link is shown to an account the old menu did not show the entry to.
     For an account that does not prepare requests, a page carrying a link reads at most one list of studies'
