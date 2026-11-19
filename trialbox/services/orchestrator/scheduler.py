@@ -158,6 +158,26 @@ def recorded_close(ruleset: str, url: str | None = None) -> tuple[str, str, int 
     return str(row[0]), str(row[1]), (int(row[2]) if row[2] is not None else None)
 
 
+def committee_held(ruleset: str, url: str | None = None) -> list[str]:
+    """10C-4 (D-1227): what of the Japan profile's committee record holds this study's lists at this site, or [].
+    The same rule as the console's move into open (``tb_common.committees``): a study with no recorded state is held
+    by every refusal; one recorded open by every refusal but an amendment's (it screens on the version before).
+    Outside the Japan profile (the site's ``TB_TZ``), or with no trial database, always []. A database error is
+    raised: the caller decides."""
+    from tb_common import committees as cm
+    from tb_common.derived import country_of
+    from tb_common.timeutil import today as site_today
+
+    url = url or os.environ.get("TB_DB_URL")
+    tz = os.environ.get("TB_TZ", "").strip()
+    country = country_of(tz) or ""
+    if not url or not cm.on(country):
+        return []
+    rec, perm = cm.read(url, ruleset, os.environ.get("TB_SITE_ID", "").strip())
+    recorded = recorded_study_state(ruleset, url) is not None
+    return cm.at_lists(cm.findings(country, rec, perm, site_today(tz)), recorded)
+
+
 def require_open(ruleset: str | None) -> None:
     """A list scenario's first check (D-386): refuse to make a list for a study that is not open. The job fails
     with the reason; nothing is listed or mailed. An unreachable trial database is logged and left to the run's own
@@ -180,6 +200,17 @@ def require_open(ruleset: str | None) -> None:
             f"Study {ruleset.upper()} is {state}: lists run only for an open study. "
             "The study coordinator changes the state on the study's set-up page.",
         )
+    try:
+        held = committee_held(ruleset)
+    except DatabaseError as exc:  # as above: the run that follows needs the same database and fails there
+        log.warning("committee record of %s not read: %s", ruleset, exc)
+        return
+    if held:  # 10C-4 (D-1227): the Japan profile's committee record
+        raise StepFailed(
+            "ruleset",
+            f"Study {ruleset.upper()} lacks its committee record at this site ({', '.join(held)}): lists run only "
+            "once it is recorded. A hospital coordinator or the study's PI records it on the study's committee page.",
+        )
 
 
 def _held(orch: Orchestrator, jtype: str, ruleset: str | None) -> bool:
@@ -200,7 +231,14 @@ def _held(orch: Orchestrator, jtype: str, ruleset: str | None) -> bool:
         log.error("%s for %s held: the study state could not be read: %s", jtype, ruleset, exc)
         return True
     if state == OPEN:
-        return False
+        try:
+            held = committee_held(ruleset)  # 10C-4 (D-1227): the Japan profile's committee record
+        except Exception as exc:  # as the state: a record that cannot be read holds the list
+            log.error("%s for %s held: the committee record could not be read: %s", jtype, ruleset, exc)
+            return True
+        if not held:
+            return False
+        state = "committee: " + ",".join(held)
     log.info("%s for %s held: the study is %s", jtype, ruleset, state)
     try:
         orch.audit.append("scheduler.held", ruleset=ruleset, detail={"job": jtype, "state": state})

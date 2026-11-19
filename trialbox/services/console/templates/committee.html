@@ -8,7 +8,9 @@
 <p class="hint">{{ t('cmt.help') }}</p>
 {% if request.query_params.get('done') %}<p class="ok" role="status" data-testid="cmt-saved">{{ t('team.irb.saved') }}</p>{% endif %}
 <section class="card" data-testid="cmt-findings">
-{% for code, level in findings or [] %}<p class="{{ 'error' if level == 'refuse' else 'warn' }}" data-testid="cmt-finding-{{ code }}" data-level="{{ level }}">{{ t('cmt.f.' + code) }}</p>{% else %}<p class="ok" data-testid="cmt-ok">{{ t('cmt.f.none') }}</p>{% endfor %}
+{% for code, level in st.findings %}<p class="{{ 'error' if code in st.open else 'warn' }}" data-testid="cmt-finding-{{ code }}" data-level="{{ level }}">{{ t('cmt.f.' + code) }}</p>{% else %}<p class="ok" data-testid="cmt-ok">{{ t('cmt.f.none') }}</p>{% endfor %}
+{% if st.held %}<p class="error" data-testid="cmt-held">{{ t('cmt.held') }}</p>{% endif %}{% if st.waiting %}<p class="warn" data-testid="cmt-waiting">{{ t('cmt.waiting') }}{% if st.due_on %} {{ t('cmt.due', day=st.due_on) }}{% endif %}</p>{% endif %}
+<p class="hint">{{ t('cmt.not_all') }}</p>
 <p class="hint">{{ t('cmt.amend') }}</p>
 </section>
 <section class="card">
@@ -22,6 +24,7 @@
   <dt>{{ t('cmt.approved') }}</dt><dd>{{ rec.approved_version or '–' }}{% if rec.approved_on %} · {{ rec.approved_on }}{% endif %}</dd>
   <dt>{{ t('cmt.central') }}</dt><dd>{{ t('cmt.yes') if rec.central else t('cmt.no') }}</dd>
   <dt>{{ t('cmt.documents') }}</dt><dd>{{ rec.documents or '–' }}</dd>
+  <dt>{{ t('cmt.due_on') }}</dt><dd>{{ rec.due_on or '–' }}</dd>
   <dt>{{ t('cmt.permission', site=site or '–') }}</dt><dd data-testid="cmt-permission">{% if perm and perm.permitted_on %}{{ perm.version }} · {{ perm.permitted_on }}{% else %}–{% endif %}</dd>
   {% if rec.by %}<dt>{{ t('team.irb.by') }}</dt><dd>{{ rec.by }} · {{ rec.at|local }}</dd>{% endif %}
 </dl>
@@ -36,8 +39,10 @@
 <label for="cmt-ao">{{ t('cmt.approved_on') }}</label><input id="cmt-ao" name="approved_on" type="date" lang="{{ lang }}" value="{{ rec.approved_on }}"><span class="hint datefmt">{{ t('date.fmt') }}</span>
 <label><input type="checkbox" name="central" value="1"{% if rec.central %} checked{% endif %}> {{ t('cmt.central') }}</label>
 <label for="cmt-doc">{{ t('cmt.documents') }}</label><input id="cmt-doc" name="documents" maxlength="300" value="{{ rec.documents }}"><span class="hint">{{ t('cmt.documents.hint') }}</span>
+<label for="cmt-due">{{ t('cmt.due_on') }}</label><input id="cmt-due" name="due_on" type="date" lang="{{ lang }}" value="{{ rec.due_on }}"><span class="hint">{{ t('cmt.due_on.hint') }}</span>
 <label for="cmt-pv">{{ t('cmt.permission_version') }}</label><input id="cmt-pv" name="permission_version" maxlength="40" value="{{ perm.version if perm else '' }}">
 <label for="cmt-po">{{ t('cmt.permitted_on') }}</label><input id="cmt-po" name="permitted_on" type="date" lang="{{ lang }}" value="{{ perm.permitted_on if perm else '' }}" data-testid="cmt-permitted"><span class="hint datefmt">{{ t('date.fmt') }}</span>
+{% if perm %}<label><input type="checkbox" name="clear_permission" value="1" data-testid="cmt-clear"> {{ t('cmt.clear_permission') }}</label>{% endif %}
 {% if rec.by or perm %}<label for="cmt-why">{{ t('roles.irb.reason') }}</label><input id="cmt-why" name="reason" maxlength="300">{% endif %}
 <p class="hint">{{ t('cmt.rule') }}</p>
 <button type="submit" data-testid="cmt-save">{{ t('team.irb.save') }}</button>

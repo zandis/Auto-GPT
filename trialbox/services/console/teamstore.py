@@ -28,7 +28,7 @@ from datetime import date
 from typing import Any
 
 from tb_common.authz import STUDY_TASKS
-from tb_common.committees import Committee, Permission
+from tb_common.committees import Committee, Permission, committee_row, permission_row
 
 from console.storedb import open_db
 
@@ -213,7 +213,8 @@ CREATE TABLE committee (
   central INTEGER NOT NULL DEFAULT 0,
   documents TEXT NOT NULL DEFAULT '',
   by TEXT NOT NULL,
-  at TEXT COLLATE "C" NOT NULL
+  at TEXT COLLATE "C" NOT NULL,
+  due_on TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX committee_rs ON committee (ruleset, at);
 CREATE TABLE site_permission (
@@ -707,11 +708,6 @@ class TeamStore:
         return self.irb(ruleset)
 
     # ------------------------------------------------------------------ 10C-4: committee and permission (D-1227)
-    @staticmethod
-    def _cmt(r: tuple[Any, ...]) -> Committee:
-        t = [str(x or "") for x in r]
-        return Committee(t[0], bool(r[1]), t[2], t[3], t[4], t[5], t[6], bool(r[7]), t[8], t[9], t[10])
-
     def committee(self, ruleset: str) -> Committee:
         """The study's committee record (the newest row), or an empty one: no kind, the other-country default."""
         rows = self.committee_history(ruleset)  # a few rows per study: the newest is the record
@@ -720,28 +716,30 @@ class TeamStore:
     def committee_history(self, ruleset: str) -> list[Committee]:
         rows = self.db.fetchall(
             "SELECT kind, external, establisher, contract_on, current_version, approved_version, approved_on, central, "
-            "documents, by, at FROM committee WHERE ruleset = ? ORDER BY at, id",
+            "documents, by, at, due_on FROM committee WHERE ruleset = ? ORDER BY at, id",
             (ruleset,),
         )
-        return [self._cmt(r) for r in rows]
+        return [committee_row(r) for r in rows]
 
     def save_committee(self, ruleset: str, rec: Committee, by: str, at: str) -> Committee:
         self.db.execute(
             "INSERT INTO committee (ruleset, kind, external, establisher, contract_on, current_version, "
-            "approved_version, approved_on, central, documents, by, at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "approved_version, approved_on, central, documents, by, at, due_on) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (ruleset, rec.kind, int(rec.external), rec.establisher, rec.contract_on, rec.current_version,
-             rec.approved_version, rec.approved_on, int(rec.central), rec.documents, by, at),
+             rec.approved_version, rec.approved_on, int(rec.central), rec.documents, by, at, rec.due_on),
         )  # fmt: skip
         return self.committee(ruleset)
 
     def permission(self, ruleset: str, site: str) -> Permission | None:
-        """This site's newest head-of-institution permission for the study, or None."""
+        """This site's newest head-of-institution permission for the study, or None (none, or cleared)."""
+        if not site:
+            return None
         rows = self.db.fetchall(
             "SELECT site, version, permitted_on, by, at FROM site_permission WHERE ruleset = ? AND site = ? "
             "ORDER BY at, id",
             (ruleset, site),
         )
-        return Permission(*(str(x or "") for x in rows[-1])) if rows else None
+        return permission_row(rows[-1]) if rows else None
 
     def save_permission(self, ruleset: str, rec: Permission, by: str, at: str) -> Permission | None:
         self.db.execute(

@@ -34,7 +34,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/api/v1/studies` | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | GET | `/api/v1/studies/{rs}/candidates` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/candidates/{pid}` | - | Y | - | Y | Y | - | - | - | - |
-| GET | `/api/v1/studies/{rs}/committee` | n | n | n | n | n | - | - | n | n |
+| GET | `/api/v1/studies/{rs}/committee` | n | n | n | n | n | n | n | n | n |
 | GET | `/api/v1/studies/{rs}/conflicts` | - | U | - | U | U | - | - | - | - |
 | GET | `/api/v1/studies/{rs}/delegation` | Y | Y | Y | Y | Y | - | - | Y | Y |
 | GET | `/api/v1/studies/{rs}/edc` | - | U | - | U | U | - | - | - | - |
@@ -130,7 +130,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | GET | `/studies/{rs}/candidates` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/candidates/{pid}` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/cohort` | - | Y | - | Y | Y | - | - | - | - |
-| GET | `/studies/{rs}/committee` | n | n | n | n | n | - | - | n | n |
+| GET | `/studies/{rs}/committee` | n | n | n | n | n | n | n | n | n |
 | GET | `/studies/{rs}/conflicts` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/deviations` | - | Y | - | Y | Y | - | - | - | - |
 | GET | `/studies/{rs}/edc` | - | Y | - | Y | Y | - | - | - | - |
@@ -266,7 +266,7 @@ Legend, columns and parameters: the test's docstring. Regenerate with `TB_WRITE_
 | POST | `/site/staff` | - | - | - | - | - | - | - | Y | Y |
 | POST | `/studies/{rs}/candidates/{pid}/referral` | - | - | - | Y | - | - | - | - | - |
 | POST | `/studies/{rs}/candidates/{pid}/reveal` | Y | Y | Y | Y | Y | - | - | Y | Y |
-| POST | `/studies/{rs}/committee` | n | n | n | n | n | - | - | n | n |
+| POST | `/studies/{rs}/committee` | n | n | n | n | n | n | n | n | n |
 | POST | `/studies/{rs}/conflicts/{cid}` | - | Y | - | - | Y | - | - | - | - |
 | POST | `/studies/{rs}/deviations` | - | n | - | - | n | - | - | - | - |
 | POST | `/studies/{rs}/edc/copy/{record}/tick` | - | n | - | n | n | - | - | - | - |

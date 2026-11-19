@@ -842,7 +842,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         return h.page(request, "team_irb.html", sess, rs=rid, irb=rec, warnings=rec.warnings(today()),
                       can_edit=may_edit_irb(sess, rid), icf=team.icf_list(rid), icf_history=team.icf_history(rid),
                       reads_subjects=sess.user.can_view_phi, overrides=overrides,
-                      committee=h.committee_findings(rid) if h.committee_findings else None)  # fmt: skip
+                      committee=h.committee_status(rid) if h.committee_status else None)  # fmt: skip
 
     @app.post("/studies/{rs}/irb")
     async def irb_save(request: Request, rs: str) -> Response:

@@ -322,7 +322,10 @@ KNOWN: dict[tuple[str, str, str], str] = {
 
 
 @pytest.fixture
-def walked(box: dict[str, Any], tmp_path: Path) -> list[dict[str, Any]]:  # noqa: F811
+def walked(box: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:  # noqa: F811
+    # 10C-4 (D-1227): walked at a Japanese site, so the Japan profile's committee routes answer and are judged against
+    # their rows (outside Japan they answer as an absent route); no other route answers by the site's country
+    monkeypatch.setenv("TB_TZ", "Asia/Tokyo")
     draft = os.environ.get("ROLE_WALK_DRAFT")
     raw = run_walk(box, tmp_path, rw.Tracer() if draft else None)
     if draft:

@@ -1,5 +1,5 @@
 {
-  "_what": "The Japan profile layer (plan 10, commitment C-7): data switched on by the site's country (JP, from site.tz). Card 10C-4 (D-1227) adds its committees part; 10C-25 gathers the other parts here. Each rule is the project's reading of the public source named, to be confirmed by the first site's trial office.",
+  "_what": "The Japan profile layer (plan 10, commitment C-7): data switched on by the site's country (JP, from site.tz). Card 10C-4 (D-1227) adds its committees part; 10C-25 gathers the other parts here. Each rule and source is the project's reading of the public text named, to be confirmed by the first site's trial office; what is recorded here is not the complete set of a site's requirements (see 'elsewhere').",
   "country": "JP",
   "committees": {
     "study_kinds": {
@@ -8,21 +8,24 @@
         "needs": [
           "approval"
         ],
-        "source": "GCP省令 (平成9年厚生省令第28号) 第27条, 第32条: the 治験審査委員会's opinion before the trial"
+        "source": "GCP省令 (平成9年厚生省令第28号) 第27条 (the IRB), 第32条 (its review): the IRB's opinion before the trial. Article numbers as read 2026-11-18, not re-verified",
+        "elsewhere": "Also needed, not recorded here (the site's own): the head of the institution's decision (実施医療機関の長の指示・決定, 統一書式5) and the trial contract (GCP省令 第13条). To be confirmed by the site's trial office"
       },
       "tokutei": {
         "committee": "crb",
         "needs": [
           "approval"
         ],
-        "source": "臨床研究法 (平成29年法律第16号) 第5条, 第23条: the 認定臨床研究審査委員会's opinion on the 実施計画"
+        "source": "臨床研究法 (平成29年法律第16号) 第5条 (実施計画 with the CRB's opinion), 第23条 (certified committees). Article numbers as read 2026-11-18, not re-verified",
+        "elsewhere": "Also needed, not recorded here (the site's own): the 実施計画 submitted to the Minister and published in jRCT (第5条), and the 実施医療機関の管理者's approval (施行規則). To be confirmed by the site's trial office"
       },
       "shishin": {
         "committee": "ethics",
         "needs": [
           "permission"
         ],
-        "source": "人を対象とする生命科学・医学系研究に関する倫理指針 第6 (研究計画書に関する手続): the 研究機関の長's permission after the 倫理審査委員会's review; 一括審査 for multicentre research (article numbers as read 2026-11-18, not verified against the 2026 consolidated text)"
+        "source": "人を対象とする生命科学・医学系研究に関する倫理指針 第6 (研究計画書に関する手続): the 研究機関の長's permission after the 倫理審査委員会's review; 一括審査 for multicentre research (article numbers as read 2026-11-18, not verified against the 2026 consolidated text)",
+        "elsewhere": "Not recorded here: an external ethics committee is not always under a contract (the 指針 asks for the committee's procedures, not a contract); the no_contract warning is the project's reading. To be confirmed by the site's trial office"
       }
     },
     "committee_kinds": [

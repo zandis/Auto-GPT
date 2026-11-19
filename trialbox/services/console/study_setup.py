@@ -508,10 +508,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         team = getattr(h, "team", None)
         irb_done = team is not None and not team.irb(rid).warnings(h.today())
         out = [("irb", f"/studies/{rid}/irb", irb_done)]
-        found = h.committee_findings(rid) if h.committee_findings is not None else None
-        if found is not None:  # 10C-4 (D-1227): the Japan profile; the kind not chosen is not done either
-            out.append(("committee", f"/studies/{rid}/committee",
-                        not [c for c, level in found if level == "refuse" or c == "kind_unset"]))  # fmt: skip
+        if committee_status(rid) is not None:  # 10C-4 (D-1227): the Japan profile
+            out.append(("committee", f"/studies/{rid}/committee", not committee_missing(rid)))
         # the SAE type only where the study reports serious adverse events (D-415: a registry study is not gated)
         if s28.has_api(bk) and s28.load(bk, store, rid, defaults(rid)).study_type in SAE_STUDY_TYPES:
             out.insert(0, ("sae", f"/studies/{rid}/setup#sae", not sae_type_missing(rid)))
@@ -528,6 +526,7 @@ def register(app: FastAPI, h: Helpers) -> None:
             rs=rid,
             cur=cur,
             before_open=before_open(rid) if cur.state == "startup" else [],
+            committee=committee_status(rid) if cur.state == "open" else None,  # 10C-4: held or waiting (Japan)
             moves=STATE_MOVES.get(cur.state, ()),
             states=STUDY_STATES,
             history=list(reversed(store.state_history(rid))),
@@ -588,13 +587,15 @@ def register(app: FastAPI, h: Helpers) -> None:
             au.append("console.denied", actor=h.actor(sess), detail={"action": request.url.path[:80]})
             raise h.problem(403, "forbidden")
 
-    def committee_missing(rid: str) -> list[str]:
-        """10C-4 (D-1227): what the Japan profile's committee record lacks for the study to open at this site (the
-        committee's approval of the current protocol version; for a 指針 study this site's head-of-institution
-        permission for it), or []. Outside the Japan profile always []."""
-        from tb_common.committees import refusals
+    def committee_status(rid: str) -> dict[str, Any] | None:
+        return h.committee_status(rid) if h.committee_status is not None else None
 
-        return refusals(h.committee_findings(rid) or []) if h.committee_findings is not None else []
+    def committee_missing(rid: str) -> list[str]:
+        """10C-4 (D-1227): what the Japan profile's committee record lacks for a move into open at this site
+        (``tb_common.committees.at_open``: the study kind, the committee's approval of the current protocol version;
+        for a 指針 study this site's head-of-institution permission for it), or []. Outside the profile always []."""
+        st = committee_status(rid)
+        return list(st["open"]) if st else []
 
     def sae_type_missing(rid: str) -> str:
         """T-629 (FIT-U06, D-415): why the study may not open yet, or "". A study that reports serious adverse events
@@ -699,6 +700,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         cur = store.study_state(rid)
         if not take_back_open(cur):
             return 409, "sstate.take_back_late"
+        if cur.prev == "open" and committee_missing(rid):  # 10C-4 (D-1227): back to open is a move into open
+            return 409, "sstate.committee_back"
 
         def audit(new: StudyState) -> None:
             au.append("console.study_state", ruleset=rid, actor=h.actor(sess),
