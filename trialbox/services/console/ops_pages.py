@@ -19,7 +19,10 @@ first: ``update_stick_check``, the right ``ops.update_check``), shows each verif
 release note and change-impact sheet, and asks for the apply **in the quiet hour** (``update_quiet``: D-731's
 ``when: quiet``, the right ``ops.update_apply``); the updates waiting for it are listed with why. "Return to the
 previous release" is shown (which release, whether its bundle is here) but not offered as a button: an older
-release's apply from the console needs the owner's decision (D-1363).
+release's apply from the console needs the owner's decision (D-1363). After the review: "verified" is the runner's
+record of that very file (its sha256), the note is read per bundle from ``<ops>/notes/`` (never from the status),
+apply is offered only for a verified file and sends its sha256, and a waiting quiet apply can be cancelled
+(``update_cancel``, under ``ops.update_apply``).
 
 Who may: :func:`tb_common.authz.admin_allowed` (the administrator only); everyone else gets 403 on every page, action
 and ``/api/v1/admin/ops``, audited as ``console.denied``.
@@ -51,6 +54,7 @@ ACTIONS: dict[str, tuple[str, str]] = {
     "update_apply": ("ops.update_apply", "update"),
     "update_stick_check": ("ops.update_check", "update"),  # 10K-7: the same verify, the bundle copied from the stick
     "update_quiet": ("ops.update_apply", "update"),  # 10K-7: the same apply, in the quiet hour (D-731)
+    "update_cancel": ("ops.update_apply", "update"),  # 10K-7: withdraw one's quiet-hour apply before it runs
     "logs_collect": ("ops.logs", "logs"),
     "network_sheet": ("ops.network", "network"),
 }
@@ -61,7 +65,8 @@ RUNS: dict[str, tuple[str, dict[str, str]]] = {
 }
 SECRET_KEYS = ("name", "present", "age_days", "registered")  # what a secrets row may show; never a value
 _SHEET = re.compile(r"^network-sheet\.(en|ja|zh-TW)\.(html|md)$")
-_BUNDLE = re.compile(r"^[A-Za-z0-9][\w.\-]{0,120}\.tar$")
+# 10K-7 (review B3): the runner's pattern, matched whole (``tools.trialbox.ops.bundle_name``): ASCII, no newline
+_BUNDLE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.\-]{0,120}\.tar", re.ASCII)
 _REQ = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{6}$")
 
 
@@ -163,11 +168,19 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         secrets_rows = [{k: r.get(k) for k in SECRET_KEYS} for r in st.get("secrets") or []]
         sheets = sorted(p.name for p in ops.network.glob("network-sheet.*") if _SHEET.match(p.name))
         busy = {str(r.get("action")) for r in ops.pending()}
-        checks: dict[str, Any] = {}  # 10K-7: each staged bundle's newest finished verification
+        checks: dict[str, Any] = {}  # 10K-7: each staged bundle's newest finished verification, by name
         for r in ops.history(200):
             b = str((r.get("args") or {}).get("bundle") or "")
             if r.get("action") == "update_check" and r.get("result") and b not in checks:
                 checks[b] = r["result"]
+        # 10K-7 (D-1363): "verified" is the runner's record of THIS file (its sha256, while size, time and inode are
+        # unchanged), and the note is read from notes/<bundle>.json only when it carries that same sha256
+        verified = {k: v for k, v in (st.get("verified") or {}).items() if isinstance(v, dict)}
+        notes: dict[str, Any] = {}
+        if tab == "update":
+            for name, v in verified.items():
+                state, rec = ops.note_record(name, str(v.get("sha256") or ""))
+                notes[name] = {"state": state, "rec": rec}
         return h.page(
             request,
             "admin_ops.html",
@@ -179,6 +192,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
             history=ops.history(30),
             pending=[a for a in ACTIONS if RUNS.get(a, (a, {}))[0] in busy],
             checks=checks,
+            verified=verified,
+            notes=notes,
             running=[r.get("id") for r in ops.running()],
             mine=mine,
             secrets_rows=secrets_rows,
@@ -193,6 +208,7 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         csrf: str = Form(""),
         confirm: str = Form(""),
         bundle: str = Form(""),
+        target: str = Form(""),  # 10K-7: the waiting update a cancel withdraws
     ) -> Response:
         if action not in ACTIONS:
             raise h.problem(404, "notfound")
@@ -203,9 +219,17 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         run_as, extra = RUNS.get(action, (action, {}))
         args: dict[str, str] = {}
         if run_as in ("update_check", "update_apply"):
-            if not _BUNDLE.match(bundle):
+            if not _BUNDLE.fullmatch(bundle):
                 raise h.problem(400, "request.refused", reason="choose a staged bundle")
             args["bundle"] = bundle
+        if run_as == "update_cancel":  # 10K-7: only an update that waits for the quiet hour and has not started
+            waiting = {str(r.get("id")): r for r in ops.pending() if r.get("action") == "update_apply"
+                       and (r.get("args") or {}).get("when") == "quiet"
+                       and not ops.marker(str(r.get("id"))).is_file()}  # fmt: skip
+            if not _REQ.fullmatch(target) or target not in waiting:
+                raise h.problem(400, "request.refused", reason="choose an update that waits for the quiet hour")
+            args["target"] = target
+            bundle = str((waiting[target].get("args") or {}).get("bundle") or "")
         if action == "backup":  # D-455: the snapshot backup; no service is stopped or paused
             args["mode"] = "running"
         if run_as in [r.get("action") for r in ops.pending()]:
@@ -217,6 +241,9 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
                              wait=tb_ops.QUIET_WAIT_H)  # fmt: skip
             return h.confirm(request, sess, text, request.url.path, args, f"/admin/ops?tab={tab}")
         args.update(extra)  # 10K-7: ``from: stick`` or ``when: quiet``, never from the form
+        sha = ((status().get("verified") or {}).get(bundle) or {}).get("sha256")
+        if run_as == "update_apply" and isinstance(sha, str) and tb_ops.SHA256.fullmatch(sha):
+            args["sha256"] = sha  # 10K-7 (review B3): the runner applies the file that was verified, or refuses
         try:
             rid = ops.submit(run_as, h.actor(sess), args)
         except OSError as exc:  # the folder is not there or not writable: the host runner has never prepared it

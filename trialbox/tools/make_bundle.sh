@@ -54,7 +54,9 @@ while [ $# -gt 0 ]; do
       case "${2:-}" in ""|--*) echo "make_bundle: --allow-dirty needs a reason (--allow-dirty \"a rehearsal\")" >&2; exit 2 ;; esac
       DIRTY=1; DIRTY_WHY="$2"; shift ;;
     --rehearsal) REHEARSAL=(--rehearsal) ;;
-    --release-note) NOTE_SRC="$2"; shift ;;
+    --release-note)
+      case "${2:-}" in ""|--*) echo "make_bundle: --release-note needs a file (--release-note docs/releases/next-release.ja.yaml)" >&2; exit 2 ;; esac
+      NOTE_SRC="$2"; shift ;;
     -h|--help) sed -n 2,32p "$0"; exit 0 ;;
     *) echo "make_bundle: unknown option $1" >&2; exit 2 ;;
   esac

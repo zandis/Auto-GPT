@@ -678,12 +678,19 @@ def stick_drill(base: Path) -> dict[str, Any]:
     rlink = ask("update_check", bundle="trialbox-link.tar", **{"from": "stick"})
     runner.run_pending()
     res, resbad, reslink = ops.result(rid) or {}, ops.result(rbad) or {}, ops.result(rlink) or {}
+    # as the console reads them: the status file, then the note record of the verified sha256 (D-1363)
     st = json.loads((base / "ops" / "status.json").read_text(encoding="utf-8"))
-    note = (st.get("notes") or {}).get(r2.name) or {}
+    vf = (st.get("verified") or {}).get(r2.name) or {}
+    sha = hashlib.sha256((updates / "incoming" / r2.name).read_bytes()).hexdigest()
+    _state, rec = ops.note_record(r2.name, str(vf.get("sha256") or ""))
+    note = rec or {}
     sheet = note.get("impact") or {}
     checks.append(("verify: copied from the stick into the incoming folder and verified, nothing applied",
                    bool(res.get("ok")) and (updates / "incoming" / r2.name).is_file()
                    and box.release == "2026.11-stick-1", str(res.get("summary"))))  # fmt: skip
+    checks.append(("verify: the verified record is that file's sha256, the status is small and holds no note",
+                   vf.get("sha256") == sha and "note_ja" not in json.dumps(st) and "notes" not in st
+                   and (base / "ops" / "status.json").stat().st_size < tb_ops.MAX_JSON, sha[:12]))  # fmt: skip
     checks.append(("verify: the Japanese release note is shown with the verification",
                    "ドリル用リリース" in str(note.get("note_ja")) and note.get("bundle_id") == "2026.11-stick-2",
                    str(note.get("warnings"))))  # fmt: skip
@@ -693,14 +700,15 @@ def stick_drill(base: Path) -> dict[str, Any]:
                    str(sheet.get("downtime_minutes"))))  # fmt: skip
     checks.append(("verify: a tampered bundle on the stick is refused, shows no note and is not left on the box",
                    resbad.get("ok") is False and "REJECTED" in str(resbad.get("summary")) and bad.name not in
-                   (st.get("notes") or {}) and not (updates / "incoming" / bad.name).exists(),
+                   (st.get("verified") or {}) and not (base / "ops" / "notes" / f"{bad.name}.json").exists()
+                   and not (updates / "incoming" / bad.name).exists(),
                    str(resbad.get("summary"))[:120]))  # fmt: skip
     checks.append(("verify: a link on the stick is not followed", reslink.get("ok") is False
                    and not (updates / "incoming" / "trialbox-link.tar").exists(),
                    str(reslink.get("summary"))[:120]))  # fmt: skip
 
     # 4. apply in the quiet hour
-    rq = ask("update_apply", bundle=r2.name, when="quiet")
+    rq = ask("update_apply", bundle=r2.name, when="quiet", sha256=sha)  # as the console asks: the verified file
     asked_at = clock[0].timestamp()  # the request file's time as the frozen clock's: it was asked at 15:00
     os.utime(base / "ops" / "requests" / f"{rq}.json", (asked_at, asked_at))
     runner.run_pending()

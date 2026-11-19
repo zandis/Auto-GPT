@@ -6,19 +6,6 @@
 On the Operations page an update can also be asked for in the box's quiet hour, so that nobody stays late for it:
 it then runs when the quiet hour comes and no job runs, with the same backup and automatic rollback (§15, D-731).
 
-**From a stick inserted at the box** (10K-7, D-1363). The host mounts the update stick read-only at
-`/media/trialbox-update` (`TB_UPDATE_STICK` in `deploy/.env` names another folder); the Operations page's update tab
-lists the bundles on it. "Verify and copy to the box" copies one into `deploy/updates/incoming` and runs the same
-`--dry-run` (a refused bundle is not kept); a verified bundle shows its result, its Japanese release note
-(`RELEASE-NOTE.ja.md`) and its change-impact sheet (`CHANGE-IMPACT.json`: the change classes CC1 to CC6 of
-`docs/validation/change-control.md`, the minutes down, migration, rulesets to approve again). "Apply in the quiet
-hour" asks for the apply as above; the updates waiting for it are listed with why. The tab names the previous release
-and whether its bundle is on the box; returning to it is still the older-release path below, at the box (D-1363). A
-bundle without the note and sheet is verified with a warning, never refused; `tools/make_bundle.sh` refuses to build
-one without them (`docs/releases/next-release.ja.yaml`, `python -m tools.release_note check`). The drill:
-`python -m tools.update_drill stick` (insert, verify, apply in the quiet hour, roll back), held by
-`tests/unit/test_update_from_a_stick.py`.
-
 The order of a release across the acceptance box and the sites (three working days apart), who applies it on site
 and what is filed: `docs/validation/change-control.md` §4 (D-344).
 
@@ -308,3 +295,23 @@ The mail passwords and a cloud-model key are the hospital's: change them at thei
 box installed before step 8 keeps its shared `TB_SERVICE_TOKEN` (with a warning) until the first full rotation;
 outside DEV and TEST the gateway (D-437) and the orchestrator (D-464) refuse it, so run `secrets init` first. The
 administrator's token for scripts is `deploy/secrets/services/operator.token` (header `X-TB-Service-Token`).
+
+## Updates from a stick inserted at the box (10K-7, D-1363)
+
+The host mounts the update stick read-only at `/media/trialbox-update` (`TB_UPDATE_STICK` in `deploy/.env` names
+another folder), with the options `ro,nodev,nosuid,noexec`; the Operations page's update tab lists the bundles on it
+(the first 50 by name, regular files with a bundle's name only: ASCII letters, digits, `_ . -` and `.tar`; it says
+when the list is cut and how many `.tar` files have names a bundle never has). "Verify and copy to the box" copies
+one into `deploy/updates/incoming` and runs the same `--dry-run`: exactly the size seen when the file was opened, and
+only when at least 10 GiB stays free on that disk after the copy (the databases and the audit share it); a copy that
+moves no byte for 2 minutes, runs over 2 hours or reads slower than 1 MB/s after 5 minutes is stopped and removed,
+and a refused bundle is not kept. The check is bound to the file's sha256: the page says "verified" (with the first
+digits of the sha256), shows the Japanese release note (`RELEASE-NOTE.ja.md`) and the change-impact sheet
+(`CHANGE-IMPACT.json`: the change classes CC1 to CC6 of `docs/validation/change-control.md`, the minutes down,
+migration, rulesets to approve again) and offers "Apply" and "Apply in the quiet hour" only for that very file; an
+apply asked for it refuses any other file of that name. A quiet-hour apply that waits can be cancelled on the page
+until it starts. The tab names the previous release and whether its bundle is on the box; returning to it is still
+the "Older releases" path above, at the box. A bundle without the note and sheet is verified with a warning, never
+refused; `tools/make_bundle.sh` refuses to build one without them (`docs/releases/next-release.ja.yaml`,
+`python -m tools.release_note check`). The drill: `python -m tools.update_drill stick` (insert, verify, apply in the
+quiet hour, roll back), held by `tests/unit/test_update_from_a_stick.py`.

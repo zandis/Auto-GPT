@@ -50,6 +50,33 @@ is "apply the previous release's bundle" with `--allow-downgrade REASON` at the 
    would widen what the console can do (lane K rule 11). It stays the RUNBOOK §5 path at the box until the owner
    decides (below).
 
+**After the independent review** (NOT READY: 3 blocking, 7 to fix; each fixed with its test):
+- *The status stays small.* The notes are no longer copied into `status.json`, which the console reads with a
+  64 KiB cap (26 staged bundles made the page lose its whole status). The runner keeps one small record per verified
+  bundle (`<ops>/verified/<bundle>.json`: the sha256 and the file's size, time and inode), which the status lists,
+  and the note apart (`<ops>/notes/<bundle>.json`), which the console reads per bundle with a cap (192 KiB) and shows
+  as "too large" above it. `tools/release_note.py` caps the note at 32 KiB and the sheet at 16 KiB, at build and when
+  read from a bundle.
+- *The check is bound to the bytes.* A bundle's name is matched whole and is ASCII only (`[A-Za-z0-9][A-Za-z0-9_.-]*
+  .tar`): `$` matched before a trailing newline, so `x.tar\n` was listed and copied while `apply_update.sh`'s
+  `basename` verified the genuine `x.tar`, and `\w` took look-alike letters. The sha256 is taken while the file is
+  copied (or before the verify), the file's identity must not change until the note is read, and the record and the
+  note carry it. "Verified" on the page is that record of that file; the note is shown only from a note record of the
+  same sha256; "Apply" and "Apply in the quiet hour" are offered only then, and send the sha256: the runner refuses
+  any other file of that name (and `apply_update.sh` verifies again). A failed check removes an earlier record.
+- *The copy is bounded.* The stick's file is looked at before it is opened (a folder, link, device or pipe is refused
+  without opening it), exactly the size seen at open is copied, at least 10 GiB must stay free on the disk after the
+  copy, and the copy runs in a thread the runner watches: no byte for 2 minutes, over 2 hours, or under 1 MB/s after
+  5 minutes stops it, removes the part file and frees the runner's lock. The stick must be mounted
+  `ro,nodev,nosuid,noexec` (RUNBOOK §5, "Updates from a stick").
+- *An account with `ops.update_check` alone can cause a stick-to-box copy* (today the administrator only): it writes
+  only into the incoming folder, never runs anything from the stick, and is bounded by the free-space floor above.
+- *A waiting quiet apply can be cancelled* on the page (`update_cancel`, under `ops.update_apply`, no matrix row):
+  the runner takes a cancel before the update it withdraws, never one that has started; audited `console.ops`.
+- *The listing* finds the bundles among any number of other files (20,000 entries looked at), lists the first 50 by
+  name and says when it is cut, and counts the `.tar` files whose names are refused; `make_bundle.sh --release-note`
+  without a file says how to give one.
+
 ## Consequences
 
 - The drill `python -m tools.update_drill stick` (no database; `tests/unit/test_update_from_a_stick.py`) shows the
