@@ -441,7 +441,12 @@ step 1 made it: `g4-standard-48`, SPOT, `--instance-termination-action STOP`, `-
 `TB_HEAD.json`, as `complete-run.sh` uploads it), the weights' pinned list (`tools/fetch_weights.py --profile
 rtxpro6000 --dry-run`, no network), no VM of that name, the bucket readable, and the quota with read-only calls: one
 Spot RTX PRO 6000 and 48 CPUs (`tools/complete_run.py quota_problems`, the complete run's own reading) and **100 GB
-free in the region's `HDB_TOTAL_GB`** (exit 4 otherwise). The weights are not in the bucket: the only copy the
+free in the region's `HDB_TOTAL_GB`** (exit 4 otherwise). H-59: the integrator's preflight found no `HDB_TOTAL_GB`
+row in asia-east1's list (113 rows), and the step refused every launch. A row absent from a well-formed list is now
+said in one line and the preflight goes on: the disk quota cannot be checked beforehand, and the create call itself
+refuses if it is short (the launch then ends with gcloud's reason, exit 5, and the driver checks no VM is left). A
+row that is there and short still refuses. `--hdb-free-gb N` gives the free figure by hand and is checked like a
+listed row. A failed gcloud call or output that is not a quota list still refuses. The weights are not in the bucket: the only copy the
 project has is on `tb-gpu-sim`'s disk, which this run may not use, so the VM fetches them from the public hub.
 
 ### 9.2 What the VM does, and what it decides alone
@@ -567,7 +572,8 @@ a start-up script with no terminal; the hub serving the weights to this VM witho
 measure, the screen and stage O on the card (section 8's list stands); SIGINT reaching lane J's measure at the line
 and its servers stopped by its own handler; SIGTERM from systemd at a real pre-emption and the next boot's resume;
 the 8-minute boot margin against the real boot time; the disk figures marked "not measured"; the quota reading of
-`HDB_TOTAL_GB` from `gcloud compute regions describe` (the metric's name is the integrator's report).
+`HDB_TOTAL_GB` from `gcloud compute regions describe` (the metric's name is the integrator's report; H-59: the
+integrator's list did not have it, so the create call is the check unless `--hdb-free-gb` is given).
 
 ### 9.7 Questions (H-53)
 

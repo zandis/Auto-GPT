@@ -95,8 +95,9 @@ def test_the_two_layout_flags_are_read_together_in_one_read(box: dict[str, Any],
 
     monkeypatch.setattr(fl.Flags, "rows", rows)
     fl.Flags(audit=box["audit"]).set(ht.FLAG, "on", actor="console:admin", reason="J-6 test (D-1225)")
-    assert phone.read_now() == {phone.FLAG: False, ht.FLAG: True}
-    assert reads == [(phone.FLAG, ht.FLAG)]
+    # J-7 (D-1251): layout.plain_menu is read in the same one read
+    assert phone.read_now() == {phone.FLAG: False, ht.FLAG: True, phone.PLAIN_FLAG: False}
+    assert reads == [(phone.FLAG, ht.FLAG, phone.PLAIN_FLAG)]
     assert fl.Flags().rows([ht.FLAG]) == {ht.FLAG: "on"}
 
 

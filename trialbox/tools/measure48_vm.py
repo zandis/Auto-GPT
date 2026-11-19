@@ -8,7 +8,7 @@ library only: the VM runs it with its own python3 before any venv exists (as box
     python3 measure48_vm.py disk --path / --need-gb N            # is there room for the next big step?
     python3 measure48_vm.py pack --run DIR --out DIR [--mask-file F ...]   # the allow-listed records, redacted
     python3 measure48_vm.py summary DIR                          # --collect: what the run measured
-    python3 measure48_vm.py quota DIR --zone Z --disk-gb N       # the driver's preflight: GPU, CPU and disk quota
+    python3 measure48_vm.py quota DIR --zone Z --disk-gb N [--hdb-free-gb N]  # the driver's preflight: GPU, CPU, disk
 
 Every figure of ``STAGES`` is H-47's (docs/plan/measurements/48gb-measuring-run-2026-11-19.md, section 5), unchanged:
 the unattended form does the same steps in the same order; only the disk is smaller (100 GB, the region's
@@ -30,7 +30,7 @@ from typing import Any
 
 PRICE_PER_HOUR = 2.74  # g4-standard-48 SPOT, RTX PRO 6000: tools/complete_run.py PRICE_PER_HOUR (a test pins it)
 ON_DEMAND_PRICE_PER_HOUR = round(3 * PRICE_PER_HOUR, 2)  # tools/complete_run.py ON_DEMAND_PRICE_PER_HOUR
-DISK_GB = 100  # the boot disk: the region's HDB_TOTAL_GB is 500 GB and tb-gpu-sim holds 400 (the integrator, 11-19)
+DISK_GB = 100  # the boot disk: HDB_TOTAL_GB 500 GB, tb-gpu-sim 400 (a refused create, 11-19; not listed: H-59)
 DISK_USD_PER_GIB_MONTH = 0.093  # hyperdisk-balanced, Taiwan list price (H-47 section 5, the hand-over's figure)
 CAP_HOURS = 4  # --max-run-duration 4h, as H-47
 HOURS_PER_MONTH = 730
@@ -339,26 +339,75 @@ def summary(d: Path, root: Path | None = None) -> dict[str, Any]:
     return out
 
 
-def quota(folder: Path, zone: str, disk_gb: int) -> list[str]:
+def _hdb_free_gb(text: str) -> float:
+    """``--hdb-free-gb``: the region's free HDB_TOTAL_GB by hand (a number of GB, 0 or more); anything else refused."""
+    try:
+        v = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number of GB: {text!r}") from None
+    if not math.isfinite(v) or v < 0:
+        raise argparse.ArgumentTypeError(f"not a number of GB (0 or more): {text!r}")
+    return v
+
+
+def _read_json(path: Path, what: str) -> tuple[Any, str | None]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8")), None
+    except (OSError, ValueError) as exc:
+        return None, f"{what} not readable ({path.name}: {type(exc).__name__}); the quota cannot be judged"
+
+
+def quota_check(folder: Path, zone: str, disk_gb: int, hdb_free_gb: float | None = None) -> tuple[list[str], list[str]]:
     """The driver's preflight: one Spot RTX PRO 6000 VM in ``zone`` (tools/complete_run.py quota_problems, the same
-    reading the complete run's launch makes) and room for its boot disk in the region's HDB_TOTAL_GB."""
+    reading the complete run's launch makes) and room for its boot disk in the region's HDB_TOTAL_GB. Returns
+    (problems, notes): any problem refuses the launch; a note is said and the preflight goes on.
+
+    H-59: ``regions describe`` may not list HDB_TOTAL_GB at all (asia-east1, 11-19: 113 rows, none of it). A
+    well-formed list without the row is a note, not a problem: the disk cannot be checked beforehand and the create
+    call itself refuses when the quota is short. A row that is there and short still refuses. ``hdb_free_gb`` (the
+    free figure by hand, e.g. from a refused create's message) is checked against the need exactly like a listed
+    row. Output that is not JSON, or not a quota list, is a problem: an error is never taken for "go on"."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from tools.complete_run import quota_problems  # the driver's checkout
 
-    project = json.loads((folder / "project.json").read_text(encoding="utf-8"))
     region = zone.rsplit("-", 1)[0]
-    reg = json.loads((folder / f"region-{region}.json").read_text(encoding="utf-8"))
+    project, e1 = _read_json(folder / "project.json", "project-info describe")
+    reg, e2 = _read_json(folder / f"region-{region}.json", f"regions describe {region}")
+    bad = [e for e in (e1, e2) if e]
+    if bad:
+        return bad, []
+    rows = reg.get("quotas") if isinstance(reg, dict) else None
+    if not isinstance(project, dict) or not isinstance(rows, list) or not all(isinstance(q, dict) for q in rows):
+        return [f"regions describe {region} / project-info describe: not a quota list; the quota cannot be judged"], []
     bad = list(quota_problems(project, {region: reg}, [zone]))
-    hdb = next((q for q in reg.get("quotas") or [] if q.get("metric") == "HDB_TOTAL_GB"), None)
-    if hdb is None:
-        bad.append(f"{region}: HDB_TOTAL_GB quota not readable (the boot disk is hyperdisk-balanced, {disk_gb} GB)")
-    else:
-        free = float(hdb.get("limit", 0)) - float(hdb.get("usage", 0))
-        if free < disk_gb:
+    notes: list[str] = []
+    hdb = next((q for q in rows if q.get("metric") == "HDB_TOTAL_GB"), None)
+    if hdb is not None:
+        try:
             lim, use = float(hdb.get("limit", 0)), float(hdb.get("usage", 0))
-            bad.append(f"{region}: HDB_TOTAL_GB: limit {lim:g}, in use {use:g}, free {free:g} GB; the boot disk "
-                       f"needs {disk_gb} GB")  # fmt: skip
-    return bad
+        except (TypeError, ValueError):
+            bad.append(f"{region}: HDB_TOTAL_GB row not readable: {hdb!r}")
+        else:
+            if lim - use < disk_gb:
+                bad.append(f"{region}: HDB_TOTAL_GB: limit {lim:g}, in use {use:g}, free {lim - use:g} GB; the boot "
+                           f"disk needs {disk_gb} GB")  # fmt: skip
+    elif hdb_free_gb is None:
+        notes.append(f"{region}: HDB_TOTAL_GB is not in the region's quota list ({len(rows)} rows), so the "
+                     f"{disk_gb} GB disk quota cannot be checked beforehand; the create call itself refuses if it "
+                     f"is short (--hdb-free-gb N gives the free figure by hand)")  # fmt: skip
+    if hdb_free_gb is not None:
+        if hdb_free_gb < disk_gb:
+            bad.append(f"{region}: HDB_TOTAL_GB: free {hdb_free_gb:g} GB (given by hand, --hdb-free-gb); the boot "
+                       f"disk needs {disk_gb} GB")  # fmt: skip
+        else:
+            notes.append(f"{region}: HDB_TOTAL_GB: free {hdb_free_gb:g} GB (given by hand, --hdb-free-gb); the boot "
+                         f"disk needs {disk_gb} GB")  # fmt: skip
+    return bad, notes
+
+
+def quota(folder: Path, zone: str, disk_gb: int, hdb_free_gb: float | None = None) -> list[str]:
+    """The problems of ``quota_check`` (empty: the launch may go on)."""
+    return quota_check(folder, zone, disk_gb, hdb_free_gb)[0]
 
 
 def _print_estimate(e: dict[str, Any]) -> None:
@@ -419,6 +468,7 @@ def main(argv: list[str] | None = None) -> int:
     q.add_argument("dir", type=Path)
     q.add_argument("--zone", required=True)
     q.add_argument("--disk-gb", type=int, default=DISK_GB)
+    q.add_argument("--hdb-free-gb", type=_hdb_free_gb, default=None)  # H-59: the free figure by hand
     sub.add_parser("stop-line-min").add_argument("--no-o", action="store_true")
     a = ap.parse_args(argv)
     if a.cmd == "estimate":
@@ -459,13 +509,17 @@ def main(argv: list[str] | None = None) -> int:
         res = summary(a.dir, Path(__file__).resolve().parents[1])
         print(json.dumps(res, indent=1, sort_keys=True))
         return 0
-    bad = quota(a.dir, a.zone, a.disk_gb)
+    bad, notes = quota_check(a.dir, a.zone, a.disk_gb, a.hdb_free_gb)
+    for n in notes:
+        print(f"quota: {n}")
     for b in bad:
         print(f"quota: {b}", file=sys.stderr)
     if bad:
         print("quota: the run's VM cannot be made now; nothing was made or started", file=sys.stderr)
         return 4
-    print(f"quota: one Spot RTX PRO 6000 VM in {a.zone} and its {a.disk_gb} GB disk fit")
+    checked = not any("cannot be checked beforehand" in n for n in notes)
+    disk = f"its {a.disk_gb} GB disk fit" if checked else f"its {a.disk_gb} GB disk: not checked (above)"
+    print(f"quota: one Spot RTX PRO 6000 VM in {a.zone} and {disk}")
     return 0
 
 
