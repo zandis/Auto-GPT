@@ -30,7 +30,7 @@ EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
 
 
 def _doc(**over: Any) -> dict[str, Any]:
-    doc = json.loads(sc.CONTACT_FILE.read_text(encoding="utf-8"))
+    doc: dict[str, Any] = json.loads(sc.CONTACT_FILE.read_text(encoding="utf-8"))
     doc.update(over)
     return doc
 
@@ -50,7 +50,10 @@ def test_the_placeholder_lives_in_one_file_only() -> None:
         pytest.skip("the owner has set the contact")
     token = doc["contact"]
     found = subprocess.run(
-        ["git", "-C", str(REPO), "grep", "-l", "-F", "--untracked", "-e", token], capture_output=True, text=True
+        ["git", "-C", str(REPO), "grep", "-l", "-F", "--untracked", "-e", token],
+        capture_output=True,
+        text=True,
+        check=False,
     )
     assert found.returncode in (0, 1), found.stderr
     holders = found.stdout.split()
@@ -69,7 +72,13 @@ def test_the_policy_says_what_a_reporter_must_not_do_in_each_language(path: Path
     text = path.read_text(encoding="utf-8")
     words = {
         "11-vulnerability-disclosure.md": ("real patient data", "hospital's box", "Safe harbour", "45 days", "JVN"),
-        "11-vulnerability-disclosure-ja.md": ("実在の患者データ", "稼働しているボックス", "セーフハーバー", "45 日", "JVN"),
+        "11-vulnerability-disclosure-ja.md": (
+            "実在の患者データ",
+            "稼働しているボックス",
+            "セーフハーバー",
+            "45 日",
+            "JVN",
+        ),
         "11-vulnerability-disclosure-zh-tw.md": ("真實病人資料", "正在運作的設備", "安全港", "TWCERT/CC", "JVN"),
     }[path.name]
     for w in words:

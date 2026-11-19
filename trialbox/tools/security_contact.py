@@ -88,7 +88,7 @@ def security_txt(doc: dict[str, Any], now: datetime | None = None) -> str:
     now = now or datetime.now(UTC)
     expires = (now + timedelta(days=EXPIRES_DAYS)).replace(microsecond=0)
     lines = [
-        "# TrialBox security contact (RFC 9116). Policy in English, Japanese and Traditional Chinese at the Policy URL.",
+        "# TrialBox security contact (RFC 9116). The policy, in English, Japanese and Traditional Chinese: Policy.",
         f"Contact: {doc['contact']}",
     ]
     if doc.get("github_private_reporting"):
