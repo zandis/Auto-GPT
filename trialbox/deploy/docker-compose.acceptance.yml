@@ -32,6 +32,12 @@ services:
     labels: {tb.watchdog: restart}
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
+    # H-58 (D-1337): 1000:1000 is the rootless image's own lldap user (UID and GID 1000 in its Dockerfile); it writes
+    # its SQLite database to the acceptance-directory-data volume, its entrypoint a default config there when none
+    # is; nothing else (a /tmp tmpfs all the same)
+    user: "1000:1000"
+    read_only: true
+    tmpfs: [/tmp]
     # the settings file holds the directory's secrets (0600, the image's uid 1000), so it replaces the image default
     command: ["run", "--config-file", "/run/directory/lldap_config.toml"]
     healthcheck:
@@ -55,6 +61,10 @@ services:
     pids_limit: 128
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
+    # H-58 (D-1337): the same image and user; bootstrap.sh writes only a mktemp -d folder (under /tmp, a tmpfs)
+    user: "1000:1000"
+    read_only: true
+    tmpfs: [/tmp]
     entrypoint: ["/app/bootstrap.sh"]
     environment:
       LLDAP_URL: http://acceptance-directory:17170
@@ -78,6 +88,11 @@ services:
     labels: {tb.watchdog: restart}
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
+    # H-58 (D-1337): as greenmail of docker-compose.test.yml: the image's own user 999:999, mail in memory, the JVM's
+    # writes under /tmp, a tmpfs
+    user: "999:999"
+    read_only: true
+    tmpfs: [/tmp]
     # sign-in required (no greenmail.auth.disabled), TLS only, the keystore issued by the acceptance test CA
     environment:
       GREENMAIL_OPTS: >-

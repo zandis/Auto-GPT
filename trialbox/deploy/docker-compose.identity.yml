@@ -22,6 +22,15 @@ services:
     mem_limit: ${TB_MEM_CADDY:-256m}   # T-108a (D-360)
     pids_limit: 256
     labels: {tb.watchdog: restart}
+    # H-58 (D-1337): no privilege gain; a read-only root with a /tmp tmpfs (the image keeps its state in the XDG
+    # folders /data and /config, both volumes here; admin off, skip_install_trust). Exceptions (EXCEPTIONS of
+    # tests/unit/test_container_hardening.py): user and cap_drop. The image runs as root and binds 443; without
+    # NET_BIND_SERVICE that bind rests on Docker's per-container port sysctl, and without DAC_OVERRIDE root cannot
+    # read a hospital key (TB_TLS_KEY_FILE) of another owner with mode 0600 or 0640, a host file whose owner and mode
+    # the installer does not set. caddy-data's files are root's: a fixed uid would also need them handed over.
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
     # the Caddyfile's health site, on the container's loopback only (the admin API stays off)
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2020/healthz"]
@@ -62,6 +71,11 @@ services:
     mem_limit: ${TB_MEM_AUTHELIA:-512m}   # T-108a (D-360)
     pids_limit: 256
     labels: {tb.watchdog: restart}
+    # H-58 (D-1337): no privilege gain. Exceptions (EXCEPTIONS of tests/unit/test_container_hardening.py): user,
+    # cap_drop and read_only. The image starts as root (PUID=0, PGID=0) and its entrypoint sets the owner of /config
+    # and the user it runs as at start; it writes /app/.healthcheck.env (an image path its own health check reads).
+    # Not in any rehearsal (the oidc profile).
+    security_opt: ["no-new-privileges:true"]
     environment:
       X_AUTHELIA_CONFIG_FILTERS: template   # the OIDC signing key is read from a file by the template filter
       AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE: /run/authelia/jwt_secret
