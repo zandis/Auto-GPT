@@ -20,7 +20,7 @@
 <form method="post" action="/ops/support-session" class="formstack" data-testid="support-form">
 <input type="hidden" name="csrf" value="{{ csrf }}">
 <label for="support-ticket">{{ t('support.ticket.optional') }}</label>
-<input id="support-ticket" name="ticket" maxlength="40" pattern="[A-Za-z0-9#._/\-]{0,40}" class="mono">
+<input id="support-ticket" name="ticket" maxlength="40" pattern="[A-Za-z0-9#._\/\-]{0,40}" class="mono">
 <label class="inline"><input type="checkbox" name="confirm" value="yes" required data-testid="support-confirm"> {{ t('support.confirm') }}</label>
 <button type="submit" data-testid="support-start">{{ t('support.start', minutes=minutes) }}</button>
 </form>
