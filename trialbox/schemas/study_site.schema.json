@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trialbox.local/schemas/v1/study_site.schema.json",
   "title": "StudySite",
-  "description": "The site part of a study manifest (10D-2, D-1366; review 14 M14-1): what a hospital sets for itself beside the protocol part it adopted (screening scopes and people, routing, the note-reading models, its approval and IRB record, its own equivalence run and loaded code tables), read from rulesets/<ID>/ by tb_common.study_manifest. Edited freely at the site. Schema version 1.0.0.",
+  "description": "The site part of a study manifest (10D-2, D-1366; review 14 M14-1): what a hospital sets for itself beside the protocol part it adopted (screening scopes and people, routing, which model serves, its approval and IRB record, its own equivalence run and loaded code tables), read from rulesets/<ID>/ by tb_common.study_manifest. Edited freely at the site. Schema version 1.0.0.",
   "type": "object",
   "required": ["schema", "criteria_sha256", "manifest"],
   "additionalProperties": false,
@@ -11,7 +11,7 @@
     "criteria_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "the criteria hash of the protocol part this site part goes with"},
     "manifest": {
       "type": "object",
-      "description": "the site fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it",
+      "description": "the site fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it (defaults explicit, nulls left out); models without judge_prompt, which is the protocol's",
       "propertyNames": {
         "enum": [
           "status", "effective_from", "irb_reference", "irb_approved_on", "scopes", "routing", "models", "review",

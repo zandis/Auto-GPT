@@ -7,6 +7,7 @@ threshold is refused with a sentence; every shipped manifest loads unchanged thr
 from __future__ import annotations
 
 import json
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ import yaml
 from tb_common import study_manifest as sm
 from tb_common.ruleset import SEED_RULESETS, Ruleset
 from tb_contracts import RulesetManifest, StudyProtocol, StudySite
+from tb_llm.prompt_registry import manifest_pins
 
 SHIPPED = sorted(p.parent.name for p in SEED_RULESETS.glob("*/manifest.yaml"))
 SCHEMAS = Path(__file__).resolve().parents[2] / "schemas"
@@ -63,7 +65,10 @@ def test_every_manifest_field_is_in_exactly_one_part() -> None:
 
 
 def test_the_schemas_list_the_same_fields() -> None:
-    for name, fields in (("study_protocol", sm.PROTOCOL_FIELDS), ("study_site", sm.SITE_FIELDS)):
+    for name, fields in (
+        ("study_protocol", (*sm.PROTOCOL_FIELDS, *sm.PROTOCOL_SUBFIELDS)),
+        ("study_site", sm.SITE_FIELDS),
+    ):
         doc = json.loads((SCHEMAS / f"{name}.schema.json").read_text(encoding="utf-8"))
         assert doc["properties"]["manifest"]["propertyNames"]["enum"] == list(fields)
 
@@ -162,7 +167,7 @@ def test_the_site_part_edits_freely() -> None:
         {
             "routing": {"list_to": ["pi@siteb.test"]},
             "scopes": {"screen": {"practitioners": ["D0002"], "departments": ["RHEUM-B"]}},
-            "models": None,
+            "models": {"judge_prompt": "judge_v4"},
             "status": "draft",
             # a protocol field sent back unchanged is no edit
             "thresholds": {"tier_high_confidence": 0.75, "small_cell": 5},
@@ -211,7 +216,12 @@ def test_a_changed_criterion_file_at_a_site_is_named() -> None:
     adopted = sm.split(files).protocol
     ir = json.loads(files["ir/RA-JAK-INC-01.json"])
     ir["logic"]["age"]["min"] = 16.0
-    changed = {**files, "ir/RA-JAK-INC-01.json": json.dumps(ir).encode("utf-8"), "ir/EXTRA.json": b"{}"}
+    extra = {**json.loads(files["ir/RA-JAK-INC-02.json"]), "id": "RA-JAK-INC-99"}
+    changed = {
+        **files,
+        "ir/RA-JAK-INC-01.json": json.dumps(ir).encode("utf-8"),
+        "ir/EXTRA.json": json.dumps(extra).encode("utf-8"),
+    }
     del changed["sql/RA-JAK.sql"]
     got = sm.differences(adopted, sm.split(changed))
     assert any("ir/RA-JAK-INC-01.json was changed at this site" in s for s in got)
@@ -222,3 +232,99 @@ def test_a_changed_criterion_file_at_a_site_is_named() -> None:
 def test_a_path_outside_the_folder_is_refused() -> None:
     with pytest.raises(ValueError, match="relative to its folder"):
         sm.split({**_files("RA-JAK"), "../manifest.yaml": b""})
+
+
+# ---------------------------------------------------------------------------------------------- the review's cases
+#: RA-JAK's criteria hash as shipped: 10D-3 must reproduce it byte for byte from the canonical form of D-1366
+RA_JAK_CRITERIA_SHA256 = "16e7b313accd9b1d0c3fa579949823963b1d333b1f925093a1912ab651e04b87"
+
+
+def test_the_criteria_hash_of_a_shipped_study_is_its_golden() -> None:
+    assert sm.split(_files("RA-JAK")).criteria_sha256 == RA_JAK_CRITERIA_SHA256
+
+
+def test_the_canonical_form_sorts_keys_at_every_depth() -> None:
+    assert sm.dumps({"b": {"y": 1, "x": 2}, "a": [3, {"d": 4, "c": 5}]}) == b'{"a":[3,{"c":5,"d":4}],"b":{"x":2,"y":1}}'
+    parts = sm.split(_files("RA-JAK")).protocol
+    shuffled = {k: parts[k] for k in reversed(list(parts))}
+    shuffled["manifest"] = {k: parts["manifest"][k] for k in reversed(list(parts["manifest"]))}
+    assert sm.canonical(shuffled) == sm.canonical(parts)
+    assert sm.protocol_refusal(shuffled) is None
+
+
+def test_the_canonical_form_of_numbers_and_text() -> None:
+    assert sm.dumps({"a": 5.0, "b": 0.75, "c": 1e-05, "d": 2.0**60, "e": "é"}) == (
+        '{"a":5,"b":0.75,"c":1e-05,"d":1.152921504606847e+18,"e":"é"}'.encode()
+    )
+    assert sm.dumps("é") == sm.dumps("é")
+    with pytest.raises(ValueError):
+        sm.dumps(float("nan"))
+    assert sm.text(b"a\r\nb\rc\n\n\n") == b"a\nb\nc\n" == sm.text(b"a\nb\nc")
+
+
+def _same_hash(changed: dict[str, bytes]) -> None:
+    assert sm.split(changed).criteria_sha256 == sm.split(_files("RA-JAK")).criteria_sha256
+
+
+def test_what_the_engine_reads_alike_hashes_alike() -> None:
+    files = _files("RA-JAK")
+    vs = json.loads(files["valuesets/VS_METHOTREXATE.json"])
+    _same_hash({**files, "valuesets/VS_METHOTREXATE.json": json.dumps(dict(reversed(list(vs.items())))).encode()})
+    _same_hash({**files, "notes.txt~": b"a stray editor file", "sql/.RA-JAK.sql.swp": b"x"})
+    _same_hash(_with_manifest(files, thresholds={"tier_high_confidence": 0.75}))  # small_cell 5 is the default
+    title = yaml.safe_load(files["manifest.yaml"])["title"]
+    nfd = unicodedata.normalize("NFD", title + " é")
+    assert nfd != unicodedata.normalize("NFC", nfd)
+    assert (
+        sm.split(_with_manifest(files, title=nfd)).criteria_sha256
+        == sm.split(_with_manifest(files, title=unicodedata.normalize("NFC", nfd))).criteria_sha256
+    )
+    _same_hash({**files, "sql/RA-JAK.sql": files["sql/RA-JAK.sql"].replace(b"\n", b"\r\n")})
+    ir = json.loads(files["ir/RA-JAK-INC-01.json"])
+    ir["logic"]["age"] = {"min": 18, "max": 75}
+    _same_hash({**files, "ir/RA-JAK-INC-01.json": json.dumps(ir, indent=4).encode()})
+
+
+def test_a_site_part_carrying_a_protocol_field_is_refused() -> None:
+    parts = sm.split(_files("RA-JAK"))
+    for smuggled in (
+        {"thresholds": {"tier_high_confidence": 0.75, "small_cell": 1}},
+        {"criteria": ["RA-JAK-INC-01"]},
+        {"models": {"judge": "x", "judge_prompt": "judge_v3"}},
+    ):
+        site = {**parts.site, "manifest": {**parts.site["manifest"], **smuggled}}
+        with pytest.raises(ValueError, match="site part carries"):
+            sm.merge(parts.protocol, site)
+        assert isinstance(sm.site_edit(parts.protocol, site, {"status": "draft"}), str)
+    foreign = {**parts.protocol, "manifest": {**parts.protocol["manifest"], "models": {"judge": "x"}}}
+    foreign["criteria_sha256"] = sm.criteria_sha256(foreign)
+    assert sm.protocol_refusal(foreign) == "the study's protocol part carries a site's models setting"
+
+
+def test_the_judge_prompt_is_the_protocols_and_the_serving_model_the_sites() -> None:
+    parts = sm.split(_files("RA-BIO"))  # no prompt_pins: models.judge_prompt is the judge's pin
+    assert parts.protocol["manifest"]["models"] == {"judge_prompt": "judge_v4"}
+    assert "judge_prompt" not in parts.site["manifest"]["models"]
+    got = sm.site_edit(parts.protocol, parts.site, {"models": {"judge": "m", "judge_prompt": "judge_v3"}})
+    assert isinstance(got, str) and 'the prompt pin models.judge_prompt from "judge_v4" to "judge_v3"' in got
+    assert isinstance(sm.site_edit(parts.protocol, parts.site, {"models": {"judge": "m"}}), str)
+    new = sm.apply_site_edit(parts.protocol, parts.site, {"models": {"judge": "m", "judge_prompt": "judge_v4"}})
+    before = RulesetManifest.model_validate(sm.merge(parts.protocol, parts.site))
+    after = RulesetManifest.model_validate(sm.merge(parts.protocol, new))
+    assert after.models is not None and after.models.judge == "m"
+    assert manifest_pins(after) == manifest_pins(before) == {"judge": {"version": 4}}
+    b = sm.split(_with_manifest(_files("RA-BIO"), models={"judge": "other", "judge_prompt": "judge_v4"}))
+    assert b.criteria_sha256 == parts.criteria_sha256
+    c = sm.split(_with_manifest(_files("RA-BIO"), models={"judge": "other", "judge_prompt": "judge_v3"}))
+    assert c.criteria_sha256 != parts.criteria_sha256
+
+
+def test_differences_refuse_an_adopted_part_that_does_not_hold_its_hash() -> None:
+    files = _files("RA-JAK")
+    adopted = sm.split(files).protocol
+    tampered = {**adopted, "manifest": {**adopted["manifest"], "thresholds": {"small_cell": 1}}}
+    got = sm.differences(tampered, sm.split(files))
+    assert got == [
+        "the adopted protocol part cannot be trusted: the study's protocol part was changed after its criteria hash "
+        "was taken"
+    ]

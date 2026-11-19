@@ -2100,7 +2100,7 @@ class SiteSchema(BaseModel):
 
 class StudyProtocol(BaseModel):
     """
-    The protocol part of a study manifest (10D-2, D-1366; review 14 M14-1): what the coordinating centre fixes for every site, read from rulesets/<ID>/ by tb_common.study_manifest. Its canonical serialisation (keys sorted, no spaces, UTF-8) hashes to criteria_sha256, the same on every site that adopts it; a site edit to any of it is refused. Schema version 1.0.0.
+    The protocol part of a study manifest (10D-2, D-1366; review 14 M14-1): what the coordinating centre fixes for every site, read from rulesets/<ID>/ by tb_common.study_manifest. Its canonical serialisation (keys sorted, no spaces, UTF-8) hashes to criteria_sha256, the same on every site that adopts it; a site edit to any of it is refused. The canonical form is written in D-1366. Schema version 1.0.0.
     """
 
     model_config = ConfigDict(
@@ -2138,21 +2138,22 @@ class StudyProtocol(BaseModel):
             "prompt_pins",
             "derived_pins",
             "source_last_update",
+            "models",
         ],
         Any,
     ]
     """
-    the protocol fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it
+    the protocol fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it (defaults explicit, nulls left out); models carries only judge_prompt, the judge's prompt pin of a manifest without prompt_pins (which model serves is the site's)
     """
     files: dict[str, str]
     """
-    the protocol's files of rulesets/<ID>/ by relative path (criteria IR, value sets, CQL and ELM, SQL, labels, synthetic test patients and their expected results), each the sha256 of its canonical bytes; a criterion IR file without the site's review record (who, when, comment, approved or draft)
+    the protocol's files of rulesets/<ID>/ by relative path (ir/*.json, valuesets/*.json, cql/elm/*.json, cql/*.cql, sql/*.sql, labels.yaml, tests/patients.ndjson, tests/expected.json, and the file docx_template names), each the sha256 of its canonical bytes (D-1366); a criterion IR file without the site's review record (who, when, comment, approved or draft); no other file is hashed
     """
 
 
 class StudySite(BaseModel):
     """
-    The site part of a study manifest (10D-2, D-1366; review 14 M14-1): what a hospital sets for itself beside the protocol part it adopted (screening scopes and people, routing, the note-reading models, its approval and IRB record, its own equivalence run and loaded code tables), read from rulesets/<ID>/ by tb_common.study_manifest. Edited freely at the site. Schema version 1.0.0.
+    The site part of a study manifest (10D-2, D-1366; review 14 M14-1): what a hospital sets for itself beside the protocol part it adopted (screening scopes and people, routing, which model serves, its approval and IRB record, its own equivalence run and loaded code tables), read from rulesets/<ID>/ by tb_common.study_manifest. Edited freely at the site. Schema version 1.0.0.
     """
 
     model_config = ConfigDict(
@@ -2181,7 +2182,7 @@ class StudySite(BaseModel):
         Any,
     ]
     """
-    the site fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it
+    the site fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it (defaults explicit, nulls left out); models without judge_prompt, which is the protocol's
     """
     criterion_reviews: dict[str, CriterionReview] | None = None
     """
