@@ -28,8 +28,8 @@ from tb_common.timeutil import add_months
 from tb_common.verdict_word import shown_of
 from tb_contracts import CandidateList, CandidateRow, Judging, Routing, ScreenRunScope, TierSummary, dump
 
+from orchestrator import answer_store, identifiers
 from orchestrator import excluded as excluded_lines
-from orchestrator import identifiers
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_language, job_stamp
 from orchestrator.decision_context import (
@@ -941,6 +941,8 @@ def run(ctx: Ctx) -> Outcome:
         srun.results = {p: v for p, v in srun.results.items() if p not in gone}
     cl = candidate_list(srun)
     record_model_uses(ctx, rs, srun)
+    # D-1360 (card 10A-4): every answer of the run, listed or not, after the opt-outs, in the answer store
+    answer_store.record(ctx, rs.id, rs.version, srun.results, run_date, snapshot)
     meta = report_meta(ctx, rs, snapshot, run_date, srun.judging)
     unverified = scores_unverified(ctx, rs, snapshot)  # D-442: the list says so in its own header
     if unverified:

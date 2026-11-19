@@ -46,7 +46,7 @@ from tb_common.subject import job_subject
 from tb_common.verdict_word import held_back
 from tb_contracts import CriterionIR, CriterionVerdict, Evidence, ParseRequest, PatientEvaluation
 
-from orchestrator import identifiers
+from orchestrator import answer_store, identifiers
 from orchestrator.clients import StepFailed
 from orchestrator.core import Ctx, Delivery, Outcome, job_stamp
 from orchestrator.decision_context import decision_of
@@ -337,6 +337,35 @@ def evaluate_case(
     return rows, judge
 
 
+def with_last_screening(ctx: Ctx, rs: Ruleset, subj: Subject, rows: list[dict[str, Any]]) -> int:
+    """D-1360 (card 10A-4): beside each criterion's answer on this sheet, the answer the last screening of this
+    ruleset version stored for the patient (the word a page shows for it, D-478, with its status, basis, final, rung
+    and index date), read from the answer store; only
+    for a patient in the hospital data (a pseudonym the screening knows), never for a chart alone. Display only: the
+    sheet's own answer is not changed by it. The number of criteria that have one."""
+    stored = answer_store.last(ctx, subj.pid if subj.in_lake else None, rs.id, rs.version)
+    n = 0
+    for r in rows:
+        a = stored.get(str(r["id"]))
+        if a is not None and a["status"] == "unknown" and a["reason"] in answer_store.NOT_ASKED:
+            a = None  # nobody was asked (D-642): nothing to show
+        if a is None:
+            r["last_screening"] = None
+            continue
+        word, why = answer_store.shown(a)  # a held-back "not met" is an open point here too (D-478)
+        r["last_screening"] = {
+            "shown": word,
+            "held_back": why,
+            "status": a["status"],
+            "basis": a["basis"],
+            "final": a["final"],
+            "rung": a["rung"],
+            "index_date": a["index_date"],
+        }
+        n += 1
+    return n
+
+
 def counts(rows: list[dict[str, Any]]) -> dict[str, int]:
     out = {"met": 0, "not_met": 0, "unknown": 0, "human": 0, "total": len(rows)}
     for r in rows:
@@ -403,6 +432,7 @@ def run(ctx: Ctx) -> Outcome:
         ctx.update(snapshot_date=date.fromisoformat(subj.snapshot))
     ctx.state("running")
     rows, judge = evaluate_case(ctx, rs, subj, excerpts, lang)
+    with_last_screening(ctx, rs, subj, rows)
     c = counts(rows)
     rec: dict[str, Any] = {
         "schema": SCHEMA,

@@ -143,6 +143,22 @@ footer{margin-top:18px;color:#4a545e;font-size:12px;border-top:1px solid #d6dadf
 """
 
 
+#: D-1360 (card 10A-4): the answer the last screening stored, under the sheet's own
+LAST = {
+    "en": "Last screening, {date}: {verdict}",
+    "ja": "前回スクリーニング（{date}）：{verdict}",
+    "zh-TW": "上次篩選（{date}）：{verdict}",
+}
+
+
+def _last(r: dict[str, Any], lang: str) -> str:
+    a = r.get("last_screening")
+    if not a:
+        return ""
+    v = str(a.get("shown") or a["status"])  # the word a page shows (a held-back "not met" is an open point, D-478)
+    return f'<div class="d">{escape(LAST[lang].format(date=a["index_date"], verdict=VERDICT[lang].get(v, v)))}</div>'
+
+
 def _row(r: dict[str, Any], lang: str) -> str:
     verdict = str(r["verdict"])
     ev = ""
@@ -158,7 +174,7 @@ def _row(r: dict[str, Any], lang: str) -> str:
         f'<tr data-id="{escape(str(r["id"]))}" data-verdict="{escape(verdict)}">'
         f"<td><strong>{escape(str(r['id']))}</strong><br>{escape(str(r['text']))}</td>"
         f"<td>{escape(KIND[lang].get(str(r['kind']), str(r['kind'])))}</td>"
-        f'<td class="v-{escape(verdict)}">{escape(VERDICT[lang].get(verdict, verdict))}</td>'
+        f'<td class="v-{escape(verdict)}">{escape(VERDICT[lang].get(verdict, verdict))}{_last(r, lang)}</td>'
         f"<td>{ev or '–'}</td>"
         f"<td>{escape(SOURCE[lang].get(str(r['source']), str(r['source'])))}</td>"
         f"<td>{escape(str(r.get('resolve') or ''))}</td></tr>"
