@@ -13,8 +13,9 @@ new heading with the version and date, in the same pull request that sets the ve
 - One spelling for each core word (9k-16, D-1371): the console says 候補者 / 候選者 for a candidate everywhere, and in
   Japanese 治験依頼者 (not スポンサー), データ管理責任者 (not データスチュワード) and 治験分担医師・治験協力者リスト
   (not 責任分担表); in Chinese 授權紀錄表, 試驗委託者 and 病人代碼; in English "sub-investigator". The words are a
-  data file (`services/console/core_words.yaml`) that `make lint` holds every console text to. No setting changes;
-  no row has yet been read by a native reader.
+  data file (`services/console/core_words.yaml`) that `make lint` holds every console text to, and the job mails,
+  the PDF titles and the refusal sentences too (the Japanese feasibility mail and report say 実施可能性, not
+  フィージビリティ; the zh-TW steward is 資料管理員). No setting changes; no row has yet been read by a native reader.
 - ClinicalTrials.gov intake widened (10D-15, D-1367): a study read from the registry (live, offline pack or
   cassette) now carries its sites with their recruitment status, its secondary ids (a jRCT, JapicCTI or UMIN-CTR
   number is recognised as such), arms, interventions, primary and secondary outcomes and the design (allocation,

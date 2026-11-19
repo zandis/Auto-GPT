@@ -129,7 +129,7 @@ JA: dict[str, str] = {
     "dataops.state.PUBLISHED": "公開済み",
     "dataops.state.HELD": "保留",
     "dataops.state.FAILED": "停止",
-    "dataops.state.REJECTED": "スチュワードが却下",
+    "dataops.state.REJECTED": "データ管理責任者が却下",
     "dataops.tables": "テーブル：{tables}",
     "dataops.accept": "承認：この取り込みを公開する",
     "dataops.reject": "却下：前の夜のデータを使い続ける",

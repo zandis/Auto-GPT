@@ -89,7 +89,7 @@ You should see: Four criteria: one by a fixed filter, three by a person. No appr
 - study coordinator: the coordinator cannot approve: `POST /pilot/jobs/<job>/approve` refused: 403 and the page "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
 - study coordinator: the coordinator cannot name the PI: `POST /studies/MYSTUDY/team` refused: 403 and the page "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
 
-### Step 5 · investigator (PI / sub-I)
+### Step 5 · investigator (PI / sub-investigator)
 
 As the investigator: open the criteria waiting for approval.
 
@@ -102,8 +102,8 @@ As the investigator: open the criteria waiting for approval.
 
 You should see: Nobody can approve yet: the delegation log names no PI.
 
-- investigator (PI / sub-I): nobody approves before the steward names the PI: `POST /pilot/jobs/<job>/approve` refused: 403 and the page "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
-- investigator (PI / sub-I): the investigator cannot send a protocol in: `POST /pilot/protocol` refused: 403 and the page "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
+- investigator (PI / sub-investigator): nobody approves before the steward names the PI: `POST /pilot/jobs/<job>/approve` refused: 403 and the page "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
+- investigator (PI / sub-investigator): the investigator cannot send a protocol in: `POST /pilot/protocol` refused: 403 and the page "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
 
 ### Step 6 · data steward
 
@@ -123,7 +123,7 @@ You should see: The entry is added and signed; the task is gone.
 
 - data steward: the steward cannot start a run: `POST /pilot/request` refused: 403 and the page "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
 
-### Step 7 · investigator (PI / sub-I)
+### Step 7 · investigator (PI / sub-investigator)
 
 As the investigator: open each row to check, then approve all.
 
@@ -169,7 +169,7 @@ Open the study's report, then its set-up, and choose the whole hospital under wh
 
 You should see: Who to screen: the whole hospital. The study is in start-up; Open is refused with words that send you to set-up; then the study has its type for SAE reporting.
 
-- investigator (PI / sub-I): the investigator cannot choose the type for SAE reporting: `POST /studies/MYSTUDY/setup/sae` refused: 403 and the page "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
+- investigator (PI / sub-investigator): the investigator cannot choose the type for SAE reporting: `POST /studies/MYSTUDY/setup/sae` refused: 403 and the page "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
 - data steward: the steward cannot choose the type for SAE reporting: `POST /studies/MYSTUDY/setup/sae` refused: 403 and the page "This page needs another role / 這個頁面需要其他角色 / このページには別の役割が必要です".
 
 ### Step 10 · study coordinator

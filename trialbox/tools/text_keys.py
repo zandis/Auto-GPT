@@ -18,7 +18,8 @@ written, so the loser of an override is seen too, and fails on:
 * **a dynamic family** (``t('life.vstate.' + v.status)``, ``translate(lang, f"life.state.{s}")``) that is neither
   checked member by member (``FAMILIES``: every value the code can produce has its key) nor listed in
   ``UNCHECKED_FAMILIES`` with the reason; and a family no catalogue key starts with (a misspelled prefix);
-* **a refused spelling** of one of the twenty core words (``tools.core_words``, ``services/console/core_words.yaml``).
+* **a refused spelling** of one of the twenty core words (``tools.core_words``, ``services/console/core_words.yaml``;
+  it also reads the job mails, the report titles and the refusal sentences, ``core_words.SERVICE_CATALOGUES``).
 
 It reads the source with ``ast`` and ``ast.literal_eval`` only (no code of a module runs, apart from importing the
 console to read the served catalogue); a definition that is not a literal is a problem of its own.

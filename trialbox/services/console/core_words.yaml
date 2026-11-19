@@ -20,9 +20,10 @@
 # "check"; 選定 is "selection"), or where a later card decides the word by study kind (10C-6: the Japanese term set
 # per study kind, with 治験参加者 and 研究責任者), `refused` is empty and `note` says why.
 #
-# Matching: en is matched as whole words, ignoring case; ja and zh-TW anywhere in the text. Before a variant is
-# looked for, the word's own spelling and its `allowed` phrases are masked: `allowed` lists a longer, correct
-# phrase that happens to contain a refused variant (預篩檢查 is 預篩 "pre-screen" + 檢查 "check", not 篩檢).
+# Matching: every text is folded to NFKC first (full-width and half-width forms are the plain ones); en is matched as
+# whole words, ignoring case, a plural ending included and a hyphen a boundary; ja and zh-TW anywhere in the text.
+# Before a variant is looked for, the word's own spelling and its `allowed` phrases are masked: `allowed` lists a
+# longer, correct phrase that happens to contain a refused variant (預篩檢查 is 預篩 "pre-screen" + 檢查 "check", not 篩檢).
 #
 # 10F-5 (the site terms layer: a local synonym shown beside a core word, never replacing it) reads this file.
 # Keep it plain data: no anchors, no tags.
@@ -144,10 +145,12 @@ words:
   - id: screening
     concept: Screening
     read_by_native_reader: false
-    note: ja 選定 is "selection" (the day a criteria version starts being used), not a variant
+    note: >-
+      ja 選定 is "selection" (the day a criteria version starts being used), not a variant; zh-TW 篩檢 is also the
+      ordinary word for a screening test (癌症篩檢, cancer screening), allowed as a phrase
     en: {spelling: Screening, refused: []}
     ja: {spelling: スクリーニング, refused: []}
-    zh-TW: {spelling: 篩選, refused: [篩檢], allowed: [預篩檢查]}
+    zh-TW: {spelling: 篩選, refused: [篩檢], allowed: [預篩檢查, 癌症篩檢]}
 
   - id: criteria
     concept: The study criteria
@@ -160,9 +163,11 @@ words:
   - id: delegation_log
     concept: The delegation log
     read_by_native_reader: false
-    note: ja is the J-GCP list's own name; ja 委任 is the verb "delegate", not the log
+    note: >-
+      ja is the J-GCP list's own name; ja 委任 is the verb "delegate", not the log; ja 役割分担表 (a table of who does
+      what) is not the delegation log
     en: {spelling: Delegation log, refused: []}
-    ja: {spelling: 治験分担医師・治験協力者リスト, refused: [責任分担表, 分担表]}
+    ja: {spelling: 治験分担医師・治験協力者リスト, refused: [責任分担表, 分担表], allowed: [役割分担表]}
     zh-TW: {spelling: 授權紀錄表, refused: [授權表, 授權紀錄]}
 
   - id: feasibility
@@ -183,14 +188,17 @@ words:
   - id: sponsor
     concept: The sponsor
     read_by_native_reader: false
-    note: ja 依頼者 alone is 10C-6's (治験依頼者 for 治験)
+    note: ja 依頼者 alone is 10C-6's (治験依頼者 for 治験); zh-TW 受委託者 (a contractor) is not the sponsor
     en: {spelling: Sponsor, refused: []}
     ja: {spelling: 治験依頼者, refused: [スポンサー]}
-    zh-TW: {spelling: 試驗委託者, refused: [委託者]}
+    zh-TW: {spelling: 試驗委託者, refused: [委託者], allowed: [受委託者]}
 
   - id: steward
     concept: The data steward
     read_by_native_reader: false
+    note: >-
+      ja スチュワード alone is the short form of the refused データスチュワード; zh-TW 資料管理員 is the majority form
+      of the catalogues (review 09 proposed 資料管理人, the minority form, which is refused)
     en: {spelling: Data steward, refused: []}
-    ja: {spelling: データ管理責任者, refused: [データスチュワード]}
-    zh-TW: {spelling: 資料管理人, refused: []}
+    ja: {spelling: データ管理責任者, refused: [データスチュワード, スチュワード]}
+    zh-TW: {spelling: 資料管理員, refused: [資料管理人]}

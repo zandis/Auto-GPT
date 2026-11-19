@@ -158,3 +158,141 @@ def test_the_command_exits_zero_on_the_catalogues() -> None:
     )
     assert out.returncode == 0, out.stdout + out.stderr
     assert "core_words: 0 problem(s)" in out.stderr
+
+
+# ---------------------------------------------------------------- review of PR #1172: a broken file is a plain problem
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda d: d["words"][1]["ja"].__setitem__("refused", None),  # `refused: null`
+        lambda d: d["words"][1]["ja"].__setitem__("allowed", None),  # `allowed:` with nothing after it
+        lambda d: d["words"][1]["ja"].__setitem__("refused", "候補患者"),  # a string, not a list
+    ],
+    ids=["refused-null", "allowed-empty-key", "refused-string"],
+)
+def test_a_list_field_that_is_not_a_list_is_a_problem_not_a_crash(data: dict[str, Any], change: Any) -> None:
+    d = copy.deepcopy(data)
+    change(d)
+    out = cw.shape(d)
+    assert out and all("must be a list of spellings" in p for p in out), out
+
+
+def _write(tmp_path: Any, text: str) -> Any:
+    path = tmp_path / "core_words.yaml"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize(
+    ("text", "says"),
+    [
+        ("", "the file is empty"),
+        ("# only a comment\n", "the file is empty"),
+        ("version: 1\nwords: [\n", "not valid YAML"),
+        ("- a\n- b\n", "not a mapping"),
+        ("version: 1\nwords:\n  - id: home\n    ja: {spelling: ホーム, refused: }\n", "ja: refused must be a list"),
+    ],
+    ids=["empty", "comment-only", "malformed", "a-list", "null-in-place"],
+)
+def test_an_empty_or_malformed_file_is_one_plain_problem(tmp_path: Any, text: str, says: str) -> None:
+    out = cw.problems([], path=_write(tmp_path, text), services=False)
+    assert any(says in p for p in out) and all("\n" not in p for p in out), out
+
+
+def test_the_null_refused_file_gives_a_problem_line_through_the_whole_check(tmp_path: Any, data: dict[str, Any]) -> None:
+    import yaml
+
+    d = copy.deepcopy(data)
+    d["words"][1]["ja"]["refused"] = None
+    out = cw.problems([], path=_write(tmp_path, yaml.safe_dump(d, allow_unicode=True)), services=False)
+    assert out == ["core_words.yaml candidate ja: refused must be a list of spellings"]
+
+
+@pytest.mark.parametrize("text", ["", "version: 1\nwords: [\n", "version: 1\nwords:\n  - id: x\n    ja: {refused: }\n"])
+def test_the_command_on_a_broken_file_exits_non_zero_without_a_traceback(tmp_path: Any, text: str) -> None:
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONUNBUFFERED"}
+    env["PYTHONPATH"] = os.pathsep.join(str(tk.ROOT / p) for p in ("libs", "services", "."))
+    out = subprocess.run(
+        [sys.executable, "-m", "tools.core_words", "--data", str(_write(tmp_path, text))],
+        capture_output=True,
+        text=True,
+        cwd=tk.ROOT,
+        env=env,
+        check=False,
+    )
+    assert out.returncode == 1, out.stdout + out.stderr
+    assert "Traceback" not in out.stdout + out.stderr
+    assert out.stdout.startswith("core_words"), out.stdout
+
+
+# ---------------------------------------------------------------- an ordinary longer word is not a finding
+@pytest.mark.parametrize(
+    ("lang", "text", "refused_inside"),
+    [
+        ("zh-TW", "本院委由受委託者進行資料輸入。", "委託者"),  # a contractor, not the sponsor
+        ("ja", "院内の役割分担表を見直します。", "分担表"),  # a table of who does what, not the delegation log
+        ("zh-TW", "癌症篩檢的結果不影響收案。", "篩檢"),  # cancer screening, the ordinary word
+    ],
+)
+def test_an_allowed_ordinary_word_is_not_reported(data: dict[str, Any], lang: str, text: str, refused_inside: str) -> None:
+    assert cw.refused([Row(lang, "x", text)], data) == []
+    without = copy.deepcopy(data)
+    for w in without["words"]:
+        w[lang].pop("allowed", None)
+    assert [r.found for r in cw.refused([Row(lang, "x", text)], without)] == [refused_inside]
+
+
+# ---------------------------------------------------------------- the fold and the English word forms
+def test_full_width_and_half_width_forms_are_folded_before_matching() -> None:
+    rows = [
+        Row("ja", "a", "ｽﾎﾟﾝｻｰ向けパック"),  # half-width katakana
+        Row("en", "b", "Patients ｅｎｒｏｌｌ here"),  # full-width Latin
+        Row("zh-TW", "c", "候選病人"),  # already plain: unchanged
+    ]
+    assert [(r.key, r.found) for r in cw.refused(rows)] == [("a", "スポンサー"), ("b", "enroll"), ("c", "候選病人")]
+    # the right spelling written in full-width is still the right spelling
+    assert cw.refused([Row("en", "d", "Ｓｕｂ-ｉｎｖｅｓｔｉｇａｔｏｒ")]) == []
+
+
+def test_english_finds_hyphenated_and_plural_forms() -> None:
+    rows = [
+        Row("en", "a", "two Sub-Is on the log"),
+        Row("en", "b", "re-enroll the participant"),
+        Row("en", "c", "an enrollment-based target"),
+    ]
+    assert [(r.key, r.found) for r in cw.refused(rows)] == [("a", "Sub-Is"), ("b", "enroll"), ("c", "enrollment")]
+    assert cw.refused([Row("en", "d", "re-enrolled; enrolment-based; sub-investigators")]) == []
+
+
+# ---------------------------------------------------------------- the catalogues outside the console's i18n modules
+def test_the_service_catalogues_are_read() -> None:
+    texts = cw.service_texts()
+    per = {rel: [t for t in texts if t.where.startswith(rel + ":")] for rel in cw.SERVICE_CATALOGUES}
+    assert all(per.values()), {rel: len(v) for rel, v in per.items()}
+    by = {(t.lang, t.key): t.text for t in texts}
+    # the job mail's PDF title and a refusal sentence, as a user reads them
+    assert by[("ja", "T.pdf.feas.title")].startswith("実施可能性報告書")
+    assert by[("zh-TW", "REFUSALS['no such account']")] == "沒有此帳號"
+    assert ("ja", "UNTRANSLATED") in by
+
+
+def test_a_refused_spelling_in_a_service_catalogue_is_found(tmp_path: Any) -> None:
+    mod = tmp_path / "services" / "x" / "i18n.py"
+    mod.parent.mkdir(parents=True)
+    mod.write_text(
+        'T = {"en": {"a": "Enrol"}, "ja": {"pdf.title": "フィージビリティ報告書"}, "zh-TW": {"a": "可行性"}}\n'
+        'REFUSALS = {"no sub-I here": ("x", "委託者不同")}\n',
+        encoding="utf-8",
+    )
+    found = cw.refused(cw.service_texts(["services/x/i18n.py"], root=tmp_path))
+    assert [(r.lang, r.key, r.found, r.where) for r in found] == [
+        ("ja", "T.pdf.title", "フィージビリティ", "services/x/i18n.py:1"),
+        ("en", "REFUSALS['no sub-I here']", "sub-I", "services/x/i18n.py:2"),
+        ("zh-TW", "REFUSALS['no sub-I here']", "委託者", "services/x/i18n.py:2"),
+    ]
+
+
+def test_the_steward_is_the_majority_zh_tw_form(data: dict[str, Any]) -> None:
+    by = {w["id"]: w for w in data["words"]}
+    assert by["steward"]["zh-TW"] == {"spelling": "資料管理員", "refused": ["資料管理人"]}
+    assert by["steward"]["ja"]["refused"] == ["データスチュワード", "スチュワード"]
