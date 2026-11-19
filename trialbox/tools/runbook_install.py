@@ -332,6 +332,10 @@ NOT_ON_PATH: list[tuple[str, str]] = [
     (r"deploy/network\.sh apply", "step 5: the installer does it"),
     (r"systemctl enable .*", "step 5: by hand only; the installer does it"),
     (r"deploy/check_host\.sh \[--gb10\]", "step 8: the installer runs the host check"),
+    (
+        r"python3 -m tools\.trialbox doctor --preflight .*",
+        "step 8: a read-only check by hand (10K-3); the box form's installer runs it for the first-run page",
+    ),
 ]
 
 
