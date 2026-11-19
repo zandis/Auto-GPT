@@ -48,7 +48,8 @@ def _synthetic_release() -> dict[str, dict[str, dict[str, str]]]:
 
 
 def _row(tmp_path: Path, name: str, zprs: list[str], *, master: bool, code: str = "99990001", written: str = "") -> Any:
-    body = [prb(code, name, "DX001", system="MDCDX2" if code.isdigit() else "99XYZ", written=written), *zprs]
+    system = "MDCDX2" if code.isdigit() or code.startswith("ZA") else "99XYZ"
+    body = [prb(code, name, "DX001", system=system, written=written), *zprs]
     F(P1, "-", "PPR-01", "ALL9", stamp(DAY_A, 0), "1", ppr(P1, body)).write(tmp_path)
     src = Ssmix2Source(tmp_path, licensed=_synthetic_release() if master else EMPTY)
     (row,) = list(src.rows("diagnosis", "diagnosis", None, None))
@@ -145,3 +146,20 @@ def test_the_modifier_probe_set_has_no_wrong_reading_outside_the_stated_limit() 
     report = pb.measure({"modifiers": pb.modifier_cases()})
     bad = [(r["name"], r["expect"], r["got"]) for r in report["modifiers"] if r["wrong"] and not r["limit"]]
     assert bad == []
+
+
+# ------------------------------------------------------------------------------------------------ which tables
+def test_the_disease_table_alone_never_turns_a_locally_coded_diagnosis_unknown(tmp_path: Path) -> None:
+    """Guard (passes on both heads): a site loads the disease table for the ICD-10 look-up (D-137); the display-name
+    and modifier rules apply only once it has loaded the modifier table too (the e2e GOUT-COH funnel)."""
+    rel = _synthetic_release()
+    rel["medis_modifier"] = {}
+    body = [prb("L123", "肺炎", "DX001", system="99XYZ")]
+    F(P1, "-", "PPR-01", "ALL9", stamp(DAY_A, 0), "1", ppr(P1, body)).write(tmp_path)
+    (row,) = list(Ssmix2Source(tmp_path, licensed=rel).rows("diagnosis", "diagnosis", None, None))
+    assert (row["status"], row["suspected"]) == ("A", "")
+
+
+def test_with_the_master_an_mdcdx2_exchange_code_in_prb3_is_recognised(tmp_path: Path) -> None:
+    """S 3.7.4 names MDCDX2 for the 病名管理番号 and the 病名交換用コード alike."""
+    assert _row(tmp_path, "肺炎", [], master=True, code="ZA01")["suspected"] == ""

@@ -87,7 +87,10 @@ ZPR-7 a comment. (S's text for ZPR-4 says 接尾語 under a 接頭語 field name
   modifier field, a comment or a second ZPR is unknown. A modifier code with no text, which #1095 read as suspected,
   is unknown. **Limit:** doubt written only in the display text (「肺炎（未確定）」, 「肺炎既往」) is not read without
   the master; no word list is kept.
-- **With it** (licensed kinds `medis`, indexed by 病名管理番号, and the new `medis_modifier`): confirmed only when the
+- **With it** (licensed kinds `medis`, indexed by 病名管理番号, and the new `medis_modifier`, both loaded; the
+  disease table alone, loaded for the ICD-10 look-up of D-137, keeps the reading without the master, so loading it
+  never by itself turns a site's locally coded diagnoses unknown; an `MDCDX2` code in PRB-3 may be the 病名管理番号 or
+  the 病名交換用コード, S 3.7.4 names `MDCDX2` for both): confirmed only when the
   display name (PRB-3's text) is exactly the prefixes' 修飾語表記, the 病名表記 and the suffixes' 修飾語表記, after
   `key_part`; every modifier is a current row of the master (変更区分 not 1) in its own position (接続位置区分: 10 and
   over before the name, 9 and under after it, M (2)⑥); the exchange codes given are the master's; and every

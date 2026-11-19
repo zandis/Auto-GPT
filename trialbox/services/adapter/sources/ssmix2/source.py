@@ -453,13 +453,15 @@ def _extra(row: dict[str, Any]) -> dict[str, str]:
 
 def medis_master(licensed: dict[str, dict[str, dict[str, str]]]) -> Master | None:
     """The disease table (keyed by its 病名交換用コード in the store) indexed by 病名管理番号, and the modifier table;
-    None when the site has loaded no disease table."""
+    None unless the site has loaded both. The disease table alone is loaded for the ICD-10 look-up (D-137); the
+    display-name and modifier rules of D-1252 apply only once the site has loaded the modifier table too, so loading
+    the disease table never by itself turns a site's locally coded diagnoses unknown."""
     diseases: dict[str, tuple[str, str]] = {}
     for exchange, row in (licensed.get("medis") or {}).items():
         number = key_part(_extra(row).get("management_no", ""))
         if number:
             diseases[number] = (str(row.get("display") or ""), key_part(exchange))
-    if not diseases:
+    if not diseases or not licensed.get("medis_modifier"):
         return None
     names = {key_part(name): number for number, (name, _x) in diseases.items()}
     modifiers: dict[str, dict[str, str]] = {}
@@ -1674,6 +1676,9 @@ class Ssmix2Source:
                 return texts, "ZPR-5 is not PRB-3's disease"
             self.stats["PPR-01:ZPR names only the diagnosis's own disease"] += 1
             return texts, ""
+        if coded and code not in master.diseases:
+            # an MDCDX2 code may be the 病名交換用コード (S 3.7.4 names MDCDX2 for both): read as its 病名管理番号
+            code = next((n for n, (_name, x) in master.diseases.items() if x == code), code)
         number = disease[0] if len(disease) == 1 else (code if coded and not disease else "")
         if len(disease) > 1 or (disease and coded and disease != [code]):
             return texts, "ZPR-2 is not PRB-3's disease"

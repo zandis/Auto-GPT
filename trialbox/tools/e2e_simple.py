@@ -738,7 +738,8 @@ def _stage13(work: Path, box: Any, gout: dict[str, Any]) -> Stage:
     samples = ROOT / "tests" / "fixtures" / "licensed"
     files = {"medis": "medis_byomei_sample.txt", "jlac10": "jlac10_sample.tsv", "yj": "yj_hot_sample.txt"}
     s.check("without the files the box says which lists are not loaded",
-            {x["kind"]: x["state"] for x in licensed.status()} == dict.fromkeys(files, "not_loaded"))  # fmt: skip
+            {x["kind"]: x["state"] for x in licensed.status()}
+            == dict.fromkeys(licensed.KINDS, "not_loaded"))  # fmt: skip
     st = licensed.TermStore()
     try:
         loaded = {k: st.load(k, (samples / f).read_bytes(), version="sample-2026", source=f, by="admin",
@@ -750,7 +751,8 @@ def _stage13(work: Path, box: Any, gout: dict[str, Any]) -> Stage:
             == {"medis": (10, "cp932"), "jlac10": (10, "utf-8"), "yj": (10, "cp932")}, loaded)  # fmt: skip
     status = {x["kind"]: (x["state"], x["version"], x["source"]) for x in licensed.status()}
     s.check("each list is loaded with its version and source",
-            all(v[0] == "loaded" and v[1] == "sample-2026" and v[2] == files[k] for k, v in status.items()),
+            all(v == ("loaded", "sample-2026", files[k]) for k, v in status.items() if k in files)
+            and status["medis_modifier"][0] == "not_loaded",  # D-1252: no sample of the modifier table is shipped
             status)  # fmt: skip
 
     # -- D-130 with and without the lists: a 標準病名 code with no ICD-10 alternate and no site lookup
