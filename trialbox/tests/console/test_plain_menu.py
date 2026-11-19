@@ -8,7 +8,8 @@ or variable name on a clinical page, behind the flag ``layout.plain_menu``.
   segments set aside);
 * the pruned menu: each role's top bar and "More" as the checkpoint ruled, the steward's bar at four, nothing twice;
   nothing that leaves "More" becomes unreachable by clicks; each new link is shown exactly where its page answers 200
-  and offers the account its action; the cascade only where the site drop is mounted;
+  and offers the account its action (each role offered each action as on master; the reads a page with a link adds,
+  named); the cascade only where the site drop is mounted;
 * the clinical pages (R22), decided by an allow-list (``plain_text_walk.py``) in three languages, with the test-site
   banner on each and the hand-fixed keys pinned;
 * the flag off: every page byte for byte the page without this card's parts; the flag on: every route answers every
@@ -603,3 +604,102 @@ def test_every_plain_key_exists_in_three_languages_and_the_swap_follows_the_flag
         assert plain_menu.key(True, "admin", k) == k  # the administrator keeps the setting's name
         for role in plain_menu.CLINICAL:
             assert plain_menu.key(True, role, k) == plain_menu.CLINICAL_ONLY[k]
+
+
+#: per column, what each action page offers the account on master (recorded on origin/master 0de6b1d0): its action
+#: enabled (True), shown but not offered (False), or the page's refusal (a status). The factoring of the pages' rules
+#: into ``may_act`` keeps it so, with the flag off and on.
+MASTER_ACTIONS: dict[str, tuple[bool | int, bool | int, bool | int]] = {  # request, case, consent
+    "admin": (True, True, True),
+    "crc": (True, True, True),
+    "pi": (False, False, False),
+    "lpi": (True, True, False),
+    "smo": (True, True, True),
+    "cra": (403, 403, 403),
+    "viewer": (False, False, False),
+    "steward": (False, False, False),
+    "privacy": (False, False, False),
+}
+ACTION_TARGETS = ("/pilot/request", "/pilot/case", "/pilot/consent")
+
+
+def test_the_action_pages_offer_each_role_what_they_offered_on_master(box: dict[str, Any]) -> None:
+    """The coordinator's condition on Q4: factoring the pages' own rules into ``may_act`` changes no page's
+    behaviour; each role is offered each action exactly as on master, with the flag off and on. And no new link is
+    shown to an account the old menu did not show the entry to (the old rule, ``plain_menu.menu_shows``)."""
+    from console import plain_menu
+
+    _done_feas(box["backend"])
+    _done_screen(box["backend"], _ulid(990))
+    clients = _clients(box)
+    for value in ("off", "on"):
+        _flag(box, value)
+        for col, want in MASTER_ACTIONS.items():
+            page, _, _ = clients[col]
+            for target, expected in zip(ACTION_TARGETS, want, strict=True):
+                r = page.get(target)
+                got = _acts(target, r.text) if r.status_code == 200 else r.status_code
+                assert got == expected, (value, col, target, got)
+    users = box["users"]
+    entry = {"/pilot/request": "request", "/pilot/consent": "consent", "/pilot/case": "case"}
+    for col, (name, _role, _aff, _studies) in COLUMNS.items():
+        page, _, _ = clients[col]
+        for where, testid, target in NEW_LINKS:
+            r = page.get(where)
+            if r.status_code == 200 and f'data-testid="{testid}"' in r.text:
+                assert plain_menu.menu_shows(users.get(name), entry[target]), (col, where, target)
+
+
+def _recorded(calls: list[str], name: str, fn: Any) -> Any:
+    def call(*a: Any, **k: Any) -> Any:
+        calls.append(name)
+        return fn(*a, **k)
+
+    return call
+
+
+def _backend_calls(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Every call a page makes to the console's backend and to the delegation log's standing (``Helpers.permit``)."""
+    from console.home import Helpers
+
+    calls: list[str] = []
+    bk = box["backend"]
+    for name in dir(type(bk)):
+        attr = getattr(bk, name, None)
+        if not name.startswith("_") and callable(attr):
+            monkeypatch.setattr(bk, name, _recorded(calls, name, attr))
+    real = Helpers.permit
+    monkeypatch.setattr(Helpers, "permit", _recorded(calls, "permit", real))
+    return calls
+
+
+#: what a page that carries a new link reads more with the flag on, at most: the list of studies' criteria
+#: (``backend.rulesets``: each ruleset's id, version, status and kind, no patient data; the same list the target page
+#: reads for the account) and the account's standing in a study's delegation log (``Helpers.permit``), only for an
+#: account that does not prepare requests (it alone needs them to know whether it may act)
+ADDED_READS = {"rulesets": 1, "permit": 2}
+
+
+def test_a_page_with_a_new_link_adds_only_the_named_reads(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    import collections
+
+    _done_feas(box["backend"])
+    _done_screen(box["backend"], _ulid(990))
+    clients = _clients(box)
+    calls = _backend_calls(box, monkeypatch)
+    pages = sorted({where for where, _, _ in NEW_LINKS})
+    seen: dict[str, dict[str, collections.Counter[str]]] = {}
+    for value in ("off", "on"):
+        _flag(box, value)
+        for col in COLUMNS:
+            page, _, _ = clients[col]
+            for where in pages:
+                calls.clear()
+                page.get(where)
+                seen.setdefault(f"{col} {where}", {})[value] = collections.Counter(calls)
+    for k, by in seen.items():
+        added = by["on"] - by["off"]
+        assert not by["off"] - by["on"], k  # nothing read less
+        assert set(added) <= set(ADDED_READS) and all(added[n] <= ADDED_READS[n] for n in added), (k, dict(added))
+        if k.split()[0] in ("admin", "crc", "smo"):  # accounts that prepare requests: no read added
+            assert not added, (k, dict(added))

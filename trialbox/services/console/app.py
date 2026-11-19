@@ -2031,8 +2031,10 @@ def create_app(
         J-7 (D-1251): a link that takes the place of a menu entry asks this, as the page does."""
         u = sess.user
         if target == "request":
+            if u.can_request:  # an account that prepares requests: no read
+                return True
             _, feas, screen = _request_rulesets(sess)
-            return bool(u.can_request or feas or screen)
+            return bool(feas or screen)
         if target == "consent":
             return bool(u.can_request)
         if target == "case":

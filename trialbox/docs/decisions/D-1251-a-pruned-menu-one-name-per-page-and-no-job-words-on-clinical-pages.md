@@ -36,6 +36,12 @@
     target page uses to offer its form or enable its button. So it is shown exactly where the page answers 200 *and*
     offers the account its action. A link never leads to a refusal or to a page with nothing to do.
     The administrator's and the steward's remaining entries keep the menu's old rule (`plain_menu.menu_shows`).
+    The factoring changes no page: each role is offered each action exactly as on master, with the flag off and on.
+    No link is shown to an account the old menu did not show the entry to.
+    For an account that does not prepare requests, a page carrying a link reads at most one list of studies'
+    criteria (`backend.rulesets`: id, version, status, kind; no patient data; the list the target page reads for that
+    account) and its standing in two delegation logs (`Helpers.permit`). An account that prepares requests reads
+    nothing more.
   - **The steward's bar has four entries** (D-104): Break-glass, Opt-out register, Data operations, Audit trail.
     The staff directory, clinical items, clinical conflicts and the flags page move under "More".
     For the owner: Clinical conflicts could take the place of Data operations; the flag is off by default, so this
@@ -90,6 +96,7 @@
   - the ruled menus and the steward's four;
   - nothing unreachable;
   - each new link against its page's answer and action;
+  - each role's actions as on master, and the reads a page with a link adds;
   - the cascade only when mounted;
   - the clinical walk in three languages with the banner and the pinned keys;
   - the flag off byte for byte;
