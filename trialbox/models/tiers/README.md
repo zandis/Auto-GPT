@@ -1,11 +1,15 @@
 # Tier records
 
 `<profile>.json`: the tier record of one GPU profile (plan 10 row 10E-1, commitment C-4, D-1320), format
-`tb-tier-record/1`, schema `tier_record.schema.json`, checked by `python3 tools/tier_record.py check`. One record per
+`tb-tier-record/1`, schema `tier_record.schema.json`, checked by `python3 tools/tier_record.py check`, read by the services through `libs/tb_common/tier_value.py`
+(the box's `TB_PROFILE` label: `P-PRO6000` is `rtxpro6000`, `P-5090` is `rtx5090`). One record per
 profile holds what the rest of the product reads about the box. Every field says its basis:
 
 - **measured**: from this profile's serving record taken on its own uncapped card (`measured_on.serving_record`,
   which must pass `tools/serving_config.py measured <profile>`);
+- **measured from a peak record**: `free_memory_at_peak_mib` only, from `measured_on.peak_record` (a card-memory peak file
+  of the same profile, same card total, uncapped, with every origin fact stated or "not stated in the file" and the
+  configuration of that day equal to the serving record's); the value is `total_mib - peak_mib`;
 - **declared**: a repository file and line declare it (`source`); the checker opens the file and the line;
 - **not measured**: the value is null and `measured_by` names the run or card that would measure it. A figure not
   measured is never filled in.
@@ -16,7 +20,7 @@ serving record was taken on a capped card.
 | file | box | measured | declared | not measured |
 | --- | --- | ---: | ---: | ---: |
 | `rtx5090.json` | the 32 GB site box (tier `small`) | 0 | 18 | 10 |
-| `rtxpro6000.json` | the RTX PRO 6000 box (tier `large`), measured from `deploy/measured/serving_config.rtxpro6000.json` | 7 | 13 | 8 |
+| `rtxpro6000.json` | the RTX PRO 6000 box (tier `large`), measured from `deploy/measured/serving_config.rtxpro6000.json` and, for the free memory at peak, `eval/parity/gpu-run-2026-11-08-pro6000/gpu_peak.json` (its origin in `measured_on.peak_record`) | 8 | 13 | 7 |
 
 No other profile has a record yet. The owner's own workstation (Ubuntu on Arm, IGX Orin, RTX A6000 48 GB) is not a
 measured tier and has no record. Release candidate 1 installs only on an x86 box with the measured RTX PRO 6000 card;
@@ -32,4 +36,5 @@ that profile's record takes its measured values from its serving record alone (n
 | 10G-11 host check per tier | `profile`, `tier`, `desk_side`, `arch` | `desk_side: true` fails a TPM-only disk unlock in VALIDATION and PRODUCTION |
 | 10K-3 live preflight (wizard, `doctor`) | `card_names`, `arch`, `card_memory_mib`, `driver`, `host_memory_gib_min`, `measured_on` | the GPU line checks the card against the record; `driver` not measured gives a line that says so, not a pass |
 | 10K-11 capability registry and page | `tier`, `console_promises`, `role_groups_on_box`, `protocol_route`, `ecc`, `measured_on` | rows such as "Protocol reading: not on this box, arrives as a signed package"; "not available: tier" |
-| the gateway's slots (C-4) | `judge_sequences`, `verifier_sequences` | the slots per endpoint, in place of the constant in `services/gateway/load.py` (not done by 10E-1: see D-1320) |
+| the gateway's slots (C-4; 10E-1c) | `judge_sequences`, `verifier_sequences` | `services/gateway/load.py`: the slots of the judge's and verifier's endpoints when measured; else the serving record, `TB_GATEWAY_SLOTS` or 16 as before (D-1322) |
+| the night budget (10E-1c) | `night_budget_patients` | `services/orchestrator/scenarios/microbatch.py`: the budget when measured and not configured; else 2000 as before (D-1322) |

@@ -1,8 +1,9 @@
 """The gateway under load (T-608, D-445; deep review LLM-023): slots and a breaker per endpoint.
 
 * **Slots.** An endpoint takes at most as many calls at a time as its server runs sequences (``max_num_seqs`` of the
-  serving record, else ``TB_GATEWAY_SLOTS``). An interactive call waits :data:`INTERACTIVE_SLOT_WAIT_S` for a slot,
-  then gets ``model_busy``; a batch call waits within its budget.
+  serving record, else ``TB_GATEWAY_SLOTS``, else the judge's or verifier's sequences when this box's tier record
+  measured them, else ``tb_common.tier_value.FALLBACK_SLOTS``; 10E-1c, D-1322). An interactive call waits
+  :data:`INTERACTIVE_SLOT_WAIT_S` for a slot, then gets ``model_busy``; a batch call waits within its budget.
 * **Breaker.** It opens after ``failures`` failures in a row (a connection error, a batch read timeout, an HTTP 5xx
   after the retry), or when the endpoint is stalled: calls in flight, none finished for ``stall_s``, and the server
   does not answer ``GET /models`` (:meth:`LoadControl.sweep`, from a watch thread). While open nothing is sent to
@@ -15,6 +16,7 @@ Every clock is injectable, so the tests run in milliseconds.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import time
@@ -22,7 +24,8 @@ from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-SLOTS = 16  # max_num_seqs of the measured profiles (deploy/measured/serving_config.*.json)
+from tb_common import tier_value
+
 INTERACTIVE_SLOT_WAIT_S = 0.5
 BREAKER_FAILURES = 5
 BREAKER_OPEN_S = 30.0
@@ -32,6 +35,7 @@ PROBE_TIMEOUT_S = 3.0
 # the serving record's containers and the routing table's endpoints (deploy/measured, models/routing.yaml)
 RECORD_ENDPOINTS = {"judge": "serving", "verifier": "verifier"}
 
+_log = logging.getLogger("gateway.load")
 Clock = Callable[[], float]
 Probe = Callable[[str], bool]  # endpoint name -> its server answered GET /models
 
@@ -42,6 +46,16 @@ def _num(env: Mapping[str, str], name: str, default: float) -> float:
         return float(raw) if raw else default
     except ValueError:
         return default
+
+
+def _set(env: Mapping[str, str], name: str) -> bool:
+    """Whether ``name`` is set to a number (what :func:`_num` reads instead of its default)."""
+    raw = (env.get(name) or "").strip()
+    try:
+        float(raw)
+    except ValueError:
+        return False
+    return True
 
 
 def record_slots(path: str | Path | None) -> dict[str, int]:
@@ -180,8 +194,15 @@ class LoadControl:
         e = os.environ if env is None else env
         self.clock = clock
         self.probe = probe
-        default = int(_num(e, "TB_GATEWAY_SLOTS", SLOTS))
+        default = int(_num(e, "TB_GATEWAY_SLOTS", tier_value.FALLBACK_SLOTS))
         sized = record_slots(e.get("TB_SERVING_RECORD"))
+        if not _set(e, "TB_GATEWAY_SLOTS"):  # the setting wins over the tier record, as it did over the constant
+            for role, ep in RECORD_ENDPOINTS.items():
+                tv = tier_value.measured(f"{role}_sequences", e)
+                n = tier_value.positive_int(tv)
+                if n is not None:
+                    sized.setdefault(ep, n)  # a serving record (TB_SERVING_RECORD) still wins
+                _log.info("gateway slots: %s", tv.line(n if n is not None else default))
         failures = int(_num(e, "TB_GATEWAY_BREAKER_FAILURES", BREAKER_FAILURES))
         open_s = _num(e, "TB_GATEWAY_BREAKER_OPEN_S", BREAKER_OPEN_S)
         self.stall_s = _num(e, "TB_GATEWAY_STALL_S", STALL_S)

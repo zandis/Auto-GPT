@@ -3,6 +3,7 @@
     python3 -m tools.fetch_weights --profile rtxpro6000 --dry-run      # what would be fetched; no network
     python3 -m tools.fetch_weights --profile rtxpro6000                # fetch, verify, move into place
     python3 -m tools.fetch_weights --profile rtxpro6000 --verify-only  # check what is there; no network
+    python3 -m tools.fetch_weights --profile rtxpro6000 --embedder --dry-run   # the pair, the template, embedder/
     make fetch-weights GPU=rtxpro6000 [ARGS=--dry-run]
 
 **Where the list comes from.** Nothing here names a model. The profile's deployed pair is
@@ -12,6 +13,13 @@ the measured serving record), and that record lists every file of the release wi
 (``model_files``). The file list is used only when its digest, in ``pin_model``'s manifest format, is the row's
 ``expected.manifest_sha256``: a record that disagrees with the registry is a broken pin record and nothing is
 fetched. The judge's chat template is the row's ``chat_template`` (source, revision, file, sha256).
+
+**The embedder** (``--embedder``, H-43). A site bundle carries ``embedder/`` (``e-embed-1``, D-998: ``release check``
+refuses a site bundle without it), so the models folder ``make_bundle.sh --models`` packs holds it beside the pair.
+``--embedder`` adds it, from its registry row as the pair is fetched (``tools.pin_model.EMBED_PIN``: the folder
+``embedder``, the one compose mounts): its ``expected.source`` must name a committed record listing its files whose
+manifest is its ``expected.manifest_sha256``. Without that record nothing is guessed: the run stops with exit 2 and
+says what is missing. Without ``--embedder`` the run is the pair and the template only, as before.
 
 **Where it goes.** The models root and the folder names are resolved as the start resolves them (``deploy/poc.sh``
 and compose): ``TB_MODELS_DIR`` from the environment (relative to ``trialbox/``), else from ``deploy/.env``
@@ -79,7 +87,7 @@ from typing import IO, Any
 
 import yaml
 
-from tools.pin_model import PROFILE_PAIRS, REFUSED_SUFFIXES, manifest_sha256_of_files
+from tools.pin_model import EMBED_BUILD, EMBED_PIN, PROFILE_PAIRS, REFUSED_SUFFIXES, manifest_sha256_of_files
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "models" / "registry.yaml"
@@ -307,9 +315,11 @@ def plan(
     registry: Path = REGISTRY,
     register: Path = LICENCE_REGISTER,
     root: Path = ROOT,
+    embedder: bool = False,
 ) -> list[Target]:
     """What the profile needs under the models root, every file with its pinned sha256; :class:`RecordError` when
-    the pin record cannot give that without a guess. ``env`` holds the resolved folder names (:func:`resolve_env`)."""
+    the pin record cannot give that without a guess. ``env`` holds the resolved folder names (:func:`resolve_env`).
+    ``embedder``: ``embedder/`` too (``e-embed-1``, the folder every site bundle carries, D-998)."""
     e = env if env is not None else {}
     pairs = PROFILE_PAIRS.get(profile)
     if pairs is None:
@@ -318,15 +328,25 @@ def plan(
     rows = {str(b.get("build_id")): b for b in doc.get("builds") or []}
     licences = _licences(register)
     targets: dict[str, Target] = {}
-    for build, _endpoint, dir_var, dir_default, *_ in pairs:
+    for build, _endpoint, dir_var, dir_default, *_ in [*pairs, *([EMBED_PIN] if embedder else [])]:
         row = rows.get(build)
         if row is None:
             raise RecordError(f"{build}: not in models/registry.yaml")
-        raw = e.get(dir_var) or dir_default
+        # the embedder's folder is the one compose mounts and the bundle's release check reads (embedder/)
+        raw = dir_default if build == EMBED_BUILD else (e.get(dir_var) or dir_default)
         folder = raw.rstrip("/")
         if not _safe_rel(folder):
             raise RecordError(f"{dir_var}={raw!r} is not a folder name under the models root")
-        source, revision, files = _record_files(row, root)
+        try:
+            source, revision, files = _record_files(row, root)
+        except RecordError as exc:
+            if build != EMBED_BUILD:
+                raise
+            raise RecordError(
+                f"{exc} (--embedder: the embedder's row needs `expected.source`, a committed record whose server "
+                f"entry for {row.get('repository')} lists model_files: path, bytes and sha256 of each file of "
+                "embedder/; the registry holds its manifest digest and revision only)"
+            ) from exc
         exp = str((row.get("expected") or {}).get("manifest_sha256"))
         have = targets.get(folder)
         if have is not None:
@@ -862,6 +882,7 @@ def run(
     registry: Path = REGISTRY,
     register: Path = LICENCE_REGISTER,
     root: Path = ROOT,
+    embedder: bool = False,
 ) -> int:
     e = dict(os.environ) if env is None else env
     if models is None:
@@ -869,9 +890,12 @@ def run(
     else:
         came_from = "--models-dir"
     models = models.absolute()
-    _say(f"fetch-weights: models root {models} (from {came_from}); profile {profile}")
+    also = " and the embedder" if embedder else ""
+    _say(f"fetch-weights: models root {models} (from {came_from}); profile {profile}{also}")
     try:
-        targets = plan(profile, resolve_env(profile, e, root), registry=registry, register=register, root=root)
+        targets = plan(
+            profile, resolve_env(profile, e, root), registry=registry, register=register, root=root, embedder=embedder
+        )
     except (RecordError, OSError, ValueError, KeyError, yaml.YAMLError) as exc:
         _err(f"the pin record cannot be used: {exc}")
         return 2
@@ -1041,10 +1065,15 @@ def main(argv: list[str] | None = None) -> int:
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="list what would be fetched; no network, no writes")
     mode.add_argument("--verify-only", action="store_true", help="check the folders against the pin; no network")
+    ap.add_argument(
+        "--embedder",
+        action="store_true",
+        help="also embedder/ (e-embed-1), which every site bundle carries (D-998), for make_bundle.sh --models",
+    )
     a = ap.parse_args(argv)
     token = (os.environ.get("HF_TOKEN") or "").strip()
     try:
-        return run(a.profile, a.models_dir, dry_run=a.dry_run, verify_only=a.verify_only)
+        return run(a.profile, a.models_dir, dry_run=a.dry_run, verify_only=a.verify_only, embedder=a.embedder)
     except Exception as exc:  # a last guard: no traceback, and never the token
         text = f"{type(exc).__name__}: {exc}"
         if token:

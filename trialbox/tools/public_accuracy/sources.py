@@ -109,7 +109,8 @@ SOURCES: tuple[Source, ...] = (
             f"https://raw.githubusercontent.com/ncbi-nlp/TrialGPT/main/dataset/sigir/{path}",
             sha,
             size,
-            "U.S. Government work, public domain notice (NCBI TrialGPT LICENSE); the SIGIR 2016 collection "
+            "U.S. Government work, public domain notice on NCBI's code and labels (NCBI TrialGPT LICENSE); the SIGIR "
+            "2016 collection "
             "itself: CC BY-SA 4.0, CSIRO (https://researchdata.edu.au/a-test-collection-clinical-trials/664508)",
             "CC-BY-SA-4.0",
             "green",

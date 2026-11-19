@@ -18,6 +18,7 @@ of those jobs (`raw-traces.json`: the user message and the reply only). Chart nu
 `site.SET_OFFSETS` and are made at run time. The pseudonyms are the box's. The jmed judge calls, which quote the
 notes, are left out.
 
-The sigir data is public: SIGIR 2016 (NCBI TrialGPT, `eval/criterion_ml/LICENSE.NCBI`), with protocol text from
-ClinicalTrials.gov. The jmed patients are synthetic: JMED-Personas-100k by Sociocom (NAIST),
+The sigir notes quoted in the model calls are SIGIR 2016 patient descriptions, CC BY-SA 4.0 (Koopman and Zuccon,
+CSIRO; attribution and changes in `eval/criterion_ml/NOTICE.md`), as redistributed by NCBI TrialGPT, whose criterion
+labels carry NCBI's public domain notice (`eval/criterion_ml/LICENSE.NCBI`); protocol text from ClinicalTrials.gov. The jmed patients are synthetic: JMED-Personas-100k by Sociocom (NAIST),
 `huggingface.co/datasets/sociocom/JMED-Personas`, licensed CC BY 4.0. Keep both attributions with any copy.
