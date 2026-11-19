@@ -148,6 +148,7 @@ DISEASES = {
     "99990004": ("高血圧症", "ZA04", "I10"),
     "99990005": ("糖尿病", "ZA05", "E149"),
     "99990006": ("気管支炎", "ZA06", "J40"),
+    "99990007": ("細菌性肺炎", "ZA07", "J159"),  # a modified name the master codes on its own (class 3 case)
 }
 #: a synthetic 修飾語テーブル (M (2)): 修飾語管理番号 -> (変更区分, 修飾語表記, 修飾語交換用コード, 接続位置区分,
 #: 修飾語区分). The class is the second character of 修飾語区分 (M (2)⑦). Words are ordinary Japanese; codes made up.
@@ -602,7 +603,11 @@ def modifier_cases() -> list[Case]:
             base = DISEASES[no][0]
             text = word + base if prefix else base + word
             z = zpr(pre=[mno], dis=no, pre_ex=[ex]) if prefix else zpr(dis=no, suf=[mno], suf_ex=[ex])
-            ok = cls[1] in "123459" and _chg == "0"
+            # D-1252 (lane J's ruling): 1 部位, 2 位置, 9 歯科 recognised; 3 病因 recognised unless the master gives
+            # the modified name a code of its own (then the coded concept would silently be the unmodified one);
+            # 4 経過表現 and 5 状態表現 can say "old", "after", "in remission": unknown, as 6, 7 and 8 are
+            own_code = any(name == text for name, _e, _i in DISEASES.values())
+            ok = (cls[1] in "129" or (cls[1] == "3" and not own_code)) and _chg == "0"
             specs.append((f"modifier class {cls[1]} {word} on {base}", no, text, [z], "NC", "CA" if ok else "NC", ""))
 
     # 4. two modifiers, display text in the master's order
@@ -627,7 +632,7 @@ def modifier_cases() -> list[Case]:
             "慢性細菌性胃炎",
             [zpr(pre=["99980006", "99980004"], dis=gas, pre_ex=["ZM06", "ZM04"])],
             "NC",
-            "CA",
+            "NC",
             "",
         )
     )
@@ -697,6 +702,14 @@ def modifier_cases() -> list[Case]:
         f2 = F(pt, "-", "PPR-01", "ALL9", stamp(DAY_A, 0), "1", ppr(pt, body))
         cases.append(Case(f"{what} (licensed master)", "M modifiers", "diagnosis", [f2],
                           {f"{pt}/DX001": with_master}, licensed="master"))  # fmt: skip
+    # PRB-13: the code table (C 表95) lists only "1 疑いあり"; a "0" is not a value of it (D-1252, lane J's ruling)
+    flags = ["0^^JHSD0005", "0^疑いなし^JHSD0005", "0^なし^JHSD0005", "0^^99JHSD0005", "0", "1^疑いあり^JHSD0005"]
+    for j, flag in enumerate(flags):
+        for kind in ("", "master"):
+            pt = f"3{j:03d}{1 if kind else 0}000"
+            f = F(pt, "-", "PPR-01", "ALL9", stamp(DAY_A, 0), "1", ppr(pt, [prb(pneu, "肺炎", "DX001", flag13=flag)]))
+            cases.append(Case(f"PRB-13 {flag} ({'licensed master' if kind else 'no master'})", "M flag", "diagnosis",
+                              [f], {f"{pt}/DX001": "NC"}, licensed=kind))  # fmt: skip
     return cases
 
 
