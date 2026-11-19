@@ -20,6 +20,7 @@ from matching.coverage import unknown_system_counts
 from tb_common import lakeprobe
 from tb_common import provenance as ai_provenance
 from tb_common.authz import norm
+from tb_common.dates import site_dates
 from tb_common.llm import LlmError, LlmPromptUnqualified, load_prompt
 from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
@@ -426,6 +427,7 @@ def report_meta(
         job_language(ctx),
         s.site.contact or "",
         pinned_clock_note(ctx),
+        dates=site_dates(s.site)[0],  # 10C-13
     )
 
 

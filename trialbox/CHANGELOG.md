@@ -10,6 +10,15 @@ new heading with the version and date, in the same pull request that sets the ve
 
 ## Unreleased
 
+- Dates on printed pages and the fiscal year 年度 (10C-13, 10C-15): a site may print dates in Western form (ISO, as
+  before), Japanese era (令和8年11月18日) or both (2026年（令和8年）11月18日) on the feasibility report, the NHI
+  navigation summary and application form, the CASE sheet and the released consent page (`site.printed_dates`); the
+  research office counts may count by 年度, 1 April to 31 March in the site's time zone, and say which year they count
+  in three languages (`site.year_basis`). **A new site** gets its country's default from the set-up wizards, which
+  ask both questions: Japan both forms and 年度, any other country Western and the calendar year. **An installed site
+  is not changed by the upgrade**: a settings file without the keys prints and counts exactly as before, whatever its
+  zone or language. To change it, set the keys in `deploy/settings.yaml` and restart; there is no console page for
+  this (D-1229).
 - Set-up follows the site's country (10K-1): the settings wizard asks the country first (Japan, Taiwan, United
   States, other) and takes the report language, time zone, retention rules, source type, mapping and the TWPAS
   questions from one table; a Japan site gets Japanese reports, Japan's retention and an SS-MIX2 source (the
@@ -77,6 +86,21 @@ new heading with the version and date, in the same pull request that sets the ve
 - Build downloads are checked against pinned sha256 sums: the CQL translator jars (`tools/jvm-deps.sha256`), the FHIR
   packages (`tools/fhir-packages.sha256`) and the report fonts (`tools/fetch_fonts.py`).
 - One Java version, in `.java-version`, read by CI and checked against the JVM image.
+
+### Known limits
+
+- SCREEN of the whole hospital stops at about 45,000 patients (H23b-01). The orchestrator's memory cap,
+  `TB_MEM_ORCH`, is 4 GiB as installed (3 GiB on the two-device workstation), and no installer step or compose
+  overlay raises it, whatever the machine's memory. SCREEN needs about 86 KB a patient, so a SCREEN job of a
+  hospital of about 45,000 patients or more is killed at the cap. What follows, read from the code (not yet seen
+  on an installed box): the orchestrator is killed and restarted, the job is run again from the start, and after
+  more restarts than `TB_JOB_MAX_RESTARTS` (3 unless set) it ends `failed` with "This job was interrupted by a
+  restart of the box ... times and was not started again ... Check the box's memory and logs (RUNBOOK §4)".
+  The basis (`docs/plan/measurements/size-test-2026-11-17.md`, H-23b): measured with the stub model on a 4-vCPU,
+  15 GiB container, SCREEN's peak was 2.03 GiB at 20,000 patients, and with the cap lifted 4.37 GiB at 50,000 and
+  8.22 GiB at 100,000. On the two-device workstation the limit is lower, not measured. The measurement lifted the
+  cap with `TB_MEM_ORCH=10g` (compose reads the same setting from `deploy/.env`); that is a measurement setting,
+  not a supported configuration. Sizing the cap from the site's patients and bounding SCREEN's memory are open.
 
 ## 1.0.0
 
