@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "44973dfcde47eefc12bfda7df193143b171f122a",
+  "head": "cefd46f15958c7373d57ce63b4acdede101249c2",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "D-1253: lake ids are per patient. Every id of a patient's record holds the patient, so every id column and every id-derived value moves once (proved by tools/goldens_id_proof.py: one one-to-one id map per data set makes every row, funnel, candidate list and outcome equal). The -deletes set's next night now chooses records by content, not by their place in the id-sorted snapshot (tools/golden_nights.py). New set ssmix2-jp-per-patient: numbers repeat across patients.",
+  "reason": "D-1253: lake ids per patient (a link by number is the row's own patient's; the suffix in its own HMAC part)",
   "ref_date": "2026-11-01",
   "ruleset": "RA-JAK",
   "ruleset_version": "1.0.0",
@@ -46,7 +46,7 @@
     "fa0d8f8683020ee31fb98e1db4110688"
    ],
    "candidates": 30,
-   "outcomes_sha": "c5152748b303f724de6d16fae7db28c428ba5a9bc414fc61e6f5cca2b696f2a9",
+   "outcomes_sha": "ab379ab5363d3b586df358766fdd9c55d74b2ecff67285c881cf229ff9a90116",
    "patients": 53,
    "structured_criteria": [
     "RA-JAK-INC-01",
@@ -169,7 +169,7 @@
     "f6c9de662c323cc869d4fec2a08950b6"
    ],
    "candidates": 28,
-   "outcomes_sha": "6da753d2d68f3b9663351bd9a240926fa3a14f6980f187a215f42854b708e29a",
+   "outcomes_sha": "f14ddee3ad6ff66bf214c5ac56d72edc489574e0944e69fc727141f1de01f732",
    "patients": 400,
    "structured_criteria": [
     "RA-JAK-INC-01",
@@ -292,7 +292,7 @@
     "f6c9de662c323cc869d4fec2a08950b6"
    ],
    "candidates": 28,
-   "outcomes_sha": "7a60daaebf25ed3a529f53292c7ee084fae0f3fc3f0027cc4269052d8d57e50b",
+   "outcomes_sha": "82c157277650f23e8ccdeb3af514ad40280ed4add79366c1c524f266f5fb7aaf",
    "patients": 400,
    "structured_criteria": [
     "RA-JAK-INC-01",
@@ -551,7 +551,7 @@
     "febcd3e0edea0fcc610812f95e33e176"
    ],
    "candidates": 164,
-   "outcomes_sha": "0671ce4fe2d71f952129cf327a537966a428e1db39567dd7d1db9524df41c936",
+   "outcomes_sha": "5eb5924867153dcc979d3ef040b3a0702eba973f1653e1853b50f57c3a978359",
    "patients": 2500,
    "structured_criteria": [
     "RA-JAK-INC-01",
@@ -851,7 +851,7 @@
     "febcd3e0edea0fcc610812f95e33e176"
    ],
    "candidates": 205,
-   "outcomes_sha": "321f40848657033b65da1dfdc6b22ba6c816b30a7ee81c5f1a761550d3fd8f31",
+   "outcomes_sha": "1839dd458fc469b142bdfcd6828b33627d0fffee4c23781a9a0442fafa6c592c",
    "patients": 2500,
    "structured_criteria": [
     "RA-JAK-INC-01",
@@ -1110,7 +1110,7 @@
     "fec1d0bb1e95d78621123a7dcbfa6024"
    ],
    "candidates": 164,
-   "outcomes_sha": "43493cf89e41e69b327cf1ef75036083c69b9eef6423b785cdd7779e6b631596",
+   "outcomes_sha": "ef1843f6c518dc40f1b8fc30d16bdaf0640dc2be163bec26966a40e7b2fb5da3",
    "patients": 2500,
    "structured_criteria": [
     "RA-JAK-INC-01",

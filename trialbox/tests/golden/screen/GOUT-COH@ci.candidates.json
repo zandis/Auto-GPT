@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "44973dfcde47eefc12bfda7df193143b171f122a",
+  "head": "cefd46f15958c7373d57ce63b4acdede101249c2",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "D-1253: lake ids are per patient. Every id of a patient's record holds the patient, so every id column and every id-derived value moves once (proved by tools/goldens_id_proof.py: one one-to-one id map per data set makes every row, funnel, candidate list and outcome equal). The -deletes set's next night now chooses records by content, not by their place in the id-sorted snapshot (tools/golden_nights.py). New set ssmix2-jp-per-patient: numbers repeat across patients.",
+  "reason": "D-1253: lake ids per patient (a link by number is the row's own patient's; the suffix in its own HMAC part)",
   "ref_date": "2026-11-01",
   "ruleset": "GOUT-COH",
   "ruleset_version": "1.0.0",
@@ -57,7 +57,7 @@
     "fb273aef57a096467966d0e78be4c989"
    ],
    "candidates": 41,
-   "outcomes_sha": "1c1eb116705f4f95c4f4035dbaf70417c8ead7ec119f7da1edd47f0d311c01cf",
+   "outcomes_sha": "69967a788976b4de0247c6aa21b555bca7d62afd87bb1813ce7b6234802c0b4e",
    "patients": 53,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -124,7 +124,7 @@
     "f6c9de662c323cc869d4fec2a08950b6"
    ],
    "candidates": 14,
-   "outcomes_sha": "f84da990da5b82df4652691550944f14cb07cc5870ed274bec1bdd6fd3983b64",
+   "outcomes_sha": "420b4ed49ea44b5bfddbd66db9a7788a5824708d388e84ad8a659664cfdd6f9f",
    "patients": 400,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -191,7 +191,7 @@
     "f6c9de662c323cc869d4fec2a08950b6"
    ],
    "candidates": 14,
-   "outcomes_sha": "76685b18fb5c60fa42b6032112d5b2b644a2e7701bb56af37c43739c19669aad",
+   "outcomes_sha": "1b885add537fd41df86a4019d013062826b399a57c30f1fce4f3ed2345e10795",
    "patients": 400,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -301,7 +301,7 @@
     "fbf788e6202e52cc9ed43ffa1351cc81"
    ],
    "candidates": 57,
-   "outcomes_sha": "986a92570edfcdeb695fe40cd64e9d152ee682b2af2610d02c5f668fa64e76d3",
+   "outcomes_sha": "2cdcfd6eabd794e259b50fa71c12bdabf4e6f92654a302d407339dafdf10daa0",
    "patients": 2500,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -436,7 +436,7 @@
     "febcd3e0edea0fcc610812f95e33e176"
    ],
    "candidates": 82,
-   "outcomes_sha": "27fba15298ae1d235364274a6d0228f7143ca58a9df2c6924b2e334a3efc2f48",
+   "outcomes_sha": "b9d4043076a1063c62924b7edd1a90daa4b575685773c8547eb13ae8014bdc44",
    "patients": 2500,
    "structured_criteria": [
     "GOUT-COH-INC-01",
@@ -566,7 +566,7 @@
     "f9c00ecd7666eb4665f5d59d39abe596"
    ],
    "candidates": 77,
-   "outcomes_sha": "a13c03af007553d5859468a39c7e492412434a787670a4f66b0ad708cc9552e4",
+   "outcomes_sha": "07028c2a73fafef3f957735af94e1e95bf3dfc92d32fb2d89fb5d5a3774c26f0",
    "patients": 2500,
    "structured_criteria": [
     "GOUT-COH-INC-01",

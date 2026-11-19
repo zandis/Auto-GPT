@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "44973dfcde47eefc12bfda7df193143b171f122a",
+  "head": "cefd46f15958c7373d57ce63b4acdede101249c2",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "D-1253: lake ids are per patient. Every id of a patient's record holds the patient, so every id column and every id-derived value moves once (proved by tools/goldens_id_proof.py: one one-to-one id map per data set makes every row, funnel, candidate list and outcome equal). The -deletes set's next night now chooses records by content, not by their place in the id-sorted snapshot (tools/golden_nights.py). New set ssmix2-jp-per-patient: numbers repeat across patients.",
+  "reason": "D-1253: lake ids per patient (a link by number is the row's own patient's; the suffix in its own HMAC part)",
   "ref_date": "2026-11-01",
   "ruleset": "GZQO",
   "ruleset_version": "1.0.0",
@@ -15,7 +15,7 @@
   "public-en": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "635a3ddec65381a0d4c82a3c0b1f9f807b36e0a6caa2c291e6210c7d2b9d76d3",
+   "outcomes_sha": "21216fa22cf77550564082e7633eb42d13d264eb9d6306966ac819739dfddc46",
    "patients": 53,
    "structured_criteria": [
     "GZQO-INC-01",
@@ -147,7 +147,7 @@
     "ff6a3704b6b513fb1faefcbb096324c7"
    ],
    "candidates": 13,
-   "outcomes_sha": "d19756f741ac67f91980dec4ce1ac97b6930b1f649f4e9507af9ba868bb058ba",
+   "outcomes_sha": "aac69e833e14c5bfa90914facf262a3017c4def6c286a5117fee108b391212ff",
    "patients": 400,
    "structured_criteria": [
     "GZQO-INC-01",
@@ -279,7 +279,7 @@
     "ff6a3704b6b513fb1faefcbb096324c7"
    ],
    "candidates": 13,
-   "outcomes_sha": "6b46073ed6a09762e5151b7d2be0ad3dab2d4daa9ac7769ed954be44863d4995",
+   "outcomes_sha": "75da61372171ca8c86ed4f120d12f682db171988832365c7005cb9313187c3e9",
    "patients": 400,
    "structured_criteria": [
     "GZQO-INC-01",
@@ -460,7 +460,7 @@
     "ffd49b25f1d323069cb65e0fdab23958"
    ],
    "candidates": 62,
-   "outcomes_sha": "64c1e83a93a0c85cb2a4525f67bfb49981e102b44d338f564e6cbfa7b8099f81",
+   "outcomes_sha": "467996b1865a2f03dda06e1dd24a91f5652586f91a64b557f3b6749631e7c432",
    "patients": 2500,
    "structured_criteria": [
     "GZQO-INC-01",
@@ -647,7 +647,7 @@
     "ffd49b25f1d323069cb65e0fdab23958"
    ],
    "candidates": 68,
-   "outcomes_sha": "c8b9c243dfc1eae542c20a8b02832746245dd6d58dab15789689e2dc0b0a32d8",
+   "outcomes_sha": "dee3ecfb67c39e61c14e4105c809f488090c598e847384de8da62980dde151e1",
    "patients": 2500,
    "structured_criteria": [
     "GZQO-INC-01",
@@ -834,7 +834,7 @@
     "feffa436d392d52a2910d4f960540432"
    ],
    "candidates": 68,
-   "outcomes_sha": "ae74210de256e5da457977e75f124d899bca39ae8a48f8ea268dd0dee3e2860e",
+   "outcomes_sha": "9c1ee24f7e29a669ad0e335130270bfa22ff02abfa9b84f4e175ad25a8f09bc6",
    "patients": 2500,
    "structured_criteria": [
     "GZQO-INC-01",

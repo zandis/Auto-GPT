@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "44973dfcde47eefc12bfda7df193143b171f122a",
+  "head": "cefd46f15958c7373d57ce63b4acdede101249c2",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "D-1253: lake ids are per patient. Every id of a patient's record holds the patient, so every id column and every id-derived value moves once (proved by tools/goldens_id_proof.py: one one-to-one id map per data set makes every row, funnel, candidate list and outcome equal). The -deletes set's next night now chooses records by content, not by their place in the id-sorted snapshot (tools/golden_nights.py). New set ssmix2-jp-per-patient: numbers repeat across patients.",
+  "reason": "D-1253: lake ids per patient (a link by number is the row's own patient's; the suffix in its own HMAC part)",
   "ref_date": "2026-11-01",
   "ruleset": "RA-BIO",
   "ruleset_version": "1.0.0",
@@ -48,7 +48,7 @@
     "fa0d8f8683020ee31fb98e1db4110688"
    ],
    "candidates": 32,
-   "outcomes_sha": "5099a715f40551aad3976ab6322f8d7c2933bec6c9967c755c491060d920f097",
+   "outcomes_sha": "a8f0abed91beb2b32c8ff333387b8366c5674d6a9c3b3462ab4d7352fd782176",
    "patients": 53,
    "structured_criteria": [
     "RA-BIO-INC-01",
@@ -187,7 +187,7 @@
     "f6c9de662c323cc869d4fec2a08950b6"
    ],
    "candidates": 25,
-   "outcomes_sha": "81270c2f6b0dc29a25cfc9fe711e254c7518d4cd629b188f4fc57a934e3c9e48",
+   "outcomes_sha": "a6476803bb0166b4d07c8261705055a62fa527ce8892563759391621a14cda45",
    "patients": 400,
    "structured_criteria": [
     "RA-BIO-INC-01",
@@ -326,7 +326,7 @@
     "f6c9de662c323cc869d4fec2a08950b6"
    ],
    "candidates": 25,
-   "outcomes_sha": "c96bca221911ad8dd5a71b75015d03dcfed5be67b28bc1f415731c06d6134124",
+   "outcomes_sha": "e4cd5a60613425f97b452f3197722b443ba000663aa32601d949052acacfbf6e",
    "patients": 400,
    "structured_criteria": [
     "RA-BIO-INC-01",
@@ -588,7 +588,7 @@
     "febcd3e0edea0fcc610812f95e33e176"
    ],
    "candidates": 148,
-   "outcomes_sha": "ea4f16196616c39299ede896065e2b1e4d3e459a34e75c50bf60671be635b65c",
+   "outcomes_sha": "6f49a344337a2f69aefad8e68bf3b1a5a170ecf39331373730d6a61383a4740a",
    "patients": 2500,
    "structured_criteria": [
     "RA-BIO-INC-01",
@@ -919,7 +919,7 @@
     "febcd3e0edea0fcc610812f95e33e176"
    ],
    "candidates": 217,
-   "outcomes_sha": "cf25a76f3fe120286c7af5d2d5d5fe47b8351393be32d7d2b6feaaf0d8437815",
+   "outcomes_sha": "f336479d294a4ab1f06d37557e114de80256723e216adb77151d1da1562f73b0",
    "patients": 2500,
    "structured_criteria": [
     "RA-BIO-INC-01",
@@ -1182,7 +1182,7 @@
     "fec1d0bb1e95d78621123a7dcbfa6024"
    ],
    "candidates": 149,
-   "outcomes_sha": "4fe7ef50bdea7edd3085bf4663076fc89c004a2228f3fa3e42c740691837f627",
+   "outcomes_sha": "e43244f743dc58d613f8e9264ea660d99291d41786704aeee361651346bee8c0",
    "patients": 2500,
    "structured_criteria": [
     "RA-BIO-INC-01",

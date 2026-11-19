@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "44973dfcde47eefc12bfda7df193143b171f122a",
+  "head": "cefd46f15958c7373d57ce63b4acdede101249c2",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "D-1253: lake ids are per patient. Every id of a patient's record holds the patient, so every id column and every id-derived value moves once (proved by tools/goldens_id_proof.py: one one-to-one id map per data set makes every row, funnel, candidate list and outcome equal). The -deletes set's next night now chooses records by content, not by their place in the id-sorted snapshot (tools/golden_nights.py). New set ssmix2-jp-per-patient: numbers repeat across patients.",
+  "reason": "D-1253: lake ids per patient (a link by number is the row's own patient's; the suffix in its own HMAC part)",
   "ref_date": "2026-11-01",
   "ruleset": "ONC-OSI",
   "ruleset_version": "1.0.0",
@@ -130,7 +130,7 @@
     "f6c9de662c323cc869d4fec2a08950b6"
    ],
    "candidates": 37,
-   "outcomes_sha": "736080fce73c42c2a32b1ac5a3ef4408319db0b309328f290f4b10249c2c4feb",
+   "outcomes_sha": "9635a2cde96794088269c3565e8952288fb5a5c005cb69c07feb786c1ed6a8e9",
    "patients": 400,
    "structured_criteria": [
     "ONC-OSI-INC-01",
@@ -212,7 +212,7 @@
     "f6c9de662c323cc869d4fec2a08950b6"
    ],
    "candidates": 37,
-   "outcomes_sha": "0bb97c3ee0c155c45681d2f419bfad9495170f0cd49a86552fd398f42b0d5093",
+   "outcomes_sha": "2f37fe24d47378329e7d317d34aa3f6c3ca0cf879808d07902d3e0a03c4600ff",
    "patients": 400,
    "structured_criteria": [
     "ONC-OSI-INC-01",
@@ -508,7 +508,7 @@
     "ff2d14c2149040c52d6c9654709d8405"
    ],
    "candidates": 251,
-   "outcomes_sha": "142c774a33b9441e6ec72ab323b1459923240f30ac9cfc1e986de1f160da1fa6",
+   "outcomes_sha": "4720d4ea878160e6bc69a61d4ead01fa7351e4b6192ac58d26f334eee358a90e",
    "patients": 2500,
    "structured_criteria": [
     "ONC-OSI-INC-01",
@@ -837,7 +837,7 @@
     "ff2d14c2149040c52d6c9654709d8405"
    ],
    "candidates": 284,
-   "outcomes_sha": "e88d67f1a157fa7a8b9ffbc15e5dd4045b78626115f0e08b0854d97e70fac859",
+   "outcomes_sha": "c4ba151b7c023dabfe1ed4f0f0da87e8fcc079503806530dcb78d718b872defc",
    "patients": 2500,
    "structured_criteria": [
     "ONC-OSI-INC-01",
@@ -1143,7 +1143,7 @@
     "fec1d0bb1e95d78621123a7dcbfa6024"
    ],
    "candidates": 261,
-   "outcomes_sha": "342014aa8e5c01805d6759dd616766dde6debbf3005f4616122ec773f1759995",
+   "outcomes_sha": "fd104587f652061bc7fbefcae8976f1c239da65c410bf2d8eb236be1cc5dc7e0",
    "patients": 2500,
    "structured_criteria": [
     "ONC-OSI-INC-01",

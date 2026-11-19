@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "44973dfcde47eefc12bfda7df193143b171f122a",
+  "head": "cefd46f15958c7373d57ce63b4acdede101249c2",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "D-1253: lake ids are per patient. Every id of a patient's record holds the patient, so every id column and every id-derived value moves once (proved by tools/goldens_id_proof.py: one one-to-one id map per data set makes every row, funnel, candidate list and outcome equal). The -deletes set's next night now chooses records by content, not by their place in the id-sorted snapshot (tools/golden_nights.py). New set ssmix2-jp-per-patient: numbers repeat across patients.",
+  "reason": "D-1253: lake ids per patient (a link by number is the row's own patient's; the suffix in its own HMAC part)",
   "ref_date": "2026-11-01",
   "ruleset": "EMPULSE",
   "ruleset_version": "1.0.0",
@@ -143,7 +143,7 @@
     "f6c9de662c323cc869d4fec2a08950b6"
    ],
    "candidates": 18,
-   "outcomes_sha": "49ac0f9a676a7fe8043edf64b3f552936ea18304606b247cbde0af688219d6a6",
+   "outcomes_sha": "676af8d5b657778a42bb9304b1255afed5999396aada990820e871b0cb36f8d3",
    "patients": 400,
    "structured_criteria": [
     "EMPULSE-INC-01",
@@ -238,7 +238,7 @@
     "f6c9de662c323cc869d4fec2a08950b6"
    ],
    "candidates": 18,
-   "outcomes_sha": "338ea86f8d1ccd95ea0000a50ab820fb75a3be8852a2671df9ccefce39cc3d5d",
+   "outcomes_sha": "37934e32ea65fe4574d4a832207e623d16a113dd71f3deccccf3286917e4b9db",
    "patients": 400,
    "structured_criteria": [
     "EMPULSE-INC-01",
@@ -411,7 +411,7 @@
     "febcd3e0edea0fcc610812f95e33e176"
    ],
    "candidates": 96,
-   "outcomes_sha": "549b3d31f0936a65eb6144037aa414805f78608906b07a4749c80e86e2119aed",
+   "outcomes_sha": "6406065c2cf9ab2a5cd3ef82ed773e7414c4c1244a60810b044a747023a5d6a1",
    "patients": 2500,
    "structured_criteria": [
     "EMPULSE-INC-01",
@@ -622,7 +622,7 @@
     "febcd3e0edea0fcc610812f95e33e176"
    ],
    "candidates": 134,
-   "outcomes_sha": "3b447655c571925b7b91d24f11a3bda921800ded1e4ef621b9a70cf7d579e734",
+   "outcomes_sha": "fd3a2bf51d9f41fe8bcc2af7bfddce3306f58c825493e9257f87fe0c8c81ebb0",
    "patients": 2500,
    "structured_criteria": [
     "EMPULSE-INC-01",
@@ -808,7 +808,7 @@
     "fec1d0bb1e95d78621123a7dcbfa6024"
    ],
    "candidates": 109,
-   "outcomes_sha": "403f98852c63b939070714ecbbd6c599f63a4da7f0e3486efd4180de541e8fa0",
+   "outcomes_sha": "60e932a482c59a648d9b2c06ae6829b34beb1a1d45df6faea8a7e462fabbbca1",
    "patients": 2500,
    "structured_criteria": [
     "EMPULSE-INC-01",

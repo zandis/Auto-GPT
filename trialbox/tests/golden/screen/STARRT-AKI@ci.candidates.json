@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "44973dfcde47eefc12bfda7df193143b171f122a",
+  "head": "cefd46f15958c7373d57ce63b4acdede101249c2",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "D-1253: lake ids are per patient. Every id of a patient's record holds the patient, so every id column and every id-derived value moves once (proved by tools/goldens_id_proof.py: one one-to-one id map per data set makes every row, funnel, candidate list and outcome equal). The -deletes set's next night now chooses records by content, not by their place in the id-sorted snapshot (tools/golden_nights.py). New set ssmix2-jp-per-patient: numbers repeat across patients.",
+  "reason": "D-1253: lake ids per patient (a link by number is the row's own patient's; the suffix in its own HMAC part)",
   "ref_date": "2026-11-01",
   "ruleset": "STARRT-AKI",
   "ruleset_version": "1.0.0",
@@ -85,7 +85,7 @@
   "ssmix2-jp": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "980aa881268bcd791ce0834a0e5175f2f08937ab5ad34eb8fe472d37b843dcfe",
+   "outcomes_sha": "73dcd3df226f14af0678f945ddd409c7af866a80c4a9e02976dd8756eb27ceb3",
    "patients": 400,
    "structured_criteria": [
     "STARRT-AKI-INC-01",
@@ -155,7 +155,7 @@
   "ssmix2-jp-per-patient": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "5cd67f599393209d3130bdc8c8e258e57001073f82e39328fd658d116caecb62",
+   "outcomes_sha": "c57f2ffc0483c2b14db149039db3e09a3ad4d3ea598b23a97f4d20a711adb5cf",
    "patients": 400,
    "structured_criteria": [
     "STARRT-AKI-INC-01",
@@ -225,7 +225,7 @@
   "synthetic-jp-a": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "32d69d9df3707370e089aace4182cae4890734d43c2b56ee1178b99b84a83160",
+   "outcomes_sha": "d058a09d884340fa759a50f541d06b08882251d7405f78773b1b2e13e118a029",
    "patients": 2500,
    "structured_criteria": [
     "STARRT-AKI-INC-01",
@@ -297,7 +297,7 @@
     "9ffb52ec408d6413c6a77d3e506a0d1f"
    ],
    "candidates": 1,
-   "outcomes_sha": "33747f9a343deee2b8612756af83aaf1af30d5206f50541d09c0a163a6669f78",
+   "outcomes_sha": "b837d2f202123d5e08e88b6a882c25e1c86dd77200580679d536084dbca75b3f",
    "patients": 2500,
    "structured_criteria": [
     "STARRT-AKI-INC-01",
@@ -367,7 +367,7 @@
   "synthetic-tw-a": {
    "candidate_pids": [],
    "candidates": 0,
-   "outcomes_sha": "4dbc32d9f787d46600a78d802de64cc4125db2aeb9567cf72e37a047523982a6",
+   "outcomes_sha": "f387003093cb68b856792caa485dc68ca2f1b9138bf7c4828e230ab38ee5d42c",
    "patients": 2500,
    "structured_criteria": [
     "STARRT-AKI-INC-01",

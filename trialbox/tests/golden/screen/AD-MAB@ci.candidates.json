@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "44973dfcde47eefc12bfda7df193143b171f122a",
+  "head": "cefd46f15958c7373d57ce63b4acdede101249c2",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "D-1253: lake ids are per patient. Every id of a patient's record holds the patient, so every id column and every id-derived value moves once (proved by tools/goldens_id_proof.py: one one-to-one id map per data set makes every row, funnel, candidate list and outcome equal). The -deletes set's next night now chooses records by content, not by their place in the id-sorted snapshot (tools/golden_nights.py). New set ssmix2-jp-per-patient: numbers repeat across patients.",
+  "reason": "D-1253: lake ids per patient (a link by number is the row's own patient's; the suffix in its own HMAC part)",
   "ref_date": "2026-11-01",
   "ruleset": "AD-MAB",
   "ruleset_version": "1.0.0",
@@ -27,7 +27,7 @@
     "df261f5f5065731b2bf2a0fa5d864105"
    ],
    "candidates": 11,
-   "outcomes_sha": "8d5f502cfc108ed70501b7fd0a1f280780b311f67a0ab09b360a004aa2429b28",
+   "outcomes_sha": "ac3f431d5f8ec7aef092be07d644d455f9910d92d65979db551cf05d57f720b8",
    "patients": 53,
    "structured_criteria": [
     "AD-MAB-INC-01",
@@ -78,7 +78,7 @@
     "d80ba0d957a079b23f2a0dd5bf079f31"
    ],
    "candidates": 10,
-   "outcomes_sha": "b973852478102f3c99b845e6836a9f80a5af5d410ef85ae77a0d6c91a8d923cd",
+   "outcomes_sha": "8a210c043057aea58d12199f6db9221b2852a4f66bd98449456ed23dfcbf2b26",
    "patients": 400,
    "structured_criteria": [
     "AD-MAB-INC-01",
@@ -129,7 +129,7 @@
     "d80ba0d957a079b23f2a0dd5bf079f31"
    ],
    "candidates": 10,
-   "outcomes_sha": "c4e59aedfa2b9688c656f96215df5d9c1a034380e782a8b1818762f8b8f0bb9d",
+   "outcomes_sha": "848ad428a0c40151d4fba32ac1d811069429437b6c6e904f92bc34af433920b7",
    "patients": 400,
    "structured_criteria": [
     "AD-MAB-INC-01",
@@ -254,7 +254,7 @@
     "febcd3e0edea0fcc610812f95e33e176"
    ],
    "candidates": 84,
-   "outcomes_sha": "c00a1619dc22fdc0e897c5349b4f5f402a7609d4d5b6a46e6b424089b074284a",
+   "outcomes_sha": "510688ddea21f76ea35c9bd9a5261a362c261426d01abf19b74bc7b0cebb6edc",
    "patients": 2500,
    "structured_criteria": [
     "AD-MAB-INC-01",
@@ -413,7 +413,7 @@
     "febcd3e0edea0fcc610812f95e33e176"
    ],
    "candidates": 118,
-   "outcomes_sha": "a42fd1a74ea3d5f4224c59cba74b209a6866ec3cae1b63a8b5c5782a2bc07380",
+   "outcomes_sha": "53f6439258cdf544eded0211299f84c3d6cc0437cac1fc33c66f0779810336ff",
    "patients": 2500,
    "structured_criteria": [
     "AD-MAB-INC-01",
@@ -522,7 +522,7 @@
     "fec1d0bb1e95d78621123a7dcbfa6024"
    ],
    "candidates": 68,
-   "outcomes_sha": "a6cec76ba93975fbb5cceeba1103839405cf9db6b3beb7f22c44274c8df77a63",
+   "outcomes_sha": "f66c42fbfedfa7ffbc1993bde729b1c577e62b0f83c8f1387cef4954bb164df8",
    "patients": 2500,
    "structured_criteria": [
     "AD-MAB-INC-01",
