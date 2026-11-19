@@ -28,6 +28,12 @@ const path = require("path");
           const a = document.activeElement;
           return a ? (a.id || (a.classList.contains("fm-summary") ? "fm-summary" : a.tagName + ":" + (a.getAttribute("href") || ""))) : "";
         });
+        // autofocus is applied at the next rendering update after load, not at load itself: wait for it (5 s)
+        const focused = () => page.waitForFunction(() => {
+          const a = document.activeElement;
+          return !!a && a.classList.contains("fm-summary");
+        }, null, { timeout: 5000 }).catch(() => null);
+        await focused();
         let got = await active();
         if (got !== "fm-summary") throw new Error("on load the focus is on " + got + ", not the summary");
         await page.keyboard.press("Tab");
@@ -35,6 +41,8 @@ const path = require("path");
         if (got !== "A:#" + s.fields[0]) throw new Error("Tab from the summary reached " + got);
         for (let i = 0; i < s.fields.length; i++) {
           await page.goto(url, { waitUntil: "load" });
+          await focused();
+          if ((await active()) !== "fm-summary") throw new Error("after a reload the focus is not on the summary");
           for (let k = 0; k <= i; k++) await page.keyboard.press("Tab");
           got = await active();
           if (got !== "A:#" + s.fields[i]) throw new Error("Tab " + (i + 1) + " reached " + got);
