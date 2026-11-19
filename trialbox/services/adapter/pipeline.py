@@ -850,7 +850,7 @@ def _run_ingest(
                     for rtype, rid in made:  # the last row of a key decides (DATA-017): given again, it stays
                         if rtype in left_out:
                             left_out[rtype].discard(rid)
-                    for rtype, rid in mapper.tombstones(table, iter([row])):
+                    for rtype, rid in mapper.tombstones(table, iter([row]), deleted=False):
                         if (rtype, rid) not in made:
                             left_out.setdefault(rtype, set()).add(rid)
             if rejected:
@@ -874,6 +874,13 @@ def _run_ingest(
             tables[table]["implausible_dates"] = by_element
         for table, by_map in mapper.mapped_summary().items():  # D-689: rows that gained a mapped code, by map
             tables[table]["mapped"] = by_map
+        for table, by_type in mapper.references_refused().items():  # D-1253: counts only
+            tables[table]["references_to_another_patient"] = by_type
+            log.warning("%s: links by number left out, the number being only another patient's record tonight: %s",
+                        table, by_type)  # fmt: skip
+        for table, n in mapper.tombstones_without_patient().items():  # D-1253: counts only
+            tables[table]["deletes_without_patient"] = n
+            log.warning("%s: %d deleted rows name no patient: they remove nothing", table, n)
         unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name
     at.update(step="snapshot", table=None)
     unit_defaults = mapping.unit_defaults if mapping is not None else _bulk_unit_defaults(cfg.mapping_path)
@@ -969,10 +976,14 @@ def _run_ingest(
     )
     removed: dict[str, int] = {}
     carried_moved: dict[str, int] = {}
+    collisions: dict[str, int] = {}  # D-1253: two of tonight's rows, one id, other content
     full_counts = write_snapshot(
         out_dir, spool, base, tombstones, transform=night, left_out=left_out, removed=removed,
-        aliases=aliases if base is not None else None, moved=carried_moved,
+        aliases=aliases if base is not None else None, moved=carried_moved, collisions=collisions,
     )  # fmt: skip
+    if collisions:
+        log.warning("records of tonight that had the id of another row of tonight, with other content (the last "
+                    "row kept): %s", dict(sorted(collisions.items())))  # fmt: skip
     if carried_moved:
         log.info(
             "records carried over from snapshot %s written under the surviving patient of a chart merge: %s",
@@ -993,6 +1004,8 @@ def _run_ingest(
     # T-611: the completeness gate. A missing or emptied table, a table that shrank past the band, or a patient who
     # left the feed while their records stayed holds the night; D-271's override for this night lets it through
     gaps, completeness = completeness_check(cfg, tables, out_dir, last_good, full=not since)
+    if collisions:  # D-1253: counts per record type only
+        completeness["id_collisions"] = dict(sorted(collisions.items()))
     (out_dir / COMPLETENESS).write_text(
         json.dumps(completeness, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8"
     )

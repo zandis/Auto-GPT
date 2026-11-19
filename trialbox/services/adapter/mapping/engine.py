@@ -9,8 +9,10 @@ Value expressions (one key per element)::
     column: <col>   [type, map, default, factor, add_minutes]
     template: "text {col} {sys.loinc} {site_id}"     string interpolation
     pid: <col>                                      pseudonymous patient id (HMAC of the column, D-09)
-    hid: <col>                                      pseudonymous resource id: HMAC("<Type>|<value>")
-    ref: {type: <T>, pid|hid|column: <col>}          reference "T/<id>"
+    hid: <col>                                      pseudonymous resource id (D-1253): the record's patient's,
+                                                    HMAC("<Type>|<pid>|<value>"); HMAC("<Type>|<value>") for a
+                                                    record of no patient declared ``site_wide: true``
+    ref: {type: <T>, pid|hid|column: <col>}          reference "T/<id>" (an ``hid`` one built as the target's id)
     lookup: {name: <lookup>, key: <col>, field: <f>} value from a lookup CSV
     base64: <col>                                   base64 of the UTF-8 column text
     builder: <name> [args]                          typed helper, merged at the element path
@@ -251,8 +253,29 @@ def _zone(path: Path, name: object) -> ZoneInfo:
 
 
 def resource_id(site_key: bytes, rtype: str, value: str) -> str:
-    """Stable pseudonymous id for a non-patient resource (no source keys leave the adapter)."""
+    """Stable pseudonymous id of a record of no patient (a clinician, a ward) or of a ``fhir_bulk`` record (a FHIR
+    server's id is unique per server and type): no source key leaves the adapter."""
     return hmac.new(site_key, f"{rtype}|{value}".encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def patient_resource_id(site_key: bytes, rtype: str, pid: str, value: str) -> str:
+    """D-1253: the id of a record that belongs to a patient, from the source's number **and** the patient. Hospital
+    systems reuse such numbers across patients (an SS-MIX2 order number is unique per patient, day and data type
+    only): without the patient two patients' "RX1" were one id, and one patient's record took the other's place.
+    ``pid`` is the patient's pseudonym (:func:`tb_common.crypto.pid_for_mrn`, fixed-length hex: it holds no ``|``,
+    so the three parts are read back one way only)."""
+    if not PID_SHAPE.fullmatch(pid):
+        raise MappingError(f"{rtype}: the patient part of an id is not a pseudonym")
+    return hmac.new(site_key, f"{rtype}|{pid}|{value}".encode(), hashlib.sha256).hexdigest()[:32]
+
+
+PID_SHAPE = re.compile(r"[0-9a-f]{16,64}")
+#: D-1253: the record types that belong to no patient. Their ``hid`` id is site-wide and is declared so
+#: (``id: {hid: <col>, site_wide: true}``); every other type's ``hid`` id is its patient's
+SITE_WIDE_TYPES = frozenset(
+    {"Practitioner", "PractitionerRole", "Organization", "Location", "HealthcareService", "Medication", "Device",
+     "Substance", "Group"}
+)  # fmt: skip
 
 
 _HALF_WIDTH = HALF_WIDTH  # tb_common.codekey: the one fold of a code (10B-6)
@@ -404,6 +427,86 @@ class ResourceSpec:
     elements: dict[str, Any]
     profile: Any = None
     where: list[dict[str, Any]] = field(default_factory=list)
+    #: D-1253: the column whose chart number is the record's patient (the one its ``{ref: {type: Patient, pid:
+    #: <col>}}`` names, or ``id.patient``): the patient part of its ``hid`` id and of its references by number
+    patient: str | None = None
+
+
+def _patient_columns(x: Any) -> set[str]:
+    """The columns a resource's elements name its patient by (``{ref: {type: Patient, pid: <col>}}``)."""
+    found: set[str] = set()
+    if isinstance(x, dict):
+        ref = x.get("ref")
+        if isinstance(ref, dict) and ref.get("type") == "Patient" and isinstance(ref.get("pid"), str):
+            found.add(ref["pid"])
+        for v in x.values():
+            found |= _patient_columns(v)
+    elif isinstance(x, list):
+        for v in x:
+            found |= _patient_columns(v)
+    return found
+
+
+def _hid_targets(x: Any) -> set[str]:
+    """The record types a resource names by number (``{ref: {type: T, hid: <col>}}``, ``{template: "{hid:T:c}"}``)."""
+    found: set[str] = set()
+    if isinstance(x, dict):
+        ref = x.get("ref")
+        if isinstance(ref, dict) and "hid" in ref:
+            found.add(str(ref.get("type")))
+        if isinstance(x.get("template"), str):
+            found |= {t.split(":")[1] for t in _TOKEN_RE.findall(x["template"]) if t.startswith("hid:")}
+        for v in x.values():
+            found |= _hid_targets(v)
+    elif isinstance(x, list):
+        for v in x:
+            found |= _hid_targets(v)
+    return found
+
+
+def _whose(path: Path, r: ResourceSpec) -> str | None:
+    """D-1253: the patient column of ``r`` (checked here, when the mapping loads), or None for a record of no patient.
+
+    An ``hid`` id is its patient's: the record names its patient (one column), or the id says which (``patient``).
+    A record of no patient keeps a site-wide id and says so (``site_wide: true``); only a type of
+    :data:`SITE_WIDE_TYPES` may, and never one that names a patient. An ``hid`` id that is neither is refused: a
+    mapping cannot leave the patient out by forgetting it."""
+    where = f"{path}: {r.type} from {r.table}"
+    named = _patient_columns(r.elements)
+    said = r.id.get("patient")
+    if said is not None and not (isinstance(said, str) and said):
+        raise MappingError(f"{where}: id.patient names the column of the record's patient")
+    wide = r.id.get("site_wide")
+    if wide is not None and wide is not True:
+        raise MappingError(f"{where}: id.site_wide is true or left out")
+    if wide:
+        if "hid" not in r.id:
+            raise MappingError(f"{where}: site_wide is said of an hid id only")
+        if r.type not in SITE_WIDE_TYPES:
+            raise MappingError(
+                f"{where}: a {r.type} belongs to a patient: its id cannot be site-wide (site_wide is for a record "
+                f"of no patient: {', '.join(sorted(SITE_WIDE_TYPES))})"
+            )
+        if named or said:
+            raise MappingError(f"{where} names a patient: its id cannot be site-wide")
+        return None
+    col = said if said else (next(iter(named)) if len(named) == 1 else None)
+    if said and named and said not in named:
+        raise MappingError(f"{where}: id.patient {said!r} is not the column the record names its patient by")
+    if "hid" in r.id and r.type in SITE_WIDE_TYPES:
+        raise MappingError(
+            f"{where}: a {r.type} belongs to no patient: declare its id site-wide (id: {{hid: ..., site_wide: true}})"
+        )
+    if "hid" in r.id and col is None:
+        raise MappingError(
+            f"{where}: an hid id is its patient's (D-1253), and "
+            + (f"the record names {len(named)} patient columns: say which with id.patient" if named else
+               "the record names no patient: name it ({ref: {type: Patient, pid: <col>}}), or declare a record of "
+               "no patient site-wide")
+        )  # fmt: skip
+    if col is None and any(t not in SITE_WIDE_TYPES for t in _hid_targets(r.elements)):
+        raise MappingError(f"{where} names a patient's record by number and names no patient of its own")
+    return col
 
 
 def _by_day_links(path: Path, order: list[str], resources: list[ResourceSpec]) -> list[tuple[str, str, dict[str, Any]]]:
@@ -646,6 +749,7 @@ class Mapping:
             if r.table not in (doc.get("tables") or {}):
                 raise MappingError(f"{path}: resource {r.type} uses undeclared table {r.table!r}")
             _known_codes_are_the_maps(path, r)
+            r.patient = _whose(path, r)  # D-1253
         by_day = _by_day_links(path, list(doc.get("tables") or {}), resources)
         for name, lk in lookups.items():  # D-590: a range stated badly is found now, not row by row at night
             for row in lk.rows.values():
@@ -964,6 +1068,13 @@ class Mapper:
         # 10B-6 (D-1233): the site profile's rows still to verify, by table; the facts tagged per table
         self.verify_rules: dict[str, list[VerifyRule]] = {}
         self.from_verify: Counter[str] = Counter()
+        # D-1253: the patient records named by number, by (type, the number's site-wide hash) -> the patients whose
+        # record it is tonight, filled as they are made; the links refused because the number is only another
+        # patient's, by (table, type); the deleted rows that name no patient, by table. Counts only
+        self._targets = {t for r in mapping.resources for t in _hid_targets(r.elements) if t not in SITE_WIDE_TYPES}
+        self._numbers: dict[tuple[str, str], set[str]] = {}
+        self.refused: Counter[tuple[str, str]] = Counter()
+        self.dead_without_patient: Counter[str] = Counter()
 
     # ------------------------------------------------------------------ scalar conversion
     def _parse_dt(self, raw: str) -> datetime:
@@ -1084,8 +1195,40 @@ class Mapper:
             raise MappingError(f"empty patient key column {col!r}")
         return pid_for_mrn(self.key, str(raw))
 
-    def hid(self, rtype: str, row: Row, col: str) -> str:
-        return resource_id(self.key, rtype, str(row[col]))
+    def hid(self, rtype: str, row: Row, col: str, rs: ResourceSpec) -> str:
+        return self.number_id(rtype, rs, row, str(row[col]))
+
+    def patient_of(self, rs: ResourceSpec, row: Row) -> str:
+        """D-1253: the pseudonym of the record's patient (:meth:`pid` of its patient column). A row without one is
+        refused (rejected and counted by the night, as D-812 refuses a row without its key), never given an id
+        another patient's row could have too."""
+        col = rs.patient
+        if col is None:
+            raise MappingError(f"{rs.type} from {rs.table} names no patient")
+        raw = row.get(col)
+        if raw is None or str(raw).strip() == "":
+            raise MappingError(f"{rs.type} from {rs.table}: no patient ({col} is empty)")
+        return pid_for_mrn(self.key, str(raw))
+
+    def number_id(self, rtype: str, rs: ResourceSpec, row: Row, value: str) -> str:
+        """The id of the ``rtype`` record with the source number ``value``, as ``rs``'s row names it (D-1253): a
+        patient's record is that row's patient's; a record of no patient (:data:`SITE_WIDE_TYPES`) is the site's."""
+        if rtype in SITE_WIDE_TYPES:
+            return resource_id(self.key, rtype, value)
+        return patient_resource_id(self.key, rtype, self.patient_of(rs, row), value)
+
+    def references_refused(self) -> dict[str, dict[str, int]]:
+        """Per table and record type, the links by number left out because tonight that number is only another
+        patient's record (D-1253). Counts only."""
+        out: dict[str, dict[str, int]] = {}
+        for (table, rtype), n in sorted(self.refused.items()):
+            out.setdefault(table, {})[rtype] = n
+        return out
+
+    def tombstones_without_patient(self) -> dict[str, int]:
+        """Per table, the deleted rows that name no patient: they remove nothing (D-1253: which patient's record
+        the number is cannot be told). Counts only."""
+        return dict(sorted(self.dead_without_patient.items()))
 
     def lookup(self, spec: dict[str, Any], row: Row) -> Any:
         hit = self.m.lookups[spec["name"]].find(row.get(spec["key"]))
@@ -1104,7 +1247,7 @@ class Mapper:
                 return self.pid(row, tok[4:])
             if tok.startswith("hid:"):
                 rtype, _, col = tok[4:].partition(":")
-                return self.hid(rtype, row, col)
+                return self.hid(rtype, row, col, spec)
             val = row.get(tok)
             if val is None:
                 raise MappingError(f"template column {tok!r} missing in table {spec.table}")
@@ -1184,7 +1327,15 @@ class Mapper:
         if raw is None or str(raw).strip() == "":
             return None
         if "hid" in spec:
-            return f"{rtype}/{resource_id(self.key, rtype, str(raw))}"
+            if rtype in SITE_WIDE_TYPES:
+                return f"{rtype}/{resource_id(self.key, rtype, str(raw))}"
+            pid = self.patient_of(rs, row)
+            theirs = self._numbers.get((rtype, resource_id(self.key, rtype, str(raw))))
+            if theirs and pid not in theirs:
+                # D-1253: tonight that number is another patient's record only: never a link across patients
+                self.refused[(rs.table, rtype)] += 1
+                return None
+            return f"{rtype}/{patient_resource_id(self.key, rtype, pid, str(raw))}"
         return f"{rtype}/{raw}"
 
     def value(self, expr: Any, row: Row, rs: ResourceSpec) -> Any:
@@ -1241,7 +1392,7 @@ class Mapper:
         if "pid" in expr:
             return self.pid(row, expr["pid"])
         if "hid" in expr:
-            return self.hid(rs.type, row, expr["hid"])
+            return self.hid(rs.type, row, expr["hid"], rs)
         if "ref" in expr:
             return self.ref(expr["ref"], row, rs)
         if "lookup" in expr:
@@ -1578,17 +1729,25 @@ class Mapper:
             # the row is rejected and counted where rejected rows are
             raise MappingError(f"{rs.type} from {rs.table}: no key ({col} is empty)")
         if "hid" in rs.id:
-            return resource_id(self.key, rs.type, f"{value}{rs.id.get('suffix', '')}")
+            number = f"{value}{rs.id.get('suffix', '')}"
+            if rs.patient is None:  # declared site-wide (D-1253): a record of no patient
+                return resource_id(self.key, rs.type, number)
+            return patient_resource_id(self.key, rs.type, self.patient_of(rs, row), number)
         return str(value)
 
-    def tombstones(self, table: str, rows: Iterator[Row]) -> Iterator[tuple[str, str]]:
+    def tombstones(self, table: str, rows: Iterator[Row], deleted: bool = True) -> Iterator[tuple[str, str]]:
         """``(resource type, id)`` of every resource a deleted source row would have made (dataflow review P0-1).
+        ``deleted`` False: a live row's ids (D-528's "left the feed"), never counted as a delete.
 
         A deleted row is often a bare key, so ``where`` conditions and elements are not evaluated: each resource of
         the table whose id the row can give is a tombstone, and a tombstone for an id not in the snapshot is a no-op.
         A Patient is never tombstoned this way: removing a person is the opt-out path's job, not a feed delta's."""
         specs = [r for r in self.m.resources if r.table == table and r.type != "Patient"]
         for row in rows:
+            if deleted and any(
+                rs.patient is not None and "hid" in rs.id and not str(row.get(rs.patient) or "").strip() for rs in specs
+            ):  # D-1253: a number without its patient names no one record: nothing is removed, and it is counted
+                self.dead_without_patient[table] += 1
             for rs in specs:
                 try:
                     yield rs.type, self.row_id(rs, row)
@@ -1734,6 +1893,13 @@ class Mapper:
                 index.setdefault(key, set()).add(rid or f"\x00{len(index)}:{sum(map(len, index.values()))}")
         return rid
 
+    def _number_made(self, rs: ResourceSpec, row: Row) -> None:
+        """D-1253: the record of this number is this patient's tonight (what a link by number may name)."""
+        col = rs.id.get("hid") or ""
+        number = f"{row.get(col)}{rs.id.get('suffix', '')}"
+        key = (rs.type, resource_id(self.key, rs.type, number))  # the number's hash: no source value is kept
+        self._numbers.setdefault(key, set()).add(self.patient_of(rs, row))
+
     def map_table(self, table: str, rows: Iterator[Row]) -> Iterator[Resource]:
         specs = [r for r in self.m.resources if r.table == table]
         try:
@@ -1745,6 +1911,8 @@ class Mapper:
                     if res is not None:
                         if rid:
                             self._made.add((rs.type, rid))
+                        if rs.type in self._targets and rs.patient is not None and "hid" in rs.id:
+                            self._number_made(rs, row)
                         yield res
         finally:
             self._row_seen = None

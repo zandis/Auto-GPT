@@ -259,8 +259,9 @@ def test_two_patients_sharing_every_number_keep_two_records_each_their_own(tmp_p
     assert not rep.errors, rep.errors
     records = lake(tmp_path, "2026-10-01")
     _check_each_patient_keeps_its_own(records, door)
-    # the visit of a diagnosis, an order, a note; the claim of a response; the coverage of a claim
-    assert _check_references_stay_with_their_patient(records, door) >= 2 * 5
+    # the visit of a diagnosis, an order, a note; the claim of a response; the coverage of a claim (an SS-MIX2 order
+    # message names no visit: four there)
+    assert _check_references_stay_with_their_patient(records, door) == 2 * (4 if door == "ssmix2" else 5)
 
 
 @pytest.mark.parametrize("door", DOORS)

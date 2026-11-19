@@ -136,7 +136,8 @@ def export(src: Path, out: Path) -> dict[str, int]:
     yj = _rev(JP_CORE / "yj_to_atc.csv", "yj_code", "atc")
     counts = dict.fromkeys(["patient", "encounter", "diagnosis", "medication", "lab"], 0)
     counts |= dict.fromkeys(["ADT-52", "OMP-02", "OMP-11", "OMP-12", "document"], 0)
-    enc_by_no = {r["enc_no"]: r for r in _read(src / "encounter.csv")}
+    # one visit per patient and number (D-1253: a number of one patient may be another's too)
+    enc_by_no = {(r["mrn"], r["enc_no"]): r for r in _read(src / "encounter.csv")}
     patients = _read(src / "patient.csv")
     for p in patients:
         family, _, given = (p.get("name") or "").partition("　")
