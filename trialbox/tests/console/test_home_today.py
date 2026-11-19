@@ -680,10 +680,16 @@ def test_an_aggregate_account_s_home_reads_only_what_its_reports_page_reads(lb: 
     for who, pw in (("viewer", VIEWER_PW), ("mon2", PW)):
         c, _ = login(lb["app"], who, pw)
         made: list[str] = []
+
+        def spy(name: str, real: Any, made: list[str] = made) -> Any:
+            def call(*a: Any, **kw: Any) -> Any:
+                made.append(name)
+                return real(*a, **kw)
+
+            return call
+
         for name in ("models", "list_jobs", "registry_rows", "study_api"):
-            real = getattr(lb["backend"], name)
-            monkeypatch.setattr(lb["backend"], name,
-                                lambda *a, _n=name, _r=real, **kw: made.append(_n) or _r(*a, **kw))  # fmt: skip
+            monkeypatch.setattr(lb["backend"], name, spy(name, getattr(lb["backend"], name)))
         assert c.get("/home").status_code == 200
         home = list(made)
         made.clear()
