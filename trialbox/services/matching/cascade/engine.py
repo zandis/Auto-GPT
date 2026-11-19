@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from criteria_compiler.compile_sql.overlay import safe_sql
+from criteria_compiler.semantics import codes_settle
 from tb_common import lakeprobe
 from tb_common.labunit import reason_of as derived_reason
 from tb_common.llm import CALL_CONTEXT
@@ -585,8 +586,9 @@ class _Run:
                         continue
                     t.outcomes[c.id] = Outcome(c.id, "unknown", "S1", unknown_kind="data_gap", reason="not compiled")
                     continue
-                if c.class_ == "mixed" and best.get(f"C_{c.id}") is not True:
-                    continue  # D-98: codes silent (false or null) → the notes decide at S2/S3
+                if c.class_ == "mixed" and (best.get(f"C_{c.id}") is not True or not codes_settle(c)):
+                    continue  # D-98: codes silent (false or null) → the notes decide at S2/S3; 10A-2: an age or sex
+                    # part alone never meets a mixed inclusion
                 t.outcomes[c.id] = self._s1_outcome(c, best)
             first_fail = next((c.id for c in applied if c.id in t.outcomes and t.outcomes[c.id].hard), None)
             if first_fail:

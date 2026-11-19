@@ -67,7 +67,8 @@ instruction: `tools/apply_update.sh <bundle> --allow-downgrade "<ticket and reas
 by a trusted key, applied like any update and accepted once; a retired key is never trusted again.
 
 Every step is in `deploy/updates/history.jsonl`; `deploy/updates/installed.json` records what is installed.
-`--no-backup` is for a test box only and is audited. If the rollback itself fails, the marker stays: restore from the
+`--no-backup` is for a test box only and is audited; a PRODUCTION box refuses it without `--no-backup-reason REASON`
+(D-1321). If the rollback itself fails, the marker stays: restore from the
 backup. Driver updates are outside the bundle and need a change request. Held by `tests/unit/test_update_path.py`,
 `tests/unit/test_update_safety.py` and `tools/update_drill.py`.
 

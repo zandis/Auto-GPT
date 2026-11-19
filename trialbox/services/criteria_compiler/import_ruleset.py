@@ -13,12 +13,14 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import sys
 import zipfile
 from pathlib import PurePosixPath
 from typing import Any
 
 import yaml
 from tb_common.ruleset import SEEDED_TAG
+from tb_common.zipcap import ZipRefused, check_ruleset_zip
 
 from criteria_compiler.repo import RulesetRepo
 
@@ -29,11 +31,10 @@ class ImportRefused(ValueError):
 
 def read_zip(data: bytes) -> tuple[str, dict[str, bytes], dict[str, Any]]:
     with zipfile.ZipFile(io.BytesIO(data)) as z:
-        names = [n for n in z.namelist() if not n.endswith("/")]
-        for n in names:
-            p = PurePosixPath(n)
-            if p.is_absolute() or ".." in p.parts:
-                raise ImportRefused(f"unsafe path {n!r}")
+        try:  # 10G-6, D-1102: members, sizes, ratio and names from the central directory, before any read
+            names = [n for n in check_ruleset_zip(z) if not n.endswith("/")]
+        except ZipRefused as exc:
+            raise ImportRefused(str(exc)) from exc
         manifests = [n for n in names if PurePosixPath(n).name == "manifest.yaml" and len(PurePosixPath(n).parts) <= 2]
         if len(manifests) != 1:
             raise ImportRefused("the zip must hold exactly one ruleset manifest.yaml")
@@ -82,9 +83,25 @@ def main(argv: list[str] | None = None) -> int:
     repo = RulesetRepo(cfg.env.rulesets_path)
     gate = float(cfg.settings.thresholds.equivalence_min_pct or 98.0) if cfg.settings.thresholds else 98.0
     with open(args.zip, "rb") as fh:
-        tag = install(repo, fh.read(), args.by, gate)
-    print(json.dumps({"installed": tag}))
+        data = fh.read()
+    tag = install(repo, data, args.by, gate)
+    hits = negated_hits(data)
+    for h in hits:  # card 10A-1: installed as approved; a person recompiles these lines (the scan lists them again)
+        print(f"WARNING {h}: its line may negate what its logic asks the presence of; recompile and approve",
+              file=sys.stderr)  # fmt: skip
+    print(json.dumps({"installed": tag, **({"negated_inclusions": hits} if hits else {})}))
     return 0
+
+
+def negated_hits(data: bytes) -> list[str]:
+    """Card 10A-1: the ids of the zip's inclusions whose line may negate what their logic asks the presence of. The
+    install is not refused (the ruleset is the vendor's approved one); the ids are reported for a person to act on."""
+    from tb_common.ruleset import Ruleset
+
+    from criteria_compiler.negated_inclusions import ruleset_hits
+
+    _, files, _ = read_zip(data)
+    return [h.criterion for h in ruleset_hits(Ruleset.from_files(files))]
 
 
 if __name__ == "__main__":
