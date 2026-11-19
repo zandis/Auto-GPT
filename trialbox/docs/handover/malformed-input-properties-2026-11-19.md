@@ -54,7 +54,7 @@ fails three tests: both HL7 parse properties and the walker's.
 | HL7 decode and parse | 3 properties x 60, plus 12 explicit | holds |
 | SS-MIX2 walker | 200, plus 4 explicit (about 190 messages read into rows, about 30 quarantined over a run) | holds |
 | CSV source | 60, plus 6 explicit (a 131,073-character cell, NUL, a bare CR, an open quote) | holds |
-| Bundle verifier | 2 properties x 60, plus 3 explicit; the good bundle itself verifies | holds, except H10G43-04 (a cut bundle) |
+| Bundle verifier | 2 properties x 60, plus 3 explicit; the good bundle itself verifies | holds; H10G43-04 (a cut bundle) is fixed (58e7cf2, card H-44) |
 | Rule-set zip | 2 properties x 60, plus 3 explicit | the caps check holds; `read_zip` holds on intact zips with a mapping manifest, except H10G43-01 and -02 |
 | REDCap dictionary | 60, plus 5 explicit | holds, except H10G43-03 |
 | Site intake | 60, plus 3 explicit (CSV and XLSX, damaged files, merged cells) | holds, except H10G43-05 |
@@ -72,7 +72,7 @@ is set apart in its own test, named in the docstring of the property it is set a
 | H10G43-01 | Low | B2 | rule-set zip | `read_zip` lets `zipfile.BadZipFile` out (`import_ruleset.py:33`: the zip is opened outside the try) | `b""` |
 | H10G43-02 | Low | B2 | rule-set zip | `read_zip` lets `AttributeError`, `UnicodeDecodeError` or a yaml error out when `manifest.yaml` is no UTF-8 YAML mapping (`import_ruleset.py:44-45`) | a zip holding `manifest.yaml` = `- a` |
 | H10G43-03 | Low | A2 (a guess) | REDCap dictionary | `read_dictionary` lets `csv.Error` out (`forms.py:172`); the route catches `FormError` only (`datacore_api.py:239`): a 500, nothing stored | `field_name,form_name\na\rb,f\n` |
-| H10G43-04 | Low | D | bundle verifier | `verify` lets `tarfile.ReadError` out for a bundle cut inside a member: `tf.getmembers()` (`verify_update.py:215`) is outside the try that makes a `TarError` a `Rejected`; nothing staged, but a traceback, not the exit-1 refusal | the first 512 bytes of a tar of one 1-byte file |
+| H10G43-04 | Low | D | bundle verifier | `verify` lets `tarfile.ReadError` out for a bundle cut inside a member: `tf.getmembers()` (`verify_update.py:215`) is outside the try that makes a `TarError` a `Rejected`; nothing staged, but a traceback, not the exit-1 refusal. Fixed 58e7cf2 (card H-44): refused as "a damaged or cut-short tar bundle", the xfail removed | the first 512 bytes of a tar of one 1-byte file |
 | H10G43-05 | Low | A2 (a guess) | site intake | `read_grid` lets `csv.Error` out (`intake.py:61`); the setup route catches `IntakeError` and `SetupError` only (`setup_api.py:328`): a 500, nothing stored | `a\rb\r\n` as a CSV sheet |
 
 H10G43-03 and -05 also come from a cell over 131,072 characters (the `csv` module's field limit); the CSV source
@@ -80,7 +80,8 @@ does not have the defect, because it catches `csv.Error` and quarantines.
 
 ## Not done or not verified
 
-* No reader was changed (they belong to other lanes); the five findings wait for their lanes.
+* No reader was changed by this card (they belong to other lanes); H10G43-04 was fixed after it (58e7cf2, card H-44),
+  the other four wait for their lanes.
 * The memory bound counts Python's own allocations only (`tracemalloc`), not the process's resident size.
 * The XLSX inputs are files openpyxl writes; a hand-made XLSX (an XML bomb, a sheet with no rows element) was not
   generated beyond one byte changed.

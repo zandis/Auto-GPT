@@ -35,7 +35,7 @@
    "claim": "tools.verify_update.verify lets tarfile.ReadError ('unexpected end of data') out, not Rejected, for a bundle cut inside a member: tf.getmembers() runs outside the try that turns TarError into Rejected (tools/verify_update.py:215); nothing is staged, but the update stops with a traceback instead of the exit-1 refusal; minimal input: the first 512 bytes of a tar holding one 1-byte file",
    "lane": "D",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed 58e7cf2"
   },
   {
    "id": "H10G43-05",
