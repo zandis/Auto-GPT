@@ -185,3 +185,44 @@ def test_the_disease_table_alone_never_turns_a_locally_coded_diagnosis_unknown(t
 def test_with_the_master_an_mdcdx2_exchange_code_in_prb3_is_recognised(tmp_path: Path) -> None:
     """S 3.7.4 names MDCDX2 for the 病名管理番号 and the 病名交換用コード alike."""
     assert _row(tmp_path, "肺炎", [], master=True, code="ZA01")["suspected"] == ""
+
+
+# ------------------------------------------------------------------------------------------------ 変更区分 (lane J)
+@pytest.mark.parametrize("kind", ["medis", "medis_modifier"])
+def test_the_loader_refuses_a_master_table_without_its_change_column(kind: str) -> None:
+    """A table without 変更区分 is a site-level fact: refused at load with the column named, never read as every row
+    retired one by one in silence."""
+    cols = DISEASE_COLUMNS if kind == "medis" else MODIFIER_COLUMNS
+    header = cols.replace("変更区分,", "").split(",")
+    row = (
+        '"99990001","肺炎","ｶﾅ","1","ZA01","J189"'
+        if kind == "medis"
+        else '"99980002","左","ｶﾅ","ZM02","60","22000000","","",""'
+    )
+    with pytest.raises(lic.LicensedError, match="変更区分"):
+        lic.parse(kind, row.encode("cp932"), header)
+    empty = '"",' + row
+    with pytest.raises(lic.LicensedError, match="変更区分"):
+        lic.parse(kind, empty.encode("cp932"), cols.split(","))
+
+
+def test_tables_without_change_values_are_read_as_not_loaded_and_counted(tmp_path: Path) -> None:
+    """A store loaded before D-1252 may hold tables without 変更区分: the reader runs as without the master."""
+    rel = _synthetic_release()
+    for kind in ("medis", "medis_modifier"):
+        for row in rel[kind].values():
+            row["extra"] = row["extra"].replace('"change": "0"', '"change": ""').replace('"change": "', '"change": "')
+    for row in rel["medis_modifier"].values():
+        row["extra"] = '{"exchange_code": "ZM02"}'
+    for row in rel["medis"].values():
+        row["extra"] = row["extra"].replace(', "change": ""', "")
+    F(P1, "-", "PPR-01", "ALL9", stamp(DAY_A, 0), "1", ppr(P1, [prb("99990001", "肺炎", "DX001")])).write(tmp_path)
+    src = Ssmix2Source(tmp_path, licensed=rel)
+    (row,) = list(src.rows("diagnosis", "diagnosis", None, None))
+    assert row["suspected"] == ""
+    assert src.stats["PPR-01:master tables without 変更区分 (read as not loaded)"] == 1
+    assert src.stats["PPR-01:diagnosis read without the master (the tables are not loaded)"] == 1
+
+
+def test_one_row_without_a_change_value_in_a_filled_column_stays_unknown(tmp_path: Path) -> None:
+    assert _row(tmp_path, "外肺炎", [zpr(pre=["99980020"], dis="99990001")], master=True)["suspected"] == "U"

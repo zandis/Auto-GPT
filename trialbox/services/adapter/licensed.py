@@ -156,6 +156,16 @@ KINDS: dict[str, Kind] = {
 }
 
 
+#: the lists whose rows the SS-MIX2 reader reads only when current (D-1252): a release without the 変更区分 column, or
+#: with it empty in every row, is refused at load, never read as every row retired one by one
+CHANGE_REQUIRED = ("medis", "medis_modifier")
+
+
+def extra_i_change(k: Kind, index: dict[str, int]) -> int | None:
+    """The column of 変更区分 in a release's header, or None."""
+    return _col(index, k.extra.get("change", ()))
+
+
 class LicensedError(ValueError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(f"{code}: {message}")
@@ -222,6 +232,12 @@ def parse(kind: str, data: bytes, columns: Sequence[str] | None = None) -> Parse
         raise LicensedError(
             "LIC-COLUMNS", f"no code column ({want}) in the header; give the columns in file order with --columns"
         )
+    if kind in CHANGE_REQUIRED and extra_i_change(k, index) is None:
+        raise LicensedError(
+            "LIC-COLUMNS",
+            "no 変更区分 column: the SS-MIX2 reader reads only a current row (変更区分 0, 3 or 5) of the MEDIS master "
+            "(D-1252); give the release's columns in file order with --columns",
+        )
     disp_i = _col(index, k.display)
     targ_i = _col(index, k.target) if k.target else None
     extra_i = {name: _col(index, names) for name, names in k.extra.items()}
@@ -260,6 +276,8 @@ def parse(kind: str, data: bytes, columns: Sequence[str] | None = None) -> Parse
         )
     if not out:
         raise LicensedError("LIC-EMPTY", "no row with a code was found")
+    if kind in CHANGE_REQUIRED and not any(json.loads(c["extra"]).get("change") for c in out):
+        raise LicensedError("LIC-COLUMNS", "the 変更区分 column is empty in every row (D-1252): check the release")
     return Parsed(kind, enc, "tab" if delim == "\t" else "comma", out, skipped)
 
 

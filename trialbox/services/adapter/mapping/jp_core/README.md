@@ -41,7 +41,8 @@ name is exactly the coded name and its coded modifiers (修飾語) of a recognis
 3 病因 when the name has no code of its own); a diagnosis coded only locally, or any diagnosis without both tables,
 is read as before: a modifier makes the certainty unknown and doubt written only in the display text is not read.
 The disease table needs its own `--columns` when it has no header row (変更区分,病名管理番号,病名表記,病名表記カナ,
-採択区分,病名交換用コード,ICD10-2013,...: ICD10対応標準病名マスター 仕様書 (1)).
+採択区分,病名交換用コード,ICD10-2013,...: ICD10対応標準病名マスター 仕様書 (1)). Both tables must carry their
+変更区分 column: a table without it, or with it empty in every row, is refused at load (D-1252).
 
 Files are CSV or tab-separated, Shift_JIS or UTF-8 (detected); columns are found by the vendors' header names, and a
 release without a header row takes `--columns` in file order. Until a list is loaded its codes stay unknown (D-130);

@@ -105,7 +105,8 @@ Count: of the 26 types, **0 read in full**, **10 partly** (ADT-00, 12, 22, 52, P
 **Code lists.** ICD-10-CM 2026 in full (98,186 codes, public domain) for lookups and family groupers. The licensed
 Japanese lists (MEDIS 標準病名, JLAC10, YJ) are loaded by the site from its own licensed files
 (`python -m adapter.licensed load --kind medis|medis_modifier|jlac10|yj --file … --version …`, D-137, D-1252); each release is kept with its
-version, sha256 and who loaded it, and every load is audited. The demo rows are synthetic and marked `verify`.
+version, sha256 and who loaded it, and every load is audited. A MEDIS disease or modifier table without its
+変更区分 column, or with it empty in every row, is refused at load (D-1252). The demo rows are synthetic and marked `verify`.
 The clinical item catalogue (scores, labs, findings and phenotypes mapped to LOINC, OMOP, OHDSI phenotypes and
 CDISC QRS) is in `catalogue/`; its design is `docs/reviews/2026-11-09-clinical-item-catalogue.md`. Code reads its
 score definitions through a generated file (§8) and its items through `tb_common.catalogue` (D-353):

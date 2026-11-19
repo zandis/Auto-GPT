@@ -118,7 +118,9 @@ the supersession core held, and 75 runs were dangerous in these classes, each no
    by exchange code; ZPR-2 / 5 the disease), else unknown; without it, ZPR-2 / 5 texts must be PRB-3's name.
 3. PRB-3's names (its triples other than ICD-10) must agree, else unknown.
 4. 変更区分 (M (1)① and (2)①): 0 unchanged, 3 added and 5 changed are current rows; 1 is deleted; any other value, or
-   none, is not read as current: unknown. Checked for the modifier and the disease.
+   none, is not read as current: unknown. Checked for the modifier and the disease. A table without the 変更区分
+   column, or with it empty in every row, is a site-level fact: `adapter.licensed` refuses it at load with the column
+   named, and a store that holds one (loaded before this decision) is read as "tables not loaded", counted.
 5. "ALL9" is the guideline's "all nines": 表3.1-3 No.4 says ALL9, and the guideline's own example (図3.1-1, p.16) names
    the ADT-00 file `…_ADT-00_9999999999999999999999_…` with the note 「-」「All9」などで埋める. `no_order` reads "-",
    "ALL9" (any width or case, blanks removed) and a run of four or more nines as data no order manages; a run of

@@ -480,6 +480,10 @@ def medis_master(licensed: dict[str, dict[str, dict[str, str]]]) -> Master | Non
             diseases[number] = (str(row.get("display") or ""), key_part(exchange), extra.get("change", "").strip())
     if not diseases or not licensed.get("medis_modifier"):
         return None
+    if not any(c for _n, _x, c in diseases.values()) or not any(
+        _extra(row).get("change", "").strip() for row in (licensed.get("medis_modifier") or {}).values()
+    ):
+        return None  # a table without 変更区分 (loaded before D-1252): read as not loaded, counted by the reader
     names = {key_part(name): number for number, (name, _x, _c) in diseases.items()}
     modifiers: dict[str, dict[str, str]] = {}
     for number, row in (licensed.get("medis_modifier") or {}).items():
@@ -859,6 +863,8 @@ class Ssmix2Source:
         self._cm: set[str] | None = None
         self.missed: Counter[str] = Counter()  # "diagnosis:<標準病名 code>", "medication:<YJ code>"
         self.stats: Counter[str] = Counter()  # messages and documents read, by type and outcome
+        if self.master is None and licensed.get("medis") and licensed.get("medis_modifier"):
+            self.stats["PPR-01:master tables without 変更区分 (read as not loaded)"] += 1
         # NEW-DIN-4 (D-594): whether the day folder is part of an order's key: the site's declaration
         self.order_key = order_key or os.environ.get(ORDER_KEY_ENV) or DEFAULT_ORDER_KEY
         # D-1252: a 発生日時 after this day is not a version in force (the latest time zone, UTC+14, so a file of
