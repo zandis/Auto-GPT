@@ -51,7 +51,16 @@ def register(app: FastAPI, h: Helpers) -> None:
         canary = (models or {}).get("canary") if isinstance(models, dict) else None
         worker = (models or {}).get("optout_worker") if isinstance(models, dict) else None  # D-441
         derive = (models or {}).get("derive_batch") if isinstance(models, dict) else None  # D-442
-        return metrics.evaluate((st or {}).get("health"), canary, now, optout=worker, derive=derive)
+        out = metrics.evaluate((st or {}).get("health"), canary, now, optout=worker, derive=derive)
+        # 10C-14: a site with a holiday list says when it runs out or a working-day setting is not used
+        from tb_common import workdays
+
+        from console.notify import site_calendar
+
+        line = workdays.health(site_calendar(h), h.today())
+        if line is None:
+            return out
+        return metrics.Health(out.at, (*out.checks, metrics.Check("calendar", line[0], line[1])))
 
     h.health = health
 

@@ -58,6 +58,7 @@ for _p in (ROOT, ROOT / "libs", ROOT / "services"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
+from tools import gold_kind  # noqa: E402 - after the path above
 from tools.public_accuracy import ladder as _ladder  # noqa: E402 - after the path above
 
 #: the report's layout: 2 adds ``within_target`` and ``met_only_by`` (D-1064 item 4: ``met`` is never true for a
@@ -365,10 +366,12 @@ def eligible_figure(name: str, sc: dict[str, Any], refused: str | None = None) -
     """Target 1 for one set: pair level where the set has eligibility labels (gold-eligible pairs the box excluded,
     of those it answered), else criterion level (gold met or not applicable rows the box blocked, of those answered:
     JMED's "not excluded"). ``refused``: the key could not be applied to the set (not scored, with the reason)."""
+    kind = None if gold_kind.read(sc) == gold_kind.NOT_STATED else gold_kind.read(sc)  # 10G-38: old score: None
     if refused:
-        return {"set": name, "scored": False, "why": refused, "numerator": 0, "denominator": 0}
+        return {"set": name, "gold_kind": kind, "scored": False, "why": refused, "numerator": 0, "denominator": 0}
     if sc.get("not_scored_because"):
-        return {"set": name, "scored": False, "why": sc["not_scored_because"], "numerator": 0, "denominator": 0}
+        return {"set": name, "gold_kind": kind, "scored": False, "why": sc["not_scored_because"], "numerator": 0,
+                "denominator": 0}  # fmt: skip
     summ = (sc.get("pairs") or {}).get("summary") or {}
     if summ:
         k = sum(int(s["eligible_lost"]["k"]) for s in summ.values())
@@ -376,7 +379,7 @@ def eligible_figure(name: str, sc: dict[str, Any], refused: str | None = None) -
         extra = {lang: {kk: s.get(kk) for kk in ("eligible_lost_where_the_criterion_labels_exclude",
                                                  "eligible_lost_on_the_line_the_criterion_labels_exclude")}
                  for lang, s in summ.items()}  # fmt: skip
-        out: dict[str, Any] = {"set": name, "scored": True, "s1_label_conflicts": extra,
+        out: dict[str, Any] = {"set": name, "gold_kind": kind, "scored": True, "s1_label_conflicts": extra,
                                "what": "gold-eligible pairs the box excluded, of those it answered",
                                "numerator": k, "denominator": n, "with_conflicted": {"numerator": k, "denominator": n},
                                "conflicted": None, "conflicted_excluded_on_another_line": []}  # fmt: skip
@@ -392,22 +395,38 @@ def eligible_figure(name: str, sc: dict[str, Any], refused: str | None = None) -
     cr = sc.get("criteria") or {}
     w = cr.get("wrong_exclusion") or {}
     k, n = int(w.get("k") or 0), int(w.get("n") or 0)
-    return {"set": name, "scored": True, "numerator": k, "denominator": n,
+    return {"set": name, "gold_kind": kind, "scored": True, "numerator": k, "denominator": n,
             "what": "gold rows met or not applicable (JMED: not excluded) the box blocked, of those it answered",
             "with_conflicted": {"numerator": k, "denominator": n}, "conflicted": None,
             "conflicted_excluded_on_another_line": [], "rows_with_no_verdict": cr.get("no_verdict")}  # fmt: skip
 
 
 def figure(level: str, key: str, per_set: list[dict[str, Any]]) -> dict[str, Any]:
+    """Target 1 at one level and key over the sets. The pooled numbers only when every set is of one stated gold kind
+    (10G-38, D-1326); otherwise they are None and ``pooled_refused`` says why: the per-set figures and the sums per
+    stated kind (``by_gold_kind``) stand alone. ``within_target`` reads each set (none excluded an eligible patient)."""
     k = sum(int(x.get("numerator") or 0) for x in per_set)
     n = sum(int(x.get("denominator") or 0) for x in per_set)
     scored = all(x.get("scored", True) for x in per_set)
     wk = sum(int((x.get("with_conflicted") or {}).get("numerator") or 0) for x in per_set)
     wn = sum(int((x.get("with_conflicted") or {}).get("denominator") or 0) for x in per_set)
     marks = [x for x in per_set if x.get("conflicted") is not None]
-    return {"level": level, "key": key, "numerator": k, "denominator": n, "met": False, "met_only_by": MET_ONLY_BY,
+    refused: str | None = None
+    try:
+        gold_kind.pooled((str(x.get("set")), x.get("gold_kind")) for x in per_set)
+    except gold_kind.PoolingRefused as e:
+        refused = str(e)
+    by_kind: dict[str, dict[str, Any]] = {}
+    for x in per_set:
+        if x.get("gold_kind") in gold_kind.KINDS:
+            t = by_kind.setdefault(x["gold_kind"], {"numerator": 0, "denominator": 0, "sets": []})
+            t["numerator"] += int(x.get("numerator") or 0)
+            t["denominator"] += int(x.get("denominator") or 0)
+            t["sets"].append(x["set"])
+    return {"level": level, "key": key, "numerator": None if refused else k, "denominator": None if refused else n,
+            "pooled_refused": refused, "by_gold_kind": by_kind, "met": False, "met_only_by": MET_ONLY_BY,
             "within_target": scored and n > 0 and k == 0, "all_sets_scored": scored,
-            "with_conflicted": {"numerator": wk, "denominator": wn},
+            "with_conflicted": {"numerator": None if refused else wk, "denominator": None if refused else wn},
             "conflicted": None if not marks else [{"set": x["set"], **r} for x in marks for r in x["conflicted"]],
             "conflicted_excluded_on_another_line": [{"set": x["set"], **r} for x in per_set
                                                     for r in x.get("conflicted_excluded_on_another_line") or []],
@@ -844,7 +863,11 @@ def render(r: dict[str, Any]) -> str:
             per += f"; decided: {beside}" if beside else ""
             wc = f.get("with_conflicted") or {}
             withc = f"{wc.get('numerator')}/{wc.get('denominator')}" if f.get("conflicted") is not None else "-"
-            w(f"   ({lvl})   {key:<5}{f['numerator']:>10}{f['denominator']:>6}  {withc:<16}"
+            if f.get("pooled_refused"):  # 10G-38 (D-1326): the sets' gold kinds differ: no pooled figure
+                withc = "-"
+                per += f"; {f['pooled_refused']}"
+            num, den = ("refused", "-") if f.get("pooled_refused") else (f["numerator"], f["denominator"])
+            w(f"   ({lvl})   {key:<5}{num:>10}{den:>6}  {withc:<16}"
               f"{_yes(f['within_target']):<13}  {per}")  # fmt: skip
     levels = [lv for lv in ("a", "b") if (t["eligible_wrongly_excluded"].get(lv) or {}).get("v2", {}).get("conflicted")
               is not None]  # fmt: skip

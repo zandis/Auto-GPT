@@ -649,3 +649,11 @@ form.entry .restored { outline: 2px solid var(--warn); outline-offset: 1px; back
 .today-lines li a { overflow-wrap: anywhere; }
 .today-next { margin: 8px 0; }
 .today-next span { overflow-wrap: anywhere; }
+/* J-5 (D-1223, flag layout.people_lists): the strip above each view of Candidates and Participants. It wraps on a
+   phone: no sideways scroll, every target at least 44 px. */
+nav.ptabs { display: grid; gap: 6px; margin: 4px 0 12px; }
+nav.ptabs .ptabs-lists, nav.ptabs .ptabs-views { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+nav.ptabs a { min-height: 44px; display: inline-flex; align-items: center; padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); text-decoration: none; }
+nav.ptabs .ptabs-lists a { font-weight: 600; font-size: 17px; }
+nav.ptabs a.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+nav.ptabs .ptabs-rs { color: var(--muted); }

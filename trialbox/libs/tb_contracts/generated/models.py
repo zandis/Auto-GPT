@@ -574,6 +574,10 @@ class JobMetrics(BaseModel):
     tokens_in: int = 0
     tokens_out: int = 0
     wall_seconds: float = 0
+    step_seconds: dict[str, float] | None = None
+    """
+    H-45: an APPROVE job's seconds by fixed step name (tb_common.steptime.APPROVE_STEPS), numbers only; on a done job they add up to wall_seconds with orch.unaccounted (a failed job writes no wall_seconds: its steps add up to that run's time). Optional: absent on other jobs.
+    """
 
 
 class JobOutput(BaseModel):
@@ -1566,6 +1570,14 @@ class SiteInfo(BaseModel):
     D-983: the language the site's notes are written in, for every language-dependent choice of the screening cascade; auto reads it from each patient's notes, falling back to locale (the report language). The name and default await the owner.
     """
     contact: str | None = None
+    printed_dates: Literal["western", "era", "both"] | None = None
+    """
+    10C-13: how printed letters, forms and reports write a date: western (ISO, as before), era (令和8年11月18日) or both (2026年（令和8年）11月18日). Unset: western, as before (D-1229); the set-up wizards write the country's default for a new site (Japan both). Stored values, machine exports, audit records and screens stay ISO.
+    """
+    year_basis: Literal["calendar", "fiscal"] | None = None
+    """
+    10C-15: what a year is in yearly reports: the calendar year, or the fiscal year 年度 (1 April to 31 March, named by its first year) with the boundary day in site.tz. Unset: calendar, as before (D-1229); the set-up wizards write the country's default for a new site (Japan fiscal).
+    """
 
 
 class Allowlist(BaseModel):
@@ -2090,6 +2102,21 @@ class SiteSchema(BaseModel):
     """
 
 
+class TableReadTimes(BaseModel):
+    """
+    10E-9: one table's (or the whole source's) read: messages, the connector's own seconds, the 95th percentile per message read from the histogram as its bucket's upper bound (null with no message, or when it falls above the last bound, which the histogram then shows), and the histogram by upper bound in milliseconds
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    messages: int = Field(..., ge=0)
+    seconds: float = Field(..., ge=0.0)
+    p95_ms: float | None
+    histogram: dict[str, int]
+
+
 class TerminologyTable(BaseModel):
     """
     One table loaded at install that a compile read (TERM-2 follow-up): its name, the URI of the code system it serves (site for a site list, as lane E's terminology_refused entries name it), its version and the sha256 of its manifest line. Codes and names only, never a patient value.
@@ -2401,6 +2428,23 @@ class CohortTable(BaseModel):
     rows: list[CohortRow]
 
 
+class ConnectorReport(BaseModel):
+    """
+    10E-9: the night's connector (the source kind), its whole read and each table's
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    kind: str
+    messages: int = Field(..., ge=0)
+    seconds: float = Field(..., ge=0.0)
+    p95_ms: float | None
+    histogram: dict[str, int]
+    tables: dict[str, TableReadTimes]
+
+
 class CriterionVerdict(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2554,7 +2598,7 @@ class IEBlock(BaseModel):
 
 class IngestReport(BaseModel):
     """
-    adapter ingest_report.json (SPEC 4.6). Schema version 1.5.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop; 1.5.0: fhir_unread).
+    adapter ingest_report.json (SPEC 4.6). Schema version 1.6.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop; 1.5.0: fhir_unread; 1.6.0: connector).
     """
 
     model_config = ConfigDict(
@@ -2592,6 +2636,10 @@ class IngestReport(BaseModel):
     fhir_unread: dict[str, dict[str, int]] | None = None
     """
     per resource type, how many resources carry each top-level element the box does not read (the inbound FHIR contract, docs/data/01, T-616); '*' counts a resource type not read at all. Element names only, never values
+    """
+    connector: ConnectorReport | None = None
+    """
+    10E-9 (review 13-10): how long the connector took per message (a CSV or SQL row, an SS-MIX2 message, a FHIR resource), per table and for the whole source: counts and times only, never a value of a row. Absent in a report written before 1.6.0
     """
     omop: OmopLoadSummary | None = None
     """
@@ -3244,6 +3292,10 @@ class ApproveResult(BaseModel):
     review_html_key: str | None = None
     review_xlsx_key: str | None = None
     draft_zip_key: str | None = None
+    step_seconds: dict[str, float] | None = None
+    """
+    H-45: seconds of each step of Compiler.approve on the monotonic clock, by fixed step name (tb_common.steptime.COMPILER_STEPS); numbers only. Optional: absent from an older compiler.
+    """
     blocking: list[str] | None = None
 
 

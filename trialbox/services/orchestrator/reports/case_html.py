@@ -10,6 +10,7 @@ from __future__ import annotations
 from html import escape
 from typing import Any
 
+from tb_common.dates import printed
 from tb_common.reasons import label as reason_label
 from tb_common.wording import statement
 
@@ -23,7 +24,7 @@ NOTICE = {
     "was uploaded and from the hospital data the box holds. “Unknown” means the chart did not say, not that the "
     "patient is ineligible. The investigator decides eligibility.",
     "ja": "このシートは治験チームの確認を助ける資料です。アップロードされたカルテの文章と、"
-    "この装置が保有する院内データからのみ各基準に回答しています。「不明」はカルテに記載がなかったことを意味し、"
+    "このボックスが保有する院内データからのみ各基準に回答しています。「不明」はカルテに記載がなかったことを意味し、"
     "不適格を意味しません。適格性の判断は治験責任医師が行います。",
     "zh-TW": "本表是協助研究團隊閱讀的資料。每項條件只依據上傳的病歷文字與本機保有的院內資料回答。"
     "「不明」表示病歷未提及，不代表不符合條件。是否適格由試驗主持人判斷。",
@@ -105,7 +106,8 @@ META = {
         "nojudge": "言語モデルが設定されていないため、記述基準は読み取れませんでした。",
         "chart_only": "カルテ番号が未指定または未登録のため、構造化基準もカルテの文章から読み取りました。"
         "原本との照合が必要です。",
-        "footer": "TrialBox · ジョブ {job_id} · カルテと本シートは装置内に保管され、保持規則の対象です · 宛先: {to}",
+        "footer": "TrialBox · ジョブ {job_id} · カルテと本シートはボックス内に保管され、保持規則の対象です · "
+        "宛先: {to}",
     },
     "zh-TW": {
         "date": "檢核日期",
@@ -143,13 +145,37 @@ footer{margin-top:18px;color:#4a545e;font-size:12px;border-top:1px solid #d6dadf
 """
 
 
-def _row(r: dict[str, Any], lang: str) -> str:
+def _day(value: object, dates: str) -> str:
+    """A date of the sheet, escaped, in the site's printed style (10C-13). An era form is kept on one line (at 390 px
+    the English sheet broke ``2026年（令和8年）9月1`` / ``日``); western is the escaped value exactly as before."""
+    text = escape(printed(value, dates))
+    return f'<span class="dt">{text}</span>' if dates in ("era", "both") else text
+
+
+#: D-1360 (card 10A-4): the answer the last screening stored, under the sheet's own
+LAST = {
+    "en": "Last screening, {date}: {verdict}",
+    "ja": "前回スクリーニング（{date}）：{verdict}",
+    "zh-TW": "上次篩選（{date}）：{verdict}",
+}
+
+
+def _last(r: dict[str, Any], lang: str, dates: str = "western") -> str:
+    a = r.get("last_screening")
+    if not a:
+        return ""
+    v = str(a.get("shown") or a["status"])  # the word a page shows (a held-back "not met" is an open point, D-478)
+    before, after = LAST[lang].format(date="\x00", verdict=VERDICT[lang].get(v, v)).split("\x00")
+    return f'<div class="d">{escape(before)}{_day(a["index_date"], dates)}{escape(after)}</div>'
+
+
+def _row(r: dict[str, Any], lang: str, dates: str = "western") -> str:
     verdict = str(r["verdict"])
     ev = ""
     if r.get("quote"):
         ev = f"<blockquote>{escape(str(r['quote']))}</blockquote>"
         if r.get("quote_date"):
-            ev += f'<div class="d">{escape(str(r["quote_date"]))}</div>'
+            ev += f'<div class="d">{_day(r["quote_date"], dates)}</div>'
     elif r.get("refs"):
         ev = f'<div class="d">{escape(", ".join(str(x) for x in r["refs"]))}</div>'
     if r.get("reason") and verdict in ("unknown",) and reason_label(str(r["reason"]), lang):
@@ -158,21 +184,22 @@ def _row(r: dict[str, Any], lang: str) -> str:
         f'<tr data-id="{escape(str(r["id"]))}" data-verdict="{escape(verdict)}">'
         f"<td><strong>{escape(str(r['id']))}</strong><br>{escape(str(r['text']))}</td>"
         f"<td>{escape(KIND[lang].get(str(r['kind']), str(r['kind'])))}</td>"
-        f'<td class="v-{escape(verdict)}">{escape(VERDICT[lang].get(verdict, verdict))}</td>'
+        f'<td class="v-{escape(verdict)}">{escape(VERDICT[lang].get(verdict, verdict))}{_last(r, lang, dates)}</td>'
         f"<td>{ev or '–'}</td>"
         f"<td>{escape(SOURCE[lang].get(str(r['source']), str(r['source'])))}</td>"
         f"<td>{escape(str(r.get('resolve') or ''))}</td></tr>"
     )
 
 
-def sheet(rec: dict[str, Any]) -> bytes:
+def sheet(rec: dict[str, Any], dates: str = "western") -> bytes:
+    """The printable CASE sheet; ``dates``: how it writes a date (10C-13, ``tb_common.dates.printed``)."""
     lang = str(rec.get("lang") or "en")
     m = META[lang]
     subj = rec["subject"]
     if subj.get("in_lake"):
-        subject_line = m["in_lake"].format(snapshot=subj.get("snapshot"))
+        subject_html = escape(m["in_lake"]).format(snapshot=_day(subj.get("snapshot"), dates))
     else:
-        subject_line = m["not_in_lake"].format(note=subj.get("note") or "")
+        subject_html = escape(m["not_in_lake"].format(note=subj.get("note") or ""))
     pid_part = m["pid"].format(pid=subj["pid"]) + " · " if subj.get("pid") else ""
     j = rec["judge"]
     if j.get("model"):
@@ -183,22 +210,24 @@ def sheet(rec: dict[str, Any]) -> bytes:
     else:
         judge_line = m["nojudge"]
     charts = "; ".join(
-        f"{escape(str(c['filename']))} ({c['excerpts']} excerpts, {c['earliest']} – {c['latest']}, sha256 "
+        f"{escape(str(c['filename']))} ({c['excerpts']} excerpts, "
+        f"{_day(c['earliest'], dates)} – {_day(c['latest'], dates)}, sha256 "
         f"{str(c['sha256'])[:12]}…)"
         for c in rec["charts"]
     )
-    rows = "".join(_row(r, lang) for r in rec["criteria"])
+    rows = "".join(_row(r, lang, dates) for r in rec["criteria"])
     head = HEADLINE[lang].format(**rec["counts"])
     parts = [
         f'<!doctype html><html lang="{escape(lang)}"><head><meta charset="utf-8">'
         f"<title>{escape(TITLE[lang].format(ruleset=rec['ruleset'], version=rec['version']))}</title>"
-        f"<style>{_CSS}</style></head><body>",
+        f"<style>{_CSS}</style>{'<style>.dt{white-space:nowrap}</style>' if dates in ('era', 'both') else ''}"
+        "</head><body>",
         f"<h1>{escape(TITLE[lang].format(ruleset=rec['ruleset'], version=rec['version']))}</h1>",
-        f'<p class="meta">{escape(m["date"])}: {escape(str(rec["index_date"]))} · {escape(m["by"])}: '
+        f'<p class="meta">{escape(m["date"])}: {_day(rec["index_date"], dates)} · {escape(m["by"])}: '
         f"{escape(str(rec['requested_by']))}</p>",
         f'<p class="notice" role="note" data-testid="notice"><strong>{escape(NOTICE[lang])}</strong></p>',
         f'<p class="head" data-testid="headline">{escape(head)}</p>',
-        f'<p class="meta">{escape(m["subject"])}: {escape(pid_part)}{escape(subject_line)}</p>',
+        f'<p class="meta">{escape(m["subject"])}: {escape(pid_part)}{subject_html}</p>',
         f'<p class="meta">{escape(m["charts"])}: {charts}</p>',
     ]
     if rec.get("undated_excerpts"):

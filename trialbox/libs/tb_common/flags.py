@@ -130,6 +130,15 @@ DECLARED: dict[str, Declared] = {
         "as before. A page uses the value last read: the console reads the layout flags at its start and then in "
         "the background at most every 5 seconds, so a change shows within about 5 seconds; no restart.",
     ),
+    "layout.people_lists": Declared(
+        values=("off", "on"),
+        default="off",
+        seed_env=None,  # what the lists of people show first changes only by a person's ruling, with a reason (D-1223)
+        help="The console's two lists of people (J-5, D-1223): on, Candidates (before consent) and Participants (who "
+        "have consented) in the menu, each old list a view of one of them under one strip, and every old address "
+        "sent to its view with its query kept; each view is the old page with its own guard, reads and actions. Off: "
+        "the pages and the menu as before. Read once per request; no restart.",
+    ),
     "lake.source": Declared(
         values=("legacy", "omop"),
         default="legacy",

@@ -19,7 +19,7 @@ CA_SECRET := $(if $(TB_EXTRA_CA),--secret id=extra_ca$(comma)src=$(TB_EXTRA_CA),
 
 
 .PHONY: differential cross-card objects-dir embed-start public-data security-scan goldens goldens-check rehearse fonts jvm-deps venv venv-check clean-tmp check-disk data-scan ci test-locked property test-random test-random-locked test-pure guard test-compose walk bench-gate bench-baseline e2e-simple backup-drill demo demo-bundle contracts contracts-check lint test test-integration test-e2e test-egress images images-multiarch two-device-check up up-test ingest-test down logs fixtures audit-verify bench open-data-e2e testbench testbench-test eval-public e2e-cascade spark-e2e verify-models fetch-weights selftest canary poc poc-down poc-status rehearse-box runbook-install test-console test-console-e2e site site-preview clean \
-	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle supply-chain release-version release-tag media-linux
+	lock lock-check allowlist-check scanners lock-env pip-audit lock-sbom licences trivy-db sc-images release-gates release-bundle security-contact-check supply-chain release-version release-tag media-linux
 
 # ------------------------------------------------------------------ parallel work on one machine (D-201, RUNBOOK §13)
 # Every temporary root of a run derives from TB_TEST_ROOT: one per branch, under TB_SCRATCH (an agent's scratchpad;
@@ -200,6 +200,12 @@ test-pure: venv-check
 guard: venv-check
 	env -u TB_TEST_DB_URL TB_PG_BIN=/nonexistent TB_ENV=TEST PYTHONPATH=libs:services:. $(PY) -m pytest -q -n 2 \
 		-m guard tests/unit
+
+# card 10G-22 (D-1325): the MedTxt ja pair gate on the recorded answers (eval/medtxt/gate.json names the candidate);
+# no model, no network. CI runs it as the guard test tests/unit/test_medtxt_pair_gate.py (the `checks` job, every tier)
+.PHONY: medtxt-gate
+medtxt-gate: venv-check
+	$(PY) -m tools.medtxt_gate check
 
 # the data-handling scan (D-203, WS-13.10, TB-SITE-03): every tracked file, or SCAN="paths", or SCAN="--log f.log";
 # exit 2 on a hit (place and pattern only, never the value). The same scan is the pre-commit hook and a CI job.
@@ -400,8 +406,7 @@ images: jvm-deps $(FONTS)
 	docker build $(PLATFORM_ARG) $(OCI_LABELS) -f deploy/docker/jvm.Dockerfile -t trialbox-jvm:1.0.0 .
 	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/embed.Dockerfile \
 		-t trialbox-embed:1.0.0 .
-	docker build $(PLATFORM_ARG) $(BUILD_ARGS) $(CA_SECRET) $(OCI_LABELS) -f deploy/docker/db.Dockerfile \
-		-t trialbox-postgres:16-1 deploy/docker
+	deploy/build_db_image.sh $(PLATFORM_ARG) $(OCI_LABELS)  # the db build of deploy/poc.sh too (card 24-2)
 
 # ENG-003 (D-563): a PRODUCTION box starts its embed service. The box's compose file, the trialbox-embed image,
 # TB_ENV=PRODUCTION, a tiny model made on the spot (no download), pinned by the installer's own call; one
@@ -691,7 +696,9 @@ sc-images: deploy/.env
 
 # a bundle only from images that passed the gates (make_bundle.sh needs --gates, T-110b); the SBOMs of dist/sbom ride
 # inside it with release.json. BUNDLE_ARGS="--key ... --id ... --release-seq N --out ..."
-release-bundle: release-gates
+# 10G-9 (D-1239): no release bundle while the public security contact (deploy/security/contact.json) is not set; a
+# --rehearsal or --allow-dirty bundle, which is no release, passes with a warning
+release-bundle: security-contact-check release-gates
 	tools/make_bundle.sh --gates $(SC_DIR)/gates.json --sbom-dir dist/sbom $(BUNDLE_ARGS)
 
 # OPS-006 (D-966): the offline media of a bare Ubuntu box from a signed bundle and the packages of
@@ -699,6 +706,9 @@ release-bundle: release-gates
 #   make media-linux MEDIA_ARGS="--version 1.0.0 --bundle dist/trialbox-1.0.0.tar --debs debs/ --vendor-pub keys/vendor_ed25519.pub"
 media-linux:
 	PYTHONPATH=libs:. $(PY) -m tools.linux_media build --out dist/media --measured deploy/measured $(MEDIA_ARGS)
+
+security-contact-check:
+	PYTHONPATH=libs:. $(PY) -m tools.security_contact release-check $(BUNDLE_ARGS)
 
 # the release version (pyproject.toml, the one place) and its tag (T-110b)
 release-version:

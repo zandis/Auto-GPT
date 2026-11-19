@@ -68,8 +68,9 @@ def test_nothing_from_medis_jlac_or_jcog_is_committed_as_data() -> None:
     """The repository holds no MEDIS 病名, JLAC10 or JCOG translation file: only the loaders and synthetic tests."""
     src = ROOT / "libs" / "tb_common" / "refdata_src"
     assert sorted(p.name for p in src.iterdir()) == sorted(
-        ["zh_tw_clinical_synonyms.csv", "jp_yj_atc.csv", "icd10_who_cm_checked.csv", "ja_clinical_synonyms.csv"]
-    )
+        ["zh_tw_clinical_synonyms.csv", "jp_yj_atc.csv", "icd10_who_cm_checked.csv", "ja_clinical_synonyms.csv",
+         "holidays_jp.csv"]  # 10C-14: the Cabinet Office's public holiday list (PDL 1.0, register row jp-holidays)
+    )  # fmt: skip
 
 
 def test_a_vendor_build_never_packs_the_hospitals_own_download(tmp_path: Path) -> None:

@@ -19,6 +19,9 @@ new card: a trial boot on a rehearsal box (D-726; an unmeasured card is accepted
 override keeps the real model servers, not the stand-ins), then on the box
 `python3 tools/serving_config.py capture --container judge=trialbox-llm-service-1 --container
 verifier=trialbox-llm-verifier-1 --models-dir deploy/models --out deploy/site/serving_config.<profile>.json`.
+`capture` needs Docker: it reads each server's settings from Docker's inspect output (`tools/serving_config.py:36-38`), so
+a rented GPU without Docker (a pod) cannot make the record; use a VM with Docker and Compose (review 19 §4.2).
+The `rtx5090` record may come from an RTX 5090 or from the RTX PRO 4500, its fallback card (plan 10 decision 106).
 The trial box stays a rehearsal box (TB_ENV VALIDATION with its mark, doctor says "REHEARSAL BOX"): empty it before
 the site's install (RUNBOOK §16, "A rehearsal box"), keeping the record.
 `python -m tools.gpu_sizing` prints the hardware estimate. Feasibility needs no GPU; notes need one. The tier
@@ -61,6 +64,10 @@ which the site puts in `deploy/.env` before the first install) and the measured 
 `deploy/measured/ingest_memory.json` (`python -m tools.trialbox.memcaps --measure` re-measures it). The compose
 defaults are the floor; a cap set by hand is kept. `trialbox doctor` (`memory_caps`) fails when a cap is below what
 the patient count needs; `python -m tools.trialbox.memcaps --env-file deploy/.env --write` sizes them again.
+SCREEN and FEAS of the whole hospital hold its rows in the orchestrator, so `TB_MEM_ORCH` grows with the hospital: the
+installer writes it from `deploy/measured/orchestrator_memory.json` (the size ladder's peaks, H23b-01, D-1005) once the
+need passes the compose default of 4 GiB, from about 45,000 patients (about 8.3 GiB at 100,000). Below that the box
+keeps the shipped cap. The machine needs that memory beside the other services'.
 
 **The chart-number format** (D-579). The answers file says how the hospital writes a chart number, in
 `chartno_rule`: `digits:8` for eight digits with leading zeros, `hex:8` for a hexadecimal key, `asis` when the number
@@ -85,10 +92,27 @@ name, or without the trial office's mailbox (`sae_office_mailbox` in the answers
 asked with the TLS name: told at once when a serious adverse event is entered, without the AE term; D-736). A re-run
 on a site that has its settings and a box install only warn, and `doctor` WARNs (`sae_mailbox`) until it is set. The vendor builds the bundle with
 `tools/make_bundle.sh` (`make release-bundle`: `--gates` is required, so only images that passed the release gates;
-the bundle carries `release.json`, the SBOMs, `NOTICE` and `CHANGELOG.md`, T-110b). The image vulnerability gate blocks
+the bundle carries `release.json`, the SBOMs, `NOTICE` and `CHANGELOG.md`, T-110b). A site bundle carries its weights:
+the option `--models` names a folder laid out as the profile's compose file reads it (the judge's and the
+verifier's folders, the judge's chat template and `embedder/`), read through its links (H-43). `release check` refuses
+a site bundle without `embedder/`. The vendor's `tools.fetch_weights` with `--embedder` fills such a folder once the
+embedder's file record is committed (H43-01); until then the cloud build places it (`box_vm.py models-place`,
+runbook §11). The image vulnerability gate blocks
 for every image a bundle carries; the dated exceptions and open findings are in `deploy/security/known-image-findings.md`
 (SECURITY.md §8). On Windows the box runs in WSL2: `docs/handover/OFFLINE-MEDIA.md`,
 `docs/handover/WINDOWS-INSTALL-CHECKLIST.md` and `deploy/windows/preflight.ps1`.
+
+**Working days** (10C-14, D-1230). A site in Japan counts working days without its national holidays and its New
+Year break: no coordinator digest on those days (the overdue SAE reports still go), and a visit window the protocol
+counts in working days skips them. The break is 12-29 to 01-03 unless the answers say otherwise (`new_year_break`,
+written as `TB_NEW_YEAR_BREAK`: `MM-DD/MM-DD` from December to January, at most 14 days, or `none`); the hospital's
+own days off and the holidays it works go in the answers' `env_extra` as `TB_DAYS_OFF` and `TB_DAYS_OPEN`
+(`YYYY-MM-DD`, comma separated, at most 30 days a year). The wizard refuses a value it cannot read; a running box never
+stops on one: it leaves the value out and the health line is red until it is put right. The schedule page lists the
+coming days off. The holiday list ships in the update bundle; each year, when the Cabinet Office publishes
+the next year (February), the vendor downloads `syukujitsu.csv`, records its sha256 in the licence register row
+`jp-holidays` and runs `python3 -m tools.holidays_import syukujitsu.csv --sha256 <hex> --years <first>-<last>`; the
+health line warns 90 days before the list runs out and is red after it.
 
 **The same, step by step.**
 

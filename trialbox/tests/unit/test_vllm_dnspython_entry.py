@@ -31,8 +31,8 @@ def test_there_is_one_dated_entry_for_the_vllm_image_and_its_package() -> None:
     assert len(got) == 1
     e = got[0]
     assert (e["package"], e["image"]) == ("dnspython", "vllm/vllm-openai")
-    assert e["review_by"] == dt.date(2026, 12, 10)  # with the other vLLM entries
-    assert e["owner"] == "security owner (to assign)"
+    assert e["review_by"] == dt.date(2027, 1, 10)  # with the other vLLM entries
+    assert e["owner"] == "Chang-Fu Kuo (the owner, D-1067)"
 
 
 def test_the_reason_says_where_the_flaw_is_and_what_removes_the_entry() -> None:
@@ -57,4 +57,4 @@ def test_no_entry_covers_every_finding_of_the_model_server() -> None:
 def test_the_known_findings_page_names_the_entry_in_the_vllm_row() -> None:
     page = (ROOT / "deploy" / "security" / "known-image-findings.md").read_text(encoding="utf-8")
     row = next(ln for ln in page.splitlines() if ln.startswith("| vllm/vllm-openai |"))
-    assert "CVE-2026-128089" in row and "dnspython" in row and "2026-12-10" in row
+    assert "CVE-2026-128089" in row and "dnspython" in row and "2027-01-10" in row

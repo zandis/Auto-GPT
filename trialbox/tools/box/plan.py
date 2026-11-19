@@ -343,7 +343,8 @@ def memory_caps(ram_gib: float, profile: str, deploy: Path = DEPLOY) -> tuple[di
     if profile == "gb10":
         return {}, []
     files = [deploy / "docker-compose.yml", deploy / "docker-compose.identity.yml"]
-    overlay = {"rtxpro6000": "rtxpro6000", "rtx5090": "rtx5090", "rtx4090": "rtx5090"}.get(profile)
+    # dgpu48: the UNMEASURED 48 GB draft (card 24-5): arithmetic only, never detected, refused by install.sh
+    overlay = {"rtxpro6000": "rtxpro6000", "rtx5090": "rtx5090", "rtx4090": "rtx5090", "dgpu48": "dgpu48"}.get(profile)
     if overlay:
         files.append(deploy / f"docker-compose.{overlay}.yml")
     var, fixed = compose_caps(files)
@@ -526,12 +527,15 @@ def plan(a: OwnerAnswers, hw: Hardware, deploy: Path = DEPLOY) -> BoxPlan:
     env["TB_BACKUP_MAILTO"] = email  # OD-16: the owner is told (the message path itself is T-730's)
     env["TB_BACKUP_ALERT_ROUTE"] = "health-page"  # D-735: without a mail agent the health tab carries the alert
     env["TB_ENV"] = a.environment  # D-822: the owner's answer, PRODUCTION unless VALIDATION
+    if a.country and site_country.defaults(a.country).consent_proxy:
+        env["TB_CONSENT_PROXY"] = "on"  # 10C-19 (D-1232): the Japan profile: the representative and the assent
     wizard: dict[str, Any] = {
         "site_id": site_id(a.site_name),
         "site_name": a.site_name,
         **({"country": a.country} if a.country else {}),
         "tz": a.tz,
         "locale": a.language,
+        **{k: v for k, v in (("printed_dates", a.printed_dates), ("year_basis", a.year_basis)) if v},  # 10C-13/15
         "contact": email,
         "internal_domains": [domain],
         "intake_address": f"trialbox@{domain}",
