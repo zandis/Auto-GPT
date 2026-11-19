@@ -23,7 +23,7 @@ import yaml
 
 from tools import licence_register as lr
 
-pytestmark = pytest.mark.guard
+pytestmark = [pytest.mark.guard, pytest.mark.nodb]
 
 ROOT = lr.ROOT
 SIGIR_SOURCE = "https://researchdata.edu.au/a-test-collection-clinical-trials/664508"
