@@ -17,7 +17,7 @@
 {% if rd %}{% set qn = {'trial': 'trial', 'charts': 'patients', 'bulk': 'patients', 'check': 'patients', 'records': 'records'}[key] %}
 <p>{{ t('site.wiz.now') }} {{ state_pill(rd.questions[qn].state) }}</p>{% endif %}
 {% if key == 'trial' %}
-<p><a class="button" href="/pilot/protocol" data-testid="wiz-protocol">{{ t('site.link.protocol') }}</a></p>
+<p><a class="button" href="/pilot/protocol" data-testid="wiz-protocol">{{ tp('site.link.protocol') }}</a></p>
 {% elif key == 'charts' %}
 {% if editable %}<form method="post" action="/site/charts" class="formstack" data-testid="wiz-chart-form">
 <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="ws" value="{{ ws }}"><input type="hidden" name="study" value="{{ rs }}">

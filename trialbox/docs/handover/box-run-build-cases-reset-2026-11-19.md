@@ -1,4 +1,4 @@
-# H-56: the box-run rehearsal's build cases on train 99's CI run (2026-11-19)
+# H-56: the box-run rehearsal's build cases on trains 99 and 100, and a torn host tree (2026-11-19)
 
 **Reader:** the people who build TrialBox: lane H, the integrator, and whoever reads the next red of the box-run
 rehearsal's build cases. Findings for builders, so in one language.
@@ -20,7 +20,16 @@ test's in-process `http.server` printed to stderr from `socketserver.process_req
 shard. The build cases start no server and connect to nothing. `box_vm.py models-place` fetches nothing here,
 because `tb-model-template` is empty and there is no `tb-embed-list`.
 
-## Cause
+## What caused the CI failures
+
+Not the torn host tree below. The integrator established at 18:37 UTC on 2026-11-19 that the three build cases
+failed on trains 99 and 100 only on runs that carried lane K's update-from-a-stick card (#1177, #1202). Runs without
+that card did not fail them. The cause in CI belongs to that card, not to `pack()`.
+
+An earlier version of this page named the torn host tree as the cause of train 99's failure. That was wrong. It was
+inferred from a local reproduction that gives the same stop at b06; the CI run's own refusal text was never read.
+
+## A real weakness found on the way: a torn host tree
 
 `tools/host_tree.py` `pack()` read every file twice: once to hash it into `HOST-SHA256SUMS`, then again for the tar,
 with the size taken at that second moment. The rehearsal's `vendor()` packs the live checkout (`tools.host_tree pack
@@ -29,9 +38,9 @@ with the size taken at that second moment. The rehearsal's `vendor()` packs the 
 it, the tar no longer matches its own sums. make_bundle signs it anyway, because the manifest hashes the tar as it is.
 At b06, verify_update.py checks the host tree against its sums and refuses it.
 
-The run shows only `exit 1`. The refusal text is in the run's `logs/b06-verify.log`, inside a temp folder on the
-runner, and the shard's artifact needs a login to download. So the CI run's own text was not read. The local
-reproduction below gives the same stop at b06, and the same `KeyError` path for build-refused.
+This was reproduced locally (below). It gives the same stop at b06, and the same `KeyError` path for build-refused,
+as the CI runs. But the CI runs show only `exit 1`: their refusal text is in the run's `logs/b06-verify.log`, inside a
+temp folder on the runner, and was not read. A matching stop is not a matching cause.
 
 ## How it was reproduced
 
@@ -50,6 +59,8 @@ reproduction below gives the same stop at b06, and the same `KeyError` path for 
 (`<out>.snap`, mode 0700), then writes the tar from the snapshot and removes the snapshot. The tar now always matches
 its own `HOST-SHA256SUMS`, whatever happens to the source tree while it is packed. A file that vanishes during the
 pack still stops the pack with an error. Nothing is skipped silently.
+
+#1209 carries this fix. It fixes a real weakness; it did not fix the train failures.
 
 The same weakness was in the product's packer. `tools/make_bundle.sh` packs the release checkout with the same
 `pack()`. On the build VM nothing else writes to that clone, so the risk there was low. On a vendor's workstation, an

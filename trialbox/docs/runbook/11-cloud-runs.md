@@ -576,6 +576,14 @@ estimate, the stop-line gate, the ladder, the disk guard, the upload allow-list,
     deploy/gcp/measure48-run.sh --commit <sha>                   # the launch; returns at once
     deploy/gcp/measure48-run.sh --collect <run id>               # as often as wanted; the one that finds it ended deletes the VM
 
+- **The disk quota (H-59).** `regions describe` may not list `HDB_TOTAL_GB` at all (asia-east1, 2026-11-19: 113
+  rows, none of it). Then `--preflight` says so in one line (`quota: asia-east1: HDB_TOTAL_GB is not in the region's
+  quota list (113 rows), so the 100 GB disk quota cannot be checked beforehand; ...`) and goes on; the create call
+  itself refuses if the disk quota is short, and the launch then ends with gcloud's reason, exit 5, and no VM or
+  disk. A row that is listed and short is refused (exit 4). `--hdb-free-gb N` gives the free figure by hand (from a
+  refused create's message, say); it is checked like a listed row, and a non-number is refused. A gcloud call that
+  fails, or output that is not a quota list, is refused (exit 4).
+
 - **Unattended.** The VM does H-47's steps 2 to 10 by itself: the driver with one reboot, Docker and the toolkit
   (gpu-sim-startup.sh's lines), the commit's archive from the bucket (sha256 and HEAD checked), the weights from the
   public hub with no token (a gated file fails the step, nothing waits), the stub started once for `deploy/.env` and
