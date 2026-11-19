@@ -46,20 +46,44 @@ def build(key: Path, bundle_id: str, parts: list[Path], out: Path, *, release_se
             f"ruleset_bundle: --valid-days {valid_days}: a dry-run bundle is valid 1 to {MAX_VALID_DAYS} days"
         )
     names: list[str] = []
+    origins: list[dict[str, Any]] = []
     for p in parts:
         try:
             rid, _files, manifest, origin = open_part(p.read_bytes())
         except PartRefused as exc:
             raise SystemExit(f"ruleset_bundle: {p}: {exc}") from exc
         names.append(f"{rid} v{manifest.get('version')} (part sha256 {str(origin['part_sha256'])[:12]})")
+        origins.append(origin)
     if len({p.name for p in parts}) != len(parts):
         raise SystemExit("ruleset_bundle: two parts have the same file name")
+    compat, floor = pinned_compat(bundle_id, origins)
     return sign_bundle.build(
         key, bundle_id, [("ruleset", p, p.name) for p in parts], out,
         description="Rule set(s) compiled and approved on another box, interim for the dry run (D-1369): "
         + "; ".join(names),
-        release_seq=release_seq, min_installed_version=min_installed, valid_days=valid_days,
+        release_seq=release_seq, min_installed_version=max(min_installed, floor), valid_days=valid_days,
+        compat=compat,
     )  # fmt: skip
+
+
+def pinned_compat(bundle_id: str, origins: list[dict[str, Any]]) -> tuple[dict[str, Any], int]:
+    """D-1369 (the second review): the compatibility table and the lowest installed release the parts were compiled
+    for, so the verifier refuses a box that does not match before anything changes. ``vocabulary_release``: the
+    parts' terminology release (one, when any part pins one); the floor: the highest ``release_seq`` that compiled a
+    part (a box on an older release runs an older engine). The serving model is the site's (D-1366) and the prompt pin
+    is checked by the import against the box's registry, so those columns stay ``*``."""
+    from tools import sign_bundle
+
+    terms = {o["pins"].get("terminology_release") for o in origins} - {None}
+    if len(terms) > 1:
+        raise SystemExit(
+            f"ruleset_bundle: the parts pin different terminology releases {sorted(terms)}: one bundle each"
+        )
+    compat = sign_bundle.permissive_compat(bundle_id)
+    if terms:
+        compat["rows"][0]["vocabulary_release"] = sorted(terms)
+    seqs = [o["compiled_on"].get("release_seq") for o in origins]
+    return compat, max([s for s in seqs if isinstance(s, int)], default=0)
 
 
 def main(argv: list[str] | None = None) -> int:

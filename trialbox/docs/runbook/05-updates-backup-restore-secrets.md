@@ -78,7 +78,14 @@ exists, a study compiled and approved on the head box reaches a screen-only site
    status` shows it as `release (code)`); the console lists the study as "arrived in a vendor bundle (interim)".
 
 The id and version must be new on the site box: a version the box already holds with other content (a shipped
-example included) is refused, and so is a version older than the box's newest of that id.
+example included) is refused, and so is a version older than the box's newest of that id. The bundle also refuses a
+box on an older release than the head box's, or on another terminology release; the import refuses prompt pins that
+do not stand on the box.
+
+**What it costs on a PRODUCTION box.** A rule-set-only bundle of a few kilobytes goes through the whole update: it is
+refused while a job runs, every service is stopped, both databases are dumped and backed up, the services restart,
+and on a GPU box `doctor --weights` checks the weights (up to an hour). Plan it as a full quiet-hour downtime, like
+a release; this card does not shorten it. Each such bundle uses one number of the vendor's `release_seq`.
 
 **Vendor keys.** The box trusts at most two keys (`deploy/updates/trust.json`; before the first update,
 `deploy/keys/vendor_ed25519.pub` and `vendor_ed25519.next.pub`). The vendor changes keys with a rotation bundle, signed

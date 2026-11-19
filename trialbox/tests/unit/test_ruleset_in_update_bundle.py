@@ -28,7 +28,7 @@ from typing import Any
 import pytest
 import yaml
 from criteria_compiler.export_part import ExportRefused, compiled_on, export
-from criteria_compiler.import_ruleset import ImportRefused, install, put_site_profile
+from criteria_compiler.import_ruleset import ImportRefused, box_pins_problem, install, put_site_profile
 from criteria_compiler.repo import RulesetRepo
 from tb_common.audit import AuditLog
 from tb_common.ruleset import arrived_in_bundle, load_approved
@@ -81,7 +81,9 @@ class ScreenOnlyBox:
         done = []
         rs = plan.kind("ruleset")
         for z in sorted(rs.rglob("*.zip")) if rs.is_dir() else []:
-            install(RulesetRepo(self.repo_dir), z.read_bytes(), f"update:{plan.bundle_id}")
+            install(
+                RulesetRepo(self.repo_dir), z.read_bytes(), f"update:{plan.bundle_id}", pins_problem=box_pins_problem
+            )
             done.append(z.name)
         return done
 
@@ -355,18 +357,61 @@ def _plain_zip() -> bytes:
     return buf.getvalue()
 
 
-def _versioned(head: RulesetRepo, version: str, out: Path) -> Path:
-    """A part of GZQO as the head box would export version ``version`` (same files, the version moved)."""
+def _versioned(head: RulesetRepo, version: str, out: Path, terminology: str | None = None) -> Path:
+    """A part of GZQO as the head box would export version ``version`` (same files, the version moved; with
+    ``terminology``, compiled against that terminology release)."""
     files = {p[len("GZQO/") :]: b for p, b in head.files("refs/tags/GZQO/v1.0.0", "GZQO/").items()}
     m = yaml.safe_load(files["manifest.yaml"])
     m["version"] = version
+    if terminology:
+        m["terminology_release"] = terminology
     files["manifest.yaml"] = yaml.safe_dump(m, allow_unicode=True, sort_keys=False).encode()
     origin = {"format": "trialbox-ruleset-part/1", "ruleset": "GZQO", "version": version, "left_out": ["tests/"],
               "approval_tag": f"GZQO/v{version}", "compiled_on": {"bundle_id": "2026.11-1", "release_seq": 3},
-              "pins": {"judge_prompt": "judge_v4"}, "exported_at": "2026-11-19T00:00:00+00:00"}  # fmt: skip
+              "pins": {"judge_prompt": "judge_v4", "terminology_release": terminology},
+              "exported_at": "2026-11-19T00:00:00+00:00"}  # fmt: skip
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(build_part("GZQO", files, origin))
     return out
+
+
+def test_the_bundle_carries_the_parts_pins_and_the_verifier_refuses_a_mismatch(
+    head: RulesetRepo, keys: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """Review 2, item 2: compat.json from the part's terminology release, min_installed from the compiling release."""
+    priv, pub = keys
+    part = _versioned(head, "1.0.1", tmp_path / "p" / "GZQO.part.zip", terminology="TR-2026-10")
+    m = ruleset_bundle.build(priv, "rs1", [part], tmp_path / "rs.tar", release_seq=4)
+    assert m["min_installed_version"] == 3
+    for installed, why in (
+        ({"format": "trialbox-installed/1", "release_seq": 3, "state": {"vocabulary_release": "TR-2026-04"}},
+         "vocabulary_release 'TR-2026-04' is not one of"),
+        ({"format": "trialbox-installed/1", "release_seq": 2, "state": {}}, "needs at least 3 installed"),
+    ):  # fmt: skip
+        f = tmp_path / "installed.json"
+        f.write_text(json.dumps(installed))
+        with pytest.raises(Rejected, match=why):
+            verify(tmp_path / "rs.tar", pub, installed_file=f)
+    f.write_text(json.dumps({"format": "trialbox-installed/1", "release_seq": 3,
+                             "state": {"vocabulary_release": "TR-2026-10"}}))  # fmt: skip
+    assert verify(tmp_path / "rs.tar", pub, installed_file=f)["bundle_id"] == "rs1"
+
+
+def test_the_import_refuses_a_part_whose_pins_do_not_stand_on_the_box(
+    head: RulesetRepo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review 2, item 2: a box that records no vocabulary release still refuses at import, before anything is written."""
+    from criteria_compiler.terminology import resolver
+
+    box, _updates = site_box(tmp_path)
+    part = _versioned(head, "1.0.1", tmp_path / "p.zip", terminology="TR-2026-10").read_bytes()
+    monkeypatch.setattr(resolver, "current_release", lambda: "TR-2026-04")
+    with pytest.raises(ImportRefused, match="compiled against terminology release TR-2026-10; this box resolves "
+                                            "through TR-2026-04"):  # fmt: skip
+        install(RulesetRepo(box.repo_dir), part, "update:x", pins_problem=box_pins_problem)
+    assert "GZQO/v1.0.1" not in RulesetRepo(box.repo_dir).tags()
+    monkeypatch.setattr(resolver, "current_release", lambda: "TR-2026-10")
+    assert install(RulesetRepo(box.repo_dir), part, "update:x", pins_problem=box_pins_problem) == "GZQO/v1.0.1"
 
 
 def test_a_part_never_goes_back_or_replaces_other_content(head: RulesetRepo, tmp_path: Path) -> None:

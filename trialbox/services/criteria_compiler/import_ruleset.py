@@ -23,6 +23,7 @@ import io
 import json
 import sys
 import zipfile
+from collections.abc import Callable
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -57,7 +58,9 @@ def read_zip(data: bytes) -> tuple[str, dict[str, bytes], dict[str, Any]]:
     return rid, files, manifest
 
 
-def install(repo: RulesetRepo, data: bytes, by: str, min_equivalence: float = 98.0) -> str:
+def install(
+    repo: RulesetRepo, data: bytes, by: str, min_equivalence: float = 98.0, pins_problem: PinsCheck | None = None
+) -> str:
     try:  # D-1369: a part from another box: every member, its record, its hash, no site field, before anything else
         origin = origin_of(data)
         if origin is not None:
@@ -73,7 +76,7 @@ def install(repo: RulesetRepo, data: bytes, by: str, min_equivalence: float = 98
         raise ImportRefused(f"{rid}: equivalence {eq} below the compile gate {min_equivalence}%")
     tag = f"{rid}/v{m.get('version')}"
     if origin is not None:
-        return _install_part(repo, rid, files, m, origin, by)
+        return _install_part(repo, rid, files, m, origin, by, pins_problem)
     message = f"{tag} (offline update, {by})"
     if f"refs/tags/{tag}".encode() in repo.refs:
         existing = {p[len(rid) + 1 :]: b for p, b in repo.files(f"refs/tags/{tag}", f"{rid}/").items()}
@@ -88,6 +91,32 @@ def install(repo: RulesetRepo, data: bytes, by: str, min_equivalence: float = 98
     repo.tag(tag, "main", message)
     repo.materialize(rid, "main")
     return tag
+
+
+#: D-1369: what a part's pins need of this box; returns the sentence of a mismatch, or None
+PinsCheck = Callable[[dict[str, Any]], str | None]
+
+
+def box_pins_problem(manifest: dict[str, Any]) -> str | None:
+    """D-1369 (the second review): the part's pins against this box, before it is installed. The terminology release
+    it was compiled against must be the one this box resolves through (else the run is refused anyway, and a
+    screen-only box cannot recompile, D-301); every prompt it pins must stand in this box's registry unchanged
+    (``tb_llm.prompt_registry.pin_drift``, D-318)."""
+    from tb_contracts import RulesetManifest
+    from tb_llm.prompt_registry import pin_drift
+
+    pinned = manifest.get("terminology_release")
+    if pinned:
+        from criteria_compiler.terminology import resolver
+
+        have = resolver.current_release()
+        if have != pinned:
+            return f"it was compiled against terminology release {pinned}; this box resolves through {have}"
+    drift = pin_drift(RulesetManifest.model_validate(manifest))
+    if drift:
+        named = ", ".join(f"{d.get('pinned')} {d.get('state')}" for d in drift[:3])
+        return f"its prompt pins do not stand on this box ({named})"
+    return None
 
 
 def _semver(v: str) -> tuple[int, ...]:
@@ -114,7 +143,13 @@ def site_profile(repo: RulesetRepo, rid: str) -> dict[str, Any]:
 
 
 def _install_part(
-    repo: RulesetRepo, rid: str, files: dict[str, bytes], m: dict[str, Any], origin: dict[str, Any], by: str
+    repo: RulesetRepo,
+    rid: str,
+    files: dict[str, bytes],
+    m: dict[str, Any],
+    origin: dict[str, Any],
+    by: str,
+    pins_problem: PinsCheck | None = None,
 ) -> str:
     """D-1369: a rule-set part. Never older than the box's newest approved version of the id; the same version again
     is a no-op only when it is the same part (its hash on the tag); the site's own routing and scope go in."""
@@ -131,6 +166,9 @@ def _install_part(
             "local approval or a shipped example): the head box exports a new version or id"
         )
     m = {**m, **site_profile(repo, rid)}
+    why = pins_problem(m) if pins_problem is not None else None
+    if why:
+        raise ImportRefused(f"{tag}: {why}; it would not screen as approved on the head box; nothing was installed")
     files = {**files, "manifest.yaml": yaml.safe_dump(m, allow_unicode=True, sort_keys=False).encode("utf-8")}
     message = f"{tag} (offline update, {by}); {tag_note(origin, by)}"
     repo.write_dir("main", "main", f"{rid}/", files, f"install {tag} ({by})", author=by.replace(" ", "_"))
@@ -196,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
     gate = float(cfg.settings.thresholds.equivalence_min_pct or 98.0) if cfg.settings.thresholds else 98.0
     with open(args.zip, "rb") as fh:
         data = fh.read()
-    tag = install(repo, data, args.by, gate)
+    tag = install(repo, data, args.by, gate, box_pins_problem)
     hits = negated_hits(data)
     for h in hits:  # card 10A-1: installed as approved; a person recompiles these lines (the scan lists them again)
         print(f"WARNING {h}: its line may negate what its logic asks the presence of; recompile and approve",

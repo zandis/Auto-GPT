@@ -111,7 +111,20 @@
    refuses it. The approval mail (`orchestrator/scenarios/approve.py`) is sent only when this box approves a draft it
    compiled; an arrived version has no draft here, and its IRB fields are removed at export, so the mail never prints
    the head box's IRB reference.
-8. **Who may do it.** No new role, route, console action or matrix row: exporting and writing a site profile are
+8. **Pins and release refused on mismatch** (the second review). `tools/ruleset_bundle.py` writes the bundle's
+   `compat.json` from the parts: `vocabulary_release` lists the parts' terminology release when one is pinned (parts
+   of two releases cannot share a bundle), and `min_installed_version` is the highest `release_seq` that compiled a
+   part, so the existing verifier refuses a box on an older release, or one that records another vocabulary release,
+   before anything changes. A box records no vocabulary release today (`compat_check` then only notes it), so the
+   import checks again on the box itself (`import_ruleset.box_pins_problem`): the terminology release the part was
+   compiled against must be the one the box resolves through, and every prompt it pins must stand in the box's
+   registry unchanged (`pin_drift`); otherwise it is refused, with the sentence. The serving model is the site's
+   (D-1366), so `model_pin` stays `*`. The full package pins are card 10D-26's.
+9. **The cost on a PRODUCTION box, said plainly.** A rule-set-only bundle of a few kilobytes goes through the whole
+   update: refused while a job runs, every service stopped, both databases dumped and backed up, the services
+   restarted, `doctor --weights` on a GPU box (up to an hour): a full quiet-hour downtime, and one number of the
+   vendor's `release_seq`. This card does not skip the backup or the restart (runbook §5 says so).
+10. **Who may do it.** No new role, route, console action or matrix row: exporting and writing a site profile are
    commands in the compiler's container (whoever runs host commands there), both audited; signing is the vendor's;
    applying is the existing `apply_update.sh` act of the operator. The part holds criteria and codes only; it reads
    no patient data.
@@ -141,7 +154,15 @@
   another hash, the version of a shipped example, a record of the wrong form (each field), a record changed without
   its hash, a stray member, a site field put back, a changed criterion are refused; a bundle changed after signing is
   rejected; the sponsor pack says it arrived.
-- `tests/integration/test_ruleset_bundle_two_boxes.py`: two in-process boxes on the same synthetic hospital; GZQO
-  approved on the head box, exported, signed alone, applied on a box that never held it, screened there by e-mail
-  with its own routing and scope: every listed patient, tier and criterion answer equal to the head box's.
-- `tests/console/test_ruleset_arrived_in_bundle.py`: the overview marks such a version in en, ja and zh-TW.
+  Also: the bundle's compatibility table carries the part's terminology release and the compiling release as its
+  floor, and the verifier refuses a box on another vocabulary release or an older release; the import refuses a part
+  whose terminology release is not the box's.
+- `tests/integration/test_ruleset_bundle_two_boxes.py`: two in-process boxes on the same synthetic hospital. The head
+  box screens the shipped GZQO v1.0.0, then approves v1.0.1, which is not shipped (GZQO-INC-01 at age 60; the draft
+  is written by the test, the approval is the compiler's own, which rebuilds the SQL), and screens it; it exports
+  v1.0.1, the vendor signs it alone, a box that never held GZQO applies it and screens v1.0.1 by e-mail with its own
+  routing and scope. Every listed patient, tier and criterion answer equals the head box's v1.0.1 answers and differs
+  from the shipped version's. A mutant import that writes the repository's own shipped GZQO files instead of the
+  zip's fails it (run once by hand).
+- `tests/console/test_ruleset_arrived_in_bundle.py`: the overview marks such a version in en, ja and zh-TW; the
+  administrator's page (`admin.html`) and the administrator's home without step 4 (`home_admin.html`) mark it too.
