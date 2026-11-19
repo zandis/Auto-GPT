@@ -480,6 +480,9 @@ CLAIM_DISEASE_ZH: tuple[str, ...] = (
     "骨折",
     "貧血",
     "損傷",
+    "心律不整",
+    "心律不齊",
+    "心房顫動",
 )
 # a noun of the disease class: it ends in one of these (糖尿病, 肺炎, 心衰竭, 肺癌); the words that only look so are
 # excluded by what follows 病 (病人, 病歷, 病程 ...) or precedes 症 (適應症, the indication of a drug); the class is
@@ -531,7 +534,22 @@ CLAIM_PERSONS_ZH: tuple[str, ...] = (
 # does not apply there
 _CLAIM_CONTINUES_ZH: tuple[str, ...] = ("預測", "預估", "推估", "評分", "評估", "分數", "分層", "模型", "預後", "等級")
 
+# The zh-TW names of the published instruments and measured items the catalogue holds (catalogue/items.csv,
+# name_zh_tw) whose name carries a rate word: a record value named by its own name (D-351), as NAMED_SCALES is for a
+# scale named in Latin letters. A test holds that each is in the catalogue and that every catalogue name passes.
+NAMED_INSTRUMENTS_ZH: tuple[str, ...] = (
+    "類風濕性關節炎分類評分",
+    "伯明罕血管炎活動度評分",
+    "腫瘤比例分數",
+    "國際預後指數",
+    "Mayo 評分",
+    "十年主要骨鬆性骨折機率",
+    "冠狀動脈 z 分數",
+    "預估存活期",
+)
+
 CLAIM_ALLOWED_ZH: dict[str, tuple[str, ...]] = {
+    "instrument": tuple(re.escape(n) for n in NAMED_INSTRUMENTS_ZH),
     "分數": (
         r"(?:"
         + "|".join(re.escape(s) for s in sorted(NAMED_SCALES, key=len, reverse=True))
@@ -644,14 +662,14 @@ _SIMPLIFIED_PAIRS = (
     "後后從从復复徵征惡恶憂忧應应損损數数斷断於于時时會会極极標标機机檢检歷历氣气沒没況况測测潛潜為为無无"
     "狀状現现產产畫画當当療疗發发眾众確确節节篩筛納纳級级結结絕绝給给統统經经義义腫肿臨临與与處处號号視视"
     "覺觉計计訊讯訪访診诊評评試试誤误請请識识議议護护變变貧贫軟软輸输進进過过適适選选遺遗醫医錯错間间隨随"
-    "險险隱隐須须預预顯显風风驗验體体鬱郁"
+    "險险隱隐須须預预顯显風风驗验體体鬱郁國国濕湿脈脉關关際际類类鬆松齊齐顫颤"
 )
 _SIMPLIFIED: dict[str, str] = dict(zip(_SIMPLIFIED_PAIRS[::2], _SIMPLIFIED_PAIRS[1::2], strict=True))
 _SAME_ZH = (
-    "上下不中主之也予亡亦人以任估似但何作例供候倚值偏做兆入具再出分切判利到前加助募勿包化危及友受另可台史"
-    "同名向含和品喘在型塞外天失好存定察就尿工差平床建得患您情意感慧成我房所找折招持挖掉掘接推提揪援支收放"
-    "族日早是智更曾有期未本果染查案梗模止死毫民治法活派流涉漏演灶炎然率理生用疑疾病症瘤癌的益直看研示禁程"
-    "究竭等算管糖系罹群者而能自藏血行衰被要警辨送造重限非骨高"
+    "上下不中主之也予亡亦人以任伯估似但何作例供候倚值偏做兆入具再冠出分切判利到前加助募勿包化十危及友受另"
+    "可台史同名向含和品喘在型塞外天失好存定察就尿工差平年床度建律得心性患您情意感慧成我房所找折招持指挖掉"
+    "掘接推提揪援支收放整族日早明是智更曾有期未本果染查案梗模止死比毫民治法活派流涉漏演灶炎然率理生用疑疾"
+    "病症瘤癌的益直看研示禁程究竭等算管糖系罕罹群者而能自藏血行衰被要警辨送造重限非骨高"
 )
 # words that differ in Simplified by more than their characters
 _ZH_LEXICAL: dict[str, str] = {"人工智慧": "人工智能", "演算法": "算法", "軟體": "软件", "醫師": "医生", "篩檢": "筛查"}

@@ -56,7 +56,12 @@ survey's method is not recorded, so the gap is not explained. Its five false ala
      score (ECOG 分數, the `NAMED_SCALES` list shared with Japanese), 分數定義, risk of bias (偏差風險), a study's own
      risks to the participant as a consent form states them (試驗的風險, 風險與好處, 研究為受試者帶來的風險), a study's
      enrolment forecast and a head count (收案預測, 預測隨機分派, 預估人數), a lab's detection limit (偵測極限), and the
-     study's screening visit as a point in time (a protocol's 篩選前 90 日內). An allowed context never swallows a
+     study's screening visit as a point in time (a protocol's 篩選前 90 日內), and the zh-TW names of the published
+     instruments and measured items the catalogue holds whose name carries a rate word (`NAMED_INSTRUMENTS_ZH`:
+     伯明罕血管炎活動度評分, 國際預後指數, FRAX 十年主要骨鬆性骨折機率 ...). Each of those is a record value named
+     by its own name (D-351), the zh-TW counterpart of `NAMED_SCALES`. A test holds that each is in
+     `catalogue/items.csv`, that every zh-TW name in the catalogue passes, and that the closest claims (AI 計算病人的
+     骨折機率) fail. An allowed context never swallows a
      longer claim: it does not apply when a rate or score word follows it (研究風險預測 is refused; 研究的風險 is not).
    - **A disease object is judged by its class, not only from a list.** A noun that ends in 病 / 症 / 炎 / 癌 / 瘤 /
      衰竭 / 梗塞 / 感染 is a disease (糖尿病, 肺炎, 心衰竭, 肺癌). The words that only look so are excluded: 病人, 病患,
@@ -122,7 +127,8 @@ survey's method is not recorded, so the gap is not explained. Its five false ala
 | `FRESH_2` (20 + 20), after the rule was first final | the card worker | first run | 15 / 20 | 16 / 20 |
 | the same | | after its fixes | 20 / 20 | 20 / 20 |
 | the review's set (82 + 89, 31 in Simplified), written before reading the code | an independent tester | cc197e3b | 59 / 82 | not given here; one regression (ja kanji-only lines) |
-| `FRESH_3` (20 + 20), after the review's round | the card worker | __SET3_FIRST__ | __SET3_C__ | __SET3_L__ |
+| `FRESH_3` (20 + 20, three in Simplified), after the review's round | the card worker | first run | 19 / 20 | 20 / 20 |
+| the same | | after its one fix (心律不整, 心律不齊, 心房顫動 added to the disease names) | 20 / 20 | 20 / 20 |
 
 The second set found these faults, all fixed:
 - five claims missed: unlisted verbs 察覺, 分辨, 標示, 推估; 提前 / 更早 as "early"; 症, 結節 and 存活 not disease
@@ -145,7 +151,11 @@ The review found these, all addressed (each with claims and near-misses as tests
 - an allowed context swallowing 研究風險預測;
 - triage (分流) missing from the table.
 
-None of the sets above is unseen by the rule as it now stands, except `FRESH_3` at its first run.
+The page walk then read the zh-TW `/data/instruments` page for the first time. It found two published instruments
+named by their catalogue names (伯明罕血管炎活動度評分, FRAX 十年主要骨鬆性骨折機率), and the allowed instrument
+names below answer it.
+
+None of the sets above is unseen by the rule as it now stands: each was used to fix it.
 
 ## The Taiwan source (verified 2026-11-19)
 

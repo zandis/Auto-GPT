@@ -156,6 +156,54 @@ FRESH_2_LEGITIMATE = [
 ]
 
 
+# Written after the review's round, with the rule final (card 10C-5b): 20 claims (two in Simplified), then 20
+# legitimate lines (one in Simplified). Kept as written; the PR reports the first run before any change.
+FRESH_3_CLAIMS = [
+    "本系統能自動辨識罹患早期乳癌的女性。",
+    "AI 模型會預測住院病人七天內的跌倒風險。",
+    "透過演算法，及早找出可能失智的長者。",
+    "本機可在急診分流時判斷病人的嚴重程度。",
+    "系统能够自动发现隐藏的心脏病患者。",
+    "我們的 AI 提供每位病人的再入院評分。",
+    "本產品可篩檢出尚未確診的 C 型肝炎個案。",
+    "系統會即時警示醫師哪些病人可能發生敗血症。",
+    "AI 根據檢驗結果研判病人是否感染新冠肺炎。",
+    "模型推估每位受試者的疾病進展機率。",
+    "本平台可偵測心律不整並通知醫師。",
+    "本软件可对高危人群进行早期筛查。",
+    "系統會標示影像中可疑的病灶。",
+    "TrialBox 能找出被醫師漏診的病人。",
+    "本系統提供個人化的腎衰竭風險評估。",
+    "AI 自動判別病患的癌症分期。",
+    "本工具可提早發現術後併發症。",
+    "我們用 AI 預測哪些民眾會罹患高血壓。",
+    "系統能從病歷中挖掘潛在的罕見疾病病人。",
+    "本機會針對惡化中的病人發出預警。",
+]
+FRESH_3_LEGITIMATE = [
+    "系統依計畫書條件找出可能符合資格的候選者，交由主持人判斷。",
+    "本機不會判斷病人是否患病，也不提供任何風險分數。",
+    "收案預測顯示本季可納入 12 位受試者。",
+    "篩選結果中有 5 位病人的條件尚待確認。",
+    "系統偵測到網路連線中斷，已自動重試。",
+    "同意書說明參加試驗的風險與可能的好處。",
+    "ECOG 分數與 eGFR 由研究人員輸入。",
+    "本软件不提供诊断，也不预测患者的风险。",
+    "匯入時無法辨識的欄位會列為未知。",
+    "監測報告的發現事項已寄給主持人。",
+    "收案進度落後時，系統會發出提醒。",
+    "名單中的每位病人都附有病歷依據段落。",
+    "試驗主持人判斷是否邀請病人參加。",
+    "系統識別碼與病歷號分開保存。",
+    "每月預估人數依過去門診量計算。",
+    "本工具並非用於篩檢疾病，而是協助收案。",
+    "病名欄位依院內代碼對應。",
+    "篩選前 28 天內的檢驗值會被讀取。",
+    "系統警示：備份未完成。",
+    "這份文獻的偏倚風險已由研究人員評估。",
+]
+
+
 @pytest.mark.parametrize("source", ["console", "orchestrator", "opportunity_hub"])
 def test_no_zh_tw_catalogue_string_makes_a_device_claim(source: str) -> None:
     """Every zh-TW string of the console, orchestrator and opportunity-hub catalogues, read as zh-TW (the catalogue's
@@ -518,3 +566,31 @@ def test_the_known_limits_are_what_d1247_says() -> None:
     assert zh("以疑似亂數決定患者的顯示順序。") != []  # a false alarm (pseudo-random numbers), refused
     assert zh("病人是否罹患肺癌？系統會告訴您。") == []  # a claim split across two sentences, not seen
     assert zh("揪出藏在病歷裡的病人。") == []  # a metaphor with no claim word, not seen
+
+
+def test_a_catalogue_instrument_is_named_by_its_own_name() -> None:
+    """The page walk reads /data/instruments in zh-TW: an instrument's catalogue name (伯明罕血管炎活動度評分, FRAX
+    十年主要骨鬆性骨折機率) is a record value's name, not the product scoring a patient (D-351). Every zh-TW name in the
+    catalogue passes the claim rule, each listed name is in the catalogue, and the closest real claims fail."""
+    import csv
+    from pathlib import Path
+
+    from tb_common.wording import NAMED_INSTRUMENTS_ZH
+
+    rows = list(csv.DictReader((Path(__file__).parents[2] / "catalogue/items.csv").open(encoding="utf-8")))
+    names = [r["name_zh_tw"] for r in rows]
+    assert [n for n in names if zh_claims(n)] == []
+    assert [n for n in NAMED_INSTRUMENTS_ZH if not any(n in name for name in names)] == []
+    for claim in ("AI 計算病人的骨折機率。", "系統預估病人的存活期。", "本機給出病人的預後指數。", "AI 為病人評分。"):
+        assert zh(claim) != [], claim
+
+
+@pytest.mark.parametrize("text", FRESH_3_CLAIMS)
+def test_every_fresh_claim_of_the_third_set_fails(text: str) -> None:
+    assert zh(text) != []
+    assert zh_page(f"<p>{text}</p>") != []
+
+
+@pytest.mark.parametrize("text", FRESH_3_LEGITIMATE)
+def test_every_fresh_legitimate_line_of_the_third_set_passes(text: str) -> None:
+    assert zh(text) == []
