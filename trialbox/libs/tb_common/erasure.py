@@ -219,6 +219,11 @@ TABLES: dict[str, Entry] = {
         "a model's answers (a verdict and a quote; no pseudonym column) kept only while their job is unfinished: "
         "deleted when the job ends in any state, and at the orchestrator's start for jobs finished or gone",
     ),
+    "orch.answers": _erase(
+        "owed_tables",
+        "the answer store (D-1360, card 10A-4): the latest answer of each patient on each criterion, by pseudonym, "
+        "with its quote; deleted at an opt-out and with its snapshot (D-452); class D3, never exported",
+    ),
     "orch.judged_pairs": _erase(
         "owed_tables",
         "the judged-pair store (D-908, D-519): a model's answer to a note question, by pseudonym; deleted at an "
