@@ -163,7 +163,8 @@ def test_site_setup_suggestions_use_the_licensed_lists() -> None:
 
     licensed._CACHE.clear()
     before = mapping.suggest("condition", mapping.local_system("dx-code"), "ZB26")
-    assert before["method"] == "lookup"  # the shipped sample table
+    # the shipped sample table, whose rows say `verify`: never shown as certain (10B-6, D-1233)
+    assert (before["method"], before["confidence"]) == ("lookup_verify", "0.80")
     st = licensed.TermStore()
     try:
         _load_all(st)

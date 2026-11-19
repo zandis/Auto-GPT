@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-235 entries: 89 erase, 29 keep, 117 no patient data. 27 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+238 entries: 89 erase, 29 keep, 120 no patient data. 27 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -197,12 +197,15 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `study.rc_write` | what was written to REDCap, by screening number and record, with the hash of the values: no pseudonym (the screening log keeps the number, D-875; D-878) |
 | `study.screen_scope` | settings and configuration, no patient |
 | `study.study_settings` | settings and configuration, no patient |
+| `team.committee` | settings and configuration, no patient |
+| `team.committee_open` | settings and configuration, no patient |
 | `team.delegation` | staff, accounts or sign-in state, no patient |
 | `team.delegation_checks` | staff, accounts or sign-in state, no patient |
 | `team.delegation_history` | staff, accounts or sign-in state, no patient |
 | `team.dept_contacts` | staff, accounts or sign-in state, no patient |
 | `team.icf_versions` | staff, accounts or sign-in state, no patient |
 | `team.irb` | staff, accounts or sign-in state, no patient |
+| `team.site_permission` | settings and configuration, no patient |
 | `team.staff` | staff, accounts or sign-in state, no patient |
 | `terminology.concept` | public or licensed reference data |
 | `terminology.release` | public or licensed reference data |
