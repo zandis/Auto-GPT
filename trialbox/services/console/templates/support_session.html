@@ -8,19 +8,21 @@
 <p>{{ t('support.help', minutes=minutes) }}</p>
 {% if done %}<p class="notice" role="status" data-testid="support-done">{{ t('support.done.start') if done == 'start' else t('support.done.end') }}</p>{% endif %}
 {% if err %}<p class="error" role="alert" data-testid="support-err">{{ t(err) }}</p>{% endif %}
-{% if live %}
+{% if open_rows %}
+{% for live in open_rows %}
 <section class="card" data-testid="support-live" data-session="{{ live.id }}">
 <h2>{{ t('support.live') }}</h2>
-<p>{{ t('support.live.line', who=live.started_by, at=live.started_at|local(16), until=live.ends_at|local(16)) }}{% if live.ticket %} · {{ t('support.ticket') }} <span class="mono">{{ live.ticket }}</span>{% endif %}</p>
+<p>{% if live.ends_at %}{{ t('support.live.line', who=live.started_by, at=live.started_at|local(16), until=live.ends_at|local(16)) }}{% else %}{{ t('support.live.damaged', who=live.started_by) }}{% endif %}{% if live.ticket %} · {{ t('support.ticket') }} <span class="mono">{{ live.ticket }}</span>{% endif %}</p>
 <form method="post" action="/ops/support-session/end" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="session" value="{{ live.id }}"><button type="submit" data-testid="support-end">{{ t('support.end') }}</button></form>
 </section>
+{% endfor %}
 {% else %}
 <section class="card" aria-labelledby="support-start-h">
 <h2 id="support-start-h">{{ t('support.start.h') }}</h2>
 <form method="post" action="/ops/support-session" class="formstack" data-testid="support-form">
 <input type="hidden" name="csrf" value="{{ csrf }}">
 <label for="support-ticket">{{ t('support.ticket.optional') }}</label>
-<input id="support-ticket" name="ticket" maxlength="40" pattern="[A-Za-z0-9#._\/\-]{0,40}" class="mono">
+<input id="support-ticket" name="ticket" maxlength="40" class="mono" autocomplete="off" inputmode="text">
 <label class="inline"><input type="checkbox" name="confirm" value="yes" required data-testid="support-confirm"> {{ t('support.confirm') }}</label>
 <button type="submit" data-testid="support-start">{{ t('support.start', minutes=minutes) }}</button>
 </form>

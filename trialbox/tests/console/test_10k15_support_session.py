@@ -122,6 +122,7 @@ def test_a_patient_page_is_refused_during_a_session(box: dict[str, Any]) -> None
     page = crc.get(f"/studies/GZQO/patients/{A}").text
     until = re.search(r"at the latest at ([0-9-]+ [0-9:]+)", page)
     assert until, "the page says when the session ends at the latest"
+    assert A not in page and A[:8] not in page  # the refused URL's pseudonym is not repeated (no link, no way back)
     # the job page keeps its counts and shows no patient row; the reveal is refused with a body too
     assert 'data-testid="screen-rows"' not in crc.get(f"/pilot/jobs/{jid}").text
     csrf = _csrf(crc.get("/account").text)
@@ -186,7 +187,102 @@ def test_the_start_and_the_end_are_two_audit_events(box: dict[str, Any]) -> None
     r = admin.post(PAGE, data={"csrf": _csrf(admin.get(PAGE).text), "ticket": "Taro Yamada called", "confirm": "yes"},
                    follow_redirects=False)  # fmt: skip
     assert r.headers["location"] == f"{PAGE}?err=support.err.ticket"
+    for name in ("TaroYamada", "Yamada-Taro", "T.Yamada"):  # the shape of a number: letters alone are refused
+        r = admin.post(PAGE, data={"csrf": _csrf(admin.get(PAGE).text), "ticket": name, "confirm": "yes"},
+                       follow_redirects=False)  # fmt: skip
+        assert r.headers["location"] == f"{PAGE}?err=support.err.ticket", name
     assert len(_events(box, "console.support_session_start")) == 1
+
+
+# ---------------------------------------------------------------------------------------------- the trail (S1)
+def _failing_audit(b: dict[str, Any], monkeypatch: pytest.MonkeyPatch, event: str) -> list[int]:
+    """The audit append refuses ``event`` while the returned list is empty (append 1 to let it through)."""
+    au = b["app"].state.helpers.au
+    real = au.append
+    let_through: list[int] = []
+
+    def append(name: str, *a: Any, **kw: Any) -> Any:
+        if name == event and not let_through:
+            raise OSError("the audit chain refused the write")
+        return real(name, *a, **kw)
+
+    monkeypatch.setattr(au, "append", append)
+    return let_through
+
+
+def test_no_session_is_on_without_its_start_event(box: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    _done_screen(box["backend"], _ulid(985))
+    crc, _ = login_crc(box)
+    admin, _ = login(box["app"])
+    _failing_audit(box, monkeypatch, "console.support_session_start")
+    r = admin.post(PAGE, data={"csrf": _csrf(admin.get(PAGE).text), "ticket": "SUP-1", "confirm": "yes"},
+                   follow_redirects=False)  # fmt: skip
+    assert r.headers["location"] == f"{PAGE}?err=support.err.audit"
+    assert box["app"].state.support_guard.store.recent() == []  # rolled back: no row, so no session
+    assert crc.get(f"/studies/GZQO/patients/{A}").status_code == 200
+
+
+def test_an_end_event_that_fails_is_written_at_a_later_request(
+    box: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _done_screen(box["backend"], _ulid(986))
+    crc, _ = login_crc(box)
+    admin = _start(box)
+    # by hand: the event fails, so the session stays on (closed) and the end can be tried again
+    let = _failing_audit(box, monkeypatch, "console.support_session_end")
+    assert _end(admin).headers["location"] == f"{PAGE}?err=support.err.audit"
+    assert crc.get(f"/studies/GZQO/patients/{A}").status_code == 403
+    # automatically: the row ends at its 2 hours, the event fails, the next request writes it, once
+    _shift(box, 121)
+    assert crc.get(f"/studies/GZQO/patients/{A}").status_code == 200  # ended: the row is the switch
+    row = box["app"].state.support_guard.store.recent()[0]
+    assert row.how == "auto" and not row.end_audited and _events(box, "console.support_session_end") == []
+    let.append(1)
+    crc.get("/home")
+    crc.get("/home")
+    end = _events(box, "console.support_session_end")
+    assert len(end) == 1 and end[0]["detail"]["how"] == "auto" and end[0]["detail"]["ended_at"] == row.ends_at
+    assert box["app"].state.support_guard.store.recent()[0].end_audited
+
+
+def test_a_damaged_or_future_start_can_always_be_ended_and_never_runs_past_two_hours(box: dict[str, Any]) -> None:  # noqa: F811
+    _done_screen(box["backend"], _ulid(987))
+    crc, _ = login_crc(box)
+    admin = _start(box)
+    store = box["app"].state.support_guard.store
+    sid = store.recent()[0].id
+    # a start the clock has not reached (the clock was moved back a day): bounded to 2 hours from the request
+    later = (box["app"].state.helpers.clock() + timedelta(days=1)).isoformat(timespec="seconds")
+    store.db.execute("UPDATE support_sessions SET started_at = ? WHERE id = ?", (later, sid))
+    assert crc.get(f"/studies/GZQO/patients/{A}").status_code == 403
+    assert store.get(sid).started_at < later  # re-anchored to the request's time
+    _shift(box, 121)
+    assert crc.get(f"/studies/GZQO/patients/{A}").status_code == 200  # 2 hours later it is over, not a day later
+    # a start that cannot be read: closed on doubt, and the administrator can still end it from the page
+    admin = _start(box)
+    sid = store.recent()[0].id
+    store.db.execute("UPDATE support_sessions SET started_at = 'not a time' WHERE id = ?", (sid,))
+    r = crc.get(f"/studies/GZQO/patients/{A}")
+    assert r.status_code == 403
+    page = admin.get(PAGE)
+    assert page.status_code == 200 and "its start time cannot be read" in page.text
+    assert _end(admin).headers["location"] == f"{PAGE}?done=end"
+    assert crc.get(f"/studies/GZQO/patients/{A}").status_code == 200
+
+
+def test_a_case_job_page_is_a_patient_page_during_a_session(box: dict[str, Any]) -> None:  # noqa: F811
+    from tests.console.test_console_app import _done_case
+
+    job = _done_case(box["backend"])
+    crc, _ = login_crc(box)
+    admin, _ = login(box["app"])
+    assert crc.get(f"/pilot/jobs/{job.job_id}").status_code == 200
+    assert admin.get(f"/pilot/jobs/{job.job_id}").status_code == 200  # counts, chart number masked
+    _start(box)
+    for c in (crc, admin):
+        r = c.get(f"/pilot/jobs/{job.job_id}")
+        assert r.status_code == 403 and ON_EN in r.text and job.job_id not in r.text
 
 
 def test_only_the_administrator_starts_or_ends_it(box: dict[str, Any]) -> None:  # noqa: F811
