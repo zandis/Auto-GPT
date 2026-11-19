@@ -21,7 +21,10 @@ Synthetic data only (the test box's study GZQO)."""
 from __future__ import annotations
 
 import html
+import json
 import re
+import shutil
+import subprocess
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, cast
@@ -30,6 +33,7 @@ import pytest
 from console import phone
 from tb_common import flags as fl
 
+from tests.console import test_cjk_layout as _cjk
 from tests.console.test_console_app import _done_feas, _done_screen, _ulid, box  # noqa: F401
 from tests.console.test_role_route_matrix import COLUMNS, _clients, _for, _orchestrator_routes
 
@@ -942,3 +946,65 @@ def test_a_link_whose_rule_cannot_be_read_is_not_shown_and_the_page_still_render
                 checked += 1
     assert checked, "no page with a link that needs the read was rendered"
     print(f"{broken} down: {checked} investigator pages rendered without the link")
+
+
+@pytest.mark.skipif(not _cjk._node_playwright(), reason="Node Playwright is not available")
+def test_with_the_flag_on_the_week_and_registry_lay_out_as_with_it_off(box: dict[str, Any], tmp_path: Path) -> None:
+    """The links the flag adds to a page (the week list's "Check one patient", its delegation-log notice as a sentence
+    and a link) keep the page's layout: measured in a browser at the CJK test's sizes, in three languages, the first
+    patient row is no lower and no page fails a layout check it passes with the flag off (no sideways scroll, no
+    one-character line, nothing clipped). The first row is held where the CJK test holds it, on a desktop; on a phone
+    the new link takes one line of its own (named in D-1251). Compared with the flag off rather than absolutely, so a
+    layout finding that is not this card's (the CJK test's own) is not counted twice."""
+    _cjk._setup(box)
+    css = ""
+
+    def measure(value: str) -> tuple[dict[str, float], set[str]]:
+        nonlocal css
+        _flag(box, value)
+        out = tmp_path / value
+        out.mkdir()
+        pages: list[dict[str, Any]] = []
+        for lang in LANGS:
+            for who, name, path, size in (
+                ("drsato", "pi-week-desktop", f"/studies/{RS}/week", _cjk.DESKTOP),
+                ("drsato", "pi-week-phone", f"/studies/{RS}/week", _cjk.PHONE),
+                ("crc", "crc-week-desktop", f"/studies/{RS}/week", _cjk.DESKTOP),
+                ("crc", "crc-registry-desktop", f"/pilot/registry/{RS}", _cjk.DESKTOP),
+                ("crc", "crc-registry-phone", f"/pilot/registry/{RS}", _cjk.PHONE),
+            ):
+                c = _cjk._as(box, who, lang)
+                r = c.get(path)
+                assert r.status_code == 200, (value, who, lang, path)
+                if value == "on" and name == "crc-week-desktop":  # the link this measures is on the page
+                    assert 'data-testid="link-case"' in r.text and 'data-testid="team-due"' in r.text, lang
+                file = f"{name}-{lang}.html"
+                (out / file).write_text(r.text.replace('href="/static/console.css"', 'href="console.css"'), "utf-8")
+                css = css or c.get("/static/console.css").text
+                pages.append({"file": file, "lang": lang, "width": size[0], "height": size[1], "checks": []})
+        (out / "console.css").write_text(css, encoding="utf-8")
+        r = subprocess.run(
+            [
+                shutil.which("node") or "node",
+                str(_cjk.SCRIPT),
+                json.dumps({"dir": str(out), "pages": pages, "shots": ""}),
+            ],
+            cwd=_cjk.ROOT,
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+        )
+        res = json.loads(r.stdout.strip().splitlines()[-1])
+        assert res["checks"] >= len(pages) * 4, (res.get("error"), r.stderr[-2000:])
+        rows = {f"{x['file']}@{x['width']}": x["firstRow"] for x in res["results"] if x.get("firstRow") is not None}
+        fails = {re.sub(r"[\d.]+", "N", ln) for ln in r.stderr.splitlines() if ln.startswith("FAIL: ")}
+        return rows, fails
+
+    rows_off, fails_off = measure("off")
+    rows_on, fails_on = measure("on")
+    assert fails_on <= fails_off, sorted(fails_on - fails_off)
+    assert rows_on.keys() == rows_off.keys() and rows_on
+    lower = {k: (rows_off[k], rows_on[k]) for k in rows_on if rows_on[k] > rows_off[k] + 1 and "desktop" in k}
+    assert lower == {}, lower
+    assert any("desktop" in k for k in rows_on)

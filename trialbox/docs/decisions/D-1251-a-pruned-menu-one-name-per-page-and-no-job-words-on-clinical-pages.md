@@ -91,6 +91,9 @@
 
     The next-step button on a study card ("Go") says the page or section it opens (`plain_menu.NEXT_GO`). The week
     list's notice that the delegation log is due is text, followed by a link "Monthly comparison".
+    The added links keep the week list's layout. "Check one patient" is one more link in its line of counts.
+    Measured in a browser: on a desktop the first patient row is where it is with the flag off. On a phone that line
+    and the notice each take one more line, so the first row comes about 70 px lower.
 
     A link that carries a data value names that thing, not a page: a person, a study code, an id, a count. It is not
     held to this rule. The registry's source column says the run's type ("Screening", "Check one patient") and links
@@ -146,6 +149,7 @@
   - each role's actions as on master;
   - the reads a page with a link adds, and a failing delegation log or criteria list;
   - the cascade exactly when it says it works;
+  - the week list and the registry laid out with the flag on as with it off (in a browser, three languages);
   - every run type named in words in three languages;
   - the clinical walk in three languages with the banner and the pinned keys;
   - the flag off byte for byte against the templates without this card's parts (kept on every later commit);
