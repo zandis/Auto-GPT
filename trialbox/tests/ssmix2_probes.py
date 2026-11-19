@@ -111,15 +111,15 @@ class F:
     dept: str = DEPT
     raw: bytes | None = None
     folder_patient: str = ""
+    name: str = ""  # the file's name exactly, when it is not built from the parts (a malformed name)
 
     def write(self, root: Path) -> None:
         fp = self.folder_patient or self.patient
         d = root / fp[0:3] / fp[3:6] / fp / self.day / self.typ
         d.mkdir(parents=True, exist_ok=True)
         data = self.raw if self.raw is not None else ("\r".join(self.segs) + "\r").encode("iso2022_jp")
-        (d / f"{self.patient}_{self.day}_{self.typ}_{self.order}_{self.stamp}_{self.dept}_{self.flag}").write_bytes(
-            data
-        )
+        name = self.name or f"{self.patient}_{self.day}_{self.typ}_{self.order}_{self.stamp}_{self.dept}_{self.flag}"
+        (d / name).write_bytes(data)
 
 
 @dataclass
@@ -149,7 +149,10 @@ DISEASES = {
     "99990005": ("糖尿病", "ZA05", "E149"),
     "99990006": ("気管支炎", "ZA06", "J40"),
     "99990007": ("細菌性肺炎", "ZA07", "J159"),  # a modified name the master codes on its own (class 3 case)
+    "99990008": ("咽頭炎", "ZA08", "J029"),  # retired in this release (変更区分 1)
+    "99990009": ("喉頭炎", "ZA09", "J040"),  # a 変更区分 the specification does not define
 }
+DISEASE_CHANGE = {"99990008": "1", "99990009": "X"}
 #: a synthetic 修飾語テーブル (M (2)): 修飾語管理番号 -> (変更区分, 修飾語表記, 修飾語交換用コード, 接続位置区分,
 #: 修飾語区分). The class is the second character of 修飾語区分 (M (2)⑦). Words are ordinary Japanese; codes made up.
 MODIFIERS = {
@@ -168,6 +171,11 @@ MODIFIERS = {
     "99980013": ("1", "旧左", "ZM13", "60", "22000002"),  # retired in this version (変更区分 1)
     "99980014": ("0", "不明区分", "ZM14", "20", "20000000"),  # a class character outside 1 to 9
     "99980015": ("0", "の後遺症", "ZM15", "1", "28000002"),  # 接尾語 (8)
+    "99980016": ("3", "上", "ZM16", "60", "22000003"),  # 位置 (2), added in this release: current
+    "99980017": ("5", "下", "ZM17", "60", "22000004"),  # 位置 (2), changed in this release: current
+    "99980018": ("D", "前", "ZM18", "60", "22000005"),  # a 変更区分 the specification does not define
+    "99980019": ("9", "後", "ZM19", "60", "22000006"),  # a 変更区分 the specification does not define
+    "99980020": ("", "外", "ZM20", "60", "22000007"),  # no 変更区分
 }
 
 
@@ -181,7 +189,7 @@ def licensed_tables(kind: str) -> dict[str, dict[str, dict[str, str]]]:
             "display": name,
             "target_system": "http://hl7.org/fhir/sid/icd-10",
             "target_code": icd,
-            "extra": json.dumps({"management_no": no}, ensure_ascii=False),
+            "extra": json.dumps({"management_no": no, "change": DISEASE_CHANGE.get(no, "0")}, ensure_ascii=False),
         }
         for no, (name, ex, icd) in DISEASES.items()
     }
@@ -576,8 +584,10 @@ def modifier_cases() -> list[Case]:
 
     # 1. controls: a coded name exactly as the master writes it, no qualifier
     for no, (name, ex, _icd) in DISEASES.items():
-        specs.append((f"control {name}", no, name, [], "CA", "CA", ""))
-        specs.append((f"control {name}, ZPR names the same disease", no, name, [zpr(dis=no, dis_ex=ex)], "CA", "CA",
+        # a disease row that is not current in the master (変更区分 1, or a value M does not define) is not recognised
+        current = "CA" if DISEASE_CHANGE.get(no, "0") in ("0", "3", "5") else "NC"
+        specs.append((f"control {name}", no, name, [], "CA", current, ""))
+        specs.append((f"control {name}, ZPR names the same disease", no, name, [zpr(dis=no, dis_ex=ex)], "CA", current,
                       ""))  # fmt: skip
     # S's own example shape: ZPR-2 and ZPR-5 the same disease, nothing else
     specs.append(("S example ZPR (ZPR-2, ZPR-5 only)", gas, "胃炎", [zpr(dis=gas, dis_ex="ZA02")], "CA", "CA", ""))
@@ -608,7 +618,7 @@ def modifier_cases() -> list[Case]:
             # the modified name a code of its own (then the coded concept would silently be the unmodified one);
             # 4 経過表現 and 5 状態表現 can say "old", "after", "in remission": unknown, as 6, 7 and 8 are
             own_code = any(name == text for name, _e, _i in DISEASES.values())
-            ok = (cls[1] in "129" or (cls[1] == "3" and not own_code)) and _chg == "0"
+            ok = (cls[1] in "129" or (cls[1] == "3" and not own_code)) and _chg in ("0", "3", "5")
             specs.append((f"modifier class {cls[1]} {word} on {base}", no, text, [z], "NC", "CA" if ok else "NC", ""))
 
     # 4. two modifiers, display text in the master's order
@@ -793,8 +803,164 @@ def judge(case: Case, got: dict[str, str]) -> tuple[bool, bool]:
     return wrong, dangerous
 
 
+# ------------------------------------------------------------------------------------------------ independent set 1
+def independent_cases() -> list[Case]:
+    """Independent set 1: the classes an independent tester found dangerous on this card's head 2bc79278 (lane J,
+    2026-11-19), written here from lane J's description of them; the tester's own inputs were not seen. Each case is
+    labelled by D-1252's rules as amended for them."""
+    cases: list[Case] = []
+    pneu, gas = "99990001", "99990002"
+    serial = iter(range(10_000))
+
+    def one(what: str, cls: int, body: list[str], want: str, master: str = "both") -> None:
+        for kind in ("", "master") if master == "both" else (master,):
+            pt = f"4{next(serial):07d}"
+            text = "\r".join(ppr(pt, body))
+            f = F(pt, "-", "PPR-01", "ALL9", stamp(DAY_A, 0), "1", text.split("\r"))
+            cases.append(Case(f"class {cls}: {what} ({'licensed master' if kind else 'no master'})",
+                              f"I independent class {cls}", "diagnosis", [f], {f"{pt}/DX05": want},
+                              licensed=kind))  # fmt: skip
+
+    def dx(name: str = "肺炎", code: str = pneu, system: str = "MDCDX2", written: str = "") -> str:
+        return prb(code, name, "DX05", system=system, written=written)
+
+    # 1. a modifier given as text with no code
+    one("ZPR-1 text with no code", 1, [dx(), "ZPR|^慢性^MDCDX2|99990001|||ZA01"], "NC")
+    one("ZPR-3 text with no code", 1, [dx(), "ZPR|||^の再燃^MDCDX2"], "NC")
+    one("ZPR-4 text with no code", 1, [dx(), "ZPR||99990001||^慢性^MDCDX2"], "NC")
+    one("ZPR-6 text with no code", 1, [dx(), "ZPR||99990001|||||^再燃^MDCDX2"], "NC")
+    # 2. code and text disagree inside a component
+    one("ZPR-1 左's code, 慢性's text", 2, [dx("左肺炎"), "ZPR|99980002^慢性^MDCDX2|99990001"], "NC")
+    one(
+        "ZPR-4 慢性's text under 左's exchange code", 2, [dx("左肺炎"), "ZPR|99980002|99990001||ZM02^慢性^MDCDX2"], "NC"
+    )
+    one("ZPR-2 the disease code with another name", 2, [dx(), "ZPR||99990001^慢性肺炎^MDCDX2"], "NC")
+    one("ZPR-5 the exchange code with another name", 2, [dx(), "ZPR||99990001|||ZA01^慢性肺炎^MDCDX2"], "NC")
+    # 3. PRB-3's alternate triple disagrees with the first
+    one("PRB-3 alternate name disagrees", 3, [dx(system="MDCDX2^L9^慢性肺炎^99XYZ")], "NC")
+    one("PRB-3 alternate local name agrees", 3, [dx(system="MDCDX2^L9^肺炎^99XYZ")], "CA")
+    # 4. 変更区分
+    for no, word, want in (("99980016", "上", "CA"), ("99980017", "下", "CA"), ("99980018", "前", "NC"),
+                           ("99980019", "後", "NC"), ("99980020", "外", "NC"), ("99980013", "旧左", "NC")):  # fmt: skip
+        one(f"modifier 変更区分 of {word}", 4, [dx(word + "肺炎"), zpr(pre=[no], dis=pneu)], want, master="master")
+    one("disease 変更区分 1", 4, [dx("咽頭炎", "99990008")], "NC", master="master")
+    one("disease 変更区分 X", 4, [dx("喉頭炎", "99990009")], "NC", master="master")
+    # 7. segments the reader does not read
+    for what, segs, where in (("NTE saying 疑い after the PRB", ["NTE|1||疑い"], "after"),
+                              ("NTE with a plain remark", ["NTE|1||経過観察"], "after"),
+                              ("an unknown Z segment", ["ZXY|1|x"], "after"),
+                              ("an OBX after the PRB", ["OBX|1|ST|x||y"], "after"),
+                              ("a ZPR before the first PRB", ["ZPR||99990001"], "before"),
+                              ("an NTE before the first PRB", ["NTE|1||x"], "before")):  # fmt: skip
+        body = [*segs, dx()] if where == "before" else [dx(), *segs]
+        one(what, 7, body, "NC")
+    one("guard: ZI1 and ZPD after the PRB are read as before", 7, [dx(), "ZPD|1|101801^x^JHSD0010", "ZI1|1"], "CA")
+    # 10. where the full name is written (表3-47): PRB-3 the full name, or PRB-3 the 病名表記 and PRB-17 the full name
+    one("PRB-3 the full name", 10, [dx("左肺炎"), zpr(pre=["99980002"], dis=pneu)], "CA", master="master")
+    one("PRB-3 the base name, PRB-17 the full name", 10, [dx("肺炎", written="左肺炎"),
+                                                          zpr(pre=["99980002"], dis=pneu)], "CA", master="master")  # fmt: skip
+    one("PRB-3 the base name, PRB-17 another full name", 10, [dx("肺炎", written="右肺炎"),
+                                                              zpr(pre=["99980002"], dis=pneu)], "NC")  # fmt: skip
+    one("PRB-3 the base name, no PRB-17", 10, [dx("肺炎"), zpr(pre=["99980002"], dis=pneu)], "NC")
+    one("PRB-3 the base name, PRB-17 the full name, no master", 10, [dx("肺炎", written="左肺炎"),
+                                                                     zpr(pre=["99980002"], dis=pneu)], "NC", master="")  # fmt: skip
+    one("no modifier, PRB-17 the same name", 10, [dx("胃炎", gas, written="胃炎")], "CA")
+
+    # 5. the snapshot's order number written in another form (G 図3.1-1: a run of nines; 表3.1-3: "ALL9")
+    a, b = prb(pneu, "肺炎", "DX001"), prb(gas, "胃炎", "DX002", icd10="K297")
+    for form in ("ＡＬＬ９", "all9", "ALL9 ", "9999999999999999", "99999999", "-"):
+        for night in (0, 1):
+            pt = f"5{next(serial):07d}"
+            files = [F(pt, "-", "PPR-01", "ALL9", stamp(DAY_A, 0), "1", ppr(pt, [a, b])),
+                     F(pt, "-", "PPR-01", form, stamp(DAY_A, 1), "1", ppr(pt, [a]), night=night)]  # fmt: skip
+            cases.append(Case(f"class 5: a newer snapshot under {form!r} (night {night})", "I independent class 5",
+                              "diagnosis", files, {f"{pt}/DX001": "CA", f"{pt}/DX002": "GONE"}))  # fmt: skip
+
+    # 6. a newer or delete file whose name is not in the guideline's form; the older version left at flag 1
+    for kind in ("PPR-01", "OMP-01"):
+        # {p} patient, {k} type, {n} order number, {s} 発生日時, {f} flag
+        templates = (
+            ("type part in lower case", "{p}_{d}_" + kind.lower() + "_{n}_{s}_01_{f}"),
+            ("type part in full width", "{p}_{d}_" + kind.translate(_WIDE) + "_{n}_{s}_01_{f}"),
+            ("patient id in full width", "{wp}_{d}_{k}_{n}_{s}_01_{f}"),
+            ("patient id with a blank", "{p} _{d}_{k}_{n}_{s}_01_{f}"),
+            ("flag in full width", "{p}_{d}_{k}_{n}_{s}_01_{wf}"),
+            ("flag with a blank", "{p}_{d}_{k}_{n}_{s}_01_{f} "),
+            ("an extension", "{p}_{d}_{k}_{n}_{s}_01_{f}.hl7"),
+            ("eight parts", "{p}_{d}_{k}_{n}_{s}_01_x_{f}"),
+        )
+        for what, template in templates:
+            for flag in ("0", "1"):
+                pt = f"6{next(serial):07d}"
+                no = "RX0001" if kind == "OMP-01" else "DX001"
+                if kind == "OMP-01":
+                    older = F(pt, DAY_A, kind, no, stamp(DAY_A, 0), "1", omp(pt, no, DAY_A, [("NW", "1", "999000001")]))
+                    newer_segs = omp(pt, no, DAY_A, [("CA" if flag == "0" else "NW", "1", "999000001")])
+                    day = DAY_A
+                else:
+                    older = F(pt, "-", kind, "ALL9", stamp(DAY_A, 0), "1", ppr(pt, [a]))
+                    newer_segs = ppr(pt, [a])
+                    day = "-"
+                order = no if kind == "OMP-01" else "ALL9"
+                name = template.format(p=pt, wp=pt.translate(_WIDE), d=day, k=kind, n=order, s=stamp(DAY_A, 1), f=flag,
+                                       wf=flag.translate(_WIDE))  # fmt: skip
+                newer = F(pt, day, kind, order, stamp(DAY_A, 1), flag, newer_segs, night=1, name=name)
+                cases.append(Case(f"class 6: {kind} newer {'delete' if flag == '0' else 'version'}: {what}",
+                                  "I independent class 6", "diagnosis" if kind == "PPR-01" else "medication",
+                                  [older, newer], {f"{pt}/{no}": "NC"}))  # fmt: skip
+
+    # 8. a name and ORC-2 that disagree; a future 発生日時; the same Rp and drug twice, one cancelled
+    for named in ("rx01", "RX001"):
+        for flag in ("0", "1"):
+            pt = f"7{next(serial):07d}"
+            older = F(
+                pt, DAY_A, "OMP-01", "RX01", stamp(DAY_A, 0), "1", omp(pt, "RX01", DAY_A, [("NW", "1", "999000001")])
+            )
+            newer = F(pt, DAY_A, "OMP-01", named, stamp(DAY_A, 1), flag,
+                      omp(pt, "RX01", DAY_A, [("CA" if flag == "0" else "NW", "1", "999000001")]), night=1)  # fmt: skip
+            exp = {f"{pt}/RX01": "NC"}
+            if flag == "1":
+                exp[f"{pt}/{key_part_like(named)}:RX01"] = "NC"
+            cases.append(Case(f"class 8: file named {named} with ORC-2 RX01, flag {flag}", "I independent class 8",
+                              "medication", [older, newer], exp))  # fmt: skip
+    for kind in ("OMP-01", "PPR-01"):
+        pt = f"7{next(serial):07d}"
+        if kind == "OMP-01":
+            files = [F(pt, DAY_A, kind, "RX01", stamp(DAY_A, 0), "1", omp(pt, "RX01", DAY_A, [("NW", "1", "999000001")])),
+                     F(pt, DAY_A, kind, "RX01", "20990101090000000", "0",
+                       omp(pt, "RX01", DAY_A, [("CA", "1", "999000001")]), night=1)]  # fmt: skip
+            exp = {f"{pt}/RX01": "NC"}
+        else:
+            files = [F(pt, "-", kind, "ALL9", stamp(DAY_A, 0), "1", ppr(pt, [a, b])),
+                     F(pt, "-", kind, "ALL9", "20990101090000000", "1", ppr(pt, [a]), night=1)]  # fmt: skip
+            exp = {f"{pt}/DX001": "NC", f"{pt}/DX002": "NC"}
+        cases.append(Case(f"class 8: a {kind} file stamped 2099", "I independent class 8",
+                          "medication" if kind == "OMP-01" else "diagnosis", files, exp))  # fmt: skip
+    pt = f"7{next(serial):07d}"
+    twice = [("NW", "1", "999000001"), ("CA", "1", "999000001")]
+    files = [F(pt, DAY_A, "OMP-01", "RX01", stamp(DAY_A, 0), "1", omp(pt, "RX01", DAY_A, twice))]
+    cases.append(Case("class 8: the same Rp and drug twice, one cancelled", "I independent class 8", "medication",
+                      files, {f"{pt}/RX01#1:999000001": "NC", f"{pt}/RX01#1:999000001~2": "NC"}))  # fmt: skip
+    return cases
+
+
+_WIDE = str.maketrans("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-",
+                      "０１２３４５６７８９ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ－")  # fmt: skip
+
+
+def key_part_like(value: str) -> str:
+    """The reader's one normalisation, for writing an expected key (NFKC, blanks removed; case kept)."""
+    import unicodedata
+
+    return "".join(unicodedata.normalize("NFKC", value).split())
+
+
 def all_cases() -> dict[str, list[Case]]:
-    return {"supersession": supersession_cases(), "modifiers": modifier_cases()}
+    return {
+        "supersession": supersession_cases(),
+        "modifiers": modifier_cases(),
+        "independent set 1": independent_cases(),
+    }
 
 
 def measure(sets: dict[str, list[Case]] | None = None) -> dict[str, Any]:

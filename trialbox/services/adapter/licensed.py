@@ -94,6 +94,7 @@ KINDS: dict[str, Kind] = {
         target_system=ICD10_WHO,
         extra={
             "management_no": ("病名管理番号", "管理番号"),
+            "change": ("変更区分",),  # D-1252: only a current row (0, 3, 5) confirms
             "receipt_code": ("レセプト電算処理システム傷病名コード", "レセプト電算コード", "傷病名コード"),
             "kana": ("病名表記カナ", "病名カナ", "カナ"),
         },
