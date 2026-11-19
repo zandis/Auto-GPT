@@ -1,0 +1,108 @@
+{
+ "card": "H10G8",
+ "title": "the release VEX from the waivers, every waiver with an owner and a date (plan 10 row 10G-8)",
+ "date": "2026-11-19",
+ "source": "docs/handover/vex-from-waivers-2026-11-19.md",
+ "note": "lane H's card 10G-8 (D-1339); the waivers are the vulnerability and os_packages_unreadable entries of deploy/supply-chain-allowlist.yaml",
+ "findings": [
+  {
+   "id": "H10G8-01",
+   "severity": "Medium",
+   "claim": "all 63 vulnerability waivers of the allow-list named a person as owner, and none recorded the date it was accepted",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 7a69081e",
+   "place": "deploy/supply-chain-allowlist.yaml",
+   "expected": "see the card's page",
+   "happened": "see the card's page"
+  },
+  {
+   "id": "H10G8-02",
+   "severity": "Medium",
+   "claim": "a waiver without an owner or a date passed every check: owner was optional and there was no date key",
+   "lane": "H",
+   "basis": "shown",
+   "state": "fixed 7a69081e",
+   "place": "tools/supply_chain/allowlist.py:72",
+   "expected": "see the card's page",
+   "happened": "see the card's page"
+  },
+  {
+   "id": "H10G8-03",
+   "severity": "Medium",
+   "claim": "the signed release bundle carries no VEX; adding it to the SBOM extras of tools/release.py changes what the rc1 bundle build requires, so it waits for after rc1",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/release.py:50",
+   "expected": "see the card's page",
+   "happened": "see the card's page"
+  },
+  {
+   "id": "H10G8-04",
+   "severity": "Low",
+   "claim": "the 49 per-id HAPI FHIR and vLLM waivers carry D-340's date 2026-11-10; the ledger says some findings were published 2026-11-11 under the same rule and does not say which",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "deploy/supply-chain-allowlist.yaml",
+   "expected": "see the card's page",
+   "happened": "see the card's page"
+  },
+  {
+   "id": "H10G8-05",
+   "severity": "Low",
+   "claim": "54 of the 62 VEX records say exploitable (response update) because only the 8 Authelia reasons record a not-reachable analysis; the security owner may record more",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/vex.py",
+   "expected": "see the card's page",
+   "happened": "see the card's page"
+  },
+  {
+   "id": "H10G8-06",
+   "severity": "Low",
+   "claim": "the package-wide linux-libc-dev waiver (D-622) names no ids, so its VEX record has id * which no scanner matches; the ids could come from the release's gate record",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/vex.py",
+   "expected": "see the card's page",
+   "happened": "see the card's page"
+  },
+  {
+   "id": "H10G8-07",
+   "severity": "Low",
+   "claim": "the 23 licence entries, 10 licence budgets and 57 security-scan ignores have no owner or date (the ignores no review date) and are outside the waiver check",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "tools/security_scan_ignores.yaml",
+   "expected": "see the card's page",
+   "happened": "see the card's page"
+  },
+  {
+   "id": "H10G8-08",
+   "severity": "Low",
+   "claim": "deploy/security/known-image-findings.md and D-1004 still name a person as owner of every row; a unit test pins that page's text",
+   "lane": "H",
+   "basis": "shown",
+   "state": "open",
+   "place": "deploy/security/known-image-findings.md:19",
+   "expected": "see the card's page",
+   "happened": "see the card's page"
+  },
+  {
+   "id": "H10G8-09",
+   "severity": "Low",
+   "claim": "the release VEX is not validated against the CycloneDX 1.6 JSON schema: no schema in the tree and no network call",
+   "lane": "H",
+   "basis": "not_run",
+   "state": "open",
+   "place": "tools/vex.py",
+   "expected": "see the card's page",
+   "happened": "see the card's page"
+  }
+ ]
+}
