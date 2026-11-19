@@ -1,5 +1,7 @@
 # The tier record reader never raises (card H-51, 2026-11-19)
 
+**Reader:** the people who build TrialBox
+
 Lane J reported on PR #1157 (2026-11-19 07:51 UTC): `tier_value.measured` raised `RecursionError` on a tier record
 nested about 200000 deep. The reader (`libs/tb_common/tier_value.py`, 10E-1c, D-1322) is called by the gateway at
 start (`services/gateway/load.py`), the night budget (`services/orchestrator/scenarios/microbatch.py`) and console
