@@ -9,6 +9,8 @@
   directory, typed, arranged outside TrialBox, or the department contact), the answer the CRC records (agree to
   introduce, decline with a reason, discuss) and the events behind it.
 * **IRB approval and the current consent-form version** per study, and every Approach marked despite a warning.
+* **The Japan profile's committee record** (10C-4, D-1227): study kind, committee, 設置者, contract, versions, 一括審査,
+  and each site's head-of-institution permission, as history rows.
 * **Approved consent-form (ICF) versions** per study as history rows (D-399): version, its date, the IRB's approval,
   the first day it is used, and whether subjects on study consent again on it.
 * **Candidate views and chart-number reveals** (study, patient, purpose, who, when), which also carry the rate limit.
@@ -25,7 +27,9 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
+from tb_common import committees as cm
 from tb_common.authz import STUDY_TASKS
+from tb_common.committees import Committee, Permission, committee_row, permission_row
 
 from console.storedb import open_db
 
@@ -193,7 +197,51 @@ CREATE TABLE monitor_visits (
 );
 CREATE INDEX monitor_visits_rs ON monitor_visits (ruleset, at)
 """
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3)
+# 10C-4 (D-1227, JP-3): a Japanese study's committee record and each site's head-of-institution permission, as
+# history rows (a correction is a new row; the newest row is the record). Read and written only under the Japan
+# profile (``tb_common.committees``); no patient data. ``committee_open``: each opening of a study under the rule
+# (the kind and version that passed) and the marks of the studies open when the rule first applied at a site.
+SCHEMA_V4 = """
+CREATE TABLE committee (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  ruleset TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  external INTEGER NOT NULL DEFAULT 0,
+  establisher TEXT NOT NULL DEFAULT '',
+  contract_on TEXT NOT NULL DEFAULT '',
+  current_version TEXT NOT NULL DEFAULT '',
+  approved_version TEXT NOT NULL DEFAULT '',
+  approved_on TEXT NOT NULL DEFAULT '',
+  central INTEGER NOT NULL DEFAULT 0,
+  documents TEXT NOT NULL DEFAULT '',
+  by TEXT NOT NULL,
+  at TEXT COLLATE "C" NOT NULL,
+  due_on TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX committee_rs ON committee (ruleset, at);
+CREATE TABLE site_permission (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  ruleset TEXT NOT NULL,
+  site TEXT NOT NULL,
+  version TEXT NOT NULL DEFAULT '',
+  permitted_on TEXT NOT NULL DEFAULT '',
+  by TEXT NOT NULL,
+  at TEXT COLLATE "C" NOT NULL
+);
+CREATE INDEX site_permission_rs ON site_permission (ruleset, site, at);
+CREATE TABLE committee_open (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  ruleset TEXT NOT NULL,
+  site TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT '',
+  version TEXT NOT NULL DEFAULT '',
+  why TEXT NOT NULL,
+  by TEXT NOT NULL,
+  at TEXT COLLATE "C" NOT NULL
+);
+CREATE INDEX committee_open_rs ON committee_open (ruleset, site, at)
+"""
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4)
 FINDINGS_MAX = 2000  # characters of a monitoring visit's findings
 ICF_ACTIONS = ("add", "withdraw")
 _ICF_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._/()-]{0,39}$")
@@ -671,6 +719,59 @@ class TeamStore:
             # D-399: a version typed on the IRB record joins the ICF list, approved with the IRB record's date
             self.add_icf(ruleset, IcfVersion(vals[3], icf_date, approved, ""), by, at)
         return self.irb(ruleset)
+
+    # ------------------------------------------------------------------ 10C-4: committee and permission (D-1227)
+    def committee(self, ruleset: str) -> Committee:
+        """The study's committee record (the newest row), or an empty one: no kind, the other-country default."""
+        rows = self.committee_history(ruleset)  # a few rows per study: the newest is the record
+        return rows[-1] if rows else Committee()
+
+    def committee_history(self, ruleset: str) -> list[Committee]:
+        rows = self.db.fetchall(
+            "SELECT kind, external, establisher, contract_on, current_version, approved_version, approved_on, central, "
+            "documents, by, at, due_on FROM committee WHERE ruleset = ? ORDER BY at, id",
+            (ruleset,),
+        )
+        return [committee_row(r) for r in rows]
+
+    def save_committee(self, ruleset: str, rec: Committee, by: str, at: str) -> Committee:
+        self.db.execute(
+            "INSERT INTO committee (ruleset, kind, external, establisher, contract_on, current_version, "
+            "approved_version, approved_on, central, documents, by, at, due_on) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (ruleset, rec.kind, int(rec.external), rec.establisher, rec.contract_on, rec.current_version,
+             rec.approved_version, rec.approved_on, int(rec.central), rec.documents, by, at, rec.due_on),
+        )  # fmt: skip
+        return self.committee(ruleset)
+
+    def permission(self, ruleset: str, site: str) -> Permission | None:
+        """This site's newest head-of-institution permission for the study, or None (none, or cleared)."""
+        if not site:
+            return None
+        rows = self.db.fetchall(
+            "SELECT site, version, permitted_on, by, at FROM site_permission WHERE ruleset = ? AND site = ? "
+            "ORDER BY at, id",
+            (ruleset, site),
+        )
+        return permission_row(rows[-1]) if rows else None
+
+    def opened(self, ruleset: str, site: str) -> cm.Opened | None:
+        return cm.opened_of(self.db, ruleset, site)
+
+    def record_open(self, ruleset: str, site: str, opened: cm.Opened, by: str, at: str) -> None:
+        cm.record_open(self.db, ruleset, site, opened, by, at)
+
+    def take_baseline(self, site: str, open_now: list[str], by: str, at: str) -> list[str]:
+        return cm.take_baseline(self.db, site, open_now, by, at)
+
+    def baseline_taken(self, site: str) -> bool:
+        return cm.baseline_taken(self.db, site)
+
+    def save_permission(self, ruleset: str, rec: Permission, by: str, at: str) -> Permission | None:
+        self.db.execute(
+            "INSERT INTO site_permission (ruleset, site, version, permitted_on, by, at) VALUES (?,?,?,?,?,?)",
+            (ruleset, rec.site, rec.version, rec.permitted_on, by, at),
+        )
+        return self.permission(ruleset, rec.site)
 
     # ------------------------------------------------------------------ approved consent-form versions (D-399)
     _ICF = "id, version, version_date, irb_approved_on, effective_from, reconsent, action, note, by, at"

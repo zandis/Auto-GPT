@@ -11,7 +11,7 @@ import shutil
 import stat
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -22,6 +22,8 @@ from tb_common import chartno, feedguard, labvalue, refdata
 from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
+from tb_common.site_profile import Profile as SiteProfile
+from tb_common.site_profile import ProfileError
 from tb_common.unmapped import KINDS
 from tb_contracts import ConnectorReport, IngestReport, RebuildResult, ValidationSummary, dump
 from tb_contracts.landing import Severity
@@ -95,6 +97,11 @@ class AdapterConfig:
     # FIT-U09 (T-629): settings.mrn_regex, the site's chart-number pattern; a column whose all-digit values match it
     # only with leading zeros put back is refused (``tb_common.chartno.column_refusal``)
     mrn_regex: str | None = None
+    # 10B-6 (D-1233): the site profile's folder (adapter.site_profile.find; None: no profile, the night reads as it
+    # did before profiles). Its code tables replace the mapping's look-ups and the SS-MIX2 reader's tables it names
+    site_profile: Path | None = None
+    # 10B-6: settings.profiles (tw_core, twpas_version): a profile's standard versions must agree with them
+    profile_standards: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         from tb_common.config import site_tz
@@ -164,7 +171,43 @@ def check_site_key(cfg: AdapterConfig, key: bytes) -> str:
     return fp
 
 
-def make_source(kind: str, path: str, db_url: str | None = None, encoding: str | None = None) -> Source:
+def load_site_profile(cfg: AdapterConfig, source_kind: str) -> tuple[SiteProfile | None, dict[str, Any]]:
+    """10B-6 (D-1233): the profile the night reads with and what the night says of it
+    (:func:`adapter.site_profile.for_night`): only the version a person loaded (``load --by``) is applied, checked
+    again against the box (its site, door, mapping, country and standard versions). A loaded version that fails ends
+    the night here."""
+    from adapter import site_profile as sp
+
+    folder_or_none = cfg.site_profile
+    if folder_or_none is None and not (cfg.lake_dir / sp.RECORD).exists():
+        return None, {}
+    profile, note = sp.for_night(folder_or_none, cfg.lake_dir, site_id=cfg.site_id, audit_dir=cfg.audit_dir,
+                                 tz=cfg.tz)  # fmt: skip
+    for k, v in note.items():
+        log.warning("site profile: %s: %s", k, v)
+    if profile is None:
+        return None, note
+    from tb_common.derived import country_of
+
+    if profile.site_id != cfg.site_id:
+        raise ProfileError("profile.yaml", f"the loaded profile is for site {profile.site_id!r}, not {cfg.site_id!r}")
+    if profile.door != source_kind:
+        raise ProfileError(
+            "profile.yaml", f"the loaded profile describes a {profile.door} source; the box reads {source_kind}"
+        )
+    if source_kind != "fhir_bulk":
+        sp.check_mapping(profile, Mapping.load(cfg.mapping_path))
+    sp.check_settings(profile, country=country_of(cfg.tz), standards=cfg.profile_standards)
+    return profile, note
+
+
+def make_source(
+    kind: str,
+    path: str,
+    db_url: str | None = None,
+    encoding: str | None = None,
+    profile_files: dict[str, Path] | None = None,
+) -> Source:
     if kind == "csv":
         from adapter.sources.csv.source import CsvSource
 
@@ -177,8 +220,18 @@ def make_source(kind: str, path: str, db_url: str | None = None, encoding: str |
         from adapter import licensed
         from adapter.sources.ssmix2.source import Ssmix2Source
 
-        # SS-MIX2 standardized and extended storage (D-122, D-137), with the site's licensed code lists
-        return Ssmix2Source(Path(path), licensed=licensed.tables(db_url))
+        # SS-MIX2 standardized and extended storage (D-122, D-137), with the site's licensed code lists; a site
+        # profile's tables in place of the shipped samples (10B-6, D-1233)
+        def table(use: str) -> Path | None:  # the profile's table as loaded (adapter.site_profile.write_tables)
+            return (profile_files or {}).get(use)
+
+        return Ssmix2Source(
+            Path(path),
+            licensed=licensed.tables(db_url),
+            byomei_to_icd10=table("ssmix2.diagnosis"),
+            yj_to_atc=table("ssmix2.drug"),
+            lab_lookup=table("ssmix2.lab"),
+        )
     raise ValueError(f"unknown source {kind!r}")
 
 
@@ -573,6 +626,8 @@ def _run_ingest(
     identities: list[tuple[str, dict[str, str]]] = []
     fhir_profiles = ""
     source: Source | None = None
+    mapper: Mapper | None = None  # None for a fhir_bulk night (10B-6's coverage asks)
+    mapping: Mapping | None = None
     tombstones: dict[str, set[str]] = {}  # type -> ids deleted at the source (dataflow review P0-1)
     left_out: dict[str, set[str]] = {}  # D-528: type -> ids a row of a delta night no longer gives
     tables: dict[str, dict[str, Any]] = {}  # T-611: per source table, present / rows / duplicate keys
@@ -593,6 +648,24 @@ def _run_ingest(
     gate_facts = governance.NightFacts(night=snap, current_before=current_before)
     completeness_msgs: list[str] = []
     validation_msgs: list[str] = []
+    at["step"] = "site profile"
+    profile, profile_note = load_site_profile(cfg, source_kind)  # 10B-6 (D-1233)
+    profile_files: dict[str, Path] | None = None
+    if profile is not None:
+        from adapter import site_profile as sp
+
+        # the tables as loaded and checked, never the raw files; scratch on the lake volume, gone with the spool
+        profile_files = sp.write_tables(profile, cfg.lake_dir / "tmp" / f"site-profile-{snap}")
+        cleanup.callback(shutil.rmtree, cfg.lake_dir / "tmp" / f"site-profile-{snap}", True)
+    profile_full = False
+    if since:  # a delta night over a night read with another profile (or none) reads whole (10B-6)
+        from adapter import site_profile as sp
+
+        over = merge_base(cfg.lake_dir, snap)
+        said = sp.night_profile(snapshot_dir(cfg.lake_dir, over)) if over else None
+        if (said or {}).get("digest") != (profile.digest if profile is not None else None):
+            log.warning("site profile changed since night %s: this night reads whole, not since %s", over, since)
+            since, profile_full = None, True
     at["step"] = "read"
     from adapter.read_timing import ReadTimes
 
@@ -609,7 +682,14 @@ def _run_ingest(
             if rtype != "Patient":  # removing a person is the opt-out path's job, never a feed delta's
                 tombstones.setdefault(rtype, set()).add(bulk_id(key, rtype, rid))
     else:
-        mapping = Mapping.load(cfg.mapping_path)
+        mapping = Mapping.load(
+            cfg.mapping_path,
+            {u.split(".", 1)[1]: p for u, p in (profile_files or {}).items() if u.startswith("mapping.")} or None,
+        )
+        if profile is not None:
+            from adapter import site_profile as sp
+
+            sp.mark_unverified(profile, mapping)
         if since:
             at["step"] = "delta check"
             check_delta(mapping, source_kind)
@@ -624,7 +704,11 @@ def _run_ingest(
             mrn_regex=cfg.mrn_regex,  # CGRD-A4 (D-816, lane E's hunk): a masked text uses the site's pattern
         )  # fmt: skip
         fhir_profiles = mapping.fhir_profiles
-        source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
+        if profile is not None:  # 10B-6 (D-1233): a fact from a row still to verify carries D-135's basis tag
+            from adapter.site_profile import verify_rules
+
+            mapper.verify_rules = verify_rules(profile)
+        source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding, profile_files)
         for res in mapper.static_resources():
             to_spool(res)
         whole: set[str] = set()
@@ -792,7 +876,7 @@ def _run_ingest(
             tables[table]["mapped"] = by_map
         unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name
     at.update(step="snapshot", table=None)
-    unit_defaults = mapping.unit_defaults if source_kind != "fhir_bulk" else _bulk_unit_defaults(cfg.mapping_path)
+    unit_defaults = mapping.unit_defaults if mapping is not None else _bulk_unit_defaults(cfg.mapping_path)
     counts = spool.counts()
     crep: Any = None
     if contracts is not None:
@@ -994,6 +1078,28 @@ def _run_ingest(
         (out_dir / "reader.json").write_text(
             json.dumps(reader_summary(source), ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8"
         )
+    profile_said: dict[str, Any] | None = None
+    if profile is not None or profile_note:  # 10B-6 (D-1233): which profile read this night, and its coverage lines
+        from adapter import site_profile as sp
+
+        cov = None
+        if profile is not None:
+            cov = sp.coverage(
+                profile,
+                out_dir,
+                reads=sp.readable(profile, mapping.tables) if mapping is not None else None,
+                from_verify=dict(mapper.from_verify) if mapper is not None else None,
+            )
+            cov["night_profile"] = profile.stamp()
+            profile_said = {**sp.summary(cov), **({"pending": profile_note["pending"]["digest"]}
+                                                  if "pending" in profile_note else {})}  # fmt: skip
+            for line in sp.lines(cov):
+                log.info("%s", line)
+        record = {"profile": profile.stamp() if profile is not None else None, "coverage": cov,
+                  "note": profile_note or None, "read_whole_because_the_profile_changed": profile_full}  # fmt: skip
+        (out_dir / sp.RECORD).write_text(
+            json.dumps(record, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8"
+        )
     if vsum.error_pct > cfg.validation_max_pct:
         errors.append(f"validation error rate {vsum.error_pct:.2f}% exceeds {cfg.validation_max_pct}%")
         validation_msgs.append(errors[-1])
@@ -1124,6 +1230,7 @@ def _run_ingest(
                 "lake_busy": lake_busy or None,  # D-462: run again once the lake is free
                 "publish": publish_steps,  # T-723: each publish step's state (None: the night was held at the gate)
                 "unit_defaults_applied": defaulted,
+                "site_profile": profile_said,  # 10B-6 (D-1233): id, version, digest and the coverage counts
                 "presence_words_read": presence_read,
                 "instants_to_site_offset": shifted,
                 "drop_override": "; ".join(overrides) or None,

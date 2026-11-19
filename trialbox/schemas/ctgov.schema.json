@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://trialbox.local/schemas/v1/ctgov.schema.json",
   "title": "CtgovSearchRequest",
-  "description": "criteria-compiler POST /ctgov/search: recruiting studies from ClinicalTrials.gov API v2 for COHORT trial simulation (SPEC 8.3), and the trial simulation result. Schema version 2.1.0 (2.1.0: nct_id looks up one study, condition may then be empty; source refdata = the offline reference data pack, D-140. 2.0.0: draft_compiled_on replaces cached; breaking, trial_sim_row forbids extra properties).",
+  "description": "criteria-compiler POST /ctgov/search: recruiting studies from ClinicalTrials.gov API v2 for COHORT trial simulation (SPEC 8.3), and the trial simulation result. Schema version 2.2.0 (2.2.0: the study adds locations without contacts, secondary ids with the registry of a jRCT, JapicCTI or UMIN-CTR number, arms, interventions, primary and secondary outcomes and the design, all optional, D-1367. 2.1.0: nct_id looks up one study, condition may then be empty; source refdata = the offline reference data pack, D-140. 2.0.0: draft_compiled_on replaces cached; breaking, trial_sim_row forbids extra properties).",
   "type": "object",
   "required": ["condition"],
   "additionalProperties": false,
@@ -32,7 +32,90 @@
         "eligibility_text": {"type": "string"},
         "minimum_age": {"type": ["string", "null"]},
         "maximum_age": {"type": ["string", "null"]},
-        "sex": {"type": ["string", "null"]}
+        "sex": {"type": ["string", "null"]},
+        "locations": {"type": "array", "items": {"$ref": "#/$defs/ctgov_location"}, "description": "the record's sites; never a contact person (D-1367)"},
+        "secondary_ids": {"type": "array", "items": {"$ref": "#/$defs/ctgov_secondary_id"}},
+        "arms": {"type": "array", "items": {"$ref": "#/$defs/ctgov_arm"}},
+        "interventions": {"type": "array", "items": {"$ref": "#/$defs/ctgov_intervention"}},
+        "primary_outcomes": {"type": "array", "items": {"$ref": "#/$defs/ctgov_outcome"}},
+        "secondary_outcomes": {"type": "array", "items": {"$ref": "#/$defs/ctgov_outcome"}},
+        "design": {"anyOf": [{"$ref": "#/$defs/ctgov_design"}, {"type": "null"}], "description": "designModule beyond phases and the enrolment count, which stay on the study"}
+      }
+    },
+    "ctgov_location": {
+      "title": "CtgovLocation",
+      "type": "object",
+      "required": ["facility"],
+      "additionalProperties": false,
+      "properties": {
+        "facility": {"type": "string"},
+        "city": {"type": ["string", "null"]},
+        "state": {"type": ["string", "null"]},
+        "country": {"type": ["string", "null"]},
+        "status": {"type": ["string", "null"], "description": "the site's recruitment status (RECRUITING, ...)"}
+      }
+    },
+    "ctgov_secondary_id": {
+      "title": "CtgovSecondaryId",
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string"},
+        "type": {"type": ["string", "null"], "description": "the registry's type (REGISTRY, EUDRACT_NUMBER, NIH, OTHER, ...)"},
+        "domain": {"type": ["string", "null"]},
+        "registry": {"type": ["string", "null"], "enum": ["jRCT", "JapicCTI", "UMIN-CTR", null], "description": "the registry recognised from the id (tb_common.ctgov_record.registry_of)"},
+        "registry_id": {"type": ["string", "null"], "description": "the id in its registry's own spelling (jRCT2031210123)"}
+      }
+    },
+    "ctgov_arm": {
+      "title": "CtgovArm",
+      "type": "object",
+      "required": ["label"],
+      "additionalProperties": false,
+      "properties": {
+        "label": {"type": "string"},
+        "type": {"type": ["string", "null"]},
+        "description": {"type": ["string", "null"]},
+        "intervention_names": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "ctgov_intervention": {
+      "title": "CtgovIntervention",
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string"},
+        "type": {"type": ["string", "null"]},
+        "description": {"type": ["string", "null"]},
+        "arm_labels": {"type": "array", "items": {"type": "string"}},
+        "other_names": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "ctgov_outcome": {
+      "title": "CtgovOutcome",
+      "type": "object",
+      "required": ["measure"],
+      "additionalProperties": false,
+      "properties": {
+        "measure": {"type": "string"},
+        "description": {"type": ["string", "null"]},
+        "time_frame": {"type": ["string", "null"]}
+      }
+    },
+    "ctgov_design": {
+      "title": "CtgovDesign",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "study_type": {"type": ["string", "null"]},
+        "allocation": {"type": ["string", "null"]},
+        "model": {"type": ["string", "null"], "description": "interventionModel, or observationalModel"},
+        "primary_purpose": {"type": ["string", "null"]},
+        "masking": {"type": ["string", "null"]},
+        "who_masked": {"type": "array", "items": {"type": "string"}},
+        "enrollment_type": {"type": ["string", "null"], "description": "ACTUAL or ESTIMATED, of the study's enrollment"}
       }
     },
     "ctgov_search_result": {
