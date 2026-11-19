@@ -368,7 +368,11 @@ def store_migrations() -> dict[str, list[str]]:
 #: checksums of versions added after the D-204 baseline, per store (append here; never edit the baseline)
 ADDED: dict[str, tuple[str, ...]] = {
     # D-317: refdata version 3, the record of withdrawn sources
-    "refdata": ("9e976b5878b8d5a8d1a89e417b61450471874a0e1122e43764d755d11662af83",),
+    # 10D-15 (D-1367): refdata version 4, the personal names dropped from the stored CT.gov records
+    "refdata": (
+        "9e976b5878b8d5a8d1a89e417b61450471874a0e1122e43764d755d11662af83",
+        "56d5e8ed0c119af8df2858bda6b552e048d98eaab4508c757183a5a1f5e760ac",
+    ),
     # D-279: users.must_change, login_failures.source, sessions.via
     # T-209c (D-406): users.last_login, for the unused-account report
     # T-109b (D-447): users.pw_history, the account's earlier password hashes
@@ -454,9 +458,11 @@ ADDED: dict[str, tuple[str, ...]] = {
     "mail": ("dc540a482b5619e6226318becb615e79a639ab2be3c2d47154b43029886f8579",),
     # D-399 (T-302a): team version 2, the approved consent-form versions as history rows
     # T-303 (D-436): team version 3, the monitoring-visit records
+    # 10C-4 (D-1227): team version 4, the Japan profile's committee record and each site's permission
     "team": (
         "ad5cea87a2f6b2b0210c392f8c698a0c72253a93cbbb6ec74915bf0cefbd076f",
         "e3f9d90d7bb93b34988eed53250d15178b95f8b39de74d715c67a7bae376574f",
+        "e809e7b52e7924ed036f15b206359d3c7382270d0a67eda81d762cecb288333a",
     ),
     # D-280: the break-glass grants, new after the baseline
     # T-309 (D-430): version 2, each use of a grant (the steward's review list)

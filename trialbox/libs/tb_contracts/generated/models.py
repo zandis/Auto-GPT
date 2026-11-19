@@ -230,9 +230,77 @@ class CriterionReview(BaseModel):
     comment: str | None = None
 
 
+class CtgovArm(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    label: str
+    type: str | None = None
+    description: str | None = None
+    intervention_names: list[str] | None = None
+
+
+class CtgovDesign(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    study_type: str | None = None
+    allocation: str | None = None
+    model: str | None = None
+    """
+    interventionModel, or observationalModel
+    """
+    primary_purpose: str | None = None
+    masking: str | None = None
+    who_masked: list[str] | None = None
+    enrollment_type: str | None = None
+    """
+    ACTUAL or ESTIMATED, of the study's enrollment
+    """
+
+
+class CtgovIntervention(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    name: str
+    type: str | None = None
+    description: str | None = None
+    arm_labels: list[str] | None = None
+    other_names: list[str] | None = None
+
+
+class CtgovLocation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    facility: str
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    status: str | None = None
+    """
+    the site's recruitment status (RECRUITING, ...)
+    """
+
+
+class CtgovOutcome(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    measure: str
+    description: str | None = None
+    time_frame: str | None = None
+
+
 class CtgovSearchRequest(BaseModel):
     """
-    criteria-compiler POST /ctgov/search: recruiting studies from ClinicalTrials.gov API v2 for COHORT trial simulation (SPEC 8.3), and the trial simulation result. Schema version 2.1.0 (2.1.0: nct_id looks up one study, condition may then be empty; source refdata = the offline reference data pack, D-140. 2.0.0: draft_compiled_on replaces cached; breaking, trial_sim_row forbids extra properties).
+    criteria-compiler POST /ctgov/search: recruiting studies from ClinicalTrials.gov API v2 for COHORT trial simulation (SPEC 8.3), and the trial simulation result. Schema version 2.2.0 (2.2.0: the study adds locations without contacts, secondary ids with the registry of a jRCT, JapicCTI or UMIN-CTR number, arms, interventions, primary and secondary outcomes and the design, all optional, D-1367. 2.1.0: nct_id looks up one study, condition may then be empty; source refdata = the offline reference data pack, D-140. 2.0.0: draft_compiled_on replaces cached; breaking, trial_sim_row forbids extra properties).
     """
 
     model_config = ConfigDict(
@@ -250,6 +318,27 @@ class CtgovSearchRequest(BaseModel):
     locations: list[str] = ["Taiwan", "Japan"]
     status: str = "RECRUITING"
     max_studies: int = Field(50, ge=1, le=200)
+
+
+class CtgovSecondaryId(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    id: str
+    type: str | None = None
+    """
+    the registry's type (REGISTRY, EUDRACT_NUMBER, NIH, OTHER, ...)
+    """
+    domain: str | None = None
+    registry: Literal["jRCT", "JapicCTI", "UMIN-CTR"] | None = None
+    """
+    the registry recognised from the id (tb_common.ctgov_record.registry_of)
+    """
+    registry_id: str | None = None
+    """
+    the id in its registry's own spelling (jRCT2031210123)
+    """
 
 
 class CtgovStudy(BaseModel):
@@ -270,6 +359,19 @@ class CtgovStudy(BaseModel):
     minimum_age: str | None = None
     maximum_age: str | None = None
     sex: str | None = None
+    locations: list[CtgovLocation] | None = None
+    """
+    the record's sites; never a contact person (D-1367)
+    """
+    secondary_ids: list[CtgovSecondaryId] | None = None
+    arms: list[CtgovArm] | None = None
+    interventions: list[CtgovIntervention] | None = None
+    primary_outcomes: list[CtgovOutcome] | None = None
+    secondary_outcomes: list[CtgovOutcome] | None = None
+    design: CtgovDesign | None = None
+    """
+    designModule beyond phases and the enrolment count, which stay on the study
+    """
 
 
 class DerivedPin(BaseModel):
@@ -2099,6 +2201,102 @@ class SiteSchema(BaseModel):
     plants: SitePlants | None = Field(None, title="SitePlants")
     """
     what the synthetic site plants for the mapping to find: lab codes the mapping does not know and results in a unit the lookup does not expect
+    """
+
+
+class StudyProtocol(BaseModel):
+    """
+    The protocol part of a study manifest (10D-2, D-1366; review 14 M14-1): what the coordinating centre fixes for every site, read from rulesets/<ID>/ by tb_common.study_manifest. Its canonical serialisation (keys sorted, no spaces, UTF-8) hashes to criteria_sha256, the same on every site that adopts it; a site edit to any of it is refused. The canonical form is written in D-1366. Schema version 1.0.0.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    schema_: Literal["tb-study-protocol/1"] = Field(..., alias="schema")
+    criteria_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+    """
+    sha256 of the canonical serialisation of schema, manifest and files (every key but this one)
+    """
+    manifest: dict[
+        Literal[
+            "id",
+            "kind",
+            "title",
+            "trial_alias",
+            "sponsor",
+            "version",
+            "source_documents",
+            "protocol_version",
+            "protocol_date",
+            "language",
+            "index_date_rule",
+            "library",
+            "criteria",
+            "thresholds",
+            "variants",
+            "twpas",
+            "docx_template",
+            "cohort",
+            "population",
+            "nct_id",
+            "terminology_release",
+            "prompt_pins",
+            "derived_pins",
+            "source_last_update",
+            "models",
+        ],
+        Any,
+    ]
+    """
+    the protocol fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it (as the file writes it, no default added, nulls left out); models carries only judge_prompt, the judge's prompt pin of a manifest without prompt_pins (which model serves is the site's)
+    """
+    files: dict[str, str]
+    """
+    the protocol's files of rulesets/<ID>/ by relative path (ir/*.json, valuesets/*.json, every file under cql/elm/, cql/*.cql, sql/*.sql, labels.yaml, tests/patients.ndjson, tests/expected.json, and the file docx_template names), each the sha256 of its canonical bytes (D-1366); a criterion IR file without the site's review record (who, when, comment, approved or draft); no other file is hashed
+    """
+
+
+class StudySite(BaseModel):
+    """
+    The site part of a study manifest (10D-2, D-1366; review 14 M14-1): what a hospital sets for itself beside the protocol part it adopted (screening scopes and people, routing, which model serves, its approval and IRB record, its own equivalence run and loaded code tables), read from rulesets/<ID>/ by tb_common.study_manifest. Edited freely at the site. Schema version 1.0.0.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    schema_: Literal["tb-study-site/1"] = Field(..., alias="schema")
+    criteria_sha256: str = Field(..., pattern="^[0-9a-f]{64}$")
+    """
+    the criteria hash of the protocol part this site part goes with
+    """
+    manifest: dict[
+        Literal[
+            "status",
+            "effective_from",
+            "irb_reference",
+            "irb_approved_on",
+            "scopes",
+            "routing",
+            "models",
+            "review",
+            "equivalence",
+            "terminology_tables",
+            "terminology_refused",
+        ],
+        Any,
+    ]
+    """
+    the site fields of rulesets/<ID>/manifest.yaml, each value as ruleset_manifest.schema.json defines it (as the file writes it, no default added, nulls left out); models without judge_prompt, which is the protocol's
+    """
+    criterion_reviews: dict[str, CriterionReview] | None = None
+    """
+    each criterion's review record at this site, by criterion id, as its IR file holds it
+    """
+    files: dict[str, str] | None = None
+    """
+    the site's own files of rulesets/<ID>/ (its equivalence run, tests/equivalence.json) by relative path, each its sha256
     """
 
 
