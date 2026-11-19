@@ -1,8 +1,10 @@
 # H-43: the rc1 site bundle's weights and the embedder
 
+**Reader:** the people who build TrialBox: the lead, the integrator and the owner (section 4 holds their two
+questions), lane G (H43-01). Findings for builders, so in one language.
+
 - **Card:** H-43 (lane H; lane D's files since 2026-11-19 01:50 UTC)
 - **Date:** 2026-11-19
-- **Reader:** the lead, the integrator and the owner (section 4 holds their two questions)
 - **Findings:** [`rc1-bundle-weights-2026-11-19/findings.json`](rc1-bundle-weights-2026-11-19/findings.json)
   (H43-01 to H43-04)
 - **Launch sheet:** [install-rehearsal-sheet-2026-11-18.md](../plan/measurements/install-rehearsal-sheet-2026-11-18.md)
