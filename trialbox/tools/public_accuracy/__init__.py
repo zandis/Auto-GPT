@@ -14,8 +14,9 @@ turns the public sets the catalogues mark usable by a product vendor into what a
   ``tools/public_site.py`` uses, mapped by ``services/adapter/mapping/tw_core/demo_his.yaml``), each trial's criteria
   as a protocol the box compiles, and the gold kept OUTSIDE the site folder, joined by ids only after the run.
 * :mod:`.score`    the box's per-patient answers against the gold: eligible lost, excluded caught, wrong exclusions,
-  unanswered, per language and stratum, with exact (Clopper-Pearson) intervals; the compile agreement of the same
-  trial in zh-Hant and English.
+  unanswered, per language and stratum, with exact (Clopper-Pearson) intervals; a set that records an inclusion
+  probability per sampled row is weighted by its inverse (Horvitz–Thompson), with a Korn–Graubard interval; the
+  compile agreement of the same trial in zh-Hant and English.
 * :mod:`.box`      the plumbing proof on the stand-in models: an in-process box, the hospital CSV ingest, the
   compiler and SCREEN through a PRODUCTION gateway, behind model-guard, to the strict vLLM stand-ins. Never an
   accuracy result: the stand-ins answer from ``services/llm_stub``.

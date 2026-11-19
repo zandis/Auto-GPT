@@ -362,6 +362,31 @@ def score_all(sets: dict[str, tuple[Path, Any, Path]], where: Path) -> dict[str,
 
 
 # ---------------------------------------------------------------- the figures
+def _kn(blocks: list[dict[str, Any]]) -> tuple[Any, Any]:
+    """Events and denominator of a rate. Unweighted: the sample counts, as ints. Weighted (card 10G-37): the
+    Horvitz–Thompson total and the frame, so the published figure is the unbiased estimate and not the sample share."""
+    if any(b.get("weighted") for b in blocks):
+        return (
+            sum(float(b["estimated_events"]) if b.get("weighted") else int(b["k"]) for b in blocks),
+            sum(float(b["population"]) if b.get("weighted") else int(b["n"]) for b in blocks),
+        )
+    return sum(int(b["k"]) for b in blocks), sum(int(b["n"]) for b in blocks)
+
+
+def _sum_counted(values: Any) -> int | float:
+    """Sum of figure counts. An int stays an int, so an unweighted pool is the same number as before. A weighted
+    total is a float and is not truncated: ``int`` of a fractional Horvitz–Thompson total would drop events."""
+    total: int | float = 0
+    for v in values:
+        if type(v) is int:
+            total += v
+        elif v is None or v is False:
+            continue
+        else:
+            total += float(v)
+    return total
+
+
 def eligible_figure(name: str, sc: dict[str, Any], refused: str | None = None) -> dict[str, Any]:
     """Target 1 for one set: pair level where the set has eligibility labels (gold-eligible pairs the box excluded,
     of those it answered), else criterion level (gold met or not applicable rows the box blocked, of those answered:
@@ -374,8 +399,7 @@ def eligible_figure(name: str, sc: dict[str, Any], refused: str | None = None) -
                 "denominator": 0}  # fmt: skip
     summ = (sc.get("pairs") or {}).get("summary") or {}
     if summ:
-        k = sum(int(s["eligible_lost"]["k"]) for s in summ.values())
-        n = sum(int(s["eligible_lost"]["n"]) for s in summ.values())
+        k, n = _kn([s["eligible_lost"] for s in summ.values()])
         extra = {lang: {kk: s.get(kk) for kk in ("eligible_lost_where_the_criterion_labels_exclude",
                                                  "eligible_lost_on_the_line_the_criterion_labels_exclude")}
                  for lang, s in summ.items()}  # fmt: skip
@@ -386,15 +410,16 @@ def eligible_figure(name: str, sc: dict[str, Any], refused: str | None = None) -
         con = (sc.get("pairs") or {}).get("conflicted")
         if con is not None:
             # D-1064: the target reads the key without its conflicted pairs; the figure with them is beside it
-            out["numerator"] = sum(int(s["eligible_lost_without_conflicted"]["k"]) for s in summ.values())
-            out["denominator"] = sum(int(s["eligible_lost_without_conflicted"]["n"]) for s in summ.values())
+            out["numerator"], out["denominator"] = _kn(
+                [s["eligible_lost_without_conflicted"] for s in summ.values()]
+            )
             out["what"] += ", without the pairs the key marks conflicted (D-1064)"
             out["conflicted"] = con["pairs"]
             out["conflicted_excluded_on_another_line"] = sc["pairs"].get("conflicted_excluded_on_another_line") or []
         return out
     cr = sc.get("criteria") or {}
     w = cr.get("wrong_exclusion") or {}
-    k, n = int(w.get("k") or 0), int(w.get("n") or 0)
+    k, n = _kn([w]) if w.get("weighted") else (int(w.get("k") or 0), int(w.get("n") or 0))
     return {"set": name, "gold_kind": kind, "scored": True, "numerator": k, "denominator": n,
             "what": "gold rows met or not applicable (JMED: not excluded) the box blocked, of those it answered",
             "with_conflicted": {"numerator": k, "denominator": n}, "conflicted": None,
@@ -404,12 +429,13 @@ def eligible_figure(name: str, sc: dict[str, Any], refused: str | None = None) -
 def figure(level: str, key: str, per_set: list[dict[str, Any]]) -> dict[str, Any]:
     """Target 1 at one level and key over the sets. The pooled numbers only when every set is of one stated gold kind
     (10G-38, D-1326); otherwise they are None and ``pooled_refused`` says why: the per-set figures and the sums per
-    stated kind (``by_gold_kind``) stand alone. ``within_target`` reads each set (none excluded an eligible patient)."""
-    k = sum(int(x.get("numerator") or 0) for x in per_set)
-    n = sum(int(x.get("denominator") or 0) for x in per_set)
+    stated kind (``by_gold_kind``) stand alone. ``within_target`` reads each set (no estimated eligible patient
+    excluded). A weighted numerator is the Horvitz–Thompson total and is summed as that total."""
+    k = _sum_counted(x.get("numerator") for x in per_set)
+    n = _sum_counted(x.get("denominator") for x in per_set)
     scored = all(x.get("scored", True) for x in per_set)
-    wk = sum(int((x.get("with_conflicted") or {}).get("numerator") or 0) for x in per_set)
-    wn = sum(int((x.get("with_conflicted") or {}).get("denominator") or 0) for x in per_set)
+    wk = _sum_counted((x.get("with_conflicted") or {}).get("numerator") for x in per_set)
+    wn = _sum_counted((x.get("with_conflicted") or {}).get("denominator") for x in per_set)
     marks = [x for x in per_set if x.get("conflicted") is not None]
     refused: str | None = None
     try:
@@ -420,8 +446,8 @@ def figure(level: str, key: str, per_set: list[dict[str, Any]]) -> dict[str, Any
     for x in per_set:
         if x.get("gold_kind") in gold_kind.KINDS:
             t = by_kind.setdefault(x["gold_kind"], {"numerator": 0, "denominator": 0, "sets": []})
-            t["numerator"] += int(x.get("numerator") or 0)
-            t["denominator"] += int(x.get("denominator") or 0)
+            t["numerator"] += _sum_counted([x.get("numerator")])
+            t["denominator"] += _sum_counted([x.get("denominator")])
             t["sets"].append(x["set"])
     return {"level": level, "key": key, "numerator": None if refused else k, "denominator": None if refused else n,
             "pooled_refused": refused, "by_gold_kind": by_kind, "met": False, "met_only_by": MET_ONLY_BY,
