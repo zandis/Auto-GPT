@@ -413,13 +413,6 @@ mapped by the rule above from what the finding says; the source's own word is no
 | H23b-03 | 2026-11-18 | [size-test-2026-11-17.md](../plan/measurements/size-test-2026-11-17.md) | Medium | The cascade's S1 time grows with about the square of the patients (243 s at 50,000, 902 s at 100,000 for one study; 807 s of it reading the rows in D-748's batches), the pattern H-23 showed for FEAS | A2 | shown | open |
 | H23b-04 | 2026-11-18 | [size-test-2026-11-17.md](../plan/measurements/size-test-2026-11-17.md) | Low | The scale gate's ingest runs the HL7 validator only when TB_HL7_VALIDATOR_JAR and the packages are set, and its report does not say which check ran; one size's ingest differs about 2 times between the two (20,000: 241 s with it, 110 s without) | B2 | shown | open |
 
-## H10G6: rule-set zip caps and where a rule set's signature is checked (plan 10 row 10G-6)
-
-| Id | Date found | Source | Severity | Claim | Lane | Basis | State |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| H10G6-01 | 2026-11-18 | [rule-set-zip-caps-2026-11-18.md](rule-set-zip-caps-2026-11-18.md) | Low | python -m criteria_compiler.import_ruleset FILE installs any zip given to it whose own manifest says approved; the module checks no signature itself (services/criteria_compiler/import_ruleset.py main); only the update path in front of it does (tools/verify_update.py:243); reaching it needs a shell in the criteria-compiler container | B2 | shown | open |
-| H10G6-02 | 2026-11-18 | [rule-set-zip-caps-2026-11-18.md](rule-set-zip-caps-2026-11-18.md) | Low | the trial simulation runs the SQL of a compiler draft zip read from the object store (services/orchestrator/scenarios/trials.py:63 and :97 -> cohort.load_draft -> feas_compute.py:274) with no signature or hash binding the stored zip to the compile result that named it; changing it needs write access to the object store; only check_select and the read-only lake bound the SQL | A2 | shown | open |
-
 ## H10G3: the security page corrected (lane H, plan 10 row 10G-3, 2026-11-18)
 
 | Id | Date found | Source | Severity | Claim | Lane | Basis | State |
