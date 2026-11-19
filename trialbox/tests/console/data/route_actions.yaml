@@ -156,6 +156,9 @@ routes:
   "POST /ops/identity": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "POST /ops/ingest": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "POST /ops/notices": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
+  "GET /ops/support-session": {actions: ["support.session"], mode: all, why: "10K-15 (D-1364): the support-session switch, the administrator's row"}
+  "POST /ops/support-session": {actions: ["support.session"], mode: all, why: "10K-15 (D-1364): start a support session"}
+  "POST /ops/support-session/end": {actions: ["support.session"], mode: all, why: "10K-15 (D-1364): end the support session by hand"}
   "GET /ops/users": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "POST /ops/users": {actions: ["ops.view"], mode: all, why: "drafted from a traced walk (the action the route asks); the same answers as the design table role_route_matrix.md; not checked against a decision by hand"}
   "GET /pilot/cascade": {actions: ["!report.aggregate_only"], mode: all, why: "D-146 (J-03/J-04/J-05, console/app.py _aggregate_denied): closed to viewer and CRO accounts; the patient rows inside ask phi.view (D-280)"}
