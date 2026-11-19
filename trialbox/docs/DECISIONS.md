@@ -1247,6 +1247,10 @@ not to fit (35,810 MiB on the 8 Nov card run; "pair-tight" short of KV cache).
 * **Install guard.** `install.sh --gpu rtx5090` refuses to start the pair unless `deploy/site/serving_config.rtx5090.json`
   passes `tools.serving_config measured rtx5090` (complete record, a 5090 card that is not a capped larger card,
   `--enable-sleep-mode` on both servers), or the operator sets `TB_ACCEPT_UNMEASURED_GPU=1` for a first trial boot.
+* **Amended 2026-11-19 (plan 10 row 10E-32, review 19 card 19-3):** the rule also accepts a card named "RTX PRO
+  4500" (the 32 GB fallback card, plan 10 decision 106; `deploy/gpu_profile.sh` already maps it to `rtx5090`), on
+  its own card: a capped record, one made under the ballast and every other condition still fail
+  (`tools/serving_config.py` `PROFILES["rtx5090"]["also"]`; `tests/unit/test_fallback_card_measured.py`).
 * **Not done.** The answers after a wake were not captured on the 8 Nov run (empty smoke answers in `fit.json`), and
   nothing has run on a physical 5090.
 
