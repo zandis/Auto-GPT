@@ -252,6 +252,62 @@ def test_a_model_that_was_not_asked_does_not_replace_a_stored_answer(
     assert "Verdict changes: 0" in out.summary_md
 
 
+@pytest.mark.parametrize("reason", ["not_evaluated", "model_down"])
+def test_a_stored_coded_pass_on_an_age_alone_does_not_stand_when_nobody_was_asked(
+    monkeypatch: pytest.MonkeyPatch, reason: str
+) -> None:
+    """Card 10A-2: before the rule, a mixed inclusion whose coded part is an age alone was stored "pass, coded" on
+    the age. Under a hold, with no judge or with the model down the re-check asks nobody; that stored pass never
+    meant the line was met, so it does not stand: the line is open (unknown) and the change is reported."""
+    from dataclasses import replace
+
+    from tests.unit import test_microbatch_cadence as cadence
+
+    inc = next(c for c in GZQO.active() if c.id == "GZQO-INC-01")  # aged 18 or older, coded
+    mixed = inc.model_copy(update={"class_": "mixed", "text": "18 years or older with a diagnosis of FAP",
+                                   "note_question": "Is FAP diagnosed?"})  # fmt: skip
+    monkeypatch.setattr(
+        cadence, "GZQO", replace(GZQO, criteria=[mixed if c.id == inc.id else c for c in GZQO.criteria])
+    )
+    box = _NotAsked(pool=["P1"], booked={"P1": FRI}, scope=[])
+    box.cid, box.reason = mixed.id, reason
+    out = box.go(monkeypatch)
+    cl = json.loads(box.published["candidate_list_GZQO_v" + GZQO.version + ".json"])
+    row = next(v for v in cl["rows"][0]["criteria"] if v["id"] == mixed.id)
+    assert row["verdict"] == "unknown" and cl["rows"][0]["tier"] == "review"
+    assert "Verdict changes: 1" in out.summary_md
+
+
+def test_a_row_the_night_budget_leaves_unchecked_loses_its_age_alone_pass_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Card 10A-2, the second review: P1's visit is the farthest, so the budget leaves it unchecked. Its stored
+    "pass, coded" on an age alone is not kept on the week's list: the line is open and P1 is listed for review,
+    not in the top tier. Its stored row is not written over (its last evaluation stands)."""
+    from dataclasses import replace
+
+    from tests.unit import test_microbatch_cadence as cadence
+
+    inc = next(c for c in GZQO.active() if c.id == "GZQO-INC-01")
+    mixed = inc.model_copy(update={"class_": "mixed", "text": "18 years or older with a diagnosis of FAP",
+                                   "note_question": "Is FAP diagnosed?"})  # fmt: skip
+    monkeypatch.setattr(
+        cadence, "GZQO", replace(GZQO, criteria=[mixed if c.id == inc.id else c for c in GZQO.criteria])
+    )
+    pool = ["P1", "P2", "P3"]
+    box = cadence._Box(
+        pool=pool,
+        booked={"P1": "2026-10-12T09:00:00+09:00", "P2": "2026-10-08T09:00:00+09:00", "P3": FRI},
+        scope=[],
+        budget=4,
+        others=2,
+    )
+    box.go(monkeypatch)
+    assert box.evaluated == [["P2", "P3"]] and "P1" not in box.persisted
+    cl = json.loads(box.published["candidate_list_GZQO_v" + GZQO.version + ".json"])
+    p1 = next(r for r in cl["rows"] if r["pid"] == "P1")
+    assert next(v for v in p1["criteria"] if v["id"] == mixed.id)["verdict"] == "unknown"
+    assert p1["tier"] == "review"
+
+
 def test_an_unknown_the_data_gives_still_replaces_a_stored_answer(monkeypatch: pytest.MonkeyPatch) -> None:
     """Only "nobody was asked" is ignored: an unknown that says something (a data gap) is the new answer."""
     coded = next(c.id for c in GZQO.active() if c.class_ == "structured" and c.kind == "inclusion")

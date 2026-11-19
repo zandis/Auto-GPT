@@ -1,0 +1,25 @@
+{
+ "card": "H10G6",
+ "title": "rule-set zip caps and where a rule set's signature is checked (plan 10 row 10G-6)",
+ "date": "2026-11-18",
+ "source": "docs/handover/rule-set-zip-caps-2026-11-18.md",
+ "note": "basis 'shown' means shown by reading the code, not by running an attack. The update path itself verifies the bundle signature and each payload's sha256 before the rule-set zip is opened.",
+ "findings": [
+  {
+   "id": "H10G6-01",
+   "severity": "Low",
+   "claim": "python -m criteria_compiler.import_ruleset FILE installs any zip given to it whose own manifest says approved; the module checks no signature itself (services/criteria_compiler/import_ruleset.py main); only the update path in front of it does (tools/verify_update.py:243); reaching it needs a shell in the criteria-compiler container",
+   "lane": "B2",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H10G6-02",
+   "severity": "Low",
+   "claim": "the trial simulation runs the SQL of a compiler draft zip read from the object store (services/orchestrator/scenarios/trials.py:63 and :97 -> cohort.load_draft -> feas_compute.py:274) with no signature or hash binding the stored zip to the compile result that named it; changing it needs write access to the object store; only check_select and the read-only lake bound the SQL",
+   "lane": "A2",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}

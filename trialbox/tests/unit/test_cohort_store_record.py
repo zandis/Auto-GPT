@@ -29,6 +29,8 @@ from tb_common.objstore import FsStore
 from tb_common.routing import RoutingViolation
 from tb_contracts import JobCreate, JobFile, SendRequest, SendResult
 
+from tests import alliance_keys
+
 ROOT = Path(__file__).resolve().parents[2]
 SENDER = "crc1@hospa.test"
 SITES = ("HOSP-B", "HOSP-C", "HOSP-D")
@@ -61,8 +63,10 @@ class _Box:
     def __init__(self, tmp_path: Path, schema: str | None = None) -> None:
         _Box.n += 1
         self.dir = tmp_path / f"box{_Box.n}"
+        # D-1226: the root verifies every member table against its register of site keys
+        environ = alliance_keys.env(tmp_path / "keys", [*SITES, "DEMO-A"])
         cfg = Config(
-            env=load_env(dotenv=tmp_path / "x.env", environ={}),
+            env=load_env(dotenv=tmp_path / "x.env", environ=environ),
             settings=load_settings(ROOT / "deploy/settings.example.yaml"),
         )
         self.mail = _Mail()
@@ -74,13 +78,22 @@ class _Box:
             self.dir / "rulesets", self.dir, today=lambda: date(2026, 11, 13), workers=0, async_notify=False,
         )  # fmt: skip
 
+    seq = 0
+
     def merge(self, tables: list[list[dict[str, Any]]]) -> str:
+        """A merge of ``tables``, each sent with its site's signature, each signed later than the one before."""
         files = []
         for i, rows in enumerate(tables):
             data = cohort.to_csv(rows)
             key = f"inputs/{_Box.n}-{len(self.db.find(type_='COHORT'))}/t{i}.csv"
             self.store.put(key, data)
             files.append(JobFile(filename=f"cohort_table_{i}.csv", sha256=sha256_bytes(data), minio_key=key))
+            _Box.seq += 1
+            sig = alliance_keys.signature(rows, seq=_Box.seq)
+            self.store.put(key + ".sig.json", sig)
+            files.append(
+                JobFile(filename=f"cohort_table_{i}.sig.json", sha256=sha256_bytes(sig), minio_key=key + ".sig.json")
+            )
         req = JobCreate(type="COHORT", ruleset="MERGE", requested_by=SENDER, inputs=files)
         return self.orch.create(req, notify=False).job_id
 
@@ -171,8 +184,9 @@ def _fault(b: _Box, mp: pytest.MonkeyPatch, where: str, k: int, exc: BaseExcepti
 
         return wrapped
 
-    if where == "read":
-        mp.setattr(b.store, "get", at(b.store.get))
+    if where == "read":  # the reads of the tables; their signature files are read before them (D-1226)
+        real_get, fault_get = b.store.get, at(b.store.get)
+        mp.setattr(b.store, "get", lambda key: real_get(key) if key.endswith(".sig.json") else fault_get(key))
     elif where == "parse":
         mp.setattr(cohort, "parse_csv", at(cohort.parse_csv))
     elif where == "refusal":

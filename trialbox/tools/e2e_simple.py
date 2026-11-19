@@ -253,7 +253,8 @@ def _stage11(res: dict[str, Any], api: Any, crc: Any, pi: Any, lang: str, mrns: 
     today = local_today(h.clock(), site_zone(h.bk))  # the site's date (07:00 in Tokyo is the day before in UTC)
     # a new participant: the next listed patient without a screening number gets one
     have = set(h.store.screening_nos(rs))
-    pid = next(r["pid"] for r in h.mail_week(rs)["rows"] if r["pid"] not in have)
+    # (D-1221: one nobody has marked, so its state is known exactly: on the list)
+    pid = next(r["pid"] for r in h.mail_week(rs)["rows"] if r["pid"] not in have and r.get("mark") is None)
     no = h.store.assign_screening_no(rs, pid, h.settings_of(rs), h.clock().isoformat())
     # the visit schedule, defined in TrialBox
     page = crc.get(f"/studies/{rs}/schedule")
@@ -264,9 +265,10 @@ def _stage11(res: dict[str, Any], api: Any, crc: Any, pi: Any, lang: str, mrns: 
     s.check("the visit schedule is saved (3 visits with windows)", 'data-testid="schedule-saved"' in r.text,
             r.status_code)  # fmt: skip
     page = crc.get(f"/studies/{rs}/subjects")
-    s.check("the new screening number is a participant (candidate)",
-            re.search(rf'data-testid="subject-{no}">.*?data-state="candidate"', page.text, re.S) is not None,
-            page.status_code)  # fmt: skip
+    # D-1221: the row names the person's one state: a record nobody has marked, contacted or consented is on the list
+    got = re.search(rf'data-testid="subject-{no}">.*?data-state="([a-z_]+)"', page.text, re.S)
+    s.check("the new screening number is a participant (on the list)",
+            got is not None and got.group(1) == "listed", (page.status_code, got and got.group(1)))  # fmt: skip
     csrf = fd._csrf(page.text)
     r = crc.post(f"/studies/{rs}/subjects/{no}/step", data={"csrf": csrf, "to": "enrolled"})
     plain = cat["life.why.order"].split("{")[0]
@@ -1749,10 +1751,11 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     t = time.perf_counter()
     s.check("S36 test connection", res["s36_ok"])
     s.check(
-        "candidate -> consented -> enrolled",
-        res["before"] == cat["registry.status.candidate"]
-        and res["after_consent"].startswith(cat["registry.status.consented"])
-        and res["after_enrol"].startswith(cat["registry.status.enrolled"]),
+        # D-1221: the log names the person's one state (approved, not reached on the first call: to contact)
+        "to contact -> consented -> enrolled",
+        res["before"] == cat["person.state.to_contact"]
+        and res["after_consent"].startswith(cat["person.state.consented"])
+        and res["after_enrol"].startswith(cat["person.state.enrolled"]),
         (res["before"], res["after_consent"], res["after_enrol"]),
     )
     s.check("sponsor subject number shown", res["subject_shown"])
@@ -1879,7 +1882,7 @@ def run(work: Path, password: str, lang: str = "ja") -> dict[str, Any]:
     r = crc.post(f"/studies/{TRIAL}/redcap-read", data={"csrf": fd._csrf(r.text), "back": "log"})
     s.check(
         "next run: consent read back on the log",
-        rc_demo.status_of(r.text, new_no).startswith(cat["registry.status.consented"]),
+        rc_demo.status_of(r.text, new_no).startswith(cat["person.state.consented"]),
         rc_demo.status_of(r.text, new_no),
     )
     s.check("next run: tb_status follows (3, consented)", sim_rows().get(new_rid, {}).get("tb_status") == "3")

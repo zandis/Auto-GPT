@@ -2,7 +2,7 @@
 # Apply a signed offline update bundle (SPEC §10.1 "Updates"; DECISIONS D-77, D-138, D-210). No auto-update: an
 # operator runs this, from the install folder, as root.
 #
-#   tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup] [--allow-downgrade REASON]
+#   tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup [--no-backup-reason REASON]] [--allow-downgrade REASON]
 #   tools/apply_update.sh status              # the update in progress (or not), the installed release, the keys
 #   tools/apply_update.sh rollback BUNDLE_ID  # roll back an update that was interrupted (power cut, kill -9)
 #   tools/apply_update.sh clean               # remove left-over rollback points of finished updates
@@ -40,12 +40,15 @@
 #    installed.json, trust.json, `update.applied` audited, the rollback point deleted, the marker removed.
 #    Any failure from apply to check: everything is put back, `update.rolled_back` audited, the marker removed;
 #    if the rollback itself fails the marker stays (restore from the backup, RUNBOOK §5).
+#    --no-backup skips the backup on a DEV, TEST or VALIDATION box; on a PRODUCTION box (deploy/.env TB_ENV, unset
+#    or any other name counts as PRODUCTION, D-633) only with --no-backup-reason REASON, audited as
+#    update.backup_skipped (D-1321); without one it is refused before anything is read (exit 2).
 #    A box that is not running yet (the first install) only loads the payloads; install.sh audits it after start.
 #    --target demo: the one-container demo VM (docs/RUNBOOK.md §11), checked by running e2e_simple in the new container.
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 UPDATES="$ROOT/deploy/updates"
-USAGE="usage: tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup] [--allow-downgrade REASON] | status | rollback BUNDLE_ID | clean | ospatch BUNDLE.tar [--dry-run] [--conf FILE] | ospatch-check [--conf FILE]"
+USAGE="usage: tools/apply_update.sh BUNDLE.tar [--dry-run] [--target compose|demo] [--no-backup [--no-backup-reason REASON]] [--allow-downgrade REASON] | status | rollback BUNDLE_ID | clean | ospatch BUNDLE.tar [--dry-run] [--conf FILE] | ospatch-check [--conf FILE]"
 case "${1:-}" in
   status|clean) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$ROOT/deploy" "$1" ;;
   rollback) cd "$ROOT"; exec python3 -m tools.update_status --deploy "$ROOT/deploy" rollback "${2:?$USAGE}" ;;
@@ -56,18 +59,30 @@ OSPATCH=""; OSCONF=""
 if [ "$1" = ospatch ]; then OSPATCH=1; shift; [ $# -gt 0 ] || { echo "$USAGE" >&2; exit 2; }; fi
 BUNDLE=$1
 shift
-DRY=""; TARGET=${TB_UPDATE_TARGET:-compose}; NOBACKUP=""; DOWNGRADE=""
+DRY=""; TARGET=${TB_UPDATE_TARGET:-compose}; NOBACKUP=""; NOBACKUP_REASON=""; DOWNGRADE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=--dry-run ;;
     --conf) [ -n "$OSPATCH" ] || { echo "apply_update: --conf is for ospatch" >&2; exit 2; }; OSCONF=$2; shift ;;
     --target) TARGET=$2; shift ;;
     --no-backup) NOBACKUP=--no-backup ;;
+    --no-backup-reason) NOBACKUP_REASON=${2:?--no-backup-reason needs a reason}; shift ;;
     --allow-downgrade) DOWNGRADE=${2:?--allow-downgrade needs a reason}; shift ;;
     *) echo "apply_update: unknown option $1" >&2; exit 2 ;;
   esac
   shift
 done
+[ -z "$NOBACKUP_REASON" ] || [ -n "$NOBACKUP" ] || { echo "apply_update: --no-backup-reason goes with --no-backup" >&2; exit 2; }
+# D-1321: the box's environment as the update path reads it (deploy/.env's last TB_ENV line, the rehearsal mark
+# when it names none; tools/trialbox/update.py ComposeBox.environment)
+if [ -z "$OSPATCH" ] && [ -n "$NOBACKUP" ] && [ -z "$NOBACKUP_REASON" ]; then
+  BOX_ENV=""; [ -f "$ROOT/deploy/.env" ] && BOX_ENV="$(sed -n 's/^TB_ENV=//p' "$ROOT/deploy/.env" | tail -1 | tr -d "\"' \r\t" | tr '[:lower:]' '[:upper:]')"
+  [ -z "$BOX_ENV" ] && [ -f "$ROOT/deploy/site/rehearsal.json" ] && BOX_ENV=TEST
+  case "$BOX_ENV" in
+    DEV|TEST|VALIDATION) ;;
+    *) echo "update REFUSED: --no-backup on a PRODUCTION box needs --no-backup-reason REASON (audited); nothing was changed" >&2; exit 2 ;;
+  esac
+fi
 PUBKEY=${TB_VENDOR_PUBKEY:-$ROOT/deploy/keys/vendor_ed25519.pub}
 NEXTKEY="$ROOT/deploy/keys/vendor_ed25519.next.pub"
 IMAGE=${TB_PY_IMAGE:-trialbox-py:1.0.0}
@@ -146,4 +161,4 @@ cd "$ROOT"
 # D-888: the update restarts the stack: never on the example settings while the site's exist
 sh "$ROOT/deploy/settings_guard.sh" "$ROOT/deploy" || { echo "update REFUSED: nothing was changed" >&2; exit 1; }
 python3 -m tools.trialbox update --stage "$STAGE" --summary "$STAGE/summary.json" --target "$TARGET" \
-  --deploy "$ROOT/deploy" $NOBACKUP
+  --deploy "$ROOT/deploy" $NOBACKUP ${NOBACKUP_REASON:+--no-backup-reason "$NOBACKUP_REASON"}

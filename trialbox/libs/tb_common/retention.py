@@ -28,7 +28,7 @@ information-security officer, not legal advice.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, tzinfo
 
 from tb_common.timeutil import add_months
 
@@ -39,6 +39,9 @@ DEFAULTS: dict[str, dict[str, int]] = {
     "tw": {**_COMMON, "mail_log_days": 7 * 365},
 }
 OVERRIDABLE = ("attachments_days", "outputs_days", "logs_days", "mail_log_days")
+# 10K-1: the most days a site may give where TrialBox has no rules for its country (a hundred years: a typo, not a
+# period); the rule sets' own overrides keep their only bound, at least one day
+MAX_DAYS = 36500
 # D-779 (T-305c): how many years a closed study's files, pool and marks are kept after the close when the close names
 # no period (a close recorded before the period was asked). Japan's 臨床研究法施行規則 keeps a study's records five
 # years from its end; a sponsor's contract often asks longer, which the trial office gives per study (1 to 30). A
@@ -47,16 +50,28 @@ STUDY_YEARS_AFTER_CLOSE = 5
 STUDY_YEARS_MAX = 30
 
 
-def kept_until(closed_at: str, years: int | None) -> date:
+def kept_until(closed_at: str, years: int | None, zone: tzinfo | None = None) -> date:
     """D-779: the day a closed study's files stop being held: the close's own day plus ``years`` (the default when
-    None). A close on 29 February ends on the 28th in a year with none."""
-    day = datetime.fromisoformat(closed_at).date()
-    return add_months(day, 12 * (years or STUDY_YEARS_AFTER_CLOSE))
+    None). A close on 29 February ends on the 28th in a year with none. ``zone``: the site's, so the close's day is
+    the site's (WALK-1, F-16: an instant stored in UTC is a day early in the evening UTC); None: the instant's own."""
+    when = datetime.fromisoformat(closed_at)
+    if zone is not None and when.tzinfo is not None:
+        when = when.astimezone(zone)
+    return add_months(when.date(), 12 * (years or STUDY_YEARS_AFTER_CLOSE))
 
 
 def held_after_close(closed_at: str, years: int | None, now: datetime) -> bool:
-    """D-779: whether a study closed at ``closed_at`` still holds its files on ``now``'s day."""
-    return now.date() < kept_until(closed_at, years)
+    """D-779: whether a study closed at ``closed_at`` still holds its files on ``now``'s day; both days are read in
+    ``now``'s zone (the site's, where ``now`` is the site's time)."""
+    return now.date() < kept_until(closed_at, years, now.tzinfo)
+
+
+def _days(k: str, v: object) -> int:
+    """A number of days as a site gives it; a value that is not a whole number names its key (10K-1)."""
+    text = str(v).strip()
+    if not (text.isascii() and text.lstrip("-").isdigit()):
+        raise ValueError(f"{k} must be a whole number of days, not {text!r}")
+    return int(text)
 
 
 def defaults_for(country: str, overrides: dict[str, object] | None = None) -> dict[str, int]:
@@ -67,10 +82,29 @@ def defaults_for(country: str, overrides: dict[str, object] | None = None) -> di
     for k in OVERRIDABLE:
         v = (overrides or {}).get(k)
         if v not in (None, ""):
-            n = int(str(v))
+            n = _days(k, v)
             if n < 1:
                 raise ValueError(f"{k} must be at least 1 day")
             out[k] = n
+    return out
+
+
+def site_own(overrides: dict[str, object] | None) -> dict[str, int]:
+    """10K-1: the retention block of a site whose country has no rules here (neither ``jp`` nor ``tw``): each of
+    :data:`OVERRIDABLE` must be given by the site; the rest (snapshots, the pool, the audit years) is the box's own
+    and the same in both rule sets. Raises ``ValueError`` naming the days not given."""
+    missing = [k for k in OVERRIDABLE if (overrides or {}).get(k) in (None, "")]
+    if missing:
+        raise ValueError(
+            "no retention rules for this country in TrialBox (only jp and tw): answer retention_rules, or give "
+            + ", ".join(missing)
+        )
+    out = dict(_COMMON)
+    for k in OVERRIDABLE:
+        n = _days(k, (overrides or {})[k])
+        if not 1 <= n <= MAX_DAYS:
+            raise ValueError(f"{k} must be 1 to {MAX_DAYS} days")
+        out[k] = n
     return out
 
 

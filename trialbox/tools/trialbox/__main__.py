@@ -197,6 +197,12 @@ def main(argv: list[str] | None = None) -> int:
     u.add_argument("--target", choices=["compose", "demo"], default=os.environ.get("TB_UPDATE_TARGET", "compose"))
     u.add_argument("--deploy", type=Path, default=deploy)
     u.add_argument("--no-backup", action="store_true", help="skip the D-126 backup (audited; not for a real box)")
+    u.add_argument(
+        "--no-backup-reason",
+        default=None,
+        metavar="REASON",
+        help="why --no-backup (required on a PRODUCTION box; audited as update.backup_skipped, D-1321)",
+    )
     ps = sub.add_parser("pre-start", help="this release's host-side steps before its stack starts (an update runs it)")
     ps.add_argument("--deploy", type=Path, default=deploy)
     du = sub.add_parser("db-up", help="this release's steps once the database is up, before its services start")
@@ -295,7 +301,16 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "update":
         from tools.trialbox import update as tb_update
 
-        return tb_update.main_apply(a.stage, a.summary, a.target, a.deploy, backup=not a.no_backup)
+        reason = (a.no_backup_reason or "").strip()
+        if reason and not a.no_backup:
+            print("update: --no-backup-reason goes with --no-backup", file=sys.stderr)
+            return 2
+        if a.no_backup and not reason and tb_update.no_backup_refused(a.target, a.deploy):
+            print("update REFUSED: --no-backup on a PRODUCTION box needs --no-backup-reason REASON (audited); "
+                  "nothing was changed", file=sys.stderr)  # fmt: skip
+            return 2
+        return tb_update.main_apply(a.stage, a.summary, a.target, a.deploy, backup=not a.no_backup,
+                                    no_backup_reason=reason or None)  # fmt: skip
     if a.cmd in ("backup-nightly", "backup-status", "backup-install"):
         from tools.trialbox import backup_schedule as bsch
 

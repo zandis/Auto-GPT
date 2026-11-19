@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.e2e import life_cycle_walk_plan as lp
 from tools import findings_register as fr
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -187,7 +188,9 @@ def test_the_walk_seed_holds_every_finding_of_the_walks_page() -> None:
         if line.startswith("| F-"):
             cells = [c.strip() for c in line.strip("|").split(" | ")]
             source[cells[0]] = (cells[-2], cells[-1])
-    assert len(source) >= 21
+    # H-30 (D-1106): the page's open findings are exactly the plan's (a finding the walk no longer sees stands after
+    # the table), so a short read fails here, and not by a floor that the page's own fixes move
+    assert set(source) == {f.id for f in lp.FINDINGS} and len(source) == len(lp.FINDINGS)
     # the live register: a finding new on lane H's page needs its row there, not in the frozen seed
     rows = {r.id.removeprefix("H20-"): r for r in fr.parse(REGISTER).rows if r.card == "H20"}
     assert set(source) <= set(rows), sorted(set(source) - set(rows))

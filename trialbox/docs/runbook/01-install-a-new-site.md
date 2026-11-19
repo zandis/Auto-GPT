@@ -118,7 +118,12 @@ for every image a bundle carries; the dated exceptions and open findings are in 
    `--answers site.yaml` (example: `python -m tools.settings_wizard --answers
    tests/fixtures/onboarding/site_c_answers.yaml --out deploy/settings.yaml --env-out deploy/.env`, which finds its
    mapping in `tests/fixtures/onboarding/mapping/`, beside the answers). Re-check an edited file with
-   `--check deploy/settings.yaml`. Mail: the hospital MTA must add an `Authentication-Results` header; answer
+   `--check deploy/settings.yaml`. The first question is the site's country (`country`: `jp`, `tw`, `us` or
+   `other`, 10K-1): the report language, time zone, retention rules, source type and mapping offered next follow it
+   (`libs/tb_common/site_country.py`); a Japan site is offered `ja`, `Asia/Tokyo`, Japan's retention and an SS-MIX2
+   source (`data_source_host_dir` is then the storage's root folder, mounted read-only), and the TWPAS questions are
+   asked for a Taiwan site only. Where TrialBox holds no value for the country the question has no default. An
+   answers file without `country` reads exactly as before. Mail: the hospital MTA must add an `Authentication-Results` header; answer
    `mta_authserv_id` with its first token (for example `mx.hospital.tw`). A mail command is accepted on `dmarc=pass`,
    or on an SPF or DKIM pass for the From: domain.
 4. **Mapping.** Copy a template from `services/adapter/mapping/templates/` to

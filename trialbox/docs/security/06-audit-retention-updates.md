@@ -16,8 +16,14 @@
   and records `console.audit_verify`.
 - **Retention** by country (wizard defaults, D-138): service logs 365 days; mail logs 5 years in Japan (医師法 §24),
   7 years in Taiwan (醫療法 §70); outputs 365 days; attachments 90 days; snapshots 3 nightly and 36 month-ends.
-  Every deletion is audited with the object's sha256.
-- **Updates.** Offline, signed (Ed25519), never automatic; verified in a container with no network; tampered,
-  unsigned, foreign-key, path-traversal and symlink bundles are refused; backup and rollback point first (D-77,
-  D-138). Not done: anti-rollback, key id and expiry in the manifest (review F-15).
+  A deleted job file is audited with its sha256 (`retention.deleted`), deleted mail-log rows by count
+  (`retention.mail`); the host's service-log folders past `logs_days` are deleted with no audit event.
+- **Updates.** Offline, signed (Ed25519), never automatic: an operator runs `tools/apply_update.sh` (D-77, D-138,
+  D-210). The bundle is verified before anything is staged (`tools/verify_update.py`), with the host's python3 when it
+  has `cryptography`, else in a container with no network. Refused: a tampered or unsigned bundle, a key the box does
+  not trust, a `key_id` that does not name the signing key, a bundle past its `not_after`, a `release_seq` not above
+  the installed one (anti-rollback: only `--allow-downgrade REASON` lets it through, audited as `update.downgrade`),
+  and a member that is not a regular file or has an absolute or `..` path. Backup and rollback point first (D-126);
+  `--no-backup` skips the backup on a DEV, TEST or VALIDATION box, and on a PRODUCTION box only with
+  `--no-backup-reason REASON`, audited as `update.backup_skipped` (D-1321).
 - **Backups** are encrypted to a key the box does not hold (D-126).

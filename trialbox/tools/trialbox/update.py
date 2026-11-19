@@ -8,7 +8,9 @@ key, every payload's size and sha256: ``tools/verify_update.py``, D-77) and stag
 
 1. **Backup first** (D-126). The box's own encrypted backup (``trialbox backup``) to ``TB_BACKUP_TARGETS``, to the
    hospital's public key (``deploy/secrets/backup.pub``). No key or no target: the update refuses and changes
-   nothing (``--no-backup`` skips it, and the skip is audited; for a test box only).
+   nothing (``--no-backup`` skips it, and the skip is audited; for a test box only). D-1321: on a PRODUCTION box
+   the command line refuses ``--no-backup`` without ``--no-backup-reason REASON`` (exit 2, :func:`no_backup_refused`);
+   the reason is audited as ``update.backup_skipped`` and written in the history.
 2. **Rollback point**. The images the bundle replaces are tagged ``<repo>:rollback-<bundle>``; every model file
    it overwrites is copied aside; the trial database (and HAPI's) is dumped locally, 0600 under
    ``deploy/updates/<bundle>/rollback/``. The encrypted backup needs the hospital's private key, which the box does
@@ -117,6 +119,7 @@ class Plan:
     downgrade: dict[str, Any] | None = None
     release: dict[str, Any] | None = None
     trust_sha256: str | None = None  # the trust.json verify read (None: none, the deploy/keys files)
+    no_backup_reason: str | None = None  # D-1321: why the backup is skipped (--no-backup-reason), audited
 
     @classmethod
     def load(cls, stage: Path, summary: dict[str, Any]) -> Plan:
@@ -735,6 +738,10 @@ class Updater:
                 self._abandon(plan, rb)
                 raise UpdateFailed(f"backup failed, nothing was changed: {exc}") from exc
             step("backup (D-126)", True, where)
+        elif plan.no_backup_reason:  # D-1321: the reason, audited as the downgrade's is
+            self.box.audit("update.backup_skipped", plan,
+                           {"bundle_id": plan.bundle_id, "reason": plan.no_backup_reason})  # fmt: skip
+            step("backup skipped (--no-backup, audited update.backup_skipped)", True, plan.no_backup_reason)
         else:
             step("backup skipped (--no-backup)", True, "audited")
         enter("rollback point")
@@ -2016,7 +2023,18 @@ def box_in_service(deploy: Path, box: Any = None) -> str:
     return f"volumes {', '.join(found[:3])}" if found else ""
 
 
-def main_apply(stage: Path, summary_file: Path, target: str, deploy: Path, backup: bool = True) -> int:
+def no_backup_refused(target: str, deploy: Path) -> bool:
+    """D-1321: ``--no-backup`` with no reason is refused on a PRODUCTION box (the box's own environment, as the
+    update path reads it: ``deploy/.env``; unset or any other name counts as PRODUCTION, D-633). DEV, TEST and
+    VALIDATION take it as before."""
+    box: ComposeBox | DemoBox = DemoBox(deploy) if target == "demo" else ComposeBox(deploy)
+    env = str(box.environment()).strip().upper()
+    return env not in ("DEV", "TEST", "VALIDATION")
+
+
+def main_apply(
+    stage: Path, summary_file: Path, target: str, deploy: Path, backup: bool = True, no_backup_reason: str | None = None
+) -> int:
     """``apply_update.sh`` after verify. A box never installed (no ``installed.json``) that is not running yet, or
     install.sh's first load (``TB_SKIP_AUDIT``), only loads the payloads; an installed box that is not running is
     refused (start it, then update: a crashed box never takes the path without marker, backup or compat check); a
@@ -2037,6 +2055,8 @@ def main_apply(stage: Path, summary_file: Path, target: str, deploy: Path, backu
         print("update REFUSED: the summary does not belong to the staged manifest.json (sha256 differs)")
         return 1
     plan = Plan.load(stage, summary)
+    if not backup and no_backup_reason and no_backup_reason.strip():
+        plan.no_backup_reason = no_backup_reason.strip()[:500]
     updates = deploy / "updates"
     box: ComposeBox | DemoBox = DemoBox(deploy) if target == "demo" else ComposeBox(deploy)
     try:

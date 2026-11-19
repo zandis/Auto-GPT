@@ -498,11 +498,20 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     # the provenance search page (D-1155): its five search fields and the two kinds of event the index holds
     "prov.f.": lambda: ("model", "build_sha", "prompt_sha", "prompt_id", "prompt_version"),
     "prov.event.": lambda: ("used", "confirmed"),
+    # the study state page's list of what comes before Open (WALK-2, D-1154): the SAE type and the IRB record
+    "sstate.before.": lambda: ("sae", "irb"),
     "help.page.": _union(_values("console.step4", "HELP_SLUGS"), _guide_pages),
     "guide.page.": _guide_pages,
     "life.gloss.": _values("console.guides", "GLOSSARY"),
     "log.xlsx.col.": lambda: [c for c in _values("datacore.sponsor", "LOG_COLUMNS")() if c != "screening_no"],
     "nav.grp.": _values("console.phone", "MENU_GROUPS"),  # J-3 (D-1222): the groups of "More" behind the flag
+    # the box's first-run page (10K-1): the countries, the retention days asked where TrialBox has no rules, and the
+    # SS-MIX2 order-number keys
+    "firstrun.country.": _values("tb_common.site_country", "COUNTRIES"),
+    "firstrun.retention.": _values("tb_common.retention", "OVERRIDABLE"),
+    "firstrun.ssmix2_order_numbers.": _values("tb_common.site_country", "SSMIX2_ORDER_NUMBERS"),
+    # J-2 (D-1221): a person's one state, every name and the state of facts that could not be read
+    "person.state.": _union(_values("console.person_state", "STATES"), lambda: ["unknown"]),
 }
 
 _RUN = "a value of stored data or of a service's answer (a state, a kind, a source): no one list in the code holds it"
@@ -710,7 +719,6 @@ UNCHECKED_FAMILIES: dict[str, str] = {
             "wb.list.",
             "wb.pipe.",
             "wb.task.",
-            "wstatus.",
         ),
         _RUN,
     ),
