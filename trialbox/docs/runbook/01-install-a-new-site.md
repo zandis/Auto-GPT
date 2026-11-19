@@ -86,10 +86,10 @@ asked with the TLS name: told at once when a serious adverse event is entered, w
 on a site that has its settings and a box install only warn, and `doctor` WARNs (`sae_mailbox`) until it is set. The vendor builds the bundle with
 `tools/make_bundle.sh` (`make release-bundle`: `--gates` is required, so only images that passed the release gates;
 the bundle carries `release.json`, the SBOMs, `NOTICE` and `CHANGELOG.md`, T-110b). A site bundle carries its weights:
-`--models <folder>` names a folder laid out as the profile's compose file reads it (the judge's and the verifier's
-folders, the judge's chat template and `embedder/`), read through its links (H-43). `release check` refuses a site
-bundle without `embedder/`. `python3 -m tools.fetch_weights --profile <profile> --embedder` fills such a folder once
-the embedder's file record is committed (H43-01); until then the cloud build places it (`box_vm.py models-place`,
+the option `--models` names a folder laid out as the profile's compose file reads it (the judge's and the
+verifier's folders, the judge's chat template and `embedder/`), read through its links (H-43). `release check` refuses
+a site bundle without `embedder/`. The vendor's `tools.fetch_weights` with `--embedder` fills such a folder once the
+embedder's file record is committed (H43-01); until then the cloud build places it (`box_vm.py models-place`,
 runbook §11). The image vulnerability gate blocks
 for every image a bundle carries; the dated exceptions and open findings are in `deploy/security/known-image-findings.md`
 (SECURITY.md §8). On Windows the box runs in WSL2: `docs/handover/OFFLINE-MEDIA.md`,
