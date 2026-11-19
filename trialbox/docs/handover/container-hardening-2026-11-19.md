@@ -108,9 +108,45 @@ volume, `unpack_in`), the shape the installer and the update use (`TMPDIR=/data/
 `test_reload_refdata_unpacks_beside_the_kept_packs` pins it. On a compose box `trialbox restore` runs on the host, so
 this was not a container tmpfs there; it keeps a several-GB unpack off a host or a job whose /tmp is a tmpfs.
 
-Not proven (no Docker daemon here): that the streamed backup completes on a box and the restic restore step passes;
-the next CI box rehearsal on the pushed head is the proof. Update's rollback still writes the restore's plain SQL in
-db's tmpfs `/tmp` (H10G1-05).
+The fourth rehearsal (head 5355df18, both legs) passed every step, the restic backup and restore included.
+
+A review of that head asked for four more changes, made here:
+- **D1, the side files.** The streamed nightly still wrote `.rows` and the hospital's own reference rows
+  (`.site.<table>.copy`) into db's tmpfs `/tmp`, memory under `TB_MEM_DB`. Now every output goes through the stream
+  helper (`backup_schedule.EMIT_SH`, run as `sh /tmp/tb-backup/emit NAME`, psql's `\o |...` for the query outputs):
+  it copies its input to psql's stdout while `wc -c` counts it through a FIFO, and records "bytes name" in an index;
+  the stream ends with the index and a fixed trailer. On the host `split_stream` truncates the stream file to the dump
+  (no copy) and writes each small file 0600. db's `/tmp` keeps the script, the snapshot id, the exit code and the
+  index: bytes. db's `/tmp` tmpfs is now `size=64m`, so a runaway writer gets "no space left", never an OOM kill
+  of db; `test_read_only_services_get_a_tmpfs_for_what_they_write` requires a size on it.
+- **H10G1-05, the rollback.** `update.RESTORE_SH` no longer writes the whole plain SQL to db's `/tmp` (with the
+  cap, a big rollback would now have failed for space). pg_restore streams into psql, without
+  `--single-transaction` (which would commit whatever arrived at end of input): the stream opens with `BEGIN;` and
+  the reset, and `COMMIT;` is written only after pg_restore exits 0. A cut-off script is run and rolled back when the
+  connection closes (or at its first error, `ON_ERROR_STOP`), and the step fails on a marker of a few bytes.
+  `test_the_streamed_rollback_restore_commits_only_a_whole_script_on_this_postgres` shows it with the real psql on a
+  real PostgreSQL: a script cut off inside a COPY leaves the dropped table and its row in place, and the same script
+  whole is committed.
+- **D2, llm-service.** Root without `DAC_OVERRIDE` cannot read a model file of another owner with mode 0600 or 0640.
+  `tools/fetch_weights.py` writes 0644 under the caller's umask, and `box_vm.py models-place` only links into the
+  VM's cache, but a site's own copy, a cache's files and an update's files keep the modes they came with. rc1 installs
+  only on a GPU box, and no rehearsal leg runs the gpu profile. So llm-service keeps `no-new-privileges` but not
+  `cap_drop`: a written exception in the compose file, `EXCEPTIONS`, D-1323 and H10G1-02. The GPU overlays add no
+  `cap_drop` to llm-verifier (still in `OUTSIDE_THE_15`).
+- **D3, a stopped reference-data load.** A limit that ran out (update's 7200 s) killed only the compose CLI: the
+  one-off container went on, and its unpack stayed on objects-data, a backed-up volume. The update's and the
+  installer's one-off runs are now named (`tb-refdata-load`, `tb-ruleset-import`) and removed (`docker rm -f`)
+  before a run and after one that failed or timed out. A load first clears the loader's own `tb-refdata-*` folders
+  (`tb_common.refdata.opened`'s prefix) from inside the container (`rm -rf -- "${TMPDIR:?}"/tb-refdata-*`), and a
+  failed one gets a sweep run of its own. The update's handler now also catches the timeout itself
+  (`subprocess.TimeoutExpired`, which `except UpdateFailed` missed), so the pack goes to `pending/` after a timeout.
+- **D4, the stream's length.** `split_stream` compares the byte counts the container recorded with what arrived, and
+  checks that the trailer is there and the dump comes first. A short or damaged stream fails the backup instead of
+  being sealed as a good one.
+
+Not proven (no Docker daemon here): that this head's streamed nightly, its capped db `/tmp`, the streamed rollback
+and the named runs work on a box. The next CI box rehearsal is the proof for the nightly and the restic restore;
+nothing in the rehearsal runs an update rollback, a timed-out load or the gpu profile.
 
 ## Findings
 
@@ -119,7 +155,9 @@ db's tmpfs `/tmp` (H10G1-05).
   path (`services/adapter/validate/validator.py` passes it as `-Duser.home`). The fix is in the validator: run it
   on a writable copy or a writable home seeded per image revision. Then drop the two exceptions.
 - **H10G1-02** (Medium): llm-service (vLLM) still runs as root with a writable root filesystem; its compile and kernel
-  caches go under `/root/.cache` and `/tmp`. To be proved on a GPU box with the caches on a volume and a fixed user.
+  caches go under `/root/.cache` and `/tmp`. For rc1 it also keeps its capabilities (no `cap_drop`): root must read
+  model files of any mode. To be proved on a GPU box with the caches on a volume, a fixed user, readable weights and
+  `cap_drop: [ALL]`.
 - **H10G1-03** (Low): the overlay services outside the 15 are not hardened: llm-verifier (gb10, rtx5090, rtxpro6000,
   platform), the rtx5090 model-swap helpers, caddy, authelia, prometheus, the platform doctor. Each is listed with its
   reason in `OUTSIDE_THE_15`.
@@ -128,7 +166,6 @@ db's tmpfs `/tmp` (H10G1-05).
   loaded` line) goes on, and an offline box then has no trials; the box rehearsal noticed only at its later check (CI
   run 44458900188). The load itself is fixed here (a one-off run, not `compose cp`); making the failure a FAIL line is
   left open, as it changes what install reports.
-- **H10G1-05** (Medium): update's rollback (`tools/trialbox/update.py` `RESTORE_SH`, `mktemp` in db) writes the
-  dump's whole plain SQL script into db's tmpfs `/tmp`, which counts against db's memory limit (`TB_MEM_DB`, 4g by
-  default): a database whose script outgrows it can stop db during a rollback. It works (a write through `exec`, not
-  a `cp`); streaming it needs a way to fail the single transaction when `pg_restore` fails mid-stream. Open.
+- **H10G1-05** (Medium, fixed 52e54e3b): update's rollback (`tools/trialbox/update.py` `RESTORE_SH`) wrote the dump's
+  whole plain SQL script into db's tmpfs `/tmp`, memory under db's limit. It now streams, committing only a whole
+  script (above); not yet run on a box.
