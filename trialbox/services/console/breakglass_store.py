@@ -8,6 +8,7 @@ loads)."""
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -125,6 +126,9 @@ def _grant(r: Any) -> Grant:
                  r[14])  # fmt: skip
 
 
+Told = Callable[[Grant, list[Grant]], None]  # the caller's audit appends, given a grant opened and the grants it ends
+
+
 class BreakGlassStore:
     """Schema ``breakglass`` of the trial database (D-126). ``url`` defaults to ``TB_DB_URL``."""
 
@@ -135,8 +139,11 @@ class BreakGlassStore:
         self.db.close()
 
     def open(self, username: str, *, reason: str, note: str, kind: str, ruleset: str = "", pid: str = "",
-             job_id: str = "", now: datetime) -> tuple[Grant, list[Grant]]:  # fmt: skip
-        """Open one grant for ``username``; returns it and the grants it ended (one at a time)."""
+             job_id: str = "", now: datetime,
+             before_commit: Told | None = None) -> tuple[Grant, list[Grant]]:  # fmt: skip
+        """Open one grant for ``username``; returns it and the grants it ended (one at a time). ``before_commit``
+        (the caller's audit appends, given the grant and the grants it ends) runs inside the transaction, so a grant
+        whose audit event fails is never open (D-1159, the register's V3-18)."""
         note = " ".join((note or "").split())
         if reason not in BREAK_GLASS_REASONS:
             raise BreakGlassError("bg.err.reason")
@@ -167,8 +174,11 @@ class BreakGlassStore:
                      _iso(now + timedelta(minutes=BREAK_GLASS_MINUTES))),
                 )
             )  # fmt: skip
-        got = self.get(gid)
-        assert got is not None
+            row = tx.fetchone(f"SELECT {_COLS} FROM grants WHERE id = ?", (gid,))
+            assert row is not None
+            got = _grant(row)
+            if before_commit is not None:
+                before_commit(got, ended)
         return got, ended
 
     def get(self, gid: int) -> Grant | None:
@@ -213,17 +223,23 @@ class BreakGlassStore:
             out[int(r[0])].append(Use(int(r[0]), r[1], r[2], r[3], r[4], r[5]))
         return out
 
-    def end(self, gid: int, username: str, now: datetime) -> Grant:
+    def end(self, gid: int, username: str, now: datetime, before_commit: Callable[[], None] | None = None) -> Grant:
+        """``before_commit`` (the caller's audit append) runs inside the transaction that ends it (D-1159)."""
         g = self.get(gid)
         if g is None or g.username != username:
             raise BreakGlassError("bg.err.none")
-        if g.active(now):
-            self.db.execute("UPDATE grants SET ended_at = ? WHERE id = ?", (_iso(now), gid))
+        with self.db.transaction() as tx:
+            if g.active(now):
+                tx.execute("UPDATE grants SET ended_at = ? WHERE id = ?", (_iso(now), gid))
+            if before_commit is not None:
+                before_commit()
         got = self.get(gid)
         assert got is not None
         return got
 
-    def review(self, gid: int, by: str, note: str, now: datetime) -> Grant:
+    def review(self, gid: int, by: str, note: str, now: datetime,
+               before_commit: Callable[[Grant], None] | None = None) -> Grant:  # fmt: skip
+        """``before_commit`` (the caller's audit append, given the reviewed grant) runs inside the transaction."""
         g = self.get(gid)
         if g is None:
             raise BreakGlassError("bg.err.none")
@@ -233,8 +249,12 @@ class BreakGlassStore:
             raise BreakGlassError("bg.err.open")
         if g.reviewed_at is not None:
             raise BreakGlassError("bg.err.reviewed")
-        self.db.execute("UPDATE grants SET reviewed_by = ?, reviewed_at = ?, review_note = ? WHERE id = ?",
-                        (by, _iso(now), " ".join((note or "").split())[:NOTE_MAX] or None, gid))  # fmt: skip
-        got = self.get(gid)
-        assert got is not None
+        with self.db.transaction() as tx:
+            tx.execute("UPDATE grants SET reviewed_by = ?, reviewed_at = ?, review_note = ? WHERE id = ?",
+                       (by, _iso(now), " ".join((note or "").split())[:NOTE_MAX] or None, gid))  # fmt: skip
+            row = tx.fetchone(f"SELECT {_COLS} FROM grants WHERE id = ?", (gid,))
+            assert row is not None
+            got = _grant(row)
+            if before_commit is not None:
+                before_commit(got)
         return got

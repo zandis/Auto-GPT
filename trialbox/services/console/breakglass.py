@@ -202,15 +202,20 @@ def register(app: FastAPI, h: Helpers, store: BreakGlassStore | None = None) -> 
                 raise BreakGlassError("bg.err.target")
             if own:
                 raise BreakGlassError("bg.err.needless")
-            g, ended = bg.open(sess.user.username, reason=reason, note=note[:NOTE_MAX * 2], kind=kind,
-                               ruleset=ruleset[:40], pid=pid[:80], job_id=job_id[:80], now=now())  # fmt: skip
+
+            def told(g: Grant, ended: list[Grant]) -> None:  # D-1159 (V3-18): inside the grant's transaction
+                for e in ended:
+                    au.append("console.breakglass_end", actor=h.actor(sess), detail={"grant": e.id, "why": "replaced"})
+                au.append("console.breakglass_open", actor=h.actor(sess), ruleset=g.ruleset or None,
+                          job_id=g.job_id or None,
+                          detail={"grant": g.id, "reason": g.reason, "note": g.note, "kind": g.kind,
+                                  "ends_at": g.ends_at, **({"pid": g.pid} if g.pid else {})})  # fmt: skip
+
+            g, _ = bg.open(sess.user.username, reason=reason, note=note[:NOTE_MAX * 2], kind=kind,
+                           ruleset=ruleset[:40], pid=pid[:80], job_id=job_id[:80], now=now(),
+                           before_commit=told)  # fmt: skip
         except BreakGlassError as exc:
             return RedirectResponse(f"/breakglass?err={exc}", status_code=303)
-        for e in ended:
-            au.append("console.breakglass_end", actor=h.actor(sess), detail={"grant": e.id, "why": "replaced"})
-        au.append("console.breakglass_open", actor=h.actor(sess), ruleset=g.ruleset or None, job_id=g.job_id or None,
-                  detail={"grant": g.id, "reason": g.reason, "note": g.note, "kind": g.kind, "ends_at": g.ends_at,
-                          **({"pid": g.pid} if g.pid else {})})  # fmt: skip
         tell(sess, g)
         return RedirectResponse("/breakglass?done=open", status_code=303)
 
@@ -222,10 +227,16 @@ def register(app: FastAPI, h: Helpers, store: BreakGlassStore | None = None) -> 
         if not permit(sess.user.role, "breakglass.open"):
             raise deny(sess, request.url.path)
         try:
-            bg.end(gid, sess.user.username, now())
+            bg.end(
+                gid,
+                sess.user.username,
+                now(),
+                before_commit=lambda: au.append(
+                    "console.breakglass_end", actor=h.actor(sess), detail={"grant": gid, "why": "by hand"}
+                ),
+            )  # D-1159
         except BreakGlassError as exc:
             return RedirectResponse(f"/breakglass?err={exc}", status_code=303)
-        au.append("console.breakglass_end", actor=h.actor(sess), detail={"grant": gid, "why": "by hand"})
         return RedirectResponse("/breakglass?done=end", status_code=303)
 
     @app.post("/breakglass/{gid}/review")
@@ -236,10 +247,17 @@ def register(app: FastAPI, h: Helpers, store: BreakGlassStore | None = None) -> 
         if not permit(sess.user.role, "breakglass.review"):
             raise deny(sess, request.url.path)
         try:
-            g = bg.review(gid, sess.user.username, note, now())
+            bg.review(
+                gid,
+                sess.user.username,
+                note,
+                now(),
+                before_commit=lambda g: au.append(
+                    "console.breakglass_review", actor=h.actor(sess), detail={"grant": g.id, "uses": g.uses}
+                ),
+            )  # D-1159
         except BreakGlassError as exc:
             return RedirectResponse(f"/breakglass?err={exc}", status_code=303)
-        au.append("console.breakglass_review", actor=h.actor(sess), detail={"grant": g.id, "uses": g.uses})
         return RedirectResponse("/breakglass?done=review", status_code=303)
 
     return bg

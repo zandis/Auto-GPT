@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
@@ -652,20 +653,26 @@ class TeamStore:
             rec.icf_version, rec.icf_date = newest.version, newest.version_date or newest.effective_from
         return rec
 
-    def save_irb(self, ruleset: str, rec: Irb, by: str, at: str) -> Irb:
+    def save_irb(self, ruleset: str, rec: Irb, by: str, at: str,
+                 before_commit: Callable[[Irb], None] | None = None) -> Irb:  # fmt: skip
+        """The study's IRB record. ``before_commit`` (the caller's audit append, given the record as saved) runs
+        inside the save's transaction, so a record whose audit event fails is not saved (D-1159)."""
         approved = _day(rec.approved_on, "the approval date") or ""
         expires = _day(rec.expires_on, "the expiry date") or ""
         icf_date = _day(rec.icf_date, "the consent form's date") or ""
         if approved and expires and expires < approved:
             raise TeamError("the approval expires before it was given")
         vals = (rec.approval_no.strip()[:60], approved, expires, rec.icf_version.strip()[:40], icf_date)
-        self.db.execute(
-            "INSERT INTO irb (ruleset, approval_no, approved_on, expires_on, icf_version, icf_date, by, at) "
-            "VALUES (?,?,?,?,?,?,?,?) ON CONFLICT (ruleset) DO UPDATE SET approval_no = excluded.approval_no, "
-            "approved_on = excluded.approved_on, expires_on = excluded.expires_on, icf_version = excluded.icf_version, "
-            "icf_date = excluded.icf_date, by = excluded.by, at = excluded.at",
-            (ruleset, *(v or None for v in vals), by, at),
-        )
+        with self.db.transaction() as tx:
+            tx.execute(
+                "INSERT INTO irb (ruleset, approval_no, approved_on, expires_on, icf_version, icf_date, by, at) "
+                "VALUES (?,?,?,?,?,?,?,?) ON CONFLICT (ruleset) DO UPDATE SET approval_no = excluded.approval_no, "
+                "approved_on = excluded.approved_on, expires_on = excluded.expires_on, "
+                "icf_version = excluded.icf_version, icf_date = excluded.icf_date, by = excluded.by, at = excluded.at",
+                (ruleset, *(v or None for v in vals), by, at),
+            )
+            if before_commit is not None:
+                before_commit(Irb(*vals, by, at))
         listed = {v.version.casefold() for v in self.icf_list(ruleset)}
         if vals[3] and _ICF_VERSION.match(vals[3]) and vals[3].casefold() not in listed:
             # D-399: a version typed on the IRB record joins the ICF list, approved with the IRB record's date

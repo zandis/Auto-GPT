@@ -109,32 +109,35 @@ class Rules:
     def open_account(self, name: str, payload: dict[str, str], *, shown_to: str, requested_by: str,
                      confirmed_by: str) -> str:  # fmt: skip
         """Open a protected account by code; the code (for ``shown_to`` once) is returned, never audited."""
-        code = self.users.open_by_code(name, payload["role"], payload.get("mailbox") or None, shown_to)  # type: ignore[arg-type]
-        made = self.users.set_scope(name, payload.get("affiliation") or "hospital", payload.get("studies") or "",
-                                    payload.get("expires") or None)  # fmt: skip
-        self.audit.append(
-            "console.user",
-            actor=f"console:{requested_by}",
-            detail={
-                "action": "create",
-                "user": name,
-                "role": made.role,
-                "class": account_class(made.role),
-                "affiliation": made.affiliation,
-                "studies": ",".join(made.studies),
-                "expires": made.expires or "",
-                "confirmed_by": confirmed_by,
-            },
-        )
-        return code
+
+        def told(made: User) -> None:  # D-1159: inside the account's transaction; if it fails, none is made
+            self.audit.append(
+                "console.user",
+                actor=f"console:{requested_by}",
+                detail={
+                    "action": "create",
+                    "user": name,
+                    "role": made.role,
+                    "class": account_class(made.role),
+                    "affiliation": made.affiliation,
+                    "studies": ",".join(made.studies),
+                    "expires": made.expires or "",
+                    "confirmed_by": confirmed_by,
+                },
+            )
+
+        scope = (payload.get("affiliation") or "hospital", payload.get("studies") or "", payload.get("expires") or None)
+        return self.users.open_by_code(name, payload["role"], payload.get("mailbox") or None, shown_to,  # type: ignore[arg-type]
+                                       scope=scope, before_commit=told)  # fmt: skip
 
     def reset_password(self, name: str, *, requested_by: str, confirmed_by: str) -> str:
         password = random_password()
-        self.users.set_password(name, password, must_change=True)  # D-279: the holder replaces it at sign-in
+        said = {"action": "reset", "user": name, "confirmed_by": confirmed_by}
+        self.users.set_password(name, password, must_change=True,  # D-279: the holder replaces it at sign-in
+                                before_commit=lambda: self.audit.append(  # D-1159: in the change's transaction
+                                    "console.user", actor=f"console:{requested_by}", detail=said))  # fmt: skip
         self.users.note_factor_reset(name, "password", requested_by)
         self.users.add_notice(name, "password", requested_by)
-        self.audit.append("console.user", actor=f"console:{requested_by}",
-                          detail={"action": "reset", "user": name, "confirmed_by": confirmed_by})  # fmt: skip
         self.tell_people(name, "password", requested_by, confirmed_by)
         return password
 
@@ -145,37 +148,38 @@ class Rules:
 
     def reset_totp(self, name: str, how: str, *, requested_by: str, confirmed_by: str) -> str:
         """``how``: ``reset_totp`` (clear the authenticator) or ``enrol_code`` (a code for an account without one)."""
+        event = "console.enrol_code" if how == "enrol_code" else "console.totp_reset"
+
+        def told() -> None:  # D-1159: inside the change's transaction; if it fails, nothing is kept
+            self.audit.append(event, actor=f"console:{requested_by}", detail=self._who(name, confirmed_by))
+
         if how == "enrol_code":
-            code = self.users.issue_enrol_code(name)
-            self.audit.append(
-                "console.enrol_code", actor=f"console:{requested_by}", detail=self._who(name, confirmed_by)
-            )
+            code = self.users.issue_enrol_code(name, before_commit=told)
         else:
-            code = self.users.reset_totp(name)
-            self.audit.append(
-                "console.totp_reset", actor=f"console:{requested_by}", detail=self._who(name, confirmed_by)
-            )
+            code = self.users.reset_totp(name, before_commit=told)
         self.users.note_factor_reset(name, "totp", requested_by)
         self.users.add_notice(name, "totp", requested_by)
         self.tell_people(name, "totp", requested_by, confirmed_by)
         return code
 
     def set_scope(self, name: str, payload: dict[str, str], *, requested_by: str, confirmed_by: str) -> User:
-        made = self.users.set_scope(name, payload.get("affiliation") or "hospital", payload.get("studies") or "",
-                                    payload.get("expires") or None)  # fmt: skip
-        self.audit.append(
-            "console.user",
-            actor=f"console:{requested_by}",
-            detail={
-                "action": "scope",
-                "user": name,
-                "affiliation": made.affiliation,
-                "studies": ",".join(made.studies),
-                "expires": made.expires or "",
-                "confirmed_by": confirmed_by,
-            },
-        )
-        return made
+
+        def told(made: User) -> None:  # D-1159: inside the scope's transaction; if it fails, the scope is not kept
+            self.audit.append(
+                "console.user",
+                actor=f"console:{requested_by}",
+                detail={
+                    "action": "scope",
+                    "user": name,
+                    "affiliation": made.affiliation,
+                    "studies": ",".join(made.studies),
+                    "expires": made.expires or "",
+                    "confirmed_by": confirmed_by,
+                },
+            )
+
+        return self.users.set_scope(name, payload.get("affiliation") or "hospital", payload.get("studies") or "",
+                                    payload.get("expires") or None, before_commit=told)  # fmt: skip
 
     def request(self, kind: str, name: str, payload: dict[str, str], by: str, role: str) -> str:
         rid = self.users.add_request(kind, name, payload, by)

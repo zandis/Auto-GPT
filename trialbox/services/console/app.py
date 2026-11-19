@@ -1305,20 +1305,23 @@ def create_app(
                     keep_once(sess, name, "code:" + code)
                     return RedirectResponse("/ops/users#made", status_code=303)
                 password = random_password()
-                us.create(name, role, password, mailbox.strip() or None, must_change=True)  # D-279: the owner's first
-                made_user = us.set_scope(name, affiliation, studies, expires or None)
-                au.append(
-                    "console.user",
-                    actor=actor(sess),
-                    detail={
-                        "action": "create",
-                        "user": name,
-                        "role": role,
-                        "affiliation": made_user.affiliation,
-                        "studies": ",".join(made_user.studies),
-                        "expires": made_user.expires or "",
-                    },
-                )
+
+                def made(u: User) -> None:  # D-1159 (V8-04): inside the account's transaction
+                    au.append(
+                        "console.user",
+                        actor=actor(sess),
+                        detail={
+                            "action": "create",
+                            "user": u.username,
+                            "role": role,
+                            "affiliation": u.affiliation,
+                            "studies": ",".join(u.studies),
+                            "expires": u.expires or "",
+                        },
+                    )
+
+                us.create(name, role, password, mailbox.strip() or None, must_change=True,  # D-279: the owner's first
+                          scope=(affiliation, studies, expires or None), before_commit=made)  # fmt: skip
                 keep_once(sess, name, password)
                 return RedirectResponse("/ops/users#made", status_code=303)
             if action == "reset":
@@ -1341,8 +1344,9 @@ def create_app(
                     keep_once(sess, name, password)
                     return RedirectResponse("/ops/users#made", status_code=303)
                 password = random_password()
-                us.set_password(name, password, must_change=True)  # D-279: the owner replaces it at sign-in
-                au.append("console.user", actor=actor(sess), detail={"action": "reset", "user": name})
+                us.set_password(name, password, must_change=True,  # D-279: the owner replaces it at sign-in
+                                before_commit=lambda: au.append("console.user", actor=actor(sess),
+                                                                detail={"action": "reset", "user": name}))  # fmt: skip
                 keep_once(sess, name, password)
                 return RedirectResponse("/ops/users#made", status_code=303)
             if action == "scope":
@@ -1356,18 +1360,21 @@ def create_app(
                     account_rules.request("scope", name, {"affiliation": affiliation, "studies": studies,
                                                           "expires": expires}, me, role_now)  # fmt: skip
                     return RedirectResponse("/ops/users?done=requested#requested", status_code=303)
-                u2 = us.set_scope(name, affiliation, studies, expires or None)
-                au.append(
-                    "console.user",
-                    actor=actor(sess),
-                    detail={
-                        "action": "scope",
-                        "user": name,
-                        "affiliation": u2.affiliation,
-                        "studies": ",".join(u2.studies),
-                        "expires": u2.expires or "",
-                    },
-                )
+
+                def scoped(u2: User) -> None:  # D-1159: inside the scope's transaction
+                    au.append(
+                        "console.user",
+                        actor=actor(sess),
+                        detail={
+                            "action": "scope",
+                            "user": name,
+                            "affiliation": u2.affiliation,
+                            "studies": ",".join(u2.studies),
+                            "expires": u2.expires or "",
+                        },
+                    )
+
+                us.set_scope(name, affiliation, studies, expires or None, before_commit=scoped)
                 return RedirectResponse("/ops/users", status_code=303)
             if action == "disable":
                 if name == sess.user.username:
@@ -1376,13 +1383,13 @@ def create_app(
                     text = translate(lang_of(request, sess), "confirm.disable", user=name)
                     return confirm_step(request, sess, text, "/ops/users", {"action": "disable", "username": name},
                                         "/ops/users")  # fmt: skip
-                us.disable(name)
-                au.append("console.user", actor=actor(sess), detail={"action": "disable", "user": name})
+                off = {"action": "disable", "user": name}
+                us.disable(name, before_commit=lambda: au.append("console.user", actor=actor(sess), detail=off))
                 return RedirectResponse(f"/ops/users?undo={name}#undo", status_code=303)
             if action == "enable":  # D-178 (review J-14): the undo of Disable, from the toast or the disabled list
-                us.enable(name)
-                au.append("console.user", actor=actor(sess),
-                          detail={"action": "enable", "user": name, "undo": confirm == "undo"})  # fmt: skip
+                us.enable(name, before_commit=lambda: au.append(
+                    "console.user", actor=actor(sess),
+                    detail={"action": "enable", "user": name, "undo": confirm == "undo"}))  # fmt: skip
                 return RedirectResponse("/ops/users?done=enabled", status_code=303)
         except AuthError as exc:
             raise _Problem(400, "request.refused", reason=str(exc)) from exc

@@ -336,8 +336,6 @@ def test_v7_1_2_a_chart_number_in_a_break_glass_note_does_not_reach_the_audit(bo
     assert CHART_LIKE not in _audit_text(box)
 
 
-@pytest.mark.xfail(strict=True, reason="V3-18: a break-glass grant is stored before its audit event; when the audit "
-                   "write fails (AuditFull) the grant stays open with no event (ASVS 7.1.3)")  # fmt: skip
 def test_v7_1_3_a_grant_whose_audit_event_fails_is_not_left_open(
     box: dict[str, Any],  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,

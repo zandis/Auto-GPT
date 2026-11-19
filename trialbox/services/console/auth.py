@@ -43,6 +43,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from tb_common.authz import permit
+from tb_common.db import Tx
 
 from console.storedb import open_db
 from console.timefmt import local_today, site_zone
@@ -490,7 +491,13 @@ class UserStore:
         return None if self._expired(user) else user
 
     def set_scope(
-        self, username: str, affiliation: str = "hospital", studies: str = "", expires: str | None = None
+        self,
+        username: str,
+        affiliation: str = "hospital",
+        studies: str = "",
+        expires: str | None = None,
+        *,
+        before_commit: Callable[[User], None] | None = None,
     ) -> User:
         """Affiliation, study scope and end date of an account (D-104). An SMO coordinator is normally scoped to
         the studies on its contract with an end date; a CRO account is aggregate-only whatever its scope. D-380
@@ -505,14 +512,28 @@ class UserStore:
             if n != 1:
                 raise AuthError(f"no user {username}")
             row = tx.fetchone(f"SELECT {_COLS} FROM users WHERE username = ?", (username,))
-        assert row is not None
+            assert row is not None
+            if before_commit is not None:  # D-1159: the caller's audit append; if it fails, the scope is not kept
+                before_commit(_row_user(row))
         return _row_user(row)
 
     def create(
-        self, username: str, role: Role, password: str, mailbox: str | None = None, *, must_change: bool = False
+        self,
+        username: str,
+        role: Role,
+        password: str,
+        mailbox: str | None = None,
+        *,
+        must_change: bool = False,
+        scope: tuple[str, str, str | None] | None = None,
+        before_commit: Callable[[User], None] | None = None,
+        also: Callable[[Tx], None] | None = None,
     ) -> User:
         """A local account. ``must_change``: the password was set by someone other than the owner (an
-        administrator's page, the command line), so the owner must replace it before anything else (D-279)."""
+        administrator's page, the command line), so the owner must replace it before anything else (D-279).
+        ``scope`` (affiliation, studies, end date, as :meth:`set_scope`) is set in the same transaction, and
+        ``before_commit`` (the caller's audit append, given the account made) runs inside it, so an account whose
+        audit event fails is not made (D-1159). ``also`` (the store's own further writes) runs inside it first."""
         u = check_username(username)
         if role not in ROLES:
             raise AuthError(f"role must be one of {', '.join(ROLES)}")
@@ -520,14 +541,32 @@ class UserStore:
         mb = mailbox.strip().lower() if mailbox else None
         if mb is not None and ("@" not in mb or " " in mb):
             raise AuthError("mailbox must be an e-mail address")
-        n = self.db.execute(
-            "INSERT INTO users (username, role, pw_hash, mailbox, created, must_change) VALUES (?,?,?,?,?,?) "
-            "ON CONFLICT (username) DO NOTHING",
-            (u, role, hash_password(password), mb, self.clock().isoformat(), int(must_change)),
-        )
-        if n != 1:
-            raise AuthError(f"user {u} exists")
-        return User(u, role, mb)
+        scoped = scope_values(*scope, role) if scope is not None else None
+        pw_hash = hash_password(password)
+        with self.db.transaction() as tx:
+            n = tx.execute(
+                "INSERT INTO users (username, role, pw_hash, mailbox, created, must_change) VALUES (?,?,?,?,?,?) "
+                "ON CONFLICT (username) DO NOTHING",
+                (u, role, pw_hash, mb, self.clock().isoformat(), int(must_change)),
+            )
+            if n != 1:
+                raise AuthError(f"user {u} exists")
+            if scoped is None and before_commit is None and also is None:
+                return User(u, role, mb)
+            if scoped is not None:
+                aff, st, exp = scoped
+                tx.execute(
+                    "UPDATE users SET affiliation = ?, studies = ?, expires = ? WHERE username = ?",
+                    (aff, st or None, exp, u),
+                )
+            if also is not None:
+                also(tx)
+            row = tx.fetchone(f"SELECT {_COLS} FROM users WHERE username = ?", (u,))
+            assert row is not None
+            made = _row_user(row)
+            if before_commit is not None:
+                before_commit(made)
+        return made
 
     def upsert_sso(self, username: str, role: Role, mailbox: str | None) -> User:
         """The account behind a trusted identity header (D-93): created on first sight with no console password,
@@ -609,7 +648,15 @@ class UserStore:
         """True while the account still has a password its owner did not choose (D-279, SEC-1)."""
         return bool(self.db.fetchval("SELECT must_change FROM users WHERE username = ?", (username,)))
 
-    def set_password(self, username: str, password: str, *, must_change: bool = False, owner: bool = False) -> None:
+    def set_password(
+        self,
+        username: str,
+        password: str,
+        *,
+        must_change: bool = False,
+        owner: bool = False,
+        before_commit: Callable[[], None] | None = None,
+    ) -> None:
         """A new password; the account signs out everywhere. ``must_change=True`` when someone other than the owner
         set it (an administrator's reset, the command line): the owner then replaces it at the next sign-in. The
         owner's own change (``/account/password``, after typing the current one) passes False (D-279) and
@@ -635,19 +682,26 @@ class UserStore:
             tx.execute("DELETE FROM sessions WHERE username = ?", (username,))  # sign out everywhere
             tx.execute("DELETE FROM login_failures WHERE username = ?", (username,))
             tx.execute("DELETE FROM pending_logins WHERE username = ?", (username,))  # a half-done sign-in too
+            if before_commit is not None:  # D-1159: the caller's audit append; if it fails, nothing is kept
+                before_commit()
 
-    def disable(self, username: str) -> None:
+    def disable(self, username: str, *, before_commit: Callable[[], None] | None = None) -> None:
+        """``before_commit`` (the caller's audit append) runs inside the transaction (D-1159)."""
         with self.db.transaction() as tx:
             tx.execute("UPDATE users SET disabled = 1 WHERE username = ?", (username,))
             tx.execute("DELETE FROM sessions WHERE username = ?", (username,))
             tx.execute("DELETE FROM pending_logins WHERE username = ?", (username,))
+            if before_commit is not None:
+                before_commit()
 
-    def enable(self, username: str) -> None:
+    def enable(self, username: str, *, before_commit: Callable[[], None] | None = None) -> None:
         """D-178 (review J-14): the undo of :meth:`disable`. The password is the one the account had; its sessions
-        stay ended (the person signs in again)."""
+        stay ended (the person signs in again). ``before_commit`` as in :meth:`disable` (D-1159)."""
         with self.db.transaction() as tx:
             if tx.execute("UPDATE users SET disabled = 0 WHERE username = ? AND disabled = 1", (username,)) != 1:
                 raise AuthError(f"no disabled account {username}")
+            if before_commit is not None:
+                before_commit()
 
     def activity(self) -> dict[str, tuple[str, str | None]]:
         """(created, last sign-in) of every active account, both UTC ISO text; the last sign-in is None when the
@@ -927,7 +981,7 @@ class UserStore:
         )
         return n == 1
 
-    def reset_totp(self, username: str) -> str:
+    def reset_totp(self, username: str, before_commit: Callable[[], None] | None = None) -> str:
         """An administrator clears an account's authenticator (a lost phone; the caller audits it). The account
         signs out everywhere; the returned enrolment code (shown to the administrator once) is needed, with the
         password, to set up the new authenticator within ``ENROL_TTL`` (D-192, review H2)."""
@@ -942,20 +996,25 @@ class UserStore:
                 raise AuthError(f"no user {username}")
             tx.execute("DELETE FROM sessions WHERE username = ?", (username,))
             tx.execute("DELETE FROM pending_logins WHERE username = ?", (username,))
+            if before_commit is not None:  # D-1159: the caller's audit append; if it fails, nothing is kept
+                before_commit()
         return code
 
-    def issue_enrol_code(self, username: str) -> str:
+    def issue_enrol_code(self, username: str, before_commit: Callable[[], None] | None = None) -> str:
         """A one-time enrolment code for an account without an authenticator (its first one, e.g. every account
         after the upgrade): shown to the administrator once, valid for ``ENROL_TTL``, only its hash stored."""
         code = random_password(4)
-        n = self.db.execute(
-            "UPDATE users SET enrol_code_sha = ?, enrol_expires = ?, "
-            "enrol_reason = COALESCE(enrol_reason, 'first') WHERE username = ? AND totp_secret IS NULL "
-            "AND disabled = 0",
-            (_sha(code), (self.clock() + self.enrol_ttl).isoformat(), username),
-        )
-        if n != 1:
-            raise AuthError("no account without an authenticator has this name")
+        with self.db.transaction() as tx:
+            n = tx.execute(
+                "UPDATE users SET enrol_code_sha = ?, enrol_expires = ?, "
+                "enrol_reason = COALESCE(enrol_reason, 'first') WHERE username = ? AND totp_secret IS NULL "
+                "AND disabled = 0",
+                (_sha(code), (self.clock() + self.enrol_ttl).isoformat(), username),
+            )
+            if n != 1:
+                raise AuthError("no account without an authenticator has this name")
+            if before_commit is not None:  # D-1159
+                before_commit()
         return code
 
     def enrol_state(self, username: str) -> tuple[bool, str]:
@@ -1015,17 +1074,31 @@ class UserStore:
         self.db.execute("DELETE FROM pending_logins WHERE token_sha = ?", (_sha(token),))
 
     # ------------------------------------------------------------------ both factors (D-719, NEW-SEC-3)
-    def open_by_code(self, username: str, role: Role, mailbox: str | None, shown_to: str) -> str:
+    def open_by_code(
+        self,
+        username: str,
+        role: Role,
+        mailbox: str | None,
+        shown_to: str,
+        *,
+        scope: tuple[str, str, str | None] | None = None,
+        before_commit: Callable[[User], None] | None = None,
+    ) -> str:
         """A protected account nobody knows a password of: the returned enrolment code (shown once to
-        ``shown_to``) lets its holder choose the password and set up the authenticator (``redeem``)."""
-        self.create(username, role, random_password(8), mailbox)
+        ``shown_to``) lets its holder choose the password and set up the authenticator (``redeem``). ``scope`` and
+        ``before_commit`` as in :meth:`create`: one transaction, so an account whose audit event fails is not made
+        (D-1159)."""
         code = random_password(4)
-        with self.db.transaction() as tx:
+
+        def by_code(tx: Tx) -> None:
             tx.execute(
                 "UPDATE users SET holder_set = 0, opened_by = ?, enrol_code_sha = ?, enrol_expires = ?, "
                 "enrol_reason = 'first' WHERE username = ?",
-                (shown_to, _sha(code), (self.clock() + self.enrol_ttl).isoformat(), username),
+                (shown_to, _sha(code), (self.clock() + self.enrol_ttl).isoformat(), check_username(username)),
             )
+
+        self.create(username, role, random_password(8), mailbox, scope=scope, before_commit=before_commit,
+                    also=by_code)  # fmt: skip
         self.note_factor_reset(username, "totp", shown_to)
         return code
 

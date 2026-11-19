@@ -819,14 +819,17 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         if before.at and changed and len(reason) < IRB_REASON_MIN:
             raise refused(TeamError(f"say why the IRB record changes (at least {IRB_REASON_MIN} characters)"))
         try:
-            rec = team.save_irb(rid, new, sess.user.username, now())
+
+            def told(rec: Irb) -> None:  # D-1159: inside the save's transaction; if it fails, nothing is saved
+                au.append("console.irb", ruleset=rid, actor=h.actor(sess),
+                          detail={"action": "save", "approved_on": rec.approved_on, "expires_on": rec.expires_on,
+                                  "icf_version": rec.icf_version, "approval_no": rec.approval_no,
+                                  "changed": ",".join(changed), "reason": reason[:300],
+                                  "before": {k: str(getattr(before, k) or "") for k in fields}})  # fmt: skip
+
+            rec = team.save_irb(rid, new, sess.user.username, now(), before_commit=told)
         except TeamError as exc:
             raise refused(exc) from exc
-        au.append("console.irb", ruleset=rid, actor=h.actor(sess),
-                  detail={"action": "save", "approved_on": rec.approved_on, "expires_on": rec.expires_on,
-                          "icf_version": rec.icf_version, "approval_no": rec.approval_no,
-                          "changed": ",".join(changed), "reason": reason[:300],
-                          "before": {k: str(getattr(before, k) or "") for k in fields}})  # fmt: skip
         return rid, rec
 
     @app.get("/studies/{rs}/irb")

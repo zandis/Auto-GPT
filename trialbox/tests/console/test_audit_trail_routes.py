@@ -279,8 +279,8 @@ def leaks(rows: list[dict[str, Any]]) -> dict[str, list[str]]:
 #: the order of the change and its audit event, read from the code (basis: hypothesis) for the driven routes;
 #: shown where a test makes the audit write fail (this file, or tests/console/test_d273_privacy_guards.py)
 ORDER: dict[str, tuple[str, str]] = {
-    "POST /breakglass": ("change first", "services/console/breakglass.py:205 (V3-18, shown there)"),
-    "POST /breakglass/{gid}/review": ("change first", "services/console/breakglass.py:239 bg.review, then :242"),
+    "POST /breakglass": ("one transaction", "D-1159: BreakGlassStore.open's before_commit (V3-18, shown there)"),
+    "POST /breakglass/{gid}/review": ("one transaction", "D-1159: BreakGlassStore.review's before_commit"),
     "POST /data-ops/batches/{bid}/decide": ("one transaction", "services/datacore/dataops.py:470-498"),
     "POST /api/v1/data/batches/{bid}/decide": ("one transaction", "services/datacore/dataops.py:470-498"),
     "POST /site/opt-outs": ("one transaction", "D-273; shown by tests/console/test_d273_privacy_guards.py"),
@@ -290,9 +290,9 @@ ORDER: dict[str, tuple[str, str]] = {
         "services/console/home.py:1218 (D-273), shown by test_d273_privacy_guards.py",
     ),
     "POST /api/v1/studies/{rs}/patients/{pid}/mark": ("one transaction", "services/console/home.py:1218 (D-273)"),
-    "POST /ops/users": ("change first", "services/console/app.py:1257 us.create, then :1259 (shown here)"),
-    "POST /studies/{rs}/irb": ("change first", "services/console/team.py:821 team.save_irb, then :824"),
-    "POST /ops/users#disable": ("change first", "services/console/app.py:1328 us.disable, then :1329"),
+    "POST /ops/users": ("one transaction", "D-1159: UserStore.create's before_commit (shown here)"),
+    "POST /studies/{rs}/irb": ("one transaction", "D-1159: TeamStore.save_irb's before_commit"),
+    "POST /ops/users#disable": ("one transaction", "D-1159: UserStore.disable's before_commit"),
 }
 
 
@@ -374,8 +374,6 @@ def test_the_notes_that_are_masked_or_not_kept_stay_out(walked: dict[str, Any]) 
         assert row["success"] and not row["leaks"], row
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="V8-04: /ops/users makes the account before its audit event; a failed write keeps it")  # fmt: skip
 def test_an_account_is_not_made_when_its_audit_event_cannot_be_written(
     box: dict[str, Any],  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
