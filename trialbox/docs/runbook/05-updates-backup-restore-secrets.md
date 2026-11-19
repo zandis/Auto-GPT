@@ -277,6 +277,51 @@ the server's superuser. A restore loads `hapi` as the superuser, so the same scr
 tables back to that role.
 
 
+## Lake ids per patient (D-1253): the one rebuild
+
+**For a box that holds synthetic data only.** From the release with D-1253, the id of a patient's record (a visit,
+a diagnosis, a lab result, an order, ...) is made from the hospital's number **and the patient**; before, from the
+number alone, and two patients with the same order number were one record. Every such id changed once. The first
+night after the update refuses, before it reads or writes anything, with one message that names what still holds
+ids of the earlier rule (the lake's snapshots, the OMOP store, the derived store) and this step; the vector store,
+the patient twin, the candidate pool and the EDC drafts refuse at their own first write in the same words. Nothing
+is half-migrated, and nothing goes on until the box is rebuilt once, from its sources:
+
+1. **The plan** (changes nothing): what is there, per store, and what the rebuild clears. It runs from
+   `/opt/trialbox` as the box's admin (`TB_DB_URL` of `deploy/.env`), in a one-off adapter container that sees the
+   lake: every store is read, not only the adapter's.
+
+   ```sh
+   python3 -m tools.trialbox id-rule-rebuild
+   ```
+
+2. **EDC values a person decided.** A value a person confirmed, edited, signed or sent is a record, and its trail is
+   append-only (D-281): the rebuild never clears it. While any such value cites a lake row of the earlier rule, the
+   rebuild stops before it changes anything and names each study with its count. Then a person decides, per study,
+   with the trial team: export the study's EDC values first (the study's ODM export, `GET
+   /api/v1/studies/<study>/edc/export/odm`) and keep the file with the study's records; what happens to the study's
+   EDC store after that is not decided yet (D-1253) and is asked of Aimedics. Open drafts that nobody decided are
+   cleared; the next draft run makes them again.
+3. **The rebuild** clears what was made from the old ids and stamps every store with the new rule: the lake's
+   snapshots and their copies (the site key, the pid map, the site set-up's facts, the embedding cache and the FHIR
+   ledger stay), the OMOP store's feed records of patients' clinical data (the persons stay), the derived scores,
+   the note chunks, the patient twin's documents and the candidate pool. What it cleared is in
+   `/data/lake/id_rule_rebuild.json` (counts only).
+
+   ```sh
+   python3 -m tools.trialbox id-rule-rebuild --yes
+   ```
+
+4. **The first night after it** reads every table whole (there is no snapshot to merge over), loads OMOP and the
+   lake from it; the next jobs fill the derived scores, the note chunks, the twin and the pool again. fhir-store
+   follows by itself: its ledger deletes the old ids and loads the new ones.
+
+What stays as it was: **published job outputs** (candidate lists, CASE sheets) made before the rebuild cite the old
+ids and cannot be traced into the rebuilt lake; the **audit chain** is not touched. A site whose export sends a
+deleted row as its bare key (no chart number) must now send the chart number with it: a delete without its patient
+removes nothing and is counted (`deletes_without_patient` in the night's report), since the same number may be
+another patient's.
+
 ## Secrets (D-128, D-138): the one place to rotate them
 
 | Command (as root, in `/opt/trialbox`) | What it does |

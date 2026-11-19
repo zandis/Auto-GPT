@@ -16,7 +16,7 @@ keeps such ids and was written under rule 1 would hold ids no rule-2 night gives
 * **The night's check.** The adapter refuses a night, before it reads or writes anything, when the lake's snapshots
   or a store it can read (:func:`probe`) are under rule 1 (``adapter.pipeline.check_id_rule``).
 * **The one way out** is the rebuild of ``python -m tools.id_rule_rebuild`` (runbook
-  ``docs/runbook/30-lake-id-rule-rebuild.md``): every store above is cleared, the first night after it is a full one.
+  §5, "Lake ids per patient"): every store above is cleared; the first night after it is a full one.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from typing import Any
 
 RULE = 2
 SNAPSHOT_RECORD = "id_rule.json"
-RUNBOOK = "docs/runbook/30-lake-id-rule-rebuild.md"
+RUNBOOK = "docs/runbook/05-updates-backup-restore-secrets.md, Lake ids per patient (D-1253)"
 COMMAND = "python -m tools.id_rule_rebuild"
 #: the table each store keeps its rule in (one row per rule the store was stamped with)
 DDL = (

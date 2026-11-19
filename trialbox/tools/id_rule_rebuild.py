@@ -1,4 +1,4 @@
-"""D-1253: the one rebuild a box makes when its lake ids change rule (``docs/runbook/30-lake-id-rule-rebuild.md``).
+"""D-1253: the one rebuild a box makes when its lake ids change rule (runbook §5, "Lake ids per patient").
 
 Rule 2 (a patient's record id holds the patient) changed every id of a patient's record once. The night refuses to
 add rule-2 ids to anything written under rule 1 (``tb_common.id_rule``), so a box that ran an earlier release is

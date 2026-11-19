@@ -171,6 +171,11 @@ def main(argv: list[str] | None = None) -> int:
         "migrate", help="the schemas no service owns, as the admin (D-486); each service's stores (D-921)"
     )
     mi.add_argument("--deploy", type=Path, default=deploy)
+    ir = sub.add_parser(
+        "id-rule-rebuild", help="D-1253: the one rebuild of a box whose lake ids are of the earlier rule (synthetic)"
+    )
+    ir.add_argument("--deploy", type=Path, default=deploy)
+    ir.add_argument("--yes", action="store_true", help="clear what the plan lists; without it, the plan only")
     s = sub.add_parser("secrets", help="per-service tokens: init, status, rotate (never prints a value)")
     s.add_argument("action", choices=["init", "status", "rotate"])
     s.add_argument(
@@ -266,6 +271,23 @@ def main(argv: list[str] | None = None) -> int:
             box.migrate_stores()  # D-921: and each service's start-time stores
         except tb_update.UpdateFailed as exc:
             print(f"migrate: {exc}", file=sys.stderr)
+            return 1
+        return 0
+    if a.cmd == "id-rule-rebuild":
+        from tools.trialbox import update as tb_update
+
+        box = tb_update.ComposeBox(a.deploy)
+        url = box.env.get("TB_DB_URL", "")
+        if not url:
+            print("id-rule-rebuild: deploy/.env has no TB_DB_URL (the admin's): nothing read", file=sys.stderr)
+            return 1
+        # a one-off adapter container (the lake's volume) as the box's admin: every store the rebuild reads (D-1253)
+        argv = ["run", "--rm", "--no-deps", "-T", "-e", "TB_DB_URL", "adapter", "python", "-m",
+                "tools.id_rule_rebuild", "--lake", "/data/lake", *(["--yes"] if a.yes else [])]  # fmt: skip
+        try:
+            print(box.run(box._c(*argv), env={"TB_DB_URL": url}, timeout=3600))
+        except tb_update.UpdateFailed as exc:
+            print(f"id-rule-rebuild: {exc}", file=sys.stderr)
             return 1
         return 0
     if a.cmd == "ops":
