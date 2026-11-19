@@ -18,6 +18,7 @@ from console import tier_words
 from console.auth import ROLES
 from console.backend import Health
 from console.i18n import translate
+from tb_common import tier_value
 
 from tests.console.test_console_app import ADMIN_PW, box, login  # noqa: F401 - the fixture is used by name
 
@@ -99,7 +100,7 @@ def test_the_home_page_words_each_tier_in_each_language(
 # ------------------------------------------- a measured row is worded without the qualifier, a declared one with it
 def _site_record(tmp_path: Path, basis: str) -> Path:
     """The shipped 32 GB record with ``console_promises`` given ``basis`` (synthetic: a measured promise is a test's)."""
-    doc = json.loads((Path(tier_words.tier_value.TIERS_DIR) / "rtx5090.json").read_text(encoding="utf-8"))
+    doc = json.loads((Path(tier_value.TIERS_DIR) / "rtx5090.json").read_text(encoding="utf-8"))
     field = doc["fields"]["console_promises"]
     field["basis"] = basis
     d = tmp_path / f"tiers-{basis}"
@@ -116,7 +117,7 @@ def test_only_a_declared_row_says_it_is_declared_and_not_measured(
     basis: str,
 ) -> None:
     monkeypatch.setenv("TB_PROFILE", "P-5090")
-    monkeypatch.setattr(tier_words.tier_value, "TIERS_DIR", _site_record(tmp_path, basis))
+    monkeypatch.setattr(tier_value, "TIERS_DIR", _site_record(tmp_path, basis))
     c, csrf = _admin(box)
     for lang in LANGS:
         tile = _tile(_home(c, csrf, lang))
