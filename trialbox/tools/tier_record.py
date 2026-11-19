@@ -11,6 +11,12 @@ Each field says its basis and nothing is filled in:
   path must exist and the lines must be in the file.
 * ``not_measured``: ``value`` is null and ``measured_by`` names the run or card that would measure it.
 
+A second kind of measured source (10E-1d, D-1320 amended): ``measured_on.peak_record``, a card-memory peak file
+(``{"peak_mib", "total_mib", ...}``) with its origin stated in the tier record. It may be the source of
+:data:`PEAK_FIELDS` only, and only when the origin names this profile, an uncapped card whose memory total equals the
+serving record's, every origin fact (or "not stated in the file"), and the configuration in force that day equals the
+serving record's; the value must be ``total_mib - peak_mib``.
+
 A record made under the ballast stand-in (plan 10 row 10E-28: a larger card held at a 32 GB card's free memory,
 captured with ``--capped-to "... by ballast"``) is refused: a stand-in is never a tier record. So is any record whose
 serving record was capped. Standard library only, so the host's ``python3`` can run it, as ``tools/tiers.py``.
@@ -42,6 +48,9 @@ FORMAT = "tb-tier-record/1"
 BASES = ("measured", "declared", "not_measured")
 BALLAST = re.compile(r"by\s+ballast", re.IGNORECASE)
 REFUSED = 3
+PEAK_FIELDS = ("free_memory_at_peak_mib",)
+PEAK_ORIGIN = ("run", "date", "commit_or_bundle", "card", "driver", "capped", "workload", "sampling")
+PEAK_CONFIG = ("context_tokens", "judge_sequences", "verifier_sequences", "gpu_memory_utilization")
 
 
 def schema() -> dict[str, Any]:
@@ -134,8 +143,15 @@ def problems(rec: Any, profile: str | None = None, root: Path = ROOT) -> list[st
         why.append(f"tier is {rec.get('tier')!r}, but tools/tiers.py gives profile {prof!r} the tier {mine!r}")
     on = rec.get("measured_on")
     serving = None
-    if not isinstance(on, dict) or set(on) != {"serving_record", "qualification_record"}:
-        why.append("measured_on must name serving_record and qualification_record (a path, or null)")
+    peak: str | None = None
+    if (
+        not isinstance(on, dict)
+        or not {"serving_record", "qualification_record"} <= set(on)
+        or not set(on) <= {"serving_record", "qualification_record", "peak_record"}
+    ):
+        why.append(
+            "measured_on must name serving_record and qualification_record (a path, or null), and may name peak_record"
+        )
     else:
         for key in ("serving_record", "qualification_record"):
             val = on[key]
@@ -144,6 +160,9 @@ def problems(rec: Any, profile: str | None = None, root: Path = ROOT) -> list[st
         serving = on["serving_record"]
         if isinstance(serving, str) and (root / serving).is_file() and isinstance(prof, str):
             why += _serving_problems(serving, prof, root)
+        if on.get("peak_record") is not None:
+            peak_why, peak = _peak_problems(on["peak_record"], prof, serving, root)
+            why += peak_why
     fields = rec.get("fields")
     if not isinstance(fields, dict):
         return [*why, "fields must be an object of field -> {basis, value, source | measured_by}"]
@@ -154,11 +173,81 @@ def problems(rec: Any, profile: str | None = None, root: Path = ROOT) -> list[st
         f = fields.get(name)
         if f is None:
             continue
-        why += [f"field {name!r}: {w}" for w in _field_problems(f, prof, serving, root)]
+        why += [f"field {name!r}: {w}" for w in _field_problems(f, prof, serving, root, name, peak)]
     return why
 
 
-def _field_problems(f: Any, profile: Any, serving: Any, root: Path) -> list[str]:
+def _peak_problems(pr: Any, profile: Any, serving: Any, root: Path) -> tuple[list[str], str | None]:
+    """Why ``measured_on.peak_record`` is not a measurement of this profile's card; and its path when it is."""
+    if not isinstance(pr, dict) or set(pr) != {"path", "origin"}:
+        return ["measured_on.peak_record must be {path, origin}"], None
+    path, origin = pr["path"], pr["origin"]
+    if not isinstance(path, str) or not (root / path).is_file():
+        return [f"measured_on.peak_record.path {path!r} is not a file in the repository"], None
+    why: list[str] = []
+    try:
+        doc = json.loads((root / path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return [f"peak record {path} is not readable JSON ({exc})"], None
+    nums = {k: doc.get(k) if isinstance(doc, dict) else None for k in ("peak_mib", "total_mib")}
+    if not all(isinstance(v, int) and not isinstance(v, bool) and v > 0 for v in nums.values()):
+        return [f"peak record {path}: peak_mib and total_mib must be positive integers"], None
+    if not isinstance(origin, dict):
+        return [f"peak record {path}: origin must be an object (the facts of the run it came from)"], None
+    for key in PEAK_ORIGIN:
+        val = origin.get(key)
+        if not isinstance(val, str) or not val.strip():
+            why.append(f"peak record {path}: origin.{key} missing (write 'not stated in the file' if it is not)")
+    if origin.get("profile") != profile:
+        why.append(f"peak record {path}: origin.profile is {origin.get('profile')!r}, not {profile!r}")
+    if str(origin.get("capped", "")).strip() != "uncapped":
+        why.append(
+            f"peak record {path}: taken on a capped card ({origin.get('capped')!r}): a peak is measured on the "
+            "profile's own uncapped card"
+        )
+    extra = sorted(set(origin) - {*PEAK_ORIGIN, "profile", "configuration", "not"})
+    why += [f"peak record {path}: unknown origin key {k!r}" for k in extra]
+    if not isinstance(origin.get("not"), str) or not origin["not"].strip():
+        why.append(f"peak record {path}: origin.not missing (say what the peak is not)")
+    try:
+        srec = json.loads((root / serving).read_text(encoding="utf-8")) if isinstance(serving, str) else None
+    except (OSError, ValueError):
+        srec = None
+    if not isinstance(srec, dict):
+        return [*why, f"peak record {path}: needs the record's serving record to compare the card and settings"], None
+    total = (srec.get("card") or {}).get("memory_total_mib")
+    if nums["total_mib"] != total:
+        why.append(
+            f"peak record {path}: total_mib {nums['total_mib']} is not the serving record's card ({total} MiB): "
+            "another card"
+        )
+    cfg = origin.get("configuration")
+    if not isinstance(cfg, dict) or set(cfg) != {*PEAK_CONFIG, "source"}:
+        why.append(f"peak record {path}: origin.configuration must state {', '.join(PEAK_CONFIG)} and its source")
+    else:
+        srv = {s.get("role"): s for s in srec.get("servers") or [] if isinstance(s, dict)}
+        today = {
+            "context_tokens": lens.pop() if len(lens := {s.get("max_model_len") for s in srv.values()}) == 1 else None,
+            "judge_sequences": (srv.get("judge") or {}).get("max_num_seqs"),
+            "verifier_sequences": (srv.get("verifier") or {}).get("max_num_seqs"),
+            "gpu_memory_utilization": {r: s.get("gpu_memory_utilization") for r, s in srv.items()},
+        }
+        that_day = {k: cfg[k] for k in PEAK_CONFIG}
+        for k in PEAK_CONFIG:
+            if that_day[k] != today[k]:
+                why.append(
+                    f"peak record {path}: {k} that day was {cfg[k]!r}, the serving record's is {today[k]!r}: the "
+                    "peak is of another configuration"
+                )
+        bad = _source_problem(str(cfg["source"]), root)
+        if bad:
+            why.append(f"peak record {path}: configuration {bad}")
+    return why, (path if not why else None)
+
+
+def _field_problems(
+    f: Any, profile: Any, serving: Any, root: Path, name: str = "", peak: str | None = None
+) -> list[str]:
     if not isinstance(f, dict):
         return ["not an object"]
     basis = f.get("basis")
@@ -182,7 +271,12 @@ def _field_problems(f: Any, profile: Any, serving: Any, root: Path) -> list[str]
         return [*out, bad]
     if basis == "measured":
         path = src.split()[0].partition(":")[0]
-        if path != serving:
+        if name in PEAK_FIELDS and peak is not None and path == peak:
+            doc = json.loads((root / peak).read_text(encoding="utf-8"))
+            free = doc["total_mib"] - doc["peak_mib"]
+            if f.get("value") != free:
+                out.append(f"measured from {peak}: the value must be total_mib - peak_mib ({free})")
+        elif path != serving:
             out.append(
                 f"measured from {path}, which is not the record's measured_on.serving_record ({serving!r}): a "
                 "measured value comes from this profile's own measurement"

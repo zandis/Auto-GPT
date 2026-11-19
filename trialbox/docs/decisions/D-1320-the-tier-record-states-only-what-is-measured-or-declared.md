@@ -9,6 +9,11 @@
   which `deploy/docker/python.Dockerfile` copies into the trialbox-py image (`COPY models /app/models`), so the
   gateway and the orchestrator find them at the same path relative to the code as on the host. Readers take a value
   from the record only when its field is measured (D-1322).
+- **Amended 2026-11-19 (10E-1d):** a second kind of measured source, `measured_on.peak_record` (a card-memory peak
+  file with its origin stated in the tier record), may be the source of `free_memory_at_peak_mib` only, and only
+  when its origin names the same profile, an uncapped card whose memory total equals the serving record's, every
+  origin fact (or "not stated in the file"), what the peak is not, and a configuration that day equal to the serving
+  record's; the value is `total_mib - peak_mib`. A ballast, capped, other-card or other-configuration peak is refused.
 
 ## Context
 

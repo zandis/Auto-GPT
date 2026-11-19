@@ -7,6 +7,9 @@ profile holds what the rest of the product reads about the box. Every field says
 
 - **measured**: from this profile's serving record taken on its own uncapped card (`measured_on.serving_record`,
   which must pass `tools/serving_config.py measured <profile>`);
+- **measured from a peak record**: `free_memory_at_peak_mib` only, from `measured_on.peak_record` (a card-memory peak file
+  of the same profile, same card total, uncapped, with every origin fact stated or "not stated in the file" and the
+  configuration of that day equal to the serving record's); the value is `total_mib - peak_mib`;
 - **declared**: a repository file and line declare it (`source`); the checker opens the file and the line;
 - **not measured**: the value is null and `measured_by` names the run or card that would measure it. A figure not
   measured is never filled in.
@@ -17,7 +20,7 @@ serving record was taken on a capped card.
 | file | box | measured | declared | not measured |
 | --- | --- | ---: | ---: | ---: |
 | `rtx5090.json` | the 32 GB site box (tier `small`) | 0 | 18 | 10 |
-| `rtxpro6000.json` | the RTX PRO 6000 box (tier `large`), measured from `deploy/measured/serving_config.rtxpro6000.json` | 7 | 13 | 8 |
+| `rtxpro6000.json` | the RTX PRO 6000 box (tier `large`), measured from `deploy/measured/serving_config.rtxpro6000.json` and, for the free memory at peak, `eval/parity/gpu-run-2026-11-08-pro6000/gpu_peak.json` (its origin in `measured_on.peak_record`) | 8 | 13 | 7 |
 
 No other profile has a record yet. The owner's own workstation (Ubuntu on Arm, IGX Orin, RTX A6000 48 GB) is not a
 measured tier and has no record. Release candidate 1 installs only on an x86 box with the measured RTX PRO 6000 card;
