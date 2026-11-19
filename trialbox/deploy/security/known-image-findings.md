@@ -7,29 +7,41 @@ Since T-110b (D-340, ENG-007) the image vulnerability gate **blocks for every im
 mode is left only for the two test-only mail servers of `deploy/docker-compose.test.yml`, which no bundle carries
 (`tools/make_bundle.sh` takes the box's compose file only, OPS-017; and it refuses any image with a report-mode finding).
 The open findings of the HAPI FHIR and vLLM images are no longer waved through as a class: each one is a dated entry of
-`deploy/supply-chain-allowlist.yaml`, scoped to that image (`image:`), with `review_by: 2026-12-10`. A new finding in
+`deploy/supply-chain-allowlist.yaml`, scoped to that image (`image:`), with `review_by: 2027-01-10`. A new finding in
 either image fails the gate (one exception, D-622: one dated entry accepts every finding of the kernel headers package
-`linux-libc-dev` in the pinned vLLM image); on 2026-12-10 the entries lapse and the gate fails until each image has moved or each entry
+`linux-libc-dev` in the pinned vLLM image); on 2027-01-10 the entries lapse and the gate fails until each image has moved or each entry
 is reviewed again. The postgres row moved to our own `trialbox-postgres` image (T-104, built on `postgres:16-trixie`),
 which the gates now scan and block on; its base's findings are dated entries the same way. The licence gate, `make lock-check`, `make allowlist-check` and `make pip-audit`
 block as before. The list of images in report mode is `VULN_REPORT_ONLY` in `tools/supply_chain/release.py`; a test
 checks that each one has a row here. Those images are report-only in every mode, the default (block) too (D-827): on
 2026-11-15 v1.33.1 and 2.1.15 are their newest releases, so there is no patched tag to move to yet.
 
-Owner of every row: security owner (to assign). Target date of every row: 2026-12-10.
+Owner of every row: Chang-Fu Kuo, the owner (D-1067). Target date of every row: 2027-01-10, re-dated from 2026-12-10 by him.
 
 | Image | Platforms | Findings | Main packages | Gate | Planned fix |
 | --- | --- | --- | --- | --- | --- |
 | axllent/mailpit | amd64, arm64 | 1 | golang.org/x/crypto v0.58.0 (GO-2026-5932) and Go stdlib 1.27.3 (CVE-2026-97054) in the Mailpit binary; seen by the image gates of PR #150 on 2026-11-11 and on lane G's box on 2026-11-15 | report (test only, never in a bundle) | move to the next Mailpit release built with the fixed x/crypto (digest-pinned in `deploy/images.lock`) |
 | greenmail/standalone | amd64, arm64 | 16 each | jackson-databind, jackson-core, openssl/libssl3, apt, gpgv; on 2026-11-15 (2.1.15) apt and libapt-pkg7-0 (CVE-2026-109518), libbrotli1 (CVE-2026-111497), zlib1g (CVE-2026-76844, CVE-2026-85091) | report (test only, never in a bundle) | move to a patched GreenMail tag (digest-pinned) |
-| vllm/vllm-openai | amd64, arm64 | 29 each | pyasn1, openssl/libssl3t64, certifi, msgpack, urllib3, setuptools, gnupg, apt, brotli, uv | block; 29 dated per-image entries, and since D-622 one dated entry for every finding of its kernel headers package `linux-libc-dev` (build-time files; the owner's ruling of 2026-11-12); and since D-790 one for CVE-2026-128089 in dnspython 2.9.0 (zone-file text parsing, which the model server never runs; the owner's yes of 2026-11-15; review 2026-12-10) | move to a patched vLLM release tag (digest-pinned); our own image without the headers after go-live |
+| vllm/vllm-openai | amd64, arm64 | 29 each | pyasn1, openssl/libssl3t64, certifi, msgpack, urllib3, setuptools, gnupg, apt, brotli, uv | block; 29 dated per-image entries, and since D-622 one dated entry for every finding of its kernel headers package `linux-libc-dev` (build-time files; the owner's ruling of 2026-11-12); and since D-790 one for CVE-2026-128089 in dnspython 2.9.0 (zone-file text parsing, which the model server never runs; the owner's yes of 2026-11-15; review 2027-01-10) | move to a patched vLLM release tag (digest-pinned); our own image without the headers after go-live |
 | trialbox-postgres (base postgres:16-trixie) | amd64, arm64 | 0 | none since D-993 (train 72): the base's gosu, its one Go binary and the source of 28 findings, is deleted in its own layer for a setpriv shim, and zlib1g is held at the Debian security fix | block; no entry (the gate passed with none, run 44057140250) | none |
 | hapiproject/hapi | amd64, arm64 | 23 each | libexpat1, zlib1g, jackson-core, jackson-databind, guava, spring-webmvc, ca-certificates | block; 23 dated per-image entries | move to a patched HAPI FHIR tag (digest-pinned) |
-| caddy | amd64, arm64 | 3 each | golang.org/x/crypto (GO-2026-5932), golang.org/x/net (CVE-2026-78661), Go stdlib 1.27.3 (CVE-2026-97054) in the Caddy binary; first gated on 2026-11-12 (D-574) | block; 3 dated per-image entries (the owner's ruling of 2026-11-12) | move to the next Caddy image (digest-pinned); build it ourselves if upstream is silent on 2026-12-10 |
-| authelia/authelia | amd64, arm64 | 8 each | Go stdlib 1.27.1, golang.org/x/net, golang.org/x/crypto in the Authelia binary; no package database in the image; first gated on 2026-11-12 (D-574) | block; 7 dated per-image entries, each with why it is not reachable on a box, and one `os_packages_unreadable` entry; an eighth, CVE-2026-111943 (crypto/x509), not reachable since the identity overlay gives Authelia only the hospital's directory CA (D-722; the owner's yes of 2026-11-15, D-820) | move to the next Authelia image (digest-pinned); build it ourselves if upstream is silent on 2026-12-10 |
+| caddy | amd64, arm64 | 3 each | golang.org/x/crypto (GO-2026-5932), golang.org/x/net (CVE-2026-78661), Go stdlib 1.27.3 (CVE-2026-97054) in the Caddy binary; first gated on 2026-11-12 (D-574) | block; 3 dated per-image entries (the owner's ruling of 2026-11-12) | move to the next Caddy image (digest-pinned); build it ourselves if upstream is silent on 2027-01-10 |
+| authelia/authelia | amd64, arm64 | 8 each | Go stdlib 1.27.1, golang.org/x/net, golang.org/x/crypto in the Authelia binary; no package database in the image; first gated on 2026-11-12 (D-574) | block; 7 dated per-image entries, each with why it is not reachable on a box, and one `os_packages_unreadable` entry; an eighth, CVE-2026-111943 (crypto/x509), not reachable since the identity overlay gives Authelia only the hospital's directory CA (D-722; the owner's yes of 2026-11-15, D-820) | move to the next Authelia image (digest-pinned); build it ourselves if upstream is silent on 2027-01-10 |
 
 When a row is fixed, remove the image's entries from the allow-list (or the image from `VULN_REPORT_ONLY`) and its row
 from this table in the same pull request.
+
+## The re-date of 2026-11-18 (D-1067)
+
+The owner, the security owner of every row above, moved every dated entry from 2026-12-10 to 2027-01-10. Nothing
+was added, widened or reworded. One reason per group:
+
+| Image | Entries | Why they stand until 2027-01-10 |
+| --- | --- | --- |
+| vllm/vllm-openai | 30 | The findings are in the upstream vLLM image (v0.32.0, pinned by digest), not in TrialBox's code; a box runs it unmodified. They clear when a patched vLLM release tag is pinned and passes the gate. |
+| hapiproject/hapi | 21 | The pinned HAPI FHIR image is distroless: no package manager, so a derived image cannot apply the OS fixes (SC-4). HAPI has no route out of the box (D-340). They clear with a patched HAPI tag, pinned by digest. |
+| authelia/authelia | 8 and 1 `os_packages_unreadable` | Go modules inside the Authelia binary. Each entry says why it is not reachable on a box, and CVE-2026-111943 is not reachable since the identity overlay gives Authelia only the hospital's directory CA (D-722). They clear with the next Authelia image, or with our own build if upstream is silent on 2027-01-10. |
+| caddy | 3 | Go modules inside the Caddy binary (x/crypto, x/net, the standard library). They clear with the next Caddy image (SC-2 moved its digest, D-990), or with our own build if upstream is silent on 2027-01-10. |
 
 ## Fixed rows
 

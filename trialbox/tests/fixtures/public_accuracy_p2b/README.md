@@ -7,7 +7,7 @@ and basis (`codes` names them; `-` is a criterion with no verdict), counted per 
 id, no chart number, no note, no quote and no gold label. Used by `tests/unit/test_ladder_report_2026_11_18.py`,
 which runs the ladder report on it and checks it against root review 15's rung table (section 2.2).
 
-The sigir data is public: SIGIR 2016 (NCBI TrialGPT, `eval/criterion_ml/LICENSE.NCBI`), with protocol text from
-ClinicalTrials.gov. The jmed protocols are the set's own two (JMED-Personas-100k by Sociocom (NAIST),
+The sigir set is SIGIR 2016, CC BY-SA 4.0 (Koopman and Zuccon, CSIRO; as redistributed by NCBI TrialGPT, see
+`eval/criterion_ml/NOTICE.md`), with protocol text from ClinicalTrials.gov. The jmed protocols are the set's own two (JMED-Personas-100k by Sociocom (NAIST),
 `huggingface.co/datasets/sociocom/JMED-Personas`, licensed CC BY 4.0). The tcga set is TCGA-Reports (Columbia),
 Mendeley DOI 10.17632/hyg5xkznpx.1, licensed CC BY 4.0. Keep these attributions with any copy.

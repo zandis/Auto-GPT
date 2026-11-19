@@ -1,0 +1,49 @@
+{
+ "card": "H10G43",
+ "title": "malformed-input properties on seven readers (plan 10 row 10G-43, review item OT-5)",
+ "date": "2026-11-19",
+ "source": "docs/handover/malformed-input-properties-2026-11-19.md",
+ "note": "basis 'shown' means a Hypothesis property raised it on generated input and the minimal input is kept as an explicit example in a strict xfail test (tests/property/test_malformed_*.py). Lanes A2 for the REDCap dictionary and the site intake are a guess; B2 and D are the plan row's.",
+ "findings": [
+  {
+   "id": "H10G43-01",
+   "severity": "Low",
+   "claim": "criteria_compiler.import_ruleset.read_zip lets zipfile.BadZipFile out, not ImportRefused, for bytes that are no zip or a zip cut short (services/criteria_compiler/import_ruleset.py:33, the ZipFile opened outside the try); minimal input: b'' ; only the offline install (main) calls it, on a zip from a verified bundle",
+   "lane": "B2",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H10G43-02",
+   "severity": "Low",
+   "claim": "criteria_compiler.import_ruleset.read_zip lets AttributeError, UnicodeDecodeError or a yaml error out, not ImportRefused, when manifest.yaml is no UTF-8 YAML mapping (services/criteria_compiler/import_ruleset.py:44-45); minimal input: a zip holding manifest.yaml = '- a'",
+   "lane": "B2",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H10G43-03",
+   "severity": "Low",
+   "claim": "datacore.forms.read_dictionary lets csv.Error out, not FormError, for a bare CR in an unquoted cell or a cell over 131072 characters (services/datacore/forms.py:172); POST /studies/{rs}/forms/dictionary catches FormError only (services/orchestrator/datacore_api.py:239), so it answers 500; nothing is stored; minimal input: 'field_name,form_name\\na\\rb,f\\n'",
+   "lane": "A2",
+   "basis": "shown",
+   "state": "open"
+  },
+  {
+   "id": "H10G43-04",
+   "severity": "Low",
+   "claim": "tools.verify_update.verify lets tarfile.ReadError ('unexpected end of data') out, not Rejected, for a bundle cut inside a member: tf.getmembers() runs outside the try that turns TarError into Rejected (tools/verify_update.py:215); nothing is staged, but the update stops with a traceback instead of the exit-1 refusal; minimal input: the first 512 bytes of a tar holding one 1-byte file",
+   "lane": "D",
+   "basis": "shown",
+   "state": "fixed 58e7cf2"
+  },
+  {
+   "id": "H10G43-05",
+   "severity": "Low",
+   "claim": "sitesetup.intake.read_grid lets csv.Error out, not IntakeError, for a CSV sheet with a bare CR in an unquoted cell or a cell over 131072 characters (services/sitesetup/intake.py:61); the setup route catches IntakeError and SetupError only (services/orchestrator/setup_api.py:328), so the upload answers 500; nothing is stored (add_sheet reads before it stores); minimal input: b'a\\rb\\r\\n'",
+   "lane": "A2",
+   "basis": "shown",
+   "state": "open"
+  }
+ ]
+}
