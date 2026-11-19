@@ -49,7 +49,7 @@ class SizedBox(RunningBox):
         if "sum(pg_database_size(datname))" in line:
             self.calls.append(list(argv))
             return f"{2 * self.db_bytes}\n"
-        step = ("snapshot" if "psql -X -q" in line else "copy" if " cp " in f" {line} " else
+        step = ("snapshot" if "psql -X -q" in line else "copy" if " tar " in f" {line} " else
                 "container" if argv[:2] == ["docker", "run"] else "pgbackrest" if "pgbackrest" in argv else "")  # fmt: skip
         if step:
             t = kw.get("timeout")
