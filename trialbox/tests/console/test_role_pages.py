@@ -11,6 +11,7 @@ from types import SimpleNamespace as Row
 from typing import Any
 
 import pytest
+from console import people_lists
 from console import person_state as ps
 from console import studies as st
 from console.i18n import CATALOGUES
@@ -185,7 +186,8 @@ def test_each_role_lands_on_its_own_home_with_at_most_four_items(box: dict[str, 
     pi = _user(box, "drsato", "investigator")
     name_pi(box, "drsato")  # D-380 (ROLE-008): the steward names the PI
     r = pi.get("/")
-    assert r.url.path == "/studies/GZQO/week"
+    # J-5 (D-1223): with the flag layout.people_lists on, the weekly page is a view of Candidates at its own address
+    assert r.url.path == ("/studies/GZQO/people/candidates/week" if people_lists.flag_now() else "/studies/GZQO/week")
     cro = _user(box, "cra1", "cro", affiliation="cro", studies="GZQO")
     r = cro.get("/")
     assert r.url.path == "/reports" and 'data-testid="cro-note"' in r.text

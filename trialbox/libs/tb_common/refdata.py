@@ -10,7 +10,7 @@ inside the signed update bundle, payload kind ``refdata``)::
                          distribution (ship | site-fetch), files [{path, sha256, bytes, records}]
     NOTICE.md            the attribution and licence text of every source, generated from the manifest
     <source>/<file>.jsonl.gz   one JSON object per line:
-        ctgov:  {"nct_id", "study": <ClinicalTrials.gov API v2 study record, unchanged>}
+        ctgov:  {"nct_id", "study": <ClinicalTrials.gov API v2 study record, without personal names (D-1367)>}
         trial:  {"registry", "trial_id", "title", "status", "phase", "sponsor", "conditions": [], "countries": [],
                  "inclusion", "exclusion", "start", "end", "updated", "codes": [], "record": {<source row>}}
         term:   {"system", "code", "display", "extra": {}}
@@ -84,6 +84,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from tb_common.ctgov_record import strip_names
+
 log = logging.getLogger(__name__)
 
 FORMAT = "trialbox-refdata/1"
@@ -133,7 +135,69 @@ CREATE TABLE IF NOT EXISTS withdrawn (source_id TEXT NOT NULL, name TEXT NOT NUL
   reason TEXT NOT NULL, records BIGINT NOT NULL, withdrawn_at TEXT NOT NULL, withdrawn_by TEXT NOT NULL,
   PRIMARY KEY (source_id, withdrawn_at))
 """
-MIGRATIONS = (DDL, DDL_V2, DDL_V3)  # D-317: version 3, the record of withdrawn sources
+# D-1367: version 4 drops the personal names from the CT.gov records stored before, as strip_names does, in one
+# UPDATE that rewrites only the rows holding one (steps chained by LATERAL; no ";" and no "?" in it). A pack loaded
+# from now on is stripped as it is loaded (ctgov_row). Every path and key of tb_common.ctgov_record is in this text
+# (tests/unit/test_ctgov_widened.py); a later change of those paths is a new version, never an edit of this one.
+DDL_V4 = """
+UPDATE ctgov_study AS t SET study = s4.x FROM ctgov_study AS o
+  CROSS JOIN LATERAL (SELECT o.study
+    #- '{protocolSection,contactsLocationsModule,centralContacts}'
+    #- '{protocolSection,contactsLocationsModule,overallOfficials}'
+    #- '{protocolSection,sponsorCollaboratorsModule,responsibleParty,investigatorFullName}'
+    #- '{protocolSection,sponsorCollaboratorsModule,responsibleParty,investigatorTitle}'
+    #- '{protocolSection,sponsorCollaboratorsModule,responsibleParty,oldNameTitle}'
+    #- '{resultsSection,moreInfoModule,pointOfContact}' AS x) AS s0
+  CROSS JOIN LATERAL (SELECT CASE
+    WHEN jsonb_typeof(s0.x #> '{protocolSection,contactsLocationsModule,locations}') = 'array'
+    THEN jsonb_set(s0.x, '{protocolSection,contactsLocationsModule,locations}', (SELECT COALESCE(jsonb_agg(
+      CASE WHEN jsonb_typeof(e.v) = 'object' THEN e.v - 'contacts' ELSE e.v END ORDER BY e.n), '[]'::jsonb)
+      FROM jsonb_array_elements(s0.x #> '{protocolSection,contactsLocationsModule,locations}')
+        WITH ORDINALITY AS e(v, n)))
+    ELSE s0.x END AS x) AS s1
+  CROSS JOIN LATERAL (SELECT CASE
+    WHEN jsonb_typeof(s1.x #> '{protocolSection,referencesModule,references}') = 'array'
+    THEN jsonb_set(s1.x, '{protocolSection,referencesModule,references}', (SELECT COALESCE(jsonb_agg(
+      CASE WHEN jsonb_typeof(e.v) = 'object' THEN e.v - 'citation' ELSE e.v END ORDER BY e.n), '[]'::jsonb)
+      FROM jsonb_array_elements(s1.x #> '{protocolSection,referencesModule,references}')
+        WITH ORDINALITY AS e(v, n)))
+    ELSE s1.x END AS x) AS s2
+  CROSS JOIN LATERAL (SELECT CASE
+    WHEN jsonb_typeof(s2.x #> '{protocolSection,sponsorCollaboratorsModule,collaborators}') = 'array'
+    THEN jsonb_set(s2.x, '{protocolSection,sponsorCollaboratorsModule,collaborators}', (SELECT COALESCE(jsonb_agg(
+      CASE WHEN jsonb_typeof(e.v) = 'object' AND upper(btrim(e.v ->> 'class')) = 'INDIV' THEN e.v - 'name' ELSE e.v END
+      ORDER BY e.n), '[]'::jsonb)
+      FROM jsonb_array_elements(s2.x #> '{protocolSection,sponsorCollaboratorsModule,collaborators}')
+        WITH ORDINALITY AS e(v, n)))
+    ELSE s2.x END AS x) AS s3
+  CROSS JOIN LATERAL (SELECT CASE
+    WHEN upper(btrim(s3.x #>> '{protocolSection,sponsorCollaboratorsModule,leadSponsor,class}')) = 'INDIV'
+    THEN jsonb_set(s3.x, '{protocolSection,sponsorCollaboratorsModule,leadSponsor}',
+      (s3.x #> '{protocolSection,sponsorCollaboratorsModule,leadSponsor}') - 'name')
+    ELSE s3.x END AS x) AS s4
+  WHERE t.nct_id = o.nct_id AND (
+    o.study #> '{protocolSection,contactsLocationsModule,centralContacts}' IS NOT NULL
+    OR o.study #> '{protocolSection,contactsLocationsModule,overallOfficials}' IS NOT NULL
+    OR o.study #> '{protocolSection,sponsorCollaboratorsModule,responsibleParty,investigatorFullName}' IS NOT NULL
+    OR o.study #> '{protocolSection,sponsorCollaboratorsModule,responsibleParty,investigatorTitle}' IS NOT NULL
+    OR o.study #> '{protocolSection,sponsorCollaboratorsModule,responsibleParty,oldNameTitle}' IS NOT NULL
+    OR o.study #> '{resultsSection,moreInfoModule,pointOfContact}' IS NOT NULL
+    OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE
+      WHEN jsonb_typeof(o.study #> '{protocolSection,contactsLocationsModule,locations}') = 'array'
+      THEN o.study #> '{protocolSection,contactsLocationsModule,locations}' ELSE '[]'::jsonb END) AS e(v)
+      WHERE e.v -> 'contacts' IS NOT NULL)
+    OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE
+      WHEN jsonb_typeof(o.study #> '{protocolSection,referencesModule,references}') = 'array'
+      THEN o.study #> '{protocolSection,referencesModule,references}' ELSE '[]'::jsonb END) AS e(v)
+      WHERE e.v -> 'citation' IS NOT NULL)
+    OR EXISTS (SELECT 1 FROM jsonb_array_elements(CASE
+      WHEN jsonb_typeof(o.study #> '{protocolSection,sponsorCollaboratorsModule,collaborators}') = 'array'
+      THEN o.study #> '{protocolSection,sponsorCollaboratorsModule,collaborators}' ELSE '[]'::jsonb END) AS e(v)
+      WHERE jsonb_typeof(e.v) = 'object' AND upper(btrim(e.v ->> 'class')) = 'INDIV' AND e.v -> 'name' IS NOT NULL)
+    OR (upper(btrim(o.study #>> '{protocolSection,sponsorCollaboratorsModule,leadSponsor,class}')) = 'INDIV'
+      AND o.study #> '{protocolSection,sponsorCollaboratorsModule,leadSponsor,name}' IS NOT NULL))
+"""
+MIGRATIONS = (DDL, DDL_V2, DDL_V3, DDL_V4)  # D-317: version 3, the record of withdrawn sources; D-1367: version 4
 TABLES = ("ctgov_study", "trial", "term", "concept_map", "synonym")
 MAP_COLS = ("source_system", "source_code", "target_system", "target_code", "relation", "source_display",
             "target_display", "extra", "source_id")  # fmt: skip
@@ -626,7 +690,7 @@ def ctgov_row(rec: dict[str, Any], source_id: str) -> tuple[str, ...]:
         _bar(conds),
         _bar(str(x.get("country") or "") for x in locs),
         str((status.get("lastUpdatePostDateStruct") or {}).get("date") or ""),
-        json.dumps(study, ensure_ascii=False),
+        json.dumps(strip_names(study), ensure_ascii=False),  # D-1367: no personal names (an older pack has them)
         source_id,
     )
 

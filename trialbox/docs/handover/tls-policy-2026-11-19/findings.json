@@ -19,7 +19,7 @@
    "claim": "No supported setting relaxes the TLS policy for a hospital's old client: TB_TLS_MODE chooses only the certificate and the Caddyfile has no placeholder for protocols or cipher suites, so a client that can do only TLS 1.0/1.1, CBC or static RSA gets a handshake failure on 443 and the only way round is a hand edit of deploy/identity/Caddyfile that the policy check fails",
    "lane": "H",
    "basis": "shown",
-   "state": "open"
+   "state": "fixed 80804b6"
   }
  ]
 }

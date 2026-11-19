@@ -1,0 +1,9 @@
+# The declared rows of the routes a Japanese site adds (card 10C-4, D-1227): the Japan profile's committee page and
+# its API twin. They exist only on a box whose site is in Japan (TB_TZ), so they are not in route_actions.yaml (the
+# walk of a box outside Japan, as before this card); tests/console/test_committee_walks_japan.py walks a Japanese
+# site with both files. Each row copies the row of the study's IRB route it mirrors, for lane C2 to confirm.
+routes:
+  "GET /api/v1/studies/{rs}/committee": {actions: ["!report.aggregate_only"], mode: all, why: "10C-4 (D-1227): the row of GET /api/v1/studies/{rs}/irb, the approval record it mirrors (read as its read); 404 as an absent route outside the Japan profile; for lane C2 to confirm"}
+  "POST /api/v1/studies/{rs}/committee": {actions: ["irb.edit"], mode: all, why: "10C-4 (D-1227): the row of POST /api/v1/studies/{rs}/irb, the approval record it mirrors (write as its edit; hospital staff only, as console.team.may_edit_irb); for lane C2 to confirm"}
+  "GET /studies/{rs}/committee": {actions: ["!report.aggregate_only"], mode: all, why: "10C-4 (D-1227): the row of GET /studies/{rs}/irb, the approval record it mirrors (read as its read); 404 as an absent route outside the Japan profile; for lane C2 to confirm"}
+  "POST /studies/{rs}/committee": {actions: ["irb.edit"], mode: all, why: "10C-4 (D-1227): the row of POST /studies/{rs}/irb, the approval record it mirrors (write as its edit; hospital staff only, as console.team.may_edit_irb); for lane C2 to confirm"}

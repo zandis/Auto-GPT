@@ -76,6 +76,35 @@ def _lookups() -> dict[str, dict[str, tuple[str, str]]]:
 
 
 @lru_cache(maxsize=1)
+def _unverified() -> frozenset[tuple[str, str]]:
+    """(kind, code) of every shipped table row whose state is not ``verified`` (10B-6, D-1233): a suggestion taken
+    from such a row says so (``lookup_verify``) and is never shown as certain."""
+    from tb_common.site_profile import VERIFIED, state_of
+
+    out: set[tuple[str, str]] = set()
+    for kind, path, key in (
+        ("dx", MAPPING_DIR / "jp_core" / "byomei_to_icd10.csv", "code"),
+        ("lab", MAPPING_DIR / "jp_core" / "jlac10_to_loinc.csv", "local_code"),
+        ("lab", MAPPING_DIR / "tw_core" / "lab_local_to_loinc.csv", "local_code"),
+        ("drug", MAPPING_DIR / "jp_core" / "yj_to_atc.csv", "yj_code"),
+    ):
+        if not path.exists():
+            continue
+        with path.open(encoding="utf-8") as fh:
+            for r in csv.DictReader(fh):
+                if r.get(key) and state_of(r.get("verified")) != VERIFIED:
+                    out.add((kind, r[key].strip().upper()))
+    return frozenset(out)
+
+
+def _from_table(kind: str, code: str, system: str, target: str, display: str) -> dict[str, str]:
+    """A suggestion from a shipped table row: certain only when the row is verified (10B-6, D-1233)."""
+    if (kind, code) in _unverified():
+        return {"system": system, "code": target, "display": display, "method": "lookup_verify", "confidence": "0.80"}
+    return {"system": system, "code": target, "display": display, "method": "lookup", "confidence": "1.00"}
+
+
+@lru_cache(maxsize=1)
 def _terminology() -> Any:
     from criteria_compiler.terminology.mapper import Terminology
     from tb_common.refdata import synonym_lookup
@@ -224,7 +253,7 @@ def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str,
     if kind == "dx-code":
         if up in lk["dx"]:
             icd, name = lk["dx"][up]
-            return {"system": ICD10CM, "code": icd, "display": name, "method": "lookup", "confidence": "1.00"}
+            return _from_table("dx", up, ICD10CM, icd, name)
         moved = _tw_2014(up) if site_country() == "TW" else None
         if moved is not None:
             return moved
@@ -233,7 +262,7 @@ def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str,
     if kind == "lab-code":
         if up in lk["lab"]:
             loinc, name = lk["lab"][up]
-            return {"system": LOINC, "code": loinc, "display": name, "method": "lookup", "confidence": "1.00"}
+            return _from_table("lab", up, LOINC, loinc, name)
         if _LOINC.match(up):
             return {"system": LOINC, "code": up, "display": display, "method": "same", "confidence": "1.00"}
         nhi = _nhi_lab(up)
@@ -248,7 +277,7 @@ def suggest(domain: str, system: str, code: str, display: str = "") -> dict[str,
     if kind == "drug-code":
         if up in lk["drug"]:
             atc, name = lk["drug"][up]
-            return {"system": ATC, "code": atc, "display": name, "method": "lookup", "confidence": "1.00"}
+            return _from_table("drug", up, ATC, atc, name)
         if _ATC.match(up):
             return {"system": ATC, "code": up, "display": display, "method": "same", "confidence": "1.00"}
         nhi = _nhi_drug(up)

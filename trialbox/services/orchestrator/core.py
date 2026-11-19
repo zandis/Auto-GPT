@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import mimetypes
@@ -35,6 +36,7 @@ from tb_common.llm import LlmClient
 from tb_common.objstore import ObjectStore
 from tb_common.routing import RoutingViolation, check, is_internal
 from tb_common.ruleset import RulesetNotApproved
+from tb_common.steptime import StepClock
 from tb_common.subject import job_subject
 from tb_common.timeutil import now
 from tb_common.ulid import new_ulid
@@ -126,6 +128,7 @@ class Ctx:
         self._job = job
         self._services: Services | None = None
         self._decision: DecisionContext | None = None
+        self.step_clock: StepClock | None = None  # H-45: an APPROVE job's step seconds, see tb_common.steptime
 
     @property
     def decision(self) -> DecisionContext:
@@ -553,10 +556,17 @@ class Orchestrator:
                 raise StepFailed("received", f"{job.type} jobs are not available on this box yet.")
             outcome = scenario(ctx)
             job = ctx.job
+            if ctx.step_clock is not None:
+                ctx.step_clock.mark()
             self._deliver(job, outcome)
+            if ctx.step_clock is not None:
+                ctx.step_clock.lap("orch.deliver")
             job = self.db.get(job_id) or job
-            wall = round((job.metrics.wall_seconds if job.metrics else 0) + time.perf_counter() - t0, 3)
+            earlier = job.metrics.wall_seconds if job.metrics else 0
+            wall = round(earlier + time.perf_counter() - t0, 3)
             metrics = (job.metrics or JobMetrics()).model_copy(update={"wall_seconds": wall})
+            if ctx.step_clock is not None:
+                metrics = metrics.model_copy(update={"step_seconds": _steps(ctx.step_clock, earlier, wall)})
             job = self.set_state(job, outcome.state, metrics=metrics)
         except Cancelled:
             job = self.db.get(job_id) or ctx.job
@@ -567,7 +577,13 @@ class Orchestrator:
             err = _error(exc, job.state)
             if not isinstance(exc, (StepFailed, RulesetNotApproved, RoutingViolation)):
                 log.exception("job %s failed in %s", job_id, job.state)
-            job = self.set_state(job, "failed", error=err)
+            more: dict[str, Any] = {}
+            if ctx.step_clock is not None:  # H-45: the steps before the failure, on the write the failure makes
+                with contextlib.suppress(Exception):  # a timing never changes how a job fails
+                    earlier = job.metrics.wall_seconds if job.metrics else 0
+                    steps = _steps(ctx.step_clock, earlier, earlier + time.perf_counter() - t0)
+                    more["metrics"] = (job.metrics or JobMetrics()).model_copy(update={"step_seconds": steps})
+            job = self.set_state(job, "failed", error=err, **more)
             self._failed_mail(job)
         if job.state in TERMINAL:
             self.db.answers_drop(job_id)  # T-689 (D-456): the kept answers go with the job's end, in any state
@@ -843,6 +859,13 @@ def _title(job: Job) -> str:
 
 #: D-746: the lake's own words for a query it stopped at its limit, passed on whole in a job's failure
 _LAKE_LIMITS = ("LakeTimeLimitError: LAKE-TIME:", "LakeLimitError: LAKE-LIMIT:")
+
+
+def _steps(clock: StepClock, earlier: float, wall: float) -> dict[str, float]:
+    """H-45: the APPROVE job's steps; ``orch.earlier_runs`` (wall seconds carried in from a run before a restart)
+    and ``orch.unaccounted`` make them add up to ``wall``. Pure: the clock is not changed, so a second call (the
+    failure path after a failed final write) counts the earlier runs once."""
+    return clock.closed("orch.unaccounted", total=wall, extra={"orch.earlier_runs": earlier} if earlier else None)
 
 
 def _error(exc: Exception, state: str) -> JobError:

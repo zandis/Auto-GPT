@@ -209,11 +209,11 @@ Ampere computes natively (weights 4-bit, activations 16-bit). It is not a route:
   `default` profile ("at least 55 GiB") [measured: `memory-caps-53.txt`; the 64 GiB run for comparison:
   `memory-caps-64.txt`]. So: the stub box fits, with nothing to switch off beyond what is already off in stub mode
   (no model server, the hash embedder instead of the real one) [opinion; idle use not measured]; keep the desktop
-  light while it runs (close the browser tabs and the conda tools you are not using) and watch step 11's figures.
+  light while it runs (close the browser tabs and the conda tools you are not using) and watch step 10's figures (runbook 28).
   With any model, 53 GB does not fit by the repository's own rule, and lowering the caps below that rule's floor is
   exactly what the rule forbids (services never measured there) [read `tools/box/plan.py:330-365`].
 - **CPU.** Twelve embedded-class Arm cores: enough for the services on synthetic data [opinion]; the image build in
-  steps 6 and 7 of runbook 28 is slower than on a desktop (perhaps 20 to 40 minutes) [opinion]; the real embedder's speed on
+  step 6 of runbook 28 is slower than on a desktop (perhaps 20 to 40 minutes) [opinion]; the real embedder's speed on
   Arm is unmeasured [r13 line 446] and not used in stub mode.
 - **Disk: the first hard obstacle.** 91 GB free, 90 % used [owner]. The budget (the six third-party and base images
   are 1.1 GB compressed for arm64 [measured: `image-sizes-arm64.txt`]; everything else is [opinion], not measured):

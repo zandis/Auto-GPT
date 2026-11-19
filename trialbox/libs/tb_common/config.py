@@ -515,6 +515,8 @@ DECLARED: dict[str, Declared] = {
     "TB_DATA_CLASS": Declared("str", "", "data class a gateway call names"),
     "TB_DATA_CONTRACTS": Declared("str", "", "adapter: data contracts set name or folder (T-659b, D-370)"),
     "TB_DATA_DIR": Declared("path", "/data", "the services' data folder"),
+    "TB_DAYS_OFF": Declared("str", "", "working days: the site's own days off, YYYY-MM-DD comma separated (10C-14)"),
+    "TB_DAYS_OPEN": Declared("str", "", "working days: holidays the site works, YYYY-MM-DD comma separated (10C-14)"),
     "TB_DB_ROLES_CMD": Declared("str", "", "restore: the command that puts the service roles back (D-573)"),
     "TB_DB_URL": Declared("str", "", "the trial database URL"),
     "TB_DEMO_ACCOUNTS": Declared("str", "", "demo: accounts to create"),
@@ -978,6 +980,9 @@ DECLARED: dict[str, Declared] = {
     "TB_BUNDLE_SIGNER_SA": Declared(
         "str", "tb-bundle-signer", "box run (R2): the build VM's service account, the one reader of that secret"
     ),
+    "TB_NEW_YEAR_BREAK": Declared(
+        "str", "", "working days: the New Year break MM-DD/MM-DD or none (empty: the country's, 10C-14)"
+    ),
     "TB_SAE_FOLLOWUP_DAYS": Declared("int", "", "SAE: follow-up days"),
     "TB_SAE_OFFICE_MAILBOX": Declared("str", "", "SAE: office mailbox"),
     "TB_SAE_REPORT_DAYS": Declared("int", "", "SAE: report days"),
@@ -1080,6 +1085,9 @@ DECLARED: dict[str, Declared] = {
     "TB_TLS_HOSTNAME": Declared("str", "", "console TLS host name"),
     "TB_TLS_KEY_FILE": Declared("path", "", "console TLS key"),
     "TB_TLS_MODE": Declared("str", "internal", "console TLS mode (internal or hospital)"),
+    "TB_TLS_OLD_CLIENTS": Declared(
+        "str", "off", "off or cbc: cbc also serves TLS 1.2 ECDHE AES-CBC-SHA on 443 for an old client (H-48, D-1328)"
+    ),
     "TB_TODAY": Declared("str", "", "pins the clock (test stack)"),
     "TB_TOPOLOGY": Declared("str", "A", "deployment topology (A or B)"),
     "TB_TO_PID_MAX_PER_HOUR": Declared(
