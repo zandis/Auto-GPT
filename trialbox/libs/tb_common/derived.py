@@ -133,8 +133,9 @@ EGFR_JSN = {"k": 194.0, "scr_exp": -1.094, "age_exp": -0.287, "female": 0.739}
 DAS28 = {"tjc": 0.56, "sjc": 0.28, "gh": 0.014, "esr_ln": 0.70, "crp_ln": 0.36, "crp_const": 0.96}
 ASDAS = {"back": 0.12, "stiff": 0.06, "ptga": 0.11, "periph": 0.07, "crp_ln": 0.58}
 
-# the eGFR equation a criterion that says only "egfr" gets at a site of this country (owner decision 2026-11-09)
-EGFR_BY_COUNTRY = {"JP": "egfr_jsn", "TW": "egfr_ckd_epi"}
+# the eGFR equation a criterion that says only "egfr" gets at a site of this country (owner decision 2026-11-09);
+# a country with a layer names its own (tb_common.country_layer P8 ``egfr``, D-1250: Japan's is egfr_jsn)
+EGFR_BY_COUNTRY = {"TW": "egfr_ckd_epi"}
 EGFR_NAMES = {
     "egfr": "eGFR CKD-EPI 2021 (approved before the equation was named)",
     "egfr_ckd_epi": "eGFR CKD-EPI 2021",
@@ -254,8 +255,13 @@ def unit_sql(comp: str, value: str, unit: str) -> str:
 
 
 def egfr_for_site(country: str | None) -> str:
-    """The equation a plain ``egfr`` criterion gets at a site: JSN 2009 in Japan, CKD-EPI 2021 elsewhere."""
-    return EGFR_BY_COUNTRY.get((country or "").upper(), "egfr_ckd_epi")
+    """The equation a plain ``egfr`` criterion gets at a site: its country layer's (P8 ``egfr``; Japan: JSN 2009),
+    else CKD-EPI 2021. A site whose country's layer is broken gets none: ``country_layer.LayerBroken`` is raised (the
+    compile is refused with the file and the reason), never CKD-EPI in its place (D-1250)."""
+    from tb_common import country_layer
+
+    code = (country or "").upper()
+    return str(country_layer.value(code, "P8", "egfr") or EGFR_BY_COUNTRY.get(code, "egfr_ckd_epi"))
 
 
 def country_of(tz: str | None = None, locale: str | None = None) -> str | None:
