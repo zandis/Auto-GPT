@@ -1,0 +1,411 @@
+text	concept	expect	lang	synonyms	others	domain	hold_class
+Diabetes or any other disease	Diabetes	held	en			condition	alt_unnamed
+Diabetes or other chronic disease	Diabetes	held	en			condition	alt_unnamed
+Hypertension or any other cardiac disease	Hypertension	held	en			condition	alt_unnamed
+Asthma or other lung disease	Asthma	held	en			condition	alt_unnamed
+Breast cancer or any other carcinoma	Breast cancer	held	en			condition	alt_unnamed
+Rheumatoid arthritis or other joint disease	Rheumatoid arthritis	held	en			condition	alt_unnamed
+Epilepsy or any other cerebral disorder	Epilepsy	held	en			condition	alt_unnamed
+Psoriasis or other skin disease	Psoriasis	held	en			condition	alt_unnamed
+Crohn's disease or any other ileal disease	Crohn's disease	held	en			condition	alt_unnamed
+Warfarin or any drug	Warfarin	held	en			medication	alt_unnamed
+Metformin or any other agent	Metformin	held	en			medication	alt_unnamed
+Insulin or any medication	Insulin	held	en			medication	alt_unnamed
+Diabetes, hypertension or asthma	Diabetes	held	en		hypertension;asthma	condition	alt_list
+Diabetes, hypertension, or asthma	Diabetes	held	en		hypertension;asthma	condition	alt_list
+Diabetes, hypertension and/or asthma	Diabetes	held	en		hypertension;asthma	condition	alt_list
+At least one of: diabetes, hypertension, asthma	Diabetes	held	en		hypertension;asthma	condition	alt_list
+At least one of diabetes, hypertension, asthma	Diabetes	held	en		hypertension;asthma	condition	alt_list
+Any of: diabetes, hypertension	Diabetes	held	en		hypertension	condition	alt_list
+Either diabetes, hypertension, or asthma	Diabetes	held	en		hypertension;asthma	condition	alt_list
+Heart failure, atrial fibrillation or stroke	Heart failure	held	en		atrial fibrillation;stroke	condition	alt_list
+Patients with colorectal cancer, gastric cancer or pancreatic cancer	Colorectal cancer	held	en		gastric cancer;pancreatic cancer	condition	alt_list
+Metformin, sulfonylurea or insulin	Metformin	held	en		sulfonylurea;insulin	medication	alt_list
+Kidney transplantation, liver transplantation or lung transplantation	Kidney transplantation	held	en		liver transplantation;lung transplantation	procedure	alt_list
+Diabetes requiring insulin, or hypertension	Diabetes	held	en		insulin;hypertension	condition	alt_list
+Patients with diabetes; or hypertension	Diabetes	held	en		hypertension	condition	alt_clause
+Diabetes. Or hypertension.	Diabetes	held	en		hypertension	condition	alt_clause
+Diabetes; or any other disease	Diabetes	held	en			condition	alt_clause
+Asthma; or COPD	Asthma	held	en		COPD	condition	alt_clause
+Diabetes; and/or hypertension	Diabetes	held	en		hypertension	condition	alt_clause
+Diabetes / hypertension / asthma	Diabetes	held	en		hypertension;asthma	condition	alt_slash
+Asthma/COPD	Asthma	held	en		COPD	condition	alt_slash
+Hepatitis B/hepatitis C infection	Hepatitis B	held	en		hepatitis C	condition	alt_slash
+糖尿病、高血圧又は喘息	糖尿病	held	ja		高血圧;喘息	condition	alt_list
+糖尿病、高血圧もしくは喘息	糖尿病	held	ja		高血圧;喘息	condition	alt_list
+糖尿病、高血圧または喘息を有する患者	糖尿病	held	ja		高血圧;喘息	condition	alt_list
+大腸癌、胃癌又は膵癌の患者	大腸癌	held	ja		胃癌;膵癌	condition	alt_list
+糖尿病、高血圧、喘息等	糖尿病	held	ja		高血圧;喘息	condition	alt_list
+メトホルミン、スルホニル尿素薬又はインスリンを服用中	メトホルミン	held	ja		スルホニル尿素薬;インスリン	medication	alt_list
+糖尿病又はその他の疾患	糖尿病	held	ja			condition	alt_unnamed
+糖尿病もしくはその他の疾患	糖尿病	held	ja			condition	alt_unnamed
+喘息又はその他の肺疾患	喘息	held	ja			condition	alt_unnamed
+糖尿病等	糖尿病	held	ja			condition	alt_unnamed
+関節リウマチ等の疾患を有する患者	関節リウマチ	held	ja			condition	alt_unnamed
+メトホルミン等を服用中	メトホルミン	held	ja			medication	alt_unnamed
+糖尿病・高血圧	糖尿病	held	ja		高血圧	condition	alt_slash
+糖尿病／高血圧	糖尿病	held	ja		高血圧	condition	alt_slash
+糖尿病；又は高血圧	糖尿病	held	ja		高血圧	condition	alt_clause
+糖尿病。又は高血圧。	糖尿病	held	ja		高血圧	condition	alt_clause
+糖尿病、高血壓或氣喘	糖尿病	held	zh		高血壓;氣喘	condition	alt_list
+糖尿病、高血压或哮喘	糖尿病	held	zh		高血压;哮喘	condition	alt_list
+糖尿病、高血壓及/或氣喘	糖尿病	held	zh		高血壓;氣喘	condition	alt_list
+患有糖尿病、高血壓或是氣喘之病人	糖尿病	held	zh		高血壓;氣喘	condition	alt_list
+大腸癌、胃癌或胰臟癌患者	大腸癌	held	zh		胃癌;胰臟癌	condition	alt_list
+大肠癌、胃癌或胰腺癌患者	大肠癌	held	zh		胃癌;胰腺癌	condition	alt_list
+糖尿病或其他疾病	糖尿病	held	zh			condition	alt_unnamed
+糖尿病或是其他疾病	糖尿病	held	zh			condition	alt_unnamed
+气喘或其他肺疾病	气喘	held	zh			condition	alt_unnamed
+類風濕性關節炎或其他疾病	類風濕性關節炎	held	zh			condition	alt_unnamed
+糖尿病/高血壓	糖尿病	held	zh		高血壓	condition	alt_slash
+糖尿病／高血压	糖尿病	held	zh		高血压	condition	alt_slash
+糖尿病；或高血壓	糖尿病	held	zh		高血壓	condition	alt_clause
+糖尿病。或高血压。	糖尿病	held	zh		高血压	condition	alt_clause
+Vaccination for hepatitis B	Hepatitis B	held	en		vaccination	condition	others_test
+Vaccination for influenza	Influenza	held	en		vaccination	condition	others_test
+Immunisation for measles	Measles	held	en		immunisation	condition	others_test
+Booster for tetanus	Tetanus	held	en		booster	condition	others_test
+Screening for diabetes	Diabetes	held	en		screening	condition	others_test
+Screening colonoscopy for colorectal cancer	Colorectal cancer	held	en		screening colonoscopy	condition	others_test
+Testing for HIV	HIV	held	en		testing	condition	others_test
+Counselling for HIV	HIV	held	en		counselling	condition	others_test
+Evaluation for pulmonary embolism	Pulmonary embolism	held	en		evaluation	condition	others_test
+Workup for lymphoma	Lymphoma	held	en		workup	condition	others_test
+Rule-out of myocardial infarction	Myocardial infarction	held	en		rule-out	condition	others_test
+Differential diagnosis of pulmonary embolism	Pulmonary embolism	held	en		differential diagnosis	condition	others_test
+Education for diabetes	Diabetes	held	en		education	condition	others_test
+Chemoprophylaxis for malaria	Malaria	held	en		chemoprophylaxis	condition	others_test
+Referral for breast cancer	Breast cancer	held	en		referral	condition	others_test
+Contact with tuberculosis	Tuberculosis	held	en		contact	condition	others_test
+Close contact with tuberculosis patients	Tuberculosis	held	en		close contact	condition	others_test
+Suspicion of diabetes	Diabetes	held	en		suspicion	condition	others_test
+Carrier of cystic fibrosis	Cystic fibrosis	held	en		carrier	condition	others_test
+Exposure with hepatitis B	Hepatitis B	held	en		exposure	condition	others_test
+Diabetes in spouse	Diabetes	held	en		spouse	condition	others_person
+Partner with HIV	HIV	held	en		partner	condition	others_person
+Donor with hepatitis B	Hepatitis B	held	en		donor	condition	others_person
+Hepatitis C in the donor	Hepatitis C	held	en		donor	condition	others_person
+Tuberculosis in household members	Tuberculosis	held	en		household members	condition	others_person
+Diabetes in offspring	Diabetes	held	en		offspring	condition	others_person
+Index case with hepatitis B	Hepatitis B	held	en		index case	condition	others_person
+Diabetes in mother	Diabetes	held	en		mother	condition	others_person
+Intolerance of metformin	Metformin	held	en		intolerance	medication	others_drug
+Allergy for penicillin	Penicillin	held	en		allergy	medication	others_drug
+Refusal of insulin	Insulin	held	en		refusal	medication	others_drug
+Indication for warfarin	Warfarin	held	en		indication	medication	others_drug
+Candidate for kidney transplantation	Kidney transplantation	held	en		candidate	procedure	others_proc
+Waiting list for kidney transplantation	Kidney transplantation	held	en		waiting list	procedure	others_proc
+Referral for colonoscopy	Colonoscopy	held	en		referral	procedure	others_proc
+Eligibility for knee replacement	Knee replacement	held	en		eligibility	procedure	others_proc
+B型肝炎に対するワクチン接種	B型肝炎	held	ja		ワクチン接種	condition	others_test
+インフルエンザのワクチン接種	インフルエンザ	held	ja		ワクチン接種	condition	others_test
+糖尿病のスクリーニング	糖尿病	held	ja		スクリーニング	condition	others_test
+HIVの検査	HIV	held	ja		検査	condition	others_test
+肺塞栓症の精査	肺塞栓症	held	ja		精査	condition	others_test
+肺塞栓症の鑑別診断	肺塞栓症	held	ja		鑑別診断	condition	others_test
+結核の接触者	結核	held	ja		接触者	condition	others_test
+嚢胞性線維症の保因者	嚢胞性線維症	held	ja		保因者	condition	others_test
+糖尿病の教育	糖尿病	held	ja		教育	condition	others_test
+配偶者の糖尿病	糖尿病	held	ja		配偶者	condition	others_person
+ドナーのB型肝炎	B型肝炎	held	ja		ドナー	condition	others_person
+パートナーのHIV	HIV	held	ja		パートナー	condition	others_person
+ペニシリンに対するアレルギー	ペニシリン	held	ja		アレルギー	medication	others_drug
+ペニシリンのアレルギー	ペニシリン	held	ja		アレルギー	medication	others_drug
+インスリンの拒否	インスリン	held	ja		拒否	medication	others_drug
+メトホルミンの不耐容	メトホルミン	held	ja		不耐容	medication	others_drug
+腎移植の候補	腎移植	held	ja		候補	procedure	others_proc
+腎移植の適応	腎移植	held	ja		適応	procedure	others_proc
+大腸内視鏡検査の紹介	大腸内視鏡検査	held	ja		紹介	procedure	others_proc
+針對B型肝炎之疫苗接種	B型肝炎	held	zh		疫苗接種	condition	others_test
+流感之疫苗接种	流感	held	zh		疫苗接种	condition	others_test
+糖尿病之篩檢	糖尿病	held	zh		篩檢	condition	others_test
+糖尿病之筛查	糖尿病	held	zh		筛查	condition	others_test
+HIV之檢測	HIV	held	zh		檢測	condition	others_test
+肺栓塞之評估	肺栓塞	held	zh		評估	condition	others_test
+肺栓塞之鑑別診斷	肺栓塞	held	zh		鑑別診斷	condition	others_test
+結核病之接觸者	結核病	held	zh		接觸者	condition	others_test
+结核病的接触者	结核病	held	zh		接触者	condition	others_test
+糖尿病之衛教	糖尿病	held	zh		衛教	condition	others_test
+配偶之糖尿病	糖尿病	held	zh		配偶	condition	others_person
+捐贈者之B型肝炎	B型肝炎	held	zh		捐贈者	condition	others_person
+供者的乙型肝炎	乙型肝炎	held	zh		供者	condition	others_person
+青黴素之過敏	青黴素	held	zh		過敏	medication	others_drug
+青霉素的过敏	青霉素	held	zh		过敏	medication	others_drug
+胰島素之拒絕	胰島素	held	zh		拒絕	medication	others_drug
+腎臟移植之候選人	腎臟移植	held	zh		候選人	procedure	others_proc
+肾移植的等候名单	肾移植	held	zh		等候名单	procedure	others_proc
+Type 1 diabetes	Type 2 diabetes mellitus	held	en	diabetes		condition	synonym_inside
+Type 1 diabetes mellitus	Type 2 diabetes mellitus	held	en	diabetes mellitus		condition	synonym_inside
+Type 2 diabetes	Type 1 diabetes	held	en	diabetes		condition	synonym_inside
+Heart failure with preserved ejection fraction	Heart failure with reduced ejection fraction	held	en	heart failure		condition	synonym_inside
+Small cell lung cancer	Non-small cell lung cancer	held	en	lung cancer		condition	synonym_inside
+Secondary hypertension	Essential hypertension	held	en	hypertension		condition	synonym_inside
+Primary progressive multiple sclerosis	Relapsing-remitting multiple sclerosis	held	en	multiple sclerosis		condition	synonym_inside
+Castration-sensitive prostate cancer	Castration-resistant prostate cancer	held	en	prostate cancer		condition	synonym_inside
+Generalized epilepsy	Focal epilepsy	held	en	epilepsy		condition	synonym_inside
+Ischaemic stroke	Haemorrhagic stroke	held	en	stroke		condition	synonym_inside
+Non-ischaemic cardiomyopathy	Ischaemic cardiomyopathy	held	en	cardiomyopathy		condition	synonym_inside
+Acute myeloid leukaemia	Chronic myeloid leukaemia	held	en	myeloid leukaemia		condition	synonym_inside
+Small cell lung cancer, extensive-stage	Squamous cell carcinoma of the lung	held	en	lung cancer		condition	synonym_inside
+1型糖尿病	2型糖尿病	held	ja	糖尿病		condition	synonym_inside
+小細胞肺癌の患者	非小細胞肺癌	held	ja	肺癌		condition	synonym_inside
+駆出率の保たれた心不全	駆出率の低下した心不全	held	ja	心不全		condition	synonym_inside
+二次性高血圧	本態性高血圧	held	ja	高血圧		condition	synonym_inside
+一次進行型多発性硬化症	再発寛解型多発性硬化症	held	ja	多発性硬化症		condition	synonym_inside
+ホルモン感受性前立腺癌	去勢抵抗性前立腺癌	held	ja	前立腺癌		condition	synonym_inside
+第1型糖尿病	第2型糖尿病	held	zh	糖尿病		condition	synonym_inside
+小細胞肺癌	非小細胞肺癌	held	zh	肺癌		condition	synonym_inside
+繼發性高血壓	原發性高血壓	held	zh	高血壓		condition	synonym_inside
+荷爾蒙敏感性前列腺癌	去勢抗性前列腺癌	held	zh	前列腺癌		condition	synonym_inside
+局部性癲癇	全身性癲癇	held	zh	癲癇		condition	synonym_inside
+Hypertension grade below 1	Hypertension	held	en			condition	measure_contra
+Hypertension, grade less than 1	Hypertension	held	en			condition	measure_contra
+Osteoporosis with T-score ≥ -1.0	Osteoporosis	held	en			condition	measure_contra
+Osteoporosis with T-score above -1.0	Osteoporosis	held	en			condition	measure_contra
+Obesity with BMI below 25 kg/m2	Obesity	held	en			condition	measure_contra
+Obesity with body mass index less than 25 kg/m2	Obesity	held	en			condition	measure_contra
+Obesity, BMI 22 kg/m2	Obesity	held	en			condition	measure_contra
+Anaemia with haemoglobin level 15 g/dL	Anaemia	held	en			condition	measure_contra
+Thrombocytopenia with platelet count ≥ 150000/µL	Thrombocytopenia	held	en			condition	measure_contra
+Heart failure with reduced ejection fraction, LVEF ≥ 55%	Heart failure with reduced ejection fraction	held	en			condition	measure_contra
+Hepatitis B with HBsAg < 0.05 IU/mL	Hepatitis B	held	en			condition	measure_contra
+Hepatitis B with HBsAg below 0.05 IU/ml	Hepatitis B	held	en			condition	measure_contra
+Hepatitis C viraemia with HCV RNA below a detectable level	Hepatitis C viraemia	held	en			condition	measure_contra
+HIV viraemia with HIV-1 RNA below a quantifiable level	HIV viraemia	held	en			condition	measure_contra
+Hyperkalaemia with potassium level 4.0 mmol/L	Hyperkalaemia	held	en			condition	measure_contra
+Hyponatraemia, sodium concentration 140 mmol/L	Hyponatraemia	held	en			condition	measure_contra
+Tachycardia with heart rate 60	Tachycardia	held	en			condition	measure_contra
+Hypoxaemia with oxygen saturation 98%	Hypoxaemia	held	en			condition	measure_contra
+Renal impairment with creatinine clearance above 90 mL/min	Renal impairment	held	en			condition	measure_contra
+Peripheral neuropathy grade less than 1	Peripheral neuropathy	held	en			condition	measure_contra
+Diabetic retinopathy grade below 1	Diabetic retinopathy	held	en			condition	measure_contra
+Ascites, grade below 1	Ascites	held	en			condition	measure_contra
+Oral mucositis grade less than 1	Oral mucositis	held	en			condition	measure_contra
+Peripheral oedema grade below 1	Peripheral oedema	held	en			condition	measure_contra
+Migraine attack, fewer than 1 per month	Migraine attack	held	en			condition	count_zero
+Asthma exacerbation, less than once in the past year	Asthma exacerbation	held	en			condition	count_zero
+Hypoglycaemia, less than once	Hypoglycaemia	held	en			condition	count_zero
+Epileptic seizure, fewer than 1 per month	Epileptic seizure	held	en			condition	count_zero
+Gout flare, fewer than 1 per year	Gout flare	held	en			condition	count_zero
+Hypoglycaemia; fewer than 1 attack per month	Hypoglycaemia	held	en			condition	count_zero
+Distant metastasis (M0)	Distant metastasis	held	en			condition	tnm_zero
+Distant metastasis, Mx	Distant metastasis	held	en			condition	tnm_zero
+Lymph node metastasis, N0	Lymph node metastasis	held	en			condition	tnm_zero
+Lymph node metastasis pN0	Lymph node metastasis	held	en			condition	tnm_zero
+Nodal metastasis cN0	Nodal metastasis	held	en			condition	tnm_zero
+Residual tumour ypT0 ypN0	Residual tumour	held	en			condition	tnm_zero
+Primary tumour T0	Primary tumour	held	en			condition	tnm_zero
+Pulmonary embolism with Wells score > 4	Pulmonary embolism	held	en			condition	risk_score
+Deep vein thrombosis, Wells score ≥ 2	Deep vein thrombosis	held	en			condition	risk_score
+Diabetes FINDRISC score ≥ 15	Diabetes	held	en			condition	risk_score
+Fracture FRAX score ≥ 20%	Fracture	held	en			condition	risk_score
+Cardiovascular disease ASCVD score ≥ 7.5%	Cardiovascular disease	held	en			condition	risk_score
+Stroke ABCD2 score ≥ 4	Stroke	held	en			condition	risk_score
+Pressure ulcer with Braden scale score 12	Pressure ulcer	held	en			condition	risk_score
+Venous thromboembolism Caprini score ≥ 5	Venous thromboembolism	held	en			condition	risk_score
+Venous thromboembolism, Padua score ≥ 4	Venous thromboembolism	held	en			condition	risk_score
+Malnutrition MUST score ≥ 2	Malnutrition	held	en			condition	risk_score
+Major bleeding HAS-BLED score ≥ 3	Major bleeding	held	en			condition	risk_score
+Fracture predicted level 20%	Fracture	held	en			condition	risk_score
+Diabetes spouse glucose level 9 mmol/L	Diabetes	held	en			condition	arbitrary_measure
+Hepatitis B donor HBV DNA level 2000 IU/mL	Hepatitis B	held	en			condition	arbitrary_measure
+Pneumonia unconfirmed CURB-65 score 2	Pneumonia	held	en			condition	arbitrary_measure
+Hepatitis B unconfirmed antibody level 10 IU/L	Hepatitis B	held	en			condition	arbitrary_measure
+骨粗鬆症（Tスコア -1.0以上）	骨粗鬆症	held	ja			condition	measure_contra
+肥満（BMI 22 kg/m2）	肥満	held	ja			condition	measure_contra
+肥満（体格指数 22 kg/m2）	肥満	held	ja			condition	measure_contra
+貧血（ヘモグロビン値 15 g/dL）	貧血	held	ja			condition	measure_contra
+高カリウム血症（カリウム値 4.0 mmol/L）	高カリウム血症	held	ja			condition	measure_contra
+B型肝炎（HBs抗原 0.05 IU/mL未満）	B型肝炎	held	ja			condition	measure_contra
+末梢神経障害（臨床的に重度 グレード 1未満）	末梢神経障害	held	ja			condition	measure_contra
+褥瘡 Bradenスコア 12点以下	褥瘡	held	ja			condition	measure_contra
+駆出率の低下した心不全、左室駆出率 55%以上	心不全	held	ja			condition	measure_contra
+遠隔転移（M0）	遠隔転移	held	ja			condition	tnm_zero
+リンパ節転移 N0	リンパ節転移	held	ja			condition	tnm_zero
+リンパ節転移（pN0）	リンパ節転移	held	ja			condition	tnm_zero
+骨折予測値 20%以上	骨折	held	ja			condition	risk_score
+糖尿病発症予測値 20%以上	糖尿病	held	ja			condition	risk_score
+静脈血栓塞栓症 Capriniスコア 5以上	静脈血栓塞栓症	held	ja			condition	risk_score
+肺塞栓症（Wellsスコア 5点以上）	肺塞栓症	held	ja			condition	risk_score
+B型肝炎（ドナーのウイルス量 2000 IU/mL以上）	B型肝炎	held	ja			condition	arbitrary_measure
+糖尿病（配偶者のHbA1c値 7%以上）	糖尿病	held	ja			condition	arbitrary_measure
+骨質疏鬆症（T值≥-1.0）	骨質疏鬆症	held	zh			condition	measure_contra
+肥胖（BMI 22 kg/m2）	肥胖	held	zh			condition	measure_contra
+貧血，血紅素濃度 15 g/dL	貧血	held	zh			condition	measure_contra
+周邊神經病變分級 低於1	周邊神經病變	held	zh			condition	measure_contra
+高血壓分級 低於1	高血壓	held	zh			condition	measure_contra
+B型肝炎（HBsAg 低於 0.05 IU/mL）	B型肝炎	held	zh			condition	measure_contra
+心衰竭，左心室射出分率 55%以上	心衰竭	held	zh			condition	measure_contra
+遠處轉移（M0）	遠處轉移	held	zh			condition	tnm_zero
+淋巴結轉移 N0	淋巴結轉移	held	zh			condition	tnm_zero
+淋巴结转移（pN0）	淋巴结转移	held	zh			condition	tnm_zero
+骨折預測值≥20%	骨折	held	zh			condition	risk_score
+糖尿病發病預測值≥20%	糖尿病	held	zh			condition	risk_score
+靜脈血栓栓塞症 Caprini評分≥5	靜脈血栓栓塞症	held	zh			condition	risk_score
+壓瘡 Braden評分 12分	壓瘡	held	zh			condition	risk_score
+肺栓塞（Wells評分≥5分）	肺栓塞	held	zh			condition	risk_score
+B型肝炎（捐贈者病毒量≥2000 IU/mL）	B型肝炎	held	zh			condition	arbitrary_measure
+糖尿病（配偶HbA1c值≥7%）	糖尿病	held	zh			condition	arbitrary_measure
+Diabetes = -	Diabetes	held	en			condition	form_minus
+Diabetes = –	Diabetes	held	en			condition	form_minus
+Diabetes -/-	Diabetes	held	en			condition	form_minus
+Hepatitis B, HBsAg -	Hepatitis B	held	en			condition	form_minus
+Hepatitis B (HBsAg -)	Hepatitis B	held	en			condition	form_minus
+Hepatitis B (HBsAg: -)	Hepatitis B	held	en			condition	form_minus
+Hepatitis B (HBsAg -, HBV DNA -)	Hepatitis B	held	en			condition	form_minus
+HIV (HIV-1 RNA: -)	HIV	held	en			condition	form_minus
+Tuberculosis, confirmed (culture: -)	Tuberculosis	held	en			condition	form_minus
+Hepatitis B, confirmed (HBsAg: -)	Hepatitis B	held	en			condition	form_minus
+Diabetes: -/	Diabetes	held	en			condition	form_minus
+Diabetes (-/+)	Diabetes	held	en			condition	form_minus
+Diabetes: ×	Diabetes	held	en			condition	form_cross
+Diabetes, hypertension ✓	Diabetes	held	en		hypertension	condition	form_other_mark
+Diabetes, hypertension [x]	Diabetes	held	en		hypertension	condition	form_other_mark
+Diabetes, hypertension ☑	Diabetes	held	en		hypertension	condition	form_other_mark
+糖尿病：×	糖尿病	held	ja			condition	form_cross
+糖尿病（×）	糖尿病	held	ja			condition	form_cross
+糖尿病 ×	糖尿病	held	ja			condition	form_cross
+高血圧の有無：×	高血圧	held	ja			condition	form_cross
+B型肝炎（HBs抗原：－）	B型肝炎	held	ja			condition	form_minus
+B型肝炎（HBs抗原 －）	B型肝炎	held	ja			condition	form_minus
+HIV（HIV抗体：－）	HIV	held	ja			condition	form_minus
+高血圧 ✓、糖尿病	糖尿病	held	ja		高血圧	condition	form_other_mark
+糖尿病・高血圧（+）	糖尿病	held	ja		高血圧	condition	form_other_mark
+高血壓 ×	高血壓	held	zh			condition	form_cross
+B型肝炎（HBsAg：-）	B型肝炎	held	zh			condition	form_minus
+乙型肝炎（HBsAg -）	乙型肝炎	held	zh			condition	form_minus
+高血壓 ✓，糖尿病	糖尿病	held	zh		高血壓	condition	form_other_mark
+糖尿病/高血压（+）	糖尿病	held	zh		高血压	condition	form_other_mark
+Based on WHO, classification of diabetes	Diabetes	held	en			condition	definition
+According to WHO, definition of diabetes	Diabetes	held	en			condition	definition
+According to the WHO, diagnostic criteria for diabetes	Diabetes	held	en			condition	definition
+According to ACR/EULAR, classification criteria of rheumatoid arthritis	Rheumatoid arthritis	held	en			condition	definition
+糖尿病診斷標準依據WHO	糖尿病	held	zh			condition	definition
+類風濕性關節炎分類標準根據ACR/EULAR	類風濕性關節炎	held	zh			condition	definition
+Diabetes, apart from suspected cases	Diabetes	held	en			condition	exception_cut
+Diabetes except that it is not confirmed	Diabetes	held	en			condition	exception_cut
+疑い例以外の糖尿病	糖尿病	held	ja			condition	exception_cut
+Diabetes​ (-)	Diabetes	held	en			condition	zero_width
+Metformin or any drug	Metformin	held	en			medication	alt_unnamed
+Renal impairment with creatinine clearance ≥ 90 mL/min	Renal impairment	held	en			condition	measure_contra
+Residual tumour pT0 pN0	Residual tumour	held	en			condition	tnm_zero
+HIV infection (viral load: -)	HIV infection	held	en			condition	form_minus
+B型肝炎（HBs抗原：－）の患者	B型肝炎	held	ja			condition	form_minus
+B型肝炎（HBs抗原 －）を有する患者	B型肝炎	held	ja			condition	form_minus
+糖尿病（配偶之HbA1c濃度≥7%）	糖尿病	held	zh			condition	arbitrary_measure
+糖尿病等の疾患	糖尿病	held	ja			condition	alt_unnamed
+Insulin, up to 4 weeks before screening	Insulin	held	en			medication	ended
+Prednisone, up to 4 weeks prior to randomisation	Prednisone	held	en			medication	ended
+Methotrexate, up to 12 weeks before the first dose	Methotrexate	held	en			medication	ended
+インスリン（登録前4週まで）	インスリン	held	ja			medication	ended
+プレドニゾロン（割付前まで）	プレドニゾロン	held	ja			medication	ended
+メトトレキサート：同意取得前まで	メトトレキサート	held	ja			medication	ended
+Hepatitis B, verified (HBsAg -)	Hepatitis B	held	en			condition	confirmed_negative
+Hepatitis B, documented HBsAg -	Hepatitis B	held	en			condition	confirmed_negative
+Hepatitis C, confirmed by PCR -	Hepatitis C	held	en			condition	confirmed_negative
+Tuberculosis, proven by culture -	Tuberculosis	held	en			condition	confirmed_negative
+Diabetes, confirmed = -	Diabetes	held	en			condition	confirmed_negative
+Diabetes, confirmed in spouse	Diabetes	held	en		spouse	condition	confirmed_other
+Hepatitis B confirmed in the donor	Hepatitis B	held	en		donor	condition	confirmed_other
+B型肝炎（確認された HBs抗原 -）の患者	B型肝炎	held	ja			condition	confirmed_negative
+ドナーで確認されたB型肝炎	B型肝炎	held	ja		ドナー	condition	confirmed_other
+B型肝炎，經證實 HBsAg -	B型肝炎	held	zh			condition	confirmed_negative
+經證實於捐贈者之B型肝炎	B型肝炎	held	zh		捐贈者	condition	confirmed_other
+≥ 1 of: diabetes, hypertension, asthma	Diabetes	held	en		hypertension;asthma	condition	alt_list
+≥1 of diabetes/hypertension	Diabetes	held	en		hypertension	condition	alt_list
+At least one of diabetic retinopathy, diabetic nephropathy, diabetic neuropathy	Diabetic nephropathy	held	en		diabetic retinopathy;diabetic neuropathy	condition	alt_list
+糖尿病、高血圧及び／又は喘息	糖尿病	held	ja		高血圧;喘息	condition	alt_list
+糖尿病、高血压及/或哮喘	糖尿病	held	zh		高血压;哮喘	condition	alt_list
+糖尿病、高血壓或氣喘之病史	糖尿病	held	zh		高血壓;氣喘	condition	alt_list
+Diabetes ( )	Diabetes	held	en			condition	blank_field
+Diabetes: ( )	Diabetes	held	en			condition	blank_field
+Hypertension ( / )	Hypertension	held	en			condition	blank_field
+Hypertension {}	Hypertension	held	en			condition	blank_field
+Hypertension: '   '	Hypertension	held	en			condition	blank_field
+糖尿病（　）	糖尿病	held	ja			condition	blank_field
+糖尿病：「　」	糖尿病	held	ja			condition	blank_field
+高血圧（　／　）	高血圧	held	ja			condition	blank_field
+高血壓：「　」	高血壓	held	zh			condition	blank_field
+高血压（　/　）	高血压	held	zh			condition	blank_field
+Diabetes in cousin	Diabetes	held	en		cousin	condition	others_person
+Diabetes in stepfather	Diabetes	held	en		stepfather	condition	others_person
+Diabetes in twin	Diabetes	held	en		twin	condition	others_person
+Proband with Huntington disease	Huntington disease	held	en		proband	condition	others_person
+HIV in sexual partner	HIV	held	en		sexual partner	condition	others_person
+Roommate with tuberculosis	Tuberculosis	held	en		roommate	condition	others_person
+いとこの糖尿病	糖尿病	held	ja		いとこ	condition	others_person
+おばの糖尿病	糖尿病	held	ja		おば	condition	others_person
+同居人の結核	結核	held	ja		同居人	condition	others_person
+堂哥之糖尿病	糖尿病	held	zh		堂哥	condition	others_person
+外婆之糖尿病	糖尿病	held	zh		外婆	condition	others_person
+室友的结核病	结核病	held	zh		室友	condition	others_person
+Bone scan for bone metastases	Bone metastases	held	en		bone scan	condition	others_test
+Imaging for metastases	Metastases	held	en		imaging	condition	others_test
+Low-dose CT for lung cancer	Lung cancer	held	en		low-dose CT	condition	others_test
+Serology for hepatitis B	Hepatitis B	held	en		serology	condition	others_test
+PCR test for COVID-19	COVID-19	held	en		PCR test	condition	others_test
+骨転移に対する骨シンチグラフィ	骨転移	held	ja		骨シンチグラフィ	condition	others_test
+肺癌の低線量CT	肺癌	held	ja		低線量CT	condition	others_test
+針對骨轉移之骨掃描	骨轉移	held	zh		骨掃描	condition	others_test
+肺癌的低剂量CT	肺癌	held	zh		低剂量CT	condition	others_test
+Compensated cirrhosis	Decompensated cirrhosis	held	en	cirrhosis		condition	synonym_inside
+Hormone receptor-positive breast cancer	Hormone receptor-negative breast cancer	held	en	breast cancer		condition	synonym_inside
+Acute hepatitis B	Chronic hepatitis B	held	en	hepatitis B		condition	synonym_inside
+代償性肝硬変	非代償性肝硬変	held	ja	肝硬変		condition	synonym_inside
+急性B型肝炎	慢性B型肝炎	held	ja	B型肝炎		condition	synonym_inside
+代償性肝硬化	非代償性肝硬化	held	zh	肝硬化		condition	synonym_inside
+Proteinuria with urine protein creatinine ratio 0.1 g/g	Proteinuria	held	en			condition	measure_contra
+Microalbuminuria, albumin creatinine ratio 10 mg/g	Microalbuminuria	held	en			condition	measure_contra
+Hyperglycaemia with fasting glucose level 5.0 mmol/L	Hyperglycaemia	held	en			condition	measure_contra
+Hypothyroidism with TSH level 2.0 mIU/L	Hypothyroidism	held	en			condition	measure_contra
+Iron deficiency with ferritin level 150 ng/mL	Iron deficiency	held	en			condition	measure_contra
+甲状腺機能低下症（TSH値 2.0 mIU/L）	甲状腺機能低下症	held	ja			condition	measure_contra
+鉄欠乏（フェリチン値 150 ng/mL）	鉄欠乏	held	ja			condition	measure_contra
+高血糖（空腹時血糖値 90 mg/dL）	高血糖	held	ja			condition	measure_contra
+蛋白尿（尿蛋白量 0.1 g/日）	蛋白尿	held	ja			condition	measure_contra
+甲狀腺功能低下（TSH濃度 2.0 mIU/L）	甲狀腺功能低下	held	zh			condition	measure_contra
+缺鐵（鐵蛋白濃度 150 ng/mL）	缺鐵	held	zh			condition	measure_contra
+高血糖，空腹血糖濃度 90 mg/dL	高血糖	held	zh			condition	measure_contra
+高血钾，血钾浓度 4.0 mmol/L	高血钾	held	zh			condition	measure_contra
+喘息増悪、年1度未満	喘息増悪	held	ja			condition	count_zero
+低血糖：月1度未満	低血糖	held	ja			condition	count_zero
+氣喘急性發作，每年低於1次	氣喘急性發作	held	zh			condition	count_zero
+低血糖，每月少於1次	低血糖	held	zh			condition	count_zero
+低血糖，每月低于1次	低血糖	held	zh			condition	count_zero
+口内炎（グレード 1未満）を有する患者	口内炎	held	ja			condition	measure_contra
+口腔黏膜炎，分級 低於1	口腔黏膜炎	held	zh			condition	measure_contra
+Hesitancy for statin	Statin	held	en		hesitancy	medication	others_drug
+胰岛素的拒绝	胰岛素	held	zh		拒绝	medication	others_drug
+二甲雙胍之不耐受	二甲雙胍	held	zh		不耐受	medication	others_drug
+Consideration for bariatric surgery	Bariatric surgery	held	en		consideration	procedure	others_proc
+腎移植の待機リスト	腎移植	held	ja		待機リスト	procedure	others_proc
+膝關節置換術之適應症	膝關節置換術	held	zh		適應症	procedure	others_proc
+Ｄｉａｂｅｔｅｓ　ｏｒ　ａｎｙ　ｏｔｈｅｒ　ｄｉｓｅａｓｅ	Diabetes	held	en			condition	width
+Diabetes    or   any    other    disease	Diabetes	held	en			condition	width
+Diabetes-or-any-other-disease	Diabetes	held	en			condition	width
+糖尿病　又は　その他の疾患	糖尿病	held	ja			condition	width
+糖尿病　或　其他　疾病	糖尿病	held	zh			condition	width
+Distant metastasis （Ｍ０）	Distant metastasis	held	en			condition	width
+糖尿病・高血壓或其他疾病	糖尿病	held	zh		高血壓	condition	lang_decision
+糖尿病・其他疾病	糖尿病	held	zh			condition	lang_decision
+低血糖，每週低於1次	低血糖	held	zh			condition	count_zero
+低血糖，每周低于1次	低血糖	held	zh			condition	count_zero
+低血糖，週1度未満の患者	低血糖	held	ja			condition	count_zero
+喘息増悪，年1度未満の患者	喘息増悪	held	ja			condition	count_zero
+糖尿病既往歴無	糖尿病	held	ja			condition	lang_decision
+糖尿病・已停藥	糖尿病	held	zh			condition	lang_decision
+Diabetes screening	Diabetes	held	en		diabetes screening	condition	masking
+無症狀	症狀	held	zh			condition	masking
+Non-Hodgkin lymphoma	Hodgkin lymphoma	held	en			condition	masking
+Non-ST-elevation myocardial infarction	ST-elevation myocardial infarction	held	en			condition	masking
+Diabetes, self-reported	Diabetes	held	en			condition	reported
+Patient believes they have diabetes	Diabetes	held	en			condition	reported
+患者の申告による糖尿病	糖尿病	held	ja			condition	reported
+病人自述之糖尿病	糖尿病	held	zh			condition	reported
+Diabetes within the next 5 years	Diabetes	held	en			condition	future
+糖尿病（登録後に発症予定）	糖尿病	held	ja			condition	future
+將於篩選後確診之糖尿病	糖尿病	held	zh			condition	future
+Diabetes free	Diabetes	held	en			condition	listed_irony
+Diabetes: normal	Diabetes	held	en			condition	listed_irony
+Diabetes: nil	Diabetes	held	en			condition	listed_irony
+糖尿病：陰性	糖尿病	held	ja			condition	listed_irony
