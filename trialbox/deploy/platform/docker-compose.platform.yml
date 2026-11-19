@@ -73,6 +73,14 @@ services:
     mem_limit: 1g   # T-108a (D-360), as deploy/platform/base/doctor.yaml
     pids_limit: 256
     logging: {driver: json-file, options: {max-size: "10m", max-file: "2"}}
+    # H-58 (D-1337): the four controls, as the platform's own doctor Job (deploy/platform/base/doctor.yaml: uid
+    # 10001, readOnlyRootFilesystem, drop ALL, no privilege escalation). 10001:10001 is the image's own USER tb; it
+    # writes the evidence to the site folder (a bind mount) and its scratch to /tmp (tempfile), a tmpfs.
+    user: "10001:10001"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     networks: [egress-net]   # probes NTP, the directory, the mail relay; mounts no patient data
     volumes:
       - ${TB_SETTINGS_FILE:-./settings.example.yaml}:/etc/trialbox/settings.yaml:ro
