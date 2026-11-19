@@ -51,6 +51,7 @@ from functools import cache
 from pathlib import Path
 
 from tb_common.db import Database
+from tb_common.id_rule import DDL as ID_RULE_DDL
 
 DDL_DIR = Path(__file__).resolve().parent / "ddl"
 SCHEMA = "omop"
@@ -461,6 +462,7 @@ def migrations() -> list[str]:
         WITHHELD_DDL,
         GROUPER_FAMILY_DDL,
         row_ids_ddl(),
+        ID_RULE_DDL,  # D-1253: the rule its lake ids were made under (tb_common.id_rule)
     ]
 
 

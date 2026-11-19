@@ -2,7 +2,7 @@
 
 *Generated from `libs/tb_common/erasure.py` by `python -m tb_common.erasure --write` (T-727, D-465). Do not edit by hand.*
 
-238 entries: 89 erase, 29 keep, 120 no patient data. 27 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
+244 entries: 89 erase, 29 keep, 126 no patient data. 27 erase entries are owed. `tests/unit/test_erasure_registry.py` fails on a table, lake entry or object prefix the code makes with no entry here.
 
 ## 1. Erased on opt-out today
 
@@ -114,6 +114,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `dataops.built` | which generation each derived artefact is built from: names, states and times (D-491) |
 | `dataops.built_kept` | the finished generations of the derived rows and their batch ids: no patient (D-525) |
 | `derived.definition` | score definitions |
+| `derived.tb_id_rule` | the lake-id rule the store's ids were made under (D-1253) |
 | `edc.direct_source_event` | settings and configuration, no patient |
 | `edc.item_map` | settings and configuration, no patient |
 | `edc.map_event` | settings and configuration, no patient |
@@ -121,6 +122,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `edc.switch` | settings and configuration, no patient |
 | `edc.switch_event` | settings and configuration, no patient |
 | `edc.target` | settings and configuration, no patient |
+| `edc.tb_id_rule` | the lake-id rule the store's ids were made under (D-1253) |
 | `edcdoor.oidc_code` | staff, accounts or sign-in state, no patient |
 | `feedback.entry` | in-product feedback from staff, not about a patient (record inventory O-02) |
 | `lake:.rebuild.lock` | the lock one lake rebuild holds (T-722), no patient |
@@ -153,6 +155,7 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `omop.relationship` | OMOP vocabulary and metadata |
 | `omop.source_to_concept_map` | OMOP vocabulary and metadata |
 | `omop.tb_concept_attr` | OMOP vocabulary and metadata |
+| `omop.tb_id_rule` | the lake-id rule the store's ids were made under (D-1253) |
 | `omop.tb_load` | a load: batch and counts |
 | `omop.tb_map_relation` | OMOP vocabulary and metadata |
 | `omop.tb_ruleset_release` | OMOP vocabulary and metadata |
@@ -165,8 +168,10 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `orch.cohort_tables_before` | D-648: the alliance tables as the version that began the record found them (aggregate counts, as orch.cohort_tables) |
 | `orch.id_limits` | the identifier caps' use rows: staff and kind only |
 | `orch.mails` | a mail sent: message id, job, kind, subject |
+| `orch.tb_id_rule` | the lake-id rule the store's ids were made under (D-1253) |
 | `orch.trial_cache` | the public registry cache |
 | `pidmap.site_key` | the site key's fingerprint |
+| `profile.tb_id_rule` | the lake-id rule the store's ids were made under (D-1253) |
 | `recall.recall_cell` | recall cells and sequences: counts by criterion, no patient |
 | `recall.recall_registration` | recall cells and sequences: counts by criterion, no patient |
 | `recall.recall_run_cell` | recall cells and sequences: counts by criterion, no patient |
@@ -211,3 +216,4 @@ The opt-out worker runs each clear on every tick and reads the store back; a row
 | `terminology.release` | public or licensed reference data |
 | `trace.access_log` | who read a trace and why |
 | `tuned.not_matched_check` | the site's check of the sample: who, when, a note |
+| `vec.tb_id_rule` | the lake-id rule the store's ids were made under (D-1253) |

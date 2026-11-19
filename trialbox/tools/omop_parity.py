@@ -157,7 +157,9 @@ PROFILES_OF = {"tw-a": "synthetic-tw-a", "jp-ss": "synthetic-jp-ss"}
 PROFILE_DIR = ROOT / "services" / "adapter" / "mapping" / "profile"
 
 
-def _ingest(work: Path, kind: str, src: Path, snapshot: str, tz: str, mapping: str, site_id: str) -> Path:
+def _ingest(work: Path, kind: str, src: Path, snapshot: str, tz: str, mapping: str, site_id: str,
+            name: str | None = None) -> Path:  # fmt: skip
+    """One night of ``src`` into its own lake, ``ingest-<name>`` (``name``: the site's id when not given)."""
     from adapter.pipeline import AdapterConfig, run_ingest
 
     from tools import pglocal
@@ -166,7 +168,7 @@ def _ingest(work: Path, kind: str, src: Path, snapshot: str, tz: str, mapping: s
     sec.mkdir(parents=True, exist_ok=True)
     if not (sec / "site_hmac.key").exists():
         (sec / "site_hmac.key").write_bytes(secrets.token_bytes(32))
-    lake = work / f"ingest-{site_id}"
+    lake = work / f"ingest-{name or site_id}"
     cfg = AdapterConfig(
         lake_dir=lake,
         secrets_dir=sec,

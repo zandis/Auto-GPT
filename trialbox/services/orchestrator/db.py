@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any
 
+from tb_common import id_rule
 from tb_common.db import ENV as DB_URL_ENV
 from tb_common.db import Database, Tx
 from tb_contracts import Job
@@ -259,7 +260,7 @@ CREATE TABLE IF NOT EXISTS answers (
 CREATE INDEX IF NOT EXISTS answers_snapshot ON answers (snapshot);
 CREATE INDEX IF NOT EXISTS answers_ruleset ON answers (ruleset, version)
 """
-MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7)
+MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, id_rule.DDL)  # D-1253: v8
 #: the answer store's columns, in the order of :data:`_ANSWER_PUT` and :data:`_ANSWERS_OF`
 ANSWER_COLUMNS = (
     "pid", "ruleset", "version", "criterion", "status", "reason", "rung", "basis", "final", "quote", "quote_date",
@@ -726,6 +727,7 @@ class JobDB:
     # ------------------------------------------------------------------ candidate pool (SPEC §8.2)
     def pool_upsert(self, ruleset: str, version: str, rows: list[dict[str, Any]], job_id: str, at: str) -> None:
         with self.tx() as con:
+            id_rule.ensure(con, id_rule.POOL)  # D-1253: the verdicts cite lake ids: never rule 2 beside rule 1
             for r in rows:
                 con.execute(
                     """INSERT INTO pool (ruleset, pid, version, tier, next_appointment, practitioner_id, department,

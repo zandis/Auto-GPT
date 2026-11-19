@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from adapter.mapping.engine import Mapper, Mapping, MappingError, resource_id
+from adapter.mapping.engine import Mapper, Mapping, MappingError, patient_resource_id
 from tb_common.crypto import pid_for_mrn
 
 KEY = b"k" * 32
@@ -62,7 +62,8 @@ def test_paths_types_refs_and_pruning(tmp_path: Path) -> None:
         },
     )
     assert res is not None
-    assert res["id"] == resource_id(KEY, "Encounter", "E1")
+    # D-1253: the visit's id is its patient's
+    assert res["id"] == patient_resource_id(KEY, "Encounter", pid_for_mrn(KEY, "12345678"), "E1")
     assert res["subject"]["reference"] == f"Patient/{pid_for_mrn(KEY, '12345678')}"
     assert res["participant"][0]["individual"]["reference"] == "Practitioner/P1"
     assert res["period"]["start"] == "2026-01-02T08:30:00+08:00"
@@ -84,7 +85,7 @@ def test_lab_value_builder_quantity_conversion_and_coded(tmp_path: Path) -> None
             {
                 "type": "Observation",
                 "table": "t",
-                "id": {"hid": "id"},
+                "id": {"hid": "id", "patient": "mrn"},  # D-1253: a result is its patient's
                 "where": [{"lookup": {"name": "lab", "key": "local_code", "field": "code"}, "not_empty": True}],
                 "elements": {"$merge": {"builder": "lab_value", "lookup": "lab", "key": "local_code", "column": "v"}},
             }
@@ -92,26 +93,26 @@ def test_lab_value_builder_quantity_conversion_and_coded(tmp_path: Path) -> None
         lookups,
     )
     mp = Mapper(m, KEY, "S")
-    q = mp.map_row(m.resources[0], {"id": "1", "local_code": "CRP", "v": "1.25"})
+    q = mp.map_row(m.resources[0], {"mrn": "P1", "id": "1", "local_code": "CRP", "v": "1.25"})
     assert q is not None and q["valueQuantity"] == {
         "value": 12.5,
         "unit": "mg/L",
         "system": "http://unitsofmeasure.org",
         "code": "mg/L",
     }
-    c = mp.map_row(m.resources[0], {"id": "2", "local_code": "HBS", "v": "pos"})
+    c = mp.map_row(m.resources[0], {"mrn": "P1", "id": "2", "local_code": "HBS", "v": "pos"})
     assert c is not None and c["valueCodeableConcept"]["coding"][0]["code"] == "LA6576-8"
-    assert mp.map_row(m.resources[0], {"id": "3", "local_code": "UNMAPPED", "v": "1"}) is None
+    assert mp.map_row(m.resources[0], {"mrn": "P1", "id": "3", "local_code": "UNMAPPED", "v": "1"}) is None
     # D-142 (review B-01): a flagged result is its number, a censored one keeps its comparator, text stays text
-    flagged = mp.map_row(m.resources[0], {"id": "4", "local_code": "CRP", "v": "1.25 H"})
+    flagged = mp.map_row(m.resources[0], {"mrn": "P1", "id": "4", "local_code": "CRP", "v": "1.25 H"})
     assert (
         flagged is not None
         and flagged["valueQuantity"]["value"] == 12.5
         and "comparator" not in flagged["valueQuantity"]
     )
-    cens = mp.map_row(m.resources[0], {"id": "5", "local_code": "CRP", "v": "<0.3"})
+    cens = mp.map_row(m.resources[0], {"mrn": "P1", "id": "5", "local_code": "CRP", "v": "<0.3"})
     assert cens is not None and (cens["valueQuantity"]["value"], cens["valueQuantity"]["comparator"]) == (3, "<")
-    text = mp.map_row(m.resources[0], {"id": "6", "local_code": "CRP", "v": "検出せず"})
+    text = mp.map_row(m.resources[0], {"mrn": "P1", "id": "6", "local_code": "CRP", "v": "検出せず"})
     assert text is not None and text["valueString"] == "検出せず" and "valueQuantity" not in text
 
 

@@ -485,6 +485,13 @@ TABLES: dict[str, Entry] = {
     "omop.tb_id_map": _keep("D-441", "pseudonym to person id: the worker and the loader must still find the person"),
     "omop.tb_withheld": _keep("D-441", "the register's copy the loader reads to keep the patient out"),
     "omop.tb_load": _none("a load: batch and counts"),
+    # D-1253: the lake-id rule each store's ids were made under (tb_common.id_rule): a number, no patient
+    **_each("omop", ["tb_id_rule"], _none("the lake-id rule the store's ids were made under (D-1253)")),
+    **_each("derived", ["tb_id_rule"], _none("the lake-id rule the store's ids were made under (D-1253)")),
+    **_each("vec", ["tb_id_rule"], _none("the lake-id rule the store's ids were made under (D-1253)")),
+    **_each("profile", ["tb_id_rule"], _none("the lake-id rule the store's ids were made under (D-1253)")),
+    **_each("orch", ["tb_id_rule"], _none("the lake-id rule the store's ids were made under (D-1253)")),
+    **_each("edc", ["tb_id_rule"], _none("the lake-id rule the store's ids were made under (D-1253)")),
     **_each("omop", ("care_site", "provider"), _none("sites and providers, no patient")),
     **_each(
         "omop",

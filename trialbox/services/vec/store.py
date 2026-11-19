@@ -25,6 +25,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import astuple, dataclass
 from typing import Any
 
+from tb_common import id_rule
 from tb_common.db import ENV, Database
 
 STORE = "vec"
@@ -43,7 +44,7 @@ CREATE TABLE IF NOT EXISTS note_chunk (pid TEXT NOT NULL, did TEXT NOT NULL, chu
 CREATE INDEX IF NOT EXISTS note_chunk_person_date ON note_chunk (pid, note_date);
 CREATE INDEX IF NOT EXISTS note_chunk_sha ON note_chunk (sha)
 """
-MIGRATIONS = (SCHEMA_V1,)
+MIGRATIONS = (SCHEMA_V1, id_rule.DDL)  # D-1253: v2, the rule the chunks' note ids were made under
 
 
 class VecError(ValueError):
@@ -201,6 +202,7 @@ class VecStore:
         """Replace the chunks of the notes ``dids`` (all of them, in one transaction) by ``chunks``."""
         ids = sorted(set(dids) | {c.did for c in chunks})
         with self._db.transaction() as tx:
+            id_rule.ensure(tx, id_rule.VEC)  # D-1253: never rule-2 note ids beside rule-1 ones
             if ids:
                 tx.execute("DELETE FROM note_chunk WHERE did = ANY(?)", (ids,))
             if chunks:

@@ -34,6 +34,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from tb_common import service_auth as sa
 from tb_common.http import make_app
+from tb_common.id_rule import IdRuleError
 from tb_contracts import IngestRequest, dump
 
 from adapter import failure, runs
@@ -226,7 +227,12 @@ def run(req: IngestRequest) -> JSONResponse:
                 validate=req.validate_,
             )
             end.update(state="done", report=dump(report))
-        except (SiteKeyError, NoRoomForNight, LakeBudgetError) as exc:  # T-612, D-679: refused before anything was read
+        except (
+            SiteKeyError,
+            NoRoomForNight,
+            LakeBudgetError,
+            IdRuleError,
+        ) as exc:  # T-612, D-679: refused before anything was read
             end.update(state="refused", detail=f"night refused: {exc}")
         except Exception as exc:
             failure.log_failure(log, f"ingest run {rid} failed", exc)

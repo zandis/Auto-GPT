@@ -144,6 +144,11 @@ def test_migration_4_keeps_the_rows_of_a_store_made_before_it(db_url: str, monke
     # (and migration 7's tb_withheld, D-441, which the loader reads)
     old.execute("ALTER TABLE tb_record_event ADD COLUMN record_before JSONB")
     old.execute(schema.WITHHELD_DDL)
+    # D-1253: today's loader stamps the store with the id rule its rows are made under; that stamp is true of these
+    # rows (today's loader made them), so it stays when the store is taken back (migration 10 makes it IF NOT EXISTS)
+    from tb_common import id_rule
+
+    old.execute(id_rule.DDL)
     with monkeypatch.context() as m:
         m.setattr(load, "PARTITIONED", {})  # the loader before T-106 knew no partition
         load_batch(old, "feed", "2026-10-04", _feed(), tz="Asia/Taipei")

@@ -1022,6 +1022,47 @@ _CLASS_MARK = "\x00class:"
 _ICD9_NUMERIC = re.compile(r"(\d{3})(?:\.(\d{1,2}))?|(\d{4,5})")
 
 
+class _Numbers:
+    """D-1253: which patients' records a number names tonight, by (type, the number's site-wide hash). In memory, or
+    (:meth:`on_disk`, the nightly pipeline) in a scratch SQLite file, so a night's memory does not grow with its
+    patients (T-692, D-473)."""
+
+    def __init__(self) -> None:
+        self._mem: dict[tuple[str, str], set[str]] = {}
+        self._con: Any = None
+
+    def on_disk(self, path: Path) -> None:
+        import sqlite3
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.unlink(missing_ok=True)
+        self._con = sqlite3.connect(path, isolation_level=None)
+        self._con.execute("PRAGMA journal_mode = OFF")
+        self._con.execute("PRAGMA synchronous = OFF")
+        self._con.execute("PRAGMA temp_store = FILE")
+        # a scratch table of the night, gone with the file: not a record (TEMP says so)
+        self._con.execute("CREATE TEMP TABLE n (t TEXT, k TEXT, pid TEXT, PRIMARY KEY (t, k, pid)) WITHOUT ROWID")
+        for (t, k), pids in self._mem.items():
+            self._con.executemany("INSERT OR IGNORE INTO n VALUES (?, ?, ?)", [(t, k, p) for p in pids])
+        self._mem = {}
+
+    def add(self, t: str, k: str, pid: str) -> None:
+        if self._con is None:
+            self._mem.setdefault((t, k), set()).add(pid)
+        else:
+            self._con.execute("INSERT OR IGNORE INTO n VALUES (?, ?, ?)", (t, k, pid))
+
+    def owners(self, t: str, k: str) -> set[str]:
+        if self._con is None:
+            return self._mem.get((t, k), set())
+        return {str(r[0]) for r in self._con.execute("SELECT pid FROM n WHERE t = ? AND k = ?", (t, k))}
+
+    def close(self) -> None:
+        if self._con is not None:
+            self._con.close()
+            self._con = None
+
+
 class Mapper:
     """Applies a :class:`Mapping` to source rows."""
 
@@ -1072,7 +1113,7 @@ class Mapper:
         # record it is tonight, filled as they are made; the links refused because the number is only another
         # patient's, by (table, type); the deleted rows that name no patient, by table. Counts only
         self._targets = {t for r in mapping.resources for t in _hid_targets(r.elements) if t not in SITE_WIDE_TYPES}
-        self._numbers: dict[tuple[str, str], set[str]] = {}
+        self._numbers = _Numbers()
         self.refused: Counter[tuple[str, str]] = Counter()
         self.dead_without_patient: Counter[str] = Counter()
 
@@ -1330,7 +1371,7 @@ class Mapper:
             if rtype in SITE_WIDE_TYPES:
                 return f"{rtype}/{resource_id(self.key, rtype, str(raw))}"
             pid = self.patient_of(rs, row)
-            theirs = self._numbers.get((rtype, resource_id(self.key, rtype, str(raw))))
+            theirs = self._numbers.owners(rtype, resource_id(self.key, rtype, str(raw)))
             if theirs and pid not in theirs:
                 # D-1253: tonight that number is another patient's record only: never a link across patients
                 self.refused[(rs.table, rtype)] += 1
@@ -1897,8 +1938,16 @@ class Mapper:
         """D-1253: the record of this number is this patient's tonight (what a link by number may name)."""
         col = rs.id.get("hid") or ""
         number = f"{row.get(col)}{rs.id.get('suffix', '')}"
-        key = (rs.type, resource_id(self.key, rs.type, number))  # the number's hash: no source value is kept
-        self._numbers.setdefault(key, set()).add(self.patient_of(rs, row))
+        # the number's hash: no source value is kept
+        self._numbers.add(rs.type, resource_id(self.key, rs.type, number), self.patient_of(rs, row))
+
+    def numbers_on_disk(self, path: Path) -> None:
+        """Keep tonight's numbers of patients' records in a scratch file at ``path`` (the nightly pipeline: a
+        night's memory does not grow with its patients). :meth:`close_numbers` removes it."""
+        self._numbers.on_disk(path)
+
+    def close_numbers(self) -> None:
+        self._numbers.close()
 
     def map_table(self, table: str, rows: Iterator[Row]) -> Iterator[Resource]:
         specs = [r for r in self.m.resources if r.table == table]

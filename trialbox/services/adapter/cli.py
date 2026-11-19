@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from tb_common.config import ConfigError, load
+from tb_common.id_rule import IdRuleError
 from tb_common.logging import setup_logging
 from tb_contracts import RebuildResult, dump
 
@@ -273,7 +274,7 @@ def main(argv: list[str] | None = None) -> int:
             rebuild_lake=not args.no_lake,
             validate=not args.no_validate,
         )
-    except (SiteKeyError, FutureNight, NoRoomForNight, LakeBudgetError) as exc:
+    except (SiteKeyError, FutureNight, NoRoomForNight, LakeBudgetError, IdRuleError) as exc:
         print(f"night refused, nothing was read or written: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(dump(report), ensure_ascii=False, indent=1))
@@ -295,7 +296,7 @@ def backfill_cmd(ac: AdapterConfig, kind: str, path: str, args: argparse.Namespa
             validate=not args.no_validate,
             rebuild_lake=not args.no_lake,
         )
-    except (SiteKeyError, FutureNight) as exc:
+    except (SiteKeyError, FutureNight, IdRuleError) as exc:
         print(f"back-fill refused, nothing was read or written: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(rep.as_dict(), ensure_ascii=False, indent=1))

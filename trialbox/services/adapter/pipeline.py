@@ -171,6 +171,37 @@ def check_site_key(cfg: AdapterConfig, key: bytes) -> str:
     return fp
 
 
+def check_id_rule(cfg: AdapterConfig) -> None:
+    """D-1253: refuse the night, before anything is read or written, when the lake or a store this role reads holds
+    lake ids of an earlier rule (:mod:`tb_common.id_rule`): the lake's snapshots, the OMOP store of record and the
+    derived store. The stores the adapter's role does not read (D-378: vec, the patient twin, the candidate pool, the
+    EDC drafts) refuse at their own first write. :class:`tb_common.id_rule.IdRuleError` names what holds old ids."""
+    from tb_common import id_rule
+
+    old: list[str] = []
+    snaps = id_rule.old_snapshots(cfg.lake_dir / "ndjson")
+    if snaps:
+        old.append(f"the lake ({len(snaps)} snapshots, the last {snaps[-1]})")
+    url = cfg.db_url or os.environ.get(DB_URL_ENV)
+    omop_url = os.environ.get("TB_OMOP_DB_URL") or url
+    if url or omop_url:
+        from omop.schema import schema_for
+
+        checks = [(omop_url, id_rule.OMOP, schema_for(cfg.lake_dir)), (url, id_rule.DERIVED, None)]
+        for where, store, schema in checks:
+            if not where:
+                continue
+            try:
+                state = id_rule.probe(where, store, schema)
+            except Exception as exc:  # the database cannot be reached: the night's own steps say so later
+                log.warning("id rule of %s not read (%s)", store.name, type(exc).__name__)
+                continue
+            if state == id_rule.OLD:
+                old.append(f"the {store.name} store")
+    if old:
+        raise id_rule.IdRuleError(old)
+
+
 def load_site_profile(cfg: AdapterConfig, source_kind: str) -> tuple[SiteProfile | None, dict[str, Any]]:
     """10B-6 (D-1233): the profile the night reads with and what the night says of it
     (:func:`adapter.site_profile.for_night`): only the version a person loaded (``load --by``) is applied, checked
@@ -611,6 +642,20 @@ def _run_ingest(
                 detail={"source": source_kind, "refused": "site_key", "reason": str(exc)},
             )
         raise
+    from tb_common.id_rule import IdRuleError
+
+    try:  # D-1253: before anything is read or written, no lake id of an earlier rule anywhere it would be added to
+        check_id_rule(cfg)
+    except IdRuleError as exc:
+        log.error("night refused: %s", exc)
+        if cfg.audit_dir:
+            open_audit(cfg.audit_dir, cfg.tz).append(
+                "ingest.failed",
+                snapshot=snap,
+                actor="adapter",
+                detail={"source": source_kind, "refused": "id_rule", "reason": str(exc)},
+            )
+        raise
     errors: list[str] = []
     # T-692 (D-473): every mapped resource goes to disk as it is made; the night is never held in memory. The spool
     # is scratch on the lake volume (``lake:tmp``), removed when the night ends
@@ -703,6 +748,8 @@ def _run_ingest(
             concept_map=reference_maps(mapping, cfg.db_url),  # D-665: a map that is not loaded is "not asked"
             mrn_regex=cfg.mrn_regex,  # CGRD-A4 (D-816, lane E's hunk): a masked text uses the site's pattern
         )  # fmt: skip
+        mapper.numbers_on_disk(spool.root / ".numbers.sqlite")  # D-1253: scratch of the night, flat in memory
+        cleanup.callback(mapper.close_numbers)
         fhir_profiles = mapping.fhir_profiles
         if profile is not None:  # 10B-6 (D-1233): a fact from a row still to verify carries D-135's basis tag
             from adapter.site_profile import verify_rules

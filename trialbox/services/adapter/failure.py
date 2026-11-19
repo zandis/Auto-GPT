@@ -28,6 +28,7 @@ REST = "the error's text is not kept, it can hold a row's value; the adapter's l
 def _own() -> tuple[type[BaseException], ...]:
     from tb_common.crypto import KeyMissingError
     from tb_common.feedguard import FeedGuardError
+    from tb_common.id_rule import IdRuleError
 
     from adapter.pipeline import FutureNight, LakeBudgetError, NoRoomForNight, SiteKeyError
     from adapter.publish import NothingToPublish
@@ -35,7 +36,7 @@ def _own() -> tuple[type[BaseException], ...]:
 
     return (
         SiteKeyError, FutureNight, NothingToPublish, RunLockHeld, FeedGuardError, KeyMissingError, NoRoomForNight,
-        LakeBudgetError,
+        LakeBudgetError, IdRuleError,
     )  # fmt: skip
 
 

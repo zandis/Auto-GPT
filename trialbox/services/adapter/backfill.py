@@ -62,6 +62,7 @@ from adapter.pipeline import (
     _undated_order,
     apply_aliases,
     apply_unit_defaults,
+    check_id_rule,
     check_lookup_factors,
     check_site_key,
     completeness_check,
@@ -249,6 +250,7 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                 concept_map=asks,
                 mrn_regex=cfg.mrn_regex,  # CGRD-A4 (D-816, lane E's hunk): a masked text uses the site's pattern
             )  # fmt: skip
+            mapper.numbers_on_disk(root / ".numbers.sqlite")  # D-1253: flat in memory, as the night's
             source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding)
             for res in mapper.static_resources():
                 emit(res)
@@ -316,6 +318,10 @@ def _spool(cfg: AdapterConfig, source_kind: str, source_path: str, snap: str, ro
                 if table in tables:  # only a table that was read has an entry (its rows, its presence)
                     tables[table]["unmapped"] = by_lookup
             unmapped_codes = mapper.unmapped_by_code(cfg.mrn_regex)  # codes only: never a chart number or a name
+            for table, by_type in mapper.references_refused().items():  # D-1253, as the night: counts only
+                if table in tables:
+                    tables[table]["references_to_another_patient"] = by_type
+            mapper.close_numbers()
         if patients:
             held = {"Patient": [r for _, r in patients]}
             apply_aliases(held, aliases)
@@ -397,8 +403,11 @@ def _merged(runs: Path, buckets: list[str], rtype: str) -> Iterator[str]:
 
 
 def _write_merged(runs: Path, buckets: list[str], out: Path) -> dict[str, int]:
+    from tb_common import id_rule
+
     types = sorted({p.stem for b in buckets for p in (runs / b).glob("*.ndjson")})
     out.mkdir(parents=True, exist_ok=True)
+    id_rule.write_snapshot_record(out)  # D-1253: the back-fill maps every year under the current id rule
     counts: dict[str, int] = {}
     for rtype in types:
         tmp = out / f".{rtype}.ndjson.tmp"
@@ -480,6 +489,7 @@ def backfill(
     refuse_future_night(snap, datetime.now(zone).date())  # D-529
     key = cfg.site_key()
     check_site_key(cfg, key)
+    check_id_rule(cfg)  # D-1253
     work = work_dir or cfg.lake_dir / "backfill" / snap
     work.mkdir(parents=True, exist_ok=True)
     spool, runs = work / "spool", work / "runs"

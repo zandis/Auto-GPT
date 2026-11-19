@@ -39,6 +39,7 @@ def main(argv: list[str] | None = None) -> int:
     lock = runs.RunLock.adopt(int(args[0]), lake_dir)
     try:
         from lake.build import prefer_me_when_memory_runs_out
+        from tb_common.id_rule import IdRuleError
         from tb_common.logging import setup_logging
         from tb_contracts import dump
 
@@ -63,7 +64,12 @@ def main(argv: list[str] | None = None) -> int:
                 validate=bool(req.get("validate", True)),
             )
             end = {"state": "done", "report": dump(report)}
-        except (SiteKeyError, NoRoomForNight, LakeBudgetError) as exc:  # T-612, D-679: refused before anything was read
+        except (
+            SiteKeyError,
+            NoRoomForNight,
+            LakeBudgetError,
+            IdRuleError,
+        ) as exc:  # T-612, D-679: refused before anything was read
             end = {"state": "refused", "detail": f"night refused: {exc}"}
         except Exception as exc:
             failure.log_failure(log, f"ingest run {state.get('run')} failed", exc)

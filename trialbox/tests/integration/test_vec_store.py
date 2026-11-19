@@ -73,7 +73,10 @@ def _notes() -> list[Note]:
 def test_the_store_migrates_twice_with_its_pinned_checksum(url: str) -> None:
     for _ in range(2):
         with VecStore(url) as st:
-            assert [(r.version, r.sha256) for r in st.db.applied()] == [(1, script_sha256(vs.SCHEMA_V1))]
+            assert [(r.version, r.sha256) for r in st.db.applied()] == [
+                (1, script_sha256(vs.SCHEMA_V1)),
+                (2, script_sha256(vs.MIGRATIONS[1])),  # D-1253: tb_id_rule
+            ]
 
 
 def test_the_hnsw_index_is_there_after_the_store_opens_for_a_model(url: str) -> None:
@@ -169,3 +172,19 @@ def test_delete_patient_removes_their_chunks_and_only_orphan_vectors(url: str) -
         q = e.embed(["Gout flare. Allopurinol continued."])[0]
         assert {h["pid"] for h in st.search(q, e.model, k=5)} <= {"p2", "p3"}
         assert st.delete_patient("p1") == {"chunks": 0, "embeddings": 0}
+
+
+def test_new_chunks_are_refused_beside_chunks_of_the_earlier_id_rule(url: str) -> None:
+    """D-1253: an empty store is stamped with the lake-id rule at its first write; one that holds chunks under no rule
+    (a store from before D-1253) takes no new chunk, and nothing is written."""
+    from tb_common import id_rule
+
+    store = VecStore(url)
+    store.replace_notes([vs.ChunkRow("p1", "d1", 0, "2026-01-01", "progress", 0, 4, "text", "sha", "m1")], ["d1"])
+    with Database.connect(url, "vec") as db:
+        assert db.fetchval("SELECT count(*) FROM tb_id_rule WHERE rule = ?", (id_rule.RULE,)) == 1
+        db.execute("DELETE FROM tb_id_rule")  # the store as it was before D-1253
+    with pytest.raises(id_rule.IdRuleError, match="vec"):
+        store.replace_notes([vs.ChunkRow("p1", "d2", 0, "2026-01-01", "progress", 0, 4, "text", "sha2", "m1")], ["d2"])
+    with Database.connect(url, "vec") as db:
+        assert db.fetchval("SELECT count(*) FROM note_chunk") == 1

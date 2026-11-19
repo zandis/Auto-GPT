@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from datacore import pgfunc
+from tb_common import id_rule
 from tb_common.config import environment_name
 from tb_common.crypto import key_fingerprint
 from tb_common.db import ENV, Database
@@ -132,7 +133,8 @@ CREATE TABLE IF NOT EXISTS direct_source_event (id BIGINT GENERATED ALWAYS AS ID
 SCHEMA_V8 = """
 ALTER TABLE draft ADD COLUMN IF NOT EXISTS prov TEXT
 """
-MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8)
+MIGRATIONS = (SCHEMA, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8,
+              id_rule.DDL)  # fmt: skip  # D-1253: v9, the rule the citations' lake rows were made under
 #: tables that only ever grow (D-281): a trigger refuses UPDATE, DELETE and TRUNCATE on each
 APPEND_ONLY = ("decision", "signature", "signature_void", "sent", "switch_event", "map_event", "reentry_record",
                "copy_tick", "direct_source_event")  # fmt: skip
@@ -589,6 +591,7 @@ class EdcStore:
         A record key stays bound to the one subject it was first drafted for (D-162, review E-02)."""
         ids: list[int] = []
         with self._db.transaction() as tx:
+            id_rule.ensure(tx, id_rule.EDC)  # D-1253: a citation's lake row of rule 2 never beside rule-1 ones
             other = tx.fetchval("SELECT pid FROM draft WHERE study = ? AND record = ? AND pid <> ? LIMIT 1",
                                 (study, record, pid))  # fmt: skip
             if other is not None:

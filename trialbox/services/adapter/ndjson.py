@@ -297,7 +297,13 @@ def write_snapshot(
     ``collisions`` (D-1253): per type, how many of the night's records had an id an earlier record of the same night
     had, with other content (two different source rows, one id). The last still wins (DATA-017); it is counted, never
     silent. The same row sent twice is the same record, not a collision."""
+    from tb_common import id_rule
+
+    if base is not None and base.exists() and id_rule.snapshot_rule(base) != id_rule.RULE:
+        # D-1253: never a snapshot of rule-2 ids over one of rule-1 ids (a record would be there twice)
+        raise id_rule.IdRuleError([f"the lake snapshot {base.name}"])
     directory.mkdir(parents=True, exist_ok=True)
+    id_rule.write_snapshot_record(directory)  # D-1253: the rule this snapshot's ids were made under
     counts: dict[str, int] = {}
     dead = {t: set(ids) for t, ids in (tombstones or {}).items()}
     out = {t: set(ids) for t, ids in (left_out or {}).items()}

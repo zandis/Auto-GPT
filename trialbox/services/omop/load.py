@@ -720,6 +720,10 @@ def _load(
         # date of another calendar is refused first, and the opt-out worker does not wait for a batch being built
         _stage(tx, b, by_type, responses, stats, chunk)
         tx.execute("SELECT pg_advisory_xact_lock(hashtext('trialbox-omop-load'))")
+        if kind == "feed":  # D-1253: a feed's lake ids are added only to a store of the same id rule
+            from tb_common import id_rule
+
+            id_rule.ensure(tx, id_rule.OMOP)
         last = tx.fetchval("SELECT max(batch) FROM tb_load WHERE source_kind = ?", (kind,))
         if last is not None and batch < str(last):
             raise OmopError(
