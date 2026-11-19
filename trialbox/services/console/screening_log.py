@@ -151,6 +151,21 @@ WORDS = {"pi_mark": "mark.", "pi_mark_reason": "reason.", "last_contact_outcome"
          "referral_reason": "team.decline."}  # fmt: skip
 #: a column that lists machine words (comma-separated): the IRB warnings an approach went ahead despite
 LISTS = {"approach_irb_override": "team.irb.w."}
+#: 10C-19 (D-1232): the columns added at the end while consent by a representative and assent are recorded (the
+#: setting on); off, the log has the columns it had. The machine sheet holds codes, the sheet for people their words.
+PROXY_COLUMNS = ("consent_given_by", "representative_relation", "assent", "assent_reason", "consent_warnings")
+WORDS.update({"consent_given_by": "consent.proxy.given.", "representative_relation": "consent.proxy.rel.",
+              "assent": "consent.proxy.assent_word.", "assent_reason": "consent.proxy.why."})  # fmt: skip
+LISTS.update({"consent_warnings": "consent.proxy.short."})
+
+
+def proxy_cells(consent: Any) -> list[str]:
+    """The five cells of :data:`PROXY_COLUMNS` from a participant's consent record (empty without one)."""
+    px = (consent or {}).get("proxy") if isinstance(consent, dict) else None
+    if not isinstance(px, dict):
+        return [""] * len(PROXY_COLUMNS)
+    return [str(px.get("given_by") or ""), str(px.get("relation") or ""), str(px.get("assent") or ""),
+            str(px.get("assent_why") or ""), ",".join(str(w) for w in px.get("warnings") or [])]  # fmt: skip
 
 
 def _word(lang: str, prefix: str, code: str) -> str:
@@ -165,7 +180,8 @@ def _width(text: str) -> int:
     return sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in text)
 
 
-def printable(wb: Any, lang: str, table: list[list[Any]], states: list[str] | None = None) -> Any:
+def printable(wb: Any, lang: str, table: list[list[Any]], states: list[str] | None = None,
+              columns: tuple[str, ...] = sponsor.LOG_COLUMNS) -> Any:  # fmt: skip
     """NEW-UX-3 (D-698, UX-003): the screening log as a person reads and prints it, put first in the workbook: the
     headings and the words of the reader's language, dates as dates, the header frozen and printed on every page,
     landscape and one page wide. The machine-readable sheets stay as they are, for the systems that read them."""
@@ -177,13 +193,13 @@ def printable(wb: Any, lang: str, table: list[list[Any]], states: list[str] | No
     keep = wb.active  # the machine sheet stays the one the workbook opens on (readers take the active sheet)
     ws = wb.create_sheet(translate(lang, "log.xlsx.sheet")[:31], 0)
     wb.active = wb.index(keep)
-    heads = [translate(lang, "log.no" if c == "screening_no" else f"log.xlsx.col.{c}") for c in sponsor.LOG_COLUMNS]
+    heads = [translate(lang, "log.no" if c == "screening_no" else f"log.xlsx.col.{c}") for c in columns]
     ws.append(heads)
     for cell in ws[1]:
         cell.font = Font(bold=True)
     for n, line in enumerate(table):
         out: list[Any] = []
-        for col, v in zip(sponsor.LOG_COLUMNS, line, strict=False):
+        for col, v in zip(columns, line, strict=False):
             if col == "status" and states is not None and n < len(states):
                 out.append(translate(lang, ps.key(states[n])))  # D-1221: the word the page shows, the one state
             elif col in WORDS and isinstance(v, str) and v:
@@ -272,6 +288,16 @@ def register(app: FastAPI, h: Helpers) -> None:
             return {}
         return {str(x.get("record")): x for x in (out or {}).get("subjects") or [] if isinstance(x, dict)}
 
+    def proxy_on(rs: str) -> bool:
+        """10C-19 (D-1232): consent by a representative and assent are recorded (the setting, as the orchestrator
+        reads it); False when it does not answer, so the log keeps the columns it had."""
+        if not s28.has_api(bk):
+            return False
+        try:
+            return bool((s28.call(bk, "GET", f"/studies/{rs}/consent-ages") or {}).get("on"))
+        except (Problem, Unavailable):
+            return False
+
     def prescreen(rs: str) -> list[dict[str, Any]]:
         refs: dict[str, Any] = h.team.latest_referrals(rs) if h.team is not None else {}
         gone = h.gone()
@@ -333,6 +359,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                     "icf_version": str(lf.get("icf_version") or ""),
                     "enrolled": str(lf.get("enrolled") or ""),
                     "randomised": str(lf.get("randomised") or ""),  # D-407 (LIFE-020): in the sponsor's IRT
+                    "consent": lf.get("consent"),  # D-1232: its representative and assent, while the setting is on
                     "gone": pid in gone,
                     "opted_out": gone.get(pid, ""),
                 }
@@ -395,7 +422,8 @@ def register(app: FastAPI, h: Helpers) -> None:
         ws.title = "screening log"
         table: list[list[Any]] = []
         states: list[str] = []
-        for r in log_rows(rid):
+        rows = log_rows(rid)
+        for r in rows:
             states.append(r["person"].name)
             mk, oc, rf, ov = r["mark"], r["outcome"], r["referral"], r["override"]
             table.append(
@@ -429,6 +457,11 @@ def register(app: FastAPI, h: Helpers) -> None:
                     r["opted_out"] or ("yes" if r["gone"] else ""),
                 ]
             )
+        cols = sponsor.LOG_COLUMNS
+        if proxy_on(rid):  # 10C-19 (D-1232): five columns at the end; the sponsor's layout names its own columns
+            cols = (*cols, *PROXY_COLUMNS)
+            for line, r in zip(table, rows, strict=True):
+                line.extend(proxy_cells(r["consent"]))
         if layout == "sponsor":  # D-435: the same rows in the sponsor's columns, words and date format
             cur = sponsor_layout(rid)
             heads, body = sponsor.log_table(cur["layout"], table)
@@ -450,10 +483,10 @@ def register(app: FastAPI, h: Helpers) -> None:
                       detail={"filename": name, "layout": cur.get("id")})  # fmt: skip
             return Response(buf.getvalue(), media_type=XLSX,
                             headers={"Content-Disposition": f'attachment; filename="{name}"'})  # fmt: skip
-        ws.append(list(sponsor.LOG_COLUMNS))
+        ws.append(list(cols))
         for line in table:
             ws.append(line)
-        printable(wb, sess.lang, table, states)  # NEW-UX-3 (D-698): the first sheet is the log for people
+        printable(wb, sess.lang, table, states, cols)  # NEW-UX-3 (D-698): the first sheet is the log for people
         pre = wb.create_sheet("pre-screen log")  # D-387 (LIFE-015): one row per investigator mark
         pre.append(["pseudonym", "first_listed", "criteria_version", "pi_mark", "pi_mark_reason", "pi_mark_date",
                     "pi_mark_by", "later", "screening_no", "referral_outcome", "referral_reason", "status",

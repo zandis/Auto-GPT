@@ -123,6 +123,12 @@ CREATE TABLE IF NOT EXISTS deviation_call (study TEXT NOT NULL, record TEXT NOT 
 """
 # the lifecycle's migrations after its base schema, in order (the name is from the first two; never edit an applied one)
 SAE_MIGRATIONS = (SAE_SCHEMA, SAE_SCHEMA_V2, SCHEDULE_VERSIONS, SCREEN_FAIL_DETAIL, CONTACT_AND_DEVIATIONS)
+# 10C-19 (D-1232): the study's ages for consent by a representative and for assent (version 10, after the sponsor's
+# layout and the history's reason); a study with no row has the default (``datacore.proxy_consent.rule``)
+CONSENT_AGE_RULE = """
+CREATE TABLE IF NOT EXISTS consent_age_rule (study TEXT NOT NULL PRIMARY KEY, majority INTEGER NOT NULL,
+  assent_from INTEGER NOT NULL, assent_to INTEGER NOT NULL, set_by TEXT NOT NULL, set_at TEXT NOT NULL)
+"""
 
 # D-407 (LIFE-017): contact attempts per study. An attempt is a contact outcome that tried to reach the patient; the
 # outcomes that close the contact without a call ("not approached", "lost contact") are never refused. Until the
@@ -549,7 +555,7 @@ class Lifecycle:
                 once.get("sl_crit_version", "").strip())  # fmt: skip
         if once.get("sl_approached") == "1":
             put("approached", once.get("sl_date", ""), "form:tb_screening_log")
-        if once.get("ic_date"):
+        if once.get("ic_date") and not self._assent_declined(once):
             put("consented", once["ic_date"], "form:tb_consent")
         if once.get("en_date") and once.get("en_eligible") == "1":
             put("enrolled", once["en_date"], "form:tb_enrolment")
@@ -583,11 +589,26 @@ class Lifecycle:
                 out[want] = {"day": "", "source": "screening_log", "reason": reason, "note": ""}
         return out
 
+    @staticmethod
+    def _assent_declined(once: dict[str, str]) -> bool:
+        """10C-19 (D-1232): with the setting on, a consent form that records the assent as declined is not taken as
+        consent to proceed; a person's step to "consented", with the reason in its note, is (audited as every step)."""
+        from datacore import proxy_consent
+
+        return proxy_consent.is_on() and proxy_consent.declined(once)
+
+    def assent_declined(self, study: str, record: str) -> bool:
+        from datacore import proxy_consent
+
+        return proxy_consent.is_on() and proxy_consent.declined(self.dc.record(study, record, ""))
+
     def consent_missing(self, study: str, record: str, state: str) -> str:
         """T-516 (LIFE-019): the form that shows enrolment or a visit while no consent form exists and the subject is
         not yet consented, else "". The subject page and the participants list raise it as an alert."""
         if state not in LINE or LINE.index(state) >= LINE.index("consented"):
             return ""
+        if self.assent_declined(study, record):
+            return ""  # the form is there; the declined assent is the consent record's own alert (D-1232)
         ev = self.evidence(study, record)
         if "consented" in ev:
             return ""
@@ -604,17 +625,46 @@ class Lifecycle:
         each ``rcN`` event), oldest first; the last one; what is out of order (an enrolment or a visit dated before
         the first consent, a subject past consent with no consent form in a study that records consent here); and
         the event of the next re-consent. Flags are shown, never forced: the forms stay as entered."""
+        from datacore import proxy_consent
+
         vals: dict[str, dict[str, str]] = {}
+        by: dict[tuple[str, str], str] = {}
         for r in self.dc.values(study, record):
             vals.setdefault(str(r["event"]), {})[str(r["field"])] = str(r["value"])
+            by[(str(r["event"]), str(r["field"]))] = str(r.get("changed_by") or "")
         cs = consents_of(vals)
         flags = consent_order(vals, cs, today)
         here = self.records_consent(study) if here is None else here
         if here and not cs and state in (*ON_STUDY, "completed", "withdrawn"):
             flags.append({"flag": "no_consent_form", "day": "", "event": "", "consent_day": ""})
         have = [int(m.group(1)) for ev in vals if (m := RC_EVENT.match(ev))]
-        return {"consents": cs, "last": cs[-1] if cs else None, "flags": flags, "here": here,
-                "next_rc": f"rc{max(have, default=0) + 1}"}  # fmt: skip
+        out = {"consents": cs, "last": cs[-1] if cs else None, "flags": flags, "here": here,
+               "next_rc": f"rc{max(have, default=0) + 1}"}  # fmt: skip
+        if proxy_consent.is_on():  # 10C-19 (D-1232): off, the record is as before (no key)
+            out["proxy"] = proxy_consent.review(vals, cs, self.consent_age_rule(study), by)
+        return out
+
+    # ------------------------------------------------------------------ consent by a representative, assent (D-1232)
+    def consent_age_rule(self, study: str) -> dict[str, Any]:
+        """The study's age of majority and assent ages (the default until a person sets them)."""
+        from datacore import proxy_consent
+
+        rows = self.db.fetchdicts("SELECT * FROM consent_age_rule WHERE study = ?", (study,))
+        return proxy_consent.rule(rows[0] if rows else None)
+
+    def set_consent_age_rule(self, study: str, majority: int, assent_from: int, assent_to: int, by: str,
+                             at: str) -> dict[str, Any]:  # fmt: skip
+        from datacore import proxy_consent
+
+        why = proxy_consent.check_rule(majority, assent_from, assent_to)
+        if why is not None:
+            raise LifeError("consent_ages", why)
+        self.db.execute("INSERT INTO consent_age_rule (study, majority, assent_from, assent_to, set_by, set_at) "
+                        "VALUES (?,?,?,?,?,?) ON CONFLICT (study) DO UPDATE SET majority = excluded.majority, "
+                        "assent_from = excluded.assent_from, assent_to = excluded.assent_to, "
+                        "set_by = excluded.set_by, set_at = excluded.set_at",
+                        (study, majority, assent_from, assent_to, by, at))  # fmt: skip
+        return self.consent_age_rule(study)
 
     def derive(self, study: str, record: str, *, by: str, at: str, registry: str | None = None,
                schedule: list[Visit] | None = None) -> dict[str, Any]:  # fmt: skip
@@ -644,7 +694,9 @@ class Lifecycle:
                 if implied and s == "consented" and src.startswith("form:"):
                     # T-516 (LIFE-019, D-385): a TrialBox form never implies consent. The study records consent here,
                     # so an enrolment or a visit without a consent form holds the subject and says why
-                    held.append({"state": "consented", "why": "consent_missing", "current": state, "source": src})
+                    why = "assent_declined" if self.assent_declined(study, record) else ""
+                    held.append({"state": "consented", "why": why or "consent_missing", "current": state,
+                                 "source": src})  # fmt: skip
                     break
                 d = day_for(s, by_ev["day"] or today)
                 note = (f"implied by {src}" if implied else (e or {}).get("note", ""))[:300]

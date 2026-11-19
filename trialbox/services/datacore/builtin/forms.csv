@@ -24,6 +24,12 @@ ic_lar_relation,tb_consent,text,The representative's relation to the participant
 ic_witness,tb_consent,radio,An impartial witness was present,立会人が同席した,有公正見證人在場,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,
 ic_witness_by,tb_consent,text,Witness (initials),立会人(イニシャル),見證人(姓名縮寫),,,,,,,[ic_witness] = '1',
 ic_order,tb_consent,radio,The participant signed and dated on or before the day the person taking consent did,参加者は同意取得者と同日またはそれ以前に署名・日付を記入した,受試者簽名及日期與取得同意者同日或更早,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,
+ic_age,tb_consent,text,Age at consent (whole years),同意取得時の年齢(歳),簽署同意時年齡(歲),,,,integer,0,120,,
+ic_lar_rel,tb_consent,radio,"The representative's relation to the participant (a code: never a name, address or contact)",代諾者と参加者の続柄（区分のみ。氏名・住所・連絡先は記録しません）,法定代理人與受試者的關係（僅代碼；不記錄姓名、地址或聯絡方式）,"1, Parent (parental authority) | 2, Guardian | 3, Spouse | 4, Adult child | 9, Other","1, 親権者 | 2, 後見人 | 3, 配偶者 | 4, 成人の子 | 9, その他","1, 父母（親權人） | 2, 監護人 | 3, 配偶 | 4, 成年子女 | 9, 其他",,,,[ic_lar] = '1',y
+ic_lar_other,tb_consent,text,"Other relation, in one word (never a name)",その他の続柄（一語で。氏名は書かない）,其他關係（一個詞；不寫姓名）,,,,,,,[ic_lar_rel] = '9',y
+ic_assent,tb_consent,radio,The participant's own assent,本人のインフォームド・アセント,受試者本人的贊同（assent）,"1, Obtained | 0, Not obtained","1, 得た | 0, 得ていない","1, 已取得 | 0, 未取得",,,,,
+ic_assent_why,tb_consent,radio,Why assent was not obtained,アセントを得ていない理由,未取得贊同的原因,"1, Too young to understand | 2, Lacks the capacity to understand | 3, Declined","1, 年少のため理解が難しい | 2, 理解する能力がない | 3, 本人が拒否した","1, 年幼無法理解 | 2, 缺乏理解能力 | 3, 本人拒絕",,,,[ic_assent] = '0',y
+ic_assent_date,tb_consent,text,Date of assent,アセント取得日,取得贊同日期,,,,date_ymd,2000-01-01,,[ic_assent] = '1',
 en_date,tb_enrolment,text,Date of enrolment,登録日,收案日期,,,,date_ymd,2000-01-01,,,y
 en_subject_no,tb_enrolment,text,Study subject number,被験者番号,受試者編號,,,,,,,,
 en_eligible,tb_enrolment,radio,Eligibility confirmed by the investigator,研究責任者が適格性を確認した,主持人已確認符合資格,"1, Yes | 0, No","1, はい | 0, いいえ","1, 是 | 0, 否",,,,,y

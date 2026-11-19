@@ -5,6 +5,10 @@ by the same ``datacore.forms.read_dictionary`` as a site's own REDCap dictionary
 unchanged. ``record_id`` (the screening number or pseudonym) is the record key, not an item. Adverse events are
 free text with a severity chosen by a person: nothing is graded automatically.
 
+10C-19 (D-1232): the consent form's representative (代諾者) and assent (アセント) items (``datacore.proxy_consent``)
+are on the form only while that setting is on; they then take the place of the free-text relation. Off, the forms are
+as before.
+
 D-396 (T-619b, STD-050, STD-051): an oncology study grades each AE by CTCAE, grade 1 to 5, and names the CTCAE version
 it uses (5.0 or 6.0). The study picks the version when it adds the forms; the AE form then offers that one version and
 every AE records it with its grade. In an oncology study the mild / moderate / severe choice stays on the form but is
@@ -32,8 +36,14 @@ TITLES: dict[str, dict[str, str]] = {
 }
 
 
-def fields() -> list[Field]:
-    return read_dictionary((Path(__file__).parent / "forms.csv").read_text(encoding="utf-8"))
+def fields(proxy: bool = False) -> list[Field]:
+    """The built-in fields; ``proxy``: with the representative and assent items in place of the free-text relation
+    (10C-19, D-1232), else without them (as before the card)."""
+    from datacore.proxy_consent import FIELDS, REPLACED
+
+    drop = set(REPLACED) if proxy else set(FIELDS)
+    every = read_dictionary((Path(__file__).parent / "forms.csv").read_text(encoding="utf-8"))
+    return [f for f in every if f.name not in drop]
 
 
 #: the CTCAE versions a study may name (the AE form's ``ae_ctcae_version`` codes) -> what the pages show
@@ -54,12 +64,12 @@ def ctcae_code(version: str) -> str:
     return code
 
 
-def study_fields(ctcae: str = "") -> list[Field]:
+def study_fields(ctcae: str = "", proxy: bool = False) -> list[Field]:
     """The built-in fields of one study: with the CTCAE items narrowed to the study's version when it names one
-    (an oncology study), without them otherwise."""
+    (an oncology study), without them otherwise; ``proxy``: the representative and assent items (D-1232)."""
     code = ctcae_code(ctcae)
     out = []
-    for f in fields():
+    for f in fields(proxy):
         if f.name in CTCAE_FIELDS and not code:
             continue
         if f.name == "ae_ctcae_version":
@@ -71,9 +81,10 @@ def study_fields(ctcae: str = "") -> list[Field]:
     return out
 
 
-def builtin_questionnaires(study: str, ctcae: str = "") -> list[dict[str, Any]]:
-    """The seven forms; ``ctcae`` names the study's CTCAE version (an oncology study, D-396), "" for none."""
-    return questionnaires(study, study_fields(ctcae), record_field=RECORD_FIELD, titles=TITLES)
+def builtin_questionnaires(study: str, ctcae: str = "", proxy: bool = False) -> list[dict[str, Any]]:
+    """The seven forms; ``ctcae`` names the study's CTCAE version (an oncology study, D-396), "" for none;
+    ``proxy``: the consent form has the representative and assent items (D-1232)."""
+    return questionnaires(study, study_fields(ctcae, proxy), record_field=RECORD_FIELD, titles=TITLES)
 
 
 def ctcae_of(forms: list[dict[str, Any]]) -> str:

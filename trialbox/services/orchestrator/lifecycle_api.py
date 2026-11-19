@@ -157,6 +157,12 @@ class ContactRuleBody(BaseModel):
     min_days: int
 
 
+class ConsentAgesBody(BaseModel):
+    majority: int
+    assent_from: int
+    assent_to: int
+
+
 class DeviationCallBody(BaseModel):
     record: str
     key: str = Field(max_length=80)
@@ -512,6 +518,12 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         svc, rid, rec = get(), _rs(rs), _rec(record)
         life = Lifecycle(svc.dc)
         before = life.subject(rid, rec)
+        if body.to == "consented" and not body.note.strip() and life.assent_declined(rid, rec):
+            # 10C-19 (D-1232): consent to proceed after a declined assent is a person's deliberate step, with a reason
+            exc = LifeError("assent_reason", "the participant declined assent: give the reason to proceed in the note")
+            svc.audit.append("life.refused", ruleset=rid, actor=who.name,
+                             detail={"record": rec, "to": body.to, "why": exc.why})  # fmt: skip
+            raise _refused(exc)
         try:
             sub = life.step(rid, rec, body.to, by=who.name, at=svc.stamp(), on_day=body.on_day, reason=body.reason,
                             note=body.note, today=_today(svc, body.today), criterion=body.criterion,
@@ -662,6 +674,30 @@ def router(get: Callable[[], ApiHost]) -> APIRouter:
         svc.audit.append("life.contact_rule", ruleset=rid, actor=who.name,
                          detail={"old": [old["max_attempts"], old["min_days"]],
                                  "new": [row["max_attempts"], row["min_days"]]})  # fmt: skip
+        return {"study": rid, **row}
+
+    @r.get("/studies/{rs}/consent-ages")
+    def get_consent_ages(rs: str) -> dict[str, Any]:
+        """10C-19 (D-1232): whether consent by a representative and assent are recorded here (the setting), and the
+        study's age of majority and assent ages, as the contact rule (who may read the set-up page)."""
+        from datacore import proxy_consent
+
+        rid = _rs(rs)
+        return {"study": rid, "on": proxy_consent.is_on(), **Lifecycle(get().dc).consent_age_rule(rid)}
+
+    @r.put("/studies/{rs}/consent-ages")
+    def put_consent_ages(rs: str, body: ConsentAgesBody, who: Claim = AS_ENTER) -> dict[str, Any]:
+        svc, rid = get(), _rs(rs)
+        life = Lifecycle(svc.dc)
+        old = life.consent_age_rule(rid)
+        try:
+            row = life.set_consent_age_rule(rid, body.majority, body.assent_from, body.assent_to, who.name,
+                                            svc.stamp())  # fmt: skip
+        except LifeError as exc:
+            raise _refused(exc) from exc
+        keys = ("majority", "assent_from", "assent_to")
+        svc.audit.append("life.consent_ages", ruleset=rid, actor=who.name,
+                         detail={"old": [old[k] for k in keys], "new": [row[k] for k in keys]})  # fmt: skip
         return {"study": rid, **row}
 
     @r.get("/studies/{rs}/deviations/possible", dependencies=[PATIENT_READ])

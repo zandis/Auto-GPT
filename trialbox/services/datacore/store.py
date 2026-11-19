@@ -110,11 +110,12 @@ class DataCore:
     def __init__(self, url: str | None = None) -> None:
         """``url``: the trial database (``TB_DB_URL`` when ``None``)."""
         self._db = Database.connect(url or os.environ.get(ENV), "datacore")
-        from datacore.lifecycle import SAE_MIGRATIONS
+        from datacore.lifecycle import CONSENT_AGE_RULE, SAE_MIGRATIONS
         from datacore.lifecycle import SCHEMA as LIFECYCLE
         from datacore.sponsor import SCHEMA as SPONSOR
 
-        self._db.migrate([SCHEMA, LIFECYCLE, *SAE_MIGRATIONS, SPONSOR, HISTORY_REASON])  # SPONSOR: version 8 (D-435)
+        # SPONSOR: version 8 (D-435); CONSENT_AGE_RULE: version 10 (D-1232)
+        self._db.migrate([SCHEMA, LIFECYCLE, *SAE_MIGRATIONS, SPONSOR, HISTORY_REASON, CONSENT_AGE_RULE])
         self._append_only()
 
     def _append_only(self) -> None:
