@@ -30,9 +30,17 @@ Every sample code row says `verify`: the codes are synthetic and must be checked
 JLAC10 and YJ releases on site. A site loads its own licensed releases (TrialBox never ships them):
 
     python -m adapter.licensed load --kind medis  --file <病名基本テーブル> --version <release>
+    python -m adapter.licensed load --kind medis_modifier --file <修飾語テーブル> --version <release> \
+        --columns 変更区分,修飾語管理番号,修飾語表記,修飾語表記カナ,修飾語交換用コード,接続位置区分,修飾語区分,排他グループコード,レセ電算修飾語コード,修飾語説明用ラベル
     python -m adapter.licensed load --kind jlac10 --file <JLAC10 file>   --version <release>
     python -m adapter.licensed load --kind yj     --file <HOT master>    --version <release>
     python -m adapter.licensed status
+
+With both MEDIS tables loaded, a diagnosis is confirmed only when its display name is exactly the coded name and its
+coded modifiers (修飾語) of a recognised class (D-1252: 1 部位, 2 位置, 9 歯科, 3 病因 when the name has no code of
+its own); without them a modifier makes the certainty unknown and doubt written only in the display text is not read.
+The disease table needs its own `--columns` when it has no header row (変更区分,病名管理番号,病名表記,病名表記カナ,
+採択区分,病名交換用コード,ICD10-2013,...: ICD10対応標準病名マスター 仕様書 (1)).
 
 Files are CSV or tab-separated, Shift_JIS or UTF-8 (detected); columns are found by the vendors' header names, and a
 release without a header row takes `--columns` in file order. Until a list is loaded its codes stay unknown (D-130);
