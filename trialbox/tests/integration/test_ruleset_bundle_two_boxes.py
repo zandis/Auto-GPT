@@ -8,6 +8,11 @@ update path (``tests/unit/test_ruleset_in_update_bundle.ScreenOnlyBox``: the rea
 import), lists GZQO as arrived in a vendor bundle, and screens the same patients by e-mail. Every listed patient, tier
 and criterion answer is the same on both boxes. The matching engine is not changed by the card.
 
+The part carries no routing or scope (D-1369): the second box screens with its own, from its repository's
+``profiles/GZQO.yaml`` (the synthetic site's, the same hospital here, so the same people are in scope). The second
+box never held GZQO: a box that holds the shipped GZQO v1.0.0 refuses a part of v1.0.0 (other content); for the dry
+run the head box exports a new id or version.
+
 What the test does not do: compile the protocol on the head box (GZQO is the shipped compile, approved at the head
 box; the compile itself is covered by the compiler's tests) and run the container box's steps (backup, images,
 restart: ``tools/trialbox/update.py`` ``ComposeBox``, unchanged). Synthetic data only.
@@ -76,7 +81,7 @@ def test_a_rule_set_from_the_head_box_screens_the_same_on_the_site_box(
     box = ScreenOnlyBox(tmp_path / "site" / "repo", AuditLog(tmp_path / "update-audit"))
     assert apply_bundle(tmp_path / "rs.tar", pub, box, updates, tmp_path / "stage")["ok"]
     assert arrived_in_bundle(tmp_path / "site" / "repo", "GZQO", "1.0.0")
-    assert origin["content_sha256"] in RulesetRepo(tmp_path / "site" / "repo").tag_message("GZQO/v1.0.0")
+    assert origin["part_sha256"] in RulesetRepo(tmp_path / "site" / "repo").tag_message("GZQO/v1.0.0")
 
     on_site = _screen(site)
     assert len(on_head) > 5

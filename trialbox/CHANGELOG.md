@@ -11,13 +11,17 @@ new heading with the version and date, in the same pull request that sets the ve
 ## Unreleased
 
 - A rule set from the head box in a vendor update bundle (10D-28, interim, for the dry run only): the box that
-  compiled and approved a study exports it as a rule-set part (`python -m criteria_compiler.export_part`: criteria
-  and codes only, with its content sha256 and the release that compiled it); the vendor signs it with the vendor key,
-  alone (`python -m tools.ruleset_bundle`) or beside a release; `tools/apply_update.sh` installs it on a screen-only
-  site box as any update. The site box refuses a part whose content does not match its hash, names the rule set in
-  `update.applied`, keeps the release it runs, and lists the version as "arrived in a vendor bundle (interim):
-  approved on another box, not here" (en, ja, zh-TW). Nothing changes for a box that receives no such bundle
-  (D-1369).
+  compiled and approved a study exports it as a rule-set part (`python -m criteria_compiler.export_part`, audited):
+  the protocol's criteria, codes and compiled files, with the routing, scope, approver and reviewer records, IRB
+  fields and the site's code tables removed, and its hash and the release that compiled it. The vendor signs it with
+  the vendor key, alone (`python -m tools.ruleset_bundle`, valid 30 days, one number of the vendor's release
+  sequence) or beside a release; `tools/apply_update.sh` installs it on a screen-only site box as any update, once the
+  site has set its own routing and scope for the study (`python -m criteria_compiler.import_ruleset --site-profile`).
+  The site box refuses a part whose record or content does not match its hash, an older version, or a version it
+  holds with other content; names the rule set in `update.applied`; keeps the release it runs. Every rule set that
+  arrived in an update is now listed as "arrived in a vendor bundle (interim): approved elsewhere, not on this box"
+  (en, ja, zh-TW), and the sponsor pack says so instead of an approver. A box that receives no such bundle screens
+  as before (D-1369).
 - Dates on printed pages and the fiscal year 年度 (10C-13, 10C-15): a site may print dates in Western form (ISO, as
   before), Japanese era (令和8年11月18日) or both (2026年（令和8年）11月18日) on the feasibility report, the NHI
   navigation summary and application form, the CASE sheet and the released consent page (`site.printed_dates`); the

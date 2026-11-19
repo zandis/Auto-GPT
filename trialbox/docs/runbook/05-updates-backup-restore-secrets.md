@@ -62,6 +62,24 @@ update or its rollback completed; while it exists no other update starts. After 
 instruction: `tools/apply_update.sh <bundle> --allow-downgrade "<ticket and reason>"`; the audit gets
 `update.downgrade`. A bundle that does not know the box's schema version is refused even then.
 
+**A rule set from the head box (interim, dry run only; D-1369).** Until the coordinating centre's study package
+exists, a study compiled and approved on the head box reaches a screen-only site box in a vendor bundle:
+
+1. On the head box: `python -m criteria_compiler.export_part <ID> --out <ID>-<version>.part.zip --installed
+   installed.json` (in the criteria compiler's container; audited `ruleset.part_exported`). The part carries criteria
+   and codes only: no routing, scope, approver, reviewer, IRB record or site code table.
+2. The vendor: `python -m tools.ruleset_bundle --key <vendor key> --id <id> --release-seq <N> --out <bundle>.tar
+   <part>`. **A rule-set bundle uses one number of the vendor's `release_seq`**, like a release: the next release
+   takes the number after it. It is valid 30 days (`--valid-days`, at most 90).
+3. On the site box, once, before the bundle: the site's own routing and screening scope for the study,
+   `python -m criteria_compiler.import_ruleset --site-profile <ID> <file>` (a YAML file with `routing` and `scopes`,
+   as in `rulesets/profiles/`; audited `ruleset.site_profile_set`). Without them the bundle is refused and rolled back.
+4. `sudo tools/apply_update.sh <bundle>.tar` as for any update. The box keeps the release it runs (`apply_update.sh
+   status` shows it as `release (code)`); the console lists the study as "arrived in a vendor bundle (interim)".
+
+The id and version must be new on the site box: a version the box already holds with other content (a shipped
+example included) is refused, and so is a version older than the box's newest of that id.
+
 **Vendor keys.** The box trusts at most two keys (`deploy/updates/trust.json`; before the first update,
 `deploy/keys/vendor_ed25519.pub` and `vendor_ed25519.next.pub`). The vendor changes keys with a rotation bundle, signed
 by a trusted key, applied like any update and accepted once; a retired key is never trusted again.

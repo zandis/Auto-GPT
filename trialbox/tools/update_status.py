@@ -374,6 +374,8 @@ def status(updates: Path) -> dict[str, Any]:
 def _print_status(s: Mapping[str, Any]) -> None:
     inst = s["installed"]
     print(f"installed: release_seq {inst.get('release_seq')}, bundle {inst.get('bundle_id') or '(none recorded)'}")
+    if inst.get("release_bundle_id"):  # D-1369: the last bundle carried rule-set parts only; the code is this release's
+        print(f"  release (code): {inst['release_bundle_id']}; the last bundle carried rule sets only")
     if inst.get("vuln_mode"):  # D-884
         mode = inst["vuln_mode"]
         print(

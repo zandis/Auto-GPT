@@ -436,9 +436,13 @@ def build_sponsor_pack(
         f"Population (as entered at import): stage = {population.get('disease_stage') or '-'}; "
         f"arm = {population.get('study_arm') or '-'}",
         f"Ruleset version: {version}; criteria: {detail.get('criteria', '-')}",
-        f"Approved by: {review.get('approved_by') or '-'} via {review.get('approved_via') or '-'} on "
-        f"{review.get('approved_at') or '-'} (review rounds: {review.get('rounds', '-')}); "
-        f"routing confirmed by the approver: {'yes' if review.get('routing_confirmed') else 'not recorded'}",
+        (
+            "Approved: arrived in a vendor bundle (interim): approved on another box, not at this hospital"
+            if detail.get("arrived_in_vendor_bundle")  # D-1369
+            else f"Approved by: {review.get('approved_by') or '-'} via {review.get('approved_via') or '-'} on "
+            f"{review.get('approved_at') or '-'} (review rounds: {review.get('rounds', '-')}); "
+            f"routing confirmed by the approver: {'yes' if review.get('routing_confirmed') else 'not recorded'}"
+        ),
         f"Criteria routing: {split.get('structured', '-')} filter, {split.get('mixed', '-')} filter then model, "
         f"{split.get('note', '-')} model on notes, {split.get('human', '-')} person at screening",
         f"Data snapshot: {job.snapshot_date.isoformat() if job.snapshot_date else '-'}; "

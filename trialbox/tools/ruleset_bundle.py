@@ -15,7 +15,8 @@ host tree, so it changes no code; the box keeps the release it runs (``installed
 ``--release-seq`` takes the next number after the box's installed one (a bundle is refused unless it is higher, D-210):
 a rule-set bundle uses one number of the vendor's sequence like a release. Beside a release, a part rides in
 ``tools/make_bundle.sh --rulesets DIR`` (every ``*.zip`` of DIR is a payload of kind ruleset); this tool reads each
-part before it is signed, as the receiving box will.
+part before it is signed, as the receiving box will. Such a bundle is for the dry run: it expires after
+``--valid-days`` (30 by default, at most 90), where a release bundle's default is a year.
 """
 
 from __future__ import annotations
@@ -26,10 +27,13 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+#: a rule-set bundle is for the dry run: it expires after about a month (a release bundle's default is 365 days)
+VALID_DAYS = 30
+MAX_VALID_DAYS = 90
 
 
 def build(key: Path, bundle_id: str, parts: list[Path], out: Path, *, release_seq: int, min_installed: int = 0,
-          valid_days: int = 365) -> dict[str, Any]:  # fmt: skip
+          valid_days: int = VALID_DAYS) -> dict[str, Any]:  # fmt: skip
     """Check each part (``tb_common.ruleset_part.open_part``) and sign the bundle; refuses a file that is no part."""
     from tb_common.ruleset_part import PartRefused, open_part
 
@@ -37,13 +41,17 @@ def build(key: Path, bundle_id: str, parts: list[Path], out: Path, *, release_se
 
     if not parts:
         raise SystemExit("ruleset_bundle: no rule-set part given")
+    if not 1 <= valid_days <= MAX_VALID_DAYS:
+        raise SystemExit(
+            f"ruleset_bundle: --valid-days {valid_days}: a dry-run bundle is valid 1 to {MAX_VALID_DAYS} days"
+        )
     names: list[str] = []
     for p in parts:
         try:
             rid, _files, manifest, origin = open_part(p.read_bytes())
         except PartRefused as exc:
             raise SystemExit(f"ruleset_bundle: {p}: {exc}") from exc
-        names.append(f"{rid} v{manifest.get('version')} (sha256 {str(origin['content_sha256'])[:12]})")
+        names.append(f"{rid} v{manifest.get('version')} (part sha256 {str(origin['part_sha256'])[:12]})")
     if len({p.name for p in parts}) != len(parts):
         raise SystemExit("ruleset_bundle: two parts have the same file name")
     return sign_bundle.build(
@@ -63,7 +71,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--id", required=True)
     ap.add_argument("--release-seq", type=int, required=True)
     ap.add_argument("--min-installed", type=int, default=0)
-    ap.add_argument("--valid-days", type=int, default=365)
+    ap.add_argument("--valid-days", type=int, default=VALID_DAYS, help="not_after = now + this many days (at most 90)")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("parts", nargs="+", type=Path)
     args = ap.parse_args(argv)

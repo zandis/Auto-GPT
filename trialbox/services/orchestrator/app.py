@@ -344,7 +344,7 @@ def models_canary() -> dict[str, Any]:
 def ruleset_detail(ruleset: str) -> dict[str, Any]:
     """The approved manifest's provenance (version, approval record, population, kind): what the console prints in
     a sponsor pack README (D-101). Aggregate: no criteria text, no patients."""
-    from tb_common.ruleset import RulesetNotApproved, load_approved
+    from tb_common.ruleset import RulesetNotApproved, arrived_in_bundle, load_approved
 
     rid = ruleset.strip().upper()
     if not re.fullmatch(r"[A-Z0-9][A-Z0-9-]{1,31}", rid):
@@ -365,6 +365,8 @@ def ruleset_detail(ruleset: str) -> dict[str, Any]:
         "population": m.population.model_dump(exclude_none=True) if m.population else None,
         "review": m.review.model_dump(exclude_none=True) if m.review else None,
         "criteria": len([c for c in rs.criteria if c.kind in ("inclusion", "exclusion")]),
+        # D-1369: approved on another box (a vendor bundle), not here: the pack says so instead of an approver
+        "arrived_in_vendor_bundle": arrived_in_bundle(orch().rulesets_dir, rs.id, rs.version),
     }
 
 

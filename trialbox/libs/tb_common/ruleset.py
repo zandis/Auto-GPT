@@ -289,10 +289,11 @@ def seeded_approval(rulesets_dir: Path, ruleset_id: str, version: str) -> bool:
 
 
 def arrived_in_bundle(rulesets_dir: Path, ruleset_id: str, version: str) -> bool:
-    """Whether the approval tag of ``ruleset_id`` v``version`` says the version arrived in a vendor bundle as a
-    rule-set part, compiled and approved on another box (D-1369, ``tb_common.ruleset_part.ARRIVED_MARK``): the box
-    screens with it, and every page that lists it says it was not approved here."""
-    from tb_common.ruleset_part import ARRIVED_MARK
+    """Whether the approval tag of ``ruleset_id`` v``version`` says the version arrived in a vendor bundle (a
+    rule-set part compiled and approved on another box, or any offline update's rule set, D-77; D-1369,
+    ``tb_common.ruleset_part.arrived``): the box screens with it, and every page that lists it says it was not
+    approved here."""
+    from tb_common.ruleset_part import arrived
 
     if not (rulesets_dir / ".git").exists():
         return False
@@ -304,7 +305,7 @@ def arrived_in_bundle(rulesets_dir: Path, ruleset_id: str, version: str) -> bool
     if tag not in refs:
         return False
     obj: Any = Repo(str(rulesets_dir))[refs[tag]]
-    return isinstance(obj, Tag) and ARRIVED_MARK in obj.message.decode("utf-8", "replace")
+    return isinstance(obj, Tag) and arrived(obj.message.decode("utf-8", "replace"))
 
 
 def approved_here(rulesets_dir: Path, ruleset_id: str) -> bool:
