@@ -113,7 +113,7 @@ F8 names patients by pseudonym and stays with the hospital. Only counts and date
   incident lead within 24 hours, without naming the first site or any patient.
 - **Security reports from outside.** Anyone may report a weakness to Aimedics; Aimedics confirms within 2 working
   days, fixes by severity, and publishes nothing that would help an attack before every site has the fix. The full
-  policy, with the Japan route through IPA and JPCERT/CC, is SECURITY §11 (`docs/security/11-vulnerability-disclosure.md`, D-1239).
+  policy, with the Japan route through IPA and JPCERT/CC, is SECURITY §12 (`docs/security/12-vulnerability-disclosure.md`, D-1239).
 - **After the fact.** The release notes of the fixing release say what was fixed, in plain words, with no site and no
   patient.
 

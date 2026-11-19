@@ -35,7 +35,7 @@ import sys
 import tempfile
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -189,7 +189,7 @@ def extract_demo(e2e_dir: Path) -> dict[str, Any]:
     return {
         "schema": "trialbox.site.demo@1",
         "source": "tools.cascade_e2e (stub model, no network) -> dl1/DL1_<trial>.json (released D1 object only)",
-        "generated": datetime.now(UTC).strftime("%Y-%m-%d"),
+        "generated": datetime.now(timezone.utc).strftime("%Y-%m-%d"),  # noqa: UP017 (3.10: run with python3)
         "pack_sha256": pack.get("sha256"),
         "deliverable": obj.get("deliverable"),
         "pack_schema": obj.get("schema"),
@@ -1926,7 +1926,7 @@ def build(out_dir: Path) -> list[str]:
         shutil.copyfile(path, out_dir / "data" / path.name)
     demo_files = sorted(DATA.glob("demo_*_site_a.json"))
     demo = read_json(demo_files[0]) if demo_files else None
-    fragments: dict[str, str] = {"build_date": datetime.now(UTC).strftime("%Y-%m-%d")}
+    fragments: dict[str, str] = {"build_date": datetime.now(timezone.utc).strftime("%Y-%m-%d")}  # noqa: UP017
     for lang in ("en", "ja", "zh-TW"):
         fragments[f"pipeline_{lang.replace('-', '_').lower()}"] = pipeline(lang)
     fragments.update(demo_fragments(demo, load_optional(DATA / "open_data_mimic.json")))

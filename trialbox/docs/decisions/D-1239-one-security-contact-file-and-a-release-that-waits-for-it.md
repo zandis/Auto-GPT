@@ -19,22 +19,22 @@ Choosing the address is the owner's decision; this card may not invent one.
 
 ## Decision
 
-1. **The policy** is section 11 of SECURITY (`docs/security/11-vulnerability-disclosure.md`), with two parts in
+1. **The policy** is section 12 of SECURITY (`docs/security/12-vulnerability-disclosure.md`), with two parts in
    Japanese (polite register) and Traditional Chinese. It follows ISO/IEC 29147 and 30111, CISA's VDP template, RFC
    9116 and the IPA/JPCERT/CC guideline (2026 edition): scope, how to report, what to include, what not to do (no
-   real patient data, no test against a hospital's box), times (acknowledge 2 working days, as §A.7 already promised;
-   assess 10; updates every 14 days; fixes by severity, Critical as RUNBOOK §24's 14 days; publication by default
+   real patient data, no test against a hospital's box), target times until the owner confirms them (acknowledge 2 working days, as §A.7 already
+   promised; first assessment 10; updates every 14 days; fixes by severity, Critical as RUNBOOK §24's 14 days; publication by default
    within 90 days), credit, safe harbour (marked: counsel has not read it), supported versions (the newest release;
    an older box takes the newest bundle, since anti-rollback leaves no other path) and the signed offline update.
 2. **The Japan route both ways.** (a) A finder reports to IPA; JPCERT/CC contacts Aimedics: the developer duties of
    the guideline's part IV section 5, with the 45-day publication target from the 起算日. (b) Aimedics finds or
    receives a weakness directly: part IV section 6; Aimedics notifies JPCERT/CC for every High and Critical even
    though telling every site directly would make it optional, so that the advisory is on JVN. The owner's once-only
-   steps (O-1 to O-7) are a table in the policy.
+   steps (O-1 to O-8, O-8 being the confirmation of the response times) are a table in the policy.
 3. **Where the files go.** GitHub reads a security policy from the repository root, `docs/` or `.github/`. The root
    and its `docs/` belong to the upstream project's layout, so the policy GitHub shows is `.github/SECURITY.md`: one
    added file, no upstream file edited, beside the TrialBox-owned `CODEOWNERS` and workflows. The full policy is a
-   numbered SECURITY section, the next in sequence (11). The website serves `/.well-known/security.txt`, rendered by
+   numbered SECURITY section, section 12 (section 11 is taken by #1133, announced first, so the two cards never claim one number). The website serves `/.well-known/security.txt`, rendered by
    `tools/build_site.py` at each build (Expires 180 days ahead).
 4. **One place for the contact.** `deploy/security/contact.json` holds it; every other file points there and repeats
    no address. It counts as set only when it is a `mailto:` or `https:` URI, so the placeholder string exists in that

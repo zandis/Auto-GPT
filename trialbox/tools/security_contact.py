@@ -25,7 +25,7 @@ import json
 import re
 import sys
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -85,7 +85,8 @@ def security_txt(doc: dict[str, Any], now: datetime | None = None) -> str:
     """The RFC 9116 file for the website; raises ContactError while the contact is not set."""
     if trouble := problems(doc):
         raise ContactError("; ".join(trouble))
-    now = now or datetime.now(UTC)
+    # timezone.utc, not datetime.UTC (3.11): tools/build_site.py loads this file on a host's or builder's python3
+    now = now or datetime.now(timezone.utc)  # noqa: UP017
     expires = (now + timedelta(days=EXPIRES_DAYS)).replace(microsecond=0)
     lines = [
         "# TrialBox security contact (RFC 9116). The policy, in English, Japanese and Traditional Chinese: Policy.",

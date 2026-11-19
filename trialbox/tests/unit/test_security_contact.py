@@ -22,9 +22,9 @@ REPO = ROOT.parent
 POLICY = ROOT / "docs" / "security"
 POINTERS = [
     REPO / ".github" / "SECURITY.md",
-    POLICY / "11-vulnerability-disclosure.md",
-    POLICY / "11-vulnerability-disclosure-ja.md",
-    POLICY / "11-vulnerability-disclosure-zh-tw.md",
+    POLICY / "12-vulnerability-disclosure.md",
+    POLICY / "12-vulnerability-disclosure-ja.md",
+    POLICY / "12-vulnerability-disclosure-zh-tw.md",
 ]
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
 
@@ -39,7 +39,7 @@ def test_the_contact_file_reads_and_names_its_fields() -> None:
     doc = sc.load()
     assert set(doc) >= {"contact", "encryption", "preferred_languages", "policy", "github_private_reporting"}
     assert doc["preferred_languages"] == ["en", "ja", "zh-TW"]
-    assert doc["policy"].endswith("trialbox/docs/security/11-vulnerability-disclosure.md")
+    assert doc["policy"].endswith("trialbox/docs/security/12-vulnerability-disclosure.md")
     # the contact is either the owner's URI or not set; nothing in between passes as set
     assert sc.is_uri(doc["contact"]) == (not sc.problems(doc))
 
@@ -71,15 +71,15 @@ def test_every_policy_file_points_to_the_contact_file_and_writes_no_address(path
 def test_the_policy_says_what_a_reporter_must_not_do_in_each_language(path: Path) -> None:
     text = path.read_text(encoding="utf-8")
     words = {
-        "11-vulnerability-disclosure.md": ("real patient data", "hospital's box", "Safe harbour", "45 days", "JVN"),
-        "11-vulnerability-disclosure-ja.md": (
+        "12-vulnerability-disclosure.md": ("real patient data", "hospital's box", "Safe harbour", "45 days", "JVN"),
+        "12-vulnerability-disclosure-ja.md": (
             "実在の患者データ",
             "稼働しているボックス",
             "セーフハーバー",
             "45 日",
             "JVN",
         ),
-        "11-vulnerability-disclosure-zh-tw.md": ("真實病人資料", "正在運作的設備", "安全港", "TWCERT/CC", "JVN"),
+        "12-vulnerability-disclosure-zh-tw.md": ("真實病人資料", "正在運作的設備", "安全港", "TWCERT/CC", "JVN"),
     }[path.name]
     for w in words:
         assert w in text, (path.name, w)
