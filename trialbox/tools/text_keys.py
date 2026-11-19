@@ -480,6 +480,12 @@ def _guide_pages() -> Iterable[str]:
     return {slug for pages in ROLE_PAGES.values() for slug, _ in pages}
 
 
+def _view_keys() -> Iterable[str]:
+    from console.people_lists import VIEWS
+
+    return sorted({v.key for v in VIEWS})
+
+
 #: a family checked member by member: its prefix and every suffix the code can produce
 FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "life.vstate.": _union(
@@ -490,6 +496,10 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "life.reason.sf.": _values("datacore.lifecycle", "SCREEN_FAIL_REASONS"),
     "life.reason.wd.": _values("datacore.lifecycle", "WITHDRAW_REASONS"),
     "life.anchor.": _values("datacore.lifecycle", "ANCHORS"),
+    # 10C-14: how a visit window counts, and why a day is off at the site (the schedule page)
+    "life.unit.": lambda: ("days", "working"),
+    "life.daysoff.why.": _values("tb_common.workdays", "DAY_OFF_KINDS"),
+    "life.daysoff.end.": lambda: ("soon", "past"),  # Calendar.runs_out
     "registry.status.": _values("orchestrator.candidates", "STATUSES"),
     "sstate.": _values("console.sitestore", "STUDY_STATES"),
     "role.": _values("console.auth", "ROLES"),
@@ -523,6 +533,10 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     "firstrun.year_basis.": _values("tb_common.dates", "YEAR_BASES"),  # 10C-15
     # J-2 (D-1221): a person's one state, every name and the state of facts that could not be read
     "person.state.": _union(_values("console.person_state", "STATES"), lambda: ["unknown"]),
+    # J-5 (D-1223): the two lists of people and the views of each, behind the flag layout.people_lists
+    "people.": _values("console.people_lists", "LISTS"),
+    "people.view.": _view_keys,
+    "people.side.": _values("console.people_lists", "LISTS"),
 }
 
 _RUN = "a value of stored data or of a service's answer (a state, a kind, a source): no one list in the code holds it"

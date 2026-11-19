@@ -611,12 +611,27 @@ class Updater:
             )
         return []
 
+    def _tls_old_clients(self) -> list[str]:
+        """H-48 (D-1328): a site box's update recreates Caddy from deploy/.env (``up -d``), so a TB_TLS_OLD_CLIENTS
+        that is not off or cbc, or not the value deploy/install.sh last audited, is refused before anything changes:
+        the operator runs deploy/install.sh, which checks it and sends the audit event."""
+        deploy = getattr(self.box, "deploy", None)
+        if getattr(self.box, "name", "") != "compose" or deploy is None:
+            return []
+        from tools.tls_policy import old_clients_state
+
+        value, _audited, problem = old_clients_state(getattr(self.box, "env", {}), Path(deploy) / "site")
+        if problem:
+            raise UpdateRefused(f"{problem}; nothing was changed")
+        return [] if value == "off" else [f"TB_TLS_OLD_CLIENTS={value} (audited): 443 serves the old-client suites"]
+
     def preflight(self, plan: Plan, backup: bool = True) -> list[str]:
         """Every refusal that needs nothing changed: compat.json against the live box, the release sequence, the
         box's own checks, the free space. Raises :class:`UpdateRefused`; returns notes."""
         from tools import update_status as us
 
         notes: list[str] = []
+        notes += self._tls_old_clients()
         notes += self._from_a_commit(plan)
         if plan.release_seq is not None:
             inst = us.installed(self.dir)
