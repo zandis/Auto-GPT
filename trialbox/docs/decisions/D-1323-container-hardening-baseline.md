@@ -20,9 +20,10 @@
     showed PID 1 with group 999 only, where postgres has 999 and 101. The entrypoint no longer starts as root, so it skips its chown and the setpriv shim (D-993); db-pg
     and the pgBackRest repository were written by postgres already. tmpfs `/tmp:size=64m` and `/var/run/postgresql`
     (the socket, owned 999); pgBackRest writes no log file (`log-level-file=off`). db's `/tmp` holds bookkeeping
-    only (pgBackRest's lock; the nightly's script, snapshot id, exit code and stream index; the rollback's marker):
-    the nightly's dump and side files and the rollback's script stream through `exec` (`backup_schedule.EMIT_SH`,
-    `update.RESTORE_SH`), and the cap makes a runaway writer fail with "no space left" instead of an OOM kill of db.
+    only (pgBackRest's lock; the nightly's script, snapshot id, exit code and stream index): the nightly's dump and
+    side files stream through `exec` (`backup_schedule.EMIT_SH`), an update rollback writes its plain script to
+    `$PGDATA/tb-rollback` on the db-pg volume (`update.RESTORE_SH`, 0700, removed on every exit), and the cap makes
+    a runaway writer fail with "no space left" instead of an OOM kill of db.
   - fhir-store runs as `65532:65532`, the upstream distroless image's nonroot user, named so it is fixed; tmpfs
     `/tmp` for embedded Tomcat. HAPI's data is in PostgreSQL.
   - model-guard keeps what it had (D-177).

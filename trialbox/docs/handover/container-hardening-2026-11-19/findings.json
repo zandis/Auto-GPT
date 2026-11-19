@@ -40,10 +40,10 @@
   {
    "id": "H10G1-05",
    "severity": "Medium",
-   "claim": "update's rollback (tools/trialbox/update.py RESTORE_SH, mktemp in the db container) wrote the dump's whole plain SQL script into db's tmpfs /tmp, which counts against db's memory limit (TB_MEM_DB, 4g by default); now streamed into psql inside BEGIN, with COMMIT written only after pg_restore exits 0 (a cut-off script is rolled back, shown with the real psql); not yet run on a box",
+   "claim": "update's rollback (tools/trialbox/update.py RESTORE_SH, mktemp in the db container) wrote the dump's whole plain SQL script into db's tmpfs /tmp, which counts against db's memory limit (TB_MEM_DB, 4g by default) and is capped at 64m; fixed by moving the file onto the db-pg volume (${PGDATA:?}/tb-rollback, 0700, removed on exit), the logic as on master, and the update's preflight counts its space; not yet run on a box",
    "lane": "H",
    "basis": "hypothesis",
-   "state": "fixed 52e54e3b"
+   "state": "fixed 37250175"
   }
  ]
 }

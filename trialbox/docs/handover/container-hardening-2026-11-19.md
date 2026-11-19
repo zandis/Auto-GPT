@@ -119,14 +119,22 @@ A review of that head asked for four more changes, made here:
   (no copy) and writes each small file 0600. db's `/tmp` keeps the script, the snapshot id, the exit code and the
   index: bytes. db's `/tmp` tmpfs is now `size=64m`, so a runaway writer gets "no space left", never an OOM kill
   of db; `test_read_only_services_get_a_tmpfs_for_what_they_write` requires a size on it.
-- **H10G1-05, the rollback.** `update.RESTORE_SH` no longer writes the whole plain SQL to db's `/tmp` (with the
-  cap, a big rollback would now have failed for space). pg_restore streams into psql, without
-  `--single-transaction` (which would commit whatever arrived at end of input): the stream opens with `BEGIN;` and
-  the reset, and `COMMIT;` is written only after pg_restore exits 0. A cut-off script is run and rolled back when the
-  connection closes (or at its first error, `ON_ERROR_STOP`), and the step fails on a marker of a few bytes.
-  `test_the_streamed_rollback_restore_commits_only_a_whole_script_on_this_postgres` shows it with the real psql on a
-  real PostgreSQL: a script cut off inside a COPY leaves the dropped table and its row in place, and the same script
-  whole is committed.
+- **H10G1-05, the rollback.** With the cap, `update.RESTORE_SH`'s plain SQL script in db's `/tmp` would make a
+  rollback of any real database fail for space. A first fix streamed pg_restore into psql. A second review ran it
+  on PostgreSQL 16.15 and found it unsafe: pg_restore without `-f` or `-d` is refused since PostgreSQL 12 (every
+  rollback would have failed; the unit test's shim believed otherwise), and a dump with large objects carries its own
+  `BEGIN ... COMMIT`, which would end the outer transaction. So RESTORE_SH is back to master's logic (pg_restore
+  `-f` to a file; psql `--single-transaction` on that file only after pg_restore succeeded; the file removed), and
+  only the file's place changed: `${PGDATA:?}/tb-rollback` on the db-pg volume, made 0700, emptied first (a killed
+  rollback's leftover) and removed on every exit. PGDATA is the volume's mount point, so no sibling folder exists;
+  the only other postgres-owned mount, the pgBackRest repository, is the hospital's off-box share when archiving is
+  on, no place for a plaintext script. The rollback needs free space for one database's plain script (about its
+  size or less); the update's preflight (`ComposeBox.space_needs`) now counts the largest database on Docker's
+  volumes. `test_compose_rollback_restore_resets_the_role_first_and_never_runs_a_cut_off_script` has master's
+  name and assertions plus the folder's place; `test_the_rollback_restore_runs_a_real_dump_under_dash_and_a_failed_one_changes_nothing`
+  runs a real `-Fc` dump with a large object through RESTORE_SH under dash, and a cut-off dump changes nothing.
+  A streamed rollback could come later only with both conditions the review proved necessary: `pg_restore -f -`
+  and pg_restore's own `--single-transaction`.
 - **D2, llm-service.** Root without `DAC_OVERRIDE` cannot read a model file of another owner with mode 0600 or 0640.
   `tools/fetch_weights.py` writes 0644 under the caller's umask, and `box_vm.py models-place` only links into the
   VM's cache, but a site's own copy, a cache's files and an update's files keep the modes they came with. rc1 installs
@@ -144,8 +152,12 @@ A review of that head asked for four more changes, made here:
   checks that the trailer is there and the dump comes first. A short or damaged stream fails the backup instead of
   being sealed as a good one.
 
-Not proven (no Docker daemon here): that this head's streamed nightly, its capped db `/tmp`, the streamed rollback
-and the named runs work on a box. The next CI box rehearsal is the proof for the nightly and the restic restore;
+Review B1/B2: `split_stream` now needs exactly the expected parts (the dump, rows, packs, each site copy, the exit
+code): one missing or one more fails the backup; and the spool is emptied before a run, so a stale index cannot
+refuse a good backup.
+
+Not proven (no Docker daemon here): that this head's streamed nightly, its capped db `/tmp`, the rollback's folder
+on db-pg and the named runs work on a box. The next CI box rehearsal is the proof for the nightly and the restic restore;
 nothing in the rehearsal runs an update rollback, a timed-out load or the gpu profile.
 
 ## Findings
@@ -166,6 +178,6 @@ nothing in the rehearsal runs an update rollback, a timed-out load or the gpu pr
   loaded` line) goes on, and an offline box then has no trials; the box rehearsal noticed only at its later check (CI
   run 44458900188). The load itself is fixed here (a one-off run, not `compose cp`); making the failure a FAIL line is
   left open, as it changes what install reports.
-- **H10G1-05** (Medium, fixed 52e54e3b): update's rollback (`tools/trialbox/update.py` `RESTORE_SH`) wrote the dump's
-  whole plain SQL script into db's tmpfs `/tmp`, memory under db's limit. It now streams, committing only a whole
-  script (above); not yet run on a box.
+- **H10G1-05** (Medium, fixed 37250175): update's rollback (`tools/trialbox/update.py` `RESTORE_SH`) wrote the dump's
+  whole plain SQL script into db's tmpfs `/tmp`, memory under db's limit. Fixed by moving the file onto the db-pg
+  volume (`${PGDATA:?}/tb-rollback`), the logic as on master; the preflight counts its space. Not yet run on a box.
