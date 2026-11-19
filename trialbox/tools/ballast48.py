@@ -9,6 +9,7 @@ rented card): lane J's ``tools/dgpu48.py measure`` run unchanged on a larger car
     python3 tools/ballast48.py down --out-dir <the measure's folder>        # after --keep: stop the two servers
     python3 tools/ballast48.py verifier-flag --out-dir <folder> [--off]     # after --keep: the verifier alone again,
                                                                             # with (or without) H-49's server flag
+    python3 tools/ballast48.py canary-diff <canary.json> <canary.json>      # one role's answers and speed, two runs
 
 Why a wrapper. ``tools/dgpu48.py measure`` refuses a card whose total is outside 44,000 to 52,000 MiB, and vLLM's
 utilisations are shares of the card's total. Under the ballast the card still reports its own total (97,887 MiB on
@@ -294,6 +295,39 @@ def verifier_flag(out_dir: Path, run: Runner, on: bool = True) -> int:
     return 0 if rc == 0 else 1
 
 
+def _canary_model(path: Path, role: str) -> dict[str, Any]:
+    rep = json.loads(path.read_text(encoding="utf-8"))
+    for m in rep.get("models") or []:
+        if isinstance(m, dict) and m.get("role") == role:
+            return m
+    raise Refused(f"{path}: no {role} in the canary report")
+
+
+def canary_diff(a: Path, b: Path, role: str = "verifier") -> dict[str, Any]:
+    """One role's canary answers in two runs (``tools/canary.py`` reports): the cases whose verdict differs and the
+    seconds per call. A report lists at most 10 wrong cases (``selftest.ModelReport.as_dict``) and no right answers:
+    a case right in both runs has the same verdict, so the count is exact while each run has at most 10 wrong."""
+    out: dict[str, Any] = {"schema": "tb-ballast48-canary-diff/1", "role": role, "runs": {}}
+    wrong: list[dict[str, str]] = []
+    exact = True
+    for label, path in (("a", a), ("b", b)):
+        m = _canary_model(path, role)
+        cases, answered, correct = int(m.get("cases") or 0), int(m.get("answered") or 0), int(m.get("correct") or 0)
+        w = {str(x.get("id")): str(x.get("got")) for x in m.get("wrong") or [] if isinstance(x, dict)}
+        exact = exact and answered - correct <= 10 and answered == cases
+        wrong.append(w)
+        per_call = round(float(m.get("seconds") or 0) / cases, 3) if cases else None
+        out["runs"][label] = {"file": path.name, "cases": cases, "answered": answered, "correct": correct,
+                              "flips": m.get("flips"), "seconds": m.get("seconds"),
+                              "seconds_per_call": per_call}  # fmt: skip
+    differ = sorted(i for i in set(wrong[0]) | set(wrong[1]) if wrong[0].get(i) != wrong[1].get(i))
+    out["verdicts_differ"] = len(differ)
+    out["differ_ids"] = differ
+    out["exact"] = exact
+    out["note"] = "a measurement, not a serving change; under the ballast: never a tier record"
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python3 tools/ballast48.py", description=__doc__.split("\n\n")[0])
     ap.add_argument("--target-mib", type=int, default=TARGET_MIB)
@@ -313,6 +347,11 @@ def main(argv: list[str] | None = None) -> int:
     v = sub.add_parser("verifier-flag", help="after measure --keep: recreate the verifier with H-49's flag")
     v.add_argument("--out-dir", type=Path, required=True)
     v.add_argument("--off", action="store_true", help="recreate it without the flag (as measured)")
+    c = sub.add_parser("canary-diff", help="one role's canary verdicts and seconds per call in two reports")
+    c.add_argument("a", type=Path)
+    c.add_argument("b", type=Path)
+    c.add_argument("--role", default="verifier")
+    c.add_argument("--json", type=Path)
     a = ap.parse_args(argv)
     os.chdir(ROOT)  # compose reads deploy/ relative to the checkout
     run = dgpu48._real_runner
@@ -344,6 +383,12 @@ def main(argv: list[str] | None = None) -> int:
             rec = during(cmd, a.out, run, a.target_mib)
             print(json.dumps(rec, indent=1, sort_keys=True))
             return int(rec["exit_code"] != 0)
+        if a.cmd == "canary-diff":
+            res = canary_diff(a.a, a.b, a.role)
+            if a.json:
+                a.json.write_text(json.dumps(res, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+            print(json.dumps(res, indent=1, sort_keys=True))
+            return 0
         if a.cmd == "verifier-flag":
             return verifier_flag(a.out_dir, run, on=not a.off)
         return down(a.out_dir, run)
