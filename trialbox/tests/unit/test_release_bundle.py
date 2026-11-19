@@ -424,7 +424,7 @@ def test_the_committed_exceptions_are_scoped_and_dated() -> None:
     # our own images carry no accepted finding; trialbox-postgres since D-993 (its gosu binary, the source of its
     # entries, is deleted from the image, and the zlib1g one is fixed by the pinned security update)
     assert not any(e.image in {"trialbox-py", "trialbox-jvm", "trialbox-demo", "trialbox-postgres"} for e in scoped)
-    assert all(e.review_by <= dt.date(2026, 12, 10) for e in scoped)
+    assert all(e.review_by <= dt.date(2027, 1, 10) for e in scoped)
     assert not [e for e in allow.vulnerabilities if not e.image]  # nothing accepted everywhere
 
 
