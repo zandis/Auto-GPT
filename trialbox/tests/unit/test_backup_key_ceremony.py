@@ -305,6 +305,7 @@ def test_an_audit_append_that_fails_undoes_the_stick_and_the_public_key(
     rc, out = _main(box, capsys)
     assert rc == 1 and bkc.AUDIT_FAILED["en"].format(path=box["audit"]) in out
     _removed_all(out, box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE, box["pub"], box["pub"].parent)
+    assert bkc.AUDIT_MAY_HOLD["en"].split("{fp}")[0] not in out  # nothing was written to the audit: not said
     assert "Traceback" not in out and len(out.strip().splitlines()) == 1
     _nothing_kept(box)
     # the box can run the ceremony again on the same stick: nothing of the failed one is in the way
@@ -317,21 +318,193 @@ def test_an_audit_append_that_fails_undoes_the_stick_and_the_public_key(
     assert len(_events(box)) == 1
 
 
-def test_an_audit_line_written_before_the_append_fails_keeps_the_ceremony(
+@pytest.mark.parametrize("lang", bkc.LANGS)
+def test_an_audit_line_synced_before_the_head_anchor_fails_is_kept_with_a_warning(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, lang: str
+) -> None:
+    """The append syncs the event's line, then the head anchor's own sync fails (EIO on ``.HEAD.json.tmp``, inside
+    the library's ``write_head``): the line is on disk, so the ceremony is kept; but it is not said as done: the
+    warning says the key is in place, the line is written, its anchor is not, names the audit's check, exit 2."""
+    _fail_fsync(monkeypatch, lambda path: path.endswith("/.HEAD.json.tmp"))
+    rc, out = _main(box, capsys, lang=lang)
+    assert rc == bkc.KEPT_EXIT == 2, out
+    (ev,) = _events(box)
+    fp = bk.fingerprint(bk.load_public(box["pub"]).public_bytes_raw())
+    assert ev["detail"]["fingerprint"] == fp
+    assert sorted(p.name for p in box["stick"].iterdir()) == sorted([bkc.KEY_FILE, bkc.PAPER_FILE])
+    want = bkc.KEPT_WARNING[lang].format(fp=fp, key=bkc.KEY_FILE, paper=bkc.PAPER_FILE, pub=box["pub"],
+                                         event=bkc.EVENT, audit=box["audit"])  # fmt: skip
+    assert want in out and "python tools/audit_verify.py" in out
+    assert bkc.DONE[lang].split("{paper}")[1].split("{")[0] not in out  # never the closing text
+    assert "Traceback" not in out
+    for form in _secret_forms(box["stick"]):
+        assert form not in out
+
+
+def test_the_audit_writer_syncs_the_line_before_these_calls() -> None:
+    """The ceremony counts a failed append as recorded only when it was raised inside a call that
+    ``AuditLog._write`` makes after its ``os.fsync`` of the day file (``bkc.AFTER_LINE_SYNC``): hold the library to
+    that order, so a change there fails here rather than turning the signal unsound."""
+    import inspect
+    import textwrap
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(tb_audit.AuditLog._write)))
+    calls: dict[str, list[int]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            f = node.func
+            name = f.attr if isinstance(f, ast.Attribute) else f.id if isinstance(f, ast.Name) else ""
+            calls.setdefault(name, []).append(node.lineno)
+    (synced,) = calls["fsync"]
+    for name in bkc.AFTER_LINE_SYNC:
+        assert calls[name] and min(calls[name]) > synced, (name, calls)
+    assert min(calls["write"]) < synced  # the line is written before it is synced
+
+
+def test_a_failing_sync_of_the_audit_folder_after_the_line_is_not_taken_as_recorded(
     box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The append writes the event's line, then fails on the head anchor: the chain holds the ceremony, so the
-    ceremony is done and nothing is undone (the next writer accepts a chain one line past its anchor)."""
-
-    def no_head(*a: Any, **k: Any) -> None:
-        raise OSError(errno.ENOSPC, "No space left on device")
-
-    monkeypatch.setattr(tb_audit, "write_head", no_head)
+    """The anchor's folder sync fails (inside ``write_head``) and the ceremony's own sync of the audit folder fails
+    too: the day file's name is not known to be on disk, so the ceremony is undone and says the audit may hold it."""
+    _fail_fsync(monkeypatch, lambda path: path == str(box["audit"]))
     rc, out = _main(box, capsys)
-    assert rc == 0, out
+    assert rc == 1 and bkc.AUDIT_FAILED["en"].format(path=box["audit"]) in out
     (ev,) = _events(box)
-    assert ev["detail"]["fingerprint"] == bk.fingerprint(bk.load_public(box["pub"]).public_bytes_raw())
-    assert sorted(p.name for p in box["stick"].iterdir()) == sorted([bkc.KEY_FILE, bkc.PAPER_FILE])
+    assert bkc.AUDIT_MAY_HOLD["en"].format(fp=ev["detail"]["fingerprint"]) in out
+    assert not list(box["stick"].iterdir()) and not os.path.lexists(box["pub"])
+
+
+def test_an_audit_line_whose_sync_fails_is_not_recorded(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """EIO on the ``os.fsync`` of the audit's day file only (``tb_common.audit`` ``_write``): the line is in the
+    file but not known to be on disk, so the ceremony is undone, never said as done, and the refusal says the audit
+    may hold the event; a rerun is then refused by the audit and says how to go on (D-1379)."""
+    _fail_fsync(monkeypatch, lambda path: path.startswith(str(box["audit"]) + "/") and path.endswith(".jsonl"))
+    rc, out = _main(box, capsys)
+    assert rc == 1 and bkc.AUDIT_FAILED["en"].format(path=box["audit"]) in out
+    assert bkc.DONE["en"].split("{paper}")[1].split("{")[0] not in out
+    assert bkc.KEPT_WARNING["en"].split("{fp}")[0] not in out
+    _removed_all(out, box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE, box["pub"])
+    (ev,) = _events(box)  # the line is in the page cache, as a later reader sees it
+    assert bkc.AUDIT_MAY_HOLD["en"].format(fp=ev["detail"]["fingerprint"]) in out
+    assert "Traceback" not in out and len(out.strip().splitlines()) == 1
+    assert not list(box["stick"].iterdir()) and not os.path.lexists(box["pub"])
+    monkeypatch.undo()
+    monkeypatch.setattr(bkc, "is_root", lambda: True)
+    real = key_escrow.media_problem
+    monkeypatch.setattr(key_escrow, "media_problem", lambda o, s: None if K._inside(o, box["stick"]) else real(o, s))
+    rc, out = _main(box, capsys)
+    assert rc == 1 and bkc.AUDITED_ALREADY["en"].format(at=ev["ts"], fp=ev["detail"]["fingerprint"]) in out
+    assert bkc.AUDITED_NO_KEY["en"] in out and "RUNBOOK §25" in out
+    assert not list(box["stick"].iterdir())
+
+
+@pytest.mark.parametrize("foreign", [False, True])
+def test_stick_files_gone_before_the_undo_are_left_and_said(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, foreign: bool
+) -> None:
+    """The stick is pulled after its files were synced (moved away before the read-back): the undo does not say
+    they were removed; with ``foreign``, another stick holds a file of the same name at the path, which the undo
+    leaves as it is (not the file this run made). "Nothing of the key is kept" is never said."""
+    pulled = box["tmp"] / "pulled"
+    pulled.mkdir()
+    key_file, paper = box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE
+
+    def pull(path: Path) -> Any:
+        for f in (key_file, paper):
+            os.replace(f, pulled / f.name)
+        if foreign:
+            key_file.write_text("another stick's file (synthetic)\n", encoding="utf-8")
+        raise FileNotFoundError(errno.ENOENT, "No such file or directory", str(path))
+
+    monkeypatch.setattr(bk, "load_private", pull)
+    rc, out = _main(box, capsys)
+    assert rc == 1 and bkc.NOT_WRITABLE["en"].format(path=box["stick"]) in out
+    assert "nothing of the key is kept" not in out and bkc.REMOVED_ALL["en"].split("{files}")[0] not in out
+    if foreign:
+        assert bkc.LEFT_GONE["en"].format(files=paper) in out
+        assert bkc.LEFT_OTHER["en"].format(files=key_file) in out
+        assert key_file.read_text(encoding="utf-8") == "another stick's file (synthetic)\n"  # not deleted
+    else:
+        assert bkc.LEFT_GONE["en"].format(files=f"{paper}, {key_file}") in out
+        assert not list(box["stick"].iterdir())
+    assert sorted(p.name for p in pulled.iterdir()) == sorted([bkc.KEY_FILE, bkc.PAPER_FILE])
+    assert not os.path.lexists(box["pub"]) and _events(box) == []
+    for lg in ("ja", "zh-TW"):
+        assert bkc.LEFT_GONE[lg].split("{files}")[0]
+
+
+@pytest.mark.parametrize("replaced", [False, True])
+def test_an_interruption_right_after_the_link_removes_the_public_key(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, replaced: bool
+) -> None:
+    """Ctrl-C right after ``os.link`` made ``backup.pub``: it is removed (it was registered before the link). With
+    ``replaced``, another file took the name before the undo: it is not the file made, so it stays."""
+    real = os.link
+
+    def link(src: Any, dst: Any) -> None:
+        real(src, dst)
+        if replaced:
+            other = Path(dst).with_name("other.pub")
+            other.write_text("another public key (synthetic)\n", encoding="utf-8")
+            os.replace(other, dst)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(os, "link", link)
+    rc, out = _main(box, capsys)
+    assert rc == 1 and bkc.INTERRUPTED["en"] in out
+    _removed_all(out, box["stick"] / bkc.KEY_FILE, box["stick"] / bkc.PAPER_FILE)
+    if replaced:
+        assert box["pub"].read_text(encoding="utf-8") == "another public key (synthetic)\n"
+        assert sorted(p.name for p in box["pub"].parent.iterdir()) == ["backup.pub"]
+        assert not list(box["stick"].iterdir()) and _events(box) == []
+    else:
+        assert str(box["pub"]) in out
+        _nothing_kept(box)
+
+
+@pytest.mark.parametrize("damage", ["torn last line", "damaged older line", "empty line"])
+def test_an_audit_that_cannot_be_read_whole_is_refused(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str], damage: str
+) -> None:
+    """The once-only check reads every line of every day file; a line that is not one JSON object, the newest file's
+    torn last line included (``verify`` fails it too), is refused before anything is written, naming the file and
+    the audit's check."""
+    good = json.dumps({"event": "x.synthetic", "hash": "0" * 64}) + "\n"
+    old, new = box["audit"] / "2026-01-01.jsonl", box["audit"] / "2026-01-02.jsonl"
+    if damage == "torn last line":
+        old.write_text(good, encoding="utf-8")
+        new.write_text(good + '{"event":"backup.key_ceremony","detail":{"site":"synthetic-site"', encoding="utf-8")
+        bad = new
+    elif damage == "damaged older line":
+        old.write_text(good + '{"event":"backup.key_ceremo\x00\n' + good, encoding="utf-8")
+        new.write_text(good, encoding="utf-8")
+        bad = old
+    else:
+        old.write_text(good, encoding="utf-8")
+        new.write_text(good + "\n" + good, encoding="utf-8")
+        bad = new
+    rc, out = _main(box, capsys)
+    assert rc == 1 and bkc.AUDIT_UNREADABLE["en"].format(path=bad, audit=box["audit"]) in out
+    assert not list(box["stick"].iterdir()) and not os.path.lexists(box["pub"])
+    with pytest.raises(bkc.CeremonyError):
+        bkc.earlier_ceremony(box["audit"], "synthetic-site")
+
+
+def test_a_public_key_without_a_ceremony_in_the_audit_says_so(
+    box: dict[str, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+
+    pk = X25519PrivateKey.generate().public_key().public_bytes_raw()  # as backup-keygen leaves it, unaudited
+    box["pub"].parent.mkdir(parents=True)
+    box["pub"].write_text(base64.b64encode(pk).decode() + "\n", encoding="utf-8")
+    for lg in bkc.LANGS:
+        rc, out = _main(box, capsys, lang=lg)
+        assert rc == 1 and bkc.ALREADY[lg].format(fp=bk.fingerprint(pk)) in out
+        assert bkc.NO_CEREMONY_FOR_KEY[lg] in out
+    assert not list(box["stick"].iterdir()) and _events(box) == []
 
 
 def test_a_public_key_folder_that_cannot_be_made_keeps_nothing(box: dict[str, Path],
@@ -382,15 +555,15 @@ def test_an_interruption_or_an_unexpected_error_keeps_nothing(
 def test_a_removal_that_fails_is_named_with_its_path(box: dict[str, Path], capsys: pytest.CaptureFixture[str],
                                                      monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
     key_file = box["stick"] / bkc.KEY_FILE
-    real_unlink = Path.unlink
+    real_unlink = os.unlink
 
-    def unlink(self: Path, missing_ok: bool = False) -> None:
-        if self == key_file:
+    def unlink(path: Any, *, dir_fd: int | None = None) -> None:
+        if str(path) == bkc.KEY_FILE and dir_fd is not None and _fd_path(dir_fd) == str(box["stick"]):
             raise PermissionError(errno.EROFS, "Read-only file system")
-        real_unlink(self, missing_ok=missing_ok)
+        real_unlink(path, dir_fd=dir_fd)
 
     monkeypatch.setattr(bkc, "read_paper", lambda text: b"\x01" * 32)
-    monkeypatch.setattr(Path, "unlink", unlink)
+    monkeypatch.setattr(os, "unlink", unlink)
     rc, out = _main(box, capsys)
     monkeypatch.undo()
     assert rc == 1 and bkc.READ_BACK["en"] in out
@@ -430,6 +603,7 @@ def test_a_second_run_is_refused(box: dict[str, Path], capsys: pytest.CaptureFix
     second.mkdir()
     rc, out = _main(box, capsys, stick=second)
     assert rc == 1 and bkc.ALREADY["en"].format(fp=fp) in out
+    assert bkc.NO_CEREMONY_FOR_KEY["en"] not in out  # the audit holds this key's ceremony
     assert not list(second.iterdir()) and box["pub"].read_bytes() == pub_before and len(_events(box)) == 1
 
 
@@ -446,6 +620,7 @@ def test_a_second_run_is_refused_by_the_audit_when_the_public_key_is_gone(
     rc, out = _main(box, capsys, stick=second)
     assert rc == 1
     assert bkc.AUDITED_ALREADY["en"].format(at=ev["ts"], fp=ev["detail"]["fingerprint"]) in out
+    assert bkc.AUDITED_NO_KEY["en"] in out  # how to go on: RUNBOOK §25, not this command
     assert not list(second.iterdir()) and not box["pub"].exists() and len(_events(box)) == 1
     # another site's ceremony in the same folder is not this site's
     assert bkc.earlier_ceremony(box["audit"], "another-site") is None

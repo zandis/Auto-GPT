@@ -41,23 +41,56 @@
     (2) the paper sheet on the stick, (3) the stick's folder synced, (4) both read back, (5) the public key: its
     folder made if missing, a synced temporary file in it, a hard link to `backup.pub` (refused when the name exists:
     never an overwrite) and the temporary name removed, the folder synced, (6) last, the audit event. Every file and
-    folder is registered for removal the moment it exists. A failure at any step after the first file is made, of any
-    kind (a write, a sync, a read-back, the public key's folder or file, the audit append, a file on another device,
-    an interruption with Ctrl-C, an unexpected error), removes every file and folder the command made, newest first,
-    on the stick and on the box, and exits 1 with one translated line: why, then what was removed, or, if a removal
-    itself fails, which file is left and where, to be removed by hand. No traceback. A file that was there before is
-    never removed (a `backup.pub` that appears meanwhile stays; the command's own is never linked over it).
+    folder is registered for removal the moment it exists, with the device and inode `fstat` gave it when it was made
+    (`backup.pub` is registered before its link, as the temporary file's inode). A failure at any step after the first
+    file is made, of any kind (a write, a sync, a read-back, the public key's folder or file, the audit append, a file
+    on another device, an interruption with Ctrl-C, an unexpected error), removes the files and folders the command
+    made, newest first, on the stick and on the box, and exits 1 with one translated line: why, then what was removed
+    and what is left. No traceback. **A file is removed only if it is still the file made** (after review of
+    13e286f0): its folder on the device the file was made on, and the name the same device, inode and size; the
+    removal goes through that folder's descriptor. A key file not found there (the stick was pulled after its files
+    were synced, or the folder is the box's disk again) is said as **not found, so not removed: the stick that was
+    pulled may hold it: destroy or wipe that stick**; another file at its name (another stick mounted there) is left
+    as it is and said the same way; a removal that fails is named with its path, to be removed by hand. "Nothing of
+    the key is kept" is said only when every file made was removed. A file that was there before is never removed (a
+    `backup.pub` that appears meanwhile, or takes the name before the undo, stays; the command's own is never linked
+    over it); a folder made here that now holds such a file stays too.
     **Why the audit is last:** the audit chain is append-only, so its event cannot be taken back; every other write
-    can. With the event last, a failed append undoes the rest, and no run ends with the box keeping `backup.pub`
-    without its audit event; an append that wrote its line and then failed (on the head anchor) is read back from the
-    chain by fingerprint, and then the ceremony is done and kept, since the chain holds it. What is not covered: a
-    power loss or a kill between the link of `backup.pub` and the audit's line leaves the public key without the
-    event (no process is left to undo it); the next run is refused (`backup.pub` exists) and the audit shows no
-    ceremony, which a person then sees.
-  - **Once:** a box whose public key file exists is refused, naming that key's fingerprint; and, since `backup.pub` is
-    a file root can delete, a box whose audit already holds a `backup.key_ceremony` event of this site (read with the
-    chain's own reader, `tb_common.audit`'s day files from the end; an event or a run without a site counts as this
-    site's) is refused too, naming that event's time and fingerprint. A new pair is the backup key's rotation
+    can. With the event last, a failed append normally undoes the rest. **When a failed append counts as recorded**
+    (after review of 13e286f0): only when the line is known to be on disk: the exception was raised inside a call that
+    `tb_common.audit`'s `AuditLog._write` makes only after its `os.fsync` of the day file returned (`write_head`, the
+    head anchor, or the listing after it), in the `_write` of this ceremony's own event (read from the traceback:
+    this event, this fingerprint), and the audit folder, which holds the day file's name, then syncs. The library is
+    not changed; a test holds its order (the day file's `fsync` before those calls). Then the key is kept, and the
+    command does not print its closing text: it prints a translated warning (the key is in place, the audit line is
+    written, its head anchor is not confirmed: run `python tools/audit_verify.py <audit folder>` now, do not run the
+    ceremony again, unmount the stick) and exits 2. Every other append failure (a write, flush, `fsync` or close of
+    the day file, the space check, an interruption before the `fsync` returned, or a check that cannot tell) undoes
+    the ceremony, also when the line may be in the file (the page cache) without being known on disk.
+    **An undone ceremony whose line the audit may still hold** (the smallest sound behaviour, chosen here): the
+    refusal adds that the audit may still hold this run's event (with its fingerprint), that a new run is then
+    refused, and that the new pair is made as RUNBOOK §25 says; it is said whenever the chain, read whole, holds the
+    event or cannot be read. A later run is then refused by the audit, and that refusal (it is met only when
+    `backup.pub` is not there) adds: if that ceremony was undone or its public key removed, make the new pair as
+    RUNBOOK §25 says (`python -m tools.trialbox backup-keygen`) and enter its fingerprint in the ceremony record. No
+    override and no rotation path is added; **for the owner:** a witnessed, audited way to run the ceremony again
+    after an undone one (for example an audit event that voids the earlier one) is not built.
+    **What is guaranteed, and what is not:** a run that exits 0 has the key on the stick (both files read back), the
+    public key at `backup.pub` and the event's line in the audit with the head anchor written. A run that exits 2 has
+    the key and the public key in place and the event's line synced, the anchor not confirmed. A run that exits 1
+    after the first file was made has removed every file it says it removed; what it names as left is left. Not
+    covered: a power loss or a kill after `backup.pub` is linked and before the event's line is on disk leaves the
+    public key without the event (no process is left to undo it; the next run is refused because `backup.pub` exists
+    and says the audit holds no ceremony for that key); a power loss while a key file is being written leaves what the
+    filesystem kept on the stick; a stick pulled after its files were synced keeps the key, which the refusal says.
+  - **Once:** a box whose public key file exists is refused, naming that key's fingerprint, and, when the audit
+    holds no `backup.key_ceremony` with that fingerprint, saying so (a ceremony cut short, or a key made by
+    `backup-keygen`); and, since `backup.pub` is a file root can delete, a box whose audit already holds a
+    `backup.key_ceremony` event of this site (read with the chain's own reader, `tb_common.audit`'s day files from the
+    end; an event or a run without a site counts as this site's) is refused too, naming that event's time and
+    fingerprint. Every line of every day file must read as one JSON object: an audit with a damaged, empty or cut-off
+    line, the newest file's torn last line included, is refused, naming the file and `python tools/audit_verify.py`
+    (the library's `verify` fails such a line too; its writer repairs a torn last line only at its next write). A new pair is the backup key's rotation
     (RUNBOOK §25), not this command; no rotation path is added.
   - **Audited:** the audit event `backup.key_ceremony` (actor `python -m tools.backup_key_ceremony`): when, the site,
     the key's fingerprint, the operator's and the witness's names, the forms (`stick`, `paper`) and the paper format.
@@ -79,12 +112,17 @@
   `docs/runbook/05-updates-backup-restore-secrets.md` (line 75), `docs/runbook/01-install-a-new-site.md` (line 176,
   step 9, by way of runbook 05) and `docs/security/10-key-ceremony-and-escrow.md` §1's table and §4 step 1 (lines 12
   and 47-48), which got only a pointer line at its end. Each should name this command instead. Also open: a power
-  loss between the public key and the audit line (above).
+  loss between the public key and the audit line, and a way to run the ceremony again after an undone one (above).
 - **Held by:** `tests/unit/test_backup_key_ceremony.py` (the happy path with a throwaway key and a backup stream
   opened by both forms; each refusal, the same person in full-width and double-space spellings, a second run refused
   by the audit when `backup.pub` is gone, a dangling link of either name; each failure injected where it happens: a
   sync raising after each file is made, the stick's folder sync, short writes, a file on another device, the audit
-  append raising (`AuditFull`) and its line written before the head fails, the public key's folder that cannot be
-  made, a `backup.pub` that appears meanwhile, Ctrl-C, an unexpected error, a removal that fails; each asserting what
-  is left on the stick and the box and the exit text; a damaged, missing or swapped paper line and a wrong
+  append raising (`AuditFull`), EIO on the `fsync` of the audit's day file only (undone, "may still hold", the rerun
+  refused with how to go on), EIO on the head anchor's sync after the line was synced (kept, the warning in three
+  languages, exit 2), the audit folder's sync failing (undone), the library's order held by a test, the public key's
+  folder that cannot be made, a `backup.pub` that appears meanwhile, Ctrl-C right after the link of `backup.pub`
+  (and with another file put at its name before the undo), the stick's files moved away before the read-back (and
+  another file at the key file's name), Ctrl-C, an unexpected error, a removal that fails; each asserting what is
+  left on the stick and the box and the exit text; a torn, damaged or empty audit line refused; a `backup.pub` with
+  no ceremony in the audit; a damaged, missing or swapped paper line and a wrong
   fingerprint; the words in three languages; the command line).

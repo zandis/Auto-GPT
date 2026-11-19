@@ -133,10 +133,19 @@ and both names; never the key.
 It refuses, with nothing written: not root; one name or none, or one person twice (in any spelling: full-width
 letters, double or ideographic spaces, case); no audit folder; a box with a backup key already, or whose audit holds a
 `backup.key_ceremony` already (the refusal names its time; a new pair is the rotation of §6 and RUNBOOK §25); no
-stick; a folder on the box's disks; a stick that cannot be written; a file or a link of either name on the stick. A
-failure once the first file is made (the stick, the read-back, the public key, the audit, an interruption) removes
-every file the command made, on the stick and on the box, and the refusal lists what was removed and any file it could
-not remove, with its path. The ceremony record of §4 step 5 then lists the backup key's fingerprint as before.
+stick; a folder on the box's disks; a stick that cannot be written; a file or a link of either name on the stick; an
+audit with a damaged or cut-off line (run `python tools/audit_verify.py <audit folder>`). A box with a backup key is
+told too when the audit holds no ceremony for that key. A failure once the first file is made (the stick, the
+read-back, the public key, the audit, an interruption) removes the files the command made, on the stick and on the
+box, each only if it is still the file made (same device, inode and size), and the refusal lists what was removed and
+what is left, with its path: a key file not found or replaced by another file (the stick was pulled after its files
+were synced) is left, and the refusal says to destroy or wipe the stick that was pulled. Exit 0: the key is on the
+stick, read back, the public key is in place and the audit event is written with its head anchor. Exit 2: the audit
+event's line is on disk but the append failed after it (its head anchor); the key is kept, no closing text: run the
+audit check the warning names. Exit 1: refused or undone; when the audit may still hold the undone run's event, the
+refusal says so, a later run is refused by the audit, and the new pair is made as RUNBOOK §25 says. Not covered
+(D-1379): a power loss after the public key is placed and before the audit line is on disk, and a stick pulled before
+the undo. The ceremony record of §4 step 5 then lists the backup key's fingerprint as before.
 
 Until the install and the runbooks are changed to it (open follow-ups of D-1379), §1's table and §4 step 1 still name
 `trialbox backup-keygen`; on a box with no backup key yet, run the witnessed ceremony of §7 instead.
