@@ -755,6 +755,7 @@ class Updater:
             raise UpdateFailed(f"could not take the rollback point, nothing was changed: {exc}") from exc
         step("rollback point", True, f"{len(point.images)} images, {len(point.dumps)} databases")
         failed: str | None = None
+        imported: list[str] = []
         try:
             enter("apply")
             applied = self.box.apply(plan, rb, point)
@@ -767,6 +768,7 @@ class Updater:
             rulesets = getattr(self.box, "rulesets", None)
             done = rulesets(plan) if rulesets is not None else self.box.post_apply(plan)
             step("rulesets", True, f"{len(done)} imported")
+            imported = list(done)  # D-1369: named in update.applied
             enter("check")
             step("check", True, self.box.check(plan))
         except (Exception, KeyboardInterrupt) as exc:  # Ctrl-C rolls back too; kill -9 leaves the marker
@@ -801,7 +803,7 @@ class Updater:
             {"bundle_id": plan.bundle_id, "signer": plan.signer, "files": plan.files, "backup": backup,
              "release_seq": plan.release_seq, "key_id": plan.key_id,
              "rotation": plan.manifest_sha256 in (plan.trust_after or {}).get("rotations", []),
-             "refdata_failed": refdata_note or None, "rollback_point_removed": True},
+             "refdata_failed": refdata_note or None, "rollback_point_removed": True, "rulesets": imported},
         )  # fmt: skip
         step("audited update.applied", True)
         self._done(plan, rb)
@@ -813,7 +815,8 @@ class Updater:
 
         if plan.release_seq is None:
             return
-        prev = us.installed(self.dir).get("state") or {}
+        before = us.installed(self.dir)
+        prev = before.get("state") or {}
         state: dict[str, Any] = {k: prev.get(k) for k in us.DIMENSIONS}
         provides = (plan.compat or {}).get("provides") or {}
         for k in us.DIMENSIONS:
@@ -840,6 +843,10 @@ class Updater:
             record["commit"] = commit if isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit) else None
         if (plan.release or {}).get("rehearsal") is True:
             record["rehearsal"] = True  # D-887: the pin reads it (a site box refuses such a bundle)
+        if plan.release is None and plan.files and all(f.get("kind") == "ruleset" for f in plan.files):
+            # D-1369 (10D-28): a rule-set-only bundle changes no code: the release it rides on stays the box's release
+            record["release_bundle_id"] = before.get("release_bundle_id") or before.get("bundle_id")
+            record.update({k: before[k] for k in ("commit", "dirty", "rehearsal", "vuln_mode") if k in before})
         marked = getattr(self.box, "rehearsal_mark", None)
         if marked is not None and marked():
             record["rehearsal_box"] = True  # D-887 (i): install.sh --rehearsal's mark, recorded; the pin reads it

@@ -5,6 +5,10 @@ or the same files at the top level. The manifest must be ``status: approved`` wi
 the site threshold; the files are committed to ``main`` of the ruleset repository, tagged ``<ID>/v<version>`` (an
 existing tag is never moved) and materialized for the orchestrator.
 
+A rule-set part (``ORIGIN.json`` at the zip's root: a rule set compiled and approved on another box, carried in a
+vendor-signed bundle for the dry run, D-1369) is checked first (``tb_common.ruleset_part.check_origin``: its files and
+their content sha256); its tag records that it arrived in a vendor bundle, from which release, with which hash.
+
     python -m criteria_compiler.import_ruleset ruleset.zip --by update:2026.10-1
 """
 
@@ -20,6 +24,7 @@ from typing import Any
 
 import yaml
 from tb_common.ruleset import SEEDED_TAG
+from tb_common.ruleset_part import PartRefused, check_origin, origin_of, tag_note
 from tb_common.zipcap import ZipRefused, check_ruleset_zip
 
 from criteria_compiler.repo import RulesetRepo
@@ -56,18 +61,25 @@ def install(repo: RulesetRepo, data: bytes, by: str, min_equivalence: float = 98
     eq = equivalence.get("overall_pct") if isinstance(equivalence, dict) else None
     if eq is None or float(eq) < min_equivalence:
         raise ImportRefused(f"{rid}: equivalence {eq} below the compile gate {min_equivalence}%")
+    try:  # D-1369: a part from another box: its record and hash before anything is written
+        origin = origin_of(data)
+        if origin is not None:
+            check_origin(origin, rid, str(m.get("version")), files)
+    except PartRefused as exc:
+        raise ImportRefused(f"{rid}: {exc}") from exc
     tag = f"{rid}/v{m.get('version')}"
+    message = f"{tag} (offline update, {by})" + (f"; {tag_note(origin, by)}" if origin is not None else "")
     if f"refs/tags/{tag}".encode() in repo.refs:
         existing = {p[len(rid) + 1 :]: b for p, b in repo.files(f"refs/tags/{tag}", f"{rid}/").items()}
         if existing == files:
             # same content already installed. D-640: when what is there is the example the first start seeded, the
             # operator's install is what the tag records from now on (a site box refuses a seeded approval)
             if SEEDED_TAG in repo.tag_message(tag):
-                repo.retag(tag, f"{tag} (offline update, {by})")
+                repo.retag(tag, message)
             return tag
         raise ImportRefused(f"{tag} already exists with different content; bump the version")
     repo.write_dir("main", "main", f"{rid}/", files, f"install {tag} ({by})", author=by.replace(" ", "_"))
-    repo.tag(tag, "main", f"{tag} (offline update, {by})")
+    repo.tag(tag, "main", message)
     repo.materialize(rid, "main")
     return tag
 
@@ -89,7 +101,8 @@ def main(argv: list[str] | None = None) -> int:
     for h in hits:  # card 10A-1: installed as approved; a person recompiles these lines (the scan lists them again)
         print(f"WARNING {h}: its line may negate what its logic asks the presence of; recompile and approve",
               file=sys.stderr)  # fmt: skip
-    print(json.dumps({"installed": tag, **({"negated_inclusions": hits} if hits else {})}))
+    arrived = {"arrived_in_vendor_bundle": True} if origin_of(data) is not None else {}  # D-1369
+    print(json.dumps({"installed": tag, **arrived, **({"negated_inclusions": hits} if hits else {})}))
     return 0
 
 

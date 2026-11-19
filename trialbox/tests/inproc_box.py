@@ -152,11 +152,13 @@ def make_box(
     extra_profiles: Path | None = None,
     extra_list_to: tuple[str, ...] = (),
     extra_env: Mapping[str, str] | None = None,
+    without_rulesets: tuple[str, ...] = (),
 ) -> Box:
     """``extra_profiles``: a folder of ``<RULESET>.yaml`` site profiles added to the seed (studies that exist only for
     a test, such as the public-data studies of ``tools.public_site``). ``extra_list_to``: mailboxes added to every
     ruleset's internal ``routing.list_to`` before the repository is made (the demo's people, D-758). ``extra_env``:
-    more ``TB_*`` settings of the box."""
+    more ``TB_*`` settings of the box. ``without_rulesets``: shipped rulesets left out of the seed (a box that gets
+    one later, D-1369)."""
     from tools import pglocal
 
     pglocal.for_work(tmp_path)  # D-126: the box's trial database (TB_DB_URL, or a local throwaway one)
@@ -181,7 +183,7 @@ def make_box(
     audit = AuditLog(audit_dir)
     seed = tmp_path / "seed"
     if not seed.exists():  # a box reopened on its own folder (the demo's --keep, T-505b) keeps its repo and seed
-        copy_rulesets(seed, "tests")
+        copy_rulesets(seed, "tests", *without_rulesets)
         _add_list_to(seed, extra_list_to)
     if extra_profiles is not None:
         for f in sorted(extra_profiles.glob("*.yaml")):

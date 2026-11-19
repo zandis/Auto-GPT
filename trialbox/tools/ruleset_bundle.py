@@ -1,0 +1,78 @@
+"""Vendor side, interim for the dry run: sign an update bundle that carries rule-set parts alone (plan 10 row 10D-28,
+review 19-9; D-1369).
+
+A rule-set part is a rule set compiled and approved on the head box (``python -m criteria_compiler.export_part``).
+Until the coordinating centre signs a study package (10D-2 to 10D-4), the vendor carries it to a screen-only site box
+in an ordinary update bundle, **signed with the vendor key** (``tools/sign_bundle.py``; no other key type), which
+``tools/apply_update.sh`` verifies and applies as any update: verify (signature, release_seq, compat.json, each
+payload's sha256), backup, rollback point, the rule-set import (``criteria_compiler.import_ruleset``: approved,
+equivalence gate, the part's content sha256), check, ``update.applied`` audited. The bundle carries no image and no
+host tree, so it changes no code; the box keeps the release it runs (``installed.json`` keeps its commit).
+
+    python -m tools.ruleset_bundle --key keys/vendor_ed25519.key --id 2026.11-1-rs1 --release-seq 4 \\
+        --out dist/trialbox-2026.11-1-rs1.tar GZQO-1.0.0.part.zip [more parts]
+
+``--release-seq`` takes the next number after the box's installed one (a bundle is refused unless it is higher, D-210):
+a rule-set bundle uses one number of the vendor's sequence like a release. Beside a release, a part rides in
+``tools/make_bundle.sh --rulesets DIR`` (every ``*.zip`` of DIR is a payload of kind ruleset); this tool reads each
+part before it is signed, as the receiving box will.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def build(key: Path, bundle_id: str, parts: list[Path], out: Path, *, release_seq: int, min_installed: int = 0,
+          valid_days: int = 365) -> dict[str, Any]:  # fmt: skip
+    """Check each part (``tb_common.ruleset_part.open_part``) and sign the bundle; refuses a file that is no part."""
+    from tb_common.ruleset_part import PartRefused, open_part
+
+    from tools import sign_bundle
+
+    if not parts:
+        raise SystemExit("ruleset_bundle: no rule-set part given")
+    names: list[str] = []
+    for p in parts:
+        try:
+            rid, _files, manifest, origin = open_part(p.read_bytes())
+        except PartRefused as exc:
+            raise SystemExit(f"ruleset_bundle: {p}: {exc}") from exc
+        names.append(f"{rid} v{manifest.get('version')} (sha256 {str(origin['content_sha256'])[:12]})")
+    if len({p.name for p in parts}) != len(parts):
+        raise SystemExit("ruleset_bundle: two parts have the same file name")
+    return sign_bundle.build(
+        key, bundle_id, [("ruleset", p, p.name) for p in parts], out,
+        description="Rule set(s) compiled and approved on another box, interim for the dry run (D-1369): "
+        + "; ".join(names),
+        release_seq=release_seq, min_installed_version=min_installed, valid_days=valid_days,
+    )  # fmt: skip
+
+
+def main(argv: list[str] | None = None) -> int:
+    for p in (str(ROOT / "libs"), str(ROOT)):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--key", type=Path, required=True, help="the vendor's Ed25519 key")
+    ap.add_argument("--id", required=True)
+    ap.add_argument("--release-seq", type=int, required=True)
+    ap.add_argument("--min-installed", type=int, default=0)
+    ap.add_argument("--valid-days", type=int, default=365)
+    ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("parts", nargs="+", type=Path)
+    args = ap.parse_args(argv)
+    m = build(args.key, args.id, args.parts, args.out, release_seq=args.release_seq, min_installed=args.min_installed,
+              valid_days=args.valid_days)  # fmt: skip
+    print(f"wrote {args.out}: {len(m['files'])} rule-set part(s), bundle {m['bundle_id']}, release_seq "
+          f"{m['release_seq']}; apply it with tools/apply_update.sh")  # fmt: skip
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

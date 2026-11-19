@@ -38,6 +38,7 @@ EN: dict[str, str] = {
     "role.investigator": "investigator (PI / sub-I)",
     "overview.health": "Services",
     "overview.rulesets": "Rulesets on this box",
+    "overview.arrived_in_bundle": "arrived in a vendor bundle (interim): approved on another box, not here",
     "overview.recent": "Recent jobs",
     "overview.ingest": "Ingest synthetic site A",
     "overview.ingest.help": "Loads the synthetic hospital (600 patients) into the lake and FHIR store. Needed once "
@@ -417,6 +418,7 @@ JA: dict[str, str] = {
     "role.investigator": "治験責任医師／分担医師",
     "overview.health": "サービス",
     "overview.rulesets": "TrialBox の選択・除外基準",
+    "overview.arrived_in_bundle": "ベンダーの更新バンドルで届いた基準（暫定）：別のボックスで承認され、このボックスでは承認されていません",
     "overview.recent": "最近の処理",
     "overview.ingest": "合成サイト A を取り込む",
     "overview.ingest.help": "合成病院（600 名）をレイクと FHIR ストアに読み込みます。最初の実行前に 1 回必要です。",
@@ -778,6 +780,7 @@ ZH: dict[str, str] = {
     "role.investigator": "試驗主持人／協同主持人",
     "overview.health": "服務",
     "overview.rulesets": "TrialBox 納入／排除條件",
+    "overview.arrived_in_bundle": "經廠商更新包送達（暫行）：於另一台機器核准，非本機核准",
     "overview.recent": "最近的作業",
     "overview.ingest": "匯入合成醫院 A",
     "overview.ingest.help": "將合成醫院（600 位病人）載入資料湖與 FHIR 伺服器。首次執行前需要一次。",

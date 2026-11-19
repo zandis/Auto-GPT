@@ -26,7 +26,13 @@ from tb_common.config import Config
 from tb_common.crypto import sha256_bytes
 from tb_common.http import ServiceClient, ServiceError
 from tb_common.objstore import ObjectStore
-from tb_common.ruleset import RulesetNotApproved, list_rulesets, load_approved, seed_working_copy
+from tb_common.ruleset import (
+    RulesetNotApproved,
+    arrived_in_bundle,
+    list_rulesets,
+    load_approved,
+    seed_working_copy,
+)
 from tb_common.service_auth import actor_header
 from tb_contracts import (
     Job,
@@ -122,6 +128,8 @@ class RulesetInfo:
     version: str | None
     status: str
     kind: str
+    #: D-1369: "vendor_bundle" when the approved version arrived in a vendor bundle (approved on another box)
+    origin: str = ""
 
 
 @dataclass(frozen=True)
@@ -307,7 +315,8 @@ def ruleset_infos(rulesets_dir: Path) -> list[RulesetInfo]:
     for rid in list_rulesets(rulesets_dir):
         try:
             rs = load_approved(rulesets_dir, rid)
-            out.append(RulesetInfo(rid, rs.version, "approved", str(rs.manifest.kind or "")))
+            origin = "vendor_bundle" if arrived_in_bundle(rulesets_dir, rid, rs.version) else ""  # D-1369
+            out.append(RulesetInfo(rid, rs.version, "approved", str(rs.manifest.kind or ""), origin))
         except (RulesetNotApproved, FileNotFoundError, ValueError):
             out.append(RulesetInfo(rid, None, "draft", ""))
     return out

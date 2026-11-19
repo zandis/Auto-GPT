@@ -288,6 +288,25 @@ def seeded_approval(rulesets_dir: Path, ruleset_id: str, version: str) -> bool:
     return not isinstance(obj, Tag) or SEEDED_TAG in obj.message.decode("utf-8", "replace")
 
 
+def arrived_in_bundle(rulesets_dir: Path, ruleset_id: str, version: str) -> bool:
+    """Whether the approval tag of ``ruleset_id`` v``version`` says the version arrived in a vendor bundle as a
+    rule-set part, compiled and approved on another box (D-1369, ``tb_common.ruleset_part.ARRIVED_MARK``): the box
+    screens with it, and every page that lists it says it was not approved here."""
+    from tb_common.ruleset_part import ARRIVED_MARK
+
+    if not (rulesets_dir / ".git").exists():
+        return False
+    from dulwich.objects import Tag
+    from dulwich.repo import Repo
+
+    refs: Any = Repo(str(rulesets_dir)).refs
+    tag = f"refs/tags/{ruleset_id}/v{version}".encode()
+    if tag not in refs:
+        return False
+    obj: Any = Repo(str(rulesets_dir))[refs[tag]]
+    return isinstance(obj, Tag) and ARRIVED_MARK in obj.message.decode("utf-8", "replace")
+
+
 def approved_here(rulesets_dir: Path, ruleset_id: str) -> bool:
     """Whether ``ruleset_id`` has an approved version this box may run (:func:`load_approved` without a run date or
     a terminology check): what a timer asks before it starts a job for it. A ruleset that cannot be read (a broken
