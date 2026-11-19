@@ -167,7 +167,7 @@ def _ids(text: str) -> Iterator[Finding]:
 
 def _v1_names(text: str) -> Iterator[Finding]:
     """Names found by the v1 guard (tb_common.phi_guard), located in the text."""
-    for name in phi_guard._cjk_names(text):
+    for name in dict.fromkeys(phi_guard._cjk_names(text)):  # each name once: every place it stands is found below
         start = 0
         while (i := text.find(name, start)) >= 0:
             yield Finding("NAME", i, i + len(name))
