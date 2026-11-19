@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -36,7 +37,7 @@ def test_a_planted_nosec_is_reported_and_the_run_stays_green(tmp_path: Path) -> 
     assert BW.main(["--root", str(root), "--out", str(out)]) == 0  # report only, whatever is found
     doc = json.loads((out / "bandit.json").read_text(encoding="utf-8"))
     found = {(r["test_id"], r["line_number"]) for r in doc["results"]}
-    assert ("B602", 6) in found  # behind its `# nosec`
+    assert ("B602", 6) in found  # reported although the line is suppressed inline
     assert ("B101", 5) in found  # low severity: no filter
     assert all("code" not in r for r in doc["results"])
     sarif = json.loads((out / "bandit.sarif").read_text(encoding="utf-8"))
@@ -72,7 +73,7 @@ def test_bandit_failing_is_an_error_not_a_report(tmp_path: Path, monkeypatch: py
     assert BW.main(["--root", str(tmp_path), "--out", str(tmp_path / "out")]) == 2
 
 
-def _workflow() -> dict[str, object]:
+def _workflow() -> dict[Any, Any]:
     if not WORKFLOW.parent.is_dir():
         pytest.skip("no .github/workflows next to trialbox/ (a bundle, not the repository)")
     doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
@@ -90,7 +91,7 @@ def test_the_workflow_is_weekly_and_runs_on_no_train() -> None:
 
 def test_the_workflow_reports_only_and_keeps_the_sarif_90_days() -> None:
     doc = _workflow()
-    steps = doc["jobs"]["bandit"]["steps"]  # type: ignore[index]
+    steps = doc["jobs"]["bandit"]["steps"]
     scan = next(s for s in steps if s.get("run") == "make bandit-weekly")
     assert scan["continue-on-error"] is True
     upload = next(s for s in steps if str(s.get("uses", "")).startswith("actions/upload-artifact@"))
