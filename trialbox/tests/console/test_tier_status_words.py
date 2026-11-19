@@ -3,8 +3,10 @@
 Exit: a home-page text test per tier, in en, ja and zh-TW. The administrator's home (``/home``, the health tab of
 ``/admin``) shows the 32 GB site box's absences (``models/tiers/rtx5090.json``: no protocol reading on the box, a
 question to the models waits while a run holds the card) as plain lines ending "nothing is wrong"; the RTX PRO 6000
-box (the full tier) and a box with no tier record show nothing new, byte for byte. A capability the tier does include
-and that is broken keeps its warning or error. No other role sees the tile. Synthetic accounts only."""
+box (the full tier) and a box with no tier record show nothing new: in this tree, their page is byte for byte the
+page with the tile switched off (the comparison with master itself was made across two worktrees, PR #1157). A
+capability the tier does include and that is broken keeps its warning or error. No other role sees the tile, and no
+tier record, however malformed, takes the page down. Synthetic accounts only."""
 
 from __future__ import annotations
 
@@ -25,25 +27,25 @@ from tests.console.test_console_app import ADMIN_PW, box, login  # noqa: F401 - 
 LANGS = ("en", "ja", "zh-TW")
 #: TB_PROFILE label -> the record it reads (None: no record on file, as on a GB10 or a stub box)
 TIERS = {"P-5090": "rtx5090", "P-PRO6000": "rtxpro6000", "P-GB10": None}
-NOTHING_WRONG = {"en": "Nothing is wrong.", "ja": "異常ではありません。", "zh-TW": "這不是故障。"}
+NOTHING_WRONG = {"en": "Nothing is wrong.", "ja": "異常ではありません。", "zh-TW": "並非故障。"}
 TITLE = {
-    "en": "What this box&#39;s tier includes",
-    "ja": "このボックスの構成に含まれる機能",
-    "zh-TW": "這台機器的等級包含哪些功能",
+    "en": "What this box&#39;s tier does not include",
+    "ja": "この機器の構成に含まれない機能",
+    "zh-TW": "本機等級不包含的功能",
 }
 LACKS = {
     "en": (
         "Protocol reading: this box&#39;s tier does not include it.",
         "Questions to the models during a screening run",
     ),
-    "ja": ("プロトコルの読み取り：このボックスの構成には含まれていません。", "スクリーニング実行中のモデルへの質問"),
-    "zh-TW": ("計畫書判讀：這台機器的等級不包含此功能。", "篩選執行期間向模型提問"),
+    "ja": ("プロトコルの読み取り：この機器の構成には含まれていません。", "スクリーニング実行中のモデルへの質問"),
+    "zh-TW": ("計畫書判讀：本機的等級不包含此功能。", "篩選執行期間向模型提問"),
 }
 #: the qualifier of a line worded from a declared field (D-1244): never presented as a measured fact
 DECLARED = {
     "en": "As declared for this tier; not yet measured on this hardware.",
-    "ja": "この構成について宣言された内容で、このハードウェアではまだ測定されていません。",
-    "zh-TW": "此為該等級所宣告的內容，尚未在這台硬體上量測。",
+    "ja": "この構成で申告された値です。このハードウェアでは未測定です。",
+    "zh-TW": "此為本等級所宣告的值，尚未在本機硬體上量測。",
 }
 _CSRF = re.compile(r'name="csrf" value="[^"]+"')
 _LINE = re.compile(
@@ -130,17 +132,19 @@ def test_only_a_declared_row_says_it_is_declared_and_not_measured(
         assert ('data-basis="declared"' in tile) == (basis == "declared")
 
 
-# ------------------------------------------------------------------------ the full tier and no record: byte for byte
+# --------------------------------------------- the full tier and no record: nothing added (master: across worktrees)
 def _pages(c: Any, csrf: str) -> dict[str, str]:
     return {lang: _CSRF.sub("csrf", _home(c, csrf, lang)) for lang in LANGS}
 
 
-def test_the_full_tier_and_a_box_with_no_record_render_the_home_page_as_before(
+def test_the_full_tier_and_a_box_with_no_record_add_nothing_to_the_home_page(
     box: dict[str, Any],  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     c, csrf = _admin(box)
-    monkeypatch.setattr(tier_words, "lacks", lambda *a, **k: [])  # the page with no tier line: master's page
+    # what this proves: the page of these boxes is byte for byte the page with the tile switched off (no tier line).
+    # That this page is master's own was shown across two worktrees (PR #1157), not by this test.
+    monkeypatch.setattr(tier_words, "lacks", lambda *a, **k: [])
     before = _pages(c, csrf)
     monkeypatch.undo()
     for label in ("P-PRO6000", "P-GB10", ""):
@@ -170,11 +174,11 @@ def test_a_broken_capability_the_tier_includes_still_shows_as_an_error(
     )
     c, csrf = _admin(box)
     broken = _pages(c, csrf)
-    with monkeypatch.context() as m:  # the same broken box with no tier line: the page master renders
+    with monkeypatch.context() as m:  # the same broken box with the tile switched off
         m.setattr(tier_words, "lacks", lambda *a, **k: [])
         as_master = _pages(c, csrf)
     for lang in LANGS:
-        # unchanged from master: the errors are byte for byte the same, only the status tile is added on the site box
+        # the errors are byte for byte those of the page with the tile switched off; only the tile is added
         tile_html = re.search(r'<section class="card tile" data-testid="tile-tier">.*?</section>', broken[lang], re.S)
         assert (tile_html is not None) == (label == "P-5090"), lang
         assert (broken[lang].replace(tile_html.group(0), "", 1) if tile_html else broken[lang]) == as_master[lang]
@@ -259,3 +263,23 @@ def test_every_worded_capability_has_its_words_in_three_languages() -> None:
             assert text != f"tier.lacks.{cap}" and text.endswith(NOTHING_WRONG[lang]), (cap, lang)
     for lang in LANGS:
         assert translate(lang, "tier.declared") == DECLARED[lang]
+
+
+def test_a_record_that_breaks_the_reader_shows_no_line_and_never_takes_the_page_down(
+    box: dict[str, Any],  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    d = tmp_path / "deep"
+    d.mkdir()
+    (d / "rtx5090.json").write_text("[" * 200000 + "]" * 200000, encoding="utf-8")  # RecursionError in json
+    env = {"TB_PROFILE": "P-5090"}
+    with pytest.raises(RecursionError):  # the reader itself raises on it (lane H's, unchanged)
+        tier_value.measured(tier_words.FIELD, env, d)
+    assert tier_words.lacks(env, d) == []
+    monkeypatch.setenv("TB_PROFILE", "P-5090")
+    monkeypatch.setattr(tier_value, "TIERS_DIR", d)
+    c, csrf = _admin(box)
+    for lang in LANGS:
+        page = _home(c, csrf, lang)  # 200, not 500
+        assert 'data-testid="admin-health"' in page and 'data-testid="tile-tier"' not in page

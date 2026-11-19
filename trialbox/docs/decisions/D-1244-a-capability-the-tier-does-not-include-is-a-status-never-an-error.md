@@ -18,16 +18,20 @@
     declared field adds "As declared for this tier; not yet measured on this hardware." in en, ja and zh-TW. A line
     worded from a measured field adds nothing.
   - **Where.** The administrator's home page (`/home`, which is the health tab of `/admin`) gets one tile, "What this
-    box's tier includes". It has one line per absence, and each line ends "nothing is wrong". The tile has no pill,
-    no warning, error or alert class, and no link. It appears only on the page that already shows the administrator
-    the box's capability state (the Models and System tiles). No other role sees it, and no route, export or reader of
-    stored data is added.
+    box's tier does not include". It has one line per absence, and each line ends "nothing is wrong". The tile has
+    no pill, no warning, error or alert class, and no link. It appears only on the page that already shows the
+    administrator the box's capability state (the Models and System tiles). No other role sees it, and no route,
+    export or reader of stored data is added.
+  - **Never down for its words.** The read is guarded: whatever the tier record makes the reader raise (a file
+    nested deeper than the JSON reader goes, say) gives no line, and the page answers as before. Lane H's reader is
+    not changed.
   - **Errors stay errors.** The tile lists only what the tier lacks. A capability the tier includes and which is broken
     keeps its own warning or error: no model answering the note judge, note answers that may not exclude, a service
     that is down. These pills are unchanged on every tier.
   - **Nothing new elsewhere.** On the full tier (the RTX PRO 6000 record: every promise available or not measured)
     and on a box with no record (another `TB_PROFILE`, none, a missing or malformed file), the page is byte for byte
-    what it was. A test compares the rendering.
+    what it was. In the tree, a test holds it to the page with the tile switched off; against master it was compared
+    across two worktrees (PR #1157).
   - **Not here.** The protocol page and the coordinator's home: showing them a capability's state would be a new
     reader for those roles. The site box's protocol wording ("sent to the coordinating box") is plan 10 row 10E-33's.
     A not-measured value shown as "not measured" (ECC) is the capability page's job (10K-11).

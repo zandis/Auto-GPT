@@ -14,7 +14,8 @@ does include is never in the list, so when it breaks, the page's own warning or 
 Nothing is shown, and the page is byte for byte what it was, when the tier includes everything it lists (the
 RTX PRO 6000 record), when the box has no record (``TB_PROFILE`` of another profile, unset, or a missing or malformed
 file), and for a row this module has no words for (a new capability or status reads as nothing until it is worded
-in en, ja and zh-TW). Never raises.
+in en, ja and zh-TW). Never raises: whatever the read raises (a record nested deeper than the JSON reader
+goes) reads as no line.
 """
 
 from __future__ import annotations
@@ -46,7 +47,10 @@ def lacks(env: Mapping[str, str] | None = None, tiers_dir: Path | None = None) -
     Each row carries ``basis``, the field's basis in the record (``measured`` or ``declared``): the page says of a
     declared row that it is declared for the tier and not yet measured on this hardware, and says nothing of a
     measured one, so a declared row never reads as a measured fact (D-1244)."""
-    tv = tier_value.measured(FIELD, env, tiers_dir)
+    try:  # a words-only tile never takes the page down: whatever the read raises reads as no line (D-1244)
+        tv = tier_value.measured(FIELD, env, tiers_dir)
+    except Exception:
+        return []
     rows: Any = tv.value if tv.case == "measured" else tv.declared if tv.case == "declared" else None
     if not isinstance(rows, list):
         return []
