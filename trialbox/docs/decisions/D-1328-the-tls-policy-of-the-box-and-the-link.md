@@ -28,4 +28,17 @@
   - A plain-HTTP site in the Caddyfile is allowed only bound to the loopback (the health site, D-360).
   - **An old client** (TLS 1.0/1.1 only, CBC only or static RSA only) gets a handshake failure on 443; the policy stays
     strict (the integrator's ruling, 2026-11-19); no setting relaxes it today (finding H10G48-02, RUNBOOK §12 part).
-- **Held by:** `tests/unit/test_tls_policy_judge.py`.
+  - **Amended 2026-11-19 (card H-48, finding H10G48-02; the integrator's ruling of 05:52 UTC: "one documented key,
+    off by default, audited when switched on, shown on the administrator's first page while it is on").** One
+    setting relaxes the box's 443, `TB_TLS_OLD_CLIENTS`: `off` (the default, also when unset or empty) is the policy
+    above and the only pass; `cbc` also serves the four TLS 1.2 ECDHE AES-CBC-SHA suites, for an old client with TLS
+    1.2 but no AEAD suite, the smallest relaxation that admits one (forward secrecy kept). It never re-enables TLS
+    1.0/1.1, SSLv3, static RSA, 3DES, RC4, export or NULL, and the two-device link is never relaxed. The policy file
+    names it (`relaxation`); `tools/tls_policy.py` given `--old-clients cbc` reports a result or Caddyfile that meets
+    the policy so relaxed as the named exception (`EXCEPTION relaxed by setting TB_TLS_OLD_CLIENTS=cbc`, exit 3),
+    never as a pass, and still fails any other weakening (exit 1); another value is refused (exit 2).
+    `deploy/install.sh` refuses another value, and audits a switch as `update.tls_relaxed` or `update.tls_strict`
+    from the orchestrator's container (as `update.applied`); `trialbox doctor` shows a `tls_old_clients` WARN line
+    while it is on; the console receives the value (`deploy/docker-compose.identity.yml`) for the administrator's
+    first page.
+- **Held by:** `tests/unit/test_tls_policy_judge.py`; the relaxation by `tests/unit/test_tls_old_clients_setting.py`.

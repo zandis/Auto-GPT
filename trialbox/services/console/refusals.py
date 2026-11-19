@@ -120,6 +120,17 @@ REFUSALS: dict[str, tuple[str, str]] = {
         "請以 YYYY-MM-DD 輸入再評估日期",
     ),
     "attempts and days are whole numbers": ("回数と日数は整数で入力してください", "次數與天數請輸入整數"),
+    # 10C-19 (D-1232): the study's ages for consent by a representative and for assent
+    "the ages are whole numbers": ("年齢は整数で入力してください", "年齡請輸入整數"),
+    "the age of majority is 16 to 21": ("成年年齢は 16〜21 歳です", "成年年齡為 16 至 21 歲"),
+    "the assent ages run from the youngest to the oldest, from 0 and below the age of majority": (
+        "アセントの年齢は下限から上限の順で、0 歳以上・成年年齢未満です",
+        "須取得贊同的年齡由低至高，自 0 歲起且低於成年年齡",
+    ),
+    "consent by a representative is not recorded on this box": (
+        "この TrialBox では代諾者による同意を記録していません",
+        "此 TrialBox 不記錄法定代理人同意",
+    ),
     "give the retry date as YYYY-MM-DD": (
         "再連絡日は YYYY-MM-DD で入力してください",
         "請以 YYYY-MM-DD 輸入再聯絡日期",

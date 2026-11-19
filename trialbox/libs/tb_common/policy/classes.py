@@ -104,6 +104,8 @@ def lower(label: ClassLabel, transform: str, certificate: str) -> ClassLabel:
 
 # ------------------------------------------------------------------------------------------------ v1 contracts
 _D0 = {"CtgovSearchRequest", "CtgovSearchResult", "CtgovStudy", "TrialSimResult", "TrialSimRow", "TrialSimStep"}
+# 10D-15 (D-1367): the study's parts from the public registry record; no contact person, no personal name
+_D0 |= {"CtgovArm", "CtgovDesign", "CtgovIntervention", "CtgovLocation", "CtgovOutcome", "CtgovSecondaryId"}
 # T-011: a site schema is structure and code lists from the survey, refused when it carries a value: no patient data
 _D0 |= {
     "SiteSchema",
@@ -147,6 +149,9 @@ _D1 = {
     "ApproveRequest",
     "ApproveResult",
     "RulesetManifest",
+    # 10D-2 (D-1366): the manifest's two parts, its fields and file hashes; no patient data
+    "StudyProtocol",
+    "StudySite",
     "RulesetModels",
     "RulesetThresholds",
     "EquivalenceReport",
@@ -240,6 +245,8 @@ _D1 = {
     "ValidationSummary",
     "IngestReport",
     "OmopLoadSummary",  # T-106: counts and check names of a dual-write load, no patient data
+    "ConnectorReport",  # 10E-9: a connector's read counts and times per table, no patient data
+    "TableReadTimes",  # 10E-9: one table's read counts, seconds and histogram, no patient data
     "JobCreate",
     "Job",
     # aggregates released after small-cell suppression
