@@ -169,6 +169,7 @@ survey's method is not recorded, so the gap is not explained. Its five false ala
 | the second review's set (150 + 150), written before reading the code | an independent tester | 8f2bc3db | 116 / 150 (34 passed) | 123 / 150 (27 refused) |
 | `REVIEW_2` (32 + 30): the second review's sentences and more in kind, by class | the reviewer and the card worker | 8f2bc3db | 0 / 32 | 16 / 30 |
 | the same | | after its round | 32 / 32 | 30 / 30 |
+| four honest lines added after, for the two parts a mutation run found untested (接受…治療 and 醫師的判斷 with the product as subject) | the card worker | the head | | 4 / 4 |
 
 The two independent runs are the figures to quote: at cc197e3b 23 of 82 claims passed; at 8f2bc3db 34 of 150 claims
 passed and 27 of 150 honest lines were refused. Neither has been run on the head after the second round.
