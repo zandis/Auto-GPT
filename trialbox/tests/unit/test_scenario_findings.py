@@ -265,7 +265,10 @@ def _undated_cancer_by_path(tmp: Path) -> dict[str, list[dict[str, Any]]]:
     root = tmp / "ss"
     d = storage_dir(root, "10000099", "20260101", "PPR-01")
     d.mkdir(parents=True)
-    msg = "MSH|^~\\&|HIS||TB||20261101||PPR^ZD1|O1|P|2.5||||||~ISO IR87\rPV1||O\rPRB|AD||C169^胃癌^99XYZ^C169^胃癌^I10|D1\r"
+    msg = (  # every SS-MIX2 message carries its patient (PR #1095 fourth review b)
+        "MSH|^~\\&|HIS||TB||20261101||PPR^ZD1|O1|P|2.5||||||~ISO IR87\rPID|||10000099^^^^PI\rPV1||O\r"
+        "PRB|AD||C169^胃癌^99XYZ^C169^胃癌^I10|D1\r"
+    )
     (d / "10000099_20260101_PPR-01_O1_20261101000000000_-_1").write_bytes(msg.encode("iso2022_jp"))
     rows = list(Ssmix2Source(root, licensed={"medis": {}, "jlac10": {}, "yj": {}}).rows("diagnosis", "diagnosis",
                                                                                        None, None))  # fmt: skip

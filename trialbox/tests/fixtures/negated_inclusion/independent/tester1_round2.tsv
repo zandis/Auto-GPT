@@ -1,0 +1,74 @@
+lang	expect	concept	text
+en	held	chemotherapy	No more than two prior lines of chemotherapy
+en	held	chemotherapy	Never before treated with chemotherapy
+en	held	hemodialysis	No longer on hemodialysis
+en	held	HIV	HIV: neg
+en	held	HIV	HIV Ab (neg)
+en	held	HBsAg	HBsAg -ve
+en	held	HBsAg	HBsAg (–)
+en	held	chemotherapy	Prior chemotherapy: nil
+en	held	chemotherapy	Absent: prior chemotherapy
+en	held	brain metastases	Absent brain metastases on MRI
+en	held	brain metastases	w/o brain metastases
+en	held	pulmonary embolism	r/o pulmonary embolism
+en	held	active hepatitis B	Inactive hepatitis B carrier state
+en	held	complete response	Incomplete response to induction therapy
+en	held	transfusion	Transfusion-independent for 8 weeks
+en	held	pain	Painless jaundice
+en	held	smoker	Former smoker, quit more than 15 years ago
+en	held	smoking	Quit smoking 10 years ago
+en	held	EGFR mutation	EGFR wild-type NSCLC
+en	held	pneumonia	Prophylaxis against Pneumocystis pneumonia
+en	held	diabetes	At high risk of developing diabetes
+en	held	pulmonary embolism	Probable pulmonary embolism pending CT angiography
+en	held	hepatitis C	Hepatitis C, cured with sofosbuvir
+en	held	chemotherapy	Zero prior chemotherapy regimens
+en	held	atrial fibrillation	Atrial fibrillation cannot be excluded
+en	held	stroke	Brother with stroke at age 50
+en	runs	HBsAg	HBsAg +ve
+en	runs	myocardial infarction	h/o myocardial infarction
+en	runs	gram-negative bacteremia	Gram-negative bacteremia
+en	runs	chemotherapy	No longer responding to chemotherapy
+en	runs	diabetes	Diabetes, not well controlled
+en	runs	leukemia	Acute myeloid leukemia not in remission
+en	runs	asthma	Asthma not on oral corticosteroids
+en	runs	anticoagulation	Anticoagulation other than warfarin
+ja	held	HBs抗原	HBs抗原は陰性である
+ja	held	喫煙	喫煙を否認する
+ja	held	化学療法	化学療法は施行されなかった
+ja	held	化学療法	化学療法は施行されず
+ja	held	転移	転移は見られず
+ja	held	輸血	輸血不要
+ja	held	ステロイド	ステロイド不使用
+ja	held	喫煙	喫煙：否
+ja	held	化学療法	受けた経験のない化学療法
+ja	held	抗PD-1抗体	投与経験のない抗PD-1抗体
+ja	held	化学療法	化学療法は2レジメンを超えない
+ja	held	喫煙	以前は喫煙していたが、10年前にやめた
+ja	held	HER2	HER2ネガティブ
+ja	held	肺炎	肺炎の可能性あり
+ja	held	HIV抗体	HIV抗体：マイナス
+ja	held	脳転移	脳転移は認められなかった
+ja	held	胸水	胸水（－）
+ja	runs	HBs抗原	HBs抗原は陽性である
+ja	runs	2型糖尿病	ケトアシドーシスを伴わない2型糖尿病
+ja	runs	喫煙	喫煙中である
+ja	runs	化学療法	化学療法後に増悪が認められた
+zh	held	化療	沒有接受過三個週期以上的化療
+zh	held	化療	化療不超過兩線
+zh	held	透析	毋須透析
+zh	held	EGFR突變	缺乏EGFR突變
+zh	held	吸菸	吸菸：否
+zh	held	肺炎	考慮肺炎
+zh	held	吸菸	曾吸菸，已戒十年
+zh	held	結核	結核已痊癒
+zh	held	肺栓塞	待排肺栓塞
+zh	held	乙肝	乙肝（-）
+zh	held	HIV	HIV：陰
+zh	held	心力衰竭	未合并心力衰竭
+zh	held	化疗	除外化疗
+zh	held	胸水	胸水（－）
+zh	runs	化療	化療反應不佳
+zh	runs	高血壓	高血壓控制不佳
+zh	runs	心律不整	心律不整，未治療
+zh	runs	乙肝	乙肝（+）

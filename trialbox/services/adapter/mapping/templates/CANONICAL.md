@@ -25,11 +25,19 @@ roc}`; `era`), and the source's placeholder dates in `empty_dates` (D-589); noth
 
 The Japan mapping (`jp_core/ssmix2_site.yaml`, D-137) reads a few more optional columns, which the SS-MIX2 reader
 fills: encounter `end_datetime`, `enc_status` (`finished`, `in-progress`), `prev_enc_type` and `class_changed_at`
-(ADT-52); diagnosis `byomei_code`, `byomei_name` (the 標準病名 code beside the ICD-10); lab `jlac10_code`,
+(ADT-52); diagnosis `byomei_code`, `byomei_name` (the 標準病名 code beside the ICD-10), and from PPR-01 (10B-3)
+`written_name` (PRB-17), `modifiers` (ZPR 修飾語), `diagnosed_date` (PRB-7), `end_date` (PRB-9), `outcome` and
+`outcome_date` (PRB-14 転帰 and PRB-15), `main_diagnosis` (PRB-18: `Y` 主診断, `N` 副診断), with `status` also `I`
+inactive (転帰 死亡), `M` remission (寛解), `U` (anything not recognised: unconfirmed, never active, D-587) and `E` (an end or outcome day with no read outcome: ended, inactive, its end day kept); `end_date_text` / `outcome_date_text` / `date_text` (PRB-2, 7, 16) hold a date the reader could not read, or a repeated one; suspected also `X` (ruled out: refuted) and `U` (certainty not recognised: unconfirmed);
+a PRB-1 `DE` diagnosis is a tombstone, never a row; lab `jlac10_code`,
 `hosp_lab_code`, `specimen`; medication `hot_code`, `rp_no`, `rx_kind` (`prescription`, `injection`), `source_drug_code` (the code the order
 line carried, when the site's drug master turned a HOT or local code into `nhi_drug_code`'s YJ code) and `yj_stem`
-(the ingredient, T-610; empty when the line reached none); note_type
-`report` and `document` (extended-storage documents).
+(the ingredient, T-610; empty when the line reached none), and (10B-4) `dose_per_time` (RXE-3 one dose, or RXA-6 the
+amount given), `usage_code` and `usage_text` (TQ1-3 用法), `doses_per_day` with `doses_per_day_from` (`usage table`:
+the site's `usage.csv`, `usage text`: "1日N回"); from SS-MIX2 `daily_dose` is one dose times the doses a day, and empty
+when the frequency is unknown (never a guess); note_type
+`report` and `document` (extended-storage documents), and note `doc_code` (10B-5: the LOINC document code of a
+guideline data-type folder, which also chooses the note type).
 
 `identity: {name: name, national_id: id_no}` on the patient table keeps the name and national id encrypted in the
 pid map (TWPAS only); they never reach the lake.
