@@ -485,6 +485,8 @@ ADDED: dict[str, tuple[str, ...]] = {
         "4f2b17e86f1c9432f09f2c7559696a3a312d5f965b6c15e2a367db9268f6487f",
         # D-1226: how an alliance table was verified (its key, its signed sequence and hash)
         "885e09aba43f78d4d69e16a0f210ccbc9e9442c25e8e60cc6ef704856c7c34c7",
+        # D-1360 (card 10A-4): orch version 7, the answer store (``answers``)
+        "0f873592d582096e522578242e31e2320cc1ccda209273f28403b599fd217625",
     ),
     # T-310a (D-446): the weekly PI sample of criteria not matched and the site's check, new after the baseline
     "tuned": ("e8565a9e2288df90d120272ab2956fafe4595465ecd7c58c2e2debb35ee934a1",),
