@@ -41,7 +41,7 @@ from typing import Any
 
 import httpx
 
-from tools import mlbench
+from tools import gold_kind, mlbench
 from tools.trialgpt_compare import Client, _safe, _split, parsed_criteria
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -408,6 +408,7 @@ def score() -> dict[str, Any]:
     answers = {m: a for m, a in loaded.items() if a is not None}
     models = [m for m in models if m in answers]
     res: dict[str, Any] = {
+        "gold_kind": gold_kind.of_set("trec"),  # 10G-38 (D-1326): None, the repository does not state it
         "pairs": {
             "eligible": sum(p["label"] == "2" for p in pairs),
             "excluded": sum(p["label"] == "1" for p in pairs),

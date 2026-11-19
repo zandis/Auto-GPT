@@ -115,7 +115,7 @@ datasets:
     licence: generated for TrialBox (fictional) and the SIGIR notes (CC BY-SA 4.0, CSIRO; as criterion_ml)
     register: [pubacc-sigir-2016]
   medtxt:
-    path: eval/medtxt (model answers and scores; MedTxt-CR/RR XML in .cache, never committed)
+    path: eval/medtxt (model answers, scores and the gate's answer key of ids and certainty; MedTxt-CR/RR XML in .cache, never committed)
     data_class: D0
     kind: open
     licence: CC BY 4.0 (NTCIR-16 Real-MedNLP test collection, Sociocom NAIST; MedTxt-CR training split and MedTxt-RR)
