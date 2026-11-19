@@ -537,16 +537,43 @@ def _copy_in(src: DbSource, table: str, data: Path) -> None:
         con.commit()
 
 
-def reload_refdata(src: DbSource, packs: Sequence[Mapping[str, str]], folder: Path | None) -> dict[str, list[str]]:
+def refdata_unpack_dir(folder: Path) -> Path | None:
+    """Where a restore unpacks a reference pack (several GB): beside the kept packs (``folder``'s parent, on the disk
+    that holds them), else None (the temporary folder, ``TMPDIR``). 10G-1 (D-1323): never a tmpfs /tmp that counts
+    against a container's memory limit; the installer and the update unpack on the objects volume
+    (``TMPDIR=/data/objects``) for the same reason."""
+    return folder.parent if os.access(folder.parent, os.W_OK | os.X_OK) else None
+
+
+@contextlib.contextmanager
+def _tempdir(where: Path | None) -> Iterator[None]:
+    """``tempfile``'s folder is ``where`` for the block (``tb_common.refdata.opened`` unpacks with ``mkdtemp``)."""
+    if where is None:
+        yield
+        return
+    where.mkdir(mode=0o700, parents=True, exist_ok=True)
+    before = tempfile.tempdir
+    tempfile.tempdir = str(where)
+    try:
+        yield
+    finally:
+        tempfile.tempdir = before
+
+
+def reload_refdata(
+    src: DbSource, packs: Sequence[Mapping[str, str]], folder: Path | None, unpack_in: Path | None = None
+) -> dict[str, list[str]]:
     """Load again each vendor pack ``packs`` names, from the pack files in ``folder`` (``deploy/refdata/loaded``);
-    the hospital's own packs (``origin: site``) came back with the dump. Returns what was loaded and what is missing."""
+    the hospital's own packs (``origin: site``) came back with the dump. Returns what was loaded and what is missing.
+    A pack unpacks in ``unpack_in`` (default :func:`refdata_unpack_dir`), never in a tmpfs /tmp (10G-1)."""
     want = {p["pack_id"] for p in packs if p.get("origin") != "site"}
     done: list[str] = []
     if want and folder is not None and folder.is_dir():
         from tb_common.refdata import RefStore, opened
         from tb_common.refdata import verify as verify_pack
 
-        with RefStore(_url_for(src)) as st:
+        where = unpack_in or refdata_unpack_dir(folder)
+        with RefStore(_url_for(src)) as st, _tempdir(where):
             for tar in sorted(folder.glob("*.tar")):
                 try:
                     with opened(tar) as pack:

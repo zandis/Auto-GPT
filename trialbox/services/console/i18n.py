@@ -1221,3 +1221,21 @@ from console.i18n_person import ZH as _PS_ZH  # noqa: E402
 EN.update(_PS_EN)
 JA.update(_PS_JA)
 ZH.update(_PS_ZH)
+
+# D-1245 (10E-13): the progress lines of a job page (the first load's new patients still waiting)
+from console.i18n_progress import EN as _PG_EN  # noqa: E402
+from console.i18n_progress import JA as _PG_JA  # noqa: E402
+from console.i18n_progress import ZH as _PG_ZH  # noqa: E402
+
+EN.update(_PG_EN)
+JA.update(_PG_JA)
+ZH.update(_PG_ZH)
+
+# 10C-4 (D-1227): the Japan profile's committee record and the head of the institution's permission
+from console.i18n_committee import EN as _CMT_EN  # noqa: E402
+from console.i18n_committee import JA as _CMT_JA  # noqa: E402
+from console.i18n_committee import ZH as _CMT_ZH  # noqa: E402
+
+EN.update(_CMT_EN)
+JA.update(_CMT_JA)
+ZH.update(_CMT_ZH)

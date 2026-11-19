@@ -4,15 +4,19 @@
 
 *T-635 (OPS-074). Another room, another network, or a new host name.*
 
-**Drill (T-213b):** `test_runbook_22_moving_the_box` (Docker drill: change the host name and address by these steps;
-`check-tls` passes on the new name, the network sheet is written again, the console answers on the new name).
+**Drill (T-213b):** `test_runbook_22_moving_the_box` (in process: the host name changes by step 3, `check-tls`
+fails with the old certificate and passes with the new one; the network sheet of step 4 is stale for the new
+`deploy/.env` and names the new host once written again). Steps 2, 5 and 6 need the box and the new network
+and are not rehearsed by a test.
 
 1. **Plan with hospital IT:** the new address, the host name (DNS), the firewall rule for 443 from the clinic PCs, the
    route to the feed, the mail server and the backup share. If the name changes, a new certificate (§12).
 2. **Before the move:** a backup by hand, checked (`backup-status`). Stop the stack (`systemctl stop trialbox`) and shut
    the host down. A TPM-sealed KEK stays with the box: move the whole box, never the disks alone.
 3. **After the move:** start the host. If the name changed, set `TB_TLS_HOSTNAME` (and the certificate files) in
-   `deploy/.env`, run `python -m console.cli check-tls`, then `docker compose up -d --wait`.
+   `deploy/.env`, run `python -m console.cli check-tls` with those new values set (it reads the variables it is run
+   with, not `deploy/.env`: the running console container still has the old ones and would check the old name), then
+   `docker compose up -d --wait`.
 4. Write the network sheet again (Operations page, or `tools/network_sheet.py`) and give it to hospital IT.
 5. `trialbox doctor --env-file deploy/.env`: no FAIL (the backup target and the clock are reached from the new
    network).
