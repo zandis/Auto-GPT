@@ -245,7 +245,7 @@ mapper's `verify` rule if its codes reach the lake):
 | --- | --- | --- |
 | 10B-4 | `codes/usage.csv` (用法 → doses per day), the hospital drug master | `ssmix2.usage` and `ssmix2.drug_master` in the schema's list, passed by `adapter.pipeline.make_source` (the reader already takes `drug_master`) |
 | 10B-12 | DPC readers | A `door` value and its tables with their own `used_by`; `data_types` and the coverage lines need nothing new |
-| 10C-25 | The Japan layer (C-7), **done** (D-1250) | `country` names the layer and is checked against the settings. The layer is `tb_common.country_layer` (parts P1 to P16); its version and digest are recorded with each load of the profile (`layer` in the event and the record). A setting the site made wins over the layer |
+| 10C-25 | The Japan layer (C-7), **done** (D-1250) | `country` names the layer and is checked against the settings. The layer is `tb_common.country_layer` (parts P1 to P16); its version and digest are written in the profile's record at each load (the audit event is unchanged). A setting the site made wins over the layer |
 
 **Without a seam yet** (each needs a manifest key, a schema version 1.1.0, and code that reads it):
 

@@ -35,6 +35,15 @@
 {% if rd.feed.night %}<p class="hint" data-testid="site-feed-night" data-state="{{ rd.feed.night.state }}">{{ t('dataops.feed.night', snapshot=rd.feed.night.snapshot, state=t('dataops.state.' + rd.feed.night.state)) }}{% if permit(user.role, 'dataops.view') %} <a href="/data-ops">{{ t('dataops.title') }}</a>{% endif %}</p>{% endif %}
 </section>{% endif %}
 {% endif %}
+{% if layer %}<section class="card" data-testid="site-country-layer">{# 10C-25 (D-1250): the country layer's settings #}
+<h2>{{ t('site.layer.title') }}</h2>
+<p class="hint">{{ t('site.layer.help', country=layer.country, version=layer.version, digest=layer.digest) }}</p>
+<div class="scroll" tabindex="0"><table class="candidates" data-testid="site-layer-rows">
+<thead><tr><th>{{ t('site.layer.setting') }}</th><th>{{ t('site.layer.value') }}</th><th>{{ t('site.layer.from') }}</th><th>{{ t('site.layer.profile_value') }}</th></tr></thead>
+<tbody>{% for r in layer.rows %}<tr data-testid="layer-{{ r.key }}" data-source="{{ r.source }}"><td>{{ t('site.layer.row.' + r.key) }} <span class="hint mono">{{ r.part }}</span></td><td class="mono">{{ r.value or '–' }}</td><td>{{ t('site.layer.source.' + r.source) }}</td><td class="mono">{{ r.layer or '–' }}</td></tr>{% endfor %}</tbody>
+</table></div>
+<p class="hint">{{ t('site.layer.rule') }}</p>
+</section>{% endif %}
 {% if rs %}<section class="card" data-testid="site-feas">
 <h2>{{ t('site.feas.title') }}</h2>
 {% if not feas or not feas.approved %}<p class="hint" data-testid="feas-not-approved">{{ t('site.feas.not_approved') }}</p>

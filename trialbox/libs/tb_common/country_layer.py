@@ -20,9 +20,9 @@ the source, the mapping) are the defaults the set-up wizards offer and write int
 name them prints and counts exactly as before (D-1229).
 
 **Versions.** A layer has ``format`` (``tb-country-layer/1``), a ``version`` (MAJOR.MINOR.PATCH) and a digest (the
-SHA-256 of the file's bytes). It ships inside the signed update bundle, as the holiday list does (D-1230). The site
-profile's load records it (:func:`stamp`): the ``terminology.site_profile_load`` audit event and the active profile's
-record name the layer's version and digest beside the profile's own.
+SHA-256 of the file's bytes). It ships inside the signed update bundle, as the holiday list does (D-1230), so its
+version is the release's. The site profile's record names it (:func:`stamp`, ``active.layer``) beside the profile's
+own version and digest; the ``terminology.site_profile_load`` audit event is unchanged.
 
 Standard library only: ``tb_common.site_country`` reads it on the host before any image is loaded.
 """
@@ -49,6 +49,7 @@ NAMES = (
 KINDS = ("behaviour", "wording", "document")
 BUILT, PARTLY, DECLARED = "built", "partly built", "declared, not built"
 STATES = (BUILT, PARTLY, DECLARED)
+EVERYWHERE = "On everywhere, not switched by country: "  # what a part has that the country does not switch
 _TOP = {"format", "_what", "country", "version", "parts", "_ruling"}
 _PART = {"name", "kind", "state", "cards", "decisions", "values", "readers", "everywhere", "not_built",
          "open_questions"}  # fmt: skip
@@ -165,6 +166,8 @@ def parse(raw: bytes, file: str) -> Layer:
             raise LayerError(file, f"{where}: {p['state']}, yet nothing reads it and nothing is on everywhere")
         if bool(values) != bool(readers):
             raise LayerError(file, f"{where}: values and readers go together")
+        if p.get("everywhere") and not str(p["everywhere"]).startswith(EVERYWHERE):
+            raise LayerError(file, f"{where}.everywhere: starts '{EVERYWHERE}'")
         if p["state"] != BUILT and not str(p.get("not_built") or "").strip():
             raise LayerError(file, f"{where}: {p['state']}: 'not_built' says what is missing and which card builds it")
         parts[pid] = Part(

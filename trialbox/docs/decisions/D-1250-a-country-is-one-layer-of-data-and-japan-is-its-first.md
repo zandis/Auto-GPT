@@ -48,25 +48,35 @@ seventeenth switch without anyone noticing.
    `consent_proxy`, the language, the source and mapping) stay what the wizards offer and write into a new site's
    settings. They are **not** run-time defaults, so a box whose settings do not name them prints, counts and records
    consent exactly as before (D-1229's rule; no installed box changes on upgrade).
-   - The schedule page's "Days off at this site" section (shown only at a site with a holiday list) says where the
-     holidays and the New Year break come from (the country profile, its version) and, when the site set its own
-     break, that the site's setting is used instead of the profile's, in en, ja and zh-TW.
-6. **Versions and audit.** The layer ships in the signed update bundle, as the holiday list does (D-1230). Its
-   version and digest are recorded with the site profile (`adapter.site_profile.activate`): the
-   `terminology.site_profile_load` event and the active record carry `layer` (and `old_layer`). A load of the same
-   profile under another layer version is recorded as a change. A country without a layer records exactly what it
-   recorded before (no new key).
+   - **Shown per setting.** The steward's site page (`/site`) has a "Country profile" card, only at a site whose
+     country has a layer: the layer's country, version and digest, and one row per setting it offers or turns on.
+     Each row gives the value in force, "set by the site", "from the Japan profile" or "not set: as before the
+     profile", and the profile's value (`console.country_profile.in_force`). Configuration only: no route, no
+     patient data.
+   - The schedule page's "Days off at this site" section (shown only at a site with a holiday list) says the
+     holidays and the New Year break are the country profile's, and when the site set its own break, that the site's
+     setting is used instead. Both are in en, ja and zh-TW.
+6. **Versions and audit.** The layer ships with the release, as the holiday list does (D-1230), so its version is
+   the release's. Its country, version and digest are written in the site profile's record (`site_profile.json`,
+   `active.layer`, by `adapter.site_profile.activate`), and a load of the same profile under another layer version
+   updates the record's layer. **The `terminology.site_profile_load` audit event is unchanged** for every country:
+   the audit's shape is lane C2's (the lane J lead's ruling of 2026-11-19); a test holds a Japanese load's event to
+   master's keys. A country without a layer writes nothing new.
 7. **No seventeenth switch unnoticed.** `tests/unit/test_japan_profile_layer.py` lists P1 to P16 by name, names the
    parts declared but not built (P4 Roles, P6 Forms, P12 Money, P13 Registries, P15 Procurement and security), and
    scans product code (`libs/`, `services/`, the box's set-up tools) for every string that names Japan (`JP`, `jp`,
-   `jpn`, `Japan`, `Asia/Tokyo`). Each one left is listed with its reason (the zone reading, data labels, the
-   country answers); a new one fails the test with the instruction to put the behaviour in the layer.
+   `jpn`, `Japan`, `Asia/Tokyo`, in any case, whole, implicitly concatenated or added from two pieces). Each one left
+   is pinned by its file and whole line with its reason (the zone reading, data labels, the country answers). A new
+   line, or a pinned line changed, fails with its file and line and how to register a reader in the layer. Reusing a
+   pinned line's place for a new test does not pass.
+8. **The values moved are master's.** One test per moved value compares the layer with master's constant (the
+   committees by the digest of master's block), and the goldens are unchanged.
 
 ## What this does not change
 
 No behaviour, default or stored value of any site. Each part not built stays declared (the card that builds it adds
 its values and readers). The guard (P10), the device-claims lint (P5) and the CJK layout rules (P16) stay on for
-every site, as the layer says (`everywhere`). No route, export, role or reader of patient data is added.
+every site by the text's characters or language: the layer lists them as "On everywhere, not switched by country". No route, export, role or reader of patient data is added.
 
 ## Open questions with the owner (the layer carries today's behaviour)
 
@@ -79,7 +89,6 @@ every site, as the layer says (`everywhere`). No route, export, role or reader o
 ## Consequences
 
 The next Japan card adds its data to its part and reads it with `country_layer.value`; a second country is one more
-file in `country_layer.FILES` and its own parts. Known limit: the console and the orchestrator read the layer from
-the image, while the night stamps it at the profile's load, so after an update brings a new layer version the site
-profile's record names the earlier one until a person loads the profile again (the new version is in force from the
-update, as the holiday list is).
+file in `country_layer.FILES` and its own parts. Known limit: the record's layer is written at a load of the site
+profile, so after an update brings a new layer version the record names the earlier one until a person loads the
+profile again; the version in force is the release's, shown on the site page.

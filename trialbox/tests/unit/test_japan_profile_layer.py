@@ -17,7 +17,6 @@ import dataclasses
 import importlib
 import json
 import sys
-import tokenize
 from collections import Counter
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -90,6 +89,16 @@ def test_every_part_not_wholly_built_says_what_is_missing_and_the_open_questions
     assert lay.value("P3", "committees")["study_kinds"]["shishin"]["needs"] == ["approval", "permission"]
 
 
+def test_the_guard_the_layout_rules_and_the_claims_lint_are_on_everywhere_not_by_country() -> None:
+    """P10 (the privacy guard), P16 (the CJK layout rules) and P5's device-claims lint run by the text's characters or
+    language at every site: the layer lists them as such and switches nothing of them."""
+    lay = _jp()
+    for pid, word in (("P10", "guard"), ("P16", "CJK layout"), ("P5", "device-claims")):
+        assert lay.parts[pid].everywhere.startswith(country_layer.EVERYWHERE) and word in lay.parts[pid].everywhere
+    assert not lay.parts["P10"].values and not lay.parts["P16"].values
+    assert "phi_guard" not in str(lay.parts["P5"].readers) and "wording" not in str(lay.parts["P5"].readers)
+
+
 def _reader(name: str) -> Any:
     mod, _, attr = name.partition(":")
     return getattr(importlib.import_module(mod), attr)
@@ -147,6 +156,49 @@ def test_two_layers_for_one_country_are_refused(monkeypatch: pytest.MonkeyPatch)
     finally:
         monkeypatch.undo()
         country_layer.layers.cache_clear()
+
+
+# ------------------------------------------------------------------------- the values moved, unchanged
+# Master's constants before this card (origin/master 0de6b1d0), copied here as they were written there, one per value
+# moved into the layer: the layer must give exactly these.
+MASTER: dict[str, Any] = {
+    "derived.EGFR_BY_COUNTRY['JP']": ("P8", "egfr", "egfr_jsn"),
+    "lifecycle.COUNTRY_DEFAULT['JP']": ("P2", "sae_rule_set", "jp_gcp_ii"),
+    "workdays.NEW_YEAR_BREAK['JP']": ("P9", "new_year_break", ((12, 29), (1, 3))),
+    "workdays.holidays: refdata_src/holidays_<jp>.csv": ("P9", "holiday_list", "holidays_jp.csv"),
+    "resolver.jp_ingredients: country == 'JP'": ("P7", "ingredient_stems", True),
+    "site_country.TABLE['jp'].locale": ("P5", "report_language", "ja"),
+    "site_country.TABLE['jp'].one_zone": ("P14", "one_zone", True),
+    "site_country.TABLE['jp'].retention_rules": ("P1", "retention_rules", "jp"),
+    "site_country.TABLE['jp'].data_source_type": ("P14", "data_source_type", "ssmix2"),
+    "site_country.TABLE['jp'].mapping": ("P14", "mapping", "mapping/jp_core/ssmix2_site.yaml"),
+    "site_country.TABLE['jp'].printed_dates": ("P9", "printed_dates", "both"),
+    "site_country.TABLE['jp'].year_basis": ("P9", "year_basis", "fiscal"),
+    "site_country.TABLE['jp'].consent_proxy": ("P11", "consent_proxy", True),
+    # japan_profile.json's "committees" on master: sha256 of its JSON with sorted keys
+    "committees: japan_profile.json['committees']": (
+        "P3", "committees", "be7e8b4427b94dd95abcd46e6547e55b83f0549d29db23df58f24f7cf6802b96"),
+}  # fmt: skip
+
+
+@pytest.mark.parametrize("moved", sorted(MASTER))
+def test_each_value_moved_into_the_layer_is_masters(moved: str) -> None:
+    import hashlib
+
+    part, key, was = MASTER[moved]
+    got = _jp().value(part, key)
+    if key == "new_year_break":
+        got = workdays.parse_break(got)
+    if key == "committees":
+        got = hashlib.sha256(json.dumps(got, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    assert got == was, moved
+
+
+def test_the_set_up_row_for_japan_is_masters_whole() -> None:
+    assert site_country.TABLE["jp"] == site_country.CountryDefaults(
+        "jp", "ja", True, "jp", "ssmix2", "mapping/jp_core/ssmix2_site.yaml", (), "both", "fiscal", consent_proxy=True
+    )  # master's literal row
+    assert site_country.TABLE["tw"].printed_dates == "western" and not site_country.TABLE["tw"].consent_proxy
 
 
 # ------------------------------------------------------------------------------------- on and off, same path
@@ -277,6 +329,58 @@ def test_the_layer_is_never_a_run_time_default_for_a_setting_left_unset() -> Non
     assert not proxy_consent.is_on({"TB_CONSENT_PROXY": "off"})
 
 
+def _site(**keys: Any) -> Any:
+    return type("Site", (), {"tz": "Asia/Tokyo", "locale": "ja", **keys})()
+
+
+def _box(site: Any, env: dict[str, str]) -> dict[str, Any]:
+    """What a box gives at run time from its settings and environment: the readers of every setting the layer offers."""
+    from datacore import proxy_consent
+
+    cal = workdays.for_zone(site.tz, env)
+    return {"dates": dates.site_dates(site), "consent_proxy": proxy_consent.is_on(env),
+            "break": cal.new_year, "break_from": cal.new_year_from, "egfr": derived.egfr_for_site("JP"),
+            "committees": committees.on("JP")}  # fmt: skip
+
+
+def test_a_japanese_box_with_nothing_set_runs_as_on_master() -> None:
+    """Nothing in its settings: printed dates western, the calendar year, no representative consent (D-1229, D-1232),
+    and the national calendar, eGFR and committees it had on master by its zone."""
+    assert _box(_site(), {}) == {"dates": ("western", "calendar"), "consent_proxy": False, "break": ((12, 29), (1, 3)),
+                                 "break_from": "layer", "egfr": "egfr_jsn", "committees": True}  # fmt: skip
+
+
+def test_a_japanese_box_set_up_before_this_card_runs_as_on_master() -> None:
+    """Its settings as master's wizard and box plan wrote them (site.printed_dates both, site.year_basis fiscal,
+    TB_CONSENT_PROXY=on): read as written; the layer adds nothing and takes nothing away."""
+    written = _site(printed_dates="both", year_basis="fiscal")
+    env = {"TB_TZ": "Asia/Tokyo", "TB_CONSENT_PROXY": "on"}
+    assert _box(written, env) == {"dates": ("both", "fiscal"), "consent_proxy": True, "break": ((12, 29), (1, 3)),
+                                  "break_from": "layer", "egfr": "egfr_jsn", "committees": True}  # fmt: skip
+    # and one whose steward chose otherwise at set-up keeps the choice
+    chosen = _site(printed_dates="western", year_basis="calendar")
+    got = _box(chosen, {"TB_TZ": "Asia/Tokyo", "TB_CONSENT_PROXY": "off", "TB_NEW_YEAR_BREAK": "none"})
+    assert got["dates"] == ("western", "calendar") and not got["consent_proxy"]
+    assert got["break"] is None and got["break_from"] == "site"
+
+
+def test_the_wizard_still_writes_what_masters_wrote_for_a_japanese_site() -> None:
+    """Master's wizard wrote these for a Japanese site (compared across the two trees for #1187: identical but for
+    the secrets it draws); the layer's set-up values are what it writes now."""
+    from tools import settings_wizard
+
+    site = {"site_id": "DEMO-K", "site_name": "Demo K (synthetic)", "internal_domains": ["hospk.test"],
+            "senders": ["crc@hospk.test"], "physicians": ["pi@hospk.test"], "reviewers": ["crc@hospk.test"],
+            "llm_mode": "stub", "chartno_rule": "digits:8", "mrn_regex": r"^\d{8}$",
+            "mta_authserv_id": "mx.hospk.test", "console_url": "https://trialbox.hospk.test",
+            "tls_hostname": "trialbox.hospk.test", "tls_mode": "internal",
+            "sae_office_mailbox": "trial-office@hospk.test", "country": "jp", "data_source_host_dir": "/mnt/ssmix2"}  # fmt: skip
+    s, env, _w = settings_wizard.build(site)
+    assert {k: s["site"].get(k) for k in ("tz", "locale", "printed_dates", "year_basis")} == {
+        "tz": "Asia/Tokyo", "locale": "ja", "printed_dates": "both", "year_basis": "fiscal"}  # fmt: skip
+    assert s["data_source"]["type"] == "ssmix2" and "TB_NEW_YEAR_BREAK" not in env and env["TB_TZ"] == "Asia/Tokyo"
+
+
 def test_the_ingredient_stems_switch_and_the_sites_own_file_are_read_as_before(monkeypatch: pytest.MonkeyPatch,
                                                                                 tmp_path: Path) -> None:  # fmt: skip
     from criteria_compiler.terminology import resolver
@@ -306,21 +410,42 @@ def _profile(tmp_path: Path, country: str) -> Any:
     return site_profile.load(src)
 
 
-def test_the_site_profiles_load_records_the_layers_version(tmp_path: Path) -> None:
+# the load event's detail as master writes it, for every country (the audit's shape is lane C2's; D-1250)
+EVENT_DETAIL = {"profile", "site", "old_version", "new_version", "old_digest", "new_digest", "old_profile",
+                "direction", "synthetic", "rows_changed", "row_changes", "copy_sha"}  # fmt: skip
+
+
+def _load_events(audit: Path) -> list[dict[str, Any]]:
+    out = []
+    for f in sorted(x for x in audit.rglob("*") if x.is_file()):
+        for line in f.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(ev, dict) and ev.get("event") == "terminology.site_profile_load":
+                out.append(ev)
+    return out
+
+
+def test_the_layers_version_is_in_the_site_profiles_record_and_not_in_the_audit_event(tmp_path: Path) -> None:
     from adapter import site_profile as asp
 
     p = _profile(tmp_path, "jp")
     lake, audit = tmp_path / "lake", tmp_path / "audit"
     ch = asp.activate(p, lake, site_id=p.site_id, by="steward-a", audit_dir=audit)
-    assert ch is not None and ch["layer"] == country_layer.stamp("JP") and ch["old_layer"] is None
+    assert ch is not None and set(ch) == EVENT_DETAIL | {"at", "by"}  # what master returned, key for key
     assert asp.read_record(lake)["active"]["layer"] == country_layer.stamp("JP")
+    events = _load_events(audit)
+    assert len(events) == 1 and set(events[0]["detail"]) == EVENT_DETAIL  # the event exactly as master's shape
     assert asp.activate(p, lake, site_id=p.site_id, by="steward-a", audit_dir=audit) is None  # nothing new
-    # the same profile under another layer version is a change of its own, recorded with both
+    # the same profile under the release's next layer: the record says so; no event (the layer is the release's)
     newer = dataclasses.replace(_jp(), version="1.1.0", digest="f" * 64)
     with _layers({"JP": newer}):
-        again = asp.activate(p, lake, site_id=p.site_id, by="steward-b", audit_dir=audit)
-    assert again is not None and again["old_layer"]["version"] == "1.0.0" and again["layer"]["version"] == "1.1.0"
-    assert again["old_digest"] == again["new_digest"] == p.digest
+        assert asp.activate(p, lake, site_id=p.site_id, by="steward-b", audit_dir=audit) is None
+    rec = asp.read_record(lake)
+    assert rec["active"]["layer"]["version"] == "1.1.0" and rec["active"]["digest"] == p.digest
+    assert len(rec["history"]) == 1 and len(_load_events(audit)) == 1
 
 
 def test_a_country_without_a_layer_records_exactly_what_it_did_before(tmp_path: Path) -> None:
@@ -329,82 +454,144 @@ def test_a_country_without_a_layer_records_exactly_what_it_did_before(tmp_path: 
     p = _profile(tmp_path, "tw")
     lake, audit = tmp_path / "lake", tmp_path / "audit"
     ch = asp.activate(p, lake, site_id=p.site_id, by="steward-a", audit_dir=audit)
-    assert ch is not None and "layer" not in ch and "old_layer" not in ch
-    assert set(ch) == {"profile", "site", "old_version", "new_version", "old_digest", "new_digest", "old_profile",
-                       "direction", "synthetic", "rows_changed", "row_changes", "copy_sha", "at", "by"}  # fmt: skip
+    assert ch is not None and set(ch) == EVENT_DETAIL | {"at", "by"}
+    assert set(_load_events(audit)[0]["detail"]) == EVENT_DETAIL
     assert "layer" not in asp.read_record(lake)["active"]
 
 
 # ------------------------------------------------------------------- no Japan behaviour outside the layer
-# Every string literal in product code (libs/, services/, and the box's set-up in tools/box/ and
-# tools/settings_wizard.py) that names Japan: the file, the literal, how many, and why it is not a behaviour of its
-# own. A new one fails here: put the behaviour's data in the layer (libs/tb_common/japan_profile.json) and read it
-# through tb_common.country_layer.value, or, if it is not a behaviour, add it here with the reason.
+# Every string in product code (libs/, services/, and the box's set-up in tools/box/ and tools/settings_wizard.py)
+# that names Japan ("JP", "jp", "jpn", "Japan", "Asia/Tokyo" in any case; written whole, implicitly concatenated or
+# added from two pieces), pinned by its file and its whole line, with why it is not a Japan behaviour of its own. A new
+# line, or a pinned line changed (a literal renamed or moved), fails with its file and line and what to do.
 ALLOWED: dict[tuple[str, str], tuple[int, str]] = {
-    ("libs/tb_common/derived.py", "Asia/Tokyo"): (1, "country_of: the one reading of a zone as a country"),
-    ("libs/tb_common/derived.py", "Japan"): (1, "country_of: the zone's legacy alias"),
-    ("libs/tb_common/derived.py", "JP"): (2, "country_of's answers (the docstring names them)"),
-    ("libs/tb_common/refdata_jp.py", "JP"): (8, "P7 masters: the Japanese reference data's own source labels"),
-    ("libs/tb_common/refdata_jp.py", "Japan"): (1, "P7 masters: a source's name"),
-    ("libs/tb_common/retention.py", "jp"): (1, "P1: the retention rules the layer names (retention_rules: jp)"),
-    ("libs/tb_common/site_country.py", "jp"): (
-        3,
-        "the country answers (COUNTRIES, TABLE's key) and the layer TABLE reads",
-    ),
-    ("services/console/i18n_firstrun.py", "Japan"): (1, "the country question's words"),
-    ("services/datacore/lifecycle.py", "JP"): (4, "P2: the SAE rule sets' own country labels (data)"),
-    ("services/datacore/lifecycle.py", "jp"): (1, "P2: the rule sets' legacy box-wide alias (D-277)"),
-    ("services/orchestrator/scenarios/consent.py", "jp"): (
-        1,
-        "a language word: jp read as ja in a scenario's language list",
-    ),
-    ("services/sitesetup/ocr.py", "jpn"): (1, "the OCR engine's language name"),
-    ("tools/box/plan.py", "Asia/Tokyo"): (
-        1,
-        "an answers file without a country: retention rules from the zone, as before 10K-1",
-    ),
-    ("tools/box/plan.py", "jp"): (1, "the same line: the retention rules' key"),
-    ("tools/settings_wizard.py", "jp"): (1, "an answers file without a country: retention from the language (LEGACY)"),
-}
+    ("libs/tb_common/derived.py", 'return "JP"'): (1, "country_of: the one reading of a zone as a country"),
+    ("libs/tb_common/derived.py",
+     'return "JP" if loc.startswith("ja") else "TW" if loc in ("zh-tw", "zh_tw", "zh-hant") else None'):
+        (1, "country_of: the page language as a country, when the zone names none"),
+    ("libs/tb_common/derived.py", 'if tz in ("Asia/Tokyo", "Japan"):'): (2, "country_of: Japan's zone and its alias"),
+    **{("libs/tb_common/refdata_jp.py", line): (1, "P7 masters: a Japanese reference file's own country label")
+       for line in (
+        'country="JP", decision="D-173", derived_from="icd10cm", parse=parse_icd10_who_cm_bridge,',
+        'country="JP", decision="D-173", fetch=False, parse=parse_medis_byomei,',
+        '"jp_yj_atc.csv", country="JP", decision="D-174", parse=parse_jp_yj_atc, version_of=yj_version,',
+        'country="JP", decision="D-174", fetch=False, parse=parse_jlac10_loinc,',
+        '"ctcae-v5.0.xlsx", country="JP", decision="D-174", parse=parse_ctcae_v5_en, version_of=ctcae_en_version,',
+        'country="JP", decision="D-174", fetch=False, parse=parse_ctcae_v5_ja, version_of=ctcae_ja_version,',
+        '"ja_clinical_synonyms.csv", country="JP", decision="D-175", parse=parse_ja_synonyms,',
+        'country="JP", decision="D-317", fetch=False, parse=parse_jrct,',
+    )},
+    ("libs/tb_common/refdata_jp.py", '"countries": ["Japan"], "inclusion": _cell(row, idx, "inclusion"),'):
+        (1, "P13: a jRCT record's country, as the registry states it"),
+    ("libs/tb_common/retention.py", '"jp": {**_COMMON, "mail_log_days": 5 * 365},'):
+        (1, "P1: the retention rules the layer names (P1 retention_rules: jp)"),
+    ("libs/tb_common/site_country.py", 'COUNTRIES = ("jp", "tw", "us", "other")'): (1, "the wizards' country answers"),
+    ("libs/tb_common/site_country.py", '"jp": from_layer("jp"),'): (2, "the answer jp reads its set-up from the layer"),
+    ("services/console/i18n_firstrun.py", '"firstrun.country.jp": "Japan",'): (1, "the country question's words"),
+    ("services/datacore/lifecycle.py",
+     'RULE_ALIASES = {"jp": "jp_gcp_ii", "tw": "tw_trial"}  # the box-wide names before D-277 (TB_SAE_RULES)'):
+        (1, "P2: the rule sets' box-wide names before D-277"),
+    **{("services/datacore/lifecycle.py", line): (1, "P2: an SAE rule set's own country label (data)")
+       for line in (
+        '"jp_gcp": RuleSet("jp_gcp", "JP", "PMDA", {"sponsor": (1, 1), "irb": (1, 1), "regulator": (0, 0)}),',
+        '"jp_gcp_ii", "JP", "PMDA", {"sponsor": (1, 1), "irb": (1, 1), "regulator": (7, 15), '
+        'EXPECTED_REGULATOR: (15, 0)}',
+        '"jp_crb": RuleSet("jp_crb", "JP", "MHLW", {"sponsor": (0, 0), "irb": (7, 15), "regulator": (7, 15)}),',
+        '"jp_guideline": RuleSet("jp_guideline", "JP", "MHLW", {"sponsor": (0, 0), "irb": (1, 1), "regulator": (0, 0)}),',
+    )},
+    ("services/orchestrator/scenarios/consent.py",
+     'code = {"en": "en", "ja": "ja", "jp": "ja", "zh": "zh-TW", "zh-tw": "zh-TW", "tw": "zh-TW"}.get(tok.lower())'):
+        (1, "a language word: jp read as ja"),
+    ("services/sitesetup/ocr.py", 'LANGS = ("jpn", "chi_tra", "eng")'): (1, "the OCR engine's language name"),
+    ("tools/box/plan.py", 'return "jp" if tz == "Asia/Tokyo" else "tw"'):
+        (2, "an answers file without a country: retention rules from the zone, as before 10K-1 (LEGACY)"),
+    ("tools/settings_wizard.py", '"jp" if str(a.get("locale", "zh-TW")).startswith("ja") else "tw"'):
+        (1, "an answers file without a country: retention rules from the language (LEGACY)"),
+}  # fmt: skip
 JAPAN = ("jp", "jpn", "japan", "asia/tokyo")
+HOW = (
+    "A Japan behaviour belongs in the country layer: put its value in libs/tb_common/japan_profile.json under its "
+    "part (P1 to P16, 'values'), name the function that reads it in that part's 'readers' ('module:function'), and "
+    "read it there with tb_common.country_layer.value(country, part, key, default). If the line is not a behaviour "
+    "(a data label, a language word), pin it in ALLOWED in tests/unit/test_japan_profile_layer.py with the reason."
+)
 
 
-def _japan_literals() -> Counter[tuple[str, str]]:
-    found: Counter[tuple[str, str]] = Counter()
+def _text(node: ast.AST) -> str | None:
+    """A string the node always is: a constant (implicit concatenation included) or two such added."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        a, b = _text(node.left), _text(node.right)
+        return a + b if a is not None and b is not None else None
+    return None
+
+
+def _japan_lines() -> list[tuple[str, int, str]]:
+    """Every (file, line number, whole line) where product code writes a string that names Japan."""
+    out: list[tuple[str, int, str]] = []
     files = [*sorted((ROOT / "libs").rglob("*.py")), *sorted((ROOT / "services").rglob("*.py")),
              *sorted((ROOT / "tools" / "box").rglob("*.py")), ROOT / "tools" / "settings_wizard.py"]  # fmt: skip
     for f in files:
         if "generated" in f.parts or "tests" in f.parts or not f.is_file():
             continue
-        with f.open(encoding="utf-8") as fh:
-            for tok in tokenize.generate_tokens(fh.readline):
-                if tok.type != tokenize.STRING:
-                    continue
-                try:
-                    v = ast.literal_eval(tok.string)
-                except (ValueError, SyntaxError):
-                    continue
-                if isinstance(v, str) and v.strip().lower() in JAPAN:
-                    found[(f.relative_to(ROOT).as_posix(), v)] += 1
-    return found
+        src = f.read_text(encoding="utf-8")
+        lines = src.splitlines()
+        for node in ast.walk(ast.parse(src)):
+            v = _text(node)
+            if v is not None and v.strip().lower() in JAPAN and isinstance(node, ast.expr):
+                out.append((f.relative_to(ROOT).as_posix(), node.lineno, lines[node.lineno - 1].strip()))
+    return out
+
+
+def _unpinned() -> list[str]:
+    found = Counter((f, line) for f, _n, line in _japan_lines())
+    where = {(f, line): n for f, n, line in _japan_lines()}
+    return [f"{f}:{where[(f, line)]}: {line}" for (f, line), k in sorted(found.items())
+            if k > ALLOWED.get((f, line), (0, ""))[0]]  # fmt: skip
 
 
 def test_no_japan_behaviour_is_added_outside_the_layer() -> None:
-    found = _japan_literals()
-    new = {k: n for k, n in found.items() if n > ALLOWED.get(k, (0, ""))[0]}
-    assert not new, (
-        f"a Japan literal outside the layer: {new}. Put the behaviour's data in libs/tb_common/japan_profile.json "
-        "(its part P1 to P16) and read it with tb_common.country_layer.value; if it is not a behaviour, list it in "
-        "ALLOWED with the reason."
-    )
-    gone = {k for k, (n, _why) in ALLOWED.items() if found.get(k, 0) < n}
-    assert not gone, f"ALLOWED lists more than the code holds (tighten it): {gone}"
+    new = _unpinned()
+    assert not new, "a string naming Japan outside the layer:\n  " + "\n  ".join(new) + "\n" + HOW
+    found = Counter((f, line) for f, _n, line in _japan_lines())
+    gone = sorted(f"{f}: {line}" for (f, line), (n, _why) in ALLOWED.items() if found.get((f, line), 0) < n)
+    assert not gone, "ALLOWED pins a line the code no longer holds (take it out):\n  " + "\n  ".join(gone)
 
 
-def test_the_guard_sees_a_seventeenth_switch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A new `if country == "JP":` in product code is caught by the scan."""
+@pytest.mark.parametrize(
+    "code",
+    [
+        'def f(country):\n    return country == "JP"\n',
+        "def f(country):\n    return country.upper() == 'jp'\n",
+        'def f(country):\n    return country == "J" "P"\n',
+        'def f(country):\n    return country == "J" + "P"\n',
+        'JAPAN = {"Asia/Tokyo": 1}\n',
+    ],
+)
+def test_the_guard_sees_a_seventeenth_switch_and_names_its_file_and_line(code: str, tmp_path: Path,
+                                                                          monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
     src = tmp_path / "libs" / "tb_common"
     src.mkdir(parents=True)
-    (src / "new_switch.py").write_text('def f(country):\n    return country == "JP"\n', encoding="utf-8")
+    (src / "new_switch.py").write_text("# a new behaviour\n" + code, encoding="utf-8")
     monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
-    assert _japan_literals() == Counter({("libs/tb_common/new_switch.py", "JP"): 1})
+    got = _unpinned()
+    assert len(got) == 1 and got[0].startswith("libs/tb_common/new_switch.py:") and got[0].split(":")[1] in "23"
+
+
+def test_renaming_a_pinned_literal_in_place_is_not_enough(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A pinned line's slot cannot be reused: the same file with one rule-set label turned into a country test, the
+    count of "JP" unchanged, still fails."""
+    real = (ROOT / "services" / "datacore" / "lifecycle.py").read_text(encoding="utf-8")
+    label = '"jp_crb": RuleSet("jp_crb", "JP", "MHLW",'
+    assert label in real
+    swapped = real.replace(label, '"jp_crb": RuleSet("jp_crb", "XX", "MHLW",') + (
+        '\n\ndef switch(country: str) -> bool:\n    return country == "JP"\n'
+    )
+    dst = tmp_path / "services" / "datacore"
+    dst.mkdir(parents=True)
+    (dst / "lifecycle.py").write_text(swapped, encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    got = _unpinned()
+    assert got == [f"services/datacore/lifecycle.py:{swapped.splitlines().index('    return country == \"JP\"') + 1}: "
+                   'return country == "JP"']  # fmt: skip

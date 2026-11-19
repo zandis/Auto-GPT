@@ -499,6 +499,8 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
     # 10C-14: how a visit window counts, and why a day is off at the site (the schedule page)
     "life.unit.": lambda: ("days", "working"),
     "life.daysoff.why.": _values("tb_common.workdays", "DAY_OFF_KINDS"),
+    "site.layer.row.": _values("console.country_profile", "KEYS"),  # 10C-25 (D-1250)
+    "site.layer.source.": _values("console.country_profile", "SOURCES"),
     "life.daysoff.end.": lambda: ("soon", "past"),  # Calendar.runs_out
     "registry.status.": _values("orchestrator.candidates", "STATUSES"),
     "sstate.": _values("console.sitestore", "STUDY_STATES"),

@@ -136,7 +136,7 @@
       "readers": [
         "tb_common.site_country:TABLE"
       ],
-      "everywhere": "the Japanese device-claims rule (D-1228) is a lint over the project's own Japanese texts, on for every site",
+      "everywhere": "On everywhere, not switched by country: the Japanese device-claims rule (D-1228) is a lint over the project's own Japanese texts, by their language",
       "not_built": "the term set per study kind and the 治験参加者 switch (10C-6), the polite register (10C-7)"
     },
     "P6": {
@@ -166,7 +166,7 @@
       "readers": [
         "criteria_compiler.terminology.resolver:jp_ingredients"
       ],
-      "everywhere": "the licensed MEDIS, JLAC10 and YJ releases are read from the terminology store (D-137) wherever loaded",
+      "everywhere": "On everywhere, not switched by country: the licensed MEDIS, JLAC10 and YJ releases are read from the terminology store (D-137) wherever a site loads them",
       "not_built": "MEDIS modifiers as attributes (10C-9), JLAC11 (10C-20)"
     },
     "P8": {
@@ -224,7 +224,7 @@
         "10C-1"
       ],
       "decisions": [],
-      "everywhere": "the guard's Japanese rules (10C-1) are keyed by the characters of the text and run at every site"
+      "everywhere": "On everywhere, not switched by country: the guard's Japanese rules (10C-1) are keyed by the characters of the text and run at every site"
     },
     "P11": {
       "name": "Patient approach",
@@ -307,7 +307,7 @@
         "10F-8"
       ],
       "decisions": [],
-      "everywhere": "the CJK layout rules are on for every page in ja",
+      "everywhere": "On everywhere, not switched by country: the CJK layout rules apply to every page in ja, by its language",
       "not_built": "the JIS X 8341-3 statement (10F-8)"
     }
   },
