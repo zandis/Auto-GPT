@@ -12,11 +12,12 @@ negation cue that is not explained. A cue is explained only when it is shown to 
   *restriction* on", "化学療法後に*増悪*が認められない", "未經治療*的*晚期肺癌");
 * a cue that clearly governs another concept the line names, and not this one: not when that concept is listed with
   this one under the cue ("no prior surgery or chemotherapy", "手術及び化学療法の治療歴がない": both negated);
-* (card 10A-1b) a cue whose negated thing the line does not name as a concept, when the structure says so without
-  doubt: the cue and every mention of this concept are in different clauses split by a coordinating boundary (";",
-  a sentence end, "but", "however", が、, て、, 但, 且), no mention's clause carries a cue or goes on with a list, and
-  the cue's clause has an object of its own (not a time, a verb, "it", "any treatment", "任何形式之治療"). When the
-  cue's clause comes first the boundary must be adversative ("but", が、, 但). Anything less clear stays held.
+* (card 10A-1b) a cue that governs another extracted concept in another clause: the cue and every mention of this
+  concept are in clauses split by a coordinating boundary (";", a sentence end, "but", "however", が、, て、, 但, 且),
+  no mention's clause carries a cue, goes on with a list or is this concept alone, and the cue's clause names
+  another of the line's extracted concepts as what it negates. An object the extractor did not name never releases
+  a cue: "no prior cytotoxic treatment", "化療", "抗悪性腫瘍薬" may be this concept by another name. When the cue's
+  clause comes first the boundary must be adversative ("but", が、, 但). Anything less clear stays held.
 
 The scope reading (ConText's: a cue before the concept, or after it for "not allowed", "なし", "未曾…", in the same
 clause and within a few words; Harkema H, Dowling JN, Thornblade T, Chapman WW. ConText: an algorithm for determining
@@ -39,9 +40,10 @@ https://pypi.org/project/medspacy/1.3.1/, sdist sha256
   lists but, however, nevertheless, still, except, though, although, yet.
 
 This project's own: the criterion-line forms ("must not", "has not been <done>", "has never been <done>", "not
-allowed / permitted / eligible", "ineligible", "prohibited", "-naive", "naive to", "ex-smoker", "abstinent from",
-"non-pregnant", "untreated", "other than", "unless", "whereas", "provided"), every bound and blocking word, the word
-windows, and all Japanese and Chinese cues. The licence of the adapted words:
+allowed / permitted / eligible", "ineligible", "prohibited", card 10A-1b's "forbidden", "disallowed", "barred",
+"precluded", "contraindicated", "not to be given", "must be avoided", "other than", "except", "-naive", "naive to",
+"ex-smoker", "abstinent from", "non-pregnant", "untreated", "unless", "whereas", "provided"), every bound and
+blocking word, the word windows, and all Japanese and Chinese cues. The licence of the adapted words:
 
     MIT License. Copyright (c) 2020 medspacy. Permission is hereby granted, free of charge, to any person obtaining
     a copy of this software and associated documentation files (the "Software"), to deal in the Software without
@@ -72,13 +74,16 @@ _SPAN = 300  # characters read round a mention or a cue: a long line costs linea
 _EN_FORWARD = (
     r"absence\s+of|clear\s+of|declin\w*|den(?:y|ies|ied|ying)|free\s+(?:of|from)|lack(?:ed|s|ing)?(?:\s+of)?|"
     r"negative\s+for|never|rather\s+than|ruled?\s+out|to\s+exclude|with\s+no|without|none(?:\s+of)?|neither|nor|"
-    r"no|not|[a-z]+n['’]t|cannot|na[iï]ve\s+(?:to|for|with\s+respect\s+to)|abstinen\w*\s+from|exclud\w*"
+    r"no|not|[a-z]+n['’]t|cannot|na[iï]ve\s+(?:to|for|with\s+respect\s+to)|abstinen\w*\s+from|exclud\w*|"
+    # card 10A-1b: a prohibition or an exception before the concept ("forbidden: X", "other than X", "except X")
+    r"other\s+than|except(?:\s+for)?|contraindicat\w*|forbid\w*|prohibit\w*|disallow\w*|preclud\w*"
 )
 _PARTICIPLE = r"[a-z]+(?:ed|en|wn|ne|ht)"  # administered, given, shown, done, brought
 _EN_BACKWARD = (
     r"(?:is|are|was|were|has\s+been|have\s+been)?\s*(?:not\s+(?:been\s+)?(?:allowed|permitted|acceptable|"
     r"eligible|administered|given|received|used|performed|done|present|evident|reported)|ineligible|prohibited|"
-    r"excluded|negative|unlikely|resolved)"
+    r"forbidden|disallowed|barred|precluded|contraindicated|excluded|negative|unlikely|resolved)"
+    rf"|not\s+to\s+be\s+{_PARTICIPLE}|(?:must|should|is|are|to)\s+be\s+avoided"
     rf"|(?:has|have|had|must|should|may|is|are|was|were)\s+(?:not|never)\s+(?:have\s+)?(?:been\s+)?{_PARTICIPLE}"
     r"|[-–:]\s*(?:none|no|absent|negative)\b|[- ]na[iï]ve|[- ]free\b"
 )
@@ -101,7 +106,8 @@ _EN_PSEUDO = (
     r"\bgram[- ]negative\b|\bnot\s+(?:otherwise\s+)?specified\b|\bnot\s+elsewhere\s+classified\b|"
     r"\bnot\s+applicable\b|"
     r"\bnone\s+other\b|\bnevertheless\b|"
-    r"\bno\.\s*\d"  # "hospital No. 17": a number, not a negation (card 10A-1b)
+    r"\bno\.\s*\d|"  # "hospital No. 17": a number, not a negation (card 10A-1b)
+    r"\bnot\s+(?:contraindicated|prohibited|forbidden|precluded|barred|disallowed)\b"  # a negated prohibition
 )
 # a cue inside the concept word itself ("non-pregnant", "nonsmoker", "untreated", "ex-smoker")
 _EN_PREFIX = r"(?:non-?|un|ex-)"
@@ -114,7 +120,9 @@ _EN_WINDOW = 6  # words between a cue and its concept (NegEx's window is five)
 # ----------------------------------------------------------------------------------------------- Japanese cues (own)
 _JA_BACKWARD = (
     r"な[しいく]|無[しいく]|ません|おらず|せず|認めず|認めない|否定|除外|ではない|でない|ゼロ|"
-    r"未(?:施行|実施|投与|治療|経験|使用|受診)|ナイーブ|禁煙|禁酒|断酒"
+    r"未(?:施行|実施|投与|治療|経験|使用|受診)|ナイーブ|禁煙|禁酒|断酒|"
+    # card 10A-1b: a prohibition or an exception after the concept ("化学療法は不可", "禁止", "を除き", "以外")
+    r"不可(?!欠|避)|禁止|禁忌|許可しない|許容しない|認められない|除き|を除く|以外"
 )
 _JA_FORWARD = r"未|非|無"  # "未治療", "非妊娠", "無治療": a prefix right before the concept
 _JA_TERMINATE = r"ただし|但し|除き|を除く|以外"
@@ -122,7 +130,7 @@ _JA_BLOCK = r"増悪|進行|奏効|効果|反応|改善|適応|耐容|忍容|コ
 _JA_PSEUDO = (
     r"(?:を)?超えない|超えず|以上でない|以下でない|未満でない|を上回らない|を下回らない|未満|少ない|問わない|"
     r"限らない|に関わらず|かかわらず|制限(?:は)?なし|制限(?:は)?ない|上限(?:は)?なし|上限(?:は)?ない|非常|未来|未知|"
-    r"無作為|無料|"
+    r"無作為|無料|不可欠|不可避|禁止されていない|禁止しない|禁忌(?:は)?(?:なし|ない)|"
     # diagnosis names that only look negated ("非ホジキンリンパ腫", "無症状の胆石症"): descriptors, not negations
     r"非ホジキン|非小細胞|非アルコール性|非ST上昇|非浸潤|非扁平上皮|非転移|非結核性|非弁膜症性|非虚血性|非定型|"
     r"非代償性|非機能性|非遺伝性|無症状|無症候性|無症候"
@@ -130,9 +138,11 @@ _JA_PSEUDO = (
 # ------------------------------------------------------------------------------------------------ Chinese cues (own)
 _ZH_FORWARD = (
     r"從未|从未|未曾|不曾|尚未|並未|并未|須未|须未|必須未|必须未|沒有|没有|沒|没|無|无|不得|不可|不能|不應|不应|"
-    r"否認|否认|排除|未|非|免於|免于"
+    r"否認|否认|排除|未|非|免於|免于|"
+    # card 10A-1b: a prohibition, or an exception ("除X外"; not 切除, 摘除 …)
+    r"不允許|不允许|不准|禁止|禁用|禁忌|除了|(?<![切摘排去清割根免解移刪删])除(?=[^,，。;；]{1,12}外)"
 )
-_ZH_BACKWARD = r"未曾|從未|从未|未|沒有|没有|不曾|陰性|阴性"
+_ZH_BACKWARD = r"未曾|從未|从未|未|沒有|没有|不曾|陰性|阴性|不允許|不允许|不准|禁止|禁忌|不可"
 _ZH_TERMINATE = r"但|但是|除了|除外|然而|惟|唯|以外"
 _ZH_BLOCK = r"惡化|恶化|進展|进展|反應|反应|效果|改善|控制|耐受|復發|复发"
 _ZH_PSEUDO = (
@@ -140,7 +150,7 @@ _ZH_PSEUDO = (
     r"多于|少于|以上|以下)|無法|无法|無論|无论|無關|无关|未滿|未满|不限|無上限|无上限|無年齡上限|无年龄上限|"
     r"非小細胞|非小细胞|非何杰金|非霍奇金|非常|未來|未来|"
     r"非酒精性|非ST段上升|非ST段抬高|非浸潤|非浸润|非鱗狀|非鳞状|非轉移|非转移|非結核|非结核|非瓣膜性|非缺血性|"
-    r"非典型|非功能性|無症狀|无症状"
+    r"非典型|非功能性|無症狀|无症状|不可或缺|未禁止|不禁止"
 )
 _CJK_WINDOW = 8  # characters between a cue and its concept
 _CJK_BOUNDARY = r"[、。，,；;（）()「」\[\]【】\n]"  # a colon is not a boundary here ("化學治療:未曾接受")
@@ -319,17 +329,19 @@ def governed(text: str, terms: Iterable[str], other_terms: Iterable[str] = ()) -
 # "no prior surgery or chemotherapy", "手術及び化学療法の治療歴がない", "未曾接受手術或化學治療" negate both. The words
 # that join a list (or that say the other concept is done with this one: "with", "including", "による") are filler.
 _EN_FILLER = re.compile(
-    r"^(?:[\s,;/&()\-]|\b(?:or|and|nor|either|neither|any|other|prior|previous|of|the|a|an|with|by|using|including|"
+    r"^(?:[\s,;:/&()\-]|\b(?:or|and|nor|either|neither|any|other|prior|previous|of|the|a|an|with|by|using|including|"
     r"such|as|like|e\.g|i\.e|containing|both|plus)\b)*$",
     _FLAGS,
 )
 _CJK_FILLER = re.compile(
-    r"^(?:[\s,、/・()\-]|及び|および|並びに|ならびに|または|又は|もしくは|若しくは|を含む|含む|による|などの|等の|"
+    r"^(?:[\s,;:、/・()\-]|及び|および|並びに|ならびに|または|又は|もしくは|若しくは|を含む|含む|による|などの|等の|"
     r"或是|或者|以及|包括|包含|例如|や|と|の|も|か|及|或|和|與|与|並|并|暨|跟|等|如)*$"
 )
 # the reach of a list: a comma or 、 does not end it, a semicolon followed by "or" / "and" does not either
 _EN_LIST_END = re.compile(r";(?!\s*(?:or|and|nor)\b)|\.(?=\s|$)|\n", _FLAGS)
 _CJK_LIST_END = re.compile(r"[。;\n]")
+_EN_SENTENCE = re.compile(r"\.(?=\s|$)|\n")
+_CJK_SENTENCE = re.compile(r"[。\n]")
 
 
 def _list_after(text: str, i: int, cjk: bool, ja: bool) -> str:
@@ -338,7 +350,8 @@ def _list_after(text: str, i: int, cjk: bool, ja: bool) -> str:
 
 
 def _list_before(text: str, i: int, cjk: bool, ja: bool) -> str:
-    s = (_CJK_LIST_END if cjk else _EN_LIST_END).split(text[max(0, i - _SPAN) : i])[-1]
+    """A backward cue's list reaches back to the sentence's start: "化学療法；放射線療法：なし" negates both."""
+    s = (_CJK_SENTENCE if cjk else _EN_SENTENCE).split(text[max(0, i - _SPAN) : i])[-1]
     return _term_re(cjk, ja).split(s)[-1]
 
 
@@ -478,8 +491,8 @@ _CJK_WORD = re.compile(r"[㐀-鿿ァ-ヿA-Za-z]{2,}")
 class _Structure:
     """The clauses of a line and where this concept is named in them, read once per line (card 10A-1b)."""
 
-    def __init__(self, t: str, found: list[Mention], lang: str) -> None:
-        self.lang, self.cjk = lang, lang != "en"
+    def __init__(self, t: str, found: list[Mention], lang: str, others: list[re.Pattern[str]]) -> None:
+        self.lang, self.cjk, self.others = lang, lang != "en", others
         self.starts, self.ends, self.adv = [0], [], []
         for m in _BOUNDS[lang].finditer(t):
             self.ends.append(m.start())
@@ -498,26 +511,39 @@ class _Structure:
             clause = t[self.starts[k] : self.ends[k]]
             if any(p.search(clause) for p in _ANY_CUE) or _LIST_GOES_ON[lang].match(clause):
                 self.ok = False
+            bare = list(
+                clause
+            )  # a clause that is this concept alone is an item of a list ("化学療法；放射線療法：なし")
+            for s, e, _ in found:
+                if self.starts[k] <= s and e <= self.ends[k]:
+                    bare[s - self.starts[k] : e - self.starts[k]] = " " * (e - s)
+            if _filler("".join(bare).strip(" .。"), self.cjk):
+                self.ok = False
         self.last = max(self.own, default=-1)
 
     def at(self, i: int) -> int:
         return max(0, bisect.bisect_right(self.starts, i) - 1)
 
 
-def _has_object(clause: str, cue_start: int, cue_end: int, forward: bool, cjk: bool) -> bool:
-    """The cue's clause has a thing of its own for the cue to negate (after a forward cue, before a backward one)."""
+def _has_object(
+    clause: str, cue_start: int, cue_end: int, forward: bool, cjk: bool, others: list[re.Pattern[str]]
+) -> bool:
+    """The cue's clause names, as what it negates (after a forward cue, before a backward one), another concept the
+    extractor emitted for the line. An object it does not name may be this concept under another name ("no prior
+    cytotoxic treatment", "化療", "抗悪性腫瘍薬"): never enough. Nor is a clause that may take this concept in ("it",
+    "any treatment", "任何形式之治療")."""
     side = clause[cue_end:] if forward else clause[:cue_start]
     if cjk:
         if _CJK_ANAPHOR.search(clause):
             return False
-        return _CJK_WORD.search(_CJK_EMPTY.sub(" ", side)) is not None
+        return _CJK_WORD.search(_CJK_EMPTY.sub(" ", side)) is not None and _first(others, side) is not None
     if _EN_ANAPHOR.search(clause) or (forward and _EN_ADVERBIAL.match(side)):
         return False
     words = _WORD.findall(side)
     for i, w in enumerate(words):  # "any other treatment" may take in this concept; "biologic therapy" does not
         if _EN_GENERIC.match(w) and (i == 0 or _EN_EMPTY.match(words[i - 1])):
             return False
-    return any(not _EN_EMPTY.match(w) and not _EN_GENERIC.match(w) for w in words)
+    return _first(others, side) is not None
 
 
 def _elsewhere(t: str, start: int, end: int, forward: bool, st: _Structure) -> bool:
@@ -533,7 +559,7 @@ def _elsewhere(t: str, start: int, end: int, forward: bool, st: _Structure) -> b
     cs, ce = max(st.starts[c], start - _SPAN), min(st.ends[c], end + _SPAN)
     if st.cjk and not forward and not t[cs:start].strip(" ,、"):
         forward = True  # "…,且未發現胎兒異常": at its clause's start a backward cue reads forward
-    return _has_object(t[cs:ce], start - cs, end - cs, forward, st.cjk)
+    return _has_object(t[cs:ce], start - cs, end - cs, forward, st.cjk, st.others)
 
 
 def unexplained_cue(text: str, terms: Iterable[str], other_terms: Iterable[str] = ()) -> bool:
@@ -548,7 +574,7 @@ def unexplained_cue(text: str, terms: Iterable[str], other_terms: Iterable[str] 
 
     def elsewhere(m: re.Match[str], forward: bool) -> bool:
         if not built:
-            built.append(_Structure(t, found, lang))
+            built.append(_Structure(t, found, lang, others))
         return _elsewhere(t, m.start(), m.end(), forward, built[0])
 
     for m in _EN_FWD.finditer(t):

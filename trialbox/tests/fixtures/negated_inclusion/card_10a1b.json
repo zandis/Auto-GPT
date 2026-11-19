@@ -572,7 +572,8 @@
    "expect": "runs",
    "source": "card-10A-1b",
    "others": [],
-   "why": "the negated thing is not a candidate"
+   "why": "the negated thing is not a candidate",
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
   },
   {
    "lang": "en",
@@ -623,7 +624,8 @@
    "expect": "runs",
    "source": "card-10A-1b",
    "others": [],
-   "why": "the negated thing is not a candidate"
+   "why": "the negated thing is not a candidate",
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
   },
   {
    "lang": "en",
@@ -634,7 +636,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "card-10A-1b",
-   "others": []
+   "others": [],
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
   },
   {
    "lang": "en",
@@ -645,7 +648,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "card-10A-1b",
-   "others": []
+   "others": [],
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
   },
   {
    "lang": "en",
@@ -685,7 +689,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "card-10A-1b",
-   "others": []
+   "others": [],
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
   },
   {
    "lang": "en",
@@ -709,7 +714,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "card-10A-1b",
-   "others": []
+   "others": [],
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
   },
   {
    "lang": "en",
@@ -760,7 +766,8 @@
    "expect": "runs",
    "source": "card-10A-1b",
    "others": [],
-   "why": "the cue's clause first, an adversative boundary"
+   "why": "the cue's clause first, an adversative boundary",
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
   },
   {
    "lang": "en",
@@ -842,7 +849,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "card-10A-1b",
-   "others": []
+   "others": [],
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
   },
   {
    "lang": "ja",
@@ -856,7 +864,8 @@
    "expect": "runs",
    "source": "card-10A-1b",
    "others": [],
-   "why": "the cue's clause first, an adversative boundary"
+   "why": "the cue's clause first, an adversative boundary",
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
   },
   {
    "lang": "ja",
@@ -900,7 +909,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "card-10A-1b",
-   "others": []
+   "others": [],
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
   },
   {
    "lang": "ja",
@@ -942,7 +952,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "card-10A-1b",
-   "others": []
+   "others": [],
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
   },
   {
    "lang": "ja",
@@ -985,7 +996,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "card-10A-1b",
-   "others": []
+   "others": [],
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
   },
   {
    "lang": "zh",
@@ -999,7 +1011,8 @@
    "expect": "runs",
    "source": "card-10A-1b",
    "others": [],
-   "why": "the cue's clause first, an adversative boundary"
+   "why": "the cue's clause first, an adversative boundary",
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
   },
   {
    "lang": "zh",
@@ -1042,7 +1055,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "card-10A-1b",
-   "others": []
+   "others": [],
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
   },
   {
    "lang": "zh",
@@ -1055,7 +1069,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "card-10A-1b",
-   "others": []
+   "others": [],
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
   },
   {
    "lang": "zh",
@@ -1082,7 +1097,8 @@
    "logic": "presence",
    "expect": "runs",
    "source": "card-10A-1b",
-   "others": []
+   "others": [],
+   "over_held": "held after card 10A-1b: the negated thing is not among the line's concept candidates, and a cue is released only over another extracted concept (an unnamed object may be this concept by another name)"
   },
   {
    "lang": "zh",

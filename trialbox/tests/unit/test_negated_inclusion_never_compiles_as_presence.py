@@ -119,13 +119,15 @@ def _score(rows: list[dict[str, Any]]) -> tuple[int, int, int, int]:
 
 
 def test_the_counts_the_pull_request_reports() -> None:
-    """Card 10A-1's table: every negated line held; 6 of the 69 that should run are held by the fail-safe (8 before
-    card 10A-1b). The lines unseen at design: every negated line held; 12 of the 23 that should run are held (20
-    before). Card 10A-1b's own lines: every negated line held (12 of 40 ran before it: a cue over a list); 1 of the 40
-    that should run is held (18 before)."""
-    assert _score(ROWS) == (116, 116, 6, 69)
-    assert _score(UNSEEN) == (21, 21, 12, 23)
-    assert _score(CARD) == (40, 40, 1, 40)
+    """Every negated line of the four tables held. Card 10A-1b held 12 of its own 40 negated lines that ran before it
+    (a cue over a list) and the coordinator's 34 that ran (cue words such as "forbidden", 不可, 禁止, 不允許, "other
+    than X"; a synonym of the coded concept). The lines that should run and are held: card 10A-1's table 8 of 69, the
+    lines unseen at design 20 of 23 (the same as before card 10A-1b), card 10A-1b's own 17 of 40 (18 before), the
+    coordinator's 0 of 8."""
+    assert _score(ROWS) == (116, 116, 8, 69)
+    assert _score(UNSEEN) == (21, 21, 20, 23)
+    assert _score(CARD) == (40, 40, 17, 40)
+    assert _score(REVIEW) == (36, 36, 0, 8)
     assert {r["lang"] for r in ALL} == {"en", "ja", "zh"}
 
 
