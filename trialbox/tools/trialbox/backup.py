@@ -537,14 +537,11 @@ def _copy_in(src: DbSource, table: str, data: Path) -> None:
         con.commit()
 
 
-def refdata_unpack_dir(folder: Path, env: Mapping[str, str] | None = None) -> Path | None:
-    """Where a restore unpacks a reference pack (several GB): ``TB_REFDATA_UNPACK_DIR``, else beside the kept packs
-    (``folder``'s parent, on the disk that holds them), else None (the temporary folder). 10G-1 (D-1323): never a
-    hardened container's tmpfs /tmp, which counts against its memory limit; the installer and the update unpack on
-    the objects volume (``TMPDIR=/data/objects``) for the same reason."""
-    env = os.environ if env is None else env
-    if env.get("TB_REFDATA_UNPACK_DIR"):
-        return Path(env["TB_REFDATA_UNPACK_DIR"])
+def refdata_unpack_dir(folder: Path) -> Path | None:
+    """Where a restore unpacks a reference pack (several GB): beside the kept packs (``folder``'s parent, on the disk
+    that holds them), else None (the temporary folder, ``TMPDIR``). 10G-1 (D-1323): never a tmpfs /tmp that counts
+    against a container's memory limit; the installer and the update unpack on the objects volume
+    (``TMPDIR=/data/objects``) for the same reason."""
     return folder.parent if os.access(folder.parent, os.W_OK | os.X_OK) else None
 
 

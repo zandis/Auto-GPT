@@ -42,17 +42,13 @@ def test_reload_refdata_unpacks_beside_the_kept_packs(tmp_path: Path, monkeypatc
     monkeypatch.setattr(rd, "opened", opened)
     monkeypatch.setattr(rd, "RefStore", Store)
     monkeypatch.setattr(rd, "verify", lambda pack: {"pack_id": "pack-a"})
-    monkeypatch.delenv("TB_REFDATA_UNPACK_DIR", raising=False)
     src = bk.DbSource("trialbox_wf", "postgresql://x@db/trialbox_wf", ())
     before = tempfile.tempdir
     out = bk.reload_refdata(src, [{"pack_id": "pack-a", "origin": "vendor"}], kept)
     assert out == {"reloaded": ["pack-a"], "missing": []} and loaded == ["trialbox restore"]
     assert seen == [str(kept.parent)]  # on the disk that holds the packs, not the temporary folder
     assert tempfile.tempdir == before  # put back after the block
-    # TB_REFDATA_UNPACK_DIR names it (a container's volume); an explicit folder wins over both
-    monkeypatch.setenv("TB_REFDATA_UNPACK_DIR", str(tmp_path / "vol"))
-    assert bk.refdata_unpack_dir(kept) == tmp_path / "vol"
-    bk.reload_refdata(src, [{"pack_id": "pack-a", "origin": "vendor"}], kept)
-    bk.reload_refdata(src, [{"pack_id": "pack-a", "origin": "vendor"}], kept, unpack_in=tmp_path / "given")
-    assert seen[1:] == [str(tmp_path / "vol"), str(tmp_path / "given")]
+    # an explicit folder (a container's volume) wins
+    bk.reload_refdata(src, [{"pack_id": "pack-a", "origin": "vendor"}], kept, unpack_in=tmp_path / "vol")
+    assert seen[1:] == [str(tmp_path / "vol")]
     assert not list((tmp_path / "vol").iterdir()) and not list(kept.parent.glob("tb-refdata-*"))

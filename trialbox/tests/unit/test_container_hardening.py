@@ -151,8 +151,14 @@ def _cp_sources() -> list[str]:
              *sorted((root / "tools" / "box").glob("*.py"))]  # fmt: skip
     files += [root / "tools" / f for f in ("restore_drill.py", "backup_drill.py", "update_drill.py")]
     rels = [str(f.relative_to(root)) for f in files if f.is_file()]
-    assert {"deploy/install.sh", "tools/trialbox/update.py", "tools/trialbox/backup_schedule.py",
-            "tools/trialbox/backup.py", "tools/trialbox/restore_drill.py", "tools/restore_drill.py"} <= set(rels)
+    assert {
+        "deploy/install.sh",
+        "tools/trialbox/update.py",
+        "tools/trialbox/backup_schedule.py",
+        "tools/trialbox/backup.py",
+        "tools/trialbox/restore_drill.py",
+        "tools/restore_drill.py",
+    } <= set(rels)
     return rels
 
 
@@ -228,7 +234,7 @@ def test_nothing_copies_a_file_out_of_a_tmpfs() -> None:
         found += _copies_out_of_a_tmpfs(rel, (root / rel).read_text(encoding="utf-8"), tmpfs)
     assert found == []
     # negative: the nightly's line the rehearsal caught is found, through its module constant
-    bad = 'CONTAINER_SPOOL = "/tmp/tb-backup"\nself.box.run(self.box._c("cp", f"db:{CONTAINER_SPOOL}/.", str(work)))\n'
+    bad = 'CONTAINER_SPOOL = "/tmp/spool"\nself.box.run(self.box._c("cp", f"db:{CONTAINER_SPOOL}/.", str(work)))\n'
     assert len(_copies_out_of_a_tmpfs("tools/trialbox/backup_schedule.py", bad, tmpfs)) == 1
     assert _copies_out_of_a_tmpfs("x.sh", '  "${COMPOSE[@]}" cp db:/tmp/x.sql "$OUT/"', tmpfs)
     # a copy out of a volume is not one (caddy's root certificate, install.sh)

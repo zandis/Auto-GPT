@@ -103,8 +103,8 @@ demo container, not a compose service. `test_the_streamed_snapshot_script_runs_o
 script on a real PostgreSQL: stdout is a dump `pg_restore --list` reads, and the files parse.
 
 The restore side: `backup.reload_refdata` unpacked each vendor pack in the temporary folder (`tb_common.refdata.opened`,
-`mkdtemp`). It now unpacks in `TB_REFDATA_UNPACK_DIR`, else beside the kept packs (`deploy/refdata`, the disk that
-holds them), the shape the installer and the update use (`TMPDIR=/data/objects`);
+`mkdtemp`). It now unpacks beside the kept packs (`deploy/refdata`, the disk that holds them; a caller can name a
+volume, `unpack_in`), the shape the installer and the update use (`TMPDIR=/data/objects`);
 `test_reload_refdata_unpacks_beside_the_kept_packs` pins it. On a compose box `trialbox restore` runs on the host, so
 this was not a container tmpfs there; it keeps a several-GB unpack off a host or a job whose /tmp is a tmpfs.
 

@@ -541,7 +541,9 @@ def test_the_streamed_snapshot_script_runs_on_this_postgres(tmp_path: Path, db_u
                        check=True, stdout=out, stderr=subprocess.PIPE)  # fmt: skip
     assert not (spool / "trialbox_wf.dump").exists()
     assert (work / "trialbox_wf.dump").read_bytes()[:5] == b"PGDMP"  # psql's stdout carried the dump alone
-    listed = subprocess.run(["pg_restore", "--list", str(work / "trialbox_wf.dump")], capture_output=True, text=True)
+    listed = subprocess.run(
+        ["pg_restore", "--list", str(work / "trialbox_wf.dump")], check=False, capture_output=True, text=True
+    )
     assert listed.returncode == 0 and "marks" in listed.stdout, listed.stderr
     for f in spool.glob("trialbox_wf.*"):
         if f.name != "trialbox_wf.sql":

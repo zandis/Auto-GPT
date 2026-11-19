@@ -881,7 +881,12 @@ class ComposeStandIn:
                 self.spool.mkdir(parents=True, exist_ok=True)
                 refdata = f"{self.prefix}refdata" if self.db == "trialbox_wf" else None
                 script = bs.snapshot_script(
-                    str(self.spool), self.db, "pg_dump", f'--dbname "{self.dsn}"', [f"{self.prefix}*"], refdata,
+                    str(self.spool),
+                    self.db,
+                    "pg_dump",
+                    f'--dbname "{self.dsn}"',
+                    [f"{self.prefix}*"],
+                    refdata,
                     dump_to_stdout=stdout_file is not None,
                 )
                 f = self.spool / f"{self.db}.sql"
