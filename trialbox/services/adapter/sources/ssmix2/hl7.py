@@ -205,8 +205,22 @@ _CHARSETS = frozenset({
 ENCODING_ENV = "TB_SSMIX2_ENCODING"
 _EUC = ("EUC-JP", "EUC_JP", "EUCJP")
 _SJIS = ("SHIFT_JIS", "SHIFT-JIS", "SJIS", "MS932", "CP932", "WINDOWS-31J")
-#: the bytes that carry a message's structure: a decode that changes how many there are has moved a field
+_UTF8 = ("UNICODE UTF-8", "UTF-8", "UTF8", "UNICODE")
+#: an 8-bit encoding's names (MSH-18 or the site's setting) -> the codec read strictly
+_DECLARED = {**dict.fromkeys(_EUC, "euc_jp"), **dict.fromkeys(_SJIS, "cp932"), **dict.fromkeys(_UTF8, "utf-8")}
+#: the bytes that carry a message's structure
 _STRUCTURE = "|^~&\\\r\n"
+#: control characters a decoded message may not hold: all but its segment ends (third review of PR #1095 item 2)
+_C0 = re.compile(r"[\x00-\x09\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def site_encoding(environ: dict[str, str] | None = None) -> str:
+    """The codec of ``TB_SSMIX2_ENCODING`` (``euc_jp``, ``cp932``, ``utf-8``), empty when unset. An unknown value is an
+    error, raised where the reader starts (third review of PR #1095 item 2), never ignored."""
+    value = (environ if environ is not None else os.environ).get(ENCODING_ENV, "").strip().upper()
+    if value and value not in _DECLARED:
+        raise ValueError(f"{ENCODING_ENV}={value!r}: one of EUC-JP, SHIFT_JIS, UTF-8")
+    return _DECLARED.get(value, "")
 
 
 def _msh18(data: bytes) -> str:
@@ -218,21 +232,48 @@ def _msh18(data: bytes) -> str:
     return "MSH-18 names no character set of HL7 table 0211"
 
 
+def _declared(data: bytes) -> tuple[str, str]:
+    """``(codec, who said it)`` of the 8-bit encoding MSH-18 names, else the site's setting, else ``("", "")``. MSH-18
+    naming two different 8-bit encodings is refused."""
+    named = {_DECLARED[p] for p in (x.strip().upper() for x in charset_of(data).split("~")) if p in _DECLARED}
+    if len(named) > 1:
+        raise Undecodable(f"MSH-18 names two encodings ({_msh18(data)})")
+    if named:
+        return named.pop(), _msh18(data)
+    site = site_encoding()
+    return (site, ENCODING_ENV) if site else ("", "")
+
+
+def _checked(data: bytes, text: str, codec: str) -> tuple[str, str]:
+    """The check every reading passes, declared or not (third review of PR #1095 item 2): no control character but
+    the segment ends (an ESC or SO left in a name is bytes of another encoding)."""
+    if _C0.search(text):
+        raise Undecodable(f"a control character in the text read as {codec} ({_msh18(data)})")
+    return text, codec
+
+
 def decode_bytes(data: bytes) -> tuple[str, str]:
-    """``(text, codec)`` of one message, read strictly (STD-020). Escape sequences: the ISO-2022-JP family
-    (``iso2022_jp``, else the extended reading of :func:`_iso2022`); a set left open at a segment's end is refused.
-    Bytes above 0x7F: UTF-8 when the bytes are valid UTF-8 (a Shift_JIS text almost never is); else the encoding
-    MSH-18 or the site (``TB_SSMIX2_ENCODING``) names, EUC-JP or Shift_JIS; else Shift_JIS (cp932) only when the
-    reading is not in doubt: refused when it changes the count of separators and segment ends, or when the same
-    bytes are also valid EUC-JP (second review of PR #1095 item 1: never a guess between the two). Plain ASCII as
-    ASCII. Raises :class:`Undecodable` when nothing reads it, or not for certain."""
+    """``(text, codec)`` of one message, read strictly (STD-020), never with a replacement character and never
+    falling back to another encoding once one is declared (third review of PR #1095 items 1 and 2):
+
+    * Escape sequences and no 8-bit byte: the ISO-2022-JP family (``iso2022_jp``, else the extended reading of
+      :func:`_iso2022`); a set left open at a segment's end is refused.
+    * 8-bit bytes and an encoding declared (MSH-18 first, else the site's ``TB_SSMIX2_ENCODING``): that encoding,
+      read strictly; Shift_JIS is then checked as below.
+    * 8-bit bytes and nothing declared: UTF-8 when it is valid UTF-8 holding a character above U+07FF (as Japanese
+      text does), or valid UTF-8 that Shift_JIS cannot read; else Shift_JIS (cp932) when it is certain; anything
+      both could be is refused.
+    * Shift_JIS, declared or not, is refused when it loses a separator after a lead byte EUC-JP also writes, or
+      when the same bytes are also valid EUC-JP or valid UTF-8 (an encoding mislabelled).
+    * Every reading: no control character but the segment ends. Plain ASCII as ASCII.
+
+    Raises :class:`Undecodable` when nothing reads it, or not for certain."""
     if data.startswith(b"\xef\xbb\xbf"):
         data = data[3:]
     high = any(b > 0x7F for b in data)
     if (_ESC_BYTE in data or b"\x0e" in data) and not high:
-        # read by :func:`_iso2022`, which resets the character set at every segment end (an escape left open does
-        # not turn the next segments into kanji) and reads SO / SI half-width katakana; reported as plain
-        # ``iso2022_jp`` when Python's codec reads it the same (review of PR #1095 item 9)
+        # read by :func:`_iso2022`, which refuses a set left open at a segment end and reads SO / SI half-width
+        # katakana; reported as plain ``iso2022_jp`` when Python's codec reads it the same
         try:
             text = _iso2022(data)
         except (UnicodeDecodeError, KeyError) as exc:
@@ -243,40 +284,66 @@ def decode_bytes(data: bytes) -> tuple[str, str]:
             same = data.decode("iso2022_jp") == text
         except UnicodeDecodeError:
             same = False
-        return text, "iso2022_jp" if same else "iso2022_jp_ext"
+        return _checked(data, text, "iso2022_jp" if same else "iso2022_jp_ext")
     if not high:
-        return data.decode("ascii"), "ascii"
+        return _checked(data, data.decode("ascii"), "ascii")
+    codec, who = _declared(data)
+    if codec:
+        try:
+            text = data.decode(codec)
+        except UnicodeDecodeError as exc:
+            raise Undecodable(f"not {codec} although {who} says so") from exc
+        if codec == "cp932":
+            _shift_jis_certain(data, text, f"although {who} says Shift_JIS", declared=True)
+            text = text.translate(_CP932_TO_JIS)
+        return _checked(data, text, codec)
     try:
-        return data.decode("utf-8"), "utf-8"
+        text = data.decode("utf-8")
     except UnicodeDecodeError:
         pass
-    named = {part.strip().upper() for part in charset_of(data).split("~") if part.strip()}
-    site = os.environ.get(ENCODING_ENV, "").strip().upper()
-    if named & set(_EUC) or (not named & set(_SJIS) and site in _EUC):
-        why = _msh18(data) if named & set(_EUC) else f"{ENCODING_ENV}={site}"
-        try:  # EUC-JP named: read as EUC-JP, never as Shift_JIS mojibake (review of PR #1095 item 9)
-            return _same_structure(data, data.decode("euc_jp"), "EUC-JP"), "euc_jp"
-        except UnicodeDecodeError as exc:
-            raise Undecodable(f"not EUC-JP although {why} says so") from exc
+    else:
+        if max(map(ord, text)) > 0x7FF or not _reads(data, "cp932"):
+            return _checked(data, text, "utf-8")
+        raise Undecodable(f"UTF-8 or Shift_JIS, not named ({_msh18(data)}; the site may set {ENCODING_ENV})")
     try:
         text = data.decode("cp932")
     except UnicodeDecodeError as exc:
         raise Undecodable(f"neither UTF-8 nor Shift_JIS ({_msh18(data)})") from exc
+    _shift_jis_certain(data, text, "not named", declared=False)
+    return _checked(data, text.translate(_CP932_TO_JIS), "cp932")
+
+
+def _reads(data: bytes, codec: str) -> bool:
+    try:
+        data.decode(codec)
+    except UnicodeDecodeError:
+        return False
+    return True
+
+
+def _shift_jis_certain(data: bytes, text: str, said: str, declared: bool) -> None:
+    """Refuse a Shift_JIS reading in doubt (third review of PR #1095 item 2), declared or not:
+
+    * a byte Shift_JIS does not use;
+    * a separator lost after a lead byte EUC-JP also writes (EUC-JP read wrongly: every later field shifts); a
+      separator after a lead byte EUC-JP never writes (− 0x817C, ポ 0x837C) is Shift_JIS's own character;
+    * bytes that are valid UTF-8 holding a character above U+07FF (UTF-8 Japanese mislabelled);
+    * bytes that are valid EUC-JP: undeclared, always; declared, when they also look like EUC-JP, with no byte in
+      0x80-0x9F (where Shift_JIS writes its hiragana, punctuation and first-level kanji) and a lead byte from 0xE0.
+      A declared file of half-width katakana alone, often valid EUC-JP too, is read as it says."""
     if any(c in _CP932_STRAYS for c in text):  # Python's cp932 reads these lone bytes; Shift_JIS has no such byte
-        raise Undecodable(f"neither UTF-8 nor Shift_JIS: a byte Shift_JIS does not use ({_msh18(data)})")
-    if not named & set(_SJIS) and site not in _SJIS:
-        # undeclared: read only when not in doubt. A separator taken as a trail byte by a lead byte EUC-JP also
-        # writes is EUC-JP read wrongly, and every later field would shift; a separator after a lead byte EUC-JP
-        # never writes (− 0x817C, ポ 0x837C) is Shift_JIS's own character. A declared file is read by characters
-        if _swallowed(data):
-            raise Undecodable(f"read as Shift_JIS, a separator is lost into a character ({_msh18(data)})")
-        try:
-            data.decode("euc_jp")
-        except UnicodeDecodeError:
-            pass
-        else:  # both read it, and nothing says which: set aside, never a guess
-            raise Undecodable(f"Shift_JIS or EUC-JP, not named ({_msh18(data)}; the site may set {ENCODING_ENV})")
-    return text.translate(_CP932_TO_JIS), "cp932"
+        raise Undecodable(f"not Shift_JIS: a byte Shift_JIS does not use ({_msh18(data)})")
+    if _swallowed(data):
+        raise Undecodable(f"read as Shift_JIS, a separator is lost into a character ({_msh18(data)})")
+    try:
+        utf8 = data.decode("utf-8")
+    except UnicodeDecodeError:
+        utf8 = ""
+    if utf8 and max(map(ord, utf8)) > 0x7FF:
+        raise Undecodable(f"Shift_JIS or UTF-8, {said} ({_msh18(data)}; the site may set {ENCODING_ENV})")
+    euc_like = not any(0x80 <= b <= 0x9F for b in data) and any(b >= 0xE0 for b in data)
+    if _reads(data, "euc_jp") and (not declared or euc_like):
+        raise Undecodable(f"Shift_JIS or EUC-JP, {said} ({_msh18(data)}; the site may set {ENCODING_ENV})")
 
 
 def _swallowed(data: bytes) -> bool:
@@ -292,14 +359,6 @@ def _swallowed(data: bytes) -> bool:
         else:
             i += 1
     return False
-
-
-def _same_structure(data: bytes, text: str, codec: str) -> str:
-    """``text`` when it has as many separators and segment ends as the bytes: a multi-byte reading that swallowed a
-    ``|`` or ``^`` (a lead byte of the wrong encoding) would shift every field after it."""
-    if any(data.count(c.encode("ascii")) != text.count(c) for c in _STRUCTURE):
-        raise Undecodable(f"read as {codec}, a separator or segment end is lost ({_msh18(data)})")
-    return text
 
 
 def decode(data: bytes) -> str:

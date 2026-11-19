@@ -579,6 +579,7 @@ class Ssmix2Source:
         self.order_key = order_key or os.environ.get(ORDER_KEY_ENV) or DEFAULT_ORDER_KEY
         if self.order_key not in ORDER_KEYS:
             raise ValueError(f"{ORDER_KEY_ENV}={self.order_key!r}: the key is one of {', '.join(ORDER_KEYS)}")
+        hl7.site_encoding()  # an unknown TB_SSMIX2_ENCODING stops the reader here (third review of PR #1095 item 2)
         self._index: dict[str, list[StoredFile]] | None = None
         self._repeated: set[tuple[str, str, str]] = set()  # (patient, type, order no) live on several days
         self._gone: dict[str, list[StoredFile]] = {}  # newest version deleted (flag 0), by message type
