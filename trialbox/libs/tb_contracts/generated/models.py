@@ -2098,6 +2098,21 @@ class SiteSchema(BaseModel):
     """
 
 
+class TableReadTimes(BaseModel):
+    """
+    10E-9: one table's (or the whole source's) read: messages, the connector's own seconds, the 95th percentile per message read from the histogram as its bucket's upper bound (null with no message, or when it falls above the last bound, which the histogram then shows), and the histogram by upper bound in milliseconds
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    messages: int = Field(..., ge=0)
+    seconds: float = Field(..., ge=0.0)
+    p95_ms: float | None
+    histogram: dict[str, int]
+
+
 class TerminologyTable(BaseModel):
     """
     One table loaded at install that a compile read (TERM-2 follow-up): its name, the URI of the code system it serves (site for a site list, as lane E's terminology_refused entries name it), its version and the sha256 of its manifest line. Codes and names only, never a patient value.
@@ -2409,6 +2424,23 @@ class CohortTable(BaseModel):
     rows: list[CohortRow]
 
 
+class ConnectorReport(BaseModel):
+    """
+    10E-9: the night's connector (the source kind), its whole read and each table's
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+    )
+    kind: str
+    messages: int = Field(..., ge=0)
+    seconds: float = Field(..., ge=0.0)
+    p95_ms: float | None
+    histogram: dict[str, int]
+    tables: dict[str, TableReadTimes]
+
+
 class CriterionVerdict(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2562,7 +2594,7 @@ class IEBlock(BaseModel):
 
 class IngestReport(BaseModel):
     """
-    adapter ingest_report.json (SPEC 4.6). Schema version 1.5.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop; 1.5.0: fhir_unread).
+    adapter ingest_report.json (SPEC 4.6). Schema version 1.6.0 (1.1.0: fhir_deleted; 1.2.0: profile_validation; 1.3.0: tombstoned, held; 1.4.0: omop; 1.5.0: fhir_unread; 1.6.0: connector).
     """
 
     model_config = ConfigDict(
@@ -2600,6 +2632,10 @@ class IngestReport(BaseModel):
     fhir_unread: dict[str, dict[str, int]] | None = None
     """
     per resource type, how many resources carry each top-level element the box does not read (the inbound FHIR contract, docs/data/01, T-616); '*' counts a resource type not read at all. Element names only, never values
+    """
+    connector: ConnectorReport | None = None
+    """
+    10E-9 (review 13-10): how long the connector took per message (a CSV or SQL row, an SS-MIX2 message, a FHIR resource), per table and for the whole source: counts and times only, never a value of a row. Absent in a report written before 1.6.0
     """
     omop: OmopLoadSummary | None = None
     """

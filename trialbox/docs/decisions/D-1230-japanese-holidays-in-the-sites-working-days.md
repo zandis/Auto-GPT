@@ -46,7 +46,7 @@ holiday list existed only for plan dates (`tools/gen_calendar.py`).
    not stop the others' in the round.
 6. **Visit windows** count working days only for a visit the protocol counts that way (a per-visit choice on the
    schedule page, shown only at a site whose country has a holiday list, stored with the schedule: the data core's
-   version 10). Its days before and after are the site's
+   version 11, after D-1232's version 10). Its days before and after are the site's
    working days; the due day stays the protocol's day number. Other visits count calendar days as before. The
    possible-deviation check reads the same windows.
 
