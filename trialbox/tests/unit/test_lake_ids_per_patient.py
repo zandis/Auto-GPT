@@ -417,6 +417,13 @@ def test_two_rows_of_one_patient_with_one_number_and_other_content_are_counted(t
     assert comp["id_collisions"] == {"Condition": 1}
     assert len(lake(tmp_path, "2026-10-01")["Condition"]) == 1
     assert rep is not None
+    # the night's own record (the audit event the data-ops batch row keeps its counts from) says it too
+    events = [json.loads(line) for f in sorted((tmp_path / "audit").rglob("*.jsonl")) for line in f.open()]
+    (night_event,) = [e for e in events if str(e.get("event", "")).startswith("ingest.")]
+    assert night_event["detail"]["id_collisions"] == {"Condition": 1}
+    from datacore.dataops import DETAIL_KEYS
+
+    assert {"id_collisions", "references_to_another_patient", "deletes_without_patient"} <= set(DETAIL_KEYS)
 
 
 def test_one_row_sent_twice_is_not_a_collision(tmp_path: Path) -> None:

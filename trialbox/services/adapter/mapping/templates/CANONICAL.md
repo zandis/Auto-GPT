@@ -31,6 +31,11 @@ line carried, when the site's drug master turned a HOT or local code into `nhi_d
 (the ingredient, T-610; empty when the line reached none); note_type
 `report` and `document` (extended-storage documents).
 
+**Numbers may repeat across patients (D-1253).** The `key` of a table need not be unique across the hospital, only
+for one patient: every record id is made from the number and the patient's chart number (`mrn`), and a number that
+names a visit (`enc_no`) is read as that patient's visit. A row must carry its `mrn`, a deleted row too (a delete
+without it removes nothing and is counted).
+
 `identity: {name: name, national_id: id_no}` on the patient table keeps the name and national id encrypted in the
 pid map (TWPAS only); they never reach the lake.
 

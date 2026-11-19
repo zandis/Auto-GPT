@@ -1297,6 +1297,21 @@ def _run_ingest(
                 # T-611: what the readiness page shows for a held night (tables only, never a row)
                 "incomplete": completeness["problems"] or None,
                 "duplicate_keys": {t: v["duplicate_keys"] for t, v in tables.items() if v["duplicate_keys"]} or None,
+                # D-1253: two of tonight's rows with one id and other content (the last kept), per record type; links
+                # by number left out because the number was only another patient's; deletes that named no patient
+                "id_collisions": dict(sorted(collisions.items())) or None,
+                "references_to_another_patient": {
+                    t: sum(v["references_to_another_patient"].values())
+                    for t, v in sorted(tables.items())
+                    if v.get("references_to_another_patient")
+                }
+                or None,
+                "deletes_without_patient": {
+                    t: v["deletes_without_patient"]
+                    for t, v in sorted(tables.items())
+                    if v.get("deletes_without_patient")
+                }
+                or None,
                 "orphans": completeness["orphans"] or None,
                 # NEW-DIN-6 (D-580): rows with a value the mapping could not use, per table (the codes: the file)
                 "unmapped": {t: sum(sum(c.values()) for c in by.values()) for t, by in sorted(unmapped_codes.items())}
