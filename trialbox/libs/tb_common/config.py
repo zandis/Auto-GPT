@@ -1070,6 +1070,9 @@ DECLARED: dict[str, Declared] = {
     "TB_TLS_HOSTNAME": Declared("str", "", "console TLS host name"),
     "TB_TLS_KEY_FILE": Declared("path", "", "console TLS key"),
     "TB_TLS_MODE": Declared("str", "internal", "console TLS mode (internal or hospital)"),
+    "TB_TLS_OLD_CLIENTS": Declared(
+        "str", "off", "off or cbc: cbc also serves TLS 1.2 ECDHE AES-CBC-SHA on 443 for an old client (H-48, D-1328)"
+    ),
     "TB_TODAY": Declared("str", "", "pins the clock (test stack)"),
     "TB_TOPOLOGY": Declared("str", "A", "deployment topology (A or B)"),
     "TB_TO_PID_MAX_PER_HOUR": Declared(
