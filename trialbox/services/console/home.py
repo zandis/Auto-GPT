@@ -777,16 +777,26 @@ def register(app: FastAPI, h: Helpers) -> None:
         if sess.user.aggregate_only:
             raise h.problem(403, "forbidden")
         jobs = bk.list_jobs(limit=500)
-        mine = [r for r in trials(sess) if st.latest_job(jobs, r.id, SCREEN_TYPES) is not None]
+        # D-1258 (10C-3c): the investigator's start page names, links and opens a study only where the week page's
+        # delegation check admits the account (``Helpers.delegated_ok``, D-147, D-273); a study off the account's log
+        # is answered as one with no screening run. The roles the log does not decide are as before
+        mine = [
+            r for r in trials(sess)
+            if st.latest_job(jobs, r.id, SCREEN_TYPES) is not None and h.delegated_ok(sess.user, r.id)
+        ]  # fmt: skip
         waiting = approvals(sess)
         if len(mine) == 1 and not waiting:
             return RedirectResponse(f"/studies/{mine[0].id}/week", status_code=303)
         cohorts = [
             r for r in bk.rulesets()
             if r.status == "approved" and r.kind in st.REGISTRY_KINDS and sess.user.sees_study(r.id)
-            and st.latest_job(jobs, r.id, SCREEN_TYPES) is not None
-        ]  # fmt: skip
-        life = h.life_home(sess) if h.life_home else None
+            and st.latest_job(jobs, r.id, SCREEN_TYPES) is not None and h.delegated_ok(sess.user, r.id)
+        ]  # fmt: skip  # D-1258: the cohort page's delegation check (``Helpers.need_rows``)
+        # D-1258: the serious AEs and overdue reports of the studies whose SAE pages show them to this account
+        # (``sae_pages.sae_scope``, as the J-6 opening page reads them), never of a study off its log; the page shows
+        # no visit, so none is read
+        saes = [r.id for r in trials(sess) if h.reads_saes is not None and h.reads_saes(sess.user, r.id)]
+        life = h.life_home(sess, only=saes, visits=(), saes=saes) if h.life_home else None
         return h.page(request, "week_pick.html", sess, studies=mine, approvals=waiting, cohorts=cohorts, life=life)
 
     # ------------------------------------------------------------------ feasibility report
