@@ -124,7 +124,7 @@
 {% endif %}
 
 {% if job.state == 'done' and job.type == 'APPROVE' and rulesets %}
-<p><a class="button" href="/pilot/request?ruleset={{ job.ruleset }}">{{ t('job.start_feas') }}</a></p>
+<p><a class="button" href="/pilot/request?ruleset={{ job.ruleset }}">{{ tp('job.start_feas') }}</a></p>
 {% endif %}
 
 <section class="card">

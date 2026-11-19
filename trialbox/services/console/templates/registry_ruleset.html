@@ -27,8 +27,8 @@
 </form>
 </section>
 <section class="card">
-<h2>{{ t('registry.promote') }}</h2>
-<p class="hint">{{ t('registry.promote.help') }}</p>
+<h2>{{ tp('registry.promote') }}</h2>
+<p class="hint">{{ tp('registry.promote.help') }}</p>
 <form method="post" action="/pilot/registry/{{ ruleset }}/promote">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <button type="submit" class="secondary" {{ 'disabled' if not user.can_request else '' }} data-testid="registry-promote">{{ t('registry.promote.submit') }}</button>
@@ -54,7 +54,7 @@
 <td>{{ (e.reason or '') if e else '' }}</td>
 {# T-685 (UX-033): a system author by its name in the reader's language, not its service id ("rc-bridge") #}
 <td>{% set by = (e.updated_by if e else '') or r.state.by %}{% if by %}{{ t_or('who.' + (by|who), by|who) }}{% else %}–{% endif %}</td>
-<td>{% if e %}{% if e.source_job %}<a href="/pilot/jobs/{{ e.source_job }}">{{ t('registry.source.' + e.source) }}</a>{% else %}{{ t('registry.source.' + e.source) }}{% endif %}{% if e.tier %} · {{ t('tier.' + e.tier) if e.tier in ('high', 'review', 'excluded') else e.tier }}{% endif %}{% else %}–{% endif %}</td>
+<td>{% if e %}{% if e.source_job %}<a href="/pilot/jobs/{{ e.source_job }}">{{ tp('registry.source.' + e.source) }}</a>{% else %}{{ tp('registry.source.' + e.source) }}{% endif %}{% if e.tier %} · {{ t('tier.' + e.tier) if e.tier in ('high', 'review', 'excluded') else e.tier }}{% endif %}{% else %}–{% endif %}</td>
 </tr>
 {% endfor %}
 </tbody></table></div>

@@ -55,7 +55,18 @@ from tb_common.ulid import new_ulid
 from tb_common.verdict_word import shown_of
 from tb_contracts import Job, JobOutput, RegistryPromote, RegistryUpdate
 
-from console import acting, api_first, demo_guard, feedback, firstrun, i18n_roles, next_page, person_state, phone
+from console import (
+    acting,
+    api_first,
+    demo_guard,
+    feedback,
+    firstrun,
+    i18n_roles,
+    next_page,
+    person_state,
+    phone,
+    plain_menu,
+)
 from console import actor as console_actor
 from console.account_rules import Hooks as AccountHooks
 from console.account_rules import Rules as AccountRules
@@ -116,12 +127,15 @@ CSP = (
 _POPULATION = re.compile(r"(hospital|departments ([\w,-]+)): patients with ≥1 encounter in the last (\d+) months")
 
 
-def population_words(lang: str, value: object) -> str:
+def population_words(lang: str, value: object, plain: bool = False) -> str:
     """DEMO-JA: the FEAS report's population (``feas_compute.population_label``, English in the report file) in the
-    page language; any other text as it is."""
+    page language; any other text as it is (J-7, D-1251: with ``layout.plain_menu`` on, the bare value "hospital" in
+    the page language too)."""
     text = str(value or "")
     m = _POPULATION.fullmatch(text)
     if m is None:
+        if plain and text == "hospital":
+            return translate(lang, "pm.pop.hospital")
         return text or "–"
     if m.group(1) == "hospital":
         return translate(lang, "feas.pop.hospital", months=m.group(3))
@@ -826,6 +840,11 @@ def create_app(
         def t(key: str, **values: object) -> str:
             return translate(lang, key, **values)
 
+        plain = bool(getattr(request.state, "plain_menu", False))  # J-7 (D-1251, flag layout.plain_menu)
+
+        def tp(key: str, **values: object) -> str:  # the plain words of a key with the flag on; t's with it off
+            return translate(lang, plain_menu.key(plain, sess.user.role if sess else None, key), **values)
+
         def t_or(key: str, fallback: str) -> str:  # a translation when the catalogue has one, else the fallback
             text = lookup(lang, key)
             return fallback if text is None else text
@@ -849,8 +868,12 @@ def create_app(
 
         base = {
             "t": t,
+            "tp": tp,
+            "pm": plain,
+            "menu_shows": plain_menu.menu_shows,
+            "may_act": (lambda target: may_act(sess, target)) if sess else (lambda target: False),
             "t_or": t_or,
-            "population": lambda value: population_words(lang, value),
+            "population": lambda value: population_words(lang, value, plain),
             "lang": lang,
             "langs": LANGS,
             "sess": sess,
@@ -1986,7 +2009,7 @@ def create_app(
             headers={"Content-Disposition": f'attachment; filename="{filename}"', "X-Download-Options": "noopen"},
         )
 
-    def _request_page(request: Request, sess: Session, status: int = 200, **ctx: Any) -> HTMLResponse:
+    def _request_rulesets(sess: Session) -> tuple[list[Any], list[Any], list[Any]]:
         approved = [
             r
             for r in bk.rulesets()
@@ -2001,9 +2024,25 @@ def create_app(
         def runs(kinds: tuple[str, ...], command: str) -> list[Any]:
             return [r for r in approved if r.kind in kinds and (u.can_request or helpers.may_run(u, r.id, command))]
 
-        feas, screen = runs(("trial",), "FEAS"), runs(("trial", "cohort"), "SCREEN")
+        return approved, runs(("trial",), "FEAS"), runs(("trial", "cohort"), "SCREEN")
+
+    def may_act(sess: Session, target: str) -> bool:
+        """Whether the account may act on the page ``target`` (the page's own rule: its forms, or its enabled button);
+        J-7 (D-1251): a link that takes the place of a menu entry asks this, as the page does."""
+        u = sess.user
+        if target == "request":
+            _, feas, screen = _request_rulesets(sess)
+            return bool(u.can_request or feas or screen)
+        if target == "consent":
+            return bool(u.can_request)
+        if target == "case":
+            return bool(u.can_request or _case_rulesets(sess))  # the review of D-767: a coordinator with no trial yet
+        raise ValueError(f"no page {target!r}")
+
+    def _request_page(request: Request, sess: Session, status: int = 200, **ctx: Any) -> HTMLResponse:
+        approved, feas, screen = _request_rulesets(sess)
         return page(request, "request.html", sess, status, rulesets=approved, feas_rulesets=feas,
-                    screen_rulesets=screen, may_start=u.can_request or bool(feas or screen), **ctx)  # fmt: skip
+                    screen_rulesets=screen, may_start=may_act(sess, "request"), **ctx)  # fmt: skip
 
     @app.get("/pilot/request", response_class=HTMLResponse)
     def request_form(request: Request, ruleset: str = "") -> Response:
@@ -2199,8 +2238,9 @@ def create_app(
     def case_form(request: Request, ruleset: str = "") -> Response:
         sess = need(request)
         rs = _case_rulesets(sess)
-        may = sess.user.can_request or bool(rs)  # the review of D-767: a coordinator with no trial yet, as before
-        return page(request, "case.html", sess, rulesets=rs, selected=ruleset, langs=LANGS, may_case=may)
+        return page(
+            request, "case.html", sess, rulesets=rs, selected=ruleset, langs=LANGS, may_case=may_act(sess, "case")
+        )
 
     @app.post("/pilot/case")
     async def case_submit(

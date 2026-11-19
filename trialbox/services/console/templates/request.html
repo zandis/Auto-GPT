@@ -20,34 +20,34 @@
 <h2>{{ t('request.viewer') }}</h2>
 <p>{{ t('request.viewer.help') }}</p>
 <ul>{% if user.aggregate_only %}{# D-146: viewer and CRO read the aggregate reports only #}
-<li><a href="/reports">{{ t('nav.reports') }}</a> · {{ t('request.viewer.reports') }}</li>
+<li><a href="/reports">{{ tp('nav.reports') }}</a> · {{ t('request.viewer.reports') }}</li>
 {% else %}
-<li><a href="/jobs">{{ t('nav.jobs') }}</a> · {{ t('request.viewer.jobs') }}</li>
-<li><a href="/pilot/registry">{{ t('nav.registry') }}</a> · {{ t('request.viewer.registry') }}</li>
+<li><a href="/jobs">{{ tp('nav.jobs') }}</a> · {{ t('request.viewer.jobs') }}</li>
+<li><a href="/pilot/registry">{{ tp('nav.registry') }}</a> · {{ t('request.viewer.registry') }}</li>
 {% if permit(user.role, 'audit.browse') %}<li><a href="/audit">{{ t('nav.audit') }}</a> · {{ t('request.viewer.audit') }}</li>{% endif %}
 {% endif %}</ul>
 </section>
 {% else %}
 <div class="grid">
 <section class="card">
-<h2>{{ t('request.feas') }}</h2>
+<h2>{{ tp('request.feas') }}</h2>
 {% if feas_rulesets %}
 <form method="post" action="/pilot/request" data-testid="feas-form">
   <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="FEAS">
-  <label for="feas-rs">{{ t('col.ruleset') }}</label>
+  <label for="feas-rs">{{ tp('col.ruleset') }}</label>
   <select id="feas-rs" name="ruleset">{% for r in feas_rulesets %}<option value="{{ r.id }}" {{ 'selected' if r.id == selected else '' }}>{{ r.id }} v{{ r.version }}</option>{% endfor %}</select>
   <label for="feas-lb">{{ t('request.lookback') }}</label>
   <input id="feas-lb" name="lookback" type="number" inputmode="numeric" min="1" max="120" step="1">
   <button type="submit" data-testid="start-feas">{{ t('request.start.feas') }}</button>
 </form>
-{% else %}<p>{{ t('request.no_rulesets') }}</p>{% endif %}
+{% else %}<p>{{ tp('request.no_rulesets') }}</p>{% endif %}
 </section>
 <section class="card">
-<h2>{{ t('request.screen') }}</h2>
+<h2>{{ tp('request.screen') }}</h2>
 {% if screen_rulesets %}
 <form method="post" action="/pilot/request">
   <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="SCREEN">
-  <label for="scr-rs">{{ t('col.ruleset') }}</label>
+  <label for="scr-rs">{{ tp('col.ruleset') }}</label>
   <select id="scr-rs" name="ruleset">{% for r in screen_rulesets %}<option value="{{ r.id }}" {{ 'selected' if r.id == selected else '' }}>{{ r.id }} v{{ r.version }}</option>{% endfor %}</select>
   <label for="scr-pract">{{ t('request.pract') }}</label>
   <input id="scr-pract" name="pract" maxlength="400" placeholder="P12345,P23456">
@@ -59,11 +59,11 @@
 {% if user.can_request %}{# the free-text request proposes any command: the coordinator's (D-767 keeps it so) #}
 <section class="card">
 <h2>{{ t('request.free') }}</h2>
-<p class="hint">{{ t('request.free.help') }}</p>
+<p class="hint">{{ tp('request.free.help') }}</p>
 <form method="post" action="/pilot/propose">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <label for="text" class="sr">{{ t('request.free') }}</label>
-  <textarea id="text" name="text" rows="3" maxlength="2000" required placeholder="GZQO 這個試驗做得起來嗎？ / Is GZQO feasible here? / FEAS GZQO lookback=36"></textarea>
+  <textarea id="text" name="text" rows="3" maxlength="2000" required {#J7#}{% if pm %}{#/J7#}placeholder="{{ t('pm.request.free.example') }}"{#J7#}{% else %}{#/J7#}placeholder="GZQO 這個試驗做得起來嗎？ / Is GZQO feasible here? / FEAS GZQO lookback=36"{#J7#}{% endif %}{#/J7#}></textarea>
   <button type="submit" data-testid="propose">{{ t('request.propose') }}</button>
 </form>
 </section>

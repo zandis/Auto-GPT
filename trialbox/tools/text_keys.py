@@ -343,14 +343,15 @@ class Use:
     family: bool = False
 
 
-_TPL_LITERAL = re.compile(r"""\bt\(\s*(['"])([^'"{}]+?)\1\s*[,)]""")
-_TPL_FAMILY = re.compile(r"""\bt\(\s*(['"])([^'"{}]*?)\1\s*[+~]""")  # t_or has its own fallback
+#: ``t`` and J-7's ``tp`` (D-1251: the plain key with ``layout.plain_menu`` on, the key itself with it off)
+_TPL_LITERAL = re.compile(r"""\btp?\(\s*(['"])([^'"{}]+?)\1\s*[,)]""")
+_TPL_FAMILY = re.compile(r"""\btp?\(\s*(['"])([^'"{}]*?)\1\s*[+~]""")  # t_or has its own fallback
 #: macros whose second argument is a key the macro hands to ``t`` (``_nav.html`` item)
 _TPL_MACRO = re.compile(r"""\bitem\(\s*(['"])[^'"]*\1\s*,\s*(['"])([^'"]+)\2""")
 
 
 #: ``t('a' if x else 'b')``: both branches are keys
-_TPL_IF = re.compile(r"""\bt\(\s*(['"])([^'"{}]+?)\1\s+if\s+[^()]*?\s+else\s+(['"])([^'"{}]+?)\3\s*[,)]""")
+_TPL_IF = re.compile(r"""\btp?\(\s*(['"])([^'"{}]+?)\1\s+if\s+[^()]*?\s+else\s+(['"])([^'"{}]+?)\3\s*[,)]""")
 #: ``{% set k = 'x.' + … %}`` later asked as ``t(k)``: a family of its own
 _TPL_SET = re.compile(r"""\{%-?\s*set\s+\w+\s*=\s*(['"])([a-z][a-z0-9_.]*\.)\1\s*[+~]""")
 _TPL_SET_IF = re.compile(
@@ -493,6 +494,7 @@ FAMILIES: dict[str, Callable[[], Iterable[str]]] = {
         _assigned("services/datacore/lifecycle.py", "visit_status", "status"),
     ),
     "life.state.": _values("datacore.lifecycle", "STATES"),
+    "pm.jobtype.": _values("console.plain_menu", "JOB_TYPES"),  # J-7 (D-1251): the job types a clinical role starts
     "life.reason.sf.": _values("datacore.lifecycle", "SCREEN_FAIL_REASONS"),
     "life.reason.wd.": _values("datacore.lifecycle", "WITHDRAW_REASONS"),
     "life.anchor.": _values("datacore.lifecycle", "ANCHORS"),

@@ -1,9 +1,9 @@
 {% if jobs %}
 <div class="scroll" tabindex="0"><table data-testid="jobs">
-<thead><tr><th scope="col">{{ t('col.job') }}</th><th scope="col">{{ t('col.type') }}</th><th scope="col">{{ t('col.ruleset') }}</th><th scope="col">{{ t('col.state') }}</th><th scope="col">{{ t('col.by') }}</th><th scope="col">{{ t('col.received') }}</th></tr></thead>
+<thead><tr><th scope="col">{{ tp('col.job') }}</th><th scope="col">{{ t('col.type') }}</th><th scope="col">{{ tp('col.ruleset') }}</th><th scope="col">{{ t('col.state') }}</th><th scope="col">{{ t('col.by') }}</th><th scope="col">{{ t('col.received') }}</th></tr></thead>
 <tbody>{% for j in jobs %}<tr data-job="{{ j.job_id }}">
 <td class="mono nowrap">{% if pilot %}<a href="/pilot/jobs/{{ j.job_id }}" title="{{ j.job_id }}">…{{ j.job_id[-8:] }}</a>{% else %}<span title="{{ j.job_id }}">…{{ j.job_id[-8:] }}</span>{% endif %}</td>
-<td>{{ j.type }}</td><td>{{ j.ruleset or '–' }}{% if j.ruleset_version %} v{{ j.ruleset_version }}{% endif %}</td>
+<td>{#J7#}{% if pm and j.type in ('FEAS', 'SCREEN', 'CASE') %}{{ t('pm.jobtype.' + j.type) }}{% else %}{#/J7#}{{ j.type }}{#J7#}{% endif %}{#/J7#}</td><td>{{ j.ruleset or '–' }}{% if j.ruleset_version %} v{{ j.ruleset_version }}{% endif %}</td>
 <td><span class="state s-{{ j.state }}" data-state="{{ j.state }}">{{ state(j.state) }}</span></td><td>{{ j.requested_by }}</td>
 <td class="nowrap">{{ j.received_at.strftime('%Y-%m-%d %H:%M') }}</td></tr>{% endfor %}</tbody>
 </table></div>
