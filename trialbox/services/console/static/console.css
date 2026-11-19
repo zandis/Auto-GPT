@@ -515,7 +515,7 @@ body [lang="en"] { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "H
    character per line, while an English label may still wrap at a space. break-word is the last resort and, unlike
    anywhere, does not lower the minimum width. */
 body:lang(ja), body:lang(zh-TW) { line-break: strict; line-height: var(--lh-cjk); word-break: normal; overflow-wrap: break-word; }
-:lang(ja) em, :lang(zh-TW) em { font-style: normal; font-weight: 700; }  /* 9k-2: no italic for Han emphasis (CLReq, JLReq) */
+em:lang(ja), em:lang(zh-TW) { font-style: normal; font-weight: 700; }  /* 9k-2: no italic for Han emphasis (CLReq, JLReq); an em in English keeps it */
 .pill, .state, button, .button { word-break: keep-all; overflow-wrap: break-word; }
 nav a, .rail a > span:first-child, details.more > summary, .steps b, .wizard-steps li, th { word-break: keep-all; }
 /* the worklist's visit column wraps between date and time (each one a no-wrap span), never inside a CJK phrase, so

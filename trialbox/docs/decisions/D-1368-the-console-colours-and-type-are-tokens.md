@@ -32,10 +32,14 @@
     per-language font stacks of T-684 (D-361) stay: system fonts only, no font file, no download.
   - **The proof is a guard test** (`tests/unit/test_console_tokens_and_type.py`, marked `guard` and `nodb`, so the
     guard step runs it on every CI tier and the unit shards run it again): the stylesheet lint (no hex, colour
-    function or named colour outside `:root`; the same in templates' `style`, and no hex in a template), every
-    `var()` defined in both modes, the WCAG contrast of 17 pairs in each mode computed in pure Python (text 4.5:1, a
-    field's border 3:1, the amber row's text on `--warn-bg`), and the type and CJK rules. No new dependency; no
-    workflow change.
+    function or named colour outside a rule whose selector is `:root` alone; the same in templates' `style`, in
+    either quote, and in SVG `fill` and `stroke`, no hex in a template, and none in `console.js`), every `var()`
+    defined, every colour token set for light and for dark (the names compared; banner ink, shadows and print are
+    named as the same in both), the WCAG contrast of 28 pairs in each mode computed in pure Python (text 4.5:1,
+    links on the amber and ok backgrounds, warning and error text on a card, a field's border 3:1 also in the amber
+    row, the focus ring 3:1 against the backgrounds next to it, the amber row's text on `--warn-bg`; the link and
+    focus tokens read from their rules), and the type and CJK rules (`em:lang(ja)`, so an English `em` keeps its
+    italic). No new dependency; no workflow change.
 - **Not in this card:** button structure (9k-3), the state badge's classes (9k-4: their colours were already
   tokens), visual regression in CI (9k-17). **Not verified:** the ja and zh-TW rendering has not been read by a
   native reader (the card's sign-off; it blocks nothing); the screenshots were taken in this box's Chromium with the
