@@ -1,5 +1,7 @@
 # The rehearsal's host image (H-54), 2026-11-19
 
+**Reader:** the people who build TrialBox
+
 **Is 500 s a cap of ours?** No. Nothing in the rehearsal capped step `host-image` before this card; 500 s is the
 elapsed time of a failed `docker build`. Job 135547205491 logs, at 497.6 s into the build: `E: Failed to fetch
 http://archive.ubuntu.com/ubuntu/pool/main/libs/libssh/libssh-4_0.10.6-2ubuntu0.5_amd64.deb  Unable to connect to
