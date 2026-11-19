@@ -431,3 +431,14 @@ def test_the_form_and_the_record_fit_a_phone(lb: dict[str, Any], monkeypatch: py
     )  # fmt: skip
     res = json.loads(r.stdout.strip().splitlines()[-1])
     assert r.returncode == 0 and res["failed"] == 0, (res.get("results"), r.stderr[-2000:])
+
+
+def test_every_refusal_of_the_ages_has_japanese_and_chinese_words() -> None:
+    from console.refusals import UNTRANSLATED, localize_reason
+
+    reasons = {proxy_consent.check_rule(*a) for a in ((30, 0, 29), ("18", 7, 17), (18, 12, 18))}
+    reasons.add("consent by a representative is not recorded on this box")
+    assert None not in reasons and len(reasons) == 4
+    for r in reasons:
+        for lang in ("ja", "zh-TW"):
+            assert localize_reason(str(r), lang) not in ("", UNTRANSLATED[lang]), (r, lang)
