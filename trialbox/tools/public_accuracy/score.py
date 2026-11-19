@@ -43,10 +43,13 @@ Every rate carries an exact (Clopper-Pearson) 95 % interval. A gold row of an au
 carry ``inclusion_probability``, the probability that row was drawn. A rate with any such row is the
 inverse-probability weighted (Horvitz–Thompson) estimate of the frame mean, over the frame size named in
 ``ids.json`` under ``sampling.frames`` (the rate's own name, an integer, or one integer per language). Its
-interval is a Korn–Graubard interval on the Kish effective sample size, so one heavily weighted row is not
-treated as many independent rows; a frame that was included in full (every probability is 1 and the sample is
-the whole frame) has no sampling uncertainty and the interval is the point. A set that records no probability
-is scored as before, byte for byte. Nothing here reads a model.
+interval is a Korn–Graubard interval on the Kish effective sample size, widened, when the draw is not a fixed-size
+equal-probability sample, by the normal interval of the Poisson-sampling variance, so one rare draw is not given a
+bound that leaves out the rest of the frame. A frame included in full (every probability is 1 and the sample is
+the whole frame) has no sampling uncertainty and the interval is the point. A declared frame that drew no rows
+still counts in the denominator. A rate conditional on this run's answers (eligible lost, excluded caught) uses
+the answered count when the gold lists the whole declared frame, so a rescreen does not keep a stale frame.
+A set that records no probability is scored as before, byte for byte. Nothing here reads a model.
 """
 
 from __future__ import annotations
@@ -117,36 +120,54 @@ def rate(k: int, n: int) -> dict[str, Any]:
     return {"k": k, "n": n, "rate": round(k / n, 4) if n else None, "ci95": [lo, hi]}
 
 
-def ht_mean(outcomes: Sequence[int], inclusion: Sequence[float], population: int) -> float:
-    """Horvitz–Thompson mean of a 0/1 outcome: ``(1/N) Σ y_i / π_i``.
-
-    Unbiased for the mean over a frame of ``population`` units when unit ``i`` is included with probability
-    ``π_i``, including a sample that happens to be empty (the estimate is then 0). ``outcomes`` and ``inclusion``
-    are the units that were included, in the same order."""
+def _ht_total(outcomes: Sequence[int], inclusion: Sequence[float], population: int) -> float:
+    """``Σ y_i / π_i`` over the included units. :func:`ht_mean` divides it by the frame."""
     if isinstance(population, bool) or not isinstance(population, int) or population <= 0:
         raise ValueError(f"population must be a positive integer, got {population!r}")
     if len(outcomes) != len(inclusion):
         raise ValueError("one inclusion probability per outcome")
     if len(outcomes) > population:
         raise ValueError(f"the sample ({len(outcomes)}) is larger than the frame ({population})")
-    total = 0.0
-    for y, pi in zip(outcomes, inclusion):
+    terms: list[float] = []
+    for y, pi in zip(outcomes, inclusion, strict=True):
         if isinstance(y, bool) or y not in (0, 1):
             raise ValueError(f"an outcome is 0 or 1, got {y!r}")
         if isinstance(pi, bool) or not isinstance(pi, (int, float)) or not 0 < float(pi) <= 1:
             raise ValueError(f"an inclusion probability is in (0, 1], got {pi!r}")
-        total += y / float(pi)
-    return total / population
+        terms.append(float(y) / float(pi))
+    return math.fsum(terms)
+
+
+def ht_mean(outcomes: Sequence[int], inclusion: Sequence[float], population: int) -> float:
+    """Horvitz–Thompson mean of a 0/1 outcome: ``(1/N) Σ y_i / π_i``.
+
+    Unbiased for the mean over a frame of ``population`` units when unit ``i`` is included with probability
+    ``π_i``, including a sample that happens to be empty (the estimate is then 0). ``outcomes`` and ``inclusion``
+    are the units that were included, in the same order. Each unit keeps its own probability: the largest
+    probability in the draw is not reused for the others."""
+    return _ht_total(outcomes, inclusion, population) / population
 
 
 def _kish(inclusion: Sequence[float]) -> float:
-    """Effective sample size ``(Σ w)² / Σ w²`` with ``w = 1/π``. Equal probabilities give the sample size."""
+    """Effective sample size ``(Σ w)² / Σ w²`` with ``w = 1/π``. Equal probabilities give the sample size.
+
+    Log-weights, scaled by the largest, so a very small accepted probability does not square to infinity."""
     if not inclusion:
         return 0.0
-    weights = [1.0 / p for p in inclusion]
-    sw = sum(weights)
-    sw2 = sum(w * w for w in weights)
-    return (sw * sw / sw2) if sw2 else 0.0
+    logs: list[float] = []
+    for p in inclusion:
+        if not math.isfinite(p) or p <= 0.0:
+            return 0.0
+        logs.append(-math.log(p))
+    pivot = max(logs)
+    if not math.isfinite(pivot):
+        return float(len(inclusion))
+    scaled = [math.exp(lw - pivot) for lw in logs]
+    total = math.fsum(scaled)
+    squares = math.fsum(w * w for w in scaled)
+    if not math.isfinite(total) or not math.isfinite(squares) or squares == 0.0:
+        return float(len(inclusion))
+    return (total * total) / squares
 
 
 def _betacf(a: float, b: float, x: float) -> float:
@@ -214,6 +235,62 @@ def _beta_ppf(p: float, a: float, b: float) -> float:
     return (lo + hi) / 2
 
 
+#: standard normal 97.5% point: the Poisson-sampling half of a weighted interval
+_Z95 = 1.959963984540054
+
+
+def _safe_korn_graubard(estimate: float, n_eff: float) -> tuple[float, float]:
+    """Korn–Graubard, or the whole [0, 1] when the beta numbers are not finite. The report is still written."""
+    if not math.isfinite(estimate) or not math.isfinite(n_eff) or n_eff < 0.0:
+        return (0.0, 1.0)
+    try:
+        return _korn_graubard(estimate, n_eff)
+    except (OverflowError, ValueError, ZeroDivisionError):
+        return (0.0, 1.0)
+
+
+def _fixed_size_equal(inclusion: Sequence[float], population: int) -> bool:
+    """Every inclusion probability equal, and the sample the size that probability names.
+
+    A fixed-size equal-probability sample. Its interval is Clopper–Pearson; the Poisson piece treats inclusions
+    as independent and would only widen it."""
+    if not inclusion:
+        return False
+    pi0 = inclusion[0]
+    if any(p != pi0 for p in inclusion):
+        return False
+    return abs(len(inclusion) - pi0 * population) <= 1e-6
+
+
+def _poisson_share_interval(
+    estimate: float, outcomes: Sequence[int], inclusion: Sequence[float], population: int
+) -> tuple[float, float]:
+    """Normal interval for the HT mean under independent sampling, clipped to [0, 1].
+
+    The variance of the mean is ``(1/N²) Σ (1-π_i) y_i² / π_i²``. A non-finite variance covers [0, 1]: that
+    draw does not support a tighter bound. One event drawn at probability 0.02 from a frame of 100 is such a draw
+    (it happens about 27% of the time when every row is an event); a beta interval on the point 0.5 stops short of 1."""
+    if population <= 0:
+        return (0.0, 1.0)
+    acc = 0.0
+    for y, pi in zip(outcomes, inclusion, strict=True):
+        if y == 0 or pi >= 1.0:
+            continue
+        inv = 1.0 / pi
+        acc += (1.0 - pi) * inv * inv
+        if not math.isfinite(acc):
+            return (0.0, 1.0)
+    var = acc / (float(population) * float(population))
+    if not math.isfinite(var) or var < 0.0:
+        return (0.0, 1.0)
+    se = math.sqrt(var)
+    if se == 0.0:
+        point = min(1.0, max(0.0, estimate))
+        return (point, point)
+    half = _Z95 * se
+    return (max(0.0, estimate - half), min(1.0, estimate + half))
+
+
 def _korn_graubard(estimate: float, n_eff: float, alpha: float = 0.05) -> tuple[float, float]:
     """Clopper–Pearson (beta) interval on an effective sample size. For an integer size and ``k = estimate * n``
     successes it is :func:`clopper_pearson`. A smaller effective size, from unequal weights, widens it. No event
@@ -232,24 +309,33 @@ def weighted_rate(outcomes: Sequence[int], inclusion: Sequence[float], populatio
 
     ``k`` and ``n`` stay the counts in the sample (what was seen). ``rate`` is the Horvitz–Thompson estimate of
     the share in the frame, which is not ``k / n`` when the inclusion probabilities differ. ``estimated_events``
-    is that estimate times the frame size. ``effective_n`` is the Kish size of the inverse-probability weights.
-    The interval is Korn–Graubard on that size, except when the sample is the whole frame and every probability
-    is 1: nothing was left unsampled, and the interval is the point."""
-    est = ht_mean(outcomes, inclusion, population)
+    is ``Σ y_i / π_i``, the total itself, not that share rounded and multiplied back by the frame.
+    ``effective_n`` is the Kish size of the inverse-probability weights. The interval is Korn–Graubard on that
+    size, widened by the normal interval of the Poisson-sampling variance unless the draw is a fixed-size
+    equal-probability sample (that interval is already Clopper–Pearson). A frame included in full, every
+    probability 1, has no sampling uncertainty and the interval is the point. A probability so small that the
+    beta numbers overflow does not abort the report: the interval is then the whole [0, 1]."""
+    total = _ht_total(outcomes, inclusion, population)
+    est = total / population
     pis = [float(p) for p in inclusion]
     n_eff = _kish(pis)
+    if not math.isfinite(n_eff):
+        n_eff = 0.0
     if pis and len(pis) == population and all(p == 1.0 for p in pis):
         shown = round(est, 4)
         lo, hi = shown, shown
     else:
-        lo, hi = _korn_graubard(est, n_eff)
+        lo, hi = _safe_korn_graubard(est, n_eff)
+        if not _fixed_size_equal(pis, population):
+            plo, phi = _poisson_share_interval(est, outcomes, pis, population)
+            lo, hi = round(min(lo, plo), 4), round(max(hi, phi), 4)
     return {
         "k": sum(outcomes),
         "n": len(outcomes),
-        "rate": round(est, 4),
+        "rate": round(est, 4) if math.isfinite(est) else None,
         "ci95": [lo, hi],
         "population": population,
-        "estimated_events": round(est * population, 4),
+        "estimated_events": total if math.isfinite(total) else None,
         "weighted": True,
         "effective_n": round(n_eff, 4),
         "method": "horvitz-thompson",
@@ -289,27 +375,96 @@ def _frame_size(ids: Mapping[str, Any], name: str, lang: str | None, n_langs: in
     raise ValueError(f"sampling.frames.{name} must be a positive integer, or one per language")
 
 
+#: rates whose denominator is the pairs this run answered, not every row the gold file lists
+_ANSWER_CONDITIONAL = frozenset({"eligible_lost", "eligible_lost_without_conflicted", "excluded_caught"})
+
+
+def _lookup_frame(ids: Mapping[str, Any], name: str, lang: str | None, n_langs: int) -> int | None:
+    """The declared frame, or None when this rate names none. An integer is not copied onto each language."""
+    sampling = ids.get("sampling")
+    frames = sampling.get("frames") if isinstance(sampling, dict) else None
+    if not isinstance(frames, dict) or name not in frames:
+        return None
+    entry = frames[name]
+    if isinstance(entry, dict):
+        if lang is not None and lang not in entry:
+            return None
+        return _frame_size(ids, name, lang, n_langs)
+    if isinstance(entry, bool) or not isinstance(entry, int):
+        return None
+    if lang is not None and n_langs > 1:
+        return None
+    return _frame_size(ids, name, lang, n_langs)
+
+
+def _domain_population(
+    declared: int, listed: int | None, domain_n: int, answer_conditional: bool
+) -> int | None:
+    """The denominator this rate is a mean over.
+
+    A conditional rate (eligible lost, excluded caught) whose gold file lists the whole declared frame is a mean
+    over the pairs this run answered, not over a frame stored by an earlier run. No answered pair means there is
+    no such mean (the caller keeps the empty rate). A file that lists only a sample of a larger frame keeps that
+    frame: the rows in the file are not the population."""
+    if answer_conditional and listed is not None and listed == declared and domain_n != declared:
+        if domain_n == 0:
+            return None
+        return domain_n
+    return declared
+
+
+def _zero_over_frame(sample_n: int, population: int) -> dict[str, Any]:
+    """No events to weight (an empty draw, or rows that are all non-events). The frame stays the denominator."""
+    block = weighted_rate([], [], population)
+    block["k"] = 0
+    block["n"] = sample_n
+    return block
+
+
 def _proportion(
     units: Sequence[tuple[int, Mapping[str, Any]]],
     ids: Mapping[str, Any],
     name: str,
     lang: str | None,
     n_langs: int,
+    *,
+    listed: int | None = None,
+    answer_conditional: bool = False,
 ) -> dict[str, Any]:
-    """``rate(k, n)`` when no unit carries an inclusion probability (the same dict). Otherwise the weighted rate.
-    A probability on some units of the rate and not the others is refused: an unweighted row in a sampled rate
-    would be read as a census of that row."""
+    """``rate(k, n)`` when the rows are a census of their frame. Otherwise the weighted rate.
+
+    A probability on some units of the rate and not the others is refused. A probability is passed through as
+    recorded: ``True`` is not the number 1. A domain with no probabilities and a larger declared frame contributes
+    nothing when every row is a non-event (the weight would multiply zero), and is refused when a row is an event,
+    because that event has no probability to invert. The rows themselves, when there are exactly as many as the
+    frame, are that frame."""
     flags = ["inclusion_probability" in row for _, row in units]
-    if not any(flags):
-        return rate(sum(y for y, _ in units), len(units))
-    if not all(flags):
+    if any(flags) and not all(flags):
         raise ValueError(
             f"{name}: an inclusion probability on {sum(flags)} of {len(units)} units; "
             "record one on every unit of the rate, or on none"
         )
-    outcomes = [y for y, _ in units]
-    inclusion = [float(row["inclusion_probability"]) for _, row in units]
-    return weighted_rate(outcomes, inclusion, _frame_size(ids, name, lang, n_langs))
+    if any(flags):
+        declared = _frame_size(ids, name, lang, n_langs)
+        population = _domain_population(declared, listed, len(units), answer_conditional)
+        if population is None:
+            return rate(sum(y for y, _ in units), len(units))
+        outcomes = [y for y, _ in units]
+        inclusion = [row["inclusion_probability"] for _, row in units]
+        return weighted_rate(outcomes, inclusion, population)
+    declared_missing = _lookup_frame(ids, name, lang, n_langs)
+    if declared_missing is None:
+        return rate(sum(y for y, _ in units), len(units))
+    population = _domain_population(declared_missing, listed, len(units), answer_conditional)
+    if population is None or len(units) == population:
+        return rate(sum(y for y, _ in units), len(units))
+    events = sum(y for y, _ in units)
+    if events:
+        raise ValueError(
+            f"{name}: {events} event(s) among {len(units)} units have no inclusion probability; "
+            f"a declared frame of {population} is not a census of those rows"
+        )
+    return _zero_over_frame(len(units), population)
 
 
 def _same_counts(old: Mapping[str, Any], new: Mapping[str, Any], name: str) -> dict[str, Any]:
@@ -329,18 +484,70 @@ _PAIR_RATES = (
 )
 
 
+def _frame_languages(ids: Mapping[str, Any]) -> set[str]:
+    """Languages a per-language frame names. An integer frame is the whole rate and names none."""
+    sampling = ids.get("sampling")
+    frames = sampling.get("frames") if isinstance(sampling, dict) else None
+    langs: set[str] = set()
+    if not isinstance(frames, dict):
+        return langs
+    for entry in frames.values():
+        if isinstance(entry, dict):
+            langs.update(str(k) for k in entry)
+    return langs
+
+
+def _empty_language(ids: Mapping[str, Any], lang: str, n_langs: int, sibling: Mapping[str, Any]) -> dict[str, Any]:
+    """A language the frame names and this run did not draw. Its declared sizes stay in the denominator."""
+    block: dict[str, Any] = {
+        "answered": 0,
+        "other_strata": {},
+        "pairs_in_gold": 0,
+        "unanswered_by_protocol": {},
+        "denominators": PAIR_DENOMINATORS,
+    }
+    if "conflicted_pairs" in sibling:
+        block["conflicted_pairs"] = 0
+    for name in _PAIR_RATES:
+        if name not in sibling:
+            continue
+        declared = _lookup_frame(ids, name, lang, n_langs)
+        block[name] = rate(0, 0) if declared is None else _zero_over_frame(0, declared)
+    return block
+
+
 def _reweight_pair_rates(
     summary: dict[str, dict[str, Any]],
     units: Mapping[str, Mapping[str, list[tuple[int, dict[str, Any]]]]],
     ids: Mapping[str, Any],
+    listed: Mapping[str, Mapping[str, int]] | None = None,
 ) -> None:
     n_langs = sum(1 for by in units.values() if any(by.get(name) for name in _PAIR_RATES))
     for lang, block in summary.items():
         by = units.get(lang) or {}
+        counts = (listed or {}).get(lang) or {}
         for name in _PAIR_RATES:
             if name not in block:
                 continue
-            block[name] = _same_counts(block[name], _proportion(by.get(name) or [], ids, name, lang, n_langs), name)
+            listed_n = int(counts.get(name, 0)) if name in _ANSWER_CONDITIONAL else None
+            block[name] = _same_counts(
+                block[name],
+                _proportion(
+                    by.get(name) or [],
+                    ids,
+                    name,
+                    lang,
+                    n_langs,
+                    listed=listed_n,
+                    answer_conditional=name in _ANSWER_CONDITIONAL,
+                ),
+                name,
+            )
+    sibling = next(iter(summary.values()), None)
+    if sibling is None:
+        return
+    for lang in sorted(_frame_languages(ids) - set(summary)):
+        summary[lang] = _empty_language(ids, lang, n_langs, sibling)
 
 
 # ---------------------------------------------------------------- joining
@@ -582,6 +789,7 @@ def score_pairs(
     units: dict[str, dict[str, list[tuple[int, dict[str, Any]]]]] = defaultdict(
         lambda: {name: [] for name in _PAIR_RATES}
     )
+    listed: dict[str, Counter[str]] = defaultdict(Counter)
     for g in pairs:
         if not g.get("mrn") or not g.get("ruleset"):
             continue
@@ -594,12 +802,21 @@ def score_pairs(
                 s = st.get(g["ruleset"], ("not_in_answers", ""))[0]
                 not_answered[lang]["screened, the patient not in its SCREEN" if s == "screened" else s] += 1
             if weighted_set:
-                if g["label"] == "eligible" and got != "unanswered":
-                    units[lang]["eligible_lost"].append((int(got == "excluded"), g))
-                    if (str(g["mrn"]), str(g["ruleset"])) not in marked:
-                        units[lang]["eligible_lost_without_conflicted"].append((int(got == "excluded"), g))
-                if g["label"] == "excluded" and got != "unanswered":
-                    units[lang]["excluded_caught"].append((int(got == "excluded"), g))
+                pair_key = (str(g["mrn"]), str(g["ruleset"]))
+                if g["label"] == "eligible":
+                    # every eligible row the file lists, answered or not: the stored frame is that count when
+                    # the file is the whole frame, and the rate below is only over the rows this run answered
+                    listed[lang]["eligible_lost"] += 1
+                    if pair_key not in marked:
+                        listed[lang]["eligible_lost_without_conflicted"] += 1
+                    if got != "unanswered":
+                        units[lang]["eligible_lost"].append((int(got == "excluded"), g))
+                        if pair_key not in marked:
+                            units[lang]["eligible_lost_without_conflicted"].append((int(got == "excluded"), g))
+                if g["label"] == "excluded":
+                    listed[lang]["excluded_caught"] += 1
+                    if got != "unanswered":
+                        units[lang]["excluded_caught"].append((int(got == "excluded"), g))
                 if got == "excluded":
                     units[lang]["wrong_exclusions"].append((int(g["label"] == "eligible"), g))
                 units[lang]["unanswered"].append((int(got == "unanswered"), g))
@@ -646,7 +863,7 @@ def score_pairs(
         s["unanswered_by_protocol"] = dict(sorted(not_answered[lang].items()))
         s["denominators"] = PAIR_DENOMINATORS
     if weighted_set:
-        _reweight_pair_rates(summary, units, ids)
+        _reweight_pair_rates(summary, units, ids, listed)
     return {
         "rows": rows,
         "summary": summary,

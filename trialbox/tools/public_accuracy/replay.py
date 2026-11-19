@@ -364,7 +364,8 @@ def score_all(sets: dict[str, tuple[Path, Any, Path]], where: Path) -> dict[str,
 # ---------------------------------------------------------------- the figures
 def _kn(blocks: list[dict[str, Any]]) -> tuple[Any, Any]:
     """Events and denominator of a rate. Unweighted: the sample counts, as ints. Weighted (card 10G-37): the
-    Horvitz–Thompson total and the frame, so the published figure is the unbiased estimate and not the sample share."""
+    Horvitz–Thompson total and the frame, so the published figure is the unbiased estimate and not the sample share.
+    A declared frame that drew no rows is itself a weighted block (total 0, denominator that frame)."""
     if any(b.get("weighted") for b in blocks):
         return (
             sum(float(b["estimated_events"]) if b.get("weighted") else int(b["k"]) for b in blocks),
@@ -513,11 +514,17 @@ def pathology_from_run(scores: dict[str, Any], names: list[str]) -> dict[str, An
         fig: dict[str, Any] = {"level": "a", "scored": bool(p.get("scored")), "detail": p}
         if p.get("scored"):
             ie, we, el = p["ineligible_excluded"], p["wrong_exclusions"], p["eligible_lost"]
-            fig |= {"numerator": ie["k"], "denominator": ie["n"], "wrong_exclusions": we["k"], "eligible_lost": el["k"],
-                    "eligible": el["n"], "reports": p.get("reports"), "met": False, "met_only_by": MET_ONLY_BY,
-                    "within_target": (p.get("reports"), ie["k"], ie["n"], we["k"], el["k"], el["n"]) == (
-                        POC1_CLAIM["reports"], POC1_CLAIM["excluded"], POC1_CLAIM["ineligible"], POC1_CLAIM["wrong"],
-                        POC1_CLAIM["lost"], POC1_CLAIM["eligible"])}  # fmt: skip
+            # the headline is the same total the detail already computed, not the sample counts beside it
+            ie_k, ie_n = _kn([ie])
+            we_k, _ = _kn([we])
+            el_k, el_n = _kn([el])
+            claim = (
+                POC1_CLAIM["reports"], POC1_CLAIM["excluded"], POC1_CLAIM["ineligible"],
+                POC1_CLAIM["wrong"], POC1_CLAIM["lost"], POC1_CLAIM["eligible"],
+            )
+            fig |= {"numerator": ie_k, "denominator": ie_n, "wrong_exclusions": we_k, "eligible_lost": el_k,
+                    "eligible": el_n, "reports": p.get("reports"), "met": False, "met_only_by": MET_ONLY_BY,
+                    "within_target": (p.get("reports"), ie_k, ie_n, we_k, el_k, el_n) == claim}  # fmt: skip
         else:
             fig |= {"met": False, "met_only_by": MET_ONLY_BY, "within_target": False,
                     "not_scored_because": p.get("not_scored_because")}  # fmt: skip

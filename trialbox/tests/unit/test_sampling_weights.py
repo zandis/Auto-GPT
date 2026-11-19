@@ -1,12 +1,14 @@
 """Card 10G-37: an audited or actively sampled set is scored by inverse-probability weights.
 
 The estimate of a 0/1 share is the Horvitz–Thompson mean over the frame named in ``ids.json``. Its interval
-uses the Kish size of those weights (Korn–Graubard). A set that records no inclusion probability is unchanged.
+uses the Kish size of those weights (Korn–Graubard), widened by the Poisson-sampling variance when that draw is
+not a fixed-size equal-probability sample. A set that records no inclusion probability is unchanged, byte for byte.
 """
 
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -17,15 +19,20 @@ from tools.public_accuracy import replay, score
 pytestmark = [pytest.mark.nodb]
 
 _UNWEIGHTED_KEYS = ("k", "n", "rate", "ci95")
+_UNWEIGHTED_REPORT = Path(__file__).with_name("fixtures") / "unweighted_pair_score.json"
+_PAIR_RATE_NAMES = ("eligible_lost", "wrong_exclusions", "unanswered", "left_open")
 
 
 def test_the_weighted_mean_is_unbiased_on_a_planted_population() -> None:
-    """Every subset of a frame of 4, included independently at known probabilities. One unit is the event.
-    The expectation of the weighted mean is the frame's share (0.25). The sample mean is not."""
-    outcomes = [1, 0, 0, 0]
-    pi = [0.9, 0.2, 0.2, 0.2]
-    population = 4
+    """Every subset of a frame of 2, included independently. The event is the unit with the smaller probability:
+    an estimator that reuses the largest sampled probability returns about 0.5556 on the draw of both units, not
+    the Horvitz–Thompson value 2.5, and its expectation is not the frame's share. The weighted mean's is."""
+    outcomes = [1, 0]
+    pi = [0.2, 0.9]
+    population = 2
     truth = sum(outcomes) / population
+    # both units drawn: y/π uses 0.2 for the event, not the other unit's 0.9
+    assert score.ht_mean([1, 0], [0.2, 0.9], 2) == 2.5
     weighted = 0.0
     sample_mean = 0.0
     for mask in range(1 << population):
@@ -62,6 +69,22 @@ def test_equal_probabilities_match_the_sample_interval_and_a_census_is_a_point()
     # a draw can estimate more events than the frame; the point is not clipped, the interval stays in [0, 1]
     over = score.weighted_rate([1], [0.1], 2)
     assert over["rate"] == 5.0 and over["ci95"][1] == 1.0 and over["ci95"][0] >= 0.0
+
+
+def test_one_draw_from_an_independent_sample_does_not_exclude_the_frame() -> None:
+    """100 event rows, each included independently at 0.02. Exactly one row is drawn about 27% of the time.
+    The Horvitz–Thompson share on that draw is 0.5; a 95% interval that stops at 0.9996 leaves out the true share 1."""
+    got = score.weighted_rate([1], [0.02], 100)
+    assert got["rate"] == 0.5 and got["population"] == 100
+    assert got["ci95"][0] <= 1.0 <= got["ci95"][1]
+
+
+def test_a_tiny_inclusion_probability_does_not_abort_the_report() -> None:
+    """Squaring 1/π must not overflow into a non-finite Kish size and a beta error."""
+    got = score.weighted_rate([1], [1e-200], 100)
+    assert math.isfinite(got["effective_n"])
+    assert all(math.isfinite(bound) for bound in got["ci95"])
+    assert 0.0 <= got["ci95"][0] <= got["ci95"][1] <= 1.0
 
 
 def test_a_bad_weight_is_refused() -> None:
@@ -157,6 +180,91 @@ def test_the_scorer_weights_a_sampled_set_and_leaves_an_unweighted_set_unchanged
     assert json.dumps(en["eligible_lost"], sort_keys=True) == json.dumps(score.rate(1, 2), sort_keys=True)
     assert "weighted" not in json.dumps(plain)
     assert plain["schema_version"] == 5
+    # the whole report, not one rate block: a changed top-level phrase would still pass the asserts above
+    blob = json.dumps(plain, sort_keys=True, separators=(",", ":"))
+    assert blob == _UNWEIGHTED_REPORT.read_text(encoding="utf-8").rstrip("\n")
+    assert plain["what"] == "joined by ids after the run; the gold was not in the box"
+
+
+def test_a_boolean_inclusion_probability_is_not_a_census() -> None:
+    """``true`` must not become 1.0 and earn the point interval of a frame that was included in full."""
+    names = ("eligible_lost", "wrong_exclusions", "unanswered", "left_open", "excluded_caught")
+    ids = {"lang": {"SYN-1": "en"}, "rulesets": {"SYN-1": "SYN-1"},
+           "sampling": {"frames": {n: 1 for n in names}}}
+    pairs = [{"mrn": "71000001", "ruleset": "SYN-1", "label": "eligible", "inclusion_probability": True}]
+    answers = _answers({"SYN-1": {score.pid_of("71000001"): _screen("71000001", "excluded", "fail")}})
+    with pytest.raises(ValueError, match="inclusion probability"):
+        score.score_pairs(ids, pairs, answers)
+
+
+def test_a_rescreen_uses_the_answered_frame_not_the_stored_one(tmp_path: Path) -> None:
+    """The stored frame is 10 because that run answered 10 eligible pairs. This run answers 5. Two exclusions
+    at probability 0.5 are 4 estimated events: the answered-frame figure is 4/5, not 4/10."""
+    pairs = []
+    patients: dict[str, Any] = {}
+    for i in range(1, 11):
+        mrn = f"710000{i:02d}"
+        pairs.append({"mrn": mrn, "ruleset": "SYN-1", "label": "eligible", "inclusion_probability": 0.5})
+        if i <= 5:
+            tier, verdict = ("excluded", "fail") if i <= 2 else ("review", "pass")
+            patients[score.pid_of(mrn)] = _screen(mrn, tier, verdict)
+    frames = {n: 10 for n in _PAIR_RATE_NAMES}
+    built, work = _write(tmp_path, pairs, _answers({"SYN-1": patients}), frames)
+    lost = score.score(built, work)["pairs"]["summary"]["en"]["eligible_lost"]
+    assert (lost["k"], lost["n"]) == (2, 5)
+    assert lost["estimated_events"] == 4.0 and lost["population"] == 5
+    fig = replay.eligible_figure("planted", score.score(built, work))
+    assert (fig["numerator"], fig["denominator"]) == (4.0, 5.0)
+
+
+def test_a_language_that_draws_nothing_keeps_its_frame(tmp_path: Path) -> None:
+    """Eligible-loss frames of 10 English and 90 Japanese. One English exclusion at 0.5 and no Japanese draw
+    is 2 events over 100, not 2 over the English frame alone."""
+    pairs = [{"mrn": "71000001", "ruleset": "EN", "label": "eligible", "inclusion_probability": 0.5}]
+    answers = _answers({"EN": {score.pid_of("71000001"): _screen("71000001", "excluded", "fail")}})
+    frames = {n: {"en": 10, "ja": 90} for n in _PAIR_RATE_NAMES}
+    built, work = _write(
+        tmp_path, pairs, answers, frames, rulesets={"EN": "EN", "JA": "JA"}, lang={"EN": "en", "JA": "ja"}
+    )
+    fig = replay.eligible_figure("planted", score.score(built, work))
+    assert (fig["numerator"], fig["denominator"]) == (2.0, 100.0)
+
+
+def test_an_unweighted_language_keeps_its_declared_frame(tmp_path: Path) -> None:
+    """English estimates 2 events over a frame of 10. Japanese has one unweighted non-event and a frame of 90.
+    The pool is 2/100. Using the Japanese sample count (1) as its frame publishes 2/11."""
+    pairs = [
+        {"mrn": "71000001", "ruleset": "EN", "label": "eligible", "inclusion_probability": 0.5},
+        {"mrn": "71000002", "ruleset": "JA", "label": "eligible"},
+    ]
+    answers = _answers({
+        "EN": {score.pid_of("71000001"): _screen("71000001", "excluded", "fail")},
+        "JA": {score.pid_of("71000002"): _screen("71000002", "review", "pass")},
+    })
+    frames = {n: {"en": 10, "ja": 90} for n in _PAIR_RATE_NAMES}
+    built, work = _write(
+        tmp_path, pairs, answers, frames, rulesets={"EN": "EN", "JA": "JA"}, lang={"EN": "en", "JA": "ja"}
+    )
+    fig = replay.eligible_figure("planted", score.score(built, work))
+    assert (fig["numerator"], fig["denominator"]) == (2.0, 100.0)
+
+
+def test_an_unweighted_event_in_a_declared_frame_is_refused(tmp_path: Path) -> None:
+    """An event with no inclusion probability cannot be read as one event, nor as a census of a larger frame."""
+    pairs = [
+        {"mrn": "71000001", "ruleset": "EN", "label": "eligible", "inclusion_probability": 0.5},
+        {"mrn": "71000002", "ruleset": "JA", "label": "eligible"},
+    ]
+    answers = _answers({
+        "EN": {score.pid_of("71000001"): _screen("71000001", "excluded", "fail")},
+        "JA": {score.pid_of("71000002"): _screen("71000002", "excluded", "fail")},
+    })
+    frames = {n: {"en": 10, "ja": 90} for n in _PAIR_RATE_NAMES}
+    built, work = _write(
+        tmp_path, pairs, answers, frames, rulesets={"EN": "EN", "JA": "JA"}, lang={"EN": "en", "JA": "ja"}
+    )
+    with pytest.raises(ValueError, match="inclusion probability"):
+        score.score(built, work)
 
 
 def test_a_sampled_rate_without_its_frame_or_with_a_mixed_probability_is_refused(tmp_path: Path) -> None:
@@ -239,6 +347,26 @@ def test_the_pathology_figure_is_the_frame_mean() -> None:
     assert fig["left_open"]["k"] == 0 and fig["left_open"]["weighted"] is True
 
 
+def test_the_pathology_headline_uses_the_weighted_total() -> None:
+    """One ineligible exclusion at probability 0.25 in a frame of 20. The detail is 4 of 20; the headline
+    must not keep the sample count 1 of 1."""
+    ids = {
+        "rulesets": {"SYN-1": "SYN-1"},
+        "lang": {"SYN-1": "en"},
+        "sampling": {"frames": {
+            "ineligible_excluded": 20, "wrong_exclusions": 20, "eligible_lost": 20, "left_open": 20,
+        }},
+    }
+    pairs = [{"mrn": "71000001", "ruleset": "SYN-1", "label": "excluded", "inclusion_probability": 0.25}]
+    answers = _answers({"SYN-1": {score.pid_of("71000001"): _screen("71000001", "excluded", "fail")}})
+    fig = score.score_pathology(ids, pairs, answers)
+    detail = fig["ineligible_excluded"]
+    assert detail["k"] == 1 and detail["n"] == 1
+    assert detail["estimated_events"] == 4.0 and detail["population"] == 20
+    head = replay.pathology_from_run({"tcga": {"pathology": fig}}, ["tcga"])
+    assert head["numerator"] == 4.0 and head["denominator"] == 20.0
+
+
 def test_the_replay_publishes_the_weighted_total_and_keeps_an_unweighted_count(tmp_path: Path) -> None:
     pairs, answers = _two_eligible(True)
     built, work = _write(tmp_path / "w", pairs, answers, _PAIR_FRAMES)
@@ -249,12 +377,22 @@ def test_the_replay_publishes_the_weighted_total_and_keeps_an_unweighted_count(t
     plain = replay.eligible_figure("planted", score.score(bare, bare_work))
     assert (plain["numerator"], plain["denominator"]) == (1, 2)
     assert type(plain["numerator"]) is int and type(plain["denominator"]) is int
-    # π = 0.3 over a frame of 10 is 3.3333 events; truncating to an int would publish 3
-    one = score.weighted_rate([1], [0.3], 10)
-    assert one["estimated_events"] == 3.3333
+    # π = 0.3 over a frame of 10 is 10/3 events. Rounding each block to 4 decimals sums three of them to 9.9999.
+    one = json.loads(json.dumps(score.weighted_rate([1], [0.3], 10)))
+    assert one["estimated_events"] == 1 / 0.3 and one["rate"] == 0.3333
     sampled = {"set": "sigir", "gold_kind": "physician",
                "pairs": {"summary": {"en": {"eligible_lost": one}}}}
     pooled = replay.figure("a", "v1", [replay.eligible_figure("sigir", sampled)])
-    assert pooled["numerator"] == 3.3333 and pooled["denominator"] == 10.0
-    assert pooled["by_gold_kind"]["physician"]["numerator"] == 3.3333
+    assert pooled["numerator"] == 1 / 0.3 and pooled["denominator"] == 10.0
+    assert pooled["by_gold_kind"]["physician"]["numerator"] == 1 / 0.3
+    blocks = []
+    for i in range(3):
+        block = json.loads(json.dumps(score.weighted_rate([1], [0.3], 10)))
+        blocks.append(replay.eligible_figure(
+            f"s{i}", {"set": f"s{i}", "gold_kind": "physician",
+                      "pairs": {"summary": {"en": {"eligible_lost": block}}}}
+        ))
+    three = replay.figure("a", "v1", blocks)
+    assert three["numerator"] == 10
+    assert three["by_gold_kind"]["physician"]["numerator"] == 10
     assert pooled["within_target"] is False
