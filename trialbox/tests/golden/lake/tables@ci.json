@@ -1,10 +1,10 @@
 {
  "meta": {
   "generator": "tools.synth_hospital profile ci + tools.public_site en",
-  "head": "57b1cb327754685d6268e0c8a989abdb8c34ed29",
+  "head": "1931c2856ac811e2f7e8bb5206f79b34293826a9",
   "lake_schema_version": 4,
   "profile": "ci",
-  "reason": "D-1000 and PR #1095 reviews: the JP mapping file changed (status E, certainty X and U), so every ssmix2-jp table's mapping_version moves; the condition rows carry two new columns (end_date_text, outcome_date_text), so their src_row_hash moves. No value changed.",
+  "reason": "PR #1095 fifth review: the condition rows carry a new column (date_text, the raw text of an unreadable or repeated PRB-2, 7 or 16), so their src_row_hash moves. No value changed.",
   "ref_date": "2026-11-01",
   "seed": 42,
   "written_with_source": "legacy+omop"
@@ -302,13 +302,13 @@
       "onset": "a578d258b746f93febbbe7f8aa06f743bc5ed3e70f5beee38e87e1c2ceb7c09c",
       "pid": "8c65df036ffaf676067377635cd23e6c55f4c604309800b3b9bcb75b1af55d32",
       "recorded": "a578d258b746f93febbbe7f8aa06f743bc5ed3e70f5beee38e87e1c2ceb7c09c",
-      "src_row_hash": "d94dcb3ed5e28587dd879e3b1e36679d96a585b3da2dfcd87e6cfa7fc5bf1689",
+      "src_row_hash": "424d816f6fdf5535fca74b6155444ee64a3047997959cfd8eeca3bdb9124b44d",
       "src_table": "07fc3768eab604a689ae83aefb7eda298f0b9333b36305e8f8a34d0449e1a890",
       "status": "39b7d509b0ed6040fdd92255ce74648a8a3899880db9cc46f04c7fb56c0ab8fa",
       "system": "f80cca1d52b2b46c334a436b09d30b90f66581cc56fec218341bda22981c8028"
      },
      "rows": 1142,
-     "sha": "25d4164ad0a6dce5bbe32fa2f90517eaee087745f5b533b1fa4c10a24ae0fdcb"
+     "sha": "d7da451e07065ebae4fc262758fcaa28a8d46fe38affc487d30566f685388569"
     },
     "consent": {
      "columns": {
