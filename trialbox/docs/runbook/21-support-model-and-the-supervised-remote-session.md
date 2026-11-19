@@ -6,11 +6,9 @@
 incidents, notification clocks, the six cases) is T-318, not this page. The sheet the hospital keeps is
 `docs/plan/sites/support-sheet.md` (en, ja, zh-TW).*
 
-**Drill (T-213b):** `test_runbook_21_support_session` (10K-15, in `tests/console/test_10k15_support_session.py`: a
-ticket is opened, the administrator turns the support-session switch on with its number, the session runs to the rules
-below: the Operations and Jobs pages open, a patient page, a patient list and an export are refused to every account;
-it is ended and the record is two audit events). The Docker part (the support bundle the session may show holds no
-patient data, checked with `python -m tools.data_scan`) is not drilled here.
+**Drill (T-213b):** `test_runbook_21_support_session` (10K-15: a ticket is opened, the administrator turns the
+support-session switch on, Operations and Jobs open, a patient page, a patient list and an export are refused to
+every account, it is ended, two audit events). Its Docker part (the support bundle) is not rehearsed by a test.
 
 ## Who answers
 

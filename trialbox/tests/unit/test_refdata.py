@@ -261,10 +261,80 @@ def test_the_update_bundle_loads_the_pack(sample_tar: Path, tmp_path: Path, monk
     (tmp_path / "deploy").mkdir()
     done = up.ComposeBox(tmp_path / "deploy", run=run).post_apply(plan)
     assert done == [sample_tar.name]
-    assert calls[0].startswith("dc cp ") and calls[0].endswith("criteria-compiler:/tmp/refdata-update.tar")
-    assert "python -m tb_common.refdata load /tmp/refdata-update.tar --by update:B1" in calls[1]
+    # 10G-1 (D-1323): a one-off container reads the pack bind-mounted read-only; no `cp` into the read-only service
+    pack = (stage / "refdata" / sample_tar.name).resolve()
+    assert len(calls) == 2 and not any(" cp " in c for c in calls)
+    # 10G-1 review D3: named, removed first (one an earlier failure left running), and a load clears what an earlier
+    # one left unpacked on the objects volume before it unpacks there
+    assert calls[0] == "docker rm -f tb-refdata-load"
+    assert calls[1].startswith(
+        f"dc run --rm --no-deps -T --name tb-refdata-load -e TMPDIR=/data/objects -v {pack}:/in/refdata.tar:ro "
+        f'criteria-compiler sh -c {up.REFDATA_SWEEP_SH}; exec "$@" tb-refdata-load '
+    )
+    assert calls[1].endswith("python -m tb_common.refdata load /in/refdata.tar --by update:B1")
     assert "refdata" in json.loads((ROOT / "schemas/update_manifest.schema.json").read_text())["$defs"]["update_file"][
         "properties"]["kind"]["enum"]  # fmt: skip
+
+
+@pytest.mark.parametrize("fail", ["timeout", "exit"])
+def test_a_load_that_fails_or_runs_out_of_time_leaves_no_container_and_no_unpacked_pack(
+    sample_tar: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: str
+) -> None:
+    """10G-1 review D3: a limit that runs out kills only the compose CLI. The named one-off is removed, what it
+    unpacked on the objects volume (a backed-up volume) is cleared by a one-off of its own, and the pack waits in
+    deploy/refdata/pending, after a timeout as after an exit."""
+    import subprocess
+
+    stage = tmp_path / "stage"
+    (stage / "refdata").mkdir(parents=True)
+    shutil.copy2(sample_tar, stage / "refdata" / sample_tar.name)
+    plan = up.Plan("B1", "f" * 64, "vendor", [], stage)
+    calls: list[str] = []
+
+    def run(argv: list[str], **_kw: Any) -> str:
+        calls.append(" ".join(argv))
+        if "tb_common.refdata" in argv:
+            if fail == "timeout":
+                raise subprocess.TimeoutExpired(argv, 7200)
+            raise up.UpdateFailed("exit 1")
+        return ""
+
+    monkeypatch.setenv("TB_COMPOSE", "dc")
+    (tmp_path / "deploy").mkdir()
+    with pytest.raises((subprocess.TimeoutExpired, up.UpdateFailed)):
+        up.ComposeBox(tmp_path / "deploy", run=run).post_apply(plan)
+    assert calls[0] == calls[2] == "docker rm -f tb-refdata-load"
+    assert calls[3].startswith(
+        "dc run --rm --no-deps -T --name tb-refdata-sweep -e TMPDIR=/data/objects criteria-compiler sh -c"
+    )
+    assert (
+        up.REFDATA_SWEEP_SH in calls[3]
+        and "tb-refdata-*" in up.REFDATA_SWEEP_SH
+        and "${TMPDIR:?}" in up.REFDATA_SWEEP_SH
+    )
+    assert (tmp_path / "deploy" / "refdata" / "pending" / sample_tar.name).is_file()
+    assert not (tmp_path / "deploy" / "refdata" / "loaded").exists()
+
+
+def test_the_sweep_clears_only_the_loaders_folders_then_runs_the_load(tmp_path: Path) -> None:
+    """REFDATA_SWEEP_SH with a real sh: an earlier load's tb-refdata-* folders go, nothing else on the volume, and the
+    command after it still runs (with none left over too)."""
+    import subprocess
+
+    (tmp_path / "tb-refdata-abc" / "pack").mkdir(parents=True)
+    (tmp_path / "tb-refdata-abc" / "pack" / "big.csv").write_text("x")
+    (tmp_path / "attachment.pdf").write_text("kept")
+    (tmp_path / "other-tb-refdata-x").mkdir()
+    for _ in range(2):
+        r = subprocess.run(["sh", "-c", up.REFDATA_SWEEP_SH + '; exec "$@"', "tb-refdata-load", "sh", "-c", "echo ran"],
+                           env={"PATH": "/usr/bin:/bin", "TMPDIR": str(tmp_path)}, capture_output=True, text=True,
+                           check=False)  # fmt: skip
+        assert r.returncode == 0 and r.stdout == "ran\n", r.stderr
+    assert sorted(x.name for x in tmp_path.iterdir()) == ["attachment.pdf", "other-tb-refdata-x"]
+    bare = subprocess.run(
+        ["sh", "-c", up.REFDATA_SWEEP_SH], env={"PATH": "/usr/bin:/bin"}, capture_output=True, check=False
+    )
+    assert bare.returncode != 0  # no TMPDIR: refused, never "rm -rf /tb-refdata-*"
 
 
 # ------------------------------------------------------------------------------------------------ the choice

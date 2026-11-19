@@ -15,6 +15,10 @@ new heading with the version and date, in the same pull request that sets the ve
   refused to every account, with a page in English, Japanese and Traditional Chinese that says until when; the
   administrator's pages show a banner. It ends by hand or by itself 2 hours after it started; the start and the end
   are in the audit trail. Nothing changes on a box where nobody turns it on.
+- Operations drills (10K-9): each operations page of the RUNBOOK names a drill only where a test rehearses it (§12
+  certificate renewal, §20 close-out, §22 moving the box, §23 lost-box list, §25 leavers); the other pages say that
+  no test rehearses them. Two steps corrected: when the host name changes, run `check-tls` with the new values of
+  `deploy/.env` (§22); at close-out, write down the head after `--sign-head` (§20).
 - ClinicalTrials.gov intake widened (10D-15, D-1367): a study read from the registry (live, offline pack or
   cassette) now carries its sites with their recruitment status, its secondary ids (a jRCT, JapicCTI or UMIN-CTR
   number is recognised as such), arms, interventions, primary and secondary outcomes and the design (allocation,
