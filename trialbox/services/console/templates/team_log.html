@@ -52,5 +52,5 @@
 <label for="check-note">{{ t('mark.note') }}</label><input id="check-note" name="note" maxlength="300">
 <div class="markbar">{% for r in results %}<button type="submit" name="result" value="{{ r }}"{% if r == 'differs' %} class="secondary"{% endif %} data-testid="check-{{ r }}">{{ t('team.log.result.' + r) }}</button>{% endfor %}</div></form>{% endif %}
 </section>
-{% if history %}<section class="card"><h2>{{ t('team.log.history') }}</h2><ul class="plain hint" data-testid="log-history">{% for eid, e in history|reverse %}<li>{{ e.at|local }} · {{ e.by }} · {{ t('team.log.ev.' + e.action) }} #{{ eid }}{% if e.body.tasks is defined %} · {{ e.body.tasks or '–' }}{% endif %}</li>{% endfor %}</ul></section>{% endif %}
+{% if history %}<section class="card"><h2>{{ t('team.log.history') }}</h2><ul class="plain hint" data-testid="log-history">{% for eid, e in history|reverse %}<li>{{ e.at|local }} · {{ e.by }} · {{ t('team.log.ev.' + e.action) }} #{{ eid }}{% if e.body.tasks is defined %} · {#J7#}{% if pm and e.body.tasks %}{% for k in e.body.tasks.split(',') %}{{ t_or('team.task.' + k, k) }}{{ ', ' if not loop.last else '' }}{% endfor %}{% else %}{#/J7#}{{ e.body.tasks or '–' }}{#J7#}{% endif %}{#/J7#}{% endif %}</li>{% endfor %}</ul></section>{% endif %}
 {% endblock %}
