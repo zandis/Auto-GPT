@@ -412,7 +412,9 @@ def test_the_type_scale_is_tokens_used_by_body_and_headings() -> None:
     assert float(light["--lh"]) == 1.5 and float(light["--lh-cjk"]) >= 1.6 and float(light["--lh-head"]) >= 1.3
     css = _css()
     assert re.search(r"body \{ margin: 0; font: var\(--t-body\)/var\(--lh\) ", css)
-    assert re.search(r"\nbody \{ font-size: var\(--t-body\); \}", css)
+    # 9k-3 (D-1375): one base. The D-133 layer's second `body { font-size: var(--t-body); }` is gone with the layer, and
+    # no other rule sets the body's size (print included: it stays 16 px, as the layer made it)
+    assert not re.search(r"\bbody \{[^}]*font-size", css)
     assert re.search(r"\nh1 \{ font-size: var\(--t-h1\); line-height: var\(--lh-head\);", css)
     assert re.search(r"\nh2 \{ font-size: var\(--t-h2\); line-height: var\(--lh-head\);", css)
     assert "font-size: 15px" not in css and "font-size: 16px" not in css

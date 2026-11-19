@@ -66,7 +66,7 @@ from typing import Any
 
 from criteria_compiler.semantics import codes_settle
 from matching import coded_values
-from tb_common import provenance, tier_value
+from tb_common import provenance
 from tb_common.reasons import Reason
 from tb_common.ruleset import Ruleset
 from tb_common.smallcell import suppress
@@ -166,12 +166,15 @@ def _opened(cid: str) -> CriterionVerdict:
 
 def night_budget(ctx: Ctx) -> int:
     """The configured night budget in patients (0: no limit). Left at its default, it is this box's tier record's
-    ``night_budget_patients`` when the record measured it (10E-1c, D-1322); a setting always wins."""
+    ``night_budget_patients`` when the record measured it within the stated limit (10E-1c, D-1322; 10E-11, D-1336:
+    read through the night plan, so the plan states the budget this step enforces); a setting always wins."""
+    from orchestrator import night_plan
+
     configured = int(getattr(ctx.cfg.env, "microbatch_night_budget", DEFAULT_NIGHT_BUDGET))
     if configured != DEFAULT_NIGHT_BUDGET or (os.environ.get("TB_MICROBATCH_NIGHT_BUDGET") or "").strip():
         return configured
-    measured = tier_value.positive_int(tier_value.measured("night_budget_patients"))
-    return configured if measured is None else measured
+    measured = night_plan.tier_budget().value
+    return configured if measured is None else int(measured)
 
 
 TERMINAL = ("done", "failed")

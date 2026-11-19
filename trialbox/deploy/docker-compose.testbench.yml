@@ -20,6 +20,7 @@ services:
       - ..:/src:ro
       - testbench-work:/work
     ports: ["127.0.0.1:${TB_HOST_TESTBENCH_PORT:-8765}:8765"]
+    user: "10001:10001"   # H-58 (D-1337): tb of python.Dockerfile, the image's own USER, named so it is fixed
     read_only: true
     tmpfs: [/tmp]
     mem_limit: 2g   # T-108a (D-360)

@@ -82,6 +82,11 @@ Three rules keep the billed runner minutes down (D-578):
   tests and, where the plan asks, its adversarial review. On a draft the check `unit` shows as skipped, never as
   success: nothing merges on it.
 * A new push cancels the older run of the same pull request.
+* A pull request that touches the console (`services/console/`), `tools/visual_regression.py`,
+  `tests/console/visual_accepted.txt` or its own workflow also runs the visual regression
+  (`trialbox-visual.yml`, 9k-17, D-1377), draft or not: 72 first screens against the base branch. A changed screen
+  fails it until a person has looked at the side-by-side page in the job's files and committed the line the job
+  prints to `tests/console/visual_accepted.txt`. It is not a required check.
 * **The merge train.** The integrator builds `train/<n>` from `master` by merging the heads of several reviewed
   pull requests (`git merge --no-ff <head>` for each) and opens it as a pull request. The full tier runs once on
   it. A green train is merged with a merge commit, not a squash, so the card pull requests show as merged. A red
