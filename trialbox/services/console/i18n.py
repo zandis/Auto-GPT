@@ -794,7 +794,7 @@ ZH: dict[str, str] = {
     "overview.models.never": "永不：模型只能把病人送交人工確認",
     "overview.models.fallback": "TrialBox 設定為「兩個模型須一致」，但只有一個模型，因此病歷判讀不會將任何人列為未符合條件；病歷條件不符的病人一律列入人工確認。請加入第二模型，或明確把原則設為「永不」。",
     "overview.models.never.help": "TrialBox 刻意設為「永不」：病歷條件不符時保留引文，病人送交人工確認。",
-    "overview.models.engine": "結構化條件（年齡、性別、疾病、檢驗、用藥）由 {engine} 篩選器決定，模型不參與。",
+    "overview.models.engine": "結構化條件（年齡、性別、病名、檢驗、用藥）由 {engine} 篩選器決定，模型不參與。",
     "overview.models.pipeline.cascade": "篩選以 v4 串級執行：先篩選器（S1）、病歷詞彙比對與排序（S2）、模型只讀剩下的部分（S3）、有力候選由第二模型複核（S4）、最後由人確認（S5）。",
     "overview.models.pipeline.v1": "篩選以 v1 評估器執行（逐病人篩選後，模型判讀每位候選的病歷）。",
     "overview.models.unavailable": "無法取得模型設定：協調服務沒有回應。",
