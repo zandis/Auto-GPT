@@ -470,3 +470,61 @@ zh	症狀性心衰竭	心衰竭			condition	runs	severity
 zh	控制不佳之高血壓	高血壓			condition	runs	severity
 zh	年齡18至75歲之第二型糖尿病患者	第二型糖尿病			condition	runs	frame
 zh	新诊断的2型糖尿病	2型糖尿病			condition	runs	frame
+en	Any immunosuppressant other than prednisolone	prednisolone			medication	held	exception
+en	Prior chemotherapy except for capecitabine	capecitabine			medication	held	exception
+en	Any cancer except prostate cancer	prostate cancer			condition	held	exception
+en	Up to 2 prior lines of chemotherapy	chemotherapy			procedure	held	count_bound
+en	No more than one prior regimen of chemotherapy	chemotherapy			procedure	held	count_bound
+en	0-2 prior lines of chemotherapy	chemotherapy			procedure	held	count_bound
+en	At most 3 courses of radiotherapy	radiotherapy			procedure	held	count_bound
+en	Chemotherapy on day 1 of each cycle	chemotherapy			procedure	held	schedule
+en	Insulin at randomisation	insulin			medication	held	schedule
+en	Asthma: 0	asthma			condition	held	form_value
+en	Hypertension = 2	hypertension			condition	held	form_value
+en	Chemotherapy: 0 cycles	chemotherapy			procedure	held	zero
+en	Non-diabetic	diabetes			condition	held	prefix
+en	Non-Hodgkin lymphoma	Hodgkin lymphoma			condition	held	prefix
+en	Hepatitis C with undetectable HCV RNA	hepatitis C			condition	held	remission
+en	Prior to chemotherapy	chemotherapy			procedure	held	temporal
+en	Before radiotherapy	radiotherapy			procedure	held	temporal
+ja	プレドニゾロン以外の免疫抑制薬	プレドニゾロン			medication	held	exception
+ja	前立腺癌を除く悪性腫瘍	前立腺癌			condition	held	exception
+ja	化学療法2レジメン以下	化学療法			procedure	held	count_bound
+ja	化学療法の前治療は最大2ライン	化学療法			procedure	held	count_bound
+ja	化学療法1日目	化学療法			procedure	held	schedule
+ja	高血圧：0	高血圧			condition	held	form_value
+ja	化学療法を施行予定	化学療法			procedure	held	plan
+ja	現在は寛解している喘息	喘息			condition	held	remission
+ja	HIV陰性	HIV			condition	held	test
+ja	化学療法前	化学療法			procedure	held	temporal
+ja	放射線治療以前	放射線治療			procedure	held	temporal
+zh	潑尼松龍以外之免疫抑制劑	潑尼松龍			medication	held	exception
+zh	除前列腺癌外之惡性腫瘤	前列腺癌			condition	held	exception
+zh	至多兩線化學治療	化學治療			procedure	held	count_bound
+zh	化學治療不超過2線	化學治療			procedure	held	count_bound
+zh	化學治療第1天	化學治療			procedure	held	schedule
+zh	高血壓：0	高血壓			condition	held	form_value
+zh	化學治療之前	化學治療			procedure	held	temporal
+zh	放射治療前	放射治療			procedure	held	temporal
+zh	HIV陰性	HIV			condition	held	test
+zh	非酒精性脂肪肝	酒精性脂肪肝			condition	held	prefix
+en	Any active malignancy except basal cell carcinoma	malignancy			condition	runs	exception
+en	Prior chemotherapy other than anthracyclines	chemotherapy			procedure	runs	exception
+en	Non-metastatic prostate cancer	prostate cancer			condition	runs	type
+en	Asymptomatic gallstones	gallstones			condition	runs	type
+en	Non-alcoholic fatty liver disease	fatty liver disease			condition	runs	type
+en	Chronic hepatitis C with detectable HCV RNA	chronic hepatitis C			condition	runs	measure
+en	Not more than 12 weeks since prior chemotherapy	chemotherapy			procedure	runs	history
+en	Myocardial infarction confirmed by troponin and ECG	myocardial infarction			condition	runs	method
+ja	基底細胞癌を除く活動性悪性腫瘍	悪性腫瘍			condition	runs	exception
+ja	頭部を除く放射線治療歴がある	放射線治療			procedure	runs	exception
+ja	非アルコール性脂肪肝炎と診断された患者	脂肪肝炎			condition	runs	type
+ja	HBs抗原は陽性である	HBs抗原			observation	runs	frame
+ja	化学療法が施行された	化学療法			procedure	runs	history
+ja	現在喫煙している	喫煙			condition	runs	frame
+zh	除基底細胞癌外之活動性惡性腫瘤	惡性腫瘤			condition	runs	exception
+zh	曾接受頭部以外之放射治療	放射治療			procedure	runs	exception
+zh	非酒精性脂肪肝炎	脂肪肝炎			condition	runs	type
+zh	代償性肝硬化	肝硬化			condition	runs	type
+zh	B型肝炎表面抗原：陽性	B型肝炎表面抗原			observation	runs	frame
+zh	曾接受至少兩線化療	化療			procedure	runs	history
