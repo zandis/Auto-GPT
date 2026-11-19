@@ -78,8 +78,8 @@ BOX="$W/box"
 HOST_IMG="trialbox-rehearsal-host:24.04"
 HOST_CT="tb-rehearse-host"
 # H-54: a cache miss builds the host image from the Ubuntu archive (an outside mirror). One attempt may take
-# HOST_IMAGE_CAP_S seconds, then it is stopped and tried once more: the slowest successful build in the 12 CI legs read
-# on 2026-11-19 took 222 s (most 14-50 s); one leg's mirror trickled for 2758 s (46 min) and another's refused for 500 s
+# HOST_IMAGE_CAP_S seconds, then it is stopped and tried once more: the slowest of the 11 successful CI builds read
+# on 2026-11-19 took 222 s (most 14-51 s); one leg's mirror trickled for 2758 s (46 min) and another's refused for 500 s
 HOST_IMAGE_CAP_S="${TB_REHEARSE_HOST_IMAGE_CAP_S:-600}"
 HOST_IMAGE_ATTEMPTS=2
 HOST_IMAGE_LABEL="org.trialbox.rehearsal.host-dockerfile-sha256"

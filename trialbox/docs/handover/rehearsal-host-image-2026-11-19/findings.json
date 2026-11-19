@@ -1,0 +1,19 @@
+{
+  "card": "H54",
+  "title": "the rehearsal's host image is cached, pinned and bounded",
+  "date": "2026-11-19",
+  "source": "docs/handover/rehearsal-host-image-2026-11-19.md",
+  "findings": [
+    {
+      "id": "H54-01",
+      "severity": "Medium",
+      "claim": "the box rehearsal's step host-image built its Ubuntu image from Docker Hub and archive.ubuntu.com on every run, unpinned, uncached and with no cap, so a mirror outage failed it (500 s, 112 s on train 98) and a slow mirror took 46 minutes; CI only, it reddens trains",
+      "lane": "H",
+      "basis": "shown",
+      "state": "fixed da0e32d0",
+      "place": "tools/rehearse_box/host.Dockerfile; tools/rehearse_box/rehearse.sh host_image; .github/workflows/trialbox-rehearse-box.yml",
+      "expected": "the host image comes from a cache keyed on its Dockerfile's hash, or a bounded, retried build that fails naming its fetch",
+      "happened": "jobs 135547205491 (FAIL 500 s, archive.ubuntu.com:80 unable to connect), 135547205395 (FAIL 112 s, Unable to locate package), 135387999040 (2758 s)"
+    }
+  ]
+}
