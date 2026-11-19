@@ -1,0 +1,33 @@
+{
+ "card": "H10G4",
+ "title": "the threat model, reviewed per release (plan 10 row 10G-4)",
+ "date": "2026-11-19",
+ "source": "docs/security/12-threat-model.md",
+ "note": "Open threats of the threat model that no row of the findings register named. Basis 'hypothesis': read from the code and the review, not run.",
+ "findings": [
+  {
+   "id": "H10G4-01",
+   "severity": "Medium",
+   "claim": "The egress table leaves Docker's embedded DNS alone (deploy/egress.py), so a container's name lookups still reach the hospital's resolver (review 16's J-M7); the decision waits on card 10G-49",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H10G4-02",
+   "severity": "Medium",
+   "claim": "The vendor's update key is one file passed as --key to tools/make_bundle.sh: one person can sign a release (card 10G-7)",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  },
+  {
+   "id": "H10G4-03",
+   "severity": "High",
+   "claim": "The audit signing key sits in the box's own secrets folder (tools/trialbox/audit_heads.py): root can change the events written since the last signed head before the next night signs them, and holds the key that signs (review 16, section 2.2; card 10G-2)",
+   "lane": "H",
+   "basis": "hypothesis",
+   "state": "open"
+  }
+ ]
+}

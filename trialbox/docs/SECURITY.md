@@ -60,4 +60,8 @@ File: [security/10-key-ceremony-and-escrow.md](security/10-key-ceremony-and-escr
 
 File: [security/11-secure-development-mapping.md](security/11-secure-development-mapping.md). In it: [What it covers](security/11-secure-development-mapping.md#what-it-covers), [How to read a row](security/11-secure-development-mapping.md#how-to-read-a-row), [Summary by group](security/11-secure-development-mapping.md#summary-by-group), [The gaps, by weight](security/11-secure-development-mapping.md#the-gaps-by-weight), [What closing them costs](security/11-secure-development-mapping.md#what-closing-them-costs), [Keeping it current](security/11-secure-development-mapping.md#keeping-it-current).
 
+## 12. Threat model
+
+File: [security/12-threat-model.md](security/12-threat-model.md). In it: [Assets](security/12-threat-model.md#assets), [Actors](security/12-threat-model.md#actors), [Trust boundaries](security/12-threat-model.md#trust-boundaries), [Threats per boundary](security/12-threat-model.md#threats-per-boundary), [Not in this version](security/12-threat-model.md#not-in-this-version), [Findings of this page](security/12-threat-model.md#findings-of-this-page).
+
 <!-- end of the generated index -->

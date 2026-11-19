@@ -24,7 +24,7 @@ NOTICE = {
     "was uploaded and from the hospital data the box holds. “Unknown” means the chart did not say, not that the "
     "patient is ineligible. The investigator decides eligibility.",
     "ja": "このシートは治験チームの確認を助ける資料です。アップロードされたカルテの文章と、"
-    "この装置が保有する院内データからのみ各基準に回答しています。「不明」はカルテに記載がなかったことを意味し、"
+    "このボックスが保有する院内データからのみ各基準に回答しています。「不明」はカルテに記載がなかったことを意味し、"
     "不適格を意味しません。適格性の判断は治験責任医師が行います。",
     "zh-TW": "本表是協助研究團隊閱讀的資料。每項條件只依據上傳的病歷文字與本機保有的院內資料回答。"
     "「不明」表示病歷未提及，不代表不符合條件。是否適格由試驗主持人判斷。",
@@ -106,7 +106,8 @@ META = {
         "nojudge": "言語モデルが設定されていないため、記述基準は読み取れませんでした。",
         "chart_only": "カルテ番号が未指定または未登録のため、構造化基準もカルテの文章から読み取りました。"
         "原本との照合が必要です。",
-        "footer": "TrialBox · ジョブ {job_id} · カルテと本シートは装置内に保管され、保持規則の対象です · 宛先: {to}",
+        "footer": "TrialBox · ジョブ {job_id} · カルテと本シートはボックス内に保管され、保持規則の対象です · "
+        "宛先: {to}",
     },
     "zh-TW": {
         "date": "檢核日期",
@@ -151,6 +152,23 @@ def _day(value: object, dates: str) -> str:
     return f'<span class="dt">{text}</span>' if dates in ("era", "both") else text
 
 
+#: D-1360 (card 10A-4): the answer the last screening stored, under the sheet's own
+LAST = {
+    "en": "Last screening, {date}: {verdict}",
+    "ja": "前回スクリーニング（{date}）：{verdict}",
+    "zh-TW": "上次篩選（{date}）：{verdict}",
+}
+
+
+def _last(r: dict[str, Any], lang: str, dates: str = "western") -> str:
+    a = r.get("last_screening")
+    if not a:
+        return ""
+    v = str(a.get("shown") or a["status"])  # the word a page shows (a held-back "not met" is an open point, D-478)
+    before, after = LAST[lang].format(date="\x00", verdict=VERDICT[lang].get(v, v)).split("\x00")
+    return f'<div class="d">{escape(before)}{_day(a["index_date"], dates)}{escape(after)}</div>'
+
+
 def _row(r: dict[str, Any], lang: str, dates: str = "western") -> str:
     verdict = str(r["verdict"])
     ev = ""
@@ -166,7 +184,7 @@ def _row(r: dict[str, Any], lang: str, dates: str = "western") -> str:
         f'<tr data-id="{escape(str(r["id"]))}" data-verdict="{escape(verdict)}">'
         f"<td><strong>{escape(str(r['id']))}</strong><br>{escape(str(r['text']))}</td>"
         f"<td>{escape(KIND[lang].get(str(r['kind']), str(r['kind'])))}</td>"
-        f'<td class="v-{escape(verdict)}">{escape(VERDICT[lang].get(verdict, verdict))}</td>'
+        f'<td class="v-{escape(verdict)}">{escape(VERDICT[lang].get(verdict, verdict))}{_last(r, lang, dates)}</td>'
         f"<td>{ev or '–'}</td>"
         f"<td>{escape(SOURCE[lang].get(str(r['source']), str(r['source'])))}</td>"
         f"<td>{escape(str(r.get('resolve') or ''))}</td></tr>"
