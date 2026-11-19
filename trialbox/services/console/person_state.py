@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from typing import Any
 
+from tb_common.dates import in_year
 from tb_common.erased import is_erased
 
 #: every state, in the order a person moves through a study; the first eight are a Candidate's (before consent),
@@ -328,17 +329,26 @@ class People:
     def counts(self) -> dict[str, int]:
         return counts(self.states().values())
 
-    def in_year(self, year: int) -> dict[str, int]:
-        """The counts of the people whose state began in ``year`` (the research office's calendar year)."""
-        return counts(s for s in self.states().values() if s.since[:4] == str(year))
+    def began_in(self, st: PersonState, year: int, basis: str = "calendar") -> bool:
+        """Whether a state began in ``year`` (the research office's year). ``calendar``: the stamp's first four
+        characters, as before; ``fiscal`` (年度, 10C-15): its day in the site's zone, each source read in its own zone
+        (:data:`_SITE_SOURCES`)."""
+        if basis != "fiscal":
+            return st.since[:4] == str(year)
+        at = _instant(st.since, st.source, self.tz)
+        return at is not None and in_year(at, year, basis, self.tz)
 
-    def reached(self, step: str, year: int | None = None) -> int:
+    def in_year(self, year: int, basis: str = "calendar") -> dict[str, int]:
+        """The counts of the people whose state began in ``year`` (the research office's calendar year or 年度)."""
+        return counts(s for s in self.states().values() if self.began_in(s, year, basis))
+
+    def reached(self, step: str, year: int | None = None, basis: str = "calendar") -> int:
         """How many people ever reached ``step`` (:data:`REACHED`): their state now, or a step their participant
         record took and still stands (an enrolled participant who withdrew was enrolled). ``year``: only the people
-        whose state began in that year (the research office)."""
+        whose state began in that year (the research office; ``basis`` as :meth:`began_in`)."""
         n = 0
         for pid, st in self.states().items():
-            if year is not None and st.since[:4] != str(year):
+            if year is not None and not self.began_in(st, year, basis):
                 continue
             ever = {st.name, *(FROM_LIFE.get(x, "") for x in (self.facts.get(pid) or Facts()).ever)}
             n += bool(ever & REACHED[step])

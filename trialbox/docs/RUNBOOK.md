@@ -13,7 +13,7 @@ Sections whose audience is `team` (the table at the end) are for the people who 
 [Developing](DEVELOPING.md) (T-635, D-390). Support, recovery, keys, patches and leavers are §21 to §25.
 
 **Other install forms** (T-735): §8 (a DGX Spark by hand, and two devices), §9 (a proof of concept on any Docker
-host), §10 (one RTX 5090), §17 (on a hospital platform), §26 (platform day 2), §27 (the owner's workstation with an RTX PRO 6000-class card) and §28 (an IGX Orin developer kit with an RTX A6000, without a model). A box set up by its owner
+host), §10 (one RTX 5090), §17 (on a hospital platform), §26 (platform day 2), §27 (the owner's workstation with an RTX PRO 6000-class card), §28 (an IGX Orin developer kit with an RTX A6000, without a model) and §29 (the same machine: whether the real models run; UNMEASURED). A box set up by its owner
 (`deploy/box-install.sh`, the owner's pages) needs none of them; they are kept for Aimedics and for a hospital that
 runs TrialBox on its own platform.
 
@@ -136,7 +136,11 @@ File: [runbook/27-workstation-rtx-pro-6000.md](runbook/27-workstation-rtx-pro-60
 
 ## 28. An IGX Orin developer kit with an RTX A6000: the product without a model
 
-File: [runbook/28-igx-orin-a6000-without-a-model.md](runbook/28-igx-orin-a6000-without-a-model.md). In it: [Every day after](runbook/28-igx-orin-a6000-without-a-model.md#every-day-after), [Only when we ask: the engine probe (no model)](runbook/28-igx-orin-a6000-without-a-model.md#only-when-we-ask-the-engine-probe-no-model).
+File: [runbook/28-igx-orin-a6000-without-a-model.md](runbook/28-igx-orin-a6000-without-a-model.md). In it: [Every day after](runbook/28-igx-orin-a6000-without-a-model.md#every-day-after), [Optional: the real embedder (stub judge, real embedder)](runbook/28-igx-orin-a6000-without-a-model.md#optional-the-real-embedder-stub-judge-real-embedder), [Only when we ask: the engine probe (no model)](runbook/28-igx-orin-a6000-without-a-model.md#only-when-we-ask-the-engine-probe-no-model).
+
+## 29. An IGX Orin developer kit with an RTX A6000: do the real models run?
+
+File: [runbook/29-igx-orin-a6000-real-models.md](runbook/29-igx-orin-a6000-real-models.md). In it: [What we do not know yet](runbook/29-igx-orin-a6000-real-models.md#what-we-do-not-know-yet), [Two limits to know first](runbook/29-igx-orin-a6000-real-models.md#two-limits-to-know-first), [The page](runbook/29-igx-orin-a6000-real-models.md#the-page), [The weights (step 5)](runbook/29-igx-orin-a6000-real-models.md#the-weights-step-5), [Freeing the disk (step 1)](runbook/29-igx-orin-a6000-real-models.md#freeing-the-disk-step-1), [Reading the probe (step 2)](runbook/29-igx-orin-a6000-real-models.md#reading-the-probe-step-2), [The measuring run (steps 6 and 7)](runbook/29-igx-orin-a6000-real-models.md#the-measuring-run-steps-6-and-7), [What this page does not verify](runbook/29-igx-orin-a6000-real-models.md#what-this-page-does-not-verify).
 
 <!-- end of the generated index -->
 
@@ -180,3 +184,4 @@ build TrialBox; OPS-073: [Developing](DEVELOPING.md) lists them, D-390).
 | 26 | Platform day 2 | on master | IT (other install form) |
 | 27 | Installing on a workstation with an RTX PRO 6000-class card | on master | owner (other install form) |
 | 28 | An IGX Orin developer kit with an RTX A6000: the product without a model | on master | owner (other install form) |
+| 29 | An IGX Orin developer kit with an RTX A6000: do the real models run? | on master | owner (other install form) |
