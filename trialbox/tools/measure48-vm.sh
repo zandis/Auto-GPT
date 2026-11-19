@@ -206,7 +206,9 @@ end_run() {  # the end, on every way out: down, release, the records up, power o
 # the run, so the next boot (--resume) goes on; bash would otherwise run the EXIT trap below on SIGTERM.
 trap 'trap - EXIT; say "signal: the VM is stopping; the run goes on at the next boot"; tick; pack; kill "$TICKER" 2>/dev/null; exit 143' TERM HUP
 trap 'end_run "the script ended unexpectedly"' EXIT
-[ ! -f "$RUN/ended" ] || off "ended before: $(cat "$RUN/ended")"
+# a boot after the end (a restart by hand) changes nothing: the EXIT trap is dropped first, or off's exit would run
+# end_run and overwrite ended (why the run ended) with "the script ended unexpectedly"
+[ ! -f "$RUN/ended" ] || { trap - EXIT; off "ended before: $(cat "$RUN/ended")"; }
 
 # ------------------------------------------------------------------ the repository's tools (one stand-in in rehearsal)
 tool() {  # tool <name> <args...>: run from the checkout, SIGINT at its default

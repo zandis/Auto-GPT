@@ -151,6 +151,7 @@ class Rig:
             tf.addfile(info, io.BytesIO(head))
             folder = tarfile.TarInfo("trialbox/deploy")
             folder.type = tarfile.DIRTYPE
+            folder.mode = 0o755  # TarInfo's default 0o644 leaves a folder only root can enter (CI is not root)
             tf.addfile(folder)
         self.metadata(**{"tb-run-id": "m48-test", "tb-bucket": "gs://bk", "tb-commit": COMMIT, "tb-src": str(src),
                          "tb-src-sha256": hashlib.sha256(src.read_bytes()).hexdigest(),
@@ -289,6 +290,17 @@ def test_no_option_starts_ends_the_run_with_records_and_power_off(rig: Rig) -> N
     steps = rig.steps()
     assert steps["s08-ladder"]["rc"] == 1 and steps["s14-release"]["rc"] == 0 and "s12-down" not in steps
     assert "s08-ladder" in json.loads((rig.up / "steps.json").read_text())["ended"]
+
+
+def test_a_boot_after_the_end_keeps_why_the_run_ended(rig: Rig) -> None:
+    rig.boot(M48_FAIL="pair-32k pair-16k judge-alone")
+    ended = (rig.run_dir / "ended").read_text()
+    assert "s08-ladder" in ended
+    again = rig.boot()
+    assert again.returncode == 0 and "power off: ended before: s08-ladder" in again.stdout
+    assert "ended unexpectedly" not in again.stdout
+    assert (rig.run_dir / "ended").read_text() == ended
+    assert json.loads((rig.up / "steps.json").read_text())["ended"] == ended
 
 
 def test_a_refused_flag_is_the_result(rig: Rig) -> None:
