@@ -154,7 +154,7 @@ def _enforced(cfg: Any, tier: Figure) -> tuple[int, str]:
     return n, "tier record" if tier.measured else "fallback"
 
 
-def _safe(ingest: str, steps: tuple[str, ...], exc: Exception) -> NightPlan:
+def _safe(ingest: str, steps: tuple[str, ...], kind: str) -> NightPlan:
     none = Figure("", "malformed")
     return NightPlan(
         profile=None,
@@ -167,7 +167,7 @@ def _safe(ingest: str, steps: tuple[str, ...], exc: Exception) -> NightPlan:
         judge_calls_per_second=none,
         budget_patients=-1,
         budget_from="unknown",
-        warnings=(f"night plan: not built ({type(exc).__name__}): the night runs as configured",),
+        warnings=(f"night plan: not built ({kind}): the night runs as configured",),
     )
 
 
@@ -211,7 +211,7 @@ def build(cfg: Any) -> NightPlan:
             warnings=tuple(warnings),
         )
     except Exception as exc:  # the plan is words at start: it never stops the scheduler
-        return _safe(ingest, steps, exc)
+        return _safe(ingest, steps, type(exc).__name__)
 
 
 def say(plan: NightPlan) -> None:
