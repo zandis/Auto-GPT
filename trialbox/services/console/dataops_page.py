@@ -249,8 +249,12 @@ def site_profile_of(detail: Any) -> dict[str, Any] | None:
         return None
     if not (type(facts) is int and facts >= 0):
         return None
+    units, pending = sp.get("units_not_read_rows", 0), sp.get("pending")
+    if not (type(units) is int and units >= 0) or not (pending is None or isinstance(pending, str)):
+        return None
     return {**{k: sp[k] for k in (*words, *counts, *lists)}, "digest": sp["digest"][:12], "not_read": not_read,
-            "facts_from_verify": facts}  # fmt: skip
+            "facts_from_verify": facts, "units_not_read_rows": units,
+            "pending": pending[:12] if pending else None}  # fmt: skip
 
 
 def unmapped_kinds_of(detail: Any) -> dict[str, dict[str, int]]:

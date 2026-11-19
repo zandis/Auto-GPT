@@ -144,7 +144,15 @@ def test_a_manifest_that_does_not_match_the_schema_is_refused(
         ("ALTX,loinc,1742-6,x,U/L,1,laboratory,quantity,,,maybe,", "state 'maybe'"),
         (",loinc,1742-6,x,U/L,1,laboratory,quantity,,,verify,", "local_code cell is empty"),
         ("ALTX,loinc,,x,U/L,1,laboratory,quantity,,,verify,", "code cell is empty"),
-        ("UA,loinc,3084-1,x,mg/dL,1,laboratory,quantity,,,verify,", "already on line 2"),
+        ("UA,loinc,3084-1,x,mg/dL,1,laboratory,quantity,,,verify,", "is 'UA' of line 2 (one code)"),
+        ("ua,loinc,3084-1,x,mg/dL,1,laboratory,quantity,,,verify,", "is 'UA' of line 2 (one code)"),
+        ("ＵＡ,loinc,3084-1,x,mg/dL,1,laboratory,quantity,,,verify,", "is 'UA' of line 2 (one code)"),
+        ("ALTX,loinc,2160-1,x,U/L,1,laboratory,quantity,,,verify,", "fails LOINC's check digit"),
+        ("ALTX,loinc,E11.9,x,U/L,1,laboratory,quantity,,,verify,", "is not a loinc code"),
+        ("ALTX,loinc,NOT-A-CODE!,x,U/L,1,laboratory,quantity,,,verify,", "is not a loinc code"),
+        ("ALTX,loinc,４５４８-４,x,%,1,laboratory,quantity,,,verify,", "is not a loinc code"),
+        ("ALTX,snomed,271649006,x,,1,laboratory,quantity,,,verify,", "code system 'snomed' is not one this product"),
+        ("ALTX,http://snomed.info/sct,271649006,x,,1,laboratory,quantity,,,verify,", "is not one this product"),
         ("ALTX,loinc,1742-6,x,U/L,1,laboratory,quantity,,,verify,,extra", "more cells"),
     ],
 )
@@ -220,7 +228,8 @@ def test_the_ssmix2_reader_takes_the_profiles_tables(tmp_path: Path, monkeypatch
         },
     )
     (tmp_path / "p/profile.yaml").write_text(yaml.safe_dump(doc), encoding="utf-8")
-    src: Any = make_source("ssmix2", str(tmp_path / "storage"), profile=load(tmp_path / "p"))
+    files = sp.write_tables(load(tmp_path / "p"), tmp_path / "loaded")
+    src: Any = make_source("ssmix2", str(tmp_path / "storage"), profile_files=files)
     assert src.byomei == {"X001": "M10.9"}
     shipped: Any = make_source("ssmix2", str(tmp_path / "storage"))
     assert "X001" not in shipped.byomei and len(shipped.byomei) == 32
@@ -315,8 +324,8 @@ def test_a_table_a_mapping_reads_has_the_mappings_key_and_columns(tmp_path: Path
     m = Mapping.load(MAPPING)
     sp.check_mapping(load(_profile(tmp_path / "ok")), m)
     f = _profile(tmp_path / "three")
-    (f / "codes/lab.csv").write_text("local_code,code,verified\nUA,3084-1,verify\n", encoding="utf-8")
-    with pytest.raises(ProfileError, match="no column 'system' \\(the mapping reads it\\)"):
+    (f / "codes/lab.csv").write_text("local_code,system,code,verified\nUA,loinc,3084-1,verify\n", encoding="utf-8")
+    with pytest.raises(ProfileError, match="no column 'display' \\(the mapping reads it\\)"):
         sp.check_mapping(load(f), m)
     doc = _manifest()
     doc["tables"]["lab"]["key"] = "site_code"
@@ -344,7 +353,7 @@ def test_the_check_command_holds_a_mapping_table_to_its_mapping(tmp_path: Path) 
     f = _profile(tmp_path / "p")
     assert sp.main(["check", str(f)]) == 2  # a mapping's look-up: --mapping is needed
     assert sp.main(["check", str(f), "--mapping", str(MAPPING)]) == 0
-    (f / "codes/lab.csv").write_text("local_code,code,verified\nUA,3084-1,verify\n", encoding="utf-8")
+    (f / "codes/lab.csv").write_text("local_code,system,code,verified\nUA,loinc,3084-1,verify\n", encoding="utf-8")
     assert sp.main(["check", str(f), "--mapping", str(MAPPING)]) == 2
 
 
@@ -459,9 +468,14 @@ class _Rebuild:
         return RebuildResult(snapshot=snap, tables={}, chunks=0, embedded_new=0, seconds=0.0)
 
 
-def _cfg(tmp: Path, url: str, tag: str, profile: Path | None) -> AdapterConfig:
+def _cfg(tmp: Path, url: str, tag: str, profile: Path | None, *, loaded: bool = True) -> AdapterConfig:
+    """A night's settings; with ``profile``, that folder loaded first by a person (``load --by``), unless not
+    ``loaded``: the night applies only a version a person loaded."""
     sec = tmp / f"secrets-{tag}"
-    sec.mkdir()
+    sec.mkdir(exist_ok=True)
+    if profile is not None and loaded:
+        sp.activate(load(profile), tmp / f"lake-{tag}", site_id="T", by="steward-t", audit_dir=tmp / f"audit-{tag}",
+                    tz=TZ, door="csv")  # fmt: skip
     (sec / "site_hmac.key").write_bytes(b"k" * 32)
     sep = "&" if "?" in url else "?"
     return AdapterConfig(lake_dir=tmp / f"lake-{tag}", secrets_dir=sec, mapping_path=MAPPING, site_id="T", tz=TZ,
@@ -515,7 +529,7 @@ def test_a_second_profile_with_other_local_codes_reads_the_same_facts_with_no_co
     said = next(e["detail"]["site_profile"] for e in done if e["event"] == "ingest.done")
     assert (said["id"], said["version"], said["digest"]) == ("test-site", "1.0.0", stamp["digest"])
     assert said["types_arrived"] == len(TABLES) and said["unmapped_rows"] == 0
-    assert [e["actor"] for e in done if e["event"] == sp.EVENT] == ["adapter"]
+    assert [e["actor"] for e in done if e["event"] == sp.EVENT] == ["steward-t"]  # a person, never the night
 
 
 def _untagged(line: str) -> tuple[str, bool]:
@@ -586,15 +600,22 @@ def test_a_fact_from_a_verify_row_stays_coded_and_is_listed_as_resting_on_one(
     assert ids <= coded and {listed[i] for i in ids} == {VERIFY_BASIS}
 
 
-def test_a_refused_profile_ends_the_night_before_anything_is_read(tmp_path: Path, pg_cluster_url: str) -> None:
+def test_a_refused_profile_is_never_loaded_and_the_night_does_not_apply_it(tmp_path: Path, pg_cluster_url: str) -> None:
     folder = _profile(tmp_path / "p")
-    (folder / "codes/lab.csv").write_text("local_code,code,verified\nUA,3084-1,perhaps\n", encoding="utf-8")
+    (folder / "codes/lab.csv").write_text(
+        "local_code,system,code,verified\nUA,loinc,3084-1,perhaps\n", encoding="utf-8"
+    )
+    with pytest.raises(ProfileError, match="codes/lab.csv:2"):
+        load(folder)
     feed = tmp_path / "feed"
     shutil.copytree(SITE_A, feed, ignore=shutil.ignore_patterns("*.json"))
-    with pytest.raises(ProfileError, match="codes/lab.csv:2"):
-        run_ingest(_cfg(tmp_path, pg_cluster_url, "x", folder), "csv", str(feed), snapshot=NIGHT, load_fhir=False,
-                   validate=False)  # fmt: skip
-    assert not snapshot_dir(tmp_path / "lake-x", NIGHT).joinpath("Observation.ndjson").exists()
+    rep = run_ingest(_cfg(tmp_path, pg_cluster_url, "x", folder, loaded=False), "csv", str(feed), snapshot=NIGHT,
+                     load_fhir=False, validate=False)  # fmt: skip
+    assert rep.passed
+    nd = snapshot_dir(tmp_path / "lake-x", NIGHT)
+    said = json.loads((nd / sp.RECORD).read_text(encoding="utf-8"))
+    assert said["profile"] is None and "codes/lab.csv:2" in said["note"]["pending"]["why"]
+    assert not any(_untagged(x)[1] for x in (nd / "Observation.ndjson").read_text(encoding="utf-8").splitlines())
 
 
 def test_the_box_finds_its_profile_in_the_site_mapping_folder_only(
@@ -641,7 +662,8 @@ def test_a_second_ssmix2_profile_with_other_diagnosis_codes_reads_the_same_diagn
     (tmp_path / "p/profile.yaml").write_text(yaml.safe_dump(doc), encoding="utf-8")
 
     def read(storage: Path, profile: Any) -> tuple[list[tuple[str, ...]], set[str]]:
-        src: Any = make_source("ssmix2", str(storage), profile=profile)
+        files = sp.write_tables(profile, tmp_path / "loaded") if profile is not None else None
+        src: Any = make_source("ssmix2", str(storage), profile_files=files)
         rows = list(src.rows("diagnosis", "diagnosis", None, None))
         keep = ("diag_no", "enc_no", "mrn", "icd10", "icd10cm", "diag_date", "recorded_date", "status")
         return sorted(tuple(str(r.get(k) or "") for k in keep) for r in rows), {str(r["byomei_code"]) for r in rows}
@@ -668,3 +690,174 @@ def test_the_load_command_takes_the_site_from_the_settings(tmp_path: Path, monke
     assert sp.main(["load", str(other), "--lake", str(tmp_path / "lake"), "--by", "s", "--mapping", str(MAPPING),
                     "--audit", str(tmp_path / "audit")]) == 2  # fmt: skip
     assert sp.read_record(tmp_path / "lake")["active"]["site_id"] == "T"
+
+
+# ------------------------------------------------------------------- the lane lead's check of 60632078 (one test each)
+def _feed(tmp: Path, name: str = "feed") -> Path:
+    feed = tmp / name
+    shutil.copytree(SITE_A, feed, ignore=shutil.ignore_patterns("*.json"))
+    return feed
+
+
+def _rewrite_lab(feed: Path, change: Any) -> list[dict[str, str]]:
+    rows = list(csv.DictReader((feed / "lab.csv").open(encoding="utf-8")))
+    out = [change(i, r) for i, r in enumerate(rows)]
+    with (feed / "lab.csv").open("w", encoding="utf-8", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(rows[0]), lineterminator="\n")
+        w.writeheader()
+        w.writerows(out)
+    return out
+
+
+def _set_state(folder: Path, code: str, state: str, version: str | None = None) -> Path:
+    rows = list(csv.DictReader((folder / "codes/lab.csv").open(encoding="utf-8")))
+    with (folder / "codes/lab.csv").open("w", encoding="utf-8", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(rows[0]), lineterminator="\n")
+        w.writeheader()
+        w.writerows({**r, "verified": state if r["local_code"] == code else r["verified"]} for r in rows)
+    if version:
+        doc = yaml.safe_load((folder / "profile.yaml").read_text(encoding="utf-8"))
+        doc["version"] = version
+        (folder / "profile.yaml").write_text(yaml.safe_dump(doc, allow_unicode=True), encoding="utf-8")
+    return folder
+
+
+def test_1_a_code_the_look_up_matches_by_its_folded_form_is_tagged_from_the_matched_row(
+    tmp_path: Path, pg_cluster_url: str
+) -> None:
+    """UA set to verify; the feed writes it UA, ' UA', 'ua', 'Ua ' and full-width: every UA result gets its LOINC
+    code and every one is tagged and counted (60632078 tagged 135 of 337)."""
+    forms = ["UA", " UA", "ua", "Ua ", "ＵＡ"]
+    feed = _feed(tmp_path)
+    lab = _rewrite_lab(feed, lambda i, r: {**r, "local_code": forms[i % 5]} if r["local_code"] == "UA" else r)
+    folder = _set_state(_profile(tmp_path / "p"), "UA", "verify")
+    run_ingest(_cfg(tmp_path, pg_cluster_url, "b", folder), "csv", str(feed), snapshot=NIGHT, load_fhir=False,
+               validate=False)  # fmt: skip
+    nd = snapshot_dir(tmp_path / "lake-b", NIGHT)
+    n_ua = sum(1 for r in lab if r["local_code"].strip().upper() in ("UA", "ＵＡ"))
+    obs = [json.loads(x) for x in (nd / "Observation.ndjson").read_text(encoding="utf-8").splitlines()]
+    urate = [o for o in obs if any(c.get("code") == "3084-1" for c in o["code"]["coding"])]
+    assert len(urate) == n_ua == 337
+    assert all(any(t == {"system": BASIS, "code": VERIFY_BASIS} for t in o["meta"]["tag"]) for o in urate)
+    said = json.loads((nd / sp.RECORD).read_text(encoding="utf-8"))["coverage"]["facts_from_verify"]["lab"]
+    verify = {r.code for r in load(folder).tables["lab"].rows.values() if r.state == VERIFY}
+    assert said == n_ua + sum(1 for r in lab if r["local_code"] in verify - {"UA"})
+
+
+def test_2_the_night_reads_the_standard_code_as_loaded_never_the_raw_cell(tmp_path: Path, pg_cluster_url: str) -> None:
+    folder = _profile(tmp_path / "p")
+    text = (folder / "codes/lab.csv").read_text(encoding="utf-8")
+    (folder / "codes/lab.csv").write_text(text.replace("CRE,loinc,2160-0,", "CRE,loinc, 2160-0 ,"), encoding="utf-8")
+    assert load(folder).tables["lab"].rows["CRE"].target == "2160-0"
+    run_ingest(_cfg(tmp_path, pg_cluster_url, "b", folder), "csv", str(_feed(tmp_path)), snapshot=NIGHT,
+               load_fhir=False, validate=False)  # fmt: skip
+    nd = snapshot_dir(tmp_path / "lake-b", NIGHT)
+    codes = [c.get("code") for x in (nd / "Observation.ndjson").read_text(encoding="utf-8").splitlines()
+             for c in json.loads(x)["code"]["coding"]]  # fmt: skip
+    assert codes.count("2160-0") == 300 and " 2160-0 " not in codes
+
+
+def test_4_a_changed_profile_makes_a_delta_night_read_whole_in_both_directions(
+    tmp_path: Path, pg_cluster_url: str
+) -> None:
+    """IGRA goes verify -> verified (its tags go) and back (they come again): each delta night after a new version
+    reads whole, so no carried-over fact keeps the old state."""
+    feed = _feed(tmp_path)
+    folder = _profile(tmp_path / "p")
+    cfg = _cfg(tmp_path, pg_cluster_url, "d", folder)
+
+    def night(snap: str, since: str | None) -> tuple[dict[str, Any], int]:
+        run_ingest(cfg, "csv", str(feed), snapshot=snap, since=since, load_fhir=False, validate=False)
+        nd = snapshot_dir(tmp_path / "lake-d", snap)
+        rec = json.loads((nd / sp.RECORD).read_text(encoding="utf-8"))
+        return rec, rec["coverage"]["facts_from_verify"].get("lab", 0)
+
+    first, n1 = night("2026-11-01", None)
+    _set_state(folder, "IGRA", "verified", "1.1.0")
+    sp.activate(load(folder), tmp_path / "lake-d", site_id="T", by="steward-t", audit_dir=tmp_path / "audit-d", tz=TZ)
+    second, n2 = night("2026-11-02", "2026-11-01")
+    assert second["read_whole_because_the_profile_changed"] and n2 == n1 - 95  # the 95 IGRA results lost their tag
+    _set_state(folder, "IGRA", "verify", "1.2.0")
+    sp.activate(load(folder), tmp_path / "lake-d", site_id="T", by="steward-t", audit_dir=tmp_path / "audit-d", tz=TZ)
+    third, n3 = night("2026-11-03", "2026-11-02")
+    assert third["read_whole_because_the_profile_changed"] and n3 == n1
+    assert not first["read_whole_because_the_profile_changed"]
+
+
+def test_5_taking_the_folder_away_is_audited_and_the_next_night_says_no_profile(
+    tmp_path: Path, pg_cluster_url: str
+) -> None:
+    feed = _feed(tmp_path)
+    cfg = _cfg(tmp_path, pg_cluster_url, "r", _profile(tmp_path / "p"))
+    run_ingest(cfg, "csv", str(feed), snapshot="2026-11-01", load_fhir=False, validate=False)
+    cfg.site_profile = None
+    run_ingest(cfg, "csv", str(feed), snapshot="2026-11-02", load_fhir=False, validate=False)
+    assert sp.read_record(tmp_path / "lake-r")["active"] is None
+    removed = [json.loads(x) for f in _day_files(tmp_path / "audit-r") for x in f.read_text(encoding="utf-8").splitlines()
+               if '"site_profile.removed"' in x]  # fmt: skip
+    assert len(removed) == 1 and removed[0]["detail"]["old_version"] == "1.0.0"
+    nd = snapshot_dir(tmp_path / "lake-r", "2026-11-02")
+    assert sp.night_profile(nd) is None
+    assert json.loads((nd / sp.RECORD).read_text(encoding="utf-8"))["note"]["removed"]["version"] == "1.0.0"
+
+
+def test_6_a_folder_nobody_loaded_is_not_applied_and_the_mismatch_is_said_and_audited(
+    tmp_path: Path, pg_cluster_url: str
+) -> None:
+    feed = _feed(tmp_path)
+    folder = _profile(tmp_path / "p")
+    cfg = _cfg(tmp_path, pg_cluster_url, "m", folder)
+    v1 = load(folder)
+    _set_state(folder, "IGRA", "verified", "1.1.0")  # dropped in, never loaded by a person
+    for snap in ("2026-11-01", "2026-11-02"):
+        run_ingest(cfg, "csv", str(feed), snapshot=snap, load_fhir=False, validate=False)
+        nd = snapshot_dir(tmp_path / "lake-m", snap)
+        rec = json.loads((nd / sp.RECORD).read_text(encoding="utf-8"))
+        assert rec["profile"] == v1.stamp()  # the version a person loaded
+        assert rec["note"]["pending"]["digest"] == load(folder).digest[:12]
+    events = [
+        json.loads(x) for f in _day_files(tmp_path / "audit-m") for x in f.read_text(encoding="utf-8").splitlines()
+    ]
+    assert sum(1 for e in events if e["event"] == sp.NOT_LOADED) == 1  # said every night, audited once
+    assert [e["actor"] for e in events if e["event"] == sp.EVENT] == ["steward-t"]
+    done = [e for e in events if e["event"] == "ingest.done"][-1]
+    assert done["detail"]["site_profile"]["pending"] == load(folder).digest[:12]
+    # a folder on a box where nobody ever loaded one: not applied at all
+    other = _cfg(tmp_path, pg_cluster_url, "n", _profile(tmp_path / "q"), loaded=False)
+    run_ingest(other, "csv", str(feed), snapshot=NIGHT, load_fhir=False, validate=False)
+    assert sp.night_profile(snapshot_dir(tmp_path / "lake-n", NIGHT)) is None
+
+
+def test_8_a_result_in_a_unit_its_row_does_not_give_is_a_problem_line(tmp_path: Path, pg_cluster_url: str) -> None:
+    feed = _feed(tmp_path)
+    lab = _rewrite_lab(feed, lambda i, r: {**r, "unit": "umol/L"} if r["local_code"] == "CRE" and i % 2 else r)
+    n = sum(1 for r in lab if r["unit"] == "umol/L")
+    folder = _profile(tmp_path / "p")
+    run_ingest(_cfg(tmp_path, pg_cluster_url, "u", folder), "csv", str(feed), snapshot=NIGHT, load_fhir=False,
+               validate=False)  # fmt: skip
+    nd = snapshot_dir(tmp_path / "lake-u", NIGHT)
+    cov = json.loads((nd / sp.RECORD).read_text(encoding="utf-8"))["coverage"]
+    assert cov["units_not_read"] == {"lab": {"codes": 1, "rows": n}} and n > 100
+    assert any(line.startswith("problem: lab:") for line in sp.lines(cov))
+    rows = sp.worklist(load(folder), nd)
+    assert [(r["kind"], r["code"], r["rows"]) for r in rows if r["kind"] == "unit"] == [("unit", "CRE", str(n))]
+    obs = [json.loads(x) for x in (nd / "Observation.ndjson").read_text(encoding="utf-8").splitlines()]
+    cre = [o for o in obs if any(c.get("code") == "2160-0" for c in o["code"]["coding"])]
+    assert len(cre) == 300 and sum(1 for o in cre if "valueQuantity" not in o) >= n  # kept, never converted
+
+
+def test_minor_a_table_that_is_not_utf8_is_refused_with_its_line(tmp_path: Path) -> None:
+    f = _profile(tmp_path / "p")
+    data = (f / "codes/lab.csv").read_bytes()
+    (f / "codes/lab.csv").write_bytes(
+        data + "ZZ,loinc,2160-0,クレ,mg/dL,1,laboratory,quantity,,,verify,\n".encode("cp932")
+    )
+    e = _refused(f)
+    assert e.where == f"codes/lab.csv:{data.count(b'\n') + 1}" and "not UTF-8" in e.why
+
+
+def test_minor_a_header_with_blanks_around_a_name_reads(tmp_path: Path) -> None:
+    f = _profile(tmp_path / "p")
+    text = (f / "codes/lab.csv").read_text(encoding="utf-8")
+    (f / "codes/lab.csv").write_text(text.replace("local_code,", " local_code ,", 1), encoding="utf-8")
+    assert load(f).tables["lab"].rows["UA"].target == "3084-1"

@@ -23,6 +23,7 @@ from tb_common.audit_writer import open_audit
 from tb_common.crypto import SITE_KEY_FILE, KeyMissingError, key_fingerprint, load_key, pid_for_mrn, sha256_bytes
 from tb_common.db import ENV as DB_URL_ENV
 from tb_common.site_profile import Profile as SiteProfile
+from tb_common.site_profile import ProfileError
 from tb_common.unmapped import KINDS
 from tb_contracts import IngestReport, RebuildResult, ValidationSummary, dump
 from tb_contracts.landing import Severity
@@ -170,35 +171,42 @@ def check_site_key(cfg: AdapterConfig, key: bytes) -> str:
     return fp
 
 
-def load_site_profile(cfg: AdapterConfig, source_kind: str) -> SiteProfile | None:
-    """10B-6 (D-1233): the site's profile, checked against the box (its mapping, its country and standard versions)
-    and made the box's (a new one is recorded and audited; no audit folder, no profile), or None when the box has none.
-    A profile that fails, or is of another site or door, ends the night here."""
-    if cfg.site_profile is None:
-        return None
-    from tb_common.derived import country_of
-    from tb_common.site_profile import load as load_profile
-
+def load_site_profile(cfg: AdapterConfig, source_kind: str) -> tuple[SiteProfile | None, dict[str, Any]]:
+    """10B-6 (D-1233): the profile the night reads with and what the night says of it
+    (:func:`adapter.site_profile.for_night`): only the version a person loaded (``load --by``) is applied, checked
+    again against the box (its site, door, mapping, country and standard versions). A loaded version that fails ends
+    the night here."""
     from adapter import site_profile as sp
 
-    profile = load_profile(cfg.site_profile)
+    folder_or_none = cfg.site_profile
+    if folder_or_none is None and not (cfg.lake_dir / sp.RECORD).exists():
+        return None, {}
+    profile, note = sp.for_night(folder_or_none, cfg.lake_dir, site_id=cfg.site_id, audit_dir=cfg.audit_dir,
+                                 tz=cfg.tz)  # fmt: skip
+    for k, v in note.items():
+        log.warning("site profile: %s: %s", k, v)
+    if profile is None:
+        return None, note
+    from tb_common.derived import country_of
+
+    if profile.site_id != cfg.site_id:
+        raise ProfileError("profile.yaml", f"the loaded profile is for site {profile.site_id!r}, not {cfg.site_id!r}")
+    if profile.door != source_kind:
+        raise ProfileError(
+            "profile.yaml", f"the loaded profile describes a {profile.door} source; the box reads {source_kind}"
+        )
     if source_kind != "fhir_bulk":
         sp.check_mapping(profile, Mapping.load(cfg.mapping_path))
     sp.check_settings(profile, country=country_of(cfg.tz), standards=cfg.profile_standards)
-    sp.activate(profile, cfg.lake_dir, site_id=cfg.site_id, by="adapter", audit_dir=cfg.audit_dir, tz=cfg.tz,
-                door=source_kind)  # fmt: skip
-    return profile
-
-
-def profile_lookups(profile: SiteProfile | None) -> dict[str, Path] | None:
-    """The mapping look-ups a profile's tables replace (``used_by: [mapping.<name>]``)."""
-    if profile is None:
-        return None
-    return {u.split(".", 1)[1]: t.path for t in profile.tables.values() for u in t.used_by if u.startswith("mapping.")}
+    return profile, note
 
 
 def make_source(
-    kind: str, path: str, db_url: str | None = None, encoding: str | None = None, profile: SiteProfile | None = None
+    kind: str,
+    path: str,
+    db_url: str | None = None,
+    encoding: str | None = None,
+    profile_files: dict[str, Path] | None = None,
 ) -> Source:
     if kind == "csv":
         from adapter.sources.csv.source import CsvSource
@@ -214,9 +222,8 @@ def make_source(
 
         # SS-MIX2 standardized and extended storage (D-122, D-137), with the site's licensed code lists; a site
         # profile's tables in place of the shipped samples (10B-6, D-1233)
-        def table(use: str) -> Path | None:
-            t = profile.used_by(use) if profile is not None else None
-            return t.path if t is not None else None
+        def table(use: str) -> Path | None:  # the profile's table as loaded (adapter.site_profile.write_tables)
+            return (profile_files or {}).get(use)
 
         return Ssmix2Source(
             Path(path),
@@ -642,7 +649,23 @@ def _run_ingest(
     completeness_msgs: list[str] = []
     validation_msgs: list[str] = []
     at["step"] = "site profile"
-    profile = load_site_profile(cfg, source_kind)  # 10B-6 (D-1233)
+    profile, profile_note = load_site_profile(cfg, source_kind)  # 10B-6 (D-1233)
+    profile_files: dict[str, Path] | None = None
+    if profile is not None:
+        from adapter import site_profile as sp
+
+        # the tables as loaded and checked, never the raw files; scratch on the lake volume, gone with the spool
+        profile_files = sp.write_tables(profile, cfg.lake_dir / "tmp" / f"site-profile-{snap}")
+        cleanup.callback(shutil.rmtree, cfg.lake_dir / "tmp" / f"site-profile-{snap}", True)
+    profile_full = False
+    if since:  # a delta night over a night read with another profile (or none) reads whole (10B-6)
+        from adapter import site_profile as sp
+
+        over = merge_base(cfg.lake_dir, snap)
+        said = sp.night_profile(snapshot_dir(cfg.lake_dir, over)) if over else None
+        if (said or {}).get("digest") != (profile.digest if profile is not None else None):
+            log.warning("site profile changed since night %s: this night reads whole, not since %s", over, since)
+            since, profile_full = None, True
     at["step"] = "read"
     if source_kind == "fhir_bulk":
         from adapter.sources.fhir_bulk.source import FhirBulkSource
@@ -655,7 +678,14 @@ def _run_ingest(
             if rtype != "Patient":  # removing a person is the opt-out path's job, never a feed delta's
                 tombstones.setdefault(rtype, set()).add(bulk_id(key, rtype, rid))
     else:
-        mapping = Mapping.load(cfg.mapping_path, profile_lookups(profile))
+        mapping = Mapping.load(
+            cfg.mapping_path,
+            {u.split(".", 1)[1]: p for u, p in (profile_files or {}).items() if u.startswith("mapping.")} or None,
+        )
+        if profile is not None:
+            from adapter import site_profile as sp
+
+            sp.mark_unverified(profile, mapping)
         if since:
             at["step"] = "delta check"
             check_delta(mapping, source_kind)
@@ -673,8 +703,8 @@ def _run_ingest(
         if profile is not None:  # 10B-6 (D-1233): a fact from a row still to verify carries D-135's basis tag
             from adapter.site_profile import verify_rules
 
-            mapper.verify_rules = verify_rules(profile, mapping)
-        source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding, profile)
+            mapper.verify_rules = verify_rules(profile)
+        source = make_source(source_kind, source_path, cfg.db_url, cfg.source_encoding, profile_files)
         for res in mapper.static_resources():
             to_spool(res)
         whole: set[str] = set()
@@ -1045,24 +1075,27 @@ def _run_ingest(
             json.dumps(reader_summary(source), ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8"
         )
     profile_said: dict[str, Any] | None = None
-    if profile is not None:  # 10B-6 (D-1233): which profile read this night, and its coverage lines
+    if profile is not None or profile_note:  # 10B-6 (D-1233): which profile read this night, and its coverage lines
         from adapter import site_profile as sp
 
-        cov = sp.coverage(
-            profile,
-            out_dir,
-            reads=sp.readable(profile, mapping.tables) if mapping is not None else None,
-            from_verify=dict(mapper.from_verify) if mapper is not None else None,
-        )
-        cov["night_profile"] = profile.stamp()
+        cov = None
+        if profile is not None:
+            cov = sp.coverage(
+                profile,
+                out_dir,
+                reads=sp.readable(profile, mapping.tables) if mapping is not None else None,
+                from_verify=dict(mapper.from_verify) if mapper is not None else None,
+            )
+            cov["night_profile"] = profile.stamp()
+            profile_said = {**sp.summary(cov), **({"pending": profile_note["pending"]["digest"]}
+                                                  if "pending" in profile_note else {})}  # fmt: skip
+            for line in sp.lines(cov):
+                log.info("%s", line)
+        record = {"profile": profile.stamp() if profile is not None else None, "coverage": cov,
+                  "note": profile_note or None, "read_whole_because_the_profile_changed": profile_full}  # fmt: skip
         (out_dir / sp.RECORD).write_text(
-            json.dumps({"profile": profile.stamp(), "coverage": cov}, ensure_ascii=False, indent=1, sort_keys=True)
-            + "\n",
-            encoding="utf-8",
+            json.dumps(record, ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8"
         )
-        profile_said = sp.summary(cov)
-        for line in sp.lines(cov):
-            log.info("%s", line)
     if vsum.error_pct > cfg.validation_max_pct:
         errors.append(f"validation error rate {vsum.error_pct:.2f}% exceeds {cfg.validation_max_pct}%")
         validation_msgs.append(errors[-1])

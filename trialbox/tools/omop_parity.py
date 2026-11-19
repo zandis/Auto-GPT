@@ -178,6 +178,12 @@ def _ingest(work: Path, kind: str, src: Path, snapshot: str, tz: str, mapping: s
         validation_max_pct=100.0,
         site_profile=PROFILE_DIR / PROFILES_OF[site_id] if site_id in PROFILES_OF else None,
     )
+    if site_id in PROFILES_OF:  # 10B-6: the night applies only a version a person loaded (`load --by`)
+        from adapter import site_profile as sp
+        from tb_common.site_profile import load as load_profile
+
+        sp.activate(load_profile(PROFILE_DIR / PROFILES_OF[site_id]), lake, site_id=site_id, by="goldens harness",
+                    audit_dir=work / "audit", tz=tz, door=kind)  # fmt: skip
     rep = run_ingest(cfg, kind, str(src), snapshot=snapshot, load_fhir=False, rebuild_lake=False, validate=False)
     if rep.errors:
         raise RuntimeError(f"ingest {site_id}: {rep.errors[:3]}")

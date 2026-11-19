@@ -78,6 +78,19 @@ _NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")
 #: (a database URL with its password), an ``@`` (a sign-in or mail address), or a long run of token characters (a key)
 _SECRET_SHAPES = (re.compile(r"://"), re.compile(r"@"), re.compile(r"[A-Za-z0-9+/=_-]{32,}"))
 MAX_ROWS = 200_000  # a code table larger than any hospital master: a wrong file, refused before it fills memory
+#: the code systems a table's standard code may be in, each with the shape of its codes (ASCII only). The shapes are
+#: the product's own: LOINC (with its Mod-10 check digit), the WHO ICD-10 shape site set-up accepts
+#: (``sitesetup.mapping._ICD``), the full ATC level of every medication value set, and TrialBox's own score codes. A
+#: system outside these is refused: the product reads no other, and the licence register says which must never ship
+SYSTEM_SHAPES = {
+    "loinc": re.compile(r"[0-9]{1,7}-[0-9]"),
+    "icd10": re.compile(r"[A-TV-Z][0-9][0-9A-Z](\.[0-9A-Z]{1,4})?"),
+    "atc": re.compile(r"[A-Z][0-9]{2}[A-Z]{2}[0-9]{2}"),
+    "score": re.compile(r"[A-Z0-9][A-Z0-9-]{0,31}"),
+}
+#: the system of a table's standard code when the table has no ``system`` column, by where it is read
+SYSTEM_OF_USE = {"ssmix2.diagnosis": "icd10", "ssmix2.drug": "atc"}
+REGISTER = Path(__file__).resolve().parents[2] / "docs" / "licences" / "register.csv"
 
 
 class ProfileError(ValueError):
@@ -115,6 +128,17 @@ class Table:
     source: str
     used_by: tuple[str, ...]
     rows: dict[str, CodeRow]
+    columns: tuple[str, ...] = ()  # the header, trimmed
+
+    def csv_text(self) -> str:
+        """The table as the night reads it: the header and every row as loaded (every cell trimmed), so a cell the
+        loader read as ``2160-0`` is never read at night as `` 2160-0 ``."""
+        buf = io.StringIO()
+        w = csv.DictWriter(buf, fieldnames=list(self.columns), lineterminator="\n", extrasaction="ignore")
+        w.writeheader()
+        for code in sorted(self.rows, key=lambda c: self.rows[c].line):
+            w.writerow(self.rows[code].row)
+        return buf.getvalue()
 
     def find(self, code: object) -> CodeRow | None:
         """The row of a site code, with its state; None when the table has no such code."""
@@ -155,6 +179,36 @@ class Profile:
             for code in sorted(t.rows):
                 if t.rows[code].state == VERIFY:
                     yield t, t.rows[code]
+
+    def to_json(self) -> dict[str, Any]:
+        """The profile as loaded and checked: what ``load --by`` keeps in the lake folder and the night reads."""
+        return {
+            "format": FORMAT, "id": self.id, "site_id": self.site_id, "country": self.country,
+            "version": self.version, "door": self.door, "synthetic": self.synthetic, "standards": self.standards,
+            "data_types": list(self.data_types), "digest": self.digest,
+            "tables": {n: {"file": t.file, "key": t.key, "target": t.target, "state_column": t.state_column,
+                           "source": t.source, "used_by": list(t.used_by), "columns": list(t.columns),
+                           "rows": [{"line": r.line, "state": r.state, "row": r.row}
+                                    for r in sorted(t.rows.values(), key=lambda r: r.line)]}
+                       for n, t in sorted(self.tables.items())},
+        }  # fmt: skip
+
+    @classmethod
+    def from_json(cls, doc: dict[str, Any], folder: Path) -> Profile:
+        """A profile kept by :meth:`to_json` (already checked when it was loaded)."""
+        tables = {}
+        for n, t in doc["tables"].items():
+            rows = {}
+            for r in t["rows"]:
+                cells = {str(k): str(v) for k, v in r["row"].items()}
+                rows[cells[t["key"]]] = CodeRow(cells[t["key"]], cells[t["target"]], str(r["state"]), int(r["line"]),
+                                                cells)  # fmt: skip
+            path = folder / t["file"].replace(SHIPPED, "shipped/")
+            tables[n] = Table(n, t["file"], path, t["key"], t["target"], t["state_column"], t["source"],
+                              tuple(t["used_by"]), rows, tuple(t["columns"]))  # fmt: skip
+        return cls(folder, doc["id"], doc["site_id"], doc["country"], doc["version"], doc["door"],
+                   bool(doc["synthetic"]), dict(doc["standards"]), tuple(doc["data_types"]), tables,
+                   doc["digest"])  # fmt: skip
 
 
 def _schema() -> dict[str, Any]:
@@ -231,17 +285,56 @@ def _table_path(folder: Path, file: str, where: str) -> Path:
     return path
 
 
+def loinc_check_digit_ok(code: str) -> bool:
+    """LOINC's Mod-10 check: the digit after the hyphen is the Luhn check digit of the digits before it."""
+    number, _, check = code.partition("-")
+    total = 0
+    for i, ch in enumerate(reversed(number)):
+        d = int(ch) * (2 if i % 2 == 0 else 1)
+        total += d - 9 if d > 9 else d
+    return (10 - total % 10) % 10 == int(check)
+
+
+def _register_says(system: str) -> str:
+    """What the licence register says of a code system the product does not read (its row and status), if the
+    register is beside the code (a repository; an image carries none)."""
+    try:
+        with REGISTER.open(encoding="utf-8", newline="") as fh:
+            for r in csv.DictReader(fh):
+                if r.get("kind") == "code-system" and system.replace("-", "") in r.get("id", "").replace("-", ""):
+                    return f"; the licence register's row {r['id']} is {r.get('status') or 'not cleared'}"
+    except OSError:
+        pass
+    return ""
+
+
+def check_code(system: str, code: str) -> str | None:
+    """Why ``code`` is not a code of ``system`` (``SYSTEM_SHAPES``), or None when it is."""
+    if system not in SYSTEM_SHAPES:
+        return f"code system {system!r} is not one this product reads ({', '.join(sorted(SYSTEM_SHAPES))})" + (
+            _register_says(system.lower().rsplit("/", 1)[-1].split(".")[0] or system)
+        )
+    if not code.isascii() or not SYSTEM_SHAPES[system].fullmatch(code):
+        return f"{code!r} is not a {system} code"
+    if system == "loinc" and not loinc_check_digit_ok(code):
+        return f"{code!r} fails LOINC's check digit"
+    return None
+
+
 def read_table(name: str, spec: dict[str, Any], folder: Path, where: str) -> tuple[Table, bytes]:
     """One code table, every row checked; the bytes are returned for the digest."""
+    from tb_common.codekey import fold_key
+
     path = _table_path(folder, str(spec["file"]), where)
     data = path.read_bytes()
     shown = spec["file"]
     try:
         text = data.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        raise ProfileError(shown, "a code table is UTF-8 text") from None
-    reader = csv.DictReader(io.StringIO(text, newline=""))
-    cols = [c.strip() for c in reader.fieldnames or []]
+    except UnicodeDecodeError as exc:
+        line = data[: exc.start].count(b"\n") + 1
+        raise ProfileError(f"{shown}:{line}", "not UTF-8 text (save the table as UTF-8)") from None
+    rows_in = csv.reader(io.StringIO(text, newline=""))
+    cols = [c.strip() for c in next(rows_in, [])]
     key, target = str(spec["key"]), str(spec["target"])
     state_col = str(spec.get("state") or DEFAULT_STATE_COLUMN)
     for col in (key, target, state_col):
@@ -256,30 +349,41 @@ def read_table(name: str, spec: dict[str, Any], folder: Path, where: str) -> tup
         extra = sorted(c for c in cols if c not in allowed)
         if extra:
             raise ProfileError(f"{shown}:1", f"column {extra[0]!r} is not one {', '.join(uses)} reads")
+    fixed = next((SYSTEM_OF_USE[u] for u in uses if u in SYSTEM_OF_USE), None)
+    if "system" not in cols and fixed is None:
+        raise ProfileError(f"{shown}:1", "no column 'system': say the code system of each row's standard code")
     rows: dict[str, CodeRow] = {}
-    for n, r in enumerate(reader, start=2):
+    folded: dict[str, CodeRow] = {}
+    for n, cells in enumerate(rows_in, start=2):
         if n > MAX_ROWS + 1:
             raise ProfileError(shown, f"more than {MAX_ROWS} rows: not a code table")
-        if None in r:
+        if not any(c.strip() for c in cells):
+            continue  # a blank line
+        if len(cells) > len(cols):
             raise ProfileError(f"{shown}:{n}", "more cells than the header has columns")
-        code = (r.get(key) or "").strip()
-        tgt = (r.get(target) or "").strip()
-        word = (r.get(state_col) or "").strip().lower()
+        r = {c: (cells[i].strip() if i < len(cells) else "") for i, c in enumerate(cols)}
+        code, tgt, word = r[key], r[target], r[state_col].lower()
         if not code:
             raise ProfileError(f"{shown}:{n}", f"the {key} cell is empty")
-        if code in rows:
-            raise ProfileError(f"{shown}:{n}", f"{key} {code!r} is already on line {rows[code].line}")
+        same = folded.get(fold_key(code))
+        if same is not None:
+            raise ProfileError(f"{shown}:{n}", f"{key} {code!r} is {same.code!r} of line {same.line} (one code)")
         if not tgt:
             raise ProfileError(f"{shown}:{n}", f"the {target} cell is empty: a code nobody mapped is not a row")
         if word not in STATE_WORDS:
             raise ProfileError(
                 f"{shown}:{n}", f"state {word!r} is not one of {', '.join(sorted(STATE_WORDS))} (verified or verify)"
             )
-        rows[code] = CodeRow(code, tgt, STATE_WORDS[word], n, {k: (v or "") for k, v in r.items() if k is not None})
+        system = (r.get("system") or "").lower() if "system" in cols else str(fixed)
+        why = check_code(system, tgt)
+        if why:
+            raise ProfileError(f"{shown}:{n}", f"column {target}: {why}")
+        row = CodeRow(code, tgt, STATE_WORDS[word], n, r)
+        rows[code] = folded[fold_key(code)] = row
     if not rows:
         raise ProfileError(shown, "the table has no rows: a table nobody filled is left out of the profile")
     table = Table(name, str(spec["file"]), path, key, target, state_col, str(spec.get("source") or ""),
-                  tuple(spec["used_by"]), rows)  # fmt: skip
+                  tuple(spec["used_by"]), rows, tuple(cols))  # fmt: skip
     return table, data
 
 

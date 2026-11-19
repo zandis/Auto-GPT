@@ -31,7 +31,10 @@
 <li data-testid="profile-unmapped">{{ t('dataops.profile.unmapped', codes='{:,}'.format(profile.unmapped_codes), rows='{:,}'.format(profile.unmapped_rows)) }}</li>
 <li data-testid="profile-verify">{{ t('dataops.profile.verify', n='{:,}'.format(profile.verify_rows)) }}</li>
 <li data-testid="profile-facts-verify">{{ t('dataops.profile.facts_verify', n='{:,}'.format(profile.facts_from_verify)) }}</li>
+{% if profile.units_not_read_rows %}<li data-testid="profile-units">{{ t('dataops.profile.units', n='{:,}'.format(profile.units_not_read_rows)) }}</li>{% endif %}
 </ul>
+{% if profile.pending %}<p class="warn" data-testid="profile-pending">{{ t('dataops.profile.pending', digest=profile.pending) }}</p>{% endif %}
+<p class="hint" data-testid="profile-store-wins">{{ t('dataops.profile.store_wins') }}</p>
 <p class="hint">{{ t('dataops.profile.help') }}</p>
 </section>{% endif %}
 <section class="card" data-testid="batch-steps">

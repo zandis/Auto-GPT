@@ -7,6 +7,7 @@ and data-type names only, never a code. A night read without a profile has no se
 
 from __future__ import annotations
 
+import html
 import re
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,8 @@ PROFILE = {
     "unmapped_codes": 3,
     "unmapped_rows": 1204,
     "verify_rows": 68,
+    "pending": "abcdef0123456789",
+    "units_not_read_rows": 7,
 }
 
 
@@ -79,6 +82,11 @@ def test_the_nights_page_says_which_profile_read_it_and_its_coverage(box: dict[s
     assert "synthetic-jp-ss" in sec and "1.0.0" in sec and "65710b353ff0" in sec and str(PROFILE["digest"]) not in sec
     assert "ADT-22" in sec and "OMD" in sec and "1,204" in sec and ">68" not in sec and "68" in sec
     assert "style=" not in sec and "nowrap" not in sec
+    # point 7 of the lane lead's check: the steward reads here that the site set-up store wins and the night cannot
+    # apply it yet; and that a folder nobody loaded was not applied
+    assert translate(lang, "dataops.profile.store_wins") in sec and 'data-testid="profile-store-wins"' in sec
+    assert html.escape(translate(lang, "dataops.profile.pending", digest="abcdef012345"), quote=False) in sec
+    assert translate(lang, "dataops.profile.units", n="7") in sec
     if lang == "en":
         assert not check(sec)
         assert "16 of 17 declared arrived" in sec

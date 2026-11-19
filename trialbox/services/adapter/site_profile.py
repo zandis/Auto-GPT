@@ -49,6 +49,9 @@ from tb_common.site_profile import MANIFEST, VERIFIED, VERIFY, Profile, ProfileE
 
 RECORD = "site_profile.json"  # in the lake folder: the active profile and its history; beside a snapshot: the night's
 STATES = "site_profile.states.json"  # in the lake folder: every row's state as last activated
+KEPT = "site_profile"  # in the lake folder: each version a person loaded, as loaded (<digest>.json)
+REMOVED = "site_profile.removed"
+NOT_LOADED = "site_profile.not_loaded"
 FOLDER = "profile"  # in the site mapping folder
 EVENT = "site_profile.load"
 MAX_CHANGES_IN_EVENT = 2000  # rows whose state changed named in one audit event; the count is always complete
@@ -98,7 +101,7 @@ def check_mapping(profile: Profile, mapping: Any) -> None:
                 raise ProfileError(t.file, f"{use}: the mapping {mapping.name} has no look-up {name!r}")
             if t.key != lk.key:
                 raise ProfileError(t.file, f"{use}: the mapping looks {name} up by {lk.key!r}, not {t.key!r}")
-            have = set(_header(t.path))
+            have = set(t.columns)
             missing = [c for c in lk.columns if c not in have and c != "verified"]
             if missing:
                 raise ProfileError(f"{t.file}:1", f"{use}: no column {missing[0]!r} (the mapping reads it)")
@@ -106,11 +109,6 @@ def check_mapping(profile: Profile, mapping: Any) -> None:
             extra = sorted(c for c in have if c not in allowed)
             if extra:
                 raise ProfileError(f"{t.file}:1", f"{use}: column {extra[0]!r} is not one the mapping reads")
-
-
-def _header(path: Path) -> list[str]:
-    with path.open(encoding="utf-8-sig", newline="") as fh:
-        return [c.strip() for c in next(csv.reader(fh), [])]
 
 
 def check_settings(profile: Profile, *, country: str | None, standards: Mapping[str, str] | None = None) -> None:
@@ -123,52 +121,45 @@ def check_settings(profile: Profile, *, country: str | None, standards: Mapping[
             raise ProfileError(MANIFEST, f"standards.{k} {profile.standards[k]} is not settings.profiles.{k} ({v})")
 
 
-def verify_rules(profile: Profile, mapping: Any) -> dict[str, list[Any]]:
-    """Which source rows take their standard code from a ``verify`` row: per canonical table, the rules the mapper
-    tags with (:class:`adapter.mapping.engine.VerifyRule`). A ``mapping.<look-up>`` table: every table whose resources
-    look it up, by the column they look it up with. An SS-MIX2 table: the reader's code column, when the row's
-    standard code is the one that row gives (the reader is not asked where it took the code from: a message that
-    carried the same code itself is counted too)."""
+def verify_rules(profile: Profile) -> dict[str, list[Any]]:
+    """The SS-MIX2 rows whose standard code comes from a ``verify`` row, per canonical table (the rules the mapper
+    tags with, :class:`adapter.mapping.engine.VerifyRule`): the reader's code column holds the row's code, exactly as
+    the reader looks it up, and the row's standard code is the one that row gives. The reader is not asked where it
+    took the code from, so a message that carried the same code itself is counted too (an over-count; the follow-up
+    after #1095 has the reader say). A mapping's look-up needs no rule: the mapper asks the row the look-up matched
+    (:func:`lookup_files`)."""
     from adapter.mapping.engine import VerifyRule
 
     out: dict[str, list[Any]] = {}
     for t in profile.tables.values():
         codes = {r.code: r.target for r in t.rows.values() if r.state == VERIFY}
-        if not codes:
-            continue
         for use in t.used_by:
-            if use in SSMIX2_COLUMNS:
+            if codes and use in SSMIX2_COLUMNS:
                 table, col, target = SSMIX2_COLUMNS[use]
                 out.setdefault(table, []).append(VerifyRule(table, col, codes, target))
-            elif use.startswith("mapping."):
-                name = use.split(".", 1)[1]
-                for table, col in sorted(_lookup_keys(mapping, name)):
-                    out.setdefault(table, []).append(VerifyRule(table, col, codes))
     return out
 
 
-def _lookup_keys(mapping: Any, name: str) -> set[tuple[str, str]]:
-    """(table, row column) of every place a resource looks ``name`` up."""
-    found: set[tuple[str, str]] = set()
+def write_tables(profile: Profile, folder: Path) -> dict[str, Path]:
+    """Each table of the profile as loaded (every cell trimmed) in ``folder``, by ``used_by``: what the night reads,
+    never the raw file."""
+    folder.mkdir(parents=True, exist_ok=True)
+    out: dict[str, Path] = {}
+    for name, t in sorted(profile.tables.items()):
+        path = folder / f"{name}.csv"
+        path.write_text(t.csv_text(), encoding="utf-8")
+        for use in t.used_by:
+            out[use] = path
+    return out
 
-    def walk(x: Any, table: str) -> None:
-        if isinstance(x, dict):
-            spec = x.get("lookup")
-            if isinstance(spec, dict) and spec.get("name") == name and spec.get("key"):
-                found.add((table, str(spec["key"])))
-            elif spec == name and x.get("key"):  # a builder's arguments: {lookup: lab, key: local_code}
-                found.add((table, str(x["key"])))
-            for v in x.values():
-                walk(v, table)
-        elif isinstance(x, list):
-            for v in x:
-                walk(v, table)
 
-    for r in mapping.resources:
-        walk(r.elements, r.table)
-        walk(r.where, r.table)
-        walk(r.profile, r.table)
-    return found
+def mark_unverified(profile: Profile, mapping: Any) -> None:
+    """Tell each of the mapping's look-ups that a profile table fills which of its keys are still to verify."""
+    for t in profile.tables.values():
+        verify = frozenset(r.code for r in t.rows.values() if r.state == VERIFY)
+        for use in t.used_by:
+            if use.startswith("mapping.") and use.split(".", 1)[1] in mapping.lookups:
+                mapping.lookups[use.split(".", 1)[1]].unverified = verify
 
 
 # ------------------------------------------------------------------------------------- versions and audit
@@ -266,6 +257,8 @@ def activate(
     open_audit(audit_dir, tz).append(EVENT, actor=by, output_sha=profile.digest, detail=change)
     entry = {**profile.stamp(), "at": at, "by": by, "direction": direction, "rows_changed": len(changes)}
     lake_dir.mkdir(parents=True, exist_ok=True)
+    (lake_dir / KEPT).mkdir(exist_ok=True)
+    _write(lake_dir / KEPT / f"{profile.digest}.json", profile.to_json())  # what the night reads: this version only
     _write(lake_dir / STATES, now)
     _write(lake_dir / RECORD, {"active": entry, "history": [*rec.get("history", []), entry]})
     return {**change, "at": at, "by": by}
@@ -280,6 +273,69 @@ def night_profile(night_dir: Path) -> dict[str, Any] | None:
     return rec.get("profile") if isinstance(rec, dict) else None
 
 
+def kept(lake_dir: Path, digest: str) -> Profile:
+    """The version a person loaded (:func:`activate`), as it was loaded and checked."""
+    path = lake_dir / KEPT / f"{digest}.json"
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise ProfileError(str(path), "the loaded version is not kept here: load the profile again") from None
+    return Profile.from_json(doc, lake_dir / KEPT)
+
+
+def deactivate(lake_dir: Path, *, by: str, audit_dir: Path | None, tz: str = "UTC", why: str) -> dict[str, Any]:
+    """The box reads without a profile from now on: recorded and audited (``site_profile.removed``)."""
+    if audit_dir is None:
+        raise ProfileError(MANIFEST, "a profile is taken off the box only with its audit: no audit folder was given")
+    rec = read_record(lake_dir)
+    old = rec.get("active") or {}
+    at = datetime.now(UTC).isoformat(timespec="seconds")
+    detail = {"profile": old.get("id"), "old_version": old.get("version"), "old_digest": old.get("digest"),
+              "why": why}  # fmt: skip
+    from tb_common.audit_writer import open_audit
+
+    open_audit(audit_dir, tz).append(REMOVED, actor=by, detail=detail)
+    entry = {"id": None, "site_id": old.get("site_id"), "version": None, "digest": None, "at": at, "by": by,
+             "direction": "removed", "rows_changed": 0}  # fmt: skip
+    _write(lake_dir / RECORD, {"active": None, "history": [*rec.get("history", []), entry]})
+    (lake_dir / STATES).unlink(missing_ok=True)
+    return {**detail, "at": at, "by": by}
+
+
+def for_night(
+    folder: Path | None, lake_dir: Path, *, site_id: str, audit_dir: Path | None, tz: str = "UTC"
+) -> tuple[Profile | None, dict[str, Any]]:
+    """The profile a night reads with, and what the night says of it. The night applies only the version a person
+    loaded (``load --by``): a folder whose content is not that version is not applied (the loaded version is read, a
+    problem is said and audited once per content); a folder nobody loaded is not applied either; a folder taken away
+    takes the profile off the box (audited) and the night reads without one."""
+    rec = read_record(lake_dir)
+    active = rec.get("active") or None
+    note: dict[str, Any] = {}
+    if folder is None:
+        if active:
+            deactivate(lake_dir, by="adapter", audit_dir=audit_dir, tz=tz, why="the profile folder is gone")
+            note["removed"] = {"id": active.get("id"), "version": active.get("version")}
+        return None, note
+    try:
+        on_disk: Profile | str = load(folder)
+    except ProfileError as exc:
+        on_disk = str(exc)
+    disk_digest = on_disk.digest if isinstance(on_disk, Profile) else None
+    if active and disk_digest == active.get("digest"):
+        return kept(lake_dir, str(active["digest"])), note
+    pending = disk_digest or "unreadable"
+    note["pending"] = {"digest": pending[:12], "why": on_disk if isinstance(on_disk, str) else "not loaded by a person"}
+    if rec.get("pending_said") != pending and audit_dir is not None:
+        from tb_common.audit_writer import open_audit
+
+        detail = {"pending_digest": disk_digest, "loaded_digest": active.get("digest") if active else None,
+                  "why": note["pending"]["why"]}  # fmt: skip
+        open_audit(audit_dir, tz).append(NOT_LOADED, actor="adapter", detail=detail)
+        _write(lake_dir / RECORD, {**rec, "pending_said": pending})
+    return (kept(lake_dir, str(active["digest"])) if active else None), note
+
+
 # ----------------------------------------------------------------------------------- coverage and work list
 def _json(path: Path) -> Any:
     try:
@@ -288,11 +344,28 @@ def _json(path: Path) -> Any:
         return None
 
 
+#: the names of the night's counter (``unmapped_codes.json``) that are a unit the look-up's row does not give
+#: (``adapter.pipeline._UNIT_NOT_READ``): the value was not read, never converted (R-31, D-590)
+UNIT_NAMES = ("unit_mismatch", "no_unit_implausible")
+
+
+def _units(night_dir: Path) -> dict[str, dict[str, int]]:
+    """Code -> rows per table whose unit is not the one the table's row gives."""
+    out: dict[str, dict[str, int]] = {}
+    for table, by_name in sorted((_json(night_dir / UNMAPPED_CODES) or {}).items()):
+        for name, codes in sorted(by_name.items()):
+            if name in UNIT_NAMES:
+                for code, n in codes.items():
+                    out.setdefault(table, {})
+                    out[table][code] = out[table].get(code, 0) + int(n)
+    return out
+
+
 def _unmapped(night_dir: Path) -> dict[str, dict[str, int]]:
     """Code -> rows per table, from the mapping's file (every code) and the SS-MIX2 reader's (its top codes)."""
     out: dict[str, dict[str, int]] = {}
     for table, by_lookup in sorted((_json(night_dir / UNMAPPED_CODES) or {}).items()):
-        for _name, codes in sorted(by_lookup.items()):
+        for _name, codes in sorted((k, v) for k, v in by_lookup.items() if k not in UNIT_NAMES):
             for code, n in codes.items():
                 out.setdefault(table, {})
                 out[table][code] = out[table].get(code, 0) + int(n)
@@ -359,6 +432,7 @@ def coverage(
             for name, s in states.items()
         },
         "facts_from_verify": {t: int(n) for t, n in sorted(from_verify.items()) if n},
+        "units_not_read": {t: {"codes": len(c), "rows": sum(c.values())} for t, c in sorted(_units(night_dir).items())},
     }
 
 
@@ -375,6 +449,7 @@ def summary(cov: dict[str, Any]) -> dict[str, Any]:
         "unmapped_rows": sum(u["rows"] for u in cov["unmapped"].values()),
         "verify_rows": sum(t[VERIFY] for t in cov["tables"].values()),
         "facts_from_verify": sum(cov.get("facts_from_verify", {}).values()),
+        "units_not_read_rows": sum(u["rows"] for u in cov.get("units_not_read", {}).values()),
     }
 
 
@@ -404,6 +479,9 @@ def lines(cov: dict[str, Any]) -> list[str]:
         out.append("codes no table maps: none")
     out.append("table rows still to verify:")
     out += [f"  {n}: {t[VERIFY]} of {t['rows']}" for n, t in cov["tables"].items()]
+    for t, u in (cov.get("units_not_read") or {}).items():
+        out.append(f"problem: {t}: {u['rows']} results of {u['codes']} codes in a unit their row does not give "
+                   "(kept without a value, never converted)")  # fmt: skip
     facts = cov.get("facts_from_verify") or {}
     out.append("facts resting on a row still to verify: " + (", ".join(f"{t} {n}" for t, n in facts.items()) or "none"))
     return out
@@ -451,6 +529,10 @@ def worklist(
         for table, codes in _unmapped(night_dir).items():
             for code, n in sorted(codes.items(), key=lambda kv: (-kv[1], kv[0])):
                 out.append({"kind": "unmapped", "table": table, "code": code, "rows": str(n), "target": "",
+                            "state": "", "file": "", "line": ""})  # fmt: skip
+        for table, codes in _units(night_dir).items():
+            for code, n in sorted(codes.items(), key=lambda kv: (-kv[1], kv[0])):
+                out.append({"kind": "unit", "table": table, "code": code, "rows": str(n), "target": "",
                             "state": "", "file": "", "line": ""})  # fmt: skip
     out += disagreements(profile, confirmed or {})
     for t, r in profile.verify_rows():
@@ -507,6 +589,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     ld.add_argument("--by", required=True, help="who loads it (recorded)")
     ld.add_argument("--audit", type=Path, help="the audit folder (default: TB_AUDIT_DIR)")
     ld.add_argument("--mapping", type=Path, help="the site mapping (needed when a table is a mapping's look-up)")
+    ul = sub.add_parser("unload", help="take the profile off the box (recorded and audited)")
+    ul.add_argument("--lake", type=Path, required=True)
+    ul.add_argument("--by", required=True, help="who takes it off (recorded)")
+    ul.add_argument("--audit", type=Path, help="the audit folder (default: TB_AUDIT_DIR)")
     h = sub.add_parser("history", help="the profiles this box has read, in order")
     h.add_argument("--lake", type=Path, required=True)
     wh = sub.add_parser("which", help="the profile a night was read with")
@@ -550,9 +636,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             ch = activate(p, a.lake, site_id=cfg.settings.site.id, by=a.by, audit_dir=audit, tz=cfg.env.tz or "UTC")
             print("already the box's profile" if ch is None else json.dumps(ch, ensure_ascii=False))
             return 0
+        if a.cmd == "unload":
+            audit = a.audit or (Path(os.environ["TB_AUDIT_DIR"]) if os.environ.get("TB_AUDIT_DIR") else None)
+            cfg = _settings()
+            print(json.dumps(deactivate(a.lake, by=a.by, audit_dir=audit, tz=cfg.env.tz or "UTC", why="unload")))
+            return 0
         if a.cmd == "history":
             for e in read_record(a.lake).get("history", []):
-                print(f"{e['at']} {e['by']}: {e['id']} {e['version']} ({e['digest'][:12]}, {e['direction']})")
+                said = f"{e['id']} {e['version']} ({e['digest'][:12]}" if e.get("digest") else "(no profile"
+                print(f"{e['at']} {e['by']}: {said}, {e['direction']})")
             return 0
         if a.cmd == "which":
             stamp = night_profile(a.lake / "ndjson" / a.snapshot)
