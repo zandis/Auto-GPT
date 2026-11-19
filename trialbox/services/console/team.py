@@ -841,8 +841,8 @@ def register(app: FastAPI, h: Helpers, env: Mapping[str, str]) -> None:
         overrides = [o for o in team.overrides(rid) if o[0] not in on][-50:] if sess.user.can_view_phi else []
         return h.page(request, "team_irb.html", sess, rs=rid, irb=rec, warnings=rec.warnings(today()),
                       can_edit=may_edit_irb(sess, rid), icf=team.icf_list(rid), icf_history=team.icf_history(rid),
-                      reads_subjects=sess.user.can_view_phi,
-                      overrides=overrides)  # fmt: skip
+                      reads_subjects=sess.user.can_view_phi, overrides=overrides,
+                      committee=h.committee_status(rid) if h.committee_status else None)  # fmt: skip
 
     @app.post("/studies/{rs}/irb")
     async def irb_save(request: Request, rs: str) -> Response:

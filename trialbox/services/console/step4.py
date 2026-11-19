@@ -16,7 +16,7 @@ from tb_common.authz import permit, role_allowed
 from tb_common.erased import is_erased
 from tb_contracts import Job, JobCreate
 
-from console import about, actor, command, terminology_refused
+from console import about, actor, command, terminology_refused, tier_words
 from console.auth import AuthError, Session, source_of
 from console.backend import Refused, Unavailable
 from console.home import Helpers
@@ -425,6 +425,7 @@ def register(app: FastAPI, h: Helpers) -> None:
                 model_builds=_model_builds(),  # T-012b: each pinned build and its qualification record
                 refdata=status_or_none(),
                 term_refused=terminology_refused.on_box(),  # E-TERM-3 (D-1048): a site list the box does not read
+                tier_lacks=tier_words.lacks(),  # 10E-17 (D-1244): the tier's absences, worded as a status
                 ops=h.ops_summary() if h.ops_summary is not None else None,
                 **(h.admin_extra(sess) if h.admin_extra is not None else {}),  # T-209c: backup, update, accounts
             )  # D-178: the Operations tile
