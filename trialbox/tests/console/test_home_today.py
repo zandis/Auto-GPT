@@ -632,3 +632,63 @@ def test_a_closed_study_has_no_visit_task_or_site_line_and_keeps_its_safety_line
     assert kinds == {"sae_noclock"}, kinds
     assert not any("/visits" in x for x in calls), calls
     assert _next(page)[0] == "closed"
+
+
+def test_no_link_of_the_home_opens_a_refusal_for_any_kind_of_account(lb: dict[str, Any]) -> None:
+    """Every link in the opening page's content, for every kind of account the page serves (the coordinator, the PI,
+    sub-investigators ticked for screening, for data entry or for referral only, an investigator on no log, the
+    viewer, a CRO with and without a monitor grant), opens: no 403 and no 404 (the lead's check of D-1225)."""
+    from tests.console.test_console_app import sub_investigator
+
+    _participant_with_saes(lb, 1)
+    for name, tasks in (("entry", ("enter_data",)), ("screener", ("screen",)), ("refer", ("refer",))):
+        lb["users"].create(name, "investigator", PW, f"{name}@hospa.test")
+        sub_investigator(lb, name, tasks=tasks)
+    lb["users"].create("other", "investigator", PW, "other@hospa.test")
+    for mon in ("mon1", "mon2"):
+        lb["users"].create(mon, "cro", PW, f"{mon}@cro.test")
+        lb["users"].set_scope(mon, affiliation="cro", studies="GZQO")
+    pi, pcsrf = login(lb["app"], "pi", PW)
+    r = pi.post("/studies/GZQO/team", data={"csrf": pcsrf, "username": "mon1", "role": "monitor", "start": "2026-01-01",
+                                           "end": "2099-12-31", "training_ref": "MV-0001"}, follow_redirects=False)  # fmt: skip
+    assert r.status_code == 303
+    _flag(lb, "on")
+    accounts = [("crc", PW), ("pi", PW), ("entry", PW), ("screener", PW), ("refer", PW), ("other", PW),
+                ("viewer", VIEWER_PW), ("mon1", PW), ("mon2", PW)]  # fmt: skip
+    for who, pw in accounts:
+        c, _ = login(lb["app"], who, pw)
+        page = c.get("/home")
+        assert page.status_code == 200, who
+        hrefs = sorted(set(re.findall(r'<a [^>]*href="(/[^"#]*)', _region(page.text))))
+        assert hrefs, who
+        for href in hrefs:
+            got = c.get(html.unescape(href))
+            assert got.status_code < 400, (who, href, got.status_code)
+
+
+def test_an_aggregate_account_s_home_reads_only_what_its_reports_page_reads(lb: dict[str, Any],
+                                                                           monkeypatch: Any) -> None:  # fmt: skip
+    """The viewer's and the CRO's opening page (flag on) make no read their own pages refuse: not the models' state
+    (shown on no page of theirs), no patient-level read; the one job-list read is the one their reports page makes,
+    for the same fact (whether the study's feasibility report is there)."""
+    from tests.console.test_console_app import _done_feas
+
+    _done_feas(lb["backend"])
+    lb["users"].create("mon2", "cro", PW, "mon2@cro.test")
+    lb["users"].set_scope("mon2", affiliation="cro", studies="GZQO")
+    _flag(lb, "on")
+    for who, pw in (("viewer", VIEWER_PW), ("mon2", PW)):
+        c, _ = login(lb["app"], who, pw)
+        made: list[str] = []
+        for name in ("models", "list_jobs", "registry_rows", "study_api"):
+            real = getattr(lb["backend"], name)
+            monkeypatch.setattr(lb["backend"], name,
+                                lambda *a, _n=name, _r=real, **kw: made.append(_n) or _r(*a, **kw))  # fmt: skip
+        assert c.get("/home").status_code == 200
+        home = list(made)
+        made.clear()
+        assert c.get("/reports").status_code == 200
+        assert home == ["list_jobs"], (who, home)
+        assert "list_jobs" in made, (who, made)  # the reports page makes the same read
+        assert c.get("/jobs").status_code == 403  # the job list itself is not theirs
+        monkeypatch.undo()

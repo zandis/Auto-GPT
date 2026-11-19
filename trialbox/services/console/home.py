@@ -672,11 +672,16 @@ def register(app: FastAPI, h: Helpers) -> None:
         lines = home_today.ordered(lines)
         shown = lines if every else lines[: home_today.LIMIT]
         home_today.mark_in_today(nexts, shown)
+        # the "This week" link only where the week page itself admits this account (``Helpers.reads``: its phi.view
+        # and delegation checks): straight to the study's week when there is one, else the week picker
+        weeks = [r.id for r in studies if h.reads(user, r.id)]
+        week_href = f"/studies/{weeks[0]}/week" if len(weeks) == 1 else "/week" if weeks else ""
         template = "home_crc.html" if coordinator_card else "home_today.html"
         return h.page(
             request, template, sess, today=True, every=every, lines=shown, more=len(lines) - len(shown),
             total=len(lines), nexts=nexts, today_failed=failed, cards=cards, tasks=[], clinic=[], steps=st.STEPS,
-            pipeline_keys=st.PIPELINE, models=bk.models(), life=None,
+            pipeline_keys=st.PIPELINE, models=bk.models() if coordinator_card else None, life=None,
+            week_href=week_href,
         )  # fmt: skip
 
     def admin_home(request: Request, sess: Session) -> Response:

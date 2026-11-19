@@ -9,6 +9,6 @@
   <div class="headrow"><h2>{{ t('today.next.title') }}</h2><span class="hint">{{ t('today.next.help') }}</span></div>
   {% if not nexts %}<p class="empty hint">{{ t('today.no_studies') }}</p>{% endif %}
   {% for n in nexts %}{{ next_line(n) }}{% endfor %}
-  <p class="chartlinks">{% if user.can_view_phi %}<a href="/week" data-testid="to-week">{{ t('today.to.week') }}</a>{% else %}<a href="/reports" data-testid="to-reports">{{ t('today.to.reports') }}</a>{% endif %}</p>
+  <p class="chartlinks">{% if week_href %}<a href="{{ week_href }}" data-testid="to-week">{{ t('today.to.week') }}</a>{% elif not user.can_view_phi %}<a href="/reports" data-testid="to-reports">{{ t('today.to.reports') }}</a>{% endif %}</p>
 </section>
 {% endblock %}
