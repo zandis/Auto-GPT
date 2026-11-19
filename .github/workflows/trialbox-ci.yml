@@ -148,7 +148,7 @@ jobs:
       - name: findings register (every row well formed; plan 8 criterion 11; D-1180)
         if: ${{ !cancelled() }}
         run: .venv/bin/python -m tools.findings_register --check
-      - name: waivers (every vulnerability waiver has an owner, a role or lane, a date and a reason, not past review; D-1339)
+      - name: waivers (every vulnerability waiver has an owner, a date and a reason; no calendar rule; D-1339)
         if: ${{ !cancelled() }}
         run: .venv/bin/python -m tools.vex check
       - name: licence register (every shipped data file has a row; no SNOMED CT; model licence rows; T-617b, D-342)

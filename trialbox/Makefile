@@ -80,7 +80,7 @@ lint: contracts-check
 	$(PY) tools/doclint.py
 	PYTHONPATH=libs:services:. $(PY) -m tools.text_keys  # D-1220: no conflicting double, no missing key
 	$(PY) -m tools.findings_register --check
-	$(PY) -m tools.vex check  # D-1339: every vulnerability waiver with an owner (a role), a date and a reason
+	$(PY) -m tools.vex check  # D-1339: every vulnerability waiver with an owner, a date and a reason (no calendar rule)
 
 FONTS := .cache/fonts/NotoSansTC-Regular.ttf
 
@@ -230,7 +230,7 @@ ci: venv-check
 	$(PY) tools/doclint.py
 	PYTHONPATH=libs:services:. $(PY) -m tools.decisions_index --check
 	$(PY) -m tools.findings_register --check
-	$(PY) -m tools.vex check  # D-1339: every vulnerability waiver with an owner (a role), a date and a reason
+	$(PY) -m tools.vex check  # D-1339: every vulnerability waiver with an owner, a date and a reason (no calendar rule)
 	PYTHONPATH=libs:services:. $(PY) -m tools.licence_register --check
 	$(MAKE) contracts-check
 	TB_ENV=DEV TB_TZ=Asia/Taipei PYTHONPATH=libs:services:. $(PY) -m tools.build_rulesets --check
